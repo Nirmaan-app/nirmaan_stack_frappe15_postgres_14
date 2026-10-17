@@ -10,6 +10,7 @@ import { PaymentVoucherActions } from "@/components/paymentsVoucher/PaymentVouch
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { hasVoucher } from "@/utils/paymentVoucher";
 import { VoucherStatusFilter } from "../../config/woPaymentVoucherTable.config";
 
 interface WOPaymentVoucherColumnArgs {
@@ -86,8 +87,6 @@ const VoucherStatusHeader = ({
         </div>
     );
 };
-
-export const hasVoucher = (p: Pick<ProjectPayments, "voucher_attachment">) => !!p.voucher_attachment;
 
 export const getWOPaymentVoucherColumns = ({
     projectNames,

@@ -13,12 +13,17 @@ import { getUrlStringParam } from "@/hooks/useServerDataTable";
 import { urlStateManager } from "@/utils/urlStateManager";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { useUserData } from "@/hooks/useUserData";
+import { canBulkDownloadVendor } from "@/constants/roles";
+import { vendorHandlesMaterial, vendorHandlesService } from "@/utils/bulkDownload/bulkDownloadTypes";
 import { VendorHoldBanner } from "@/components/ui/vendor-hold-banner";
 import { VendorCreditManagementCard } from "./components/VendorCreditManagementCard";
 import { VendorGstHoldCard } from "./components/VendorGstHoldCard";
+import { VendorRenameFlow, type VendorRename } from "./components/VendorRenameFlow";
+import { useVendorAccount } from "@/components/payees/vendorPayeeAccount";
+import { renameNeedsPrompt } from "@/utils/payees/vendorAccount";
 
 const VendorOverviewCard = React.lazy(() => import("./components/VendorOverviewCard"));
-const VendorBankDetailsCard = React.lazy(() => import("./components/VendorBankDetailsCard"));
+const VendorAccountCard = React.lazy(() => import("./components/VendorAccountCard"));
 const VendorMaterialOrdersTable = React.lazy(() => import("./components/VendorMaterialOrdersTable"));
 const VendorDeliveryNotesTable = React.lazy(() => import("./components/VendorDeliveryNotesTable"));
 const VendorPaymentsTable = React.lazy(() => import("./components/VendorPaymentsTable"));
@@ -32,12 +37,15 @@ const VendorQuotesTable = React.lazy(() => import("./components/VendorQuotesTabl
 const VendorRefundsTab = React.lazy(() => import("./components/VendorRefundsTab"));
 const PoInvoices = React.lazy(() => import("../tasks/invoices/components/PoInvoices").then(m => ({ default: m.PoInvoices })));
 const SrInvoices = React.lazy(() => import("../tasks/invoices/components/SrInvoices").then(m => ({ default: m.SrInvoices })));
+const BulkDownloadPage = React.lazy(() => import("@/pages/BulkDownload/BulkDownloadPage"));
+
+const BULK_DOWNLOAD_TAB = "bulkDownload";
 
 type MenuItem = { label: string; key: string };
 
 export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
 
-    const { role } = useUserData()
+    const { role, user_id } = useUserData()
 
     // --- Tab State Management ---
     const initialTab = useMemo(() => {
@@ -49,6 +57,18 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
     const [currentTab, setCurrentTab] = useState(initialTab);
     const [editSheetOpen, setEditSheetOpen] = useState(false);
     const toggleEditSheet = useCallback(() => setEditSheetOpen(prev => !prev), []);
+    // A rename just saved on the edit sheet asks what happens to the vendor's bank account (#1426),
+    // decided here, in the handler, from the account the Account Details card reads too.
+    const [rename, setRename] = useState<VendorRename | null>(null);
+    const endRename = useCallback(() => setRename(null), []);
+    const { account: vendorAccount } = useVendorAccount(vendorId);
+    const holder = vendorAccount?.payee?.account_name ?? null;
+    const handleRenamed = useCallback(
+        (r: VendorRename) => {
+            if (renameNeedsPrompt({ ...r, holder })) setRename(r);
+        },
+        [holder],
+    );
     const [serviceOrderTab, setServiceOrderTab] = useState<"all" | "approved" | "finalized">("all");
 
     // Effect to sync tab state TO URL
@@ -58,6 +78,16 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
             urlStateManager.updateParam("tab", currentTab);
         }
     }, [currentTab]);
+
+    // Bulk Download is for Admin, PMO, Accountant and procurement only (`canBulkDownloadVendor`).
+    // A typed `?tab=bulkDownload` from anyone else is bounced too -- but only once the role has
+    // loaded, or a correct deep link would be redirected before the role arrives.
+    const canBulkDownload = role !== "Loading" && canBulkDownloadVendor(role, user_id);
+    useEffect(() => {
+        if (currentTab === BULK_DOWNLOAD_TAB && role !== "Loading" && !canBulkDownloadVendor(role, user_id)) {
+            setCurrentTab("overview");
+        }
+    }, [currentTab, role, user_id]);
 
     // Effect to sync URL state TO tab state (for popstate/direct URL load)
     useEffect(() => {
@@ -87,22 +117,24 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
         { label: "Overview", key: "overview" },
         // (vendor?.vendor_type !== "Service") &&
         { label: "Vendor Ledger", key: "poVendorLedger" },
-        (vendor?.vendor_type === "Material" || vendor?.vendor_type === "Material & Service") &&
+        vendorHandlesMaterial(vendor?.vendor_type) &&
         { label: "Material Orders", key: "materialOrders" },
-        (vendor?.vendor_type === "Material" || vendor?.vendor_type === "Material & Service") &&
+        vendorHandlesMaterial(vendor?.vendor_type) &&
         { label: "Vendor Delivery Notes", key: "vendorDeliveryNotes" },
-        (vendor?.vendor_type === "Service" || vendor?.vendor_type === "Material & Service") &&
+        vendorHandlesService(vendor?.vendor_type) &&
         { label: "Work Orders", key: "serviceOrders" },
         { label: "Payments", key: "vendorPayments" },
         (vendor?.vendor_type !== "Service") &&
         { label: "Approved Quotes", key: "approvedQuotes" },
-        (vendor?.vendor_type === "Material" || vendor?.vendor_type === "Material & Service") &&
+        vendorHandlesMaterial(vendor?.vendor_type) &&
         { label: "PO Invoices", key: "poInvoices" },
-        (vendor?.vendor_type === "Service" || vendor?.vendor_type === "Material & Service") &&
+        vendorHandlesService(vendor?.vendor_type) &&
         { label: "SR Invoices", key: "srInvoices" },
         { label: "Vendor Quotes", key: "vendorQuotes" },
         { label: "Vendor Refunds", key: "vendorRefunds" },
-    ].filter(Boolean) as MenuItem[], [vendor?.vendor_type]);
+        canBulkDownload &&
+        { label: "Bulk Download", key: BULK_DOWNLOAD_TAB },
+    ].filter(Boolean) as MenuItem[], [vendor?.vendor_type, canBulkDownload]);
 
     // --- SR Counts Data ---
     const { approvedSRs, finalizedSRs } = useVendorServiceRequestCounts(vendorId);
@@ -132,7 +164,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                             <VendorHoldBanner />
                         )}
                         <VendorCreditManagementCard vendor={vendor} mutateVendor={mutateVendor} />
-                        <VendorBankDetailsCard vendor={vendor} mutateVendor={mutateVendor} />
+                        <VendorAccountCard vendor={vendor} />
                     </div>
                 );
             case "materialOrders":
@@ -218,6 +250,14 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                     vendorId={vendorId}
                     vendorName={vendor?.vendor_name || vendorId}
                 />;
+            case BULK_DOWNLOAD_TAB:
+                if (!canBulkDownload) return role === "Loading" ? <LoadingFallback /> : null;
+                // Keyed by vendor: moving to another vendor starts the wizard afresh, so a selection
+                // never carries over into another vendor's download.
+                return <BulkDownloadPage
+                    key={vendorId}
+                    scope={{ kind: "vendor", id: vendorId, name: vendor?.vendor_name, vendorType: vendor?.vendor_type }}
+                />;
             default:
                 return <div>Select a tab.</div>;
         }
@@ -272,9 +312,11 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
 
             <Sheet open={editSheetOpen} onOpenChange={setEditSheetOpen}>
                 <SheetContent className="overflow-auto w-full sm:max-w-xl md:max-w-2xl"> {/* Responsive width */}
-                    <EditVendor toggleEditSheet={toggleEditSheet} />
+                    <EditVendor toggleEditSheet={toggleEditSheet} onRenamed={handleRenamed} />
                 </SheetContent>
             </Sheet>
+
+            {rename && <VendorRenameFlow vendor={vendor} rename={rename} onDone={endRename} />}
         </div>
     );
 };

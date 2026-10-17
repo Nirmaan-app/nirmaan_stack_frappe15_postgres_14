@@ -1,6 +1,6 @@
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeFileUpload, useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { CheckIcon, CirclePlus, Edit, PencilIcon, Save, SquarePlus, Trash, Trash2, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
@@ -30,8 +30,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "@/components/ui/use-toast";
 import { InvoiceDialog } from "@/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog";
-import { PaymentTDSDeduction } from "@/types/NirmaanStack/PaymentTDSDeduction";
-import { isCompanyBorneWorkOrder } from "@/pages/ProjectPayments/tdsForecast";
+import type { WorkOrderTds } from "@/pages/ProjectPayments/tdsForecast";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
@@ -53,11 +52,13 @@ import { SRFinalizeDialog, SRRevertFinalizeDialog } from "../components/SRFinali
 import { useServiceRequestLogic } from "../hooks/useServiceRequestLogic";
 import { useSRFinalizePermissions, useFinalizeSR, useRevertFinalizeSR } from "../hooks/useSRFinalize";
 import { DocumentAttachments } from "@/pages/ProcurementOrders/invoices-and-dcs/DocumentAttachments";
+import { SecurityDepositChequesCard } from "@/components/cheques/SecurityDepositChequesCard";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { DeletePaymentDialog } from "@/pages/ProjectPayments/update-payment/DeletePaymentDialog";
 import SRPdf from "./SRPdf";
 import { PaymentVoucherActions } from "@/components/paymentsVoucher/PaymentVoucherActions";
-import { TruncatedText } from "@/components/common/TruncatedText";
+import { PaymentUtrOrCheque } from "@/components/cheques/PaymentUtrOrCheque";
+import { useChequeChips } from "@/components/cheques/useChequeChips";
 import { GstPaymentTag } from "@/pages/ProjectPayments/components/GstPaymentTag";
 import { usePaymentSummary } from "@/pages/ProjectPayments/components/PaymentSummaryBlock";
 import { PayForChoice } from "@/pages/ProjectPayments/components/PayForChoice";
@@ -245,6 +246,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     // Refunds against this WO sit in the payments table as their own rows (badge "Vendor Refund").
     const { refunds } = useVendorRefunds({ documentType: "Service Requests", documentName: id ?? "" });
     const transactionRows = useMemo(() => mergePaymentsAndRefunds(projectPayments, refunds), [projectPayments, refunds]);
+    // The cheque chip's number and status for every payment on a Cheque: one call for the card (#1416).
+    const chequeChips = useChequeChips((projectPayments || []).map((p) => p.cheque));
 
     // Fetch vendor invoices for this SR
     const { data: vendorInvoices, isLoading: vendorInvoicesLoading } = useFrappeGetDocList<VendorInvoice>("Vendor Invoices", {
@@ -253,50 +256,33 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         limit: 1000,
     }, id ? `VendorInvoices-SR-${id}` : null)
 
-    // Tax withheld from this order's payments. Keyed by payment so a row can show its own
-    // deduction and the summary can restrict itself to the PAID ones.
-    const { data: tdsDeductions, mutate: tdsDeductionsMutate } = useFrappeGetDocList<PaymentTDSDeduction>("Payment TDS Deduction", {
-        fields: ["name", "project_payment", "gross_amount", "tds_percentage", "tds_amount", "payment_approved_on"],
-        filters: [["document_name", "=", id]],
-        limit: 100,
-    }, id ? `PaymentTDSDeduction-SR-${id}` : null)
+    // This Work Order's TDS: who bore the paid tax (the details card's label) and each payment's own
+    // deduction (the transactions table's TDS column). Asked of the server, which checks read on the
+    // Work Order. ⚠️ The page never reads `Payment TDS Deduction` itself: that doctype is readable by
+    // the accountants only, and a Procurement user's list read was refused with a 403 (#1451).
+    const { data: workOrderTdsResponse, mutate: workOrderTdsMutate } = useFrappeGetCall<{ message: WorkOrderTds }>(
+        "nirmaan_stack.api.payments.work_order_tds.get_work_order_tds",
+        { work_order: id },
+        id ? `WorkOrderTds-${id}` : null
+    );
+    const tdsByPayment = workOrderTdsResponse?.message?.payments ?? {};
 
-    const tdsByPayment = useMemo(() => {
-        const map: Record<string, PaymentTDSDeduction> = {};
-        (tdsDeductions || []).forEach((d) => { map[d.project_payment] = d; });
-        return map;
-    }, [tdsDeductions]);
-
-    // A new request can be auto-approved with TDS withheld at insert, so both lists must refresh
-    // together -- otherwise the new row shows its net amount with no TDS and the request cap misses it.
+    // A new request can be auto-approved with TDS withheld at insert, so the lists must refresh
+    // together -- otherwise the new row shows its net amount with no TDS and the label lags.
     const refreshPayments = useCallback(
-        () => Promise.all([projectPaymentsMutate(), tdsDeductionsMutate()]),
-        [projectPaymentsMutate, tdsDeductionsMutate]
+        () => Promise.all([projectPaymentsMutate(), workOrderTdsMutate()]),
+        [projectPaymentsMutate, workOrderTdsMutate]
     );
 
-    const getAmountPaid = useMemo(() => getTotalAmountPaid(projectPayments?.filter(i => i?.status === "Paid") || []), [projectPayments]);
-
-
+    // The page shows the stored `amount_paid`; refunds do not raise this limit (an overpayment is
+    // settled through PO Adjustment, ADR-0032).
+    // ⚠️ NET FIGURES, AND NOT THE CAP. The Request Payment dialog reads them only to know whether the
+    // Work Order has payments yet; its balance on a Work Order is the server's payment summary, which
+    // counts each payment gross of the tax withheld from it (`order_payments.load_payments`, #1451).
+    // ADR-0034 payment cap: the Paid payments, net.
+    const paidPaymentsForCap = useMemo(() => getTotalAmountPaid(projectPayments?.filter(i => i?.status === "Paid") || []), [projectPayments]);
+    // ADR-0034 payment cap: what is still open, net.
     const amountPending = useMemo(() => getTotalAmountPaid((projectPayments || []).filter(i => OPEN_REQUEST_STATUSES.includes(i?.status))), [projectPayments]);
-
-    // `amount` is rewritten to the NET figure once TDS is withheld, but the withheld tax was still
-    // part of what was requested -- so the Request Payment cap counts each payment GROSS.
-    //
-    // ⚠️ EXCEPT ON A COMPANY-BORNE WORK ORDER (Miscellaneous / Transportation only): `amount` is never
-    // reduced there, so it already IS the gross, and adding the tax would shrink the cap by it.
-    const companyBorneTds = useMemo(
-        () => isCompanyBorneWorkOrder(service_request?.service_category_list),
-        [service_request?.service_category_list]
-    );
-    const grossRequested = useMemo(() => {
-        const tdsFor = (statuses: string[]) => companyBorneTds ? 0 : (projectPayments || [])
-            .filter(i => statuses.includes(i?.status))
-            .reduce((acc, i) => acc + parseNumber(tdsByPayment[i.name]?.tds_amount), 0);
-        return {
-            paid: getAmountPaid + tdsFor(["Paid"]),
-            pending: amountPending + tdsFor(OPEN_REQUEST_STATUSES),
-        };
-    }, [projectPayments, tdsByPayment, getAmountPaid, amountPending, companyBorneTds]);
 
     useEffect(() => {
         if (service_request) {
@@ -454,7 +440,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 });
             }
 
-            await Promise.all([projectPaymentsMutate(), paidEntrySummaryMutate()])
+            await Promise.all([refreshPayments(), paidEntrySummaryMutate()])
 
             toggleNewPaymentDialog()
 
@@ -550,11 +536,11 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
             {/* WO Details Card - using new SRDetailsCard component */}
             <SRDetailsCard
                 orderData={orderData}
+                workOrderTds={workOrderTdsResponse?.message}
                 project={project}
                 vendor={service_vendor}
                 gstEnabled={gstEnabled}
                 getTotal={getTotal}
-                amountPaid={getAmountPaid}
                 // isRestrictedRole removed, using specific flags below
                 hideActions={isEstimatesExecutive}
                 hideAmounts={isPMUser}
@@ -640,8 +626,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                         <RequestPaymentDialog
                                             totalIncGST={gstWorkOrder ? getTotal * 1.18 : getTotal}
                                             totalExGST={getTotal || 0}
-                                            paid={grossRequested.paid}
-                                            pending={grossRequested.pending}
+                                            paid={paidPaymentsForCap}
+                                            pending={amountPending}
                                             gst={gstWorkOrder}
                                             docType="Service Requests"
                                             docName={orderData?.name || "Unknown"}
@@ -681,7 +667,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                 )}
                                                 <div className="flex items-center justify-between">
                                                     <Label className=" text-red-700">Amt Paid Till Now:</Label>
-                                                    <span className="">{getAmountPaid ? formatToRoundedIndianRupee(getAmountPaid) : "--"}</span>
+                                                    <span className="">{parseNumber(orderData?.amount_paid) ? formatToRoundedIndianRupee(orderData?.amount_paid) : "--"}</span>
                                                 </div>
                                                 {paidEntryCap && !gstWorkOrder && (
                                                     <div className="flex items-center justify-between">
@@ -773,7 +759,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                 <TableRow>
                                     <TableHead className="text-black font-bold">Amount</TableHead>
                                     <TableHead className="text-black font-bold">TDS</TableHead>
-                                    <TableHead className="text-black font-bold">UTR No.</TableHead>
+                                    <TableHead className="text-black font-bold">UTR / Cheque</TableHead>
                                     <TableHead className="text-black font-bold">Payment Date</TableHead>
                                     <TableHead className="text-black font-bold w-[5%]">Status</TableHead>
                                     {/* 1. ADD VOUCHER HEADER */}
@@ -800,7 +786,10 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                     {tds ? formatToRoundedIndianRupee(tds.tds_amount) : "--"}
                                                 </TableCell>
                                                 <TableCell className="font-semibold">
-                                                    <TruncatedText text={payment?.utr} />
+                                                    <PaymentUtrOrCheque
+                                                        payment={payment}
+                                                        chip={payment.cheque ? chequeChips[payment.cheque] : undefined}
+                                                    />
                                                 </TableCell>
 
 
@@ -843,7 +832,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                         </Button>
                                                     }
 
-                                                    <DeletePaymentDialog isOpen={!!deleteFlagged} onOpenChange={() => setDeleteFlagged(null)} paymentToDelete={deleteFlagged} onDeleteSuccess={() => projectPaymentsMutate()} />
+                                                    <DeletePaymentDialog isOpen={!!deleteFlagged} onOpenChange={() => setDeleteFlagged(null)} paymentToDelete={deleteFlagged} onDeleteSuccess={() => refreshPayments()} />
                                                 </TableCell>
                                             </TableRow>
 
@@ -1040,6 +1029,15 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                         )}
                     </CardContent>
                 </Card>
+                {/* Security Deposit cheques that name this Work Order (#1486); renders only for cheque users. */}
+                <SecurityDepositChequesCard
+                    record={{
+                        doctype: "Service Requests",
+                        name: service_request?.name,
+                        project: service_request?.project,
+                        vendor: service_request?.vendor,
+                    }}
+                />
             </div>)}
 
 

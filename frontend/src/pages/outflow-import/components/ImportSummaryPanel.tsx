@@ -1,7 +1,7 @@
 // src/pages/outflow-import/components/ImportSummaryPanel.tsx
 
 import { useMemo, type ReactNode } from "react";
-import { CheckCircle2, Loader2, RefreshCw } from "lucide-react";
+import { CheckCircle2, Loader2, RefreshCw, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -39,6 +39,7 @@ import {
     type SummaryImport,
     type SummaryTile,
 } from "../outflowTableModel";
+import { summaryScopeIsDefault } from "../importHistoryView";
 import {
     SETTLED_BLOCK_PAID,
     SETTLED_BLOCK_RECEIVED,
@@ -77,6 +78,8 @@ interface Props {
     onRunMatch: () => void;
     /** Open the Skipped dialog. Absent for a panel with nothing to open. */
     onShowSkipped?: () => void;
+    /** Put Source, Import and Period back to their defaults. See `summaryScopeIsDefault`. */
+    onResetScope: () => void;
 }
 
 /**
@@ -154,6 +157,7 @@ export const ImportSummaryPanel = ({
     onConfirmAllMatched,
     onRunMatch,
     onShowSkipped,
+    onResetScope,
 }: Props) => {
     const totals = summary?.totals;
     const imports: SummaryImport[] = summary?.imports ?? [];
@@ -367,8 +371,13 @@ export const ImportSummaryPanel = ({
     return (
         <Card>
             <CardContent className="space-y-4 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                {/* ⚠️ TWO ROWS: THE SCOPE, THEN THE ACTIONS (owner ruling 2026-10-14). The three
+                    controls used to share one wrapping row with the buttons, so the Import selector
+                    was squeezed to a fixed width beside them. The scope now has the full width, the
+                    Import selector takes whatever Source and Period leave, and the actions keep their
+                    right-hand place on a row of their own. */}
+                <div className="space-y-3">
+                    <div className="flex w-full flex-wrap items-center gap-2">
                         {/* ⚠️ SOURCE COMES FIRST BECAUSE IT NARROWS WHAT THE NEXT CONTROL OFFERS
                             (slice CF/S2). Reading left to right: what KIND of transfer, then which
                             STATEMENT, then — where it still applies — which WINDOW inside it. A
@@ -424,12 +433,13 @@ export const ImportSummaryPanel = ({
                             ⚠️ IT IS A SEARCHABLE COMBOBOX, NOT A `Select`, AND IT IS NOT DISABLED
                             WHILE AN IMPORT IS PINNED — unlike the two controls either side of it.
                             Both facts live in `ImportSelect`, with the reasoning. */}
-                        <div className="flex items-center gap-2">
+                        <div className="flex min-w-[240px] flex-1 items-center gap-2">
                             <span className="whitespace-nowrap text-sm font-medium">Import</span>
                             <ImportSelect
                                 options={offeredImports}
                                 value={selectedImport}
                                 onChange={onSelectImport}
+                                className="w-full min-w-0"
                             />
                         </div>
 
@@ -450,9 +460,28 @@ export const ImportSummaryPanel = ({
                         {loading && (
                             <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
                         )}
+                        {/* ⚠️ "RESET", NOT "CLEAR FILTERS", AND IT CLEARS THESE THREE AND NO MORE.
+                            The table below has its own "Clear filters (N)", which clears the column
+                            funnels and deliberately leaves Source and Period alone. This is the other
+                            half. Two buttons with one name that cleared different things would leave
+                            a reader unsure which one they had pressed. Shown only when there is
+                            something to reset. */}
+                        {!summaryScopeIsDefault({ sources, period, selectedImport }) && (
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 px-2 text-muted-foreground"
+                                title="Clear source, import and period"
+                                onClick={onResetScope}
+                            >
+                                <X className="mr-1 h-3.5 w-3.5" />
+                                Reset
+                            </Button>
+                        )}
                     </div>
 
-                    <div className="flex items-start gap-2">
+                    <div className="flex flex-wrap items-start justify-end gap-2">
                         {/* ⚠️ RE-RUNNING REACHES FURTHER THAN THE PERIOD, AND IT SAYS SO. Matching is
                             per BATCH — `match_batch`'s four global passes reason over a whole
                             import at once — so a batch that straddles the window is re-matched in

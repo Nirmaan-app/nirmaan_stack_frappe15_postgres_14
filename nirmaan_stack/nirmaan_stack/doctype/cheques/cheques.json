@@ -1,0 +1,265 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "CHQ-.YY.-.#####",
+ "creation": "2026-10-14 01:28:31.684547",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "cheque_type",
+  "bank",
+  "bank_name",
+  "bank_key",
+  "cheque_no",
+  "cheque_date",
+  "amount",
+  "column_break_payee",
+  "vendor",
+  "payee_name",
+  "status",
+  "made_from",
+  "issue_date",
+  "clearance_date",
+  "cleared_by",
+  "bank_line",
+  "old_type",
+  "attachment",
+  "description",
+  "lines_section",
+  "lines",
+  "history_section",
+  "status_history"
+ ],
+ "fields": [
+  {
+   "fieldname": "bank",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Bank",
+   "options": "ICICI Bank\nOthers",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:doc.bank=='Others'",
+   "fieldname": "bank_name",
+   "fieldtype": "Data",
+   "label": "Bank Name",
+   "mandatory_depends_on": "eval:doc.bank=='Others'"
+  },
+  {
+   "description": "The bank's name lower-cased with repeated spaces collapsed. Bank Key + Cheque No is unique; written by services/cheques only.",
+   "fieldname": "bank_key",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Bank Key",
+   "read_only": 1
+  },
+  {
+   "description": "The first six-digit group of the magnetic strip at the cheque's foot.",
+   "fieldname": "cheque_no",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Cheque No",
+   "reqd": 1
+  },
+  {
+   "description": "A post-dated cheque is allowed.",
+   "fieldname": "cheque_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Cheque Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Cheque Amount",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_payee",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Exactly one of Vendor or Payee Name is set.",
+   "fieldname": "vendor",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Vendor",
+   "options": "Vendors"
+  },
+  {
+   "description": "Typed when the payee is not a Vendor. Such a cheque carries expense lines only.",
+   "fieldname": "payee_name",
+   "fieldtype": "Data",
+   "label": "Payee Name"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Pending\nIssued\nCleared\nCancelled",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "description": "Where the Cheque was made. A PO/WO Page Cheque keeps its number, date and amount.",
+   "fieldname": "made_from",
+   "fieldtype": "Select",
+   "label": "Made From",
+   "options": "Report\nPO/WO Page",
+   "read_only": 1,
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "description": "Required on every new Cheque; empty only on Cheques backfilled from old payments.",
+   "fieldname": "attachment",
+   "fieldtype": "Attach",
+   "label": "Cheque Photo"
+  },
+  {
+   "description": "Required when the Cheque has no lines (an Ad-hoc cheque).",
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "lines_section",
+   "fieldtype": "Section Break",
+   "label": "Lines"
+  },
+  {
+   "fieldname": "lines",
+   "fieldtype": "Table",
+   "label": "Lines",
+   "options": "Cheque Line"
+  },
+  {
+   "fieldname": "history_section",
+   "fieldtype": "Section Break",
+   "label": "Status History"
+  },
+  {
+   "fieldname": "status_history",
+   "fieldtype": "Table",
+   "label": "Status History",
+   "options": "Cheque Status History",
+   "read_only": 1
+  },
+  {
+   "default": "Payment",
+   "description": "A Payment cheque is cashed by the bank and pays PO payments; a Security Deposit cheque is held as a guarantee and pays nothing.",
+   "fieldname": "cheque_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Cheque Type",
+   "options": "Payment\nSecurity Deposit",
+   "reqd": 1
+  },
+  {
+   "description": "The day the cheque became Issued: for a Payment cheque, the day its payments reached Approved; for a Security Deposit cheque, the day it was handed over.",
+   "fieldname": "issue_date",
+   "fieldtype": "Date",
+   "label": "Issue Date",
+   "read_only": 1
+  },
+  {
+   "description": "Payment cheques: the day the bank paid it. It becomes each payment's payment date.",
+   "fieldname": "clearance_date",
+   "fieldtype": "Date",
+   "label": "Clearance Date",
+   "read_only": 1
+  },
+  {
+   "description": "How a Payment cheque was cleared: by hand (Accounts or Admin) or by a bank-statement line.",
+   "fieldname": "cleared_by",
+   "fieldtype": "Select",
+   "label": "Cleared By",
+   "options": "\nBy hand\nBank import",
+   "read_only": 1
+  },
+  {
+   "description": "The imported bank-statement line that cleared the cheque, when there is one.",
+   "fieldname": "bank_line",
+   "fieldtype": "Link",
+   "label": "Bank Line",
+   "options": "Outflow Import Row",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Recorded before cheque types and pays Expenses, has no lines or names a typed payee. Set only by the migration; cleared or cancelled by hand only.",
+   "fieldname": "old_type",
+   "fieldtype": "Check",
+   "label": "Old Type",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-10-17 08:41:21.394978",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Cheques",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant Lead"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Lead"
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "cheque_no,payee_name,vendor",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "cheque_no",
+ "track_changes": 1
+}

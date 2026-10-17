@@ -46,9 +46,16 @@ describe("unskipBlockReason -- keyed on Skip Type", () => {
         }
     });
 
-    it("★ the four locked kinds stay skipped, each saying why", () => {
+    it("★ the locked kinds stay skipped, each saying why", () => {
+        // The owner's four, and the cancelled Porter order (#1443, ADR-0032).
         expect(Object.keys(UNSKIP_LOCKED_KINDS).sort()).toEqual(
-            ["Already imported", "Bank refused", "No amount", "Repeated in same file"].sort(),
+            [
+                "Already imported",
+                "Bank refused",
+                "No amount",
+                "Repeated in same file",
+                "Porter order cancelled",
+            ].sort(),
         );
         for (const [skip_kind, sentence] of Object.entries(UNSKIP_LOCKED_KINDS)) {
             expect(unskipBlockReason(skipped({ skip_kind }))).toBe(sentence);

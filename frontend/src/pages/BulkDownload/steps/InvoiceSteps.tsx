@@ -4,8 +4,10 @@
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Download, Loader2, FileText } from "lucide-react";
 import { BulkSelectTable } from "./BulkSelectTable";
-import { invoiceColumns } from "./bulkTableColumns";
+import { useMemo } from "react";
+import { forScope, invoiceColumns } from "./bulkTableColumns";
 import { InvoiceSubType, VendorInvoice } from "../useBulkDownloadWizard";
+import { BulkScopeKind, INVOICE_SUB_TYPES, scopeFacet } from "@/utils/bulkDownload/bulkDownloadTypes";
 
 interface InvoiceStepsProps {
     items: VendorInvoice[];
@@ -17,18 +19,19 @@ interface InvoiceStepsProps {
     loading: boolean;
     invoiceSubType: InvoiceSubType;
     onInvoiceSubTypeChange: (v: InvoiceSubType) => void;
+    /** The choices this scope offers (`invoiceSubTypesFor`). */
+    subTypes: InvoiceSubType[];
+    scopeKind: BulkScopeKind;
 }
-
-const SUB_TYPES: { value: InvoiceSubType; label: string; description: string }[] = [
-    { value: "All Invoices", label: "All Invoices", description: "Download all PO and WO invoices together" },
-    { value: "PO Invoices", label: "PO Invoices", description: "Only invoices linked to Procurement Orders" },
-    { value: "WO Invoices", label: "WO Invoices", description: "Only invoices linked to Work Orders" },
-];
 
 export const InvoiceSteps = ({
     items, isLoading, selectedIds, onSelectAll,
-    onBack, onDownload, loading, invoiceSubType, onInvoiceSubTypeChange,
+    onBack, onDownload, loading, invoiceSubType, onInvoiceSubTypeChange, subTypes, scopeKind,
 }: InvoiceStepsProps) => {
+    const facet = scopeFacet(scopeKind);
+    const columns = useMemo(() => forScope(invoiceColumns, scopeKind), [scopeKind]);
+    const choices = INVOICE_SUB_TYPES.filter((t) => subTypes.includes(t.value));
+
     return (
         <div className="flex flex-col gap-4">
             <div>
@@ -41,8 +44,8 @@ export const InvoiceSteps = ({
             {/* Sub-type picker */}
             <div>
                 <p className="text-sm font-medium mb-2">Invoice Type</p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    {SUB_TYPES.map(({ value, label, description }) => {
+                <div className={`grid grid-cols-1 ${choices.length === 2 ? "sm:grid-cols-2" : "sm:grid-cols-3"} gap-2`}>
+                    {choices.map(({ value, label, description }) => {
                         const active = invoiceSubType === value;
                         return (
                             <button
@@ -69,14 +72,14 @@ export const InvoiceSteps = ({
             <BulkSelectTable
                 key={invoiceSubType}
                 data={items}
-                columns={invoiceColumns}
+                columns={columns}
                 isLoading={isLoading}
                 selectedIds={selectedIds}
                 onSelectedIdsChange={onSelectAll}
-                facetColumns={{ vendor: "Vendor", type: "Type" }}
+                facetColumns={{ [facet.id]: facet.title, type: "Type" }}
                 dateFilterColumns={["invoice_date"]}
-                searchPlaceholder="Search by Invoice No, Vendor or PO / WO"
-                emptyMessage={`No ${invoiceSubType} with attachments found for this project.`}
+                searchPlaceholder={`Search by Invoice No, ${facet.title} or PO / WO`}
+                emptyMessage={`No ${invoiceSubType} with attachments found for this ${scopeKind}.`}
             />
 
             <div className="flex items-center justify-between pt-2">

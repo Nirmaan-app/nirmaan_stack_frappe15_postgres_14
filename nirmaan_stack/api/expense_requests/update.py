@@ -32,6 +32,7 @@ rather than trusted from the first submission.
 import json
 
 import frappe
+from frappe.utils import sbool
 
 from nirmaan_stack.api.expense_requests.access import PENDING, guard_requestable, is_admin
 from nirmaan_stack.api.expense_requests.create import (
@@ -39,6 +40,7 @@ from nirmaan_stack.api.expense_requests.create import (
 	guard_request_form,
 	guard_vendor_scope,
 )
+from nirmaan_stack.services.payees.pay_to import apply_picked_payee
 
 
 def can_edit(req, user: str | None = None) -> bool:
@@ -62,8 +64,14 @@ def update_expense_request(
 	projects: str | None = None,
 	vendor: str | None = None,
 	source_data=None,
+	payee: str | None = None,
+	keep_pay_to=False,
 ):
 	"""Rewrite a pending request in place.
+
+	Its pay-to account (#1436): `keep_pay_to` leaves it as it is (the raiser changed something else);
+	otherwise `payee` is copied in as on `create`, and no `payee` clears it. With a vendor named
+	neither applies: the save copies the vendor's Payee when the vendor changes.
 
 	IN PLACE, not supersede-and-replace: the request has no downstream reader yet -- no ledger
 	row, no notification -- so there is nothing for a new id to keep consistent, and a fresh
@@ -114,6 +122,8 @@ def update_expense_request(
 			**({"vendor": vendor} if vendor else {}),
 		}
 	)
+	if not sbool(keep_pay_to):
+		apply_picked_payee(req, payee)
 	req.save()
 	frappe.db.commit()
 

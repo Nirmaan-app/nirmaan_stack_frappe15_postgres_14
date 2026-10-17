@@ -12,6 +12,9 @@
 //
 // ⚠️ The category is deliberately NOT shown here (owner ruling 2026-09-16). It still exists:
 // a new type is saved as "Uncategorized" and an edit keeps the type's current category.
+//
+// "Who gets paid" (ADR-0033, #1429): each type is Required / Optional / Not asked (the default),
+// shown in the Payee column and set in the Add / Edit dialog.
 
 import React, { useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
@@ -31,12 +34,16 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { useUserData } from "@/hooks/useUserData";
 
 import type { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
+import {
+    PAYEE_RULE, PAYEE_RULES, PAYEE_RULE_HELP, asPayeeRule, countAskingWhoGetsPaid, type PayeeRule,
+} from "@/utils/payees/expensePayee";
 
 // Where none of the named categories fit, a type belongs to "Uncategorized". The category is
 // no longer picked on this screen, so every new type lands here.
@@ -56,6 +63,12 @@ const SCOPE_STYLE: Record<ScopeLabel, string> = {
     "Non-Project": "bg-violet-100 text-violet-800",
     Both: "bg-amber-100 text-amber-900",
     Unusable: "bg-red-100 text-red-800",
+};
+
+const PAYEE_RULE_STYLE: Record<PayeeRule, string> = {
+    [PAYEE_RULE.REQUIRED]: "bg-rose-100 text-rose-800",
+    [PAYEE_RULE.OPTIONAL]: "bg-sky-100 text-sky-800",
+    [PAYEE_RULE.NOT_ASKED]: "bg-zinc-100 text-zinc-600",
 };
 
 /** "Nirmaan Project Manager Profile" -> "Project Manager", for a table cell. */
@@ -80,11 +93,13 @@ interface EditState {
     /** Not editable here -- carried so an edit keeps the type's current category. */
     expense_category: string;
     allowed_roles: string[];
+    /** Who gets paid on a request of this type. */
+    payee_rule: PayeeRule;
 }
 
 const BLANK: EditState = {
     open: false, target: null, expense_name: "", project: false, non_project: false,
-    expense_category: FALLBACK_CATEGORY, allowed_roles: [],
+    expense_category: FALLBACK_CATEGORY, allowed_roles: [], payee_rule: PAYEE_RULE.NOT_ASKED,
 };
 
 export const ExpensePackagesMaster: React.FC = () => {
@@ -104,7 +119,7 @@ export const ExpensePackagesMaster: React.FC = () => {
 
     const { data, isLoading, error, mutate } = useFrappeGetDocList<ExpenseType>("Expense Type", {
         fields: ["name", "expense_name", "project", "non_project", "source_format",
-                 "source_format_enabled", "expense_category"],
+                 "source_format_enabled", "expense_category", "payee_rule"],
         limit: 0,
         orderBy: { field: "expense_name", order: "asc" },
     });
@@ -144,6 +159,7 @@ export const ExpensePackagesMaster: React.FC = () => {
         () => (data ?? []).filter((t) => !!t.source_format_enabled && (t.source_format || "").trim()).length,
         [data]
     );
+    const askingWhoGetsPaid = useMemo(() => countAskingWhoGetsPaid(data ?? []), [data]);
 
     const handleToggleForm = async (t: ExpenseType, enabled: boolean) => {
         // Nothing to enable yet: open the format dialog instead. The server refuses the switch
@@ -215,6 +231,7 @@ export const ExpensePackagesMaster: React.FC = () => {
                     non_project: edit.non_project ? 1 : 0,
                     expense_category: edit.expense_category,
                     allowed_roles: edit.allowed_roles,
+                    payee_rule: edit.payee_rule,
                 });
                 toast({ title: "Updated", description: edit.target.name, variant: "success" });
             } else {
@@ -224,6 +241,7 @@ export const ExpensePackagesMaster: React.FC = () => {
                     non_project: edit.non_project ? 1 : 0,
                     expense_category: FALLBACK_CATEGORY,
                     allowed_roles: edit.allowed_roles,
+                    payee_rule: edit.payee_rule,
                 });
                 toast({ title: "Expense type added", description: name, variant: "success" });
             }
@@ -252,7 +270,7 @@ export const ExpensePackagesMaster: React.FC = () => {
                 <div>
                     <h2 className="text-lg font-semibold">Expense Packages</h2>
                     <p className="text-sm text-muted-foreground">
-                        {data?.length ?? 0} expense types · {formsOn} using a request form
+                        {data?.length ?? 0} expense types · {askingWhoGetsPaid} ask who gets paid · {formsOn} using a request form
                     </p>
                 </div>
                 <Button size="sm" onClick={() => setEdit({ ...BLANK, open: true })}>
@@ -276,6 +294,7 @@ export const ExpensePackagesMaster: React.FC = () => {
                         <TableRow>
                             <TableHead>Expense Type</TableHead>
                             <TableHead>Scope</TableHead>
+                            <TableHead>Payee</TableHead>
                             <TableHead>Role Access</TableHead>
                             <TableHead>JSON Format</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
@@ -287,12 +306,21 @@ export const ExpensePackagesMaster: React.FC = () => {
                             const hasFormat = !!(t.source_format || "").trim();
                             const formOn = hasFormat && !!t.source_format_enabled;
                             const roles = allowedByType[t.name] ?? [];
+                            const payeeRule = asPayeeRule(t.payee_rule);
                             return (
                                 <TableRow key={t.name}>
                                     <TableCell className="font-medium">{t.name}</TableCell>
                                     <TableCell>
                                         <Badge className={cn(SCOPE_STYLE[scope], "hover:bg-inherit")}>
                                             {scope}
+                                        </Badge>
+                                    </TableCell>
+                                    <TableCell>
+                                        <Badge
+                                            title={PAYEE_RULE_HELP[payeeRule]}
+                                            className={cn(PAYEE_RULE_STYLE[payeeRule], "whitespace-nowrap hover:bg-inherit")}
+                                        >
+                                            {payeeRule}
                                         </Badge>
                                     </TableCell>
                                     <TableCell className="max-w-[20rem]">
@@ -347,6 +375,7 @@ export const ExpensePackagesMaster: React.FC = () => {
                                                 project: !!t.project, non_project: !!t.non_project,
                                                 expense_category: t.expense_category || FALLBACK_CATEGORY,
                                                 allowed_roles: roles,
+                                                payee_rule: payeeRule,
                                             })}
                                         >
                                             <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
@@ -368,7 +397,7 @@ export const ExpensePackagesMaster: React.FC = () => {
                         })}
                         {rows.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={5} className="py-10 text-center text-sm text-muted-foreground">
+                                <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
                                     No expense types match “{search}”.
                                 </TableCell>
                             </TableRow>
@@ -457,6 +486,33 @@ export const ExpensePackagesMaster: React.FC = () => {
                                 sees every type; leave empty for Admin only.
                             </p>
                         </div>
+
+                        <fieldset className="space-y-2">
+                            <legend className="mb-2 text-sm font-medium">Who gets paid</legend>
+                            <RadioGroup
+                                value={edit.payee_rule}
+                                onValueChange={(v) => setEdit((s) => ({ ...s, payee_rule: asPayeeRule(v) }))}
+                                className="gap-2"
+                            >
+                                {PAYEE_RULES.map((rule) => (
+                                    <label
+                                        key={rule}
+                                        className={cn(
+                                            "flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5 text-sm leading-snug",
+                                            edit.payee_rule === rule && "border-primary bg-primary/5"
+                                        )}
+                                    >
+                                        <RadioGroupItem value={rule} className="mt-0.5" />
+                                        <span>
+                                            <span className="font-semibold">{rule}</span>
+                                            <span className="block text-[13px] text-muted-foreground">
+                                                {PAYEE_RULE_HELP[rule]}
+                                            </span>
+                                        </span>
+                                    </label>
+                                ))}
+                            </RadioGroup>
+                        </fieldset>
                     </div>
 
                     <DialogFooter>

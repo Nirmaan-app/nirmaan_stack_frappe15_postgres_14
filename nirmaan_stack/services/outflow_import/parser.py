@@ -117,6 +117,13 @@ it was one adapter entry plus these two, each of which is a rule about statement
    cells (all of them / exactly one of them / the first of them), which is why each is a marker
    class rather than a shape of map value.
 
+⚠️ AND A SEVENTH, FOR A STATEMENT THAT IS MORE THAN A LIST OF TRANSFERS (#1443).
+
+7. **A map may name a field `RawRow` has no slot for, and its value is KEPT in `RawRow.extra`.** The
+   Porter Statement maps each of its columns under its own name, so the invoice link, the GSTINs, the
+   addresses and the tax reach `services/outflow_import/porter.py` verbatim, from the same one parse
+   that fills the generic fields. Every other source names only `RawRow` fields and keeps nothing extra.
+
 ⚠️ SOURCE AND FORMAT ARE DIFFERENT AXES -- see below. None of the capabilities above is a format
 concern.
 
@@ -147,6 +154,7 @@ import io
 import re
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
+from dataclasses import fields as dataclass_fields
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -156,7 +164,10 @@ from nirmaan_stack.services.outflow_import.normalize import (
     normalize_amount,
     normalize_reference,
 )
-from nirmaan_stack.services.outflow_import.sources import source_has_preamble
+from nirmaan_stack.services.outflow_import.sources import (
+    PORTER_STATEMENT_SOURCE,
+    source_has_preamble,
+)
 
 __all__ = [
     "RawRow",
@@ -332,6 +343,17 @@ class RawRow:
     downstream judgement, and it stays downstream so the skip is visible on a staged row.
     """
 
+    extra: tuple[tuple[str, str], ...] = ()
+    """The adapter's OWN fields that `RawRow` has no slot for, as `(field, value)` pairs, stripped.
+
+    Capability 7 (#1443): a column map may name a field this class does not declare, and its value is
+    kept here instead of being dropped. The Porter Statement keeps every one of its columns this way --
+    invoice link, GSTINs, addresses, tax -- because its import groups by them and its Porter Order stores
+    them. Empty for every source whose map names only `RawRow` fields, which is every other source.
+
+    A tuple of pairs rather than a dict so the frozen row stays hashable.
+    """
+
     @property
     def is_success(self) -> bool:
         return is_success_status(self.status_raw)
@@ -339,6 +361,10 @@ class RawRow:
     @property
     def added_on_date(self) -> date | None:
         return self.added_on.date() if self.added_on else None
+
+
+#: The fields `RawRow` declares. A column-map field outside this set is kept in `RawRow.extra`.
+_RAW_ROW_FIELDS = frozenset(field.name for field in dataclass_fields(RawRow))
 
 
 @dataclass(frozen=True)
@@ -760,10 +786,79 @@ def _icici_derive(raw: Callable[[str], str]) -> dict[str, str]:
     }
 
 
+# Porter's monthly delivery statement (#1443, ADR-0032): one line per order, each naming the Porter
+# Invoice that bills it. Every column is REQUIRED, because every one is read: the generic fields below,
+# the invoice grouping, and the Porter Order that keeps the rest. Header names are Porter's own, verbatim.
+PORTER_STATEMENT_COLUMNS = (
+    "crn",
+    "order_completion_time",
+    "invoice_order_fare",
+    "tax_amount",
+    "porter_invoice_number",
+    "customer_gstin",
+    "porter_gstin",
+    "vehicle_type",
+    "customer_name",
+    "customer_mobile",
+    "customer_email",
+    "order_status",
+    "city",
+    "from_address",
+    "to_address",
+    "waypoint_addresses",
+    "travel_distance_kms",
+    "travel_duration",
+    "waiting_time",
+    "customer_remarks",
+    "billing_entity",
+    "invoice_link",
+)
+
+# The order status Porter writes on an order it completed, and therefore bills.
+PORTER_ORDER_COMPLETED = "completed"
+
+_PORTER_COLUMNS = {
+    # Capability 7: every column under its own name, kept verbatim in `RawRow.extra` -- the generic fields
+    # below read some of the same cells again, which is harmless and keeps the statement line whole.
+    **{column: column for column in PORTER_STATEMENT_COLUMNS},
+    "transfer_id": "crn",
+    "added_on": "order_completion_time",
+    # The Porter fare, before GST: the Expense amount (ADR-0032). The tax is reverse charge and is never
+    # part of what Porter is paid.
+    "amount": _StatesWhenPopulated(
+        column="invoice_order_fare", label=DIRECTION_DEBIT, label_field="direction"
+    ),
+    "status_raw": "order_status",
+    # Who was paid: the Porter entity that bills the order.
+    "beneficiary_name": "billing_entity",
+    # Who booked the order. The Porter Expense's Paid by.
+    "added_by_raw": "customer_name",
+    "remarks": "customer_remarks",
+}
+
+_PORTER_REQUIRED = frozenset(PORTER_STATEMENT_COLUMNS)
+
+
+def _porter_derive(raw: Callable[[str], str]) -> dict[str, str]:
+    """A completed order IS money that moved; say so in the one vocabulary every summary reads.
+
+    The whole feature tells moved money from refused money by `status_raw == SUCCESS` (`is_success`,
+    `gross_by_direction`, the summary's failed split, `list_imports`). A completed order is paid from the
+    Porter wallet, so it states `SUCCESS` -- ICICI's synthetic status, on the same terms. Any other
+    status (`cancelled`) is kept verbatim and is therefore not a success: Porter never billed it. The
+    statement's own word stays in `RawRow.extra["order_status"]`.
+    """
+    status = raw("status_raw").strip()
+    return {
+        "status_raw": BANK_SUCCESS_STATUS if status.lower() == PORTER_ORDER_COMPLETED else status,
+    }
+
+
 _ADAPTERS = {
     "Cashfree": (_CASHFREE_COLUMNS, _CASHFREE_REQUIRED, None),
     "Cashbook": (_CASHBOOK_COLUMNS, _CASHBOOK_REQUIRED, None),
     "ICICI Bank Statement": (_ICICI_COLUMNS, _ICICI_REQUIRED, _icici_derive),
+    PORTER_STATEMENT_SOURCE: (_PORTER_COLUMNS, _PORTER_REQUIRED, _porter_derive),
 }
 
 # --- ICICI narration parsing ---------------------------------------------------------------------
@@ -1196,6 +1291,10 @@ def _build_row(
         normalized_reference=normalize_reference(bank_reference_no),
         row_kind=raw("row_kind").strip(),
         direction=direction,
+        # Capability 7: a mapped field `RawRow` has no slot for is KEPT, never dropped.
+        extra=tuple(
+            (field, raw(field).strip()) for field in column_map if field not in _RAW_ROW_FIELDS
+        ),
     )
 
 

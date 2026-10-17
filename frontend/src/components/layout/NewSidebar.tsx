@@ -23,12 +23,14 @@ import {
   ClipboardMinus,
   HandCoins,
   PiggyBank,
+  Banknote,
+  BookUser,
   ReceiptText, FileUp,
   CreditCard,
   Dices,
   FileSpreadsheet,
   Landmark, PencilRuler, SquareStack,
-  Warehouse, ClipboardList,
+  Warehouse,
   FileChartLine,
   PackageCheck,
   Tickets,
@@ -71,15 +73,25 @@ import {
 import { Separator } from "../ui/separator";
 import { useCountsBridge } from "@/hooks/useSidebarCounts";
 import {
+  ACCOUNTANT_LEAD_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ADMIN_PROFILE,
+  CHEQUE_ACCESS_PROFILES,
   HOD_ACCESS,
+  HR_EXECUTIVE_PROFILE,
+  HR_LEAD_PROFILE,
   MATERIAL_PROCUREMENT_PROFILES,
   NON_PROJECT_INFLOWS_ACCESS,
+  PMO_EXECUTIVE_PROFILE,
   PROCUREMENT_PROFILES,
+  PROJECT_LEAD_PROFILE,
   SERVICE_PROCUREMENT_PROFILES,
   canUseProjectBilling,
   isMaterialProcurementProfile,
+  isNirmaanAdmin,
   isProcurementProfile,
 } from "@/constants/roles";
+import { payeesSidebarPlace } from "@/utils/payees/payeeRoutes";
 
 export function NewSidebar() {
   const [role, setRole] = useState<string | null>(null);
@@ -212,7 +224,8 @@ export function NewSidebar() {
   //
   // Kept as an inline spread rather than a second grouped block so the Admin
   // Options items stay in their existing visual order.
-  const isAdminOnly = user_id == "Administrator" || role == "Nirmaan Admin Profile";
+  const isAdminOnly = isNirmaanAdmin(role, user_id);
+  const payeesPlace = payeesSidebarPlace(role, user_id);
 
   const items = useMemo(() => [
     { key: "/", icon: LayoutGrid, label: "Dashboard" },
@@ -268,6 +281,8 @@ export function NewSidebar() {
                 { key: "/asset-management", label: "Assets" },
                 { key: "/vendors", label: "Vendors" },
                 ...(isAdminOnly ? [{ key: "/customers", label: "Customers" }] : []),
+                // Payees (#1466): the Admin's sits here with the other masters (`payeesSidebarPlace`).
+                ...(payeesPlace === "admin-options" ? [{ key: "/payees", label: "Payees" }] : []),
                 { key: "/packages-settings", label: "Packages Settings" },
                 { key: "/tds-repository", label: "TDS Repository" },
                 { key: "/project-gst", label: "Project GST" },
@@ -291,6 +306,16 @@ export function NewSidebar() {
           icon: UsersRound,
           label: "Users",
         },
+        {
+          key: "/asset-management",
+          icon: Package,
+          label: "Assets",
+        },
+      ]
+      : []),
+    // HR Lead has every asset permission HR Executive has (owner, 2026-10-15), so the Assets link too.
+    ...(role == "Nirmaan HR Lead Profile"
+      ? [
         {
           key: "/asset-management",
           icon: Package,
@@ -553,11 +578,11 @@ export function NewSidebar() {
         },
       ]
       : []),
-    // HR Executive added 2026-09-17 (owner): HR gets four VIEW-ONLY tabs there (Reconciliation
-    // Pending, Payment Done, Payments Pending, Payment By Me) -- RenderProjectPaymentsComponent
-    // holds it to them. HR LEAD is
-    // deliberately NOT here: it cannot create or delete an expense, so that tab stays empty.
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan HR Executive Profile", ...PROCUREMENT_PROFILES].includes(role as string)
+    // HR Executive added 2026-09-17 (owner): HR gets VIEW-ONLY tabs there (Reconciliation
+    // Pending, Payment Done, Payments Pending, Payment By Me, and All Payments since #1476) --
+    // `paymentsTabSet` holds it to them. HR LEAD added #1476 (spec #1470): the same view-only
+    // tabs, landing on "Payment Raised By Me", and no Add Expense (it holds no write right).
+    ...(user_id == "Administrator" || [ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE, ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, PROJECT_LEAD_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, ...PROCUREMENT_PROFILES].includes(role as string)
       ? [
         {
           key: '/project-payments',
@@ -568,6 +593,18 @@ export function NewSidebar() {
           // The ROUTE stays `/project-payments`: eight backend notification deep links
           // point at it, so renaming the key would 404 live and historical sends.
           label: 'Project Payment & Expense',
+        },
+      ]
+      : []),
+    // Cheque Tracker (#1483): it was Reports › Payment › Cheque Payment. Reads the same constant as the route
+    // guard (routesConfig.tsx); every `api/cheques/` endpoint enforces it. Project Managers are not in it.
+    // ⚠️ The flat-nav Set below matches on this LABEL — both strings move together.
+    ...(user_id == "Administrator" || CHEQUE_ACCESS_PROFILES.includes(role as string)
+      ? [
+        {
+          key: '/cheque-tracker',
+          icon: Banknote,
+          label: 'Cheque Tracker',
         },
       ]
       : []),
@@ -652,6 +689,17 @@ export function NewSidebar() {
         },
       ]
       : []),
+    // Payees (spec #1420) for the Accountants; the Admin's is in Admin Options (#1466). Both read the
+    // same constant as the route guard (routesConfig.tsx).
+    ...(payeesPlace === "top-level"
+      ? [
+        {
+          key: '/payees',
+          icon: BookUser,
+          label: 'Payees',
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES].includes(role as string)
       ? [
         {
@@ -684,7 +732,8 @@ export function NewSidebar() {
         {
           key: '/inventory',
           icon: Warehouse,
-          label: 'Inventory',
+          // ⚠️ Matched by label in the flat-button set below: rename both together.
+          label: 'Inventory / Warehouse',
         },
       ]
       : []),
@@ -694,15 +743,6 @@ export function NewSidebar() {
           key: '/internal-transfer-memos',
           icon: ArrowLeftRight,
           label: 'Internal Transfer Memos',
-        },
-      ]
-      : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role as string)
-      ? [
-        {
-          key: '/warehouse',
-          icon: Package,
-          label: 'Warehouse',
         },
       ]
       : []),
@@ -782,15 +822,6 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role as string)
-      ? [
-        {
-          key: '/pr-tracker',
-          icon: ClipboardList,
-          label: 'PR Tracker',
-        },
-      ]
-      : []),
     ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role as string)
       ? [
         {
@@ -821,7 +852,7 @@ export function NewSidebar() {
 
 
 
-  ], [user_id, role, isAdminOnly]);
+  ], [user_id, role, isAdminOnly, payeesPlace]);
 
   const allKeys = useMemo(() => new Set([
     "projects",
@@ -857,9 +888,11 @@ export function NewSidebar() {
     // "approved-sr",
     "notifications",
     "project-payments",
+    "cheque-tracker",
     "credits",
     "in-flow-payments",
     "non-project-inflows",
+    "payees",
     'invoice-reconciliation',
     'project-invoices',
     'expense',
@@ -868,7 +901,6 @@ export function NewSidebar() {
     'snag-list',
     'hod-tracker',
     'critical-po-tracker',
-    'pr-tracker',
     'work-plan-tracker',
     'material-plan-tracker',
     'cashflow-plan-tracker',
@@ -903,7 +935,7 @@ export function NewSidebar() {
 
 
   const groupMappings = useMemo(() => ({
-    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "packages-settings", "tds-repository", "all-AQs", "project-gst", "upload-boq/templates"],
+    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "payees", "packages-settings", "tds-repository", "all-AQs", "project-gst", "upload-boq/templates"],
     "/asset-management": ["asset-management"],
     "/projects": ["projects"],
     "/products": ["products"],
@@ -914,9 +946,11 @@ export function NewSidebar() {
     "/service-requests": ["service-requests", "service-requests-list"],
     "/purchase-orders": ["purchase-orders"],
     "/project-payments": ["project-payments"],
+    "/cheque-tracker": ["cheque-tracker"],
     "/credits": ["credits"],
     "/in-flow-payments": ["in-flow-payments"],
     "/non-project-inflows": ["non-project-inflows"],
+    "/payees": ["payees"],
     "/invoice-reconciliation": ["invoice-reconciliation"],
     "/project-invoices": ["project-invoices"],
     // Keyed on the module ROOT so every tab (requests / project / non-project) keeps the
@@ -927,14 +961,14 @@ export function NewSidebar() {
     '/snag-list': ['snag-list'],
     '/hod-tracker': ['hod-tracker'],
     '/critical-po-tracker': ['critical-po-tracker'],
-    '/pr-tracker': ['pr-tracker'],
     '/work-plan-tracker': ['work-plan-tracker'],
     '/material-plan-tracker': ['material-plan-tracker'],
     '/cashflow-plan-tracker': ['cashflow-plan-tracker'],
     '/tds-approval': ['tds-approval'],
-    '/inventory': ['inventory'],
+    // Warehouse is a tab of the "Inventory / Warehouse" entry (InventoryWarehouseLayout), so
+    // /warehouse keeps that entry highlighted. 'warehouse' stays in allKeys for that match.
+    '/inventory': ['inventory', 'warehouse'],
     '/internal-transfer-memos': ['internal-transfer-memos'],
-    '/warehouse': ['warehouse'],
     '/help-repository': ['help-repository'],
     '/commission-tracker': ['commission-tracker'],
     '/billing-tracker': ['billing-tracker'],
@@ -966,6 +1000,7 @@ export function NewSidebar() {
       if (selectedKeys === "products") return "/products";
       if (selectedKeys === "vendors") return "/vendors";
       if (selectedKeys === "customers") return "/customers";
+      if (selectedKeys === "payees") return "/payees";
       if (selectedKeys === "asset-management") return "/asset-management";
     }
 
@@ -1038,6 +1073,8 @@ export function NewSidebar() {
                     "Procurement Requests",
                     "Purchase Orders",
                     "Project Payment & Expense",
+                    // Cheque Tracker (#1483): flat nav button, same trap as Non-Project Inflows below.
+                    "Cheque Tracker",
                     "Credit Payments",
                     "Sent Back Requests",
                     "Projects",
@@ -1047,6 +1084,8 @@ export function NewSidebar() {
                     // Non-Project Inflows (#1265): flat nav button. It was first shipped WITHOUT this
                     // label, so it rendered as an empty group -- a chevron and a click that went nowhere.
                     "Non-Project Inflows",
+                    // Payees (spec #1420): flat nav button, same trap as Non-Project Inflows above.
+                    "Payees",
                     "Vendor Invoice Recon",
                     "Reports",
                     "Design Tracker",
@@ -1061,7 +1100,6 @@ export function NewSidebar() {
                     "HOD Tracker",
                     // Flat nav button (no children), like the trackers around it.
                     "Billing Tracker",
-                    "PR Tracker",
                     "PO Tracker",
                     "Work Plan Tracker",
                     "Material Plan Tracker",
@@ -1075,9 +1113,8 @@ export function NewSidebar() {
                     "Products",
                     "TDS Approval",
                     "Work Order Rate Card",
-                    "Inventory",
+                    "Inventory / Warehouse",
                     "Internal Transfer Memos",
-                    "Warehouse",
                     "PMO Dashboard",
                     "Reminders Dashboard",
                     "Upload BoQ",

@@ -10,8 +10,10 @@ import { AlertTriangle, ArrowRight, CheckCircle2, Paperclip } from "lucide-react
 import { TailSpin } from "react-loader-spinner";
 
 import SITEURL from "@/constants/siteURL";
+import { PorterSection } from "@/components/common/PorterExpense";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { invoiceAttachmentUrl } from "@/utils/porterExpense";
 import {
   ApprovalStage,
   ExpenseApprovalDetail,
@@ -117,11 +119,15 @@ export const ExpenseApprovalDetails: React.FC<Props> = ({ doctype, name, isOpen,
           <Row label="Invoice">
             <span className="flex flex-wrap items-center gap-x-2">
               {invoiceBits.length > 0 && <span>{invoiceBits.join(" · ")}</span>}
-              {d.invoice_attachment && <FileLink url={d.invoice_attachment} label="View invoice" />}
+              {d.invoice_attachment && (
+                <FileLink url={invoiceAttachmentUrl(d.doctype, d) ?? d.invoice_attachment} label="View invoice" />
+              )}
             </span>
           </Row>
         )}
       </div>
+
+      {d.porter_order && <PorterSection doctype={d.doctype} name={d.name} />}
 
       {d.request && (
         <div className="rounded-md border px-3 py-2 divide-y">

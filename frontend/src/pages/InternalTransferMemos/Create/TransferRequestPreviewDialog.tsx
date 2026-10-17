@@ -1,51 +1,49 @@
-import { useMemo } from "react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import type { SelectionState, ItemSelection } from "./types";
-
-interface PreviewGroup {
-  source_project: string;
-  source_project_name: string;
-  items: ItemSelection[];
-}
+import formatToIndianRupee from "@/utils/FormatPrice";
+import type { TransferStockRow } from "@/utils/itmTransfer";
 
 interface TransferRequestPreviewDialogProps {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  targetProjectName: string;
-  selection: SelectionState;
+  fromLabel: string;
+  toLabel: string;
+  /** The ticked rows, each with its quantity. */
+  items: (TransferStockRow & { qty: number })[];
   onConfirm: () => void;
   isSubmitting: boolean;
 }
 
+/** One side of the route, as a small labelled box. */
+const RouteBox = ({ side, name }: { side: string; name: string }) => (
+  <div className="min-w-0 flex-1 rounded-md border bg-muted/40 px-3 py-2">
+    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{side}</p>
+    <p className="truncate text-sm font-semibold">{name || "—"}</p>
+  </div>
+);
+
+/**
+ * Last check before `create_itms`, laid out like a transfer statement: the route, one line
+ * per item (quantity × estimated rate = value) and the estimated total. One memo.
+ */
 export function TransferRequestPreviewDialog({
   open,
   onOpenChange,
-  targetProjectName,
-  selection,
+  fromLabel,
+  toLabel,
+  items,
   onConfirm,
   isSubmitting,
 }: TransferRequestPreviewDialogProps) {
-  const groups = useMemo<PreviewGroup[]>(() => {
-    return Object.entries(selection).map(([source_project, items]) => {
-      const values = Object.values(items);
-      return {
-        source_project,
-        source_project_name: values[0]?.source_project_name ?? source_project,
-        items: values,
-      };
-    });
-  }, [selection]);
-
-  const docCount = groups.length;
+  const total = items.reduce((sum, it) => sum + it.qty * (it.estimated_rate || 0), 0);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -54,72 +52,59 @@ export function TransferRequestPreviewDialog({
         disableCloseIcon={false}
       >
         <DialogHeader>
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight">
-                Transfer Memo Preview
-              </h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                Review the transfer memos grouped by source project before
-                creating them. Each memo will be created in <span className="font-semibold">Approved</span> status, ready to dispatch.
-              </p>
-            </div>
-            <div className="text-right shrink-0">
-              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                Target Destination
-              </span>
-              <p className="font-bold text-sm text-primary">
-                {targetProjectName || "—"}
-              </p>
-            </div>
-          </div>
+          <DialogTitle className="text-lg font-semibold tracking-tight">Review Transfer</DialogTitle>
+          <DialogDescription>
+            One transfer memo will be created in <span className="font-semibold">Approved</span>{" "}
+            status, ready to dispatch.
+          </DialogDescription>
         </DialogHeader>
 
-        <Separator />
+        <div className="flex items-center gap-2">
+          <RouteBox side="From" name={fromLabel} />
+          <ArrowRight className="h-4 w-4 shrink-0 text-primary" />
+          <RouteBox side="To" name={toLabel} />
+        </div>
 
-        <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-          {groups.length === 0 ? (
-            <p className="text-center text-sm text-muted-foreground py-8">
-              No selections made.
-            </p>
-          ) : (
-            groups.map((grp, idx) => (
-              <div
-                key={grp.source_project}
-                className="rounded-md border bg-card p-4 space-y-2"
-              >
-                <Badge variant="secondary" className="text-[10px]">
-                  Transfer Memo {idx + 1}
-                </Badge>
-                <p className="font-bold text-sm flex items-center gap-2 flex-wrap">
-                  <span>{grp.source_project_name}</span>
-                  <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span>{targetProjectName}</span>
-                </p>
-                <ul className="space-y-1 pt-1">
-                  {grp.items.map((it) => (
-                    <li
-                      key={`${it.item_id}|${it.make ?? ""}`}
-                      className="flex items-center justify-between text-sm border-b last:border-b-0 py-1"
-                    >
-                      <span className="truncate pr-2">
-                        {it.item_name}
-                        {it.make && (
-                          <span className="text-muted-foreground text-xs ml-1">
-                            ({it.make})
-                          </span>
-                        )}
-                        :
-                      </span>
-                      <span className="tabular-nums font-medium whitespace-nowrap">
-                        {it.qty.toLocaleString("en-IN")} {it.unit || "Units"}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))
-          )}
+        <div className="flex-1 overflow-y-auto rounded-md border">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-muted/60 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2 text-left">Item</th>
+                <th className="px-3 py-2 text-right">Qty</th>
+                <th className="px-3 py-2 text-right">Est. Rate</th>
+                <th className="px-3 py-2 text-right">Est. Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((it) => (
+                <tr key={it.key} className="border-t">
+                  <td className="px-3 py-2">
+                    <div className="font-medium leading-tight">{it.item_name}</div>
+                    {it.make && <div className="text-xs text-muted-foreground">{it.make}</div>}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
+                    {it.qty.toLocaleString("en-IN")} <span className="text-xs text-muted-foreground">{it.unit || "Units"}</span>
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                    {formatToIndianRupee(it.estimated_rate)}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums font-medium">
+                    {formatToIndianRupee(it.qty * (it.estimated_rate || 0))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="border-t bg-muted/40">
+              <tr>
+                <td className="px-3 py-2.5 font-medium" colSpan={3}>
+                  {items.length} item{items.length === 1 ? "" : "s"} · Estimated total
+                </td>
+                <td className="px-3 py-2.5 text-right text-base font-bold tabular-nums text-primary">
+                  {formatToIndianRupee(total)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
 
         <DialogFooter className="sm:flex-row sm:items-center sm:justify-between gap-2 pt-2">
@@ -130,19 +115,10 @@ export function TransferRequestPreviewDialog({
             className="gap-2"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back to Inventory
+            Back
           </Button>
-          <p className="text-center text-xs text-muted-foreground flex-1">
-            This will generate{" "}
-            <span className="font-semibold">{docCount}</span> transfer
-            memo{docCount === 1 ? "" : "s"}
-          </p>
-          <Button
-            onClick={onConfirm}
-            disabled={isSubmitting || docCount === 0}
-            className="gap-2"
-          >
-            {isSubmitting ? "Creating..." : "Create Transfer Memos"}
+          <Button onClick={onConfirm} disabled={isSubmitting || items.length === 0} className="gap-2">
+            {isSubmitting ? "Creating..." : "Create Transfer Memo"}
             {!isSubmitting && <ArrowRight className="h-4 w-4" />}
           </Button>
         </DialogFooter>

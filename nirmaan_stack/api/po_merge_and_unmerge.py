@@ -4,12 +4,52 @@ from frappe.utils import flt,getdate, nowdate
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 from nirmaan_stack.integrations.controllers.material_test_certificate import delete_mtcs_for_po
 
+
+def _pos_holding_money(po_names: list[str]) -> list[str]:
+    """The POs of `po_names` (in their order) that carry money a merge would strand (#1454, ADR-0034):
+    a Project Payment at any status but Rejected, or a Vendor Refund at any status.
+
+    A merge marks its POs Merged and moves nothing, so their payments and refunds would stay on a PO
+    that every Amount Paid and outflow figure leaves out. Money on a PO is changed through a PO Revision.
+    """
+    with_money = set(
+        frappe.get_all(
+            "Project Payments",
+            filters={"document_type": "Procurement Orders", "document_name": ["in", po_names],
+                     "status": ["!=", "Rejected"]},
+            pluck="document_name",
+        )
+    ) | set(
+        frappe.get_all(
+            "Vendor Refunds",
+            filters={"document_type": "Procurement Orders", "document_name": ["in", po_names]},
+            pluck="document_name",
+        )
+    )
+    return [name for name in po_names if name in with_money]
+
+
 @frappe.whitelist()
 def handle_merge_pos(po_id: str, merged_items: list, order_data: list, payment_terms: list):
     """
     Merges multiple Procurement Orders into a new master Procurement Order.
     This version calculates totals manually to build the document in one pass, avoiding ORM state errors.
     """
+    if isinstance(merged_items, str):
+        merged_items = json.loads(merged_items)
+
+    # Refused before any write (and before the try below, which would log the refusal as an error).
+    # The PO screen already hides POs with payments; this is the server's own check.
+    holding = _pos_holding_money([po_id] + [po["name"] for po in merged_items])
+    if holding:
+        return {
+            "error": (
+                f"Cannot merge: {', '.join(holding)} {'has' if len(holding) == 1 else 'have'} a payment "
+                "or a Vendor Refund, which a merge would leave on a Merged PO. Use a PO Revision instead."
+            ),
+            "status": 400,
+        }
+
     try:
         frappe.db.begin()
         po_doc = frappe.get_doc("Procurement Orders", po_id)
@@ -19,7 +59,7 @@ def handle_merge_pos(po_id: str, merged_items: list, order_data: list, payment_t
         # Block merge if any PO has pending revisions or adjustments
         from nirmaan_stack.api.po_revisions.revision_po_check import get_all_locked_po_names
         locked_pos = get_all_locked_po_names()
-        all_po_names = [po["name"] for po in (merged_items if isinstance(merged_items, list) else json.loads(merged_items))] + [po_id]
+        all_po_names = [po["name"] for po in merged_items] + [po_id]
         locked_in_merge = [name for name in all_po_names if name in locked_pos]
         if locked_in_merge:
             frappe.throw(

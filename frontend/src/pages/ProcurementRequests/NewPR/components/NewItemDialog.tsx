@@ -24,13 +24,13 @@ import { useUserData } from '@/hooks/useUserData';
 import { Items } from '@/types/NirmaanStack/Items';
 import { Category } from '@/types/NirmaanStack/Category';
 import { getFrappeError } from '@/utils/frappeErrors';
+import { newItemRequestReason } from '@/utils/prNewItem';
 
 
 interface NewItemDialogProps {
     isOpen: boolean;
     onOpenChange: (isOpen: boolean) => void;
     categories: Category[];
-    selectedHeaderTags: { tag_header: string; tag_package: string }[];
     categoryToPackageMap: Record<string, string>;
     onSubmit: (itemData: Omit<ProcurementRequestItem, "uniqueId" | "status">, isRequest?: boolean) => void;
     fuzzySearch: (input: string) => Items[];
@@ -55,7 +55,6 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
     isOpen,
     onOpenChange,
     categories,
-    selectedHeaderTags,
     categoryToPackageMap,
     onSubmit,
     fuzzySearch,
@@ -75,17 +74,21 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
             value: cat.name,
             label: cat.category_name,
             tax: parseFloat(cat.tax || "0"),
-            // PMO no longer bypasses the per-category `new_items` gate; treated like a Project
-            // Manager (2026-07-04 PMO access review) — request-only in locked categories.
-            newItemsDisabled: cat.new_items === "false" && userData?.role !== "Nirmaan Admin Profile"
         })) || [];
-    }, [categories, userData?.role]);
+    }, [categories]);
 
-    const isNewItemsDisabled = useMemo(() => selectedCategory?.newItemsDisabled ?? false, [selectedCategory]);
+    // Create vs request: Admin creates, PMO only requests, others follow the category's `new_items`.
+    // Worked out before a category is picked too, so PMO never sees "Create & Add".
+    const requestReason = useMemo(() => {
+        const category = categories?.find(cat => cat.name === selectedCategory?.value);
+        return newItemRequestReason(userData?.role, category?.new_items);
+    }, [selectedCategory, categories, userData?.role]);
+
+    const isNewItemsDisabled = requestReason !== null;
 
     const resolveWorkPackage = useCallback((categoryValue: string) => {
         return categoryToPackageMap[categoryValue] || '';
-    }, [categoryToPackageMap, selectedHeaderTags]);
+    }, [categoryToPackageMap]);
 
     useEffect(() => {
         if (isOpen) {
@@ -204,16 +207,6 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
                     <AlertDialogTitle>
                         Create or Request New Item
                     </AlertDialogTitle>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                        {selectedHeaderTags.map((tag, idx) => (
-                            <span
-                                key={idx}
-                                className="px-2 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-medium border border-primary/20"
-                            >
-                                {tag.tag_header}
-                            </span>
-                        ))}
-                    </div>
                     <AlertDialogDescription className="mt-2">
                         Fill in the details for the new item. If creation is disabled for the category, it will be added as a request.
                     </AlertDialogDescription>
@@ -243,9 +236,14 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
                             }}
                             isClearable
                         />
-                        {isNewItemsDisabled && (
+                        {requestReason === "category" && (
                             <p className="text-xs text-red-500 px-1 mt-1">
                                 New item creation is disabled for this category by Admin. This item will be added as a 'Request'.
+                            </p>
+                        )}
+                        {requestReason === "role" && (
+                            <p className="text-xs text-red-500 px-1 mt-1">
+                                PMO can't create new items. This item will be added as a 'Request', and the PR approver creates it.
                             </p>
                         )}
                     </div>

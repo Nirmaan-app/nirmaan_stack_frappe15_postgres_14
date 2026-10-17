@@ -47,7 +47,8 @@ import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 // --- Constants ---
-import { PRTagsCell } from "../procurement-requests";
+import { PRPackageChips } from "@/components/procurement-request/PRPackageChips";
+import { uniqueTagPackages } from "@/utils/prPackages";
 const DOCTYPE = "Procurement Requests";
 const URL_SYNC_KEY = "pr_new_approve"; // Unique key for this specific table instance/view
 
@@ -279,22 +280,20 @@ export const ApprovePR: React.FC = () => {
         },
       },
       {
-        // Pr_work_Package
-        id: "PR Tag Child Table.tag_header",
+        // The PR's procurement packages (written from its items by the server)
+        id: "PR Tag Child Table.tag_package",
         accessorKey: "pr_tag_list",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Headers" />
+          <DataTableColumnHeader column={column} title="Packages" />
         ),
-        cell: ({ row }) => <PRTagsCell row={row} />,
+        cell: ({ row }) => <PRPackageChips tags={(row.original as any).pr_tag_list} />,
         enableColumnFilter: true,
         size: 150,
         meta: {
-          facet: { field: "tag_header", title: "Header" } satisfies FacetDeclaration,
-          exportHeaderName: "Headers",
-          exportValue: (row: ProcurementRequest) => {
-            const tags = (row as any).pr_tag_list || [];
-            return tags.map((t: any) => `• ${t.tag_header}`).join("\n");
-          },
+          facet: { field: "tag_package", title: "Package" } satisfies FacetDeclaration,
+          exportHeaderName: "Packages",
+          exportValue: (row: ProcurementRequest) =>
+            uniqueTagPackages((row as any).pr_tag_list).map((p) => `• ${p}`).join("\n"),
         },
       },
       {
@@ -460,7 +459,7 @@ export const ApprovePR: React.FC = () => {
           facetDoctype={DOCTYPE}
           facetOverrides={{
             project: { additionalFilters: staticFilters },
-            "PR Tag Child Table.tag_header": { additionalFilters: staticFilters },
+            "PR Tag Child Table.tag_package": { additionalFilters: staticFilters },
             owner: { additionalFilters: staticFilters },
           }}
           dateFilterColumns={dateColumns}

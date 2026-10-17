@@ -113,7 +113,7 @@ class BulkFixture(PaymentUnreconcileFixture):
     def _status(self, row):
         return frappe.db.get_value(ROW_DOCTYPE, row, "row_status")
 
-    def _live_legs(self, row):
+    def live_legs(self, row):
         return frappe.db.count(MATCH_DOCTYPE, {"import_row": row, "match_kind": "Settled"})
 
 
@@ -140,15 +140,15 @@ class TestEachLineStandsOnItsOwn(BulkFixture):
 
         # The refused line is untouched: still Settled, every record still on it, Paid.
         self.assertEqual(self._status(refused), ROW_SETTLED)
-        self.assertEqual(self._live_legs(refused), 3)
+        self.assertEqual(self.live_legs(refused), 3)
         for pay in refused_pays[:2]:
             self.assertEqual(self._payment(pay).status, "Paid")
         # The other two are undone whole, and every record is free.
         self._assert_free(first_pay)
         for pay in split_pays:
             self._assert_free(pay)
-        self.assertEqual(self._live_legs(first), 0)
-        self.assertEqual(self._live_legs(split), 0)
+        self.assertEqual(self.live_legs(first), 0)
+        self.assertEqual(self.live_legs(split), 0)
 
     def test_an_undone_entry_carries_the_one_line_response(self):
         row, pay = self._confirmed()
@@ -210,7 +210,7 @@ class TestEveryLineIsRecheckedAtWriteTime(BulkFixture):
         self.assertFalse(entry["undone"])
         self.assertTrue(entry["reason"])
         self.assertEqual(self._status(row), ROW_SETTLED)
-        self.assertEqual(self._live_legs(row), 3)
+        self.assertEqual(self.live_legs(row), 3)
 
     def test_a_line_no_longer_settled_is_blocked_with_its_status(self):
         row, pays = self._split()
@@ -224,7 +224,7 @@ class TestEveryLineIsRecheckedAtWriteTime(BulkFixture):
         self.assertFalse(entry["undone"])
         self.assertEqual(entry["reason"], NOT_SETTLED_REFUSAL.format(status=ROW_PARTIALLY_ALLOCATED))
         self.assertEqual(self._status(row), ROW_PARTIALLY_ALLOCATED)
-        self.assertEqual(self._live_legs(row), 2)
+        self.assertEqual(self.live_legs(row), 2)
 
     def test_a_line_that_no_longer_exists_is_blocked_on_its_own(self):
         row, pay = self._confirmed()
@@ -276,7 +276,7 @@ class TestAnErrorMidWrite(BulkFixture):
         self.assertEqual(lines[broken]["reason"], UNEXPECTED_REFUSAL)
         # The broken line's first leg, already written in the savepoint, went back with it.
         self.assertEqual(self._status(broken), ROW_SETTLED)
-        self.assertEqual(self._live_legs(broken), 3)
+        self.assertEqual(self.live_legs(broken), 3)
         for pay in broken_pays:
             self.assertEqual(self._payment(pay).status, "Paid")
         # Lines on either side stay undone.

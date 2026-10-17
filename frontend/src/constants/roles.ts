@@ -15,6 +15,14 @@ export const PROCUREMENT_EXECUTIVE_PROFILE = "Nirmaan Procurement Executive Prof
 export const PROCUREMENT_LEAD_PROFILE = "Nirmaan Procurement Lead Profile";
 export const MATERIAL_PROCUREMENT_EXECUTIVE_PROFILE =
   "Nirmaan Material Procurement Executive Profile";
+/**
+ * A company-wide WO desk, like Estimates: NEVER assigned projects, sees all of them.
+ * That rests on every piece agreeing -- no Assign button (`UserProjectsTab`), absent from
+ * the project assignee picker (`ProjectOverviewTab`), exempt from the dashboard's
+ * `has_project` alert (`pages/dashboard.tsx`), plus the backend full-access lists
+ * (`services/role_profiles.py` names them). One project assigned by mistake shrinks the
+ * user's Frappe lists to that project while their counts still cover all projects.
+ */
 export const SERVICE_PROCUREMENT_EXECUTIVE_PROFILE =
   "Nirmaan Service Procurement Executive Profile";
 
@@ -338,8 +346,8 @@ export const canViewTargetProgress = (
 // UI gate only; no server-side role check backs these.
 // ---------------------------------------------------------------------------
 
-const ACCOUNTANT_PROFILE = "Nirmaan Accountant Profile";
-const ACCOUNTANT_LEAD_PROFILE = "Nirmaan Accountant Lead Profile";
+export const ACCOUNTANT_PROFILE = "Nirmaan Accountant Profile";
+export const ACCOUNTANT_LEAD_PROFILE = "Nirmaan Accountant Lead Profile";
 const ESTIMATES_EXECUTIVE_PROFILE = "Nirmaan Estimates Executive Profile";
 const SALES_EXECUTIVE_PROFILE = "Nirmaan Sales Executive Profile";
 const SALES_LEAD_PROFILE = "Nirmaan Sales Lead Profile";
@@ -404,21 +412,20 @@ export const PROJECT_INVOICES_ACCESS: readonly string[] = [
 ];
 
 /**
- * Reports > "Payment" tab — the Tax Deducted at Source ledger (report "TDS Deduction")
- * and the "Cheque Payment" report, which also reads `Payment TDS Deduction`.
+ * Reports > "Payment" tab — who may open the Tax Deducted at Source ledger (report "TDS Deduction").
  * (It had its own sidebar item and `/payment-tds-deductions` route until it moved
- * into the Reports hub; that path was removed on 2026-10-07.)
+ * into the Reports hub; that path was removed on 2026-10-07.) The tab's other report,
+ * "Cheque Payment", is gated by `CHEQUE_ACCESS_PROFILES` instead (spec #1407).
  *
- * Read in THREE places, all of which must agree: the tab itself
- * (`ReportsContainer.tabs`), the tab's report-type list + default
- * (`currentReportOptions` / `useReportStore`), and nothing else — a second inline
+ * Read through ONE helper, `paymentTabReports` (`pages/reports/config/paymentTab.config.ts`),
+ * which the tab itself, its report-type list and its default all call — a second inline
  * copy of this list drifts the day one of them is edited.
  *
  * ⚠️ NARROWER THAN `/project-payments` ON PURPOSE, AND NOT A UX CHOICE. The
  * `Payment TDS Deduction` doctype grants read to `System Manager`,
  * `Nirmaan Accountant` and `Nirmaan Accountant Lead` only. PMO, Project Lead and
  * the procurement profiles can see Project Payments but hold none of those roles,
- * so a tab for them would land on a PermissionError. Admin Profile is in
+ * so the TDS Deduction report would land on a PermissionError for them. Admin Profile is in
  * because its role profile carries BOTH `System Manager` and `Nirmaan Accountant`.
  *
  * Widening this list without also widening the doctype's permissions produces a
@@ -453,6 +460,59 @@ export const NON_PROJECT_INFLOWS_EDIT: readonly string[] = [
 ];
 export const NON_PROJECT_INFLOWS_DELETE: readonly string[] = [ADMIN_PROFILE];
 
+/** Reports > PO and Reports > WO: the "2B Reconcile Report". Admin and the Accountants. UI gate only. */
+export const RECONCILE_2B_REPORT_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+];
+
+/**
+ * Reports > PO and Reports > WO: the "Amount Paid Mismatch" report and its Recount button (#1455,
+ * ADR-0034). Admin and Accountant Lead only -- narrower than the 2B Reconcile report (no Accountant).
+ *
+ * UI gate only. The server is the enforcement boundary: both endpoints in
+ * `api/reports/amount_paid_mismatch` refuse anyone outside
+ * `services/role_profiles.AMOUNT_PAID_MISMATCH_PROFILES`. Change the two together.
+ */
+export const AMOUNT_PAID_MISMATCH_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+];
+
+/**
+ * `/payees` — every bank account the company pays into (spec #1420, ADR-0033). Admin, Accountant and
+ * Accountant Lead see the page and its actions (Add Payee; #1435 Edit and Delete on a Payee's page).
+ * Procurement adds Payees only from the vendor screens, raisers only from an Expense Request.
+ * Mirrors `services/role_profiles.PAYEE_MANAGE_PROFILES`, which is the ENFORCEMENT boundary.
+ */
+export const PAYEE_MANAGE_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+];
+
+/** May open the Payees page and add a Payee there. The `Administrator` user always may. */
+export const canManagePayees = (role?: string | null, userId?: string | null): boolean =>
+  userId === "Administrator" || (!!role && PAYEE_MANAGE_PROFILES.includes(role));
+
+/**
+ * Who may set a vendor's bank account (its Payee) from the vendor screens (#1425/#1426): the vendor
+ * page's Edit bank details, Use a different payee and Add bank details, and the rename prompt's Update the holder name (#1435). Mirrors `services/role_profiles.VENDOR_PAYEE_PROFILES`,
+ * the ENFORCEMENT boundary.
+ */
+export const VENDOR_PAYEE_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
+  PROJECT_LEAD_PROFILE,
+  ...PROCUREMENT_PROFILES,
+  ...PAYEE_MANAGE_PROFILES,
+];
+
+/** May change a vendor's bank account on the vendor page. The `Administrator` user always may. */
+export const canSetVendorPayee = (role?: string | null, userId?: string | null): boolean =>
+  userId === "Administrator" || (!!role && VENDOR_PAYEE_PROFILES.includes(role));
+
 /**
  * Handover Documents -- the profiles that WORK a handover, and the ONLY ones that see it:
  * the `/hod-tracker` sidebar entry + route guard, and the project page's "Handover
@@ -476,6 +536,30 @@ export const canAccessHod = (
 ): boolean =>
   userId === "Administrator" ||
   (!!role && HOD_ACCESS.includes(role));
+
+/**
+ * Vendor page > Bulk Download tab -- the ONLY profiles that see it, a typed `?tab=bulkDownload`
+ * included (owner, 2026-10-09: "only Admin, PMO, Accountant and procurement"). Accountant Lead
+ * mirrors Accountant.
+ *
+ * UI gate only. Every list and download still runs with the user's own read permissions and
+ * User Permissions on the server (`api/pdf_helper/bulk_download._reader`).
+ */
+export const VENDOR_BULK_DOWNLOAD_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+  ...PROCUREMENT_PROFILES,
+];
+
+/** True when `role` (a role PROFILE) sees the vendor page's Bulk Download tab. */
+export const canBulkDownloadVendor = (
+  role?: string | null,
+  userId?: string | null
+): boolean =>
+  userId === "Administrator" ||
+  (!!role && VENDOR_BULK_DOWNLOAD_PROFILES.includes(role));
 
 /**
  * Reports > WO > Payment Voucher Uploads -- who may Upload / Delete a voucher (plus the
@@ -523,3 +607,46 @@ export const reviewsExpenseRequests = (
 ): boolean =>
   userId === "Administrator" ||
   (!!role && EXPENSE_REQUEST_REVIEW_PROFILES.includes(role));
+
+// ---------------------------------------------------------------------------
+// Vendor Refunds (#1396, ADR-0032). Mirrored server-side by `services/role_profiles.py`, which is the
+// ENFORCEMENT boundary (`api/vendor_refunds/waiting_refunds`); these only decide which controls render.
+// ---------------------------------------------------------------------------
+
+/** The Admin user or an Admin profile: `role_profiles.is_nirmaan_admin`. */
+export const isNirmaanAdmin = (role?: string | null, userId?: string | null): boolean =>
+  userId === "Administrator" || role === ADMIN_PROFILE;
+
+/** `REFUND_ACCOUNTANT_PROFILES`: "an Accountant" for a waiting refund. Besides its creator, may correct its
+ *  amount or PO while it waits, or cancel it. */
+export const REFUND_ACCOUNTANT_PROFILES: readonly string[] = [ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE];
+
+/** `ADJUST_PAYMENTS_PROFILES`: may open "Adjust Payments" on a PO and record a waiting refund from it. */
+export const ADJUST_PAYMENTS_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
+  ...MATERIAL_PROCUREMENT_PROFILES,
+];
+
+/** `REFUND_PAPERWORK_PROFILES`: may complete a refund's proof, UTR and description at any status. */
+export const REFUND_PAPERWORK_PROFILES: readonly string[] = [
+  ...ADJUST_PAYMENTS_PROFILES,
+  ...REFUND_ACCOUNTANT_PROFILES,
+];
+
+/** `REFUND_DELETE_PROFILES`: may delete a Cancelled Vendor Refund (an Admin or material Procurement). */
+export const REFUND_DELETE_PROFILES: readonly string[] = [ADMIN_PROFILE, ...MATERIAL_PROCUREMENT_PROFILES];
+
+/**
+ * Cheques (spec #1407). Mirrors `services/role_profiles.CHEQUE_ACCOUNTS_PROFILES` /
+ * `CHEQUE_ACCESS_PROFILES`; the server is the enforcement boundary (every `api/cheques/` endpoint).
+ *
+ * `CHEQUE_ACCESS_PROFILES`: open the Cheque Tracker (`/cheque-tracker`), view Cheques, add a Payment or a
+ * Security Deposit cheque, and edit their own while its status allows (`utils/cheques/chequeEdit.canEditCheque`).
+ * Project Managers are not in it. Not tied to the Payment TDS Deduction read permission.
+ * `CHEQUE_ACCOUNTS_PROFILES`: also edit any Cheque, and clear or cancel one by hand
+ * (`utils/cheques/chequeRowActions`). No one sets a Cheque's status otherwise: payment approval and the bank
+ * import move it.
+ */
+export const CHEQUE_ACCOUNTS_PROFILES: readonly string[] = [ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE];
+export const CHEQUE_ACCESS_PROFILES: readonly string[] = [...CHEQUE_ACCOUNTS_PROFILES, ...PROCUREMENT_PROFILES];

@@ -20,7 +20,7 @@ from nirmaan_stack.api.outflow_import.unreconcile_created import (
 )
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE
-from nirmaan_stack.services.outflow_import.settle import _outflow_import_write
+from nirmaan_stack.services.outflow_import.settle import outflow_import_write
 from nirmaan_stack.services.outflow_import.unreconcile import (
     VERDICT_UNSPLIT_PAYMENT,
     LegFacts,
@@ -55,9 +55,13 @@ def read_payment_facts(leg, base: dict, *, for_update: bool) -> LegFacts:
     )
     if not payment:
         return LegFacts(**base, target_exists=False)
+    # Function-local: the cheques service imports the outflow import's writers.
+    from nirmaan_stack.services.cheques.status import cleared_cheque_of
+
     return LegFacts(
         **base,
         target_exists=True,
+        cleared_cheque=cleared_cheque_of(leg.target_name),
         target_status=payment.status,
         target_amount=payment.amount,
         target_reference=payment.utr,
@@ -132,14 +136,14 @@ def join_leftover_back(original: str, leftover: str, actor: str, reason: str) ->
     does: a Reversed leg of a transfer that once paid this leftover names it, and a rewound counter would
     hand that name to the next payment.
 
-    ⚠️ `_outflow_import_write` holds shut the CEO-Hold hook's committing branch, which the leftover's
+    ⚠️ `outflow_import_write` holds shut the CEO-Hold hook's committing branch, which the leftover's
     trash and the PO save both reach -- a commit there would end the all-or-nothing savepoint.
 
     The partial-provenance comments on the original stay; this adds one recording the undo and why. The
     leftover's comments go with it.
     """
     series = series_counters_for(leftover)
-    with _outflow_import_write():
+    with outflow_import_write():
         # ⚠️ THE EXPECTED LEFTOVER STATUS IS PASSED, NOT DEFAULTED (#1289). `unsplit_payment` defaults
         # to `Approved` alone, which is the status a part settle left a balance at until the
         # settleable anchor moved. `settle_row_partial` now creates the balance at

@@ -9,7 +9,18 @@
   "asset",
   "asset_assigned_to",
   "asset_assigned_on",
-  "asset_declaration_attachment"
+  "asset_declaration_attachment",
+  "received",
+  "received_on",
+  "returned",
+  "returned_on",
+  "audit_column",
+  "audit_status",
+  "audit_month",
+  "last_audit_on",
+  "audit_proof",
+  "audit_overdue_since",
+  "audit_answers"
  ],
  "fields": [
   {
@@ -42,12 +53,87 @@
    "fieldname": "asset_declaration_attachment",
    "fieldtype": "Attach",
    "label": "Asset Declaration Attachment"
+  },
+  {
+   "default": "0",
+   "description": "Ticked by the server when the declaration is signed in the app or a signed scan is uploaded.",
+   "fieldname": "received",
+   "fieldtype": "Check",
+   "label": "Received",
+   "read_only": 1
+  },
+  {
+   "fieldname": "received_on",
+   "fieldtype": "Date",
+   "label": "Received Date",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Ticked when the holder confirms Return on their profile; cleared if Admin, HR or PMO reject the return. Approving it unassigns the asset.",
+   "fieldname": "returned",
+   "fieldtype": "Check",
+   "label": "Returned By User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "returned_on",
+   "fieldtype": "Date",
+   "label": "Return Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "audit_column",
+   "fieldtype": "Column Break",
+   "label": "Audit"
+  },
+  {
+   "description": "Pending while the holder owes an audit (audit_month says which month); Fulfilled once sent. Written only by the server (services/asset_audit_open.py, api/assets/audits.submit_audit).",
+   "fieldname": "audit_status",
+   "fieldtype": "Select",
+   "label": "Audit Status",
+   "options": "\nPending\nFulfilled",
+   "read_only": 1
+  },
+  {
+   "description": "Month and year the current or latest audit is for, as MM/YYYY (e.g. 09/2026).",
+   "fieldname": "audit_month",
+   "fieldtype": "Data",
+   "label": "Audit Month",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_audit_on",
+   "fieldtype": "Date",
+   "label": "Last Audit On",
+   "read_only": 1
+  },
+  {
+   "description": "Photo from the holder's latest audit. Each audit replaces it; every photo stays linked from its Audit Fulfilled history row.",
+   "fieldname": "audit_proof",
+   "fieldtype": "Attach Image",
+   "label": "Audit Proof",
+   "read_only": 1
+  },
+  {
+   "description": "The first month of an unbroken run of missed audits (MM/YYYY): set when the 7th records an Audit Missed, kept while more months are missed, cleared when an audit is sent or the open audit closes. Written only by the server.",
+   "fieldname": "audit_overdue_since",
+   "fieldtype": "Data",
+   "label": "Overdue Since",
+   "read_only": 1
+  },
+  {
+   "description": "The latest audit's questions and the holder's answers (each with the question and choice text as asked, and the optional text under a red answer). Replaced by each audit sent; every month's stays on its Audit Fulfilled history row. Written only by the server (api/assets/audits.submit_audit).",
+   "fieldname": "audit_answers",
+   "fieldtype": "JSON",
+   "label": "Audit Answers",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-09 17:48:49.874188",
+ "modified": "2026-10-15 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Asset Management",

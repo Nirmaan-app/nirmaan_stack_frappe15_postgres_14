@@ -29,15 +29,24 @@ need the wide identity without being a passbook, or the reverse.
 
 __all__ = [
     "BANK_STATEMENT_SOURCES",
+    "CREATE_GATED_SOURCES",
     "NEVER_MATCHED_SOURCES",
+    "PORTER_STATEMENT_SOURCE",
     "TRANSFER_ID_REFERENCE_SOURCES",
     "source_has_settlement_path",
     "source_runs_the_matcher",
     "source_has_preamble",
     "source_names_its_spender",
     "source_transfer_id_is_its_reference",
+    "source_waits_for_its_own_create",
     "source_writes_its_match_surface",
 ]
+
+#: Porter's monthly delivery statement (ADR-0032). Spelled ONCE here, because this leaf is the one module
+#: both the parser and every capability set below may import. ⚠️ THE SAME STRING IS THE PARSER ADAPTER
+#: KEY, THE `Outflow Import Batch.source` SELECT OPTION AND THE FRONTEND'S `SOURCE_OPTIONS` ENTRY, pinned
+#: together by test like `ICICI Bank Statement`.
+PORTER_STATEMENT_SOURCE = "Porter Statement"
 
 #: Sources that are a BANK PASSBOOK rather than a payout gateway.
 #:
@@ -67,14 +76,43 @@ BANK_STATEMENT_SOURCES = frozenset({"ICICI Bank Statement"})
 #: source would stamp one onto 2,237 Cashfree rows nobody asked for. Keeping the rung here, at the
 #: ONE resolution, is also what stops it being re-derived at a write site: the whole point of
 #: resolving once is that every write site reads one field and no path can diverge from another.
-TRANSFER_ID_REFERENCE_SOURCES = frozenset({"Cashbook"})
+#:
+#: Porter joins it (#1443): an order's CRN is the only reference it will ever have, and it is what the
+#: Porter Expense's `payment_ref` must carry (ADR-0032).
+TRANSFER_ID_REFERENCE_SOURCES = frozenset({"Cashbook", "Porter Statement"})
 
 #: Sources whose rows the match run must never reach (#1272).
 #:
 #: ⚠️ A DIFFERENT SET FROM `TRANSFER_ID_REFERENCE_SOURCES`, holding the same string today. That one
 #: answers "which reference does a settle store?"; this one answers "may the matcher write to these
 #: rows at all?". Do not merge them.
-NEVER_MATCHED_SOURCES = frozenset({"Cashbook"})
+#:
+#: Porter joins it (#1443, ADR-0032): a create-only source whose lines carry the plan its own import
+#: writes from, exactly like Cashbook's.
+NEVER_MATCHED_SOURCES = frozenset({"Cashbook", "Porter Statement"})
+
+#: Sources whose OPEN lines wait for their own import's Create, and are NOT bank lines until then (#1443).
+#:
+#: A Porter line is a delivery Porter's wallet already paid for, waiting for its import to validate it
+#: against Porter's invoices and create its expense. It is not money awaiting reconciliation, so until it
+#: is created (Settled) or set aside (Skipped) it is outside the main table's population altogether:
+#: `review._row_filters` leaves it out, which keeps it out of every tab, the summary panel's *Still open*
+#: and *Total Unreconciled Outflow* at once. And no main-table action may write it -- Create, Link,
+#: Allocate and Skip refuse it -- because its own import's validation must never be bypassable.
+#:
+#: ⚠️ A DIFFERENT SET FROM `NEVER_MATCHED_SOURCES`, NOT TO BE MERGED WITH IT. That one answers "may the
+#: matcher write these rows?" and holds Cashbook too, whose open lines ARE worked from the main table
+#: (#1314).
+CREATE_GATED_SOURCES = frozenset({"Porter Statement"})
+
+
+def source_waits_for_its_own_create(source: str) -> bool:
+    """Are this source's open lines worked ONLY by its own import, never from the main table? (#1443)
+
+    `True` for Porter Statement. An unknown or blank source answers `False`: every existing line stays
+    on the main table, where it has always been.
+    """
+    return (source or "").strip() in CREATE_GATED_SOURCES
 
 
 def source_has_settlement_path(source: str) -> bool:
@@ -86,9 +124,10 @@ def source_has_settlement_path(source: str) -> bool:
     `False` for a bank passbook. THE MEASUREMENT, so nobody re-derives it (slice B4, 711 real
     debits of one ICICI statement):
 
-      * TIER 1 IS STRUCTURALLY UNREACHABLE. `matcher.account_ifsc_vendors` is the tier-1 population
-        and `ifsc_matches` is only ever set inside the `index.by_account` loop, so an IFSC alone can
-        never set it -- and an ICICI narration carries no beneficiary account number at all.
+      * TIER 1 IS STRUCTURALLY UNREACHABLE. It needs the line's account AND IFSC (against a payment's
+        pay-to copy, or `matcher.account_ifsc_vendors`, whose `ifsc_matches` is only ever set inside
+        the `index.by_account` loop), so an IFSC alone never admits anything -- and an ICICI
+        narration carries no beneficiary account number at all.
       * TIER 0 CANNOT SETTLE. `Project Payments.utr` is written at FULFILMENT, so every UTR belongs
         to an already-`Paid` payment, while `ledgers.SETTLEABLE_STATUSES` is `Approved`-only.
         Measured DB-wide: 7,643 of 7,644 `Paid` payments carry a UTR; 0 of 1 `Approved`, 0 of 131

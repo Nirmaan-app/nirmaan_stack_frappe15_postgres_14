@@ -2,6 +2,7 @@ import { useFrappePostCall } from "frappe-react-sdk";
 import { useCallback } from "react";
 import useSWR from "swr";
 import { poAdjustmentKeys, PO_ADJUSTMENT_APIS } from "./poAdjustment.constants";
+import type { HeldRefund } from "@/types/NirmaanStack/VendorRefunds";
 
 interface AdjustmentItem {
   entry_type: string;
@@ -14,6 +15,8 @@ interface AdjustmentItem {
   expense_type?: string;
   refund_date?: string;
   refund_attachment?: string;
+  /** The Received Vendor Refund this entry stands for (#1399); set only by the refund sync step. */
+  vendor_refund?: string;
   owner?: string;
   created_by?: string;
 }
@@ -50,6 +53,15 @@ export interface POAdjustmentDoc {
   computed_from_children?: number;
   ledger_in_sync?: boolean;
   manual_edit?: AdjustmentManualEdit | null;
+  /**
+   * The overpaid credit the server will let this PO spend: the ledger claim, capped at what was
+   * really overpaid, less what waiting Vendor Refunds hold (#1400). Optional for an older backend.
+   */
+  usable_credit?: number;
+  /** What this PO's waiting Vendor Refunds hold of its credit. */
+  held_credit?: number;
+  /** The waiting Vendor Refunds (Reconciliation Pending) that hold it, oldest first. */
+  waiting_refunds?: HeldRefund[];
 }
 
 interface CandidatePO {

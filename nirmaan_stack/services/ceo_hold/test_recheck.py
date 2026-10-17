@@ -138,6 +138,13 @@ class _FakePaymentDoc:
         self.projects = project  # Project Expenses uses the plural link field
         self.status = status
         self._prev = prev_status
+        self.flags = frappe._dict()
+        self.document_type = "Procurement Orders"
+        self.document_name = f"{project}-PO"
+        self.amount = 100
+
+    def get(self, field):
+        return getattr(self, field, None)
 
     def has_value_changed(self, _field):
         return True

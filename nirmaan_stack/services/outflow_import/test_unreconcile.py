@@ -25,6 +25,7 @@ from nirmaan_stack.services.outflow_import.unreconcile import (
     VERDICT_REVERT_EXPENSE,
     VERDICT_REVERT_PAYMENT,
     VERDICT_UNLINK_EXPENSE_LINE,
+    VERDICT_UNMATCH_REFUND,
     VERDICT_UNSPLIT_PAYMENT,
     WHAT_HAPPENS_DELETE,
     WHAT_HAPPENS_DELETE_PROJECT_INFLOW,
@@ -981,3 +982,99 @@ class TestAVendorRefundLineIsUndoneWhole(unittest.TestCase):
     def test_any_other_line_may_be_part_reversed(self):
         for doctypes in ([], ["Project Payments", "Project Expenses"], ["Project Inflows"]):
             self.assertFalse(unreconcile.reverse_all_only([{"target_doctype": d} for d in doctypes]))
+
+
+# A leg that MATCHED a waiting Vendor Refund (#1401): the refund existed before the line, so the leg
+# did not create it. Every refusal below changes one fact of it.
+MATCHED_WAITING_REFUND = LegFacts(
+    leg="MATCH-30",
+    match_kind="Settled",
+    target_doctype="Vendor Refunds",
+    target_name="VRF-1",
+    leg_amount=1000.0,
+    target_exists=True,
+    target_status="Received",
+    target_amount=1000.0,
+    target_reference=REF,
+    settlement_references=(REF,),
+    source="ICICI Bank Statement",
+    created_by_import=False,
+    matched_at=MATCHED_AT,
+)
+
+
+def matched_refund(**changes) -> LegFacts:
+    return dataclasses.replace(MATCHED_WAITING_REFUND, **changes)
+
+
+class TestAMatchedWaitingRefund(unittest.TestCase):
+    """#1401 (ADR-0032): a matched waiting refund goes back to waiting; it is never deleted. A refund
+    the import created is still deleted."""
+
+    def test_it_goes_back_to_waiting_and_is_kept(self):
+        verdict = leg_verdict(MATCHED_WAITING_REFUND)
+        self.assertEqual(verdict.verdict, VERDICT_UNMATCH_REFUND)
+        self.assertIsNone(verdict.reason)
+        self.assertEqual(
+            verdict.what_happens,
+            "Goes back to waiting for its bank line (Reconciliation Pending). It is kept, with the "
+            "UTR and date it had before the match.",
+        )
+
+    def test_a_refund_marked_received_with_no_bank_line_goes_back_to_that_and_keeps_counting(self):
+        """#1403: it was Received before the line was matched to it, so undoing the match leaves it
+        Received, with its "No bank proof" mark back."""
+        verdict = leg_verdict(matched_refund(refund_no_bank_line_before=True))
+        self.assertEqual(verdict.verdict, VERDICT_UNMATCH_REFUND)
+        self.assertEqual(
+            verdict.what_happens,
+            "Goes back to Received with no bank line (No bank proof). It still counts on its PO, and "
+            "keeps the UTR and date it had before the match.",
+        )
+
+    def test_a_refund_the_import_created_is_still_deleted(self):
+        verdict = leg_verdict(matched_refund(created_by_import=True))
+        self.assertEqual(verdict.verdict, VERDICT_DELETE_CREATED)
+        self.assertEqual(verdict.what_happens, "Will be deleted.")
+
+    def test_a_missing_refund_is_not_found(self):
+        verdict = leg_verdict(matched_refund(target_exists=False))
+        self.assertEqual((verdict.title, verdict.reason), ("Not found", "Vendor Refunds 'VRF-1' not found."))
+
+    def test_a_refund_no_longer_received_is_refused(self):
+        verdict = leg_verdict(matched_refund(target_status="Cancelled"))
+        self.assertEqual(verdict.verdict, VERDICT_REFUSED)
+        self.assertEqual(verdict.title, "Changed elsewhere")
+        self.assertEqual(verdict.reason, "VRF-1 is 'Cancelled', not Received. Somebody has already changed it.")
+
+    def test_a_refund_whose_amount_changed_is_refused(self):
+        verdict = leg_verdict(matched_refund(target_amount=900.0))
+        self.assertEqual(verdict.title, "Changed elsewhere")
+        self.assertIn("now reads 900.0", verdict.reason)
+
+    def test_a_refund_re_pointed_at_another_reference_is_refused(self):
+        verdict = leg_verdict(matched_refund(target_reference="OTHER999"))
+        self.assertEqual(verdict.title, "Changed elsewhere")
+        self.assertIn("'OTHER999'", verdict.reason)
+
+    def test_already_reversed_still_comes_first(self):
+        verdict = leg_verdict(matched_refund(match_kind="Reversed"))
+        self.assertEqual(verdict.title, "Already reversed")
+
+
+class TestAPaymentOnAClearedChequeStaysPaid(unittest.TestCase):
+    """#1485: a Cleared cheque has no undo (ADR-0035), so its payments are never put back."""
+
+    def test_the_leg_is_refused_naming_the_cheque(self):
+        verdict = leg_verdict(facts(cleared_cheque="000747"))
+        self.assertEqual(verdict.verdict, VERDICT_REFUSED)
+        self.assertEqual(verdict.title, "On a cleared cheque")
+        self.assertEqual(
+            verdict.reason,
+            f"{PAY} is on cheque 000747, which is Cleared. A cleared cheque cannot be undone, so this line "
+            "cannot be unreconciled.",
+        )
+        self.assertIsNone(verdict.fix_at)
+
+    def test_a_payment_on_no_cleared_cheque_still_reverts(self):
+        self.assertEqual(leg_verdict(facts(cleared_cheque=None)).verdict, VERDICT_REVERT_PAYMENT)

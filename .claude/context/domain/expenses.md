@@ -238,6 +238,22 @@ Done"** a Paid **Non Project** expense row carries a small **Upload Inv** button
   (retrying uploads again) — the same as every expense dialog. Two people editing one invoice: last write
   wins.
 
+### Payments queue: All Payments returns; HR Lead view-only (spec #1470, #1476)
+
+- **All Payments** (every PO / WO payment, Project Expense and Non-Project Expense, in every status) is
+  back on the strip, right after "Payment Raised By Me", for **Administrator, Admin, Accountant,
+  Accountant Lead, PMO Executive, HR Executive and HR Lead**. Procurement, Project Lead and Project
+  Manager do not see it; a deep link still opens it for them. The rule is
+  `frontend/src/pages/ProjectPayments/config/paymentsTabSet.ts`.
+- **Its badge** is `get_approval_queue_counts`'s `all`: every readable ledger, every status, the same
+  rows the tab lists (`test_approval_queue_counts`). Not the payments-only store count.
+- **Row actions:** the Actions column shows only to the queue edit profiles (`canWorkQueueRows`), so
+  PMO and HR see none.
+- **HR Lead** gets the Project Payment & Expense sidebar entry, **view-only**: HR Executive's tab set
+  (Reconciliation Pending, Payment Done, Payment Raised By Me, All Payments; Payments Pending by link),
+  landing on "Payment Raised By Me". No Add Expense button and no write right (its profile holds no
+  System Manager; see *Known asymmetries* below).
+
 ### Four server rules protect an expense its bank lines settle (ADR-0027 Q11/Q22, #1302)
 Both expense doctypes share ONE controller, `integrations/controllers/expense_bank_links.py`, wired in
 `hooks.py` on `validate` + `on_trash`. The refusals themselves are pure functions in
@@ -263,7 +279,7 @@ Every cross-surface expense calculation now filters `status = "Paid"`:
 
 | Surface | Where |
 |---|---|
-| CEO-Hold **cashflow gap** (backend) | `integrations/controllers/project_cashflow_hold_update.py` (`_compute_cashflow_gap`) |
+| CEO-Hold **cashflow gap** + Projects-list outflow (backend) | `services/project_money.py` (`project_money`), read by `_compute_cashflow_gap` and `get_projects_financial_rollup` |
 | CEO-Hold cashflow gap — **Approve-Payments CEO view** (frontend) | `pages/ProjectPayments/approve-payments/ApprovePayments.tsx` — the `projectExpenses` fetch (swr key `ProjectExpenses_CEOPending`) filters `status = "Paid"`, mirroring the backend gap + `projects.tsx`; `Requested`/`Approved`-but-unpaid no longer inflate the displayed gap. |
 | **30-day Payment dashboard** (Project + Non-Project) | `api/payments/get_project_payment_summary.py` |
 | **Outflow Report(Project)** | `pages/reports/hooks/useOutflowReportData.ts` |
@@ -281,6 +297,11 @@ List-page **summary cards stay tab-scoped** (they reflect the active status tab)
   `on_trash` *before* the row is deleted, so the gap query would still count the row);
   `after_delete` runs after the delete, so removing a `Paid` expense correctly lowers the
   gap / can release a hold. `generate_versions` stays on `on_trash`.
+- **An expense's own Files go through `stored_files.delete_files`** (`expense_files.delete_attached_files`,
+  the LAST `after_delete` handler on both expense doctypes, spec #1442): a File sharing its stored bytes
+  with another (a Porter invoice PDF) loses only its record. It runs mid-transaction, against
+  `delete_files`' "call it last" rule, and no later than before: Frappe's own `remove_all` trashed the same
+  Files at this same point of `delete_doc`, so a rollback after it could not restore a stored object either.
 
 ### PO adjustment
 - The ad-hoc adjustment expense is created directly as **`Paid`** (money has already moved)
@@ -323,6 +344,18 @@ roles. **Accountant\*** below = both `Nirmaan Accountant Profile` and
   `renderRightActionButton.tsx`): **no extra role gate** — the same 5 groups can create,
   for both Project and Non-Project.
 - **Default landing tab:** Accountant\* → `Approved`; everyone else → `Requested`.
+- **Add Expense on Project Payment & Expense** (`/project-payments`, the Project Expense /
+  Non-Project Expense dropdown): one pure, tested gate,
+  `pages/ProjectPayments/config/addExpenseGate.canAddExpense` — the `Administrator` user, Admin,
+  Accountant\*, every procurement profile, HR Executive and PMO Executive; not HR Lead, Project
+  Lead or Project Manager. It hides the button only: the Direct Expense endpoint's `create` check
+  is the boundary.
+- **PMO Executive's create right sits on its own role** (#1475): the `Nirmaan PMO Executive` DocPerm
+  on `Project Expenses` and `Non Project Expenses` is create + write + read, no delete (a DocType
+  save in developer mode, not a hand-edit). Before it held read only, and a PMO save worked only
+  because the PMO profile also carries System Manager; the right is on the role so it survives
+  System Manager coming off that profile. It grants no approval or settle tab: the 2026-09-17 PMO
+  access review stands (`paymentsTabSet` is unchanged).
 
 ### Non-Project Expenses — actions per tab
 Primary actions render inline; secondary (Requested-only) sit in a `⋯` overflow menu.
@@ -378,7 +411,9 @@ Actions column visibility: same rule as Non-Project.
   a UNION across roles. ⚠️ **`Nirmaan HR Lead Profile` = `[Nirmaan HR Lead, Nirmaan HR Executive]`
   with NO System Manager, so it has genuinely no write.** It is not matched by the
   `role === "Nirmaan HR Executive Profile"` check, so it is safe today (0 such users) — but
-  do NOT extend any write action to HR Lead without adding a real DocPerm first.
+  do NOT extend any write action to HR Lead without adding a real DocPerm first. (PMO
+  Executive was in the same position until #1475 gave its role create + write; see
+  Module visibility & create.)
 
 ---
 
@@ -558,7 +593,8 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   2026-08-18) — and it MUST be `after_delete`, never `on_trash`: `on_trash` fires BEFORE the
   row leaves the database, so the expense still points at the request and Frappe refuses
   (`LinkExistsError`). The cashflow recompute on the same doctype moved to `after_delete` for
-  the same class of reason. **It clears the request's notifications FIRST, and that is not
+  the same class of reason, and so does the Files delete (`expense_files.delete_attached_files`, after the
+  link checks: a refused delete deletes no bytes). **It clears the request's notifications FIRST, and that is not
   tidiness — it is what makes the delete possible**: `Nirmaan Notifications.docname` is a
   **Dynamic Link**, and Frappe's delete guard walks dynamic links, so any rejected or paid
   request carries a notification that would block it. `ignore_links=True` is the WRONG fix —
@@ -614,8 +650,60 @@ save an invalid template**.
 - **A format NEVER declares a field named after a native column** (`comment`,
   `amount`, `type`, `projects`). Those are real columns the ledger row is built from; a format
   field of the same name would record the value twice and let the two disagree.
-- **Payee bank details are NOT asked** (owner, 2026-08-18). Payment details belong to the
-  payment, not the request — the accountant records them at Mark-as-Paid.
+- **A request names who gets paid: its own pay-to account** ([ADR-0033](../../../docs/adr/0033-payee-is-one-bank-account.md)
+  is the source; it retired the 2026-08-18 rule that a request asks for no payee bank details).
+  Built by #1429, reworked by #1436 (spec #1420):
+  - `Expense Type.payee_rule` (*Who gets paid*): *Required*, *Optional* or *Not asked* (the
+    default). Set in Expense Packages' Edit dialog (`masters.update_expense_type`). ⚠️ It is a
+    fixture field like the rest of the type, so a value set in the app is reset by the next migrate
+    unless the fixture is re-exported.
+  - **The pay-to account** (#1436): `Expense Request`, `Project Expenses` and `Non Project Expenses`
+    each hold `pay_to_account_name`, `pay_to_account_number`, `pay_to_ifsc`, `pay_to_bank_name`,
+    `pay_to_bank_branch`, a COPY of a Payee's account taken when the record is raised; nothing links
+    back to the Payee, so editing or deleting it changes no copy. The one copy function is
+    `services/payees/pay_to.copy_payee_account`. The three doctypes have no `payee` link (#1438).
+  - **Raising** (`create_expense_request`): the `payee` sent (picked, or just added through
+    `api/expense_requests/payees.add_request_payee`) is copied in, unless the request names a vendor.
+    **Editing** (`update_expense_request`): `keep_pay_to=1` leaves the copy as it is; otherwise the
+    `payee` sent is copied (none clears it). Both through `pay_to.apply_picked_payee`, which refuses
+    a Payee that does not exist. A **Direct Expense** (#1471) is recorded the same way:
+    `api/expenses/direct_expense.create_direct_expense` (rules in `payees.md` § Expense payee).
+  - **A vendor named** (request or Project Expense, every write path): the save hook copies the
+    vendor's Payee when the record has no copy and whenever the vendor changes, until the record is
+    paid (`pay_to.fill_from_vendor`, from `guard.check_payee_links`). New expense dialogs, Bulk
+    Import's create-expense and adjustments get it this way. Clearing the vendor leaves the copy.
+  - **Records raised before the pay-to account** were filled by `patches/v3_0/backfill_pay_to_accounts`
+    (#1441): unpaid ones from the vendor's Payee, paid ones from their settled bank line, the rest
+    blank. Rules: `payees.md`.
+  - **No server refusal** (#1436, owner 2026-10-15): *Required* with no account, a vendor and an
+    account that disagree, a change after payment, a change outside Accounts are all accepted. They
+    are screen rules: the request dialog blocks sending a *Required* type with no account
+    (`utils/payees/expensePayee.whoGetsPaidProblem`) and shows a vendor's account read-only.
+  - Approval (`convert.create_ledger_row`) copies the request's pay-to account onto the Project or
+    Non-Project Expense AS IT IS (`pay_to.copy_pay_to`): the vendor's Payee is not read again. The
+    reviewer sees it: `get_my_expense_requests` rows carry `pay_to` (`pay_to.pay_to_account`).
+  - The dialog's picker (search, add new, the vendor's Payee) calls `api/expense_requests/payees`,
+    gated on `access.can_raise_requests`, never the Accounts-only `api/payees/` endpoints.
+  - Record Payment's "Pay ₹X to" box reads the expense's own copy; its Change account
+    (`expense_payee.change_expense_account`, #1438; Accounts, an approved, unpaid expense with no
+    vendor, a screen rule) overwrites the copy with a picked or added Payee's account, recorded with
+    who and when (`.claude/context/domain/payees.md` § Paid to).
+  - **No format asks for bank details or who gets paid as free text** (#1430): the Payroll,
+    Accommodation Deposit and Staff Accommodation Rent "Payee Bank Details" sections, and the
+    fields that only named the payee (Rent's landlord, the Deposit's landlord / PG, Payroll's
+    employee, the "Paid To" of Office Maintenance, Pooja, Other Financial and Staff Welfare), are
+    gone. Those types ask for a Payee instead: *Required* for Rent Expenses and Accommodation
+    Deposit (paid by transfer into the landlord's account, and a deposit is recovered from it),
+    *Optional* for the other six (card, cash, or a payroll batch with no single payee). The choice
+    is pinned by `api/expense_requests/test_request_forms.py`, which also refuses a bank field or a
+    `description_template` placeholder naming a field the form no longer asks. Bank Interest's
+    "Bank Account No." stays: it is the company's own account, not who gets paid. Supplier-name
+    fields (Service Provider, Print Vendor, Firm / Consultant, Supplier, ...) stay, and those
+    types stay *Not asked*.
+  - **Old requests keep their text.** Their answers stay in `source_data`; a request raised
+    before a field was removed and approved after gets those answers after the format's sentence,
+    labelled from the key (`flatten.undeclared_pairs`, used by `convert.compose_description`).
+    Ledger descriptions already written are never rewritten.
 - **ONE FORMAT PER EXPENSE TYPE** (owner, 2026-08-18), replacing an earlier shared
   accommodation shape. A staff PG, a labour dorm, a deposit and a hotel booking are four
   different questions, and the evidence differs per type: all 7 live Staff rows name exactly
@@ -705,6 +793,72 @@ silently wiped the shipped Travel (Bus) format once. Use the suite's `_set_forma
 - Decision: `docs/adr/0027-many-lines-one-expense.md` — many bank lines settle one expense.
 - Plan / as-built: `.claude/plans/expense-request-plan.md`.
 - Bank-line settlement as-built: `.claude/context/domain/outflow-import.md`.
+
+## Porter expenses (designed 2026-10-15; created since #1445; expense screens since #1450)
+
+The Porter Statement import ([ADR-0032](../../../docs/adr/0032-porter-statement-import.md); rulings and
+as-built in `outflow-import.md` § *Porter Statement — the fourth source*) creates one Project or Non-Project
+Expense per completed Porter order, at `Paid` (`api/outflow_import/porter_create.py`, #1445):
+- **Amount:** the Porter fare, never the reverse-charge GST (that stays on the Porter Order as `rcm_gst`).
+- **Fields:** `payment_date` = the order's completion date; `payment_ref` = the CRN; `invoice_ref` /
+  `invoice_date` = the Porter Invoice's number and the date Gemini read; `payment_by` = the trimmed
+  booked-by name (Project side; Non-Project has no Paid by); `vendor` blank; `type` = Material
+  Transportation Charges (now flagged for both ledgers in the fixture); description "Porter Delivery raised
+  by {name} for {project}" (no " for …" on Non-Project); comment "Imported from OFI-…"; no
+  `payment_attachment`.
+- **Link:** one read-only, indexed `porter_order` Link to the `Porter Order` doctype (named by CRN). The
+  Expense owns the link; the Porter Order holds none back and survives the Expense's deletion.
+- **Invoice PDF:** `invoice_attachment` is the URL of the ONE `File` attached to the Porter Invoice, shared by
+  every order on it; no File row per expense (written raw after insert so Frappe's attach-on-update hook makes
+  none, and a `File` `before_insert` hook, `expense_files.refuse_invoice_pdf_copy`, refuses the copy that hook
+  tries on every later save of a local-path value; it logs "Error Attaching File" and the save goes through).
+  Deleting the expense runs its own Files through `stored_files.delete_files`, so the PDF is never deleted
+  with it. The File itself is readable only by roles that can read `Porter Invoice` (Admin, Accountant,
+  Accountant Lead) on a local-disk site, so every screen (both lists, both edit dialogs, the approval detail,
+  the Porter section) opens it through `porter_invoice_pdf` (below), never the raw URL: one rule, a Porter
+  Expense WITH an invoice attachment, in `porter_expense.pdf_url` and `utils/porterExpense.invoiceAttachmentUrl`,
+  pinned to each other. (In production the stored URL is the storage app's `generate_file`, which checks
+  nothing.)
+- **CEO Hold:** a Paid Project Expense counts in the cashflow gap at once; the Create job re-evaluates each
+  project it wrote to once at the end (the insert hook's check runs once per request).
+- **Delete:** refused by `expense_bank_links` rule 3, because each one has a live Settled import match
+  (pinned by `test_porter_expense.TestDeletingAPorterExpense`). `porter_order` itself guards nothing. Both
+  list pages now toast the server's reason (`getFrappeError`), e.g. "… cannot be deleted: 1 bank line
+  totalling ₹133 is linked to it. Take it off with Unreconcile …", not the SDK's generic delete error.
+
+### As built — #1450: Porter expenses in the expense screens (2026-10-15)
+
+**Decisions** live in `frontend/src/utils/porterExpense.ts` (vitest `porterExpense.test.ts`):
+`isPorterExpense` (= `porter_order` set: the badge and every lock), `projectField` (locked + `RECTIFY_HINT`
+"Use Rectify in Bulk Import" on a Porter Expense, `{locked: false}` otherwise), `porterSectionRows`.
+Components: `frontend/src/components/common/PorterExpense.tsx` — `PorterBadge`, `usePorterExpense`
+(SWR key `porter_expense_<doctype>_<name>`, null unless enabled), `PorterSectionBlock`, `PorterSection`.
+
+- **Badge** ("Porter", orange pill, before the text so truncation never hides it) in the Description column of
+  the Project list (standalone and the project's *Misc. Project Expenses* tab: one component) and the
+  Non-Project list (and its Outflow (Non-Project) report mode). `porter_order` is in
+  `DEFAULT_PE_FIELDS_TO_FETCH` / `DEFAULT_NPE_FIELDS_TO_FETCH` — the lists hand the ROW to the edit dialogs,
+  so without it neither the badge nor the dialogs' lock see it. Not on the Payments queue (out of scope:
+  `get_approval_queue` is a positional UNION).
+- **Read-only Porter section**: CRN, booked by, from → to, city, fare, reverse-charge GST, billing entity, and
+  the invoice number with a **View PDF** link. Read by ONE endpoint keyed on the EXPENSE,
+  `api/outflow_import/porter_expense.get_porter_expense(doctype, name)` (expense read permission; the Porter
+  doctypes are read without their own check, as `expense_detail` reads the Expense Request), `None` for a
+  hand-keyed expense. Shown in both edit dialogs (bottom), in the approval detail
+  (`ExpenseApprovalDetails`, when `get_expense_approval_detail` returns `porter_order`) and in the
+  bank-lines card on the Payments & Expenses table / Bulk Import (`ExpenseBankLinesCard`, when
+  `get_expense_bank_lines.details.porter_order` is set). It fetches only for a Porter Expense: every other
+  expense opens with no extra request. ⚠️ A Porter Expense is created at Paid, so it never reaches the
+  approval dialog in practice; the bank-lines card is where a Paid one is read.
+- **PDF (story 53):** `porter_expense.porter_invoice_pdf(doctype, name)` serves the Porter Invoice's stored
+  PDF inline (`response.type = "pdf"`) to anyone who may read the EXPENSE, reading the bytes through
+  `services/extraction/files.fetch_file_content` (cloud or local). Walked: a PMO Executive gets 403 on the raw
+  `/private/files/…` URL and the PDF through this link.
+- **Project lock (UI only, like every Paid lock — no server rule):** the Project edit dialog, which has no
+  project field for any other expense, shows a disabled Project row (the project's name) with the hint; the
+  Non-Project dialog shows a disabled "Non-Project" row with the same hint. Description and comment stay
+  editable and save (walked on both ledgers). On a local-disk site that save no longer adds a `File` row for
+  the shared PDF (the review fixes' `File` `before_insert` refusal; it logs "Error Attaching File").
 
 ## Deliberate design decisions (do NOT "fix")
 

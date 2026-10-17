@@ -1,0 +1,259 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:crn",
+ "creation": "2026-10-15 21:14:54.531558",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "crn",
+  "porter_invoice",
+  "import_row",
+  "column_break_order",
+  "completed_at",
+  "order_status",
+  "city",
+  "vehicle_type",
+  "booked_by_section",
+  "booked_by",
+  "booked_by_mobile",
+  "column_break_booked_by",
+  "booked_by_email",
+  "remark",
+  "route_section",
+  "from_address",
+  "to_address",
+  "waypoint_addresses",
+  "column_break_route",
+  "distance_km",
+  "travel_duration",
+  "waiting_time",
+  "money_section",
+  "fare",
+  "column_break_money",
+  "rcm_gst"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Order"
+  },
+  {
+   "fieldname": "crn",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "CRN",
+   "read_only": 1,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "porter_invoice",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Porter Invoice",
+   "options": "Porter Invoice",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "import_row",
+   "fieldtype": "Link",
+   "label": "Import Line",
+   "options": "Outflow Import Row",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "column_break_order",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "completed_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Completed At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "order_status",
+   "fieldtype": "Data",
+   "label": "Order Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "city",
+   "fieldtype": "Data",
+   "label": "City",
+   "read_only": 1
+  },
+  {
+   "fieldname": "vehicle_type",
+   "fieldtype": "Data",
+   "label": "Vehicle Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "booked_by_section",
+   "fieldtype": "Section Break",
+   "label": "Booked By"
+  },
+  {
+   "fieldname": "booked_by",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Booked By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "booked_by_mobile",
+   "fieldtype": "Data",
+   "label": "Mobile",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_booked_by",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "booked_by_email",
+   "fieldtype": "Data",
+   "label": "Email",
+   "read_only": 1
+  },
+  {
+   "fieldname": "remark",
+   "fieldtype": "Small Text",
+   "label": "Remark",
+   "read_only": 1
+  },
+  {
+   "fieldname": "route_section",
+   "fieldtype": "Section Break",
+   "label": "Route"
+  },
+  {
+   "fieldname": "from_address",
+   "fieldtype": "Small Text",
+   "label": "From",
+   "read_only": 1
+  },
+  {
+   "fieldname": "to_address",
+   "fieldtype": "Small Text",
+   "label": "To",
+   "read_only": 1
+  },
+  {
+   "fieldname": "waypoint_addresses",
+   "fieldtype": "Small Text",
+   "label": "Waypoints",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_route",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "distance_km",
+   "fieldtype": "Float",
+   "label": "Distance (km)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "travel_duration",
+   "fieldtype": "Data",
+   "label": "Travel Duration",
+   "read_only": 1
+  },
+  {
+   "fieldname": "waiting_time",
+   "fieldtype": "Data",
+   "label": "Waiting Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "money_section",
+   "fieldtype": "Section Break",
+   "label": "Money"
+  },
+  {
+   "description": "The Porter fare before GST: what the Expense records.",
+   "fieldname": "fare",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Fare",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_money",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "GST on the fare under reverse charge. Never part of the Expense amount.",
+   "fieldname": "rcm_gst",
+   "fieldtype": "Currency",
+   "label": "Reverse-charge GST",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-10-15 21:14:54.531558",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Porter Order",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant Lead",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "crn",
+ "track_changes": 1
+}

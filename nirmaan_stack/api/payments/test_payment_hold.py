@@ -53,19 +53,20 @@ class TestPaymentHold(FrappeTestCase):
 		frappe.set_user(U)
 
 	# -- helpers --------------------------------------------------------------------------------
-	def _plant(self, status=APPROVED, *, cheque=False):
+	def _plant(self, status=APPROVED, *, cheque=False, held=False):
 		"""A payment already sitting at `status`. Raw insert, so no approval hook runs."""
 		name = self.fx._name("PAY")
 		frappe.db.sql(
 			"""INSERT INTO "tabProject Payments" (name, creation, modified, modified_by, owner,
 				   docstatus, idx, project, vendor, amount, status, document_type, document_name,
-				   mode_of_payment, cheque_no, cheque_date)
-			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 20000, %s, %s, %s, %s, %s, %s)""",
+				   mode_of_payment, cheque_no, cheque_date, on_hold)
+			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 20000, %s, %s, %s, %s, %s, %s, %s)""",
 			(
 				name, U, U, self.project, self.vendor, status, SR, self.sr,
 				"Cheque" if cheque else "Online",
 				f"TESTCHQ-{frappe.generate_hash(length=8)}" if cheque else None,
 				nowdate() if cheque else None,
+				1 if held else 0,
 			),
 		)
 		self.fx.payments.append(name)
@@ -179,17 +180,41 @@ class TestPaymentHold(FrappeTestCase):
 		frappe.db.rollback()
 		self.assertEqual(self._state(name), (APPROVED, 1))
 
-	def test_held_cheque_is_not_moved_on(self):
+	def test_a_cheque_payment_cannot_be_held(self):
+		"""Spec #1477 (#1487): a cheque's payments move together, so one of them cannot be held alone."""
 		name = self._plant(cheque=True)
-		set_payment_hold(name, True)
+		cheque_no = frappe.db.get_value(PAYMENT, name, "cheque_no")
+		with self.assertRaises(frappe.ValidationError) as refused:
+			set_payment_hold(name, True)
+		self.assertIn(f"{name} is paid by cheque {cheque_no}, so it cannot be put on hold", str(refused.exception))
+		frappe.db.rollback()
+		self.assertEqual(self._state(name), (APPROVED, 0))
+
+		# Desk or REST cannot set the flag either: the rule is the document's.
+		doc = frappe.get_doc(PAYMENT, name)
+		doc.on_hold = 1
+		with self.assertRaises(frappe.ValidationError):
+			doc.save(ignore_permissions=True)
+		frappe.db.rollback()
+		self.assertEqual(self._state(name), (APPROVED, 0))
+
+	def test_a_cheque_payment_held_before_the_rule_is_released_and_moved_on(self):
+		"""A cheque payment held before #1487 is not moved on while held, and its release still works."""
+		name = self._plant(cheque=True, held=True)
 		with patch("frappe.log_error") as log_error:
 			self.assertEqual(move_cheque_payment_to_reconciliation(name), {"moved": False})
 		log_error.assert_not_called()
 		self.assertEqual(self._state(name), (APPROVED, 1))
 
-		set_payment_hold(name, False)
-		self.assertEqual(move_cheque_payment_to_reconciliation(name), {"moved": True})
+		# Releasing the hold is what moves it on (spec #1407): no other call is needed.
+		self.assertEqual(set_payment_hold(name, False), {"name": name, "on_hold": 0, "moved": True})
 		self.assertEqual(self._state(name), (RECON, 0))
+
+	def test_releasing_an_online_payment_leaves_it_approved(self):
+		name = self._plant()
+		set_payment_hold(name, True)
+		self.assertEqual(set_payment_hold(name, False), {"name": name, "on_hold": 0, "moved": False})
+		self.assertEqual(self._state(name), (APPROVED, 0))
 
 	def test_a_save_that_leaves_the_status_alone_still_works_while_held(self):
 		"""Other writers (a PO term sync, a TDS restatement) save a held payment without moving it."""

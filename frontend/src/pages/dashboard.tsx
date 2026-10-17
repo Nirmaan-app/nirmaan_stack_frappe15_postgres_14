@@ -8,6 +8,7 @@ import { ProjectManager } from "@/components/layout/dashboards/dashboard-pm";
 import { EstimatesExecutive } from "@/components/layout/dashboards/estimates-executive-dashboard";
 import { BillingExecutive } from "@/components/layout/dashboards/billing-executive-dashboard";
 import ProcurementDashboard from "@/components/layout/dashboards/procurement-dashboard";
+import ServiceProcurementDashboard from "@/components/layout/dashboards/service-procurement-dashboard";
 import { DesignDashboard } from "@/components/layout/dashboards/design-dashboard";
 import { SalesDashboard } from "@/components/layout/dashboards/dashboard-sales";
 import {
@@ -20,7 +21,7 @@ import { useUserData } from "@/hooks/useUserData";
 import { UserContext } from "@/utils/auth/UserProvider";
 import { useContext ,useEffect} from "react";
 import * as Sentry from "@sentry/react";
-import { isProcurementProfile } from "@/constants/roles";
+import { isProcurementProfile, SERVICE_PROCUREMENT_EXECUTIVE_PROFILE } from "@/constants/roles";
 
 
 export default function Dashboard() {
@@ -57,7 +58,7 @@ export default function Dashboard() {
         <>
 
             {(role === 'Nirmaan Admin Profile' || role === 'Nirmaan PMO Executive Profile') && <DefaultDashboard />}
-            {(has_project === "false" && !["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile", "Nirmaan Design Lead Profile", "Nirmaan Design Executive Profile", "Nirmaan HR Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Sales Executive Profile", "Nirmaan Sales Lead Profile"].includes(role)) ?
+            {(has_project === "false" && !["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile", "Nirmaan Design Lead Profile", "Nirmaan Design Executive Profile", "Nirmaan HR Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Sales Executive Profile", "Nirmaan Sales Lead Profile", SERVICE_PROCUREMENT_EXECUTIVE_PROFILE].includes(role)) ?
                 <Alert className="flex flex-col max-md:w-[80%] max-lg:w-[60%] w-[50%] mx-auto justify-center max-md:mt-[40%] mt-[20%]">
                     <div className="flex gap-2 items-center">
                         <RocketIcon className="h-4 w-4" />
@@ -72,7 +73,8 @@ export default function Dashboard() {
                 :
                 <>{role === 'Nirmaan Project Manager Profile' && <ProjectManager />}
                     {role === 'Nirmaan Project Lead Profile' && <ProjectLead />}
-                    {isProcurementProfile(role) && <ProcurementDashboard />}
+                    {isProcurementProfile(role) && role !== SERVICE_PROCUREMENT_EXECUTIVE_PROFILE && <ProcurementDashboard />}
+                    {role === SERVICE_PROCUREMENT_EXECUTIVE_PROFILE && <ServiceProcurementDashboard />}
                     {role === 'Nirmaan Estimates Executive Profile' && <EstimatesExecutive />}
                     {role === 'Nirmaan Billing Executive Profile' && <BillingExecutive />}
                     {(role === 'Nirmaan Accountant Profile' || role === 'Nirmaan Accountant Lead Profile') && <Accountant />}

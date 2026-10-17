@@ -39,6 +39,13 @@ be a bug of its own, so a ledger within `CAP_TOLERANCE` of the real figure is ta
 ₹1 matches `PO_ADJUSTMENT_OPEN_CREDIT_THRESHOLD`, the usable-credit floor already in use.
 It does not weaken the cap: the case it exists to stop was ₹4,130 against ₹0.
 
+THE HOLD (#1400, ADR-0032)
+
+A waiting Vendor Refund (status Reconciliation Pending) moves no money: the paid amount and the
+ledger stay as they are until accounts match the bank line. But the money it names is promised
+back, so it HOLDS that much of the PO's credit: `held` comes off the capped figure, never below 0.
+Every spender reads through the one reader that applies it, so none can spend held credit.
+
 Pure by construction (ADR-0010 B1) — no `frappe.db`, no request context. The DB reads live in
 `api/po_adjustments/_payment_utils.usable_po_credit`.
 """
@@ -63,14 +70,14 @@ def real_overpayment(amount_paid, total_amount) -> float:
     return max(0.0, _num(amount_paid) - _num(total_amount))
 
 
-def usable_credit(remaining_impact, amount_paid, total_amount) -> float:
+def usable_credit(remaining_impact, amount_paid, total_amount, held=0) -> float:
     """Overpaid credit this PO may actually spend.
 
     `min(ledger, real)`, except that a ledger within `CAP_TOLERANCE` of the real figure is
-    honoured in full so accumulated rounding never shaves a legitimate balance.
+    honoured in full so accumulated rounding never shaves a legitimate balance. Less `held`, the
+    PO's waiting Vendor Refunds, and never below 0.
     """
     claimed = ledger_credit(remaining_impact)
     real = real_overpayment(amount_paid, total_amount)
-    if claimed <= real + CAP_TOLERANCE:
-        return claimed
-    return real
+    capped = claimed if claimed <= real + CAP_TOLERANCE else real
+    return max(0.0, capped - max(0.0, _num(held)))

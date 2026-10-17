@@ -87,7 +87,7 @@ class TestAllocatingInOneGo(AllocationFixture):
         """⚠️ FIX 1 (review, Task 4). `settle_payment` calls `apply_statement_attachment` on EVERY
         leg, so all three payments end up POINTING at the private statement file -- but only a
         `File` row per target actually lets that link OPEN for someone who cannot read the import
-        batch (`_link_statement_file_to_target`'s own docstring). Before the fix, that function was
+        batch (`link_statement_file_to_target`'s own docstring). Before the fix, that function was
         called ONCE, off the loop's post-loop `result` variable, which held only the LAST leg --
         the first two of three payments never got a `File` row and their attachment 403s.
 
@@ -100,7 +100,7 @@ class TestAllocatingInOneGo(AllocationFixture):
         row = self._staged_row(amount="100")
         pays = self._three_payments()
         with patch(
-            "nirmaan_stack.api.outflow_import.expenses._link_statement_file_to_target"
+            "nirmaan_stack.api.outflow_import.expenses.link_statement_file_to_target"
         ) as linker:
             allocate_row(row=row, targets=self._targets(pays))
         self.assertEqual(linker.call_count, 3)
@@ -346,7 +346,7 @@ class TestAConcurrentLoser(AllocationFixture):
         pays = self._three_payments()
         frappe.db.commit()
         with patch.object(
-            expenses, "_link_statement_file_to_target", side_effect=self._refusal()
+            expenses, "link_statement_file_to_target", side_effect=self._refusal()
         ):
             with self.assertRaises(pg_errors.SerializationFailure) as caught:
                 allocate_row(row=row, targets=self._targets(pays))

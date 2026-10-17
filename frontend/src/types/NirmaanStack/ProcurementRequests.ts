@@ -78,9 +78,9 @@ export interface ProcurementRequestItemDetail {
 }
 
 
+/** One `pr_tag_list` row: a package the PR carries, written from its items by the server. */
 export interface PRTag {
 	name?: string;
-	tag_header: string;
 	tag_package: string;
 }
 

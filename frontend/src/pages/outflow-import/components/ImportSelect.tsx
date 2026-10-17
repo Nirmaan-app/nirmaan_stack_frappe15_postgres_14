@@ -16,6 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 import type { OutflowImportOption } from "@/types/NirmaanStack/OutflowImportBatch";
 
+import { matchesEveryToken } from "../importHistoryView";
 import {
     importOptionLabel,
     importPeriodLabel,
@@ -44,6 +45,8 @@ interface Props {
     /** The pinned statement, or `undefined` for ALL of them. */
     value?: string;
     onChange: (batch?: string) => void;
+    /** Sizes the trigger; the summary card stretches it to fill its row. */
+    className?: string;
 }
 
 /**
@@ -62,7 +65,7 @@ interface Props {
  * three are `h-8`; a two-line trigger would break that row's alignment. The two-line shape belongs
  * to the ITEMS, where there is room for it.
  */
-export const ImportSelect = ({ options, value, onChange }: Props) => {
+export const ImportSelect = ({ options, value, onChange, className }: Props) => {
     const [open, setOpen] = useState(false);
 
     const selected = useMemo(
@@ -78,14 +81,11 @@ export const ImportSelect = ({ options, value, onChange }: Props) => {
      * by clearing the box first. Keeping it a REAL `cmdk` item (rather than force-mounting it
      * outside the filter) is what keeps arrow keys and Enter working on it.
      *
-     * Token-AND rather than one substring, so `shanu may` finds a May statement of Shanu's.
+     * Token-AND through `matchesEveryToken`, the one spelling the History dialog's search shares.
      */
     const filter = (itemValue: string, search: string, keywords?: string[]) => {
         if (itemValue === ALL_IMPORTS) return 1;
-        const tokens = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
-        if (!tokens.length) return 1;
-        const haystack = [itemValue, ...(keywords ?? [])].join(" ").toLowerCase();
-        return tokens.every((token) => haystack.includes(token)) ? 1 : 0;
+        return matchesEveryToken([itemValue, ...(keywords ?? [])].join(" "), search) ? 1 : 0;
     };
 
     const choose = (batch?: string) => {
@@ -101,9 +101,14 @@ export const ImportSelect = ({ options, value, onChange }: Props) => {
                     variant="outline"
                     role="combobox"
                     aria-expanded={open}
-                    className="h-8 w-[340px] max-w-full justify-between px-3 font-normal"
+                    className={cn(
+                        "h-8 w-[340px] max-w-full justify-between px-3 font-normal",
+                        className
+                    )}
                 >
-                    <span className="truncate">
+                    {/* `min-w-0` lets the label shrink inside the flex trigger, so a long
+                        filename truncates instead of pushing the chevron out of the button. */}
+                    <span className="min-w-0 truncate">
                         {selected ? importOptionLabel(selected) : "All imports"}
                     </span>
                     <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />

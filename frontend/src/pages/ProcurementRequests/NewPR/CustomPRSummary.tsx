@@ -48,6 +48,8 @@ interface ApprovalSummary {
 interface CustomPRSummaryProps {
   // +++ Add orderData to the props +++
   orderData: ProcurementRequest | undefined;
+  /** The packages of the rows being sent, shown on the header card. */
+  packages?: string[];
   approvalSummary: ApprovalSummary;
   resolve: boolean;
   onBack: () => void;
@@ -67,6 +69,7 @@ interface CustomPRSummaryProps {
 
 export const CustomPRSummary: React.FC<CustomPRSummaryProps> = ({
   orderData, // Destructure the new prop
+  packages,
   approvalSummary,
   resolve,
   onBack,
@@ -84,7 +87,7 @@ export const CustomPRSummary: React.FC<CustomPRSummaryProps> = ({
   return (
     <>
       {/* +++ Render the Header Card at the top of the summary view +++ */}
-      <ProcurementHeaderCard orderData={orderData} customPr />
+      <ProcurementHeaderCard orderData={orderData} customPr packages={packages} />
 
       <div className="flex items-center mt-4"> {/* Added margin for spacing */}
         <ArrowLeft className="cursor-pointer" onClick={onBack} />

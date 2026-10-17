@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { ChevronRight } from "lucide-react";
+import { AlertTriangle, ChevronRight, Lock } from "lucide-react";
 
 import {
   AlertDialog,
@@ -35,6 +35,16 @@ import { statusAfterL1, TIER_L2_ABOVE, TIER_L2_ABOVE_EXPENSES } from "@/utils/ap
 import { isExpenseRow } from "../hooks/useBulkApprovalActions";
 import { isChequePayment, paymentModeSummary } from "../../paymentMode";
 import { formatDate } from "@/utils/FormatDate";
+import { useChequeGroups } from "@/components/cheques/useChequeGroups";
+import { ChequeChip } from "@/components/cheques/ChequeChip";
+import {
+  bulkChequeGroups,
+  bulkDecisionTotals,
+  chequeGroupNote,
+  chequeGroupProblem,
+  chequeKeyOf,
+  type BulkChequeGroup,
+} from "@/utils/cheques/chequeBulk";
 
 import { BulkAction, BulkMode } from "../hooks/useBulkPaymentActions";
 
@@ -144,17 +154,31 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
 
   const mix = useMemo(() => summarizeSelection(payments), [payments]);
 
-  const { totalAmount, docCount, buckets } = useMemo(() => {
+  // One cheque, one decision (#1481): a ticked payment on a Pending cheque is decided with every payment
+  // on that cheque, ticked or not, so each cheque shows as one locked group listing all of them.
+  const chequeRowIds = useMemo(
+    () => payments.filter((p) => chequeKeyOf(p)).map((p) => p.name),
+    [payments]
+  );
+  const { groups: chequeApprovals, isLoading: chequeGroupsLoading } = useChequeGroups(chequeRowIds, mode);
+  const { groups: chequeGroups, others } = useMemo(
+    () => bulkChequeGroups(payments, chequeApprovals),
+    [payments, chequeApprovals]
+  );
+  const decision = useMemo(() => bulkDecisionTotals(chequeGroups, others), [chequeGroups, others]);
+
+  const { docCount, buckets } = useMemo(() => {
     const map = new Map<string, ProjectBucket>();
-    let total = 0;
     // PO/SR count, so it stays honest on an all-expense batch: an expense has no
     // parent document, so it must not be counted as one.
     const distinctDocs = new Set<string>();
+    for (const g of chequeGroups) {
+      for (const l of g.lines) if (l.payment && l.record) distinctDocs.add(l.record);
+    }
 
-    for (const p of payments) {
+    for (const p of others) {
       const key = p.project || NO_PROJECT;
       const amt = parseNumber(p.amount);
-      total += amt;
       if (p.document_name) distinctDocs.add(p.document_name);
 
       if (!map.has(key)) {
@@ -188,8 +212,9 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
       if (a.isNoProject !== b.isNoProject) return a.isNoProject ? 1 : -1;
       return a.label.localeCompare(b.label);
     });
-    return { totalAmount: total, docCount: distinctDocs.size, buckets: arr };
-  }, [payments, projectLabelFor]);
+    return { docCount: distinctDocs.size, buckets: arr };
+  }, [others, chequeGroups, projectLabelFor]);
+  const totalAmount = decision.amount;
 
   /**
    * Tax the whole selection will withhold.
@@ -208,7 +233,7 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
   // the CEO and withholds nothing yet; counting it here overstated the tax and understated what
   // the vendors receive. Forwarded rows -- of every ledger -- get their own note below.
   const { tdsTotals, forwardedNote } = useMemo(() => {
-    const finishes = payments.filter((p) => withholdsOnApproval(mode, p.amount));
+    const finishes = others.filter((p) => withholdsOnApproval(mode, p.amount));
     const totals = (rows: ApprovalQueueRow[]) =>
       forecastTdsTotals(rows, (p) => rateFor(p.vendor), (p) => companyBorneFor(p.document_name));
     // What this L1 click FORWARDS to the CEO instead of finishing -- every ledger, each on its own
@@ -216,7 +241,7 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
     const forwards =
       mode === "ceo"
         ? []
-        : payments.filter(
+        : others.filter(
             (p) => statusAfterL1(p.amount, isExpenseRow(p) ? TIER_L2_ABOVE_EXPENSES : undefined) === "CEO Pending"
           );
     const note = forwardedToCeoNote(
@@ -225,17 +250,27 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
       totals(forwards).count
     );
     return { tdsTotals: totals(finishes), forwardedNote: note };
-  }, [payments, mode, rateFor, companyBorneFor]);
+  }, [others, mode, rateFor, companyBorneFor]);
 
-  const modes = useMemo(() => paymentModeSummary(payments), [payments]);
+  // Every payment of a cheque group is a cheque payment, ticked or not.
+  const modes = useMemo(() => {
+    const base = paymentModeSummary(others);
+    const inGroups = bulkDecisionTotals(chequeGroups, []);
+    return {
+      online: base.online,
+      cheque: { count: base.cheque.count + inGroups.count, total: base.cheque.total + inGroups.amount },
+    };
+  }, [others, chequeGroups]);
 
-  const count = payments.length;
+  // What the run decides: the ticked rows plus every sibling their cheques bring with them.
+  const count = decision.count;
   const isReject = action === "reject";
   const trimmedReason = reason.trim();
-  const canSubmit = isLoading ? false : isReject ? trimmedReason.length > 0 : true;
+  const canSubmit = isLoading || chequeGroupsLoading ? false : isReject ? trimmedReason.length > 0 : true;
 
   // The queue holds three ledgers, so the noun is derived, never hardcoded.
-  const title = `${isReject ? "Reject" : "Approve"} ${countLabel(mix)}?`;
+  const title = `${isReject ? "Reject" : "Approve"} ${countLabel(mix, count)}?`;
+  const groupCount = buckets.length + chequeGroups.length;
   const breakdown = selectionBreakdown(mix, docCount);
 
   return (
@@ -263,7 +298,7 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
               {formatToRoundedIndianRupee(totalAmount)}
             </span>
             <span className="text-xs text-muted-foreground tabular-nums">
-              {buckets.length} group{buckets.length !== 1 ? "s" : ""}
+              {groupCount} group{groupCount !== 1 ? "s" : ""}
               {breakdown && ` · ${breakdown}`}
             </span>
           </div>
@@ -337,6 +372,20 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
             flex-1 absorbs remaining height up to container's max-h. */}
         <div className="flex-1 overflow-y-auto px-3 sm:px-5 py-1 min-h-0 overscroll-contain">
           <ul className="divide-y divide-border/30">
+            {chequeGroupsLoading && (
+              <li className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+                <TailSpin width={14} height={14} color="gray" />
+                Finding the other payments on these cheques…
+              </li>
+            )}
+            {chequeGroups.map((group) => (
+              <ChequeGroupBlock
+                key={group.approval.cheque}
+                group={group}
+                action={action}
+                mode={mode}
+              />
+            ))}
             {buckets.map((bucket) => {
               const isOpen = expanded.has(bucket.key);
               return (
@@ -447,6 +496,64 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  );
+};
+
+interface ChequeGroupBlockProps {
+  group: BulkChequeGroup;
+  action: BulkAction;
+  mode: BulkMode;
+}
+
+/**
+ * One Payment cheque in the bulk dialog (#1481): its chip, what the action does to it, and every payment on
+ * it as locked rows. A payment the user did not tick is marked "With its cheque": the cheque is decided as
+ * one, so it goes with the others.
+ */
+const ChequeGroupBlock: React.FC<ChequeGroupBlockProps> = ({ group, action, mode }) => {
+  const { approval, lines } = group;
+  const problem = chequeGroupProblem(group, action);
+  return (
+    <li className="my-1.5 rounded-md border border-indigo-200 border-l-4 border-l-indigo-500 bg-indigo-50/60 dark:border-indigo-900 dark:bg-indigo-950/30">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-2.5 py-2 text-xs text-indigo-950 dark:text-indigo-100">
+        <ChequeChip cheque={approval.cheque} chequeNo={approval.cheque_no} status={approval.status} />
+        <span>{chequeGroupNote(group, action, mode)}</span>
+      </div>
+      {problem && (
+        <div className="mx-2.5 mb-2 flex items-start gap-1.5 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-none" aria-hidden="true" />
+          <span>
+            <span className="font-semibold">This cheque will not be approved.</span> {problem}
+          </span>
+        </div>
+      )}
+      <ul className="divide-y divide-indigo-100 dark:divide-indigo-900/60 border-t border-indigo-100 dark:border-indigo-900/60">
+        {lines.map((line) => (
+          <li key={line.key} className="flex items-start justify-between gap-2 px-2.5 py-1.5 text-xs">
+            <div className="flex min-w-0 flex-1 items-start gap-1.5">
+              <Lock className="mt-0.5 h-3 w-3 flex-none text-indigo-400" aria-label="Decided with its cheque" />
+              <div className="min-w-0">
+                <div className={`truncate font-mono ${line.payment ? "" : "italic text-muted-foreground"}`}>
+                  {line.payment ?? "No payment yet"}
+                  {line.record && <span className="text-muted-foreground"> · {line.record}</span>}
+                </div>
+                <div className="truncate text-[11px] text-muted-foreground">
+                  {line.project_name ?? line.project ?? ""}
+                  {line.payment && !line.ticked && (
+                    <span className="font-medium text-indigo-700 dark:text-indigo-300">
+                      {line.project_name || line.project ? " · " : ""}With its cheque
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <span className="whitespace-nowrap font-medium tabular-nums">
+              {formatToRoundedIndianRupee(line.amount)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </li>
   );
 };
 

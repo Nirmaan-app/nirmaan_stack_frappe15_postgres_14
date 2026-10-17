@@ -6,8 +6,9 @@ import frappe
 from frappe import _
 from frappe.utils import flt, nowdate
 
+from nirmaan_stack.services.amount_paid import write_amount_paid
 from nirmaan_stack.services.po_credit import usable_credit
-from nirmaan_stack.services.vendor_refunds import amount_paid_of
+from nirmaan_stack.services.vendor_refunds import held_on
 
 
 def usable_po_credit(po_id, for_update=False):
@@ -21,6 +22,11 @@ def usable_po_credit(po_id, for_update=False):
     lock, deliberately — locking it here would put a second row type into the push/pull lock
     ordering and risk deadlocks against `_lock_and_assert_dest_capacity`, to protect a bound
     that is already conservative. An unlocked cap is strictly better than no cap.
+
+    THE HOLD (#1400, ADR-0032): the PO's waiting Vendor Refunds hold their amount of the credit,
+    so it comes off here, for every spender at once. Read AFTER the adjustment lock: a waiting
+    refund is recorded under the same lock (`api/vendor_refunds/waiting_refunds`), so a spender
+    that waited on it sees the refund that was committed meanwhile.
     """
     adj_name = frappe.db.get_value("PO Adjustments", {"po_id": po_id}, "name")
     if not adj_name:
@@ -31,13 +37,16 @@ def usable_po_credit(po_id, for_update=False):
     po = frappe.db.get_value(
         "Procurement Orders", po_id, ["amount_paid", "total_amount"], as_dict=True
     ) or {}
-    return usable_credit(remaining, po.get("amount_paid"), po.get("total_amount"))
+    return usable_credit(
+        remaining, po.get("amount_paid"), po.get("total_amount"), held=held_on(po_id)
+    )
 
 
-def _create_project_payment(po_id, project, vendor, amt, status, utr=None, attachment=None):
+def _create_project_payment(po_id, project, vendor, amt, status, utr=None):
     """
     Internal helper to create a Project Payment record without appending terms.
-    Used during adjustment flows (refunds/credits).
+    Used during adjustment flows (credit transfers and ad-hoc). A vendor refund never creates one
+    (#1400, ADR-0032): it is a Vendor Refund record.
     """
     pay = frappe.new_doc("Project Payments")
     pay.document_type = "Procurement Orders"
@@ -51,9 +60,6 @@ def _create_project_payment(po_id, project, vendor, amt, status, utr=None, attac
 
     if utr:
         pay.utr = utr
-    if attachment:
-        pay.payment_attachment = attachment
-        pay.utr = f"VR-{po_id}"
 
     pay.flags.from_adjustment = True  # Skip ALL project_payments.py hooks
     pay.save(ignore_permissions=True)
@@ -63,23 +69,26 @@ def _create_project_payment(po_id, project, vendor, amt, status, utr=None, attac
 
 def _recalculate_amount_paid(po_id):
     """
-    Manually recalculates and sets amount_paid on a Procurement Order
-    by summing all its 'Paid' Project Payments, less its Vendor Refunds
-    (`services/vendor_refunds.amount_paid_of`, the one rule every writer shares).
-    Called after creating payments with from_adjustment=True flag,
-    since the normal project_payments.py on_update hook is skipped.
+    Recount a Procurement Order's amount_paid (its 'Paid' Project Payments less its Received
+    Vendor Refunds) and the amount_due built on it, through the one writer
+    (`services/amount_paid.write_amount_paid`).
+    Called after creating payments with from_adjustment=True flag, since the normal
+    project_payments hooks are skipped -- including the one that would have done it.
     """
-    total_paid = amount_paid_of("Procurement Orders", po_id)
-    frappe.db.set_value("Procurement Orders", po_id, "amount_paid", total_paid)
+    write_amount_paid("Procurement Orders", po_id)
 
-    # `amount_due` on the PO is amount_invoiced - amount_paid, so it moves with the
-    # write above. It has to be called HERE and not left to Project Payments: the
-    # payments this function follows were created with `from_adjustment=True`, which
-    # skips every project_payments.py hook -- including the one that would have done it.
-    from nirmaan_stack.api.invoices._item_billing_sync import (
-        recompute_document_amount_due,
-    )
-    recompute_document_amount_due("Procurement Orders", po_id)
+
+def _recheck_cashflow_after_recount(po_ids):
+    """Re-evaluate the CEO Hold cashflow gap of every project behind `po_ids`, once their
+    `amount_paid` has been recounted (#1453). The payments this flow writes skip their hooks
+    (`from_adjustment`), the cashflow check included, so without this the gap would wait for the
+    project's next payment -- or read a stale `amount_paid` from a check run earlier in the request.
+    """
+    from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import recheck_after_recount
+
+    projects = {frappe.db.get_value("Procurement Orders", po, "project") for po in po_ids if po}
+    for project in sorted(p for p in projects if p):
+        recheck_after_recount(project)
 
 
 def _append_return_payment_term(po_doc, payment_doc, term_label, amt):

@@ -118,6 +118,7 @@ import {
     REFERENCE_DISPLAY_MAX,
     referenceValue,
     rowSettlementLinks,
+    referenceToSave,
     settledBankLineTargets,
     shortReference,
     seedDecisions,
@@ -416,10 +417,10 @@ describe("what Re-run match will touch", () => {
             // no longer about reach: it is the only thing on screen saying the button will not match
             // at all, so suppressing it leaves a reviewer expecting a match that never runs.
             expect(rematchReachLabel([bank({ name: "ICICI" })])).toBe(
-                "Re-run duplicate-checks 1 open import; none will be matched.",
+                "Re-run duplicate-checks 1 open import and clears the cheques its lines pay; nothing else will be matched.",
             );
             expect(rematchReachLabel([bank({ name: "A" }), bank({ name: "B" })])).toBe(
-                "Re-run duplicate-checks 2 open imports; none will be matched.",
+                "Re-run duplicate-checks 2 open imports and clears the cheques their lines pay; nothing else will be matched.",
             );
         });
 
@@ -549,6 +550,17 @@ describe("the import history row", () => {
         expect(importStatusTone("In Review")).toContain("amber");
         expect(importStatusTone(undefined)).toContain("amber");
     });
+
+    it("tones a Porter import's own state: validated good, failed red, validating still open", () => {
+        expect(importStatusTone("Validated")).toContain("emerald");
+        expect(importStatusTone("Validation failed")).toContain("destructive");
+        expect(importStatusTone("Validating")).toContain("amber");
+    });
+
+    it("tones a Created Porter import as finished, and one still Creating as open work (#1445)", () => {
+        expect(importStatusTone("Created")).toContain("muted");
+        expect(importStatusTone("Creating")).toContain("amber");
+    });
 });
 
 describe("the source scope", () => {
@@ -594,7 +606,12 @@ describe("the source scope", () => {
         // imports and its rows still render, but the Source scope control cannot name it — so the
         // screen looks like it is missing rows rather than missing an option. Exact equality is
         // what turns "somebody added a source and forgot this list" into a red test.
-        expect([...SOURCE_OPTIONS]).toEqual(["Cashfree", "Cashbook", "ICICI Bank Statement"]);
+        expect([...SOURCE_OPTIONS]).toEqual([
+            "Cashfree",
+            "Cashbook",
+            "ICICI Bank Statement",
+            "Porter Statement",
+        ]);
     });
 
     it("narrows the imports on offer to the chosen source", () => {
@@ -626,6 +643,36 @@ describe("the source scope", () => {
         // badge substitutes for — and "Clear filters" must not silently widen either.
         expect(activeFilterCount({ [SOURCE_COLUMN_ID]: ["Cashbook"] })).toBe(0);
         expect(activeFilterCount({ [SOURCE_COLUMN_ID]: ["Cashbook"], row_status: ["Matched"] })).toBe(1);
+    });
+});
+
+describe("the Payment reference a create form shows: what the server will WRITE", () => {
+    it("★ an ICICI line shows its whole narration, not the short reference the parser extracted", () => {
+        // The forms showed `624419924169` while the server saved the whole line -- the screen and the
+        // record disagreed. The value comes from the server's own writer (`settlement_reference_of_row`).
+        const narration = "MMT/IMPS/624419924169/BULD77739367/Ambikak/KVBL0001284";
+        expect(
+            referenceToSave(row({ bank_reference_no: "624419924169", settlement_reference: narration })),
+        ).toBe(narration);
+    });
+
+    it("a cheque line shows its narration and cheque number, exactly as sent", () => {
+        expect(
+            referenceToSave(
+                row({ bank_reference_no: "", settlement_reference: "CLG/HASSANAMBA POWER SYSTEMS/IOB 816" }),
+            ),
+        ).toBe("CLG/HASSANAMBA POWER SYSTEMS/IOB 816");
+    });
+
+    it("falls back to the table's reference when the row was read without it", () => {
+        expect(referenceToSave(row({ bank_reference_no: "620919871893" }))).toBe("620919871893");
+        expect(referenceToSave(row({ bank_reference_no: "", transfer_id: "CF-WALLET-1", settlement_reference: "  " }))).toBe(
+            "CF-WALLET-1",
+        );
+    });
+
+    it("is empty when the row carries nothing", () => {
+        expect(referenceToSave(row({ bank_reference_no: "", transfer_id: "" }))).toBe("");
     });
 });
 
@@ -728,11 +775,13 @@ describe("which way the money went — the ONE definition of the axis", () => {
         expect(isCreditRow({ direction: "Refund" } as any)).toBe(false);
     });
 
-    it("offers the three credit dispositions on a credit row, and nothing else", () => {
+    it("offers the four credit dispositions on a credit row, and nothing else", () => {
         // #1266: the receipt is gone; project inflow, non-project inflow and vendor refund remain.
+        // #1401: matching a waiting vendor refund sits just above creating one.
         expect(availableDecisionTargets({ direction: "Credit" } as any)).toEqual([
             "inflow",
             "nonProjectInflow",
+            "waitingRefund",
             "vendorRefund",
         ]);
     });
@@ -758,6 +807,7 @@ describe("which way the money went — the ONE definition of the axis", () => {
                 "new",
                 "inflow",
                 "nonProjectInflow",
+                "waitingRefund",
                 "vendorRefund",
             ].sort()
         );
@@ -766,7 +816,7 @@ describe("which way the money went — the ONE definition of the axis", () => {
     it("hands back a fresh array, so a caller cannot edit the rule for everyone", () => {
         const first = availableDecisionTargets({ direction: "Credit" } as any);
         first.pop();
-        expect(availableDecisionTargets({ direction: "Credit" } as any)).toHaveLength(3);
+        expect(availableDecisionTargets({ direction: "Credit" } as any)).toHaveLength(4);
     });
 });
 
@@ -2093,25 +2143,6 @@ describe("which dispositions create a record (#1266)", () => {
             expect(model.isCreateTarget(target)).toBe(false);
         }
         expect(model.isCreateTarget(undefined)).toBe(false);
-    });
-});
-
-describe("the Non-Project Inflow description prefill (#1266)", () => {
-    it("joins the payer and the bank remarks", () => {
-        expect(
-            model.nonProjectInflowDescriptionSeed({
-                beneficiary_name: "ICICI BANK",
-                remarks: "FD 0057 CLOSURE",
-            })
-        ).toBe("ICICI BANK - FD 0057 CLOSURE");
-    });
-
-    it("drops a blank part rather than leaving a dangling separator", () => {
-        expect(model.nonProjectInflowDescriptionSeed({ beneficiary_name: "  ", remarks: "INT" })).toBe(
-            "INT"
-        );
-        expect(model.nonProjectInflowDescriptionSeed({ beneficiary_name: "ACME" })).toBe("ACME");
-        expect(model.nonProjectInflowDescriptionSeed({})).toBe("");
     });
 });
 

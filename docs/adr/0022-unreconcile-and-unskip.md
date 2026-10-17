@@ -443,6 +443,47 @@ carries a typed reason.
   "(bulk unreconcile of N lines)". No new field, no migrate. Every undone line is marked Confirm by hand
   (#1280), as the one-line undo does.
 
+## Amendment G — a Reversed match record never blocks a delete; a live one always does (2026-10-16, owner)
+
+**The bug.** Unreconcile keeps the match record, marked Reversed (ADR-0020 D3). Its `target_name` was a
+Dynamic Link, and Frappe's delete check refuses any record a non-cancelled document links to, whatever
+its `match_kind`. So an unreconciled Project Payment, back at *Reconciliation Pending*, could never be
+deleted: `LinkExistsError: … is linked with Outflow Row Match …`.
+
+**Decision.**
+
+- **`Outflow Row Match.target_name` becomes a Data field.** The record a match names is stored as text,
+  so Frappe no longer checks it on delete. A Reversed match record is history only and may name a record
+  that no longer exists ("this line once paid PAY-123, then it was undone"). `target_doctype` stays a
+  Link to DocType; `target_project` and `target_vendor` stay Links (a project or vendor with bank history,
+  even Reversed, stays undeletable).
+- **Our own check replaces Frappe's for live match records.** Every doctype a bank line can settle
+  refuses its own delete while a **live** (`Settled`) match record names it. The two expense doctypes
+  already do (`delete_while_linked_refusal`); Project Payments, Project Inflows, Non Project Inflows and
+  Vendor Refunds gain one shared check. It counts live match records only, never Reversed ones, which is
+  also what lets Unreconcile delete the records the import created (it stamps Reversed first).
+- **No bypass.** It holds for every role, from every screen and Desk, and inside `force=True` deletes
+  (the check runs in `on_trash`, which `force` does not skip). The way out is to unreconcile the line.
+  The refusal names the import and the line.
+- **Deleting a PO can now be refused.** PO deletion force-deletes its PO Adjustment payments
+  (`cleanup_po_linked_docs`); before this, a bank-settled one went silently, leaving a live match record
+  pointing at nothing. Now the PO delete is refused until that line is unreconciled.
+
+- **A rename carries the match records along.** Frappe renames Link and Dynamic Link fields, not Data,
+  and Desk can rename payments, project inflows and both expenses. An `after_rename` hook on all six
+  doctypes points their match records (Reversed ones too) at the new name; without it a renamed
+  record would read as settled by nothing, and both this check and the expense rules would let it go.
+
+**Considered options.**
+
+- `ignore_links_on_delete = ["Outflow Row Match"]` in `hooks.py`: rejected. It switches the check off
+  for every link the match record holds (row, batch, project, vendor), not just the target.
+- `force=True` in the payments delete endpoint: rejected. It skips every link check on the payment, and
+  leaves the other delete paths (Service Request page, Desk, inflows) broken.
+
+**Hard to reverse.** Once records named by Reversed match records are deleted, `target_name` cannot go
+back to a Dynamic Link: those match records would fail link validation on any save.
+
 ## Consequences
 
 - A hand skip is reversible from the screen, and so is its reversal auditable (Version row, comment).

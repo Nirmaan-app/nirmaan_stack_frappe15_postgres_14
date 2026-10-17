@@ -153,10 +153,10 @@ def is_over_allocated(row_amount, legs: Iterable[Mapping]) -> bool:
     `settle_row_partial`, `create_expense`) each write EXACTLY ONE leg per row --
     `_load_settleable_row` refuses a second call once `row_status` reads `Settled` -- and that one
     leg is chosen to match the transfer within `settle.py`'s own amount window before it ever
-    reaches `_record_settlement`, so none of them can leave a row here either.
+    reaches `record_settlement`, so none of them can leave a row here either.
 
     ⚠️ A GROSS-vs-NET LEG WOULD BREAK THIS. The old TDS-deduction settle wrote a gross `amount` with
-    the withheld part beside it, which forced a subtraction at `_record_settlement`. That path is
+    the withheld part beside it, which forced a subtraction at `record_settlement`. That path is
     REMOVED (ADR-0021: the import records no tax), so every leg's `target_amount` is simply the
     settled `amount`. Never reintroduce a settle path whose `SettleResult.amount` exceeds what the
     transfer actually sent -- it would make this function permanently `True` for that row.

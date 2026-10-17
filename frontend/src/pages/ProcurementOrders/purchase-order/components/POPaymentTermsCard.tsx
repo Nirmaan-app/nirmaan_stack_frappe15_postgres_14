@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { usePOValidation } from "@/hooks/usePOValidation";
+import { RequestPayToAccount } from "@/components/payees/RequestPayToAccount";
+import { useVendorPayeeGate } from "@/components/payees/vendorPayeeAccount";
 import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { useVendorHoldGuard } from "@/hooks/useVendorHoldGuard";
@@ -58,6 +60,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { useDuplicateChequeOf } from "@/components/cheques/useExistingCheque";
 import { PaymentModeFields } from "@/pages/ProjectPayments/components/PaymentModeFields";
 import {
   EMPTY_PAYMENT_MODE,
@@ -66,6 +69,7 @@ import {
   PaymentModeArgs,
   PaymentModeValue,
 } from "@/pages/ProjectPayments/paymentMode";
+import { getFrappeError } from "@/utils/frappeErrors";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { format, isToday, isPast } from "date-fns"; // A great library for date handling
 
@@ -711,6 +715,19 @@ const EditGstNotesDialog = ({
   );
 };
 
+interface RequestPaymentDialogProps {
+  isOpen: boolean;
+  onClose: () => void;
+  term: PaymentTerm | null;
+  onConfirm: (mode?: PaymentModeArgs) => void;
+  isLoading: boolean;
+  isLocked?: boolean;
+  poName: string | undefined;
+  poVendor: string | undefined;
+  /** The vendor's name, for the "Will be paid into" box's no-account line. */
+  poVendorName: string | undefined;
+}
+
 const RequestPaymentDialog = ({
   isOpen,
   onClose,
@@ -719,8 +736,11 @@ const RequestPaymentDialog = ({
   isLoading,
   isLocked,
   poName,
-}) => {
+  poVendor,
+  poVendorName,
+}: RequestPaymentDialogProps) => {
   const [payMode, setPayMode] = useState<PaymentModeValue>(EMPTY_PAYMENT_MODE);
+  const duplicateOf = useDuplicateChequeOf(payMode);
   // Where this PO's money already stands, before the term is requested (owner, 2026-09-21).
   // The server still enforces the balance on submit; this block only shows it.
   const { summary, isLoading: summaryLoading } = usePaymentSummary(
@@ -769,7 +789,8 @@ const RequestPaymentDialog = ({
             return note ? <p className="text-xs text-sky-700 dark:text-sky-400">{note}</p> : null;
           })()}
         </div>
-        <PaymentModeFields value={payMode} onChange={setPayMode} amount={Number(term.amount)} />
+        <RequestPayToAccount vendor={poVendor} vendorLabel={poVendorName} className="mb-4" />
+        <PaymentModeFields value={payMode} onChange={setPayMode} amount={Number(term.amount)} vendor={poVendor} />
         <div className="flex justify-end gap-3 mt-4">
           <Button type="button" variant="outline" onClick={onClose}>
             Cancel
@@ -777,7 +798,7 @@ const RequestPaymentDialog = ({
           <Button
             className="bg-red-600 hover:bg-red-700 w-32"
             onClick={() => onConfirm(paymentModeArgs(payMode))}
-            disabled={isLoading || isLocked || !isPaymentModeComplete(payMode)}
+            disabled={isLoading || isLocked || !isPaymentModeComplete(payMode, duplicateOf)}
           >
             {isLoading ? (
               <TailSpin color="white" height={20} width={20} />
@@ -924,7 +945,10 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
     PO ? `Projects-${PO.name}` : null
   );
   const { updateDoc, loading: isUpdatingDoc } = useFrappeUpdateDoc();
-  const { errors, isValid, hasVendorIssues, missingVendorBankDetails } = usePOValidation(PO);
+  const { errors, isValid, hasVendorIssues } = usePOValidation(PO);
+  // Not one of `errors`: a vendor with no Payee still has a dispatchable PO. It gates exactly one
+  // action, requesting a payment (see `useVendorPayeeGate`).
+  const { payeeBlocked, showPayeeBlockedToast } = useVendorPayeeGate(PO?.vendor, PO?.vendor_name);
   const { role } = useUserData();
   const { isCEOHold, showBlockedToast } = useCEOHoldGuard(PO?.project);
   const { isOnHold: isVendorOnHold, showBlockedToast: showVendorBlockedToast } = useVendorHoldGuard(PO?.vendor);
@@ -1019,24 +1043,11 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
     [PO.note_points]
   );
 
-  // A payment request is the front of the payout pipeline: it ends as a row in the ICICI /
-  // Cashfree bank file, which is keyed on account_number + ifsc. Letting a request in for a
-  // vendor with neither only defers the failure to the accountant, who finds the row
-  // unselectable on the "Payments to be Paid" tab with no way to fix it from there. So it is
-  // stopped at the source, with the reason and the remedy in the same message.
-  const showMissingBankDetailsToast = useCallback(() => {
-    toast({
-      title: "Bank details missing",
-      description: `This vendor does not have their bank details. Please fill the bank details for ${PO?.vendor_name || PO?.vendor} to request the payment.`,
-      variant: "destructive",
-    });
-  }, [PO?.vendor, PO?.vendor_name]);
-
   const handleOpenRequestDialog = (term: PaymentTerm) => {
     // Checked here rather than only on confirm, so the dialog never opens on a request that
     // cannot be made — the user gets the reason on the click that started it.
-    if (missingVendorBankDetails) {
-      showMissingBankDetailsToast();
+    if (payeeBlocked) {
+      showPayeeBlockedToast();
       return;
     }
     setTermToRequest(term);
@@ -1052,9 +1063,9 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
       return;
     }
     // Re-checked on submit alongside the hold guards: the vendor doc can finish loading, or
-    // its bank row be cleared elsewhere, between opening this dialog and confirming it.
-    if (missingVendorBankDetails) {
-      showMissingBankDetailsToast();
+    // its Payee be unlinked elsewhere, between opening this dialog and confirming it.
+    if (payeeBlocked) {
+      showPayeeBlockedToast();
       return;
     }
     if (!termToRequest) return;
@@ -1084,7 +1095,8 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
       console.log("getting error toast why ", error.message);
       toast({
         title: "Error",
-        description: `Could not request payment ${error?.message}`,
+        // The server's sentence (e.g. a cheque number already recorded), not the transport's.
+        description: `Could not request payment: ${getFrappeError(error)}`,
         variant: "destructive",
       });
     } finally {
@@ -1299,6 +1311,8 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
         isLoading={CreatePPApiLoading}
         isLocked={isLocked}
         poName={PO?.name}
+        poVendor={PO?.vendor}
+        poVendorName={PO?.vendor_name}
       />
     </>
   );

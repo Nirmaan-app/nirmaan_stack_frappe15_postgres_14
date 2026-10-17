@@ -95,18 +95,80 @@ figure — the company pays the tax on top:
 - **"ALL", not "ANY"** — one other category (Electrical, …) makes it ordinary; no categories is ordinary.
 - **ONE rule, `payment_tds.COMPANY_BORNE_CATEGORIES` + `is_company_borne`**, mirrored on the frontend by
   `tdsForecast.COMPANY_BORNE_CATEGORIES` + `isCompanyBorneWorkOrder`. Change both or neither.
-- **Decided in `record_deduction`**, the one function every approval route shares (single approve, a
-  split's approved half, auto-approve at insert, bulk approve post-commit) → `write_deduction(reduce_payment=False)`.
-  `write_deduction` defaults to reducing, so the historical backfills are unchanged.
-- **Every reader that rebuilds the gross branches on the same rule:** `amount_due` skips `total_tds`
-  (`_item_billing_sync.recompute_document_amount_due`); an amount edit taxes the new figure directly
-  (`tds = amount × rate`, no inversion); the WO page's Amount Paid / request cap don't add the tax;
-  the approve + bulk-confirm previews show "Vendor receives" at the full amount.
-- ⚠️ **DERIVED FROM THE CATEGORIES EVERY TIME, NOT STORED** (owner chose no new field). So the rule
-  also re-reads deductions taken BEFORE it existed: measured 2026-09-17, **37 settled company-borne
-  Work Orders** (₹65,182 of TDS, already netted) now read that TDS as still payable — on the WO page at
-  once, in the stored `amount_due` at its next recompute — and the request cap allows it to be raised
-  again. Changing a Work Order's categories later also moves how its existing deductions are read.
+### Load-bearing invariants: who bore the tax
+
+- **`Payment TDS Deduction.borne_by` IS THE SOURCE (#1451).** A stored field by owner ruling 2026-10-16,
+  overriding the 2026-09-17 "no new field" ruling. `Vendor` = withheld, the payment cut to
+  the net; `Company` = paid on top, the payment kept whole. Read-only, column default `Vendor`. The
+  category rule decides it ONCE, when the row is created: `record_deduction` (the one function every
+  approval route shares: single approve, a split's approved half, auto-approve at insert, bulk approve
+  post-commit) asks `is_company_borne` and passes `write_deduction(borne_by=...)`, which stores it and
+  cuts the payment only for `Vendor`. `write_deduction` defaults to `Vendor`, so the historical
+  backfills are unchanged. Nothing rewrites `borne_by` after that.
+- **Every reader reads the field, never the categories or the amounts:**
+  - Amount Due: `amount_due = total − paid − total_tds + company-borne tax` (owner ruling 2026-10-16),
+    the company-borne tax being the `Company` deductions on Paid payments. ONE source,
+    `payment_tds.company_borne_tds_sql`: the writer (`amount_paid.recompute_document_amount_due`, via
+    `company_borne_tds_by_order`, with `exclude_payment` on a delete) selects from it and the mismatch
+    judge (`amount_paid_drift.mismatches`) joins it into its one query per doctype.
+  - An amount edit (`restate_deduction_on_amount_change`) restates the figures by the row's own
+    `borne_by` (`Company`: the edit is the gross, `tds = amount × rate`; `Vendor`: it is the net,
+    inverted) and keeps `borne_by`.
+  - A part settlement (split) leaves the deduction untouched, so a kept-whole payment cut to the bank's
+    figure stays `Company`.
+  - The request caps add back only `Vendor` tax: server `order_payments.load_payments` (feeds
+    `payment_summary`, `work_order_payment_limit`). Per deduction, so a Work Order with both kinds
+    counts each payment right. The WO Request Payment dialog reads only that server balance
+    (`get_payment_summary`) and confirms nothing until it has loaded; it has no local WO figure.
+  - The WO page label (`SRDetailsCard`, `tdsForecast.workOrderTdsLabel`) comes from the server,
+    `api/payments/work_order_tds.get_work_order_tds` → `payment_tds.work_order_tds_borne`: the
+    deductions on the WO's **Paid** payments only (the population `total_tds` counts), split
+    withheld / company, kind `withheld` / `company` / `part`; nothing paid yet → the category rule.
+    `company` is `company_borne_tds_by_order` and `withheld` is `total_tds_of` less it, so the label
+    reads the same sources as the Amount Due. The same answer carries `payments`
+    (`payment_tds.work_order_deductions`: each payment's `tds_amount` and `borne_by`, any status) for
+    the WO page's transactions table TDS column.
+- **`Payment TDS Deduction` is readable only by Accountant, Accountant Lead and System Manager**, and
+  its permissions stay so. Anything a non-accountant screen needs from it goes through a whitelisted
+  read that checks read on the parent order (`get_work_order_tds`, `get_payment_summary`). A page's
+  own list read of the doctype is refused to Procurement with a 403 (walk story 27, #1451), so the WO
+  page no longer reads it at all.
+- **Why stored, not inferred:** the Misc/Transport Work Orders paid before 2026-09-17 had their tax
+  netted out of the vendor's payment (SR-00041-000138: ₹24,800 → ₹24,552 + ₹248 TDS, due 0) and stay
+  `Vendor`; SR-00107-001055 has both kinds. Inferring from payment ≈ gross broke on a part settlement
+  and an amount edit, and categories can change after a deduction is taken.
+- **Existing rows were backfilled once** by `patches/v3_0/backfill_payment_tds_borne_by` with that
+  inference (payment nearer `gross_amount` than `gross_amount − tds_amount`, on a WO whose categories
+  are company-borne → `Company`; all else `Vendor`). It recounts nothing; drift is left to the Amount
+  Paid Mismatch report. On the env clone (2026-10-16): 16 `Company`, 767 `Vendor`; Service Requests
+  mismatches stay 7, as after `e8e7ef3ce`.
+- The forecasts for a NEW approval (approve + bulk-confirm previews, request dialogs: `useVendorTdsRates`
+  `companyBorneFor`) still use the category rule, as `record_deduction` will.
+
+---
+
+## The vendor's rate — set from its PAN (Section 194C)
+
+`Vendors.tds_deduction_percentage` is the rate `vendor_rate` snapshots at approval. The PAN's 4th
+letter decides it (owner, 2026-10-16):
+
+| PAN | Rate |
+|---|---|
+| valid, 4th letter **P** (Individual) or **H** (HUF) | **always 1%** — the forms lock the field; the server puts any other figure back to 1 |
+| valid, any other 4th letter | **2% by default**; any rate the user sets (1, 3, 4…) is kept |
+| blank / not a valid PAN | kept as entered |
+
+- **ONE rule, `services/vendor_tds.py`**, applied by `Vendors.validate` **only when a vendor is
+  created or its PAN / rate is edited**: the vendor screens, Desk, Data Import. Every other save
+  leaves the rate alone, so the 04:30 credit job's full vendor save never moves a rate. Mirrored on
+  the frontend by `pages/vendors/utils/vendorTaxIds.ts`; both suites read
+  `services/vendor_tds_cases.json`. Change both or neither.
+- **Corrected, never refused.** A blank or unreadable rate ("2%", "abc") with a valid PAN gets the 2%
+  default rather than being stored as 0 (no tax withheld).
+- **Moving off an Individual / HUF PAN puts a default back in the form only**: 2% on the new-vendor
+  form, the saved rate (or 2%) on the edit form. The server keeps whatever rate arrives with a
+  non-Individual PAN, so a Desk edit from P to C with the rate left at 1 stays 1.
+- A PAN edit moves only future approvals; past deduction rows keep their snapshot (above).
 
 ---
 
@@ -120,6 +182,7 @@ figure — the company pays the tax on top:
 | `gross_amount` | The amount BEFORE tax. ⚠️ The only surviving record of it: `Project Payments.amount` is rewritten to the net. |
 | `tds_percentage` | The rate AS APPLIED, snapshotted. Never re-read from the vendor — 561 of 629 rows differ from their vendor's rate today. |
 | `tds_amount` | `gross × rate / 100`. What `Service Requests.total_tds` sums (Paid payments only). |
+| `borne_by` | `Vendor` (withheld, payment netted) / `Company` (paid on top, payment kept whole). Read-only, set once at creation (#1451); THE source for every reader — see § Company-borne. |
 | `payment_approved_on` | The day the payment was **approved** — the day this row was written, which is the approval that withheld the tax. Not "the day it last entered Approved": a later `Paid → Approved` save writes nothing (see the rule above) and moves nothing here. Renamed from `deducted_on` (2026-09-12). |
 | `deducted_on` | ⚠️ **RETIRED, READ-ONLY, FROZEN.** The pre-rename copy, kept until the owner drops the column by hand. Nothing writes it, so rows created after the rename leave it empty — never read it as the live date. |
 | `status` | `Pending` → `Paid`. Written by the Pay TDS action, never by hand. |
@@ -246,8 +309,9 @@ Reports hub → **Payment TDS Deduction** tab (report type "TDS Deduction"), gat
 |---|---|
 | `rename_deducted_on_to_payment_approved_on` | Copies the dates across. **Drops nothing** — the owner drops the old column by hand. |
 | `backfill_payment_tds_deduction_link` | Fills `Project Payments.payment_tds` for the 626 existing rows. |
+| `backfill_payment_tds_borne_by` | Sets `borne_by` on every existing row from its payment (kept whole on a company-borne WO → `Company`, else `Vendor`). Recounts nothing. ⚠️ **Run once only** (the patch log is its only guard): a re-run would re-infer rows `record_deduction` wrote since, off payments that may have changed. The reason it cannot be limited to old rows is at the top of the patch. |
 
-Both are idempotent and fill only what is still empty.
+The first two are idempotent and fill only what is still empty.
 
 ---
 

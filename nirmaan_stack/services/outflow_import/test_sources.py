@@ -160,3 +160,39 @@ class TestTheSpenderQuestion(unittest.TestCase):
     def test_every_other_source_keeps_the_actor(self):
         for source in ("Cashfree", "ICICI Bank Statement", "", None, "Some Future Gateway"):
             self.assertFalse(source_names_its_spender(source), repr(source))
+
+
+class TestThePorterStatementSource(unittest.TestCase):
+    """#1443: the fourth source, create-only and never matched, whose open lines wait for its own Create."""
+
+    def test_its_string_is_spelled_once_and_the_parser_knows_it(self):
+        from nirmaan_stack.services.outflow_import.sources import PORTER_STATEMENT_SOURCE
+
+        self.assertEqual(PORTER_STATEMENT_SOURCE, "Porter Statement")
+        self.assertIn(PORTER_STATEMENT_SOURCE, SUPPORTED_SOURCES)
+
+    def test_it_is_never_matched(self):
+        from nirmaan_stack.services.outflow_import.sources import (
+            NEVER_MATCHED_SOURCES,
+            source_runs_the_matcher,
+        )
+
+        self.assertIn("Porter Statement", NEVER_MATCHED_SOURCES)
+        self.assertFalse(source_runs_the_matcher("Porter Statement"))
+
+    def test_its_crn_is_its_settlement_reference(self):
+        from nirmaan_stack.services.outflow_import.sources import source_transfer_id_is_its_reference
+
+        self.assertTrue(source_transfer_id_is_its_reference("Porter Statement"))
+
+    def test_only_its_lines_wait_for_their_own_create(self):
+        from nirmaan_stack.services.outflow_import.sources import source_waits_for_its_own_create
+
+        self.assertTrue(source_waits_for_its_own_create("Porter Statement"))
+        self.assertTrue(source_waits_for_its_own_create(" Porter Statement "))
+        for source in ("Cashfree", "Cashbook", "ICICI Bank Statement", "", None):
+            self.assertFalse(source_waits_for_its_own_create(source), repr(source))
+
+    def test_it_is_neither_a_passbook_nor_a_spender_named_source(self):
+        self.assertFalse(source_has_preamble("Porter Statement"))
+        self.assertFalse(source_names_its_spender("Porter Statement"))

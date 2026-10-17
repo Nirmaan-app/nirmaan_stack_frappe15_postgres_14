@@ -1,6 +1,6 @@
-// Billing Packages tab (Admin Options → Packages Settings), laid out like PR Header Packages
-// (components/PRHeaderTagMaster.tsx). Admin and the Billing Lead add, rename and delete; everyone
-// else with billing access sees the list. The list, add and delete use the standard document
+// Billing Packages tab (Admin Options → Packages Settings), laid out like the former PR Header
+// Packages tab (removed 2026-10 with PR headers). Admin and the Billing Lead add, rename and
+// delete; everyone else with billing access sees the list. The list, add and delete use the standard document
 // API; the rename is the one endpoint, because it carries the project records and bills with it.
 // The package hooks are the boundary: they check who may, duplicates, and packages in use.
 

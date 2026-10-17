@@ -699,11 +699,11 @@ class TestTheAmountIsCorrectedToTheBank(SettlementFixture):
         row = self._next_settleable_row()
         expense = self._make_expense(PROJECT_EXPENSE, float(row["amount"]) - 0.31)
 
-        # ⚠️ `_refresh_row_allocation`, NOT `_record_settlement` (#1296). The slip is now inserted
+        # ⚠️ `refresh_row_allocation`, NOT `record_settlement` (#1296). The slip is now inserted
         # BEFORE the expense save, so failing there would throw before anything was saved and this
         # test would stop seeing a commit inside the save. The row refresh is the first step after.
         with patch(
-            "nirmaan_stack.api.outflow_import.expenses._refresh_row_allocation",
+            "nirmaan_stack.api.outflow_import.expenses.refresh_row_allocation",
             side_effect=RuntimeError("forced after the expense was saved"),
         ):
             with self.assertRaises(RuntimeError):
@@ -720,7 +720,7 @@ class TestTheAmountIsCorrectedToTheBank(SettlementFixture):
         )
 
     def test_the_request_flag_does_not_leak_past_the_save(self):
-        """`_outflow_import_write` restores the previous value in a `finally`. A leaked flag would
+        """`outflow_import_write` restores the previous value in a `finally`. A leaked flag would
         silently suppress a CEO-Hold notification commit for unrelated later work in the same
         request -- the kind of bug that surfaces as "notifications stopped, sometimes"."""
         row = self._next_settleable_row()
@@ -796,6 +796,57 @@ class TestCreateExpense(SettlementFixture):
         row = self._next_settleable_row()
         with self.assertRaises(WrongStatusError):
             create_expense(row["name"], PROJECT_EXPENSE, self.project_type)
+
+
+class TestTheTypedComment(SettlementFixture):
+    """The dialog's Comment box: a typed comment is stored WITH the import note, never instead of it."""
+
+    def _comment_of(self, result):
+        self.non_project_expenses.append(result["settled"]["name"])
+        return frappe.db.get_value(NON_PROJECT_EXPENSE, result["settled"]["name"], "comment")
+
+    def test_a_typed_comment_is_stored_with_the_import_note_after_it(self):
+        row = self._next_settleable_row()
+        result = create_expense(
+            row["name"], NON_PROJECT_EXPENSE, self.non_project_type, comment="  Site rent, Sep  "
+        )
+        self.assertEqual(
+            self._comment_of(result), f"Site rent, Sep · Imported from {self.batch.name}"
+        )
+
+    def test_no_comment_stores_the_import_note_alone(self):
+        row = self._next_settleable_row()
+        result = create_expense(row["name"], NON_PROJECT_EXPENSE, self.non_project_type)
+        self.assertEqual(self._comment_of(result), f"Imported from {self.batch.name}")
+
+    def test_a_comment_too_long_for_the_field_is_refused_and_nothing_is_created(self):
+        row = self._next_settleable_row()
+        before = frappe.db.count(NON_PROJECT_EXPENSE)
+        with self.assertRaises(frappe.ValidationError) as caught:
+            # ⚠️ A REGRESSION CREATES A REAL EXPENSE, and it is tracked for the class purge rather
+            # than left in the live database for the assertion to complain about.
+            self.non_project_expenses.append(
+                create_expense(
+                    row["name"], NON_PROJECT_EXPENSE, self.non_project_type, comment="x" * 140
+                )["settled"]["name"]
+            )
+        frappe.db.rollback()
+        self.assertIn("too long", str(caught.exception))
+        self.assertEqual(frappe.db.count(NON_PROJECT_EXPENSE), before)
+        self.assertNotEqual(
+            frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), "Settled"
+        )
+
+    def test_the_description_typed_in_the_dialog_is_stored_as_typed(self):
+        row = self._next_settleable_row()
+        result = create_expense(
+            row["name"], NON_PROJECT_EXPENSE, self.non_project_type, description="Office water cans"
+        )
+        self.non_project_expenses.append(result["settled"]["name"])
+        self.assertEqual(
+            frappe.db.get_value(NON_PROJECT_EXPENSE, result["settled"]["name"], "description"),
+            "Office water cans",
+        )
 
 
 class TestALongReferenceIsWrittenWhole(SettlementFixture):

@@ -34,6 +34,7 @@ import {
 } from "@/pages/POAdjustment/data/usePOAdjustmentQueries";
 import { canWriteOffAdjustment } from "@/pages/POAdjustment/data/usePOAdjustmentMutations";
 import { WriteOffDialog } from "@/pages/POAdjustment/WriteOffDialog";
+import { writableOnWriteOff } from "@/pages/POAdjustment/adjustmentOffer";
 import { useUserData } from "@/hooks/useUserData";
 import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
 
@@ -684,11 +685,13 @@ const AdjustmentsList: React.FC<{
             Done
           </Badge>
         )}
-        {canWriteOff && Math.abs(adjustment.remaining_impact) >= 0.01 && (
+        {canWriteOff &&
+          writableOnWriteOff(adjustment.remaining_impact, adjustment.held_credit) >= 0.01 && (
           <div className="ml-auto">
             <WriteOffDialog
               poId={adjustment.po_id}
               remainingImpact={adjustment.remaining_impact}
+              heldCredit={adjustment.held_credit}
               onWrittenOff={onWrittenOff}
             />
           </div>

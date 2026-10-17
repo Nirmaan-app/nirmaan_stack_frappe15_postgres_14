@@ -60,20 +60,23 @@ import WorkPackages from "@/pages/work-packages";
 import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute, NewProjectRoute, PricingRoute, OutflowImportRoute, RoleRoute } from "@/utils/auth/ProtectedRoute";
 import {
   BOQ_TEMPLATES_ACCESS,
+  CHEQUE_ACCESS_PROFILES,
   CUSTOMERS_ACCESS,
   HOD_ACCESS,
   MTC_PAGE_PROFILES,
   NON_PROJECT_INFLOWS_ACCESS,
+  PAYEE_MANAGE_PROFILES,
   PROJECT_INVOICES_ACCESS,
   UPLOAD_BOQ_ACCESS,
 } from "@/constants/roles";
 import { ProjectManager } from "../layout/dashboards/dashboard-pm";
 import InvoiceReconciliationContainer from "@/pages/tasks/invoices/InvoiceReconciliationContainer";
 import { NewProcurementRequestPage } from "@/pages/ProcurementRequests/NewPR/NewProcurementRequestPage";
-import ReportsContainer from "@/pages/reports/ReportsContainer";
+import ReportsIndex from "@/pages/reports/ReportsIndex";
 // import ProcurementOrdersTesting from "@/pages/ProcurementOrders/testing/ProcurementOrdersTesting";
 import ItemsPage from "@/pages/Items/itemsPage";
 import AssetsPage from "@/pages/Assets/AssetsPage";
+import { AssetsRoute } from "@/pages/Assets/AssetsRoute";
 import AllProjectInvocies from "@/pages/ProjectInvoices/AllProjectInvoices";
 import NonProjectExpensesPage from "@/pages/NonProjectExpenses/NonProjectExpensesPage";
 import AllProjectExpensesPage from "@/pages/ProjectExpenses/AllProjectExpenses";
@@ -138,6 +141,7 @@ import { PRTrackerList } from "@/pages/PRTracker";
 import PRTrackerDetail from "@/pages/PRTracker/pr-tracker-detail";
 
 import InventoryItemWisePage from "@/pages/inventory/InventoryItemWisePage";
+import InventoryWarehouseLayout from "@/pages/inventory/InventoryWarehouseLayout";
 import TDSApprovalList from "@/pages/tds/TDSApprovalList";
 import TDSApprovalDetail from "@/pages/tds/TDSApprovalDetail";
 
@@ -156,11 +160,15 @@ const ITMDetail = lazy(() => import("@/pages/InternalTransferMemos/ITMDetail"));
 
 // Warehouse
 const WarehouseStockPage = lazy(() => import("@/pages/Warehouse/WarehouseStockPage"));
-const RequestFromWarehouse = lazy(() => import("@/pages/Warehouse/RequestFromWarehouse"));
 // TEMPORARY — Resolve Invoices admin tool (~1 week; delete this line + the route + the page when done)
 const ResolveInvoices = lazy(() => import("@/pages/temp/ResolveInvoices"));
 
 const RemindersPage = lazy(() => import("@/pages/Reminders/RemindersPage"));
+// Payees (spec #1420): every bank account the company pays into.
+const PayeesPage = lazy(() => import("@/pages/payees/PayeesPage"));
+const PayeePage = lazy(() => import("@/pages/payees/PayeePage"));
+// Cheque Tracker (spec #1477, #1483): every cheque the company writes. It was Reports › Payment › Cheque Payment.
+const ChequeTrackerPage = lazy(() => import("@/pages/cheque-tracker/ChequeTrackerPage"));
 // Document Search
 
 export const appRoutes: RouteObject[] = [
@@ -618,7 +626,8 @@ export const appRoutes: RouteObject[] = [
           {
             path: "reports",
             children: [
-              { index: true, element: <ReportsContainer /> },
+              // ReportsIndex sends an old Cheque Payment report link to the Cheque Tracker (#1483).
+              { index: true, element: <ReportsIndex /> },
               // A PO opened from a report stays under Reports (see `orderDetailPath`).
               { path: "po/:poId", lazy: () => import("@/components/POSummary") },
             ],
@@ -640,6 +649,14 @@ export const appRoutes: RouteObject[] = [
           {
             path: "non-project",
             element: <Navigate to="/expense/non-project" replace />,
+          },
+          // --- Cheque Tracker (#1483) --- Admin, Accountants and Procurement. The sidebar item reads the same
+          // constant; every `api/cheques/` endpoint enforces it.
+          {
+            element: <RoleRoute allowed={CHEQUE_ACCESS_PROFILES} what="the Cheque Tracker" />,
+            children: [
+              { path: "cheque-tracker", element: <Suspense fallback={null}><ChequeTrackerPage /></Suspense> },
+            ],
           },
           // --- Project Payments ---
           {
@@ -672,6 +689,21 @@ export const appRoutes: RouteObject[] = [
               {
                 path: "non-project-inflows",
                 children: [{ index: true, element: <NonProjectInflows /> }],
+              },
+            ],
+          },
+          // --- Payees (spec #1420) --- Accountant, Accountant Lead and Admin. The sidebar item and the
+          // header's Add Payee button read the same constant.
+          {
+            element: <RoleRoute allowed={PAYEE_MANAGE_PROFILES} what="Payees" />,
+            children: [
+              {
+                path: "payees",
+                children: [
+                  { index: true, element: <Suspense fallback={null}><PayeesPage /></Suspense> },
+                  // One Payee (#1423): every link to a Payee is built by `utils/payees/payeeRoutes.payeeHref`.
+                  { path: ":payeeId", element: <Suspense fallback={null}><PayeePage /></Suspense> },
+                ],
               },
             ],
           },
@@ -711,12 +743,20 @@ export const appRoutes: RouteObject[] = [
           },
 
           // --- Assets Section ---
+          // Guarded like the sidebar: the list and category pages need an asset role (AssetsRoute);
+          // one asset's page also lets its current holder in (guarded inside AssetOverview), so an
+          // employee can open their own asset from their profile and sign the declaration.
           {
             path: "asset-management",
             children: [
-              { index: true, element: <AssetsPage /> },
+              {
+                element: <AssetsRoute />,
+                children: [
+                  { index: true, element: <AssetsPage /> },
+                  { path: "category/:categoryId", lazy: () => import("@/pages/Assets/AssetCategoryView") },
+                ],
+              },
               { path: ":assetId", lazy: () => import("@/pages/Assets/AssetOverview") },
-              { path: "category/:categoryId", lazy: () => import("@/pages/Assets/AssetCategoryView") },
             ],
           },
 
@@ -825,7 +865,8 @@ export const appRoutes: RouteObject[] = [
           { path: "packages-settings", element: <PackagesSettings /> },
           { path: "product-packages", element: <Navigate to="/packages-settings?tab=product-packages" replace /> },
           { path: "milestone-packages", element: <Navigate to="/packages-settings?tab=milestone-packages" replace /> },
-          { path: "pr-header-packages", element: <Navigate to="/packages-settings?tab=pr-header-packages" replace /> },
+          // PR headers were retired (PR packages now come from the items): old links land on the settings page.
+          { path: "pr-header-packages", element: <Navigate to="/packages-settings" replace /> },
           { path: "design-packages", element: <Navigate to="/packages-settings?tab=design-packages" replace /> },
           { path: "commission-packages", element: <Navigate to="/packages-settings?tab=commission-packages" replace /> },
           { path: "work-order-rate-card", element: <WOServicePackages /> },
@@ -977,8 +1018,21 @@ export const appRoutes: RouteObject[] = [
           // Commented out routes from original:
           // { path: "delayed-pr", element: <DelayedPRSelect /> },
           // { path: "delayed-pr/:id", element: <DelayedPR /> },
-          // --- Inventory ---
-          { path: "inventory", element: <InventoryItemWisePage /> },
+          // --- Inventory + Warehouse: one sidebar entry, two tabs (InventoryWarehouseLayout) ---
+          // Pathless layout: each tab keeps its own URL; the layout draws the tab strip.
+          {
+            element: <InventoryWarehouseLayout />,
+            children: [
+              { path: "inventory", element: <InventoryItemWisePage /> },
+              { path: "warehouse", element: <Suspense fallback={null}><WarehouseStockPage /></Suspense> },
+            ],
+          },
+          // The old "Request from Warehouse" page is now the New Transfer page with that
+          // direction preselected; this keeps old bookmarks working.
+          {
+            path: "warehouse/request",
+            element: <Navigate to="/internal-transfer-memos/create?type=warehouse-to-project" replace />,
+          },
 
           // ======================================================
           // --- START: TDS APPROVAL SECTION ---
@@ -1007,20 +1061,6 @@ export const appRoutes: RouteObject[] = [
           },
           // ======================================================
           // --- END: INTERNAL TRANSFER MEMOS SECTION ---
-          // ======================================================
-
-          // ======================================================
-          // --- START: WAREHOUSE SECTION ---
-          // ======================================================
-          {
-            path: "warehouse",
-            children: [
-              { index: true, element: <Suspense fallback={null}><WarehouseStockPage /></Suspense> },
-              { path: "request", element: <Suspense fallback={null}><RequestFromWarehouse /></Suspense> },
-            ],
-          },
-          // ======================================================
-          // --- END: WAREHOUSE SECTION ---
           // ======================================================
         ],
       },

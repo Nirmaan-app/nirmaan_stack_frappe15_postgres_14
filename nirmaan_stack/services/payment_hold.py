@@ -21,6 +21,8 @@ import frappe
 from frappe import _
 
 from nirmaan_stack.services import settlement
+from nirmaan_stack.services.cheque_payments import is_cheque
+from nirmaan_stack.services.cheques.payment_rules import CHEQUE_REFUSES_HOLD, cheque_payment_problem
 from nirmaan_stack.services.role_profiles import PAYMENT_SETTLE_PROFILES, has_role_profile
 
 
@@ -43,6 +45,15 @@ def validate_hold(doc) -> None:
 
 	if not held:
 		return
+
+	# A cheque's payments move together (spec #1477, #1487), so none is held alone. One held before
+	# the rule stays held until released.
+	if not was_held:
+		problem = cheque_payment_problem(
+			doc.name, CHEQUE_REFUSES_HOLD, is_cheque=is_cheque(doc), cheque_no=doc.get("cheque_no")
+		)
+		if problem:
+			frappe.throw(_(problem), title=_("Cannot hold"))
 
 	status = (doc.get("status") or "").strip()
 	if status == settlement.STATUS_APPROVED:

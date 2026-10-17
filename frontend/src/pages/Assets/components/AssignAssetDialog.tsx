@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useFrappeCreateDoc, useFrappeUpdateDoc, useFrappeGetDocList } from 'frappe-react-sdk';
+import { useFrappeGetDocList, useFrappePostCall } from 'frappe-react-sdk';
 import ReactSelect from 'react-select';
 import { format } from 'date-fns';
 
@@ -16,12 +16,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { UserPlus, Calendar, CheckCircle2, Download, FileText } from 'lucide-react';
+import { getFrappeError } from '@/utils/frappeErrors';
+import { departmentMove, isDepartmentReasonValid, needsDepartmentReason } from '@/utils/assetDepartment';
 
 import {
     ASSET_MASTER_DOCTYPE,
-    ASSET_MANAGEMENT_DOCTYPE,
     ASSET_CATEGORY_DOCTYPE,
 } from '../assets.constants';
+import { DepartmentMoveNotice } from './DepartmentMoveNotice';
 import { useAssetDataRefresh } from '../hooks/useAssetDataRefresh';
 import { useAssetProjectOptions } from '../hooks/useAssetProjectOptions';
 import { getRoleLabel } from '../utils/permissions';
@@ -38,12 +40,14 @@ interface NirmaanUser {
     name: string;
     full_name: string;
     role_profile: string | null;
+    department: string | null;
 }
 
 interface AssetProjectRef {
     name: string;
     project: string;
     asset_category: string;
+    department: string | null;
 }
 
 interface AssetCategoryTypeRow {
@@ -61,20 +65,20 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
     const [selectedUser, setSelectedUser] = useState<string>('');
     const [selectedProject, setSelectedProject] = useState<string>('');
     const [assignedDate, setAssignedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+    const [departmentReason, setDepartmentReason] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showSuccessDialog, setShowSuccessDialog] = useState(false);
     const [assignedUserName, setAssignedUserName] = useState<string>('');
 
     const { toast } = useToast();
-    const { createDoc } = useFrappeCreateDoc();
-    const { updateDoc } = useFrappeUpdateDoc();
+    const { call: assignAsset } = useFrappePostCall('nirmaan_stack.api.assets.assign.assign_asset');
     const { refreshSummaryCards } = useAssetDataRefresh();
 
     // Fetch Nirmaan Users with role information
     const { data: usersList } = useFrappeGetDocList<NirmaanUser>(
         'Nirmaan Users',
         {
-            fields: ['name', 'full_name', 'role_profile'],
+            fields: ['name', 'full_name', 'role_profile', 'department'],
             orderBy: { field: 'full_name', order: 'asc' },
             limit: 0,
         },
@@ -100,7 +104,7 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
     const { data: assetRows } = useFrappeGetDocList<AssetProjectRef>(
         ASSET_MASTER_DOCTYPE,
         {
-            fields: ['name', 'project', 'asset_category'],
+            fields: ['name', 'project', 'asset_category', 'department'],
             filters: [['name', '=', assetId]],
             limit: 1,
         },
@@ -122,6 +126,12 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
 
     // Project/City/State are Project-asset concepts — IT assets have no project.
     const isProjectAsset = categoryRows?.[0]?.category_type === 'Project';
+
+    // What this assignment does to the asset's department (the server re-checks).
+    const selectedUserRow = usersList?.find((user) => user.name === selectedUser);
+    const move = selectedUser ? departmentMove(assetRow?.department, selectedUserRow?.department) : null;
+    const reasonNeeded = needsDepartmentReason(move);
+    const reasonMissing = reasonNeeded && !isDepartmentReasonValid(departmentReason);
 
     const { projectOptions, projectsById, isLoading: projectsLoading } = useAssetProjectOptions(isProjectAsset);
 
@@ -161,6 +171,7 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
     // SWR cache the pre-fill effect would never re-run to restore it.
     const resetForm = () => {
         setSelectedUser('');
+        setDepartmentReason('');
         setAssignedDate(format(new Date(), 'yyyy-MM-dd'));
         setShowSuccessDialog(false);
         setAssignedUserName('');
@@ -191,22 +202,26 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
             return;
         }
 
+        if (reasonMissing) {
+            toast({
+                title: 'Reason Required',
+                description: `Say why this asset is moving to ${move?.to}.`,
+                variant: 'destructive',
+            });
+            return;
+        }
+
         setIsSubmitting(true);
 
         try {
-            // Create Asset Management entry
-            await createDoc(ASSET_MANAGEMENT_DOCTYPE, {
+            // One request: the assignment, the holder, the project (+ its city/state), a department
+            // move and its history row, all in one transaction (api/assets/assign.py).
+            await assignAsset({
                 asset: assetId,
-                asset_assigned_to: selectedUser,
-                asset_assigned_on: assignedDate,
-            });
-
-            // Update Asset Master with current assignee, and — for Project assets —
-            // the project this assignment is for. City/State are read-only fetch
-            // fields, so the server derives them from the project's address.
-            await updateDoc(ASSET_MASTER_DOCTYPE, assetId, {
-                current_assignee: selectedUser,
-                ...(isProjectAsset ? { project: selectedProject } : {}),
+                assigned_to: selectedUser,
+                assigned_on: assignedDate,
+                project: isProjectAsset ? selectedProject : undefined,
+                department_change_reason: reasonNeeded ? departmentReason.trim() : undefined,
             });
 
             // Get the assigned user's display name
@@ -221,7 +236,7 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
             console.error('Failed to assign asset:', error);
             toast({
                 title: 'Assignment Failed',
-                description: error?.message || 'An error occurred while assigning the asset.',
+                description: getFrappeError(error),
                 variant: 'destructive',
             });
         } finally {
@@ -279,7 +294,7 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
     if (showSuccessDialog) {
         return (
             <Dialog open={isOpen} onOpenChange={handleCloseSuccessDialog}>
-                <DialogContent className="sm:max-w-md">
+                <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50">
                             <CheckCircle2 className="h-6 w-6 text-emerald-600" />
@@ -300,8 +315,8 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
                                 <div className="text-sm text-amber-800">
                                     <p className="font-medium mb-1">Declaration Required</p>
                                     <p className="text-amber-700">
-                                        Please download the declaration form, get it signed by the user,
-                                        and upload it later from the asset overview.
+                                        The employee can now sign the declaration from their profile
+                                        (Assets tab). You can still download the form and upload a signed scan.
                                     </p>
                                 </div>
                             </div>
@@ -331,7 +346,7 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
     // Render assignment form view
     return (
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-md">
+            <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50">
                         <UserPlus className="h-6 w-6 text-emerald-600" />
@@ -353,7 +368,10 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
                         <ReactSelect
                             options={userOptions}
                             value={userOptions.find(opt => opt.value === selectedUser) || null}
-                            onChange={(val) => setSelectedUser(val?.value || '')}
+                            onChange={(val) => {
+                                setSelectedUser(val?.value || '');
+                                setDepartmentReason('');
+                            }}
                             placeholder="Select user..."
                             isClearable
                             classNames={{
@@ -361,6 +379,15 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
                             }}
                         />
                     </div>
+
+                    <DepartmentMoveNotice
+                        move={move}
+                        personName={selectedUserRow?.full_name || selectedUser}
+                        personDepartment={selectedUserRow?.department}
+                        assetDepartment={assetRow?.department}
+                        reason={departmentReason}
+                        onReasonChange={setDepartmentReason}
+                    />
 
                     {/* Project + auto-filled location - Project-type assets only */}
                     {isProjectAsset && (
@@ -441,10 +468,10 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
                     </Button>
                     <Button
                         onClick={handleSubmit}
-                        disabled={isSubmitting || !selectedUser || (isProjectAsset && !selectedProject)}
+                        disabled={isSubmitting || !selectedUser || (isProjectAsset && !selectedProject) || reasonMissing}
                         className="gap-2 bg-emerald-600 hover:bg-emerald-700"
                     >
-                        {isSubmitting ? 'Assigning...' : 'Assign Asset'}
+                        {isSubmitting ? 'Assigning...' : reasonNeeded ? 'Confirm & Assign' : 'Assign Asset'}
                         <UserPlus className="h-4 w-4" />
                     </Button>
                 </DialogFooter>

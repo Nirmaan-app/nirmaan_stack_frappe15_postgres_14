@@ -14,9 +14,11 @@ import frappe
 from nirmaan_stack.services.expense_request_routing import (
 	allowed_roles_for_type,
 	is_requestable,
+	requestable_types,
 	reviewer_role_for_type,
 	types_reviewed_by,
 )
+from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 
 ADMIN_PROFILE = "Nirmaan Admin Profile"
 PM_PROFILE = "Nirmaan Project Manager Profile"
@@ -94,6 +96,35 @@ def guard_requestable(expense_type: str, check_visibility: bool = True) -> None:
 			f"'{expense_type}' is not available to your role.",
 			frappe.PermissionError,
 			title="Expense type not available",
+		)
+
+
+def can_raise_requests(user: str | None = None) -> bool:
+	"""May the caller raise an expense request at all: is any requestable type visible to them?"""
+	profile = caller_role_profile(user)
+	if profile == ADMIN_PROFILE:
+		return True
+	return bool(profile) and any(profile in allowed_roles_for_type(t) for t in requestable_types())
+
+
+def can_name_expense_payee(user: str | None = None) -> bool:
+	"""May the caller name who gets paid on an expense: raise an expense request, or record a Direct
+	Expense (Frappe's create right on `Project Expenses` or `Non Project Expenses`, #1471)?"""
+	user = user or frappe.session.user
+	return can_raise_requests(user) or any(
+		frappe.has_permission(doctype, "create", user=user) for doctype in EXPENSE_DOCTYPES
+	)
+
+
+def guard_can_name_expense_payee() -> None:
+	"""Refuse a caller who can neither raise an expense request nor record an expense. Gates the
+	Payee search / check / add that the request dialog and the Add Expense dialogs share
+	(`api/expense_requests/payees`)."""
+	if not can_name_expense_payee():
+		frappe.throw(
+			"Only someone who can raise an expense request or record an expense may do this.",
+			frappe.PermissionError,
+			title="Not a requester",
 		)
 
 

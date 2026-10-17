@@ -218,7 +218,7 @@ class TestTheWorker(CashbookImportCase):
 
         The first production import created 115 expenses with a BLANK `payment_date`. Every other
         figure was right and nothing raised: `create_expense_from_row` reads `added_on_date`, which
-        is DERIVED by the `_StagedRow` adapter and does not exist on a raw `Document`, so
+        is DERIVED by the `StagedRow` adapter and does not exist on a raw `Document`, so
         `getattr(row, "added_on_date", None)` returned None in silence.
 
         It survived because the fixtures asserted the fields the writer SETS and never the ones it
@@ -270,7 +270,7 @@ class TestTheWorker(CashbookImportCase):
         The URL is pasted; no `File` row is minted against the expense. Frappe authorises a private
         file through the document it is attached to, so the attachment opens for the 3 roles that
         can read the import batch and returns 403 for the other 16 that can read an expense.
-        Re-enabling `_link_statement_file_to_target` here is the one-line reversal.
+        Re-enabling `link_statement_file_to_target` here is the one-line reversal.
         """
         cb._cashbook_worker(self.batch, "Administrator")
         targets = frappe.get_all(
@@ -430,40 +430,53 @@ class TestItNeverSettlesAnExistingRecord(FrappeTestCase):
     FORBIDDEN = frozenset({"match_batch", "match_row", "match_period", "pick_from_several",
                            "resolve_claims", "resolve_vendors", "settle_row"})
 
-    def _tree(self):
+    #: Modules a create-only source must not import at all.
+    FORBIDDEN_MODULES = frozenset({"matcher", "disambiguate", "claims", "stacks"})
+
+    @staticmethod
+    def _tree(module):
         import ast
         import inspect
 
-        return ast.parse(inspect.getsource(cb))
+        return ast.parse(inspect.getsource(module))
 
-    def test_it_imports_none_of_the_settlement_machinery(self):
+    @classmethod
+    def forbidden_imports(cls, module) -> list:
+        """The settlement entry points and matcher modules `module` imports. Shared with the Porter
+        import's guard (#1443), which asks the same question of its own modules."""
         import ast
 
         imported = set()
-        for node in ast.walk(self._tree()):
+        for node in ast.walk(cls._tree(module)):
             if isinstance(node, ast.ImportFrom):
                 imported.update(alias.name for alias in node.names)
                 imported.add((node.module or "").rsplit(".", 1)[-1])
             elif isinstance(node, ast.Import):
                 imported.update(alias.name.rsplit(".", 1)[-1] for alias in node.names)
-        self.assertEqual(
-            sorted(imported & self.FORBIDDEN), [], "the Cashbook path imported a settlement entry point"
-        )
-        for module in ("matcher", "disambiguate", "claims", "stacks"):
-            self.assertNotIn(module, imported)
+        return sorted(imported & (cls.FORBIDDEN | cls.FORBIDDEN_MODULES))
 
-    def test_it_calls_none_of_them_either(self):
+    @classmethod
+    def forbidden_calls(cls, module) -> list:
+        """The settlement entry points `module` calls, by name or attribute."""
         import ast
 
         called = set()
-        for node in ast.walk(self._tree()):
+        for node in ast.walk(cls._tree(module)):
             if isinstance(node, ast.Call):
                 func = node.func
                 name = getattr(func, "id", None) or getattr(func, "attr", None)
                 if name:
                     called.add(name)
+        return sorted(called & cls.FORBIDDEN)
+
+    def test_it_imports_none_of_the_settlement_machinery(self):
         self.assertEqual(
-            sorted(called & self.FORBIDDEN), [], "the Cashbook path called a settlement entry point"
+            self.forbidden_imports(cb), [], "the Cashbook path imported a settlement entry point"
+        )
+
+    def test_it_calls_none_of_them_either(self):
+        self.assertEqual(
+            self.forbidden_calls(cb), [], "the Cashbook path called a settlement entry point"
         )
 
 

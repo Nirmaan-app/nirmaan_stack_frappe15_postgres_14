@@ -6,7 +6,9 @@ import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
 export interface SRAggregates {
   total_sr_value_inc_gst: number;
   total_sr_value_excl_gst: number;
+  // The Approved WOs' stored Amount Paid and Amount Due (ADR-0034), summed on the server.
   total_amount_paid_for_srs: number;
+  total_amount_due_for_srs: number;
   // 18% of Approved WOs raised with GST off — the GST never charged on them.
   total_notional_gst: number;
 }
@@ -20,6 +22,7 @@ export const useProjectSRAggregates = (projectId?: string) => {
     total_sr_value_inc_gst: 0,
     total_sr_value_excl_gst: 0,
     total_amount_paid_for_srs: 0,
+    total_amount_due_for_srs: 0,
     total_notional_gst: 0,
   });
 
@@ -37,6 +40,7 @@ export const useProjectSRAggregates = (projectId?: string) => {
             total_sr_value_inc_gst: 0,
             total_sr_value_excl_gst: 0,
             total_amount_paid_for_srs: 0,
+            total_amount_due_for_srs: 0,
             total_notional_gst: 0,
           });
         });
@@ -47,6 +51,7 @@ export const useProjectSRAggregates = (projectId?: string) => {
       total_sr_value_inc_gst: 0,
       total_sr_value_excl_gst: 0,
       total_amount_paid_for_srs: 0,
+      total_amount_due_for_srs: 0,
       total_notional_gst: 0,
     });
   }, [projectId]);

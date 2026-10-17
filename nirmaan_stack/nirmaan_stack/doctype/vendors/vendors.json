@@ -21,11 +21,7 @@
   "vendor_alt_mobile",
   "vendor_email",
   "vendor_bank_details_section",
-  "account_name",
-  "account_number",
-  "ifsc",
-  "bank_name",
-  "bank_branch",
+  "payee",
   "vendor_credit_section",
   "vendor_status",
   "gst_hold",
@@ -205,32 +201,7 @@
   {
    "fieldname": "vendor_bank_details_section",
    "fieldtype": "Section Break",
-   "label": "Vendor Bank Details"
-  },
-  {
-   "fieldname": "account_name",
-   "fieldtype": "Data",
-   "label": "Account Name"
-  },
-  {
-   "fieldname": "account_number",
-   "fieldtype": "Data",
-   "label": "Account Number"
-  },
-  {
-   "fieldname": "ifsc",
-   "fieldtype": "Data",
-   "label": "IFSC"
-  },
-  {
-   "fieldname": "bank_name",
-   "fieldtype": "Data",
-   "label": "Bank Name"
-  },
-  {
-   "fieldname": "bank_branch",
-   "fieldtype": "Data",
-   "label": "Bank Branch"
+   "label": "Payee"
   },
   {
    "fieldname": "invoice_balancing",
@@ -256,12 +227,19 @@
    "fieldname": "sr_amount_balance",
    "fieldtype": "Currency",
    "label": "Sr Amount Balance"
+  },
+  {
+   "description": "The Payee (bank account) this is paid into (ADR-0033). Set through services/payees.",
+   "fieldname": "payee",
+   "fieldtype": "Link",
+   "label": "Payee",
+   "options": "Payee"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-19 14:00:00.000000",
+ "modified": "2026-10-15 09:39:27.916696",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Vendors",
@@ -364,21 +342,21 @@
    "write": 1
   },
   {
-   "role": "Nirmaan HR Executive",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan HR Executive",
    "share": 1
   },
   {
-   "role": "Nirmaan PMO Executive",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan PMO Executive",
    "share": 1
   },
   {
@@ -478,12 +456,12 @@
    "write": 1
   },
   {
-   "role": "Nirmaan HR Lead",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan HR Lead",
    "share": 1
   }
  ],

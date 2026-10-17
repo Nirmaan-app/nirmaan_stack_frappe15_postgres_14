@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useState, useEffect } from "react";
+import { useMemo, useCallback, useState } from "react";
 import { KeyedMutator, mutate as globalMutate } from "swr";
 import {
   FrappeDoc,
@@ -42,13 +42,16 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { RefreshCcw, CirclePlus, Upload, Plus } from "lucide-react";
+import { CirclePlus, Upload, Plus } from "lucide-react";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
+import formatToIndianRupee from "@/utils/FormatPrice";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { usePODeliveryDocuments } from "@/pages/DeliveryChallansAndMirs/hooks/usePODeliveryDocuments";
 import { UploadDCMIRDialog } from "@/pages/DeliveryChallansAndMirs/components/UploadDCMIRDialog";
 import type { PODeliveryDocuments as PODeliveryDoc } from "@/types/NirmaanStack/PODeliveryDocuments";
 import { canDeleteDeliveryDocument } from "@/constants/roles";
 import { MTCCard } from "@/pages/MaterialTestCertificates/components/MTCCard";
+import { ReportPreviewDialog } from "@/pages/CommissionReport/components/ReportPreviewDialog";
 
 // Define a union type for the document data
 type DocumentType = ProcurementOrder | ServiceRequests;
@@ -71,14 +74,70 @@ interface DocumentAttachmentsProps<T extends DocumentType> {
   isEstimatesExecutive?: boolean;
 }
 
+/** A WO tax invoice bills part of the WO (a running "RA" bill) or all of it (FINAL). */
+type SrInvoiceType = "Partial" | "Full";
+
 interface SrInvoiceDialogData {
-  invoice_no: string;
+  invoice_type: SrInvoiceType;
   invoice_date: string; // yyyy-MM-dd
+  ra_no: string; // digits only; Partial only
+  amount: string; // Partial only: the amount this RA bill charges
+  percent: string; // Partial only: amount as a % of the WO amount, kept in step with `amount`
 }
 
 const initialSrInvoiceDialogData: SrInvoiceDialogData = {
-  invoice_no: "",
+  invoice_type: "Partial",
   invoice_date: formatDate(new Date(), "yyyy-MM-dd"), // Default to today
+  ra_no: "",
+  amount: "",
+  percent: "",
+};
+
+/** n rounded to 2 decimals, without trailing zeros: 420000 -> "420000", 33.3333 -> "33.33". */
+const toTwoDecimals = (n: number): string => String(Math.round(n * 100) / 100);
+
+/** A Partial's Percentage and Amount after one of them is typed: the other follows through the WO
+ *  amount. Blank or unusable input (or a WO amount of 0) blanks the other box. */
+const syncPercentAmount = (
+  field: "percent" | "amount",
+  value: string,
+  woAmount: number
+): { percent: string; amount: string } => {
+  const n = Number(value);
+  const canSync = value !== "" && Number.isFinite(n) && woAmount > 0;
+  return field === "percent"
+    ? { percent: value, amount: canSync ? toTwoDecimals((woAmount * n) / 100) : "" }
+    : { amount: value, percent: canSync ? toTwoDecimals((n / woAmount) * 100) : "" };
+};
+
+/** The April–March financial year of a yyyy-MM-dd date as "26-27". */
+const financialYearCode = (isoDate: string): string => {
+  const [year, month] = isoDate.split("-").map(Number);
+  const start = month >= 4 ? year : year - 1;
+  const yy = (y: number) => String(y % 100).padStart(2, "0");
+  return `${yy(start)}-${yy(start + 1)}`;
+};
+
+/** A WO tax invoice's number: INV-<FY>-<project last 5>-<WO last 5>-<RA-n | FINAL>. */
+const buildSrInvoiceNumber = (
+  sr: { name: string; project: string },
+  data: SrInvoiceDialogData
+): string => {
+  const suffix = data.invoice_type === "Full" ? "FINAL" : `RA-${data.ra_no}`;
+  return `INV-${financialYearCode(data.invoice_date)}-${sr.project.slice(-5)}-${sr.name.slice(-5)}-${suffix}`;
+};
+
+/** Why the dialog can't make the invoice yet, or null. A Partial amount must be under the WO amount. */
+const srInvoiceProblem = (data: SrInvoiceDialogData, woAmount: number): string | null => {
+  if (!data.invoice_date) return "Invoice Date is required.";
+  if (data.invoice_type === "Full") return null;
+  if (!/^[1-9]\d*$/.test(data.ra_no)) return "Enter the RA No. as a whole number (1, 2, 3…).";
+  const amount = Number(data.amount);
+  if (!data.amount || !(amount > 0)) return "Enter an amount more than 0.";
+  if (Math.round(amount * 100) >= Math.round(woAmount * 100)) {
+    return `Amount must be less than the WO amount (${formatToIndianRupee(woAmount)}). Use Full for the whole WO.`;
+  }
+  return null;
 };
 
 export const DocumentAttachments = <T extends DocumentType>({
@@ -117,13 +176,41 @@ export const DocumentAttachments = <T extends DocumentType>({
   const [invoiceDialogData, setInvoiceDialogData] =
     useState<SrInvoiceDialogData>(initialSrInvoiceDialogData);
 
-  const [isGeneratingInvNo, setIsGeneratingInvNo] = useState(false);
+  const [isPreparingInvoice, setIsPreparingInvoice] = useState(false);
+  // The generated tax invoice open in the in-app preview, or null.
+  const [invoicePreview, setInvoicePreview] = useState<{
+    url: string;
+    invoiceNo: string;
+    fileName: string;
+  } | null>(null);
 
   const { updateDoc } = useFrappeUpdateDoc();
-  // Hook for fetching new invoice number
-  const { call: generateInvoiceNumberAPI } = useFrappePostCall(
-    "nirmaan_stack.api.invoice_utils.generate_next_invoice_number" // Path to your new Python API
-  );
+
+  // The WO amount a Partial invoice must stay under: Σ qty × rate, what a Full invoice totals.
+  const woAmount = useMemo(() => {
+    if (docType !== "Service Requests") return 0;
+    return ((documentData as ServiceRequests | null | undefined)?.work_order_items || []).reduce(
+      (sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.rate) || 0),
+      0
+    );
+  }, [docType, documentData]);
+
+  const invoiceProblem = srInvoiceProblem(invoiceDialogData, woAmount);
+  const invoiceNumberPreview =
+    documentData && invoiceDialogData.invoice_date
+      ? buildSrInvoiceNumber(documentData, invoiceDialogData)
+      : "--";
+
+  // Open the dialog as Partial, keeping the WO's saved invoice date (else today).
+  const openInvoiceDialog = () => {
+    setInvoiceDialogData({
+      ...initialSrInvoiceDialogData,
+      invoice_date:
+        (documentData as ServiceRequests | null | undefined)?.invoice_date ||
+        formatDate(new Date(), "yyyy-MM-dd"),
+    });
+    setIsPrintDialogOpen(true);
+  };
 
   // PO Delivery Documents hook (only for POs)
   const { data: pddDocs, mutate: mutatePDD } = usePODeliveryDocuments(
@@ -154,23 +241,6 @@ export const DocumentAttachments = <T extends DocumentType>({
       billing_status: item.billing_status,
     }));
   }, [docType, documentData]);
-
-  // Pre-fill dialog if invoice_no and invoice_date exist on orderData
-  useEffect(() => {
-    if (documentData?.invoice_no || documentData?.invoice_date) {
-      setInvoiceDialogData({
-        invoice_no: documentData.invoice_no || "",
-        invoice_date:
-          documentData.invoice_date || formatDate(new Date(), "yyyy-MM-dd"),
-      });
-    } else {
-      // Reset to defaults if no existing data, or when dialog is opened for a new generation
-      setInvoiceDialogData({
-        invoice_no: "",
-        invoice_date: formatDate(new Date(), "yyyy-MM-dd"),
-      });
-    }
-  }, [documentData, isPrintDialogOpen]); // Depend on isPrintDialogOpen to reset/prefill when dialog opens
 
   // --- Data Fetching ---
   const {
@@ -505,32 +575,17 @@ export const DocumentAttachments = <T extends DocumentType>({
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
     const { name, value } = e.target;
-    setInvoiceDialogData((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const handleGenerateInvoiceNumber = async () => {
-    setIsGeneratingInvNo(true);
-    try {
-      // Pass project_name if your backend API uses it for the prefix
-      const response = await generateInvoiceNumberAPI({
-        project_name: project?.project_name,
-      });
-      if (response.message) {
-        setInvoiceDialogData((prev) => ({
-          ...prev,
-          invoice_no: response.message,
-        }));
-      }
-    } catch (error) {
-      console.error("Error generating invoice number:", error);
-      toast({
-        title: "Failed",
-        description: "Could not generate invoice number.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsGeneratingInvNo(false);
+    // RA No. takes digits only.
+    if (name === "ra_no") {
+      setInvoiceDialogData((prev) => ({ ...prev, ra_no: value.replace(/\D/g, "") }));
+      return;
     }
+    // Percentage and Amount follow each other through the WO amount; the amount is what is billed.
+    if (name === "percent" || name === "amount") {
+      setInvoiceDialogData((prev) => ({ ...prev, ...syncPercentAmount(name, value, woAmount) }));
+      return;
+    }
+    setInvoiceDialogData((prev) => ({ ...prev, [name]: value }));
   };
 
   // Modified handleGenerate (renamed from handlePrint / generateAndOpenPdf)
@@ -543,20 +598,22 @@ export const DocumentAttachments = <T extends DocumentType>({
       });
       return;
     }
-    if (!invoiceDialogData.invoice_no || !invoiceDialogData.invoice_date) {
+    if (invoiceProblem) {
       toast({
         title: "Missing Info",
-        description: "Invoice Number and Date are required.",
+        description: invoiceProblem,
         variant: "destructive",
       });
       return;
     }
+    const isPartial = invoiceDialogData.invoice_type === "Partial";
+    const invoiceNo = buildSrInvoiceNumber(documentData, invoiceDialogData);
 
     try {
       // 1. Save invoice_no and invoice_date to the Service Request document
-      setIsGeneratingInvNo(true); // Use a general loading state for this combined action
+      setIsPreparingInvoice(true); // Use a general loading state for this combined action
       await updateDoc("Service Requests", documentData.name, {
-        invoice_no: invoiceDialogData.invoice_no,
+        invoice_no: invoiceNo,
         invoice_date: invoiceDialogData.invoice_date,
       });
 
@@ -568,7 +625,8 @@ export const DocumentAttachments = <T extends DocumentType>({
         variant: "success",
       });
 
-      // 2. Construct print URL (no custom params needed now as they are on the doc)
+      // 2. Construct print URL. Invoice no/date are on the doc; the invoice type, and a Partial's
+      // RA No. and amount, are stored nowhere and reach "SR Invoice" as custom_* params.
       const params = {
         doctype: "Service Requests",
         name: documentData.name,
@@ -579,25 +637,33 @@ export const DocumentAttachments = <T extends DocumentType>({
 
       const customParams: Record<string, string> = {};
       customParams["custom_project_name"] = project?.project_name || "";
+      customParams["custom_invoice_type"] = invoiceDialogData.invoice_type;
+      if (isPartial) {
+        customParams["custom_ra_no"] = invoiceDialogData.ra_no;
+        customParams["custom_amount"] = invoiceDialogData.amount;
+      }
 
       const allParams = { ...params, ...customParams };
       const queryString = new URLSearchParams(allParams).toString();
 
-      let targetUrl = "";
       if (action === "preview") {
-        targetUrl = `/api/method/frappe.utils.print_format.download_pdf?${queryString}`;
-        window.open(targetUrl, "_blank");
+        // Shown in-app (ReportPreviewDialog fetches it), with its own Download button.
+        setInvoicePreview({
+          url: `/api/method/frappe.utils.print_format.download_pdf?${queryString}`,
+          invoiceNo,
+          fileName: `${invoiceNo}_${project?.project_name || "Project"}.pdf`,
+        });
         setIsPrintDialogOpen(false);
       } else {
         // download with custom filename
-        setIsGeneratingInvNo(true); // show loading state while downloading
+        setIsPreparingInvoice(true); // show loading state while downloading
         try {
           const downloadUrl = `/api/method/frappe.utils.print_format.download_pdf?${queryString}`;
           const response = await fetch(downloadUrl);
           if (!response.ok) throw new Error("Failed to generate PDF");
 
           const blob = await response.blob();
-          const fileName = `${invoiceDialogData.invoice_no}_${project?.project_name || "Project"}.pdf`;
+          const fileName = `${invoiceNo}_${project?.project_name || "Project"}.pdf`;
 
           const url = window.URL.createObjectURL(blob);
           const link = document.createElement('a');
@@ -623,7 +689,7 @@ export const DocumentAttachments = <T extends DocumentType>({
         variant: "destructive",
       });
     } finally {
-      setIsGeneratingInvNo(false);
+      setIsPreparingInvoice(false);
     }
   };
 
@@ -658,16 +724,7 @@ export const DocumentAttachments = <T extends DocumentType>({
                       size="sm"
                       className="text-primary border-primary hover:bg-primary/5"
                       variant="outline"
-                      onClick={() => {
-                        // Reset/Prefill dialog state when opening
-                        setInvoiceDialogData({
-                          invoice_no: documentData?.invoice_no || "",
-                          invoice_date:
-                            documentData?.invoice_date ||
-                            formatDate(new Date(), "yyyy-MM-dd"),
-                        });
-                        setIsPrintDialogOpen(true);
-                      }}
+                      onClick={openInvoiceDialog}
                     >
                       Generate Tax Invoice
                     </Button>
@@ -809,56 +866,118 @@ export const DocumentAttachments = <T extends DocumentType>({
 
       <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader>
+          <DialogHeader className="border-b pb-4">
             <DialogTitle>
               Invoice Details for SR: {documentData?.name}
             </DialogTitle>
             <DialogDescription>
-              Enter or generate the invoice number and confirm the date. These
-              details will be saved.
+              Choose the invoice type and date. These details will be saved.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-5 py-6">
+          <div className="grid gap-5 pt-2 pb-6">
             <div className="space-y-1.5">
-              <Label htmlFor="invoice_no">
-                Invoice Number <span className="text-destructive">*</span>
+              <Label>
+                Invoice Type <span className="text-destructive">*</span>
               </Label>
-              <div className="flex items-center gap-2">
+              <RadioGroup
+                value={invoiceDialogData.invoice_type}
+                onValueChange={(value) =>
+                  setInvoiceDialogData((prev) => ({ ...prev, invoice_type: value as SrInvoiceType }))
+                }
+                className="flex gap-6"
+              >
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="Partial" id="invoice_type_partial" />
+                  <Label htmlFor="invoice_type_partial" className="font-normal">Partial</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="Full" id="invoice_type_full" />
+                  <Label htmlFor="invoice_type_full" className="font-normal">Full</Label>
+                </div>
+              </RadioGroup>
+            </div>
+            {/* Invoice Date and RA No. side by side */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="invoice_date">
+                  Invoice Date <span className="text-destructive">*</span>
+                </Label>
                 <Input
-                  id="invoice_no"
-                  name="invoice_no"
-                  value={invoiceDialogData.invoice_no}
+                  id="invoice_date"
+                  name="invoice_date"
+                  type="date"
+                  value={invoiceDialogData.invoice_date}
                   onChange={handleInvoiceDialogInputChange}
-                  className="flex-grow"
-                  placeholder="e.g., INV-2024-0001"
                 />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={handleGenerateInvoiceNumber}
-                  disabled={isGeneratingInvNo}
-                  title="Generate Invoice Number"
-                >
-                  {isGeneratingInvNo ? (
-                    <TailSpin width="16" height="16" color="gray" />
-                  ) : (
-                    <RefreshCcw className="h-4 w-4" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="ra_no">
+                  RA No.{" "}
+                  {invoiceDialogData.invoice_type === "Partial" && (
+                    <span className="text-destructive">*</span>
                   )}
-                </Button>
+                </Label>
+                {invoiceDialogData.invoice_type === "Partial" ? (
+                  <Input
+                    id="ra_no"
+                    name="ra_no"
+                    inputMode="numeric"
+                    value={invoiceDialogData.ra_no}
+                    onChange={handleInvoiceDialogInputChange}
+                    placeholder="e.g., 1"
+                  />
+                ) : (
+                  <Input id="ra_no" value="FINAL" disabled />
+                )}
               </div>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="invoice_date">
-                Invoice Date <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="invoice_date"
-                name="invoice_date"
-                type="date"
-                value={invoiceDialogData.invoice_date}
-                onChange={handleInvoiceDialogInputChange}
-              />
+            {invoiceDialogData.invoice_type === "Partial" && (
+              <div className="space-y-1.5">
+                {/* Percentage and Amount side by side, each filling the other */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="percent">
+                      Percentage (%) <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="percent"
+                      name="percent"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value={invoiceDialogData.percent}
+                      onChange={handleInvoiceDialogInputChange}
+                      placeholder="e.g., 20"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="amount">
+                      Amount (₹) <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="amount"
+                      name="amount"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={invoiceDialogData.amount}
+                      onChange={handleInvoiceDialogInputChange}
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  WO amount {formatToIndianRupee(woAmount)}. The amount must be less.
+                </p>
+              </div>
+            )}
+            <div className="space-y-1">
+              <p className="text-sm">
+                Invoice No: <span className="font-semibold">{invoiceNumberPreview}</span>
+              </p>
+              {invoiceProblem && (invoiceDialogData.ra_no || invoiceDialogData.amount || invoiceDialogData.percent) && (
+                <p className="text-xs text-destructive">{invoiceProblem}</p>
+              )}
             </div>
           </div>
           <DialogFooter className="gap-2 sm:justify-end">
@@ -870,28 +989,33 @@ export const DocumentAttachments = <T extends DocumentType>({
             <Button
               type="button"
               onClick={() => handleGenerateAndProceed("preview")}
-              disabled={
-                isGeneratingInvNo ||
-                !invoiceDialogData.invoice_no ||
-                !invoiceDialogData.invoice_date
-              }
+              disabled={isPreparingInvoice || !!invoiceProblem}
             >
               Preview Invoice
             </Button>
             <Button
               type="button"
               onClick={() => handleGenerateAndProceed("download")}
-              disabled={
-                isGeneratingInvNo ||
-                !invoiceDialogData.invoice_no ||
-                !invoiceDialogData.invoice_date
-              }
+              disabled={isPreparingInvoice || !!invoiceProblem}
             >
               Download PDF
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Tax invoice preview, with Download */}
+      <ReportPreviewDialog
+        open={!!invoicePreview}
+        onOpenChange={(open) => {
+          if (!open) setInvoicePreview(null);
+        }}
+        pdfUrl={invoicePreview?.url || ""}
+        title={`Tax Invoice ${invoicePreview?.invoiceNo || ""}`}
+        fileName={invoicePreview?.fileName || "invoice.pdf"}
+        canDownload
+        closeOnDownload
+      />
 
       {/* Upload DC/MIR Dialog (new structured dialog with items + signature) */}
       <UploadDCMIRDialog

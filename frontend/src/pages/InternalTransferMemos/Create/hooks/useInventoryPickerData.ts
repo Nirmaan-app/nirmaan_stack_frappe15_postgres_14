@@ -12,8 +12,11 @@ interface PickerResponse {
  *
  * The `search` param is routed to the backend so server-side filtering is
  * authoritative — we do not filter client-side a second time.
+ *
+ * `enabled = false` skips the fetch (a null SWR key), e.g. while the transfer's
+ * source is the warehouse.
  */
-export function useInventoryPickerData(searchTerm: string) {
+export function useInventoryPickerData(searchTerm: string, enabled = true) {
   const [debounced, setDebounced] = useState("");
 
   const debouncedSetter = useMemo(
@@ -35,7 +38,8 @@ export function useInventoryPickerData(searchTerm: string) {
 
   const { data, isLoading, error, mutate } = useFrappeGetCall<PickerResponse>(
     "nirmaan_stack.api.internal_transfers.get_inventory_picker_data.get_inventory_picker_data",
-    params
+    params,
+    enabled ? undefined : null
   );
 
   return {

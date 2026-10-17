@@ -18,7 +18,9 @@ import {
   FolderKanban,
   Clock,
   Package,
+  Building2,
 } from "lucide-react";
+import { NO_DEPARTMENT_LABEL } from "@/constants/departments";
 import { cn } from "@/lib/utils";
 
 interface UserOverviewTabProps {
@@ -176,6 +178,11 @@ export function UserOverviewTab({
               icon={<Phone className="h-4 w-4" />}
               label="Mobile Number"
               value={user.mobile_no}
+            />
+            <InfoItem
+              icon={<Building2 className="h-4 w-4" />}
+              label="Department"
+              value={user.department || NO_DEPARTMENT_LABEL}
             />
             <InfoItem
               icon={<Calendar className="h-4 w-4" />}

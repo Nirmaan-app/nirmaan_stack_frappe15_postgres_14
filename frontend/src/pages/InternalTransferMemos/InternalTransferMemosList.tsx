@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
+import { ArrowLeftRight } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { TableSkeleton } from "@/components/ui/skeleton";
@@ -10,6 +12,7 @@ import { urlStateManager } from "@/utils/urlStateManager";
 import { cn } from "@/lib/utils";
 
 import { ITM_VIEW_ROLES } from "@/constants/itm";
+import { allowedTransferDirections } from "@/utils/itmTransfer";
 
 import {
   ITM_DATE_COLUMNS,
@@ -75,7 +78,11 @@ const ITM_TABS: readonly TabConfig[] = [
 const DEFAULT_TAB = "Approved";
 
 export const InternalTransferMemosList: React.FC = () => {
-  const { role } = useUserData();
+  const { role, user_id } = useUserData();
+  const navigate = useNavigate();
+  // Same button, same audience as the Inventory / Warehouse tab bar's
+  // (InventoryWarehouseLayout): anyone allowed at least one transfer direction.
+  const canTransfer = allowedTransferDirections(role, user_id).length > 0;
 
   const initialTab = useMemo(() => {
     const fromUrl = getUrlStringParam("tab", DEFAULT_TAB);
@@ -120,6 +127,12 @@ export const InternalTransferMemosList: React.FC = () => {
         <h1 className="text-lg sm:text-xl font-semibold">
           Internal Transfer Memos
         </h1>
+        {canTransfer && (
+          <Button size="sm" onClick={() => navigate("/internal-transfer-memos/create")}>
+            <ArrowLeftRight className="mr-2 h-4 w-4" />
+            Create Internal Transfer Memo
+          </Button>
+        )}
       </div>
 
       <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">

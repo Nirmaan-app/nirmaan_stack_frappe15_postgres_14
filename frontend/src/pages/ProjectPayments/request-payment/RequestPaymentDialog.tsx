@@ -14,16 +14,21 @@ import { useDialogStore } from "@/zustand/useDialogStore";
 import { useRequestPayment } from "../hooks/useRequestPayment";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
+import { RequestPayToAccount } from "@/components/payees/RequestPayToAccount";
+import { useVendorPayeeGate } from "@/components/payees/vendorPayeeAccount";
+import { useDuplicateChequeOf } from "@/components/cheques/useExistingCheque";
 import { PaymentModeFields } from "../components/PaymentModeFields";
 import { PaymentSummaryBlock, usePaymentSummary } from "../components/PaymentSummaryBlock";
-import { PayFor, payForCap } from "../components/paymentSummaryView";
+import {
+  invoiceCheckBlock, invoiceCheckLine, invoiceCheckNote, NEGATIVE_WORK_ORDER_PAYMENT, PayFor, payForCap,
+} from "../components/paymentSummaryView";
 import { PayForChoice } from "../components/PayForChoice";
 import { raiserLandingNote, raiserLevelOf, TIER_L2_ABOVE } from "@/utils/approvalTiers";
 import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
 import { useUserData } from "@/hooks/useUserData";
 import { useVendorTdsRates } from "../hooks/useVendorTdsRates";
 import {
-  EMPTY_PAYMENT_MODE, isPaymentModeComplete, paymentModeArgs, PAYMENT_MODE_CHEQUE, PaymentModeValue,
+  chequeModeOffered, EMPTY_PAYMENT_MODE, isPaymentModeComplete, paymentModeArgs, PAYMENT_MODE_CHEQUE, PaymentModeValue,
 } from "../paymentMode";
 import { forecastTds } from "../tdsForecast";
 
@@ -49,12 +54,16 @@ export default function RequestPaymentDialog(p:Props){
   /* CEO Hold guard */
   const { isCEOHold, showBlockedToast } = useCEOHoldGuard(p.project);
 
+  /* A PO or Work Order payment is paid into the vendor's Payee: no Payee, no request. */
+  const { payeeBlocked, showPayeeBlockedToast } = useVendorPayeeGate(open ? p.vendor : undefined);
+
   /* local state */
   const [mode,setMode] = useState<"custom"|"percentage"|"full"|"exGST"|"due">("custom");
   const [custom,setCustom] = useState("");
   const [perc,setPerc]     = useState("");
   const [warn,setWarn]     = useState("");
   const [payMode,setPayMode] = useState<PaymentModeValue>(EMPTY_PAYMENT_MODE);
+  const duplicateOf = useDuplicateChequeOf(payMode);
   const [payFor,setPayFor] = useState<PayFor>("base");
 
   /* Where this WO's money already stands (owner, 2026-09-21). WO only: the PO page requests
@@ -74,17 +83,26 @@ export default function RequestPaymentDialog(p:Props){
   const limit = summary?.limit;
   const cap = useMemo(()=> (gstWO && limit ? payForCap(limit, payFor) : null), [gstWO, limit, payFor]);
   const gstPayment = gstWO && payFor === "gst";
+  /* The invoice check (#1488): after a first payment, a new one waits for approved invoices to catch
+     up, unless the viewer is an L1 approver or the CEO. The server's verdict, shown as given. */
+  const invoiceCheck = isWO ? limit?.invoice_check : undefined;
+  const invoiceBlock = invoiceCheck ? invoiceCheckBlock(invoiceCheck) : null;
+  const invoiceNote = invoiceCheck ? invoiceCheckNote(invoiceCheck) : null;
 
   const payable = gstWO ? (cap?.max ?? 0) : p.totalIncGST;
 
-  // ⚠️ ONE BALANCE: once the summary has loaded, "Due", the cap warning and the block's
-  // "Left after this payment" all read the server's figures. They count payments gross of TDS as
-  // this dialog always has, and also count a Rejected payment not yet deleted -- as the server's
-  // cap does, so a request the server would refuse is refused here first. On a GST-off WO or a PO,
-  // until the summary loads (or if it fails) the local figure stands, exactly as before.
+  // ⚠️ ONE BALANCE: on a Work Order, "Due", the cap warning and the block's "Left after this
+  // payment" all read the server's figures, and nothing can be confirmed until they have loaded.
+  // They count each payment gross of the TDS withheld from it (read off each deduction's
+  // `borne_by`) and a Rejected payment not yet deleted -- as the server's cap does, so a request the
+  // server would refuse is refused here first. There is no local Work Order figure to fall back on:
+  // the page cannot add the withheld tax back itself, because `Payment TDS Deduction` is refused to
+  // everyone but the accountants (#1451). `p.paid` / `p.pending` (net) only say whether payments
+  // exist; the local balance below is the PO path's.
   const localMax = payable - p.paid - p.pending;
+  const balanceLoaded = !isWO || !!summary;
   const max = useMemo(
-    ()=> (gstWO ? (cap?.max ?? 0) : isWO && summary ? summary.left : localMax),
+    ()=> (gstWO ? (cap?.max ?? 0) : isWO ? (summary?.left ?? 0) : localMax),
     [gstWO, cap?.max, isWO, summary, localMax]
   );
   const amount = useMemo(()=>{
@@ -98,12 +116,16 @@ export default function RequestPaymentDialog(p:Props){
   },[mode,custom,perc,max,payable,p]);
 
   useMemo(()=>{
-    if(cap && amount>max+1e-6)
+    if(isWO && amount<0)
+      setWarn(NEGATIVE_WORK_ORDER_PAYMENT);
+    else if(invoiceBlock)
+      setWarn(invoiceBlock);
+    else if(cap && amount>max+1e-6)
       setWarn(`Request exceeds ${cap.capLabel} ${formatToIndianRupee(max)}`);
-    else if(!gstWO && amount>max+1e-6)
+    else if(!gstWO && balanceLoaded && amount>max+1e-6)
       setWarn(`Request exceeds balance ${formatToIndianRupee(max)}`);
     else setWarn("");
-  },[amount,max,cap,gstWO]);
+  },[amount,max,cap,gstWO,balanceLoaded,isWO,invoiceBlock]);
 
   /* A cheque is written for the figure AFTER TDS, so the dialog says what that is. Fetched only
      while a cheque is being requested: the dialog is mounted on every PO / WO page. */
@@ -121,6 +143,10 @@ export default function RequestPaymentDialog(p:Props){
   const submit = async ()=>{
     if (isCEOHold) {
       showBlockedToast();
+      return;
+    }
+    if (payeeBlocked) {
+      showPayeeBlockedToast();
       return;
     }
     try{
@@ -159,7 +185,10 @@ export default function RequestPaymentDialog(p:Props){
 
       {gstWO && limit && <PayForChoice limit={limit} value={payFor} onChange={setPayFor}/>}
 
-      {gstWO && !limit && !summaryLoading && summaryError &&
+      {invoiceCheck && <p className="text-xs text-center text-muted-foreground">{invoiceCheckLine(invoiceCheck)}</p>}
+      {invoiceNote && <p className="text-xs text-center text-sky-700 dark:text-sky-400">{invoiceNote}</p>}
+
+      {isWO && !summary && !summaryLoading && summaryError &&
         <p className="text-xs text-red-600 text-center">Couldn't load this Work Order's payment limit. Close and try again.</p>}
 
       <RadioGroup value={mode} onValueChange={v=>setMode(v as any)} className="space-y-3">
@@ -167,9 +196,9 @@ export default function RequestPaymentDialog(p:Props){
         <div className="flex items-center gap-2">
           <RadioGroupItem value="custom" id="custom"/>
           <Label htmlFor="custom" className="w-24">Custom</Label>
-          <Input type="number" className="w-32 h-8"
+          <Input type="number" className="w-32 h-8" min={isWO ? 0 : undefined}
                  disabled={mode!=="custom"} value={custom}
-                 onChange={e=>setCustom(e.target.value)} />
+                 onChange={e=>setCustom(isWO ? e.target.value.replace("-", "") : e.target.value)} />
         </div>
 
         {/* On a GST Work Order the shortcuts measure against what is left of the chosen part, so
@@ -197,7 +226,7 @@ export default function RequestPaymentDialog(p:Props){
 
         {/* On a GST Work Order with nothing left of the chosen part, hide "Due" -- there is
             nothing to request. */}
-        {p.paid>0 && (!gstWO || max>0) &&
+        {p.paid>0 && balanceLoaded && (!gstWO || max>0) &&
           <div className="flex items-center gap-2">
             <RadioGroupItem value="due" id="due"/>
             <Label htmlFor="due">Due {formatToIndianRupee(max)}</Label>
@@ -214,9 +243,12 @@ export default function RequestPaymentDialog(p:Props){
         return note ? <p className="text-center text-xs text-sky-700 dark:text-sky-400">{note}</p> : null;
       })()}
 
+      {open && <RequestPayToAccount vendor={p.vendor} />}
+
       {/* No cheque figure until the rate has landed: with no rate yet it would show the gross. */}
       <PaymentModeFields value={payMode} onChange={setPayMode} amount={tdsLoading ? undefined : amount}
-                         tds={tds} companyBorne={companyBorne} />
+                         tds={tds} companyBorne={companyBorne} vendor={p.vendor}
+                         chequeOffered={chequeModeOffered(p.docType)} />
 
       <div className="mt-3 flex gap-2 justify-center">
         {isMutating
@@ -224,7 +256,7 @@ export default function RequestPaymentDialog(p:Props){
           : <>
               <AlertDialogCancel className="flex-1">Cancel</AlertDialogCancel>
               <Button className="flex-1"
-                      disabled={amount===0 || !!warn || !isPaymentModeComplete(payMode) || (gstWO && !cap)}
+                      disabled={amount===0 || !!warn || !isPaymentModeComplete(payMode, duplicateOf) || !balanceLoaded || (gstWO && !cap)}
                       onClick={submit}>Confirm</Button>
             </>}
       </div>

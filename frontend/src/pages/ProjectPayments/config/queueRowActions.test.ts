@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 
+import type { PaidTo } from "@/utils/payees/paidTo";
+
 import {
   canEditQueueRow,
   canHoldQueueRow,
+  canPayQueueRow,
+  canRaiserEditQueueRow,
   canRevertQueueRow,
   canUploadInvoiceRow,
   canWorkQueueRows,
@@ -61,6 +65,36 @@ describe("roles", () => {
         }
       }
     }
+  });
+});
+
+describe("canRaiserEditQueueRow — the raiser's pencil on Payment Raised By Me (#1472)", () => {
+  const ME = "procurement@nirmaan.app";
+  type RaiserRow = Parameters<typeof canRaiserEditQueueRow>[0];
+  const own = (doctype: RaiserRow["doctype"], status: string, request_id = ""): RaiserRow =>
+    ({ doctype, status, raised_by: ME, request_id });
+
+  it("shows on the viewer's own Direct Expense, either ledger, only while it is Requested", () => {
+    for (const ledger of LEDGERS) {
+      for (const status of STATUSES) {
+        const want = ledger !== "Project Payments" && status === "Requested";
+        expect(canRaiserEditQueueRow(own(ledger, status), ME)).toBe(want);
+      }
+    }
+  });
+
+  it("reads a padded status", () => {
+    expect(canRaiserEditQueueRow(own("Non Project Expenses", " Requested "), ME)).toBe(true);
+  });
+
+  it("never shows on an expense from an Expense Request", () => {
+    expect(canRaiserEditQueueRow(own("Project Expenses", "Requested", "EXR-0042"), ME)).toBe(false);
+  });
+
+  it("never shows on someone else's row, or with no viewer", () => {
+    expect(canRaiserEditQueueRow(own("Project Expenses", "Requested"), "someone.else@nirmaan.app")).toBe(false);
+    expect(canRaiserEditQueueRow(own("Project Expenses", "Requested"), null)).toBe(false);
+    expect(canRaiserEditQueueRow({ ...own("Project Expenses", "Requested"), raised_by: "" }, "")).toBe(false);
   });
 });
 
@@ -136,5 +170,23 @@ describe("isHeldQueueRow", () => {
     expect(isHeldQueueRow({ on_hold: 0 })).toBe(false);
     expect(isHeldQueueRow({ on_hold: undefined as any })).toBe(false);
     expect(isHeldQueueRow({ on_hold: null as any })).toBe(false);
+  });
+});
+
+describe("canPayQueueRow — which rows of Payment need to paid can be ticked and marked paid (#1464)", () => {
+  const account = { account_name: "ACME TRADERS PVT LTD", account_number: "0050200012345", ifsc: "HDFC0001234" };
+  const paidTo = (over: Partial<PaidTo>): PaidTo =>
+    ({ account: null, missing: null, payee_rule: null, switch_to: null, by_cheque: false, vendor_has_no_account: false, ...over });
+
+  it("lets a payable row and a row kept out of the bank file be paid", () => {
+    expect(canPayQueueRow({ on_hold: 0, expense_type: "", paid_to: paidTo({ account }) })).toBe(true);
+    expect(canPayQueueRow({ on_hold: 0, expense_type: "", paid_to: paidTo({ missing: "payment_has_no_account", by_cheque: true }) })).toBe(true);
+    expect(canPayQueueRow({ on_hold: 0, expense_type: "Travel", paid_to: paidTo({ missing: "expense_has_no_account", payee_rule: "Optional" }) })).toBe(true);
+  });
+
+  it("refuses an Ineligible row and a held one", () => {
+    expect(canPayQueueRow({ on_hold: 0, expense_type: "", paid_to: paidTo({ missing: "payment_has_no_account" }) })).toBe(false);
+    expect(canPayQueueRow({ on_hold: 0, expense_type: "Rent", paid_to: paidTo({ missing: "expense_has_no_account", payee_rule: "Required" }) })).toBe(false);
+    expect(canPayQueueRow({ on_hold: 1, expense_type: "", paid_to: paidTo({ account }) })).toBe(false);
   });
 });

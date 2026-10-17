@@ -64,7 +64,7 @@ derived field is *recomputed from source, never incremented by a delta*.
 |---|---|---|
 | **D1** | A leg settles a **whole** payment. ⚠️ **NARROWED BY AMENDMENT B1 — the second half of this sentence is FALSE in the shipped code and must not be read alone.** The record-splitting paths are refused once a transfer has legs | An `allocated_amount` distinct from `target_amount`, giving a second per-payment balance and no valid status for a part-paid payment |
 | **D2** | `Project Payments.utr` keeps the **raw bank reference** on all N payments. No decoration | `"<utr> (part 1/6)"` — makes the value invisible to the re-import duplicate guard and to tier 0, which both compare the raw string |
-| **D3** | A wrong leg is **soft-reversed** (`match_kind = 'Reversed'`), never deleted | Hard delete — frees the unique key but loses the "this was tried and undone" fact |
+| **D3** | A wrong leg is **soft-reversed** (`match_kind = 'Reversed'`), never deleted. A Reversed leg never blocks deleting its target; a live one always does ([ADR-0022 Amendment G](0022-unreconcile-and-unskip.md)) | Hard delete — frees the unique key but loses the "this was tried and undone" fact |
 | **D4** | The unique index becomes **PARTIAL**: `... WHERE match_kind = 'Settled'` | A plain unique index — a Reversed row would keep holding the key, so a correctly-reversed payment could never rejoin that transfer |
 | **D5** | The new row status is **`Partially Allocated`**, and it is **OPEN *and* FROZEN** | `"Partially Settled"` — already taken by the BATCH status, and `derive_batch_status` returns `In Review` for such a batch, so the two words would contradict each other on one screen |
 

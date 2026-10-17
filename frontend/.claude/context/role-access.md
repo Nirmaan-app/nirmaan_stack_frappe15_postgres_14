@@ -25,7 +25,7 @@ This document contains detailed page-level role access control mappings for the 
 - **TDS Approval:** PMO can see the "Pending Approval" tab (read-only) but cannot approve/reject TDS items
 - **Project Payment Approval:** PMO can see the "Approve Payments" tab (read-only) but cannot approve/reject payments. (Editing a fulfilled payment no longer exists for anyone — see *Payments queue — edit & revert* below.)
 - **PR Approval** *(2026-07-04 access review)*: PMO does **not** see the "Approve PR" tab and is blocked from the approve/reject view even by a direct/bookmarked `?tab=Approve PR` URL (redirected to New PR Request). Approver roles are **Admin + Project Lead** (`PR_ADMIN_ROLES` in `config/prTabs.constants.ts`). Unlike TDS/Payments, this is NOT a read-only tab — it is removed entirely. PMO keeps New PR Request / In Progress / Sent Back / All PRs.
-- **New-item creation in the PR flow** *(2026-07-04 access review)*: PMO is treated like a Project Manager — in `new_items="false"` categories they can only **request** an item (ephemeral `REQ-…`), not create a master Item. The Admin/PMO category-restriction bypass was removed (Admin still bypasses). Does not affect the Items master table (PMO already could not create there; only edit).
+- **New-item creation in the PR flow** *(2026-07-04 access review; widened 2026-10-16)*: PMO can only **request** a new item (ephemeral `REQ-…`), never create a master Item, in **every** category — the category's `new_items` flag does not matter for PMO. The PR approver (Admin / Project Lead) creates the item or swaps in an existing one on the Approve PR screen. Rule: `newItemRequestReason` in `src/utils/prNewItem.ts`. Frontend only: the PMO profile carries System Manager, which can still create Items in Desk. Does not affect the Items master table (PMO already could not create there; only edit).
 
 ---
 
@@ -147,6 +147,7 @@ Each role sees a different dashboard (`src/pages/dashboard.tsx`):
 - Project Lead → Project Lead Dashboard
 - Project Manager → Project Manager Dashboard
 - Procurement Executive → Procurement Dashboard
+- Service Procurement Executive → Service Procurement Dashboard (one card per sidebar item)
 - Accountant → Accountant Dashboard
 - Estimates Executive → Estimates Executive Dashboard
 - Billing Executive → Billing Executive Dashboard (a copy of the Estimates dashboard, own `useCounts` cache key)
@@ -165,6 +166,14 @@ Roles that don't require `has_project === "true"`:
 - Nirmaan Design Lead Profile
 - Nirmaan Design Executive Profile
 - Nirmaan HR Executive Profile
+- Nirmaan Service Procurement Executive Profile
+
+**"All projects" is several pieces that must agree, not one switch.** A profile in this list
+must also have zero `User Permission` rows on Projects (Frappe list queries filter only when a
+row exists), sit in the full-access list of each project-scoped endpoint it uses
+(`api/sidebar_counts.py`, `api/tds/get_tds_requests.py`, …), and be blocked from assignment
+in the UI (`UserProjectsTab.isRestrictedRole`, the `ProjectOverviewTab` assignee picker). A
+profile missing from an endpoint's list reads 0 there while its tables show everything.
 
 ---
 
@@ -197,10 +206,11 @@ Roles that don't require `has_project === "true"`:
 | Sent Back Tabs | Y | Y | Y | Y | - |
 | Delete PR | Y | Y | Y | - | - |
 | Create New Item (bypass category restriction) | Y | - | - | - | - |
+| Create New Item in an open category (`new_items` not "false") | Y | - | Y | Y | Y (PM) |
 
-> **PMO note (2026-07-04):** PMO removed from `PR_ADMIN_ROLES`, so no "Approve PR" tab and the approve view/list are guarded against direct-URL access. The new-item create bypass now excludes PMO (Admin-only), so PMO is request-only in `new_items="false"` categories like a Project Manager.
+> **PMO note (2026-07-04, 2026-10-16):** PMO removed from `PR_ADMIN_ROLES`, so no "Approve PR" tab and the approve view/list are guarded against direct-URL access. PMO is request-only for new items in **every** category, open ones included (2026-10-16); the PR approver creates the item.
 
-**Key files:** `config/prTabs.constants.ts` (`PR_ADMIN_ROLES` — approver set), `render-procurement-requests.tsx` (approve-view URL guard → redirect), `procurement-requests.tsx` (tab visibility + pending-list guard), `NewPR/components/NewItemDialog.tsx` + `NewPR/components/ItemSelectorControls.tsx` (`newItemsDisabled` create-vs-request gate)
+**Key files:** `config/prTabs.constants.ts` (`PR_ADMIN_ROLES` — approver set), `render-procurement-requests.tsx` (approve-view URL guard → redirect), `procurement-requests.tsx` (tab visibility + pending-list guard), `src/utils/prNewItem.ts` (`newItemRequestReason` — the one create-vs-request rule, used by `NewPR/components/NewItemDialog.tsx` + `NewPR/components/ItemSelectorControls.tsx`)
 
 ---
 
@@ -319,6 +329,26 @@ queue — edit & revert" below).
 
 ---
 
+### Payees (`payees/`, spec #1420)
+
+Admin, Accountant and Accountant Lead only (`PAYEE_MANAGE_PROFILES` in `constants/roles.ts`): the `/payees`
+route guard, the sidebar link, the header's Add Payee button and a Payee page's Edit and Delete (#1435) all read it. The server enforces the same list
+(`services/role_profiles.PAYEE_MANAGE_PROFILES`) in every `api/payees/` endpoint. Procurement adds Payees only from
+the vendor screens, and raisers only from an Expense Request (later tickets of #1420).
+
+---
+
+### Cheque Tracker (`cheque-tracker/`, spec #1477)
+
+Admin, Accountant, Accountant Lead and Procurement (`CHEQUE_ACCESS_PROFILES` in `constants/roles.ts`); Project
+Managers are not in it. The `/cheque-tracker` route guard and the sidebar link read it, and the server enforces the
+same list (`services/role_profiles.CHEQUE_ACCESS_PROFILES`) in every `api/cheques/` endpoint. Row buttons come from
+`utils/cheques/chequeRowActions.ts`: Clear and Cancel for Admin, Accountant and Accountant Lead only; Edit as
+`canEditCheque` allows (accounts: any cheque; Procurement: only the Pending cheques it created, #1482). It was Reports › Payment › Cheque Payment until #1483; `/reports?report=Cheque Payment`
+links redirect to it (`pages/reports/ReportsIndex.tsx`).
+
+---
+
 ### Reports (`reports/`)
 
 | Tab | Admin | PMO | Proj Lead | Proj Mgr | Procurement | Accountant |
@@ -327,8 +357,12 @@ queue — edit & revert" below).
 | Vendors | Y | Y | Y | - | - | Y |
 | PO | Y | Y | Y | Limited* | Y | Y |
 | WO (SR) | Y | Y | Y | - | Y | Y |
+| Payment › TDS Deduction | Y | - | - | - | - | Y |
 
 *Project Manager only sees "Dispatched for 1+ days" report
+
+The Payment tab is gated by `pages/reports/config/paymentTab.config.ts` (`PAYMENT_TDS_ACCESS` for TDS Deduction).
+Cheques are on their own page, the Cheque Tracker (above).
 
 **Key files:** `ReportsContainer.tsx:49,130,136,144,150,183,185`
 
@@ -350,6 +384,34 @@ queue — edit & revert" below).
 
 ---
 
+### Assets (`Assets/`)
+
+The rules and the monthly audit: `../../../.claude/context/domain/assets.md`.
+
+| Feature | Admin | PMO | HR Exec | HR Lead | Procurement | Others |
+|---------|:-----:|:---:|:-------:|:-------:|:-----------:|:------:|
+| Open `/asset-management` | Y | Y | Y | Y | Y | - |
+| Add Asset | Y | Y | Y | Y | Y | - |
+| Add / Edit / Delete Category; Edit / Delete Asset | Y | Y | Y | Y | - | - |
+| Assign / Unassign; approve or reject a return | Y | Y | Y | Y | Project assets only | - |
+| Switch a category's "Monthly audit required" | Y | - | - | - | - | - |
+| Asset Audit tab (Pending / Fulfilled) | Y | Y | Y | Y | Y | - |
+| History tab + history card on an asset | Y | - | Y | Y | - | - |
+| Own assets: sign declaration, Return, Submit audit | holder | holder | holder | holder | holder | holder |
+
+- "Admin" includes the `Administrator` user. HR Lead has every asset permission HR Executive has (owner,
+  2026-10-15), including the sidebar's Assets link and seeing IT credentials on an asset. Not the Users page:
+  HR Lead still can't open other people's profiles.
+- The server enforces assign, history, the audit switch and every holder action. There is no declaration upload:
+  everyone signs their own, Admin too (owner, 2026-10-15).
+
+**Key files:**
+- `pages/Assets/utils/permissions.ts` (`getAssetPermissions`; mirrors `services/role_profiles.py`)
+- `pages/Assets/AssetsRoute.tsx` (route guard)
+- `pages/users/components/UserAssetsTab.tsx` (holder actions)
+
+---
+
 ### Projects/Users/Items/Vendors
 
 | Page | Feature | Admin | PMO | HR Exec | Proj Lead | Others |
@@ -363,6 +425,7 @@ queue — edit & revert" below).
 | Users | Assign Projects to Users | Y | Y | Y | - | - |
 | Items | Add/Edit Products | Y | Y | - | - | - |
 | Vendors | Export Ledger | Y | Y | - | Y (Accountant) | - |
+| Vendors | Bulk Download tab (`canBulkDownloadVendor`; a typed `?tab=bulkDownload` from anyone else is redirected) | Y | Y | - | - | Accountant, Accountant Lead, Procurement profiles only |
 
 **Key files:**
 - `project.tsx:1045,1058`
@@ -389,7 +452,7 @@ queue — edit & revert" below).
 | Delete Project Expense | Y | Y | - | - | - | - |
 | Add Project Expense | Y | Y | - | - | - | Y |
 | Export Vendor Ledger | Y | Y | - | - | - | Y |
-| Edit Vendor Bank Details | Y | Y | Y | - | Y | Y |
+| Set or edit a vendor's Payee (Edit bank details, Use a different payee, Add bank details, the rename prompt's Update the holder name) | Y | Y | Y | - | Y | Y |
 | Request Payments (PO) | Y | Y | Y | - | Y | - |
 | Edit Design Tracker Structure | Y | Y | - | - | - | - |
 | Edit User Role Profiles | Y | Y | - | - | - | - |

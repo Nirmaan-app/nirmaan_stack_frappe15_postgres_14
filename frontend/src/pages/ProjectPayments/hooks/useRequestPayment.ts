@@ -8,6 +8,7 @@ const API_PATH =
 /** Envelope your back-end returns on success */
 export interface PaymentRequestResponse {
   name: string;                // the new Project Payments docname
+  cheque?: string | null;      // its new one-line Cheque, in Cheque mode (#1414)
 }
 
 /** Payload expected by the API */

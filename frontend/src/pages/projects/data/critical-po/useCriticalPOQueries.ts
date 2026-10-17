@@ -253,7 +253,8 @@ export const useCriticalPOProcurementOrders = (
 
 /**
  * Fetches Procurement Requests for a particular project, together with the procurement
- * package each one is tagged with (used in LinkPODialog & EditTaskDialog).
+ * package each one is tagged with (used in LinkPODialog & EditTaskDialog). Loaded as soon as
+ * the dialog opens: the package dropdown is built from these packages (`buildPackageOptions`).
  *
  * NOTE: `Procurement Requests.work_package` is NOT the package anymore. Since the v3.0
  * `migrate_work_package_to_pr_tags` patch it only carries the PR type ("Normal" /
@@ -263,7 +264,6 @@ export const useCriticalPOProcurementOrders = (
  */
 export const useCriticalPOProcurementRequests = (
     projectId: string,
-    selectedPackage: string | null,
     enabled: boolean = true
 ) => {
     const response = useFrappeGetDocList<PRPackageRow>(
@@ -273,7 +273,7 @@ export const useCriticalPOProcurementRequests = (
             filters: [["project", "=", projectId]],
             limit: 0,
         },
-        (selectedPackage && enabled) ? criticalPOKeys.procurementRequests(projectId) : null
+        enabled ? criticalPOKeys.procurementRequests(projectId) : null
     );
 
     useApiErrorLogger(response.error, {

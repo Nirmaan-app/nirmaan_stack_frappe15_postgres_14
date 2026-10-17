@@ -41,6 +41,11 @@ export type DialogStore = {
   setNewNonProjectInflowDialog: (open: boolean) => void;
   toggleNewNonProjectInflowDialog: () => void;
 
+  // Add Payee Dialog (opened by the /payees header "Add Payee" button, spec #1420)
+  newPayeeDialog: boolean;
+  setNewPayeeDialog: (open: boolean) => void;
+  toggleNewPayeeDialog: () => void;
+
   // --- (Indicator) NEW: Edit Inflow Payment Dialog ---
   editInflowDialog: boolean;
   setEditInflowDialog: (open: boolean) => void;
@@ -149,6 +154,10 @@ export const useDialogStore = create<DialogStore>((set) => ({
   newNonProjectInflowDialog: false,
   setNewNonProjectInflowDialog: (open: boolean) => set({ newNonProjectInflowDialog: open }),
   toggleNewNonProjectInflowDialog: () => set((state) => ({ newNonProjectInflowDialog: !state.newNonProjectInflowDialog })),
+
+  newPayeeDialog: false,
+  setNewPayeeDialog: (open: boolean) => set({ newPayeeDialog: open }),
+  toggleNewPayeeDialog: () => set((state) => ({ newPayeeDialog: !state.newPayeeDialog })),
 
   // --- (Indicator) NEW: Edit Inflow Payment Dialog Implementation ---
   editInflowDialog: false,

@@ -43,7 +43,17 @@ Backend API endpoints in `nirmaan_stack/api/`.
 - Shared `_enrich_delivery_docs()` helper batch-fetches child items and attachment URLs (avoids N+1 queries)
 
 ### Bulk PDF Download (`api/pdf_helper/`)
-- `bulk_download.py` - Unified bulk download for POs, WOs, Invoices, DCs, MIRs, DNs
+- `bulk_download.py` - Unified bulk download for POs, WOs, Invoices, DCs, MIRs, DNs, Material Test Certificates, Client Invoices, PO and WO Payment Vouchers
+  - Every endpoint takes `project=` OR `vendor=` (exactly one; `_scope`). Project scope reads with `get_all`;
+    vendor scope reads with `get_list` as the user, so User Permission-scoped users get only their projects
+  - Each download carries a browser-made `download_id` (never `job_id`: `frappe.enqueue` keeps that keyword) on
+    every event. An empty selection is refused, any job failure publishes `bulk_download_failed`, and
+    `cancel_bulk_download` stops a running job between documents
+  - Payment vouchers travel as PAYMENT names. WO (`download_selected_wo_payment_vouchers`): the uploaded
+    `voucher_attachment` of Paid WO payments, read back by the job. PO (`download_selected_po_payment_vouchers`):
+    PO payments have no upload, so the job GENERATES each Paid one's voucher from print format "SR Payment" (as the PO
+    page does), with a 1-hour job limit. MTCs likewise travel as MTC names
+    (`download_selected_mtcs`, MTC project rule applied). Client Invoices are project-only
   - Supports vendor/date filtering, progress tracking, rate selection
   - Filters POs by Delivered/Partially Delivered status
   - Restricts PO rate visibility for Project Managers
@@ -69,6 +79,19 @@ Backend API endpoints in `nirmaan_stack/api/`.
 - `edit_request.edit_tds_request(doc_name, row)` - Admin only, POST. Saves an edit of one waiting New Make or Project Custom row (`row` is the submit cart-row shape) and can switch it between the two: to Project Custom it needs a name, Work Package and a Category under it, gets the project's `PCUS-` id for that name and is stored Pending; to New Make it needs an existing TDS Item, drops the `PCUS-` id and is stored New. Same checks as submit, under the same project lock; the request id is kept. From Repository rows are refused (they keep the browser's Edit TDS Item save)
 - `approve.approve_tds_items(doc_names, datasheet_choices=None)` - Admin only, POST. Project Custom rows are only marked Approved (no TDS Repository write); a New Make adds a Verified Repository Entry; a `New` row with no existing TDS Item is refused. A New Make whose entry already exists needs `datasheet_choices[row] = "repository"` (row borrows the entry's sheet) or `"request"` (the uploaded sheet becomes the entry's; the old File is kept), else that row is refused
 
+### Assets (`api/assets/`)
+Rules and who may call what: [domain/assets.md](domain/assets.md).
+- `assign.assign_asset` / `unassign_asset` - POST. Assign or unassign in one request (Admin / HR Executive / PMO any asset; Procurement Project assets only); unassign needs a reason
+- `declaration.sign_declaration` - POST, the holder only. Renders the declaration PDF with the drawn signature and attaches it
+- `declaration.read_declaration_form` - GET, the holder only. The blank form as a PDF to read before signing, whatever project the asset is booked to (Frappe's own print download refuses a project-scoped holder)
+- `returns.request_return` (holder; refused while the audit is Pending), `approve_return` (the normal Unassign), `reject_return`
+- `audits.submit_audit(assignment, photo, remarks, answers)` - POST, the holder only. Answers are `[{id, q, a, flag?, text?}]` from `frontend/src/utils/assetAuditQuestions.ts`; the server checks their shape (`services/asset_audit.clean_answers`) and saves them on the assignment and the history row
+- `audits.set_category_audit(category, required)` - POST, Admin only. Switches a category's monthly audit; on opens the month's audits at once
+- `history.get_asset_history` - named filters (event / department / person / asset / dates / category type); Admin + HR, audit events also for the Asset Audit tab's viewers
+- `history.get_asset_history_table` / `get_asset_history_facets` - the History tab's server data table (`useServerDataTable` `apiEndpoint`) and its header-filter counts; Admin + HR only
+- `mine.get_my_assets` - the caller's own assets, whatever project they are booked against
+- `projects.get_won_projects` - the Assign dialog's project picker
+
 ### Other Domains
 - `invoices/` - Invoice data APIs (PO-wise, SR-wise)
 - `payments/` - Payment processing
@@ -83,8 +106,8 @@ Backend API endpoints in `nirmaan_stack/api/`.
 - `data_table/search.py` - Data aggregation (sorting support prepared but not yet enabled; requires explicit field selection)
 
 ### Master Data
-- `create_vendor_and_address.py` - Vendor onboarding
-- `bank_details.py` - Banking utilities
+- `create_vendor_and_address.py` - Vendor onboarding: takes an existing `payee` or new `bank` details made into a Payee (`services/payees/choosing.choose_payee`); a Vendor has no bank fields
+- `bank_details.py` - IFSC lookup (`generate_bank_details`; no caller in the app since #1432, the Payee module uses `services/payees/ifsc`)
 - `users.py` - User management (rename, etc.)
 - `items.py` - Items doctype with `on_update` hook syncing item_name and category to TDS Repository
 

@@ -12,7 +12,7 @@ import frappe
 
 from nirmaan_stack.api.outflow_import.unreconcile_cleanup import delete_statement_file_links
 from nirmaan_stack.services.outflow_import.ledgers import project_field_of
-from nirmaan_stack.services.outflow_import.settle import _outflow_import_write
+from nirmaan_stack.services.outflow_import.settle import outflow_import_write
 
 
 def delete_created(doctype: str, name: str, statement_file_url: str | None) -> str | None:
@@ -24,17 +24,19 @@ def delete_created(doctype: str, name: str, statement_file_url: str | None) -> s
     deletes on) and, on one carrying the key, is the IMPORT BATCH's statement, shared by every record
     that batch settled. See `unreconcile_cleanup.delete_statement_file_links`.
 
-    ⚠️ `force=True` SKIPS THE LINK CHECK, AND THAT IS NEEDED: the kept Reversed leg's Dynamic Link names
-    this record, so the check would refuse the delete. The leg itself is never deleted (ADR-0020 D3).
+    `force=True` skips Frappe's link check. The kept Reversed leg names this record as text since
+    ADR-0022 Amendment G, so it no longer trips that check; the leg is stamped Reversed first, so the
+    live-leg refusal (`settled_targets` / `expense_bank_links` `on_trash`, which `force` does not
+    skip) reads zero. The leg itself is never deleted (ADR-0020 D3).
     The trash hooks still run: `delete_doc_versions.generate_versions` keeps a copy, and the cashflow
     hook -- which evaluates BEFORE the row is gone on `Project Inflows` -- is re-run by the clean-up.
-    `_outflow_import_write` holds shut that hook's one committing branch, as for every settle save.
+    `outflow_import_write` holds shut that hook's one committing branch, as for every settle save.
     """
     field = project_field_of(doctype)
     project = frappe.db.get_value(doctype, name, field) if field else None
     delete_statement_file_links(doctype, [name], statement_file_url)
     series = series_counters_for(name)
-    with _outflow_import_write():
+    with outflow_import_write():
         frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
     restore_series_counters(series)
     return project or None

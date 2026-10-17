@@ -134,7 +134,8 @@ class TestTheCardCarriesRemarksAndDetails(BankLinesFixture):
         self.assertEqual(details["vendor_name"], "")
         self.assertEqual(
             set(details),
-            {"type", "description", "comment", "project", "project_name", "vendor", "vendor_name"},
+            {"type", "description", "comment", "project", "project_name", "vendor", "vendor_name",
+             "porter_order"},
         )
 
     def test_a_project_expense_carries_the_same_keys(self):
@@ -144,7 +145,8 @@ class TestTheCardCarriesRemarksAndDetails(BankLinesFixture):
 
         self.assertEqual(
             set(details),
-            {"type", "description", "comment", "project", "project_name", "vendor", "vendor_name"},
+            {"type", "description", "comment", "project", "project_name", "vendor", "vendor_name",
+             "porter_order"},
         )
 
 

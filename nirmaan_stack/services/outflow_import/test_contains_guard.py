@@ -99,9 +99,14 @@ def verdict(row, records, claims=()):
     return derive_duplicate_guard_outcome(row, paid_duplicate=group), group
 
 
-def claim(rec, *, row="ROW-OTHER", batch="OIB-EARLIER", settled=False):
+def claim(rec, *, row="ROW-OTHER", batch="OIB-EARLIER", settled=False, amount=None):
+    """A claim on `rec`. A skip basis (`settled=False`) carries no amount; a settled leg carries the
+    part of the record its line accounts for, which defaults to the whole record."""
+    if settled and amount is None:
+        amount = rec.amount
     return RecordClaim(
         doctype=rec.doctype, name=rec.name, import_row=row, import_batch=batch, settled=settled,
+        amount=None if amount is None else Decimal(str(amount)),
     )
 
 
@@ -444,12 +449,19 @@ class TestOneRecordJustifiesOneLine(unittest.TestCase):
         self.assertEqual(outcome.status, ROW_MISMATCHED)
         self.assertIn("Project Payment PAY-B already accounts", outcome.note)
 
-    def test_an_amount_off_hit_reads_the_delta_note_whether_or_not_it_is_used(self):
+    def test_an_amount_off_hit_on_a_record_another_line_skipped_on_is_no_hit(self):
+        """INVERTED 2026-10-15 (owner ruling): it read the delta note whether or not it was used.
+
+        A record another line was skipped on is that line's money whole, so it cannot be this
+        line's money recorded with a different figure -- the note named an unrelated record.
+        """
         row = Row(amount=Decimal("20000"), remarks=IMPS)
         rec = record("610415565123", 20500, name="PAY-OFF")
         plain, _ = verdict(row, [rec])
-        used, _ = verdict(row, [rec], [claim(rec)])
-        self.assertEqual(used, plain)
+        self.assertEqual(plain.status, ROW_MISMATCHED)
+        self.assertIn("PAY-OFF", plain.note)
+        _, group = verdict(row, [rec], [claim(rec)])
+        self.assertIsNone(group)
 
     def test_a_claim_on_a_record_the_line_did_not_hit_changes_nothing(self):
         row = Row(amount=Decimal("12500"), remarks=IMPS)
@@ -506,6 +518,118 @@ class TestOneRecordJustifiesOneLine(unittest.TestCase):
             sorted((c.name, c.import_row, c.import_batch, c.settled) for c in claims),
             [("A", "ROW-SPLIT", "OIB-9", False), ("B", "ROW-SPLIT", "OIB-9", False)],
         )
+
+
+class TestABankBranchCodeNeverHits(unittest.TestCase):
+    """An IFSC identifies a bank branch, never a transfer (owner ruling, 2026-10-15).
+
+    Since #1259 a record made from an ICICI line stores the whole narration, which ends in the
+    payer's IFSC -- often cut short by the bank (`HDFC00000`). Every one of the seven false
+    "Create anyway?" warnings measured on 2026-10-15 hit on such a code; none of the 26 genuine
+    duplicates did. The real references below are the ones those 26 hit on.
+    """
+
+    # The ₹28,886 refund the ₹14,70,000 INDRA HOTELS credit was warned about.
+    REFUND = "NEFT-HDFCH01279154968-SUNRISE HVAC PRODUCTS AND SERVICES-0001RETURN AMOUNT-50200063353392-HDFC00000"
+    INDRA = "NEFT-HDFCN52026093012345678-INDRA HOTELS PVT LTD-0001-50100012345678-HDFC0000009"
+
+    def test_a_branch_code_and_a_cut_short_one_are_not_tokens(self):
+        for code in ("HDFC0000240", "HDFC0000001", "HDFC00000", "JAKA0ARAKHO", "hdfc0000240"):
+            self.assertEqual(reference_tokens(code), frozenset(), code)
+
+    def test_a_branch_code_inside_a_narration_is_dropped_and_its_neighbours_kept(self):
+        tokens = reference_tokens(self.REFUND)
+        self.assertNotIn("HDFC00000", tokens)
+        self.assertIn("HDFCH01279154968", tokens)
+        self.assertIn("50200063353392", tokens)
+
+    def test_the_references_behind_genuine_duplicates_still_count(self):
+        for real in (
+            "HDFCR52026091558926870", "HDFCH01255940855", "YESBR52026091958416696",
+            "YESB62257250064", "SBIN126250140885", "CITIN26716895294", "IDFB6234M2830566",
+            "S84610896", "M3163210", "045910696301",
+        ):
+            self.assertIn(real, reference_tokens(real), real)
+
+    def test_a_credit_sharing_only_a_branch_code_with_a_record_does_not_hit_it(self):
+        row = Row(amount=Decimal("1470000"), remarks=self.INDRA, direction="Credit")
+        refund = record(self.REFUND, 28886, doctype=INFLOW_DOCTYPE, name="VRF-REFUND")
+        self.assertEqual(find_hits(row, [refund]), ())
+
+    def test_a_typed_branch_code_is_never_found_inside_a_stored_narration(self):
+        self.assertFalse(reference_is_inside("HDFC0000240", "NEFT/X/HDFC0000240/ANJ TURNKEY"))
+
+
+class TestAFullyAccountedRecordIsNotRecordedDifferently(unittest.TestCase):
+    """An amount-off hit on a record OTHER bank lines account for in full is no hit (2026-10-15).
+
+    Such a record is those lines' money, whole, so it cannot be THIS line's money recorded with a
+    different figure. Only a record no line fully accounts for -- one a person entered, or one other
+    lines pay only in part -- may still hold the line `Mismatched` with the delta note.
+    """
+
+    def test_a_record_another_line_settled_whole_is_no_hit_when_the_amount_is_off(self):
+        row = Row(amount=Decimal("1470000"), remarks=IMPS, direction="Credit")
+        refund = record("610415565123", 28886, doctype=INFLOW_DOCTYPE, name="VRF-WHOLE")
+        _, group = verdict(row, [refund], [claim(refund, settled=True)])
+        self.assertIsNone(group)
+
+    def test_legs_of_several_lines_adding_up_to_the_record_account_for_it(self):
+        row = Row(amount=Decimal("90000"), remarks=IMPS)
+        rec = record("610415565123", 50000, name="PAY-TWO-LINES")
+        claims = [
+            claim(rec, settled=True, row="ROW-A", amount=30000),
+            claim(rec, settled=True, row="ROW-B", amount=19996),
+        ]
+        _, group = verdict(row, [rec], claims)
+        self.assertIsNone(group)
+
+    def test_a_record_other_lines_pay_only_in_part_still_holds_the_line(self):
+        """Q11: a ₹5,00,000 salary run four lines in. The next line may be more of the same money."""
+        row = Row(amount=Decimal("125000"), remarks=IMPS)
+        run = record("610415565123", 500000, doctype=PROJECT_EXPENSE_DOCTYPE, name="PE-SALARY")
+        outcome, group = verdict(row, [run], [claim(run, settled=True, amount=200000)])
+        self.assertEqual(outcome.status, ROW_MISMATCHED)
+        self.assertEqual([t.name for t in group.targets], ["PE-SALARY"])
+
+    def test_a_record_no_line_accounts_for_still_holds_the_line(self):
+        """The fan-in case: one person-entered inflow of ₹4,21,606 covering three credits."""
+        row = Row(amount=Decimal("140000"), remarks=IMPS, direction="Credit")
+        inflow = record("610415565123", 421606, doctype=INFLOW_DOCTYPE, name="PAYIN-FAN-IN")
+        outcome, group = verdict(row, [inflow])
+        self.assertEqual(outcome.status, ROW_MISMATCHED)
+        self.assertIn("PAYIN-FAN-IN", outcome.note)
+
+    def test_a_mixed_group_names_only_the_records_no_line_accounts_for(self):
+        row = Row(amount=Decimal("500000"), remarks=IMPS, direction="Credit")
+        whole = record("610415565123", 28886, doctype=INFLOW_DOCTYPE, name="VRF-WHOLE")
+        open_ = record("610415565123", 3127, doctype=INFLOW_DOCTYPE, name="PAYIN-OPEN")
+        outcome, group = verdict(row, [whole, open_], [claim(whole, settled=True)])
+        self.assertEqual(outcome.status, ROW_MISMATCHED)
+        self.assertEqual([t.name for t in group.targets], ["PAYIN-OPEN"])
+        self.assertNotIn("VRF-WHOLE", outcome.note)
+
+    def test_an_agreeing_record_another_line_used_still_reads_not_skipped(self):
+        """#1258 is untouched: the same amount on a used record asks whether it is a second receipt."""
+        row = Row(amount=Decimal("1905"), remarks=IMPS, direction="Credit")
+        npi = record("610415565123", 1905, doctype=NON_PROJECT_INFLOW_DOCTYPE, name="NPI-USED")
+        outcome, group = verdict(row, [npi], [claim(npi, settled=True)])
+        self.assertEqual(outcome.status, ROW_MISMATCHED)
+        self.assertTrue(group.used_by)
+        self.assertIn("NPI-USED already accounts", outcome.note)
+
+    def test_the_line_s_own_leg_never_counts_as_another_line_s(self):
+        row = Row(amount=Decimal("20000"), remarks=IMPS)
+        rec = record("610415565123", 20500, name="PAY-OFF")
+        _, group = verdict(row, [rec], [claim(rec, settled=True, row=row.name)])
+        self.assertEqual([t.name for t in group.targets], ["PAY-OFF"])
+
+    def test_a_part_linked_expense_s_slip_is_never_dropped(self):
+        row = Row(amount=Decimal("12000"), remarks=IMPS)
+        piece = slip("610415565123", 9000)
+        outcome, group = verdict(row, [piece], [claim(piece, settled=True)])
+        self.assertEqual(outcome.status, ROW_MISMATCHED)
+        self.assertEqual(len(group.targets), 1)
 
 
 class TestAReferenceInsideAStoredOne(unittest.TestCase):

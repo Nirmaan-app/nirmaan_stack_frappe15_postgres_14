@@ -13,11 +13,17 @@
   "document_type",
   "document_name",
   "refund_details_section",
+  "status",
   "utr",
   "refund_attachment",
   "amount",
   "payment_date",
-  "description"
+  "description",
+  "waiting_created_by",
+  "no_bank_line",
+  "no_bank_line_by",
+  "no_bank_line_at",
+  "no_bank_line_reason"
  ],
  "fields": [
   {
@@ -70,6 +76,16 @@
    "label": "Refund Details"
   },
   {
+   "description": "Received: a bank credit line is matched to it, or it was recorded from one; only a Received refund lowers its document's paid amount. Reconciliation Pending: recorded before its bank line; it lowers nothing but holds its amount against the document's refundable amount. Cancelled: counts for nothing.",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Reconciliation Pending\nReceived\nCancelled",
+   "reqd": 1
+  },
+  {
    "fieldname": "utr",
    "fieldtype": "Text",
    "label": "UTR"
@@ -97,6 +113,44 @@
    "fieldname": "description",
    "fieldtype": "Small Text",
    "label": "Description"
+  },
+  {
+   "description": "Who recorded it as a waiting refund (Reconciliation Pending) from Adjust Payments. While it waits, only this user or an Accountant may change its amount or PO.",
+   "fieldname": "waiting_created_by",
+   "fieldtype": "Link",
+   "label": "Recorded as Waiting By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Received with no bank line: an Admin made this waiting refund count without its bank credit line (the \"No bank proof\" badge). Cleared when a Bulk Import credit line is matched to it; set again if that match is unreconciled.",
+   "fieldname": "no_bank_line",
+   "fieldtype": "Check",
+   "label": "Received With No Bank Line",
+   "read_only": 1
+  },
+  {
+   "description": "The Admin who marked it Received with no bank line. Kept after a bank line is matched to it.",
+   "fieldname": "no_bank_line_by",
+   "fieldtype": "Link",
+   "label": "No Bank Line Marked By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "description": "When it was marked Received with no bank line.",
+   "fieldname": "no_bank_line_at",
+   "fieldtype": "Datetime",
+   "label": "No Bank Line Marked At",
+   "read_only": 1
+  },
+  {
+   "description": "Why it was marked Received with no bank line (required).",
+   "fieldname": "no_bank_line_reason",
+   "fieldtype": "Small Text",
+   "label": "No Bank Line Reason",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

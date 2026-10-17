@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowUpFromLine, Package, Plus } from "lucide-react";
+import { Package, Plus } from "lucide-react";
 
 import { DataTable } from "@/components/data-table/new-data-table";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
@@ -61,12 +60,6 @@ export default function WarehouseStockPage() {
               Add Item
             </Button>
           )}
-          <Link to="/warehouse/request">
-            <Button size="sm" variant="outline">
-              <ArrowUpFromLine className="mr-2 h-4 w-4" />
-              Request from Warehouse
-            </Button>
-          </Link>
         </div>
       </div>
 

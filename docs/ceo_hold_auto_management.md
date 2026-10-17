@@ -39,12 +39,12 @@ For every project, the system continuously computes one number:
 
 > **Cashflow Gap** = (Money already paid out + Money we owe vendors for goods received) − (Money received from customer)
 
-Concretely:
+Concretely (one server figure, `services/project_money`, which the Projects list also reads; ADR-0034, #1456):
 
 | Side of the equation | Comes from |
 |---|---|
-| **Paid out** | All Project Payments with status = Paid + all Project Expenses |
-| **Owed** (liabilities) | For each PO: amount of goods *delivered* minus the portion of that delivery already paid |
+| **Paid out** (project outflow) | All Project Payments with status = Paid + Project Expenses with status = Paid, less Received Vendor Refunds on the project's POs and Work Orders (money a vendor sent back, spec #1396) |
+| **Owed** (Current Liabilities) | For each PO except Merged, Cancelled and Inactive: amount of goods *delivered* minus Amount Paid, never below zero |
 | **Received** | All Project Inflows |
 
 When the gap is **positive**, the project is burning faster than it's collecting. When negative or near zero, finances are healthy.
@@ -99,6 +99,7 @@ User actions that can naturally trigger an auto-release:
 | Increasing an existing Inflow amount | Same |
 | **Deleting** a Paid Project Payment (e.g., reversing a mistaken entry) | Reduces paid-out side |
 | **Deleting** a Project Expense | Reduces paid-out side |
+| A Vendor Refund turning Received (bank line matched, or marked Received with no bank line) | Reduces paid-out side |
 | A PO's `amount_paid` catching up with `po_amount_delivered` | Reduces liabilities |
 | **Raising** the project's `Cashflow Gap Limit` | Threshold moves above gap |
 
@@ -230,7 +231,7 @@ A. No. Completed status is terminal — the cron skips it entirely.
 
 - **Cashflow Gap** — `(paid + expenses + liabilities) − inflows` for a project.
 - **Cashflow Gap Limit** — Per-project threshold above which auto-hold triggers. Defaulted to 20% of the project's GST value when first set.
-- **Liabilities** — For each PO: amount of goods *delivered* minus the amount already paid against the delivered portion. Capped at the delivered amount, so over-payments don't go negative.
+- **Liabilities** — For each PO except Merged, Cancelled and Inactive: amount of goods *delivered* minus its Amount Paid, never below zero, so over-payments don't go negative.
 - **CEO Hold** — A project status that blocks procurement, payment, and expense operations.
 - **`ceo_hold_by`** — Stored on every project; the user (or system marker) that placed the current hold. Determines who can release it.
 - **`System (Cashflow Cron)`** — The marker the automation uses when it places a hold. The presence of this marker is what makes a hold auto-revertible.

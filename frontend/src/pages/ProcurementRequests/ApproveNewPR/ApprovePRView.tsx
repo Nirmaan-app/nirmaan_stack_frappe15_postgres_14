@@ -27,6 +27,7 @@ import { parseNumber } from '@/utils/parseNumber';
 import { CategoryMakesMap } from '../NewPR/types';
 import { extractMakesFromChildTableForMultipleWPs } from '@/hooks/useMakeOptions';
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
+import { derivePRPackages } from '@/utils/prPackages';
 // import { CategoryMakelist } from '@/types/NirmaanStack/CategoryMakelist'; // Import if needed
 
 // Props Type for the View Component
@@ -150,6 +151,13 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
         allRelevantPackages = [],
     } = props;
 
+    // The header shows the packages of the items on screen (draft edits included), not the saved
+    // `pr_tag_list`: this page does not refetch the PR after each change, so those rows lag.
+    const livePackages = useMemo(
+        () => derivePRPackages(props.currentOrderList),
+        [props.currentOrderList]
+    );
+
     // Derive the initial makes map for *this PR's work package*
     const initialCategoryMakes = useMemo<CategoryMakesMap>(() => {
         if (!projectDoc) return {};
@@ -216,7 +224,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                         hasDraft={hasDraft}
                         lastSavedText={lastSavedText}
                         isSaving={isSaving}
-                        tags={orderData.pr_tag_list}
+                        packages={livePackages}
                     />
 
                     {/* Editing Lock Warning */}

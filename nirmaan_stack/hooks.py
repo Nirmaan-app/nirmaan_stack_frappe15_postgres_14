@@ -159,6 +159,8 @@ doc_events = {
 		# "on_trash": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.delete_user_profile"
 	},
     "Nirmaan Users": {
+        # A department set for the first time fills the department of the assets the person holds.
+        "on_update": "nirmaan_stack.integrations.controllers.nirmaan_users.on_update",
         "on_trash": [
             "nirmaan_stack.integrations.controllers.nirmaan_users.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
@@ -193,6 +195,20 @@ doc_events = {
         "on_update": "nirmaan_stack.integrations.controllers.asset_management.on_update",
         "on_trash": "nirmaan_stack.integrations.controllers.asset_management.on_trash"
     },
+    "Nirmaan Department": {
+        # Only Admin and HR rename or delete a department (validate covers add/edit).
+        "before_rename": "nirmaan_stack.integrations.controllers.nirmaan_department.before_rename",
+        "on_trash": "nirmaan_stack.integrations.controllers.nirmaan_department.on_trash",
+    },
+    "Asset Master": {
+        # Asset History rows: the asset added, and its department set/fixed in Edit.
+        "after_insert": "nirmaan_stack.integrations.controllers.asset_master.after_insert",
+        "on_update": "nirmaan_stack.integrations.controllers.asset_master.on_update",
+    },
+    "Asset Category": {
+        # Monthly asset audit: ticking "Monthly audit required" opens the cycle month's audits of its assets.
+        "on_update": "nirmaan_stack.integrations.controllers.asset_category.on_update",
+    },
     "Projects": {
         "after_insert": [
             "nirmaan_stack.nirmaan_stack.doctype.project_work_milestones.project_work_milestones.generate_pwm",
@@ -205,9 +221,13 @@ doc_events = {
         "on_update": "nirmaan_stack.nirmaan_stack.doctype.projects.projects.on_update"
     },
     "Non Project Inflows": {
+        # Carry the match records to the new name (ADR-0022 Amendment G).
+        "after_rename": "nirmaan_stack.integrations.controllers.settled_targets.after_rename",
         # Claim the loose receipt File the add dialog uploaded before the record existed. Frappe's
         # own `attach_files_to_document` skips the GCP attachment app's `/api/method/...` URLs.
-        "on_update": "nirmaan_stack.integrations.controllers.non_project_inflows.adopt_receipt_file"
+        "on_update": "nirmaan_stack.integrations.controllers.non_project_inflows.adopt_receipt_file",
+        # Refuse the delete while a bank line still settles it (ADR-0022 Amendment G).
+        "on_trash": "nirmaan_stack.integrations.controllers.settled_targets.on_trash",
     },
     "Project Progress Reports": {
         # Adopt capture-time DPR photo Files (uploaded before the report existed,
@@ -216,6 +236,9 @@ doc_events = {
         "on_update": "nirmaan_stack.integrations.controllers.project_progress_reports.relink_attachment_files"
     },
     "Vendors": {
+        # Only the vendor screens' roles set a vendor's Payee (#1423, spec #1420); the same
+        # controller fills a request's / Project Expense's pay-to account from its vendor (#1436).
+        "validate": "nirmaan_stack.integrations.controllers.payee_links.validate",
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.generate_vendor_category",
         # IMPLEMENT ON_UPDATE
 		"on_update": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.update_vendor_category",
@@ -318,23 +341,38 @@ doc_events = {
         "after_delete": "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
     },
     # A refund lowers its PO's / WO's `amount_paid` (Paid payments LESS refunds). `on_update` covers
-    # insert; `after_delete`, never `on_trash`, so the sum no longer counts the deleted refund.
+    # insert; `after_delete`, never `on_trash`, so the sum no longer counts the deleted refund. On a
+    # PO that recompute is the refund sync step (#1399), which also links the refund into the PO
+    # Adjustment. `on_trash` only drops those links, before Frappe's link check refuses the delete.
     "Vendor Refunds": {
+        # Carry the match records to the new name (ADR-0022 Amendment G).
+        "after_rename": "nirmaan_stack.integrations.controllers.settled_targets.after_rename",
+        "validate": "nirmaan_stack.integrations.controllers.vendor_refunds.guard_money_edit",
         "on_update": "nirmaan_stack.integrations.controllers.vendor_refunds.recompute_document_amount_paid",
+        # Refuse a bank-settled refund first, so a refused delete unlinks nothing.
+        "on_trash": [
+            "nirmaan_stack.integrations.controllers.settled_targets.on_trash",
+            "nirmaan_stack.integrations.controllers.vendor_refunds.unlink_from_adjustments",
+        ],
         "after_delete": "nirmaan_stack.integrations.controllers.vendor_refunds.recompute_document_amount_paid",
     },
     "Project Payments": {
+        # Carry the match records to the new name (ADR-0022 Amendment G).
+        "after_rename": "nirmaan_stack.integrations.controllers.settled_targets.after_rename",
         "validate": "nirmaan_stack.integrations.controllers.project_payments.validate",
         "after_insert": "nirmaan_stack.integrations.controllers.project_payments.after_insert",
         "on_update": [
             "nirmaan_stack.integrations.controllers.project_payments.on_update",
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_payment",
         ],
+        # `settled_targets` FIRST: a refused delete runs no clean-up (ADR-0022 Amendment G).
         "on_trash": [
+            "nirmaan_stack.integrations.controllers.settled_targets.on_trash",
             "nirmaan_stack.integrations.controllers.project_payments.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
-            "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_payment",
-        ]
+        ],
+        # after_delete, never on_trash: the cashflow check must read the payment gone (#1453).
+        "after_delete": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_payment",
     },
      "Project Invoices": {
         "validate": "nirmaan_stack.integrations.controllers.project_invoices.validate",
@@ -345,6 +383,8 @@ doc_events = {
     # live `Outflow Row Match` slips. Its `on_trash` comes FIRST so a refused delete never mints a
     # version row for a document that is still there.
     "Non Project Expenses": {
+        # Carry the match records to the new name (ADR-0022 Amendment G).
+        "after_rename": "nirmaan_stack.integrations.controllers.settled_targets.after_rename",
         "validate": "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
         # Both exit immediately unless the row is transitioning INTO Paid, so the ~700
         # ordinary saves cost one field comparison each. STATE FIRST, then the telling:
@@ -355,14 +395,25 @@ doc_events = {
         ],
         "on_trash": [
             "nirmaan_stack.integrations.controllers.expense_bank_links.on_trash",
+            # Drops the expense off its Cheque (#1413) before Frappe's link check refuses the delete.
+            "nirmaan_stack.integrations.controllers.cheques.on_expense_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
         ],
         # Deleting the expense deletes the request it came from. after_delete, not on_trash --
         # the row must be GONE before the request it links to can be deleted.
-        "after_delete": "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_deleted",
+        "after_delete": [
+            "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_deleted",
+            # Its Files through the shared-bytes-safe delete, before Frappe's own `remove_all` (#1442).
+            "nirmaan_stack.integrations.controllers.expense_files.delete_attached_files",
+        ],
     },
     "Project Expenses": {
-        "validate": "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
+        # Carry the match records to the new name (ADR-0022 Amendment G).
+        "after_rename": "nirmaan_stack.integrations.controllers.settled_targets.after_rename",
+        "validate": [
+            "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
+            "nirmaan_stack.integrations.controllers.payee_links.validate",
+        ],
         "after_insert": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
         "on_update": [
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
@@ -374,6 +425,8 @@ doc_events = {
         # generate_versions needs the pre-delete data, so it stays on on_trash.
         "on_trash": [
             "nirmaan_stack.integrations.controllers.expense_bank_links.on_trash",
+            # Drops the expense off its Cheque (#1413) before Frappe's link check refuses the delete.
+            "nirmaan_stack.integrations.controllers.cheques.on_expense_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
         ],
         # Cashflow recompute moved to after_delete so the gap query runs AFTER the
@@ -383,13 +436,23 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
             # Deleting the expense deletes the request it came from.
             "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_deleted",
+            # Its Files through the shared-bytes-safe delete, before Frappe's own `remove_all` (#1442).
+            "nirmaan_stack.integrations.controllers.expense_files.delete_attached_files",
         ],
     },
+    # No expense ever owns a File for a Porter invoice PDF: that one File is its Porter Invoice's (#1442).
+    "File": {
+        "before_insert": "nirmaan_stack.integrations.controllers.expense_files.refuse_invoice_pdf_copy",
+    },
     "Project Inflows": {
+        # Carry the match records to the new name (ADR-0022 Amendment G).
+        "after_rename": "nirmaan_stack.integrations.controllers.settled_targets.after_rename",
         "validate": "nirmaan_stack.integrations.controllers.project_inflows.validate",
         "after_insert": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_inflow",
         "on_update": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_inflow",
+        # `settled_targets` FIRST: a refused delete runs no clean-up (ADR-0022 Amendment G).
         "on_trash": [
+            "nirmaan_stack.integrations.controllers.settled_targets.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_inflow",
         ],
@@ -406,6 +469,19 @@ doc_events = {
         "validate": "nirmaan_stack.integrations.controllers.project_billing.package_validate",
         "before_rename": "nirmaan_stack.integrations.controllers.project_billing.package_before_rename",
         "on_trash": "nirmaan_stack.integrations.controllers.project_billing.package_on_trash",
+    },
+    # Header rules + bank / cheque number uniqueness on every write path (spec #1407). The
+    # cheques service (`services/cheques/writer.py`) is the only code that writes a Cheque.
+    "Cheques": {
+        "validate": "nirmaan_stack.integrations.controllers.cheques.validate",
+    },
+    # Payee details + (normalized account, IFSC) uniqueness on every write path (spec #1420,
+    # ADR-0033). The Payee module (`services/payees/`) is the only code that creates a Payee.
+    "Payee": {
+        "validate": "nirmaan_stack.integrations.controllers.payee.validate",
+    },
+    "Expense Request": {
+        "validate": "nirmaan_stack.integrations.controllers.payee_links.validate",
     },
     "Material Test Certificate": {
         "validate": "nirmaan_stack.integrations.controllers.material_test_certificate.validate",
@@ -509,6 +585,14 @@ scheduler_events = {
         ],
 		"0 2 * * *": [
 			"nirmaan_stack.tasks.action_item_reconcile.run_nightly_reconcile"
+		],
+		# Monthly asset audit (tasks/asset_audit.py): the 28th opens next month's audit for everyone up to
+		# date; the 7th records last month's unsent audits as Missed and opens this month's for late senders.
+		"0 6 28 * *": [
+			"nirmaan_stack.tasks.asset_audit.open_next_month_audits"
+		],
+		"0 6 7 * *": [
+			"nirmaan_stack.tasks.asset_audit.close_last_month_audits"
 		]
 	}
 }
@@ -608,8 +692,6 @@ fixtures = [
     "Commission Report Category",
     "Commission Report Tasks",
     "Auto Approval Rule",
-    # Client billing package master list (owner, 2026-10-03): shipped as data, no patch.
-    "Project Billing Packages",
     # "Pincodes"
 ]
 
