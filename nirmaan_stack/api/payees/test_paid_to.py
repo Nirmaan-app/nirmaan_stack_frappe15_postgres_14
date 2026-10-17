@@ -105,14 +105,18 @@ class TestPaidTo(FrappeTestCase):
         delete_each(reversed(self.planted), raw={doctype for doctype, _ in self.planted})
 
     def _insert(self, doctype, values, owner=U):
+        # The timestamp is Frappe's `now()` (the site's time zone), as a document save writes it,
+        # never Postgres's NOW() (the server's UTC): from midnight to 05:30 IST the two fall on
+        # different dates, and the box's `named_by.on` reads the request's `creation`.
         name = f"TEST-PAIDTO-{frappe.generate_hash(length=10)}"
         columns = ", ".join(f'"{c}"' for c in values)
         marks = ", ".join(["%s"] * len(values))
+        stamp = frappe.utils.now()
         frappe.db.sql(
             f"""INSERT INTO "tab{doctype}" (name, creation, modified, modified_by, owner, docstatus, idx,
                     {columns})
-                VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, {marks})""",
-            (name, owner, owner, *values.values()),
+                VALUES (%s, %s, %s, %s, %s, 0, 0, {marks})""",
+            (name, stamp, stamp, owner, owner, *values.values()),
         )
         self.planted.append((doctype, name))
         frappe.db.commit()

@@ -341,7 +341,7 @@ class TestExpenseRequests(FrappeTestCase):
 	# --- what approval creates ----------------------------------------------
 
 	def test_ledger_row_is_created_at_approved_not_requested(self):
-		"""The load-bearing one. `Approved` is what bypasses the < 5,000 auto-approve AND
+		"""The load-bearing one. `Approved` is what bypasses the < 15,000 auto-approve AND
 		what keeps the row out of the `Requested` queue nothing drains."""
 		res = self._raise_as(PM_USER, amount=1000)  # deliberately under the limit
 		out = approve_expense_request(res["name"])
@@ -355,13 +355,13 @@ class TestExpenseRequests(FrappeTestCase):
 		self.assertEqual(out["created_expense_doctype"], "Non Project Expenses")
 
 	def test_a_project_targets_the_project_ledger_and_carries_it(self):
-		res = self._raise_as(PM_USER, expense_type=PROJECT_TYPE, amount=5000,
+		res = self._raise_as(PM_USER, expense_type=PROJECT_TYPE, amount=15000,
 		                     projects=self.project)
 		out = approve_expense_request(res["name"])
 		self.assertEqual(out["created_expense_doctype"], "Project Expenses")
 		row = frappe.get_doc("Project Expenses", out["created_expense"])
 		self.assertEqual(row.projects, self.project)
-		# ₹5,000 EXACTLY is not below the limit -- the rule is a strict `<`.
+		# ₹15,000 EXACTLY is not below the limit -- the rule is a strict `<` (services/approval_tiers).
 		self.assertEqual(row.status, "Requested")
 
 	def test_the_ledger_rule_decides_the_status_not_the_approval(self):
@@ -370,8 +370,8 @@ class TestExpenseRequests(FrappeTestCase):
 		The row is born at the ledger default and each doctype's own `validate` applies the
 		SAME threshold it applies to a directly-entered row.
 		"""
-		for amount, expected in ((900, "Approved"), (4999, "Approved"),
-		                         (5000, "Requested"), (20000, "Requested")):
+		for amount, expected in ((900, "Approved"), (14999, "Approved"),
+		                         (15000, "Requested"), (20000, "Requested")):
 			with self.subTest(amount=amount):
 				out = approve_expense_request(self._raise_as(PM_USER, amount=amount)["name"])
 				self.assertEqual(
@@ -381,16 +381,15 @@ class TestExpenseRequests(FrappeTestCase):
 
 	def test_amount_is_formatted_per_target_ledger(self):
 		npo = approve_expense_request(self._raise_as(PM_USER, amount=7500)["name"])
-		# Non Project Expenses.amount is Currency -> numeric
+		# Both ledgers' amount is Currency (Project Expenses since 2026-09-16) -> numeric
 		self.assertEqual(
 			float(frappe.db.get_value("Non Project Expenses", npo["created_expense"], "amount")),
 			7500.0)
 		po = approve_expense_request(
 			self._raise_as(PM_USER, expense_type=PROJECT_TYPE, amount=7500,
 			               projects=self.project)["name"])
-		# Project Expenses.amount is Data -> a bare numeric string, no ".0" tail
 		self.assertEqual(
-			frappe.db.get_value("Project Expenses", po["created_expense"], "amount"), "7500")
+			float(frappe.db.get_value("Project Expenses", po["created_expense"], "amount")), 7500.0)
 
 	def test_comment_and_detail_reach_the_ledger(self):
 		res = self._raise_as(PM_USER, description="Bus to site", comment="reimburse Anil")
