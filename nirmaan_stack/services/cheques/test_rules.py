@@ -29,6 +29,8 @@ class TestChequeNamesMatchTheDoctype(unittest.TestCase):
         self.assertEqual(_options("cheques", "bank"), rules.BANKS)
         self.assertEqual(_options("cheques", "made_from"), rules.MADE_FROM)
         self.assertEqual(_options("cheque_line", "line_type"), rules.LINE_TYPES)
+        # A payment a cheque line of the bank import settled (#1485).
+        self.assertIn(rules.BANK_MATCH_BASIS, _options("outflow_row_match", "match_basis"))
 
     def test_the_statuses_and_types_are_the_glossary_s(self):
         self.assertEqual(rules.CHEQUE_STATUSES, ("Pending", "Issued", "Cleared", "Cancelled"))

@@ -18,9 +18,14 @@ payment date, and the cheque Cleared, with its clearance date, how it was cleare
 cleared it, that line. A bank line (an imported `Outflow Import Row`) also gets one match record
 (`Outflow Row Match`) per payment, written as the import's own settle writes them, so the line reads
 Settled and no longer shows as unmatched. By hand (Accounts, from the Cheque Tracker) it starts from
-Issued only; the bank import (#1485) calls the same function with `cleared_by=CLEARED_BY_BANK_IMPORT`.
-Where each kind may start is `rules.CLEARABLE_FROM`, the one seam #1485 widens for its Pending (approve,
-then clear) and Cancelled (revive, then clear) cheques.
+Issued only; the bank import (#1485, `bank_import.clear_from_line`) calls the same function with
+`cleared_by=CLEARED_BY_BANK_IMPORT` and may start from Pending or Cancelled too (`rules.CLEARABLE_FROM`):
+the bank has already paid, so `_bring_forward` first approves a Pending cheque's payments (approval date =
+the line's date, the cheque Issued with history "approved by bank import") or revives a Cancelled one's
+Rejected payments (history "cancelled, but the bank paid it"), all inside the same savepoint, before the
+pay loop. A cheque already Cleared by hand gets a later bank line through `link_bank_line` (spec story 48):
+match records only, nothing paid again. A Cleared cheque has no undo: the import's Unreconcile refuses its
+payments (`cleared_cheque_of`).
 
 **Cancel** (#1484). `cancel` is THE reject cascade (`decide.reject_cheque`) behind a note: every payment
 on the cheque Rejected with the note as their reason, the cheque Cancelled. Refused once Cleared.
@@ -34,17 +39,31 @@ from frappe import _
 from frappe.utils import flt, nowdate
 
 from nirmaan_stack.api.outflow_import.vendor_credit_refresh import SETTLED_ENTRY_TYPE, recompute_vendor_credit
-from nirmaan_stack.services.cheques.decide import lock_payments, reject_cheque, write_po_terms
+from nirmaan_stack.services import payment_tds
+from nirmaan_stack.services.cheques.decide import (
+    DECIDING_FLAG,
+    _approval_lines,
+    lock_payments,
+    reject_cheque,
+    write_po_terms,
+)
 from nirmaan_stack.services.cheques.rules import (
+    BANK_APPROVAL_NOTE,
+    BANK_BRINGS_FORWARD,
+    BANK_REVIVAL_NOTE,
+    CANCELLED,
     CHEQUE_TYPE_PAYMENT,
     CLEARED,
     CLEARED_BY,
+    CLEARED_BY_BANK_IMPORT,
     CLEARED_BY_HAND,
     ISSUED,
     PAYMENT_DOCTYPE,
+    PAYMENT_REJECTED,
     PENDING,
     PO_DOCTYPE,
     BankLine,
+    approval_problem,
     bank_line_problem,
     cancel_note_problem,
     cancel_problem,
@@ -61,7 +80,13 @@ from nirmaan_stack.services.outflow_import.settle import (
     _outflow_import_write,
     apply_statement_attachment,
 )
-from nirmaan_stack.services.settlement import STATUS_PAID, STATUS_RECONCILIATION_PENDING
+from nirmaan_stack.services.settlement import (
+    STATUS_APPROVED,
+    STATUS_CEO_PENDING,
+    STATUS_PAID,
+    STATUS_RECONCILIATION_PENDING,
+    STATUS_REQUESTED,
+)
 
 BANK_LINE_DOCTYPE = "Outflow Import Row"
 BANK_BATCH_DOCTYPE = "Outflow Import Batch"
@@ -87,9 +112,12 @@ def clear(
     note: str | None = None,
 ) -> dict:
     """Clear Payment cheque `cheque`: every payment on it becomes Paid, dated `clearance_date`, and the
-    cheque becomes Cleared. Returns `{cheque, cheque_no, status, payments, bank_line, statement_file_url}`:
-    the payments it paid, and the statement a linked line came from (the caller links that file to each
-    payment after its commit).
+    cheque becomes Cleared. Returns `{cheque, cheque_no, status, payments, bank_line, statement_file_url,
+    started}`: the payments it paid, the statement a linked line came from (the caller links that file to
+    each payment after its commit), and the status the cheque was at.
+
+    By the bank import (`cleared_by=CLEARED_BY_BANK_IMPORT`, always with a line) it may start from Pending
+    or Cancelled too: `_bring_forward` approves or revives the payments first, in the same savepoint.
 
     With `bank_line` (an imported line, see `rules.bank_line_problem`) each payment also takes the line's
     reference as its UTR (when it has none) and the statement as its attachment, and gets one match record,
@@ -103,18 +131,35 @@ def clear(
     if cleared_by not in CLEARED_BY or not cleared_by:
         raise ValueError(f"unknown way of clearing {cleared_by!r}")
     doc = frappe.get_doc(CHEQUES, cheque, for_update=True)
+    started = doc.status
     payments = _line_payments(doc)
     rows = lock_payments(payments) if payments else {}
+    by_bank = cleared_by == CLEARED_BY_BANK_IMPORT
     reason = clear_problem(
         status=doc.status, cheque_type=doc.cheque_type, old_type=bool(doc.old_type), cleared_by=cleared_by,
         payments=[(p, rows[p].status) for p in payments], bank_line=bool(bank_line),
-    ) or clearance_date_problem(clearance_date, issue_date=doc.issue_date, today=nowdate())
+    ) or clearance_date_problem(
+        # The bank's date is a fact: a cheque approved in the system after the bank paid it still clears.
+        clearance_date, issue_date=None if by_bank else doc.issue_date, today=nowdate(),
+    )
+    if not reason and started in BANK_BRINGS_FORWARD:
+        reason = approval_problem(cheque_no=doc.cheque_no, amount=doc.amount, lines=_approval_lines(doc))
     if reason:
         _refuse(doc, "cleared", reason.rstrip("."))
     clearance_date = str(clearance_date)[:10]
+    # Checked before anything is written: the line pays every payment not yet Paid.
+    unpaid = [p for p in payments if rows[p].status != STATUS_PAID]
+    line = _lock_bank_line(doc, bank_line, unpaid) if bank_line else None
+
+    if started in BANK_BRINGS_FORWARD:
+        # Pending: the import approves the payments; Cancelled: it revives them. Either way they reach
+        # Reconciliation Pending here, in this savepoint, and are paid below like an Issued cheque's.
+        _bring_forward(doc, [p for p in unpaid if rows[p].status != STATUS_RECONCILIATION_PENDING],
+                       day=clearance_date, user=user, bank_line=bank_line)
+        doc = frappe.get_doc(CHEQUES, cheque, for_update=True)
+        rows = lock_payments(payments)
 
     to_pay = [p for p in payments if rows[p].status == STATUS_RECONCILIATION_PENDING]
-    line = _lock_bank_line(doc, bank_line, to_pay) if bank_line else None
     statement_file_url = (
         frappe.db.get_value(BANK_BATCH_DOCTYPE, line.import_batch, "source_file") or None if line else None
     )
@@ -127,7 +172,10 @@ def clear(
     if line:
         _record_bank_line(line, paid, user)
 
-    doc.append("status_history", history_row(doc.status, CLEARED, user, note or _clear_note(cleared_by, line)))
+    note = note or _clear_note(cleared_by, line)
+    if started == CANCELLED:
+        note = f"{note.rstrip('.')}: {BANK_REVIVAL_NOTE}."
+    doc.append("status_history", history_row(doc.status, CLEARED, user, note))
     doc.status = CLEARED
     doc.clearance_date = clearance_date
     doc.cleared_by = cleared_by
@@ -137,13 +185,103 @@ def clear(
     frappe.publish_realtime(CHEQUES_CHANGED_EVENT, {"cheques": [cheque]}, after_commit=True)
     return {
         "cheque": cheque, "cheque_no": doc.cheque_no, "status": CLEARED, "payments": to_pay,
-        "bank_line": line.name if line else None, "statement_file_url": statement_file_url,
+        "bank_line": line.name if line else None, "statement_file_url": statement_file_url, "started": started,
     }
 
 
 def _clear_note(cleared_by: str, line) -> str:
     how = "Cleared by hand" if cleared_by == CLEARED_BY_HAND else "Cleared by bank import"
     return f"{how}, bank line {line.name}." if line else f"{how}."
+
+
+def _bring_forward(doc, payments: list[str], *, day: str, user: str, bank_line: str | None) -> None:
+    """Bring each of `payments` (on bank-cleared cheque `doc`, Pending or Cancelled) to Reconciliation
+    Pending, as an approval followed by the move would (`cheque_payments.move_to_reconciliation`): each is
+    saved Approved, its TDS recorded if it owes any, then saved Reconciliation Pending. A Pending cheque's
+    payments are approved by the bank import, dated `day` (the line's date: L1 for one waiting at
+    Requested, CEO for one at CEO Pending), and the cheque is then Issued with the history note
+    `BANK_APPROVAL_NOTE`; a Cancelled cheque's Rejected payments are revived, each with a comment.
+
+    Every save carries the import's flags (`from_outflow_import` and the request flag keep each hook from
+    committing; `bulk_approval` leaves the PO terms to the caller) and `DECIDING_FLAG`, so the payment's
+    own guard sees the cheque's decision, not a lone approval. Never commits.
+    """
+    pending = doc.status == PENDING
+    for name in payments:
+        pay = frappe.get_doc(PAYMENT_DOCTYPE, name)
+        was = (pay.status or "").strip()
+        if pending:
+            if was == STATUS_REQUESTED:
+                pay.approval_date = day
+            elif was == STATUS_CEO_PENDING:
+                pay.ceo_approval_date = day
+        for status in (STATUS_APPROVED, STATUS_RECONCILIATION_PENDING):
+            if (pay.status or "").strip() == status:
+                continue
+            pay.status = status
+            _save_for_the_bank(pay, doc.name)
+            if status == STATUS_APPROVED and payment_tds.is_deductible(pay):
+                payment_tds.record_deduction(pay)
+                pay.reload()
+        if was == PAYMENT_REJECTED:
+            line = f", bank line {bank_line}" if bank_line else ""
+            pay.add_comment("Comment", text=_("Revived by the bank import: cheque {0} was cancelled, but the bank "
+                                              "paid it{1}.").format(doc.cheque_no, line))
+    if pending and not issue(doc.name, user=user, note=BANK_APPROVAL_NOTE):
+        _refuse(doc, "cleared", "its payments could not all be approved")
+
+
+def _save_for_the_bank(pay, cheque: str) -> None:
+    pay.flags.from_outflow_import = True
+    pay.flags.bulk_approval = True
+    pay.flags[DECIDING_FLAG] = cheque
+    with _outflow_import_write():
+        pay.save(ignore_permissions=True)
+
+
+def link_bank_line(cheque: str, *, bank_line: str, user: str) -> dict:
+    """Link bank line `bank_line` to Payment cheque `cheque`, already Cleared by hand with no line: one
+    match record per Paid payment on it, the line Settled, and the line recorded on the cheque (spec
+    story 48). Nothing is paid again: the payments, their dates and the cheque's status and history stay
+    as the hand clear left them. Returns what `clear` returns, `started` = Cleared.
+
+    Refuses (and changes nothing) unless the cheque is a not Old-type Payment cheque, Cleared, with no
+    bank line yet, and the line fits it (`rules.bank_line_problem`, the paid payments' total within ₹5).
+    Runs inside the caller's savepoint and NEVER COMMITS.
+    """
+    doc = frappe.get_doc(CHEQUES, cheque, for_update=True)
+    if doc.cheque_type != CHEQUE_TYPE_PAYMENT or doc.old_type:
+        _refuse(doc, "linked to a bank line", "only a Payment cheque is matched to a bank line")
+    if doc.status != CLEARED:
+        _refuse(doc, "linked to a bank line", f"it is {doc.status}, not Cleared")
+    if doc.bank_line:
+        _refuse(doc, "linked to a bank line", f"it is already cleared with bank line {doc.bank_line}")
+    payments = _line_payments(doc)
+    rows = lock_payments(payments) if payments else {}
+    paid = [p for p in payments if rows[p].status == STATUS_PAID]
+    line = _lock_bank_line(doc, bank_line, paid)
+    _record_bank_line(line, [frappe.get_doc(PAYMENT_DOCTYPE, p) for p in paid], user)
+    doc.bank_line = line.name
+    doc.save(ignore_permissions=True)
+    frappe.publish_realtime(CHEQUES_CHANGED_EVENT, {"cheques": [cheque]}, after_commit=True)
+    return {
+        "cheque": cheque, "cheque_no": doc.cheque_no, "status": CLEARED, "payments": paid,
+        "bank_line": line.name, "statement_file_url": None, "started": CLEARED,
+    }
+
+
+def cleared_cheque_of(payment_name: str) -> str | None:
+    """The number of the Cleared cheque whose lines name `payment_name`, else None. A Cleared cheque has
+    no undo (ADR-0035 §5), so its payments may not be put back to Reconciliation Pending (the import's
+    Unreconcile asks this)."""
+    rows = frappe.db.sql(
+        f"""SELECT c.cheque_no FROM "tabCheque Line" l JOIN "tab{CHEQUES}" c ON c.name = l.parent
+            WHERE l.parenttype = %(cheques)s AND l.payment_doctype = %(doctype)s AND l.payment_name = %(payment)s
+              AND c.status = %(cleared)s
+            ORDER BY c.creation LIMIT 1""",
+        {"cheques": CHEQUES, "doctype": PAYMENT_DOCTYPE, "payment": payment_name, "cleared": CLEARED},
+    )
+    return rows[0][0] if rows else None
 
 
 def _lock_bank_line(doc, name: str, payments: list[str]):

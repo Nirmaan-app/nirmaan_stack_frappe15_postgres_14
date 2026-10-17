@@ -106,6 +106,27 @@ export interface WaitingRefundSuggestion {
     refunds: { name: string; amount: number; label: string }[];
 }
 
+/** A payment raised on a cancelled cheque's PO after the cancel (#1485): the PO may now be paid twice. */
+export interface ChequeDoublePayment {
+    payment: string;
+    record: string;
+    amount: number;
+    status: string;
+}
+
+/**
+ * The Payment cheque a Settled ICICI line cleared, or was linked to (#1485), as both row reads send it.
+ * `started` is where the cheque stood before the line: Issued, Pending (the import approved it),
+ * Cancelled (the bank paid it anyway), or Cleared (cleared by hand, the line only linked).
+ */
+export interface ChequeOutcome {
+    cheque: string;
+    cheque_no: string;
+    status: string;
+    started: "Issued" | "Pending" | "Cancelled" | "Cleared";
+    double_payments: ChequeDoublePayment[];
+}
+
 /** One staged transfer, as `get_batch_rows` returns it. */
 export interface OutflowImportRow {
     name: string;
@@ -229,6 +250,8 @@ export interface OutflowImportRow {
      * ⚠️ NOT `suggested_name`. A group cannot fit that pair, and "Confirm all matched" reads it.
      */
     waiting_refund_suggestion?: WaitingRefundSuggestion | null;
+    /** #1485: the Payment cheque this Settled line cleared or was linked to; null on every other line. */
+    cheque_outcome?: ChequeOutcome | null;
     /**
      * Whether this settlement took the matcher's pick: "Suggestion accepted" / "Suggestion
      * overridden" / "No suggestion". Blank until the row is settled (slice Q1).

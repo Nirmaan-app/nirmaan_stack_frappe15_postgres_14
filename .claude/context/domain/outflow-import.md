@@ -26,7 +26,7 @@ side: `Project Inflows` and a **negative** `Non Project Expense`.
 > |---|---|---|
 > | `Cashfree` | out only (no `direction` stated) | **PAYS** what someone approved. Never creates |
 > | `Cashbook` | out only (no `direction` stated) | **CREATES** what a wallet already spent (ADR-0015). Never settles |
-> | `ICICI Bank Statement` | **Debit and Credit**, stated per row | **CREATES**, in both directions. Settles NOTHING — all three matcher tiers are dead on this source, measured (ADR-0016). A debit becomes an expense; a credit becomes a `Project Inflow`, a `Non Project Inflow` (#1266) or `Vendor Refunds` |
+> | `ICICI Bank Statement` | **Debit and Credit**, stated per row | **CREATES**, in both directions. All three matcher tiers are dead on this source, measured (ADR-0016). A debit becomes an expense; a credit becomes a `Project Inflow`, a `Non Project Inflow` (#1266) or `Vendor Refunds`. **One exception since #1485 (ADR-0035): a debit whose cheque column names a Payment cheque clears that cheque, paying (and, for a Pending cheque, approving) its payments** — see the #1485 section at the end |
 >
 > **Nothing here creates a `Project Payment`, from any source, in either direction.** A vendor
 > refund on a CREDIT (2026-09-17) is recorded as `Vendor Refunds` records -- one per PO / WO it is
@@ -601,6 +601,11 @@ needs one vocabulary rather than one per writer.
 1. **Only `Approved` is ever matched.** `Requested` / `CEO Pending` → plain `Mismatched`. No status,
    no nudge, no approval deep link. This REVERSED an earlier goal (surfacing the 111 CEO-Pending
    payments); it was removed deliberately and must not be re-added.
+   ⚠️ **The one exception is the ICICI cheque pass (#1485, ADR-0035), and it is the cheques service's,
+   not the matcher's:** a bank line carrying a Payment cheque's number and amount pays every payment on
+   that cheque whatever their step — approving Requested / CEO Pending ones and reviving Rejected ones
+   first — because the bank has already cashed the cheque. Nothing else in the import reaches a payment
+   that is not settleable.
 2. **The already-Paid check is a SKIP, not a match** (Q14) — and it is the **only** route to
    `Mismatched`. Delete it and a hand-ticked payment reads `Mismatched` carrying the FOUND-NOTHING note, and the obvious next click
    books the same money twice.
@@ -7233,3 +7238,56 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
   portal `zIndex` 9999 and `pointerEvents: "auto"` (no styles of its own). Walked on both: the option clicked
   is the project saved.
 
+
+## #1485 (2026-10-17) — an ICICI cheque line clears its Payment cheque (spec #1477, ADR-0035)
+
+**What.** In the ICICI match run (`review._guard_duplicates_only`), BEFORE the contains-guard, every line
+goes through the cheques service's cheque pass, `services/cheques/bank_import.clear_from_line`:
+
+- A **cheque line** is an ICICI statement **debit** whose cheque column (`reference_id`) is filled
+  (`cheques/rules.bank_cheque_key`; remark shape irrelevant). A credit never is.
+- It looks up **Payment cheques on ICICI Bank, not Old-type**, whose number equals the line's with leading
+  zeros and a spreadsheet `.0` dropped (`rules.cheque_no_key`), and takes the one within ₹5 of the line
+  (`rules.pick_bank_cheque`). A Security Deposit cheque is never found.
+- The match goes through THE cheque clear (`cheques/status.clear`, `cleared_by = Bank import`, clearance
+  date = the line's date), one savepoint per line: Issued → Cleared; Pending → the import approves the
+  payments (approval / CEO approval date = line date), the cheque is Issued with history "approved by
+  bank import", then cleared; Cancelled → Rejected payments revived (a comment on each), cleared with
+  history "…: cancelled, but the bank paid it", and the line's note names every payment on its POs raised
+  after the cancel (`bank_import.double_payment_suspects`, "Check for double payment"). A cheque already
+  **Cleared by hand** with no line gets the line linked (`status.link_bank_line`): match records only,
+  nothing paid again, history untouched.
+- Every paid payment gets **its own `Outflow Row Match`** (`match_basis = "cheque number"`, the option
+  added to the Select at #1485); the line ends `Settled` (frozen) with the cheque sentence as its note.
+  The statement is linked to each payment after the run's commit (`frappe.db.after_commit`).
+- **Nothing settled, line `Mismatched` with the reason:** number found but amount off, two cheques fit,
+  the cheque already cleared by another line, or the clear refused (a line with no payment yet, a held
+  payment, …). A refusal rolls the whole cheque back.
+- A cheque line no Payment cheque claims goes on to the contains-guard as before; if it lands
+  `Mismatched` its note says "No Payment cheque N on ICICI Bank…".
+- The one-record-at-Reconciliation-Pending settle rule is bypassed for cheque lines only. ADR-0031
+  repeats are unchanged, and lines settled to Online payments before #1485 are frozen, never re-run.
+
+**Load-bearing.**
+- ⚠️ **A Cleared cheque has no undo, so Unreconcile refuses its payments.** `unreconcile.leg_verdict`
+  refuses a payment leg whose payment is on a Cleared cheque ("On a cleared cheque";
+  `LegFacts.cleared_cheque`, read by `unreconcile_split.read_payment_facts` through
+  `cheques/status.cleared_cheque_of`). Refusing was chosen over reversing the cheque: it is the smaller
+  safe option, and no hand path moves a cheque out of Cleared.
+- ⚠️ **`Cheques.bank_line` stays a Link to `Outflow Import Row`.** A line a cheque records always has live
+  match records too, so Frappe's delete check already refuses deleting it, out loud (`LinkExistsError`).
+  No code path raw-deletes an ICICI line (Porter Discard deletes Porter lines only; the ADR-0031 repeat
+  patches have run).
+- The pass runs on `match_batch`, `match_period` and `match_line` alike (one `_match_rows`), so a line
+  re-checked after Unskip may clear its cheque too. The production preview (`duplicate_preview`) does not
+  run it: it writes nothing.
+- Review screen: both row reads carry `cheque_outcome` (`bank_import.cheque_outcomes`: cheque, number,
+  where it started per `rules.bank_start`, double payments) for Settled lines; the Outcome cell renders it
+  as a chip into the Cheque Tracker plus the amber warning (`pages/outflow-import/chequeOutcomeView.ts`).
+- Known gap (not #1485's): a person can still hand-settle a cheque payment at Reconciliation Pending to an
+  ICICI line through the decision dialog, which pays it without moving its cheque.
+
+**Tests.** `api/outflow_import/test_cheque_bank_import.py` (planted ICICI statement → `match_batch`: each
+outcome, deposit / Old-type never matched, a credit is no cheque line, rollback, unreconcile refused,
+delete refused, re-run idempotent); pure `services/cheques/test_bank_import_rules.py`;
+`services/outflow_import/test_unreconcile.TestAPaymentOnAClearedChequeStaysPaid`.
