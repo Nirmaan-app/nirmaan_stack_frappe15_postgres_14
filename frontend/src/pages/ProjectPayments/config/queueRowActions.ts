@@ -14,7 +14,7 @@
  * the owner still corrects Paid records in Desk. A PO / WO payment gets no pencil at all, so it
  * cannot be edited from the app in any status.
  */
-import { unpayableReason } from "@/utils/payees/paidTo";
+import { raiserMayChangeAccount, unpayableReason } from "@/utils/payees/paidTo";
 
 import { APPROVAL_STATUS, ApprovalQueueRow } from "./approvalsTable.config";
 
@@ -54,6 +54,19 @@ export const canEditQueueRow = (row: QueueRowLike, role?: string | null): boolea
   canWorkQueueRows(role) &&
   EXPENSE_DOCTYPES.includes(row.doctype) &&
   EXPENSE_EDITABLE_STATUSES.includes(statusOf(row));
+
+/**
+ * The raiser's pencil on "Payment Raised By Me" (#1472): the viewer's own Direct Expense, while it is
+ * Requested, so they can change who gets paid before a reviewer approves it. The Edit dialog's *Who
+ * gets paid* asks the same rule (`paidTo.raiserMayChangeAccount`). Independent of the settle-side
+ * pencil above, which it leaves as it is.
+ */
+export const canRaiserEditQueueRow = (
+  row: Pick<ApprovalQueueRow, "doctype" | "status" | "raised_by" | "request_id">,
+  user?: string | null,
+): boolean =>
+  EXPENSE_DOCTYPES.includes(row.doctype) &&
+  raiserMayChangeAccount({ status: row.status, owner: row.raised_by, request_id: row.request_id }, user);
 
 export const canRevertQueueRow = (row: QueueRowLike, role?: string | null): boolean =>
   canWorkQueueRows(role) &&

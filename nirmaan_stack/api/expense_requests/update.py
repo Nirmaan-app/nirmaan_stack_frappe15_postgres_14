@@ -37,10 +37,10 @@ from frappe.utils import sbool
 from nirmaan_stack.api.expense_requests.access import PENDING, guard_requestable, is_admin
 from nirmaan_stack.api.expense_requests.create import (
 	_promote_mapped,
-	apply_pay_to,
 	guard_request_form,
 	guard_vendor_scope,
 )
+from nirmaan_stack.services.payees.pay_to import apply_picked_payee
 
 
 def can_edit(req, user: str | None = None) -> bool:
@@ -123,7 +123,7 @@ def update_expense_request(
 		}
 	)
 	if not sbool(keep_pay_to):
-		apply_pay_to(req, payee)
+		apply_picked_payee(req, payee)
 	req.save()
 	frappe.db.commit()
 

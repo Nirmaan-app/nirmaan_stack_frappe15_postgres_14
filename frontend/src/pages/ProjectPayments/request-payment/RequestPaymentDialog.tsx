@@ -19,7 +19,9 @@ import { useVendorPayeeGate } from "@/components/payees/vendorPayeeAccount";
 import { useDuplicateChequeOf } from "@/components/cheques/useExistingCheque";
 import { PaymentModeFields } from "../components/PaymentModeFields";
 import { PaymentSummaryBlock, usePaymentSummary } from "../components/PaymentSummaryBlock";
-import { PayFor, payForCap } from "../components/paymentSummaryView";
+import {
+  invoiceCheckBlock, invoiceCheckLine, invoiceCheckNote, NEGATIVE_WORK_ORDER_PAYMENT, PayFor, payForCap,
+} from "../components/paymentSummaryView";
 import { PayForChoice } from "../components/PayForChoice";
 import { raiserLandingNote, raiserLevelOf, TIER_L2_ABOVE } from "@/utils/approvalTiers";
 import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
@@ -81,6 +83,11 @@ export default function RequestPaymentDialog(p:Props){
   const limit = summary?.limit;
   const cap = useMemo(()=> (gstWO && limit ? payForCap(limit, payFor) : null), [gstWO, limit, payFor]);
   const gstPayment = gstWO && payFor === "gst";
+  /* The invoice check (#1488): after a first payment, a new one waits for approved invoices to catch
+     up, unless the viewer is an L1 approver or the CEO. The server's verdict, shown as given. */
+  const invoiceCheck = isWO ? limit?.invoice_check : undefined;
+  const invoiceBlock = invoiceCheck ? invoiceCheckBlock(invoiceCheck) : null;
+  const invoiceNote = invoiceCheck ? invoiceCheckNote(invoiceCheck) : null;
 
   const payable = gstWO ? (cap?.max ?? 0) : p.totalIncGST;
 
@@ -109,12 +116,16 @@ export default function RequestPaymentDialog(p:Props){
   },[mode,custom,perc,max,payable,p]);
 
   useMemo(()=>{
-    if(cap && amount>max+1e-6)
+    if(isWO && amount<0)
+      setWarn(NEGATIVE_WORK_ORDER_PAYMENT);
+    else if(invoiceBlock)
+      setWarn(invoiceBlock);
+    else if(cap && amount>max+1e-6)
       setWarn(`Request exceeds ${cap.capLabel} ${formatToIndianRupee(max)}`);
     else if(!gstWO && balanceLoaded && amount>max+1e-6)
       setWarn(`Request exceeds balance ${formatToIndianRupee(max)}`);
     else setWarn("");
-  },[amount,max,cap,gstWO,balanceLoaded]);
+  },[amount,max,cap,gstWO,balanceLoaded,isWO,invoiceBlock]);
 
   /* A cheque is written for the figure AFTER TDS, so the dialog says what that is. Fetched only
      while a cheque is being requested: the dialog is mounted on every PO / WO page. */
@@ -174,6 +185,9 @@ export default function RequestPaymentDialog(p:Props){
 
       {gstWO && limit && <PayForChoice limit={limit} value={payFor} onChange={setPayFor}/>}
 
+      {invoiceCheck && <p className="text-xs text-center text-muted-foreground">{invoiceCheckLine(invoiceCheck)}</p>}
+      {invoiceNote && <p className="text-xs text-center text-sky-700 dark:text-sky-400">{invoiceNote}</p>}
+
       {isWO && !summary && !summaryLoading && summaryError &&
         <p className="text-xs text-red-600 text-center">Couldn't load this Work Order's payment limit. Close and try again.</p>}
 
@@ -182,9 +196,9 @@ export default function RequestPaymentDialog(p:Props){
         <div className="flex items-center gap-2">
           <RadioGroupItem value="custom" id="custom"/>
           <Label htmlFor="custom" className="w-24">Custom</Label>
-          <Input type="number" className="w-32 h-8"
+          <Input type="number" className="w-32 h-8" min={isWO ? 0 : undefined}
                  disabled={mode!=="custom"} value={custom}
-                 onChange={e=>setCustom(e.target.value)} />
+                 onChange={e=>setCustom(isWO ? e.target.value.replace("-", "") : e.target.value)} />
         </div>
 
         {/* On a GST Work Order the shortcuts measure against what is left of the chosen part, so

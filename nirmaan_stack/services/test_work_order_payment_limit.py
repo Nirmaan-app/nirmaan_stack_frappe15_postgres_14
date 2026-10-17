@@ -139,9 +139,10 @@ class TestPartCaps(unittest.TestCase):
 
 class TestRequestRefusal(unittest.TestCase):
 	def setUp(self):
-		# Base left 60,000, GST left 9,000, total left 69,000 (the worked example's step 6).
+		# Base left 60,000, GST left 9,000, total left 69,000 (the worked example's step 6). Fully
+		# invoiced, so the invoice check passes and only the limit is under test.
 		payments = [_base("B1", 39200), _gst("G1", 9000)]
-		self.limit = work_order_limit(118000, "true", 18000, payments, {"B1": 800})["limit"]
+		self.limit = work_order_limit(118000, "true", 18000, payments, {"B1": 800}, amount_invoiced=118000)["limit"]
 
 	def test_within_the_chosen_part_is_allowed(self):
 		self.assertIsNone(request_refusal(self.limit, 60000, gst_payment=False))
@@ -160,7 +161,7 @@ class TestRequestRefusal(unittest.TestCase):
 	def test_above_total_left_is_refused_even_within_the_part(self):
 		# An old Work Order paid 1,10,000 of base before GST payments existed: GST left is the full
 		# 18,000, but only 8,000 remains under the total incl. GST.
-		limit = work_order_limit(118000, "true", 18000, [_base("B1", 110000, "Paid")])["limit"]
+		limit = work_order_limit(118000, "true", 18000, [_base("B1", 110000, "Paid")], amount_invoiced=118000)["limit"]
 		self.assertEqual((limit["gst_left"], limit["total_left"]), (18000, 8000))
 		self.assertEqual(request_refusal(limit, 9000, gst_payment=True), {"part": "total", "left": 8000})
 		self.assertIsNone(request_refusal(limit, 8000, gst_payment=True))
@@ -169,3 +170,66 @@ class TestRequestRefusal(unittest.TestCase):
 		limit = work_order_limit(100000, "false", 0, [])["limit"]
 		self.assertEqual(request_refusal(limit, 5, gst_payment=True), {"part": "no_gst", "left": 0})
 		self.assertIsNone(request_refusal(limit, 100000, gst_payment=False))
+
+
+class TestInvoiceCheck(unittest.TestCase):
+	"""GLOSSARY.md, *Invoice check (on a Work Order payment)*: a new payment only while raised money is
+	less than ₹100 above Total Amount Invoiced. Work Order 1,18,000 incl. GST, vendor TDS 2%."""
+
+	def _refusal(self, payments, amount_invoiced, amount=1000, gst=False, tds=None):
+		limit = work_order_limit(118000, "true", 18000, payments, tds, amount_invoiced=amount_invoiced)["limit"]
+		return request_refusal(limit, amount, gst_payment=gst)
+
+	def test_a_first_payment_needs_no_invoice(self):
+		self.assertIsNone(self._refusal([], amount_invoiced=0, amount=50000))
+
+	def test_a_second_payment_with_no_invoice_is_refused(self):
+		refusal = self._refusal([_base("B1", 20000)], amount_invoiced=0)
+		self.assertEqual(refusal, {"part": "invoice", "raised": 20000, "invoiced": 0})
+
+	def test_raised_less_than_100_above_invoiced_passes(self):
+		self.assertIsNone(self._refusal([_base("B1", 20099.99)], amount_invoiced=20000))
+
+	def test_raised_100_above_invoiced_is_refused(self):
+		self.assertEqual(self._refusal([_base("B1", 20100)], amount_invoiced=20000)["part"], "invoice")
+
+	def test_a_rejected_payment_is_not_raised(self):
+		self.assertIsNone(self._refusal([_base("B1", 20000, "Rejected")], amount_invoiced=0))
+
+	def test_every_other_status_is_raised(self):
+		for status in ("Requested", "CEO Pending", "Approved", "Reconciliation Pending", "Paid"):
+			with self.subTest(status=status):
+				self.assertEqual(self._refusal([_base("B1", 5000, status)], amount_invoiced=0)["raised"], 5000)
+
+	def test_gst_payments_are_raised_too(self):
+		refusal = self._refusal([_base("B1", 50000), _gst("G1", 9000)], amount_invoiced=50000)
+		self.assertEqual(refusal, {"part": "invoice", "raised": 59000, "invoiced": 50000})
+
+	def test_raised_is_counted_before_tds(self):
+		# 50,000 approved at 2%: the vendor gets 49,000, but 50,000 was raised against a 49,900 invoice.
+		refusal = self._refusal([_base("B1", 49000)], amount_invoiced=49900, tds={"B1": 1000})
+		self.assertEqual(refusal, {"part": "invoice", "raised": 50000, "invoiced": 49900})
+
+	def test_an_old_negative_payment_lowers_raised(self):
+		self.assertIsNone(self._refusal([_base("B1", 30000), _base("R1", -10000)], amount_invoiced=20000))
+
+	def test_an_invoice_that_catches_up_lets_the_next_payment_be_any_size_the_limit_allows(self):
+		payments = [_base("B1", 30000, "Paid")]
+		self.assertIsNone(self._refusal(payments, amount_invoiced=35400, amount=70000))
+		self.assertEqual(self._refusal(payments, amount_invoiced=35400, amount=70500)["part"], "base")
+
+	def test_a_raiser_who_skips_the_check_still_meets_the_limit(self):
+		limit = work_order_limit(118000, "true", 0, [_base("B1", 30000)], amount_invoiced=0)["limit"]
+		self.assertIsNone(request_refusal(limit, 70000, gst_payment=False, check_invoices=False))
+		self.assertEqual(request_refusal(limit, 70500, gst_payment=False, check_invoices=False)["part"], "base")
+
+	def test_a_gst_payment_on_a_gst_off_work_order_is_named_before_the_invoice_check(self):
+		limit = work_order_limit(100000, "false", 0, [_base("B1", 30000)], amount_invoiced=0)["limit"]
+		self.assertEqual(request_refusal(limit, 5, gst_payment=True)["part"], "no_gst")
+
+	def test_a_negative_payment_is_refused(self):
+		self.assertEqual(self._refusal([], amount_invoiced=0, amount=-500), {"part": "negative", "left": 0})
+
+	def test_a_negative_payment_is_refused_even_for_a_raiser_who_skips_the_check(self):
+		limit = work_order_limit(118000, "true", 0, [], amount_invoiced=0)["limit"]
+		self.assertEqual(request_refusal(limit, -500, gst_payment=False, check_invoices=False)["part"], "negative")

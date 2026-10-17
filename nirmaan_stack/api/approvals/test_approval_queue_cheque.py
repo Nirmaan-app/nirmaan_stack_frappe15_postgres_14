@@ -188,7 +188,7 @@ class TestReconciliationPendingLeavesIssuedChequesOut(FrappeTestCase):
 
 		self.assertEqual(after["counts"][self.RP] - before["counts"].get(self.RP, 0), 1)
 		self.assertEqual(after["amounts"][self.RP] - before["amounts"].get(self.RP, 0), 20000)
-		self.assertEqual(after["counts"]["All"] - before["counts"]["All"], 4)
+		self.assertEqual(after["all"] - before["all"], 4)
 		self.assertEqual(
 			(after["cheque_tracker"]["payments"] - before["cheque_tracker"]["payments"],
 			 after["cheque_tracker"]["cheques"] - before["cheque_tracker"]["cheques"]),

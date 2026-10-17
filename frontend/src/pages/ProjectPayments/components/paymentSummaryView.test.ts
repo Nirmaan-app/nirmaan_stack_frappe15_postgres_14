@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   barSegments,
   gstLeftNote,
+  invoiceCheckBlock,
+  invoiceCheckLine,
+  invoiceCheckNote,
   leftAfter,
   LINE_ORDER,
   payForCap,
@@ -85,6 +88,7 @@ const LIMIT: WorkOrderLimit = {
   gst_left: 9000,
   total_left: 69000,
   caps: { base: { cap: 60000, binds: "part" }, gst: { cap: 9000, binds: "part" } },
+  invoice_check: { raised: 49000, invoiced: 59000, passes: true, skipped: false },
 };
 
 describe("payForCap", () => {
@@ -138,5 +142,31 @@ describe("workOrderPaymentCap", () => {
   });
   it("never goes below zero on an over-paid Work Order", () => {
     expect(workOrderPaymentCap({ left: -500, limit: undefined }, "base").max).toBe(0);
+  });
+});
+
+describe("invoice check (#1488)", () => {
+  const behind = { raised: 35000, invoiced: 30000, passes: false, skipped: false };
+
+  it("shows raised beside approved invoices", () => {
+    expect(invoiceCheckLine(behind)).toBe("Raised ₹35,000.00 · Approved invoices ₹30,000.00");
+    expect(invoiceCheckLine({ ...behind, invoiced: 0 })).toBe("Raised ₹35,000.00 · Approved invoices ₹0.00");
+  });
+
+  it("blocks a new payment with the server's words while invoices are behind", () => {
+    expect(invoiceCheckBlock(behind)).toBe(
+      "₹35,000.00 raised is more than ₹30,000.00 in approved invoices. Get an invoice approved before raising another payment."
+    );
+  });
+
+  it("does not block once invoices have caught up", () => {
+    expect(invoiceCheckBlock({ ...behind, passes: true })).toBeNull();
+    expect(invoiceCheckNote({ ...behind, passes: true })).toBeNull();
+  });
+
+  it("does not block someone who skips the check, and tells them they are paying ahead", () => {
+    const admin = { ...behind, skipped: true };
+    expect(invoiceCheckBlock(admin)).toBeNull();
+    expect(invoiceCheckNote(admin)).toBe("You skip the invoice check: this payment goes ahead of approved invoices.");
   });
 });

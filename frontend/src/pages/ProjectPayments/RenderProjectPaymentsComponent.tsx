@@ -1,8 +1,6 @@
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { getUrlStringParam } from "@/hooks/useServerDataTable";
 import { useUserData } from "@/hooks/useUserData";
-// Only the hidden "Payments Pending" tab used this -- uncomment with it.
-// import { parseNumber } from "@/utils/parseNumber";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { APPROVAL_COUNTS_API, APPROVAL_COUNTS_SWR_KEY, APPROVAL_STATUS } from "./config/approvalsTable.config";
@@ -14,22 +12,13 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Info } from "lucide-react";
 // --- Tab Configuration ---
 import {
-    PP_TABS, PP_ADMIN_TAB_OPTIONS, PP_CEO_TAB_OPTIONS, PP_NEW_PAYMENTS_TAB_OPTIONS, PP_RECONCILIATION_TAB_OPTIONS, PP_BY_ME_TAB_OPTIONS, PP_ADMIN_ROLES, PP_ACCOUNTANT_ROLES, PP_PROJECT_ROLES, PPTabOption,
+    PP_TABS, PP_ADMIN_TAB_OPTIONS, PP_CEO_TAB_OPTIONS, PP_NEW_PAYMENTS_TAB_OPTIONS, PP_RECONCILIATION_TAB_OPTIONS, PP_BY_ME_TAB_OPTIONS, PP_ALL_TAB_OPTIONS, PPTabOption, PPTabValue,
 } from "./config/ppTabs.constants";
-// PP_REM_TAB_OPTIONS (PO Wise) and PP_ALL_TAB_OPTIONS (All Payments) are intentionally
-// NOT imported: their buttons were removed 2026-09-15. Both tabs remain ROUTED via
-// PP_TABS below, so deep links still resolve. Re-import + .map(renderTabButton) to restore.
-import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
-import { HR_EXECUTIVE_PROFILE, PMO_EXECUTIVE_PROFILE } from "@/constants/roles";
+// Which tabs a viewer sees, where it lands and what it may open: one tested rule.
+// PO Wise has no button (2026-09-15) but stays ROUTED below; so does All Payments for the
+// viewers outside its audience (#1476).
+import { paymentsTabSet, resolvePaymentsTab } from "./config/paymentsTabSet";
 import { ChequeTrackerNote } from "./components/ChequeTrackerNote";
-
-/** The tabs HR Executive may open on this page -- all view-only for HR. */
-const HR_TABS = [
-    PP_TABS.RECONCILIATION_PENDING,
-    PP_TABS.PAYMENTS_DONE,
-    PP_TABS.PAYMENTS_PENDING,
-    PP_TABS.PAYMENT_BY_ME,
-] as const;
 
 const ApprovePayments = React.lazy(() => import("./approve-payments/ApprovePayments"));
 const AccountantTabs = React.lazy(() => import("./update-payment/AccountantTabs"));
@@ -56,6 +45,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
             counts: Record<string, number>;
             amounts: Record<string, number>;
             by_me?: number;
+            all?: number;
             /** The payments Reconciliation Pending leaves out: they wait in the Cheque Tracker (#1483). */
             cheque_tracker?: { payments: number; cheques: number };
         };
@@ -88,45 +78,24 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         [queueCounts]
     );
 
-    const canApprovePayments = user_id === "Administrator" || role === "Nirmaan Admin Profile";
-    const isCEO = user_id === CEO_AUTHORIZED_USER;
-
     // --- Tab State Management ---
-    const isAdmin = useMemo(() => PP_ADMIN_ROLES.includes(role), [role]);
-    const isAccountant = useMemo(() => PP_ACCOUNTANT_ROLES.includes(role), [role]);
-    const isProjectRole = useMemo(() => PP_PROJECT_ROLES.includes(role), [role]);
-    const isPMO = role === PMO_EXECUTIVE_PROFILE;
-    // HR Executive sees FOUR tabs here, all view-only (owner, 17 Sep 2026): Reconciliation
-    // Pending (no Actions column), Payment Done / Reconciliation Done, Payments Pending and
-    // Payment By Me. See `tab` below.
-    const isHR = role === HR_EXECUTIVE_PROFILE;
-    // Who may SETTLE a payment: Mark as Paid ("Payment need to paid") and Mark Reconciled
-    // ("Reconciliation Pending"). Gates the tab buttons AND the tab bodies below, since both
-    // tabs are reachable by a hand-edited `?tab=` URL.
-    const canSettlePayments = isAdmin || isAccountant;
+    const tabSet = useMemo(() => paymentsTabSet({ role, userId: user_id }), [role, user_id]);
+    // The tab bodies below gate on the same set as the buttons, since every tab is reachable
+    // by a hand-edited `?tab=` URL.
+    const canApprovePayments = tabSet.tabs.includes(PP_TABS.APPROVE_PAYMENTS);
+    const isCEO = tabSet.tabs.includes(PP_TABS.CEO_PENDING);
+    // Who may SETTLE a payment: Mark as Paid ("Payment need to paid").
+    const canSettlePayments = tabSet.tabs.includes(PP_TABS.NEW_PAYMENTS);
     // Reconciliation Pending is also VIEWABLE by HR -- without the Mark Reconciled action,
     // which AllPayments drops for anyone who cannot settle.
-    const canViewReconciliation = canSettlePayments || isHR;
+    const canViewReconciliation = tabSet.tabs.includes(PP_TABS.RECONCILIATION_PENDING);
 
-    const initialTab = useMemo(() => {
-        const adminDefault = PP_TABS.APPROVE_PAYMENTS;
-        const ceoDefault = PP_TABS.CEO_PENDING;
-        const accountantDefault = PP_TABS.NEW_PAYMENTS;
-        const userDefault = PP_TABS.PAYMENTS_DONE;
-        const remDefault = PP_TABS.PO_WISE;
-        // PMO sees neither the approval nor the settle tabs (2026-09-17). It used to default to
-        // Payments Pending; that button is hidden (2026-10-07), so it lands on Payments Done
-        // instead -- falling through to PO Wise would open a tab with no button.
-        const pmoDefault = PP_TABS.PAYMENTS_DONE;
-        return getUrlStringParam("tab", isHR ? PP_TABS.PAYMENT_BY_ME : isCEO ? ceoDefault : canApprovePayments ? adminDefault : isPMO ? pmoDefault : isAccountant ? accountantDefault : isProjectRole ? userDefault : remDefault);
-    }, [isHR, isCEO, canApprovePayments, isPMO, isAccountant, isProjectRole]); // Calculate only once based on role
+    const initialTab = useMemo(() => getUrlStringParam("tab", tabSet.defaultTab), [tabSet.defaultTab]);
 
     const [selectedTab, setTab] = useState<string>(initialTab);
-    // ⚠️ HR IS HELD TO ITS FOUR TABS, whatever the state or a hand-edited `?tab=` says -- any
-    // other tab falls back to "Payment By Me", since HR has no button for it and a bookmarked
-    // URL must not open one. Derived rather than forced into state, so it also holds while
-    // the role is still loading.
-    const tab = isHR && !(HR_TABS as readonly string[]).includes(selectedTab) ? PP_TABS.PAYMENT_BY_ME : selectedTab;
+    // ⚠️ A view-only viewer (HR) is held to its set, whatever the state or a hand-edited `?tab=`
+    // says. Derived rather than forced into state, so it also holds while the role is loading.
+    const tab = resolvePaymentsTab(tabSet, selectedTab);
 
     // Effect to sync tab state TO URL
     useEffect(() => {
@@ -157,57 +126,34 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         }
     }, [tab]);
 
-    // --- Filter tabs based on role ---
-    // Approve Payments: Admin / Administrator only. Everyone else never sees the tab.
+    // --- Tab buttons: label + badge per tab. WHICH tabs show is `tabSet.tabs`. ---
     /** Replace a tab option's payments-only count with the union count. */
     const withUnionCount = useCallback(
-        (opts: PPTabOption[], status: string) =>
-            opts.map((o) => ({ ...o, countValue: unionCount(status, o.countValue ?? 0) })),
+        (opt: PPTabOption, status: string) => ({ ...opt, countValue: unionCount(status, opt.countValue ?? 0) }),
         [unionCount]
     );
 
-    const adminTabsFiltered = useMemo(
-        () => (canApprovePayments ? withUnionCount(PP_ADMIN_TAB_OPTIONS, APPROVAL_STATUS.REQUESTED) : []),
-        [canApprovePayments, withUnionCount]
-    );
-    const ceoTabsFiltered = useMemo(
-        () => (isCEO ? withUnionCount(PP_CEO_TAB_OPTIONS, APPROVAL_STATUS.CEO_PENDING) : []),
-        [isCEO, withUnionCount]
-    );
-    const newPaymentsTabsFiltered = useMemo(
-        () => canSettlePayments ? withUnionCount(PP_NEW_PAYMENTS_TAB_OPTIONS, APPROVAL_STATUS.APPROVED) : [],
-        [canSettlePayments, withUnionCount]
-    );
-    // Tab four. Same audience as "Payment need to paid" -- the accountant owns both
-    // sides of the settlement. Empty until the fulfil path writes the new status.
-    const reconciliationTabsFiltered = useMemo(
-        () => canViewReconciliation ? withUnionCount(PP_RECONCILIATION_TAB_OPTIONS, APPROVAL_STATUS.RECONCILIATION_PENDING) : [],
-        [canViewReconciliation, withUnionCount]
-    );
-    const paymentTypeTabsFiltered = useMemo(() => [
-        {
-            // Tab five. `Paid` now means RECONCILED -- the label says so.
+    const tabButtons = useMemo((): Partial<Record<PPTabValue, PPTabOption>> => ({
+        [PP_TABS.APPROVE_PAYMENTS]: withUnionCount(PP_ADMIN_TAB_OPTIONS[0], APPROVAL_STATUS.REQUESTED),
+        [PP_TABS.CEO_PENDING]: withUnionCount(PP_CEO_TAB_OPTIONS[0], APPROVAL_STATUS.CEO_PENDING),
+        [PP_TABS.NEW_PAYMENTS]: withUnionCount(PP_NEW_PAYMENTS_TAB_OPTIONS[0], APPROVAL_STATUS.APPROVED),
+        // Tab four. Empty until the fulfil path writes the new status.
+        [PP_TABS.RECONCILIATION_PENDING]: withUnionCount(PP_RECONCILIATION_TAB_OPTIONS[0], APPROVAL_STATUS.RECONCILIATION_PENDING),
+        // Tab five. `Paid` now means RECONCILED -- the label says so.
+        [PP_TABS.PAYMENTS_DONE]: {
             label: "Payment Done / Reconciliation Done",
             value: PP_TABS.PAYMENTS_DONE,
-            countValue: unionCount(APPROVAL_STATUS.PAID, counts.pay.paid)
+            countValue: unionCount(APPROVAL_STATUS.PAID, counts.pay.paid),
         },
-        // HIDDEN from the tab strip (owner, 2026-10-07). The tab stays ROUTED, so a
-        // `?tab=Payments Pending` deep link still opens it. Uncomment to restore.
-        // {
-        //     label: "Payments Pending",
-        //     value: PP_TABS.PAYMENTS_PENDING,
-        //     countValue:
-        //         parseNumber(unionCount(APPROVAL_STATUS.REQUESTED, counts.pay.requested))
-        //         + parseNumber(unionCount(APPROVAL_STATUS.CEO_PENDING, counts.pay.ceopending))
-        //         + parseNumber(unionCount(APPROVAL_STATUS.APPROVED, counts.pay.approved))
-        // }
-    ], [counts, unionCount]);
-    // "Payment By Me" — every role on the page. The badge stays hidden until the count
-    // loads (`countValue` undefined renders no badge) rather than flashing a 0.
-    const byMeTabsFiltered = useMemo(
-        () => PP_BY_ME_TAB_OPTIONS.map((o) => ({ ...o, countValue: queueCounts?.message?.by_me })),
-        [queueCounts]
-    );
+        // "Payments Pending" is HIDDEN from the strip (owner, 2026-10-07) but stays ROUTED; its
+        // old badge summed the requested, CEO pending and approved union counts.
+        // "Payment By Me" -- the badge stays hidden until the count loads (`countValue`
+        // undefined renders no badge) rather than flashing a 0.
+        [PP_TABS.PAYMENT_BY_ME]: { ...PP_BY_ME_TAB_OPTIONS[0], countValue: queueCounts?.message?.by_me },
+        // "All Payments" (#1476) -- all three ledgers, every status (`all`), the same rows the tab
+        // lists; never the payments-only store count. Hidden until it loads, like "Payment By Me".
+        [PP_TABS.ALL_PAYMENTS]: { ...PP_ALL_TAB_OPTIONS[0], countValue: queueCounts?.message?.all },
+    }), [withUnionCount, unionCount, counts, queueCounts]);
 
     /**
      * Refresh after an expense is created from this page.
@@ -262,53 +208,22 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
             {/* Tab Navigation - Custom Tailwind buttons */}
             <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
                 <div className="flex flex-nowrap sm:flex-wrap items-center gap-1.5 pb-1 sm:pb-0">
-                    {/* Admin Tabs */}
-                    {adminTabsFiltered.length > 0 && (
-                        <>
-                            {adminTabsFiltered.map(renderTabButton)}
-                            {/* Separator */}
-                            <div className="w-px h-5 sm:h-6 bg-gray-300 mx-0.5 sm:mx-1 shrink-0" />
-                        </>
-                    )}
-                    {/* CEO Pending Tab (CEO user only) */}
-                    {ceoTabsFiltered.length > 0 && (
-                        <>
-                            {ceoTabsFiltered.map(renderTabButton)}
-                            <div className="w-px h-5 sm:h-6 bg-gray-300 mx-0.5 sm:mx-1 shrink-0" />
-                        </>
-                    )}
-                    {/* New Payments Tab */}
-                    {newPaymentsTabsFiltered.length > 0 && (
-                        <>
-                            {newPaymentsTabsFiltered.map(renderTabButton)}
-                            <div className="w-px h-5 sm:h-6 bg-gray-300 mx-0.5 sm:mx-1 shrink-0" />
-                        </>
-                    )}
-                    {/* Tab four -- Payment Done / Reconciliation Pending */}
-                    {reconciliationTabsFiltered.length > 0 && (
-                        <>
-                            {reconciliationTabsFiltered.map(renderTabButton)}
-                            <div className="w-px h-5 sm:h-6 bg-gray-300 mx-0.5 sm:mx-1 shrink-0" />
-                        </>
-                    )}
-                    {/* Payment Type Tabs */}
-                    {paymentTypeTabsFiltered.length > 0 && (
-                        <>
-                            {paymentTypeTabsFiltered.map(renderTabButton)}
-                        </>
-                    )}
-                    {/* Payment By Me -- the viewer's own rows, every status */}
-                    {paymentTypeTabsFiltered.length > 0 && (
-                        <div className="w-px h-5 sm:h-6 bg-gray-300 mx-0.5 sm:mx-1 shrink-0" />
-                    )}
-                    {byMeTabsFiltered.map(renderTabButton)}
                     {/*
-                      PO Wise and All Payments are HIDDEN from the strip (owner 2026-09-15).
-                      Their BUTTONS are gone; their ROUTES below are not. `paymentHref()` sends
-                      every non-paid payment deep link to `?tab=All Payments`, and dropping the
-                      route would turn those links into an empty default view instead of the row
-                      they point at. Restoring either tab = re-adding its `.map(renderTabButton)`.
+                      One button per tab in `tabSet.tabs`, a separator between each. PO Wise
+                      has no button (owner 2026-09-15) and All Payments has one only for its
+                      audience (#1476), but both ROUTES below stay: `paymentHref()` sends every
+                      non-paid payment deep link to `?tab=All Payments`.
                     */}
+                    {tabSet.tabs.map((value, i) => {
+                        const option = tabButtons[value];
+                        if (!option) return null;
+                        return (
+                            <React.Fragment key={value}>
+                                {i > 0 && <div className="w-px h-5 sm:h-6 bg-gray-300 mx-0.5 sm:mx-1 shrink-0" />}
+                                {renderTabButton(option)}
+                            </React.Fragment>
+                        );
+                    })}
                 </div>
             </div>
             <Suspense fallback={

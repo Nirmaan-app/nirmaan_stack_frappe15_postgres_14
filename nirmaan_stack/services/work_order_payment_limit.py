@@ -13,13 +13,23 @@ the result, and the Request Payment dialog shows it without re-deriving anything
     Total left = total incl. GST - all payments          (may go negative on an over-paid order)
 
 A request is allowed iff its amount is within the chosen part's left AND within total left, each
-with the ₹10 tolerance the request cap has always had. So the most one part may take is its CAP,
+with the ₹10 tolerance the request cap has always had, and the Work Order passes the INVOICE CHECK
+(below). So the most one part may take is its CAP,
 min(part left, total left), and `caps` says which of the two binds: the dialogs show that figure
 and that reason as given, and never combine the two themselves.
 
 Payments count exactly as `services/payment_summary` counts them: GROSS of the TDS withheld from them
 (a deduction the company bore on top added nothing back), at every status the request cap counts,
 Rejected included until deleted.
+
+THE INVOICE CHECK (owner, 2026-10-17, #1488; GLOSSARY.md, *Invoice check*):
+
+    raised - Total Amount Invoiced < ₹100
+
+Raised is every payment that is not Rejected, base and GST alike, gross of TDS. The check looks at
+the Work Order BEFORE the new payment, so a first payment always passes and the payment itself may
+be any size the limit allows. An L1 approver or the CEO skips it: the caller says so, since who is
+raising is not a figure. A negative amount is refused for everyone (refunds are Vendor Refunds).
 
 ⚠️ THE `min(..., Work Order GST)` IS THE TDS GUARD, NOT A TIDY-UP. The invoice cap checks only an
 invoice's total, so an invoice with over-stated GST would otherwise let base value go out as a GST
@@ -29,10 +39,14 @@ payment, which is never taxed. A GST-off Work Order has no Work Order GST, so it
 from frappe.utils import cint, flt
 
 from nirmaan_stack.services.payment_summary import is_counted, summarise
+from nirmaan_stack.services.settlement import STATUS_REJECTED
 from nirmaan_stack.services.work_order_gst import gst_is_on, gst_released, work_order_gst
 
 #: The request cap's rounding tolerance, in rupees.
 TOLERANCE = 10
+
+#: How far raised money may run above Total Amount Invoiced before a new payment waits for invoices.
+INVOICE_CHECK_MARGIN = 100
 
 
 def work_order_limit(
@@ -42,19 +56,23 @@ def work_order_limit(
 	payments,
 	tds_by_payment=None,
 	exclude_payment=None,
+	amount_invoiced=0,
 ) -> dict:
 	"""The payment summary of a Work Order, measured against its total incl. GST, plus `limit`.
 
 	`payments`: dicts with `name`, `amount`, `status`, `is_gst_payment`. `tds_by_payment`: the tax
 	withheld from each, as in `summarise`. `exclude_payment` is the payment being approved, as there.
+	`amount_invoiced` is the Work Order's Total Amount Invoiced, for the invoice check.
 	"""
 	total = round(flt(total_amount), 2)
 	summary = summarise(total, payments, tds_by_payment, exclude_payment)
 
-	base_paid = gst_paid = 0.0
+	base_paid = gst_paid = raised = 0.0
 	for p in summary["payments"]:
 		if not is_counted(p["status"]):
 			continue
+		if p["status"] != STATUS_REJECTED:
+			raised += p["gross_amount"]
 		if cint(p.get("is_gst_payment")):
 			gst_paid += p["gross_amount"]
 		else:
@@ -79,8 +97,15 @@ def work_order_limit(
 		"gst_left": gst_left,
 		"total_left": total_left,
 		"caps": {"base": part_cap(base_left, total_left), "gst": part_cap(gst_left, total_left)},
+		"invoice_check": invoice_check(raised, amount_invoiced),
 	}
 	return summary
+
+
+def invoice_check(raised, amount_invoiced) -> dict:
+	"""`{raised, invoiced, passes}`: may a new payment be raised on a Work Order with these figures?"""
+	raised, invoiced = round(flt(raised), 2), round(flt(amount_invoiced), 2)
+	return {"raised": raised, "invoiced": invoiced, "passes": raised - invoiced < INVOICE_CHECK_MARGIN}
 
 
 def part_cap(part_left, total_left) -> dict:
@@ -94,14 +119,22 @@ def part_cap(part_left, total_left) -> dict:
 	return {"cap": round(max(0.0, flt(part_left)), 2), "binds": "part"}
 
 
-def request_refusal(limit: dict, amount, gst_payment: bool) -> dict | None:
+def request_refusal(limit: dict, amount, gst_payment: bool, check_invoices: bool = True) -> dict | None:
 	"""Why a request of `amount` breaks the limit, or None when it is allowed.
 
-	Returns `{"part": "no_gst" | "base" | "gst" | "total", "left": <the figure it broke>}`.
+	Returns `{"part": "negative" | "no_gst" | "base" | "gst" | "total", "left": <the figure it broke>}`,
+	or `{"part": "invoice", "raised", "invoiced"}` when the Work Order fails the invoice check.
+	`check_invoices` is False for a raiser who skips that check (an L1 approver or the CEO). A negative
+	amount is refused for everyone: money coming back is a Vendor Refund (#1488).
 	"""
 	amount = flt(amount)
+	if amount < 0:
+		return {"part": "negative", "left": 0}
 	if gst_payment and not limit["gst_on"]:
 		return {"part": "no_gst", "left": 0}
+	check = limit["invoice_check"]
+	if check_invoices and not check["passes"]:
+		return {"part": "invoice", "raised": check["raised"], "invoiced": check["invoiced"]}
 	part, part_left = ("gst", limit["gst_left"]) if gst_payment else ("base", limit["base_left"])
 	if amount > part_left + TOLERANCE:
 		return {"part": part, "left": part_left}

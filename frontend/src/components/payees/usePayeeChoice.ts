@@ -15,7 +15,7 @@ import { useFrappePostCall } from "frappe-react-sdk";
 
 import type { PayeeOption, PayeeSummary } from "@/types/NirmaanStack/Payee";
 import { cleanIfsc, newPayeeProblem } from "@/utils/payees/payeeForm";
-import type { PickedPayTo } from "@/utils/payees/payToChoice";
+import { DuplicatePayeeError, type PickedPayTo } from "@/utils/payees/payToChoice";
 
 import { usePayeeBankForm, type PayeeBankForm } from "./usePayeeBankForm";
 
@@ -28,9 +28,8 @@ export type PayeeChoiceMode = "pick" | "new";
 
 type AddReply = { payee: PayeeSummary } | { duplicate: PayeeSummary; message: string };
 
-/** Thrown by `resolve()` when the new details belong to a Payee already on record. The duplicate
- *  block now shows that Payee, so the screen only has to stop saving and say why. */
-export class DuplicatePayeeError extends Error {}
+/** What `resolve()` throws on a duplicate account; it lives in `utils/payees/payToChoice` (pure). */
+export { DuplicatePayeeError };
 
 export interface PayeeChoice {
     mode: PayeeChoiceMode;
