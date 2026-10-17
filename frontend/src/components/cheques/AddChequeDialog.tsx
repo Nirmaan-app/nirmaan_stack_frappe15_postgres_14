@@ -1,24 +1,24 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappePostCall } from "frappe-react-sdk";
 import { AlertTriangle, Info, Loader2 } from "lucide-react";
 
-import { ChequePhotoLink } from "@/components/cheques/ChequePhotoLink";
+import { ChequeHeaderFields, Required } from "@/components/cheques/ChequeHeaderFields";
 import { SecurityDepositChequeForm } from "@/components/cheques/SecurityDepositChequeForm";
-import { FROM_PHOTO_INPUT, FromPhotoTag } from "@/components/cheques/FromPhotoTag";
-import { useChequeDetail, type ChequeDetail } from "@/components/cheques/useChequeDetail";
-import { useChequePhotoReader, usePayeeVendorMismatch } from "@/components/cheques/useChequePhotoReader";
-import { CustomAttachment } from "@/components/helpers/CustomAttachment";
+import { FromPhotoTag } from "@/components/cheques/FromPhotoTag";
+import type { ChequeDetail } from "@/components/cheques/useChequeDetail";
+import type { ChequeEditTarget } from "@/components/cheques/useChequeEdit";
+import { usePayeeVendorMismatch } from "@/components/cheques/useChequePhotoReader";
+import { useChequePhotoUpload } from "@/components/cheques/useChequePhotoUpload";
 import VendorSelect from "@/components/custom-select/vendor-select";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
-import { CHEQUE_BANK, CHEQUE_TYPE, type ChequeType } from "@/types/NirmaanStack/Cheques";
+import { CHEQUE_TYPE, type ChequeType } from "@/types/NirmaanStack/Cheques";
 import {
     chequeEditMode,
     chequeFormFromDetail,
@@ -31,37 +31,33 @@ import {
 import {
     EMPTY_CHEQUE_FORM,
     makeChequeFormSchema,
+    SAVE_CHEQUE_API,
     saveChequeArgs,
     type ChequeFormInput,
     type ChequeFormValues,
 } from "@/utils/cheques/chequeForm";
 import type { DepositPageRecord } from "@/utils/cheques/chequeDeposit";
 import { chequeSaveNote, withoutPoWoLines, type ChequeLineDraft } from "@/utils/cheques/chequeLines";
-import { isFromPhoto, type ChequePhotoField } from "@/utils/cheques/chequePhoto";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { cn } from "@/lib/utils";
 
 import { ChequeLinesTable } from "./ChequeLinesTable";
-
-const SAVE_CHEQUE_API = "nirmaan_stack.api.cheques.save_cheque.save_cheque";
 
 interface AddChequeDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     /** Called with the Cheque's name once it is saved. */
     onSaved: (cheque: string) => void;
-    /** The Cheque to edit (#1418); absent to add a new one. */
-    cheque?: string | null;
+    /**
+     * The Cheque to edit (#1418), as the handler that opened the dialog read it (`useChequeEdit`); absent to
+     * add a new one. The form copies it once, so each opening reads it afresh first.
+     */
+    edit?: ChequeEditTarget | null;
     /** The kind of cheque a new one starts as; absent asks first. The Security Deposits tab opens a deposit. */
     initialType?: ChequeType;
     /** A Security Deposit cheque added from a PO or Work Order page: its Vendor and record (#1486). */
     depositFrom?: DepositPageRecord;
 }
-
-const Required = () => <span className="ml-0.5 text-red-500">*</span>;
-
-/** What the photo fills. A Payment cheque is made out to a Vendor: the payee read off it only helps check one. */
-const PHOTO_FIELDS: readonly ChequePhotoField[] = ["bank", "cheque_no", "cheque_date", "amount"];
 
 /** The two kinds of cheque Add Cheque asks for first (spec #1477, ADR-0035). */
 const TYPE_CHOICES: { type: ChequeType; label: string; hint: string }[] = [
@@ -76,32 +72,16 @@ const TYPE_CHOICES: { type: ChequeType; label: string; hint: string }[] = [
  *   and the PO payments it pays (`ChequeLinesTable`). It saves Pending; picked Approved payments issue it.
  * - a **Security Deposit cheque** (#1486): `SecurityDepositChequeForm`. It saves Issued, on its typed issue date.
  *
- * With `cheque` it is the row's Edit (#1418): the same form, filled with the Cheque, with the boxes its
+ * With `edit` it is the row's Edit (#1418): the same form, filled with the Cheque, with the boxes its
  * status and origin lock turned off (`utils/cheques/chequeEdit`). A replaced photo is not read: the
  * Cheque's fields are already recorded.
  *
  * The photo is uploaded as soon as it is picked, so the form holds its file URL (and #1409 can read it).
  * The server re-checks every rule.
  */
-export const AddChequeDialog = ({ open, onOpenChange, onSaved, cheque, initialType, depositFrom }: AddChequeDialogProps) => {
-    const editing = Boolean(cheque);
-    const { cheque: detail, error, refetch } = useChequeDetail(open && cheque ? cheque : null);
-    // The form copies the Cheque once, when it mounts: each opening reads it afresh first, or an edit opened
-    // again would start from the cached Cheque as it was before the last save (realtime may not refetch it).
-    const [freshFor, setFreshFor] = useState<string | null>(null);
-    useEffect(() => {
-        if (!open || !cheque) return;
-        let current = true;
-        setFreshFor(null);
-        void refetch().finally(() => {
-            if (current) setFreshFor(cheque);
-        });
-        return () => {
-            current = false;
-        };
-        // `refetch` changes identity with its data; only a new opening reads again.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, cheque]);
+export const AddChequeDialog = ({ open, onOpenChange, onSaved, edit, initialType, depositFrom }: AddChequeDialogProps) => {
+    const editing = Boolean(edit);
+    const detail = edit?.detail;
     const startType = depositFrom ? CHEQUE_TYPE.SECURITY_DEPOSIT : initialType ?? null;
     const [type, setType] = useState<ChequeType | null>(startType);
     const done = (name: string) => {
@@ -132,14 +112,14 @@ export const AddChequeDialog = ({ open, onOpenChange, onSaved, cheque, initialTy
                     </DialogDescription>
                 </DialogHeader>
                 {editing ? (
-                    detail && freshFor === cheque ? (
+                    detail ? (
                         detail.cheque_type === CHEQUE_TYPE.SECURITY_DEPOSIT ? (
                             <SecurityDepositChequeForm key={detail.name} edit={detail} onDone={done} onCancel={() => changeOpen(false)} />
                         ) : (
                             <ChequeForm key={detail.name} edit={detail} onDone={done} onCancel={() => changeOpen(false)} />
                         )
-                    ) : error ? (
-                        <p className="text-sm text-destructive">{getFrappeError(error)}</p>
+                    ) : edit?.error ? (
+                        <p className="text-sm text-destructive">{getFrappeError(edit.error)}</p>
                     ) : (
                         <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />
                     )
@@ -201,57 +181,20 @@ const ChequeForm = ({ edit, onDone, onCancel }: ChequeFormProps) => {
         resolver: zodResolver(makeChequeFormSchema(edit ? chequeFormRules(edit) : { photoRequired: true, paymentCheque: true })),
         defaultValues: initial,
     });
-    const { upload, loading: uploading } = useFrappeFileUpload();
     const { call: saveCheque, loading: saving } = useFrappePostCall<{ message: { cheque: string; status: string } }>(
         SAVE_CHEQUE_API,
     );
-    const [photo, setPhoto] = useState<File | null>(null);
     const [vendorName, setVendorName] = useState(edit?.vendor_name ?? "");
-    // A photo replaced while the first is still uploading must not land the first one's URL.
-    const uploadSession = useRef(0);
-
-    const reader = useChequePhotoReader(form.getValues, (fill) => {
-        for (const [field, value] of Object.entries(fill)) {
-            form.setValue(field as keyof ChequeFormInput, value as never, {
-                shouldDirty: true,
-                shouldValidate: form.formState.isSubmitted,
-            });
-        }
-    }, PHOTO_FIELDS);
+    const photoUpload = useChequePhotoUpload(form, edit);
+    const { uploading, reader } = photoUpload;
 
     const values = form.watch();
-    const bank = values.bank;
     const vendor = values.vendor;
     const lines = (values.lines ?? []) as ChequeLineDraft[];
-    const fromPhoto = (field: ChequePhotoField) => isFromPhoto(field, values, reader.photo);
     const photoPayee = reader.photo?.payee_name;
     const payeeLocked = locked("vendor");
     const payeeMismatch = usePayeeVendorMismatch(photoPayee, values.vendor);
     const saveNote = mode === "photo_only" ? undefined : chequeSaveNote(values.amount as number | string, lines);
-
-    const handlePhoto = async (file: File | null) => {
-        const session = ++uploadSession.current;
-        reader.cancel();
-        setPhoto(file);
-        // Clearing a replacement photo on an edit goes back to the recorded one.
-        form.setValue("attachment", edit?.attachment ?? "", { shouldValidate: false });
-        if (!file) return;
-        try {
-            // Uploaded unattached: Frappe's upload checks WRITE permission on the doctype it attaches
-            // to, and the Cheques DocPerms give these users read only (the cheques service writes).
-            // Saving the Cheque attaches the File to it (`attach_files_to_document`).
-            const uploaded = await upload(file, { isPrivate: true });
-            if (session !== uploadSession.current) return;
-            form.setValue("attachment", uploaded.file_url, { shouldValidate: true });
-            // A replaced photo is read again; what only the old one said is cleared. An edit keeps
-            // what was recorded.
-            if (!edit) void reader.read(uploaded.file_url);
-        } catch (e) {
-            if (session !== uploadSession.current) return;
-            setPhoto(null);
-            toast({ title: "Could not upload the photo", description: getFrappeError(e), variant: "destructive" });
-        }
-    };
 
     const onSubmit = async (values: ChequeFormValues) => {
         try {
@@ -277,128 +220,7 @@ const ChequeForm = ({ edit, onDone, onCancel }: ChequeFormProps) => {
                 {lockHint && (
                     <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">{lockHint}</p>
                 )}
-                <FormField
-                    control={form.control}
-                    name="attachment"
-                    render={() => (
-                        <FormItem>
-                            <FormLabel>Cheque photo{(!edit || edit.attachment) && <Required />}</FormLabel>
-                            <div className="flex flex-wrap items-center gap-2">
-                                {edit && (
-                                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                        {edit.attachment ? "Recorded:" : "No photo yet."}
-                                        {edit.attachment && <ChequePhotoLink url={edit.attachment} chequeNo={edit.cheque_no} />}
-                                    </span>
-                                )}
-                                <CustomAttachment
-                                    selectedFile={photo}
-                                    onFileSelect={handlePhoto}
-                                    acceptedTypes={["image/*", "application/pdf"]}
-                                    label={edit?.attachment ? "Replace photo" : "Upload cheque photo"}
-                                    disabled={saving}
-                                />
-                                {(uploading || reader.reading) && (
-                                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                        {uploading ? "Uploading..." : "Reading the photo..."}
-                                    </span>
-                                )}
-                            </div>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <FormField
-                        control={form.control}
-                        name="bank"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>Bank<Required />{fromPhoto("bank") && <FromPhotoTag />}</FormLabel>
-                                <Select value={field.value} onValueChange={field.onChange} disabled={locked("bank")}>
-                                    <FormControl>
-                                        <SelectTrigger className={cn(fromPhoto("bank") && FROM_PHOTO_INPUT)}>
-                                            <SelectValue placeholder="Choose the bank" />
-                                        </SelectTrigger>
-                                    </FormControl>
-                                    <SelectContent>
-                                        <SelectItem value={CHEQUE_BANK.ICICI}>ICICI Bank</SelectItem>
-                                        <SelectItem value={CHEQUE_BANK.OTHERS}>Others</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                                <FormMessage />
-                            </FormItem>
-                        )}
-                    />
-                    {bank === CHEQUE_BANK.OTHERS && (
-                        <FormField
-                            control={form.control}
-                            name="bank_name"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Bank name<Required />{fromPhoto("bank") && <FromPhotoTag />}</FormLabel>
-                                    <FormControl>
-                                        <Input placeholder="e.g. HDFC Bank" disabled={locked("bank_name")} className={cn(fromPhoto("bank") && FROM_PHOTO_INPUT)} {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                    )}
-                    <FormField
-                        control={form.control}
-                        name="cheque_no"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>Cheque number<Required />{fromPhoto("cheque_no") && <FromPhotoTag />}</FormLabel>
-                                <FormControl>
-                                    <Input
-                                        inputMode="numeric"
-                                        placeholder="e.g. 004521"
-                                        disabled={locked("cheque_no")}
-                                        className={cn(fromPhoto("cheque_no") && FROM_PHOTO_INPUT)}
-                                        {...field}
-                                    />
-                                </FormControl>
-                                <FormMessage />
-                            </FormItem>
-                        )}
-                    />
-                    <FormField
-                        control={form.control}
-                        name="cheque_date"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>Cheque date<Required />{fromPhoto("cheque_date") && <FromPhotoTag />}</FormLabel>
-                                <FormControl>
-                                    <Input type="date" disabled={locked("cheque_date")} className={cn(fromPhoto("cheque_date") && FROM_PHOTO_INPUT)} {...field} />
-                                </FormControl>
-                                <FormMessage />
-                            </FormItem>
-                        )}
-                    />
-                    <FormField
-                        control={form.control}
-                        name="amount"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>Amount (₹)<Required />{fromPhoto("amount") && <FromPhotoTag />}</FormLabel>
-                                <FormControl>
-                                    <Input
-                                        type="number"
-                                        min={0}
-                                        step="0.01"
-                                        disabled={locked("amount")}
-                                        className={cn(fromPhoto("amount") && FROM_PHOTO_INPUT)}
-                                        {...field}
-                                        value={field.value as number | string}
-                                    />
-                                </FormControl>
-                                <FormMessage />
-                            </FormItem>
-                        )}
-                    />
-                </div>
+                <ChequeHeaderFields form={form} edit={edit} upload={photoUpload} locked={locked} saving={saving} />
                 {values.payee_kind === "typed" ? (
                     // Only an Old-type cheque has a typed payee, and it is shown as recorded (photo-only edit).
                     <FormItem>

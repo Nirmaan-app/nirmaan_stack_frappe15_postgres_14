@@ -641,9 +641,12 @@ export const REFUND_DELETE_PROFILES: readonly string[] = [ADMIN_PROFILE, ...MATE
  * Cheques (spec #1407). Mirrors `services/role_profiles.CHEQUE_ACCOUNTS_PROFILES` /
  * `CHEQUE_ACCESS_PROFILES`; the server is the enforcement boundary (every `api/cheques/` endpoint).
  *
- * `CHEQUE_ACCESS_PROFILES`: open the Cheque Tracker (`/cheque-tracker`), add a Cheque.
+ * `CHEQUE_ACCESS_PROFILES`: open the Cheque Tracker (`/cheque-tracker`), view Cheques, add a Payment or a
+ * Security Deposit cheque, and edit their own while its status allows (`utils/cheques/chequeEdit.canEditCheque`).
  * Project Managers are not in it. Not tied to the Payment TDS Deduction read permission.
- * `CHEQUE_ACCOUNTS_PROFILES`: also edit any Cheque and change its status.
+ * `CHEQUE_ACCOUNTS_PROFILES`: also edit any Cheque, and clear or cancel one by hand
+ * (`utils/cheques/chequeRowActions`). No one sets a Cheque's status otherwise: payment approval and the bank
+ * import move it.
  */
 export const CHEQUE_ACCOUNTS_PROFILES: readonly string[] = [ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE];
 export const CHEQUE_ACCESS_PROFILES: readonly string[] = [...CHEQUE_ACCOUNTS_PROFILES, ...PROCUREMENT_PROFILES];

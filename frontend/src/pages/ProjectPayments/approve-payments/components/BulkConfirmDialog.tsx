@@ -36,7 +36,7 @@ import { isExpenseRow } from "../hooks/useBulkApprovalActions";
 import { isChequePayment, paymentModeSummary } from "../../paymentMode";
 import { formatDate } from "@/utils/FormatDate";
 import { useChequeGroups } from "@/components/cheques/useChequeGroups";
-import { chequeChipText, chequeChipTone } from "@/utils/cheques/chequeChip";
+import { ChequeChip } from "@/components/cheques/ChequeChip";
 import {
   bulkChequeGroups,
   bulkDecisionTotals,
@@ -516,11 +516,7 @@ const ChequeGroupBlock: React.FC<ChequeGroupBlockProps> = ({ group, action, mode
   return (
     <li className="my-1.5 rounded-md border border-indigo-200 border-l-4 border-l-indigo-500 bg-indigo-50/60 dark:border-indigo-900 dark:bg-indigo-950/30">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-2.5 py-2 text-xs text-indigo-950 dark:text-indigo-100">
-        <span
-          className={`inline-flex items-center rounded-full border px-2 py-0.5 font-mono text-[11px] font-semibold ${chequeChipTone(approval.status)}`}
-        >
-          {chequeChipText(approval.cheque_no, approval.status)}
-        </span>
+        <ChequeChip cheque={approval.cheque} chequeNo={approval.cheque_no} status={approval.status} />
         <span>{chequeGroupNote(group, action, mode)}</span>
       </div>
       {problem && (

@@ -6,6 +6,7 @@ import { ChequePhoto } from "@/components/cheques/ChequePhotoLink";
 import { ChequeStatusBadge } from "@/components/cheques/ChequeStatusBadge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { chequeTypeLabel } from "@/pages/cheque-tracker/config/chequePaymentTable.config";
 import { CHEQUE_TYPE } from "@/types/NirmaanStack/Cheques";
 import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 import { chequeDateText } from "@/utils/cheques/chequeChip";
@@ -102,7 +103,7 @@ export const ChequeDetailDialog = ({ cheque: name, onClose, actions }: ChequeDet
                             </div>
                             <div className="grid grid-cols-2 gap-3 content-start">
                                 <Field label="Type">
-                                    {cheque.cheque_type === CHEQUE_TYPE.SECURITY_DEPOSIT ? "Security Deposit" : "Payment cheque"}
+                                    {chequeTypeLabel(cheque.cheque_type)}
                                     {cheque.old_type ? " · Old-type" : ""}
                                 </Field>
                                 <Field label="Bank">{cheque.bank_label}</Field>

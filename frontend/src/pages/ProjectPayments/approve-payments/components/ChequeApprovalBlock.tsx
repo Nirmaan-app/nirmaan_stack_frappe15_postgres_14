@@ -1,8 +1,7 @@
 import React from "react";
 import { AlertTriangle, Lock } from "lucide-react";
 
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { chequeChipText, chequeChipTone } from "@/utils/cheques/chequeChip";
+import { ChequeChip } from "@/components/cheques/ChequeChip";
 import {
     ceoNote,
     chequeApprovalRows,
@@ -10,6 +9,8 @@ import {
     type ChequeApproval,
     type ChequeApprovalStage,
 } from "@/utils/cheques/chequeApproval";
+
+import { ChequePaymentsTable } from "./ChequePaymentsTable";
 
 interface ChequeApprovalBlockProps {
     approval: ChequeApproval;
@@ -32,53 +33,11 @@ export const ChequeApprovalBlock: React.FC<ChequeApprovalBlockProps> = ({ approv
         <div className="space-y-3 text-sm">
             <p className="flex flex-wrap items-center gap-2 text-muted-foreground">
                 It is on
-                <span
-                    className={`inline-flex items-center rounded-full border px-2 py-0.5 font-mono text-xs font-semibold ${chequeChipTone(approval.status)}`}
-                >
-                    {chequeChipText(approval.cheque_no, approval.status)}
-                </span>
+                <ChequeChip cheque={approval.cheque} chequeNo={approval.cheque_no} status={approval.status} />
                 {others ? `${others}. One cheque is approved as one.` : null}
             </p>
 
-            <div className="overflow-x-auto rounded-md border">
-                <table className="w-full min-w-[560px] text-left">
-                    <thead className="bg-muted/40 text-xs text-muted-foreground">
-                        <tr>
-                            <th className="px-3 py-2 font-medium">Payment</th>
-                            <th className="px-3 py-2 font-medium">PO</th>
-                            <th className="px-3 py-2 font-medium">Project</th>
-                            <th className="px-3 py-2 font-medium">Status</th>
-                            <th className="px-3 py-2 text-right font-medium">Amount</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows.map((row) => (
-                            <tr
-                                key={row.key}
-                                className={`border-t ${row.isOpened ? "bg-rose-50 dark:bg-rose-950/30" : ""}`}
-                            >
-                                <td className={`px-3 py-2 ${row.isOpened ? "font-semibold" : ""} ${row.payment ? "" : "italic text-muted-foreground"}`}>
-                                    {row.paymentLabel}
-                                </td>
-                                <td className="px-3 py-2">{row.record ?? "—"}</td>
-                                <td className="px-3 py-2">{row.project_name ?? row.project ?? "—"}</td>
-                                <td className="px-3 py-2">{row.statusLabel}</td>
-                                <td className="px-3 py-2 text-right tabular-nums">{formatToRoundedIndianRupee(row.amount)}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                    <tfoot>
-                        <tr className="border-t bg-muted/40">
-                            <td colSpan={4} className="px-3 py-2 text-muted-foreground">
-                                Cheque total · {approval.vendor_name ?? approval.vendor ?? "—"} · {approval.bank} {approval.cheque_no}
-                            </td>
-                            <td className="px-3 py-2 text-right font-semibold tabular-nums">
-                                {formatToRoundedIndianRupee(approval.amount)}
-                            </td>
-                        </tr>
-                    </tfoot>
-                </table>
-            </div>
+            <ChequePaymentsTable rows={rows} approval={approval} />
 
             {approval.problem ? (
                 <div className="flex items-start gap-2 rounded-md border bg-muted/40 px-3 py-2">

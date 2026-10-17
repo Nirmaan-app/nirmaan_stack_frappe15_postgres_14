@@ -1,16 +1,15 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappePostCall } from "frappe-react-sdk";
 import { Loader2, ShieldCheck, X } from "lucide-react";
 
-import { ChequePhotoLink } from "@/components/cheques/ChequePhotoLink";
-import { FROM_PHOTO_INPUT, FromPhotoTag } from "@/components/cheques/FromPhotoTag";
+import { ChequeHeaderFields, Required } from "@/components/cheques/ChequeHeaderFields";
+import { FromPhotoTag } from "@/components/cheques/FromPhotoTag";
 import type { ChequeDetail } from "@/components/cheques/useChequeDetail";
-import { useChequePhotoReader } from "@/components/cheques/useChequePhotoReader";
 import { useSecurableRecords } from "@/components/cheques/useChequePickers";
+import { useChequePhotoUpload } from "@/components/cheques/useChequePhotoUpload";
 import VendorSelect from "@/components/custom-select/vendor-select";
-import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -20,8 +19,6 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
-import { cn } from "@/lib/utils";
-import { CHEQUE_BANK } from "@/types/NirmaanStack/Cheques";
 import {
     depositFormFromDetail,
     depositPrefill,
@@ -35,16 +32,9 @@ import {
     type DepositPageRecord,
 } from "@/utils/cheques/chequeDeposit";
 import { chequeEditMode, editLockHint, isHeaderLocked } from "@/utils/cheques/chequeEdit";
-import { isFromPhoto, type ChequePhotoField } from "@/utils/cheques/chequePhoto";
+import { SAVE_CHEQUE_API } from "@/utils/cheques/chequeForm";
 import { todayISO } from "@/utils/cheques/chequeStatus";
 import { getFrappeError } from "@/utils/frappeErrors";
-
-const SAVE_CHEQUE_API = "nirmaan_stack.api.cheques.save_cheque.save_cheque";
-
-/** What the photo fills: the payee read off it only helps check the Vendor or type the name. */
-const PHOTO_FIELDS: readonly ChequePhotoField[] = ["bank", "cheque_no", "cheque_date", "amount"];
-
-const Required = () => <span className="ml-0.5 text-red-500">*</span>;
 
 interface SecurityDepositChequeFormProps {
     /** The deposit being edited, as recorded; absent for a new one. */
@@ -74,48 +64,19 @@ export const SecurityDepositChequeForm = ({ edit, from, onDone, onCancel }: Secu
         resolver: zodResolver(makeDepositFormSchema({ photoRequired: !edit || Boolean(edit.attachment), today })),
         defaultValues: initial,
     });
-    const { upload, loading: uploading } = useFrappeFileUpload();
     const { call: saveCheque, loading: saving } = useFrappePostCall<{ message: { cheque: string; status: string } }>(
         SAVE_CHEQUE_API,
     );
-    const [photo, setPhoto] = useState<File | null>(null);
-    const uploadSession = useRef(0);
-    const reader = useChequePhotoReader(form.getValues, (fill) => {
-        for (const [field, value] of Object.entries(fill)) {
-            form.setValue(field as keyof DepositFormInput, value as never, {
-                shouldDirty: true,
-                shouldValidate: form.formState.isSubmitted,
-            });
-        }
-    }, PHOTO_FIELDS);
+    const photoUpload = useChequePhotoUpload(form, edit);
+    const { uploading, reader } = photoUpload;
 
     const values = form.watch();
     const secures = values.secures ?? [];
     const { records } = useSecurableRecords(values.payee_kind === "vendor" ? values.vendor || undefined : undefined);
     const options = securableOptions(records, secures);
-    const fromPhoto = (field: ChequePhotoField) => isFromPhoto(field, values, reader.photo);
     // Added from a PO / Work Order page: its Vendor and that record stay.
     const payeeLocked = locked("vendor") || Boolean(from);
     const isFixed = (record: string) => from?.name === record;
-
-    const handlePhoto = async (file: File | null) => {
-        const session = ++uploadSession.current;
-        reader.cancel();
-        setPhoto(file);
-        form.setValue("attachment", edit?.attachment ?? "", { shouldValidate: false });
-        if (!file) return;
-        try {
-            // Uploaded unattached, as Add Cheque's Payment form does: these users only read Cheques.
-            const uploaded = await upload(file, { isPrivate: true });
-            if (session !== uploadSession.current) return;
-            form.setValue("attachment", uploaded.file_url, { shouldValidate: true });
-            if (!edit) void reader.read(uploaded.file_url);
-        } catch (e) {
-            if (session !== uploadSession.current) return;
-            setPhoto(null);
-            toast({ title: "Could not upload the photo", description: getFrappeError(e), variant: "destructive" });
-        }
-    };
 
     const onSubmit = async (v: DepositFormValues) => {
         try {
@@ -144,126 +105,7 @@ export const SecurityDepositChequeForm = ({ edit, from, onDone, onCancel }: Secu
                         </p>
                     </div>
                 )}
-                <FormField
-                    control={form.control}
-                    name="attachment"
-                    render={() => (
-                        <FormItem>
-                            <FormLabel>Cheque photo{(!edit || edit.attachment) && <Required />}</FormLabel>
-                            <div className="flex flex-wrap items-center gap-2">
-                                {edit?.attachment && (
-                                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                        Recorded: <ChequePhotoLink url={edit.attachment} chequeNo={edit.cheque_no} />
-                                    </span>
-                                )}
-                                <CustomAttachment
-                                    selectedFile={photo}
-                                    onFileSelect={handlePhoto}
-                                    acceptedTypes={["image/*", "application/pdf"]}
-                                    label={edit?.attachment ? "Replace photo" : "Upload cheque photo"}
-                                    disabled={saving}
-                                />
-                                {(uploading || reader.reading) && (
-                                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                        {uploading ? "Uploading..." : "Reading the photo..."}
-                                    </span>
-                                )}
-                            </div>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <FormField
-                        control={form.control}
-                        name="bank"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>Bank<Required />{fromPhoto("bank") && <FromPhotoTag />}</FormLabel>
-                                <Select value={field.value} onValueChange={field.onChange} disabled={locked("bank")}>
-                                    <FormControl>
-                                        <SelectTrigger className={cn(fromPhoto("bank") && FROM_PHOTO_INPUT)}>
-                                            <SelectValue placeholder="Choose the bank" />
-                                        </SelectTrigger>
-                                    </FormControl>
-                                    <SelectContent>
-                                        <SelectItem value={CHEQUE_BANK.ICICI}>ICICI Bank</SelectItem>
-                                        <SelectItem value={CHEQUE_BANK.OTHERS}>Others</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                                <FormMessage />
-                            </FormItem>
-                        )}
-                    />
-                    {values.bank === CHEQUE_BANK.OTHERS && (
-                        <FormField
-                            control={form.control}
-                            name="bank_name"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Bank name<Required /></FormLabel>
-                                    <FormControl>
-                                        <Input placeholder="e.g. HDFC Bank" disabled={locked("bank_name")} {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                    )}
-                    <FormField
-                        control={form.control}
-                        name="cheque_no"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>Cheque number<Required />{fromPhoto("cheque_no") && <FromPhotoTag />}</FormLabel>
-                                <FormControl>
-                                    <Input
-                                        inputMode="numeric"
-                                        placeholder="e.g. 000760"
-                                        disabled={locked("cheque_no")}
-                                        className={cn(fromPhoto("cheque_no") && FROM_PHOTO_INPUT)}
-                                        {...field}
-                                    />
-                                </FormControl>
-                                <FormMessage />
-                            </FormItem>
-                        )}
-                    />
-                    <FormField
-                        control={form.control}
-                        name="cheque_date"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>Cheque date<Required />{fromPhoto("cheque_date") && <FromPhotoTag />}</FormLabel>
-                                <FormControl>
-                                    <Input type="date" disabled={locked("cheque_date")} className={cn(fromPhoto("cheque_date") && FROM_PHOTO_INPUT)} {...field} />
-                                </FormControl>
-                                <FormMessage />
-                            </FormItem>
-                        )}
-                    />
-                    <FormField
-                        control={form.control}
-                        name="amount"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>Amount (₹)<Required />{fromPhoto("amount") && <FromPhotoTag />}</FormLabel>
-                                <FormControl>
-                                    <Input
-                                        type="number"
-                                        min={0}
-                                        step="0.01"
-                                        disabled={locked("amount")}
-                                        className={cn(fromPhoto("amount") && FROM_PHOTO_INPUT)}
-                                        {...field}
-                                        value={field.value as number | string}
-                                    />
-                                </FormControl>
-                                <FormMessage />
-                            </FormItem>
-                        )}
-                    />
+                <ChequeHeaderFields form={form} edit={edit} upload={photoUpload} locked={locked} saving={saving}>
                     <FormField
                         control={form.control}
                         name="issue_date"
@@ -278,7 +120,7 @@ export const SecurityDepositChequeForm = ({ edit, from, onDone, onCancel }: Secu
                             </FormItem>
                         )}
                     />
-                </div>
+                </ChequeHeaderFields>
                 <FormField
                     control={form.control}
                     name="payee_kind"

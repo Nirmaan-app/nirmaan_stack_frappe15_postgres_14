@@ -110,6 +110,9 @@ export const EMPTY_CHEQUE_FORM: ChequeFormInput = {
     lines: [],
 };
 
+/** Saves a new or edited Cheque of either type (Add Cheque's Payment form and the Security Deposit form). */
+export const SAVE_CHEQUE_API = "nirmaan_stack.api.cheques.save_cheque.save_cheque";
+
 /** The arguments `api/cheques/save_cheque.save_cheque` takes. */
 export interface SaveChequeArgs {
     bank: string;

@@ -2,9 +2,10 @@ import React from "react";
 import { AlertCircle } from "lucide-react";
 
 import { Textarea } from "@/components/ui/textarea";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { chequeChipText, chequeChipTone } from "@/utils/cheques/chequeChip";
+import { ChequeChip } from "@/components/cheques/ChequeChip";
 import { chequeApprovalRows, rejectNote, type ChequeApproval } from "@/utils/cheques/chequeApproval";
+
+import { ChequePaymentsTable } from "./ChequePaymentsTable";
 
 interface ChequeRejectBlockProps {
     approval: ChequeApproval;
@@ -35,36 +36,11 @@ export const ChequeRejectBlock: React.FC<ChequeRejectBlockProps> = ({
             <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-muted-foreground">
                 You picked {openedPayment}.
                 {others > 0 ? " It shares " : " It is on "}
-                <span
-                    className={`inline-flex items-center rounded-full border px-2 py-0.5 font-mono text-xs font-semibold ${chequeChipTone(approval.status)}`}
-                >
-                    {chequeChipText(approval.cheque_no, approval.status)}
-                </span>
+                <ChequeChip cheque={approval.cheque} chequeNo={approval.cheque_no} status={approval.status} />
                 {others > 0 ? ` with ${others} other${others === 1 ? "" : "s"}, so all are rejected.` : null}
             </p>
 
-            <div className="overflow-x-auto rounded-md border">
-                <table className="w-full min-w-[480px] text-left">
-                    <thead className="bg-muted/40 text-xs text-muted-foreground">
-                        <tr>
-                            <th className="px-3 py-2 font-medium">Payment</th>
-                            <th className="px-3 py-2 font-medium">PO</th>
-                            <th className="px-3 py-2 font-medium">Project</th>
-                            <th className="px-3 py-2 text-right font-medium">Amount</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows.map((row) => (
-                            <tr key={row.key} className={`border-t ${row.isOpened ? "bg-rose-50 dark:bg-rose-950/30" : ""}`}>
-                                <td className={`px-3 py-2 ${row.isOpened ? "font-semibold" : ""}`}>{row.paymentLabel}</td>
-                                <td className="px-3 py-2">{row.record ?? "—"}</td>
-                                <td className="px-3 py-2">{row.project_name ?? row.project ?? "—"}</td>
-                                <td className="px-3 py-2 text-right tabular-nums">{formatToRoundedIndianRupee(row.amount)}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
+            <ChequePaymentsTable rows={rows} />
 
             <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
                 <AlertCircle className="mt-0.5 h-4 w-4 flex-none" aria-hidden="true" />

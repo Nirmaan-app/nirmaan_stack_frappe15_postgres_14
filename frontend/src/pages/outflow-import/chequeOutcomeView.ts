@@ -7,6 +7,7 @@
 // ⚠️ NO RULE OF ITS OWN. Which cheque, where it started and which payments look doubled are the server's
 // (`services/cheques/bank_import.cheque_outcomes`); the sentence under the chip is the line's own note.
 
+import { CHEQUE_STATUS } from "@/types/NirmaanStack/Cheques";
 import type { ChequeOutcome } from "@/types/NirmaanStack/OutflowImportBatch";
 import { chequeReportPath } from "@/utils/cheques/chequeReportLink";
 
@@ -32,7 +33,7 @@ const joinNames = (parts: string[]): string =>
 
 export const chequeOutcomeChip = (outcome: ChequeOutcome | null | undefined): ChequeOutcomeChip | null => {
     if (!outcome) return null;
-    const move = outcome.started === "Cleared" ? "linked" : `${outcome.started} → Cleared`;
+    const move = outcome.started === CHEQUE_STATUS.CLEARED ? "linked" : `${outcome.started} → ${CHEQUE_STATUS.CLEARED}`;
     const doubled = outcome.double_payments ?? [];
     return {
         label: `Cheque ${outcome.cheque_no} · ${move}`,

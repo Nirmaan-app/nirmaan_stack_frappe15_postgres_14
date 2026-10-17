@@ -20,6 +20,7 @@ import { useFrappeEventListener } from "frappe-react-sdk";
 import { Info, Plus, ShieldCheck } from "lucide-react";
 
 import { AddChequeDialog } from "@/components/cheques/AddChequeDialog";
+import { useChequeEdit } from "@/components/cheques/useChequeEdit";
 import { CancelChequeDialog } from "@/components/cheques/CancelChequeDialog";
 import { ChequeDetailDialog, type ChequeDetailActions } from "@/components/cheques/ChequeDetailDialog";
 import { ClearChequeDialog, type ClearTarget } from "@/components/cheques/ClearChequeDialog";
@@ -90,7 +91,7 @@ export function ChequeTrackerTable({ tab, onChanged }: ChequeTrackerTableProps) 
     const canSelect = canAct && !isDepositsTab;
     const tabFilters = useMemo(() => chequeTabFilters(tab), [tab]);
     const [adding, setAdding] = useState(false);
-    const [editing, setEditing] = useState<string | null>(null);
+    const { target: editing, openEdit, closeEdit } = useChequeEdit();
     const [detail, setDetail] = useState<string | null>(null);
     const [clearing, setClearing] = useState<ClearTarget[]>([]);
     const [cancelling, setCancelling] = useState<string | null>(null);
@@ -99,13 +100,13 @@ export function ChequeTrackerTable({ tab, onChanged }: ChequeTrackerTableProps) 
         const actions: ChequeColumnActions = {
             actionsOf: (row) => chequeRowActions(row, { role, user: user_id }),
             onOpen: setDetail,
-            onEdit: (row) => setEditing(row.name),
+            onEdit: (row) => void openEdit(row.name),
             onClear: (row) => setClearing([clearTarget(row)]),
             onCancel: (row) => setCancelling(row.name),
         };
         if (isIssuedTab) return getIssuedChequeColumns(actions);
         return isDepositsTab ? getDepositChequeColumns(actions) : getChequePaymentColumns(actions);
-    }, [isIssuedTab, isDepositsTab, role, user_id]);
+    }, [isIssuedTab, isDepositsTab, role, user_id, openEdit]);
 
     const {
         table,
@@ -245,8 +246,8 @@ export function ChequeTrackerTable({ tab, onChanged }: ChequeTrackerTableProps) 
             />
             <AddChequeDialog
                 open={Boolean(editing)}
-                cheque={editing}
-                onOpenChange={(open) => !open && setEditing(null)}
+                edit={editing}
+                onOpenChange={(open) => !open && closeEdit()}
                 onSaved={refresh}
             />
             <ChequeDetailDialog
