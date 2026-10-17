@@ -11,11 +11,18 @@ Thin endpoints (ADR-0010 B4): check who asks, call `services/cheques/decide.py`,
 * `approve_cheque_payments(payment_id)` -- the single L1 approve of a cheque payment: approves every
   payment on its cheque. The CEO's approve is `project_payments.ceo_approve_payment`, which sends cheque
   payments through the same operation.
+* `reject_cheque_payments(payment_id, reason, stage)` -- the single reject, L1 or CEO (#1481): rejects
+  every payment on the cheque and cancels it, with the reason on each payment and in its history.
+* `get_cheque_groups(payment_ids, stage)` -- the bulk dialog's read: the Pending cheques a ticked set of
+  payments is on, each with every line, so the dialog shows the siblings a bulk run decides with them.
 """
+
+import json
 
 import frappe
 from frappe import _
 
+from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.services.approval_raiser import raiser_level
 from nirmaan_stack.services.approval_tiers import RAISER_CEO, RAISER_L1
 from nirmaan_stack.services.cheques import decide
@@ -60,6 +67,54 @@ def approve_cheque_payments(payment_id: str) -> dict:
     else:
         message = _("All {0} payments on cheque {1} approved; the cheque is Issued.").format(count, result["cheque_no"])
     return {**result, "message": message}
+
+
+@frappe.whitelist(methods=["POST"])
+def reject_cheque_payments(payment_id: str, reason: str, stage: str = "lead") -> dict:
+    """Reject every payment on the Payment cheque `payment_id` is on, and cancel the cheque (#1481).
+
+    `stage` is "lead" (the payments wait at Requested; an L1 approver may) or "ceo" (they wait at CEO
+    Pending; only the CEO may). `reason` is required; it is written on each payment and in the cheque's
+    history. Refused, with nothing changed, when the payment is on no Pending Payment cheque or no
+    longer waits at `stage`.
+
+    Returns `{cheque, cheque_no, payments, rejected, status, message}`.
+    """
+    if stage == "ceo":
+        if frappe.session.user != CEO_AUTHORIZED_USER:
+            frappe.throw(_("Only the authorised CEO user can perform this action."), frappe.PermissionError)
+    elif raiser_level(frappe.session.user) not in (RAISER_L1, RAISER_CEO):
+        frappe.throw(_("Only an L1 approver can reject payments."), frappe.PermissionError)
+    result = decide.reject(
+        payment_id, stage=_STAGES.get(stage, decide.STAGE_L1), reason=reason, user=frappe.session.user
+    )
+    frappe.db.commit()
+    count = len(result["payments"])
+    message = (
+        _("All {0} payments on cheque {1} rejected; the cheque is Cancelled.").format(count, result["cheque_no"])
+        if count > 1
+        else _("Payment rejected; cheque {0} is Cancelled.").format(result["cheque_no"])
+    )
+    return {**result, "message": message}
+
+
+@frappe.whitelist()
+def get_cheque_groups(payment_ids, stage: str = "lead") -> list[dict]:
+    """The Pending Payment cheques the payments `payment_ids` (a list, or its JSON) are on, once each, in
+    the order first ticked: for each, what `get_cheque_approval` returns. A payment on no Pending Payment
+    cheque adds nothing; a payment the user may not read is skipped."""
+    if isinstance(payment_ids, str):
+        payment_ids = json.loads(payment_ids)
+    groups, seen = [], set()
+    for payment in dict.fromkeys(payment_ids or []):
+        if not frappe.has_permission("Project Payments", "read", doc=payment):
+            continue
+        cheque = decide.cheque_of(payment)
+        if not cheque or cheque in seen:
+            continue
+        seen.add(cheque)
+        groups.append(decide.describe(payment, stage=_STAGES.get(stage, decide.STAGE_L1)))
+    return groups
 
 
 def _tell_the_ceo(result: dict) -> None:

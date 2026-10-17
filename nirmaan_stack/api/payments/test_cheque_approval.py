@@ -36,7 +36,10 @@ PHOTO = "https://storage.example.invalid/private/files/cheque-approval-test.jpg"
 CONTROLLER = "nirmaan_stack.integrations.controllers.project_payments"
 
 
-class TestApproveAChequeTogether(FrappeTestCase):
+class PendingChequeCase(FrappeTestCase):
+    """Plants Pending Payment cheques on PO payments, and reads back what a user sees. No tests of its
+    own: the approve (here) and reject (`test_cheque_reject.py`) suites build on it."""
+
     def setUp(self):
         frappe.set_user(U)
         self.fx = TaxedWorkOrderFixture.attach(self)
@@ -131,6 +134,9 @@ class TestApproveAChequeTogether(FrappeTestCase):
         finally:
             frappe.set_user(U)
 
+
+
+class TestApproveAChequeTogether(PendingChequeCase):
     # -- approve all ------------------------------------------------------------------------------
     def test_approving_one_payment_approves_all_three_and_issues_the_cheque_once(self):
         a, b, c = self._payment(15000), self._payment(15000), self._payment(10000)

@@ -12,6 +12,8 @@ Race-safe by design:
   * Per-payment status guard so stale rows are reported, not silently overwritten.
   * Suppresses the per-payment notification cascade via flags.bulk_approval and
     emits one summary notification per recipient at the end.
+  * A payment on a Pending Payment cheque is decided with every payment on that cheque,
+    across POs, all or nothing (`services/cheques/decide.py`, #1481).
 """
 
 import json
@@ -30,6 +32,7 @@ from nirmaan_stack.integrations.Notifications.pr_notifications import (
 )
 from nirmaan_stack.services import cheque_payments, payment_tds, settlement
 from nirmaan_stack.services.approval_tiers import STATUS_CEO_PENDING, status_after_l1
+from nirmaan_stack.services.cheques import decide
 
 MAX_BATCH_SIZE = 100
 LEAD_ALLOWED_ROLE_PROFILES = (
@@ -75,6 +78,8 @@ def bulk_ceo_approve_payments(payment_ids, action: str, rejection_reason: Option
 @dataclass(frozen=True)
 class _ModeConfig:
     source_status: str
+    #: Which approval a cheque's decision makes (`services/cheques/decide.py`).
+    cheque_stage: str
     approve_target_status: str
     approve_date_field: Optional[str]
     approve_event_id: str
@@ -174,6 +179,7 @@ def _lead_recipients_for_approve(succeeded_rows: list[dict]) -> dict:
 
 _LEAD_CONFIG = _ModeConfig(
     source_status="Requested",
+    cheque_stage=decide.STAGE_L1,
     approve_target_status="CEO Pending",
     approve_date_field="approval_date",
     # Must match the controller hook's event_id for the same transition
@@ -187,6 +193,7 @@ _LEAD_CONFIG = _ModeConfig(
 
 _CEO_CONFIG = _ModeConfig(
     source_status="CEO Pending",
+    cheque_stage=decide.STAGE_CEO,
     approve_target_status="Approved",
     approve_date_field="ceo_approval_date",
     approve_event_id="payment:ceo_approved",
@@ -281,9 +288,18 @@ def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config:
             return config.approve_target_status
         return status_after_l1(row.get("amount"))
 
+    # ⚠️ A CHEQUE PAYMENT IS GROUPED BY ITS CHEQUE, NOT BY ITS PO (#1481, spec #1477). One cheque is one
+    # decision: its payments may sit on several POs, and grouping them by PO let a cheque half succeed.
+    # A payment on a Pending Payment cheque is decided with EVERY payment on that cheque, ticked or not,
+    # by `decide.approve` / `decide.reject`, in one savepoint of its own; the rest group by PO as before.
     groups: dict[tuple, list[str]] = defaultdict(list)
+    cheque_groups: dict[str, list[str]] = defaultdict(list)
     for pid in deduped_ids:
         if pid not in found:
+            continue
+        cheque = decide.cheque_of(pid)
+        if cheque:
+            cheque_groups[cheque].append(pid)
             continue
         row = found[pid]
         groups[(row["document_type"], row["document_name"], _target_for(row))].append(pid)
@@ -291,6 +307,17 @@ def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config:
     # Deferred rejection-reason comments — applied AFTER the group commits,
     # so a comment failure cannot poison the approval (fix E2).
     pending_comments: list[str] = []
+
+    for cheque, pids in cheque_groups.items():
+        _process_cheque(
+            cheque=cheque,
+            payment_ids=pids,
+            action=action,
+            stage=config.cheque_stage,
+            rejection_reason=rejection_reason,
+            succeeded=succeeded,
+            failed=failed,
+        )
 
     for (doc_type, doc_name, target_status), pids in groups.items():
         _process_group(
@@ -541,6 +568,42 @@ def _process_group(
     frappe.db.release_savepoint(savepoint)
     succeeded.extend(local_succeeded)
     pending_comments.extend(local_rejection_pids)
+
+
+def _process_cheque(
+    cheque: str,
+    payment_ids: list[str],
+    action: str,
+    stage: str,
+    rejection_reason: str | None,
+    succeeded: list[str],
+    failed: list[dict],
+):
+    """Decide one Payment cheque: every payment on it, ticked or not, approved or rejected together.
+
+    `decide` holds the cheque's whole savepoint, locks the cheque, its POs and its payments, writes the
+    PO terms once per PO, and never commits; on a reject it also writes the reason on each payment and
+    cancels the cheque (so these payments stay out of `pending_comments`). A failure has already been
+    rolled back by `decide` and is reported ONCE, for the cheque, naming the ticked payments.
+    """
+    try:
+        if action == "approve":
+            result = decide.approve(payment_ids[0], stage=stage, user=frappe.session.user)
+        else:
+            result = decide.reject(
+                payment_ids[0], stage=stage, reason=rejection_reason, user=frappe.session.user
+            )
+    except Exception as exc:
+        cheque_no = frappe.db.get_value("Cheques", cheque, "cheque_no") or cheque
+        failed.append({
+            "name": f"Cheque {cheque_no}",
+            "reason": str(exc) or "Unknown error",
+            "cheque": cheque,
+            "payments": payment_ids,
+        })
+        frappe.log_error(title=f"Bulk Cheque Decision Error ({cheque})", message=frappe.get_traceback())
+        return
+    succeeded.extend(result["payments"])
 
 
 def _sync_po_term_in_memory(po_doc, payment_name: str, new_status: str) -> str:

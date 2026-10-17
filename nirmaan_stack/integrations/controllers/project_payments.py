@@ -13,7 +13,7 @@ from nirmaan_stack.services.order_payments import assert_within_work_order_limit
 from nirmaan_stack.services.payment_hold import validate_hold
 from nirmaan_stack.services.amount_paid import orders_moved_by, write_amount_paid
 from nirmaan_stack.services.payees.pay_to import fill_payment_from_vendor
-from nirmaan_stack.integrations.controllers.cheques import drop_off_cheques_of
+from nirmaan_stack.integrations.controllers.cheques import drop_off_cheques_of, on_payment_rejected
 from nirmaan_stack.services.cheques.detach import DELETED
 from nirmaan_stack.services.cheques.rules import PAYMENT_REJECTED
 
@@ -429,10 +429,11 @@ def on_update(doc, method):
     if not old_doc or old_doc.status == doc.status:
         return # Do nothing if status hasn't changed
 
-    # A Rejected payment drops off its Cheque (#1413). Commit-free: bulk reject saves inside a
+    # A Rejected payment on a live Payment cheque rejects every payment on it and cancels the cheque;
+    # on an Old-type cheque its line drops off (#1481, #1413). Commit-free: bulk reject saves inside a
     # savepoint. Above the notification branches, several of which return.
     if doc.status == PAYMENT_REJECTED:
-        drop_off_cheques_of(doc, PAYMENT_REJECTED)
+        on_payment_rejected(doc)
 
     # Call the search-based helper function to sync the status.
     _find_and_update_po_term(doc, doc.status)

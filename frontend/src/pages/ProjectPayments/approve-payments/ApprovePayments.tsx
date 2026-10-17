@@ -56,7 +56,8 @@ import {
 import { buildApprovalColumns, ApprovalColumnCtx } from "../config/approvalColumns";
 import { statusAfterL1, TIER_L2_ABOVE_EXPENSES } from "@/utils/approvalTiers";
 import { isChequePayment } from "../paymentMode";
-import { APPROVE_CHEQUE_API, approvesThroughCheque } from "@/utils/cheques/chequeApproval";
+import { APPROVE_CHEQUE_API, REJECT_CHEQUE_API, approvesThroughCheque } from "@/utils/cheques/chequeApproval";
+import { withChequeSiblings } from "@/utils/cheques/chequeBulk";
 import { useChequeApproval } from "@/components/cheques/useChequeApproval";
 import { withholdsOnApproval } from "../tdsForecast";
 import { useApprovalQueueExport, ApprovalExportButton } from "../hooks/useApprovalQueueExport";
@@ -482,6 +483,9 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           !ceoHoldProjectIds.has(row.original.project) &&
           (selectedRowCountRef.current < BULK_MAX_SELECTION || row.getIsSelected())
       : false,
+    // One cheque, one decision (#1481): ticking a payment on a Pending cheque ticks its siblings on the
+    // page, and unticking one unticks them all. The bulk dialog lists any sibling off the page too.
+    reviseRowSelection: withChequeSiblings,
     // ONE PAGE = ONE FULL BULK BATCH. The header checkbox is "select all on THIS page",
     // so a page that holds exactly BULK_MAX_SELECTION rows makes select-all land on the
     // cap naturally instead of overshooting into the trim below. Only the DEFAULT — the
@@ -574,22 +578,22 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     "nirmaan_stack.api.payments.project_payments.move_cheque_payment_to_reconciliation"
   );
   const { call: approveChequeCall, loading: approveChequeLoading } = useFrappePostCall(APPROVE_CHEQUE_API);
+  const { call: rejectChequeCall, loading: rejectChequeLoading } = useFrappePostCall(REJECT_CHEQUE_API);
 
-  // One cheque, one decision (#1480, spec #1477): a payment on a Pending cheque is approved with every
-  // payment on it. The dialog lists them; the L1 approve goes to the server, never a browser status write.
+  // One cheque, one decision (#1480, #1481, spec #1477): a payment on a Pending cheque is approved or
+  // rejected with every payment on it. The dialog lists them; the decision goes to the server, never a
+  // browser status write. A reject cancels the cheque and needs a reason.
   const throughCheque = approvesThroughCheque(selectedPayment as unknown as ApprovalQueueRow | null);
   // Not keyed on `isDialogOpen`: the dialog keeps its cheque view while it closes.
   const { approval: chequeApproval, isLoading: chequeApprovalLoading } = useChequeApproval(
-    throughCheque && dialogActionType === DIALOG_ACTION_TYPES.APPROVE
-      ? selectedPayment?.name ?? null
-      : null,
+    throughCheque ? selectedPayment?.name ?? null : null,
     isCEOMode ? "ceo" : "lead"
   );
   const handlePaymentUpdate = useCallback(
     async (
       actionType: DialogActionType,
       amount: number,
-      payment_details?: any
+      reason?: string
     ) => {
       if (!selectedPayment) return;
       if (isCEOHold) {
@@ -598,7 +602,15 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
       }
       let successMessage: string | undefined;
       try {
-        if (isCEOMode) {
+        if (actionType === DIALOG_ACTION_TYPES.REJECT && chequeApproval) {
+          // Every payment on the cheque Rejected and the cheque Cancelled, with the reason on each.
+          const response = await rejectChequeCall({
+            payment_id: selectedPayment.name,
+            reason: reason ?? "",
+            stage: isCEOMode ? "ceo" : "lead",
+          });
+          successMessage = response?.message?.message;
+        } else if (isCEOMode) {
           const ceoRow = selectedPayment as unknown as ApprovalQueueRow;
           const ceoDoctype = ceoRow.doctype || DOCTYPE;
           const ceoIsPayment = ceoDoctype === "Project Payments";
@@ -643,15 +655,13 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           // This wrote `DOCTYPE` ("Project Payments") with `status: CEO_PENDING` for
           // every row. Once expenses appeared in this tab that meant approving a
           // Project / Non-Project Expense tried to update a PAYMENT of the same name
-          // and failed outright. Three things vary per row:
+          // and failed outright. Two things vary per row:
           //
           //   1. the DOCTYPE            -> `row.doctype`, the only field that says which
           //   2. the CEO line           -> 50,000 on all three ledgers since 16 Sep 2026
           //                                (expenses were briefly 30,000). Still resolved
           //                                per row: the seam is what makes a future split
           //                                a one-line change here
-          //   3. `payment_details`      -> exists only on Project Payments; sending it to
-          //                                an expense doctype is an unknown-field write
           const row = selectedPayment as unknown as ApprovalQueueRow;
           const targetDoctype = row.doctype || DOCTYPE;
           const isPaymentRow = targetDoctype === "Project Payments";
@@ -671,9 +681,6 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             status: newStatus,
             amount: amount,
             approval_date: new Date().toISOString().split("T")[0],
-            ...(isPaymentRow && payment_details
-              ? { payment_details: JSON.stringify(payment_details) }
-              : {}),
           });
 
           // A cheque skips "Payment need to paid". The approval above has just been saved, TDS
@@ -721,7 +728,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         });
       }
     },
-    [selectedPayment, updateDoc, ceoApproveCall, moveChequeCall, approveChequeCall, chequeApproval, closeDialog, toast, isCEOHold, showBlockedToast, isCEOMode, refetch, refreshTabCounts]
+    [selectedPayment, updateDoc, ceoApproveCall, moveChequeCall, approveChequeCall, rejectChequeCall, chequeApproval, closeDialog, toast, isCEOHold, showBlockedToast, isCEOMode, refetch, refreshTabCounts]
   );
 
   // Vendor rates for the rows on this page, so the approve dialogs can forecast the deduction.
@@ -859,7 +866,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             vendors?.find((v) => v.name === selectedPayment.vendor)?.vendor_name
           }
           onSubmit={handlePaymentUpdate}
-          isLoading={updateLoading || ceoApproveLoading || moveChequeLoading || approveChequeLoading}
+          isLoading={updateLoading || ceoApproveLoading || moveChequeLoading || approveChequeLoading || rejectChequeLoading}
           // Partial approval is the CEO gate ONLY (owner ruling). The lead tick stays a plain
           // full approve — two split points would let one payment fragment twice on its way up.
           allowPartial={isCEOMode}

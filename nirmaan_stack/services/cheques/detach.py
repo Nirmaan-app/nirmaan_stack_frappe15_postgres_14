@@ -4,13 +4,16 @@
 """A Rejected or deleted payment drops off its Cheque (#1413, spec #1407). Part of THE cheques
 service; never commits.
 
-A Cheque lists only live payments. When a Project Payment is Rejected or deleted, or a Project
-Expense or Non Project Expense is deleted, its line comes off every Cheque that lists it, with a
-history note. A Cheque left with no lines and no description becomes Cancelled, with a history row
-saying why. One left with other lines, or with a description, keeps its status.
+When a Project Payment, Project Expense or Non Project Expense is deleted, its line comes off every
+Cheque that lists it, with a history note. A Cheque left with no lines and no description becomes
+Cancelled, with a history row saying why. One left with other lines, or with a description, keeps its
+status.
 
-Called from the lifecycle hooks: the payment's `on_update` (into Rejected) and `on_trash`, and each
-expense doctype's `on_trash`.
+A REJECTED payment comes off Old-type cheques only (#1481, spec #1477). On a Payment cheque a rejection
+rejects every payment and cancels the cheque, which keeps its lines (`decide.reject_cheque`).
+
+Called from the lifecycle hooks: the payment's `on_update` (into Rejected, through
+`controllers/cheques.on_payment_rejected`) and `on_trash`, and each expense doctype's `on_trash`.
 
 ⚠️ ON DELETE IT MUST RUN IN `on_trash`. Frappe checks links AFTER `on_trash`
 (`frappe.model.delete_doc`), and `Cheque Line.payment_name` is a Dynamic Link, so a line left
@@ -49,18 +52,24 @@ def drop_note(noun: str, name: str, why: str) -> str:
     return f"{noun} {name} was {why}, so its line was removed."
 
 
-def drop_off_cheques(payment_doctype: str, payment_name: str, *, why: str, user: str) -> list[str]:
+def drop_off_cheques(
+    payment_doctype: str, payment_name: str, *, why: str, user: str, old_type_only: bool = False
+) -> list[str]:
     """Take the lines naming `payment_name` (a `payment_doctype` record) off every Cheque that lists
     them, Cancelled ones included, each with a history note. Returns the Cheques changed.
 
-    `why` is `rules.PAYMENT_REJECTED` or DELETED. Each Cheque is re-read under its row lock and saved through the
-    document, so its `validate` rules and `track_changes` run.
+    `why` is `rules.PAYMENT_REJECTED` or DELETED. A rejection passes `old_type_only`: a Payment cheque
+    keeps its lines when its payments are rejected (#1481, `decide.reject_cheque`), so only Old-type
+    cheques drop the line. Each Cheque is re-read under its row lock and saved through the document, so
+    its `validate` rules and `track_changes` run.
     """
     names = sorted(set(frappe.get_all(
         "Cheque Line",
         filters={"parenttype": CHEQUES, "payment_doctype": payment_doctype, "payment_name": payment_name},
         pluck="parent",
     )))
+    if old_type_only and names:
+        names = sorted(frappe.get_all(CHEQUES, filters={"name": ["in", names], "old_type": 1}, pluck="name"))
     noun = "Payment" if payment_doctype == PAYMENT_DOCTYPE else "Expense"
     for name in names:
         doc = frappe.get_doc(CHEQUES, name, for_update=True)
