@@ -3,6 +3,8 @@ import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
+import { depositFigures } from "@/utils/cheques/chequeDeposit";
+
 import { CHEQUE_STALE_DAYS, issuedChequeFigures, type ChequeSummaryBucket } from "../config/chequePaymentTable.config";
 
 const DOT: Record<ChequeSummaryBucket["key"], string> = {
@@ -76,6 +78,23 @@ export function IssuedChequeStrip({ aggregates, loading }: { aggregates: Record<
                     sub={countText(stale.count)}
                     className={stale.count > 0 ? "bg-red-50 text-red-900" : undefined}
                 />
+            </div>
+        </section>
+    );
+}
+
+/**
+ * The Security Deposits tab's strip (#1486): what is held by others now (Issued) and what came back (Cancelled),
+ * over the tab's filters and search.
+ */
+export function DepositChequeStrip({ aggregates, loading }: { aggregates: Record<string, unknown> | null; loading?: boolean }) {
+    const { held, returned } = depositFigures(aggregates);
+    return (
+        <section aria-label="Security Deposit cheques" className="relative overflow-hidden rounded-md border bg-card">
+            <Loading loading={loading} />
+            <div className="grid grid-cols-1 divide-y sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+                <Tile label="Held by others now" amount={held.amount} sub={`${countText(held.count)} Issued`} dot={DOT.issued} />
+                <Tile label="Returned or cancelled" amount={returned.amount} sub={countText(returned.count)} dot={DOT.cancelled} />
             </div>
         </section>
     );

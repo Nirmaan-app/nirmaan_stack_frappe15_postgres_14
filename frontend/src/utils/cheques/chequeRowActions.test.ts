@@ -47,6 +47,14 @@ describe("chequeRowActions for Procurement", () => {
     });
 });
 
+describe("chequeRowActions on a Security Deposit for Procurement (#1486)", () => {
+    it("offers Edit on an Issued deposit it made, never on a Cancelled one or another's", () => {
+        expect(chequeRowActions(cheque("Issued", "Security Deposit"), PROCUREMENT)).toEqual(["view", "edit"]);
+        expect(chequeRowActions(cheque("Cancelled", "Security Deposit"), PROCUREMENT)).toEqual(["view"]);
+        expect(chequeRowActions(cheque("Issued", "Security Deposit", "someone@else"), PROCUREMENT)).toEqual(["view"]);
+    });
+});
+
 describe("chequeRowActions for anyone else", () => {
     it("offers only View", () => {
         expect(chequeRowActions(cheque("Issued", "Payment", PM.user), PM)).toEqual(["view"]);

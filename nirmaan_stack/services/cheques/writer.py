@@ -13,6 +13,9 @@ Built so far:
   Issued by its payments' approval (#1479, spec #1477; at once when they have already moved on).
 * `add_payment_cheque` -- the Cheque Tracker's Add Cheque (#1482): a Vendor payee, PO lines, payments
   picked at one step (Requested, CEO Pending or Approved), then `create_cheque`.
+* `add_deposit_cheque` -- THE "create deposit cheque" operation (#1486): a Security Deposit cheque,
+  Issued at once on its typed issue date, made out to a Vendor or a typed name, its lines naming the
+  Vendor's POs and Work Orders it secures. It pays nothing, so no payment is touched.
 * `backfill_cheque` -- the backfill patch's Cheque for old cheque payments (#1419): no photo, made
   from the PO/WO page, straight at its status, created by the earliest payment's requester.
 * `existing_cheque` -- the Cheque already recorded for a bank + cheque number, if any. The `validate`
@@ -25,9 +28,9 @@ Built so far:
   from the PO/WO page (#1414 Request Payment). Ask the first BEFORE the
   payment is inserted: a Project Payment's `after_insert` commits, so a refusal after it is too late.
 
-* `edit_cheque` -- the Tracker's Edit (#1418, #1482): lines change only while Pending; what else may
-  change depends on where the Cheque was made and who made it (`rules.edit_access_problem`,
-  `rules.edit_problem`). A payment added on edit is put on the Cheque exactly as on create; one taken
+* `edit_cheque` -- the Tracker's Edit (#1418, #1482): a Payment cheque's lines change only while Pending,
+  a Security Deposit cheque's (and its issue date) while Issued (#1486); what else may change depends on
+  where the Cheque was made and who made it (`rules.edit_access_problem`, `rules.edit_problem`). A payment added on edit is put on the Cheque exactly as on create; one taken
   off goes back to Online at its own step (`take_payment_off`), with a history note.
 * `take_payment_off` -- a payment back to Online, off its Cheque, status unchanged. The edit uses it.
 * `reshape_old_cheque` -- the cheque-types patch's write (#1478, spec #1477): an existing Cheque made a
@@ -47,12 +50,15 @@ from dataclasses import asdict
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime
+from frappe.utils import now_datetime, nowdate
 
 from nirmaan_stack.services.cheque_payments import MODE_CHEQUE, MODE_ONLINE
+from nirmaan_stack.services.cheques.lines import with_record_projects
 from nirmaan_stack.services.cheques.rules import (
     CHEQUE_TYPE_PAYMENT,
+    CHEQUE_TYPE_SECURITY_DEPOSIT,
     EDITABLE_STATUSES,
+    ISSUED,
     LINE_PO_WO_PAYMENT,
     MADE_FROM,
     MADE_FROM_PO_WO_PAGE,
@@ -66,7 +72,9 @@ from nirmaan_stack.services.cheques.rules import (
     bank_key,
     edit_access_problem,
     edit_problem,
+    editable_statuses,
     header_problem,
+    issue_date_problem,
     line_identity,
     normalise_cheque_no,
     parse_header,
@@ -155,6 +163,32 @@ def add_payment_cheque(header: ChequeHeader, lines: list[ChequeLineInput], *, us
     return create_cheque(header, user=user, made_from=MADE_FROM_REPORT, lines=lines)
 
 
+def add_deposit_cheque(
+    header: ChequeHeader, lines: list[ChequeLineInput], *, issue_date, user: str, made_from: str = MADE_FROM_REPORT
+):
+    """THE "create deposit cheque" operation (#1486, spec #1477, ADR-0035): a Security Deposit cheque, Issued
+    as it is recorded, on `issue_date` (the day it was handed over; required, never after today), with one
+    "created" history row. Returns it.
+
+    It is made out to a Vendor or a typed name and needs its photo (`rules.header_problem`); its `lines` are
+    Secured PO/WO lines naming the Vendor's POs and Work Orders, zero or more. The `validate` controller
+    refuses any other line kind on it (`rules.line_kind_problem`): it pays nothing, so no payment is linked,
+    nothing waits for approval and the bank import never matches it. Never commits.
+    """
+    if made_from not in MADE_FROM:
+        raise ValueError(f"unknown made_from {made_from!r}")
+    problem = issue_date_problem(issue_date, today=nowdate())
+    if problem:
+        frappe.throw(_(problem))
+    doc = _new_cheque(
+        header, made_from=made_from, lines=lines, status=ISSUED, history=history_row(None, ISSUED, user),
+        cheque_type=CHEQUE_TYPE_SECURITY_DEPOSIT,
+    )
+    doc.issue_date = str(issue_date)[:10]
+    doc.insert(ignore_permissions=True)
+    return doc
+
+
 def _tracker_lines(lines: list[ChequeLineInput], *, kept) -> list[TrackerLine]:
     """`lines` with what the Tracker's rules read: whether each is new (its identity not in `kept`), and
     its payment's status and hold."""
@@ -210,14 +244,24 @@ def backfill_cheque(
     return doc
 
 
-def edit_cheque(name: str, header: ChequeHeader, lines: list[ChequeLineInput] | None, *, user: str, any_cheque: bool):
+def edit_cheque(
+    name: str,
+    header: ChequeHeader,
+    lines: list[ChequeLineInput] | None,
+    *,
+    user: str,
+    any_cheque: bool,
+    issue_date=None,
+):
     """Save the Cheque Tracker's Edit of Cheque `name`: its new `header`, and its `lines` (None keeps
     them). Returns it.
 
     Re-reads the Cheque under its row lock, then refuses with `frappe.PermissionError` a user who may
-    not edit it (`any_cheque` is False for Procurement: only their own Pending Cheques), and with a
-    validation error an edit the rules forbid (`rules.edit_problem`: lines change only while Pending,
-    and an Old-type cheque changes only its photo). A Payment cheque that is not Old-type also keeps to
+    not edit it (`any_cheque` is False for Procurement: only their own Pending Payment cheques and Issued
+    Security Deposit cheques), and with a validation error an edit the rules forbid (`rules.edit_problem`:
+    a Payment cheque's lines change only while Pending, a deposit's while Issued, and an Old-type cheque
+    changes only its photo). A Security Deposit cheque's `issue_date` (None keeps it) changes with the
+    rest while Issued (#1486). A Payment cheque that is not Old-type also keeps to
     what the Tracker's Add takes (`rules.tracker_payment_cheque_problem`): a Vendor payee, at least one
     line, and each added line a PO payment at the step of the payments already on it. The `validate`
     controller still runs every header and line rule.
@@ -228,12 +272,14 @@ def edit_cheque(name: str, header: ChequeHeader, lines: list[ChequeLineInput] | 
     PAYMENTS ON.
     """
     doc = frappe.get_doc(CHEQUES, name, for_update=True)
-    problem = edit_access_problem(status=doc.status, owner=doc.owner, user=user, any_cheque=any_cheque)
+    problem = edit_access_problem(
+        status=doc.status, owner=doc.owner, user=user, any_cheque=any_cheque, cheque_type=doc.cheque_type
+    )
     if problem:
         frappe.throw(_(problem), frappe.PermissionError)
 
     lines_before = [parse_line(row.as_dict()) for row in doc.get("lines") or []]
-    lines_after = lines_before if lines is None else list(lines)
+    lines_after = lines_before if lines is None else with_record_projects(list(lines))
     problem = edit_problem(
         parse_header(doc.as_dict()),
         header,
@@ -242,7 +288,8 @@ def edit_cheque(name: str, header: ChequeHeader, lines: list[ChequeLineInput] | 
         lines_before=lines_before,
         lines_after=lines_after,
         old_type=bool(doc.get("old_type")),
-    )
+        cheque_type=doc.cheque_type,
+    ) or _issue_date_edit_problem(doc, issue_date)
     if problem:
         frappe.throw(_(problem))
     if doc.cheque_type == CHEQUE_TYPE_PAYMENT and not doc.get("old_type") and doc.status in EDITABLE_STATUSES:
@@ -263,14 +310,16 @@ def edit_cheque(name: str, header: ChequeHeader, lines: list[ChequeLineInput] | 
         "description": header.description,
         "attachment": header.attachment,
     })
+    if issue_date and doc.cheque_type == CHEQUE_TYPE_SECURITY_DEPOSIT:
+        doc.issue_date = str(issue_date)[:10]
     if lines_after != lines_before:
         doc.set("lines", [asdict(line) for line in lines_after])
     for payment in taken_off:
         doc.append("status_history", history_row(doc.status, doc.status, user, taken_off_note(payment)))
     doc.save(ignore_permissions=True)
-    # Lines and the number change only while Pending; an Issued, Cleared or Cancelled Cheque's payments
-    # have moved on with it and must not be pulled back.
-    if doc.status in EDITABLE_STATUSES:
+    # A Payment cheque's lines and number change only while Pending; an Issued, Cleared or Cancelled
+    # Cheque's payments have moved on with it and must not be pulled back. A deposit has no payments.
+    if doc.cheque_type == CHEQUE_TYPE_PAYMENT and doc.status in EDITABLE_STATUSES:
         # After the save: the payment's mode rule lets it go Online once its line is off the Cheque.
         for payment in taken_off:
             take_payment_off(payment)
@@ -281,6 +330,19 @@ def edit_cheque(name: str, header: ChequeHeader, lines: list[ChequeLineInput] | 
 
         doc = issue(doc.name, user=user) or doc
     return doc
+
+
+def _issue_date_edit_problem(doc, issue_date) -> str | None:
+    """Why an edit may not set a Security Deposit cheque's issue date to `issue_date`, or None. It changes
+    only while the deposit is Issued (`rules.editable_statuses`), and is then required, never after today.
+    A Payment cheque's issue date is its payments' approval, never typed: the argument is ignored."""
+    if doc.cheque_type != CHEQUE_TYPE_SECURITY_DEPOSIT or issue_date is None:
+        return None
+    if str(issue_date)[:10] == str(doc.issue_date or "")[:10]:
+        return None
+    if doc.status not in editable_statuses(doc.cheque_type):
+        return f"Cheque {doc.cheque_no} is {doc.status}: only its photo can change."
+    return issue_date_problem(issue_date, today=nowdate())
 
 
 def reshape_old_cheque(
@@ -316,7 +378,9 @@ def reshape_old_cheque(
     return doc
 
 
-def _new_cheque(header: ChequeHeader, *, made_from: str, lines, status: str, history: dict):
+def _new_cheque(
+    header: ChequeHeader, *, made_from: str, lines, status: str, history: dict, cheque_type: str = CHEQUE_TYPE_PAYMENT
+):
     """An unsaved Cheque; the caller inserts it. Row-locks the payments its lines name first."""
     _lock_payments([line.payment_name for line in lines if line.payment_doctype == PAYMENT_DOCTYPE])
     return frappe.get_doc({
@@ -330,7 +394,7 @@ def _new_cheque(header: ChequeHeader, *, made_from: str, lines, status: str, his
         "payee_name": header.payee_name,
         "description": header.description,
         "attachment": header.attachment,
-        "cheque_type": CHEQUE_TYPE_PAYMENT,
+        "cheque_type": cheque_type,
         "status": status,
         "made_from": made_from,
         "status_history": [history],

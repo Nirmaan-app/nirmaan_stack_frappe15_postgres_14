@@ -5,6 +5,7 @@ import { useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
 import { AlertTriangle, Info, Loader2 } from "lucide-react";
 
 import { ChequePhotoLink } from "@/components/cheques/ChequePhotoLink";
+import { SecurityDepositChequeForm } from "@/components/cheques/SecurityDepositChequeForm";
 import { FROM_PHOTO_INPUT, FromPhotoTag } from "@/components/cheques/FromPhotoTag";
 import { useChequeDetail, type ChequeDetail } from "@/components/cheques/useChequeDetail";
 import { useChequePhotoReader, usePayeeVendorMismatch } from "@/components/cheques/useChequePhotoReader";
@@ -34,6 +35,7 @@ import {
     type ChequeFormInput,
     type ChequeFormValues,
 } from "@/utils/cheques/chequeForm";
+import type { DepositPageRecord } from "@/utils/cheques/chequeDeposit";
 import { chequeSaveNote, withoutPoWoLines, type ChequeLineDraft } from "@/utils/cheques/chequeLines";
 import { isFromPhoto, type ChequePhotoField } from "@/utils/cheques/chequePhoto";
 import { getFrappeError } from "@/utils/frappeErrors";
@@ -50,6 +52,10 @@ interface AddChequeDialogProps {
     onSaved: (cheque: string) => void;
     /** The Cheque to edit (#1418); absent to add a new one. */
     cheque?: string | null;
+    /** The kind of cheque a new one starts as; absent asks first. The Security Deposits tab opens a deposit. */
+    initialType?: ChequeType;
+    /** A Security Deposit cheque added from a PO or Work Order page: its Vendor and record (#1486). */
+    depositFrom?: DepositPageRecord;
 }
 
 const Required = () => <span className="ml-0.5 text-red-500">*</span>;
@@ -68,7 +74,7 @@ const TYPE_CHOICES: { type: ChequeType; label: string; hint: string }[] = [
  *
  * - a **Payment cheque**: photo first, then the bank, number, date, amount, the Vendor it is made out to,
  *   and the PO payments it pays (`ChequeLinesTable`). It saves Pending; picked Approved payments issue it.
- * - a **Security Deposit cheque**: not built yet (#1486 builds its form in `SecurityDepositChequeForm`'s place).
+ * - a **Security Deposit cheque** (#1486): `SecurityDepositChequeForm`. It saves Issued, on its typed issue date.
  *
  * With `cheque` it is the row's Edit (#1418): the same form, filled with the Cheque, with the boxes its
  * status and origin lock turned off (`utils/cheques/chequeEdit`). A replaced photo is not read: the
@@ -77,7 +83,7 @@ const TYPE_CHOICES: { type: ChequeType; label: string; hint: string }[] = [
  * The photo is uploaded as soon as it is picked, so the form holds its file URL (and #1409 can read it).
  * The server re-checks every rule.
  */
-export const AddChequeDialog = ({ open, onOpenChange, onSaved, cheque }: AddChequeDialogProps) => {
+export const AddChequeDialog = ({ open, onOpenChange, onSaved, cheque, initialType, depositFrom }: AddChequeDialogProps) => {
     const editing = Boolean(cheque);
     const { cheque: detail, error, refetch } = useChequeDetail(open && cheque ? cheque : null);
     // The form copies the Cheque once, when it mounts: each opening reads it afresh first, or an edit opened
@@ -96,29 +102,42 @@ export const AddChequeDialog = ({ open, onOpenChange, onSaved, cheque }: AddCheq
         // `refetch` changes identity with its data; only a new opening reads again.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, cheque]);
-    const [type, setType] = useState<ChequeType | null>(null);
+    const startType = depositFrom ? CHEQUE_TYPE.SECURITY_DEPOSIT : initialType ?? null;
+    const [type, setType] = useState<ChequeType | null>(startType);
     const done = (name: string) => {
         onOpenChange(false);
         onSaved(name);
     };
     const changeOpen = (next: boolean) => {
-        if (!next) setType(null); // every opening asks for the type again
+        if (!next) setType(startType); // every opening asks for the type again
         onOpenChange(next);
     };
     return (
         <Dialog open={open} onOpenChange={changeOpen}>
             <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-6xl">
                 <DialogHeader>
-                    <DialogTitle>{editing ? `Edit Cheque ${detail?.cheque_no ?? ""}` : "Add Cheque"}</DialogTitle>
+                    <DialogTitle>
+                        {editing
+                            ? `Edit Cheque ${detail?.cheque_no ?? ""}`
+                            : depositFrom
+                              ? "Add Security Deposit Cheque"
+                              : "Add Cheque"}
+                    </DialogTitle>
                     <DialogDescription>
                         {editing
                             ? "Change what was recorded wrongly. What can change depends on the cheque's status and where it was made."
-                            : "Choose the kind of cheque, upload its photo, then add the PO payments it pays."}
+                            : depositFrom
+                              ? `Made out to this Vendor, naming ${depositFrom.name}. Upload its photo, then add anything else it secures.`
+                              : "Choose the kind of cheque, upload its photo, then say what it pays or secures."}
                     </DialogDescription>
                 </DialogHeader>
                 {editing ? (
                     detail && freshFor === cheque ? (
-                        <ChequeForm key={detail.name} edit={detail} onDone={done} onCancel={() => changeOpen(false)} />
+                        detail.cheque_type === CHEQUE_TYPE.SECURITY_DEPOSIT ? (
+                            <SecurityDepositChequeForm key={detail.name} edit={detail} onDone={done} onCancel={() => changeOpen(false)} />
+                        ) : (
+                            <ChequeForm key={detail.name} edit={detail} onDone={done} onCancel={() => changeOpen(false)} />
+                        )
                     ) : error ? (
                         <p className="text-sm text-destructive">{getFrappeError(error)}</p>
                     ) : (
@@ -126,9 +145,11 @@ export const AddChequeDialog = ({ open, onOpenChange, onSaved, cheque }: AddCheq
                     )
                 ) : (
                     <>
-                        <ChequeTypeStep value={type} onChange={setType} />
+                        {!depositFrom && <ChequeTypeStep value={type} onChange={setType} />}
                         {type === CHEQUE_TYPE.PAYMENT && <ChequeForm onDone={done} onCancel={() => changeOpen(false)} />}
-                        {type === CHEQUE_TYPE.SECURITY_DEPOSIT && <SecurityDepositChequeForm onCancel={() => changeOpen(false)} />}
+                        {type === CHEQUE_TYPE.SECURITY_DEPOSIT && (
+                            <SecurityDepositChequeForm from={depositFrom} onDone={done} onCancel={() => changeOpen(false)} />
+                        )}
                     </>
                 )}
             </DialogContent>
@@ -159,18 +180,6 @@ const ChequeTypeStep = ({ value, onChange }: { value: ChequeType | null; onChang
                 </button>
             );
         })}
-    </div>
-);
-
-/** ⚠️ Stub: the Security Deposit cheque's form is #1486's (spec #1477). */
-const SecurityDepositChequeForm = ({ onCancel }: { onCancel: () => void }) => (
-    <div className="space-y-4">
-        <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
-            Security Deposit cheques can't be recorded here yet.
-        </p>
-        <DialogFooter>
-            <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
-        </DialogFooter>
     </div>
 );
 

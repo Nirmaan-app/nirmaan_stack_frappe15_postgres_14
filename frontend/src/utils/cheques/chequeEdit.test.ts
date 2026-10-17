@@ -90,12 +90,26 @@ describe("canEditCheque", () => {
         expect(canEditCheque({ status: "Cleared", owner: user }, PROCUREMENT, user)).toBe(false);
     });
 
+    it("lets Procurement edit only the Issued Security Deposit cheques they created (#1486)", () => {
+        const user = "buyer@nirmaan.app";
+        const deposit = (status: "Issued" | "Cancelled", owner = user) => ({ status, owner, cheque_type: "Security Deposit" as const });
+        expect(canEditCheque(deposit("Issued"), PROCUREMENT, user)).toBe(true);
+        expect(canEditCheque(deposit("Cancelled"), PROCUREMENT, user)).toBe(false);
+        expect(canEditCheque(deposit("Issued", "other@nirmaan.app"), PROCUREMENT, user)).toBe(false);
+    });
+
     it("never lets a Project Manager edit", () => {
         expect(canEditCheque({ status: "Issued", owner: "pm@nirmaan.app" }, PM, "pm@nirmaan.app")).toBe(false);
     });
 });
 
 describe("chequeEditMode and its locks", () => {
+    it("opens everything on an Issued Security Deposit, and only the photo once it is Cancelled (#1486)", () => {
+        const deposit = { made_from: "PO/WO Page" as const, lines: [], old_type: 0 as const, cheque_type: "Security Deposit" as const };
+        expect(chequeEditMode({ ...deposit, status: "Issued" })).toBe("all");
+        expect(chequeEditMode({ ...deposit, status: "Cancelled" })).toBe("photo_only");
+    });
+
     it("opens everything on a Tracker-made Pending Cheque", () => {
         const edit = detail({ made_from: "Report" });
         const mode = chequeEditMode(edit);

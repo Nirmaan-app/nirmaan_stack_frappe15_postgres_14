@@ -1,6 +1,6 @@
 import type { ChequeDetail } from "@/components/cheques/useChequeDetail";
 import { CHEQUE_ACCESS_PROFILES, CHEQUE_ACCOUNTS_PROFILES } from "@/constants/roles";
-import { CHEQUE_STATUS, type ChequeStatus } from "@/types/NirmaanStack/Cheques";
+import { CHEQUE_STATUS, CHEQUE_TYPE, type ChequeStatus, type ChequeType } from "@/types/NirmaanStack/Cheques";
 
 import { saveChequeArgs, type ChequeFormInput, type ChequeFormValues, type SaveChequeArgs } from "./chequeForm";
 import { LINE_TYPE, saveLineArgs, type ChequeLineDraft } from "./chequeLines";
@@ -20,12 +20,23 @@ import { LINE_TYPE, saveLineArgs, type ChequeLineDraft } from "./chequeLines";
  *   Payment line left, it edits like a Tracker-made Cheque.
  * - Any line can come off a Pending Cheque. A Project Payment taken off switches back to Online, its
  *   status unchanged (`rules.payments_taken_off`); the dialog says so beside the lines.
- * - Admin, Accountant and Accountant Lead edit any Cheque; Procurement only the Pending ones they made (C6).
+ * - A Security Deposit cheque (#1486): everything while Issued, only its photo once Cancelled.
+ * - Admin, Accountant and Accountant Lead edit any Cheque; Procurement only the ones they made, a Payment
+ *   cheque while Pending (C6), a deposit while Issued.
  */
 
-/** The statuses at which a Cheque's fields and lines may still change (`rules.EDITABLE_STATUSES`). */
+/** The statuses at which a Cheque's fields and lines may still change (`rules.editable_statuses`). */
 const EDITABLE_STATUSES: readonly ChequeStatus[] = [CHEQUE_STATUS.PENDING];
-const isEditableStatus = (status: ChequeStatus): boolean => EDITABLE_STATUSES.includes(status);
+const DEPOSIT_EDITABLE_STATUSES: readonly ChequeStatus[] = [CHEQUE_STATUS.ISSUED];
+
+/** What the edit rules read of a Cheque. A missing type is a Payment cheque. */
+interface EditFacts {
+    status: ChequeStatus;
+    cheque_type?: ChequeType | string | null;
+}
+
+const isEditableStatus = ({ status, cheque_type }: EditFacts): boolean =>
+    (cheque_type === CHEQUE_TYPE.SECURITY_DEPOSIT ? DEPOSIT_EDITABLE_STATUSES : EDITABLE_STATUSES).includes(status);
 
 /** Which of a Cheque's boxes the Edit dialog opens. */
 export type ChequeEditMode = "all" | "po_wo_page" | "photo_only";
@@ -33,12 +44,14 @@ export type ChequeEditMode = "all" | "po_wo_page" | "photo_only";
 /** What a PO/WO-page Cheque keeps (`rules.LOCKED_ON_PO_WO_PAGE`). */
 const LOCKED_ON_PO_WO_PAGE = ["cheque_no", "cheque_date", "amount"];
 
-export const canEditCheque = (cheque: { status: ChequeStatus; owner: string }, role: string, user: string): boolean =>
+export const canEditCheque = (cheque: EditFacts & { owner: string }, role: string, user: string): boolean =>
     CHEQUE_ACCOUNTS_PROFILES.includes(role) ||
-    (CHEQUE_ACCESS_PROFILES.includes(role) && isEditableStatus(cheque.status) && cheque.owner === user);
+    (CHEQUE_ACCESS_PROFILES.includes(role) && isEditableStatus(cheque) && cheque.owner === user);
 
-export const chequeEditMode = (cheque: Pick<ChequeDetail, "status" | "made_from" | "lines" | "old_type">): ChequeEditMode => {
-    if (cheque.old_type || !isEditableStatus(cheque.status)) return "photo_only";
+export const chequeEditMode = (
+    cheque: Pick<ChequeDetail, "status" | "made_from" | "lines" | "old_type"> & Pick<EditFacts, "cheque_type">,
+): ChequeEditMode => {
+    if (cheque.old_type || !isEditableStatus(cheque)) return "photo_only";
     const holdsPayment = cheque.lines.some((l) => l.line_type === LINE_TYPE.PO_WO && l.payment_name);
     return cheque.made_from === "PO/WO Page" && holdsPayment ? "po_wo_page" : "all";
 };
@@ -75,7 +88,7 @@ export const editLockHint = (
 
 /** The Project Payments on a Pending Cheque's lines: each one an edit takes off goes back to Online. */
 export const paymentsOnCheque = (cheque: Pick<ChequeDetail, "status" | "lines">): string[] =>
-    isEditableStatus(cheque.status)
+    isEditableStatus(cheque)
         ? cheque.lines
               .filter((l) => l.line_type === LINE_TYPE.PO_WO && l.payment_name)
               .map((l) => l.payment_name as string)

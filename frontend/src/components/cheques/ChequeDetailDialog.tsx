@@ -51,6 +51,7 @@ export const ChequeDetailDialog = ({ cheque: name, onClose, actions }: ChequeDet
     const { cheque, error, isLoading } = useChequeDetail(name);
     const offered = cheque && actions ? actions.actionsOf(cheque) : [];
     const line = cheque?.bank_line_detail;
+    const isDeposit = cheque?.cheque_type === CHEQUE_TYPE.SECURITY_DEPOSIT;
 
     return (
         <Dialog open={!!name} onOpenChange={(open) => !open && onClose()}>
@@ -68,7 +69,7 @@ export const ChequeDetailDialog = ({ cheque: name, onClose, actions }: ChequeDet
                                 )}
                                 {offered.includes("cancel") && (
                                     <Button size="sm" variant="outline" className="text-destructive" onClick={() => actions.onCancel(cheque)}>
-                                        Cancel cheque
+                                        {isDeposit ? "Mark returned" : "Cancel cheque"}
                                     </Button>
                                 )}
                             </span>
@@ -128,9 +129,11 @@ export const ChequeDetailDialog = ({ cheque: name, onClose, actions }: ChequeDet
                         </div>
 
                         <section>
-                            <h3 className="mb-2 text-sm font-semibold">Lines</h3>
+                            <h3 className="mb-2 text-sm font-semibold">{isDeposit ? "Secures" : "Lines"}</h3>
                             {cheque.lines.length === 0 ? (
-                                <p className="text-sm text-muted-foreground">No lines: an Ad-hoc cheque.</p>
+                                <p className="text-sm text-muted-foreground">
+                                    {isDeposit ? "No PO or Work Order named." : "No lines: an Ad-hoc cheque."}
+                                </p>
                             ) : (
                                 <ChequeLinesView lines={cheque.lines} />
                             )}
