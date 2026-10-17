@@ -5,7 +5,8 @@
 
 Thin: check who is asking, call the cheques service (`services/cheques/status.py`), commit, publish. The
 rules (Clear by hand from Issued only, pays every payment; Cancel needs a note, rejects every payment,
-refused once Cleared) are the service's. The free "Change status" of #1412 is gone.
+refused once Cleared; a Security Deposit cheque is only ever Cancelled, with a note, #1486) are the
+service's. The free "Change status" of #1412 is gone.
 
 Who: `CHEQUE_ACCOUNTS_PROFILES` (Admin, Accountant, Accountant Lead). Procurement may add a Cheque but
 never clear or cancel one.
@@ -17,8 +18,9 @@ import frappe
 from frappe import _
 
 from nirmaan_stack.services.cheques import pickers
-from nirmaan_stack.services.cheques.rules import CLEARED_BY_HAND, PAYMENT_DOCTYPE
-from nirmaan_stack.services.cheques.status import cancel, clear, clear_many
+from nirmaan_stack.services.cheques.rules import CHEQUE_TYPE_SECURITY_DEPOSIT, CLEARED_BY_HAND, PAYMENT_DOCTYPE
+from nirmaan_stack.services.cheques.status import cancel, cancel_deposit, clear, clear_many
+from nirmaan_stack.services.cheques.writer import CHEQUES
 from nirmaan_stack.services.role_profiles import CHEQUE_ACCOUNTS_PROFILES, has_role_profile
 
 
@@ -76,10 +78,13 @@ def clear_cheques(cheques, clearance_date: str, dry_run=False) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def cancel_cheque(cheque: str, note: str) -> dict:
-    """Cancel one Pending or Issued cheque: every payment on it is Rejected with `note` as the reason.
-    Returns `{cheque, cheque_no, payments, rejected, status}`; refused without a note or once Cleared."""
+    """Cancel one Pending or Issued Payment cheque: every payment on it is Rejected with `note` as the
+    reason. An Issued Security Deposit cheque (it came back) just becomes Cancelled, with `note` in its
+    history (`status.cancel_deposit`). Returns `{cheque, cheque_no, payments, rejected, status}`; refused
+    without a note or once Cleared or Cancelled."""
     user = frappe.session.user
     _assert_accounts(user)
-    out = cancel(cheque, note=note, user=user)
+    is_deposit = frappe.db.get_value(CHEQUES, cheque, "cheque_type") == CHEQUE_TYPE_SECURITY_DEPOSIT
+    out = (cancel_deposit if is_deposit else cancel)(cheque, note=note, user=user)
     frappe.db.commit()
     return out

@@ -1,5 +1,6 @@
 import { useFrappeGetCall } from "frappe-react-sdk";
 
+import type { SecurableRecord } from "@/utils/cheques/chequeDeposit";
 import { PO_DOCTYPE, type EligiblePayments, type VendorRecord } from "@/utils/cheques/chequeLines";
 
 const PICKERS = "nirmaan_stack.api.cheques.pickers";
@@ -10,6 +11,16 @@ export const useVendorRecords = (vendor: string | undefined) => {
         `${PICKERS}.get_vendor_records`,
         { vendor },
         vendor ? `cheque-vendor-records-${vendor}` : null
+    );
+    return { records: data?.message ?? [], error, isLoading };
+};
+
+/** The Vendor's open POs and Work Orders: what a Security Deposit cheque may secure (#1486). */
+export const useSecurableRecords = (vendor: string | undefined) => {
+    const { data, error, isLoading } = useFrappeGetCall<{ message: SecurableRecord[] }>(
+        `${PICKERS}.get_securable_records`,
+        { vendor },
+        vendor ? `cheque-securable-records-${vendor}` : null
     );
     return { records: data?.message ?? [], error, isLoading };
 };

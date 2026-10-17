@@ -19,7 +19,9 @@ The summary strip (`aggregates`: count and amount for All, Pending, Issued, Clea
 Issued ones), the rows and the facets (`get_cheque_facets`) all read the same WHERE, so they always agree.
 
 The tracker's tabs are filters on this list, sent by the page (`frontend/src/utils/cheques/chequeTabs.ts`):
-Cheque Issued - Reconciliation Pending is `status = Issued` and `cheque_type = Payment`. The project and PO/WO
+Cheque Issued - Reconciliation Pending is `status = Issued` and `cheque_type = Payment`; Security Deposits is
+`cheque_type = Security Deposit` (#1486), and the PO / Work Order page's deposit card adds `record_name = <its
+record>`, which matches a deposit's Secured PO/WO lines. The project and PO/WO
 filters match a Cheque when ANY of its lines matches (EXISTS on `Cheque Line`), and the Cheque is
 still counted once, at its full amount (#1417).
 

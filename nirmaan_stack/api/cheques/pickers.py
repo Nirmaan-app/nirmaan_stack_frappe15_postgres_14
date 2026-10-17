@@ -23,6 +23,14 @@ def get_vendor_records(vendor: str) -> list[dict]:
 
 
 @frappe.whitelist()
+def get_securable_records(vendor: str) -> list[dict]:
+    """The Vendor's open POs and Work Orders, each with its project: what a Security Deposit cheque may
+    name as secured (#1486)."""
+    assert_cheque_access(frappe.session.user)
+    return pickers.securable_records(vendor)
+
+
+@frappe.whitelist()
 def get_eligible_payments(
     record_doctype: str, record_name: str, cheque: str | None = None, other_payments=None
 ) -> dict:

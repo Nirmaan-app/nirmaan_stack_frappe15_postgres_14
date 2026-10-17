@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
+import { CHEQUE_TYPE } from "@/types/NirmaanStack/Cheques";
 import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 import { CANCEL_CHEQUE_API, cancelNote, cancelNoteProblem, paymentsRejectedByCancel } from "@/utils/cheques/chequeStatus";
 import { getFrappeError } from "@/utils/frappeErrors";
@@ -24,7 +25,8 @@ interface CancelChequeDialogProps {
 /**
  * Cancel by hand (#1484, spec #1477): every payment on the cheque becomes Rejected, with the note as their
  * reason, and the cheque becomes Cancelled. Lists the payments that will be Rejected before the user confirms.
- * The cheque keeps its lines and history. Mount it only while open.
+ * The cheque keeps its lines and history. A Security Deposit cheque (#1486) is "marked returned": it becomes
+ * Cancelled with the note, and no payment is touched. Mount it only while open.
  */
 export const CancelChequeDialog = ({ cheque: name, onClose, onDone }: CancelChequeDialogProps) => {
     const { cheque, isLoading } = useChequeDetail(name);
@@ -32,13 +34,19 @@ export const CancelChequeDialog = ({ cheque: name, onClose, onDone }: CancelCheq
     const { call, loading } = useFrappePostCall(CANCEL_CHEQUE_API);
     const { mutate } = useSWRConfig();
 
-    const rejected = cheque ? paymentsRejectedByCancel(cheque.lines) : [];
+    const isDeposit = cheque?.cheque_type === CHEQUE_TYPE.SECURITY_DEPOSIT;
+    const rejected = cheque && !isDeposit ? paymentsRejectedByCancel(cheque.lines) : [];
     const problem = cancelNoteProblem(note);
 
     const submit = async () => {
         try {
             await call({ cheque: name, note: note.trim() });
-            toast({ title: `Cheque ${cheque?.cheque_no ?? ""} cancelled`, variant: "success" });
+            toast({
+                title: isDeposit
+                    ? `Security Deposit ${cheque?.cheque_no ?? ""} marked returned`
+                    : `Cheque ${cheque?.cheque_no ?? ""} cancelled`,
+                variant: "success",
+            });
             mutate(chequeDetailKey(name));
             onDone();
             onClose();
@@ -51,8 +59,14 @@ export const CancelChequeDialog = ({ cheque: name, onClose, onDone }: CancelCheq
         <Dialog open onOpenChange={(o) => !o && onClose()}>
             <DialogContent className="max-w-lg">
                 <DialogHeader>
-                    <DialogTitle>Cancel cheque {cheque?.cheque_no ?? ""}</DialogTitle>
-                    <DialogDescription>Cancelling cannot be undone.</DialogDescription>
+                    <DialogTitle>
+                        {isDeposit ? `Mark Security Deposit ${cheque?.cheque_no ?? ""} returned` : `Cancel cheque ${cheque?.cheque_no ?? ""}`}
+                    </DialogTitle>
+                    <DialogDescription>
+                        {isDeposit
+                            ? "It becomes Cancelled. No payment is touched: a deposit cheque pays nothing. This cannot be undone."
+                            : "Cancelling cannot be undone."}
+                    </DialogDescription>
                 </DialogHeader>
 
                 {isLoading || !cheque ? (
@@ -61,6 +75,7 @@ export const CancelChequeDialog = ({ cheque: name, onClose, onDone }: CancelCheq
                     </div>
                 ) : (
                     <div className="space-y-4">
+                        {!isDeposit && (
                         <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                             <p className="flex items-center gap-1.5 font-medium">
                                 <AlertTriangle className="h-4 w-4 shrink-0" /> {cancelNote(cheque.cheque_no, rejected.length)}
@@ -78,6 +93,7 @@ export const CancelChequeDialog = ({ cheque: name, onClose, onDone }: CancelCheq
                                 </ul>
                             )}
                         </div>
+                        )}
                         <div className="space-y-1.5">
                             <Label htmlFor="cancel-note">
                                 Note <span className="text-destructive">*</span>
@@ -86,7 +102,11 @@ export const CancelChequeDialog = ({ cheque: name, onClose, onDone }: CancelCheq
                                 id="cancel-note"
                                 value={note}
                                 onChange={(e) => setNote(e.target.value)}
-                                placeholder="Why is the cheque cancelled? Each payment is rejected with this reason."
+                                placeholder={
+                                    isDeposit
+                                        ? "e.g. Returned by vendor at handover."
+                                        : "Why is the cheque cancelled? Each payment is rejected with this reason."
+                                }
                                 rows={3}
                             />
                         </div>
@@ -99,7 +119,11 @@ export const CancelChequeDialog = ({ cheque: name, onClose, onDone }: CancelCheq
                     </Button>
                     <Button variant="destructive" onClick={submit} disabled={loading || !cheque || !!problem}>
                         {loading && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-                        {rejected.length > 0 ? `Reject ${rejected.length} and cancel cheque` : "Cancel cheque"}
+                        {isDeposit
+                            ? "Mark returned"
+                            : rejected.length > 0
+                              ? `Reject ${rejected.length} and cancel cheque`
+                              : "Cancel cheque"}
                     </Button>
                 </DialogFooter>
             </DialogContent>

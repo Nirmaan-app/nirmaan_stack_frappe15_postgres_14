@@ -5,7 +5,7 @@ import { CHEQUE_STATUS, CHEQUE_TYPE } from "@/types/NirmaanStack/Cheques";
  *
  * Each tab is a list of filters, sent as is to `api/cheques/list_cheques.get_cheques`. `isInChequeTab` reads
  * the same filters, so the rows a tab fetches and the rule it states cannot drift apart. The Security
- * Deposits tab (#1486) adds its own entry here.
+ * Deposits tab (#1486) lists every deposit cheque, at any status: they never clear, so never reach the Issued tab.
  *
  * The Issued tab lists the Payment cheques waiting for the bank. Their payments sit at Reconciliation Pending,
  * so Project Payments' Reconciliation Pending tab leaves them out (`RECONCILIATION_PENDING_LEAVES_OUT`): each
@@ -15,6 +15,7 @@ import { CHEQUE_STATUS, CHEQUE_TYPE } from "@/types/NirmaanStack/Cheques";
 export const CHEQUE_TRACKER_TAB = {
     ALL: "all",
     ISSUED: "issued",
+    DEPOSITS: "deposits",
 } as const;
 
 export type ChequeTrackerTab = (typeof CHEQUE_TRACKER_TAB)[keyof typeof CHEQUE_TRACKER_TAB];
@@ -44,6 +45,11 @@ export const CHEQUE_TRACKER_TABS: readonly ChequeTabDef[] = [
             ["status", "=", CHEQUE_STATUS.ISSUED],
             ["cheque_type", "=", CHEQUE_TYPE.PAYMENT],
         ],
+    },
+    {
+        value: CHEQUE_TRACKER_TAB.DEPOSITS,
+        label: "Security Deposits",
+        filters: [["cheque_type", "=", CHEQUE_TYPE.SECURITY_DEPOSIT]],
     },
 ];
 

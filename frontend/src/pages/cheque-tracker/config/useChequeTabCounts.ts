@@ -31,6 +31,7 @@ function useTabCount(tab: ChequeTrackerTab): number | undefined {
 export function useChequeTabCounts() {
     const all = useTabCount(CHEQUE_TRACKER_TAB.ALL);
     const issued = useTabCount(CHEQUE_TRACKER_TAB.ISSUED);
+    const deposits = useTabCount(CHEQUE_TRACKER_TAB.DEPOSITS);
     const { mutate } = useSWRConfig();
     const refresh = useCallback(() => {
         mutate((key) => typeof key === "string" && key.startsWith(KEY_PREFIX));
@@ -39,6 +40,7 @@ export function useChequeTabCounts() {
     const counts: Record<ChequeTrackerTab, number | undefined> = {
         [CHEQUE_TRACKER_TAB.ALL]: all,
         [CHEQUE_TRACKER_TAB.ISSUED]: issued,
+        [CHEQUE_TRACKER_TAB.DEPOSITS]: deposits,
     };
     return { counts, refresh };
 }
