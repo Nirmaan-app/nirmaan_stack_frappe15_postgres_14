@@ -11,6 +11,7 @@ import SITEURL from "@/constants/siteURL";
 import { cn } from "@/lib/utils";
 import { CHEQUE_TYPE } from "@/types/NirmaanStack/Cheques";
 import { chequeDateText } from "@/utils/cheques/chequeChip";
+import { securedRecords } from "@/utils/cheques/chequeDeposit";
 import type { ChequeRowAction } from "@/utils/cheques/chequeRowActions";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
@@ -346,6 +347,10 @@ export const getChequePaymentColumns = ({ actionsOf, onOpen, onEdit, onClear, on
 
 const ACTION_LABEL: Record<ChequeRowAction, string> = { view: "View", edit: "Edit", clear: "Clear", cancel: "Cancel" };
 
+/** A row's button text: a Security Deposit is "marked returned" rather than cancelled (#1486). */
+const actionLabel = (action: ChequeRowAction, row: ChequeRow) =>
+    action === "cancel" && row.cheque_type === CHEQUE_TYPE.SECURITY_DEPOSIT ? "Mark returned" : ACTION_LABEL[action];
+
 /** The row's buttons, one under the other, in `chequeRowActions` order. */
 const ChequeRowButtons = ({ row, actions }: { row: ChequeRow; actions: ChequeColumnActions }) => {
     const handler: Record<ChequeRowAction, () => void> = {
@@ -367,9 +372,9 @@ const ChequeRowButtons = ({ row, actions }: { row: ChequeRow; actions: ChequeCol
                         action === "cancel" && "text-red-700 hover:text-red-800",
                     )}
                     onClick={handler[action]}
-                    aria-label={`${ACTION_LABEL[action]} cheque ${row.cheque_no}`}
+                    aria-label={`${actionLabel(action, row)} cheque ${row.cheque_no}`}
                 >
-                    {ACTION_LABEL[action]}
+                    {actionLabel(action, row)}
                 </Button>
             ))}
         </div>
@@ -399,4 +404,50 @@ const columnId = (c: ColumnDef<ChequeRow>) => c.id ?? ("accessorKey" in c ? Stri
 export const getIssuedChequeColumns = (actions: ChequeColumnActions): ColumnDef<ChequeRow>[] => {
     const byId = new Map([...getChequePaymentColumns(actions), paymentsColumn].map((c) => [columnId(c), c]));
     return ISSUED_COLUMN_IDS.map((id) => byId.get(id)).filter((c): c is ColumnDef<ChequeRow> => !!c);
+};
+
+const projectNames = (r: ChequeRow) => [...new Set(r.lines.map((l) => l.project_name || l.project).filter(Boolean))];
+
+const securesText = (r: ChequeRow) => securedRecords(r.lines).join(", ") || "Nothing named";
+
+/** The Secures cell of the Security Deposits tab: the POs and Work Orders the deposit names, and their projects. */
+const securesColumn: ColumnDef<ChequeRow> = {
+    id: "secures",
+    accessorFn: (r) => securesText(r),
+    header: "Secures",
+    cell: ({ row }) => {
+        const records = securedRecords(row.original.lines);
+        if (!records.length) {
+            return (
+                <div className="flex flex-col">
+                    <span className="text-muted-foreground">Nothing named</span>
+                    {row.original.description && (
+                        <TruncatedText text={row.original.description} className="max-w-full text-[11px] text-muted-foreground" />
+                    )}
+                </div>
+            );
+        }
+        return (
+            <div className="flex min-w-0 flex-col">
+                {records.map((r) => (
+                    <TruncatedText key={r} text={r} className="max-w-full" />
+                ))}
+                <span className="text-[11px] text-muted-foreground">{projectNames(row.original).join(", ")}</span>
+            </div>
+        );
+    },
+    size: 230,
+    enableSorting: false,
+    meta: { exportHeaderName: "Secures", exportValue: (r: ChequeRow) => securesText(r) },
+};
+
+/** The Security Deposits tab's columns, in order (#1486): one row per deposit cheque, at any status. */
+const DEPOSIT_COLUMN_IDS = [
+    "cheque_no", "bank_label", "vendor", "amount", "cheque_date", "issue_date", "secures", "status", "actions",
+];
+
+/** The Security Deposits tab's columns: the All Cheques cells it needs, plus what the deposit secures. */
+export const getDepositChequeColumns = (actions: ChequeColumnActions): ColumnDef<ChequeRow>[] => {
+    const byId = new Map([...getChequePaymentColumns(actions), securesColumn].map((c) => [columnId(c), c]));
+    return DEPOSIT_COLUMN_IDS.map((id) => byId.get(id)).filter((c): c is ColumnDef<ChequeRow> => !!c);
 };

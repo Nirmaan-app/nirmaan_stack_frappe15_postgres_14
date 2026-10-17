@@ -30,6 +30,10 @@ payments (`cleared_cheque_of`).
 **Cancel** (#1484). `cancel` is THE reject cascade (`decide.reject_cheque`) behind a note: every payment
 on the cheque Rejected with the note as their reason, the cheque Cancelled. Refused once Cleared.
 
+**Cancel a deposit** (#1486). `cancel_deposit` is the one move a Security Deposit cheque has: Issued ->
+Cancelled when it comes back, with a required note. It pays nothing, so no payment is touched; it is never
+cleared (`rules.clear_problem`) and never issued (it is Issued when recorded, `writer.add_deposit_cheque`).
+
 Old-type cheques (#1478) are cleared or cancelled by hand only; a clear pays their Project Payment lines
 and leaves expense lines alone.
 """
@@ -53,6 +57,7 @@ from nirmaan_stack.services.cheques.rules import (
     BANK_REVIVAL_NOTE,
     CANCELLED,
     CHEQUE_TYPE_PAYMENT,
+    CHEQUE_TYPE_SECURITY_DEPOSIT,
     CLEARED,
     CLEARED_BY,
     CLEARED_BY_BANK_IMPORT,
@@ -69,6 +74,7 @@ from nirmaan_stack.services.cheques.rules import (
     cancel_problem,
     clear_problem,
     clearance_date_problem,
+    deposit_cancel_problem,
     issue_date_from,
     ready_to_issue,
     rupees,
@@ -385,16 +391,42 @@ def cancel(cheque: str, *, note: str, user: str) -> dict:
     payment's rejection reason and on the cheque's history row. Returns what `reject_cheque` returns.
 
     Refuses without a note, and once the cheque is Cleared (no undo) or already Cancelled; a Paid payment
-    refuses too (`reject_cheque`). Runs inside the caller's transaction and NEVER COMMITS.
+    refuses too (`reject_cheque`). A Security Deposit cheque is `cancel_deposit`'s. Runs inside the
+    caller's transaction and NEVER COMMITS.
     """
     reason = cancel_note_problem(note)
     if reason:
         frappe.throw(_(reason))
     doc = frappe.get_doc(CHEQUES, cheque, for_update=True)
     reason = cancel_problem(status=doc.status)
+    if not reason and doc.cheque_type == CHEQUE_TYPE_SECURITY_DEPOSIT:
+        reason = "it is a Security Deposit cheque: mark it returned instead"
     if reason:
         _refuse(doc, "cancelled", reason)
     return reject_cheque(cheque, reason=note.strip(), user=user)
+
+
+def cancel_deposit(cheque: str, *, note: str, user: str) -> dict:
+    """THE "cancel deposit cheque" operation (#1486, spec #1477): Security Deposit cheque `cheque` goes from
+    Issued to Cancelled (it came back, or was torn up), with `note` (required) on its history row. Its lines
+    stay as the record of what it secured; no payment is touched. Returns `{cheque, cheque_no, payments,
+    rejected, status}`, the shape `cancel` returns, with no payments.
+
+    Refuses without a note, a Payment cheque, and a deposit already Cancelled (`rules.deposit_cancel_problem`).
+    Runs inside the caller's transaction and NEVER COMMITS.
+    """
+    reason = cancel_note_problem(note)
+    if reason:
+        frappe.throw(_(reason))
+    doc = frappe.get_doc(CHEQUES, cheque, for_update=True)
+    reason = deposit_cancel_problem(status=doc.status, cheque_type=doc.cheque_type)
+    if reason:
+        _refuse(doc, "cancelled", reason)
+    doc.append("status_history", history_row(doc.status, CANCELLED, user, note.strip()))
+    doc.status = CANCELLED
+    doc.save(ignore_permissions=True)
+    frappe.publish_realtime(CHEQUES_CHANGED_EVENT, {"cheques": [cheque]}, after_commit=True)
+    return {"cheque": cheque, "cheque_no": doc.cheque_no, "payments": [], "rejected": [], "status": CANCELLED}
 
 
 def issue(name: str, *, user: str, note: str | None = None):

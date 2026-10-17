@@ -1,11 +1,14 @@
 import type { ChequeLineType } from "@/types/NirmaanStack/Cheques";
 import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
+import { securedLabel } from "@/utils/cheques/chequeDeposit";
+import { LINE_TYPE } from "@/utils/cheques/chequeLines";
 
 /** One line as a read-only view shows it. `payment_status` only where the caller has it (the detail view). */
 export interface ChequeLineViewRow {
     line_type: ChequeLineType;
     project?: string | null;
     project_name?: string | null;
+    record_doctype?: string | null;
     record_name?: string | null;
     payment_name?: string | null;
     payment_status?: string | null;
@@ -14,7 +17,8 @@ export interface ChequeLineViewRow {
 
 /**
  * A Cheque's lines, read-only (spec #1407): type, project, PO/WO, payment, amount. Shared by the detail
- * view and the report's expanded row. The caller says what to show for an Ad-hoc cheque (no lines).
+ * view and the report's expanded row. The caller says what to show for an Ad-hoc cheque (no lines). A Security
+ * Deposit's Secured PO/WO line is a record only: no payment, no amount (#1486).
  */
 export function ChequeLinesView({ lines }: { lines: ChequeLineViewRow[] }) {
     return (
@@ -30,28 +34,35 @@ export function ChequeLinesView({ lines }: { lines: ChequeLineViewRow[] }) {
                     </tr>
                 </thead>
                 <tbody>
-                    {lines.map((line, i) => (
-                        <tr key={i} className="border-t">
-                            <td className="px-3 py-2 whitespace-nowrap">{line.line_type}</td>
-                            <td className="px-3 py-2">{line.project_name || line.project || "--"}</td>
-                            <td className="px-3 py-2">{line.record_name || "--"}</td>
-                            <td className="px-3 py-2">
-                                {line.payment_name ? (
-                                    <>
-                                        {line.payment_name}
-                                        {line.payment_status && (
-                                            <span className="ml-1 text-xs text-muted-foreground">({line.payment_status})</span>
-                                        )}
-                                    </>
-                                ) : (
-                                    <span className="text-muted-foreground">No payment yet</span>
-                                )}
-                            </td>
-                            <td className="px-3 py-2 text-right whitespace-nowrap">
-                                {formatToIndianRupeeOrZero(line.amount)}
-                            </td>
-                        </tr>
-                    ))}
+                    {lines.map((line, i) => {
+                        const secured = line.line_type === LINE_TYPE.SECURED;
+                        return (
+                            <tr key={i} className="border-t">
+                                <td className="px-3 py-2 whitespace-nowrap">{line.line_type}</td>
+                                <td className="px-3 py-2">{line.project_name || line.project || "--"}</td>
+                                <td className="px-3 py-2">
+                                    {(secured ? securedLabel(line.record_doctype, line.record_name) : line.record_name) || "--"}
+                                </td>
+                                <td className="px-3 py-2">
+                                    {secured ? (
+                                        <span className="text-muted-foreground">Secured, pays nothing</span>
+                                    ) : line.payment_name ? (
+                                        <>
+                                            {line.payment_name}
+                                            {line.payment_status && (
+                                                <span className="ml-1 text-xs text-muted-foreground">({line.payment_status})</span>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <span className="text-muted-foreground">No payment yet</span>
+                                    )}
+                                </td>
+                                <td className="px-3 py-2 text-right whitespace-nowrap">
+                                    {secured ? "--" : formatToIndianRupeeOrZero(line.amount)}
+                                </td>
+                            </tr>
+                        );
+                    })}
                 </tbody>
             </table>
         </div>

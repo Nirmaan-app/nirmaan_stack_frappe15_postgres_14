@@ -6,8 +6,9 @@
 `validate` holds the Cheque's own rules on EVERY write path (the cheques service, a patch, Desk):
 the header rules in `services/cheques/rules.header_problem`, the line rules in
 `services/cheques/lines.lines_problem` (a payment or expense on one live Cheque only, each PO/WO the
-Vendor's so a typed payee takes expense lines only, a Project Expense in its line's project),
-and the bank + cheque number uniqueness.
+Vendor's so a typed payee takes expense lines only, a Project Expense in its line's project, a
+Security Deposit cheque's Secured PO/WO lines and no other kind, #1486), and the bank + cheque number
+uniqueness.
 It also keeps the stored identity in step: `cheque_no` without spaces, `bank_key` derived from the
 bank, and no bank name on an ICICI Bank cheque. The unique constraint on `bank_key` + `cheque_no`
 (`Cheques.on_doctype_update`) backs this up against two saves racing.
@@ -29,6 +30,7 @@ from nirmaan_stack.services.cheques.detach import DELETED, drop_off_cheques
 from nirmaan_stack.services.cheques.lines import lines_problem, normalise_lines
 from nirmaan_stack.services.cheques.rules import (
     CANCELLED,
+    CHEQUE_TYPE_PAYMENT,
     PAYMENT_REJECTED,
     duplicate_problem,
     header_problem,
@@ -48,6 +50,7 @@ def validate(doc, method=None):
         line_count=len(doc.get("lines") or []),
         photo_required=doc.is_new() and not doc.flags.cheque_without_photo,
         cancelled=doc.status == CANCELLED,
+        cheque_type=doc.get("cheque_type") or CHEQUE_TYPE_PAYMENT,
     )
     if problem:
         frappe.throw(_(problem))

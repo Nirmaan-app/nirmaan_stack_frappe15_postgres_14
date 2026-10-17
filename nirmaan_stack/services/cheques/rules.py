@@ -68,8 +68,11 @@ MADE_FROM = (MADE_FROM_REPORT, MADE_FROM_PO_WO_PAGE)
 LINE_PO_WO_PAYMENT = "PO/WO Payment"
 LINE_PROJECT_EXPENSE = "Project Expense"
 LINE_NON_PROJECT_EXPENSE = "Non-project Expense"
+#: A Security Deposit cheque's line (#1486, spec #1477): a PO or Work Order the deposit secures. A record
+#: only: no payment, no amount.
+LINE_SECURED_RECORD = "Secured PO/WO"
 #: Pinned to the `Cheque Line.line_type` Select options by test.
-LINE_TYPES = (LINE_PO_WO_PAYMENT, LINE_PROJECT_EXPENSE, LINE_NON_PROJECT_EXPENSE)
+LINE_TYPES = (LINE_PO_WO_PAYMENT, LINE_PROJECT_EXPENSE, LINE_NON_PROJECT_EXPENSE, LINE_SECURED_RECORD)
 
 
 def squash_spaces(value) -> str:
@@ -137,13 +140,19 @@ def parse_header(values: dict) -> ChequeHeader:
 
 
 def header_problem(
-    header: ChequeHeader, *, line_count: int, photo_required: bool, cancelled: bool = False
+    header: ChequeHeader,
+    *,
+    line_count: int,
+    photo_required: bool,
+    cancelled: bool = False,
+    cheque_type: str = CHEQUE_TYPE_PAYMENT,
 ) -> str | None:
     """Why this header cannot be saved, or None.
 
-    `line_count` is how many Cheque lines it carries: a live Cheque with none is an Ad-hoc cheque
-    and needs a description. A `cancelled` one may have neither: its last payment dropped off
-    (#1413). `photo_required` is True for every new Cheque except a backfilled one.
+    `line_count` is how many Cheque lines it carries: a live Payment cheque with none is an Ad-hoc
+    cheque and needs a description. A `cancelled` one may have neither: its last payment dropped off
+    (#1413). A Security Deposit cheque pays nothing, so it needs no line and no description (#1486).
+    `photo_required` is True for every new Cheque except a backfilled one.
     A post-dated cheque date is allowed.
     """
     if header.bank not in BANKS:
@@ -162,7 +171,7 @@ def header_problem(
         return "Pick the Vendor the cheque is made out to, or type the payee's name."
     if photo_required and not header.attachment:
         return "Upload the photo of the cheque."
-    if line_count == 0 and not header.description and not cancelled:
+    if line_count == 0 and not header.description and not cancelled and cheque_type == CHEQUE_TYPE_PAYMENT:
         return "A cheque with no lines is an Ad-hoc cheque: write a description of what it pays for."
     return None
 
@@ -203,6 +212,7 @@ LINE_NEEDS = {
     LINE_PO_WO_PAYMENT: LineNeeds(project=True, record=True),
     LINE_PROJECT_EXPENSE: LineNeeds(project=True, record=False),
     LINE_NON_PROJECT_EXPENSE: LineNeeds(project=False, record=False),
+    LINE_SECURED_RECORD: LineNeeds(project=True, record=True),
 }
 
 
@@ -224,12 +234,18 @@ def parse_line(values: dict) -> ChequeLineInput:
 
     The payment doctype follows from the kind: a PO/WO Payment line names a Project Payment (when it
     names one), an expense line its kind's expense. A Non-project Expense line has no project, and no
-    expense line has a PO / Work Order. A line of an unknown kind keeps what was sent, to be refused.
+    expense line has a PO / Work Order. A Secured PO/WO line is a record only: it keeps no payment and
+    no amount. A line of an unknown kind keeps what was sent, to be refused.
     """
     def text(key):
         return squash_spaces(values.get(key)) or None
 
     line_type = text("line_type")
+    if line_type == LINE_SECURED_RECORD:
+        return ChequeLineInput(
+            line_type=line_type, project=text("project"), record_doctype=text("record_doctype"),
+            record_name=text("record_name"), payment_doctype=None, payment_name=None, amount=0.0,
+        )
     payment_name = text("payment_name")
     needs = LINE_NEEDS.get(line_type, LineNeeds(project=True, record=True))
     return ChequeLineInput(
@@ -282,10 +298,35 @@ def po_wo_line_problem(
     return None
 
 
-def line_kind_problem(line: ChequeLineInput) -> str | None:
-    """Why the line's kind is not one a Cheque takes, or None."""
+def line_kind_problem(line: ChequeLineInput, *, cheque_type: str = CHEQUE_TYPE_PAYMENT) -> str | None:
+    """Why the line's kind is not one a Cheque of `cheque_type` takes, or None. A Security Deposit cheque
+    takes Secured PO/WO lines only, and only it does (#1486): it pays nothing."""
     if line.line_type not in LINE_TYPES:
         return f"choose the kind of line: {', '.join(LINE_TYPES)}."
+    if cheque_type == CHEQUE_TYPE_SECURITY_DEPOSIT and line.line_type != LINE_SECURED_RECORD:
+        return "a Security Deposit cheque pays nothing: its lines only name the POs and Work Orders it secures."
+    if cheque_type != CHEQUE_TYPE_SECURITY_DEPOSIT and line.line_type == LINE_SECURED_RECORD:
+        return "only a Security Deposit cheque names a PO or Work Order it secures."
+    return None
+
+
+def secured_line_problem(line: ChequeLineInput, *, cheque_vendor: str | None, record: dict | None) -> str | None:
+    """Why a Secured PO/WO line cannot be saved, or None. The caller prefixes "Line N: " (#1486).
+
+    `record` is the PO / Work Order's `{project, vendor}` (None when it does not exist). The line names one
+    of the cheque's Vendor's POs or Work Orders, so a cheque made out to a typed payee names none. Its
+    project is the record's own (the caller fills it in when the form sent none).
+    """
+    if not cheque_vendor:
+        return "a cheque made out to a typed payee names no PO or Work Order."
+    if line.record_doctype not in RECORD_DOCTYPES or not line.record_name:
+        return "pick the PO or Work Order."
+    if record is None:
+        return f"{line.record_name} was not found."
+    if record.get("vendor") != cheque_vendor:
+        return f"{line.record_name} is not a PO or Work Order of this cheque's Vendor."
+    if line.project and record.get("project") != line.project:
+        return f"{line.record_name} is not in project {line.project}."
     return None
 
 
@@ -351,14 +392,26 @@ LOCKED_ON_PO_WO_PAGE = {"cheque_no": "number", "cheque_date": "date", "amount": 
 #: A Payment cheque's lines change only while Pending (#1482, spec #1477): once its payments are approved
 #: it is Issued, and its payments and the bank line follow it as it is.
 EDITABLE_STATUSES = (PENDING,)
+#: A Security Deposit cheque is Issued from the start and changes while it is (#1486, story 79); once
+#: Cancelled only its photo can change.
+DEPOSIT_EDITABLE_STATUSES = (ISSUED,)
 
 
-def edit_access_problem(*, status: str, owner: str, user: str, any_cheque: bool) -> str | None:
+def editable_statuses(cheque_type: str) -> tuple:
+    """The statuses at which a Cheque of `cheque_type` may change more than its photo."""
+    return DEPOSIT_EDITABLE_STATUSES if cheque_type == CHEQUE_TYPE_SECURITY_DEPOSIT else EDITABLE_STATUSES
+
+
+def edit_access_problem(
+    *, status: str, owner: str, user: str, any_cheque: bool, cheque_type: str = CHEQUE_TYPE_PAYMENT
+) -> str | None:
     """Why `user` may not edit this Cheque, or None. `any_cheque` is True for Admin, Accountant and
-    Accountant Lead; anyone else who may use cheques (Procurement) edits only the Pending Cheques they
-    created (`EDITABLE_STATUSES`, C6)."""
-    if any_cheque or (status in EDITABLE_STATUSES and owner == user):
+    Accountant Lead; anyone else who may use cheques (Procurement) edits only the Cheques they created,
+    a Payment cheque while Pending (C6), a Security Deposit cheque while Issued (`editable_statuses`)."""
+    if any_cheque or (status in editable_statuses(cheque_type) and owner == user):
         return None
+    if cheque_type == CHEQUE_TYPE_SECURITY_DEPOSIT:
+        return "You can edit only the Issued Security Deposit cheques you created."
     return "You can edit only the Pending cheques you created."
 
 
@@ -375,12 +428,14 @@ def edit_problem(
     lines_before: list[ChequeLineInput],
     lines_after: list[ChequeLineInput],
     old_type: bool = False,
+    cheque_type: str = CHEQUE_TYPE_PAYMENT,
 ) -> str | None:
     """Why this edit of a Cheque cannot be saved, or None. The rules are the ones the editor sees:
 
     * the photo can be replaced, never removed;
     * an Old-type cheque (spec #1477) can change only its photo, whatever its status;
-    * an Issued, Cleared or Cancelled Cheque can change only its photo (`EDITABLE_STATUSES`);
+    * an Issued, Cleared or Cancelled Payment cheque can change only its photo (`EDITABLE_STATUSES`); a
+      Security Deposit cheque changes in full while Issued and only its photo once Cancelled (#1486);
     * a Pending Cheque made from the PO/WO page keeps its number, date and amount while it still has a
       Project Payment line (they stay in step with the payment), but its other fields and its lines can
       change. With no Project Payment line left (removed or swapped out) it edits like a Tracker-made
@@ -399,7 +454,7 @@ def edit_problem(
     changed = [f for f in EDITABLE_HEADER_FIELDS if getattr(before, f) != getattr(after, f)]
     if old_type and (changed or lines_before != lines_after):
         return f"Cheque {before.cheque_no} is an Old-type cheque: only its photo can change."
-    if status not in EDITABLE_STATUSES:
+    if status not in editable_statuses(cheque_type):
         if changed or lines_before != lines_after:
             return f"Cheque {before.cheque_no} is {status}: only its photo can change."
         return None
@@ -845,6 +900,30 @@ def cancel_note_problem(note: str | None) -> str | None:
     """Cancelling rejects every payment on the cheque, with the note as their reason: it is required."""
     if not (note or "").strip():
         return "Write a note saying why the cheque is cancelled."
+    return None
+
+
+# -- a Security Deposit cheque (#1486, spec #1477, ADR-0035) ---------------------------------------
+def issue_date_problem(issue_date, *, today) -> str | None:
+    """Why `issue_date` cannot be a Security Deposit cheque's issue date (the day it was handed over), or
+    None. Pure. It is typed (today by default), so it is required and never after `today`. It may be before
+    or after the cheque date: a deposit cheque is often post-dated."""
+    if not issue_date:
+        return "Enter the issue date: the day it was handed over."
+    if str(issue_date)[:10] > str(today)[:10]:
+        return "The issue date cannot be after today."
+    return None
+
+
+def deposit_cancel_problem(*, status: str, cheque_type: str) -> str | None:
+    """Why this cheque cannot be cancelled as a Security Deposit, as a short reason, or None. Pure. A deposit
+    is Issued from the start and Cancelled when it comes back (story 64); no other move exists."""
+    if cheque_type != CHEQUE_TYPE_SECURITY_DEPOSIT:
+        return "it is a Payment cheque, not a Security Deposit"
+    if status == CANCELLED:
+        return "already Cancelled"
+    if status != ISSUED:
+        return f"it is {status}"
     return None
 
 

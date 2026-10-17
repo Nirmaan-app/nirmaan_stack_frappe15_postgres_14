@@ -17,7 +17,8 @@ export type PayeeKind = "vendor" | "typed";
 
 /** One Cheque line. A Payment cheque's are PO lines; an Old-type cheque may still show expense lines. */
 const lineSchema = z.object({
-    line_type: z.enum(["PO/WO Payment", "Project Expense", "Non-project Expense"]),
+    // Every kind the doctype has, so a recorded line parses; a Payment cheque refuses all but PO lines below.
+    line_type: z.enum(["PO/WO Payment", "Project Expense", "Non-project Expense", "Secured PO/WO"]),
     project: z.string(),
     record_doctype: z.string(),
     record_name: z.string(),
@@ -123,6 +124,10 @@ export interface SaveChequeArgs {
     lines?: SaveLineArg[];
     /** The Cheque being edited (#1418); absent for a new one. */
     name?: string;
+    /** "Security Deposit" for a deposit cheque (#1486); absent: a Payment cheque. */
+    cheque_type?: string;
+    /** A deposit cheque's typed issue date. */
+    issue_date?: string;
 }
 
 /** Turn valid form values into the save arguments: one payee only, a bank name only for Others. */

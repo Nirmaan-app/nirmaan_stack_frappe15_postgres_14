@@ -128,6 +128,11 @@ describe("linesGap", () => {
         expect(linesGap({ amount: 100000, lines: [line({ amount: 100002 })] })).toBeNull();
         expect(linesGap({ amount: 25000, lines: [] })).toBeNull();
     });
+
+    it("is null for a Security Deposit, whose secured records pay nothing (#1486)", () => {
+        const secured = line({ line_type: "Secured PO/WO", amount: 0 });
+        expect(linesGap({ amount: 200000, lines: [secured, secured] })).toBeNull();
+    });
 });
 
 describe("daysSinceIssue and isStale", () => {
@@ -151,6 +156,12 @@ describe("daysSinceIssue and isStale", () => {
         expect(isStale({ status: "Issued", issue_date: "2026-07-16", cheque_date: "2026-10-01" }, today)).toBe(false); // 90 days
         expect(isStale({ status: "Issued", issue_date: "2026-07-15", cheque_date: "2026-10-01" }, today)).toBe(true); // 91 days
         expect(isStale({ status: "Cleared", issue_date: "2026-01-01", cheque_date: "2026-01-01" }, today)).toBe(false);
+    });
+
+    it("is nothing for a Security Deposit, which is held, never waiting for the bank (#1486)", () => {
+        const deposit = { status: "Issued", cheque_type: "Security Deposit", issue_date: "2026-01-01", cheque_date: "2026-01-01" } as const;
+        expect(daysSinceIssue(deposit, today)).toBeNull();
+        expect(isStale(deposit, today)).toBe(false);
     });
 
     it("is negative for a post-dated old cheque, which is never stale", () => {

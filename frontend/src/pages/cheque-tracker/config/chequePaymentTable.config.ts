@@ -9,7 +9,7 @@ import {
     type ChequeStatus,
     type ChequeType,
 } from "@/types/NirmaanStack/Cheques";
-import { LINES_GAP_TOLERANCE } from "@/utils/cheques/chequeLines";
+import { LINE_TYPE, LINES_GAP_TOLERANCE } from "@/utils/cheques/chequeLines";
 import { formatDate } from "@/utils/FormatDate";
 
 /**
@@ -161,10 +161,14 @@ export const firstWithMore = (values: (string | null | undefined)[]): { first?: 
     return { first: distinct[0], more: Math.max(distinct.length - 1, 0) };
 };
 
-/** Cheque amount minus the lines' total when they differ by more than ₹2; null otherwise or with no lines. */
+/**
+ * Cheque amount minus the lines' total when they differ by more than ₹2; null otherwise or with no lines that pay.
+ * A Security Deposit's Secured PO/WO lines pay nothing, so a deposit never has a gap (#1486).
+ */
 export const linesGap = (row: Pick<ChequeRow, "amount" | "lines">): number | null => {
-    if (!row.lines.length) return null;
-    const total = row.lines.reduce((sum, l) => sum + num(l.amount), 0);
+    const paying = row.lines.filter((l) => l.line_type !== LINE_TYPE.SECURED);
+    if (!paying.length) return null;
+    const total = paying.reduce((sum, l) => sum + num(l.amount), 0);
     const gap = Math.round((num(row.amount) - total) * 100) / 100;
     return Math.abs(gap) > LINES_GAP_TOLERANCE ? gap : null;
 };
@@ -175,15 +179,16 @@ export const linesGap = (row: Pick<ChequeRow, "amount" | "lines">): number | nul
  */
 export const CHEQUE_STALE_DAYS = 90;
 
-type IssueDates = Pick<ChequeRow, "status" | "cheque_date"> & Partial<Pick<ChequeRow, "issue_date">>;
+type IssueDates = Pick<ChequeRow, "status" | "cheque_date"> & Partial<Pick<ChequeRow, "issue_date" | "cheque_type">>;
 
 /**
- * Days since the cheque was issued, while it is Issued; null otherwise. An old cheque with no issue date
- * (made before issue dates) counts from its cheque date, which can be in the future (negative: post-dated).
+ * Days since a Payment cheque was issued, while it is Issued; null otherwise, and for a Security Deposit, which
+ * is held, not waiting for the bank (#1486). An old cheque with no issue date (made before issue dates) counts
+ * from its cheque date, which can be in the future (negative: post-dated).
  */
 export const daysSinceIssue = (row: IssueDates, today: Date = new Date()): number | null => {
     const from = row.issue_date || row.cheque_date;
-    if (row.status !== CHEQUE_STATUS.ISSUED || !from) return null;
+    if (row.status !== CHEQUE_STATUS.ISSUED || !from || row.cheque_type === CHEQUE_TYPE.SECURITY_DEPOSIT) return null;
     const [y, m, d] = from.split("-").map(Number);
     if (!y || !m || !d) return null;
     const start = Date.UTC(y, m - 1, d);

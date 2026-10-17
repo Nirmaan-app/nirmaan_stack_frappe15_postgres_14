@@ -28,6 +28,15 @@ describe("isInChequeTab", () => {
         // A Security Deposit is Issued from the day it is written, but the bank never pays it.
         expect(isInChequeTab(row("Issued", "Security Deposit"), CHEQUE_TRACKER_TAB.ISSUED)).toBe(false);
     });
+
+    it("lists every Security Deposit cheque, at any status, and no Payment cheque under Security Deposits", () => {
+        for (const status of ["Issued", "Cancelled"]) {
+            expect(isInChequeTab(row(status, "Security Deposit"), CHEQUE_TRACKER_TAB.DEPOSITS)).toBe(true);
+        }
+        for (const status of ["Pending", "Issued", "Cleared", "Cancelled"]) {
+            expect(isInChequeTab(row(status, "Payment"), CHEQUE_TRACKER_TAB.DEPOSITS)).toBe(false);
+        }
+    });
 });
 
 describe("chequeTabFilters", () => {
@@ -37,6 +46,7 @@ describe("chequeTabFilters", () => {
             ["status", "=", "Issued"],
             ["cheque_type", "=", "Payment"],
         ]);
+        expect(chequeTabFilters(CHEQUE_TRACKER_TAB.DEPOSITS)).toEqual([["cheque_type", "=", "Security Deposit"]]);
     });
 });
 
@@ -44,6 +54,7 @@ describe("chequeTrackerTabOf", () => {
     it("reads the tab from the URL, and opens All Cheques for anything else", () => {
         expect(chequeTrackerTabOf("issued")).toBe(CHEQUE_TRACKER_TAB.ISSUED);
         expect(chequeTrackerTabOf("all")).toBe(CHEQUE_TRACKER_TAB.ALL);
+        expect(chequeTrackerTabOf("deposits")).toBe(CHEQUE_TRACKER_TAB.DEPOSITS);
         expect(chequeTrackerTabOf("security")).toBe(CHEQUE_TRACKER_TAB.ALL);
         expect(chequeTrackerTabOf(null)).toBe(CHEQUE_TRACKER_TAB.ALL);
     });
