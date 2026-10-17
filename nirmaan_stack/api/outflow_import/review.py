@@ -11,6 +11,8 @@ doctypes -- `Outflow Import Row.row_status` / `outcome_note`, `Outflow Row Match
 rollup. Not one line here touches `Project Payments`, `PO Payment Terms`, a Procurement Order's
 `amount_paid`, or an expense. That is the payment branch's whole contract (owner decision R1): it
 READS and REPORTS. Settling an expense is S5, and it is the only write in the feature.
+⚠️ ONE EXCEPTION SINCE #1485 (ADR-0035): on a bank statement, a line carrying a Payment cheque's number
+clears that cheque through the CHEQUES SERVICE, which pays its payments -- see `_guard_duplicates_only`.
 
 RE-RUNNING THE MATCH IS SAFE AND IS EXPECTED. Payments get marked Paid by hand throughout the day,
 so a batch matched at 10:00 will find more at 16:00. `match_batch` therefore rebuilds a row's
@@ -162,7 +164,10 @@ from nirmaan_stack.services.outflow_import.status import (
     sole_suggestion,
     SETTLED_BLOCK_PAID,
     SETTLED_BLOCK_RECEIVED,
+    RowOutcome,
 )
+# Pure: which lines are cheque lines, and what a line no Payment cheque claims says (#1485).
+from nirmaan_stack.services.cheques.rules import bank_cheque_key, no_payment_cheque_note
 
 BATCH_DOCTYPE = "Outflow Import Batch"
 ROW_DOCTYPE = "Outflow Import Row"
@@ -470,18 +475,66 @@ def _guard_duplicates_only(batch: str, matchable) -> dict:
     waiting refunds and, for a line carrying an account AND an IFSC (no ICICI line does), the vendor
     index.
 
+    ⚠️ ONE WRITE OF MONEY IS MADE HERE, AND IT IS THE CHEQUES SERVICE'S (#1485, ADR-0035). A DEBIT whose
+    cheque column names a Payment cheque on ICICI Bank clears that cheque FIRST, before the guard is
+    asked: `services/cheques/bank_import.clear_from_line` runs THE cheque clear in one savepoint per
+    line, pays every payment on the cheque and writes one match record each, so the line lands
+    `Settled` (frozen from then on). A number found that settles nothing (amount off, refused) lands
+    `Mismatched` with the reason. Only a line no Payment cheque claims goes on to the guard, and a cheque
+    line among those says no Payment cheque carries its number. The statement is linked to each paid
+    payment after the caller's commit (`frappe.db.after_commit`).
+
     It commits nothing; `_match_rows`' callers do (#1272).
     """
+    # Function-local: the cheques service imports this module's writers back (`status._record_bank_line`).
+    from nirmaan_stack.services.cheques.bank_import import clear_from_line
+
+    source = _batch_source(batch)
+    user = frappe.session.user
+    open_rows = []
+    for row in matchable:
+        cleared = clear_from_line(row, source=source, user=user)
+        if cleared is None:
+            open_rows.append(row)
+        elif cleared.settled:
+            frappe.db.set_value(ROW_DOCTYPE, row.name, "outcome_note", cleared.note, update_modified=False)
+            _link_statement_after_commit(cleared)
+        else:
+            _persist_row_outcome(row, RowOutcome(status=ROW_MISMATCHED, note=cleared.note), None, batch)
+
     suggest = suggester()
-    for row, group, outcome, basis in _contains_guard_outcomes(batch, matchable):
+    for row, group, outcome, basis in _contains_guard_outcomes(batch, open_rows):
         suggestion = suggest(row) if group is None and outcome.status == ROW_MISMATCHED else None
         if suggestion is not None:
             outcome = replace(outcome, note=suggestion_note(suggestion))
+        elif group is None and outcome.status == ROW_MISMATCHED and bank_cheque_key(
+            source=source, direction=row.direction, reference_id=row.reference_id
+        ):
+            outcome = replace(outcome, note=no_payment_cheque_note((row.reference_id or "").strip()))
         _persist_row_outcome(
             row, outcome, None, batch, duplicate_basis=basis, refund_suggestion=suggestion
         )
 
     return _run_result(batch, len(matchable), refresh_batch_rollup(batch))
+
+
+def _link_statement_after_commit(cleared) -> None:
+    """Give each payment a cheque line paid its own `File` row for the statement, once the match run's
+    caller has committed (the File insert commits by itself; see `expenses._link_statement_file_to_target`).
+    A rollback of the run drops the callback with it."""
+    if not cleared.statement_file_url or not cleared.payments:
+        return
+    from types import SimpleNamespace
+
+    from nirmaan_stack.api.outflow_import.expenses import _link_statement_file_to_target
+
+    def link():
+        for payment in cleared.payments:
+            _link_statement_file_to_target(
+                cleared.statement_file_url, SimpleNamespace(doctype=C.PAYMENT_DOCTYPE, name=payment)
+            )
+
+    frappe.db.after_commit.add(link)
 
 
 def _contains_guard_outcomes(batch: str, matchable, carried_claims=()):
@@ -1619,12 +1672,15 @@ def get_batch_rows(batch: str):
         ]
     )
     _with_order_names(rows, by_row, related)
+    cheques = _cheque_outcomes(rows)
 
     return {
         "batch": batch,
         "rows": [
             {
                 **row,
+                # #1485: the Payment cheque this line cleared or was linked to, else None.
+                "cheque_outcome": cheques.get(row["name"]),
                 "amount": float(row.get("amount") or 0),
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
@@ -1643,6 +1699,14 @@ def get_batch_rows(batch: str):
             for row in rows
         ],
     }
+
+
+def _cheque_outcomes(rows) -> dict[str, dict]:
+    """Per SETTLED line on the page, the Payment cheque it cleared or was linked to (#1485). Only a
+    Settled line can be one, so the others cost nothing."""
+    from nirmaan_stack.services.cheques.bank_import import cheque_outcomes
+
+    return cheque_outcomes([r["name"] for r in rows if (r.get("row_status") or "") == ROW_SETTLED])
 
 
 def _settled_matches_by_row(row_names) -> dict[str, list]:
@@ -2950,6 +3014,7 @@ def get_outflow_rows(
     _with_order_names(rows, by_row, related)
     tab_counts, status_counts, direction_status_counts = _tab_counts(where, params)
     refund_suggestions = shown_suggestions(rows)
+    cheques = _cheque_outcomes(rows)
 
     return {
         "rows": [
@@ -2983,6 +3048,9 @@ def get_outflow_rows(
                 # #1402: the decision dialog opens on "Match a waiting Vendor Refund" with these
                 # ticked; `None` when the line has none, or one of them has stopped waiting.
                 "waiting_refund_suggestion": refund_suggestions.get(row["name"]),
+                # #1485: the Payment cheque this line cleared or was linked to (the Outcome cell's
+                # cheque chip), else None.
+                "cheque_outcome": cheques.get(row["name"]),
             }
             for row in rows
         ],

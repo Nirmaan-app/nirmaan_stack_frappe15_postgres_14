@@ -1795,7 +1795,9 @@ export const rematchReachLabel = (imports: readonly SummaryImport[]): string => 
         return `Re-run reaches ${matched.length} open imports.`;
     }
     if (!matched.length) {
-        return `Re-run duplicate-checks ${statements(duplicateChecked.length)}; none will be matched.`;
+        // #1485: a bank statement's cheque lines clear their Payment cheques on the same run.
+        const theirs = duplicateChecked.length === 1 ? "its" : "their";
+        return `Re-run duplicate-checks ${statements(duplicateChecked.length)} and clears the cheques ${theirs} lines pay; nothing else will be matched.`;
     }
     return (
         `Re-run matches ${statements(matched.length)}; ` +

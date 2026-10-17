@@ -3,7 +3,7 @@
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
 import { Link } from "react-router-dom";
-import { ArrowDown, ArrowRightLeft, ArrowUp, ChevronRight, CornerUpLeft, ExternalLink, Filter, Landmark, List, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowRightLeft, ArrowUp, ChevronRight, CornerUpLeft, ExternalLink, Filter, Landmark, List, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,6 +49,7 @@ import {
     unreconcileAffordance,
 } from "../unreconcileView";
 import { rectifyAffordance } from "../porterRectify";
+import { chequeOutcomeChip, type ChequeOutcomeTone } from "../chequeOutcomeView";
 
 interface Props {
     rows: OutflowImportRow[];
@@ -774,6 +775,42 @@ const REMARKS_CELL_WIDTH = "w-[214px]";
  */
 const OUTCOME_CELL_WIDTH = "w-[204px]";
 
+const CHEQUE_CHIP_TONE: Record<ChequeOutcomeTone, string> = {
+    cleared: "bg-emerald-100 text-emerald-800",
+    approved: "bg-indigo-100 text-indigo-800",
+    revived: "bg-red-100 text-red-800",
+    linked: "bg-zinc-100 text-zinc-700",
+};
+
+/** The cheque a Settled ICICI line cleared (#1485): a chip into the Cheque Tracker, and the double-payment
+ * warning of a cancelled cheque the bank paid anyway. Nothing on any other line. */
+const ChequeOutcomeLine = ({ row }: { row: OutflowImportRow }) => {
+    const chip = chequeOutcomeChip(row.cheque_outcome);
+    if (!chip) return null;
+    return (
+        <>
+            <Link
+                to={chip.href}
+                title={chip.label}
+                className={`block w-fit max-w-full break-words rounded-md px-2 py-px font-mono text-[11px] font-semibold hover:underline ${CHEQUE_CHIP_TONE[chip.tone]}`}
+            >
+                {chip.label}
+            </Link>
+            {chip.warning && (
+                <p
+                    className="flex items-start gap-1 rounded border border-amber-300 bg-amber-50 px-1.5 py-1 text-[11px] text-amber-900"
+                    title={chip.warning.detail}
+                >
+                    <AlertTriangle className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
+                    <span className="line-clamp-3">
+                        <span className="font-semibold">{chip.warning.label}.</span> {chip.warning.detail}
+                    </span>
+                </p>
+            )}
+        </>
+    );
+};
+
 const OutcomeButton = ({
     row,
     decided,
@@ -808,6 +845,8 @@ const OutcomeButton = ({
         const rectify = rectifyAffordance(row, Boolean(onRectify));
         return (
             <div className={`${OUTCOME_CELL_WIDTH} space-y-1`}>
+                {/* #1485: the Payment cheque this line cleared, above the line's own sentence. */}
+                <ChequeOutcomeLine row={row} />
                 <span className="block truncate text-xs text-muted-foreground" title={note}>
                     {note || "—"}
                 </span>

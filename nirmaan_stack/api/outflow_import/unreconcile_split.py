@@ -55,9 +55,13 @@ def read_payment_facts(leg, base: dict, *, for_update: bool) -> LegFacts:
     )
     if not payment:
         return LegFacts(**base, target_exists=False)
+    # Function-local: the cheques service imports the outflow import's writers.
+    from nirmaan_stack.services.cheques.status import cleared_cheque_of
+
     return LegFacts(
         **base,
         target_exists=True,
+        cleared_cheque=cleared_cheque_of(leg.target_name),
         target_status=payment.status,
         target_amount=payment.amount,
         target_reference=payment.utr,

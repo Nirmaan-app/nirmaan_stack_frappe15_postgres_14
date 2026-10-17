@@ -417,10 +417,10 @@ describe("what Re-run match will touch", () => {
             // no longer about reach: it is the only thing on screen saying the button will not match
             // at all, so suppressing it leaves a reviewer expecting a match that never runs.
             expect(rematchReachLabel([bank({ name: "ICICI" })])).toBe(
-                "Re-run duplicate-checks 1 open import; none will be matched.",
+                "Re-run duplicate-checks 1 open import and clears the cheques its lines pay; nothing else will be matched.",
             );
             expect(rematchReachLabel([bank({ name: "A" }), bank({ name: "B" })])).toBe(
-                "Re-run duplicate-checks 2 open imports; none will be matched.",
+                "Re-run duplicate-checks 2 open imports and clears the cheques their lines pay; nothing else will be matched.",
             );
         });
 
