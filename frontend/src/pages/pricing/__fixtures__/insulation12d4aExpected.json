@@ -8,7 +8,7 @@
   "supply": 5110,
   "install": 672,
   "layers": [
-   "15/GI Framework with perforated Al sheet"
+   "49/GI Framework with perforated Al sheet"
   ],
   "defaulted": [],
   "working0": "BoQ says 50 mm -> priced as 15 + 15 + 19 mm (49 mm, -1) -- above the largest stocked size (19 mm)"
@@ -22,7 +22,7 @@
   "supply": 5110,
   "install": 672,
   "layers": [
-   "15/GI Framework with perforated Al sheet"
+   "49/GI Framework with perforated Al sheet"
   ],
   "defaulted": [],
   "working0": "BoQ says 50 mm -> priced as 15 + 15 + 19 mm (49 mm, -1) -- above the largest stocked size (19 mm)"
@@ -36,7 +36,7 @@
   "supply": 5110,
   "install": 672,
   "layers": [
-   "15/GI Framework with perforated Al sheet"
+   "49/GI Framework with perforated Al sheet"
   ],
   "defaulted": [],
   "working0": "BoQ says 50 mm -> priced as 15 + 15 + 19 mm (49 mm, -1) -- above the largest stocked size (19 mm)"
@@ -50,7 +50,7 @@
   "supply": 3558,
   "install": 518,
   "layers": [
-   "15/GI Framework with perforated Al sheet"
+   "30/GI Framework with perforated Al sheet"
   ],
   "defaulted": [],
   "working0": "BoQ says 30 mm -> priced as 15 + 15 mm (30 mm, +0) -- above the largest stocked size (19 mm)"
@@ -64,7 +64,7 @@
   "supply": 3920,
   "install": 518,
   "layers": [
-   "19/GI Framework with perforated Al sheet"
+   "38/GI Framework with perforated Al sheet"
   ],
   "defaulted": [],
   "working0": "BoQ says 40 mm -> priced as 19 + 19 mm (38 mm, -2) -- above the largest stocked size (19 mm)"
@@ -78,7 +78,7 @@
   "supply": 5110,
   "install": 672,
   "layers": [
-   "15/GI Framework with perforated Al sheet"
+   "49/GI Framework with perforated Al sheet"
   ],
   "defaulted": [],
   "working0": "BoQ says 50 mm -> priced as 15 + 15 + 19 mm (49 mm, -1) -- above the largest stocked size (19 mm)"
@@ -92,7 +92,7 @@
   "supply": 5110,
   "install": 672,
   "layers": [
-   "15/GI Framework with perforated Al sheet"
+   "49/GI Framework with perforated Al sheet"
   ],
   "defaulted": [],
   "working0": "BoQ says 50 mm -> priced as 15 + 15 + 19 mm (49 mm, -1) -- above the largest stocked size (19 mm)"
@@ -106,7 +106,7 @@
   "supply": 5110,
   "install": 672,
   "layers": [
-   "15/GI Framework with perforated Al sheet"
+   "49/GI Framework with perforated Al sheet"
   ],
   "defaulted": [],
   "working0": "BoQ says 50 mm -> priced as 15 + 15 + 19 mm (49 mm, -1) -- above the largest stocked size (19 mm)"
@@ -120,7 +120,7 @@
   "supply": 3146,
   "install": 518,
   "layers": [
-   "9/GI Framework with perforated Al sheet"
+   "24/GI Framework with perforated Al sheet"
   ],
   "defaulted": [],
   "working0": "BoQ says 25 mm -> priced as 9 + 15 mm (24 mm, -1) -- above the largest stocked size (19 mm)"
@@ -147,7 +147,7 @@
   "supply": 5110,
   "install": 672,
   "layers": [
-   "15/GI Framework with perforated Al sheet"
+   "49/GI Framework with perforated Al sheet"
   ],
   "defaulted": [],
   "working0": "BoQ says 50 mm -> priced as 15 + 15 + 19 mm (49 mm, -1) -- above the largest stocked size (19 mm)"
@@ -161,7 +161,7 @@
   "supply": 3146,
   "install": 518,
   "layers": [
-   "9/GI Framework with perforated Al sheet"
+   "24/GI Framework with perforated Al sheet"
   ],
   "defaulted": [],
   "working0": "BoQ says 25 mm -> priced as 9 + 15 mm (24 mm, -1) -- above the largest stocked size (19 mm)"
@@ -175,7 +175,7 @@
   "supply": 3146,
   "install": 518,
   "layers": [
-   "9/GI Framework with perforated Al sheet"
+   "24/GI Framework with perforated Al sheet"
   ],
   "defaulted": [],
   "working0": "BoQ says 25 mm -> priced as 9 + 15 mm (24 mm, -1) -- above the largest stocked size (19 mm)"
@@ -189,7 +189,7 @@
   "supply": 5110,
   "install": 672,
   "layers": [
-   "15/GI Framework with perforated Al sheet"
+   "49/GI Framework with perforated Al sheet"
   ],
   "defaulted": [],
   "working0": "BoQ says 50 mm -> priced as 15 + 15 + 19 mm (49 mm, -1) -- above the largest stocked size (19 mm)"
@@ -203,7 +203,7 @@
   "supply": 5110,
   "install": 672,
   "layers": [
-   "15/GI Framework with perforated Al sheet"
+   "49/GI Framework with perforated Al sheet"
   ],
   "defaulted": [],
   "working0": "BoQ says 50 mm -> priced as 15 + 15 + 19 mm (49 mm, -1) -- above the largest stocked size (19 mm)"
@@ -250,12 +250,16 @@
   "fixes": [
    "D3"
   ],
-  "priced": false,
-  "reason": "cladding named in this row but not read - set the cladding",
+  "priced": true,
+  "supply": 2742,
+  "install": 308,
   "layers": [
-   "30 mm/None"
+   "30/No"
   ],
-  "defaulted": []
+  "defaulted": [
+   "0:cladding=No"
+  ],
+  "working0": "BoQ says 30 mm -> priced as 15 + 15 mm (30 mm, +0) -- above the largest stocked size (19 mm)"
  },
  {
   "id": "BOQ-26-00137|LOWSIDE OFFICE WORKS#128",
@@ -288,36 +292,48 @@
   "fixes": [
    "D3"
   ],
-  "priced": false,
-  "reason": "cladding named in this row but not read - set the cladding",
+  "priced": true,
+  "supply": 2330,
+  "install": 308,
   "layers": [
-   "25 mm/None"
+   "24/No"
   ],
-  "defaulted": []
+  "defaulted": [
+   "0:cladding=No"
+  ],
+  "working0": "BoQ says 25 mm -> priced as 9 + 15 mm (24 mm, -1) -- above the largest stocked size (19 mm)"
  },
  {
   "id": "BOQ-26-00164|BOQ#136",
   "fixes": [
    "D3"
   ],
-  "priced": false,
-  "reason": "cladding named in this row but not read - set the cladding",
+  "priced": true,
+  "supply": 2330,
+  "install": 308,
   "layers": [
-   "25 mm/None"
+   "24/No"
   ],
-  "defaulted": []
+  "defaulted": [
+   "0:cladding=No"
+  ],
+  "working0": "BoQ says 25 mm -> priced as 9 + 15 mm (24 mm, -1) -- above the largest stocked size (19 mm)"
  },
  {
   "id": "BOQ-26-00197|HVAC BOQ #199",
   "fixes": [
    "D3"
   ],
-  "priced": false,
-  "reason": "cladding named in this row but not read - set the cladding",
+  "priced": true,
+  "supply": 2742,
+  "install": 308,
   "layers": [
-   "30 mm/None"
+   "30/No"
   ],
-  "defaulted": []
+  "defaulted": [
+   "0:cladding=No"
+  ],
+  "working0": "BoQ says 30 mm -> priced as 15 + 15 mm (30 mm, +0) -- above the largest stocked size (19 mm)"
  },
  {
   "id": "BOQ-26-00140|HVAC Lowside Works #45",
@@ -358,9 +374,11 @@
   "supply": 2330,
   "install": 308,
   "layers": [
-   "9/None"
+   "24/No"
   ],
-  "defaulted": [],
+  "defaulted": [
+   "0:cladding=No"
+  ],
   "working0": "BoQ says 25 mm -> priced as 9 + 15 mm (24 mm, -1) -- above the largest stocked size (19 mm)"
  },
  {
@@ -564,48 +582,58 @@
   "fixes": [
    "D7"
   ],
-  "priced": false,
-  "reason": "No SKU in the catalogue for XLPE/Nitrile Rubber foam - price this row by hand",
+  "priced": true,
+  "supply": 712,
+  "install": 154,
   "layers": [
    "19/Aluminium Foil"
   ],
-  "defaulted": []
+  "defaulted": [],
+  "working0": "BoQ says XLPE/Nitrile Rubber foam -> priced as Thermal Nitrile Insulation"
  },
  {
   "id": "BOQ-26-00086|Low side#65",
   "fixes": [
    "D7"
   ],
-  "priced": false,
-  "reason": "No SKU in the catalogue for XLPE/Nitrile Rubber foam - price this row by hand",
+  "priced": true,
+  "supply": 581,
+  "install": 154,
   "layers": [
    "13/Aluminium Foil"
   ],
-  "defaulted": []
+  "defaulted": [],
+  "working0": "BoQ says XLPE/Nitrile Rubber foam -> priced as Thermal Nitrile Insulation"
  },
  {
   "id": "BOQ-26-00086|Low side#67",
   "fixes": [
    "D7"
   ],
-  "priced": false,
-  "reason": "No SKU in the catalogue for XLPE/Nitrile Rubber foam - price this row by hand",
+  "priced": true,
+  "supply": 780,
+  "install": 154,
   "layers": [
    "25/Aluminium Foil"
   ],
-  "defaulted": []
+  "defaulted": [],
+  "working0": "BoQ says XLPE/Nitrile Rubber foam -> priced as Thermal Nitrile Insulation"
  },
  {
   "id": "BOQ-26-00087|HVAC#32",
   "fixes": [
    "D7"
   ],
-  "priced": false,
-  "reason": "No SKU in the catalogue for fiberglass / mineral wool insulation - price this row by hand",
+  "priced": true,
+  "supply": 2330,
+  "install": 308,
   "layers": [
-   "25 mm/None"
+   "24/No"
   ],
-  "defaulted": []
+  "defaulted": [
+   "0:cladding=No"
+  ],
+  "working0": "BoQ says 25 mm -> priced as 9 + 15 mm (24 mm, -1) -- above the largest stocked size (19 mm)"
  },
  {
   "id": "BOQ-26-00029|HVAC WORK#263",
@@ -628,9 +656,11 @@
   "priced": false,
   "reason": "item 1 (Nitrile Rubber Insulation): pipe size 100 is above the largest size on the sheet (53.98)",
   "layers": [
-   "/None"
+   "50/No"
   ],
-  "defaulted": [],
+  "defaulted": [
+   "0:cladding=No"
+  ],
   "working0": "BoQ says 25 mm thick - 2 Layers -> priced as two layers, 25 + 25 mm (50 mm); cladding on the outer layer only"
  },
  {
@@ -641,9 +671,11 @@
   "priced": false,
   "reason": "item 1 (Nitrile Rubber Insulation): pipe size 80 is above the largest size on the sheet (53.98)",
   "layers": [
-   "/None"
+   "50/No"
   ],
-  "defaulted": [],
+  "defaulted": [
+   "0:cladding=No"
+  ],
   "working0": "BoQ says 25 mm thick - 2 Layers -> priced as two layers, 25 + 25 mm (50 mm); cladding on the outer layer only"
  },
  {
@@ -654,9 +686,11 @@
   "priced": false,
   "reason": "item 1 (Nitrile Rubber Insulation): pipe size 65 is above the largest size on the sheet (53.98)",
   "layers": [
-   "/None"
+   "50/No"
   ],
-  "defaulted": [],
+  "defaulted": [
+   "0:cladding=No"
+  ],
   "working0": "BoQ says 25 mm thick - 2 Layers -> priced as two layers, 25 + 25 mm (50 mm); cladding on the outer layer only"
  },
  {
@@ -668,9 +702,11 @@
   "supply": 746,
   "install": 28,
   "layers": [
-   "25/None"
+   "50/No"
   ],
-  "defaulted": [],
+  "defaulted": [
+   "0:cladding=No"
+  ],
   "working0": "BoQ says 25 mm thick - 2 Layers -> priced as two layers, 25 + 25 mm (50 mm); cladding on the outer layer only"
  },
  {
@@ -682,9 +718,11 @@
   "supply": 676,
   "install": 28,
   "layers": [
-   "25/None"
+   "50/No"
   ],
-  "defaulted": [],
+  "defaulted": [
+   "0:cladding=No"
+  ],
   "working0": "BoQ says 25 mm thick - 2 Layers -> priced as two layers, 25 + 25 mm (50 mm); cladding on the outer layer only"
  },
  {
@@ -695,7 +733,7 @@
   "priced": false,
   "reason": "item 1 (Nitrile Rubber Insulation): several values stated for pipe size ('40 mm dia to 100 mm dia')",
   "layers": [
-   "25 mm - 2 Layers/None"
+   "50/None"
   ],
   "defaulted": [],
   "working0": "BoQ says 25 mm - 2 Layers -> priced as two layers, 25 + 25 mm (50 mm); cladding on the outer layer only"

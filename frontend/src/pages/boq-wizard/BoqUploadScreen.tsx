@@ -142,7 +142,9 @@ export function BoqUploadScreen({ projectId, onBack, embedded }: BoqUploadScreen
     "nirmaan_stack.api.boq.wizard.upload_file.get_upload_status",
     { job_id: jobId },
     shouldPoll ? `boq-upload-status::${jobId}` : null,
-    { refreshInterval: shouldPoll ? 3000 : 0 }
+    // S6 (F10 / U9): keep polling while the tab is hidden (SWR stops by default), so the upload
+    // moves on even when the socket event was missed and the user is on another tab.
+    { refreshInterval: shouldPoll ? 3000 : 0, refreshWhenHidden: true }
   );
 
   useEffect(() => {

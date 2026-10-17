@@ -1,0 +1,275 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "hash",
+ "creation": "2026-10-12 13:52:36.543840",
+ "description": "One record per Claude review run (manual or automatic) for a BoQ sheet: status, heartbeat, tokens, timings and the failure reason. Written by api/boq/wizard/ai_run_log.py; read-only in the desk.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "boq",
+  "sheet_name",
+  "trigger",
+  "status",
+  "cached",
+  "column_break_run",
+  "prompt_version",
+  "job_id",
+  "sheet_last_parsed_at",
+  "section_times",
+  "queued_at",
+  "started_at",
+  "finished_at",
+  "last_heartbeat",
+  "column_break_times",
+  "library_seconds",
+  "lookup_seconds",
+  "ai_seconds",
+  "section_work",
+  "chunks_total",
+  "chunks_done",
+  "input_tokens",
+  "output_tokens",
+  "suggestion_count",
+  "column_break_work",
+  "library_status",
+  "library_memory_peak_mib",
+  "section_failure",
+  "failure_category",
+  "error_log",
+  "failure_message"
+ ],
+ "fields": [
+  {
+   "fieldname": "boq",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "BoQ",
+   "options": "BOQs",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "sheet_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Sheet",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "trigger",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Trigger",
+   "options": "auto-after-parse\nre-parse\nmanual",
+   "read_only": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Queued\nRunning\nDone\nFailed\nSuperseded",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "default": "0",
+   "description": "1 = a manual run answered from the result cache (Done, no AI call).",
+   "fieldname": "cached",
+   "fieldtype": "Check",
+   "label": "Cached",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_run",
+   "fieldtype": "Column Break",
+   "read_only": 1
+  },
+  {
+   "fieldname": "prompt_version",
+   "fieldtype": "Data",
+   "label": "Prompt Version",
+   "read_only": 1
+  },
+  {
+   "fieldname": "job_id",
+   "fieldtype": "Data",
+   "label": "Job ID",
+   "read_only": 1
+  },
+  {
+   "description": "The sheet's last_parsed_at when this run was queued. A run whose sheet has been re-parsed since is Superseded and writes nothing.",
+   "fieldname": "sheet_last_parsed_at",
+   "fieldtype": "Datetime",
+   "label": "Sheet Last Parsed At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_times",
+   "fieldtype": "Section Break",
+   "label": "Times",
+   "read_only": 1
+  },
+  {
+   "fieldname": "queued_at",
+   "fieldtype": "Datetime",
+   "label": "Queued At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "finished_at",
+   "fieldtype": "Datetime",
+   "label": "Finished At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_heartbeat",
+   "fieldtype": "Datetime",
+   "label": "Last Heartbeat",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_times",
+   "fieldtype": "Column Break",
+   "read_only": 1
+  },
+  {
+   "fieldname": "library_seconds",
+   "fieldtype": "Float",
+   "label": "Library Seconds",
+   "read_only": 1
+  },
+  {
+   "fieldname": "lookup_seconds",
+   "fieldtype": "Float",
+   "label": "Look-up Seconds",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ai_seconds",
+   "fieldtype": "Float",
+   "label": "AI Seconds",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_work",
+   "fieldtype": "Section Break",
+   "label": "Work",
+   "read_only": 1
+  },
+  {
+   "fieldname": "chunks_total",
+   "fieldtype": "Int",
+   "label": "Chunks Total",
+   "read_only": 1
+  },
+  {
+   "fieldname": "chunks_done",
+   "fieldtype": "Int",
+   "label": "Chunks Done",
+   "read_only": 1
+  },
+  {
+   "fieldname": "input_tokens",
+   "fieldtype": "Int",
+   "label": "Input Tokens",
+   "read_only": 1
+  },
+  {
+   "fieldname": "output_tokens",
+   "fieldtype": "Int",
+   "label": "Output Tokens",
+   "read_only": 1
+  },
+  {
+   "fieldname": "suggestion_count",
+   "fieldtype": "Int",
+   "label": "Suggestions",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_work",
+   "fieldtype": "Column Break",
+   "read_only": 1
+  },
+  {
+   "fieldname": "library_status",
+   "fieldtype": "Select",
+   "label": "Library Status",
+   "options": "\nok\nrebuilt\nno-examples fallback",
+   "read_only": 1
+  },
+  {
+   "description": "The worker process's memory high-water mark at the end of the examples look-up.",
+   "fieldname": "library_memory_peak_mib",
+   "fieldtype": "Float",
+   "label": "Library Memory Peak (MiB)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_failure",
+   "fieldtype": "Section Break",
+   "label": "Failure",
+   "read_only": 1
+  },
+  {
+   "fieldname": "failure_category",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Failure Category",
+   "options": "\njob timeout\nrequest timeout\nAPI error\nrate limit\nservice overloaded\nno key / disabled\nunreadable answer\nworker stopped or timed out\ninternal error",
+   "read_only": 1
+  },
+  {
+   "fieldname": "error_log",
+   "fieldtype": "Link",
+   "label": "Error Log",
+   "options": "Error Log",
+   "read_only": 1
+  },
+  {
+   "description": "Scrubbed of any key and capped in length.",
+   "fieldname": "failure_message",
+   "fieldtype": "Small Text",
+   "label": "Failure Message",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "in_create": 1,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-10-12 14:02:29.772962",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BoQ AI Run Log",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "sheet_name"
+}

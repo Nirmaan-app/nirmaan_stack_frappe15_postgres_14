@@ -49,10 +49,12 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
     save_review_edit,
 )
 from nirmaan_stack.services.boq_ai_assist import _NonRetryable
+from nirmaan_stack.services.boq_ai_guidance import build_guidance as _REAL_BUILD_GUIDANCE
 
 _SERVICE = "nirmaan_stack.services.boq_ai_assist.run_ai_pass"
 _SETTINGS = "nirmaan_stack.api.boq.wizard.ai_assist.get_boq_ai_settings"
 _API_KEY = "nirmaan_stack.api.boq.wizard.ai_assist.get_boq_ai_api_key"
+_GUIDANCE = "nirmaan_stack.services.boq_ai_guidance.build_guidance"
 
 _AI_SHEET = "AISheet"
 _EMPTY_SHEET = "EmptySheet"
@@ -106,6 +108,7 @@ class TestAIAssist(FrappeTestCase):
         frappe.db.commit()
         for b in frappe.get_all("BOQs", filters={"project": cls.test_project.name}, fields=["name"]):
             frappe.db.delete("BoQ Review Row", {"boq": b.name})
+            frappe.db.delete("BoQ AI Run Log", {"boq": b.name})  # S2: a manual run writes one
             frappe.delete_doc("BOQs", b.name, force=True, ignore_permissions=True)
         frappe.delete_doc("Projects", cls.test_project.name, force=True, ignore_permissions=True)
         frappe.db.commit()
@@ -114,6 +117,7 @@ class TestAIAssist(FrappeTestCase):
     def setUp(self):
         # Fresh row set for the parsed sheet each test (3 rows: root preamble + 2 line items).
         frappe.db.delete("BoQ Review Row", {"boq": self.boq_name, "sheet_name": _AI_SHEET})
+        frappe.db.delete("BoQ AI Run Log", {"boq": self.boq_name})  # S2: no run carried between tests
         self.names = {}
         for ridx, cls_, parent in [(0, "preamble", -1), (1, "line_item", -1), (2, "line_item", -1)]:
             doc = frappe.new_doc("BoQ Review Row")
@@ -135,6 +139,12 @@ class TestAIAssist(FrappeTestCase):
         self._set_draft(_AI_SHEET, {"ai_in_progress": 0, "last_parsed_at": None})
         self._set_draft(_EMPTY_SHEET, {"ai_in_progress": 0, "last_parsed_at": None})
         frappe.db.commit()
+        # S1b: the worker now builds guidance from the EXAMPLES LIBRARY. A worker test must
+        # never build or load the site's real library file -- the builder is replaced here
+        # for every test of this class; the S1b tests further down cover the hand-over itself.
+        guidance_patch = patch(_GUIDANCE, return_value={})
+        self.mock_guidance = guidance_patch.start()
+        self.addCleanup(guidance_patch.stop)
 
     # --- helpers -----------------------------------------------------------
 
@@ -517,6 +527,127 @@ class TestAIAssist(FrappeTestCase):
             result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET)
         self.assertEqual(result, {"ok": False, "error": "parsing"})
         self.assertFalse(mock_enq.called, "a parsing sheet must NOT enqueue an AI pass")
+
+    # === S1b: the guided prompt (v2) wiring -- the four places touched in ai_assist.py ===
+
+    # -- fetch fields ---------------------------------------------------------
+
+    def test_fetch_fields_gain_exactly_the_two_quantity_fields(self):
+        fields = ai_assist._AI_FETCH_FIELDS
+        self.assertEqual(fields[-2:], ["qty_total", "qty_by_area"])
+        self.assertEqual(len(fields), 18, "16 fields before S1b + the two quantity fields")
+        self.assertEqual(len(set(fields)), len(fields))
+
+    def test_fetch_fields_never_name_a_rate_or_amount(self):
+        """NEGATIVE: the worker never even reads a rate / amount / price column."""
+        for f in ai_assist._AI_FETCH_FIELDS:
+            for word in ("rate", "amount", "price"):
+                self.assertNotIn(word, f)
+
+    def test_worker_fetch_builds_the_seven_wire_keys_from_review_rows(self):
+        """The join the renderer fixture cannot see: real BoQ Review Rows, fetched by the
+        worker's own fetch, serialise to the 7 pinned wire keys with has_qty derived from
+        qty_total / qty_by_area -- and the quantity itself stays behind."""
+        frappe.db.set_value("BoQ Review Row", self.names[1], "qty_total", 98765.4321)
+        frappe.db.set_value("BoQ Review Row", self.names[2], "qty_by_area",
+                            json.dumps({"Tower A": 0, "Tower B": 43210.9876}))
+        rows = ai_assist._fetch_review_rows_for_ai(self.boq_name, _AI_SHEET)
+        json_str, _ = _svc.build_rows_payload(rows)
+        wire = json.loads(json_str)
+        for el in wire:
+            self.assertEqual(list(el), ["excel_row", "classification", "parent_excel_row",
+                                        "sl_no", "description", "unit", "has_qty"])
+        self.assertEqual([el["has_qty"] for el in wire], [False, True, True])
+        self.assertNotIn("98765", json_str)
+        self.assertNotIn("43210", json_str)
+
+    # -- cache key --------------------------------------------------------------
+
+    def test_cache_key_carries_the_prompt_version(self):
+        key = _ai_cache_key("BOQ-X", "Sheet", "2026-01-01 00:00:00")
+        self.assertEqual(key, "boq_ai_pass::v2::BOQ-X::Sheet::2026-01-01 00:00:00")
+
+    def test_result_cached_by_the_previous_prompt_is_never_served(self):
+        """NEGATIVE: a result stored under the pre-S1b key shape (no version) is a MISS --
+        the endpoint enqueues a fresh pass and applies nothing from it."""
+        self._set_draft(_AI_SHEET, {"last_parsed_at": frappe.utils.now()})
+        frappe.db.commit()
+        lpa = ai_assist._get_last_parsed_at(self.boq_name, _AI_SHEET)
+        old_key = f"boq_ai_pass::{self.boq_name}::{_AI_SHEET}::{lpa}"
+        self.assertNotEqual(old_key, _ai_cache_key(self.boq_name, _AI_SHEET, lpa))
+        frappe.cache().set_value(old_key, [
+            {"row_index": 1, "ai_suggested_classification": "preamble",
+             "ai_classification_confidence": "High", "ai_suggested_parent": None,
+             "ai_parent_confidence": None, "ai_explanation": "from the old prompt"},
+        ], expires_in_sec=600)
+        self.addCleanup(lambda: frappe.cache().delete_value(old_key))
+
+        with patch(_SETTINGS, return_value=_enabled_settings()), \
+             patch(_API_KEY, return_value="sk-test"), \
+             patch("frappe.enqueue", return_value=MagicMock()) as mock_enq:
+            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET)
+
+        self.assertTrue(mock_enq.called, "the old prompt's result must not be served")
+        self.assertTrue(result.get("enqueued"))
+        self.assertFalse(result.get("cached"))
+        self.assertIsNone(self._row(1)["ai_suggested_classification"])
+
+    def test_bumping_the_prompt_version_changes_the_key(self):
+        before = _ai_cache_key("B", "S", "t")
+        with patch.object(_svc, "PROMPT_VERSION", "v3"):
+            self.assertNotEqual(_ai_cache_key("B", "S", "t"), before)
+
+    # -- job limit ----------------------------------------------------------------
+
+    def test_claude_job_limit_is_twenty_minutes(self):
+        with patch(_SETTINGS, return_value=_enabled_settings()), \
+             patch(_API_KEY, return_value="sk-test"), \
+             patch("frappe.enqueue", return_value=MagicMock()) as mock_enq:
+            run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET)
+        self.assertEqual(mock_enq.call_args.kwargs["timeout"], 1200)
+
+    def test_gemini_and_parse_job_limits_stay_ten_minutes(self):
+        """NEGATIVE: only Claude's line moved (owner ruling R3 names the Claude job)."""
+        import inspect
+
+        from nirmaan_stack.api.boq.wizard import gemini_assist, parse_run
+        for module in (gemini_assist, parse_run):
+            source = inspect.getsource(module)
+            self.assertEqual(source.count("timeout=600"), 1, module.__name__)
+            self.assertNotIn("timeout=1200", source, module.__name__)
+
+    # -- the worker hands the guidance to the service ---------------------------------
+
+    def test_worker_builds_guidance_from_its_rows_and_passes_it_on(self):
+        sentinel = {3: {"similar_reviewed_rows": [], "candidate_parents": ["none (top level)"]}}
+        self.mock_guidance.return_value = sentinel
+        mock_svc = self._run_worker_with([])
+        self.assertEqual(self.mock_guidance.call_count, 1)
+        boq_arg, rows_arg = self.mock_guidance.call_args.args
+        self.assertEqual(boq_arg, self.boq_name)
+        self.assertEqual([r["row_index"] for r in rows_arg], [0, 1, 2])
+        self.assertIn("qty_total", rows_arg[0])
+        self.assertIs(mock_svc.call_args.kwargs["guidance"], sentinel)
+        self.assertIs(mock_svc.call_args.args[1], rows_arg,
+                      "the service and the guidance builder see the SAME rows")
+
+    def test_library_failure_inside_the_worker_still_runs_the_pass(self):
+        """The fallback end to end, with the REAL guidance builder: the library cannot be
+        had -> the worker still calls the service (candidate parents, no examples), and
+        clears ai_in_progress."""
+        from nirmaan_stack.services import boq_ai_guidance
+        self.mock_guidance.side_effect = _REAL_BUILD_GUIDANCE
+        self._set_draft(_AI_SHEET, {"ai_in_progress": 1})
+        frappe.db.commit()
+        with patch.object(boq_ai_guidance, "get_library", side_effect=RuntimeError("no library")), \
+             patch.object(boq_ai_guidance.logger, "error") as warn:
+            mock_svc = self._run_worker_with([])
+        guidance = mock_svc.call_args.kwargs["guidance"]
+        self.assertEqual(sorted(guidance), [2, 3, 4])
+        self.assertTrue(all(g["similar_reviewed_rows"] == [] for g in guidance.values()))
+        self.assertTrue(all(g["candidate_parents"][-1] == "none (top level)" for g in guidance.values()))
+        self.assertTrue(warn.called, "the log must say the pass ran without examples")
+        self.assertEqual(self._ai_in_progress(_AI_SHEET), 0)
 
 
 # ===========================================================================
@@ -914,7 +1045,9 @@ class _FakeMessages:
 class _FakeAnthropic:
     last_instance = None
 
-    def __init__(self, api_key=None):
+    def __init__(self, api_key=None, max_retries=None):
+        # S2 (owner ruling Q3): the service now creates the client with max_retries=0.
+        self.max_retries = max_retries
         self.messages = _FakeMessages(_FakeAnthropic.scripted)
         _FakeAnthropic.last_instance = self
 
@@ -1041,6 +1174,12 @@ class TestRunAiPassChunking(FrappeTestCase):
             out = _svc.run_ai_pass("Sheet1", rows, _settings(), "sk-test")
         return out, _FakeAnthropic.last_instance.messages
 
+    def test_the_client_is_created_with_its_own_retries_off(self):
+        # S2 (owner ruling Q3): max_retries=0, so request_timeout_seconds is the real limit of one
+        # request and the app's own 3 attempts are the only retries.
+        self._run(self._rows(3), ["[]"])
+        self.assertEqual(_FakeAnthropic.last_instance.max_retries, 0)
+
     def test_small_sheet_single_call_path_unchanged(self):
         # <= threshold -> exactly ONE create() call, and its prompt carries the
         # "first slice" sentinel (the single-call path still fills {CONTEXT}).
@@ -1063,7 +1202,9 @@ class TestRunAiPassChunking(FrappeTestCase):
         # "level", so assert on the ROWS_JSON block specifically (tail after "Rows (JSON):").
         rows = self._rows(3)
         _, msgs = self._run(rows, ["[]"])
-        rows_json = msgs.calls[0].split("Rows (JSON):", 1)[1].strip()
+        # S1b (prompt v2): the GUIDANCE block now follows the rows array, so the rows block
+        # ends at its header instead of at the end of the prompt.
+        rows_json = msgs.calls[0].split("Rows (JSON):", 1)[1].split("\n\nGUIDANCE (JSON):", 1)[0].strip()
         arr = json.loads(rows_json)
         self.assertEqual(len(arr), 3)
         for el in arr:

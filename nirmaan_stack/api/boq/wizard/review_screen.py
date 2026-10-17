@@ -64,6 +64,12 @@ _ASSIGNABLE_CLASSIFICATIONS: frozenset[str] = frozenset({
     "line_item", "preamble", "note", "spacer",
 })
 
+# S6 F6 (S5 DEF-06, owner V3-2 / Q-d): the REVIEW screen may also set "Subtotal" -- a missed subtotal
+# could not be fixed. Used ONLY by save_review_edit's and save_review_restructure's target checks.
+# The shared set above stays as it is (the template paths import it and still refuse subtotal), and
+# header_repeat stays parser-only everywhere.
+_REVIEW_ASSIGNABLE_CLASSIFICATIONS: frozenset[str] = _ASSIGNABLE_CLASSIFICATIONS | {"subtotal_marker"}
+
 # EA-6a slice 2. The note class is deliberately declared HERE and not added to
 # commit_validation's taxonomy block: that module owns the classes the COMMIT branches on
 # (priceable vs grid-only), and "note" is neither -- it is the class whose ATTACHMENT this
@@ -204,11 +210,12 @@ _FLAG_REASONS: dict[str, str] = {
 # Fields required by get_structural_breaks beyond the minimal integrity set.
 # These are fetched in the extended endpoint for advisory flag computation.
 # Exactly the fields the surviving flags read: parser reads
-# needs_classification_review + review_reason; classifier_warning reads
+# needs_classification_review + review_reason (+ parser_classification, to stay silent on a row
+# Claude re-typed); classifier_warning reads
 # classifier_warnings. Orphan now resolves effective values from the minimal
 # integrity fields (already in the base field list), so it needs no extra fields.
 _ADVISORY_EXTRA_FIELDS: tuple[str, ...] = (
-    "needs_classification_review", "review_reason", "classifier_warnings",
+    "needs_classification_review", "review_reason", "classifier_warnings", "parser_classification",
 )
 
 # ---------------------------------------------------------------------------
@@ -563,9 +570,18 @@ def _compute_advisory_flags(rows: list[dict]) -> list[dict]:
         # covers both. NOTE: only a CLASSIFICATION override suppresses; a parenting-only
         # override (human_parent / human_is_root) does NOT set human_classification, so
         # it correctly leaves this flag live.
+        # S4a (owner ruling R24): also silent on a row Claude surely re-typed. The reason is
+        # about the type the PARSER gave (the only one is "priced_preamble_with_children"), and
+        # that type is no longer the row's: review_flags.apply_sure_changes wrote Claude's into
+        # `classification` and kept the parser's in `parser_classification`. No human type is
+        # stored on such a row, so the test above cannot see it. A revert returns the row to
+        # parser + Claude, so the warning stays hidden after one.
         needs_review = _get(row, "needs_classification_review")
         review_reason = _get(row, "review_reason")
-        if needs_review and review_reason and not _get(row, "human_classification"):
+        parser_type = _get(row, "parser_classification")
+        re_typed = bool(parser_type) and parser_type != _get(row, "classification")
+        if (needs_review and review_reason and not _get(row, "human_classification")
+                and not re_typed):
             flags.append({
                 "type": "parser",
                 "row_index": row_index,
@@ -1487,6 +1503,10 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         # Fetched ONLY to derive gemini_revert_available below; the raw blob is DROPPED
         # from the payload -- never shipped to the client (mirrors ai_accept_snapshot).
         "gemini_accept_snapshot",
+        # S3 (ADR-0033) review flags: the "Looks OK" mark, and the parser's own type of a row
+        # Claude surely re-typed. The latter is read for the flags and DROPPED from the payload:
+        # to the user the parsed result IS parser + Claude (owner ruling R6).
+        "ai_flags_ok", "ai_flags_ok_at", "parser_classification",
     ]
 
     raw_rows = frappe.db.get_all(
@@ -1560,6 +1580,17 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
 
     breaks = check_structural_integrity(rows)
     flags = _compute_advisory_flags(rows)
+
+    # S3 (ADR-0033): the review flags ("Check type" / "Check parent") per row, and the sheet's
+    # counts. Worked out here from the rows already in hand by THE function the finalize block
+    # uses, so the screen and the refusal cannot disagree. Lazy import: review_flags imports this
+    # module at load.
+    from nirmaan_stack.api.boq.wizard import review_flags
+    check_state = review_flags.sheet_flag_state(boq_name, sheet_name, rows=rows)
+    for d in rows:
+        d["check_flags"] = check_state["flags"].get(d.get("row_index"))
+        d.pop("parser_classification", None)
+
     # DUAL-AI (ADR-0003): surface the Gemini enable flag (Document AI Settings.boq_ai_enabled,
     # read perm-bypassing). Independent of Claude's enable (a separate settings home). The
     # frontend gates the Gemini column/accept block on this. Fails closed to False on a DB error.
@@ -1616,6 +1647,7 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         "flags": flags,
         "gemini_enabled": gemini_enabled,
         "revision": revision_meta,
+        "check_summary": check_state["summary"],
     }
 
 
@@ -2097,11 +2129,11 @@ def save_review_edit(
         # FROM-but-not-TO (Slice 1b-alpha): only the 4 ASSIGNABLE classes may be set as
         # a target. subtotal_marker / header_repeat remain valid FROM states + reads (the
         # full vocab) but can never be assigned manually. value=None/"" clears.
-        if value and value not in _ASSIGNABLE_CLASSIFICATIONS:
+        if value and value not in _REVIEW_ASSIGNABLE_CLASSIFICATIONS:
             frappe.throw(
                 f"'{value}' is a parser-only classification and cannot be assigned "
                 f"manually; assignable classes are: "
-                f"{', '.join(sorted(_ASSIGNABLE_CLASSIFICATIONS))}.",
+                f"{', '.join(sorted(_REVIEW_ASSIGNABLE_CLASSIFICATIONS))}.",
                 title="Invalid classification",
             )
         # value=None or "" clears the override -- leave as-is for the write step
@@ -2341,11 +2373,11 @@ def save_review_restructure(
         frappe.throw("row_index must be an integer.", title="Invalid row_index")
 
     # FROM-but-not-TO: only the 4 assignable classes are valid write targets.
-    if new_classification not in _ASSIGNABLE_CLASSIFICATIONS:
+    if new_classification not in _REVIEW_ASSIGNABLE_CLASSIFICATIONS:
         frappe.throw(
             f"'{new_classification}' is a parser-only classification and cannot be "
             f"assigned manually; assignable classes are: "
-            f"{', '.join(sorted(_ASSIGNABLE_CLASSIFICATIONS))}.",
+            f"{', '.join(sorted(_REVIEW_ASSIGNABLE_CLASSIFICATIONS))}.",
             title="Invalid classification",
         )
 
@@ -2709,7 +2741,9 @@ def revert_to_parser(boq_name: str = None, sheet_name: str = None, row_index=Non
     row resolves to the parser. Finally it normalizes: any live suggestion's status -> Pending
     (re-offered), both accept snapshots cleared, chosen_source -> "parser".
 
-    Returns {"ok": True, "reverted_children": [int, ...]}.
+    Returns {"ok": True, "reverted_children": [int, ...], "children_not_returned": [int, ...]}
+    (row indexes). `children_not_returned` (S4a, R27) are the children a restructure of this row
+    moved that stay where they are, because a later move of the child still stands.
 
     Guards _not_frozen + _not_parsing (it writes the human layer). sheet_name VERBATIM (#152).
     URL: /api/method/nirmaan_stack.api.boq.wizard.review_screen.revert_to_parser
@@ -2756,6 +2790,17 @@ def revert_to_parser(boq_name: str = None, sheet_name: str = None, row_index=Non
             title="Nothing to revert",
         )
 
+    # R20 (S3, ADR-0033): the children a change of THIS row moved come back with it. Checked
+    # BEFORE any write, so a revert that would put a child back into a loop changes nothing.
+    # Off for a template BoQ: rows are inserted and deleted there, which renumbers them, so the
+    # "row N" in a child's history cannot be trusted. Lazy import: review_flags imports this module.
+    from nirmaan_stack.api.boq.wizard import review_flags
+    cascade_children = frappe.db.get_value("BOQs", boq_name, "origin") != "template"
+    children_not_returned: list = []
+    if cascade_children:
+        review_flags.guard_child_reverts(boq_name, sheet_name, row_index)
+        children_not_returned = review_flags.children_not_returned(boq_name, sheet_name, row_index)
+
     # Lazy imports: ai_assist / gemini_assist import FROM review_screen at module load, so
     # importing them here (call-time) avoids a circular import.
     from nirmaan_stack.api.boq.wizard.ai_assist import revert_ai_acceptance
@@ -2799,6 +2844,15 @@ def revert_to_parser(boq_name: str = None, sheet_name: str = None, row_index=Non
             reason="reverted to parser",
         )
 
+    # R20: put back every child whose latest parent change was made by a restructure of this
+    # row (a child the user moved again afterwards is left where it is). Same transaction as the
+    # row's own revert, so it is all or nothing. Children an old AI accept moved were restored
+    # from its snapshot above and are no longer in this plan.
+    if cascade_children:
+        for child_index in review_flags.revert_moved_children(boq_name, sheet_name, row_index):
+            if child_index not in reverted_children:
+                reverted_children.append(child_index)
+
     # Normalize: re-offer any live suggestion (status -> Pending when a suggestion exists),
     # clear both accept snapshots, and pin chosen_source -> "parser". One commit covers these
     # plus the chokepoint writes above. set_value runs in this request transaction.
@@ -2812,11 +2866,18 @@ def revert_to_parser(boq_name: str = None, sheet_name: str = None, row_index=Non
     # A live suggestion is re-offered as Pending; a row that never had a suggestion stays
     # untouched (don't fabricate a Pending on a no-suggestion row). ai_suggested_classification
     # / a non-(-1) ai_suggested_parent / ai_suggested_is_root => there IS a Claude suggestion.
-    if (doc.ai_suggested_classification
+    #
+    # S4a (R23): the row must also already carry a STATUS. `*_suggested_parent` is 0 by column
+    # default on a row the model never answered, and row 0 is a real row, so the parent test
+    # alone marked such a row Pending -- which showed a suggestion block nobody made and, on the
+    # Claude side, made review_flags read "Claude named row 0" and open a false "Check parent".
+    if doc.ai_suggestion_status and (
+            doc.ai_suggested_classification
             or (doc.ai_suggested_parent is not None and doc.ai_suggested_parent >= 0)
             or doc.ai_suggested_is_root):
         normalize["ai_suggestion_status"] = "Pending"
-    if (doc.gemini_suggested_classification
+    if doc.gemini_suggestion_status and (
+            doc.gemini_suggested_classification
             or (doc.gemini_suggested_parent is not None and doc.gemini_suggested_parent >= 0)
             or doc.gemini_suggested_is_root):
         normalize["gemini_suggestion_status"] = "Pending"
@@ -2830,7 +2891,11 @@ def revert_to_parser(boq_name: str = None, sheet_name: str = None, row_index=Non
 
     frappe.db.commit()
 
-    return {"ok": True, "reverted_children": sorted(set(reverted_children))}
+    return {
+        "ok": True,
+        "reverted_children": sorted(set(reverted_children)),
+        "children_not_returned": sorted(set(children_not_returned) - set(reverted_children)),
+    }
 
 
 @frappe.whitelist(methods=["POST"])
@@ -3322,6 +3387,12 @@ def mark_sheet_parsed_check_done(
         ]
         if qty_gap:
             return {"ok": False, "breaks": [], "qty_gap": len(qty_gap)}
+
+    # S3 (ADR-0033) REVIEW-FLAG GATE, the last check: refused while the automatic check is still
+    # running on this sheet, and while any "Check type" / "Check parent" flag is open. It raises
+    # (the screen shows a server error as it is); a sheet with nothing open falls through.
+    from nirmaan_stack.api.boq.wizard import review_flags
+    review_flags.guard_finalize(boq_name, sheet_name)
 
     # No breaks -> finalize. Write "Finalized" directly -- bypasses set_sheet_status which rejects it
     frappe.db.set_value("BoQ Sheet Draft", child_name, "wizard_status", _SHEET_FINALIZED)

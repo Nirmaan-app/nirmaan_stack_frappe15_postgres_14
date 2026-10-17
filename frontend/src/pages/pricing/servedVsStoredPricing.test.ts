@@ -105,9 +105,9 @@ function withProjection(catalogue: RateMasterItem[], computed: Record<string, Re
 }
 
 describe("the served fixture is the live endpoint's payload, and its rates ARE the stored catalogue", () => {
-  it("335 HVAC items (331 + the four 12d-4a Acoustic x GI SKUs), computed_rates for 223 of them, and 1,402 Electrical items with none", () => {
-    expect(servedHvac).toHaveLength(335);
-    expect(Object.keys(served.computed_rates.HVAC)).toHaveLength(223);
+  it("379 HVAC items (335 + the 40 Piping rows of 12e-1 + the 4 Piping accessories inputs of 12e-2), computed_rates for 223 of them (the cladding projection only -- a Piping derived cell is a STORED figure, not a projection), and 1,402 Electrical items with none", () => {
+    expect(servedHvac).toHaveLength(379);   // 12e-1: 375; 12e-2: + 4 inputs
+    expect(Object.keys(served.computed_rates.HVAC)).toHaveLength(223);   // 12e-1: unchanged -- derived_rates cells are stored, never projected
     expect(served.computed_rate_keys.HVAC).toEqual(
       Object.fromEntries(Object.entries(served.computed_rates.HVAC).map(([u, m]) => [u, Object.keys(m).sort()])),
     );

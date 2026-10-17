@@ -44,7 +44,6 @@ class TestBoQSheetDraft(FrappeTestCase):
             "sheet_name": "Electrical BOQ",
             "sheet_order": 1,
             "wizard_status": "Pending",
-            "work_package": None,
         })
         boq.insert(ignore_permissions=True)
         frappe.db.commit()
@@ -56,7 +55,19 @@ class TestBoQSheetDraft(FrappeTestCase):
             self.assertEqual(child.sheet_name, "Electrical BOQ")
             self.assertEqual(child.sheet_order, 1)
             self.assertEqual(child.wizard_status, "Pending")
-            self.assertIsNone(child.work_package)
+            # The fourth field is the sheet's work packages: none were set, so the
+            # multi work-package child table (it replaced the single work_package
+            # Link) holds no row for this draft. Read from the table itself: a
+            # parent load does not fill a child row's own child table.
+            self.assertEqual(
+                frappe.db.count(
+                    "BoQ Sheet Work Package",
+                    {"parent": child.name, "parenttype": "BoQ Sheet Draft"},
+                ),
+                0,
+            )
+            # Where the retired column still exists (an in-place upgrade), it is unset.
+            self.assertIsNone(child.get("work_package"))
         finally:
             frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
             frappe.db.commit()

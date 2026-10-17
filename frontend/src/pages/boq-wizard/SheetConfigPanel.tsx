@@ -67,6 +67,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
+import { stableOrder } from "./stableOrder";
 
 // ── Role vocabulary ───────────────────────────────────────────────────────────
 // 21 roles from config.py (qty_by_area excluded -- deprecated).
@@ -687,11 +688,19 @@ export function SheetConfigPanel({
     return used;
   }, [columnRoleMap]);
 
-  // Column letters in the map, sorted for stable display order.
-  const sortedMappedCols = useMemo(
-    () => sortColLetters(Object.keys(columnRoleMap)),
-    [columnRoleMap]
-  );
+  // Column letters in the map, in display order. S6 (F9 / U8): rows stay where they are while the
+  // user picks columns -- letter order on first load, then stableOrder keeps each row in place (a
+  // changed column takes its old letter's place; a new row goes at the end).
+  const displayOrderRef = useRef<string[]>([]);
+  const renameRef = useRef<{ from: string; to: string } | null>(null);
+  // Idempotent if React renders twice (StrictMode): the second pass finds the same order.
+  const sortedMappedCols = useMemo(() => {
+    const next = stableOrder(displayOrderRef.current, Object.keys(columnRoleMap), renameRef.current, sortColLetters);
+    displayOrderRef.current = next;
+    return next;
+  }, [columnRoleMap]);
+  // The rename hint is used by the render above, then dropped once that render is committed.
+  useEffect(() => { renameRef.current = null; }, [columnRoleMap]);
 
   // ── Slice 3 (Strand A): single-area config gate ──────────────────────────
   // Per-area roles (qty + the six *_by_area roles -- the AREA_COMPATIBLE_ROLES set)
@@ -790,6 +799,7 @@ export function SheetConfigPanel({
   const changeColumn = (oldCol: string, newCol: string) => {
     if (oldCol === newCol) return;
     dropIfConfigDone();
+    renameRef.current = { from: oldCol, to: newCol };   // S6 (F9): keep the row in place
     setColumnRoleMap((prev) => {
       const entry = prev[oldCol];
       const next = { ...prev };

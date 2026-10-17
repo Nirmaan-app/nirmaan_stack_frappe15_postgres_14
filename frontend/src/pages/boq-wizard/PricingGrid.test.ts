@@ -1578,6 +1578,27 @@ describe("suggestConfirmCopy (the confirmation before ANY AI call)", () => {
   });
 });
 
+// SLICE 12e-5b AC7 (owner R8 "option a"): a selected-row run on a sheet whose last run is older than some of its rows
+// also reads the rows no run has read -- the confirmation names them by category, and the run count includes them.
+describe("suggestConfirmCopy: the rows no run has read yet (12e-5b AC7)", () => {
+  it("names them by category and counts them in the action", () => {
+    const c = suggestConfirmCopy(2, 94, ["Piping", "Piping", "Insulation"]);
+    expect(c.neverRead).toBe(
+      "This sheet's last run is older than some of its rows. This run will also read 3 rows that no run has read yet (by category: Piping 2, Insulation 1).",
+    );
+    expect(c.confirmLabel).toBe("Run 5 rows");
+    expect(c.title).toBe("Suggest rates for 2 selected rows?");
+    expect(c.wholeSheet).toBe(false);
+    expect(c.warning).toBe("");
+    expect(suggestConfirmCopy(1, 94, ["Piping"]).neverRead).toContain("will also read 1 row that no run has read yet (by category: Piping 1)");
+  });
+  it("NEGATIVE (the pinned unchanged case): no such rows -> the copy is exactly as before; a whole-sheet run ignores them", () => {
+    expect(suggestConfirmCopy(4, 94, [])).toEqual(suggestConfirmCopy(4, 94));
+    expect("neverRead" in suggestConfirmCopy(4, 94)).toBe(false);
+    expect(suggestConfirmCopy(0, 94, ["Piping"])).toEqual(suggestConfirmCopy(0, 94));
+  });
+});
+
 // ── SELROW filter: "show only ticked rows" ────────────────────────────────────────────
 //
 // Plain-English coverage. The toggle narrows the grid to the ticked rows so a selection can be

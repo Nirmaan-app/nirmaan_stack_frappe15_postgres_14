@@ -228,15 +228,25 @@ function inputsRead(step: any, owners: Record<string, Set<string>>): Set<string>
  * -- `pipesBy` is keyed by "category|pipelineId" and would otherwise merge them.
  */
 export function pipelinesOf(cfg: unknown): Array<[string, any]> {
-  const out: Array<[string, any]> = [];
+  return pipelinesWithFamily(cfg).map(([id, pl]) => [id, pl]);
+}
+
+/**
+ * SLICE 12e-2b (12e-2 cert finding 2, AC8): the same walk, each pipeline with the FAMILY that owns it (null
+ * for the config's own pipelines). A nested id cannot be parsed back into its family -- a family name may
+ * itself hold a slash ("mixing box / LP plenum") -- so the family travels beside the id. `pipelinesOf` is this
+ * list without the third member, so the ids and their order are one definition.
+ */
+function pipelinesWithFamily(cfg: unknown): Array<[string, any, string | null]> {
+  const out: Array<[string, any, string | null]> = [];
   const own = (cfg as any)?.pipelines ?? {};
-  for (const pid of Object.keys(own).sort()) out.push([pid, own[pid] ?? {}]);
+  for (const pid of Object.keys(own).sort()) out.push([pid, own[pid] ?? {}, null]);
   const fams = (cfg as any)?.list_spec?.pricing?.families ?? {};
   for (const fam of Object.keys(fams).sort()) {
     const units = fams[fam]?.units ?? {};
     for (const uc of Object.keys(units).sort()) {
       const pls = units[uc]?.pipelines ?? {};
-      for (const pid of Object.keys(pls).sort()) out.push([`${fam}/${uc}/${pid}`, pls[pid] ?? {}]);
+      for (const pid of Object.keys(pls).sort()) out.push([`${fam}/${uc}/${pid}`, pls[pid] ?? {}, fam]);
     }
   }
   return out;
@@ -319,16 +329,35 @@ export function computePricingInputReach(
     for (const a of Object.keys(it.attributes ?? {})) set.add(a);
   }
 
+  const itemByUid = new Map<string, RateMasterItem>();
+  for (const it of items ?? []) if (it.item_uid) itemByUid.set(it.item_uid, it);
   const colLookup = new Map<string, Col>();
   const hits = new Map<string, Map<string, Set<string>>>();   // inputId -> colKey -> categories
   const readBy = new Map<string, Set<string>>();
   const sawColumn = new Set<string>();
   const adders = new Map<string, AdderSpec>();
   const pipesBy = new Map<string, Set<string>>();   // inputId -> "category|pipelineId"
+  /**
+   * SLICE 12e-2b (12e-2 cert finding 2, AC8) -- A FAMILY'S OWN PIPELINE PRICES THAT FAMILY'S SKUs.
+   *
+   * An item-list family's pipeline matches its row with the family bound from the ROW (`@`), which
+   * `literalWhere` rightly drops -- so "Piping accessories - Copper", read by the Copper pipeline alone,
+   * listed all 40 pipes where 13 move. The missing fact is WHICH FAMILY'S pipeline read the input for a
+   * column: recorded here per (input, column), and applied when the rows are listed -- a row whose family
+   * attribute names a family none of whose pipelines read the input is not reached by it.
+   *
+   * ⚠️ IT FILTERS THE LIST, IT DOES NOT RE-KEY THE COLUMNS. Putting the family into the column's `where`
+   * gave the same SKUs in a different ORDER for every Insulation input; filtering the existing column keeps
+   * every other input's list byte-identical. A column any un-owned pipeline read (a config's own
+   * `pipelines` -- every Electrical category, ADP's shared default) is OPEN and is never filtered.
+   */
+  const famReaders = new Map<string, { attr: string; families: Set<string>; open: boolean }>();
 
   for (const cid of Object.keys(configs ?? {}).sort()) {
     const cfg = (configs ?? {})[cid];
-    for (const [pid, pl] of pipelinesOf(cfg)) {
+    // SLICE 12e-2b (AC8): the attribute an item-list category keeps its family in
+    const famAttrId = String((cfg as any)?.list_spec?.family_attribute_id ?? "family");
+    for (const [pid, pl, ownerFamily] of pipelinesWithFamily(cfg)) {
       const steps: any[] = pl.steps ?? [];
       const owners = ctxOwners(pl);
       const prov = new Map<string, Set<string>>();
@@ -359,6 +388,13 @@ export function computePricingInputReach(
             if (!m.has(k)) m.set(k, new Set<string>());
             m.get(k)!.add(cid);
             sawColumn.add(id);
+            // SLICE 12e-2b (AC8): WHO read the input for this column -- a family's own pipeline, or one that
+            // belongs to no family (then the column is open to every row, exactly as before)
+            const fk = `${id}\u0000${k}`;
+            const seen = famReaders.get(fk) ?? { attr: famAttrId, families: new Set<string>(), open: false };
+            if (ownerFamily === null || seen.attr !== famAttrId) seen.open = true;
+            else seen.families.add(ownerFamily);
+            famReaders.set(fk, seen);
           }
         }
       };
@@ -513,7 +549,12 @@ export function computePricingInputReach(
         itemListKind.add(c.kind);
         (itemListCats.get(c.kind) ?? itemListCats.set(c.kind, new Set<string>()).get(c.kind)!).add(cat);
       }
+      const readers = famReaders.get(`${id}\u0000${k}`);
       for (const uid of matching(c)) {
+        if (readers && !readers.open) {
+          const fam = (itemByUid.get(uid)?.attributes ?? {})[readers.attr];
+          if (typeof fam === "string" && !readers.families.has(fam)) continue;
+        }
         columns.push({ itemUid: uid, kind: c.kind, rateKey: c.rateKey, categories: catList });
         distinct.add(uid);
         for (const cat of catList) (byCategory[cat] ??= new Set<string>()).add(uid);

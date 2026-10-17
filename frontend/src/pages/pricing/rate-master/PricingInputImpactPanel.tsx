@@ -54,6 +54,84 @@ export const IMPACT_COPY = {
   nowLegTitle: (leg: string) => `Both figures are the ${leg} rate, before and after.`,
 } as const;
 
+/**
+ * SLICE 12e-2b (12e-2 cert finding 3, AC9) -- A VALUE BOX KEEPS THE TEXT AS TYPED.
+ *
+ * The box was bound to the NUMBER it had parsed: typing "0." stored 0, the box re-rendered "0", the dot was
+ * gone, and the next key made "04" -> 4. So "0.4" typed key by key became 4 (and "0.05" became 5) on every
+ * discipline's inputs, while a value set in one event took. The number still drives the preview; the BOX shows
+ * `drafts[key]`, the text the person typed, until the edit is saved or cancelled.
+ *
+ * `typeIntoField` is the whole rule, PURE, so it is tested by feeding it one character at a time:
+ *   - a complete number sets the value (a percent field divides by 100, as before);
+ *   - a number still being typed (".", "0.", "-") keeps the text and leaves the value where it was;
+ *   - an empty box means "no edit": the value falls back to the stored one and the box STAYS empty;
+ *   - anything else is ignored, text and value both, exactly as before.
+ */
+/**
+ * SLICE 12e-2b (12e-2 cert finding 2; owner 2026-10-10: "HVAC item-list rows") -- A ROW'S LABEL NAMES ITS FACTS
+ * BY THE PANEL FIELD'S LABEL, NEVER BY AN ATTRIBUTE ID.
+ *
+ * `skuLabel` tells same-named rows apart by "<attribute id> <value>" ("... · size_mm 15.9"). On a SKU priced by an
+ * ITEM-LIST category the id is replaced by the label that category's own field carries (`list_spec.
+ * attribute_definitions`): "Pipe size 15.9", "Thickness (mm) 25". The field is found by its id, or -- where a
+ * SKU attribute is read from a differently named field -- through the config's own number reader.
+ *
+ * ⚠️ ITEM-LIST CATEGORIES ONLY, AND ONLY HERE. A row whose categories are not item-list (every Electrical row) is
+ * returned byte-identical, and the shared `skuLabel` is untouched, so no other reader of a label moves. An id the
+ * config declares no label for is left as it is -- nothing is invented. PURE.
+ */
+export function plainSkuLabel(label: string, configs: ReadonlyArray<unknown>): string {
+  const byId = new Map<string, string>();
+  for (const cfg of configs) {
+    const ls = (cfg as { list_spec?: { attribute_definitions?: unknown; pricing?: { numbers?: Record<string, { from?: string[] }> } } } | undefined)?.list_spec;
+    const defs = Array.isArray(ls?.attribute_definitions) ? (ls!.attribute_definitions as Array<{ id?: unknown; label?: unknown }>) : [];
+    if (!defs.length || !ls?.pricing) continue;
+    const labelOf = new Map<string, string>();
+    for (const d of defs) if (typeof d?.id === "string" && typeof d?.label === "string" && d.label.trim()) labelOf.set(d.id, d.label.trim());
+    for (const [id, l] of labelOf) if (!byId.has(id)) byId.set(id, l);
+    for (const [skuAttr, reader] of Object.entries(ls.pricing.numbers ?? {})) {
+      const src = reader?.from?.[0];
+      if (src && labelOf.has(src) && !byId.has(skuAttr)) byId.set(skuAttr, labelOf.get(src)!);
+    }
+  }
+  if (!byId.size) return label;
+  const parts = label.split(" · ");
+  return parts.map((part, i) => {
+    if (i === 0) return part;                                   // the row's own name
+    const cut = part.indexOf(" ");
+    const id = cut < 0 ? part : part.slice(0, cut);
+    const plain = byId.get(id);
+    return plain ? `${plain}${cut < 0 ? "" : part.slice(cut)}` : part;
+  }).join(" · ");
+}
+
+const NO_DRAFTS: Record<string, string> = {};
+export interface FieldEditState { edited: Record<string, number>; drafts: Record<string, string> }
+
+export function typeIntoField(state: FieldEditState, key: string, text: string, percent: boolean): FieldEditState {
+  const raw = text.replace("%", "").trim();
+  if (raw === "") {
+    const edited = { ...state.edited };
+    delete edited[key];
+    return { edited, drafts: { ...state.drafts, [key]: "" } };
+  }
+  const n = Number(raw);
+  if (!Number.isFinite(n)) {
+    // a number in the middle of being typed: keep the text, do not touch the value
+    if (/^-?\d*\.?\d*$/.test(raw)) return { edited: state.edited, drafts: { ...state.drafts, [key]: text } };
+    return state;
+  }
+  return { edited: { ...state.edited, [key]: percent ? n / 100 : n }, drafts: { ...state.drafts, [key]: text } };
+}
+
+/** What a value box shows: the text as typed while an edit is open, else the value (edited, else stored). */
+export function fieldBoxText(state: FieldEditState, key: string, stored: Record<string, number>, percent: boolean): string {
+  if (key in state.drafts) return state.drafts[key];
+  const v = key in state.edited ? state.edited[key] : stored[key];
+  return percent ? pctText(v) : String(v ?? "");
+}
+
 function fmt(n: number): string {
   return n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
 }
@@ -85,6 +163,10 @@ export function PricingInputImpactPanel({
   const stored = (input.rates ?? {}) as Record<string, number>;
   const attrs = (input.attributes ?? {}) as Record<string, unknown>;
   const [edited, setEdited] = useState<Record<string, number>>({});
+  // SLICE 12e-2b (AC9): the text of each box AS TYPED -- see `typeIntoField`. The texts belong to ONE `edited`
+  // object (`owner`): Cancel and Save replace `edited`, which drops them with no second reset to forget.
+  const [draftState, setDraftState] = useState<{ owner: Record<string, number> | null; drafts: Record<string, string> }>({ owner: null, drafts: {} });
+  const drafts = draftState.owner === edited ? draftState.drafts : NO_DRAFTS;
   const [query, setQuery] = useState("");
   /**
    * ⚠️ THE DETAIL HOLDS THE SKU's IDENTITY, NEVER THE ROW OBJECT. A captured row freezes `now`,
@@ -119,10 +201,26 @@ export function PricingInputImpactPanel({
     inputItemKey: String((input.attributes ?? {}).item ?? ""),
   }), [allConfigs, allItems, input]);
 
-  const impact = useMemo(
-    () => computeImpact(stored, edited, reach, itemsByUid, adderCtx, exactCtx),
-    [stored, edited, reach, itemsByUid, adderCtx, exactCtx],
-  );
+  const impact = useMemo(() => {
+    const raw = computeImpact(stored, edited, reach, itemsByUid, adderCtx, exactCtx);
+    // SLICE 12e-2b: an item-list SKU's label names its facts by the panel field's label (see `plainSkuLabel`).
+    // The SAME row objects sit in `rows` and `rowsByCategory`, so each is relabelled once and both lists share it.
+    const relabelled = new Map<SkuImpactRow, SkuImpactRow>();
+    const plain = (r: SkuImpactRow): SkuImpactRow => {
+      let out = relabelled.get(r);
+      if (!out) {
+        const label = plainSkuLabel(r.label, r.categories.map((c) => allConfigs[c]));
+        out = label === r.label ? r : { ...r, label };
+        relabelled.set(r, out);
+      }
+      return out;
+    };
+    return {
+      ...raw,
+      rows: raw.rows.map(plain),
+      rowsByCategory: Object.fromEntries(Object.entries(raw.rowsByCategory).map(([k, v]) => [k, v.map(plain)])),
+    };
+  }, [stored, edited, reach, itemsByUid, adderCtx, exactCtx, allConfigs]);
 
   /** ⚠️ an adder's figures ARE one install case, so the panel says which (owner item 3) */
   const conditionText = useMemo(() => adderConditionText(impact.adderWhen), [impact.adderWhen]);
@@ -148,11 +246,9 @@ export function PricingInputImpactPanel({
   const total = impact.rows.length;
 
   const setField = (key: string, text: string) => {
-    const raw = text.replace("%", "").trim();
-    if (raw === "") { const next = { ...edited }; delete next[key]; setEdited(next); return; }
-    const n = Number(raw);
-    if (!Number.isFinite(n)) return;
-    setEdited({ ...edited, [key]: isPercentField(key) ? n / 100 : n });
+    const next = typeIntoField({ edited, drafts }, key, text, isPercentField(key));
+    setEdited(next.edited);
+    setDraftState({ owner: next.edited, drafts: next.drafts });
   };
   const valueOf = (key: string) => (key in edited ? edited[key] : stored[key]);
   const isDirtyField = (key: string) => key in edited && edited[key] !== stored[key];
@@ -223,7 +319,7 @@ export function PricingInputImpactPanel({
                 <Input
                   className={cn("h-7 w-24 text-right text-xs tabular-nums",
                                 isDirtyField(k) && "border-rose-500")}
-                  value={isPercentField(k) ? pctText(valueOf(k)) : String(valueOf(k) ?? "")}
+                  value={fieldBoxText({ edited, drafts }, k, stored, isPercentField(k))}
                   onChange={(e) => setField(k, e.target.value)}
                   disabled={!canEdit || saving}
                   data-testid={`impact-field-${k}`}

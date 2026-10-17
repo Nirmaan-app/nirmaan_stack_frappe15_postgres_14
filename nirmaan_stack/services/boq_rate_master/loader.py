@@ -329,6 +329,13 @@ def load_rate_master(payload=None, path=None, replace=False):
     discipline = cfg["discipline"].strip()
     category_id = cfg["category_id"].strip()
 
+    # SLICE 12e-3c (owner F9, 2026-10-12: "Loading a single config doesn't run the cross-category check" - "fix").
+    # The SAME call `_load_multi` and the config editor's save make, before the first write: a section that
+    # delegates to another category is checked against the catalogue this load leaves standing. Every config
+    # load path now runs it. (A config with no `list_spec.sections`, in a discipline where none declares one,
+    # reads the discipline's active configs once and stops there.)
+    config_validation.validate_delegated_sections([cfg], payload["items"], label="Rate master import refused")
+
     existing_active = _active_item_count(discipline)
     if existing_active and not replace:
         frappe.throw(
@@ -436,6 +443,12 @@ def _load_multi(payload, replace):
         # below uses). Every config is validated BEFORE the first write; a refusal names the
         # category and the key and leaves the catalog untouched.
         _validate_loaded_config(_loaded_config(c, discipline, goldens_by_cat), label)
+    # SLICE 12e-3a (owner 2026-10-11): a section that DELEGATES to another category is checked against the
+    # catalogue as it will stand after this load -- the payload's configs and items, plus whatever stays
+    # active outside its scope -- BEFORE the first write.
+    config_validation.validate_delegated_sections(
+        [_loaded_config(c, discipline, goldens_by_cat) for c in configs], payload.get("items"),
+        label="Rate master import refused")
 
     # EA-1b: retired scope -- kinds / category_ids dropped from THIS payload that must be superseded on
     # a replace (else they stay orphan-active from a prior batch, e.g. ups after the Floor BOX fix).
