@@ -6,6 +6,9 @@ import {
     ceoNote,
     chequeApprovalRows,
     otherPaymentsText,
+    rejectAllLabel,
+    rejectNote,
+    rejectTitle,
     type ChequeApproval,
 } from "./chequeApproval";
 
@@ -96,5 +99,24 @@ describe("ceoNote", () => {
     it("is silent when L1 finishes it, and at the CEO's own step", () => {
         expect(ceoNote(approval([line("PAY-1", 20000)]), "lead")).toBeNull();
         expect(ceoNote(approval([line("PAY-1", 60000)], { status_after_l1: "CEO Pending" }), "ceo")).toBeNull();
+    });
+});
+
+describe("rejecting a cheque's payments", () => {
+    const three = approval([line("PAY-1", 28400), line("PAY-2", 22000), line("PAY-3", 18000)]);
+    const one = approval([line("PAY-1", 20000)]);
+
+    it("names how many payments are rejected and the cheque that is cancelled", () => {
+        expect(rejectTitle(three)).toBe("Reject 3 payments and cancel cheque 000751");
+        expect(rejectAllLabel(three)).toBe("Reject 3 and cancel cheque");
+        expect(rejectNote(three)).toBe(
+            "All 3 become Rejected and cheque 000751 becomes Cancelled. The cheque keeps its lines and history. To pay the vendor later, raise new payment requests."
+        );
+    });
+
+    it("speaks of one payment on a one-payment cheque", () => {
+        expect(rejectTitle(one)).toBe("Reject payment and cancel cheque 000751");
+        expect(rejectAllLabel(one)).toBe("Reject and cancel cheque");
+        expect(rejectNote(one)).toMatch(/^The payment becomes Rejected and cheque 000751 becomes Cancelled\./);
     });
 });

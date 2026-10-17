@@ -164,6 +164,16 @@ export interface ServerDataTableConfig<TData> {
     /** Hook for row selection changes */
     onRowSelectionChange?: (updater: React.SetStateAction<RowSelectionState>) => void;
     /**
+     * Rewrite each tick change before it lands in the hook's own selection state: given the selection
+     * before, the one the click asked for and the table's rows, return the one to keep (e.g. tick a row's
+     * whole group). Ignored when the caller owns `onRowSelectionChange`.
+     */
+    reviseRowSelection?: (
+        prev: RowSelectionState,
+        next: RowSelectionState,
+        rows: Row<TData>[],
+    ) => RowSelectionState;
+    /**
      * Row id for selection state. Pass `row => row.name` on a table with ticks: the default id is the
      * row's index on the current page, so ticks would land on other rows after paging, sorting or
      * filtering.
@@ -312,6 +322,7 @@ export function useServerDataTable<TData extends { name: string }>({
     initialState = {},
     enableRowSelection: configEnableRowSelection = false,
     onRowSelectionChange,
+    reviseRowSelection,
     getRowId,
     resetRowSelectionOnViewChange = false,
     defaultSort = 'creation desc',
@@ -839,6 +850,17 @@ export function useServerDataTable<TData extends { name: string }>({
 
     useFrappeDocTypeEventListener(doctype, handleRealtimeEvent);
 
+    // The table's rows as of the last render, for `reviseRowSelection` (which runs on click).
+    const rowsRef = useRef<Row<TData>[]>([]);
+    const setRevisedRowSelection = useCallback(
+        (updater: React.SetStateAction<RowSelectionState>) =>
+            setRowSelection(prev => {
+                const next = typeof updater === 'function' ? updater(prev) : updater;
+                return reviseRowSelection ? reviseRowSelection(prev, next, rowsRef.current) : next;
+            }),
+        [reviseRowSelection],
+    );
+
     // --- TanStack Table Instance ---
     const table = useReactTable<TData>({
         data,
@@ -871,7 +893,7 @@ export function useServerDataTable<TData extends { name: string }>({
         onGlobalFilterChange: setSearchTerm, // Update local state immediately for input field
         globalFilterFn: fuzzyFilter,
         onColumnVisibilityChange: setColumnVisibility,
-        onRowSelectionChange: onRowSelectionChange ?? setRowSelection, // Use passed handler or internal one
+        onRowSelectionChange: onRowSelectionChange ?? setRevisedRowSelection, // Use passed handler or internal one
         // Models (keep faceted utils for potential UI helpers)
         getCoreRowModel: getCoreRowModel(),
         getSortedRowModel: getSortedRowModel(),
@@ -885,6 +907,7 @@ export function useServerDataTable<TData extends { name: string }>({
         // debugTable: import.meta.env.MODE === 'development', // Enable debugging in dev
         // debugAll: import.meta.env.MODE === 'development', // Enable debugging in dev
     });
+    rowsRef.current = table.getCoreRowModel().rows;
 
     // NEW: Toggle Item Search
     // const toggleItemSearch = useCallback(() => {

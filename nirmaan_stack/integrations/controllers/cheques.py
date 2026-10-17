@@ -14,17 +14,26 @@ bank, and no bank name on an ICICI Bank cheque. The unique constraint on `bank_k
 
 A backfilled Cheque (#1419) has no photo: its writer sets `doc.flags.cheque_without_photo`.
 
-`drop_off_cheques_of` is the hook side of #1413: a Rejected or deleted payment, and a deleted
-expense, drops off every Cheque that lists it (`services/cheques/detach.py`). The payment controller
-calls it from `on_update` and `on_trash`; `on_expense_trash` is registered on both expense doctypes.
+`drop_off_cheques_of` is the hook side of #1413: a deleted payment or expense drops off every Cheque
+that lists it (`services/cheques/detach.py`). The payment controller calls it from `on_trash`;
+`on_expense_trash` is registered on both expense doctypes. A Rejected payment goes through
+`on_payment_rejected` (#1481): on a live Payment cheque it rejects every payment and cancels the
+cheque; only an Old-type cheque still drops the line.
 """
 
 import frappe
 from frappe import _
 
+from nirmaan_stack.services.cheques.decide import DECIDING_FLAG, live_cheque_of, reject_cheque, rejected_alone_note
 from nirmaan_stack.services.cheques.detach import DELETED, drop_off_cheques
 from nirmaan_stack.services.cheques.lines import lines_problem, normalise_lines
-from nirmaan_stack.services.cheques.rules import CANCELLED, duplicate_problem, header_problem, parse_header
+from nirmaan_stack.services.cheques.rules import (
+    CANCELLED,
+    PAYMENT_REJECTED,
+    duplicate_problem,
+    header_problem,
+    parse_header,
+)
 from nirmaan_stack.services.cheques.writer import CHEQUES_CHANGED_EVENT, existing_cheque
 
 
@@ -53,12 +62,30 @@ def validate(doc, method=None):
         frappe.throw(_(duplicate_problem(header, existing)))
 
 
-def drop_off_cheques_of(doc, why: str) -> None:
-    """Take `doc` (a payment or an expense) off every Cheque that lists it, as the user acting, and
-    tell open reports once the request commits. Never commits."""
-    changed = drop_off_cheques(doc.doctype, doc.name, why=why, user=frappe.session.user)
+def drop_off_cheques_of(doc, why: str, *, old_type_only: bool = False) -> None:
+    """Take `doc` (a payment or an expense) off every Cheque that lists it (only Old-type ones when
+    `old_type_only`), as the user acting, and tell open reports once the request commits. Never commits."""
+    changed = drop_off_cheques(doc.doctype, doc.name, why=why, user=frappe.session.user, old_type_only=old_type_only)
     if changed:
         frappe.publish_realtime(CHEQUES_CHANGED_EVENT, {"cheques": changed}, after_commit=True)
+
+
+def on_payment_rejected(doc) -> None:
+    """A Project Payment was saved to Rejected (#1481, spec #1477). Called from the payment's `on_update`.
+
+    On a live (Pending or Issued) Payment cheque, every other payment on it is rejected too and the cheque
+    is Cancelled (`decide.reject_cheque`), however this one was rejected: the approval dialog and bulk
+    reject go through `decide.reject` and carry `DECIDING_FLAG`, so their saves land here and stop; a
+    save made any other way (REST, Desk) starts the cascade, with a note naming this payment. An Old-type
+    cheque still drops the line (#1413); any other cheque keeps it. Inside the caller's savepoint; never
+    commits.
+    """
+    cheque = live_cheque_of(doc.name)
+    if cheque:
+        if doc.flags.get(DECIDING_FLAG) != cheque:
+            reject_cheque(cheque, reason=rejected_alone_note(doc.name), user=frappe.session.user)
+        return
+    drop_off_cheques_of(doc, PAYMENT_REJECTED, old_type_only=True)
 
 
 def on_expense_trash(doc, method=None):

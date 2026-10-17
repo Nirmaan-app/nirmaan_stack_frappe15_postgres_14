@@ -1,8 +1,8 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""One cheque, one decision: a Payment cheque's payments are approved together (#1480, spec #1477,
-ADR-0035). Part of THE cheques service; never commits.
+"""One cheque, one decision: a Payment cheque's payments are approved or rejected together (#1480,
+#1481, spec #1477, ADR-0035). Part of THE cheques service; never commits.
 
 `approve` takes any one payment on a Pending Payment cheque and approves EVERY payment on it, in one
 savepoint, so a failure on any of them leaves all of them, and the cheque, as they were:
@@ -23,13 +23,16 @@ The payment's own `validate` refuses an approval of a cheque payment made any ot
 (`refuse_lone_approval`, `rules.lone_approval_problem`): every save `approve` makes carries
 `DECIDING_FLAG`, which a REST write cannot set.
 
-⚠️ REJECT IS #1481's SEAM. It goes beside `approve`, on the same shape: `cheque_of`, lock the cheque,
-its POs and payments in that order (bulk approve locks PO before payment), write each payment with
-`DECIDING_FLAG` and `bulk_approval`, write the PO terms once (`_write_po_terms`), cancel the cheque,
-and roll the savepoint back on any failure. `refuse_lone_approval` then grows the Rejected case.
+`reject` (#1481) takes any one payment on a Pending Payment cheque and, in one savepoint, runs THE reject
+cascade `reject_cheque`: every payment Rejected with the reason as a comment, the PO terms written once
+per PO, the cheque Cancelled with the reason in its history (it keeps its lines). Same locks, same flags.
+A payment saved to Rejected any other way needs no refusal in `validate`: its own hook runs the same
+cascade (`integrations/controllers/cheques.on_payment_rejected`), so no path rejects one alone.
+Cancelling the cheque (#1484) is `reject_cheque` too.
 
-Endpoints: `api/payments/cheque_approval.py` (single L1 approve, the dialog's read) and
-`api/payments/project_payments.ceo_approve_payment`. They check who asks, call this, commit, notify.
+Endpoints: `api/payments/cheque_approval.py` (single L1 approve, single reject, the dialogs' reads),
+`api/payments/project_payments.ceo_approve_payment` and `api/payments/bulk_actions` (bulk groups by
+cheque). They check who asks, call this, commit, notify.
 """
 
 import frappe
@@ -39,8 +42,11 @@ from frappe.utils import flt, nowdate
 from nirmaan_stack.services.approval_tiers import status_after_l1
 from nirmaan_stack.services.cheque_payments import move_to_reconciliation
 from nirmaan_stack.services.cheques.rules import (
+    CANCELLED,
     CHEQUE_TYPE_PAYMENT,
+    ISSUED,
     PAYMENT_DOCTYPE,
+    PAYMENT_REJECTED,
     PENDING,
     PO_DOCTYPE,
     ApprovalLine,
@@ -49,10 +55,11 @@ from nirmaan_stack.services.cheques.rules import (
     is_approval,
     lone_approval_problem,
 )
-from nirmaan_stack.services.cheques.writer import CHEQUES
+from nirmaan_stack.services.cheques.writer import CHEQUES, CHEQUES_CHANGED_EVENT, history_row
 from nirmaan_stack.services.settlement import (
     STATUS_APPROVED,
     STATUS_CEO_PENDING,
+    STATUS_PAID,
     STATUS_RECONCILIATION_PENDING,
     STATUS_REQUESTED,
 )
@@ -67,6 +74,8 @@ _STAGES = {
 }
 #: Set on every payment save a cheque's decision makes, naming the cheque. Only server code sets it.
 DECIDING_FLAG = "cheque_decision"
+#: A Payment cheque whose payments are still live: rejecting one of them rejects them all and cancels it.
+LIVE_STATUSES = (PENDING, ISSUED)
 CEO_HOLD = "CEO Hold"
 
 
@@ -75,16 +84,26 @@ def cheque_of(payment_name: str) -> str | None:
     whose lines name it. Keyed on the lines, not on the payment's `cheque` link. None for an Online
     payment, an Old-type cheque's payment, a payment whose line has come off, and a cheque past Pending.
 
-    ⚠️ PENDING ONLY. A Payment cheque's payments wait for approval only while it is Pending, except on a
-    cheque the report's Add Cheque made, which still starts Issued (`writer._STARTS_AT`) until #1482
-    makes it Pending: its payments are still approved one by one, as before #1480."""
+    ⚠️ PENDING ONLY. A Payment cheque's payments wait for approval only while it is Pending (every new
+    cheque starts Pending since #1482)."""
+    return _payment_cheque_of(payment_name, (PENDING,))
+
+
+def live_cheque_of(payment_name: str) -> str | None:
+    """The Payment cheque a rejection of `payment_name` cascades over: the Pending or Issued, not
+    Old-type Payment cheque whose lines name it, else None. Its payments are still live, so rejecting
+    one rejects them all (`reject_cheque`)."""
+    return _payment_cheque_of(payment_name, LIVE_STATUSES)
+
+
+def _payment_cheque_of(payment_name: str, statuses: tuple) -> str | None:
     rows = frappe.db.sql(
         f"""SELECT c.name FROM "tabCheque Line" l JOIN "tab{CHEQUES}" c ON c.name = l.parent
             WHERE l.parenttype = %(cheques)s AND l.payment_doctype = %(doctype)s AND l.payment_name = %(payment)s
-              AND c.status = %(pending)s AND c.cheque_type = %(payment_type)s AND COALESCE(c.old_type, 0) = 0
+              AND c.status IN %(statuses)s AND c.cheque_type = %(payment_type)s AND COALESCE(c.old_type, 0) = 0
             ORDER BY c.creation LIMIT 1""",
         {
-            "cheques": CHEQUES, "doctype": PAYMENT_DOCTYPE, "payment": payment_name, "pending": PENDING,
+            "cheques": CHEQUES, "doctype": PAYMENT_DOCTYPE, "payment": payment_name, "statuses": tuple(statuses),
             "payment_type": CHEQUE_TYPE_PAYMENT,
         },
     )
@@ -165,6 +184,85 @@ def _approve(cheque: str, *, stage: str, user: str) -> dict:
     issued = frappe.db.get_value(CHEQUES, cheque, "status") != PENDING
     return {
         "cheque": cheque, "cheque_no": doc.cheque_no, "payments": payments, "status": landed, "issued": issued,
+    }
+
+
+def reject(payment_name: str, *, stage: str, reason: str, user: str) -> dict:
+    """Reject every payment on the Pending Payment cheque `payment_name` is on, at `stage` (STAGE_L1 or
+    STAGE_CEO), and cancel the cheque, with `reason` on each payment and in the cheque's history.
+    Returns what `reject_cheque` returns.
+
+    Refuses (and changes nothing) without a reason, when the payment is on no Pending Payment cheque, or
+    when it no longer waits at `stage` (the screen was stale). The other payments may wait at either
+    step: rejecting is never unsafe. One savepoint; never commits.
+    """
+    if stage not in _STAGES:
+        raise ValueError(f"unknown stage {stage!r}")
+    reason = (reason or "").strip()
+    if not reason:
+        frappe.throw(_("A reason is required to reject a cheque's payments."))
+    cheque = cheque_of(payment_name)
+    if not cheque:
+        frappe.throw(_("Payment {0} is on no Payment cheque.").format(payment_name))
+    savepoint = f"cheque_decide_{frappe.generate_hash(length=10)}"
+    frappe.db.savepoint(savepoint)
+    try:
+        status = frappe.db.get_value(PAYMENT_DOCTYPE, payment_name, "status", for_update=True)
+        expected = _STAGES[stage][0]
+        if status != expected:
+            frappe.throw(_("Payment {0} is {1}, not {2}.").format(payment_name, status, expected))
+        result = reject_cheque(cheque, reason=reason, user=user)
+    except Exception:
+        frappe.db.rollback(save_point=savepoint)
+        raise
+    frappe.db.release_savepoint(savepoint)
+    return result
+
+
+def rejected_alone_note(payment_name: str) -> str:
+    """The reason the cascade writes when one payment was saved to Rejected outside the approval screens
+    (no reason was asked for)."""
+    return f"Payment {payment_name} was rejected, so every payment on the cheque is rejected and the cheque is cancelled."
+
+
+def reject_cheque(cheque: str, *, reason: str, user: str) -> dict:
+    """THE reject cascade: every payment on the Pending or Issued Payment cheque `cheque` becomes
+    Rejected, with `reason` on each (a "Rejected: ..." comment), and the cheque becomes Cancelled, with
+    `reason` on its history row. The cheque keeps its lines: it stays the record of what it would have
+    paid. Payments already Rejected are left as they are. Returns `{cheque, cheque_no, payments,
+    rejected, status}`.
+
+    Called by `reject` (the approval screens), by the payment's own hook when one payment on the cheque is
+    saved to Rejected any other way (`integrations/controllers/cheques.on_payment_rejected`), and by
+    cancelling the cheque (#1484). It runs inside the caller's savepoint and NEVER COMMITS: each payment
+    is saved with `bulk_approval` (no notification or PO save mid-cheque) and `DECIDING_FLAG` (so its
+    own hook does not cascade again); the PO terms are written once per PO here.
+    """
+    doc = frappe.get_doc(CHEQUES, cheque, for_update=True)
+    if doc.status not in LIVE_STATUSES:
+        frappe.throw(_("Cheque {0} is {1}: its payments can no longer be rejected.").format(doc.cheque_no, doc.status))
+    payments = sorted({p for p in (_payment_of(row) for row in doc.lines) if p})
+    rows = _lock(payments) if payments else {}
+    paid = [name for name in payments if rows[name].status == STATUS_PAID]
+    if paid:
+        frappe.throw(_("Payment {0} on cheque {1} is Paid, so it cannot be rejected.").format(paid[0], doc.cheque_no))
+
+    rejected = [name for name in payments if rows[name].status != PAYMENT_REJECTED]
+    for name in rejected:
+        pay = frappe.get_doc(PAYMENT_DOCTYPE, name)
+        pay.status = PAYMENT_REJECTED
+        pay.flags.bulk_approval = True
+        pay.flags[DECIDING_FLAG] = cheque
+        pay.save(ignore_permissions=True)
+        pay.add_comment("Comment", text=_("Rejected: {0}").format(reason))
+    _write_po_terms({name: rows[name] for name in rejected}, PAYMENT_REJECTED)
+
+    doc.append("status_history", history_row(doc.status, CANCELLED, user, reason))
+    doc.status = CANCELLED
+    doc.save(ignore_permissions=True)
+    frappe.publish_realtime(CHEQUES_CHANGED_EVENT, {"cheques": [cheque]}, after_commit=True)
+    return {
+        "cheque": cheque, "cheque_no": doc.cheque_no, "payments": payments, "rejected": rejected, "status": CANCELLED,
     }
 
 

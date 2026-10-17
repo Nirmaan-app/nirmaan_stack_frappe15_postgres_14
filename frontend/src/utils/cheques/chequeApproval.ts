@@ -4,13 +4,14 @@ import { TIER_L2_ABOVE } from "@/utils/approvalTiers";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 /**
- * Approving a Payment cheque's payments together (#1480, spec #1477): one cheque, one decision. Pure, so
- * vitest covers what the approval dialog shows without React (F4). The server
+ * Approving or rejecting a Payment cheque's payments together (#1480, #1481, spec #1477): one cheque, one
+ * decision. Pure, so vitest covers what the approval dialog shows without React (F4). The server
  * (`services/cheques/decide.py`) decides; these only shape the dialog.
  */
 
 export const CHEQUE_APPROVAL_API = "nirmaan_stack.api.payments.cheque_approval.get_cheque_approval";
 export const APPROVE_CHEQUE_API = "nirmaan_stack.api.payments.cheque_approval.approve_cheque_payments";
+export const REJECT_CHEQUE_API = "nirmaan_stack.api.payments.cheque_approval.reject_cheque_payments";
 
 /** Which approval the dialog is for: L1 ("lead") or the CEO. */
 export type ChequeApprovalStage = "lead" | "ceo";
@@ -99,5 +100,29 @@ export const ceoNote = (approval: ChequeApproval, stage: ChequeApprovalStage): s
     return (
         `The cheque total ${formatToRoundedIndianRupee(approval.amount)} is over ${line}, so all ${n} payments go to ` +
         `CEO Pending after your approval${eachUnder ? `, even though each one is under ${line}` : ""}.`
+    );
+};
+
+/** The reject dialog's title: "Reject 3 payments and cancel cheque 000751". */
+export const rejectTitle = (approval: ChequeApproval): string => {
+    const n = paymentCount(approval);
+    return n > 1
+        ? `Reject ${n} payments and cancel cheque ${approval.cheque_no}`
+        : `Reject payment and cancel cheque ${approval.cheque_no}`;
+};
+
+/** The one reject button: "Reject 3 and cancel cheque"; "Reject and cancel cheque" for a one-payment cheque. */
+export const rejectAllLabel = (approval: ChequeApproval): string => {
+    const n = paymentCount(approval);
+    return n > 1 ? `Reject ${n} and cancel cheque` : "Reject and cancel cheque";
+};
+
+/** What rejecting does, in the reject dialog's warning (story 30). */
+export const rejectNote = (approval: ChequeApproval): string => {
+    const n = paymentCount(approval);
+    const who = n > 1 ? `All ${n} become` : "The payment becomes";
+    return (
+        `${who} Rejected and cheque ${approval.cheque_no} becomes Cancelled. The cheque keeps its lines and ` +
+        "history. To pay the vendor later, raise new payment requests."
     );
 };
