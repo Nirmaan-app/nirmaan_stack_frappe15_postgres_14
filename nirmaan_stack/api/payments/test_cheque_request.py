@@ -177,6 +177,22 @@ class TestChequeRequest(FrappeTestCase):
         self.assertEqual(self._payments_of(SR, self.sr), [])
         self.assertEqual(frappe.get_all("Cheques", filters={"cheque_no": fields["cheque_no"]}, pluck="name"), [])
 
+    def test_an_online_wo_payment_cannot_become_a_cheque_payment(self):
+        """Spec #1477 (#1487): putting a Work Order payment on a cheque later is refused like asking for one."""
+        name = self.cheques.plant_payment(
+            self.fx, "Requested", project=self.project, vendor=self.vendor, document=(SR, self.sr), amount=10000,
+        )
+        cheque = self.cheques.plant_cheque(bank="ICICI Bank", cheque_no=self.cheques.number(), cheque_date=nowdate(),
+                                           amount=10000, vendor=self.vendor, description="Advance", attachment=PHOTO)
+        pay = frappe.get_doc(PAYMENT, name)
+        pay.update({"mode_of_payment": "Cheque", "cheque": cheque, "cheque_no": "1", "cheque_date": nowdate()})
+        with self.assertRaisesRegex(
+            frappe.ValidationError, "A Work Order payment is paid Online: only a PO payment can be paid by cheque."
+        ):
+            pay.save(ignore_permissions=True)
+        frappe.db.rollback()
+        self.assertEqual(self._payment(name).mode_of_payment, "Online")
+
     def test_a_wo_cheque_payment_already_in_flight_finishes_as_it_is(self):
         """One requested before the rule keeps saving and moving: CEO approval takes it on."""
         name = self.cheques.plant_payment(

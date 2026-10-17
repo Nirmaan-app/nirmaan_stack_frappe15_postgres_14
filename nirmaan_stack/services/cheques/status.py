@@ -433,7 +433,8 @@ def issue(name: str, *, user: str, note: str | None = None):
     """Issue Payment cheque `name` if its payments allow it: the only way out of Pending to Issued.
 
     Re-reads the Cheque under its row lock. A Pending Payment cheque (not Old-type) whose every line's
-    payment is at Reconciliation Pending (`rules.ready_to_issue`) becomes Issued, with its issue date
+    payment is at Reconciliation Pending (`rules.ready_to_issue`) becomes Issued, refused when its lines
+    fail the approval conditions (`rules.approval_problem`), with its issue date
     set to the day of its payments' last approval (`rules.issue_date_from`; today when none is dated)
     and one history row by `user`, saying `note` if given. Returns the saved Cheque, or None when it
     stays as it is, so calling it again, or for a cheque that still waits on a payment, is harmless.
@@ -459,6 +460,11 @@ def issue(name: str, *, user: str, note: str | None = None):
     }
     if not ready_to_issue([rows[p].status if p in rows else None for p in payments]):
         return None
+    # The backstop under every route (story 13): no Issued cheque is short of its amount. Raised, so the
+    # payment move that would issue it rolls back with it and the payment waits at Approved.
+    problem = approval_problem(cheque_no=doc.cheque_no, amount=doc.amount, lines=_approval_lines(doc))
+    if problem:
+        frappe.throw(_(problem))
     approvals = [r.approval_date for r in rows.values()] + [r.ceo_approval_date for r in rows.values()]
     doc.append("status_history", history_row(PENDING, ISSUED, user, note))
     doc.status = ISSUED

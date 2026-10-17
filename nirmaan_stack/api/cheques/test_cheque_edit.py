@@ -247,7 +247,7 @@ class TestChequeEdit(FrappeTestCase):
 
     def test_an_approved_payment_picked_for_the_last_open_line_issues_the_cheque(self):
         pay = self._plant("Approved")
-        name = self._add([self._line(amount=20000)])
+        name = self._add([self._line(amount=20000)], amount=20000)
         self.assertEqual(self._cheque(name).status, "Pending")
 
         out = self._edit(name, lines=[self._line(pay, amount=20000)])
@@ -321,7 +321,7 @@ class TestChequeEdit(FrappeTestCase):
     # -- Issued, Cleared or Cancelled -------------------------------------------------------------
     def test_an_issued_cleared_or_cancelled_cheque_can_change_only_its_photo(self):
         for to_status in ("Issued", "Cleared", "Cancelled"):
-            name = self._add([self._line(self._plant("Approved"))])
+            name = self._add([self._line(self._plant("Approved"))], amount=20000)
             self.assertEqual(self._cheque(name).status, "Issued")  # its payment was approved
             if to_status != "Issued":
                 # Raw on purpose: the Clear and Cancel operations are other tickets'; this is only their outcome.
@@ -380,7 +380,7 @@ class TestChequeEdit(FrappeTestCase):
             self._as(buyer, self._edit, someone_elses, description="not mine")
         frappe.db.rollback()
 
-        issued = self._as(buyer, self._add, [self._line(self._plant("Approved"))])
+        issued = self._as(buyer, self._add, [self._line(self._plant("Approved"))], amount=20000)
         self.assertEqual(self._cheque(issued).status, "Issued")
         with self.assertRaisesRegex(frappe.PermissionError, "only the Pending cheques you created"):
             self._as(buyer, self._edit, issued, attachment=NEW_PHOTO)

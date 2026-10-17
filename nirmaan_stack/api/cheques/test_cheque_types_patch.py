@@ -53,9 +53,11 @@ class TestChequeTypesPatch(FrappeTestCase):
 
     # -- planting -------------------------------------------------------------------------------
     def _payment(self, status, *, approval_date=None, ceo_approval_date=None, payment_date=None):
-        """A payment at `status`, with the dates the approval and settle routes would have written."""
+        """A payment at `status`, with the dates the approval and settle routes would have written. A Work
+        Order cheque payment from before spec #1477, so already in Cheque mode (an Online one is refused)."""
         name = self.cheques.plant_payment(
-            self.fx, status, project=self.project, vendor=self.vendor, document=(SR, self.sr)
+            self.fx, status, project=self.project, vendor=self.vendor, document=(SR, self.sr),
+            cheque_no=self.cheques.number(),
         )
         frappe.db.set_value(
             PAYMENT, name,

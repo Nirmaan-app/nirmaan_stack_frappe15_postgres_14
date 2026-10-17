@@ -24,7 +24,9 @@ from nirmaan_stack.api.payments.cheque_approval import approve_cheque_payments, 
 from nirmaan_stack.api.payments.project_payments import ceo_approve_payment
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
+from nirmaan_stack.services.cheque_payments import commit_move_to_reconciliation
 from nirmaan_stack.services.cheques.rules import ChequeHeader, ChequeLineInput
+from nirmaan_stack.services.cheques.status import issue
 from nirmaan_stack.services.cheques.writer import create_cheque
 
 PAYMENT = "Project Payments"
@@ -282,3 +284,27 @@ class TestApproveAChequeTogether(PendingChequeCase):
             self.fx, "Requested", project=self.project, vendor=self.vendor, document=(PO, self._po())
         )
         self.assertIsNone(get_cheque_approval(a))
+
+
+class TestNoIssuedChequeIsShort(PendingChequeCase):
+    """`status.issue` is the backstop under every route (story 13): a cheque whose lines do not meet the
+    approval conditions is never Issued, and the payment move that would issue it is refused with it."""
+
+    def test_a_payment_moving_on_does_not_issue_a_cheque_its_lines_do_not_cover(self):
+        a = self._payment(20000, "Approved")
+        cheque = self._cheque((a, 20000), amount=30000)
+
+        self.assertFalse(commit_move_to_reconciliation(a))
+
+        self.assertEqual(self._statuses(a), ["Approved"])
+        self.assertEqual(self._cheque_state(cheque)[0], "Pending")
+
+    def test_issue_refuses_a_cheque_its_lines_do_not_cover(self):
+        a = self._payment(20000, "Approved")
+        cheque = self._cheque((a, 20000), amount=30000)
+        # Raw, to plant the state no route now reaches: the payment moved on without its cheque.
+        frappe.db.set_value(PAYMENT, a, "status", RECON, update_modified=False)
+
+        with self.assertRaisesRegex(frappe.ValidationError, "add up to ₹20,000, but the cheque is for ₹30,000"):
+            issue(cheque, user=U)
+        self.assertEqual(self._cheque_state(cheque)[0], "Pending")

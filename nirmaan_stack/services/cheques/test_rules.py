@@ -15,10 +15,13 @@ from nirmaan_stack.services.cheques import rules
 DOCTYPES = os.path.join(os.path.dirname(__file__), "..", "..", "nirmaan_stack", "doctype")
 
 
-def _options(folder: str, fieldname: str) -> tuple:
+def _field(folder: str, fieldname: str) -> dict:
     with open(os.path.join(DOCTYPES, folder, f"{folder}.json")) as f:
-        fields = {d["fieldname"]: d for d in json.load(f)["fields"]}
-    return tuple(fields[fieldname]["options"].split("\n"))
+        return {d["fieldname"]: d for d in json.load(f)["fields"]}[fieldname]
+
+
+def _options(folder: str, fieldname: str) -> tuple:
+    return tuple(_field(folder, fieldname)["options"].split("\n"))
 
 
 class TestChequeNamesMatchTheDoctype(unittest.TestCase):
@@ -31,6 +34,10 @@ class TestChequeNamesMatchTheDoctype(unittest.TestCase):
         self.assertEqual(_options("cheque_line", "line_type"), rules.LINE_TYPES)
         # A payment a cheque line of the bank import settled (#1485).
         self.assertIn(rules.BANK_MATCH_BASIS, _options("outflow_row_match", "match_basis"))
+
+    def test_a_cheque_saved_with_no_status_starts_pending(self):
+        # A new Payment cheque waits for its payments' approval (spec #1477); a deposit sets Issued itself.
+        self.assertEqual(_field("cheques", "status").get("default"), rules.PENDING)
 
     def test_the_statuses_and_types_are_the_glossary_s(self):
         self.assertEqual(rules.CHEQUE_STATUSES, ("Pending", "Issued", "Cleared", "Cancelled"))
@@ -361,6 +368,42 @@ class TestTrackerPaymentCheque(unittest.TestCase):
             _tracker_line(payment="PAY-1", status="CEO Pending", added=False),
             _tracker_line(payment="PAY-2", status="Requested"),
         ]))
+
+    @staticmethod
+    def _header(amount):
+        # Built directly: `parse_header` rounds through Frappe, which reads 0 with no site (`DEVENV unit`).
+        return rules.ChequeHeader(bank="ICICI Bank", bank_name=None, cheque_no="1", cheque_date="2026-10-14",
+                                  amount=amount, vendor="V", payee_name=None, description=None, attachment="x")
+
+    @staticmethod
+    def _paid_line(payment, status, amount=100.0):
+        line = rules.ChequeLineInput(line_type=rules.LINE_PO_WO_PAYMENT, project="P", record_doctype=rules.PO_DOCTYPE,
+                                     record_name="R-1", payment_doctype=rules.PAYMENT_DOCTYPE if payment else None,
+                                     payment_name=payment, amount=amount)
+        return rules.TrackerLine(line=line, added=True, payment_status=status)
+
+    def test_approved_payments_beside_a_line_with_no_payment_yet_are_refused(self):
+        # Approved payments issue the cheque at once, so a "No payment yet" line would leave it Pending
+        # while they move on alone.
+        problem = self._problem([self._paid_line("PAY-1", "Approved"), self._paid_line(None, None)],
+                                header=self._header(200))
+        self.assertIn("Line 2", problem)
+        self.assertIn("no payment yet", problem)
+
+    def test_approved_payments_that_do_not_add_up_to_the_cheque_are_refused(self):
+        problem = self._problem([self._paid_line("PAY-1", "Approved"), self._paid_line("PAY-2", "Approved")],
+                                header=self._header(250))
+        self.assertIn("₹200", problem)
+        self.assertIn("₹250", problem)
+
+    def test_approved_payments_within_five_rupees_of_the_cheque_are_taken(self):
+        self.assertIsNone(self._problem(
+            [self._paid_line("PAY-1", "Approved"), self._paid_line("PAY-2", "Approved")], header=self._header(204)))
+
+    def test_waiting_payments_need_not_add_up_yet(self):
+        # They are approved later, together, and the approval checks the amount then.
+        self.assertIsNone(self._problem([self._paid_line("PAY-1", "Requested"), self._paid_line(None, None)],
+                                        header=self._header(999)))
 
     def test_payments_already_on_it_are_not_re_judged(self):
         # An edit that adds no payment leaves the ones on it alone, whatever step they reached.

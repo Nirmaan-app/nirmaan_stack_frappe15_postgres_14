@@ -34,7 +34,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, cint, flt, nowdate
 
-from nirmaan_stack.services.cheques.rules import CANCELLED, CLEARED, ISSUED, PENDING
+from nirmaan_stack.services.cheques.rules import CANCELLED, CHEQUE_TYPE_PAYMENT, CLEARED, ISSUED, PENDING
 from nirmaan_stack.services.role_profiles import assert_cheque_access
 
 MAX_PAGE_LENGTH = 500
@@ -212,17 +212,17 @@ def _where(filters, search_term, current_search_fields):
 
 
 def _summary(where, params) -> dict:
-    """Count and amount of the filtered Cheques, all, per status, and the stale Issued ones. A Cheque counts
+    """Count and amount of the filtered Cheques, all, per status, and the stale Issued Payment cheques. A Cheque counts
     once, at its full amount, however many of its lines matched a project or PO/WO filter."""
     columns, status_params = ["COUNT(*)", "COALESCE(SUM(q.amount), 0)"], []
     for status in SUMMARY_STATUSES.values():
         columns += ["COUNT(*) FILTER (WHERE q.status = %s)", "COALESCE(SUM(q.amount) FILTER (WHERE q.status = %s), 0)"]
         status_params += [status, status]
     # The cutoff is the site's date, not the database's CURRENT_DATE (UTC), which lags the site's for part
-    # of each day.
-    stale = "q.status = %s AND COALESCE(q.issue_date, q.cheque_date) < %s"
+    # of each day. A Security Deposit is held, never cashed, so only a Payment cheque goes stale.
+    stale = "q.status = %s AND q.cheque_type = %s AND COALESCE(q.issue_date, q.cheque_date) < %s"
     columns += [f"COUNT(*) FILTER (WHERE {stale})", f"COALESCE(SUM(q.amount) FILTER (WHERE {stale}), 0)"]
-    status_params += [ISSUED, add_days(nowdate(), -STALE_AFTER_DAYS)] * 2
+    status_params += [ISSUED, CHEQUE_TYPE_PAYMENT, add_days(nowdate(), -STALE_AFTER_DAYS)] * 2
     values = frappe.db.sql(
         f"SELECT {', '.join(columns)} FROM ({_BASE}) q {where}", tuple(status_params) + tuple(params)
     )[0]

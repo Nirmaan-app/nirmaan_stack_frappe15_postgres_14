@@ -7284,8 +7284,15 @@ goes through the cheques service's cheque pass, `services/cheques/bank_import.cl
 - Review screen: both row reads carry `cheque_outcome` (`bank_import.cheque_outcomes`: cheque, number,
   where it started per `rules.bank_start`, double payments) for Settled lines; the Outcome cell renders it
   as a chip into the Cheque Tracker plus the amber warning (`pages/outflow-import/chequeOutcomeView.ts`).
-- Known gap (not #1485's): a person can still hand-settle a cheque payment at Reconciliation Pending to an
-  ICICI line through the decision dialog, which pays it without moving its cheque.
+- ⚠️ **A Pending or Cancelled cheque that fails the approval conditions is not cleared.** The bank import
+  brings such a cheque forward only when every line names a payment and the lines add up to the cheque
+  amount within ₹5 (`status.clear` asks `rules.approval_problem`); otherwise nothing is settled and the
+  line lands `Mismatched` with the reason.
+- ⚠️ **A cheque payment is never settled alone.** The decision dialog's hand settle refuses a payment on a
+  live (Pending / Issued, not Old-type) Payment cheque (`settle._lock_and_assert_payment_settleable` asks
+  `cheques/decide.pay_alone_problem`), and so does the payments screen's fulfil: the cheque is cleared in
+  the Cheque Tracker, where the bank line can be linked. `status.clear` pays through its own `_pay`, not
+  `settle_payment`, so the refusal never reaches it.
 
 **Tests.** `api/outflow_import/test_cheque_bank_import.py` (planted ICICI statement → `match_batch`: each
 outcome, deposit / Old-type never matched, a credit is no cheque line, rollback, unreconcile refused,

@@ -46,11 +46,11 @@ A Cheque moves no money figure: amounts paid, amounts owed, TDS and vendor credi
 Becoming Issued is `services/cheques/status.issue`, the only code that issues a Payment cheque.
 """
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime, nowdate
+from frappe.utils import flt, now_datetime, nowdate
 
 from nirmaan_stack.services.cheque_payments import MODE_CHEQUE, MODE_ONLINE
 from nirmaan_stack.services.cheques.lines import with_record_projects
@@ -191,20 +191,21 @@ def add_deposit_cheque(
 
 def _tracker_lines(lines: list[ChequeLineInput], *, kept) -> list[TrackerLine]:
     """`lines` with what the Tracker's rules read: whether each is new (its identity not in `kept`), and
-    its payment's status and hold."""
+    its payment's status and hold. A line with a payment and no amount takes the payment's, as it is saved
+    (`lines.normalise_lines`)."""
     kept = {line_identity(line) for line in kept}
     names = [line.payment_name for line in lines if line.payment_doctype == PAYMENT_DOCTYPE and line.payment_name]
     facts = {
         r.name: r
         for r in frappe.get_all(
-            PAYMENT_DOCTYPE, filters={"name": ["in", names]}, fields=["name", "status", "on_hold"]
+            PAYMENT_DOCTYPE, filters={"name": ["in", names]}, fields=["name", "status", "on_hold", "amount"]
         )
     } if names else {}
     out = []
     for line in lines:
         fact = facts.get(line.payment_name) if line.payment_name else None
         out.append(TrackerLine(
-            line=line,
+            line=replace(line, amount=flt(fact.amount)) if fact and line.amount <= 0 else line,
             added=line_identity(line) not in kept,
             payment_status=fact.status if fact else None,
             on_hold=bool(fact.on_hold) if fact else False,

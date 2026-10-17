@@ -22,9 +22,11 @@ from frappe.utils import add_days, flt, nowdate
 
 from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
 from nirmaan_stack.api.cheques.test_cheque_status import ChequeStatusCase
+from nirmaan_stack.api.outflow_import.expenses import settle_row
 from nirmaan_stack.api.outflow_import.review import get_outflow_rows, match_batch
 from nirmaan_stack.api.outflow_import.test_review import _stage_icici_statement
 from nirmaan_stack.api.outflow_import.unreconcile import plan_of_line, unreconcile_line
+from nirmaan_stack.api.payments.project_payments import update_payment_request
 from nirmaan_stack.services.cheques.rules import BANK_APPROVAL_NOTE, BANK_REVIVAL_NOTE
 from nirmaan_stack.services.cheques.status import cancel, clear
 
@@ -310,3 +312,41 @@ class TestAClearedChequeStaysCleared(ChequeImportCase):
         self.assertEqual(self._history(cheque), history)
         self.assertEqual(self._legs(row), [(a, "cheque number")])
         self.assertEqual(self._line(row).row_status, "Settled")
+
+
+class TestAChequePaymentIsNeverPaidAlone(ChequeImportCase):
+    """A Payment cheque's payments are paid by clearing the cheque, never one by one (story 45): a hand
+    settle from the import's decision dialog and the payments screen's fulfil both refuse, pointing at the
+    Cheque Tracker's Clear, where the bank line can be linked."""
+
+    def test_settling_a_cheque_payment_from_a_bank_line_by_hand_is_refused(self):
+        number = self._number()
+        cheque, (a,) = self._issued(22000, cheque_no=number)
+        (row,) = self._import((self._number(), 22000))  # a line naming no cheque
+
+        with self.assertRaisesRegex(frappe.ValidationError, f"cheque {number}.*Clear it in the Cheque Tracker"):
+            settle_row(row, PAYMENT, a)
+        frappe.db.rollback()
+
+        self.assertEqual(self._statuses(a), [RP])
+        self.assertEqual(self._state(cheque).status, "Issued")
+        self.assertEqual(self._legs(row), [])
+
+    def test_fulfilling_a_cheque_payment_on_the_payments_screen_is_refused(self):
+        number = self._number()
+        cheque, (a,) = self._issued(18000, cheque_no=number)
+
+        with self.assertRaisesRegex(frappe.ValidationError, f"cheque {number}.*Clear it in the Cheque Tracker"):
+            update_payment_request(frappe.as_json({"action": "fulfil", "name": a, "utr": "UTR1477S2"}))
+        frappe.db.rollback()
+
+        self.assertEqual(self._statuses(a), [RP])
+        self.assertEqual(self._state(cheque).status, "Issued")
+
+    def test_clearing_the_cheque_still_pays_it(self):
+        number = self._number()
+        cheque, (a,) = self._issued(9000, cheque_no=number)
+
+        clear(cheque, clearance_date=self.day, user=U)
+
+        self.assertEqual(self._statuses(a), ["Paid"])

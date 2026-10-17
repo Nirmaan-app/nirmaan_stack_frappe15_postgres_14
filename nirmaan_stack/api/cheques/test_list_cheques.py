@@ -394,6 +394,8 @@ class TestTheChequeTrackerTabs(FrappeTestCase):
         # An old cheque made before issue dates counts from its cheque date.
         self._cheque(40000, issue_date=None, cheque_date=add_days(nowdate(), -120))
         self._cheque(80000, status="Cleared", issue_date=add_days(nowdate(), -200))
+        # A Security Deposit is held, never cashed, so it is never stale.
+        self._cheque(160000, cheque_type="Security Deposit", issue_date=add_days(nowdate(), -200))
 
         aggregates = get_cheques(filters=json.dumps([["vendor", "=", self.vendor]]))["aggregates"]
 

@@ -43,6 +43,7 @@ from nirmaan_stack.services.approval_tiers import status_after_l1
 from nirmaan_stack.services.cheque_payments import move_to_reconciliation
 from nirmaan_stack.services.cheques.rules import (
     CANCELLED,
+    CHEQUE_REFUSES_PAY,
     CHEQUE_TYPE_PAYMENT,
     ISSUED,
     PAYMENT_DOCTYPE,
@@ -51,6 +52,7 @@ from nirmaan_stack.services.cheques.rules import (
     PO_DOCTYPE,
     ApprovalLine,
     approval_problem,
+    cheque_payment_problem,
     decision_step_problem,
     is_approval,
     lone_approval_problem,
@@ -94,6 +96,18 @@ def live_cheque_of(payment_name: str) -> str | None:
     Old-type Payment cheque whose lines name it, else None. Its payments are still live, so rejecting
     one rejects them all (`reject_cheque`)."""
     return _payment_cheque_of(payment_name, LIVE_STATUSES)
+
+
+def pay_alone_problem(payment_name: str) -> str | None:
+    """Why `payment_name` may not be paid on its own, or None (story 45): it is on a live (Pending or
+    Issued), not Old-type Payment cheque, whose clear pays every payment on it (`status.clear`). Asked by
+    the user-facing ways to pay one payment: the import's hand settle and the payments screen's fulfil."""
+    cheque = live_cheque_of(payment_name)
+    if not cheque:
+        return None
+    return cheque_payment_problem(
+        payment_name, CHEQUE_REFUSES_PAY, is_cheque=True, cheque_no=frappe.db.get_value(CHEQUES, cheque, "cheque_no")
+    )
 
 
 def _payment_cheque_of(payment_name: str, statuses: tuple) -> str | None:

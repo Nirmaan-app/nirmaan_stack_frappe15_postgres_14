@@ -563,6 +563,9 @@ def _fulfil_payment(pay, args):
     # Requested / CEO Pending one cannot skip its approval gate.
     if pay.status not in ("Approved", "Reconciliation Pending"):
         frappe.throw(_("Payment is not yet CEO-approved or has already been processed"))
+    cheque_problem = cheque_decision.pay_alone_problem(pay.name)  # spec #1477: clearing the cheque pays it
+    if cheque_problem:
+        frappe.throw(_(cheque_problem), title=_("Paid by cheque"))
 
     utr = (args.get("utr") or "").strip()
     if not utr:

@@ -25,7 +25,7 @@ import frappe
 from frappe.utils import add_days, flt, nowdate
 
 from nirmaan_stack.services.cheque_payments import commit_move_to_reconciliation
-from nirmaan_stack.services.cheques.rules import MADE_FROM_REPORT, parse_header, parse_line
+from nirmaan_stack.services.cheques.rules import MADE_FROM_REPORT, WORK_ORDER_DOCTYPE, parse_header, parse_line
 from nirmaan_stack.services.cheques.writer import _new_cheque, history_row, line_payments, link_payments
 
 CHEQUES = "Cheques"
@@ -123,6 +123,12 @@ class ChequeFixture:
         report's save did. Tracked and committed; returns its name.
         """
         raw = frappe.parse_json(lines) if isinstance(lines, str) else (lines or [])
+        # A Work Order payment is put on a cheque only as one already in Cheque mode (in flight before spec
+        # #1477, story 88): an Online one is refused (`payment_mode.validate_cheque_mode`). Raw, test-only.
+        for line in raw:
+            if line.get("record_doctype") == WORK_ORDER_DOCTYPE and line.get("payment_name"):
+                frappe.db.set_value("Project Payments", line["payment_name"], "mode_of_payment", "Cheque",
+                                    update_modified=False)
         doc = _new_cheque(
             parse_header(values),
             made_from=MADE_FROM_REPORT,

@@ -6,8 +6,8 @@
 
 * `validate_mode_change` -- the mode changes only through a Cheque, which is what lets `mode_of_payment`
   drop `set_only_once`. The rule itself is pure: `rules.mode_change_problem`.
-* `validate_cheque_mode` -- a payment requested in Cheque mode must be a PO payment: Work Order payments
-  are paid Online (#1487). The rule itself is pure: `rules.cheque_mode_problem`.
+* `validate_cheque_mode` -- a payment requested in, or changing to, Cheque mode must be a PO payment: Work
+  Order payments are paid Online (#1487). The rule itself is pure: `rules.cheque_mode_problem`.
 """
 
 import frappe
@@ -43,10 +43,14 @@ def validate_mode_change(pay) -> None:
 
 
 def validate_cheque_mode(pay) -> None:
-    """Refuse a new Project Payment in Cheque mode on anything but a PO (`rules.cheque_mode_problem`).
-    Called from its `validate`, so it holds for every request path, before the insert's `after_insert`
-    commits. A Work Order cheque payment already saved finishes as it is."""
-    if not pay.is_new() or not is_cheque(pay):
+    """Refuse a Project Payment becoming a Cheque payment on anything but a PO (`rules.cheque_mode_problem`):
+    a new one requested in Cheque mode, or a saved one changing to it (put on a cheque). Called from its
+    `validate`, so it holds for every path, before the insert's `after_insert` commits. A Work Order payment
+    already in Cheque mode finishes as it is (spec #1477 story 88)."""
+    if not is_cheque(pay):
+        return
+    before = None if pay.is_new() else pay.get_doc_before_save()
+    if before and is_cheque(before):
         return
     problem = cheque_mode_problem(pay.get("document_type"))
     if problem:

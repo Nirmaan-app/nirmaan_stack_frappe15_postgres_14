@@ -447,7 +447,10 @@ class TestChequePayments(FrappeTestCase):
 							payment_doctype=PAYMENT, payment_name=p, amount=0)
 			for p in payments
 		]
-		create_cheque(header, user=U, made_from="Report", lines=lines)
+		doc = create_cheque(header, user=U, made_from="Report", lines=lines)
+		# Old-type: a live Payment cheque's payments are paid only by clearing it (spec #1477), so the
+		# payments screen's fulfil -- and the shared-reference rule it checks -- is an Old-type cheque's.
+		frappe.db.set_value("Cheques", doc.name, "old_type", 1, update_modified=False)
 		frappe.db.commit()
 
 	def test_payments_on_one_cheque_all_reconcile_against_its_number(self):

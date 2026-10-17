@@ -579,7 +579,26 @@ def tracker_payment_cheque_problem(header: ChequeHeader, lines: Sequence[Tracker
         if len({(t.payment_status or "").strip() for t in named}) > 1:
             steps = ", ".join(f"{t.line.payment_name} is {t.payment_status}" for t in named)
             return f"A cheque's payments are approved together, so they must be at the same step: {steps}."
+    if any((t.payment_status or "").strip() == STATUS_APPROVED for t in lines if t.line.payment_name):
+        return _approved_cheque_problem(header, lines)
     return None
+
+
+def _approved_cheque_problem(header: ChequeHeader, lines: Sequence[TrackerLine]) -> str | None:
+    """Approved payments issue their cheque at once, so it must already meet the approval conditions
+    (`approval_problem`): every line names a payment and the lines add up to the cheque amount."""
+    for n, tracker in enumerate(lines, 1):
+        if not tracker.line.payment_name:
+            return (
+                f"Line {n} has no payment yet, but the cheque's payments are Approved, so it is Issued at once. "
+                "Pick that line's payment, or take the line off."
+            )
+    return approval_problem(
+        cheque_no=header.cheque_no or "",
+        amount=header.amount,
+        lines=[ApprovalLine(payment=t.line.payment_name, record=t.line.record_name, amount=t.line.amount)
+               for t in lines],
+    )
 
 
 # -- what a cheque payment refuses (spec #1477, ADR-0035, #1487) ---------------------------------
@@ -598,11 +617,17 @@ CHEQUE_REFUSES_HOLD = "hold"
 CHEQUE_REFUSES_REVERT = "revert"
 #: CEO part-approval and the bank import's part-settlement, both `payment_split.split_payment`.
 CHEQUE_REFUSES_SPLIT = "split"
+#: A hand settle from the import's decision dialog, and the payments screen's fulfil: clearing pays them.
+CHEQUE_REFUSES_PAY = "pay"
 _CANCEL_INSTEAD = "a cheque's payments move together. Cancel the cheque in the Cheque Tracker instead."
 _CHEQUE_REFUSALS = {
     CHEQUE_REFUSES_HOLD: f"cannot be put on hold: {_CANCEL_INSTEAD}",
     CHEQUE_REFUSES_REVERT: f"cannot go back to Approved: {_CANCEL_INSTEAD}",
     CHEQUE_REFUSES_SPLIT: "cannot be split: a cheque pays its payments in full or not at all.",
+    CHEQUE_REFUSES_PAY: (
+        "cannot be paid on its own: a cheque's payments are paid when the cheque is cleared. Clear it in the "
+        "Cheque Tracker, where its bank line can be linked."
+    ),
 }
 CHEQUE_PAYMENT_ACTIONS = tuple(_CHEQUE_REFUSALS)
 

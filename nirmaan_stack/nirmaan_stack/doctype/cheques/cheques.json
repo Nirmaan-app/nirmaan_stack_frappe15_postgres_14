@@ -98,7 +98,7 @@
    "label": "Payee Name"
   },
   {
-   "default": "Issued",
+   "default": "Pending",
    "fieldname": "status",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -206,7 +206,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-17 00:44:18.521998",
+ "modified": "2026-10-17 08:41:21.394978",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Cheques",

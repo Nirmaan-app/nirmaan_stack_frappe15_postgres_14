@@ -111,6 +111,7 @@ from typing import Callable
 
 import frappe
 
+from nirmaan_stack.services.cheques.decide import pay_alone_problem
 from nirmaan_stack.services.non_project_inflows import inflow_type_problem
 from nirmaan_stack.services.vendor_refunds import (
     RECEIVED,
@@ -876,6 +877,12 @@ def _lock_and_assert_payment_settleable(name: str, bank_amount: Decimal) -> Deci
             WrongStatusError,
             title="Not settleable",
         )
+
+    # A Payment cheque's payments are paid by clearing the cheque (spec #1477): the bank line is linked
+    # there, in the Cheque Tracker. `status.clear` pays them without this function.
+    cheque_problem = pay_alone_problem(name)
+    if cheque_problem:
+        frappe.throw(cheque_problem, WrongStatusError, title="Paid by cheque")
 
     amount = normalize_amount(current.get("amount"))
     # ⚠️ THE SAME WINDOW THE MATCHER USES -- see `amounts.py`. It absorbs bank rounding and small

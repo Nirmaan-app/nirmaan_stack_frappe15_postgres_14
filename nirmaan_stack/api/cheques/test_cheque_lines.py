@@ -252,6 +252,18 @@ class TestChequeLines(FrappeTestCase):
         history = [(h.from_status, h.to_status) for h in frappe.get_doc("Cheques", name).status_history]
         self.assertEqual(history, [(None, "Pending"), ("Pending", "Issued")])
 
+    def test_approved_payments_beside_a_line_with_no_payment_yet_are_refused(self):
+        # Saved, the Approved payment would move on alone and the cheque would stay Pending for good.
+        approved = self._plant("Approved")
+        self._refused("Line 2 has no payment yet, but the cheque's payments are Approved",
+                      [self._line(approved), self._line(po=self.other_po, amount=30000)])
+        self.assertEqual(self._status(approved), "Approved")
+
+    def test_approved_payments_that_do_not_add_up_to_the_cheque_are_refused(self):
+        approved = self._plant("Approved")
+        self._refused("add up to ₹20,000, but the cheque is for ₹50,000", [self._line(approved)])
+        self.assertEqual(self._payment(approved).mode_of_payment, "Online")
+
     def test_requested_waits_then_the_l1_approve_issues_the_cheque(self):
         pay = self._plant("Requested")
         name = self._save([self._line(pay)], amount=20000)
