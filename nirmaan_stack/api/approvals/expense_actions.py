@@ -56,6 +56,7 @@ from nirmaan_stack.services.approval_tiers import (
     TIER_L2_ABOVE_EXPENSES,
     status_after_l1,
 )
+from nirmaan_stack.services.ceo_hold.core import CEO_HOLD_STATUS
 
 # Ledger -> the field naming its project, or None where the ledger has none.
 # A Non-Project Expense is company-wide by definition: it has no project, which is
@@ -64,8 +65,6 @@ EXPENSE_LEDGERS = {
     "Project Expenses": "projects",
     "Non Project Expenses": None,
 }
-
-CEO_HOLD_STATUS = "CEO Hold"
 
 
 # ---------------------------------------------------------------------------

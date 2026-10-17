@@ -37,7 +37,7 @@ be in. The worker commits PER ROW, so a run that dies at row 60 leaves 59 durabl
 rows still pending -- and re-running it picks up exactly where it stopped, because
 `Outflow Row Match`'s unique constraint refuses a second settlement of the same transfer.
 
-⚠️ THE STATEMENT IS NOT ATTACHED PER ROW (owner ruling). `_link_statement_file_to_target` is
+⚠️ THE STATEMENT IS NOT ATTACHED PER ROW (owner ruling). `link_statement_file_to_target` is
 deliberately NOT called here: the expense's `payment_attachment` carries the statement's URL, but no
 second `File` row is created for it. The consequence was measured and accepted -- Frappe authorises
 a private file through the document it is attached to, and the statement stays attached to the
@@ -51,7 +51,6 @@ import frappe
 
 from nirmaan_stack.api.outflow_import.expenses import (
     MATCH_DOCTYPE,
-    refresh_batch_rollup,
     _statement_file_url,
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
@@ -97,6 +96,7 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_SKIPPED,
     SKIP_ORIGIN_SYSTEM,
 )
+from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup
 
 BATCH_DOCTYPE = "Outflow Import Batch"
 ROW_DOCTYPE = "Outflow Import Row"

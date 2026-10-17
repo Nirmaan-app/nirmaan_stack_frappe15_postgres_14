@@ -28,7 +28,7 @@ import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
 import { useUserData } from "@/hooks/useUserData";
 import { useVendorTdsRates } from "../hooks/useVendorTdsRates";
 import {
-  EMPTY_PAYMENT_MODE, isPaymentModeComplete, paymentModeArgs, PAYMENT_MODE_CHEQUE, PaymentModeValue,
+  chequeModeOffered, EMPTY_PAYMENT_MODE, isPaymentModeComplete, paymentModeArgs, PAYMENT_MODE_CHEQUE, PaymentModeValue,
 } from "../paymentMode";
 import { forecastTds } from "../tdsForecast";
 
@@ -247,7 +247,8 @@ export default function RequestPaymentDialog(p:Props){
 
       {/* No cheque figure until the rate has landed: with no rate yet it would show the gross. */}
       <PaymentModeFields value={payMode} onChange={setPayMode} amount={tdsLoading ? undefined : amount}
-                         tds={tds} companyBorne={companyBorne} vendor={p.vendor} />
+                         tds={tds} companyBorne={companyBorne} vendor={p.vendor}
+                         chequeOffered={chequeModeOffered(p.docType)} />
 
       <div className="mt-3 flex gap-2 justify-center">
         {isMutating

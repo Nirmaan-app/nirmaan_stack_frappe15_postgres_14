@@ -184,3 +184,4 @@ nirmaan_stack.patches.v3_0.setup_nirmaan_departments #v1
 nirmaan_stack.patches.v3_0.remove_leftover_asset_assignments
 nirmaan_stack.patches.v3_0.add_asset_history_parent_index
 nirmaan_stack.patches.v3_0.backfill_first_asset_history
+nirmaan_stack.patches.v3_0.cheque_types_pending_and_dates

@@ -18,6 +18,9 @@ What the move does NOT do, checked against the hooks:
   * no stored figure moves -- `amount_paid`, vendor credit and the CEO Hold gap count Paid alone.
 The PO payment term follows the status through the ordinary `on_update` sync.
 
+⚠️ A CHEQUE PAYMENT IS REFUSED (spec #1477, #1487). Its cheque's payments move together; the undo is
+cancelling the cheque.
+
 ⚠️ REFUSED WHILE A BANK LINE IS MATCHED TO IT. A live `Outflow Row Match` would be left pointing at
 a payment the statement says went out; the match is undone in Bulk Import first.
 """
@@ -26,6 +29,8 @@ import frappe
 from frappe import _
 
 from nirmaan_stack.services import settlement
+from nirmaan_stack.services.cheque_payments import is_cheque
+from nirmaan_stack.services.cheques.payment_rules import CHEQUE_REFUSES_REVERT, cheque_payment_problem
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.role_profiles import PAYMENT_SETTLE_PROFILES
 
@@ -49,14 +54,18 @@ def revert_payment_to_approved(name: str) -> dict:
 	_authorize()
 
 	# Row lock first: a Mark Reconciled racing this call waits, then re-reads the status it left.
-	status = frappe.db.get_value(PAYMENT, name, "status", for_update=True)
-	if status is None:
+	row = frappe.db.get_value(PAYMENT, name, ["status", "mode_of_payment", "cheque_no"], as_dict=True, for_update=True)
+	if row is None:
 		frappe.throw(_("Payment {0} was not found.").format(name), frappe.DoesNotExistError)
+	status = row.status
 	if (status or "").strip() != settlement.STATUS_RECONCILIATION_PENDING:
 		frappe.throw(
 			_("Only a Reconciliation Pending payment can be reverted. {0} is {1}.").format(name, status),
 			title=_("Cannot revert"),
 		)
+	problem = cheque_payment_problem(name, CHEQUE_REFUSES_REVERT, is_cheque=is_cheque(row), cheque_no=row.cheque_no)
+	if problem:
+		frappe.throw(_(problem), title=_("Cannot revert"))
 	if frappe.db.exists(
 		"Outflow Row Match",
 		{"target_doctype": PAYMENT, "target_name": name, "match_kind": MATCH_SETTLED},

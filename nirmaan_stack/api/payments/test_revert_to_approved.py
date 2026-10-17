@@ -42,8 +42,7 @@ class TestRevertToApproved(FrappeTestCase):
 			document_name=self.po,
 			amount=5000,
 			status=status,
-			mode_of_payment="Online",
-			**extra,
+			**{"mode_of_payment": "Online", **extra},
 		)
 
 	def test_reconciliation_pending_goes_back_to_approved(self):
@@ -68,6 +67,14 @@ class TestRevertToApproved(FrappeTestCase):
 		_raw("Outflow Row Match", target_doctype=PAYMENT, target_name=name, match_kind="Settled")
 		with self.assertRaises(frappe.ValidationError):
 			revert_payment_to_approved(name)
+		self.assertEqual(frappe.db.get_value(PAYMENT, name, "status"), "Reconciliation Pending")
+
+	def test_a_cheque_payment_is_refused(self):
+		"""Spec #1477 (#1487): a cheque's payments move together; cancelling the cheque is the undo."""
+		name = self._payment(mode_of_payment="Cheque", cheque_no="000747")
+		with self.assertRaises(frappe.ValidationError) as refused:
+			revert_payment_to_approved(name)
+		self.assertIn(f"{name} is paid by cheque 000747, so it cannot go back to Approved", str(refused.exception))
 		self.assertEqual(frappe.db.get_value(PAYMENT, name, "status"), "Reconciliation Pending")
 
 	def test_a_reversed_match_does_not_block(self):

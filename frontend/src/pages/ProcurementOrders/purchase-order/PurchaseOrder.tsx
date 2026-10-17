@@ -83,6 +83,7 @@ import { InvoiceDialog } from "../invoices-and-dcs/components/InvoiceDialog";
 import POAttachments from "./components/POAttachments";
 import POPaymentTermsCard from "./components/POPaymentTermsCard";
 import TransactionDetailsCard from "./components/TransactionDetailsCard";
+import { SecurityDepositChequesCard } from "@/components/cheques/SecurityDepositChequesCard";
 import PORemarks from "./components/PORemarks";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog"; // Import the dialog component
 import { DocumentAttachments } from "../invoices-and-dcs/DocumentAttachments";
@@ -1220,6 +1221,11 @@ export const PurchaseOrder = () => {
                     poMutate={poMutate}
                     projectPaymentsMutate={poPaymentsMutate}
                     isLocked={isPaymentLocked}
+                  />
+
+                  {/* Security Deposit cheques that name this PO (#1486); renders only for cheque users. */}
+                  <SecurityDepositChequesCard
+                    record={{ doctype: "Procurement Orders", name: PO?.name, project: PO?.project, vendor: PO?.vendor }}
                   />
                 </div>
               </AccordionContent>

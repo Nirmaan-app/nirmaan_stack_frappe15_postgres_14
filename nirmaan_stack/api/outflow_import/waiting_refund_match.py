@@ -20,20 +20,22 @@ import frappe
 
 from nirmaan_stack.api.outflow_import.expenses import (
     _guard_money_not_recorded,
-    _link_statement_file_to_target,
     _load_settleable_row,
-    _record_settlement,
-    _refresh_row_allocation,
     _statement_file_url,
     _summary,
 )
 from nirmaan_stack.api.outflow_import.inflows import _guard_is_a_credit, _guard_not_already_recorded
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
-from nirmaan_stack.api.outflow_import.review import _refresh_batch_rollup
 from nirmaan_stack.services.outflow_import.ledgers import VENDOR_REFUND_DOCTYPE
 from nirmaan_stack.services.outflow_import.settle import match_waiting_refunds_to_row
 from nirmaan_stack.services.outflow_import.status import RECORDED_ACTION_LINK
 from nirmaan_stack.services.vendor_refunds import PROCUREMENT_ORDERS, matchable_refunds
+from nirmaan_stack.services.outflow_import.row_settlement import (
+    link_statement_file_to_target,
+    record_settlement,
+    refresh_batch_rollup,
+    refresh_row_allocation,
+)
 
 __all__ = ["get_waiting_vendor_refunds", "match_waiting_refunds"]
 
@@ -86,19 +88,19 @@ def match_waiting_refunds(row: str, refunds=None, confirm_mismatch=False):
             statement_file_url=statement_file_url,
         )
         for result in results:
-            _record_settlement(staged, doc, result, actor)
+            record_settlement(staged, doc, result, actor)
         # Nothing was created, so the note reads "Settled", not "Recorded".
-        _refresh_row_allocation(staged.name, actor, results[0])
+        refresh_row_allocation(staged.name, actor, results[0])
     except Exception:
         frappe.db.rollback(save_point=savepoint)
         raise
     frappe.db.release_savepoint(savepoint)
 
-    statuses = _refresh_batch_rollup(doc["import_batch"])
+    statuses = refresh_batch_rollup(doc["import_batch"])
     frappe.db.commit()
     # AFTER THE COMMIT, for the reason `create_non_project_inflow` gives.
     for result in results:
-        _link_statement_file_to_target(statement_file_url, result)
+        link_statement_file_to_target(statement_file_url, result)
     _publish_refund_pos([result.name for result in results])
     summary = _summary(row, results[0], doc["import_batch"], statuses)
     summary["records"] = [

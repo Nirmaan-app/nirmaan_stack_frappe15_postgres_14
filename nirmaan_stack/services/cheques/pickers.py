@@ -1,150 +1,210 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""What the Add Cheque dialog's line pickers offer (spec #1407, #1410). Reads only.
+"""What the Add Cheque dialog's line pickers offer (spec #1407, #1410; #1482, spec #1477). Reads only.
 
-A PO/WO Payment line asks for a project, then one of the Vendor's POs or Work Orders in it, then
-optionally one of its payments:
+A Payment cheque's line asks for a project, then one of the Vendor's POs in it, then one of its
+payments or "No payment yet":
 
-* `vendor_records` -- every PO and Work Order of the Vendor that can still hold a payment, with its
-  project, so the dialog offers the projects the Vendor has work in and the records in each.
-* `eligible_payments` -- the record's payments that may go on a Cheque: none on a live (not
-  Cancelled) Cheque, none Rejected. It says what it hid and why, so the dialog can say so.
+* `vendor_records` -- every PO of the Vendor that can still hold a payment, with its project, so the
+  dialog offers the projects the Vendor has POs in and the POs in each. Work Orders are paid Online.
+* `eligible_payments` -- the PO's payments that may go on the cheque: at Requested, CEO Pending or
+  Approved, not on hold, on no live (not Cancelled) Cheque, and at the same step as the cheque's other
+  payments. It counts what it hid and why, so the dialog can say so.
 
-A Project Expense line asks for a project, then one of its Project Expenses; a Non-project Expense
-line for a Non Project Expense only (#1411):
+A Security Deposit cheque's "Secures" picker (#1486): `securable_records` -- the Vendor's open POs AND
+Work Orders, each with its project: a deposit may secure either.
 
-* `eligible_expenses` -- the expenses not on a live Cheque, and the ones it hid.
+The Clear dialog's picker (#1484): `bank_lines_for` -- the imported, unmatched ICICI debits carrying a
+cheque's number (leading zeros ignored) and amount, that a hand clear may link.
 
-The same rules are enforced on save by `lines.lines_problem`; these lists only spare the user a
-refusal.
+The same rules are enforced on save (`edit_rules.tracker_payment_cheque_problem`, `lines.lines_problem`);
+these lists only spare the user a refusal.
 """
 
 import frappe
 from frappe.utils import cint, flt
 
+from nirmaan_stack.services.cheques.clear_rules import (
+    DIRECTION_DEBIT,
+    ICICI_STATEMENT_SOURCE,
+    UNMATCHED_LINE_STATUSES,
+    BankLine,
+    bank_line_problem,
+)
+from nirmaan_stack.services.cheques.edit_rules import PICKABLE_STEPS
 from nirmaan_stack.services.cheques.lines import live_cheques_of
 from nirmaan_stack.services.cheques.rules import (
-    EXPENSE_LINE_TYPES,
-    LINE_PAYMENT_DOCTYPES,
+    CHEQUE_TYPE_PAYMENT,
+    ICICI_BANK,
+    LINES_TOLERANCE,
     PAYMENT_DOCTYPE,
-    PROJECT_EXPENSE_DOCTYPE,
     PAYMENT_REJECTED,
     PO_DOCTYPE,
-    RECORD_DOCTYPES,
     WORK_ORDER_DOCTYPE,
+    cheque_no_key,
 )
+from nirmaan_stack.services.cheques.writer import CHEQUES
 
 #: A PO in these statuses holds no payment of its own any more.
 PO_CLOSED_STATUSES = ("Merged", "Cancelled")
-#: A Work Order takes payments once it is approved.
-WORK_ORDER_OPEN_STATUSES = ("Approved", "Amendment")
+#: A Work Order is a live order of its Vendor once approved (amended ones too).
+WO_OPEN_STATUSES = ("Approved", "Amendment")
+
+
+def _project_names(projects) -> dict:
+    projects = sorted({p for p in projects if p})
+    return dict(
+        frappe.get_all("Projects", filters={"name": ["in", projects]}, fields=["name", "project_name"], as_list=True)
+    ) if projects else {}
+
+
+def securable_records(vendor: str) -> list[dict]:
+    """`[{doctype, name, project, project_name, status}]`: the Vendor's open POs, then its open Work Orders,
+    each newest first. What a Security Deposit cheque may name as secured (#1486)."""
+    pos = frappe.get_all(
+        PO_DOCTYPE, filters={"vendor": vendor, "status": ["not in", PO_CLOSED_STATUSES]},
+        fields=["name", "project", "status"], order_by="creation desc",
+    )
+    wos = frappe.get_all(
+        WORK_ORDER_DOCTYPE, filters={"vendor": vendor, "status": ["in", WO_OPEN_STATUSES]},
+        fields=["name", "project", "status"], order_by="creation desc",
+    )
+    names = _project_names(r.project for r in pos + wos)
+    return [
+        {"doctype": doctype, "name": r.name, "project": r.project,
+         "project_name": names.get(r.project) or r.project, "status": r.status}
+        for doctype, rows in ((PO_DOCTYPE, pos), (WORK_ORDER_DOCTYPE, wos))
+        for r in rows
+    ]
 
 
 def vendor_records(vendor: str) -> list[dict]:
-    """`[{doctype, name, project, project_name, status, total_amount}]`: the Vendor's POs, then its
-    Work Orders, newest first."""
+    """`[{doctype, name, project, project_name, status, total_amount}]`: the Vendor's open POs, newest
+    first."""
     pos = frappe.get_all(
         PO_DOCTYPE,
         filters={"vendor": vendor, "status": ["not in", PO_CLOSED_STATUSES]},
         fields=["name", "project", "status", "total_amount"],
         order_by="creation desc",
     )
-    work_orders = frappe.get_all(
-        WORK_ORDER_DOCTYPE,
-        filters={"vendor": vendor, "status": ["in", WORK_ORDER_OPEN_STATUSES]},
-        fields=["name", "project", "status", "total_amount"],
-        order_by="creation desc",
-    )
-    projects = {r.project for r in pos + work_orders if r.project}
+    projects = {r.project for r in pos if r.project}
     project_names = dict(
         frappe.get_all("Projects", filters={"name": ["in", list(projects)]}, fields=["name", "project_name"], as_list=True)
     ) if projects else {}
     return [
         {
-            "doctype": doctype,
+            "doctype": PO_DOCTYPE,
             "name": r.name,
             "project": r.project,
             "project_name": project_names.get(r.project) or r.project,
             "status": r.status,
             "total_amount": flt(r.total_amount),
         }
-        for doctype, rows in ((PO_DOCTYPE, pos), (WORK_ORDER_DOCTYPE, work_orders))
-        for r in rows
+        for r in pos
     ]
 
 
-def eligible_payments(record_doctype: str, record_name: str, *, exclude_cheque: str | None = None) -> dict:
-    """The record's payments that may go on a Cheque, and what was hidden.
+def eligible_payments(
+    record_name: str, *, exclude_cheque: str | None = None, other_payments=()
+) -> dict:
+    """The PO's payments that may go on a Payment cheque, and what was hidden.
 
-    Returns `{payments: [{name, amount, status, mode_of_payment, on_hold}], hidden: {on_cheque:
-    [{payment, cheque, cheque_no, status}], rejected: int}}`. A payment only on Cancelled Cheques is
-    offered. `exclude_cheque` is the Cheque being edited: its own payments are not "on a live Cheque".
+    `other_payments` are the payments on the cheque's other lines: their step (all one, on a cheque the
+    Tracker made) is the only step offered, and they are not offered again. `exclude_cheque` is the
+    Cheque being edited: its own payments are not "on a live Cheque". A payment only on Cancelled
+    Cheques is offered.
+
+    Returns `{payments: [{name, amount, status, mode_of_payment}], step, hidden: {on_cheque: [{payment,
+    cheque, cheque_no, status}], rejected, other_step, on_hold, moved_on: {status: count}}}`. `step` is
+    the other lines' step, None while they name no payment; `moved_on` counts the payments already
+    past approval (Reconciliation Pending, Paid).
     """
-    if record_doctype not in RECORD_DOCTYPES:
-        raise ValueError(f"not a PO or Work Order doctype: {record_doctype!r}")
+    others = [p for p in other_payments or () if p]
+    steps = set(
+        (s or "").strip()
+        for s in frappe.get_all(PAYMENT_DOCTYPE, filters={"name": ["in", others]}, pluck="status")
+    ) if others else set()
     rows = frappe.get_all(
         PAYMENT_DOCTYPE,
-        filters={"document_type": record_doctype, "document_name": record_name},
+        filters={"document_type": PO_DOCTYPE, "document_name": record_name},
         fields=["name", "amount", "status", "mode_of_payment", "on_hold"],
         order_by="creation asc",
     )
+    rows = [r for r in rows if r.name not in others]
     live = live_cheques_of(PAYMENT_DOCTYPE, [r.name for r in rows], exclude=exclude_cheque)
 
-    payments, on_cheque, rejected = [], [], 0
+    payments, on_cheque, moved_on = [], [], {}
+    rejected = other_step = on_hold = 0
     for r in rows:
-        if (r.status or "").strip() == PAYMENT_REJECTED:
+        status = (r.status or "").strip()
+        if status == PAYMENT_REJECTED:
             rejected += 1
         elif r.name in live:
             on_cheque.append({"payment": r.name, **live[r.name]})
+        elif status not in PICKABLE_STEPS:
+            moved_on[status] = moved_on.get(status, 0) + 1
+        elif steps and steps != {status}:
+            other_step += 1
+        elif cint(r.on_hold):
+            on_hold += 1
         else:
             payments.append({
                 "name": r.name,
                 "amount": flt(r.amount),
-                "status": r.status,
+                "status": status,
                 "mode_of_payment": (r.mode_of_payment or "").strip() or "Online",
-                "on_hold": cint(r.on_hold),
             })
-    return {"payments": payments, "hidden": {"on_cheque": on_cheque, "rejected": rejected}}
+    return {
+        "payments": payments,
+        "step": next(iter(steps)) if len(steps) == 1 else None,
+        "hidden": {
+            "on_cheque": on_cheque,
+            "rejected": rejected,
+            "other_step": other_step,
+            "on_hold": on_hold,
+            "moved_on": moved_on,
+        },
+    }
 
 
-def eligible_expenses(line_type: str, project: str | None = None, *, exclude_cheque: str | None = None) -> dict:
-    """The expenses an expense line may name, newest first, and what was hidden (#1411).
-
-    A Project Expense line offers its project's Project Expenses (none until the project is picked);
-    a Non-project Expense line every Non Project Expense. An expense on a live (not Cancelled) Cheque
-    is hidden; one only on Cancelled Cheques is offered. `exclude_cheque` is the Cheque being edited:
-    its own expenses are not "on a live Cheque".
-
-    Returns `{expenses: [{name, amount, status, type, description, payment_date}], hidden:
-    {on_cheque: [{payment, cheque, cheque_no, status}]}}`.
+def bank_lines_for(cheque: str) -> list[dict]:
+    """`[{name, added_on, amount, reference_id, remarks, import_batch}]`: the imported bank lines the Clear
+    dialog offers for Payment cheque `cheque` (#1484), oldest first. Each is an ICICI statement debit nobody
+    has matched yet, carrying the cheque's number (leading zeros ignored) and its amount within ₹5
+    (`clear_rules.bank_line_problem`). Empty for a cheque no line can clear: not ICICI Bank, Old-type, a deposit.
     """
-    if line_type not in EXPENSE_LINE_TYPES:
-        raise ValueError(f"not an expense line kind: {line_type!r}")
-    doctype = LINE_PAYMENT_DOCTYPES[line_type]
-    filters = {}
-    if doctype == PROJECT_EXPENSE_DOCTYPE:
-        if not project:
-            return {"expenses": [], "hidden": {"on_cheque": []}}
-        filters["projects"] = project
-    rows = frappe.get_all(
-        doctype,
-        filters=filters,
-        fields=["name", "amount", "status", "type", "description", "payment_date"],
-        order_by="creation desc",
+    doc = frappe.db.get_value(
+        CHEQUES, cheque, ["cheque_no", "bank", "amount", "cheque_type", "old_type"], as_dict=True
     )
-    live = live_cheques_of(doctype, [r.name for r in rows], exclude=exclude_cheque)
-    expenses = [
-        {
-            "name": r.name,
-            "amount": flt(r.amount),
-            "status": r.status,
-            "type": r.type,
-            "description": r.description,
-            "payment_date": r.payment_date,
-        }
+    if not doc or doc.bank != ICICI_BANK or doc.cheque_type != CHEQUE_TYPE_PAYMENT or cint(doc.old_type):
+        return []
+    key = cheque_no_key(doc.cheque_no)
+    if not key:
+        return []
+    amount = flt(doc.amount)
+    rows = frappe.get_all(
+        "Outflow Import Row",
+        filters=[
+            ["source", "=", ICICI_STATEMENT_SOURCE],
+            ["direction", "=", DIRECTION_DEBIT],
+            ["row_status", "in", UNMATCHED_LINE_STATUSES],
+            # Frappe's `between` reads its bounds as dates: two comparisons instead.
+            ["amount", ">=", amount - LINES_TOLERANCE],
+            ["amount", "<=", amount + LINES_TOLERANCE],
+            # A first cut in SQL; the exact number rule is checked below.
+            ["reference_id", "like", f"%{key}%"],
+        ],
+        fields=["name", "source", "direction", "row_status", "added_on", "amount", "reference_id", "remarks",
+                "import_batch"],
+        order_by="added_on asc, name asc",
+    )
+    return [
+        {k: r[k] for k in ("name", "added_on", "amount", "reference_id", "remarks", "import_batch")}
         for r in rows
-        if r.name not in live
+        if not bank_line_problem(
+            BankLine(name=r.name, source=r.source, direction=r.direction, row_status=r.row_status,
+                     reference_id=r.reference_id, amount=flt(r.amount)),
+            bank=doc.bank, cheque_no=doc.cheque_no, amount=amount,
+        )
     ]
-    on_cheque = [{"payment": r.name, **live[r.name]} for r in rows if r.name in live]
-    return {"expenses": expenses, "hidden": {"on_cheque": on_cheque}}

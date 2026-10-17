@@ -270,7 +270,7 @@ class TestTheWorker(CashbookImportCase):
         The URL is pasted; no `File` row is minted against the expense. Frappe authorises a private
         file through the document it is attached to, so the attachment opens for the 3 roles that
         can read the import batch and returns 403 for the other 16 that can read an expense.
-        Re-enabling `_link_statement_file_to_target` here is the one-line reversal.
+        Re-enabling `link_statement_file_to_target` here is the one-line reversal.
         """
         cb._cashbook_worker(self.batch, "Administrator")
         targets = frappe.get_all(

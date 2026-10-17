@@ -3,34 +3,45 @@ import { z } from "zod";
 import { CHEQUE_BANK } from "@/types/NirmaanStack/Cheques";
 import { parseNumber } from "@/utils/parseNumber";
 
-import { EXPENSE_LABELS, LINE_NEEDS, LINE_TYPE, saveLineArgs, type ChequeLineDraft, type SaveLineArg } from "./chequeLines";
+import { LINE_NEEDS, LINE_TYPE, saveLineArgs, type ChequeLineDraft, type SaveLineArg } from "./chequeLines";
 
 /**
- * The Add Cheque form's rules (spec #1407), pure so vitest covers them without React (F4).
+ * The Add Cheque form's rules (spec #1407; #1482, spec #1477), pure so vitest covers them without React (F4).
  *
- * They mirror the server's `services/cheques/rules.header_problem`, which is the enforcement: this
- * only spares the user a round trip. The messages match the server's.
+ * They mirror the server's `services/cheques/rules.header_problem` and `tracker_payment_cheque_problem`,
+ * which are the enforcement: this only spares the user a round trip. The messages match the server's.
  */
 
-/** Who the cheque is made out to: a Vendor picked from the list, or a name typed in. */
+/** Who the cheque is made out to. A Payment cheque names a Vendor; only an Old-type cheque has a typed name. */
 export type PayeeKind = "vendor" | "typed";
 
-/** One Cheque line of any kind. Its rules, per kind (`LINE_NEEDS`), are checked in the form's `superRefine`. */
+/** One Cheque line. A Payment cheque's are PO lines; an Old-type cheque may still show expense lines. */
 const lineSchema = z.object({
-    line_type: z.enum(["PO/WO Payment", "Project Expense", "Non-project Expense"]),
+    // Every kind the doctype has, so a recorded line parses; a Payment cheque refuses all but PO lines below.
+    line_type: z.enum(["PO/WO Payment", "Project Expense", "Non-project Expense", "Secured PO/WO"]),
     project: z.string(),
     record_doctype: z.string(),
     record_name: z.string(),
     payment_name: z.string(),
+    payment_status: z.string().optional(),
     amount: z.union([z.number(), z.string()]),
 }) satisfies z.ZodType<ChequeLineDraft>;
 
-/**
- * The form's schema. The photo is uploaded as soon as it is picked; the form holds its file URL.
- * `photoRequired` is false only when editing a Cheque that has none (a backfilled one, #1419/#1418):
- * the server asks for the photo on a new Cheque only.
- */
-export const makeChequeFormSchema = ({ photoRequired }: { photoRequired: boolean }) => z
+export const NO_LINES_MESSAGE = "Add at least one PO payment: a Payment cheque pays the PO payments on its lines.";
+
+interface ChequeFormRules {
+    /** False only when editing a Cheque that has none (a backfilled one, #1419/#1418). */
+    photoRequired: boolean;
+    /**
+     * True for a Payment cheque the Tracker adds or edits in full (#1482): a Vendor payee, at least one
+     * line, PO lines only. False for a photo-only edit (an Old-type, Issued, Cleared or Cancelled cheque),
+     * whose other boxes are locked as recorded.
+     */
+    paymentCheque: boolean;
+}
+
+/** The form's schema. The photo is uploaded as soon as it is picked; the form holds its file URL. */
+export const makeChequeFormSchema = ({ photoRequired, paymentCheque }: ChequeFormRules) => z
     .object({
         bank: z.enum([CHEQUE_BANK.ICICI, CHEQUE_BANK.OTHERS], {
             errorMap: () => ({ message: "Choose the bank the cheque is drawn on: ICICI Bank or Others." }),
@@ -45,51 +56,42 @@ export const makeChequeFormSchema = ({ photoRequired }: { photoRequired: boolean
         payee_name: z.string().optional(),
         attachment: z.string().optional(),
         description: z.string().optional(),
-        /** The Cheque's lines; none makes it an Ad-hoc cheque. A typed payee takes expense lines only. */
         lines: z.array(lineSchema).default([]),
     })
     .superRefine((v, ctx) => {
+        const issue = (path: (string | number)[], message: string) => ctx.addIssue({ code: "custom", path, message });
         if (v.bank === CHEQUE_BANK.OTHERS && !v.bank_name?.trim()) {
-            ctx.addIssue({ code: "custom", path: ["bank_name"], message: "Type the name of the bank the cheque is drawn on." });
+            issue(["bank_name"], "Type the name of the bank the cheque is drawn on.");
         }
-        if (v.payee_kind === "vendor" && !v.vendor) {
-            ctx.addIssue({ code: "custom", path: ["vendor"], message: "Pick the Vendor the cheque is made out to." });
+        if (photoRequired && !v.attachment) issue(["attachment"], "Upload the photo of the cheque.");
+        if (!paymentCheque) {
+            if (v.payee_kind === "vendor" && !v.vendor) issue(["vendor"], "Pick the Vendor the cheque is made out to.");
+            if (v.payee_kind === "typed" && !v.payee_name?.trim()) issue(["payee_name"], "Type the payee's name.");
+            return;
         }
-        if (v.payee_kind === "typed" && !v.payee_name?.trim()) {
-            ctx.addIssue({ code: "custom", path: ["payee_name"], message: "Type the payee's name." });
+        if (v.payee_kind !== "vendor") {
+            issue(["vendor"], "A Payment cheque is made out to a Vendor: pick the Vendor, not a typed payee.");
+        } else if (!v.vendor) {
+            issue(["vendor"], "Pick the Vendor the cheque is made out to.");
         }
-        if (photoRequired && !v.attachment) {
-            ctx.addIssue({ code: "custom", path: ["attachment"], message: "Upload the photo of the cheque." });
-        }
-        if (v.payee_kind !== "vendor" && v.lines.some((l) => l.line_type === LINE_TYPE.PO_WO)) {
-            ctx.addIssue({
-                code: "custom",
-                path: ["lines"],
-                message: "A PO or Work Order payment needs a cheque made out to a Vendor, not a typed payee.",
-            });
-        }
+        if (v.lines.length === 0) issue(["lines"], NO_LINES_MESSAGE);
         v.lines.forEach((line, i) => {
+            if (line.line_type !== LINE_TYPE.PO_WO) {
+                issue(["lines", i, "line_type"], "A Payment cheque pays PO payments only.");
+                return;
+            }
             const needs = LINE_NEEDS[line.line_type];
-            const issue = (field: keyof ChequeLineDraft, message: string) =>
-                ctx.addIssue({ code: "custom", path: ["lines", i, field], message });
-            if (needs.project && !line.project) issue("project", "Pick the project.");
-            if (needs.record && !line.record_name) issue("record_name", "Pick the PO or Work Order.");
-            if (needs.expense && !line.payment_name) issue("payment_name", `Pick the ${EXPENSE_LABELS[line.line_type]}.`);
-            // A picked payment or expense lends its amount; otherwise the amount is typed.
-            if (!line.payment_name && !needs.expense && parseNumber(line.amount) <= 0) {
-                issue("amount", "Enter the amount, greater than 0.");
+            if (needs.project && !line.project) issue(["lines", i, "project"], "Pick the project.");
+            if (needs.record && !line.record_name) issue(["lines", i, "record_name"], "Pick the PO.");
+            // A picked payment lends its amount; otherwise the amount is typed.
+            if (!line.payment_name && parseNumber(line.amount) <= 0) {
+                issue(["lines", i, "amount"], "Enter the amount, greater than 0.");
             }
         });
-        if (v.lines.length === 0 && !v.description?.trim()) {
-            ctx.addIssue({
-                code: "custom",
-                path: ["description"],
-                message: "A cheque with no lines is an Ad-hoc cheque: write a description of what it pays for.",
-            });
-        }
     });
 
-export const chequeFormSchema = makeChequeFormSchema({ photoRequired: true });
+/** A new Payment cheque's schema. */
+export const chequeFormSchema = makeChequeFormSchema({ photoRequired: true, paymentCheque: true });
 
 export type ChequeFormInput = z.input<typeof chequeFormSchema>;
 export type ChequeFormValues = z.output<typeof chequeFormSchema>;
@@ -108,6 +110,9 @@ export const EMPTY_CHEQUE_FORM: ChequeFormInput = {
     lines: [],
 };
 
+/** Saves a new or edited Cheque of either type (Add Cheque's Payment form and the Security Deposit form). */
+export const SAVE_CHEQUE_API = "nirmaan_stack.api.cheques.save_cheque.save_cheque";
+
 /** The arguments `api/cheques/save_cheque.save_cheque` takes. */
 export interface SaveChequeArgs {
     bank: string;
@@ -122,6 +127,10 @@ export interface SaveChequeArgs {
     lines?: SaveLineArg[];
     /** The Cheque being edited (#1418); absent for a new one. */
     name?: string;
+    /** "Security Deposit" for a deposit cheque (#1486); absent: a Payment cheque. */
+    cheque_type?: string;
+    /** A deposit cheque's typed issue date. */
+    issue_date?: string;
 }
 
 /** Turn valid form values into the save arguments: one payee only, a bank name only for Others. */
@@ -138,9 +147,9 @@ export const saveChequeArgs = (v: ChequeFormValues): SaveChequeArgs => ({
 });
 
 /**
- * The error on the lines as a whole (a PO/WO line on a typed payee), or undefined. Once the lines are
- * a field array, react-hook-form nests that error at `root`; an error on one line's box is an array
- * with no message of its own, and shows under that box instead.
+ * The error on the lines as a whole (no lines), or undefined. Once the lines are a field array,
+ * react-hook-form nests that error at `root`; an error on one line's box is an array with no message of
+ * its own, and shows under that box instead.
  */
 export const linesErrorMessage = (
     error: { message?: unknown; root?: { message?: unknown } } | undefined,

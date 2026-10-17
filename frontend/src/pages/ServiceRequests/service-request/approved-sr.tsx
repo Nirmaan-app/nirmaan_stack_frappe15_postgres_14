@@ -52,11 +52,11 @@ import { SRFinalizeDialog, SRRevertFinalizeDialog } from "../components/SRFinali
 import { useServiceRequestLogic } from "../hooks/useServiceRequestLogic";
 import { useSRFinalizePermissions, useFinalizeSR, useRevertFinalizeSR } from "../hooks/useSRFinalize";
 import { DocumentAttachments } from "@/pages/ProcurementOrders/invoices-and-dcs/DocumentAttachments";
+import { SecurityDepositChequesCard } from "@/components/cheques/SecurityDepositChequesCard";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { DeletePaymentDialog } from "@/pages/ProjectPayments/update-payment/DeletePaymentDialog";
 import SRPdf from "./SRPdf";
 import { PaymentVoucherActions } from "@/components/paymentsVoucher/PaymentVoucherActions";
-import { PaymentChequeActions } from "@/components/cheques/PaymentChequeActions";
 import { PaymentUtrOrCheque } from "@/components/cheques/PaymentUtrOrCheque";
 import { useChequeChips } from "@/components/cheques/useChequeChips";
 import { GstPaymentTag } from "@/pages/ProjectPayments/components/GstPaymentTag";
@@ -816,11 +816,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                 {/* ----------------------------------------------- */}
 
                                                 <TableCell className="text-red-500 text-end w-[5%]">
-                                                    <PaymentChequeActions
-                                                        payment={payment}
-                                                        chip={payment.cheque ? chequeChips[payment.cheque] : undefined}
-                                                        onChanged={refreshPayments}
-                                                    />
                                                     {/* Approved: Admin only (owner, 18 Sep) — as on the PO page. Paid: never.
                                                         Deleting the payment also deletes its Payment TDS Deduction (server on_trash).
                                                         A REJECTED payment: Admin also gets the trash in the summary view, which is how
@@ -1034,6 +1029,15 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                         )}
                     </CardContent>
                 </Card>
+                {/* Security Deposit cheques that name this Work Order (#1486); renders only for cheque users. */}
+                <SecurityDepositChequesCard
+                    record={{
+                        doctype: "Service Requests",
+                        name: service_request?.name,
+                        project: service_request?.project,
+                        vendor: service_request?.vendor,
+                    }}
+                />
             </div>)}
 
 

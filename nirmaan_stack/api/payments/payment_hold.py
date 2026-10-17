@@ -11,8 +11,9 @@ they hold for every other write path too. This endpoint only gives the tab clear
 an idempotent toggle. The save goes through the document, so the doctype's `track_changes`
 records who held or released it, and when.
 
-Releasing a held Cheque payment moves it on to Reconciliation Pending (spec #1407): a Cheque payment
-skips "Payment need to paid", and the hold was the only thing keeping it there.
+A Cheque payment cannot be held (spec #1477, #1487: `validate_hold` refuses it). Releasing one held
+before that rule moves it on to Reconciliation Pending (spec #1407): a Cheque payment skips "Payment
+need to paid", and the hold was the only thing keeping it there.
 """
 
 import frappe

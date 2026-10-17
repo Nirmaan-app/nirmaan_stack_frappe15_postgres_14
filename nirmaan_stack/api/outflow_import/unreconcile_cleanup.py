@@ -15,10 +15,10 @@ here because the payment's own hooks do not get it right on a `Paid -> Approved`
   * CEO HOLD -- `project_cashflow_hold_update.trigger_check` claims a per-request, per-project flag,
     so the SECOND payment of one project in a Reverse all is never evaluated: the gap it leaves
     counts every payment but the first.
-  * LATEST PAYMENT DATE -- the settle only ever ADVANCES it (`settle._advance_po_latest_payment_date`);
+  * LATEST PAYMENT DATE -- the settle only ever ADVANCES it (`settle.advance_po_latest_payment_date`);
     its recompute twin `settle.recompute_latest_payment_date` lives beside it.
   * THE STATEMENT `File` ROW -- minted after the settle's commit by
-    `expenses._link_statement_file_to_target`, outside any save.
+    `row_settlement.link_statement_file_to_target`, outside any save.
 
 AN EXPENSE (#1277) has no parent, no vendor credit and no latest payment date, so only two of these
 apply to it: its statement `File` row, and -- for a `Project Expenses` record -- its project's CEO Hold,
@@ -42,7 +42,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     PROJECT_EXPENSE_DOCTYPE,
 )
 from nirmaan_stack.services.outflow_import.settle import (
-    _outflow_import_write,
+    outflow_import_write,
     recompute_latest_payment_date,
 )
 
@@ -123,9 +123,9 @@ def resync_cashflow_hold(project: str) -> None:
     """Re-evaluate the project's cashflow-gap hold on the state after EVERY write.
 
     Called directly rather than through `trigger_check`, whose per-request flag is exactly what left
-    the gap stale. `_outflow_import_write` holds shut the one branch that commits (the manual-hold
+    the gap stale. `outflow_import_write` holds shut the one branch that commits (the manual-hold
     releasable notice), as it does for the settle. Unlike `trigger_check` it does not swallow a
     failure: a hold left stale is the defect this slice exists to prevent, so the reversal rolls back.
     """
-    with _outflow_import_write():
+    with outflow_import_write():
         sync_cashflow_reason(project)

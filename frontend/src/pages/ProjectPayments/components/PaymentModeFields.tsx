@@ -16,7 +16,6 @@ import { cn } from "@/lib/utils";
 import { CHEQUE_BANK, type ChequeBank } from "@/types/NirmaanStack/Cheques";
 import { isFromPhoto, type ChequePhotoField } from "@/utils/cheques/chequePhoto";
 import { chequeReportPath } from "@/utils/cheques/chequeReportLink";
-import { newChequeDuplicateText } from "@/utils/cheques/paymentChequeActions";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { getFrappeError } from "@/utils/frappeErrors";
 
@@ -47,18 +46,17 @@ interface Props {
 	vendor?: string;
 	disabled?: boolean;
 	/**
-	 * `request` (default): a Request Payment dialog, Online or Cheque. `new_cheque`: Convert to Cheque /
-	 * Link a new cheque on an existing payment (#1416): always Cheque, no mode choice, the refusal worded for it.
+	 * False on a Work Order: its payments are paid Online (spec #1477, `chequeModeOffered`), so the
+	 * mode is shown, not chosen. The server refuses a Work Order cheque anyway.
 	 */
-	purpose?: "request" | "new_cheque";
+	chequeOffered?: boolean;
 }
 
 const Required = () => <span className="ml-0.5 text-red-500">*</span>;
 
 /**
  * Online / Cheque. Shared by every Project Payment request dialog (the PO page's payment terms, the
- * Work Order page, Credits), and by Convert to Cheque / Link a new cheque in Transaction Details
- * (`purpose="new_cheque"`, #1416).
+ * Work Order page, Credits). A Work Order request is Online only (`chequeOffered={false}`).
  *
  * Cheque mode (#1414, spec #1407) starts from the cheque's photo: it is uploaded, read, and what it
  * says fills the bank, number, date and amount, tagged "From photo". On Submit the server makes the
@@ -74,12 +72,9 @@ export const PaymentModeFields = ({
 	companyBorne = false,
 	vendor,
 	disabled,
-	purpose = "request",
+	chequeOffered = true,
 }: Props) => {
-	const isRequest = purpose === "request";
-	/** The soft warnings never block: what the user can still do. */
-	const goAhead = isRequest ? "request" : "save";
-	const isCheque = value.mode === PAYMENT_MODE_CHEQUE;
+	const isCheque = chequeOffered && value.mode === PAYMENT_MODE_CHEQUE;
 	const chequeAmount = amount !== undefined ? chequeAmountFor(amount, tds) : undefined;
 
 	const { upload, loading: uploading } = useFrappeFileUpload();
@@ -127,7 +122,16 @@ export const PaymentModeFields = ({
 
 	return (
 		<div className="space-y-2 rounded-md border px-3 py-2">
-			{isRequest && (
+			{!chequeOffered && (
+				<div className="space-y-0.5">
+					<p className="flex items-center gap-4 text-sm">
+						<span className="font-medium">Mode of Payment</span>
+						<span>Online</span>
+					</p>
+					<p className="text-[11px] text-muted-foreground">Work Order payments are paid online, never by cheque.</p>
+				</div>
+			)}
+			{chequeOffered && (
 				<div className="flex items-center gap-4">
 					<span className="text-sm font-medium">Mode of Payment</span>
 					<RadioGroup
@@ -266,9 +270,9 @@ export const PaymentModeFields = ({
 							<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
 							{amountHint.kind === "gross"
 								? `The cheque is for the gross amount, ${formatToIndianRupee(amountHint.gross)}. ` +
-									`Write it for ${formatToIndianRupee(amountHint.expected)}, after ${formatToIndianRupee(amountHint.tds)} TDS. You can still ${goAhead} it.`
+									`Write it for ${formatToIndianRupee(amountHint.expected)}, after ${formatToIndianRupee(amountHint.tds)} TDS. You can still request it.`
 								: `The cheque is for ${formatToIndianRupee(Number(value.amount))}, but this payment's cheque should be ` +
-									`${formatToIndianRupee(amountHint.expected)}. Check the amount; you can still ${goAhead} it.`}
+									`${formatToIndianRupee(amountHint.expected)}. Check the amount; you can still request it.`}
 						</p>
 					)}
 					{photoPayee && (
@@ -281,26 +285,24 @@ export const PaymentModeFields = ({
 						<p className="flex items-start gap-1.5 text-xs text-amber-700">
 							<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
 							The payee on the photo ({payeeMismatch.payee}) does not look like {payeeMismatch.vendorName}, this
-							order's Vendor. Check the photo; you can still {goAhead} it.
+							order's Vendor. Check the photo; you can still request it.
 						</p>
 					)}
 					{existing && (
 						<div className="flex items-start gap-1.5 rounded border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-700">
 							<Ban className="mt-0.5 h-3.5 w-3.5 shrink-0" />
 							<span>
-								{isRequest ? existing.message : newChequeDuplicateText(existing)}{" "}
+								{existing.message}{" "}
 								<Link to={chequeReportPath(existing.cheque_no)} target="_blank" className="font-medium underline">
 									Open cheque {existing.cheque_no}
 								</Link>
 							</span>
 						</div>
 					)}
-					{isRequest && (
-						<p className="text-[11px] text-muted-foreground">
-							This payment gets its own new cheque. Once approved, a cheque payment goes straight to
-							Reconciliation Pending.
-						</p>
-					)}
+					<p className="text-[11px] text-muted-foreground">
+						This payment gets its own new cheque. The cheque starts Pending; once the payment is
+						approved, the cheque is Issued and waits in the Cheque Tracker until the bank clears it.
+					</p>
 				</>
 			)}
 		</div>

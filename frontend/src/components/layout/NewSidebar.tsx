@@ -23,6 +23,7 @@ import {
   ClipboardMinus,
   HandCoins,
   PiggyBank,
+  Banknote,
   BookUser,
   ReceiptText, FileUp,
   CreditCard,
@@ -75,6 +76,7 @@ import {
   ACCOUNTANT_LEAD_PROFILE,
   ACCOUNTANT_PROFILE,
   ADMIN_PROFILE,
+  CHEQUE_ACCESS_PROFILES,
   HOD_ACCESS,
   HR_EXECUTIVE_PROFILE,
   HR_LEAD_PROFILE,
@@ -594,6 +596,18 @@ export function NewSidebar() {
         },
       ]
       : []),
+    // Cheque Tracker (#1483): it was Reports › Payment › Cheque Payment. Reads the same constant as the route
+    // guard (routesConfig.tsx); every `api/cheques/` endpoint enforces it. Project Managers are not in it.
+    // ⚠️ The flat-nav Set below matches on this LABEL — both strings move together.
+    ...(user_id == "Administrator" || CHEQUE_ACCESS_PROFILES.includes(role as string)
+      ? [
+        {
+          key: '/cheque-tracker',
+          icon: Banknote,
+          label: 'Cheque Tracker',
+        },
+      ]
+      : []),
     // HR LEAD ADDED 2026-09-23 (owner). It was already a valid REVIEWER server-side
     // (`api/expense_requests/access.PM_REQUEST_REVIEWERS`) but appeared in no sidebar gate
     // anywhere, so the approve right it held was unreachable -- there was no door to the
@@ -874,6 +888,7 @@ export function NewSidebar() {
     // "approved-sr",
     "notifications",
     "project-payments",
+    "cheque-tracker",
     "credits",
     "in-flow-payments",
     "non-project-inflows",
@@ -931,6 +946,7 @@ export function NewSidebar() {
     "/service-requests": ["service-requests", "service-requests-list"],
     "/purchase-orders": ["purchase-orders"],
     "/project-payments": ["project-payments"],
+    "/cheque-tracker": ["cheque-tracker"],
     "/credits": ["credits"],
     "/in-flow-payments": ["in-flow-payments"],
     "/non-project-inflows": ["non-project-inflows"],
@@ -1057,6 +1073,8 @@ export function NewSidebar() {
                     "Procurement Requests",
                     "Purchase Orders",
                     "Project Payment & Expense",
+                    // Cheque Tracker (#1483): flat nav button, same trap as Non-Project Inflows below.
+                    "Cheque Tracker",
                     "Credit Payments",
                     "Sent Back Requests",
                     "Projects",

@@ -43,7 +43,6 @@ import frappe
 from nirmaan_stack.api.outflow_import.expenses import (
     concurrent_writer_refusal_as_sentence,
     live_legs,
-    _refresh_row_allocation,
     _statement_file_url,
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_undo_access
@@ -51,7 +50,6 @@ from nirmaan_stack.api.outflow_import.review import (
     MATCH_DOCTYPE,
     ROW_DOCTYPE,
     _batch_source,
-    refresh_batch_rollup,
 )
 from nirmaan_stack.api.outflow_import.unreconcile_cleanup import restore_derived_state
 from nirmaan_stack.api.outflow_import.unreconcile_created import delete_created, edits_of
@@ -76,7 +74,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 )
 from nirmaan_stack.services.outflow_import.settle import (
     _derive_status_and_save,
-    _outflow_import_write,
+    outflow_import_write,
     clear_statement_attachment,
 )
 from nirmaan_stack.services.outflow_import.settlement_reference import (
@@ -100,6 +98,7 @@ from nirmaan_stack.services.outflow_import.unreconcile import (
     leg_verdict,
     reverse_all_only,
 )
+from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup, refresh_row_allocation
 
 ALL_LEGS = "all"
 
@@ -292,7 +291,7 @@ def unreconcile_line(row: str, legs, reason: str, actor: str, *, bulk_of: int | 
             _drop_a_pick_that_was_deleted(line.name, carried)
             # #1280: the line keeps its old pick, so it is marked Confirm by hand and a bulk confirm
             # refuses it until a person settles it.
-            new_status = _refresh_row_allocation(line.name, actor, confirm_by_hand=True)
+            new_status = refresh_row_allocation(line.name, actor, confirm_by_hand=True)
             _comment_on_line(line.name, actor, reason, requested, bulk_of=bulk_of)
         except Exception:
             frappe.db.rollback(save_point=savepoint)
@@ -403,7 +402,7 @@ def _drop_a_pick_that_was_deleted(row: str, carried) -> None:
     """Clear the line's pick when it names a record this unreconcile just DELETED (#1314, trap 1).
 
     ⚠️ THE CASHBOOK JOB STORES ITS OWN CREATED EXPENSE AS THE PICK (`cashbook._write_one` writes
-    `suggested_name = <created expense>`), and `_refresh_row_allocation` falls back to `Matched`
+    `suggested_name = <created expense>`), and `refresh_row_allocation` falls back to `Matched`
     whenever a pick survives. Left alone, an unreconciled Cashbook line would read Matched -- to a
     record that no longer exists -- and a Confirm would settle it against nothing.
 
@@ -634,7 +633,7 @@ def _revert_expense(doctype: str, name: str, statement_file_url: str | None) -> 
         doc.payment_by = None
     clear_statement_attachment(doc, statement_file_url)
     doc.flags.from_outflow_import = True
-    with _outflow_import_write():
+    with outflow_import_write():
         doc.save(ignore_permissions=True, ignore_version=False)
 
 
@@ -651,7 +650,7 @@ def _revert_payment(name: str, statement_file_url: str | None) -> None:
     lists exactly these: add a field here and check both, they live and die together. The amount is
     NOT restored (Ruling O); an un-split restores it before this runs (#1279).
 
-    `from_outflow_import` + `_outflow_import_write` suppress the hooks that commit mid-save; a commit
+    `from_outflow_import` + `outflow_import_write` suppress the hooks that commit mid-save; a commit
     inside the savepoint would make the all-or-nothing rollback a silent no-op.
     """
     doc = frappe.get_doc(PAYMENT_DOCTYPE, name)
@@ -660,7 +659,7 @@ def _revert_payment(name: str, statement_file_url: str | None) -> None:
     doc.payment_date = None
     clear_statement_attachment(doc, statement_file_url)
     doc.flags.from_outflow_import = True
-    with _outflow_import_write():
+    with outflow_import_write():
         doc.save(ignore_permissions=True, ignore_version=False)
 
 

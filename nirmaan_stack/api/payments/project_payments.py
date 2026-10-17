@@ -16,6 +16,7 @@ from nirmaan_stack.services.approval_tiers import (
 )
 from nirmaan_stack.services.order_payments import assert_within_work_order_limit
 from nirmaan_stack.services import cheque_payments
+from nirmaan_stack.services.cheques import decide as cheque_decision
 from nirmaan_stack.api.payments.payment_cheque import (
     cheque_header,
     put_on_new_cheque,
@@ -49,6 +50,14 @@ def _route_new_payment(amount):
     status = initial_status_for_raiser(amount, TIER_L2_ABOVE, level)
     l1_cleared, ceo_cleared = steps_cleared_by_raiser(amount, TIER_L2_ABOVE, level)
     return status, l1_cleared, ceo_cleared
+
+
+def _tier_new_payment(amount, cheque):
+    """`(auto_approve, status, l1_cleared, ceo_cleared)` for a new payment of `amount` the session user
+    raises. A cheque payment (`cheque`, its cheque's header) is tiered on the CHEQUE amount (spec #1477,
+    C3): one cheque is one decision. Small payments auto-approve; a negative refund never does."""
+    tier_amount = cheque.amount if cheque else amount
+    return (is_auto_approved(tier_amount), *_route_new_payment(tier_amount))
 
 
 def _stamp_raiser_approval(pay, l1_cleared: bool, ceo_cleared: bool) -> None:
@@ -138,8 +147,7 @@ def create_payment_request_for_service(data: str) -> str:
     # ── create payment doc  (ACID wrapper) ─────────────────────────
     # Small payments auto-approve; negative refunds (amount < 0) always go
     # through manual review, hence the strict `0 < amount` lower bound.
-    auto_approve = is_auto_approved(amount)
-    status, l1_cleared, ceo_cleared = _route_new_payment(amount)
+    auto_approve, status, l1_cleared, ceo_cleared = _tier_new_payment(amount, cheque)
 
     pay = frappe.new_doc("Project Payments")
     pay.update({
@@ -280,8 +288,7 @@ def create_project_payment(
         refuse_unless_cheque_can_be_made(cheque)
 
         # --- Step 4: Create the payment document (small ones skip both gates) ---
-        auto_approve = is_auto_approved(amount)
-        status, l1_cleared, ceo_cleared = _route_new_payment(amount)
+        auto_approve, status, l1_cleared, ceo_cleared = _tier_new_payment(amount, cheque)
 
         pay = frappe.new_doc("Project Payments")
         pay.update({
@@ -410,6 +417,19 @@ def ceo_approve_payment(payment_id: str, approved_amount=None) -> dict:
                 frappe.format_value(result["approved_amount"], "Currency"),
                 frappe.format_value(result["remainder_amount"], "Currency"),
                 result["remainder_payment"],
+            ),
+            "data": result,
+        }
+
+    # A payment on a Payment cheque is approved with every other payment on it, all or none
+    # (#1480, spec #1477): `services/cheques/decide.py`.
+    if cheque_decision.cheque_of(payment_id):
+        result = cheque_decision.approve(payment_id, stage=cheque_decision.STAGE_CEO, user=frappe.session.user)
+        frappe.db.commit()
+        return {
+            "status": "success",
+            "message": _("All {0} payments on cheque {1} approved and moved to Reconciliation Pending.").format(
+                len(result["payments"]), result["cheque_no"]
             ),
             "data": result,
         }
@@ -544,6 +564,9 @@ def _fulfil_payment(pay, args):
     # Requested / CEO Pending one cannot skip its approval gate.
     if pay.status not in ("Approved", "Reconciliation Pending"):
         frappe.throw(_("Payment is not yet CEO-approved or has already been processed"))
+    cheque_problem = cheque_decision.pay_alone_problem(pay.name)  # spec #1477: clearing the cheque pays it
+    if cheque_problem:
+        frappe.throw(_(cheque_problem), title=_("Paid by cheque"))
 
     utr = (args.get("utr") or "").strip()
     if not utr:

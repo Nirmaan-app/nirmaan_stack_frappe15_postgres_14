@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import flt, nowdate
+from frappe.utils import add_days, flt, nowdate
 
 from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
 from nirmaan_stack.api.payments import bulk_actions
@@ -34,7 +34,7 @@ from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFi
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.services import payment_tds
 from nirmaan_stack.services.cheques.rules import ChequeHeader, ChequeLineInput
-from nirmaan_stack.services.cheques.writer import create_cheque
+from nirmaan_stack.services.cheques.writer import create_cheque, create_payment_cheque
 
 PAYMENT = "Project Payments"
 SR = "Service Requests"
@@ -97,8 +97,8 @@ class TestChequePayments(FrappeTestCase):
 		name = self.fx._name("PO")
 		frappe.db.sql(
 			"""INSERT INTO "tabProcurement Orders" (name, creation, modified, modified_by, owner,
-				   docstatus, idx, project, vendor, total_amount, amount_paid, status)
-			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 10000000, 0, 'Delivered')""",
+				   docstatus, idx, project, vendor, total_amount, amount, tax_amount, amount_paid, status)
+			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 10000000, 10000000, 0, 0, 'Delivered')""",
 			(name, U, U, self.project, self.vendor),
 		)
 		frappe.db.commit()
@@ -131,16 +131,17 @@ class TestChequePayments(FrappeTestCase):
 			frappe.set_user(U)
 
 	# -- every approval route: taxed once at Approved, then Reconciliation Pending -------------
-	def test_auto_approved_cheque_is_taxed_then_moved(self):
+	def test_auto_approved_cheque_is_moved_straight_on(self):
+		# A PO cheque: a Work Order payment is paid Online since spec #1477 (#1487), and a PO withholds no tax.
 		ChequeFixture.attach(self)  # the request makes the payment's one-line Cheque (#1414)
 		with patch(f"{CONTROLLER}.get_allowed_accountants") as accountants:
 			out = json.loads(create_payment_request_for_service(json.dumps({
-				"doctype": SR, "docname": self.sr, "amount": 10000,
+				"doctype": PO, "docname": self._po(), "amount": 10000,
 				"mode_of_payment": "Cheque", "cheque_no": self._cheque_no(), "cheque_date": nowdate(),
-				"bank": "ICICI Bank", "cheque_amount": 9800,
+				"bank": "ICICI Bank", "cheque_amount": 10000,
 				"cheque_attachment": "https://storage.example.invalid/private/files/cheque-test.jpg",
 			})))
-		self.assertEqual(self._state(out["name"]), (RECON, 9800.0, [200.0]))
+		self.assertEqual(self._state(out["name"]), (RECON, 10000.0, []))
 		# "Payment Ready to Fulfil" points at a tab a cheque never stays in.
 		accountants.assert_not_called()
 
@@ -264,6 +265,95 @@ class TestChequePayments(FrappeTestCase):
 		# The approval survives; "Mark as Paid" finishes the job from "Payment need to paid".
 		self.assertEqual(self._state(name), ("Approved", 58800.0, [1200.0]))
 
+	# -- the payment's Cheque: Pending until approved, then Issued (#1479, spec #1477) ----------
+	def _on_new_cheque(self, payment):
+		"""Put `payment` on its own one-line Cheque, as Request Payment in Cheque mode does."""
+		if not hasattr(self, "_cheques"):
+			self._cheques = ChequeFixture.attach(self)
+		header = ChequeHeader(
+			bank="ICICI Bank", bank_name=None, cheque_no=self._cheque_no(), cheque_date=nowdate(),
+			amount=flt(frappe.db.get_value(PAYMENT, payment, "amount")), vendor=self.vendor, payee_name=None,
+			description=None, attachment="https://storage.example.invalid/private/files/cheque-test.jpg",
+		)
+		cheque = self._cheques.track(create_payment_cheque(header, payment, user=U).name)
+		frappe.db.commit()
+		return cheque
+
+	def _cheque_state(self, cheque):
+		"""`(status, issue date, history moves)` of a Cheque, as the Tracker shows them."""
+		doc = frappe.get_doc("Cheques", cheque)
+		issue_date = str(doc.issue_date) if doc.issue_date else None
+		return doc.status, issue_date, [(h.from_status, h.to_status) for h in doc.status_history]
+
+	def _approved_by_l1(self, name, on, *, to="Approved"):
+		"""What the browser's `updateDoc` does for an L1 approval, dated `on`: Approved, or forwarded
+		to the CEO above 50,000."""
+		doc = frappe.get_doc(PAYMENT, name)
+		doc.update({"status": to, "amount": doc.amount, "approval_date": on})
+		doc.save()
+		frappe.db.commit()
+
+	def test_a_requested_payment_puts_its_cheque_at_pending(self):
+		cheque = self._on_new_cheque(self._plant(20000, "Requested", po=self._po()))
+		self.assertEqual(self._cheque_state(cheque), ("Pending", None, [(None, "Pending")]))
+
+	def test_l1_approve_issues_the_cheque_on_the_approval_date(self):
+		name = self._plant(20000, "Requested", po=self._po())
+		cheque = self._on_new_cheque(name)
+		two_days_ago = add_days(nowdate(), -2)
+		self._approved_by_l1(name, two_days_ago)
+		# Approved but not yet moved on: the cheque waits with it.
+		self.assertEqual(self._cheque_state(cheque)[0], "Pending")
+
+		self.assertEqual(move_cheque_payment_to_reconciliation(name), {"moved": True})
+		self.assertEqual(self._state(name)[0], RECON)
+		self.assertEqual(self._cheque_state(cheque), ("Issued", two_days_ago, [(None, "Pending"), ("Pending", "Issued")]))
+		# A repeated call issues nothing twice.
+		move_cheque_payment_to_reconciliation(name)
+		self.assertEqual(len(self._cheque_state(cheque)[2]), 2)
+
+	def test_a_ceo_path_cheque_is_issued_on_the_ceos_approval_date(self):
+		name = self._plant(60000, "Requested", po=self._po())
+		cheque = self._on_new_cheque(name)
+		self._approved_by_l1(name, add_days(nowdate(), -3), to="CEO Pending")
+		self.assertEqual(self._state(name)[0], "CEO Pending")
+		self.assertEqual(self._cheque_state(cheque)[0], "Pending")
+
+		self._as_ceo(ceo_approve_payment, name)
+		self.assertEqual(self._state(name)[0], RECON)
+		self.assertEqual(self._cheque_state(cheque), ("Issued", nowdate(), [(None, "Pending"), ("Pending", "Issued")]))
+
+	def test_bulk_approve_issues_po_and_wo_cheques(self):
+		po_payment = self._plant(20000, "Requested", po=self._po())
+		wo_payment = self._plant(20000, "Requested")
+		po_cheque, wo_cheque = self._on_new_cheque(po_payment), self._on_new_cheque(wo_payment)
+		with patch.object(bulk_actions, "_emit_approve_summary"):
+			res = bulk_actions.bulk_lead_approve_payments([po_payment, wo_payment], "approve")["data"]
+		self.assertEqual(sorted(res["succeeded"]), sorted([po_payment, wo_payment]))
+		for payment, cheque in ((po_payment, po_cheque), (wo_payment, wo_cheque)):
+			self.assertEqual(self._state(payment)[0], RECON)
+			self.assertEqual(self._cheque_state(cheque), ("Issued", nowdate(), [(None, "Pending"), ("Pending", "Issued")]))
+
+	def test_a_cheque_that_cannot_be_issued_holds_its_payment_where_it_was(self):
+		"""The approval, the move and the issue are one decision (#1480): none lands without the others."""
+		name = self._plant(60000, "CEO Pending", po=self._po())
+		cheque = self._on_new_cheque(name)
+		with patch("nirmaan_stack.services.cheques.status.issue", side_effect=RuntimeError("boom")):
+			with self.assertRaises(RuntimeError):
+				self._as_ceo(ceo_approve_payment, name)
+		frappe.db.rollback()
+		self.assertEqual(self._state(name)[0], "CEO Pending")
+		self.assertEqual(self._cheque_state(cheque), ("Pending", None, [(None, "Pending")]))
+
+	def test_a_payment_already_moved_on_makes_its_new_cheque_issued_at_once(self):
+		name = self._plant(20000, RECON, po=self._po())
+		frappe.db.set_value(PAYMENT, name, "approval_date", add_days(nowdate(), -5), update_modified=False)
+		frappe.db.commit()
+		cheque = self._on_new_cheque(name)
+		self.assertEqual(
+			self._cheque_state(cheque), ("Issued", add_days(nowdate(), -5), [(None, "Pending"), ("Pending", "Issued")])
+		)
+
 	# -- what may not change on a cheque ----------------------------------------------------------
 	def test_the_amount_is_locked_while_awaiting_approval(self):
 		name = self._plant(20000, "Requested")
@@ -357,7 +447,10 @@ class TestChequePayments(FrappeTestCase):
 							payment_doctype=PAYMENT, payment_name=p, amount=0)
 			for p in payments
 		]
-		create_cheque(header, user=U, made_from="Report", lines=lines)
+		doc = create_cheque(header, user=U, made_from="Report", lines=lines)
+		# Old-type: a live Payment cheque's payments are paid only by clearing it (spec #1477), so the
+		# payments screen's fulfil -- and the shared-reference rule it checks -- is an Old-type cheque's.
+		frappe.db.set_value("Cheques", doc.name, "old_type", 1, update_modified=False)
 		frappe.db.commit()
 
 	def test_payments_on_one_cheque_all_reconcile_against_its_number(self):

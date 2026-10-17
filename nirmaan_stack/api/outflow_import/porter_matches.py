@@ -6,9 +6,10 @@
 
 import frappe
 
-from nirmaan_stack.api.outflow_import.expenses import MATCH_DOCTYPE, target_snapshot
+from nirmaan_stack.api.outflow_import.expenses import MATCH_DOCTYPE
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.porter import MATCH_BASIS
+from nirmaan_stack.services.outflow_import.row_settlement import target_snapshot
 
 
 def record_porter_match(row, batch: str, expense, actor: str, origin: str) -> None:

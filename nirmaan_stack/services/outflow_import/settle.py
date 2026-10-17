@@ -111,6 +111,7 @@ from typing import Callable
 
 import frappe
 
+from nirmaan_stack.services.cheques.decide import pay_alone_problem
 from nirmaan_stack.services.non_project_inflows import inflow_type_problem
 from nirmaan_stack.services.vendor_refunds import (
     RECEIVED,
@@ -324,7 +325,7 @@ def _settlement_reference_of(row) -> str:
 
 
 @contextmanager
-def _outflow_import_write():
+def outflow_import_write():
     """Mark the request as an outflow-import settlement for the duration of one `doc.save()`.
 
     ⚠️ A REQUEST-LEVEL FLAG, WHERE THE OTHER TWO SUPPRESSIONS USE `doc.flags`, AND THE DIFFERENCE IS
@@ -370,7 +371,7 @@ def statement_attachment_field(doctype: str) -> str:
     ⚠️ IT IS ALSO WHAT `api/outflow_import` MUST WRITE INTO A `File` ROW'S `attached_to_field`.
     A `File` naming a field the doctype does not have is a link Frappe cannot authorise back to the
     record, which surfaces as an attachment that is visibly present and refuses to open -- exactly
-    the failure `_link_statement_file_to_target` exists to prevent. One resolver, both writers.
+    the failure `link_statement_file_to_target` exists to prevent. One resolver, both writers.
     """
     return _STATEMENT_ATTACHMENT_FIELDS.get(doctype, PAYMENT_ATTACHMENT_FIELD)
 
@@ -390,7 +391,7 @@ def apply_statement_attachment(doc, statement_file_url: str | None) -> bool:
     it; the statement is still reachable from the import.
 
     ⚠️ THE FILE IS PRIVATE AND ATTACHED TO THE IMPORT BATCH, NOT TO THIS RECORD. Copying the URL
-    copies a link, not a permission. `expenses._link_statement_file_to_target` creates the second
+    copies a link, not a permission. `row_settlement.link_statement_file_to_target` creates the second
     `File` row that makes it openable from here -- deliberately AFTER the commit, because a `File`
     insert wakes the cloud-attachment hook and that hook commits, which inside the caller's
     savepoint would make the per-row rollback a silent no-op. See the call site.
@@ -546,17 +547,17 @@ def _derive_status_and_save(doc, amount) -> None:
        suppressed" was sound for `create_expense`, which genuinely inserts a document, and had
        simply never applied to this path. It applies now.
 
-    3. IT WAKES A COMMITTER, WHICH `_outflow_import_write` HOLDS SHUT. That same cashflow module
+    3. IT WAKES A COMMITTER, WHICH `outflow_import_write` HOLDS SHUT. That same cashflow module
        can reach a `frappe.db.commit()` -- in its manual-hold-releasable notification branch -- and
        a commit inside the caller's savepoint makes the per-row rollback a silent no-op. The flag
        suppresses that ONE branch; the gap recomputation itself still runs, in our transaction. See
-       both `_outflow_import_write` and the guard at the hook site.
+       both `outflow_import_write` and the guard at the hook site.
     """
     verdict = derive_expense_status(amount, load_expense_links(doc.doctype, doc.name))
     doc.status = verdict.status
     doc.payment_date = verdict.payment_date
 
-    with _outflow_import_write():
+    with outflow_import_write():
         doc.save(ignore_permissions=True, ignore_version=False)
 
 
@@ -827,11 +828,11 @@ def settle_payment(
     # ⚠️ AND THE REQUEST FLAG BESIDE IT, for the THIRD committer -- the CEO-Hold cashflow hook,
     # which is wired to this doctype's `on_update` too and reaches its commit from a helper that
     # never sees `doc`. It was exposed to that commit before X1; the doc flag could never have
-    # reached it. See `_outflow_import_write`.
-    with _outflow_import_write():
+    # reached it. See `outflow_import_write`.
+    with outflow_import_write():
         doc.save(ignore_permissions=True, ignore_version=False)
 
-    _advance_po_latest_payment_date(doc, payment_date)
+    advance_po_latest_payment_date(doc, payment_date)
 
     return SettleResult(
         doctype=PAYMENT_DOCTYPE,
@@ -876,6 +877,12 @@ def _lock_and_assert_payment_settleable(name: str, bank_amount: Decimal) -> Deci
             WrongStatusError,
             title="Not settleable",
         )
+
+    # A Payment cheque's payments are paid by clearing the cheque (spec #1477): the bank line is linked
+    # there, in the Cheque Tracker. `status.clear` pays them without this function.
+    cheque_problem = pay_alone_problem(name)
+    if cheque_problem:
+        frappe.throw(cheque_problem, WrongStatusError, title="Paid by cheque")
 
     amount = normalize_amount(current.get("amount"))
     # ⚠️ THE SAME WINDOW THE MATCHER USES -- see `amounts.py`. It absorbs bank rounding and small
@@ -939,7 +946,7 @@ def _assert_reference_is_free(
     )
 
 
-def _advance_po_latest_payment_date(doc, payment_date) -> None:
+def advance_po_latest_payment_date(doc, payment_date) -> None:
     """Keep the parent's `latest_payment_date` in step, the way the canonical fulfil does.
 
     ⚠️ ADVANCE-ONLY, which the canonical path is not -- it overwrites unconditionally. That is
@@ -968,7 +975,7 @@ def _advance_po_latest_payment_date(doc, payment_date) -> None:
 def recompute_latest_payment_date(document_type: str, document_name: str) -> None:
     """The parent's `latest_payment_date` = its latest remaining Paid payment's date, or blank (#1276).
 
-    The UNDO twin of `_advance_po_latest_payment_date`: an unreconcile cannot advance, and it must not
+    The UNDO twin of `advance_po_latest_payment_date`: an unreconcile cannot advance, and it must not
     roll back from memory either, so it RECOMPUTES from source. Written with `set_value` for the
     reason given there; no `doc_events` handler watches this field
     (`project_cashflow_hold_update.on_procurement_order` watches `po_amount_delivered` / `amount_paid`).
@@ -1107,10 +1114,10 @@ def create_expense_from_row(
     # what made a latent transaction bug live, which is the general lesson worth keeping.
     #
     # The flag suppresses that ONE notification branch. The gap recomputation and the CEO-Hold
-    # mirror still run, inside our transaction -- see `_outflow_import_write` for why this is a
+    # mirror still run, inside our transaction -- see `outflow_import_write` for why this is a
     # request-level flag rather than a `doc.flags` one (the committer is an inner helper that never
     # sees the doc). `create_inflow_from_row` has always wrapped its insert for the same reason.
-    with _outflow_import_write():
+    with outflow_import_write():
         doc.insert(ignore_permissions=True)
     if invoice is not None and invoice.file_url:
         # ⚠️ RAW, AFTER THE INSERT, AND THAT IS THE POINT. Frappe's `"*"` on_update hook
@@ -1140,7 +1147,7 @@ def create_inflow_from_row(
     hard `is_expense_doctype` guard and its whole contract is expense-shaped -- a `type`, a
     `status`, a `payment_by`, an auto-approval rule it deliberately bypasses. An inflow has none of
     those. What the two DO share is the machinery, and every bit of it is reused rather than
-    re-typed: `apply_statement_attachment`, `format_amount_for`, `_outflow_import_write`.
+    re-typed: `apply_statement_attachment`, `format_amount_for`, `outflow_import_write`.
 
     ⚠️ THIS IS THE ONE WRITE IN THIS FEATURE WITH NO DRAFT STATE ANYWHERE BEHIND IT, and that is an
     owner ruling (Q8, option c), not an oversight. `Project Inflows` has no `status` field, and
@@ -1283,7 +1290,7 @@ def create_inflow_from_row(
     # silent no-op. The flag suppresses the NOTIFY only; `sync_cashflow_reason` still recomputes the
     # gap and still mirrors the CEO-Hold state, inside our transaction, which is what the owner
     # ruling requires -- an inflow recorded here is live immediately.
-    with _outflow_import_write():
+    with outflow_import_write():
         doc.insert(ignore_permissions=True)
 
     return SettleResult(doctype=INFLOW_DOCTYPE, name=doc.name, amount=amount, created=True)
@@ -1374,7 +1381,7 @@ def create_non_project_inflow_from_row(
     # Wrapped although this doctype's only hook today (`adopt_receipt_file`) never commits: the flag
     # costs nothing, and a bare insert would become a savepoint-corrupting hazard the day a
     # committing hook is wired here.
-    with _outflow_import_write():
+    with outflow_import_write():
         doc.insert(ignore_permissions=True)
 
     return SettleResult(doctype=NON_PROJECT_INFLOW, name=doc.name, amount=amount, created=True)
@@ -1475,7 +1482,7 @@ def create_vendor_refund_from_row(
         )
         # A brand-new record has no proof of its own, so the blank-only rule always lets this land.
         apply_statement_attachment(doc, statement_file_url)
-        with _outflow_import_write():
+        with outflow_import_write():
             doc.insert(ignore_permissions=True)
         results.append(SettleResult(doctype=VENDOR_REFUND, name=doc.name, amount=part, created=True))
     return results
@@ -1545,7 +1552,7 @@ def match_waiting_refunds_to_row(
         doc.utr = reference
         doc.payment_date = getattr(row, "added_on_date", None)
         apply_statement_attachment(doc, statement_file_url)
-        with _outflow_import_write():
+        with outflow_import_write():
             doc.save(ignore_permissions=True, ignore_version=False)
         results.append(SettleResult(doctype=VENDOR_REFUND, name=name, amount=money(doc.amount), created=False))
     return results

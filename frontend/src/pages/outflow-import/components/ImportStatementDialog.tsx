@@ -178,7 +178,7 @@ const SOURCE_SHAPE: Record<string, SourceShape> = {
         // here too but sets up a Confirm step this flow does not have; saying where the rows GO is
         // what stops the three-step wizard reading as one that stopped early.
         description:
-            "Everything that moved through the account. Nothing is matched or settled by importing — the rows land in the Not-Matched list, where each one is resolved by a person.",
+            "Everything that moved through the account. A cheque line clears the Payment cheque it pays; nothing else is matched or settled by importing — the other rows land in the Not-Matched list, where each one is resolved by a person.",
         wide: true,
     },
     // ⚠️ IT PROMISES THE GATE, BECAUSE THE GATE IS THE POINT (ADR-0032): every completed order becomes

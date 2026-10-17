@@ -1,21 +1,27 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The Cheque Payments report's list: one row per Cheque (spec #1407).
+"""The Cheque Tracker's list: one row per Cheque (spec #1407; its own page since #1483).
 
 Matches the data-table contract (`useServerDataTable`'s `apiEndpoint`): it takes the hook's
 `filters`, `order_by`, paging and search arguments and returns
 `{data, total_count, aggregates, group_by_result}`. Prior art: `api/approvals/get_approval_queue.py`.
 
-Each row is a Cheque with what the table shows: number, bank (`bank_label`: the typed name for
-Others), date, status, amount, description, Vendor or typed payee, who made it, the photo, and the
-last status change ("by <user> . <date>", from the Cheque's history).
+Each row is a Cheque with what the table shows: number, cheque type, bank (`bank_label`: the typed name
+for Others), date, issue and clearance dates, how it was cleared, status, amount, description, Vendor or
+typed payee, who made it, the photo, the Old-type flag, and the last status change ("by <user> . <date>",
+from the Cheque's history).
 
 Each row also carries its `lines` (kind, project and its name, PO/WO, payment, amount), oldest first,
 so the table can expand a row and show "+N" without a second read.
 
-The summary strip (`aggregates`: count and amount for All, Issued, Cleared, Cancelled), the rows and
-the facets (`get_cheque_facets`) all read the same WHERE, so they always agree. The project and PO/WO
+The summary strip (`aggregates`: count and amount for All, Pending, Issued, Cleared, Cancelled, and the stale
+Issued ones), the rows and the facets (`get_cheque_facets`) all read the same WHERE, so they always agree.
+
+The tracker's tabs are filters on this list, sent by the page (`frontend/src/utils/cheques/chequeTabs.ts`):
+Cheque Issued - Reconciliation Pending is `status = Issued` and `cheque_type = Payment`; Security Deposits is
+`cheque_type = Security Deposit` (#1486), and the PO / Work Order page's deposit card adds `record_name = <its
+record>`, which matches a deposit's Secured PO/WO lines. The project and PO/WO
 filters match a Cheque when ANY of its lines matches (EXISTS on `Cheque Line`), and the Cheque is
 still counted once, at its full amount (#1417).
 
@@ -26,9 +32,9 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt
+from frappe.utils import add_days, cint, flt, nowdate
 
-from nirmaan_stack.services.cheques.rules import CANCELLED, CLEARED, ISSUED
+from nirmaan_stack.services.cheques.rules import CANCELLED, CHEQUE_TYPE_PAYMENT, CLEARED, ISSUED, PENDING
 from nirmaan_stack.services.role_profiles import assert_cheque_access
 
 MAX_PAGE_LENGTH = 500
@@ -38,9 +44,10 @@ EXPORT_MAX_PAGE_LENGTH = 100_000
 # One Cheque, flattened. `last` is its newest history row (the "by <user> . <date>" under the status).
 _BASE = """
     SELECT c.name, c.creation, c.owner, owner_user.full_name AS owner_name,
-           c.cheque_no, c.bank, c.bank_name,
+           c.cheque_no, c.cheque_type, c.bank, c.bank_name,
            CASE WHEN c.bank = 'Others' THEN c.bank_name ELSE c.bank END AS bank_label,
-           c.cheque_date, c.status, c.amount, c.description,
+           c.cheque_date, c.issue_date, c.clearance_date, c.cleared_by, c.bank_line, c.old_type,
+           c.status, c.amount, c.description,
            c.vendor, v.vendor_name, c.payee_name, c.attachment, c.made_from,
            last.changed_by AS status_changed_by, changer.full_name AS status_changed_by_name,
            last.changed_at AS status_changed_at
@@ -72,16 +79,22 @@ _LINES = """
 """
 
 #: The strip's per-status buckets: `<key>_count` and `<key>_amount` in `aggregates`.
-SUMMARY_STATUSES = {"issued": ISSUED, "cleared": CLEARED, "cancelled": CANCELLED}
+SUMMARY_STATUSES = {"pending": PENDING, "issued": ISSUED, "cleared": CLEARED, "cancelled": CANCELLED}
+
+#: An Issued cheque issued longer ago than this is stale (`stale_count` / `stale_amount`): a cheque is good for
+#: 3 months. A cheque from before issue dates counts from its cheque date. The frontend's `CHEQUE_STALE_DAYS`
+#: (`pages/cheque-tracker/config/chequePaymentTable.config.ts`) flags rows on the same line.
+STALE_AFTER_DAYS = 90
 
 #: Filters on the Cheque's lines, by Cheque Line column: a Cheque matches when ANY of its lines does.
 LINE_FILTERS = {"project", "record_name"}
 
-FILTERABLE = {"name", "status", "bank", "bank_label", "vendor", "payee_name", "made_from", "owner",
-              "cheque_date", "creation"} | LINE_FILTERS
-DATE_FIELDS = {"cheque_date", "creation"}
+FILTERABLE = {"name", "status", "cheque_type", "bank", "bank_label", "vendor", "payee_name", "made_from", "owner",
+              "cheque_date", "issue_date", "clearance_date", "creation"} | LINE_FILTERS
+DATE_FIELDS = {"cheque_date", "issue_date", "clearance_date", "creation"}
 SEARCHABLE = {"cheque_no", "name", "bank_label", "vendor_name", "payee_name", "description"}
-SORTABLE = {"name", "creation", "cheque_no", "bank_label", "cheque_date", "status", "amount", "vendor_name",
+SORTABLE = {"name", "creation", "cheque_no", "cheque_type", "bank_label", "cheque_date", "issue_date",
+            "clearance_date", "status", "amount", "vendor_name",
             "payee_name", "owner_name", "status_changed_at"}
 
 _OPERATORS = {"=": "=", "!=": "!=", "like": "ILIKE", "not like": "NOT ILIKE", ">": ">", "<": "<", ">=": ">=",
@@ -199,17 +212,22 @@ def _where(filters, search_term, current_search_fields):
 
 
 def _summary(where, params) -> dict:
-    """Count and amount of the filtered Cheques, all and per status. A Cheque counts once, at its full
-    amount, however many of its lines matched a project or PO/WO filter."""
+    """Count and amount of the filtered Cheques, all, per status, and the stale Issued Payment cheques. A Cheque counts
+    once, at its full amount, however many of its lines matched a project or PO/WO filter."""
     columns, status_params = ["COUNT(*)", "COALESCE(SUM(q.amount), 0)"], []
     for status in SUMMARY_STATUSES.values():
         columns += ["COUNT(*) FILTER (WHERE q.status = %s)", "COALESCE(SUM(q.amount) FILTER (WHERE q.status = %s), 0)"]
         status_params += [status, status]
+    # The cutoff is the site's date, not the database's CURRENT_DATE (UTC), which lags the site's for part
+    # of each day. A Security Deposit is held, never cashed, so only a Payment cheque goes stale.
+    stale = "q.status = %s AND q.cheque_type = %s AND COALESCE(q.issue_date, q.cheque_date) < %s"
+    columns += [f"COUNT(*) FILTER (WHERE {stale})", f"COALESCE(SUM(q.amount) FILTER (WHERE {stale}), 0)"]
+    status_params += [ISSUED, CHEQUE_TYPE_PAYMENT, add_days(nowdate(), -STALE_AFTER_DAYS)] * 2
     values = frappe.db.sql(
         f"SELECT {', '.join(columns)} FROM ({_BASE}) q {where}", tuple(status_params) + tuple(params)
     )[0]
     out = {"count": cint(values[0]), "total_amount": flt(values[1])}
-    for i, key in enumerate(SUMMARY_STATUSES):
+    for i, key in enumerate([*SUMMARY_STATUSES, "stale"]):
         out[f"{key}_count"] = cint(values[2 + 2 * i])
         out[f"{key}_amount"] = flt(values[3 + 2 * i])
     return out
@@ -228,11 +246,11 @@ def get_cheques(
     for_export=False,
     **kwargs,
 ):
-    """One page of Cheques for the Cheque Payments report.
+    """One page of Cheques for the Cheque Tracker.
 
     `doctype`, `fields` and the hook's other arguments are accepted and ignored: the row shape is
     fixed here. `aggregates` is the summary strip over the whole filtered set: `count`,
-    `total_amount`, and `<issued|cleared|cancelled>_count` / `_amount`.
+    `total_amount`, and `<pending|issued|cleared|cancelled|stale>_count` / `_amount`.
     """
     assert_cheque_access(frappe.session.user)
 
@@ -267,6 +285,7 @@ def get_cheques(
 # their lines, counting each Cheque once per value.
 _HEADER_FACETS = {
     "status": ('q."status"', 'q."status"'),
+    "cheque_type": ('q."cheque_type"', 'q."cheque_type"'),
     "bank_label": ('q."bank_label"', 'q."bank_label"'),
     "vendor": ('q."vendor"', 'MAX(q."vendor_name")'),
 }

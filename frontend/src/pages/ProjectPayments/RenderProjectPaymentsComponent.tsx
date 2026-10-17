@@ -18,6 +18,7 @@ import {
 // PO Wise has no button (2026-09-15) but stays ROUTED below; so does All Payments for the
 // viewers outside its audience (#1476).
 import { paymentsTabSet, resolvePaymentsTab } from "./config/paymentsTabSet";
+import { ChequeTrackerNote } from "./components/ChequeTrackerNote";
 
 const ApprovePayments = React.lazy(() => import("./approve-payments/ApprovePayments"));
 const AccountantTabs = React.lazy(() => import("./update-payment/AccountantTabs"));
@@ -40,7 +41,14 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
     // `countValue` wins over `countKey` in renderTabButton, so overriding here
     // leaves the sidebar store — shared with other screens — completely untouched.
     const { data: queueCounts, mutate: mutateQueueCounts } = useFrappeGetCall<{
-        message: { counts: Record<string, number>; amounts: Record<string, number>; by_me?: number; all?: number };
+        message: {
+            counts: Record<string, number>;
+            amounts: Record<string, number>;
+            by_me?: number;
+            all?: number;
+            /** The payments Reconciliation Pending leaves out: they wait in the Cheque Tracker (#1483). */
+            cheque_tracker?: { payments: number; cheques: number };
+        };
     }>(APPROVAL_COUNTS_API, undefined, APPROVAL_COUNTS_SWR_KEY);
 
     // ── Keep the badges live ──────────────────────────────────────────────────
@@ -254,7 +262,12 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                             (
                                 <AccountantTabs />
                             ) : [PP_TABS.PAYMENTS_PENDING, PP_TABS.PAYMENTS_DONE, PP_TABS.ALL_PAYMENTS, PP_TABS.RECONCILIATION_PENDING, PP_TABS.PAYMENT_BY_ME].includes(tab as any) ? (
-                                <AllPayments tab={tab} />
+                                <>
+                                    {tab === PP_TABS.RECONCILIATION_PENDING && (
+                                        <ChequeTrackerNote role={role} waiting={queueCounts?.message?.cheque_tracker} />
+                                    )}
+                                    <AllPayments tab={tab} />
+                                </>
                             )
                                 : (
                                     <ProjectPaymentsList />

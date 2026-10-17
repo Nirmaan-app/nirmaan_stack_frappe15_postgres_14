@@ -1,5 +1,6 @@
 /**
- * The Cheque Payments report's facet filters (#1417): status, bank, Vendor, project and PO/WO.
+ * The Cheque Tracker's facet filters (#1417): type (#1478), status, bank, Vendor, project and PO/WO.
+ * `baseFilters` are the tab's own filters (#1483), so a tab's facets count only the rows it lists.
  *
  * Not the self-fetching facets: those read one doctype's own fields, and the project and PO/WO
  * values live on the Cheque's lines. `get_cheque_facets` groups over the same WHERE as the rows,
@@ -35,12 +36,14 @@ export type ChequeFacetOptions = Record<
 >;
 
 const NO_VALUES: FacetValue[] = [];
+const NO_FILTERS: unknown[] = [];
 /** Matches the table's own search debounce, so the counts do not refetch per keystroke. */
 const SEARCH_DEBOUNCE_MS = 400;
 
 function useChequeFacet(
     field: ChequeFacetField,
     enabled: boolean,
+    baseFilters: unknown[],
     columnFilters: ColumnFiltersState,
     searchTerm: string,
     selectedSearchField: string,
@@ -49,11 +52,11 @@ function useChequeFacet(
         const others = columnFilters.filter((f) => f.id !== field);
         return {
             field,
-            filters: JSON.stringify(convertTanstackFiltersToFrappe(others)),
+            filters: JSON.stringify([...baseFilters, ...convertTanstackFiltersToFrappe(others)]),
             search_term: searchTerm || undefined,
             current_search_fields: searchTerm && selectedSearchField ? JSON.stringify([selectedSearchField]) : undefined,
         };
-    }, [field, columnFilters, searchTerm, selectedSearchField]);
+    }, [field, baseFilters, columnFilters, searchTerm, selectedSearchField]);
 
     const { data, isLoading } = useFrappeGetCall<FacetResponse>(
         CHEQUE_FACETS_API,
@@ -68,10 +71,12 @@ function useChequeFacet(
 }
 
 export function useChequeFacets({
+    baseFilters = NO_FILTERS,
     columnFilters,
     searchTerm,
     selectedSearchField,
 }: {
+    baseFilters?: unknown[];
     columnFilters: ColumnFiltersState;
     searchTerm: string;
     selectedSearchField: string;
@@ -87,7 +92,8 @@ export function useChequeFacets({
         return () => clearTimeout(t);
     }, [searchTerm]);
 
-    const common = [columnFilters, debouncedSearch, selectedSearchField] as const;
+    const common = [baseFilters, columnFilters, debouncedSearch, selectedSearchField] as const;
+    const chequeType = useChequeFacet("cheque_type", opened.has("cheque_type"), ...common);
     const status = useChequeFacet("status", opened.has("status"), ...common);
     const bank = useChequeFacet("bank_label", opened.has("bank_label"), ...common);
     const vendor = useChequeFacet("vendor", opened.has("vendor"), ...common);
@@ -96,6 +102,7 @@ export function useChequeFacets({
 
     const facetOptions = useMemo(() => {
         const facets: Record<ChequeFacetField, { values: FacetValue[]; isLoading: boolean }> = {
+            cheque_type: chequeType,
             status,
             bank_label: bank,
             vendor,
@@ -116,7 +123,7 @@ export function useChequeFacets({
             map[field] = { title, isLoading, options };
         }
         return map;
-    }, [status, bank, vendor, project, record, columnFilters]);
+    }, [chequeType, status, bank, vendor, project, record, columnFilters]);
 
     return { facetOptions, onFacetOpen };
 }

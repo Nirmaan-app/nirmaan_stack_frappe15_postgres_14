@@ -4,23 +4,57 @@
 """The Cheque's rules that need no database (spec #1407, ADR-0010 B1). Pure: no `frappe.db`.
 
 A **Cheque** is one paper cheque the company writes (GLOSSARY.md). This module names its statuses,
-banks, line kinds and where it was made, turns the values a form sends into a `ChequeHeader`, and
-says why a header cannot be saved. `services/cheques/writer.py` is the only code that writes a Cheque;
+types (spec #1477), banks, line kinds and where it was made, turns the values a form sends into a
+`ChequeHeader`, and says why a header cannot be saved. A Payment cheque's status follows its payments:
+`status_from_payments` is that mapping, `ready_to_issue` and `issue_date_from` say when and on what day
+its payments' approval issues it (#1479), and `old_type_reason` says which pre-#1477 Cheques are
+Old-type. `services/cheques/writer.py` is the only code that writes a Cheque;
 it and the `validate` controller both ask this module.
+
+The rest of the Cheque's pure rules sit beside it, one concern each: `edit_rules` (editing, and what the
+Tracker's Add and Edit take), `payment_rules` (what a cheque payment refuses), `approval_rules` (one
+cheque, one decision), `clear_rules` (clear, cancel, a deposit's moves) and `bank_import_rules` (the
+bank import's cheque pass).
 
 Each `*_problem` function returns the refusal a user reads, or None.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from frappe.utils import flt
 
+from nirmaan_stack.services.settlement import (
+    STATUS_APPROVED,
+    STATUS_CEO_PENDING,
+    STATUS_PAID,
+    STATUS_RECONCILIATION_PENDING,
+    STATUS_REJECTED,
+    STATUS_REQUESTED,
+)
+
 # -- statuses ------------------------------------------------------------------------------------
+#: A Payment cheque whose payments still wait for approval (spec #1477).
+PENDING = "Pending"
 ISSUED = "Issued"
 CLEARED = "Cleared"
 CANCELLED = "Cancelled"
 #: Pinned to the `Cheques.status` Select options by test.
-CHEQUE_STATUSES = (ISSUED, CLEARED, CANCELLED)
+CHEQUE_STATUSES = (PENDING, ISSUED, CLEARED, CANCELLED)
+
+# -- cheque types (spec #1477, ADR-0035) ---------------------------------------------------------
+#: Cashed by the bank; pays PO payments.
+CHEQUE_TYPE_PAYMENT = "Payment"
+#: Held as a guarantee; pays nothing and is never matched to a bank line.
+CHEQUE_TYPE_SECURITY_DEPOSIT = "Security Deposit"
+#: Pinned to the `Cheques.cheque_type` Select options by test.
+CHEQUE_TYPES = (CHEQUE_TYPE_PAYMENT, CHEQUE_TYPE_SECURITY_DEPOSIT)
+
+# -- how a Payment cheque was cleared (spec #1477) -----------------------------------------------
+CLEARED_BY_HAND = "By hand"
+CLEARED_BY_BANK_IMPORT = "Bank import"
+#: Pinned to the `Cheques.cleared_by` Select options (after its blank first option) by test.
+CLEARED_BY = (CLEARED_BY_HAND, CLEARED_BY_BANK_IMPORT)
 
 # -- banks ---------------------------------------------------------------------------------------
 ICICI_BANK = "ICICI Bank"
@@ -38,8 +72,11 @@ MADE_FROM = (MADE_FROM_REPORT, MADE_FROM_PO_WO_PAGE)
 LINE_PO_WO_PAYMENT = "PO/WO Payment"
 LINE_PROJECT_EXPENSE = "Project Expense"
 LINE_NON_PROJECT_EXPENSE = "Non-project Expense"
+#: A Security Deposit cheque's line (#1486, spec #1477): a PO or Work Order the deposit secures. A record
+#: only: no payment, no amount.
+LINE_SECURED_RECORD = "Secured PO/WO"
 #: Pinned to the `Cheque Line.line_type` Select options by test.
-LINE_TYPES = (LINE_PO_WO_PAYMENT, LINE_PROJECT_EXPENSE, LINE_NON_PROJECT_EXPENSE)
+LINE_TYPES = (LINE_PO_WO_PAYMENT, LINE_PROJECT_EXPENSE, LINE_NON_PROJECT_EXPENSE, LINE_SECURED_RECORD)
 
 
 def squash_spaces(value) -> str:
@@ -107,13 +144,19 @@ def parse_header(values: dict) -> ChequeHeader:
 
 
 def header_problem(
-    header: ChequeHeader, *, line_count: int, photo_required: bool, cancelled: bool = False
+    header: ChequeHeader,
+    *,
+    line_count: int,
+    photo_required: bool,
+    cancelled: bool = False,
+    cheque_type: str = CHEQUE_TYPE_PAYMENT,
 ) -> str | None:
     """Why this header cannot be saved, or None.
 
-    `line_count` is how many Cheque lines it carries: a live Cheque with none is an Ad-hoc cheque
-    and needs a description. A `cancelled` one may have neither: its last payment dropped off
-    (#1413). `photo_required` is True for every new Cheque except a backfilled one.
+    `line_count` is how many Cheque lines it carries: a live Payment cheque with none is an Ad-hoc
+    cheque and needs a description. A `cancelled` one may have neither: its last payment dropped off
+    (#1413). A Security Deposit cheque pays nothing, so it needs no line and no description (#1486).
+    `photo_required` is True for every new Cheque except a backfilled one.
     A post-dated cheque date is allowed.
     """
     if header.bank not in BANKS:
@@ -132,7 +175,7 @@ def header_problem(
         return "Pick the Vendor the cheque is made out to, or type the payee's name."
     if photo_required and not header.attachment:
         return "Upload the photo of the cheque."
-    if line_count == 0 and not header.description and not cancelled:
+    if line_count == 0 and not header.description and not cancelled and cheque_type == CHEQUE_TYPE_PAYMENT:
         return "A cheque with no lines is an Ad-hoc cheque: write a description of what it pays for."
     return None
 
@@ -173,6 +216,7 @@ LINE_NEEDS = {
     LINE_PO_WO_PAYMENT: LineNeeds(project=True, record=True),
     LINE_PROJECT_EXPENSE: LineNeeds(project=True, record=False),
     LINE_NON_PROJECT_EXPENSE: LineNeeds(project=False, record=False),
+    LINE_SECURED_RECORD: LineNeeds(project=True, record=True),
 }
 
 
@@ -194,12 +238,18 @@ def parse_line(values: dict) -> ChequeLineInput:
 
     The payment doctype follows from the kind: a PO/WO Payment line names a Project Payment (when it
     names one), an expense line its kind's expense. A Non-project Expense line has no project, and no
-    expense line has a PO / Work Order. A line of an unknown kind keeps what was sent, to be refused.
+    expense line has a PO / Work Order. A Secured PO/WO line is a record only: it keeps no payment and
+    no amount. A line of an unknown kind keeps what was sent, to be refused.
     """
     def text(key):
         return squash_spaces(values.get(key)) or None
 
     line_type = text("line_type")
+    if line_type == LINE_SECURED_RECORD:
+        return ChequeLineInput(
+            line_type=line_type, project=text("project"), record_doctype=text("record_doctype"),
+            record_name=text("record_name"), payment_doctype=None, payment_name=None, amount=0.0,
+        )
     payment_name = text("payment_name")
     needs = LINE_NEEDS.get(line_type, LineNeeds(project=True, record=True))
     return ChequeLineInput(
@@ -252,10 +302,35 @@ def po_wo_line_problem(
     return None
 
 
-def line_kind_problem(line: ChequeLineInput) -> str | None:
-    """Why the line's kind is not one a Cheque takes, or None."""
+def line_kind_problem(line: ChequeLineInput, *, cheque_type: str = CHEQUE_TYPE_PAYMENT) -> str | None:
+    """Why the line's kind is not one a Cheque of `cheque_type` takes, or None. A Security Deposit cheque
+    takes Secured PO/WO lines only, and only it does (#1486): it pays nothing."""
     if line.line_type not in LINE_TYPES:
         return f"choose the kind of line: {', '.join(LINE_TYPES)}."
+    if cheque_type == CHEQUE_TYPE_SECURITY_DEPOSIT and line.line_type != LINE_SECURED_RECORD:
+        return "a Security Deposit cheque pays nothing: its lines only name the POs and Work Orders it secures."
+    if cheque_type != CHEQUE_TYPE_SECURITY_DEPOSIT and line.line_type == LINE_SECURED_RECORD:
+        return "only a Security Deposit cheque names a PO or Work Order it secures."
+    return None
+
+
+def secured_line_problem(line: ChequeLineInput, *, cheque_vendor: str | None, record: dict | None) -> str | None:
+    """Why a Secured PO/WO line cannot be saved, or None. The caller prefixes "Line N: " (#1486).
+
+    `record` is the PO / Work Order's `{project, vendor}` (None when it does not exist). The line names one
+    of the cheque's Vendor's POs or Work Orders, so a cheque made out to a typed payee names none. Its
+    project is the record's own (the caller fills it in when the form sent none).
+    """
+    if not cheque_vendor:
+        return "a cheque made out to a typed payee names no PO or Work Order."
+    if line.record_doctype not in RECORD_DOCTYPES or not line.record_name:
+        return "pick the PO or Work Order."
+    if record is None:
+        return f"{line.record_name} was not found."
+    if record.get("vendor") != cheque_vendor:
+        return f"{line.record_name} is not a PO or Work Order of this cheque's Vendor."
+    if line.project and record.get("project") != line.project:
+        return f"{line.record_name} is not in project {line.project}."
     return None
 
 
@@ -289,188 +364,137 @@ def duplicate_problem(header: ChequeHeader, existing: str) -> str:
 
 
 #: Where a payment's own new Cheque is made, for the refusal when its bank + number is taken: Request
-#: Payment on a PO / Work Order (#1414), or Convert to Cheque / Link a new cheque (#1416).
+#: Payment on a PO (#1414). Convert to Cheque / Link a new cheque (#1416) were removed by #1487.
 NEW_CHEQUE_FROM_REQUEST = "request"
-NEW_CHEQUE_FROM_PAYMENT = "payment"
 #: Per place: what it does, and how the user puts the payment on the recorded cheque instead.
 _TAKEN_NUMBER_WORDING = {
     NEW_CHEQUE_FROM_REQUEST: ("A payment made here gets its own new cheque.", "request it as Online, then add it"),
-    NEW_CHEQUE_FROM_PAYMENT: ("This makes a new cheque for the payment.", "add it"),
 }
 
 
 def payment_duplicate_problem(header: ChequeHeader, *, made_from: str) -> str:
     """The refusal when a payment's new Cheque names a bank + cheque number already recorded.
-    `made_from` is NEW_CHEQUE_FROM_REQUEST or NEW_CHEQUE_FROM_PAYMENT. Either way a new Cheque is
-    made; joining an existing one is done from the report."""
+    `made_from` is NEW_CHEQUE_FROM_REQUEST. A new Cheque is made; joining an existing one is done
+    from the Cheque Tracker."""
     label = bank_label(header.bank or "", header.bank_name)
     what, how = _TAKEN_NUMBER_WORDING[made_from]
     return (
         f"Cheque {header.cheque_no} ({label}) already exists. {what} To put this payment on "
-        f"{header.cheque_no}, {how} to the cheque in Reports, Cheque Payments."
+        f"{header.cheque_no}, {how} to the cheque in the Cheque Tracker."
     )
 
 
-# -- editing a Cheque (#1418) --------------------------------------------------------------------
-#: The header fields an edit compares. The photo (`attachment`) is apart: it may always be replaced.
-EDITABLE_HEADER_FIELDS = (
-    "bank", "bank_name", "cheque_no", "cheque_date", "amount", "vendor", "payee_name", "description",
-)
-#: What a Cheque made from the PO/WO page keeps, so it stays in step with the payment it came from,
-#: while a Project Payment is still on it (`edit_problem`).
-LOCKED_ON_PO_WO_PAGE = {"cheque_no": "number", "cheque_date": "date", "amount": "amount"}
+# -- a Payment cheque follows its payments (spec #1477, ADR-0035) --------------------------------
+#: The payment statuses each cheque status stands for. A Rejected payment is apart: it counts only when
+#: every payment on the cheque is Rejected (`status_from_payments`).
+WAITING_STATUSES = (STATUS_REQUESTED, STATUS_CEO_PENDING)
+_APPROVED = (STATUS_APPROVED, STATUS_RECONCILIATION_PENDING)
+_KNOWN_PAYMENT_STATUSES = WAITING_STATUSES + _APPROVED + (STATUS_PAID, STATUS_REJECTED)
 
 
-def edit_access_problem(*, status: str, owner: str, user: str, any_cheque: bool) -> str | None:
-    """Why `user` may not edit this Cheque, or None. `any_cheque` is True for Admin, Accountant and
-    Accountant Lead; anyone else who may use cheques (Procurement) edits only the Issued Cheques
-    they created."""
-    if any_cheque or (status == ISSUED and owner == user):
+def status_from_payments(payment_statuses: Sequence[str | None]) -> str | None:
+    """A Payment cheque's status, worked out from its lines' payments. Pure.
+
+    `payment_statuses` has one entry per line: the status of the payment the line names, or None for a
+    line with no payment yet. The cheque is
+
+    * Pending while a line has no payment yet or a payment waits for approval (Requested, CEO Pending);
+    * Cancelled when every payment is Rejected;
+    * otherwise, the Rejected ones aside, Cleared when every payment is Paid, else Issued (Approved or
+      Reconciliation Pending: approved, not yet paid by the bank).
+
+    None when it cannot be worked out: no lines, or a payment status this rule does not know.
+    """
+    if not payment_statuses:
         return None
-    return "You can edit only the Issued cheques you created."
+    statuses = [None if s is None else s.strip() for s in payment_statuses]
+    if any(s is not None and s not in _KNOWN_PAYMENT_STATUSES for s in statuses):
+        return None
+    if any(s is None or s in WAITING_STATUSES for s in statuses):
+        return PENDING
+    live = [s for s in statuses if s != STATUS_REJECTED]
+    if not live:
+        return CANCELLED
+    return CLEARED if all(s == STATUS_PAID for s in live) else ISSUED
 
 
-def _join(words: list[str]) -> str:
+def ready_to_issue(payment_statuses: Sequence[str | None]) -> bool:
+    """May a Pending Payment cheque be Issued now? Pure. One entry per line, as `status_from_payments`.
+
+    Only once EVERY line's payment has been approved and moved on to Reconciliation Pending (#1479): a
+    payment still at Approved holds the cheque at Pending, because the move that follows the approval
+    can still fail, and the cheque and its payments must never disagree. A line with no payment yet, a
+    payment waiting for approval or a Rejected one holds it too.
+    """
+    statuses = [None if s is None else s.strip() for s in payment_statuses]
+    return bool(statuses) and all(s == STATUS_RECONCILIATION_PENDING for s in statuses)
+
+
+def issue_date_from(approval_dates: Sequence) -> str | None:
+    """The issue date of a cheque its payments' approvals issue: the day of the last one, as
+    `YYYY-MM-DD`. Pure. `approval_dates` holds every L1 and CEO approval date of its payments (dates
+    or text; blanks are skipped), so a payment the CEO approved counts the CEO's day. None when none."""
+    days = [str(d)[:10] for d in approval_dates if d]
+    return max(days) if days else None
+
+
+def old_type_reason(*, vendor: str | None, payee_name: str | None, line_types: Sequence[str]) -> str | None:
+    """Why a Cheque recorded before spec #1477 is an Old-type cheque, or None. Pure.
+
+    It is one when it pays Expenses, has no lines (an Ad-hoc cheque), or is made out to a typed payee
+    (GLOSSARY.md). An Old-type cheque keeps its status; it is cleared or cancelled by hand only.
+    """
+    if any(t in EXPENSE_LINE_TYPES for t in line_types):
+        return "pays expenses"
+    if not line_types:
+        return "has no lines"
+    if payee_name and not vendor:
+        return "is made out to a typed payee"
+    return None
+
+
+# -- amounts, numbers and dates, as every rules module words them ------------------------------
+#: How far a Payment cheque's lines may be from its amount and still be approved (C2): the bank line
+#: that clears the cheque is matched within the same ₹5 (`outflow_import/amounts.AMOUNT_TOLERANCE`).
+LINES_TOLERANCE = 5.0
+
+
+def rupees(amount) -> str:
+    """`amount` as a user reads it in a refusal: ₹ and Indian digit grouping, paise only when there are
+    any ("₹12,50,000", "₹1,234.50"). Pure: Frappe's `fmt_money` reads the site's number format."""
+    value = round(flt(amount), 2)
+    sign = "-" if value < 0 else ""
+    whole, paise = divmod(round(abs(value) * 100), 100)
+    digits = str(int(whole))
+    head, tail = digits[:-3], digits[-3:]
+    groups = []
+    while head:
+        groups.insert(0, head[-2:])
+        head = head[:-2]
+    text = ",".join(groups + [tail])
+    return f"{sign}₹{text}" + (f".{int(paise):02d}" if paise else "")
+
+
+def cheque_no_key(value) -> str:
+    """The form a cheque number is compared in, against a bank statement: spaces removed, a spreadsheet's
+    trailing ".0" dropped and leading zeros stripped ("000747", "747" and "747.0" are all "747"). Blank
+    stays blank; all zeros is "0". The Cheque keeps the number as written (`normalise_cheque_no`)."""
+    text = normalise_cheque_no(value)
+    if text.endswith(".0"):
+        text = text[:-2]
+    if not text:
+        return ""
+    return text.lstrip("0") or "0"
+
+
+def join_words(words: list[str]) -> str:
+    """`words` as a refusal lists them: "a", "a and b", "a, b and c"."""
     return words[0] if len(words) == 1 else f"{', '.join(words[:-1])} and {words[-1]}"
 
 
-def edit_problem(
-    before: ChequeHeader,
-    after: ChequeHeader,
-    *,
-    status: str,
-    made_from: str,
-    lines_before: list[ChequeLineInput],
-    lines_after: list[ChequeLineInput],
-) -> str | None:
-    """Why this edit of a Cheque cannot be saved, or None. The rules are the ones the editor sees:
-
-    * the photo can be replaced, never removed;
-    * a Cleared or Cancelled Cheque can change only its photo;
-    * an Issued Cheque made from the PO/WO page keeps its number, date and amount while it still has a
-      Project Payment line (they stay in step with the payment), but its other fields and its lines can
-      change. With no Project Payment line left (removed, swapped out, or dropped by a payee change) it
-      edits like a report-made Cheque;
-    * an Issued Cheque made on the report can change everything;
-    * any line can come off an Issued Cheque. A Project Payment taken off switches back to Online
-      (`payments_taken_off`), whatever its status, and its status stays as it is.
-
-    The header and line rules every save runs (one payee, a live Cheque per payment, ...) are the
-    `validate` controller's, not repeated here.
-    """
-    if before.attachment and not after.attachment:
-        return "The cheque's photo can be replaced, not removed."
-    changed = [f for f in EDITABLE_HEADER_FIELDS if getattr(before, f) != getattr(after, f)]
-    if status != ISSUED:
-        if changed or lines_before != lines_after:
-            return f"Cheque {before.cheque_no} is {status}: only its photo can change."
-        return None
-    if made_from == MADE_FROM_PO_WO_PAGE and any(line.payment_doctype == PAYMENT_DOCTYPE for line in lines_before):
-        locked = [LOCKED_ON_PO_WO_PAGE[f] for f in changed if f in LOCKED_ON_PO_WO_PAGE]
-        if locked:
-            return (
-                f"Cheque {before.cheque_no} was made from the PO/WO page, so its {_join(locked)} cannot "
-                f"change here: change {'it' if len(locked) == 1 else 'them'} on the payment."
-            )
-    return None
+def day_text(day: str) -> str:
+    """A `YYYY-MM-DD` day as a refusal or note writes it: `DD-MM-YYYY`."""
+    year, month, date = day[:10].split("-")
+    return f"{date}-{month}-{year}"
 
 
-def payments_taken_off(lines_before: list[ChequeLineInput], lines_after: list[ChequeLineInput]) -> list[str]:
-    """The Project Payments `lines_before` hold and `lines_after` do not, in line order. A payment taken
-    off an Issued Cheque switches back to Online (owner ruling, spec #1407 story 82)."""
-    kept = {line.payment_name for line in lines_after if line.payment_doctype == PAYMENT_DOCTYPE}
-    return [
-        line.payment_name
-        for line in lines_before
-        if line.payment_doctype == PAYMENT_DOCTYPE and line.payment_name and line.payment_name not in kept
-    ]
-
-
-def taken_off_note(payment: str) -> str:
-    """The Cheque's history note for a payment an edit took off it."""
-    return f"Payment {payment} was taken off the cheque, so it switched back to Online."
-
-
-#: A Cheque payment's Cheque that no longer holds it to the cheque: Cancelled, or none at all (a
-#: payment the backfill could not give a Cheque, its number refused). `None` is "no Cheque".
-_RELEASED_CHEQUE_STATUSES = (CANCELLED, None)
-
-
-def _cheque_text(cheque_no: str | None, cheque_status: str | None) -> str:
-    return f"cheque {cheque_no} ({cheque_status})"
-
-
-def _is_rejected(status: str | None) -> bool:
-    return (status or "").strip() == PAYMENT_REJECTED
-
-
-def new_payment_cheque_problem(
-    payment: str,
-    *,
-    is_cheque: bool,
-    status: str | None,
-    cheque_no: str | None = None,
-    cheque_status: str | None = None,
-) -> str | None:
-    """Why `payment` cannot be put on a new one-line Cheque from the PO / Work Order page, or None (#1416).
-
-    An Online payment converts (Convert to Cheque). A Cheque payment gets a new Cheque (Link a new
-    cheque) once its Cheque is Cancelled, the old one staying as history, or when it is on no Cheque
-    at all. A Rejected payment is never put on a cheque. `cheque_status` is the status of the Cheque
-    the payment names, None when it names none.
-    """
-    if _is_rejected(status):
-        return f"Payment {payment} is Rejected and cannot be put on a cheque."
-    if is_cheque and cheque_status not in _RELEASED_CHEQUE_STATUSES:
-        return (
-            f"Payment {payment} is on {_cheque_text(cheque_no, cheque_status)}. A new cheque can be "
-            "linked only once that cheque is Cancelled."
-        )
-    return None
-
-
-def switch_to_online_problem(
-    payment: str,
-    *,
-    is_cheque: bool,
-    status: str | None = None,
-    cheque_no: str | None = None,
-    cheque_status: str | None = None,
-) -> str | None:
-    """Why a payment cannot be switched back to Online, or None (#1416). A Cheque payment goes back once
-    its Cheque is Cancelled, or, not Rejected, when it is on no Cheque at all."""
-    if not is_cheque:
-        return f"Payment {payment} is already Online."
-    if cheque_status is None and _is_rejected(status):
-        return f"Payment {payment} is Rejected."
-    if cheque_status not in _RELEASED_CHEQUE_STATUSES:
-        return (
-            f"Payment {payment} goes back to Online only once its cheque is Cancelled; it is on "
-            f"{_cheque_text(cheque_no, cheque_status)}."
-        )
-    return None
-
-
-def mode_change_problem(
-    *,
-    was_cheque: bool,
-    now_cheque: bool,
-    cheque: str | None,
-    old_cheque_status: str | None,
-    on_old_cheque_lines: bool,
-) -> str | None:
-    """Why a payment's Mode of Payment may not change this way, or None (spec #1407). The Project
-    Payments `validate` asks it on every save.
-
-    Online -> Cheque happens when the cheques service puts the payment on a Cheque, which sets the
-    `cheque` link in the same save. Cheque -> Online only once nothing holds the payment to its Cheque:
-    that Cheque (`old_cheque_status`) is Cancelled, or it was on none, or its line has come off it
-    (`on_old_cheque_lines` False: an edit took it off, #1418).
-    """
-    if was_cheque == now_cheque:
-        return None
-    if now_cheque:
-        return None if cheque else "An Online payment becomes a Cheque payment by putting it on a Cheque."
-    if old_cheque_status not in _RELEASED_CHEQUE_STATUSES and on_old_cheque_lines:
-        return "A Cheque payment goes back to Online only once its Cheque is Cancelled."
-    return None

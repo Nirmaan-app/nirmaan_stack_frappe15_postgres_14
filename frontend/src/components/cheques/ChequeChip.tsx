@@ -3,7 +3,7 @@ import { useState } from "react";
 import { CHEQUE_ACCESS_PROFILES } from "@/constants/roles";
 import { useUserData } from "@/hooks/useUserData";
 import { cn } from "@/lib/utils";
-import { chequeChipText, isChequeStruck } from "@/utils/cheques/chequeChip";
+import { chequeChipText, chequeChipTone, isChequeStruck } from "@/utils/cheques/chequeChip";
 
 import { ChequeDetailDialog } from "./ChequeDetailDialog";
 
@@ -15,12 +15,6 @@ interface ChequeChipProps {
     status?: string | null;
     className?: string;
 }
-
-const STATUS_TONE: Record<string, string> = {
-    Issued: "border-yellow-300 bg-yellow-50 text-yellow-900",
-    Cleared: "border-green-300 bg-green-50 text-green-900",
-    Cancelled: "border-red-200 bg-red-50 text-red-700",
-};
 
 /**
  * The cheque chip (#1415, spec #1407): `Cheque 004521 · Issued` on a payment that is on a Cheque, wherever
@@ -38,7 +32,7 @@ export const ChequeChip = ({ cheque, chequeNo, status, className }: ChequeChipPr
     const text = chequeChipText(chequeNo, status);
     const chipClass = cn(
         "inline-flex max-w-full items-center truncate rounded border px-1.5 py-0.5 font-mono text-[11px] leading-tight",
-        STATUS_TONE[status ?? ""] ?? "border-border bg-muted/40 text-foreground",
+        chequeChipTone(status),
         isChequeStruck(status) && "line-through",
         className,
     );

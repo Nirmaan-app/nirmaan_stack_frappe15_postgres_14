@@ -211,7 +211,7 @@ class PaymentSettlementFixture(unittest.TestCase):
         ⚠️ THE REAL REASON: `hooks.py` wires `project_cashflow_hold_update.on_project_payment` to
         `Project Payments.on_update`, and that handler writes CEO Hold Reason rows and calls
         `recompute_ceo_hold(project_id)` -- a REAL, committed side effect on whatever project the
-        settled payment belongs to. `_outflow_import_write` (`settle.py`) suppresses that hook's
+        settled payment belongs to. `outflow_import_write` (`settle.py`) suppresses that hook's
         `frappe.db.commit()`, NOT its writes, and `allocate_row` commits at the end of its own
         savepoint -- so those writes land for real. Settling against the base fixture's arbitrary
         live project (`self.project`, whatever `frappe.db.get_value("Projects", {}, "name")` picks
@@ -350,7 +350,7 @@ class PaymentSettlementFixture(unittest.TestCase):
             frappe.db.delete(
                 "Version", {"ref_doctype": PAYMENT, "docname": ["in", self.payments]}
             )
-            # `_link_statement_file_to_target` mints a `File` row per settled leg (Task 4's own
+            # `link_statement_file_to_target` mints a `File` row per settled leg (Task 4's own
             # regression test exercises this on purpose -- see `test_allocate_row.py`).
             frappe.db.delete(
                 "File", {"attached_to_doctype": PAYMENT, "attached_to_name": ["in", self.payments]}
@@ -825,7 +825,7 @@ class TestAConcurrentSingleTickLoser(PaymentSettlementFixture):
         """Where it lands when they tick DIFFERENT payments: late, after this reviewer's payment has
         already been flipped to Paid. `settle_row` holds no row lock, so this is the common shape."""
         row, pay = self._ticked()
-        with patch.object(expenses, "_record_settlement", side_effect=self._refusal()):
+        with patch.object(expenses, "record_settlement", side_effect=self._refusal()):
             with self.assertRaises(ConcurrentAllocationError):
                 settle_row(row, PAYMENT, pay)
         self._assert_nothing_written(row, pay)
@@ -853,7 +853,7 @@ class TestAConcurrentSingleTickLoser(PaymentSettlementFixture):
         there, exactly as it does on `allocate_row`."""
         row, pay = self._ticked()
         with patch.object(
-            expenses, "_link_statement_file_to_target", side_effect=self._refusal()
+            expenses, "link_statement_file_to_target", side_effect=self._refusal()
         ):
             with self.assertRaises(pg_errors.SerializationFailure) as caught:
                 settle_row(row, PAYMENT, pay)
@@ -1221,6 +1221,20 @@ class TestPartialSettlementRefusals(PartialSettlementFixture):
             settle_row_partial(self.partial_row.name, self.big_payment, "deduction")
         # The message must tell a stale caller the answer MOVED, not that it typed nonsense.
         self.assertIn("approved", str(caught.exception).lower())
+        self._assert_nothing_happened()
+
+    def test_a_cheque_payment_is_refused(self):
+        """Spec #1477 (#1487): a cheque pays its payments in full or not at all, so a bank line paying
+        part of one never splits it."""
+        frappe.db.set_value(
+            PAYMENT, self.big_payment,
+            {"mode_of_payment": "Cheque", "cheque_no": "000747", "cheque_date": frappe.utils.nowdate()},
+            update_modified=False,
+        )
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError) as caught:
+            settle_row_partial(self.partial_row.name, self.big_payment, INTENT_PART_PAYMENT)
+        self.assertIn("is paid by cheque 000747, so it cannot be split", str(caught.exception))
         self._assert_nothing_happened()
 
     def test_a_gap_inside_the_settle_window_is_refused_as_an_ordinary_settle(self):

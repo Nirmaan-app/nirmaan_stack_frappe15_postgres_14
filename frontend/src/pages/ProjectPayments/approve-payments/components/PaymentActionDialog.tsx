@@ -23,6 +23,9 @@ import { formatDate } from '@/utils/FormatDate';
 import { PaymentSummaryBlock, usePaymentSummary } from '../../components/PaymentSummaryBlock';
 import { ExpenseApprovalDetails } from './ExpenseApprovalDetails';
 import type { ApprovalStage } from '../expenseApprovalDetail';
+import { approveAllLabel, rejectAllLabel, rejectTitle, type ChequeApproval } from '@/utils/cheques/chequeApproval';
+import { ChequeApprovalBlock } from './ChequeApprovalBlock';
+import { ChequeRejectBlock } from './ChequeRejectBlock';
 
 interface PaymentActionDialogProps {
     isOpen: boolean;
@@ -30,7 +33,8 @@ interface PaymentActionDialogProps {
     type: DialogActionType;
     paymentData: ProjectPayments | null;
     vendorName?: string; // Pass pre-fetched vendor name
-    onSubmit: (actionType: DialogActionType, amount: number) => Promise<void>; // onSubmit now handles the async logic
+    /** `reason` is sent only by a cheque reject (#1481), which requires one. */
+    onSubmit: (actionType: DialogActionType, amount: number, reason?: string) => Promise<void>;
     isLoading: boolean; // Loading state passed from parent
     /**
      * Let the approver approve LESS than was requested (the CEO gate).
@@ -51,6 +55,14 @@ interface PaymentActionDialogProps {
     withholdsTdsNow?: boolean;
     /** Which approval this is -- the expense details block says where the click lands it. */
     stage?: ApprovalStage;
+    /**
+     * The Payment cheque this payment is on (#1480, #1481, spec #1477), when the decision goes through it:
+     * the dialog then lists every payment on the cheque and approves, or rejects, them all together (a
+     * reject also cancels the cheque and asks for a reason). Undefined otherwise.
+     */
+    chequeApproval?: ChequeApproval | null;
+    /** True while `chequeApproval` is still loading for a payment that is approved through its cheque. */
+    chequeApprovalLoading?: boolean;
 }
 
 export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
@@ -64,6 +76,8 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
     allowPartial = false,
     withholdsTdsNow = false,
     stage = "lead",
+    chequeApproval,
+    chequeApprovalLoading = false,
 }) => {
     const [amountInput, setAmountInput] = useState<string>("");
     const rateFor = useVendorTdsRate();
@@ -94,6 +108,14 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
     // writes the full amount whatever the box says -- so the box must not be offered there.
     const isPartialApprove =
         allowPartial && !isExpense && !isCheque && type === DIALOG_ACTION_TYPES.APPROVE && isSplittable(requestedAmount);
+    // One cheque, one decision (#1480, #1481): approving a payment on a Payment cheque approves every payment
+    // on it; rejecting one rejects every payment on it and cancels the cheque, with a required reason.
+    const chequeLoading = chequeApprovalLoading && !chequeApproval;
+    const throughCheque = type === DIALOG_ACTION_TYPES.APPROVE && !!chequeApproval;
+    const rejectsCheque = type === DIALOG_ACTION_TYPES.REJECT && !!chequeApproval;
+    const [reason, setReason] = useState("");
+    const chequeBlocked =
+        chequeLoading || (throughCheque && !!chequeApproval?.problem) || (rejectsCheque && !reason.trim());
 
     // Reset amount input when payment data changes or dialog opens/closes
     useEffect(() => {
@@ -102,6 +124,7 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
         } else {
             setAmountInput(""); // Clear if no data
         }
+        setReason("");
     }, [paymentData, isOpen]); // Depend on isOpen to reset on reopen
 
     // All the boundary rules live in the pure helper so they can be tested — there is no DOM
@@ -136,12 +159,13 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
     const handleConfirm = useCallback(async () => {
         if (!paymentData) return;
         if (isPartialApprove && !split.valid) return;
+        if (chequeBlocked) return;
 
         // Non-partial paths send the untouched requested amount, exactly as before.
-        await onSubmit(type, isPartialApprove ? split.approved : requestedAmount);
+        await onSubmit(type, isPartialApprove ? split.approved : requestedAmount, rejectsCheque ? reason.trim() : undefined);
         // Parent component will handle closing the dialog via onOpenChange after successful submission if needed
 
-    }, [paymentData, type, isPartialApprove, split, requestedAmount, onSubmit]);
+    }, [paymentData, type, isPartialApprove, split, requestedAmount, onSubmit, chequeBlocked, rejectsCheque, reason]);
 
     const renderTitle = () => {
         if (!paymentData) return null;
@@ -155,6 +179,14 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
                     <span className="font-semibold text-primary">{formatToRoundedIndianRupee(paymentData.amount)}</span>?
                 </>
             );
+        }
+
+        if (rejectsCheque && chequeApproval) {
+            return <>{rejectTitle(chequeApproval)}</>;
+        }
+
+        if (throughCheque || chequeLoading) {
+            return <>{type === DIALOG_ACTION_TYPES.REJECT ? "Reject" : "Approve"} payment {paymentData.name}</>;
         }
 
         if (isPartialApprove) {
@@ -186,14 +218,33 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
 
     return (
         <AlertDialog open={isOpen} onOpenChange={onOpenChange}>
-            <AlertDialogContent className={`${isExpense ? "sm:max-w-lg" : "sm:max-w-md"} max-h-[90vh] overflow-y-auto`}>
+            <AlertDialogContent
+                className={`${throughCheque || rejectsCheque || chequeLoading ? "sm:max-w-3xl" : isExpense ? "sm:max-w-lg" : "sm:max-w-md"} max-h-[90vh] overflow-y-auto`}
+            >
                 <AlertDialogHeader>
                     <AlertDialogTitle className="text-center sm:text-left">
                         {renderTitle()}
                     </AlertDialogTitle>
                 </AlertDialogHeader>
 
-                {paymentData && showMode && (
+                {paymentData && chequeLoading && (
+                    <div className="flex justify-center py-6">
+                        <TailSpin width={30} height={30} color="red" />
+                    </div>
+                )}
+                {paymentData && throughCheque && chequeApproval && (
+                    <ChequeApprovalBlock approval={chequeApproval} openedPayment={paymentData.name} stage={stage} />
+                )}
+                {paymentData && rejectsCheque && chequeApproval && (
+                    <ChequeRejectBlock
+                        approval={chequeApproval}
+                        openedPayment={paymentData.name}
+                        reason={reason}
+                        onReasonChange={setReason}
+                        disabled={isLoading}
+                    />
+                )}
+                {paymentData && showMode && !throughCheque && !rejectsCheque && !chequeLoading && (
                     <PaymentSummaryBlock summary={summary} isLoading={summaryLoading} thisAmount={requestedAmount} />
                 )}
                 {paymentData && isExpense && ledger && (
@@ -205,7 +256,7 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
                         approving={type === DIALOG_ACTION_TYPES.APPROVE}
                     />
                 )}
-                {paymentData && showMode && type === DIALOG_ACTION_TYPES.APPROVE && (
+                {paymentData && showMode && type === DIALOG_ACTION_TYPES.APPROVE && !throughCheque && !chequeLoading && (
                     <div className="rounded-md border divide-y text-sm">
                         {/* Requested — the figure the payment was raised for. */}
                         <div className="flex items-baseline justify-between px-3 py-2">
@@ -316,13 +367,13 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
                     </div>
                 )}
 
-                {showMode && isCheque && type === DIALOG_ACTION_TYPES.APPROVE && (
+                {showMode && isCheque && type === DIALOG_ACTION_TYPES.APPROVE && !throughCheque && !chequeLoading && (
                     <p className="text-xs text-muted-foreground">
                         Approved in full only. Once fully approved it goes straight to Reconciliation Pending.
                     </p>
                 )}
 
-                {tds && (
+                {tds && !throughCheque && !chequeLoading && (
                     <p className="text-xs text-muted-foreground">
                         {companyBorne
                             ? withholdsTdsNow
@@ -343,10 +394,17 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
                         <>
                             <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
                             <Button
-                                disabled={isLoading || (isPartialApprove && !split.valid)}
+                                disabled={isLoading || chequeBlocked || (isPartialApprove && !split.valid)}
                                 onClick={handleConfirm}
+                                variant={rejectsCheque ? "destructive" : "default"}
                             >
-                                {isPartialApprove && split.valid && split.isPartial
+                                {throughCheque && chequeApproval
+                                    ? approveAllLabel(chequeApproval)
+                                    : rejectsCheque && chequeApproval
+                                    ? rejectAllLabel(chequeApproval)
+                                    : chequeLoading
+                                    ? type === DIALOG_ACTION_TYPES.REJECT ? "Reject" : "Approve"
+                                    : isPartialApprove && split.valid && split.isPartial
                                     ? `Approve ${formatToRoundedIndianRupee(split.approved)}`
                                     : `Confirm ${type}`}
                             </Button>

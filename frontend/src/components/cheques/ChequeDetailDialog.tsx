@@ -6,19 +6,28 @@ import { ChequePhoto } from "@/components/cheques/ChequePhotoLink";
 import { ChequeStatusBadge } from "@/components/cheques/ChequeStatusBadge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { ChequeStatus } from "@/types/NirmaanStack/Cheques";
+import { chequeTypeLabel } from "@/pages/cheque-tracker/config/chequePaymentTable.config";
+import { CHEQUE_TYPE } from "@/types/NirmaanStack/Cheques";
 import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 import { chequeDateText } from "@/utils/cheques/chequeChip";
+import type { ChequeRowAction } from "@/utils/cheques/chequeRowActions";
 import { getFrappeError } from "@/utils/frappeErrors";
 
-import { useChequeDetail } from "./useChequeDetail";
+import { type ChequeDetail, useChequeDetail } from "./useChequeDetail";
+
+/** The Clear and Cancel buttons the detail view shows, as the Tracker row offers them (`chequeRowActions`). */
+export interface ChequeDetailActions {
+    actionsOf: (cheque: ChequeDetail) => ChequeRowAction[];
+    onClear: (cheque: ChequeDetail) => void;
+    onCancel: (cheque: ChequeDetail) => void;
+}
 
 interface ChequeDetailDialogProps {
     /** The Cheque shown; the dialog is closed while null. */
     cheque: string | null;
     onClose: () => void;
-    /** Shown as a "Change status" button when given (accounts only). */
-    onChangeStatus?: (cheque: string, status: ChequeStatus) => void;
+    /** Clear and Cancel, when the viewer may (the Cheque Tracker passes them). */
+    actions?: ChequeDetailActions;
 }
 
 const Field = ({ label, children }: { label: string; children: ReactNode }) => (
@@ -28,12 +37,22 @@ const Field = ({ label, children }: { label: string; children: ReactNode }) => (
     </div>
 );
 
+/** "12-10-2026 · By hand", or just the date. */
+const clearedText = (cheque: ChequeDetail) =>
+    cheque.clearance_date
+        ? [chequeDateText(cheque.clearance_date), cheque.cleared_by].filter(Boolean).join(" · ")
+        : "";
+
 /**
- * The Cheque detail view (#1412, spec #1407): photo, header, lines and the full status history.
- * Holds the Cheque's name and refetches on every Cheque change, so it stays live after a status move.
+ * The Cheque detail view (#1412, spec #1407; #1484): photo, header (type, the cheque, issue and clearance dates,
+ * how it was cleared and the bank line), lines and the full status history, with Clear and Cancel when the
+ * viewer may. Holds the Cheque's name and refetches on every Cheque change, so it stays live after a move.
  */
-export const ChequeDetailDialog = ({ cheque: name, onClose, onChangeStatus }: ChequeDetailDialogProps) => {
+export const ChequeDetailDialog = ({ cheque: name, onClose, actions }: ChequeDetailDialogProps) => {
     const { cheque, error, isLoading } = useChequeDetail(name);
+    const offered = cheque && actions ? actions.actionsOf(cheque) : [];
+    const line = cheque?.bank_line_detail;
+    const isDeposit = cheque?.cheque_type === CHEQUE_TYPE.SECURITY_DEPOSIT;
 
     return (
         <Dialog open={!!name} onOpenChange={(open) => !open && onClose()}>
@@ -42,10 +61,19 @@ export const ChequeDetailDialog = ({ cheque: name, onClose, onChangeStatus }: Ch
                     <DialogTitle className="flex flex-wrap items-center gap-3">
                         Cheque {cheque?.cheque_no ?? ""}
                         {cheque && <ChequeStatusBadge status={cheque.status} />}
-                        {cheque && onChangeStatus && (
-                            <Button size="sm" variant="outline" className="ml-auto mr-6" onClick={() => onChangeStatus(cheque.name, cheque.status)}>
-                                Change status
-                            </Button>
+                        {cheque && actions && (offered.includes("clear") || offered.includes("cancel")) && (
+                            <span className="ml-auto mr-6 flex gap-2">
+                                {offered.includes("clear") && (
+                                    <Button size="sm" variant="outline" onClick={() => actions.onClear(cheque)}>
+                                        Clear
+                                    </Button>
+                                )}
+                                {offered.includes("cancel") && (
+                                    <Button size="sm" variant="outline" className="text-destructive" onClick={() => actions.onCancel(cheque)}>
+                                        {isDeposit ? "Mark returned" : "Cancel cheque"}
+                                    </Button>
+                                )}
+                            </span>
                         )}
                     </DialogTitle>
                 </DialogHeader>
@@ -74,8 +102,19 @@ export const ChequeDetailDialog = ({ cheque: name, onClose, onChangeStatus }: Ch
                                 )}
                             </div>
                             <div className="grid grid-cols-2 gap-3 content-start">
+                                <Field label="Type">
+                                    {chequeTypeLabel(cheque.cheque_type)}
+                                    {cheque.old_type ? " · Old-type" : ""}
+                                </Field>
                                 <Field label="Bank">{cheque.bank_label}</Field>
                                 <Field label="Cheque date">{chequeDateText(cheque.cheque_date)}</Field>
+                                <Field label="Issue date">{chequeDateText(cheque.issue_date)}</Field>
+                                <Field label="Clearance date">{clearedText(cheque)}</Field>
+                                <Field label="Bank line">
+                                    {line
+                                        ? `${chequeDateText(line.added_on)} · ${formatToIndianRupeeOrZero(line.amount)} · No. ${line.reference_id ?? ""} (${line.name})`
+                                        : cheque.bank_line}
+                                </Field>
                                 <Field label="Amount">{formatToIndianRupeeOrZero(cheque.amount)}</Field>
                                 <Field label={cheque.vendor ? "Vendor" : "Payee"}>
                                     {cheque.vendor ? cheque.vendor_name || cheque.vendor : cheque.payee_name}
@@ -91,9 +130,11 @@ export const ChequeDetailDialog = ({ cheque: name, onClose, onChangeStatus }: Ch
                         </div>
 
                         <section>
-                            <h3 className="mb-2 text-sm font-semibold">Lines</h3>
+                            <h3 className="mb-2 text-sm font-semibold">{isDeposit ? "Secures" : "Lines"}</h3>
                             {cheque.lines.length === 0 ? (
-                                <p className="text-sm text-muted-foreground">No lines: an Ad-hoc cheque.</p>
+                                <p className="text-sm text-muted-foreground">
+                                    {isDeposit ? "No PO or Work Order named." : "No lines: an Ad-hoc cheque."}
+                                </p>
                             ) : (
                                 <ChequeLinesView lines={cheque.lines} />
                             )}

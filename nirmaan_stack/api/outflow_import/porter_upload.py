@@ -25,7 +25,6 @@ from nirmaan_stack.api.outflow_import.porter_records import (
     created_imports,
     won_projects,
 )
-from nirmaan_stack.api.outflow_import.review import refresh_batch_rollup
 from nirmaan_stack.services.outflow_import.parser import StatementFormatError, parse_statement
 from nirmaan_stack.services.outflow_import.porter import (
     INVOICE_DOCTYPE,
@@ -59,6 +58,7 @@ from nirmaan_stack.services.outflow_import.status import (
     SKIP_ORIGIN_SYSTEM,
     SKIP_REASON_PORTER_CANCELLED,
 )
+from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup
 
 #: Porter's statement is a CSV export (spec #1442); anything else is refused unread.
 _ALLOWED_EXTENSIONS = frozenset({".csv"})

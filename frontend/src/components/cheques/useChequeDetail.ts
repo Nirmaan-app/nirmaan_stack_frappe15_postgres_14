@@ -3,9 +3,11 @@ import { useFrappeEventListener, useFrappeGetCall } from "frappe-react-sdk";
 import {
     CHEQUES_CHANGED_EVENT,
     type ChequeBank,
+    type ChequeClearedBy,
     type ChequeLineType,
     type ChequeMadeFrom,
     type ChequeStatus,
+    type ChequeType,
 } from "@/types/NirmaanStack/Cheques";
 import { CHEQUE_DETAIL_API } from "@/utils/cheques/chequeStatus";
 
@@ -45,6 +47,21 @@ export interface ChequeDetail {
     cheque_date: string;
     amount: number;
     status: ChequeStatus;
+    cheque_type: ChequeType;
+    /** 1 for a Cheque from before cheque types (spec #1477): only its photo can change. */
+    old_type?: 0 | 1;
+    issue_date?: string | null;
+    clearance_date?: string | null;
+    cleared_by?: ChequeClearedBy | null;
+    bank_line?: string | null;
+    /** The imported bank line that cleared it (#1484). */
+    bank_line_detail?: {
+        name: string;
+        added_on?: string | null;
+        amount: number;
+        reference_id?: string | null;
+        import_batch?: string | null;
+    } | null;
     vendor?: string | null;
     vendor_name?: string | null;
     payee_name?: string | null;

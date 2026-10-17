@@ -4,7 +4,7 @@ Date: 2026-10-17
 
 ## Status
 
-**Accepted** 2026-10-16 (owner grilling session). Not built yet. Supersedes parts of spec #1407.
+**Accepted** 2026-10-16 (owner grilling session). Built by spec #1477 (#1478–#1487). Supersedes parts of spec #1407.
 
 ## Context
 

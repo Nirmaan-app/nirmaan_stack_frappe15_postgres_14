@@ -1,11 +1,14 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Expense lines and typed-payee cheques (#1411, spec #1407).
+"""Expense lines and typed-payee cheques (#1411, spec #1407): the rules every write still holds.
 
-Drives the report's endpoints against the database the way the Add Cheque dialog does (`save_cheque`
-with expense lines, `pickers.get_eligible_expenses`) and reads back what a user sees: the Cheque's
-lines, the expense itself, the picker's lists, or the refusal.
+Since #1482 (spec #1477) the Cheque Tracker makes Payment cheques only, so no new cheque takes an
+expense line or a typed payee (`test_save_cheque` covers that refusal). The cheques recorded before
+stay readable as Old-type cheques, and every save of one still runs the `validate` controller's
+expense-line rules. This suite plants such cheques through the Cheque document
+(`ChequeFixture.plant_cheque`) and reads back what a user sees: the Cheque's lines, the expense
+itself, or the refusal.
 
 ⚠️ RUNS AGAINST THE ENV DATABASE (the endpoints commit). Projects, vendors and Work Orders come from
 `TaxedWorkOrderFixture`; expenses are planted and purged here; every Cheque carries a TESTCHQ number
@@ -20,8 +23,6 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt, nowdate
 
 from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
-from nirmaan_stack.api.cheques.pickers import get_eligible_expenses
-from nirmaan_stack.api.cheques.save_cheque import save_cheque
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 
 U = "Administrator"
@@ -98,8 +99,7 @@ class TestChequeExpenseLines(FrappeTestCase):
             "lines": json.dumps(lines),
         }
         values.update(overrides)
-        result = save_cheque(**{k: v for k, v in values.items() if v is not None})
-        return self.cheques.track(result["cheque"])
+        return self.cheques.plant_cheque(**{k: v for k, v in values.items() if v is not None})
 
     def _refused(self, phrase, lines, **overrides):
         with self.assertRaisesRegex(frappe.ValidationError, phrase):
@@ -201,54 +201,3 @@ class TestChequeExpenseLines(FrappeTestCase):
         after = {e: frappe.db.get_value(dt, e, "*", as_dict=True) for dt, e in ((NPE, office), (PE, site))}
         self.assertEqual(after, before)
 
-    # -- the expense picker ---------------------------------------------------------------------
-    def test_the_project_expense_picker_lists_the_projects_free_expenses_and_counts_the_hidden(self):
-        free = self._expense(PE, amount=1100)
-        on_live = self._expense(PE, amount=1200)
-        on_cancelled = self._expense(PE, amount=1300)
-        elsewhere = self._expense(PE, project=self.other_project)
-        live = self._save([self._pe_line(on_live)])
-        self._cancel(self._save([self._pe_line(on_cancelled)]))
-
-        out = get_eligible_expenses(PE_LINE, self.project)
-        offered = {e["name"]: e for e in out["expenses"]}
-        self.assertEqual(sorted(offered), sorted([free, on_cancelled]))
-        self.assertEqual((offered[free]["amount"], offered[free]["status"]), (1100.0, "Approved"))
-        self.assertNotIn(elsewhere, offered)
-        self.assertEqual(
-            out["hidden"],
-            {"on_cheque": [{
-                "payment": on_live,
-                "cheque": live,
-                "cheque_no": frappe.db.get_value("Cheques", live, "cheque_no"),
-                "status": "Issued",
-            }]},
-        )
-
-    def test_the_non_project_expense_picker_hides_expenses_on_a_live_cheque(self):
-        free = self._expense(NPE)
-        on_live = self._expense(NPE)
-        self._save([self._npe_line(on_live)])
-
-        out = get_eligible_expenses(NPE_LINE)
-        names = {e["name"] for e in out["expenses"]}
-        self.assertIn(free, names)
-        self.assertNotIn(on_live, names)
-        self.assertIn(on_live, [h["payment"] for h in out["hidden"]["on_cheque"]])
-
-    def test_the_cheque_being_edited_keeps_its_own_expenses_offered(self):
-        office = self._expense(NPE)
-        cheque = self._save([self._npe_line(office)])
-        names = {e["name"] for e in get_eligible_expenses(NPE_LINE, cheque=cheque)["expenses"]}
-        self.assertIn(office, names)
-
-    def test_a_project_manager_cannot_use_the_expense_picker(self):
-        pm = frappe.db.get_value("Nirmaan Users", {"role_profile": "Nirmaan Project Manager Profile"}, "name")
-        if not pm:
-            self.skipTest("no Project Manager on this site")
-        frappe.set_user(pm)
-        try:
-            with self.assertRaises(frappe.PermissionError):
-                get_eligible_expenses(NPE_LINE)
-        finally:
-            frappe.set_user(U)

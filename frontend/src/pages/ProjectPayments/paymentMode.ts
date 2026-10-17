@@ -49,6 +49,12 @@ export const EMPTY_PAYMENT_MODE: PaymentModeValue = {
 	photoBusy: false,
 };
 
+/**
+ * Does Request Payment on this record offer Cheque? Only on a PO: a Work Order payment is paid Online
+ * (spec #1477). The server refuses the same (`services/cheques/payment_rules.cheque_mode_problem`).
+ */
+export const chequeModeOffered = (docType: string): boolean => docType === "Procurement Orders";
+
 /** What the create endpoints take (`create_payment_request_for_service`, `create_project_payment`). */
 export interface PaymentModeArgs {
 	mode_of_payment: PaymentMode;
@@ -95,7 +101,7 @@ export const isChequePayment = (row?: { mode_of_payment?: string | null } | null
 
 /**
  * What this payment's cheque is written for. A cheque requested here pays this one payment (#1414);
- * joining several payments on one cheque is done from Reports, Cheque Payments.
+ * joining several payments on one cheque is done from the Cheque Tracker.
  *
  * ⚠️ AFTER TDS (owner, 2026-09-19). A Work Order payment is netted at approval — ₹50,000 requested
  * at 2% is recorded as ₹49,000 — and the cheque must match what the record will say, or the

@@ -1060,3 +1060,21 @@ class TestAMatchedWaitingRefund(unittest.TestCase):
     def test_already_reversed_still_comes_first(self):
         verdict = leg_verdict(matched_refund(match_kind="Reversed"))
         self.assertEqual(verdict.title, "Already reversed")
+
+
+class TestAPaymentOnAClearedChequeStaysPaid(unittest.TestCase):
+    """#1485: a Cleared cheque has no undo (ADR-0035), so its payments are never put back."""
+
+    def test_the_leg_is_refused_naming_the_cheque(self):
+        verdict = leg_verdict(facts(cleared_cheque="000747"))
+        self.assertEqual(verdict.verdict, VERDICT_REFUSED)
+        self.assertEqual(verdict.title, "On a cleared cheque")
+        self.assertEqual(
+            verdict.reason,
+            f"{PAY} is on cheque 000747, which is Cleared. A cleared cheque cannot be undone, so this line "
+            "cannot be unreconciled.",
+        )
+        self.assertIsNone(verdict.fix_at)
+
+    def test_a_payment_on_no_cleared_cheque_still_reverts(self):
+        self.assertEqual(leg_verdict(facts(cleared_cheque=None)).verdict, VERDICT_REVERT_PAYMENT)

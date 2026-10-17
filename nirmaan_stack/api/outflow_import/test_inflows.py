@@ -402,7 +402,7 @@ class TestTheHappyPath(InflowFixture):
         self.assertEqual(match.target_doctype, INFLOW_DOCTYPE)
         self.assertEqual(match.target_name, summary["settled"]["name"])
         self.assertEqual(match.match_kind, "Settled")
-        # ⚠️ NO NEW `match_basis` OPTION WAS NEEDED. An ICICI row carries none, so `_record_settlement`
+        # ⚠️ NO NEW `match_basis` OPTION WAS NEEDED. An ICICI row carries none, so `record_settlement`
         # falls back to "Manual" -- which is the truth: nothing was matched, a person chose the
         # project. A test rather than a comment, because a doctype JSON edit is the alternative.
         self.assertEqual(match.match_basis, "Manual")

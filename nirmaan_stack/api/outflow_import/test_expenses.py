@@ -699,11 +699,11 @@ class TestTheAmountIsCorrectedToTheBank(SettlementFixture):
         row = self._next_settleable_row()
         expense = self._make_expense(PROJECT_EXPENSE, float(row["amount"]) - 0.31)
 
-        # ⚠️ `_refresh_row_allocation`, NOT `_record_settlement` (#1296). The slip is now inserted
+        # ⚠️ `refresh_row_allocation`, NOT `record_settlement` (#1296). The slip is now inserted
         # BEFORE the expense save, so failing there would throw before anything was saved and this
         # test would stop seeing a commit inside the save. The row refresh is the first step after.
         with patch(
-            "nirmaan_stack.api.outflow_import.expenses._refresh_row_allocation",
+            "nirmaan_stack.api.outflow_import.expenses.refresh_row_allocation",
             side_effect=RuntimeError("forced after the expense was saved"),
         ):
             with self.assertRaises(RuntimeError):
@@ -720,7 +720,7 @@ class TestTheAmountIsCorrectedToTheBank(SettlementFixture):
         )
 
     def test_the_request_flag_does_not_leak_past_the_save(self):
-        """`_outflow_import_write` restores the previous value in a `finally`. A leaked flag would
+        """`outflow_import_write` restores the previous value in a `finally`. A leaked flag would
         silently suppress a CEO-Hold notification commit for unrelated later work in the same
         request -- the kind of bug that surfaces as "notifications stopped, sometimes"."""
         row = self._next_settleable_row()

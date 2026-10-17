@@ -26,7 +26,7 @@ side: `Project Inflows` and a **negative** `Non Project Expense`.
 > |---|---|---|
 > | `Cashfree` | out only (no `direction` stated) | **PAYS** what someone approved. Never creates |
 > | `Cashbook` | out only (no `direction` stated) | **CREATES** what a wallet already spent (ADR-0015). Never settles |
-> | `ICICI Bank Statement` | **Debit and Credit**, stated per row | **CREATES**, in both directions. Settles NOTHING — all three matcher tiers are dead on this source, measured (ADR-0016). A debit becomes an expense; a credit becomes a `Project Inflow`, a `Non Project Inflow` (#1266) or `Vendor Refunds` |
+> | `ICICI Bank Statement` | **Debit and Credit**, stated per row | **CREATES**, in both directions. All three matcher tiers are dead on this source, measured (ADR-0016). A debit becomes an expense; a credit becomes a `Project Inflow`, a `Non Project Inflow` (#1266) or `Vendor Refunds`. **One exception since #1485 (ADR-0035): a debit whose cheque column names a Payment cheque clears that cheque, paying (and, for a Pending cheque, approving) its payments** — see the #1485 section at the end |
 >
 > **Nothing here creates a `Project Payment`, from any source, in either direction.** A vendor
 > refund on a CREDIT (2026-09-17) is recorded as `Vendor Refunds` records -- one per PO / WO it is
@@ -89,6 +89,7 @@ pick one ad-hoc; ask.
 | How a suggestion was chosen | the `suggestion_rule` field + `disambiguate.RULE_LABELS` | invent a label. BLANK means "no suggestion", never "no rule" |
 | Reading approved-and-unpaid across the three ledgers | `services/outflow_import/ledger_read.py` (`LEDGER_SOURCES`, `approved_rows`, `approved_count`, `approved_projects`) | write a fourth query that knows the three ledgers' asymmetries. `review._search_one_ledger` is the OTHER caller and stays separate deliberately |
 | The settlement write | `services/outflow_import/settle.py` + the one orchestrator `api/outflow_import/expenses.settle_row` | write to a ledger from anywhere else in this feature |
+| What every settle writes beside the record (the match record, the line's status from its legs, the batch roll-up, the statement's `File` row after the commit) | `services/outflow_import/row_settlement.py` (`record_settlement`, `refresh_row_allocation`, `refresh_batch_rollup`, `link_statement_file_to_target`, `target_snapshot`) -- every import settle path and the cheques service's clear (spec #1477) | write a match record or a row's settled status any other way. It is a service so the cheques service writes a bank line exactly as the import does without importing `api/` |
 | **Which endpoint a confirm calls** (B3 + B4) | `frontend/.../outflow-import/allocationView.ts` (`chooseSettleEndpoint`, `SettleEndpoint`, `effectiveSettleMode`, `settleModeLocked`) | answer *"is this a whole-transfer settle or an allocation?"* anywhere else. TWO readers since #1242: `OutflowMasterPage` ROUTES the confirm with it, and `confirmGate` PREDICTS that routing to decide whether the balance arithmetic governs the button. Which is why the gate is handed the endpoint itself rather than a boolean derived at the call site -- a second copy would be free to disagree with the router about the very pick it is gating, and the symptom is a live button whose refusal arrives from the server instead. ⚠️ **Both readers must also feed it the SAME TICK COUNT** (`decisionLinkKeys`), not the picker's resolved-record count -- see the #1242 slice below |
 | **May a transfer pay PART of a record?** (PS; slice TD's DEDUCTION answer is REMOVED) | `services/outflow_import/partial_settle.py` (`partial_eligibility`, `looks_like_tds`, `INTENT_PART_PAYMENT`, `VALID_INTENTS`) — pure. ⚠️ `deduction_eligibility` and the band/service gate are GONE: the import records no tax, `services/payment_tds.py` withholds SR tax at approval | let it reach the MATCHER. `matcher`, `disambiguate`, `status`, `stacks`, `claims` and `candidates` must not import it (pinned by a test). A partial sits OUTSIDE the ±₹5 settle window that gates every other write here; it is safe only because a person opens it on one specific row, and the moment the matcher can reach it that sentence stops being true. The frontend mirror `outflowTableModel.partialOffer` is a CONVENIENCE — the server re-asserts the whole gate under a row lock |
 | **Splitting a Project Payment in two** (PS-1) | `services/payment_split.py` (`split_payment`; `split_and_approve` is a thin wrapper) — SHARED with the CEO partial approval | fork it for the second caller. ONE concept, ONE owner (ADR-0010 B1): two copies of the sum invariant and the PO-term surgery would drift, and the symptom is a PO whose terms stopped adding up, months later, with no way to tell which copy wrote it. **Every parameter defaults to the CEO behaviour**, which is what makes `test_payment_split`'s 26 original tests the proof that generalising it changed nothing. **Its inverse lives beside it** (#1279): `unsplit_payment` joins a balance back — delete it, restore the original's amount, fold the balance term into the original's — so the sum invariant has one implementation in each direction. Whether a leftover is safe to join back is `services/outflow_import/unsplit.py`'s question, never this module's |
@@ -601,6 +602,11 @@ needs one vocabulary rather than one per writer.
 1. **Only `Approved` is ever matched.** `Requested` / `CEO Pending` → plain `Mismatched`. No status,
    no nudge, no approval deep link. This REVERSED an earlier goal (surfacing the 111 CEO-Pending
    payments); it was removed deliberately and must not be re-added.
+   ⚠️ **The one exception is the ICICI cheque pass (#1485, ADR-0035), and it is the cheques service's,
+   not the matcher's:** a bank line carrying a Payment cheque's number and amount pays every payment on
+   that cheque whatever their step — approving Requested / CEO Pending ones and reviving Rejected ones
+   first — because the bank has already cashed the cheque. Nothing else in the import reaches a payment
+   that is not settleable.
 2. **The already-Paid check is a SKIP, not a match** (Q14) — and it is the **only** route to
    `Mismatched`. Delete it and a hand-ticked payment reads `Mismatched` carrying the FOUND-NOTHING note, and the obvious next click
    books the same money twice.
@@ -753,7 +759,7 @@ needs one vocabulary rather than one per writer.
       QUEUED first line hid an exact copy). Those lookups are private to `skip_sources` again. Per
       import: the count is ADDED to `repeats_not_saved`, the rows are raw-deleted (no Deleted Document
       copy; their `Version` / `Comment` go with them), then counters/status go through
-      `review.refresh_batch_rollup` and gross/charges are re-summed with `parser.stored_money`. An
+      `row_settlement.refresh_batch_rollup` and gross/charges are re-summed with `parser.stored_money`. An
       import left with NO rows is kept and marked `Completed` (the deriver's empty-import `Draft` reads
       as open work). ⚠️ **Two keeps that look like gaps are the safety:** every earlier sighting must
       sit in an import created BEFORE the row's own (so every deletion points strictly earlier and each
@@ -874,7 +880,7 @@ needs one vocabulary rather than one per writer.
       asked us to touch. A record that already has a proof keeps it.
     - ⚠️ **Copying the URL copies a link, not a permission.** The statement is `is_private=1` and
       attached to the *import batch*; Frappe authorises a private file through the document it is
-      attached to. `expenses._link_statement_file_to_target` creates the second `File` row that
+      attached to. `row_settlement.link_statement_file_to_target` creates the second `File` row that
       makes it openable from the payment or expense.
 
 16. **The browse ranking must never reach anything that SETTLES** (N1). `similarity.py` orders a list
@@ -1781,8 +1787,8 @@ savepoint:
    _assert_partially_settleable   (row lock, re-asserts the whole gate)
    split_payment(...)             expect/remainder Approved, stamp_ceo_approval=False
    settle_payment(...)            UNCHANGED
-   _record_settlement             UNCHANGED
-commit -> _link_statement_file_to_target -> _record_partial_provenance
+   record_settlement             UNCHANGED
+commit -> link_statement_file_to_target -> _record_partial_provenance
 ```
 
 - ⚠️ **ONE SAVEPOINT OVER SPLIT + SETTLE.** A split that succeeded with a settle that failed leaves a
@@ -2231,7 +2237,7 @@ rewritten to use a real period value instead of the default.
 
 ### ⚠️ The money record claimed a human found everything
 
-`expenses._record_settlement` hardcoded `match_basis = "Manual"` on EVERY settlement. It was not
+`row_settlement.record_settlement` hardcoded `match_basis = "Manual"` on EVERY settlement. It was not
 merely lazy: **`Outflow Row Match.match_basis` was a Select whose options were
 `Bank reference / Vendor+amount+date / Manual`, and neither of the first two is a tier the matcher
 produces** — so `Manual` was the only value that would validate. Measured before the fix: **849
@@ -3099,7 +3105,7 @@ All measured against the live `localhost` DB on 2026-09-10.
   and its whole-transfer guard, so a first-leg-then-second-leg workflow had no path. The mode radio
   is the fix, and Split ALWAYS routes via `allocate_row` — even a full-amount tick. ⚠️ The reason
   once given here, "`settle_row` writes no leg", is FALSE (corrected at #1271): `settle_row` writes
-  a leg too (`_record_settlement`). The two paths differ in their GUARD (whole-transfer vs
+  a leg too (`record_settlement`). The two paths differ in their GUARD (whole-transfer vs
   remainder) and in slice X1's amount rewrite, which a reversal cannot put back (Ruling O).
 - **`bar.over` and the part-payment detour fire on the SAME band.** `SETTLE_WINDOW` and
   `AMOUNT_TOLERANCE` are literally the same constant, so a Confirm gate on `bar.over` made the
@@ -3148,14 +3154,14 @@ and the recorded baseline named `test_expenses` and `test_settle_payment` as tho
 
 ### What was wrong, and what it took to fix
 
-`inflows.py` never referenced `_refresh_row_allocation`, because the commit that moved the `Settled`
-flip out of `_record_settlement` predates nothing in that module — it simply missed it. Both credit
+`inflows.py` never referenced `refresh_row_allocation`, because the commit that moved the `Settled`
+flip out of `record_settlement` predates nothing in that module — it simply missed it. Both credit
 endpoints wrote their leg and then wrote no status at all, so a recorded credit stayed `Mismatched`.
 
 **Two changes, and the second is the one a reader will not predict:**
 
 1. `create_inflow` and `create_non_project_receipt` each call
-   `_refresh_row_allocation(staged.name, actor, result)` immediately after `_record_settlement`,
+   `refresh_row_allocation(staged.name, actor, result)` immediately after `record_settlement`,
    **inside the savepoint** — the same shape as all five outflow call sites. `result` is passed so
    `allocation_note` renders **"Recorded"** rather than "Settled": both credit paths CREATE their
    record.
@@ -3685,7 +3691,7 @@ but it now falls out of the mode rule rather than sitting beside it.
 has money allocated against it… Reverse every allocation above to get the choice back"). Only the
 OTHER option is disabled: greying the chosen one too would grey out the answer the reviewer needs to
 read. The lock **unlocks for free after a full reversal** — every gate keys off `row_status`, and
-`_refresh_row_allocation` re-derives it back to `Matched`/`Mismatched`. Verified in code, in
+`refresh_row_allocation` re-derives it back to `Matched`/`Mismatched`. Verified in code, in
 `test_reversing_every_leg_returns_the_row_to_an_open_status`, and on live row `OFR-26-002185`.
 
 ### Where the mode lives, and why
@@ -4794,7 +4800,7 @@ cards: *Create a project inflow* and *Create a non-project inflow*.
 
 **Endpoint** `api/outflow_import/inflows.create_non_project_inflow(row, inflow_type, description=None,
 confirm_mismatch=False)` — the `create_inflow` pipeline: access → load a settleable row → credit guard →
-recorded-money guard (#1260) → savepoint → create → `_record_settlement` → `_refresh_row_allocation` →
+recorded-money guard (#1260) → savepoint → create → `record_settlement` → `refresh_row_allocation` →
 batch rollup → commit → attach the statement file. **Service** `settle.create_non_project_inflow_from_row`
 writes `inflow_type`, `description`, a **positive** `amount` (the bank magnitude), `payment_date` = the
 line date, `utr` = the full `settlement_reference`, and the statement into `inflow_attachment`.
@@ -4875,7 +4881,7 @@ No user-visible change. First slice of #1270 (Unreconcile, Skip and Unskip).
   the only way in is `reverse_allocation`. Lock order row → legs → targets (sorted), the same
   row-then-payment order as `allocate_row`; before #1271 a reversal took no row lock. Verdicts are
   computed for every leg before any write; one refusal throws that leg's sentence and writes nothing.
-  Writes go in one savepoint; then `_refresh_row_allocation`, the batch rollup, commit.
+  Writes go in one savepoint; then `refresh_row_allocation`, the batch rollup, commit.
 - **Concurrency:** wrapped in `concurrent_writer_refusal_as_sentence`, so a concurrent writer now gets
   `CONCURRENT_ALLOCATION_MESSAGE` on a reversal too (it used to get raw database text).
 - **`reverse_allocation`** keeps its URL, arguments, response and sentences; it is a wrapper with one
@@ -5137,7 +5143,7 @@ source, never rolled back from memory.
 - **CEO Hold.** `trigger_check`'s per-request `ceo_hold_checked:<project>` flag skips the second payment of
   one project in a Reverse all, so the hold was judged on a gap that still counted it. The clean-up calls
   **`sync_cashflow_reason(project)` directly**, once per project, LAST (after amount_paid and vendor credit),
-  under `_outflow_import_write()` so the manual-hold notify branch cannot commit. ⚠️ Unlike `trigger_check`
+  under `outflow_import_write()` so the manual-hold notify branch cannot commit. ⚠️ Unlike `trigger_check`
   it does NOT swallow a failure: a stale hold is the defect, so the reversal rolls back instead.
 - **Latest payment date.** `services/outflow_import/settle.recompute_latest_payment_date` — beside its
   advance-only twin — per parent (PO or SR, where the column exists): `MAX(payment_date)` over its remaining
@@ -5186,7 +5192,7 @@ Reverses ADR-0020 B2's "reverse is payments only". Record: **ADR-0022**.
   (`_read_expense_facts`: `status`, `amount`, `payment_ref`, `creation` under `FOR UPDATE` on the write, plus
   the batch `creation` and `_status_changes_before` — the `status` entries of the expense's Version `changed`
   lists with `creation <= leg.matched_at`). `_revert_expense` saves through `doc.save(ignore_version=False)`
-  under `_outflow_import_write()`: status Approved, `payment_date` / `payment_ref` / (`payment_by` where the
+  under `outflow_import_write()`: status Approved, `payment_date` / `payment_ref` / (`payment_by` where the
   field exists) cleared, `clear_statement_attachment`. The amount is not restored (Ruling O).
   `_carry_out` now returns `(doctype, name)`.
 - **Clean-up (`unreconcile_cleanup.restore_derived_state(reverted, statement)`)** now takes `(doctype, name)`
@@ -5210,7 +5216,7 @@ Reverses ADR-0020 B2's "reverse is payments only". Record: **ADR-0022**.
 Reverses ADR-0016 AR3 ("an import-created inflow cannot be undone"). Record: **ADR-0022**.
 
 - **Stored flag.** `Outflow Row Match.created_by_import` (Check, default 0, read-only; migrate). Written in the
-  leg's insert by `expenses._record_settlement` (`1 if result.created`, so create expense / create inflow /
+  leg's insert by `row_settlement.record_settlement` (`1 if result.created`, so create expense / create inflow /
   create non-project inflow set it and every settle of an existing record leaves 0) and by
   `cashbook._write_one`. The controller's derived freeze covers it with no code change.
 - **Back-fill.** `patches/v3_0/backfill_outflow_match_created_flag.py`, wired in `patches.txt`
@@ -5244,7 +5250,7 @@ Reverses ADR-0016 AR3 ("an import-created inflow cannot be undone"). Record: **A
     `edits_of`, `delete_created` and the series helpers. `delete_created`: reads the project
     (`ledgers.project_field_of`, new — `TARGET_SNAPSHOT_FIELDS` plus `Project Inflows`), **raw-deletes the statement `File` link rows
     first** (`unreconcile_cleanup.delete_statement_file_links`, now public), then
-    `frappe.delete_doc(force=True, ignore_permissions=True)` under `_outflow_import_write()`.
+    `frappe.delete_doc(force=True, ignore_permissions=True)` under `outflow_import_write()`.
     - ⚠️ WHY FIRST: `delete_doc` -> `remove_all` deletes attached `File`s through the document layer, and
       `frappe_gcp_attachment` / `frappe_s3_attachment` `File.on_trash` deletes the blob by `content_hash`.
     - ⚠️ **NAMING-SERIES REWIND.** `delete_doc` -> `update_naming_series` winds the series back when the deleted
@@ -5313,7 +5319,7 @@ Narrows ADR-0020 A3's blanket split refusal to "untouched leftover only". Record
 - **Write.** `api/outflow_import/unreconcile_split.py` (new): `read_payment_facts` (moved out of `_read_facts`),
   `split_children_of` (locks children on the write; Versions, created amount, TDS row, Settled legs, PO term),
   `settled_at_of`, `unsplit_fields` (the plan / response keys) and `join_leftover_back` (series snapshot/restore
-  around `unsplit_payment` under `_outflow_import_write`, then a comment on the original: *"Partial settlement
+  around `unsplit_payment` under `outflow_import_write`, then a comment on the original: *"Partial settlement
   undone by <user>: <reason>. The leftover X (₹…) was deleted and this payment's amount restored to ₹…"* — the
   partial-provenance comments stay). `unreconcile_created`'s series helpers are now public
   (`series_counters_for`, `restore_series_counters`). `_carry_out` takes the whole verdict plus actor/reason:
@@ -5362,7 +5368,7 @@ No unit test: it is a React/SWR cache semantic, which the node-only vitest envir
 Record: **ADR-0022** § *Confirm by hand*. Closes the #1270 slice list.
 
 - **Schema [MIGRATE].** `Outflow Import Row.confirm_by_hand` (Check, read-only, default 0).
-- **Set / clear — one writer.** `expenses._refresh_row_allocation(..., *, confirm_by_hand=False)` writes it on
+- **Set / clear — one writer.** `row_settlement.refresh_row_allocation`(..., *, confirm_by_hand=False)` writes it on
   every call, beside `row_status`. Every settle path ends there (`settle_row`, `settle_row_partial`,
   `allocate_row`, `create_expense`, `create_inflow`, `create_non_project_inflow`), so the default CLEARS;
   `unreconcile_row` is the one caller passing `True`. Inside each caller's savepoint, so a rolled-back settle
@@ -7233,3 +7239,63 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
   portal `zIndex` 9999 and `pointerEvents: "auto"` (no styles of its own). Walked on both: the option clicked
   is the project saved.
 
+
+## #1485 (2026-10-17) — an ICICI cheque line clears its Payment cheque (spec #1477, ADR-0035)
+
+**What.** In the ICICI match run (`review._guard_duplicates_only`), BEFORE the contains-guard, every line
+goes through the cheques service's cheque pass, `services/cheques/bank_import.clear_from_line`:
+
+- A **cheque line** is an ICICI statement **debit** whose cheque column (`reference_id`) is filled
+  (`cheques/bank_import_rules.bank_cheque_key`; remark shape irrelevant). A credit never is.
+- It looks up **Payment cheques on ICICI Bank, not Old-type**, whose number equals the line's with leading
+  zeros and a spreadsheet `.0` dropped (`rules.cheque_no_key`), and takes the one within ₹5 of the line
+  (`bank_import_rules.pick_bank_cheque`). A Security Deposit cheque is never found.
+- The match goes through THE cheque clear (`cheques/status.clear`, `cleared_by = Bank import`, clearance
+  date = the line's date), one savepoint per line: Issued → Cleared; Pending → the import approves the
+  payments (approval / CEO approval date = line date), the cheque is Issued with history "approved by
+  bank import", then cleared; Cancelled → Rejected payments revived (a comment on each), cleared with
+  history "…: cancelled, but the bank paid it", and the line's note names every payment on its POs raised
+  after the cancel (`bank_import.double_payment_suspects`, "Check for double payment"). A cheque already
+  **Cleared by hand** with no line gets the line linked (`status.link_bank_line`): match records only,
+  nothing paid again, history untouched.
+- Every paid payment gets **its own `Outflow Row Match`** (`match_basis = "cheque number"`, the option
+  added to the Select at #1485); the line ends `Settled` (frozen) with the cheque sentence as its note.
+  The statement is linked to each payment after the run's commit (`frappe.db.after_commit`).
+- **Nothing settled, line `Mismatched` with the reason:** number found but amount off, two cheques fit,
+  the cheque already cleared by another line, or the clear refused (a line with no payment yet, a held
+  payment, …). A refusal rolls the whole cheque back.
+- A cheque line no Payment cheque claims goes on to the contains-guard as before; if it lands
+  `Mismatched` its note says "No Payment cheque N on ICICI Bank…".
+- The one-record-at-Reconciliation-Pending settle rule is bypassed for cheque lines only. ADR-0031
+  repeats are unchanged, and lines settled to Online payments before #1485 are frozen, never re-run.
+
+**Load-bearing.**
+- ⚠️ **A Cleared cheque has no undo, so Unreconcile refuses its payments.** `unreconcile.leg_verdict`
+  refuses a payment leg whose payment is on a Cleared cheque ("On a cleared cheque";
+  `LegFacts.cleared_cheque`, read by `unreconcile_split.read_payment_facts` through
+  `cheques/status.cleared_cheque_of`). Refusing was chosen over reversing the cheque: it is the smaller
+  safe option, and no hand path moves a cheque out of Cleared.
+- ⚠️ **`Cheques.bank_line` stays a Link to `Outflow Import Row`.** A line a cheque records always has live
+  match records too, so Frappe's delete check already refuses deleting it, out loud (`LinkExistsError`).
+  No code path raw-deletes an ICICI line (Porter Discard deletes Porter lines only; the ADR-0031 repeat
+  patches have run).
+- The pass runs on `match_batch`, `match_period` and `match_line` alike (one `_match_rows`), so a line
+  re-checked after Unskip may clear its cheque too. The production preview (`duplicate_preview`) does not
+  run it: it writes nothing.
+- Review screen: both row reads carry `cheque_outcome` (`bank_import.cheque_outcomes`: cheque, number,
+  where it started per `bank_import_rules.bank_start`, double payments) for Settled lines; the Outcome cell renders it
+  as a chip into the Cheque Tracker plus the amber warning (`pages/outflow-import/chequeOutcomeView.ts`).
+- ⚠️ **A Pending or Cancelled cheque that fails the approval conditions is not cleared.** The bank import
+  brings such a cheque forward only when every line names a payment and the lines add up to the cheque
+  amount within ₹5 (`status.clear` asks `approval_rules.approval_problem`); otherwise nothing is settled and the
+  line lands `Mismatched` with the reason.
+- ⚠️ **A cheque payment is never settled alone.** The decision dialog's hand settle refuses a payment on a
+  live (Pending / Issued, not Old-type) Payment cheque (`settle._lock_and_assert_payment_settleable` asks
+  `cheques/decide.pay_alone_problem`), and so does the payments screen's fulfil: the cheque is cleared in
+  the Cheque Tracker, where the bank line can be linked. `status.clear` pays through its own `_pay`, not
+  `settle_payment`, so the refusal never reaches it.
+
+**Tests.** `api/outflow_import/test_cheque_bank_import.py` (planted ICICI statement → `match_batch`: each
+outcome, deposit / Old-type never matched, a credit is no cheque line, rollback, unreconcile refused,
+delete refused, re-run idempotent); pure `services/cheques/test_bank_import_rules.py`;
+`services/outflow_import/test_unreconcile.TestAPaymentOnAClearedChequeStaysPaid`.

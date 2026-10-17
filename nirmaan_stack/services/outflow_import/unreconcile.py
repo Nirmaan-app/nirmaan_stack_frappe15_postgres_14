@@ -61,6 +61,10 @@ status flip must be refused rather than half-undone:
   * A STATUS THAT IS NOT PAID, or A REFERENCE that is not one this line's settle may have written
     (`settlement_references_of_row`, #1259). Somebody else has touched the record; refusing leaves
     both halves consistent, guessing does not.
+  * A PAYMENT ON A CLEARED CHEQUE (#1485, ADR-0035 §5), asked first of a payment that exists. The bank
+    import clears a Payment cheque by settling every payment on it against the line; putting them back
+    to Reconciliation Pending would leave the cheque Cleared with unpaid payments, and a cleared cheque
+    has no undo. Refused rather than reversing the cheque: the smaller safe option.
 
 A PART PAYMENT (#1279, ADR-0022 narrows ADR-0020 A3's blanket split refusal) -- a payment whose balance
 this leg's OWN partial settle minted -- is UN-SPLIT while that leftover is untouched: the leftover is
@@ -260,6 +264,8 @@ class LegFacts:
     # MATCHED VENDOR REFUNDS ONLY (#1403): an Admin had marked it Received with no bank line before
     # this line was matched to it, so undoing the match leaves it Received with that mark back.
     refund_no_bank_line_before: bool = False
+    # PAYMENTS ONLY (#1485): the number of the Cleared cheque whose lines name the payment, else None.
+    cleared_cheque: str | None = None
 
 
 @dataclass(frozen=True)
@@ -317,6 +323,13 @@ def leg_verdict(facts: LegFacts) -> LegVerdict:
         )
     if not facts.target_exists:
         return _refused(facts, "Not found", f"Payment '{name}' not found.")
+    if facts.cleared_cheque:
+        return _refused(
+            facts,
+            "On a cleared cheque",
+            f"{name} is on cheque {facts.cleared_cheque}, which is Cleared. A cleared cheque cannot be "
+            f"undone, so this line cannot be unreconciled.",
+        )
 
     if (facts.split_from or "").strip() and not is_balance_of_a_part_settle(
         facts.target_created, facts.parent_settled_at
