@@ -18,11 +18,13 @@ import {
   applyItemEdit,
   ITEM_LIST_OVERRIDE_KEY,
   itemsOnScreen,
+  needPersonSentence,
   ROW_UNIT_OVERRIDE_KEY,
   rowTotals,
   type ItemEditOp,
   type ItemListSuggestion,
   type ItemListView,
+  type SectionBlockView,
 } from "./pricingSheetHelper";
 import {
   attrDisplayValue,
@@ -1108,29 +1110,56 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
 // the row, and re-opening the panel shows the model's answers again.
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-type ItemPicker = { mode: "change"; index: number } | { mode: "add" } | null;
+// SLICE 12e-3a (owner 13:42): "+ Add insulation" picks a family for an INDEPENDENT section of a delegated category.
+type ItemPicker = { mode: "change"; index: number } | { mode: "add" } | { mode: "add_section"; section: string } | null;
 
+/**
+ * SLICE 12e-3a (owner D1 / D1a, mockup M4) -- THE SAME COMPONENT DRAWS A DELEGATED SECTION. `section` is set
+ * when this instance is one section of another category's row (a pipe's insulation): `view` is then the
+ * DELEGATED category's own one-item view, so its fields, defaults, notes, working and "Change item" list are
+ * that category's, unchanged. Only the frame differs: the heading names the section, there is no row unit
+ * picker, no add button and no row total (the row owns those), and the x is shown only where the section can
+ * be removed on its own (`onRemove`: an independent section; an attached one goes with its item's toggle).
+ */
 function ItemListBlocks({
   view,
   onEdit,
   onUnit,
+  section,
 }: {
   view: ItemListView;
   onEdit: (op: ItemEditOp) => void;
   onUnit: (unit: string) => void;
+  section?: { heading: string; onRemove?: () => void };
 }) {
   const [picker, setPicker] = useState<ItemPicker>(null);
-  const n = view.items.length;
-  const bad = view.items.filter((b) => b.state !== "priced").length;
+  // SLICE 12e-3a (owner D4 / Q2a / M5): on a row made of sections every LINE counts -- each item and each section
+  const n = view.sections ? view.sections.lines : view.items.length;
+  const bad = view.sections ? view.sections.bad : view.items.filter((b) => b.state !== "priced").length;
   const pick = (family: string) => {
     if (!picker) return;
-    onEdit(picker.mode === "change" ? { op: "change_family", index: picker.index, family } : { op: "add", family });
+    onEdit(picker.mode === "change" ? { op: "change_family", index: picker.index, family }
+      : picker.mode === "add_section" ? { op: "add_section", section: picker.section, family }
+      : { op: "add", family });
     setPicker(null);
   };
-  const familyPicker = (title: string) => (
+  const drawSection = (sv: SectionBlockView) => (
+    <div key={`${sv.sectionId}-${sv.pipe ?? "x"}-${sv.index}`} className="ml-3 border-l-2 border-muted-foreground/30 pl-2" data-testid="item-section">
+      <ItemListBlocks
+        view={sv.view}
+        onEdit={(inner) => onEdit({ op: "section", section: sv.sectionId, pipe: sv.pipe, index: sv.index, inner })}
+        onUnit={() => undefined}
+        section={{
+          heading: sv.heading,
+          ...(sv.pipe === null ? { onRemove: () => onEdit({ op: "remove_section", section: sv.sectionId, index: sv.index }) } : {}),
+        }}
+      />
+    </div>
+  );
+  const familyPicker = (title: string, families: ItemListView["families"] = view.families) => (
     <div className="flex flex-col rounded-md border bg-background p-1 shadow-md" data-testid="item-family-picker">
       <div className="px-1.5 py-1 text-[11px] text-muted-foreground">{title}</div>
-      {view.families.map((f) => (
+      {families.map((f) => (
         <button
           key={f.family}
           type="button"
@@ -1147,7 +1176,34 @@ function ItemListBlocks({
   );
   return (
     <div className="space-y-2" data-testid="item-list-blocks">
-      {view.unitPickable && (
+      {section && view.items.length === 0 && view.pickFamily && (
+        // SLICE 12e-3b (owner D1b): a section open with nothing picked -- its heading and the family list, the
+        // same list "+ Add insulation" opens; a pick starts the section blank for that family (S1)
+        <div className="rounded-md border bg-muted/30 px-2 py-1.5" data-testid="item-block">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground" data-testid="item-section-heading">{section.heading}</div>
+          <div className="mt-1 flex flex-col rounded-md border bg-background p-1" data-testid="item-section-family-picker">
+            <div className="px-1.5 py-1 text-[11px] text-muted-foreground">{view.reason}</div>
+            {view.families.map((f) => (
+              <button
+                key={f.family}
+                type="button"
+                onClick={() => onEdit({ op: "change_family", index: 0, family: f.family })}
+                className="rounded px-1.5 py-1 text-left text-xs hover:bg-muted"
+              >
+                {f.family} <span className="text-[11px] text-muted-foreground">&middot; {f.units}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {section && view.items.length === 0 && !view.pickFamily && (
+        // a section whose category could not be resolved: its heading and why, never another category's rules
+        <div className="rounded-md border bg-muted/30 px-2 py-1.5" data-testid="item-block">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{section.heading}</div>
+          <div className="text-xs text-red-700 dark:text-red-400" data-testid="item-refusal">Not priced &mdash; {view.reason}</div>
+        </div>
+      )}
+      {view.unitPickable && !section && (
         // the calculator has no row, so the row unit is a pick (a BoQ row supplies its own and never shows this)
         <label className="flex items-center justify-between gap-2 text-xs">
           <span className="text-muted-foreground">Row unit</span>
@@ -1175,11 +1231,12 @@ function ItemListBlocks({
         </div>
       )}
       {view.items.map((b, i) => (
-        <div key={i} className="relative space-y-1.5 rounded-md border bg-muted/30 px-2 py-1.5" data-testid="item-block">
+        <Fragment key={i}>
+        <div className="relative space-y-1.5 rounded-md border bg-muted/30 px-2 py-1.5" data-testid="item-block">
           <div className="flex items-center justify-between gap-1.5">
             <div className="min-w-0">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Item {i + 1} &middot; {b.source === "model" ? "identified by model" : "added by you"}
+                {section ? <span data-testid="item-section-heading">{section.heading}</span> : <>Item {i + 1}</>} &middot; {b.source === "model" ? "identified by model" : "added by you"}
               </div>
               {/* SLICE 12d-1a (owner R2): a family the row did NOT name -- ruled by its kind -- is
                   amber with a "default" tag, exactly like every other assumed value on this panel. */}
@@ -1201,19 +1258,28 @@ function ItemListBlocks({
               >
                 Change item
               </button>
-              <button
-                type="button"
-                onClick={() => { setPicker(null); onEdit({ op: "remove", index: i }); }}
-                aria-label={`Remove item ${i + 1}${b.family ? `, ${b.family}` : ""}`}
-                className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
+              {(!section || section.onRemove) && (
+                <button
+                  type="button"
+                  onClick={() => { setPicker(null); if (section?.onRemove) section.onRemove(); else onEdit({ op: "remove", index: i }); }}
+                  aria-label={section ? `Remove ${section.heading}` : `Remove item ${i + 1}${b.family ? `, ${b.family}` : ""}`}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
           </div>
-          {b.familyRaw && (
+          {b.familyRaw && !b.familyLine && (
             <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400">
               BoQ says &ldquo;{b.familyRaw}&rdquo;: priced as {b.family} (your rule).
+            </p>
+          )}
+          {/* SLICE 12e-2 (owner Q16 / Q15, amendment 2026-10-10): the config's own line for a family read as
+              another ("BoQ says GI -> priced as MS") -- amber, in place of the built-in sentence above. */}
+          {b.familyLine && (
+            <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400" data-testid="item-family-line">
+              {b.familyLine}
             </p>
           )}
           {b.familyDefaulted && (
@@ -1229,6 +1295,55 @@ function ItemListBlocks({
             </p>
           ))}
           {picker?.mode === "change" && picker.index === i && familyPicker("Change to…")}
+          {/* SLICE 12e-2 (owner P1 + amendment 2026-10-10 10:29, block 19 d): the FAMILY AS A CONTROL -- a
+              dropdown of the stocked families plus "Other...", which opens a box bound to WHAT THE PRICER
+              TYPED ("Pipe type as the BoQ writes it"); the family USED heads the block above, the config's
+              line sits beneath. Present only on a config declaring the family `dropdown_or_other`; Insulation
+              and ADP (`dropdown`) keep the "Change item" picker alone and render exactly as before. */}
+          {b.familyControl && (
+            <div className="group/attr space-y-0.5" data-testid="item-family-control">
+              <label className="flex items-center justify-between gap-2 text-xs">
+                <span className="flex items-center gap-1 text-muted-foreground">{b.familyControl.label}</span>
+                <span className="flex items-center gap-1">
+                  <select
+                    className={cn("h-7 w-28 rounded border bg-background px-1 text-xs", b.state !== "priced" && !b.family && "border-red-500 dark:border-red-500")}
+                    value={b.familyControl.otherMode ? OTHER_VALUE : (b.familyControl.options.includes(b.familyControl.typedValue) ? b.familyControl.typedValue : "")}
+                    aria-label={b.familyControl.label}
+                    onChange={(e) => {
+                      if (e.target.value === OTHER_VALUE) {
+                        onEdit({ op: "set_family_other", index: i, id: b.familyControl.id });
+                        return;
+                      }
+                      if (e.target.value === "") { onEdit({ op: "set_family_text", index: i, id: b.familyControl.id, text: "" }); return; }
+                      onEdit({ op: "change_family", index: i, family: e.target.value });
+                    }}
+                  >
+                    <option value="">&mdash; select &mdash;</option>
+                    {b.familyControl.options.map((o) => (
+                      <option key={o} value={o}>{o}</option>
+                    ))}
+                    <option value={OTHER_VALUE}>{OTHER_LABEL}</option>
+                  </select>
+                  {b.familyControl.otherMode && (
+                    <Input
+                      className="h-7 w-20 text-xs"
+                      value={b.familyControl.typedValue}
+                      aria-label={`${b.familyControl.label} -- as the BoQ writes it`}
+                      onChange={(e) => onEdit({ op: "set_family_text", index: i, id: b.familyControl.id, text: e.target.value })}
+                    />
+                  )}
+                </span>
+              </label>
+              {b.familyControl.otherMode && b.familyControl.note && (
+                <div className={NOTE_BOX_CLASS}>
+                  <Info className={NOTE_ICON_CLASS} aria-hidden />
+                  <div className="min-w-0 space-y-0.5">
+                    <p className="text-[10px] leading-tight opacity-90">{b.familyControl.note}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {b.fields.map((f) => {
             const tone = f.blank
               ? "border-red-500 dark:border-red-500"
@@ -1246,6 +1361,15 @@ function ItemListBlocks({
                         title="Filled from a ruled default -- the row text gave no positive identification"
                       >
                         default
+                      </span>
+                    )}
+                    {/* SLICE 12e-3a (owner D3 / D3a): the value came from the item this section sits under */}
+                    {f.mirrorTag && (
+                      <span
+                        className="rounded bg-sky-100 px-1 text-[9px] font-medium leading-none text-sky-800 dark:bg-sky-900 dark:text-sky-200"
+                        data-testid="item-field-mirror-tag"
+                      >
+                        {f.mirrorTag}
                       </span>
                     )}
                     {f.userEdited && (
@@ -1282,6 +1406,14 @@ function ItemListBlocks({
                             onEdit({ op: "set_other", index: i, id: f.id, on: true });
                             return;
                           }
+                          if (f.gate) {
+                            // SLICE 12e-3a (owner 13:40): a section's Yes / No toggle is ONE operation -- the pick,
+                            // and, where it closes the section, that section's edits with it ("No removes only
+                            // that section")
+                            onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value,
+                                     ...(e.target.value !== f.gate.equals ? { dropSection: f.gate.section } : {}) });
+                            return;
+                          }
                           onEdit({ op: "set_other", index: i, id: f.id, on: false });
                           onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value });
                         }}
@@ -1310,6 +1442,9 @@ function ItemListBlocks({
                         />
                       )}
                     </span>
+                  ) : f.readOnly ? (
+                    // SLICE 12e-2 (owner Q10): a `panel_optional` value the model read -- read-only text when present
+                    <span className="h-7 w-28 truncate text-xs" data-testid={`item-optional-${f.id}`}>{f.value}</span>
                   ) : (
                     <Input
                       className={cn("h-7 w-28 text-xs", tone)}
@@ -1333,11 +1468,13 @@ function ItemListBlocks({
                   * they were present only while the row was broken and vanished exactly when the pricer had
                   * a figure to check. The gate is gone: what the field is for does not stop being true.
                   */}
-                {(f.note || f.typedNote || (f.matchHelp && f.matchHelp.length > 0)) && (
+                {(f.note || f.mirrorLine || f.typedNote || (f.matchHelp && f.matchHelp.length > 0)) && (
                   <div className={NOTE_BOX_CLASS}>
                     <Info className={NOTE_ICON_CLASS} aria-hidden />
                     <div className="min-w-0 space-y-0.5">
                       {f.note && <p className="text-[10px] leading-tight">{f.note}</p>}
+                      {/* SLICE 12e-3a (owner D3a): the pricer chose a size other than the mirrored one */}
+                      {f.mirrorLine && <p className="text-[10px] leading-tight" data-testid="item-field-mirror-line">{f.mirrorLine}</p>}
                       {/* OWNER FA8: what to type, in plain English -- declared in config, never written
                           here, so no attribute wording lives in the frontend. */}
                       {f.typedNote && <p className="text-[10px] leading-tight opacity-90">{f.typedNote}</p>}
@@ -1372,6 +1509,15 @@ function ItemListBlocks({
                 tag every other assumed value carries. Nothing reads a quantity from the row. */}
             <span className="flex items-center gap-1 text-muted-foreground">
               How many in one {view.unit} of this row
+              {/* SLICE 12e-3c (owner F10): the quantity is the item's this section sits under, until typed here */}
+              {b.qtyMirrorTag && (
+                <span
+                  className="rounded bg-sky-100 px-1 text-[9px] font-medium leading-none text-sky-800 dark:bg-sky-900 dark:text-sky-200"
+                  data-testid="item-qty-mirror-tag"
+                >
+                  {b.qtyMirrorTag}
+                </span>
+              )}
               {b.qtyDefaulted && (
                 <span
                   className="rounded bg-amber-100 px-1 text-[9px] font-medium leading-none text-amber-800 dark:bg-amber-900 dark:text-amber-200"
@@ -1403,9 +1549,42 @@ function ItemListBlocks({
             <div className="text-xs text-red-700 dark:text-red-400" data-testid="item-refusal">Not priced &mdash; {b.reason}</div>
           )}
         </div>
+        {/* SLICE 12e-3a (owner 13:40): this item's own sections, directly under it */}
+        {(b.sections ?? []).map(drawSection)}
+        </Fragment>
       ))}
-      {picker?.mode === "add" ? (
-        familyPicker("Add an item")
+      {/* SLICE 12e-3a (owner 13:42): the sections that belong to no item, after the items */}
+      {(view.sections?.independent ?? []).map(drawSection)}
+      {!section && (picker?.mode === "add" ? (
+        familyPicker(view.sections ? view.sections.addLabel : "Add an item")
+      ) : picker?.mode === "add_section" ? (
+        familyPicker(
+          view.sections?.adds.find((a) => a.id === picker.section)?.addLabel ?? "",
+          view.sections?.adds.find((a) => a.id === picker.section)?.families ?? [],
+        )
+      ) : view.sections ? (
+        // SLICE 12e-3a (owner D5a / 13:42): a config declaring sections names its own items on the button
+        // ("Add pipe") and offers one more per delegated section ("Add insulation") -- on every state of the row
+        <div className="flex flex-wrap gap-1.5" data-testid="item-add-buttons">
+          <button
+            type="button"
+            onClick={() => setPicker({ mode: "add" })}
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed bg-background px-2.5 text-xs font-medium hover:bg-muted"
+          >
+            <Plus className="h-3 w-3" /> {view.sections.addLabel}
+          </button>
+          {view.sections.adds.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              onClick={() => setPicker({ mode: "add_section", section: a.id })}
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed bg-background px-2.5 text-xs font-medium hover:bg-muted"
+              data-testid={`item-add-section-${a.id}`}
+            >
+              <Plus className="h-3 w-3" /> {a.addLabel}
+            </button>
+          ))}
+        </div>
       ) : (
         <button
           type="button"
@@ -1414,8 +1593,8 @@ function ItemListBlocks({
         >
           <Plus className="h-3 w-3" /> Add item
         </button>
-      )}
-      <div
+      ))}
+      {!section && <div
         className={cn(
           "rounded-md border px-2 py-1.5",
           view.rowPriced
@@ -1431,10 +1610,10 @@ function ItemListBlocks({
           <FiguresRow figures={rowTotals(view)} copy={false} muted unit={view.rateUnit ?? view.unit} />
         ) : (
           <div className="mt-0.5 text-xs">
-            {n === 0 ? "No items yet." : `${bad} of ${n} item${n === 1 ? "" : "s"} need a person before the row can price.`}
+            {n === 0 ? "No items yet." : needPersonSentence(bad, n)}
           </div>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

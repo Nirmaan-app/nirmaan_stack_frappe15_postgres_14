@@ -63,7 +63,7 @@ Tests run in-container through the bench runner:
 
 ```bash
 bench --site localhost run-tests --module nirmaan_stack.api.boq.wizard.test_pricing   # one module
-bench run-tests --app nirmaan_stack
+bench --site localhost run-tests --app nirmaan_stack      # the whole app -- the in-container runner refuses without --site
 ```
 
 `python -m unittest <module>` fails at import: `services/boq_ai_assist.py` calls `frappe.logger("boq_ai")` at

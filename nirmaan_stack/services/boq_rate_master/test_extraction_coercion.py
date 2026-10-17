@@ -2321,10 +2321,24 @@ class TestItemListSlice4(FrappeTestCase):
         eligible = sorted(cat for (disc, cat) in self.cfgs
                           if extraction.build_items_spec(self.cfgs[(disc, cat)]) is not None
                           and extraction.config_is_eligible(self.cfgs[(disc, cat)], self.cfgs))
-        self.assertEqual(eligible, ["hvac_adp", "hvac_insulation"])
-        # NEGATIVE HALF KEPT: every category that is neither of those two still yields None
+        # INVERTED A THIRD TIME by SLICE 12e-2 (owner option 1, 2026-10-10): Piping becomes an item-list category
+        # whose rules RUN, and reaches extraction through the same generic arm -- EXACTLY three now.
+        self.assertEqual(eligible, ["hvac_adp", "hvac_insulation", "hvac_piping"])
+        pip = self.cfgs[("HVAC", "hvac_piping")]
+        self.assertEqual(pip.get("pipelines"), {})                        # the Insulation shape: no dead top-level entry
+        # INVERTED by SLICE 12e-3a under mechanical authority (owner Q2, 2026-10-11: the model is asked "Insulated"
+        # from v37): the Piping question list grows by exactly that one definition, last.
+        # BEFORE: ... == ["pipe_type", "size_mm", "pipe_class"]
+        pip_questions = [d["id"] for d in extraction.build_items_spec(pip)["attribute_definitions"]]
+        self.assertNotEqual(pip_questions, ["pipe_type", "size_mm", "pipe_class"])
+        # INVERTED AGAIN by SLICE 12e-4b under mechanical authority (owner D-3, 2026-10-13: the model is also asked
+        # the pipe's type in the BoQ's own word, from v38): exactly one more definition, directly after Pipe type.
+        # BEFORE: self.assertEqual(pip_questions, ["pipe_type", "size_mm", "pipe_class", "insulated"])
+        self.assertNotEqual(pip_questions, ["pipe_type", "size_mm", "pipe_class", "insulated"])
+        self.assertEqual(pip_questions, ["pipe_type", "pipe_type_as_written", "size_mm", "pipe_class", "insulated"])
+        # NEGATIVE HALF KEPT: every category that is none of those three still yields None
         for key in self.cfgs:
-            if key not in (("HVAC", "hvac_adp"), ("HVAC", "hvac_insulation")):
+            if key not in (("HVAC", "hvac_adp"), ("HVAC", "hvac_insulation"), ("HVAC", "hvac_piping")):
                 self.assertIsNone(extraction.build_items_spec(self.cfgs[key]), key)
         self.assertIsNone(extraction.build_items_spec({"matching_mode": "item_list"}))   # mode without a spec
 
@@ -3498,7 +3512,23 @@ class TestSlice12d4cModelCall(FrappeTestCase):
             cls.v32 = json.load(fh)
         with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
             cls.v33 = json.load(fh)
-        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v33.json"
+        assert CURRENT_HVAC_ASSET != "rate_master_hvac_all_v36.json"   # 12e-3a: moved again (BEFORE: == v36)
+        assert CURRENT_HVAC_ASSET != "rate_master_hvac_all_v37.json"   # 12e-4b: moved again (BEFORE: == v37, 12e-3a)
+        assert CURRENT_HVAC_ASSET != "rate_master_hvac_all_v38.json"   # 12e-5b: moved again (BEFORE: == v38, 12e-4b)
+        assert CURRENT_HVAC_ASSET != "rate_master_hvac_all_v39.json"   # 12e-5b C3: moved again (BEFORE: == v39, 12e-5b)
+        assert CURRENT_HVAC_ASSET != "rate_master_hvac_all_v40.json"   # 12e-5b2: moved again (BEFORE: == v40, 12e-5b C3)
+        assert CURRENT_HVAC_ASSET != "rate_master_hvac_all_v41.json"   # 12e-5c: moved again (BEFORE: == v41, 12e-5b2)
+        assert CURRENT_HVAC_ASSET != "rate_master_hvac_all_v42.json"   # 12e-6: moved again (BEFORE: == v42, 12e-5c)
+        assert CURRENT_HVAC_ASSET != "rate_master_hvac_all_v43.json"   # 12e-6b: moved again (BEFORE: == v43, 12e-6)
+        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v45.json"   # 12e-6b: v45
+        # 12e-4b: v38 (+ what a Piping row is asked, + Insulation's one key)
+        # 12e-5b: v39 re-worded Insulation's item / cladding notes and added "Cladding as written (BoQ)" (owner R2-R4).
+        # This class is the record of the v32 -> v33 mint, so on the NEW side Insulation is read from v38 -- the last
+        # asset asking v33's Insulation questions -- the 12e-1 normalisation idiom, NAMED here. Every other config stays
+        # the current asset's.
+        with open(_asset_path("rate_master_hvac_all_v38.json"), "r", encoding="utf-8") as fh:
+            ins38 = next(c for c in json.load(fh)["category_configs"] if c["category_id"] == "hvac_insulation")
+        cls.v33["category_configs"] = [ins38 if c["category_id"] == "hvac_insulation" else c for c in cls.v33["category_configs"]]
 
     _cfgs = staticmethod(TestSlice12d1bModelCall._cfgs)
     _row = staticmethod(TestSlice12d1bModelCall._row)
@@ -3524,6 +3554,10 @@ class TestSlice12d4cModelCall(FrappeTestCase):
 
     def test_mc4c_02_every_other_hvac_category_sends_a_byte_identical_call_v32_to_v33_NAMED(self):
         c32, c33 = self._cfgs(self.v32, "HVAC"), self._cfgs(self.v33, "HVAC")
+        # 12e-1: v34 added the data-only `hvac_piping` config; this pin is about v32 -> v33, so it is
+        # normalised out on the NEW side (the `_without_pricing_input_items` idiom) and NAMED here.
+        self.assertIn(("HVAC", "hvac_piping"), c33)
+        c33 = {k: v for k, v in c33.items() if k[1] != "hvac_piping"}
         self.assertEqual(set(c32), set(c33))
         payload = [extraction._ai_item(self._row())]
         checked = []
@@ -3542,3 +3576,379 @@ class TestSlice12d4cModelCall(FrappeTestCase):
         self.assertIs(extraction.build_items_spec(c33[("HVAC", "hvac_insulation")])["second_opinion"], False)
         self.assertIs(extraction.build_items_spec(c32[("HVAC", "hvac_adp")])["second_opinion"], False)
         self.assertIs(extraction.build_items_spec(c33[("HVAC", "hvac_adp")])["second_opinion"], False)
+
+
+class TestSlice12e4bSectionQuestions(FrappeTestCase):
+    """SLICE 12e-4b (owner D-2, 2026-10-13; D1a "no second copy") -- A CATEGORY WITH A DELEGATED SECTION ALSO ASKS
+    THAT CATEGORY'S OWN QUESTIONS, AND KEEPS THE ANSWER APART. Piping (v37 already declares the Insulation
+    section) is the one such category; the tests run on v37 BY NAME so they pin the mechanism, not a mint.
+
+      test_s01  ASKING, the spec: with the config map in hand Piping's ITEMS_SPEC gains `sections` holding the
+                very object an Insulation row is asked with; NEGATIVE: without the map, for a config with no
+                section, and for a section whose category is not loaded, the object is the pre-slice one.
+      test_s02  ASKING, the assembled request: Insulation's block sits in a Piping request byte for byte, once;
+                the paragraph that explains the second kind is sent once to Piping and never to Insulation / ADP.
+      test_s03  NOTHING ELSE MOVES: the group context, the batch request and the second-opinion request of EVERY
+                category but Piping -- Insulation, ADP and every eligible Electrical category, NAMED -- are
+                byte-identical to the PRE-SLICE code, executed side by side from `git show`; NEGATIVE: Piping's differs.
+      test_s04  KEEPING, the parse: a marked element is coerced by INSULATION's definitions and stored with the
+                marker; an unmarked one exactly as the pre-slice parse stored it (no new key); NEGATIVE: an
+                off-list answer on a marked element is blanked by Insulation's list, a Piping attribute on it is
+                not kept, and a spec without sections never reads the marker.
+      test_s05  KEEPING, an undeclared marker: recorded in drops["items_unknown_section"], the element kept as a
+                main item with no marker; NEGATIVE: a declared marker records nothing there.
+      test_s06  THE TEXT CHECK reads a marked item's `text` values by Insulation's definitions; NEGATIVE: the
+                pre-slice check, which knew only Piping's definitions, never looked at them.
+      test_s07  THE SECOND OPINION is shown each item's marker and the same paragraph; NEGATIVE: for a spec
+                without sections the request is the pre-slice one.
+      test_s08  THE BATCH SITE: one real `_extract_batch` with a stub client stores both kinds, initialises the
+                new drops key, and (switch on) sends ONE review holding both items.
+    """
+    PRE_SLICE_COMMIT = "c29406060"   # the tip this slice started from -- the last code before D-2
+    V37 = "rate_master_hvac_all_v37.json"
+    PIP, INS, ADP = ("HVAC", "hvac_piping"), ("HVAC", "hvac_insulation"), ("HVAC", "hvac_adp")
+    NAMED_ELECTRICAL = ("wiring_cabling", "db_switchgear", "point_wiring")
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from nirmaan_stack.api.boq.test_rate_master import CURRENT_EALL_ASSET, _asset_path
+        from nirmaan_stack.services.boq_rate_master import loader
+        with open(_asset_path(cls.V37), "r", encoding="utf-8") as fh:
+            hvac = json.load(fh)
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            eall = json.load(fh)
+        cls.cfgs = {}
+        for c in eall["category_configs"]:
+            cls.cfgs[("Electrical", c["category_id"])] = loader._loaded_config(c, "Electrical", eall.get("goldens") or {})
+        for c in hvac["category_configs"]:
+            cls.cfgs[("HVAC", c["category_id"])] = loader._loaded_config(c, "HVAC", hvac.get("goldens") or {})
+        cls.repo = os.path.abspath(os.path.join(os.path.dirname(extraction.__file__), "..", "..", ".."))
+        import subprocess
+        import types
+        src = subprocess.run(["git", "-c", "safe.directory=*", "-C", cls.repo, "show",
+                              f"{cls.PRE_SLICE_COMMIT}:nirmaan_stack/services/boq_rate_master/extraction.py"],
+                             capture_output=True, check=True).stdout.decode("utf-8")
+        cls.pre = types.ModuleType("extraction_pre_slice_12e4b")
+        cls.pre.__file__ = extraction.__file__
+        exec(compile(src, extraction.__file__, "exec"), cls.pre.__dict__)
+
+    _content = staticmethod(TestSlice12d1bModelCall._content)
+
+    @staticmethod
+    def _row(excel_row=53, description="22.3 mm O.D (wall Thickness-1.0 mm) (insulation : 13/19 mm)"):
+        return {"excel_row": excel_row, "description": description, "sheet_name": "HVAC",
+                "ancestors": [{"node_type": "Preamble", "description": "VRF SYSTEM"},
+                              {"node_type": "Preamble", "description": "Refrigerant copper piping duly insulated with nitrile rubber insulation"}],
+                "own_notes_raw": [], "attached_notes": "", "append_notes_raw": []}
+
+    @staticmethod
+    def _cell(value, confidence=0.9):
+        return {"value": value, "confidence": confidence}
+
+    def _pipe(self, **over):
+        a = {"pipe_type": self._cell("Copper"), "size_mm": self._cell("22.3 mm O.D"),
+             "pipe_class": self._cell("wall Thickness-1.0 mm"), "insulated": self._cell("Yes")}
+        a.update(over)
+        return {"attributes": a}
+
+    def _insulation(self, mark="insulation", **over):
+        a = {"item": self._cell("Nitrile Rubber Insulation"), "cladding": self._cell("None"), "thickness_mm": self._cell("13/19 mm")}
+        a.update(over)
+        el = {"attributes": a}
+        if mark is not None:
+            el = {"section": mark, **el}
+        return el
+
+    @staticmethod
+    def _drops():
+        return {"items_rows_without_list": [], "items_empty_rows": [], "items_not_objects": {}, "items_family_unrecognised": {},
+                "items_coerce_failed": {}, "items_unknown_section": {}, "items_not_in_row_text": {}}
+
+    # -- s01 ------------------------------------------------------------------------------------------
+    def test_s01_the_spec_carries_the_delegated_categorys_own_spec_whole(self):
+        pip, ins = self.cfgs[self.PIP], self.cfgs[self.INS]
+        spec = extraction.build_items_spec(pip, self.cfgs, "HVAC")
+        own_ins = extraction.build_items_spec(ins)
+        self.assertEqual([s["id"] for s in spec["sections"]], ["insulation"])
+        self.assertEqual(spec["sections"][0], {"id": "insulation", "label": "Insulation", "items_spec": own_ins})
+        # the delegated block is the object an Insulation ROW is asked with -- and that one is the pre-slice one
+        self.assertEqual(own_ins, self.pre.build_items_spec(ins))
+        self.assertEqual(own_ins, extraction._group_context(self.cfgs, *self.INS)["items_spec"])
+        # everything of Piping's own is what it was: only the one key is added
+        self.assertEqual({k: v for k, v in spec.items() if k != "sections"}, self.pre.build_items_spec(pip))
+        self.assertEqual(list(spec)[-1], "sections")
+        # the group context passes the map, so the batch site reads the sectioned object
+        self.assertEqual(extraction._group_context(self.cfgs, *self.PIP)["items_spec"], spec)
+        # NEGATIVE: no map -> no sections; a config with no section -> the same object with or without the map
+        self.assertNotIn("sections", extraction.build_items_spec(pip))
+        self.assertEqual(extraction.build_items_spec(pip), self.pre.build_items_spec(pip))
+        for key in (self.INS, self.ADP):
+            self.assertEqual(extraction.build_items_spec(self.cfgs[key], self.cfgs, "HVAC"), self.pre.build_items_spec(self.cfgs[key]), key)
+            self.assertNotIn("sections", extraction.build_items_spec(self.cfgs[key], self.cfgs, "HVAC"), key)
+        # NEGATIVE: the delegated category is not loaded (or is loaded under another discipline) -> no block
+        without = {k: v for k, v in self.cfgs.items() if k != self.INS}
+        self.assertNotIn("sections", extraction.build_items_spec(pip, without, "HVAC"))
+        self.assertNotIn("sections", extraction.build_items_spec(pip, self.cfgs, "Electrical"))
+        # NEGATIVE: the config's OWN section (no category_id) asks nothing more
+        own_only = copy.deepcopy(pip)
+        own_only["list_spec"]["sections"] = [s for s in own_only["list_spec"]["sections"] if not s.get("category_id")]
+        self.assertEqual(len(own_only["list_spec"]["sections"]), 1)
+        self.assertNotIn("sections", extraction.build_items_spec(own_only, self.cfgs, "HVAC"))
+        # a delegated spec is never itself sectioned (one level: the nested call is made without the map)
+        self.assertNotIn("sections", spec["sections"][0]["items_spec"])
+
+    # -- s02 ------------------------------------------------------------------------------------------
+    def test_s02_insulations_block_is_inside_a_piping_request_byte_for_byte(self):
+        payload = [extraction._ai_item(self._row())]
+        pip_req = self._content(extraction._group_context(self.cfgs, *self.PIP), payload)
+        ins_req = self._content(extraction._group_context(self.cfgs, *self.INS), payload)
+        adp_req = self._content(extraction._group_context(self.cfgs, *self.ADP), payload)
+        block = json.dumps(extraction.build_items_spec(self.cfgs[self.INS]), ensure_ascii=False)
+        self.assertGreater(len(block), 3000)                                   # non-vacuous: the six definitions and their notes
+        self.assertEqual(pip_req.count(block), 1)
+        self.assertIn('"items_spec": ' + block, pip_req)
+        self.assertEqual(ins_req.count("\n\nITEMS_SPEC:\n" + block), 1)        # the same text is what an Insulation row is asked
+        for d in self.cfgs[self.INS]["list_spec"]["attribute_definitions"]:    # every Insulation note reaches the Piping request
+            if d.get("note"):
+                self.assertIn(json.dumps(d["note"].strip(), ensure_ascii=False), pip_req, d["id"])
+        # the paragraph: once, directly after the ITEMS_SPEC block, in the Piping request only
+        g = extraction.SECTION_ITEMS_GUIDANCE
+        self.assertTrue(g.startswith("\n\nSECTION_ITEMS: "))
+        self.assertEqual(pip_req.count(g), 1)
+        spec = extraction._group_context(self.cfgs, *self.PIP)["items_spec"]
+        self.assertIn("\n\nITEMS_SPEC:\n" + json.dumps(spec, ensure_ascii=False) + g, pip_req)
+        for other in (ins_req, adp_req):
+            self.assertNotIn("SECTION_ITEMS", other)
+        # the shared prompt asset is the one ADP and Insulation are sent, untouched by this slice
+        self.assertEqual(extraction.select_prompt_text(self.cfgs[self.PIP]), self.pre.select_prompt_text(self.cfgs[self.INS]))
+        self.assertNotIn("SECTION_ITEMS", extraction.select_prompt_text(self.cfgs[self.PIP]))
+
+    # -- s03 ------------------------------------------------------------------------------------------
+    def test_s03_every_request_but_pipings_is_byte_identical_to_the_pre_slice_code_NAMED(self):
+        review_prompt = extraction._read_review_prompt()
+        rows = {"HVAC": self._row(26, "50NB"), "Electrical": self._row(177, "3.5 C x 400 sq.mm (XLPE) AL.Armoured cable")}
+        checked, list_checked = [], []
+        for key in sorted(self.cfgs):
+            if key == self.PIP:
+                continue
+            cfg = self.cfgs[key]
+            if not extraction.config_is_eligible(cfg, self.cfgs):
+                continue
+            payload = [extraction._ai_item(rows[key[0]])]
+            now, before = extraction._group_context(self.cfgs, *key), self.pre._group_context(self.cfgs, *key)
+            self.assertEqual(now, before, key)
+            self.assertEqual(self._content(now, payload),
+                             self.pre.batch_prompt_content(before["prompt"], before["defs"], payload, synonyms=before["synonyms"],
+                                                           defaults=before["defaults"], none_guidance=before["none_guidance"],
+                                                           slot_spec=before["slot_spec"], resolution_rules=before["resolution_rules"],
+                                                           rules=before["rules"], items_spec=before.get("items_spec")), key)
+            checked.append(key[1])
+            if now.get("items_spec"):
+                items = [{"attributes": {"x": {"value": "v"}, "y": {"value": None}}}]
+                self.assertEqual(extraction.second_opinion_content(review_prompt, payload[0], items, now["items_spec"]),
+                                 self.pre.second_opinion_content(review_prompt, payload[0], items, before["items_spec"]), key)
+                list_checked.append(key[1])
+        self.assertEqual(checked, ["cabletray_raceway", "conduit_piping", "db_switchgear", "earthing", "industrial_sockets",
+                                   "junction_box_raceway", "lighting_mgmt_system", "miscellaneous", "point_wiring", "popup_boxes",
+                                   "switches_sockets", "wiring_cabling", "hvac_adp", "hvac_cables", "hvac_insulation", "hvac_raceway"])
+        self.assertEqual(list_checked, ["hvac_adp", "hvac_insulation"])
+        for cat in self.NAMED_ELECTRICAL:
+            self.assertIn(cat, checked)
+        # NEGATIVE (the comparison can fail): Piping's own request IS different from the pre-slice one
+        payload = [extraction._ai_item(self._row())]
+        now, before = extraction._group_context(self.cfgs, *self.PIP), self.pre._group_context(self.cfgs, *self.PIP)
+        self.assertNotEqual(now, before)
+        self.assertNotEqual(self._content(now, payload), self._content(before, payload))
+
+    # -- s04 ------------------------------------------------------------------------------------------
+    def test_s04_a_marked_item_is_coerced_by_insulations_definitions_and_an_unmarked_one_as_before(self):
+        spec = extraction._group_context(self.cfgs, *self.PIP)["items_spec"]
+        pre_spec = self.pre._group_context(self.cfgs, *self.PIP)["items_spec"]
+        ins_ids = [d["id"] for d in self.cfgs[self.INS]["list_spec"]["attribute_definitions"]]
+        pip_ids = [d["id"] for d in self.cfgs[self.PIP]["list_spec"]["attribute_definitions"]]
+        drops = self._drops()
+        out = extraction.parse_item_list({"id": 53, "items": [self._pipe(), self._insulation()]}, spec, drops, 53)
+        self.assertEqual(len(out), 2)
+        # the pipe: exactly what the pre-slice parse stored for the same element -- no new key
+        pre_drops = self._drops()
+        self.assertEqual(out[0], self.pre.parse_item_list({"id": 53, "items": [self._pipe()]}, pre_spec, pre_drops, 53)[0])
+        self.assertEqual(list(out[0]), ["attributes"])
+        self.assertEqual(list(out[0]["attributes"]), pip_ids)
+        # the insulation: Insulation's ids, every one present, its values kept, the marker stored
+        self.assertEqual(out[1]["section"], "insulation")
+        self.assertEqual(list(out[1]), ["attributes", "section"])
+        self.assertEqual(list(out[1]["attributes"]), ins_ids)
+        self.assertEqual(out[1]["attributes"]["item"], {"value": "Nitrile Rubber Insulation", "confidence": 0.9})
+        self.assertEqual(out[1]["attributes"]["cladding"]["value"], "None")          # Insulation's allow_none sentinel
+        self.assertEqual(out[1]["attributes"]["thickness_mm"]["value"], "13/19 mm")  # a text def, kept as stated
+        self.assertIsNone(out[1]["attributes"]["pipe_size_mm"]["value"])            # left out -> could not tell
+        self.assertEqual(drops, self._drops())                                       # nothing recorded
+        # it equals what Insulation's OWN row parse stores for the same attributes (+ the marker)
+        own = self.pre.parse_item_list({"id": 1, "items": [self._insulation(mark=None)]}, self.pre.build_items_spec(self.cfgs[self.INS]), self._drops(), 1)
+        self.assertEqual({k: v for k, v in out[1].items() if k != "section"}, own[0])
+        # NEGATIVE: an off-list answer on a marked element is blanked by INSULATION's lists, recorded with the marker
+        drops = self._drops()
+        bad = extraction.parse_item_list({"id": 53, "items": [self._pipe(), self._insulation(item=self._cell("Rubber lagging"), cladding=self._cell("Copper foil"))]}, spec, drops, 53)
+        self.assertIsNone(bad[1]["attributes"]["item"]["value"])
+        self.assertIsNone(bad[1]["attributes"]["cladding"]["value"])
+        self.assertEqual(drops["items_coerce_failed"], {"53": [
+            {"item": 1, "attr": "item", "raw": "Rubber lagging", "reason": extraction.COERCE_NOT_ALLOWED, "section": "insulation"},
+            {"item": 1, "attr": "cladding", "raw": "Copper foil", "reason": extraction.COERCE_NOT_ALLOWED, "section": "insulation"}]})
+        self.assertEqual(drops["items_family_unrecognised"], {"53": [{"item": 1, "raw": "Rubber lagging", "section": "insulation"}]})
+        # NEGATIVE: a main attribute put on a section element is not kept, nor a section attribute on a main one
+        mixed = extraction.parse_item_list({"id": 53, "items": [self._pipe(thickness_mm=self._cell("19")), self._insulation(pipe_type=self._cell("Copper"))]}, spec, self._drops(), 53)
+        self.assertNotIn("thickness_mm", mixed[0]["attributes"])
+        self.assertNotIn("pipe_type", mixed[1]["attributes"])
+        # NEGATIVE: a pipe value that is not on PIPING's list is still blanked by Piping's list, with no marker on the record
+        drops = self._drops()
+        gi = extraction.parse_item_list({"id": 53, "items": [self._pipe(pipe_type=self._cell("GI"))]}, spec, drops, 53)
+        self.assertIsNone(gi[0]["attributes"]["pipe_type"]["value"])
+        self.assertEqual(drops["items_coerce_failed"]["53"], [{"item": 0, "attr": "pipe_type", "raw": "GI", "reason": extraction.COERCE_NOT_ALLOWED}])
+        # NEGATIVE: a spec WITHOUT sections never reads the marker -- ADP's parse of a marked element is the pre-slice one
+        adp_spec = extraction._group_context(self.cfgs, *self.ADP)["items_spec"]
+        el = {"id": 7, "items": [{"section": "insulation", "attributes": {"family": self._cell("VCD")}}]}
+        d_now, d_pre = self._drops(), self._drops()
+        self.assertEqual(extraction.parse_item_list(el, adp_spec, d_now, 7), self.pre.parse_item_list(el, adp_spec, d_pre, 7))
+        self.assertEqual(d_now, d_pre)
+        self.assertEqual(d_now["items_unknown_section"], {})
+        # the three no-list shapes are recorded as before on a sectioned spec too
+        d = self._drops()
+        self.assertEqual(extraction.parse_item_list({"id": 1}, spec, d, 1), [])
+        self.assertEqual(extraction.parse_item_list({"id": 2, "items": []}, spec, d, 2), [])
+        self.assertEqual(len(extraction.parse_item_list({"id": 3, "items": ["x", self._insulation()]}, spec, d, 3)), 1)
+        self.assertEqual(d["items_rows_without_list"], [{"excel_row": 1, "keys_returned": ["id"]}])
+        self.assertEqual(d["items_empty_rows"], [2])
+        self.assertEqual(d["items_not_objects"], {"3": [0]})
+
+    # -- s05 ------------------------------------------------------------------------------------------
+    def test_s05_an_undeclared_marker_is_recorded_and_the_item_kept_as_a_main_block(self):
+        spec = extraction._group_context(self.cfgs, *self.PIP)["items_spec"]
+        drops = self._drops()
+        out = extraction.parse_item_list({"id": 60, "items": [self._pipe(), self._insulation(mark="lagging"), self._insulation(mark=7)]}, spec, drops, 60)
+        self.assertEqual(drops["items_unknown_section"], {"60": [{"item": 1, "raw": "lagging"}, {"item": 2, "raw": 7}]})
+        self.assertEqual(len(out), 3)                                               # nothing is dropped
+        for kept in out[1:]:
+            self.assertNotIn("section", kept)                                       # stored as a main item ...
+            self.assertEqual(list(kept["attributes"]), [d["id"] for d in spec["attribute_definitions"]])
+            self.assertEqual([c["value"] for c in kept["attributes"].values()], [None, None, None, None])   # ... that needs a person
+        # NEGATIVE: a declared marker records nothing there
+        drops = self._drops()
+        extraction.parse_item_list({"id": 60, "items": [self._pipe(), self._insulation()]}, spec, drops, 60)
+        self.assertEqual(drops["items_unknown_section"], {})
+        # NEGATIVE: an explicit null marker is an unmarked item, not an unknown one
+        drops = self._drops()
+        out = extraction.parse_item_list({"id": 60, "items": [{"section": None, **self._pipe()}]}, spec, drops, 60)
+        self.assertEqual(drops["items_unknown_section"], {})
+        self.assertEqual(out[0]["attributes"]["pipe_type"]["value"], "Copper")
+
+    # -- s06 ------------------------------------------------------------------------------------------
+    def test_s06_the_text_check_reads_a_marked_item_by_insulations_text_definitions(self):
+        spec = extraction._group_context(self.cfgs, *self.PIP)["items_spec"]
+        pre_spec = self.pre._group_context(self.cfgs, *self.PIP)["items_spec"]
+        payload = extraction._ai_item(self._row())
+        stored = extraction.parse_item_list({"id": 53, "items": [self._pipe(), self._insulation(thickness_mm=self._cell("25 mm"))]}, spec, self._drops(), 53)
+        drops = self._drops()
+        flags = extraction.apply_row_text_check(stored, payload, spec, drops, 53)
+        # "25 mm" is nowhere in this row's payload: flagged on the SECTION item's own text definition, value kept
+        self.assertEqual(flags, [{"check": "text", "item": 1, "attr": "thickness_mm", "reason": extraction.COERCE_NOT_IN_ROW_TEXT, "raw": "25 mm"}])
+        self.assertEqual(drops["items_not_in_row_text"], {"53": [{"item": 1, "attr": "thickness_mm", "raw": "25 mm"}]})
+        self.assertEqual(stored[1]["attributes"]["thickness_mm"]["value"], "25 mm")
+        # a value that IS in the row passes, on both kinds
+        ok = extraction.parse_item_list({"id": 53, "items": [self._pipe(), self._insulation()]}, spec, self._drops(), 53)
+        self.assertEqual(extraction.apply_row_text_check(ok, payload, spec, self._drops(), 53), [])
+        # the pipe's own text values are still checked by Piping's definitions
+        off = extraction.parse_item_list({"id": 53, "items": [self._pipe(size_mm=self._cell("99 NB")), self._insulation()]}, spec, self._drops(), 53)
+        self.assertEqual([(f["item"], f["attr"]) for f in extraction.apply_row_text_check(off, payload, spec, self._drops(), 53)], [(0, "size_mm")])
+        # NEGATIVE (what was wrong before): the pre-slice check knew only Piping's definitions and never looked
+        self.assertEqual(self.pre.apply_row_text_check(stored, payload, pre_spec, self._drops(), 53), [])
+        # NEGATIVE: Insulation's and ADP's own checks are the pre-slice ones
+        for key in (self.INS, self.ADP):
+            s = extraction._group_context(self.cfgs, *key)["items_spec"]
+            items = [{"attributes": {d["id"]: {"value": "zz-not-there"} for d in s["attribute_definitions"] if d["type"] == "text"}}]
+            self.assertEqual(extraction.apply_row_text_check(items, payload, s, self._drops(), 1),
+                             self.pre.apply_row_text_check(items, payload, s, self._drops(), 1), key)
+
+    # -- s07 ------------------------------------------------------------------------------------------
+    def test_s07_the_second_opinion_is_shown_each_items_kind_and_the_same_paragraph(self):
+        spec = extraction._group_context(self.cfgs, *self.PIP)["items_spec"]
+        payload = extraction._ai_item(self._row())
+        stored = extraction.parse_item_list({"id": 53, "items": [self._pipe(), self._insulation()]}, spec, self._drops(), 53)
+        req = extraction.second_opinion_content("REVIEW", payload, stored, spec)
+        shown = json.loads(req.split("\n\nITEMS:\n")[1])
+        self.assertEqual(shown, [
+            {"attributes": {"pipe_type": "Copper", "size_mm": "22.3 mm O.D", "pipe_class": "wall Thickness-1.0 mm", "insulated": "Yes"}},
+            {"section": "insulation", "attributes": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "13/19 mm"}}])
+        self.assertEqual(list(shown[1])[0], "section")                              # the marker reads first
+        self.assertEqual(req.count(extraction.SECTION_ITEMS_GUIDANCE), 1)
+        self.assertTrue(req.startswith("REVIEW\n\nITEMS_SPEC:\n" + json.dumps(spec, ensure_ascii=False) + extraction.SECTION_ITEMS_GUIDANCE + "\n\nROW:\n"))
+        self.assertIn(json.dumps(extraction.build_items_spec(self.cfgs[self.INS]), ensure_ascii=False), req)   # Insulation's block, whole
+        # NEGATIVE: a spec without sections -> the pre-slice request (no paragraph, no marker read)
+        ins_spec = extraction.build_items_spec(self.cfgs[self.INS])
+        marked = [{"section": "insulation", "attributes": {"item": {"value": "Nitrile Rubber Insulation"}}}]
+        self.assertNotIn("SECTION_ITEMS", extraction.second_opinion_content("REVIEW", payload, marked, ins_spec))
+        self.assertEqual(extraction.second_opinion_content("REVIEW", payload, stored[:1], ins_spec),
+                         self.pre.second_opinion_content("REVIEW", payload, stored[:1], ins_spec))
+        self.assertEqual(extraction.second_opinion_content("P", {"id": 1}, []), "P\n\nROW:\n{\"id\": 1}\n\nITEMS:\n[]")
+
+    # -- s08 ------------------------------------------------------------------------------------------
+    def test_s08_the_batch_site_stores_both_kinds_and_reviews_them_together(self):
+        K, F = extraction.ITEMS_KEY, extraction.ITEM_FLAGS_KEY
+        rows = [self._row(53), self._row(60, "25 mm dia")]
+        reply = json.dumps([
+            {"id": 53, "items": [self._pipe(), self._insulation()]},
+            {"id": 60, "items": [self._pipe(size_mm=self._cell("25 mm dia"), pipe_class=self._cell(None)), self._insulation(mark="lagging", thickness_mm=self._cell(None))]},
+        ])
+        reviews = {53: json.dumps({"id": 53, "verdict": "disagree", "issues": [{"item": 1, "attribute": "thickness_mm", "reason": "13 for the liquid line"}]}),
+                   60: json.dumps({"id": 60, "verdict": "agree", "issues": []})}
+        records = []
+        orig = extraction._capture_write
+        extraction._capture_write = lambda rec: records.append(rec)
+        try:
+            results = {}
+            for switch in (False, True):
+                cfgs = copy.deepcopy(self.cfgs)
+                cfgs[self.PIP]["list_spec"]["second_opinion"] = switch
+                ctx = extraction._group_context(cfgs, *self.PIP)
+                seen = {}
+                client = TestItemListSlice4._fake_client_scripted(reply, reviews, seen)
+                out = extraction._extract_batch(client, "m", ctx["prompt"], ctx["defs"], rows, ctx["synonyms"], ctx["defaults"], ctx["none_guidance"],
+                                                ctx["slot_spec"], ctx["resolution_rules"], ctx["rules"], ctx["pole_catalog"], ctx["code_attrs"],
+                                                ctx["absent_rules"], ctx["conductor_groups"], ctx["paired_fill"], ctx["module_count_attrs"],
+                                                ctx["inch_trade"], ctx["items_spec"])
+                results[switch] = (out, seen, ctx)
+        finally:
+            extraction._capture_write = orig
+        off, seen_off, _ctx = results[False]
+        on, seen_on, ctx_on = results[True]
+        self.assertEqual(len(seen_off["contents"]), 1)                              # switch off: the batch call alone
+        self.assertEqual(len(seen_on["contents"]), 3)                               # switch on: + ONE review per row
+        self.assertEqual(seen_on["contents"][0].count(extraction.SECTION_ITEMS_GUIDANCE), 1)
+        # what is stored: two items per row; row 53's second carries the marker, row 60's undeclared one does not
+        self.assertEqual([it.get("section") for it in on[53][K]], [None, "insulation"])
+        self.assertEqual([it.get("section") for it in on[60][K]], [None, None])
+        self.assertEqual(on[53][K][1]["attributes"]["thickness_mm"]["value"], "13/19 mm")
+        self.assertEqual({r: off[r][K] for r in (53, 60)}, {r: on[r][K] for r in (53, 60)})   # the review never rewrites
+        # the review of row 53 holds BOTH items, the insulation with its marker; its flag is on the row
+        r53 = [c for c in seen_on["contents"][1:] if 'ROW:\n{"id": 53' in c][0]
+        self.assertEqual([("section" in it) for it in json.loads(r53.split("\n\nITEMS:\n")[1])], [False, True])
+        self.assertEqual(on[53][F], [{"check": "second_opinion", "item": 1, "attr": "thickness_mm", "reason": "13 for the liquid line"}])
+        self.assertEqual(on[60][F], [])
+        # the new drops key is initialised on every batch and carries the undeclared marker
+        batch = [r for r in records if "drops" in r]
+        self.assertEqual(len(batch), 2)
+        for b in batch:
+            self.assertEqual(b["drops"]["items_unknown_section"], {"60": [{"item": 1, "raw": "lagging"}]})
+        # NEGATIVE: a batch of a category without sections initialises the key and leaves it empty
+        records.clear()
+        extraction._capture_write = lambda rec: records.append(rec)
+        try:
+            ctx = extraction._group_context(self.cfgs, *self.INS)
+            client = TestItemListSlice4._fake_client(json.dumps([{"id": 53, "items": [self._insulation()]}]), {})
+            extraction._extract_batch(client, "m", ctx["prompt"], ctx["defs"], rows[:1], ctx["synonyms"], ctx["defaults"], ctx["none_guidance"],
+                                      ctx["slot_spec"], ctx["resolution_rules"], ctx["rules"], ctx["pole_catalog"], ctx["code_attrs"],
+                                      ctx["absent_rules"], ctx["conductor_groups"], ctx["paired_fill"], ctx["module_count_attrs"],
+                                      ctx["inch_trade"], ctx["items_spec"])
+        finally:
+            extraction._capture_write = orig
+        self.assertEqual([r["drops"]["items_unknown_section"] for r in records if "drops" in r], [{}])

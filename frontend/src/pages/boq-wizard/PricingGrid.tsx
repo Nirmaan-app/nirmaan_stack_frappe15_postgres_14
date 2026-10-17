@@ -668,6 +668,9 @@ export interface SuggestConfirmCopy {
   confirmLabel: string;
   /** True for the whole-sheet branch -- the caller styles that action as the destructive one. */
   wholeSheet: boolean;
+  /** SLICE 12e-5b (owner R8): the line naming the rows no run has read yet, which a selected-row run also reads.
+   * Present ONLY on a selected-row run where there are such rows; absent, the copy is exactly as before. */
+  neverRead?: string;
 }
 
 /**
@@ -687,7 +690,34 @@ export interface SuggestConfirmCopy {
 export function suggestConfirmCopy(
   selectedCount: number,
   eligibleCount: number,
+  /** SLICE 12e-5b (owner R8 "option a"): one category label per eligible row no run has read yet and the user did
+   * not tick (`never_read_rows`). A selected-row run reads them too, so the line names them and the count includes
+   * them. Empty (the default) -> the copy is byte-identical to before. */
+  neverReadLabels: readonly string[] = [],
 ): SuggestConfirmCopy {
+  if (selectedCount > 0 && neverReadLabels.length > 0) {
+    const rowWord = selectedCount === 1 ? "row" : "rows";
+    const n = neverReadLabels.length;
+    const total = selectedCount + n;
+    const counts = new Map<string, number>();
+    for (const l of neverReadLabels) counts.set(l, (counts.get(l) ?? 0) + 1);
+    const byCategory = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([l, c]) => `${l} ${c}`)
+      .join(", ");
+    return {
+      title: `Suggest rates for ${selectedCount} selected ${rowWord}?`,
+      body:
+        `${selectedCount} ${rowWord} will be re-extracted. Every other row keeps the attributes it ` +
+        `already has -- they are carried forward unchanged.`,
+      warning: "",
+      confirmLabel: `Run ${total} ${total === 1 ? "row" : "rows"}`,
+      wholeSheet: false,
+      neverRead:
+        `This sheet's last run is older than some of its rows. This run will also read ${n} ` +
+        `${n === 1 ? "row" : "rows"} that no run has read yet (by category: ${byCategory}).`,
+    };
+  }
   if (selectedCount > 0) {
     const rowWord = selectedCount === 1 ? "row" : "rows";
     return {

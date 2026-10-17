@@ -18,13 +18,36 @@
 /** An item as the label resolver needs it: the kind and the attributes (a `RateMasterItem` fits). */
 export type PlainEnglishItem = { kind?: string; attributes?: Record<string, unknown> };
 
-/** A config sentence as the pricer should read it: the trailing "(R4)" / "(owner ...)" tags dropped. */
+/**
+ * SLICE 12e-3b (block 38; owner 2026-10-12 "Strip them too") -- A RULE TAG WRITTEN WITH HYPHENS. The numbered
+ * tags ("(R15)", "(D9b)") were always dropped; a tag spelled with a hyphen -- "(R-M-b)", "(R-M-c)" in the
+ * config, "(A-4)", "(A-5)" written by the pricer's own code -- matched nothing and reached the screen. One
+ * capital from the tag letters, then one or two hyphenated parts of at most two characters, in brackets. A
+ * bracket that is not a tag ("(UL-555)", "(M-10)", "(W x H)") is left alone.
+ */
+export const HYPHEN_TAG = /\s*\((?:R|A|D|T|S|Q)(?:-[A-Za-z0-9]{1,2}){1,2}\)/g;
+
+/** A config sentence as the pricer should read it: the trailing "(R4)" / "(R-M-b)" / "(owner ...)" tags dropped. */
 export const plainSentence = (s: unknown): string =>
   String(s ?? "")
     .replace(/\s*\((?:R|D|T|S|Q)-?\d+[a-z]?(?:\s*\/\s*(?:R|D|T|S|Q)-?\d+[a-z]?)*\)/g, "")
+    .replace(HYPHEN_TAG, "")
     .replace(/\s*\(owner[^)]*\)/gi, "")
     .replace(/\s{2,}/g, " ")
     .trim();
+
+/**
+ * SLICE 12e-3b (owner Q13) -- THE STANDARD SPELLING OF A UNIT. A config writes a unit as a key ("nm"); a
+ * pricer reads the unit ("Nm"). The table names units, never a category: a number followed by a unit written
+ * all in lower case is given its standard spelling. A unit the BoQ wrote in its own capitals ("10 NM",
+ * "N.m") is the BoQ's wording and is kept; a spelling that is already standard is untouched.
+ */
+export const UNIT_SPELLINGS: Readonly<Record<string, string>> = { nm: "Nm", mm: "mm", kg: "kg" };
+export const unitSpellings = (s: string): string =>
+  s.replace(/(\d\s?)([a-z]+)\b/g, (m, lead: string, unit: string) => {
+    const std = Object.prototype.hasOwnProperty.call(UNIT_SPELLINGS, unit) ? UNIT_SPELLINGS[unit] : undefined;
+    return std !== undefined && std !== unit ? `${lead}${std}` : m;
+  });
 
 /**
  * A Pricing Input named by its LABEL -- the `name` its Pricing Inputs row carries (`GI framework sheet
@@ -54,7 +77,99 @@ function pricingInputIds(items: ReadonlyArray<PlainEnglishItem>): string[] {
   return [...ids].sort((a, b) => b.length - a.length);
 }
 
+/**
+ * SLICE 12e-2b (owner D3 + "a colon form", 2026-10-10) -- ONE FACT OF AN ITEM, IN WORDS.
+ *
+ * `label` is the field's own label (a choice definition's label, a number reader's name), `value` the value
+ * on the item. A with / without value reads before its label ("without damper"); every other fact reads
+ * "<label> <value>" ("UL listed no", "width 600"). The label's first letter is lowered unless its first word
+ * is all capitals ("Damper" -> "damper", "UL listed" kept). No category, family or attribute is named: the
+ * only words tested are the VALUE words "with" / "without", which is English grammar, not catalogue data.
+ */
+export interface PlainFact { label: string; value: string | number; twoWay?: boolean }
+
+const lowerLabel = (label: string): string => {
+  const s = String(label ?? "").trim();
+  const first = s.split(/\s+/)[0] ?? "";
+  if (first !== "" && first === first.toUpperCase() && /[A-Z]/.test(first)) return s;
+  return s.charAt(0).toLowerCase() + s.slice(1);
+};
+
+export function plainFact(fact: PlainFact): string {
+  const value = String(fact.value).trim();
+  const label = lowerLabel(fact.label);
+  return /^(with|without)$/i.test(value) ? `${value} ${label}` : `${label} ${value}`;
+}
+
+/**
+ * SLICE 12e-2b (owner D3, Decision 1 "option a", Decision 2 "a colon form"): the sentence EVERY HVAC item-list
+ * unstocked-combination refusal reads -- "No SKU for <family>: <facts> - price this row by hand", the two-way
+ * facts first, the rest in the order given, comma-joined. Built from existing labels; no config key. A family
+ * with no fact to name reads "No SKU for <family> - price this row by hand".
+ */
+export function noSkuSentence(family: string, facts: readonly PlainFact[]): string {
+  const ordered = [...facts.filter((f) => f.twoWay), ...facts.filter((f) => !f.twoWay)];
+  const body = ordered.map(plainFact).join(", ");
+  return `No SKU for ${String(family).trim()}${body ? `: ${body}` : ""} - price this row by hand`;
+}
+
+/**
+ * SLICE 12e-3a (owner Q6, 2026-10-11): A MIRRORED VALUE WAS NOT TYPED. A delegated section's mirrored field
+ * holds a value the pricer never entered there, so the delegated category's own line -- "You typed 15.875 mm
+ * -> priced as 15.88 mm ..." -- opens with the section's own tag instead: "From pipe: 15.875 mm -> priced as
+ * 15.88 mm ...". ONLY the lead changes; everything after it is the delegated category's line, byte for byte.
+ * `tag` is the config's (`mirror.tag`, "from pipe"). A line that does not open "You typed " comes back as is.
+ */
+export const TYPED_LEAD = "You typed ";
+export function mirroredLead(line: string, tag: string): string {
+  if (!line.startsWith(TYPED_LEAD)) return line;
+  const t = String(tag ?? "").trim();
+  if (t === "") return line;
+  return `${t.charAt(0).toUpperCase()}${t.slice(1)}: ${line.slice(TYPED_LEAD.length)}`;
+}
+
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * SLICE 12e-3c (owner F7 "fix"; block 38) -- A FIELD'S LABEL AS A WORD IN A SENTENCE. "Thickness (mm)" reads
+ * "thickness": the trailing unit bracket is dropped and a Title-cased first letter is lowered; an acronym keeps
+ * its case ("UL listed"). The same reading the Derivation tab gives a label.
+ */
+export function labelAsWord(label: string): string {
+  const bare = String(label ?? "").replace(/\s*\(.*\)\s*$/, "").trim();
+  return /^[A-Z][a-z]/.test(bare) ? bare.charAt(0).toLowerCase() + bare.slice(1) : bare;
+}
+
+/** A field id written with an underscore (`thickness_mm`) -- the only kind that can be told from a word. */
+const isSnakeId = (id: string) => /^[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+$/.test(id);
+
+/** How the pricer opens a default's working line after the field: "<field> not mentioned -> <value> (<rule>)". */
+const NOT_MENTIONED_LEAD = " not mentioned -> ";
+
+/**
+ * SLICE 12e-4b (owner G2, 2026-10-12 "yes") -- NO WORKING LINE REPEATS ITSELF. The pricer writes a default as
+ * "<field> not mentioned -> <value> (<rule>)", and the rule a config carries is usually that same statement
+ * in the owner's words -- so the screen read "thickness not mentioned -> 9 (thickness not mentioned -> 9 mm,
+ * then the ladder)". Where the bracketed rule is itself a "... not mentioned ..." statement, only what it
+ * ADDS is kept:
+ *   the rule's outcome extends the value   -> "thickness not mentioned -> 9 mm, then the ladder"
+ *   the rule's outcome IS the value        -> "damper not mentioned -> without"
+ *   the rule's outcome says something else -> "cladding not mentioned -> No (without cladding)"
+ * A rule that is not such a statement ("VCD = GI rectangular; fire damper = without sleeve") is left as it
+ * is, and so is every line of any other shape. Idempotent.
+ */
+export function onceOnly(line: string): string {
+  const m = line.match(/^(.+?) not mentioned -> (.+?) \((.*\bnot mentioned\b.*)\)$/);
+  if (!m) return line;
+  const [, field, value, rule] = m;
+  const said = rule.match(/\bnot mentioned\b(?:\s*\([^)]*\))?\s*(?:->|=)\s*(.+)$/);
+  if (!said) return line;
+  const outcome = said[1].trim();
+  const v = value.trim();
+  if (outcome.toLowerCase() === v.toLowerCase()) return `${field}${NOT_MENTIONED_LEAD}${v}`;
+  if (outcome.toLowerCase().startsWith(v.toLowerCase()) && !/[A-Za-z0-9.]/.test(outcome.charAt(v.length))) return `${field}${NOT_MENTIONED_LEAD}${outcome}`;
+  return `${field}${NOT_MENTIONED_LEAD}${v} (${outcome})`;
+}
 
 /** A code token: `R14`, `D9b`, `T1`, `S6`, `Q8`, or `slice 11`. */
 const CODE_TOKEN = String.raw`(?:(?:R|D|T|S|Q)-?\d+[a-z]?|slice \d+)`;
@@ -68,9 +183,13 @@ const CODE_RUN = String.raw`${CODE_TOKEN}(?:\s*\/\s*${CODE_TOKEN})*`;
  *   - the trailing `(R15)` / `(owner ...)` tags are dropped (`plainSentence`);
  *   - a code run at the START of a sentence or clause (`R14 / slice 11 VCD = ...`, `(R14 / S6 UL not
  *     mentioned ...`) is dropped, and a code after a comma inside a bracket (`(next size up, R6)`) too.
+ * SLICE 12e-3c (owner F7): `fieldLabels` is the category's own field ids and labels (its config's attribute
+ * definitions). A field id written with an underscore that appears as a word in the line -- "thickness_mm not
+ * mentioned -> 9" -- is written as its field's label ("thickness not mentioned -> 9"). The label comes from
+ * the config, never from a word list here; an id with no underscore cannot be told from a word and is left.
  * Idempotent: a line already in plain English comes back byte-identical, its indentation included.
  */
-export function plainPricerText(text: unknown, items: ReadonlyArray<PlainEnglishItem> = []): string {
+export function plainPricerText(text: unknown, items: ReadonlyArray<PlainEnglishItem> = [], fieldLabels: Readonly<Record<string, string>> = {}): string {
   const raw = String(text ?? "");
   if (!raw) return raw;
   // a working line's INDENTATION is layout (a layer's steps sit under their layer line): kept byte-for-byte
@@ -80,11 +199,29 @@ export function plainPricerText(text: unknown, items: ReadonlyArray<PlainEnglish
   for (const id of pricingInputIds(items)) {
     s = s.replace(new RegExp(String.raw`\b${escapeRe(id)}\b`, "g"), pricingInputLabel(id, items));
   }
+  // SLICE 12e-3c (F7): a field id reads as its field's label -- longest id first, so `insulation_thickness_mm`
+  // is replaced before `thickness_mm`
+  for (const id of Object.keys(fieldLabels).filter(isSnakeId).sort((a, b) => b.length - a.length)) {
+    const word = labelAsWord(fieldLabels[id]);
+    if (word !== "") s = s.replace(new RegExp(String.raw`(?<![A-Za-z0-9_])${escapeRe(id)}(?![A-Za-z0-9_])`, "g"), word);
+  }
+  // SLICE 12e-4b (owner G3, 2026-10-12 "yes"): a field id WITHOUT an underscore ("item", "ul") cannot be told
+  // from a word anywhere in a sentence -- but the pricer writes a default's line as "<id> not mentioned -> ...",
+  // so at the START of such a line the id is known and reads as its field's label ("insulation material not
+  // mentioned -> ...", never "item not mentioned -> ..."). Only there; a word elsewhere is left alone.
+  for (const id of Object.keys(fieldLabels).filter((k) => !isSnakeId(k)).sort((a, b) => b.length - a.length)) {
+    const word = labelAsWord(fieldLabels[id]);
+    if (word !== "" && s.startsWith(`${id}${NOT_MENTIONED_LEAD}`)) { s = `${word}${s.slice(id.length)}`; break; }
+  }
   // a Pricing Input the items do not carry (no items loaded yet): its id written as plain words, never bare
   s = s.replace(/pricing input: ([A-Za-z0-9]+(?:_[A-Za-z0-9]+)+)/g, (_m, id: string) => `pricing input: ${id.replace(/_/g, " ")}`);
   s = plainSentence(s);
+  // SLICE 12e-3b (owner Q13): a unit key reads as the unit ("6 nm" -> "6 Nm")
+  s = unitSpellings(s);
   s = s.replace(new RegExp(String.raw`,\s*${CODE_RUN}(?=\))`, "g"), "");
   s = s.replace(new RegExp(String.raw`(^|\(|;\s*)${CODE_RUN}\s+(?=\S)`, "g"), "$1");
+  // SLICE 12e-4b (owner G2): a default's line never says the same thing twice
+  s = onceOnly(s);
   // nothing else is normalised: a family name may carry a leading space (' Fiberglass Rigid Board ...') and keeps it
   return lead + s.trimEnd();
 }

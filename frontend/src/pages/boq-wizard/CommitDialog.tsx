@@ -22,6 +22,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { AlertCircle, AlertTriangle, Loader2 } from "lucide-react";
+import { COMMIT_DIALOG_DESCRIPTION, preselectedSheets, reparsedAfterLabel } from "./hubState";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -67,6 +68,12 @@ interface CommitDialogProps {
   /** Current committed-state per sheet (Slice 4a), keyed by sheet_name VERBATIM (#152). */
   committedState: Map<string, CommittedSheetState>;
   /**
+   * S6 (F12, owner ruling Q-f): sheets never committed or re-parsed after their last commit
+   * (hubState.sheetsChangedSinceCommit). Only these are pre-selected; the user may tick any
+   * other eligible sheet. The commit itself (preflight, gate, writes) is unchanged.
+   */
+  changedSinceCommit: ReadonlySet<string>;
+  /**
    * Called after commit_boq RESOLVES with the {committed, failed} envelope. The hub
    * re-fetches (badges + count) AND opens the acknowledge-only results modal. A
    * resolved envelope can still carry failed[] entries (a whole-call precondition
@@ -81,11 +88,12 @@ export function CommitDialog({
   boqName,
   eligibleSheets,
   committedState,
+  changedSinceCommit,
   onCommitted,
 }: CommitDialogProps) {
-  // Opens with ALL eligible sheets pre-selected -- untick to leave any out.
+  // S6 (F12): opens with the sheets changed since their last commit pre-selected (was: all).
   const [tickedSheets, setTickedSheets] = useState<Set<string>>(
-    () => new Set(eligibleSheets.map((s) => s.sheet_name)),
+    () => preselectedSheets(eligibleSheets, changedSinceCommit),
   );
   // step 1 = checklist; step 2 = slim errors-only notice.
   const [step, setStep] = useState<1 | 2>(1);
@@ -106,10 +114,10 @@ export function CommitDialog({
     "nirmaan_stack.api.boq.wizard.commit_pipeline.commit_boq",
   );
 
-  // Reset everything each time the dialog opens (all eligible sheets pre-selected).
+  // Reset everything each time the dialog opens (the changed sheets pre-selected, S6 F12).
   useEffect(() => {
     if (open) {
-      setTickedSheets(new Set(eligibleSheets.map((s) => s.sheet_name)));
+      setTickedSheets(preselectedSheets(eligibleSheets, changedSinceCommit));
       setStep(1);
       setPreflight(null);
       setPreflightLoading(false);
@@ -234,7 +242,7 @@ export function CommitDialog({
             <DialogHeader>
               <DialogTitle>Commit sheets</DialogTitle>
               <DialogDescription>
-                All eligible sheets are selected by default; untick any you want to leave out.
+                {COMMIT_DIALOG_DESCRIPTION}
               </DialogDescription>
             </DialogHeader>
 
@@ -273,6 +281,10 @@ export function CommitDialog({
                             {committed ? (
                               <span className="block text-xs text-muted-foreground mt-0.5">
                                 committed {committedAt} &middot; v{committed.commit_version}
+                                {/* S6 (U10): the sheet was re-parsed after that commit. */}
+                                {changedSinceCommit.has(s.sheet_name) && (
+                                  <> &middot; {reparsedAfterLabel(committed.commit_version)}</>
+                                )}
                               </span>
                             ) : (
                               <span className="block text-xs text-muted-foreground mt-0.5">

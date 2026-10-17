@@ -73,6 +73,8 @@ interface DeltaRowLike {
   edited_at?: string | null;
   edit_log?: unknown[] | null;
   description?: string | null;
+  /** get_review_rows' _row_has_override: a standing human or accepted-AI type / parent change. */
+  has_override?: boolean | null;
 }
 
 /** The one status the carry writes. */
@@ -83,13 +85,30 @@ export function isRowCopied(row: DeltaRowLike): boolean {
   return row.revision_carry_status === COPIED_STATUS;
 }
 
+/** The history fields a full "Revert to original" clears (type, parent, top level). */
+const STRUCTURE_FIELDS = new Set(["human_classification", "human_parent", "human_is_root"]);
+
+function logField(entry: unknown): string | undefined {
+  return entry && typeof entry === "object" ? (entry as { field?: string }).field : undefined;
+}
+
 /**
- * The SINGLE home (ADR-0010 F1) for the review row "Edited" predicate: a row is edited iff it has
- * an edited_at OR a non-empty edit_log. A remark / dismissal is NOT an edit (neither stamps those
- * fields). ReviewTree's Status column + green-tint + status filter all import THIS -- no inline copy.
+ * The SINGLE home (ADR-0010 F1) for the review row "Edited" predicate. ReviewTree's Status column
+ * + green-tint + status filter and the CSV export all import THIS -- no inline copy. A remark /
+ * dismissal is NOT an edit (neither stamps edited_at / edit_log).
+ *
+ * S6 (F7 / U6): a revert leaves its own history behind (edited_at and log entries), so a fully
+ * reverted row used to stay "Edited". With `has_override` on the row (get_review_rows sends it):
+ * edited = a standing type / parent change, or any value / text edit in the history (a revert
+ * keeps those). Without it (an older caller): the rule from before -- edited_at or any history.
  */
 export function isReviewRowEdited(row: DeltaRowLike): boolean {
-  return row.edited_at != null || (Array.isArray(row.edit_log) && row.edit_log.length > 0);
+  const log = Array.isArray(row.edit_log) ? row.edit_log : [];
+  if (row.has_override === undefined || row.has_override === null) {
+    return row.edited_at != null || log.length > 0;
+  }
+  if (row.has_override) return true;
+  return log.some((e) => !STRUCTURE_FIELDS.has(logField(e) ?? ""));
 }
 
 /**

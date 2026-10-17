@@ -289,6 +289,16 @@ export function feedFromPanel(
         if (!hiddenFacts.includes(k)) hiddenFacts.push(k);
         if (mode === "full") attrs[k] = String(v);
       }
+      /**
+       * SLICE 12e-2 (owner P1): a family TYPED through the family field's "Other..." box is fed to the
+       * calculator the way the pricer would type it -- the typed spelling, with the family id in `other`
+       * (the box's own binding), never the resolved family -- so the calculator path runs the same reader.
+       */
+      const famId = spec ? familyAttr(spec) : "family";
+      if (b.familyControl?.otherMode) {
+        other.push(famId);
+        return { base: null, family: b.familyControl.typedValue, attrs, qty: b.qty, other };
+      }
       return { base: null, family: b.family, attrs, qty: b.qty, ...(other.length ? { other } : {}) };
     });
     overrides[ITEM_LIST_OVERRIDE_KEY] = JSON.stringify({ items: edits });

@@ -210,7 +210,8 @@ def _validate_list_spec(cfg):
     spec = cfg.get("list_spec")
     if not isinstance(spec, dict):
         _vthrow("matching_mode 'item_list' needs a list_spec object.")
-    unknown = set(spec.keys()) - {"attribute_definitions", "family_attribute_id", "qty_attribute_id", "second_opinion", "pricing"}
+    unknown = set(spec.keys()) - {"attribute_definitions", "family_attribute_id", "qty_attribute_id", "second_opinion", "pricing",
+                                  SECTIONS_KEY}
     if unknown:
         _vthrow(f"list_spec: unknown key(s): {', '.join(sorted(unknown))}.")
     if "second_opinion" in spec and not isinstance(spec["second_opinion"], bool):
@@ -274,6 +275,231 @@ def _validate_list_spec(cfg):
     # SLICE 5 (2026-09-24, owner R1-R21): the item-list PRICING block, validated in its own namespace below
     if "pricing" in spec:
         _validate_list_pricing(spec, by_id, family_vals, cfg)
+    # SLICE 12e-3a (owner D1, 2026-10-08): the declared sections of a row -- the config's own items and the
+    # sections that DELEGATE to another category. Shape only here; the cross-category half needs the other
+    # configs and the items (`validate_delegated_sections`, run by the import and by the editor's save).
+    if SECTIONS_KEY in spec:
+        _validate_list_sections(spec, by_id, cfg)
+
+
+# ---------------------------------------------------------------------------------------------------------
+# SLICE 12e-3a (owner D1 / D1a / D3 / 13:40 / 13:42, 2026-10-11) -- `list_spec.sections`.
+#
+# A row of this category is made of SECTIONS. Exactly one entry is the config's OWN items (no `category_id`:
+# the pipes of a Piping row); every other entry DELEGATES to another item-list category -- the panel prices
+# that section through the delegated category's OWN config, catalogue and Pricing Inputs, with no copy of any
+# rule. A delegated section behaves as its category does, except for the two things declared here:
+#   `include_when {attr, equals}`  a per-item Yes / No attribute of THIS config that opens the section under
+#                                  its item (the key name `popup_boxes.has_modules` already uses); `absent`
+#                                  is the value and the line shown when nothing was read;
+#   `mirror {from, to, tag, line}` one number of the item (`from`, a `pricing.numbers` key here) pre-fills a
+#                                  number reader of the delegated category (`to`) until the pricer edits it.
+# `families` is the closed list of the delegated category's families the section offers; `unit_class` is the
+# unit class of THIS config the section prices in.
+# ---------------------------------------------------------------------------------------------------------
+SECTIONS_KEY = "sections"
+_SECTION_OWN_KEYS = {"id", "label", "add_label"}
+_SECTION_DELEGATED_KEYS = _SECTION_OWN_KEYS | {"category_id", "unit_class", "families", "include_when", "absent", "mirror"}
+_SECTION_INCLUDE_KEYS = {"attr", "equals"}
+_SECTION_ABSENT_KEYS = {"value", "line"}
+_SECTION_MIRROR_KEYS = {"from", "to", "tag", "line"}
+
+
+def _nonblank(v):
+    return isinstance(v, str) and bool(v.strip())
+
+
+def _validate_list_sections(spec, by_id, cfg):
+    """The SHAPE of `list_spec.sections` -- everything that can be decided from this one config."""
+    loc = "list_spec.sections"
+    secs = spec.get(SECTIONS_KEY)
+    if not isinstance(secs, list) or not secs:
+        _vthrow(f"{loc} must be a non-empty list.")
+    pr = spec.get("pricing")
+    if not isinstance(pr, dict):
+        _vthrow(f"{loc} needs list_spec.pricing (a section is priced).")
+    own_cat = (cfg.get("category_id") or "").strip()
+    priced = set(pr.get("match_attrs") or []) | set(pr.get("choice_attrs") or []) | set(pr.get("numbers") or {})
+    seen, own = set(), 0
+    for i, s in enumerate(secs):
+        sloc = f"{loc}[{i}]"
+        if not isinstance(s, dict):
+            _vthrow(f"{sloc} must be an object.")
+        delegated = "category_id" in s
+        unk = set(s.keys()) - (_SECTION_DELEGATED_KEYS if delegated else _SECTION_OWN_KEYS)
+        if unk:
+            _vthrow(f"{sloc}: unknown key(s): {', '.join(sorted(unk))}.")
+        for k in ("id", "label", "add_label"):
+            if not _nonblank(s.get(k)):
+                _vthrow(f"{sloc} needs a non-empty string '{k}'.")
+        if s["id"] in seen:
+            _vthrow(f"{loc}: duplicate section id '{s['id']}'.")
+        seen.add(s["id"])
+        if not delegated:
+            own += 1
+            continue
+        if not _nonblank(s.get("category_id")):
+            _vthrow(f"{sloc}.category_id must be a non-empty string.")
+        if s["category_id"].strip() == own_cat:
+            _vthrow(f"{sloc}.category_id may not name the config itself.")
+        if s.get("unit_class") not in (pr.get("unit_classes") or {}):
+            _vthrow(f"{sloc}.unit_class must name one of this config's unit_classes.")
+        fams = s.get("families")
+        if not isinstance(fams, list) or not fams or not all(_nonblank(f) for f in fams) or len(set(fams)) != len(fams):
+            _vthrow(f"{sloc}.families must be a non-empty list of distinct family names.")
+        inc = s.get("include_when")
+        if inc is None and "absent" in s:
+            _vthrow(f"{sloc}.absent is only meaningful with include_when.")
+        if inc is not None:
+            if not isinstance(inc, dict) or set(inc.keys()) != _SECTION_INCLUDE_KEYS:
+                _vthrow(f"{sloc}.include_when needs exactly attr and equals.")
+            d = by_id.get(inc["attr"])
+            if d is None or d.get("type") != "choice" or len(d.get("values") or []) != 2:
+                _vthrow(f"{sloc}.include_when.attr must name a two-value choice item attribute of this config.")
+            if inc["attr"] == spec.get("family_attribute_id") or inc["attr"] in priced:
+                _vthrow(f"{sloc}.include_when.attr '{inc['attr']}' is read by the pricing; the toggle must be its own attribute.")
+            if inc["equals"] not in d["values"]:
+                _vthrow(f"{sloc}.include_when.equals '{inc['equals']}' is not a value of '{inc['attr']}'.")
+            ab = s.get("absent")
+            if not isinstance(ab, dict) or set(ab.keys()) != _SECTION_ABSENT_KEYS:
+                _vthrow(f"{sloc}.absent needs exactly value and line (what the toggle shows when nothing was read).")
+            if ab["value"] not in d["values"] or ab["value"] == inc["equals"]:
+                _vthrow(f"{sloc}.absent.value must be the value of '{inc['attr']}' that does NOT open the section.")
+            if not _nonblank(ab.get("line")):
+                _vthrow(f"{sloc}.absent.line must be a non-empty sentence.")
+        mir = s.get("mirror")
+        if mir is not None:
+            if not isinstance(mir, dict) or set(mir.keys()) != _SECTION_MIRROR_KEYS:
+                _vthrow(f"{sloc}.mirror needs exactly from, to, tag and line.")
+            if mir["from"] not in (pr.get("numbers") or {}):
+                _vthrow(f"{sloc}.mirror.from '{mir['from']}' is not one of this config's number readers.")
+            if not _nonblank(mir.get("to")) or not _nonblank(mir.get("tag")):
+                _vthrow(f"{sloc}.mirror needs a non-empty 'to' and 'tag'.")
+            if not _nonblank(mir.get("line")) or "{chosen}" not in mir["line"] or "{pipe}" not in mir["line"]:
+                _vthrow(f"{sloc}.mirror.line must be a sentence naming {{chosen}} and {{pipe}}.")
+    if own != 1:
+        _vthrow(f"{loc} needs exactly one section without category_id (the config's own items); found {own}.")
+
+
+def _section_unit_spellings(pricing, unit_class):
+    return {_norm_unit_spelling(u) for u in ((pricing.get("unit_classes") or {}).get(unit_class) or [])}
+
+
+def delegated_section_problems(configs, items):
+    """SLICE 12e-3a -- the CROSS-CATEGORY half of `list_spec.sections`, PURE: `configs` is every config the
+    check may resolve a section against, `items` every item it may count (each {kind, unit, attributes}).
+    Returns the list of plain-English problems (empty = fine). A delegated section must name a category that
+    exists, is an item-list config with pricing rules, is not the owner and does not keep its family in the
+    owner's family attribute (an answer's items are told apart by that attribute); every family it offers must
+    be priceable in the section's unit class THERE and stocked there; `mirror.to` must be one of its number
+    readers."""
+    by_cat = {}
+    for c in configs or []:
+        if isinstance(c, dict) and _nonblank(c.get("category_id")):
+            by_cat[(str(c.get("discipline") or "").strip(), c["category_id"].strip())] = c
+    out = []
+    for c in configs or []:
+        spec = c.get("list_spec") if isinstance(c, dict) else None
+        if not isinstance(spec, dict) or not isinstance(spec.get(SECTIONS_KEY), list):
+            continue
+        disc, own_cat = str(c.get("discipline") or "").strip(), str(c.get("category_id") or "").strip()
+        own_pr = spec.get("pricing") or {}
+        for s in spec[SECTIONS_KEY]:
+            if not isinstance(s, dict) or "category_id" not in s:
+                continue
+            where = f"{own_cat}: section '{s.get('id')}'"
+            target = str(s.get("category_id") or "").strip()
+            t = by_cat.get((disc, target))
+            if t is None:
+                out.append(f"{where} names category '{target}', which does not exist in {disc or 'this discipline'}.")
+                continue
+            tspec = t.get("list_spec")
+            tpr = tspec.get("pricing") if isinstance(tspec, dict) else None
+            if t.get("matching_mode") != _LIST_MODE or not isinstance(tpr, dict):
+                out.append(f"{where} names category '{target}', which is not an item-list category with pricing rules.")
+                continue
+            if tspec.get("family_attribute_id") == spec.get("family_attribute_id"):
+                out.append(f"{where}: '{target}' keeps its family in '{tspec.get('family_attribute_id')}', the same attribute "
+                           f"as {own_cat}; the two kinds of item could not be told apart.")
+            # the unit class is read through the OWNER's spellings: the section prices in the owner row's unit
+            want = _section_unit_spellings(own_pr, s.get("unit_class"))
+            t_classes = [k for k in (tpr.get("unit_classes") or {}) if _section_unit_spellings(tpr, k) & want]
+            fam_attr = tspec.get("family_attribute_id")
+            for fam in s.get("families") or []:
+                fd = (tpr.get("families") or {}).get(fam)
+                if not isinstance(fd, dict):
+                    out.append(f"{where} offers '{fam}', which is not a priceable family of '{target}'.")
+                    continue
+                cls = [k for k in t_classes if k in (fd.get("units") or {})]
+                if not cls:
+                    out.append(f"{where} offers '{fam}', which '{target}' does not price per {s.get('unit_class')}.")
+                    continue
+                spell = set().union(*[_section_unit_spellings(tpr, k) for k in cls])
+                stocked = any(
+                    isinstance(it, dict) and it.get("kind") == tpr.get("kind")
+                    and (it.get("attributes") or {}).get(fam_attr) == fam
+                    and _norm_unit_spelling(it.get("unit")) in spell
+                    for it in items or [])
+                if not stocked:
+                    out.append(f"{where} offers '{fam}', which has no active SKU per {s.get('unit_class')} in '{target}'.")
+            mir = s.get("mirror")
+            if isinstance(mir, dict) and mir.get("to") not in (tpr.get("numbers") or {}):
+                out.append(f"{where}: mirror.to '{mir.get('to')}' is not one of the number readers of '{target}'.")
+    return out
+
+
+def _active_section_configs(discipline, exclude_categories=()):
+    """The ACTIVE configs of a discipline, minus the categories the caller is about to replace."""
+    out = []
+    for row in frappe.get_all("BoQ Rate Category Config", filters={"discipline": discipline, "active": 1},
+                              fields=["category_id", "config"]):
+        if (row.category_id or "").strip() in exclude_categories:
+            continue
+        cfg = frappe.parse_json(row.config) if isinstance(row.config, str) else row.config
+        if isinstance(cfg, dict):
+            out.append(cfg)
+    return out
+
+
+def _active_section_items(discipline, kinds):
+    """The ACTIVE items of the given kinds, as {kind, unit, attributes}."""
+    out = []
+    if not kinds:
+        return out
+    for row in frappe.get_all("BoQ Rate Master Item",
+                              filters={"discipline": discipline, "active": 1, "kind": ["in", sorted(kinds)]},
+                              fields=["kind", "unit", "attributes"]):
+        attrs = frappe.parse_json(row.attributes) if isinstance(row.attributes, str) else row.attributes
+        out.append({"kind": row.kind, "unit": row.unit, "attributes": attrs or {}})
+    return out
+
+
+def validate_delegated_sections(configs, items=None, label="config"):
+    """SLICE 12e-3a (owner 2026-10-11: 'Add loader.py to scope'; the config editor's save also runs it) -- THE
+    ONE CALL. `configs` is what is about to be written (a whole asset payload's configs, or the one config the
+    editor saves) and `items` the items written with it (None = none: the editor writes no item). Everything
+    else the check needs -- the discipline's other active configs and their items -- is read from the database,
+    so a section is checked against the catalogue AS IT WILL STAND after the write, and a write that would
+    break ANOTHER config's section (the delegated category losing a family) is refused too. Raises on the
+    first problem, BEFORE the caller writes anything. A discipline in which no config declares a section reads
+    its active configs once and stops there."""
+    configs = [c for c in (configs or []) if isinstance(c, dict)]
+    declares = lambda c: isinstance(c.get("list_spec"), dict) and SECTIONS_KEY in c["list_spec"]
+    kinds_of = lambda cs: {k for c in cs for k in (c.get("item_kinds") or []) if isinstance(k, str)}
+    for disc in sorted({str(c.get("discipline") or "").strip() for c in configs}):
+        mine = [c for c in configs if str(c.get("discipline") or "").strip() == disc]
+        others = _active_section_configs(disc, exclude_categories={str(c.get("category_id") or "").strip() for c in mine})
+        if not any(declares(c) for c in mine + others):
+            continue
+        if items is None:
+            # a config-only write (the editor): the catalogue's items stand, this config's kinds included
+            pool = _active_section_items(disc, kinds_of(mine + others))
+        else:
+            # an import: the kinds it carries are REPLACED by its own items; every other kind stands
+            pool = [it for it in items if isinstance(it, dict)] + _active_section_items(disc, kinds_of(others) - kinds_of(mine))
+        problems = delegated_section_problems(mine + others, pool)
+        if problems:
+            frappe.throw(f"{label}: {problems[0]} Nothing was written.", title="Invalid config")
 
 
 # SLICE 5 -- the keys `list_spec.pricing` may carry. The block is DATA the frontend `itemListPricing` module
@@ -316,11 +542,44 @@ _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "unit_
                  "refuse_on_unit_class",
                  # SLICE 12d-4a (owner D8): a working LINE generated from a copied text ("BoQ says 32 kg/m3 ->
                  # priced as the 48 kg/m3 board"). Display only. Arrives WITH `_validate_read_notes`.
-                 "read_notes"}
+                 "read_notes",
+                 # SLICE 12e-2 (owner Q16 / Q15 / Q18, 2026-10-10): `family_text` -- how a family answer WRITTEN
+                 # AS THE BoQ WRITES IT (typed through "Other...", or the 12e-4 model path) is read: a `map`
+                 # (GI -> MS, uPVC / HDPE -> PVC, each with the "priced as" line), a `refuse` list (SS refuses
+                 # with its own sentence), the `line` template, and an optional `from_row` rule (one type named
+                 # in the row prices as it; two different types with none chosen refuse). Arrives WITH
+                 # `_validate_family_text`. ABSENT => a family answer is read exactly as before.
+                 "family_text",
+                 # SLICE 12e-2 (owner Q19 / C2): `unit_refusal` -- the sentence a unit that is NOT one of the
+                 # category's unit classes refuses with ("unit '{unit}' is not a length unit"). ABSENT => the
+                 # R12 sentence every other category has always given.
+                 "unit_refusal",
+                 # SLICE 12e-2 (owner Q10): `panel_optional` -- text item definitions the panel shows as an
+                 # OPTIONAL typed box (a class / wall thickness) that NO pricing rule reads; a `read_notes` line
+                 # may quote it. The `panel_readonly` shape with a box. Arrives WITH its check below.
+                 "panel_optional",
+                 # SLICE 12e-5b (owner R2, 2026-10-15): `choice_text` -- an UNANSWERED choice the BoQ names in a word
+                 # the catalogue does not stock ("26 G GI cladding", copied into a text definition as written) prices
+                 # as the stocked option of its gauge, with the amber line; an unlisted gauge refuses. Arrives WITH
+                 # `_validate_choice_text`. ABSENT => an unanswered choice is read exactly as before.
+                 "choice_text",
+                 # SLICE 12e-5b (owner R5): `material_text` -- a no-SKU family answer whose material AS WRITTEN names a
+                 # material the catalogue prices as one of its families (closed cell polyethylene -> nitrile, by unit
+                 # class). Arrives WITH `_validate_material_text`. ABSENT => the no-SKU refusal stands.
+                 "material_text"}
 _PRICING_NAMED_IN_ROW_KEYS = {"attr", "words", "refuse", "rule"}
 _PRICING_UNSTOCKED_KEYS = {"words", "from_attr", "rule"}
 _PRICING_REFUSE_UC_KEYS = {"unit_class", "families", "attr", "value_contains", "words", "refuse", "rule"}
 _PRICING_READ_NOTE_KEYS = {"families", "from_attr", "pattern", "unless", "line"}
+# SLICE 12e-2: the closed shapes of `family_text` (see `_validate_family_text`).
+_PRICING_FAMILY_TEXT_KEYS = {"map", "refuse", "line", "from_row",
+                             # SLICE 12e-4b (owner D-3, 2026-10-13): `from_attr` -- the TEXT item definition that
+                             # carries the family AS THE BoQ WRITES IT ("Pipe type as written"). Read only when
+                             # the family answer is absent, by the same reader a typed family goes through.
+                             "from_attr"}
+_PRICING_FAMILY_TEXT_MAP_KEYS = {"from", "to", "rule"}
+_PRICING_FAMILY_TEXT_REFUSE_KEYS = {"from", "refuse", "rule"}
+_PRICING_FAMILY_TEXT_FROM_ROW_KEYS = {"rule", "refuse"}
 
 
 def _words_ok(words):
@@ -455,7 +714,15 @@ _PRICING_NUMBER_DEFAULT_KEYS = {"value", "families", "rule"}
 # `dp` is the rounding depths to try, in order. ABSENT => nothing resolves and the ladder decides, exactly
 # as before. A depth that is not collision-free over a family's rungs is SKIPPED at run time, never
 # resolved arbitrarily, so the config cannot make the match order-dependent.
-_PRICING_SIZE_MATCH_KEYS = {"dp"}
+_PRICING_SIZE_MATCH_KEYS = {"dp",
+                            # SLICE 12e-2 (owner Q14a): `near` -- after the rounding depths, the NEAREST stocked
+                            # rung within this many units of the axis counts as the stated size (31.75 -> 31.7).
+                            # SLICE 12e-2 (owner Q17): `below_smallest: "smallest"` -- DECLARES that a stated
+                            # value below the smallest rung takes the smallest (the ladder has always done so;
+                            # the declaration is what names the ruling on the tab and in the field's line).
+                            # Both ABSENT => `resolveSize` and the lines are byte-identical.
+                            "near", "below_smallest"}
+_PRICING_BELOW_SMALLEST = {"smallest"}
 # SLICE 12c-S: the keys one `panel_notes` CLAUSE may carry (see the note-shape check below).
 _PRICING_NOTE_CLAUSE_KEYS = {"text", "when_reads", "when_stocked"}
 
@@ -484,7 +751,14 @@ def _note_shape_ok(v):
 # that closeness could not: "lowest insulation material cost (cost_insulation of the layers
 # summed)". Declared here so no rate name is written in frontend code; ABSENT leaves the
 # deterministic fallback deciding, exactly as every composition did before the key existed.
-_PRICING_COMPOSE_KEYS = {"attr", "tolerance", "max_layers", "outer_only", "cost_key"}
+_PRICING_COMPOSE_KEYS = {"attr", "tolerance", "max_layers", "outer_only", "cost_key", "outer_surface"}
+# SLICE 12e-5b (owner R7): the closed shapes of `compose.outer_surface`, `choice_text` and `material_text`.
+_PRICING_OUTER_SURFACE_KEYS = {"attr", "pipe", "thickness", "girth_step"}
+_PRICING_CHOICE_TEXT_KEYS = {"attr", "from_attr", "words", "gauge_pattern", "to_by_gauge", "default_to", "line",
+                             "unlisted_line", "rule"}
+_PRICING_CHOICE_TEXT_REQUIRED = _PRICING_CHOICE_TEXT_KEYS - {"gauge_pattern", "to_by_gauge"}
+_PRICING_MATERIAL_TEXT_KEYS = {"from_attr", "when_family", "map"}
+_PRICING_MATERIAL_MAP_KEYS = {"all_of", "to_by_unit_class", "line", "rule"}
 _PRICING_COMPOSE_REQUIRED = {"attr", "tolerance", "max_layers"}
 _PRICING_OUTER_ONLY_KEYS = {"attr", "value"}
 # SLICE 11 (owner ruling, 2026-09-25): a unit may BELONG to a class and still be a DIFFERENT unit of that
@@ -523,7 +797,22 @@ _PRICING_NUMBER_KEYS = {"from", "name", "unit", "square", "ratio", "reject_token
                        # SLICE 12d-1b (owner T2): `several: "highest"` -- a bare slash list of ANY length
                        # reads as its highest. ABSENT => a list of three or more still refuses (ADP is
                        # byte-identical). The value is closed to the one word the reader implements.
-                       "several"}
+                       "several",
+                       # SLICE 12e-2 (owner Q14, 2026-10-10): `inch_mm_alt` -- a SECOND millimetres-per-inch
+                       # conversion (25) tried after the exact 25.4 lands on no stocked size at any rounding
+                       # depth. Needs `inches: true`. ABSENT => one conversion, as before.
+                       "inch_mm_alt",
+                       # SLICE 12e-2 (owner P2): `typed_entry: "one_size"` -- a value the PRICER types on this
+                       # axis must be ONE size (a number in mm, or an inch form); "40/50" and "two inch"
+                       # refuse with one message. The field's line then shows what was typed, the number read
+                       # from it and the rung. ABSENT => the reader is byte-identical.
+                       "typed_entry",
+                       # SLICE 12e-4b (owner F-1, 2026-10-13, "option B"): `near` -- on THIS axis the nearest
+                       # stocked size within this distance counts as the stated size (the rule
+                       # `size_match.near` declares for a whole category, for one ladder alone). ABSENT =>
+                       # the axis resolves exactly as before.
+                       "near"}
+_PRICING_TYPED_ENTRY = {"one_size"}
 # SLICE 9 (owner A-4): `second_key` -- a second match key beside a family's primary one (a diffuser's OUTER size
 # beside its neck). Closed, like every other block here: a misspelled key would ship a silently inert rule.
 _PRICING_SECOND_KEY_KEYS = {"families", "primary", "key", "alt_key", "name", "primary_pick"}
@@ -659,6 +948,259 @@ def _validate_value_map(vm, by_id, choice_attrs, fams):
             _vthrow(f"{rloc}.display must be a non-empty string.")
 
 
+def _validate_family_text(ft, family_vals, fams, by_id=None, read_by_pricing=None):
+    """SLICE 12e-2 (owner Q16 / Q15 / Q18, 2026-10-10) -- the shape of `list_spec.pricing.family_text`:
+    how a family answer written AS THE BoQ WRITES IT is read by the ONE reader
+    (`itemListPricing.readFamilyText`), on the calculator's typed "Other..." box today and on the
+    12e-4 model path tomorrow.
+
+      map      [{from, to, rule}]      a spelling that PRICES AS a stocked family (GI -> MS), with the
+                                       `line` said under the field; `from` is never itself a family
+                                       value (a stocked spelling needs no map) and never repeated;
+                                       `to` is a PRICEABLE family.
+      refuse   [{from, refuse, rule}]  a spelling that REFUSES with its own sentence (SS); `from` is
+                                       never a family value and never a `map` spelling.
+      line     "BoQ says {from} -> priced as {to} ..."  the template every map entry is said with.
+      from_row {rule, refuse}          OPTIONAL: when the answer is absent / "None", the family and map
+                                       words found in the row's own text decide -- all on ONE family
+                                       prices as it, two different ones refuse with `refuse`, which
+                                       carries {types} for the names found.
+
+      from_attr "<item attribute id>"  OPTIONAL (SLICE 12e-4b, owner D-3): the TEXT item definition that carries
+                                       the family AS WRITTEN. It is read ONLY when the family answer itself
+                                       is absent and `from_row` named none, so it must be a definition of
+                                       this category, of type `text`, and neither the family attribute nor
+                                       anything the pricing matches on (a SKU attribute or a number's source)
+                                       -- an attribute the matcher reads cannot also be the family's fallback.
+                                       It MAY be listed in `panel_readonly`: it is shown, never typed.
+
+    Refused by name otherwise; an empty map is a mistake, never an inert key."""
+    loc = "list_spec.pricing.family_text"
+    if not isinstance(ft, dict):
+        _vthrow(f"{loc} must be an object.")
+    unk = set(ft) - _PRICING_FAMILY_TEXT_KEYS
+    if unk:
+        _vthrow(f"{loc}: unknown key(s): {', '.join(sorted(unk))}.")
+    if "map" not in ft or "line" not in ft:
+        _vthrow(f"{loc} must carry map and line.")
+    mp = ft["map"]
+    if not isinstance(mp, list) or not mp:
+        _vthrow(f"{loc}.map must be a non-empty list.")
+    seen = set()
+    for i, m in enumerate(mp):
+        mloc = f"{loc}.map[{i}]"
+        if not isinstance(m, dict) or set(m) != _PRICING_FAMILY_TEXT_MAP_KEYS:
+            _vthrow(f"{mloc} must carry exactly from / to / rule.")
+        frm = m["from"]
+        if not isinstance(frm, str) or not frm.strip():
+            _vthrow(f"{mloc}.from must be a non-empty spelling.")
+        key = frm.strip().casefold()
+        if key in {v.strip().casefold() for v in family_vals}:
+            _vthrow(f"{mloc}.from '{frm}' is already a family value; a stocked spelling needs no map.")
+        if key in seen:
+            _vthrow(f"{mloc}.from '{frm}' is mapped twice.")
+        seen.add(key)
+        if not isinstance(m["to"], str) or m["to"] not in fams:
+            _vthrow(f"{mloc}.to must name a priceable family of this category.")
+        if not isinstance(m["rule"], str) or not m["rule"].strip():
+            _vthrow(f"{mloc}.rule must be a non-empty string saying whose ruling it is.")
+    line = ft["line"]
+    if not isinstance(line, str) or "{from}" not in line or "{to}" not in line:
+        _vthrow(f"{loc}.line must be a sentence carrying {{from}} and {{to}}.")
+    if "refuse" in ft:
+        rf = ft["refuse"]
+        if not isinstance(rf, list) or not rf:
+            _vthrow(f"{loc}.refuse, when present, must be a non-empty list.")
+        for i, r in enumerate(rf):
+            rloc = f"{loc}.refuse[{i}]"
+            if not isinstance(r, dict) or set(r) != _PRICING_FAMILY_TEXT_REFUSE_KEYS:
+                _vthrow(f"{rloc} must carry exactly from / refuse / rule.")
+            frm = r["from"]
+            if not isinstance(frm, str) or not frm.strip():
+                _vthrow(f"{rloc}.from must be a non-empty spelling.")
+            key = frm.strip().casefold()
+            if key in {v.strip().casefold() for v in family_vals}:
+                _vthrow(f"{rloc}.from '{frm}' is a family value and cannot refuse.")
+            if key in seen:
+                _vthrow(f"{rloc}.from '{frm}' is already mapped; a spelling prices or refuses, never both.")
+            seen.add(key)
+            if not isinstance(r["refuse"], str) or not r["refuse"].strip():
+                _vthrow(f"{rloc}.refuse must be a non-empty sentence.")
+            if not isinstance(r["rule"], str) or not r["rule"].strip():
+                _vthrow(f"{rloc}.rule must be a non-empty string saying whose ruling it is.")
+    if "from_row" in ft:
+        fr = ft["from_row"]
+        if not isinstance(fr, dict) or set(fr) != _PRICING_FAMILY_TEXT_FROM_ROW_KEYS:
+            _vthrow(f"{loc}.from_row must carry exactly rule / refuse.")
+        if not isinstance(fr["refuse"], str) or "{types}" not in fr["refuse"]:
+            _vthrow(f"{loc}.from_row.refuse must be a sentence carrying {{types}}.")
+        if not isinstance(fr["rule"], str) or not fr["rule"].strip():
+            _vthrow(f"{loc}.from_row.rule must be a non-empty string saying whose ruling it is.")
+    if "from_attr" in ft:
+        fa = ft["from_attr"]
+        if not isinstance(fa, str) or not fa.strip():
+            _vthrow(f"{loc}.from_attr must be an item attribute id.")
+        if fa not in (by_id or {}):
+            _vthrow(f"{loc}.from_attr names '{fa}', which is not an item attribute of this category.")
+        if fa in (read_by_pricing or set()):
+            _vthrow(f"{loc}.from_attr: '{fa}' is read by the pricing and cannot carry the family as written.")
+        if by_id[fa].get("type") != "text":
+            _vthrow(f"{loc}.from_attr: '{fa}' must be a text definition.")
+
+
+def _read_by_pricing(spec, sku_attrs, numbers):
+    """The attributes a pricing rule reads: SKU attributes, every `numbers` source and the family attribute."""
+    out = set(sku_attrs) | {src for n in numbers.values() for src in (n.get("from") or [])}
+    if spec.get("family_attribute_id"):
+        out.add(spec["family_attribute_id"])
+    return out
+
+
+def _as_written_text_attr(fa, loc, by_id, read_by_pricing):
+    """A text definition of this category that no pricing rule matches on -- the words AS WRITTEN. It MAY be listed
+    in `panel_readonly` (shown, never typed): that is the ruled shape (the `family_text.from_attr` precedent)."""
+    if not isinstance(fa, str) or not fa.strip():
+        _vthrow(f"{loc} must be an item attribute id.")
+    if fa not in by_id:
+        _vthrow(f"{loc} names '{fa}', which is not an item attribute of this category.")
+    if fa in read_by_pricing:
+        _vthrow(f"{loc}: '{fa}' is read by the pricing and cannot carry words as written.")
+    if by_id[fa].get("type") != "text":
+        _vthrow(f"{loc}: '{fa}' must be a text definition.")
+
+
+def _item_pipelines(pr, cfg):
+    """Every pipeline the item-list pricer can run for this category: each family unit's own, and the config's."""
+    out = list(((cfg or {}).get("pipelines") or {}).values())
+    for f in (pr.get("families") or {}).values():
+        for u in ((f or {}).get("units") or {}).values():
+            out.extend(((u or {}).get("pipelines") or {}).values())
+    return [p for p in out if isinstance(p, dict)]
+
+
+def _validate_outer_surface(cp, pr, cfg, by_id, numbers, sku_attrs):
+    """SLICE 12e-5b (owner R7, 2026-10-15: "the dia is 50+2*32=114 mm") -- `compose.outer_surface`: on the OUTER layer
+    of a composition the pricer hands the pipelines `attr` = the pipe size as read + 2 x the TOTAL thickness, and runs
+    them with `girth_step` in place of the scale step producing the same `result`. `attr` is a RUN-ONLY value, so it
+    must not collide with an item attribute; `girth_step` must read it, and must replace a step that exists (a
+    step replacing nothing is the "validates but never executes" failure)."""
+    loc = "list_spec.pricing.compose.outer_surface"
+    osf = cp["outer_surface"]
+    if not isinstance(osf, dict) or set(osf) != _PRICING_OUTER_SURFACE_KEYS:
+        _vthrow(f"{loc} needs exactly attr, pipe, thickness and girth_step.")
+    a = osf["attr"]
+    if not isinstance(a, str) or not a.strip():
+        _vthrow(f"{loc}.attr must be a non-empty id.")
+    if a in by_id or a in sku_attrs or a == pr.get("unit_class_attr"):
+        _vthrow(f"{loc}.attr '{a}' collides with an attribute of this category; it is a value the pricer hands the "
+                "pipelines for one run, never an item attribute.")
+    if osf["thickness"] != cp["attr"]:
+        _vthrow(f"{loc}.thickness must be the composed axis '{cp['attr']}'.")
+    if osf["pipe"] not in numbers or osf["pipe"] == cp["attr"]:
+        _vthrow(f"{loc}.pipe '{osf['pipe']}' must be a size axis of this category other than the composed one.")
+    gs = osf["girth_step"]
+    if not isinstance(gs, dict) or gs.get("step") != "scale":
+        _vthrow(f"{loc}.girth_step must be a scale step.")
+    for key in ("target", "result", "formula"):
+        if not isinstance(gs.get(key), str) or not gs.get(key):
+            _vthrow(f"{loc}.girth_step needs a string '{key}'.")
+    _validate_params(gs.get("params"), f"{loc}.girth_step")
+    reads = [v for k, v in (gs.get("params") or {}).items() if k.endswith(_FROM_ATTR_SUFFIX)]
+    if reads != [a]:
+        _vthrow(f"{loc}.girth_step must read the outer diameter through exactly one _from_attr naming '{a}'.")
+    produced = {st.get("result") for p in _item_pipelines(pr, cfg) for st in (p.get("steps") or [])
+                if isinstance(st, dict) and st.get("step") == "scale"}
+    if gs["result"] not in produced:
+        _vthrow(f"{loc}.girth_step.result '{gs['result']}' is produced by no scale step of this category's pipelines "
+                "-- it would replace nothing.")
+
+
+def _validate_choice_text(ct, by_id, choice_attrs, read_by_pricing):
+    """SLICE 12e-5b (owner R2) -- `list_spec.pricing.choice_text`: entries {attr, from_attr, words, gauge_pattern?,
+    to_by_gauge?, default_to, line, unlisted_line, rule}. `attr` a choice SKU attribute; every option named one of its
+    values; `from_attr` a text definition no pricing rule matches on; the gauge pattern compiles and captures; the
+    lines carry their placeholders."""
+    loc = "list_spec.pricing.choice_text"
+    if not isinstance(ct, list) or not ct:
+        _vthrow(f"{loc} must be a non-empty list of entries.")
+    for i, e in enumerate(ct):
+        el = f"{loc}[{i}]"
+        if not isinstance(e, dict):
+            _vthrow(f"{el} must be an object.")
+        unk = set(e) - _PRICING_CHOICE_TEXT_KEYS
+        if unk:
+            _vthrow(f"{el}: unknown key(s): {', '.join(sorted(unk))}.")
+        missing = _PRICING_CHOICE_TEXT_REQUIRED - set(e)
+        if missing:
+            _vthrow(f"{el} needs {', '.join(sorted(missing))}.")
+        if e["attr"] not in choice_attrs:
+            _vthrow(f"{el}.attr '{e['attr']}' is not a choice SKU attribute of this category.")
+        vals = by_id[e["attr"]].get("values") or []
+        _as_written_text_attr(e["from_attr"], f"{el}.from_attr", by_id, read_by_pricing)
+        w = e["words"]
+        if not isinstance(w, list) or not w or not all(isinstance(x, str) and x.strip() for x in w):
+            _vthrow(f"{el}.words must be a non-empty list of words.")
+        if e["default_to"] not in vals:
+            _vthrow(f"{el}.default_to '{e['default_to']}' is not one of '{e['attr']}'s values.")
+        if ("gauge_pattern" in e) != ("to_by_gauge" in e):
+            _vthrow(f"{el}: gauge_pattern and to_by_gauge go together.")
+        if "gauge_pattern" in e:
+            gp = e["gauge_pattern"]
+            try:
+                groups = re.compile(gp).groups if isinstance(gp, str) and gp else 0
+            except re.error:
+                groups = 0
+            if groups < 1:
+                _vthrow(f"{el}.gauge_pattern must be a pattern whose first group is the gauge as written.")
+            tg = e["to_by_gauge"]
+            if not isinstance(tg, dict) or not tg or not all(isinstance(k, str) and k for k in tg):
+                _vthrow(f"{el}.to_by_gauge must map each gauge as written to an option.")
+            for k, v in tg.items():
+                if v not in vals:
+                    _vthrow(f"{el}.to_by_gauge['{k}'] '{v}' is not one of '{e['attr']}'s values.")
+        for key, marks in (("line", ("{from}", "{to}")), ("unlisted_line", ("{from}",))):
+            v = e[key]
+            if not isinstance(v, str) or not all(m in v for m in marks):
+                _vthrow(f"{el}.{key} must be a sentence carrying {' and '.join(marks)}.")
+        if not isinstance(e["rule"], str) or not e["rule"].strip():
+            _vthrow(f"{el}.rule must be a non-empty string.")
+
+
+def _validate_material_text(mt, by_id, family_vals, fams, ucls, read_by_pricing):
+    """SLICE 12e-5b (owner R5) -- `list_spec.pricing.material_text`: {from_attr, when_family, map}. `when_family` are
+    family values; each map entry needs every `all_of` group to hit, and prices as a PRICEABLE family per unit class."""
+    loc = "list_spec.pricing.material_text"
+    if not isinstance(mt, dict) or set(mt) != _PRICING_MATERIAL_TEXT_KEYS:
+        _vthrow(f"{loc} needs exactly from_attr, when_family and map.")
+    _as_written_text_attr(mt["from_attr"], f"{loc}.from_attr", by_id, read_by_pricing)
+    wf = mt["when_family"]
+    if not isinstance(wf, list) or not wf or not all(isinstance(f, str) and f in family_vals for f in wf):
+        _vthrow(f"{loc}.when_family must list family values.")
+    mp = mt["map"]
+    if not isinstance(mp, list) or not mp:
+        _vthrow(f"{loc}.map must be a non-empty list of entries.")
+    for i, e in enumerate(mp):
+        el = f"{loc}.map[{i}]"
+        if not isinstance(e, dict) or set(e) != _PRICING_MATERIAL_MAP_KEYS:
+            _vthrow(f"{el} needs exactly all_of, to_by_unit_class, line and rule.")
+        ao = e["all_of"]
+        if (not isinstance(ao, list) or not ao or not all(
+                isinstance(g, list) and g and all(isinstance(x, str) and x.strip() for x in g) for g in ao)):
+            _vthrow(f"{el}.all_of must be a non-empty list of non-empty word lists.")
+        tu = e["to_by_unit_class"]
+        if not isinstance(tu, dict) or not tu:
+            _vthrow(f"{el}.to_by_unit_class must map unit classes to families.")
+        for uc, fam in tu.items():
+            if uc not in ucls:
+                _vthrow(f"{el}.to_by_unit_class: '{uc}' is not a unit class of this category.")
+            if fam not in fams:
+                _vthrow(f"{el}.to_by_unit_class['{uc}'] '{fam}' is not a priceable family of this category.")
+        if not isinstance(e["line"], str) or "{to}" not in e["line"]:
+            _vthrow(f"{el}.line must be a sentence carrying {{to}}.")
+        if not isinstance(e["rule"], str) or not e["rule"].strip():
+            _vthrow(f"{el}.rule must be a non-empty string.")
+
+
 def _validate_list_pricing(spec, by_id, family_vals, cfg):
     """SLICE 5: the shape of `list_spec.pricing` -- the ADP pricing rules as CONFIG. Every attribute a rule names
     is checked in the namespace it reads from: a SKU attribute (a `numbers` key, a `choice_attrs` entry or the
@@ -754,6 +1296,21 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
                 _vthrow(f"list_spec.pricing.numbers['{nid}'].component must be 1, 2 or 3 (width, height, depth).")
             if len(frm) != 1:
                 _vthrow(f"list_spec.pricing.numbers['{nid}'].component needs exactly one `from` attribute.")
+        # SLICE 12e-2 (owner Q14): a second inch conversion is meaningful only on an axis that READS inches,
+        # and it must differ from the exact 25.4 (the same number twice would be a key that validates and
+        # never executes).
+        if "inch_mm_alt" in rd:
+            alt = rd["inch_mm_alt"]
+            if rd.get("inches") is not True:
+                _vthrow(f"list_spec.pricing.numbers['{nid}'].inch_mm_alt needs inches: true on the same reader.")
+            if not _is_finite_number(alt) or isinstance(alt, bool) or alt <= 0 or float(alt) == 25.4:
+                _vthrow(f"list_spec.pricing.numbers['{nid}'].inch_mm_alt must be a positive number other than 25.4.")
+        if "typed_entry" in rd and rd["typed_entry"] not in _PRICING_TYPED_ENTRY:
+            _vthrow(f"list_spec.pricing.numbers['{nid}'].typed_entry must be one of {sorted(_PRICING_TYPED_ENTRY)}, or be omitted.")
+        # SLICE 12e-4b (owner F-1): the per-axis nearest-size distance. A key on an axis that is not a ladder
+        # would validate and never execute, so it is refused there (checked below, once `ladders` is known).
+        if "near" in rd and (not _is_finite_number(rd["near"]) or isinstance(rd["near"], bool) or rd["near"] <= 0):
+            _vthrow(f"list_spec.pricing.numbers['{nid}'].near must be a positive number (the distance within which the nearest stocked size counts as the stated one).")
     choice_attrs = pr.get("choice_attrs")
     if not isinstance(choice_attrs, list) or not all(isinstance(c, str) and by_id.get(c, {}).get("type") == "choice" for c in choice_attrs):
         _vthrow("list_spec.pricing.choice_attrs must list choice item attribute definitions.")
@@ -764,6 +1321,9 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         lst = pr.get(key)
         if not isinstance(lst, list) or not all(isinstance(a, str) and a in sku_attrs for a in lst):
             _vthrow(f"list_spec.pricing.{key} must list SKU attributes (a numbers key or a choice_attrs entry).")
+    for nid, rd in numbers.items():
+        if isinstance(rd, dict) and "near" in rd and nid not in (pr.get("ladders") or []):
+            _vthrow(f"list_spec.pricing.numbers['{nid}'].near needs '{nid}' in list_spec.pricing.ladders -- only a ladder matches a stated size to a stocked one.")
     # ---- SLICE 12c: the two resolution blocks ---------------------------------------------------
     # Placed AFTER the ladders, because both name a LADDER attribute and that is the namespace they
     # read from -- the rule that every name a step reads is checked where it reads it.
@@ -781,6 +1341,13 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
                     "(non-negative integers).")
         if len(set(dps)) != len(dps):
             _vthrow("list_spec.pricing.size_match.dp repeats a depth; each is tried once, in order.")
+        # SLICE 12e-2 (owner Q14a / Q17): the two optional rungs of the ladder, each a closed shape.
+        if "near" in sm:
+            near = sm["near"]
+            if not _is_finite_number(near) or isinstance(near, bool) or near <= 0:
+                _vthrow("list_spec.pricing.size_match.near must be a positive number (the distance within which the nearest stocked size counts as the stated one).")
+        if "below_smallest" in sm and sm["below_smallest"] not in _PRICING_BELOW_SMALLEST:
+            _vthrow(f"list_spec.pricing.size_match.below_smallest must be one of {sorted(_PRICING_BELOW_SMALLEST)}, or be omitted.")
     cp = pr.get("compose")
     if cp is not None:
         if not isinstance(cp, dict):
@@ -817,6 +1384,8 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
             if oo["value"] not in (by_id[oo["attr"]].get("values") or []):
                 _vthrow(f"list_spec.pricing.compose.outer_only.value '{oo['value']}' is not one of "
                         f"'{oo['attr']}'s values; the inner layers would take a value no SKU carries.")
+        if "outer_surface" in cp:
+            _validate_outer_surface(cp, pr, cfg, by_id, numbers, sku_attrs)
     # SLICE 12c: which SKU attribute labels a ladder rung. A row missing it is NOT A RUNG, so this is a
     # correctness key -- it must name an attribute the SKUs actually carry, or the ladder is empty and
     # every row refuses. Checked against the ITEM definitions, not `sku_attrs`: a label is not a
@@ -1086,6 +1655,40 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
                 _vthrow(f"list_spec.pricing.panel_readonly: '{x}' is read by the pricing and cannot be read-only.")
             if by_id[x].get("type") != "text":
                 _vthrow(f"list_spec.pricing.panel_readonly: '{x}' must be a text definition.")
+    # SLICE 12e-2 (owner Q10): `panel_optional` -- text definitions the panel shows as an OPTIONAL typed box and
+    # NO pricing rule reads (the `panel_readonly` namespace, with a box). An attribute is one or the other.
+    if "panel_optional" in pr:
+        po = pr["panel_optional"]
+        if not isinstance(po, list) or not po or not all(isinstance(x, str) and x.strip() for x in po):
+            _vthrow("list_spec.pricing.panel_optional must be a non-empty list of item attribute ids.")
+        read_by_pricing_po = set(sku_attrs) | {src for n in numbers.values() for src in (n.get("from") or [])}
+        if spec.get("family_attribute_id"):
+            read_by_pricing_po.add(spec["family_attribute_id"])
+        for x in po:
+            if x not in by_id:
+                _vthrow(f"list_spec.pricing.panel_optional names '{x}', which is not an item attribute of this category.")
+            if x in read_by_pricing_po:
+                _vthrow(f"list_spec.pricing.panel_optional: '{x}' is read by the pricing and cannot be an optional box.")
+            if by_id[x].get("type") != "text":
+                _vthrow(f"list_spec.pricing.panel_optional: '{x}' must be a text definition.")
+            if x in (pr.get("panel_readonly") or []):
+                _vthrow(f"list_spec.pricing.panel_optional: '{x}' is also panel_readonly -- an attribute is one or the other.")
+    # SLICE 12e-2 (owner Q19 / C2): `unit_refusal` -- the sentence for a unit outside the category's classes.
+    if "unit_refusal" in pr:
+        ur = pr["unit_refusal"]
+        if not isinstance(ur, str) or not ur.strip() or "{unit}" not in ur:
+            _vthrow("list_spec.pricing.unit_refusal must be a sentence carrying {unit} (the unit as the row wrote it).")
+    # SLICE 12e-2 (owner Q16 / Q15 / Q18): `family_text` -- PRESENCE before any `or` idiom, as every list key.
+    if "family_text" in pr:
+        read_by_pricing_ft = set(sku_attrs) | {src for n in numbers.values() for src in (n.get("from") or [])}
+        if spec.get("family_attribute_id"):
+            read_by_pricing_ft.add(spec["family_attribute_id"])
+        _validate_family_text(pr["family_text"], family_vals, fams, by_id, read_by_pricing_ft)
+    # SLICE 12e-5b (owner R2 / R5): `choice_text`, `material_text` -- PRESENCE before any `or` idiom.
+    if "choice_text" in pr:
+        _validate_choice_text(pr["choice_text"], by_id, choice_attrs, _read_by_pricing(spec, sku_attrs, numbers))
+    if "material_text" in pr:
+        _validate_material_text(pr["material_text"], by_id, family_vals, fams, ucls, _read_by_pricing(spec, sku_attrs, numbers))
     # defaults: applied only over a "None" answer, so only an allow_none choice may carry one
     dfl = pr.get("defaults") or {}
     if not isinstance(dfl, dict):

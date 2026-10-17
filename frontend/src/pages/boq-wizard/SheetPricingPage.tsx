@@ -683,6 +683,8 @@ const SheetPricingPage = () => {
        *  output). THE server is the single source -- see PricingGrid's tickableRows doc for why a
        *  client-side copy would be a fifth, drifting definition of "eligible". */
       eligible_rows?: number[];
+      /** SLICE 12e-5b (owner R8): eligible rows the active run never read -- a selected-row run reads them too. */
+      never_read_rows?: Array<{ excel_row: number; category_id: string }>;
     };
   }>(
     "nirmaan_stack.api.boq.rate_master.get_active_suggestion_run",
@@ -3091,9 +3093,16 @@ const SheetPricingPage = () => {
 
   // The count the CONFIRMATION quotes. Page-local, never a grid prop.
   const selectedCount = selectedRows.size;
+  // SLICE 12e-5b (owner R8): the rows no run has read yet that were not ticked -- the run reads them too
+  const neverReadLabels = useMemo(
+    () => (activeRunData?.message?.never_read_rows ?? [])
+      .filter((r) => !selectedRows.has(r.excel_row))
+      .map((r) => labelFor(r.category_id, categoryLabelById)),
+    [activeRunData, selectedRows, categoryLabelById],
+  );
   const confirmCopy = useMemo(
-    () => suggestConfirmCopy(selectedCount, eligibleRows.size),
-    [selectedCount, eligibleRows],
+    () => suggestConfirmCopy(selectedCount, eligibleRows.size, neverReadLabels),
+    [selectedCount, eligibleRows, neverReadLabels],
   );
 
   // ASYNC press: enqueue the run, open the blocking modal; the poll/socket drive it to terminal.
@@ -4651,6 +4660,7 @@ const SheetPricingPage = () => {
               <AlertDialogDescription asChild>
                 <div className="space-y-2">
                   <p>{confirmCopy.body}</p>
+                  {confirmCopy.neverRead && <p data-testid="suggest-confirm-never-read">{confirmCopy.neverRead}</p>}
                   {confirmCopy.warning && (
                     <p className="font-medium text-destructive">{confirmCopy.warning}</p>
                   )}

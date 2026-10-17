@@ -637,6 +637,94 @@ def _without_12d4a_acoustic_gi(items):
     return [it for it in items if it.get("item_uid") not in SLICE_12D4A_ACOUSTIC_GI_UIDS]
 
 
+# SLICE 12e-1 (owner "(b) accept it", 2026-10-09): HVAC v34 = v33 + the 40-row Piping CATALOGUE (kind
+# `hvac_piping_item`) and its one DATA-ONLY config (`hvac_piping`, pipelines {}). A cross-version pin written
+# against an OLDER mint is a statement about THAT mint, so the addition is normalised out on the NEW side of
+# such a comparison (the `_without_pricing_input_items` idiom, a third time) -- never by editing the pin.
+SLICE_12E1_PIPING_KIND = "hvac_piping_item"
+SLICE_12E1_PIPING_CATEGORY = "hvac_piping"
+
+
+def _without_12e1_piping_items(items):
+    return [it for it in items if it.get("kind") != SLICE_12E1_PIPING_KIND]
+
+
+def _without_12e2_piping_inputs(items):
+    """SLICE 12e-2: the four Piping accessories Pricing Inputs (`shared_by: piping`), normalised out of a
+    cross-version pin written before they existed -- the `_without_pricing_input_items` idiom, a fourth time."""
+    return [it for it in items if not (it.get("kind") == "hvac_pricing_input"
+                                       and (it.get("attributes") or {}).get("shared_by") == "piping")]
+
+
+def _without_12e1_piping_config(configs):
+    return [c for c in configs if c.get("category_id") != SLICE_12E1_PIPING_CATEGORY]
+
+
+def _without_12e4b_pipe_size_near(cfg):
+    """SLICE 12e-4b (owner F-1, 2026-10-13): Insulation's ONE new key, `list_spec.pricing.numbers.pipe_size_mm.near`
+    (0.1), normalised out of a cross-version pin written before it existed -- the `_without_pricing_input_items`
+    idiom, for a config key. It asserts the key IS there with the ruled value, so the pin cannot pass vacuously."""
+    out = copy.deepcopy(cfg)
+    reader = out["list_spec"]["pricing"]["numbers"]["pipe_size_mm"]
+    assert reader.pop("near") == 0.1, reader
+    return out
+
+
+def _without_12e5b_insulation(cfg):
+    """SLICE 12e-5b (owner R2-R5, R7, AC8b, 2026-10-15): what v39 added to Insulation, normalised out of a cross-version
+    pin written before it existed (the `_without_12e4b_pipe_size_near` idiom): the "Cladding as written (BoQ)"
+    definition and its `panel_readonly` entry, `choice_text`, `material_text`, `unit_refusal`, `compose.outer_surface`,
+    and the `item` / `cladding` notes put back as v38 worded them. It asserts every key IS there, so the pin cannot
+    pass vacuously."""
+    out = copy.deepcopy(cfg)
+    ls = out["list_spec"]
+    pr = ls["pricing"]
+    with open(_asset_path("rate_master_hvac_all_v38.json"), "r", encoding="utf-8") as fh:
+        ins38 = next(c for c in json.load(fh)["category_configs"] if c["category_id"] == "hvac_insulation")
+    old = {d["id"]: d.get("note") for d in ins38["list_spec"]["attribute_definitions"]}
+    ids = [d["id"] for d in ls["attribute_definitions"]]
+    assert "cladding_as_written" in ids, ids
+    ls["attribute_definitions"] = [dict(d, note=old[d["id"]]) if d["id"] in ("item", "cladding") else d
+                                   for d in ls["attribute_definitions"] if d["id"] != "cladding_as_written"]
+    assert pr["panel_readonly"] == ["brand", "cladding_as_written"], pr["panel_readonly"]
+    pr["panel_readonly"] = ["brand"]
+    for k in ("choice_text", "material_text", "unit_refusal"):
+        assert k in pr, k
+        del pr[k]
+    assert pr["compose"].pop("outer_surface", None) is not None
+    return out
+
+
+def _without_12e5c_copied_text_sentence(cfg):
+    """SLICE 12e-5c (owner R1, AC3, 2026-10-15): v42 appended ONE sentence to every copied-text (`type: text`) note --
+    normalised out of a cross-version pin written before it existed (the `_without_12e5b_insulation` idiom). It asserts
+    every text definition carries the sentence, so the pin cannot pass vacuously."""
+    sentence = (" Copy the words exactly as the BoQ writes them, as one continuous piece; never shorten, never join pieces "
+                "with '...' or any other mark; if the words are long, copy the shortest continuous piece that holds the value.")
+    out = copy.deepcopy(cfg)
+    texts = [d for d in out["list_spec"]["attribute_definitions"] if d.get("type") == "text"]
+    assert texts and all((d.get("note") or "").endswith(sentence) for d in texts), [d["id"] for d in texts]
+    for d in texts:
+        d["note"] = d["note"][: -len(sentence)]
+    return out
+
+
+def _without_12e6_insulation_notes(cfg):
+    """SLICE 12e-6 (AC11, HVAC v43): v43 re-worded three Insulation notes (`item`, `cladding`, `material_as_written`; owner
+    R1 / R4 / R5 / R6 / R9 and the 12d-1a default) -- normalised out of a cross-version pin written before it existed by
+    putting v42's notes back (the `_without_12e5c_copied_text_sentence` idiom). It asserts those three, and only those, differ
+    from v42's, so the pin cannot pass vacuously."""
+    with open(os.path.join(os.path.dirname(loader.__file__), "data", "rate_master_hvac_all_v42.json"), encoding="utf-8") as f:
+        v42 = json.load(f)
+    old = {d["id"]: d.get("note") for c in v42["category_configs"] if c["category_id"] == cfg["category_id"] for d in c["list_spec"]["attribute_definitions"]}
+    out = copy.deepcopy(cfg)
+    changed = sorted(d["id"] for d in out["list_spec"]["attribute_definitions"] if d.get("note") != old.get(d["id"]))
+    assert changed == ["cladding", "item", "material_as_written"], changed
+    for d in out["list_spec"]["attribute_definitions"]:
+        d["note"] = old[d["id"]]
+    return out
+
+
 def _obj(value):
     """JSON fields come back from frappe.get_all already parsed to dict; tolerate either a
     dict or a raw JSON string."""
@@ -11500,7 +11588,7 @@ def _read_frontend_src(*parts):
 # lists and layers copied as written), numbers.thickness_mm.several = "highest", number_defaults on every family,
 # material_as_written + no_sku_named_by. Items and the eight other configs byte-identical -- pinned in
 # `TestSlice12d1bAsset`. The 12d-1a v26 -> v27 pin below now names v27 explicitly.
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v33.json"
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v45.json"   # 12e-6b: v45 = v43 + one Piping note, the untold drain (owner R1); v44 was reverted, so no two files share a number (BEFORE: v43); 12e-6: v43 = v42 + Insulation notes only (owner R1 / R4 / R5 / R6 / R9, the 12d-1a default) (BEFORE: v42); 12e-5c: v42 = v41 + the copied-text sentence on eight notes (owner R1) (BEFORE: v41); 12e-5b2: v41 = v40 + four Piping / Insulation notes (owner R1, R2, R7) (BEFORE: v40); 12e-5b C3: v40 = v39 + the "Cladding as written" label fix (the panel appends "(BoQ)") (BEFORE: v39, 12e-5b); 12e-5b: v39 = v38 + the 2026-10-15 rulings (Piping notes R1 + second opinion OFF R9; Insulation notes R3 / R4, "Cladding as written (BoQ)", choice_text R2, material_text R5, compose.outer_surface R7, unit_refusal) (BEFORE: v38, 12e-4b); 12e-4b: v38 = v37 + what a Piping row is asked (the notes, "Pipe type as written", the second opinion) + Insulation's `numbers.pipe_size_mm.near` (BEFORE: v37, 12e-3a); 12e-1: v33 + the Piping catalogue (40 items, one data-only config); 12e-1b: v35 = v34 + item_name on the 40; 12e-2: v36 = v35 + the Piping PRICES (cost_supply = BCS Pipe, 4 accessories inputs, the item-list config)
 # SLICE 12d-2 (owner S1): `calculator_only` is RETIRED and refused by the validator as an unknown key. The
 # frozen HVAC assets v18..v28 carry it on their Insulation config and are therefore refused AS FILES -- a
 # historical asset is never edited. Every "every asset on disk validates" sweep names them through this.
@@ -12778,7 +12866,13 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                             "no_sku_named_by",
                             # SLICE 12d-4a (owner D3 / D7 / D9b / D8): read only by HVAC Insulation;
                             # v7 predates them and ADP declares none (pinned below)
-                            "named_in_row", "unstocked_materials", "refuse_on_unit_class", "read_notes"})
+                            "named_in_row", "unstocked_materials", "refuse_on_unit_class", "read_notes",
+                            # SLICE 12e-2 (owner Q16 / Q15 / Q18 / Q19 / Q10): read only by HVAC Piping;
+                            # v7 predates them and ADP declares none (pinned below)
+                            "family_text", "unit_refusal", "panel_optional",
+                            # SLICE 12e-5b (owner R2 / R5): read only by HVAC Insulation; v7 predates them and
+                            # ADP declares neither (pinned below)
+                            "choice_text", "material_text"})
         self.assertNotIn("panel_controls", pr)
         self.assertNotIn("override_when", pr)
         self.assertNotIn("family_when_none", pr)
@@ -12786,6 +12880,10 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
         self.assertNotIn("panel_readonly", pr)
         self.assertNotIn("no_sku_named_by", pr)
         for k in ("named_in_row", "unstocked_materials", "refuse_on_unit_class", "read_notes"):
+            self.assertNotIn(k, pr)
+        for k in ("family_text", "unit_refusal", "panel_optional"):   # 12e-2: Piping's keys, declared nowhere on ADP
+            self.assertNotIn(k, pr)
+        for k in ("choice_text", "material_text"):   # 12e-5b: Insulation's keys, declared nowhere on ADP
             self.assertNotIn(k, pr)
         def refused(mutate, needle):
             bad = copy.deepcopy(base)
@@ -14941,7 +15039,9 @@ class TestFormulaRoundTripSlice12a(FrappeTestCase):
              # cells to each mode: (172 + 4) + (219 + 4) and (184 + 4) + (219 + 4).
              ex.build_category_rows(disc, "hvac_insulation"), ins_only | computed, 176 + 223),
             ("mode B", ex.build_all_categories_xlsx(disc)[0], ex.build_all_categories_rows(disc),
-             all_cats | computed, 188 + 223),
+             # SLICE 12e-1: + 4 declared Piping cells (MS 300 / MS 250 x cost_supply / cost_install) in mode B
+             # ONLY -- mode A is the Insulation file and does not carry them.
+             all_cats | computed, 188 + 4 + 223),
         ):
             ws = openpyxl.load_workbook(io.BytesIO(blob)).worksheets[0]
             headers = b["headers"]
@@ -15836,8 +15936,11 @@ class TestDerivedRatesRecompute(FrappeTestCase):
         # over every surviving cell; what moved is how many there are.
         # SLICE 12d-4a (owner D1): 172 -> 176 -- each new Acoustic x GI SKU declares its cost_insulation
         # from the No-cladding row of its thickness, exactly as the FG GI rows do.
-        self.assertEqual(checked, 176,
-                         "expected all 176 STORED declared cells exercised, got %d" % checked)
+        # SLICE 12e-1: 176 -> 182 -- the Piping config declares 4 cells (MS 300 and MS 250, cost_supply AND
+        # cost_install) over 6 (cell, base) pairs: MS 300 reads MS 150 once per key (2), MS 250 reads MS 150
+        # AND MS 100 per key (4). `checked` counts pairs, so + 6. Every pair is exercised by this same loop.
+        self.assertEqual(checked, 182,
+                         "expected all 182 STORED declared (cell, base) pairs exercised, got %d" % checked)
         self.assertFalse([k for (_u, k) in self.cells if k == "cost_cladding"],
                          "a cladding declaration survived the 12c column drop")
 
@@ -16964,7 +17067,9 @@ class TestCladdingOnlySkus(FrappeTestCase):
         # made later that it never spoke to -- the `_without_pricing_input_items` idiom, applied here.
         # Everything else about ADP, and every other category, is still asserted byte-identical.
         y = []
-        for c in self.v17["category_configs"]:
+        # 12e-1: the `hvac_piping` config v34 added is normalised out on the NEW side -- this pin is about the
+        # v16 -> v17 mint and never spoke to a category added eighteen mints later.
+        for c in _without_12e1_piping_config(self.v17["category_configs"]):
             if c["category_id"] in skip:
                 continue
             if c["category_id"] == "hvac_adp":
@@ -17030,10 +17135,15 @@ class TestCladdingOnlySkus(FrappeTestCase):
         Keyed on the kind SUFFIX, so no discipline or category is named."""
         used = csv_exporter.pricing_input_used_by(
             {c["category_id"]: c for c in self.v17["category_configs"]})
-        self.assertEqual(len(used), 7, "expected the seven pricing inputs, got %r" % sorted(used))
+        # SLICE 12e-2: INVERTED under mechanical authority, 7 -> 11 -- the four Piping accessories inputs join,
+        # each read by the Piping config alone; the seven are still read by Insulation alone (the claim this
+        # test makes -- a catalogue row's own rate_ref is never reported as an input -- stands unchanged).
+        self.assertEqual(len(used), 11, "expected the seven Insulation inputs + the four Piping inputs, got %r" % sorted(used))
         self.assertNotIn(self.FAMILY, used)
+        piping = {"piping_accessories_copper", "piping_accessories_ms", "piping_accessories_pvc", "piping_accessories_cpvc"}
         for iid in used:
-            self.assertEqual(used[iid][1], ["hvac_insulation"], iid)
+            self.assertEqual(used[iid][1], ["hvac_piping"] if iid in piping else ["hvac_insulation"], iid)
+        self.assertEqual({iid for iid in used if iid in piping}, piping)
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════════════════
@@ -17281,9 +17391,10 @@ class TestServedRatesAreStored(FrappeTestCase):
                                  "%s %s %s: served rates differ from stored" % (d, it["kind"], it["item_uid"]))
                 counts[(d, it["kind"])] = counts.get((d, it["kind"]), 0) + 1
         self.assertEqual(counts[("HVAC", "hvac_insulation_item")], 233)   # SLICE 12d-4a: 229 + 4 Acoustic x GI
-        self.assertEqual(counts[("HVAC", "hvac_pricing_input")], 7)
+        self.assertEqual(counts[("HVAC", "hvac_pricing_input")], 11)   # 12e-2: 7 + the four Piping accessories inputs
         self.assertGreaterEqual(counts[("HVAC", "hvac_adp_item")], 1)
-        self.assertEqual(sum(v for (d, _k), v in counts.items() if d == "HVAC"), 335)
+        self.assertEqual(counts[("HVAC", "hvac_piping_item")], 40)   # 12e-1: the Piping catalogue
+        self.assertEqual(sum(v for (d, _k), v in counts.items() if d == "HVAC"), 379)   # 12e-1: 335 + 40; 12e-2: + 4 inputs
         self.assertEqual(sum(v for (d, _k), v in counts.items() if d == "Electrical"), 1402)
 
     def test_sv_02_the_display_figure_is_SERVED_in_its_own_map_and_the_GI_rows_still_get_555(self):
@@ -18079,8 +18190,9 @@ class TestEveryTypedFieldHasItsNote(FrappeTestCase):
                     self.assertTrue(v.strip(), "%s / %s has an empty note" % (c["category_id"], k))
                 checked += 1
         # ⚠️ 3 -> 4 at 12c-S: ADP's area field joined the rendered set (F3, measured on 12 families).
-        self.assertEqual(checked, 4,
-                         "ADP's size and area fields plus Insulation's two sizes")
+        # ⚠️ 4 -> 6 at 12e-2: Piping's two typed controls (the pipe type's "Other..." box and the pipe size).
+        self.assertEqual(checked, 6,
+                         "ADP's size and area fields, Insulation's two sizes, Piping's type and size")
 
     def test_an_05_ELECTRICAL_is_UNTOUCHED_and_the_rule_cannot_refuse_it(self):
         """⚠️ THE MECHANISM, not an exemption list. The whole block is read only when a config
@@ -18795,7 +18907,16 @@ class TestSlice12d1bAsset(FrappeTestCase):
         self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v30.json")   # 12d-4a: moved again
         self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v31.json")   # 12d-4aF: moved again
         self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v32.json")   # 12d-4c: moved again
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v33.json")
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v33.json")   # 12e-1: moved again
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v36.json")   # 12e-3a: moved again (BEFORE: assertEqual v36, 12e-2)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v37.json")   # 12e-4b: moved again (BEFORE: assertEqual v37, 12e-3a)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v38.json")   # 12e-5b: moved again (BEFORE: assertEqual v38, 12e-4b)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v39.json")   # 12e-5b C3: moved again (BEFORE: assertEqual v39, 12e-5b)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v40.json")   # 12e-5b2: moved again (BEFORE: assertEqual v40, 12e-5b C3)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v41.json")   # 12e-5c: moved again (BEFORE: assertEqual v41, 12e-5b2)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v42.json")   # 12e-6: moved again (BEFORE: assertEqual v42, 12e-5c)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v43.json")   # 12e-6b: moved again (BEFORE: assertEqual v43, 12e-6)
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v45.json")   # 12e-6b
 
     def test_v28_02_items_and_every_other_top_level_key_are_byte_identical(self):
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
@@ -18940,7 +19061,16 @@ class TestSlice12d2Asset(FrappeTestCase):
         self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v30.json")   # 12d-4a: moved again
         self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v31.json")   # 12d-4aF: moved again
         self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v32.json")   # 12d-4c: moved again
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v33.json")
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v33.json")   # 12e-1: moved again
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v36.json")   # 12e-3a: moved again (BEFORE: assertEqual v36, 12e-2)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v37.json")   # 12e-4b: moved again (BEFORE: assertEqual v37, 12e-3a)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v38.json")   # 12e-5b: moved again (BEFORE: assertEqual v38, 12e-4b)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v39.json")   # 12e-5b C3: moved again (BEFORE: assertEqual v39, 12e-5b)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v40.json")   # 12e-5b2: moved again (BEFORE: assertEqual v40, 12e-5b C3)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v41.json")   # 12e-5c: moved again (BEFORE: assertEqual v41, 12e-5b2)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v42.json")   # 12e-6: moved again (BEFORE: assertEqual v42, 12e-5c)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v43.json")   # 12e-6b: moved again (BEFORE: assertEqual v43, 12e-6)
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v45.json")   # 12e-6b
 
     def test_v29_02_items_and_every_other_top_level_key_are_byte_identical(self):
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
@@ -19056,7 +19186,16 @@ class TestSlice12d2FAsset(FrappeTestCase):
         self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v30.json")
         self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v31.json")   # 12d-4aF: moved again
         self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v32.json")   # 12d-4c: moved again
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v33.json")
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v33.json")   # 12e-1: moved again
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v36.json")   # 12e-3a: moved again (BEFORE: assertEqual v36, 12e-2)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v37.json")   # 12e-4b: moved again (BEFORE: assertEqual v37, 12e-3a)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v38.json")   # 12e-5b: moved again (BEFORE: assertEqual v38, 12e-4b)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v39.json")   # 12e-5b C3: moved again (BEFORE: assertEqual v39, 12e-5b)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v40.json")   # 12e-5b2: moved again (BEFORE: assertEqual v40, 12e-5b C3)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v41.json")   # 12e-5c: moved again (BEFORE: assertEqual v41, 12e-5b2)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v42.json")   # 12e-6: moved again (BEFORE: assertEqual v42, 12e-5c)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v43.json")   # 12e-6b: moved again (BEFORE: assertEqual v43, 12e-6)
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v45.json")   # 12e-6b
 
     def test_v30_02_items_and_every_other_top_level_key_are_byte_identical(self):
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
@@ -19283,7 +19422,16 @@ class TestSlice12d4aAsset(FrappeTestCase):
     def test_v31_01_INVERTED_the_current_asset_has_moved_past_v31(self):
         self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v31.json")   # 12d-4aF: moved again
         self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v32.json")   # 12d-4c: moved again
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v33.json")
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v33.json")   # 12e-1: moved again
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v36.json")   # 12e-3a: moved again (BEFORE: assertEqual v36, 12e-2)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v37.json")   # 12e-4b: moved again (BEFORE: assertEqual v37, 12e-3a)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v38.json")   # 12e-5b: moved again (BEFORE: assertEqual v38, 12e-4b)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v39.json")   # 12e-5b C3: moved again (BEFORE: assertEqual v39, 12e-5b)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v40.json")   # 12e-5b2: moved again (BEFORE: assertEqual v40, 12e-5b C3)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v41.json")   # 12e-5c: moved again (BEFORE: assertEqual v41, 12e-5b2)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v42.json")   # 12e-6: moved again (BEFORE: assertEqual v42, 12e-5c)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v43.json")   # 12e-6b: moved again (BEFORE: assertEqual v43, 12e-6)
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v45.json")   # 12e-6b
 
     def test_v31_02_exactly_four_new_items_every_existing_item_byte_identical_and_every_other_top_level_key_identical(self):
         prev = {it["item_uid"]: it for it in self.prev["items"]}
@@ -19460,7 +19608,16 @@ class TestSlice12d4aFAsset(FrappeTestCase):
 
     def test_v32_01_INVERTED_the_current_asset_has_moved_past_v32(self):
         self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v32.json")   # 12d-4c: moved again
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v33.json")
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v33.json")   # 12e-1: moved again
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v36.json")   # 12e-3a: moved again (BEFORE: assertEqual v36, 12e-2)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v37.json")   # 12e-4b: moved again (BEFORE: assertEqual v37, 12e-3a)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v38.json")   # 12e-5b: moved again (BEFORE: assertEqual v38, 12e-4b)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v39.json")   # 12e-5b C3: moved again (BEFORE: assertEqual v39, 12e-5b)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v40.json")   # 12e-5b2: moved again (BEFORE: assertEqual v40, 12e-5b C3)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v41.json")   # 12e-5c: moved again (BEFORE: assertEqual v41, 12e-5b2)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v42.json")   # 12e-6: moved again (BEFORE: assertEqual v42, 12e-5c)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v43.json")   # 12e-6b: moved again (BEFORE: assertEqual v43, 12e-6)
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v45.json")   # 12e-6b
 
     def test_v32_02_items_and_every_other_top_level_key_are_byte_identical(self):
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
@@ -19516,7 +19673,15 @@ class TestSlice12d4aFAsset(FrappeTestCase):
         was = loader._loaded_config(copy.deepcopy(self.ins_cur), "HVAC", self.cur.get("goldens") or {})
         self.assertNotEqual(json.dumps(live, sort_keys=True), json.dumps(was, sort_keys=True))
         self.assertEqual(live["list_spec"]["pricing"]["refuse_on_unit_class"][0]["families"], self.SHEET)
-        self.assertEqual(json.dumps(live["list_spec"]["pricing"], sort_keys=True), json.dumps(was["list_spec"]["pricing"], sort_keys=True))
+        # INVERTED at 12e-4b under mechanical authority (owner F-1: Insulation's pipe size takes a stocked size within
+        # 0.1 mm -- ONE pricing key, on the live config since v38). BEFORE:
+        #   assertEqual(json.dumps(live["list_spec"]["pricing"], sort_keys=True), json.dumps(was["list_spec"]["pricing"], sort_keys=True))
+        self.assertNotEqual(json.dumps(live["list_spec"]["pricing"], sort_keys=True), json.dumps(was["list_spec"]["pricing"], sort_keys=True))
+        # the rest of the claim is kept: with that one key taken out, the live pricing block IS the one this class pinned
+        # 12e-5b: v39 added Insulation keys too -- normalised out on the NEW side, NAMED (BEFORE:
+        #   _without_12e4b_pipe_size_near(live))
+        self.assertEqual(json.dumps(_without_12e4b_pipe_size_near(_without_12e5b_insulation(live))["list_spec"]["pricing"], sort_keys=True),
+                         json.dumps(was["list_spec"]["pricing"], sort_keys=True))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -19547,20 +19712,37 @@ class TestSlice12d4cAsset(FrappeTestCase):
     def _defs(cfg):
         return {d["id"]: d for d in cfg["list_spec"]["attribute_definitions"]}
 
-    def test_v33_01_the_current_asset_is_v33(self):
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v33.json")
+    def test_v33_01_INVERTED_the_current_asset_has_moved_past_v33(self):
+        # 12e-1: v34 = v33 + Piping; this class stays the record of the 12d-4c mint and reads v33 BY NAME
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v33.json")
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v36.json")   # 12e-3a: moved again (BEFORE: assertEqual v36, 12e-2)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v37.json")   # 12e-4b: moved again (BEFORE: assertEqual v37, 12e-3a)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v38.json")   # 12e-5b: moved again (BEFORE: assertEqual v38, 12e-4b)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v39.json")   # 12e-5b C3: moved again (BEFORE: assertEqual v39, 12e-5b)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v40.json")   # 12e-5b2: moved again (BEFORE: assertEqual v40, 12e-5b C3)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v41.json")   # 12e-5c: moved again (BEFORE: assertEqual v41, 12e-5b2)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v42.json")   # 12e-6: moved again (BEFORE: assertEqual v42, 12e-5c)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v43.json")   # 12e-6b: moved again (BEFORE: assertEqual v43, 12e-6)
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v45.json")   # 12e-6b
 
     def test_v33_02_items_and_every_other_top_level_key_are_byte_identical(self):
-        self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
-        self.assertEqual(len(self.cur["items"]), 335)
+        # 12e-1: v34 added the 40 Piping items; this pin is about the v32 -> v33 mint, so they are normalised
+        # out on the NEW side (`_without_12e1_piping_items`) and every other byte stays under full force.
+        # 12e-2: v36 added the four Piping accessories inputs; normalised out on the NEW side as well
+        cur_items = _without_12e2_piping_inputs(_without_12e1_piping_items(self.cur["items"]))
+        self.assertEqual(len(self.cur["items"]) - len(cur_items), 44, "exactly the 40 Piping items and the 4 Piping inputs are normalised out")
+        self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(cur_items, sort_keys=True))
+        self.assertEqual(len(cur_items), 335)
         for k in set(self.prev) | set(self.cur):
-            if k == "category_configs":
+            if k in ("category_configs", "items"):   # 12e-1: `items` is asserted above, normalised
                 continue
             self.assertEqual(json.dumps(self.prev.get(k), sort_keys=True), json.dumps(self.cur.get(k), sort_keys=True), k)
 
     def test_v33_03_every_config_but_insulation_is_byte_identical_NAMED(self):
         prev = {c["category_id"]: c for c in self.prev["category_configs"]}
-        cur = {c["category_id"]: c for c in self.cur["category_configs"]}
+        # 12e-1: v34 added the `hvac_piping` config; normalised out on the NEW side (this pin is about v32 -> v33)
+        self.assertEqual(len(self.cur["category_configs"]), 10)
+        cur = {c["category_id"]: c for c in _without_12e1_piping_config(self.cur["category_configs"])}
         self.assertEqual(set(prev), set(cur))
         self.assertEqual(len(cur), 9)
         for cid in sorted(cur):
@@ -19572,7 +19754,17 @@ class TestSlice12d4cAsset(FrappeTestCase):
         self.assertIs(prev["hvac_adp"]["list_spec"]["second_opinion"], False)
 
     def test_v33_04_insulation_differs_ONLY_in_the_two_notes_the_switch_and_the_trail(self):
-        a, b = self.ins_prev, self.ins_cur
+        # 12e-4b (owner F-1): the current asset's Insulation config carries ONE pricing key v33 did not --
+        # `numbers.pipe_size_mm.near`. This class is the record of the v32 -> v33 mint, so the key is normalised out on
+        # the NEW side and NAMED (BEFORE: `a, b = self.ins_prev, self.ins_cur`); the negative half follows.
+        self.assertNotEqual(json.dumps(self.ins_prev["list_spec"]["pricing"], sort_keys=True), json.dumps(self.ins_cur["list_spec"]["pricing"], sort_keys=True))
+        # 12e-5b: v39's Insulation additions and re-worded notes normalised out on the NEW side too, NAMED (BEFORE:
+        #   a, b = self.ins_prev, _without_12e4b_pipe_size_near(self.ins_cur))
+        # 12e-5c: v42's copied-text sentence normalised out on the NEW side too, NAMED (BEFORE:
+        #   a, b = self.ins_prev, _without_12e4b_pipe_size_near(_without_12e5b_insulation(self.ins_cur)))
+        # 12e-6: v43's three re-worded Insulation notes normalised out on the NEW side too, NAMED (BEFORE:
+        #   a, b = self.ins_prev, _without_12e4b_pipe_size_near(_without_12e5b_insulation(_without_12e5c_copied_text_sentence(self.ins_cur))))
+        a, b = self.ins_prev, _without_12e4b_pipe_size_near(_without_12e5b_insulation(_without_12e5c_copied_text_sentence(_without_12e6_insulation_notes(self.ins_cur))))
         diff = {k for k in set(a) | set(b) if json.dumps(a.get(k), sort_keys=True) != json.dumps(b.get(k), sort_keys=True)}
         self.assertEqual(diff, {"notes", "list_spec"})
         self.assertTrue(b["notes"].startswith(a["notes"]))

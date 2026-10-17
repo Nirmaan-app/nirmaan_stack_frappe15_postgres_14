@@ -29,6 +29,7 @@ from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
 from nirmaan_stack.services.boq_parser.orchestrator import ParsedBoq, parse_boq
 # Revision review-carry merge seam (ADR-0014 D6/D7, #1102). review_carry imports only frappe +
 # the pure services.boq_revision modules -- no cycle back into parse_run.
+from nirmaan_stack.api.boq.wizard import ai_run_log
 from nirmaan_stack.api.boq.wizard.review_carry import (
     merge_revision_review_carry,
     revision_source_boq,
@@ -748,6 +749,9 @@ def _run_parse_worker(
     if user:
         frappe.set_user(user)
 
+    # S2 (parse start): heal this BoQ's stale Claude runs; note which sheets were parsed before.
+    ai_prior_parsed = ai_run_log.on_parse_start(boq_name)
+
     tempfile_path = None
     parsed_sheets: list[str] = []
     failed_sheets: list[str] = []
@@ -976,6 +980,10 @@ def _run_parse_worker(
 
         # Commit BEFORE publish (CODING_STANDARDS.md rule: commit-before-publish avoids race conditions)
         frappe.db.commit()
+
+        # S2 (the ONE seam): the parse is committed -- queue the automatic Claude check, one job
+        # per sheet that ended "Parsed". Never raises; never runs the check inside this job.
+        ai_run_log.enqueue_after_parse(boq_name, parsed_sheets, user, ai_prior_parsed)
 
         # Step 8: Publish result targeted to the enqueueing user
         # `revision_carry` is OMITTED entirely on a non-revision parse, so the payload shape is
