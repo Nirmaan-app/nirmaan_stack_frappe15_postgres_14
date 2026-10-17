@@ -52,7 +52,7 @@ from nirmaan_stack.api.outflow_import.porter_records import (
     refuse_unless_porter_import,
     won_refusal,
 )
-from nirmaan_stack.api.outflow_import.review import StagedRow, refresh_batch_rollup
+from nirmaan_stack.api.outflow_import.review import StagedRow
 from nirmaan_stack.api.outflow_import.unreconcile_cleanup import resync_cashflow_hold
 from nirmaan_stack.services.outflow_import.import_comment import import_comment
 from nirmaan_stack.services.outflow_import.ledgers import PROJECT_EXPENSE_DOCTYPE
@@ -73,6 +73,7 @@ from nirmaan_stack.services.outflow_import.porter_wording import (
 )
 from nirmaan_stack.services.outflow_import.settle import ExpenseInvoice, create_expense_from_row
 from nirmaan_stack.services.outflow_import.status import ROW_ERROR, ROW_SETTLED
+from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup
 
 _JOB = "nirmaan_stack.api.outflow_import.porter_create.create_porter_import"
 

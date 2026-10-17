@@ -79,7 +79,7 @@ from frappe.utils import flt, nowdate
 # Read by `load_part_reconciled_split_families`, from the modules that own them -- the same slips
 # and statuses every settle path writes, never retyped here.
 from nirmaan_stack.services.cheque_payments import is_cheque
-from nirmaan_stack.services.cheques.rules import CHEQUE_REFUSES_SPLIT, cheque_payment_problem
+from nirmaan_stack.services.cheques.payment_rules import CHEQUE_REFUSES_SPLIT, cheque_payment_problem
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE, RECONCILIATION_PENDING
 from nirmaan_stack.services.payees.pay_to import copy_pay_to
@@ -421,7 +421,7 @@ def unsplit_payment(
     this payment's, at another status, or split again, or a balance term with no term to fold into.
 
     The split's transaction shape: both payments and the PO ``FOR UPDATE``, one savepoint, one PO save.
-    Nothing commits; the caller holds shut any trash hook that would (``_outflow_import_write``).
+    Nothing commits; the caller holds shut any trash hook that would (``outflow_import_write``).
     """
     frappe.db.sql(
         'SELECT name FROM "tabProject Payments" WHERE name IN %s ORDER BY name FOR UPDATE',

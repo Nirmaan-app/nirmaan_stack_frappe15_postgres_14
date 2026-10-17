@@ -33,6 +33,8 @@ from nirmaan_stack.integrations.Notifications.pr_notifications import (
 from nirmaan_stack.services import cheque_payments, payment_tds, settlement
 from nirmaan_stack.services.approval_tiers import STATUS_CEO_PENDING, status_after_l1
 from nirmaan_stack.services.cheques import decide
+from nirmaan_stack.services.cheques.writer import CHEQUES
+from nirmaan_stack.services.po_terms import TERM_NOOP, TERM_ORPHAN, TERM_UPDATED, sync_term_in_memory
 
 MAX_BATCH_SIZE = 100
 LEAD_ALLOWED_ROLE_PROFILES = (
@@ -502,10 +504,10 @@ def _process_group(
             if action == "approve" and approve_date_field:
                 pay.set(approve_date_field, nowdate())
 
-            sync_outcome = "noop"
+            sync_outcome = TERM_NOOP
             if po_doc is not None:
-                sync_outcome = _sync_po_term_in_memory(po_doc, pid, target_status)
-                if sync_outcome == "orphan":
+                sync_outcome = sync_term_in_memory(po_doc, pid, target_status)
+                if sync_outcome == TERM_ORPHAN:
                     frappe.log_error(
                         title=f"Bulk Payment Orphan Term ({pid})",
                         message=(
@@ -518,7 +520,7 @@ def _process_group(
             pay.flags.bulk_approval = True
             pay.save(ignore_permissions=True)
 
-            if sync_outcome == "updated":
+            if sync_outcome == TERM_UPDATED:
                 po_dirty = True
 
             # A PO cheque moves on to Reconciliation Pending right here, so the group's one PO
@@ -529,7 +531,7 @@ def _process_group(
                 and target_status == payment_tds.APPROVED
                 and cheque_payments.is_cheque(pay)
                 and cheque_payments.has_no_tds_to_wait_for(pay)
-                and _move_cheque_in_group(pid, po_doc) == "updated"
+                and _move_cheque_in_group(pid, po_doc) == TERM_UPDATED
             ):
                 po_dirty = True
 
@@ -594,7 +596,7 @@ def _process_cheque(
                 payment_ids[0], stage=stage, reason=rejection_reason, user=frappe.session.user
             )
     except Exception as exc:
-        cheque_no = frappe.db.get_value("Cheques", cheque, "cheque_no") or cheque
+        cheque_no = frappe.db.get_value(CHEQUES, cheque, "cheque_no") or cheque
         failed.append({
             "name": f"Cheque {cheque_no}",
             "reason": str(exc) or "Unknown error",
@@ -606,23 +608,6 @@ def _process_cheque(
     succeeded.extend(result["payments"])
 
 
-def _sync_po_term_in_memory(po_doc, payment_name: str, new_status: str) -> str:
-    """Mirrors ``_find_and_update_po_term`` but mutates in-memory; caller saves once.
-
-    Returns one of:
-      * ``"updated"`` — a term row was modified; caller should save the PO.
-      * ``"noop"``    — matching term row already had this status.
-      * ``"orphan"``  — no matching term row found (caller should log).
-    """
-    for term in po_doc.get("payment_terms") or []:
-        if term.project_payment == payment_name:
-            if term.term_status != new_status:
-                term.term_status = new_status
-                return "updated"
-            return "noop"
-    return "orphan"
-
-
 def _move_cheque_in_group(payment_name: str, po_doc) -> str | None:
     """Move a just-approved cheque on to Reconciliation Pending INSIDE its approval group.
 
@@ -631,7 +616,7 @@ def _move_cheque_in_group(payment_name: str, po_doc) -> str | None:
     Pending in memory, so the group's ONE PO save writes it -- a separate move re-saved the whole
     PO per cheque (measured on 100 rows: 25 -> 50 PO saves, 2.2s -> 4.0s).
 
-    Returns the term sync outcome (`"updated"` means the PO needs its save), or None when nothing
+    Returns the term sync outcome (`TERM_UPDATED` means the PO needs its save), or None when nothing
     moved.
 
     ⚠️ ITS OWN SAVEPOINT, AND A FAILED MOVE IS NOT A FAILED APPROVAL. The approval is already saved
@@ -655,8 +640,8 @@ def _move_cheque_in_group(payment_name: str, po_doc) -> str | None:
     if not moved:
         return None
     if po_doc is None:
-        return "noop"
-    return _sync_po_term_in_memory(po_doc, payment_name, settlement.STATUS_RECONCILIATION_PENDING)
+        return TERM_NOOP
+    return sync_term_in_memory(po_doc, payment_name, settlement.STATUS_RECONCILIATION_PENDING)
 
 
 def _add_rejection_comments(payment_ids: list[str], rejection_reason: str):

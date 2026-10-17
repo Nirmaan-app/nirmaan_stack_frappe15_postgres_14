@@ -27,7 +27,7 @@ from nirmaan_stack.api.outflow_import.review import get_outflow_rows, match_batc
 from nirmaan_stack.api.outflow_import.test_review import _stage_icici_statement
 from nirmaan_stack.api.outflow_import.unreconcile import plan_of_line, unreconcile_line
 from nirmaan_stack.api.payments.project_payments import update_payment_request
-from nirmaan_stack.services.cheques.rules import BANK_APPROVAL_NOTE, BANK_REVIVAL_NOTE
+from nirmaan_stack.services.cheques.bank_import_rules import BANK_APPROVAL_NOTE, BANK_REVIVAL_NOTE
 from nirmaan_stack.services.cheques.status import cancel, clear
 
 PAYMENT = "Project Payments"

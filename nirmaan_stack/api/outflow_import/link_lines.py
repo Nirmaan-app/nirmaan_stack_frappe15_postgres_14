@@ -26,9 +26,6 @@ from nirmaan_stack.api.outflow_import.expenses import (
     concurrent_writer_refusal_as_sentence,
     _guard_is_a_debit,
     _guard_money_not_recorded,
-    _link_statement_file_to_target,
-    _record_settlement,
-    _refresh_row_allocation,
     _statement_file_url,
     guard_not_an_own_import_line,
 )
@@ -36,7 +33,6 @@ from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.review import (
     ROW_DOCTYPE,
     StagedRow,
-    refresh_batch_rollup,
     derive_batch_status,
 )
 from nirmaan_stack.services.outflow_import.expense_links import (
@@ -56,6 +52,12 @@ from nirmaan_stack.services.outflow_import.settle import (
     link_lines_to_expense,
 )
 from nirmaan_stack.services.outflow_import.status import OPEN_ROW_STATUSES, RECORDED_ACTION_LINK
+from nirmaan_stack.services.outflow_import.row_settlement import (
+    link_statement_file_to_target,
+    record_settlement,
+    refresh_batch_rollup,
+    refresh_row_allocation,
+)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -74,7 +76,7 @@ def link_rows_to_expense(rows, target_doctype: str, target_name: str, confirm_mi
     names = _parse_rows(rows)
     with concurrent_writer_refusal_as_sentence("link_rows_to_expense", names[0]):
         done = _link_and_commit(names, target_doctype, target_name, confirm_mismatch)
-    _link_statement_file_to_target(done["statement_file_url"], done["result"])
+    link_statement_file_to_target(done["statement_file_url"], done["result"])
 
     links = load_expense_links(target_doctype, target_name)
     expense = frappe.db.get_value(
@@ -130,7 +132,7 @@ def _link_and_commit(names, target_doctype, target_name, confirm_mismatch):
 
         def record_link(staged, result):
             results[staged.name] = result
-            _record_settlement(staged, docs_by_row[staged.name], result, actor)
+            record_settlement(staged, docs_by_row[staged.name], result, actor)
 
         result = link_lines_to_expense(
             [staged for staged, _ in loaded],
@@ -144,7 +146,7 @@ def _link_and_commit(names, target_doctype, target_name, confirm_mismatch):
             {
                 "row": staged.name,
                 # `result` feeds the note's amount-correction suffix, which only the 1:1 shape has.
-                "row_status": _refresh_row_allocation(staged.name, actor, results[staged.name]),
+                "row_status": refresh_row_allocation(staged.name, actor, results[staged.name]),
             }
             for staged, _ in loaded
         ]

@@ -167,11 +167,16 @@ from nirmaan_stack.services.outflow_import.status import (
     RowOutcome,
 )
 # Pure: which lines are cheque lines, and what a line no Payment cheque claims says (#1485).
-from nirmaan_stack.services.cheques.rules import bank_cheque_key, no_payment_cheque_note
+from nirmaan_stack.services.cheques.bank_import_rules import bank_cheque_key, no_payment_cheque_note
+from nirmaan_stack.services.outflow_import.row_settlement import (
+    BATCH_DOCTYPE,
+    MATCH_DOCTYPE,
+    ROW_DOCTYPE,
+    link_statement_file_to_target,
+    refresh_batch_rollup,
+    row_statuses,
+)
 
-BATCH_DOCTYPE = "Outflow Import Batch"
-ROW_DOCTYPE = "Outflow Import Row"
-MATCH_DOCTYPE = "Outflow Row Match"
 
 # ⚠️ `Partially Allocated` JOINS THIS SET AND THAT IS THE WHOLE SAFETY ARGUMENT FOR ADR-0020.
 # `match_batch` skips these rows; everything else re-persists an outcome, and `_persist_row_outcome`
@@ -329,7 +334,7 @@ def _match_rows(batch: str, matchable) -> dict:
     # plan its own job reads, and this run would clear it. The rollup is not refreshed either: the
     # Cashbook job owns that batch's counters.
     if not source_runs_the_matcher(_batch_source(batch)):
-        statuses = _row_statuses(batch)
+        statuses = row_statuses(batch)
         return _run_result(batch, 0, statuses)
 
     # ⚠️ THE FORK IS HERE, ABOVE EVERYTHING, AND IT IS A DIFFERENT PATH RATHER THAN A FILTER (slice
@@ -520,17 +525,15 @@ def _guard_duplicates_only(batch: str, matchable) -> dict:
 
 def _link_statement_after_commit(cleared) -> None:
     """Give each payment a cheque line paid its own `File` row for the statement, once the match run's
-    caller has committed (the File insert commits by itself; see `expenses._link_statement_file_to_target`).
+    caller has committed (the File insert commits by itself; see `row_settlement.link_statement_file_to_target`).
     A rollback of the run drops the callback with it."""
     if not cleared.statement_file_url or not cleared.payments:
         return
     from types import SimpleNamespace
 
-    from nirmaan_stack.api.outflow_import.expenses import _link_statement_file_to_target
-
     def link():
         for payment in cleared.payments:
-            _link_statement_file_to_target(
+            link_statement_file_to_target(
                 cleared.statement_file_url, SimpleNamespace(doctype=C.PAYMENT_DOCTYPE, name=payment)
             )
 
@@ -814,7 +817,7 @@ def _persist_row_outcome(
     #
     # ⚠️ SCOPED TO `Settled`, SO A REVERSED LEG SURVIVES A RE-MATCH (whole-branch review, F4). The
     # `Settled`-is-frozen argument above does NOT cover a row whose legs were ALL reversed: that row
-    # is returned to `Matched`/`Mismatched` by `_refresh_row_allocation`, deliberately, so it can be
+    # is returned to `Matched`/`Mismatched` by `refresh_row_allocation`, deliberately, so it can be
     # reconsidered -- and the most natural next action after a reversal is exactly "now re-run the
     # match", which arrived here and hard-deleted the `Reversed` records. "A wrong leg is
     # soft-reversed, NEVER deleted" is the entire justification for ADR-0020 D3 and for the partial
@@ -4130,36 +4133,9 @@ def _load_rows(batch: str, row: str = None) -> list:
     )
 
 
-def refresh_batch_rollup(batch: str) -> list:
-    """Recompute the batch's counters and status from its rows. `status.py` is the only deriver.
-
-    ⚠️ THERE IS NO CLOSE ANY MORE. `closed_at` was already excluded from the status derivation when
-    `Completed with exceptions` was retired; the close ACTION itself went at the 2026-08-10 owner
-    ruling (see the note where its endpoints used to be). The field survives on the doctype holding
-    the history of batches closed before then, and nothing writes or reads it.
-    """
-    statuses = _row_statuses(batch)
-    values = dict(derive_batch_counters(statuses))
-    values["status"] = derive_batch_status(statuses)
-    frappe.db.set_value(BATCH_DOCTYPE, batch, values, update_modified=False)
-    return statuses
-
-
 # The old private name, kept ONLY for `patches/v3_0/delete_stored_exact_repeats.py`, which imports it:
 # patches are append-only, so that file cannot be changed to the public name. Nothing else may use it.
 _refresh_batch_rollup = refresh_batch_rollup
-
-
-def _row_statuses(batch: str) -> list:
-    """Every row's status in `batch` -- the one input the rollup deriver reads. Reads only."""
-    return [
-        r["row_status"] or ""
-        for r in frappe.db.sql(
-            """SELECT row_status FROM "tabOutflow Import Row" WHERE import_batch = %s""",
-            (batch,),
-            as_dict=True,
-        )
-    ]
 
 
 @frappe.whitelist()

@@ -11,6 +11,11 @@ its payments' approval issues it (#1479), and `old_type_reason` says which pre-#
 Old-type. `services/cheques/writer.py` is the only code that writes a Cheque;
 it and the `validate` controller both ask this module.
 
+The rest of the Cheque's pure rules sit beside it, one concern each: `edit_rules` (editing, and what the
+Tracker's Add and Edit take), `payment_rules` (what a cheque payment refuses), `approval_rules` (one
+cheque, one decision), `clear_rules` (clear, cancel, a deposit's moves) and `bank_import_rules` (the
+bank import's cheque pass).
+
 Each `*_problem` function returns the refusal a user reads, or None.
 """
 
@@ -19,7 +24,6 @@ from dataclasses import dataclass
 
 from frappe.utils import flt
 
-from nirmaan_stack.services.approval_tiers import status_after_l1
 from nirmaan_stack.services.settlement import (
     STATUS_APPROVED,
     STATUS_CEO_PENDING,
@@ -380,274 +384,12 @@ def payment_duplicate_problem(header: ChequeHeader, *, made_from: str) -> str:
     )
 
 
-# -- editing a Cheque (#1418) --------------------------------------------------------------------
-#: The header fields an edit compares. The photo (`attachment`) is apart: it may always be replaced.
-EDITABLE_HEADER_FIELDS = (
-    "bank", "bank_name", "cheque_no", "cheque_date", "amount", "vendor", "payee_name", "description",
-)
-#: What a Cheque made from the PO/WO page keeps, so it stays in step with the payment it came from,
-#: while a Project Payment is still on it (`edit_problem`).
-LOCKED_ON_PO_WO_PAGE = {"cheque_no": "number", "cheque_date": "date", "amount": "amount"}
-#: The statuses at which a Cheque's fields and lines may still be edited; any other status is photo only.
-#: A Payment cheque's lines change only while Pending (#1482, spec #1477): once its payments are approved
-#: it is Issued, and its payments and the bank line follow it as it is.
-EDITABLE_STATUSES = (PENDING,)
-#: A Security Deposit cheque is Issued from the start and changes while it is (#1486, story 79); once
-#: Cancelled only its photo can change.
-DEPOSIT_EDITABLE_STATUSES = (ISSUED,)
-
-
-def editable_statuses(cheque_type: str) -> tuple:
-    """The statuses at which a Cheque of `cheque_type` may change more than its photo."""
-    return DEPOSIT_EDITABLE_STATUSES if cheque_type == CHEQUE_TYPE_SECURITY_DEPOSIT else EDITABLE_STATUSES
-
-
-def edit_access_problem(
-    *, status: str, owner: str, user: str, any_cheque: bool, cheque_type: str = CHEQUE_TYPE_PAYMENT
-) -> str | None:
-    """Why `user` may not edit this Cheque, or None. `any_cheque` is True for Admin, Accountant and
-    Accountant Lead; anyone else who may use cheques (Procurement) edits only the Cheques they created,
-    a Payment cheque while Pending (C6), a Security Deposit cheque while Issued (`editable_statuses`)."""
-    if any_cheque or (status in editable_statuses(cheque_type) and owner == user):
-        return None
-    if cheque_type == CHEQUE_TYPE_SECURITY_DEPOSIT:
-        return "You can edit only the Issued Security Deposit cheques you created."
-    return "You can edit only the Pending cheques you created."
-
-
-def _join(words: list[str]) -> str:
-    return words[0] if len(words) == 1 else f"{', '.join(words[:-1])} and {words[-1]}"
-
-
-def edit_problem(
-    before: ChequeHeader,
-    after: ChequeHeader,
-    *,
-    status: str,
-    made_from: str,
-    lines_before: list[ChequeLineInput],
-    lines_after: list[ChequeLineInput],
-    old_type: bool = False,
-    cheque_type: str = CHEQUE_TYPE_PAYMENT,
-) -> str | None:
-    """Why this edit of a Cheque cannot be saved, or None. The rules are the ones the editor sees:
-
-    * the photo can be replaced, never removed;
-    * an Old-type cheque (spec #1477) can change only its photo, whatever its status;
-    * an Issued, Cleared or Cancelled Payment cheque can change only its photo (`EDITABLE_STATUSES`); a
-      Security Deposit cheque changes in full while Issued and only its photo once Cancelled (#1486);
-    * a Pending Cheque made from the PO/WO page keeps its number, date and amount while it still has a
-      Project Payment line (they stay in step with the payment), but its other fields and its lines can
-      change. With no Project Payment line left (removed or swapped out) it edits like a Tracker-made
-      Cheque;
-    * a Pending Cheque made in the Tracker can change everything;
-    * any line can come off a Pending Cheque. A Project Payment taken off switches back to Online
-      (`payments_taken_off`), and its status stays as it is.
-
-    What a Payment cheque's header and lines may hold is `tracker_payment_cheque_problem`.
-
-    The header and line rules every save runs (one payee, a live Cheque per payment, ...) are the
-    `validate` controller's, not repeated here.
-    """
-    if before.attachment and not after.attachment:
-        return "The cheque's photo can be replaced, not removed."
-    changed = [f for f in EDITABLE_HEADER_FIELDS if getattr(before, f) != getattr(after, f)]
-    if old_type and (changed or lines_before != lines_after):
-        return f"Cheque {before.cheque_no} is an Old-type cheque: only its photo can change."
-    if status not in editable_statuses(cheque_type):
-        if changed or lines_before != lines_after:
-            return f"Cheque {before.cheque_no} is {status}: only its photo can change."
-        return None
-    if made_from == MADE_FROM_PO_WO_PAGE and any(line.payment_doctype == PAYMENT_DOCTYPE for line in lines_before):
-        locked = [LOCKED_ON_PO_WO_PAGE[f] for f in changed if f in LOCKED_ON_PO_WO_PAGE]
-        if locked:
-            return (
-                f"Cheque {before.cheque_no} was made from the PO/WO page, so its {_join(locked)} cannot "
-                f"change here: change {'it' if len(locked) == 1 else 'them'} on the payment."
-            )
-    return None
-
-
-def payments_taken_off(lines_before: list[ChequeLineInput], lines_after: list[ChequeLineInput]) -> list[str]:
-    """The Project Payments `lines_before` hold and `lines_after` do not, in line order. A payment taken
-    off a Pending Cheque switches back to Online at its own step (owner ruling, spec #1407 story 82)."""
-    kept = {line.payment_name for line in lines_after if line.payment_doctype == PAYMENT_DOCTYPE}
-    return [
-        line.payment_name
-        for line in lines_before
-        if line.payment_doctype == PAYMENT_DOCTYPE and line.payment_name and line.payment_name not in kept
-    ]
-
-
-def taken_off_note(payment: str) -> str:
-    """The Cheque's history note for a payment an edit took off it."""
-    return f"Payment {payment} was taken off the cheque, so it switched back to Online."
-
-
-#: A Cheque payment's Cheque that no longer holds it to the cheque: Cancelled, or none at all (a
-#: payment the backfill could not give a Cheque, its number refused). `None` is "no Cheque".
-_RELEASED_CHEQUE_STATUSES = (CANCELLED, None)
-
-
-def mode_change_problem(
-    *,
-    was_cheque: bool,
-    now_cheque: bool,
-    cheque: str | None,
-    old_cheque_status: str | None,
-    on_old_cheque_lines: bool,
-) -> str | None:
-    """Why a payment's Mode of Payment may not change this way, or None (spec #1407). The Project
-    Payments `validate` asks it on every save.
-
-    Online -> Cheque happens when the cheques service puts the payment on a Cheque, which sets the
-    `cheque` link in the same save. Cheque -> Online only once nothing holds the payment to its Cheque:
-    that Cheque (`old_cheque_status`) is Cancelled, or it was on none, or its line has come off it
-    (`on_old_cheque_lines` False: an edit took it off, #1418).
-    """
-    if was_cheque == now_cheque:
-        return None
-    if now_cheque:
-        return None if cheque else "An Online payment becomes a Cheque payment by putting it on a Cheque."
-    if old_cheque_status not in _RELEASED_CHEQUE_STATUSES and on_old_cheque_lines:
-        return "A Cheque payment goes back to Online only once its Cheque is Cancelled."
-    return None
-
-
-# -- a Payment cheque made or edited in the Cheque Tracker (#1482, spec #1477) ------------------
-#: The steps a payment may be at to be put on a Payment cheque: waiting for approval, or approved and
-#: not yet moved on (the cheque is then Issued at once). A cheque's payments are approved together, so
-#: they are all at one step.
-PICKABLE_STEPS = (STATUS_REQUESTED, STATUS_CEO_PENDING, STATUS_APPROVED)
-
-
-@dataclass(frozen=True)
-class TrackerLine:
-    """One line of a Payment cheque the Tracker saves, with what its rules need to know."""
-
-    line: ChequeLineInput
-    #: New on this save: every line of a new cheque; on an edit, a line the cheque did not hold.
-    added: bool
-    #: The status of the payment the line names; None while it names none.
-    payment_status: str | None = None
-    on_hold: bool = False
-
-
-def line_identity(line: ChequeLineInput) -> tuple:
-    """What a line pays, to tell an edit's added lines from the ones it kept: its kind, record and
-    payment. The same line with another amount typed is not added."""
-    return (line.line_type, line.record_doctype, line.record_name, line.payment_name)
-
-
-def tracker_payment_cheque_problem(header: ChequeHeader, lines: Sequence[TrackerLine]) -> str | None:
-    """Why the Cheque Tracker cannot save this Payment cheque, new or edited, or None. Pure.
-
-    * It is made out to a Vendor: no typed payee (spec #1477 Q17).
-    * It has at least one line: no Ad-hoc Payment cheque.
-    * Each added line is a PO payment: no Work Order line (Work Order payments are paid Online) and no
-      expense line (Q11). A Work Order line already on a cheque from before stays.
-    * Each added payment is at Requested, CEO Pending or Approved (`PICKABLE_STEPS`) and not on hold.
-    * When a payment is added, every payment on the cheque is at the same step, since they are
-      approved together (C1). Otherwise the payments already on it are not judged again.
-
-    The rules every save runs (the Vendor's PO in the line's project, one live cheque per payment, ...)
-    are the `validate` controller's (`lines.lines_problem`).
-    """
-    if not header.vendor:
-        return "A Payment cheque is made out to a Vendor: pick the Vendor, not a typed payee."
-    if not lines:
-        return "Add at least one PO payment: a Payment cheque pays the PO payments on its lines."
-    for n, tracker in enumerate(lines, 1):
-        line = tracker.line
-        if tracker.added and (line.line_type != LINE_PO_WO_PAYMENT or line.record_doctype != PO_DOCTYPE):
-            return (
-                f"Line {n}: a Payment cheque pays PO payments only. Work Order payments are paid Online, "
-                "and expenses are not paid by cheque."
-            )
-    picked = [(n, t) for n, t in enumerate(lines, 1) if t.added and t.line.payment_name]
-    for n, tracker in picked:
-        status = (tracker.payment_status or "").strip()
-        if status not in PICKABLE_STEPS:
-            return (
-                f"Line {n}: payment {tracker.line.payment_name} is {status or 'not found'}: only a Requested, "
-                "CEO Pending or Approved payment can be put on a cheque."
-            )
-        if tracker.on_hold:
-            return f"Line {n}: payment {tracker.line.payment_name} is on hold: release the hold first."
-    if picked:
-        named = [t for t in lines if t.line.payment_name]
-        if len({(t.payment_status or "").strip() for t in named}) > 1:
-            steps = ", ".join(f"{t.line.payment_name} is {t.payment_status}" for t in named)
-            return f"A cheque's payments are approved together, so they must be at the same step: {steps}."
-    if any((t.payment_status or "").strip() == STATUS_APPROVED for t in lines if t.line.payment_name):
-        return _approved_cheque_problem(header, lines)
-    return None
-
-
-def _approved_cheque_problem(header: ChequeHeader, lines: Sequence[TrackerLine]) -> str | None:
-    """Approved payments issue their cheque at once, so it must already meet the approval conditions
-    (`approval_problem`): every line names a payment and the lines add up to the cheque amount."""
-    for n, tracker in enumerate(lines, 1):
-        if not tracker.line.payment_name:
-            return (
-                f"Line {n} has no payment yet, but the cheque's payments are Approved, so it is Issued at once. "
-                "Pick that line's payment, or take the line off."
-            )
-    return approval_problem(
-        cheque_no=header.cheque_no or "",
-        amount=header.amount,
-        lines=[ApprovalLine(payment=t.line.payment_name, record=t.line.record_name, amount=t.line.amount)
-               for t in lines],
-    )
-
-
-# -- what a cheque payment refuses (spec #1477, ADR-0035, #1487) ---------------------------------
-def cheque_mode_problem(document_type: str | None) -> str | None:
-    """Why a payment of a `document_type` record cannot be paid by cheque, or None. Only a PO payment can:
-    Work Order payments are paid Online. The Project Payments `validate` asks it when a payment becomes
-    a Cheque payment; a Work Order cheque payment already in flight finishes as it is."""
-    if document_type == PO_DOCTYPE:
-        return None
-    return "A Work Order payment is paid Online: only a PO payment can be paid by cheque."
-
-
-#: The one-payment actions a cheque payment refuses. A cheque's payments are approved, paid or rejected
-#: together (one cheque, one decision), so none of them may move alone; cancelling the cheque is the undo.
-CHEQUE_REFUSES_HOLD = "hold"
-CHEQUE_REFUSES_REVERT = "revert"
-#: CEO part-approval and the bank import's part-settlement, both `payment_split.split_payment`.
-CHEQUE_REFUSES_SPLIT = "split"
-#: A hand settle from the import's decision dialog, and the payments screen's fulfil: clearing pays them.
-CHEQUE_REFUSES_PAY = "pay"
-_CANCEL_INSTEAD = "a cheque's payments move together. Cancel the cheque in the Cheque Tracker instead."
-_CHEQUE_REFUSALS = {
-    CHEQUE_REFUSES_HOLD: f"cannot be put on hold: {_CANCEL_INSTEAD}",
-    CHEQUE_REFUSES_REVERT: f"cannot go back to Approved: {_CANCEL_INSTEAD}",
-    CHEQUE_REFUSES_SPLIT: "cannot be split: a cheque pays its payments in full or not at all.",
-    CHEQUE_REFUSES_PAY: (
-        "cannot be paid on its own: a cheque's payments are paid when the cheque is cleared. Clear it in the "
-        "Cheque Tracker, where its bank line can be linked."
-    ),
-}
-CHEQUE_PAYMENT_ACTIONS = tuple(_CHEQUE_REFUSALS)
-
-
-def cheque_payment_problem(payment: str, action: str, *, is_cheque: bool, cheque_no: str | None = None) -> str | None:
-    """Why `action` (a `CHEQUE_REFUSES_*`) is refused on `payment`, or None for an Online payment.
-    `cheque_no` names the cheque in the refusal when known."""
-    refusal = _CHEQUE_REFUSALS[action]
-    if not is_cheque:
-        return None
-    cheque = f"cheque {cheque_no}" if cheque_no else "cheque"
-    return f"{payment} is paid by {cheque}, so it {refusal}"
-
-
 # -- a Payment cheque follows its payments (spec #1477, ADR-0035) --------------------------------
 #: The payment statuses each cheque status stands for. A Rejected payment is apart: it counts only when
 #: every payment on the cheque is Rejected (`status_from_payments`).
-_WAITING = (STATUS_REQUESTED, STATUS_CEO_PENDING)
+WAITING_STATUSES = (STATUS_REQUESTED, STATUS_CEO_PENDING)
 _APPROVED = (STATUS_APPROVED, STATUS_RECONCILIATION_PENDING)
-_KNOWN_PAYMENT_STATUSES = _WAITING + _APPROVED + (STATUS_PAID, STATUS_REJECTED)
+_KNOWN_PAYMENT_STATUSES = WAITING_STATUSES + _APPROVED + (STATUS_PAID, STATUS_REJECTED)
 
 
 def status_from_payments(payment_statuses: Sequence[str | None]) -> str | None:
@@ -668,7 +410,7 @@ def status_from_payments(payment_statuses: Sequence[str | None]) -> str | None:
     statuses = [None if s is None else s.strip() for s in payment_statuses]
     if any(s is not None and s not in _KNOWN_PAYMENT_STATUSES for s in statuses):
         return None
-    if any(s is None or s in _WAITING for s in statuses):
+    if any(s is None or s in WAITING_STATUSES for s in statuses):
         return PENDING
     live = [s for s in statuses if s != STATUS_REJECTED]
     if not live:
@@ -711,12 +453,10 @@ def old_type_reason(*, vendor: str | None, payee_name: str | None, line_types: S
     return None
 
 
-# -- approving a Payment cheque's payments: one cheque, one decision (#1480, spec #1477) ----------
+# -- amounts, numbers and dates, as every rules module words them ------------------------------
 #: How far a Payment cheque's lines may be from its amount and still be approved (C2): the bank line
 #: that clears the cheque is matched within the same ₹5 (`outflow_import/amounts.AMOUNT_TOLERANCE`).
 LINES_TOLERANCE = 5.0
-#: The payment steps that wait for an approval, and where an approval can land a payment.
-_APPROVAL_TARGETS = (STATUS_CEO_PENDING, STATUS_APPROVED)
 
 
 def rupees(amount) -> str:
@@ -735,114 +475,6 @@ def rupees(amount) -> str:
     return f"{sign}₹{text}" + (f".{int(paise):02d}" if paise else "")
 
 
-@dataclass(frozen=True)
-class ApprovalLine:
-    """One Cheque line as the approval rules read it: the payment it names (None: "No payment yet"),
-    its PO (to name the line in a refusal) and its amount."""
-
-    payment: str | None
-    record: str | None
-    amount: float
-
-
-def approval_problem(*, cheque_no: str, amount, lines: Sequence[ApprovalLine]) -> str | None:
-    """Why a Payment cheque's payments cannot be approved yet, or None. Pure.
-
-    Approving needs every line to name a payment (a "No payment yet" line is named, story 12) and the
-    lines to add up to the cheque amount within `LINES_TOLERANCE` (C2, story 13): the bank line that
-    clears the cheque equals the cheque amount and pays the payments, so a gap leaves money unexplained.
-    """
-    if not lines:
-        return f"Cheque {cheque_no} has no lines, so it has no payments to approve."
-    for n, line in enumerate(lines, 1):
-        if not line.payment:
-            return (
-                f"Line {n} of cheque {cheque_no} has no payment yet ({line.record}, {rupees(line.amount)}). "
-                "Pick its payment in the Cheque Tracker first; then all payments on the cheque are approved "
-                "together."
-            )
-    # `round`, not `flt(x, 2)`: Frappe's rounding reads the site's settings, and this module needs none.
-    total = round(sum(flt(line.amount) for line in lines), 2)
-    if abs(total - round(flt(amount), 2)) > LINES_TOLERANCE:
-        return (
-            f"The lines of cheque {cheque_no} add up to {rupees(total)}, but the cheque is for {rupees(amount)}. "
-            f"Correct them in the Cheque Tracker first: they must agree within {rupees(LINES_TOLERANCE)}."
-        )
-    return None
-
-
-def decision_step_problem(payment_statuses: Sequence[tuple[str, str | None]], *, expected: str) -> str | None:
-    """Why a cheque's payments are not all at the `expected` step, naming each one that is not, or None.
-    Pure. `payment_statuses` holds `(payment, status)` for every line. One cheque moves as one."""
-    off = [f"{name} is {(status or '').strip() or 'blank'}" for name, status in payment_statuses
-           if (status or "").strip() != expected]
-    if off:
-        return f"Every payment on the cheque must be {expected} to approve it together: {_join(off)}."
-    return None
-
-
-def is_approval(from_status: str | None, to_status: str | None) -> bool:
-    """Is this payment save an approval: a move out of a step that waits (Requested, CEO Pending) on to
-    the next one (CEO Pending, Approved)? Pure. Born approved (no `from_status`), Revert to Approved and
-    Unreconcile's Paid -> Approved are not."""
-    before, after = (from_status or "").strip(), (to_status or "").strip()
-    return before in _WAITING and after in _APPROVAL_TARGETS and before != after
-
-
-def lone_approval_problem(
-    *,
-    cheque_no: str,
-    payment_lines: int,
-    deciding: bool,
-    from_status: str,
-    to_status: str,
-    cheque_amount,
-) -> str | None:
-    """Why this approval of one payment on a Payment cheque is refused, or None (story 32). Pure.
-
-    The payment's own `validate` asks it, so no path approves a cheque payment apart from its cheque:
-    a save made by the cheque's decision (`deciding`, `services/cheques/decide.py`) passes; any other
-    is refused while the cheque has other lines (`payment_lines` counts them all, "No payment yet" ones
-    included), or when it lands where the cheque amount does not (C3: L1 forwards to the CEO above
-    ₹50,000 of CHEQUE, whatever the payment's own amount).
-    """
-    if deciding:
-        return None
-    if payment_lines > 1:
-        return (
-            f"This payment is on cheque {cheque_no} with {payment_lines - 1} other line(s). A cheque is approved "
-            f"as one: approve all {payment_lines} together from the payment's approval dialog."
-        )
-    expected = status_after_l1(cheque_amount) if (from_status or "").strip() == STATUS_REQUESTED else STATUS_APPROVED
-    if (to_status or "").strip() != expected:
-        needs = "CEO approval as well" if expected == STATUS_CEO_PENDING else "L1 approval only"
-        return f"Cheque {cheque_no} is for {rupees(cheque_amount)}, so its payments need {needs}."
-    return None
-
-
-# -- clearing and cancelling a cheque (#1484, spec #1477, ADR-0035) -------------------------------
-#: The statuses each way of clearing may start from. By hand: Issued only (Q34). The bank import (#1485)
-#: clears at any live status, because the bank has already paid: from Pending its payments are approved
-#: by the import first, from Cancelled its Rejected payments are revived (`status.clear` does both).
-CLEARABLE_FROM = {
-    CLEARED_BY_HAND: (ISSUED,),
-    CLEARED_BY_BANK_IMPORT: (ISSUED, PENDING, CANCELLED),
-}
-#: The starts the bank import brings to Reconciliation Pending itself before it pays (`status.clear`).
-BANK_BRINGS_FORWARD = (PENDING, CANCELLED)
-#: Why a cheque at a status no clear starts from cannot be cleared.
-_NOT_CLEARABLE = {
-    PENDING: "it is Pending: its payments are not approved yet",
-    CANCELLED: "it is Cancelled: its payments are Rejected",
-}
-#: The bank-statement source whose lines clear cheques, and the direction that spends money
-#: (`outflow_import/sources.BANK_STATEMENT_SOURCES`, `outflow_import/parser.DIRECTION_DEBIT`).
-ICICI_STATEMENT_SOURCE = "ICICI Bank Statement"
-DIRECTION_DEBIT = "Debit"
-#: An imported line nobody has matched yet (`api/outflow_import/review._NOT_MATCHED_STATUSES`).
-UNMATCHED_LINE_STATUSES = ("Pending match run", "Mismatched", "Error")
-
-
 def cheque_no_key(value) -> str:
     """The form a cheque number is compared in, against a bank statement: spaces removed, a spreadsheet's
     trailing ".0" dropped and leading zeros stripped ("000747", "747" and "747.0" are all "747"). Blank
@@ -855,284 +487,14 @@ def cheque_no_key(value) -> str:
     return text.lstrip("0") or "0"
 
 
-def clear_problem(
-    *,
-    status: str,
-    cheque_type: str,
-    old_type: bool,
-    cleared_by: str,
-    payments: Sequence[tuple[str, str | None]],
-    bank_line: bool,
-) -> str | None:
-    """Why this cheque cannot be cleared, as a short reason ("already Cleared"), or None. Pure.
-
-    `payments` holds `(payment, status)` for every Project Payment its lines name. Clearing pays them,
-    so each must be waiting for the bank (Reconciliation Pending); one already Paid is left as it is,
-    unless a bank line is being linked (that line would then pay it twice). The bank import starting
-    from Pending or Cancelled (`BANK_BRINGS_FORWARD`) takes any unpaid payment: it approves or revives
-    it first. An Old-type cheque is cleared by hand only, and with no bank line: its lines may pay
-    expenses the line cannot be split across.
-    """
-    if cheque_type != CHEQUE_TYPE_PAYMENT:
-        return "a Security Deposit cheque is never cashed"
-    if status == CLEARED:
-        return "already Cleared"
-    if old_type and (bank_line or cleared_by != CLEARED_BY_HAND):
-        return "an Old-type cheque is cleared by hand, without a bank line"
-    if status not in CLEARABLE_FROM.get(cleared_by, ()):
-        return _NOT_CLEARABLE.get(status, f"it is {status}")
-    for name, payment_status in payments:
-        payment_status = (payment_status or "").strip()
-        if payment_status == STATUS_PAID:
-            if bank_line:
-                return f"payment {name} is already Paid"
-        elif status in BANK_BRINGS_FORWARD and payment_status:
-            continue
-        elif payment_status != STATUS_RECONCILIATION_PENDING:
-            return f"payment {name} is {payment_status or 'blank'}"
-    return None
+def join_words(words: list[str]) -> str:
+    """`words` as a refusal lists them: "a", "a and b", "a, b and c"."""
+    return words[0] if len(words) == 1 else f"{', '.join(words[:-1])} and {words[-1]}"
 
 
-def _day_text(day: str) -> str:
+def day_text(day: str) -> str:
+    """A `YYYY-MM-DD` day as a refusal or note writes it: `DD-MM-YYYY`."""
     year, month, date = day[:10].split("-")
     return f"{date}-{month}-{year}"
 
 
-def clearance_date_problem(clearance_date, *, issue_date, today) -> str | None:
-    """Why `clearance_date` cannot be a cheque's clearance date, or None. Pure. It becomes each payment's
-    payment date, so it is required, never after `today` and never before the cheque was issued."""
-    if not clearance_date:
-        return "Choose the clearance date."
-    day = str(clearance_date)[:10]
-    if day > str(today)[:10]:
-        return "The clearance date cannot be after today."
-    if issue_date and day < str(issue_date)[:10]:
-        return f"The clearance date cannot be before the cheque was issued ({_day_text(str(issue_date))})."
-    return None
-
-
-def cancel_problem(*, status: str) -> str | None:
-    """Why a cheque at `status` cannot be cancelled by hand, as a short reason, or None. Pure. Pending and
-    Issued cheques may be (their payments are Rejected); a Cleared one has no undo (ADR-0035 §5)."""
-    if status == CLEARED:
-        return "it is Cleared: a cleared cheque cannot be cancelled"
-    if status == CANCELLED:
-        return "already Cancelled"
-    return None
-
-
-def cancel_note_problem(note: str | None) -> str | None:
-    """Cancelling rejects every payment on the cheque, with the note as their reason: it is required."""
-    if not (note or "").strip():
-        return "Write a note saying why the cheque is cancelled."
-    return None
-
-
-# -- a Security Deposit cheque (#1486, spec #1477, ADR-0035) ---------------------------------------
-def issue_date_problem(issue_date, *, today) -> str | None:
-    """Why `issue_date` cannot be a Security Deposit cheque's issue date (the day it was handed over), or
-    None. Pure. It is typed (today by default), so it is required and never after `today`. It may be before
-    or after the cheque date: a deposit cheque is often post-dated."""
-    if not issue_date:
-        return "Enter the issue date: the day it was handed over."
-    if str(issue_date)[:10] > str(today)[:10]:
-        return "The issue date cannot be after today."
-    return None
-
-
-def deposit_cancel_problem(*, status: str, cheque_type: str) -> str | None:
-    """Why this cheque cannot be cancelled as a Security Deposit, as a short reason, or None. Pure. A deposit
-    is Issued from the start and Cancelled when it comes back (story 64); no other move exists."""
-    if cheque_type != CHEQUE_TYPE_SECURITY_DEPOSIT:
-        return "it is a Payment cheque, not a Security Deposit"
-    if status == CANCELLED:
-        return "already Cancelled"
-    if status != ISSUED:
-        return f"it is {status}"
-    return None
-
-
-@dataclass(frozen=True)
-class BankLine:
-    """An imported bank-statement line (`Outflow Import Row`) as the clearing rules read it."""
-
-    name: str
-    source: str | None
-    direction: str | None
-    row_status: str | None
-    reference_id: str | None
-    amount: float
-
-
-def bank_line_matches(line: BankLine, *, cheque_no: str, amount) -> bool:
-    """Does `line` carry this cheque's number (leading zeros ignored) and amount (within ₹5)? Pure."""
-    key = cheque_no_key(line.reference_id)
-    return (
-        bool(key)
-        and key == cheque_no_key(cheque_no)
-        and abs(round(flt(line.amount), 2) - round(flt(amount), 2)) <= LINES_TOLERANCE
-    )
-
-
-def bank_line_problem(line: BankLine, *, bank: str, cheque_no: str, amount) -> str | None:
-    """Why `line` cannot clear this cheque, as a short reason, or None. Pure.
-
-    The bank match rule (spec #1477): an ICICI Bank cheque only, an ICICI statement DEBIT nobody has
-    matched yet, the same number with leading zeros ignored, the amount within ₹5.
-    """
-    if bank != ICICI_BANK:
-        return "only an ICICI Bank cheque is matched to a bank line"
-    if line.source != ICICI_STATEMENT_SOURCE:
-        return f"line {line.name} is not from an ICICI bank statement"
-    if line.direction != DIRECTION_DEBIT:
-        return f"line {line.name} is a credit, not a debit"
-    if line.row_status not in UNMATCHED_LINE_STATUSES:
-        return f"line {line.name} is already {line.row_status}"
-    if cheque_no_key(line.reference_id) != cheque_no_key(cheque_no):
-        number = (line.reference_id or "").strip() or "none"
-        return f"line {line.name} carries cheque number {number}, not {cheque_no}"
-    if not bank_line_matches(line, cheque_no=cheque_no, amount=amount):
-        return f"line {line.name} is for {rupees(line.amount)}, but the cheque is for {rupees(amount)}"
-    return None
-
-
-# -- the bank import clears Payment cheques (#1485, spec #1477, ADR-0035) -------------------------
-#: The note on the history row when the bank import approves a Pending cheque's payments.
-BANK_APPROVAL_NOTE = "approved by bank import"
-#: The note on the history row when the bank import clears a Cancelled cheque.
-BANK_REVIVAL_NOTE = "cancelled, but the bank paid it"
-#: `Outflow Row Match.match_basis` of a payment a cheque line settled (pinned to the doctype by test).
-BANK_MATCH_BASIS = "cheque number"
-
-
-def bank_cheque_key(*, source: str | None, direction: str | None, reference_id) -> str:
-    """The cheque number an imported bank line carries, in the compared form (`cheque_no_key`), or "".
-    Pure. Only an ICICI statement DEBIT with its cheque column filled is a cheque line (whatever its
-    remark says: CLG/, TRF/, TRFR TO:); a credit is money coming in and never clears our cheque."""
-    if source != ICICI_STATEMENT_SOURCE or direction != DIRECTION_DEBIT:
-        return ""
-    return cheque_no_key(reference_id)
-
-
-@dataclass(frozen=True)
-class FoundCheque:
-    """A Payment cheque on ICICI Bank (not Old-type) carrying a bank line's number."""
-
-    name: str
-    cheque_no: str
-    status: str
-    amount: float
-    bank_line: str | None = None
-
-
-def _fits(amount, other) -> bool:
-    return abs(round(flt(amount), 2) - round(flt(other), 2)) <= LINES_TOLERANCE
-
-
-def pick_bank_cheque(found: Sequence[FoundCheque], *, amount) -> tuple[FoundCheque | None, str | None]:
-    """Which of the Payment cheques carrying a bank line's number that line clears. Pure.
-
-    `(cheque, None)`: the one whose amount is within ₹5 of the line. `(None, hint)`: the number was found
-    but no single cheque fits, so nothing is settled and the line says why. `(None, None)`: no Payment
-    cheque carries the number, so the line is not the cheque pass's (a Security Deposit is never found).
-    """
-    if not found:
-        return None, None
-    fits = [c for c in found if _fits(c.amount, amount)]
-    if len(fits) == 1:
-        return fits[0], None
-    if fits:
-        return None, (
-            f"Cheques {_join([c.cheque_no for c in fits])} both carry this number and amount. Nothing was "
-            "settled. Clear the right one by hand from the Cheque Tracker."
-        )
-    if len(found) == 1:
-        return None, (
-            f"Cheque {found[0].cheque_no} found, but its amount is {rupees(found[0].amount)}, not "
-            f"{rupees(amount)}. Nothing was settled. Check the cheque, or match this line by hand."
-        )
-    return None, (
-        f"Cheques {_join([c.cheque_no for c in found])} carry this number, but none is for {rupees(amount)}. "
-        "Nothing was settled. Check the cheques, or match this line by hand."
-    )
-
-
-@dataclass(frozen=True)
-class DoublePayment:
-    """A payment on a cancelled cheque's PO raised after the cancel: the PO may now be paid twice."""
-
-    payment: str
-    record: str
-    amount: float
-    status: str
-
-
-def _payments(n: int) -> str:
-    return f"{n} payment" if n == 1 else f"{n} payments"
-
-
-def bank_cleared_note(*, cheque_no: str, started: str, payments: int, day, suspects: Sequence[DoublePayment] = ()) -> str:
-    """What the import review says about a line that cleared cheque `cheque_no`, by the status the cheque
-    was at (`started`; Cleared means it was cleared by hand and the line is only linked). Pure."""
-    when = _day_text(str(day))
-    if started == CLEARED:
-        return (
-            f"Cheque {cheque_no} was already cleared by hand: this line is linked to it and its "
-            f"{_payments(payments)}; nothing was paid again."
-        )
-    if started == PENDING:
-        verb = "was" if payments == 1 else "were"
-        return (
-            f"Cheque {cheque_no} was Pending: the bank paid it before approval. Its {_payments(payments)} {verb} "
-            f"approved by bank import (approval date {when}), then Paid."
-        )
-    if started == CANCELLED:
-        note = (
-            f"Cheque {cheque_no} was cancelled, but the bank paid it: {_payments(payments)} Rejected → Paid, "
-            f"payment date {when}."
-        )
-        if suspects:
-            named = _join([f"{s.record} has {s.payment} ({rupees(s.amount)}, {s.status})" for s in suspects])
-            note += f" Check for double payment: {named}, raised after the cheque was cancelled."
-        return note
-    return f"Cheque {cheque_no} cleared: {_payments(payments)} Reconciliation Pending → Paid, payment date {when}."
-
-
-def already_linked_note(*, cheque_no: str, bank_line: str) -> str:
-    """A Cleared cheque that another bank line already clears: this line settles nothing. Pure."""
-    return (
-        f"Cheque {cheque_no} is already cleared with bank line {bank_line}. Nothing was settled. Match this "
-        "line by hand if it is a different payment."
-    )
-
-
-def bank_clear_failed_note(*, cheque_no: str, reason: str) -> str:
-    """A line that matches a cheque the cheques service refused to clear: nothing is settled. Pure."""
-    return f"Cheque {cheque_no} matches this line but could not be cleared: {reason}. Nothing was settled."
-
-
-def no_payment_cheque_note(number: str) -> str:
-    """A cheque line whose number names no Payment cheque on ICICI Bank. Pure."""
-    return (
-        f"No Payment cheque {number} on ICICI Bank. A Security Deposit cheque is never matched. Match this "
-        "line by hand."
-    )
-
-
-def bank_start(*, cleared_by: str | None, history: Sequence[tuple[str | None, str, str | None]]) -> str:
-    """Where a Cleared cheque that records a bank line stood before that line, for the import review. Pure.
-
-    `history` holds `(from, to, note)` per history row, oldest first. Cleared (by hand, the line only
-    linked) unless the bank import cleared it; then the status its clear started from, Pending when the
-    import approved it on the way (`BANK_APPROVAL_NOTE`)."""
-    if cleared_by != CLEARED_BY_BANK_IMPORT:
-        return CLEARED
-    rows = list(history)
-    for i in range(len(rows) - 1, -1, -1):
-        before, after, _note = rows[i]
-        if after != CLEARED:
-            continue
-        if before == ISSUED and i > 0 and rows[i - 1][:2] == (PENDING, ISSUED) and rows[i - 1][2] == BANK_APPROVAL_NOTE:
-            return PENDING
-        return before or ISSUED
-    return ISSUED

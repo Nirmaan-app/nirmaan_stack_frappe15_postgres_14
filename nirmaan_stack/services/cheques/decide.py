@@ -8,8 +8,8 @@
 savepoint, so a failure on any of them leaves all of them, and the cheque, as they were:
 
 * every line must name a payment and the lines must add up to the cheque amount within ₹5
-  (`rules.approval_problem`, C2), and every payment must wait at the step being approved
-  (`rules.decision_step_problem`);
+  (`approval_rules.approval_problem`, C2), and every payment must wait at the step being approved
+  (`approval_rules.decision_step_problem`);
 * the tier comes from the CHEQUE amount (C3): L1 lands them all at Approved, or at CEO Pending when the
   cheque is over ₹50,000 (`approval_tiers.status_after_l1`); the CEO lands them at Approved;
 * at Approved each payment moves straight on to Reconciliation Pending
@@ -20,7 +20,7 @@ savepoint, so a failure on any of them leaves all of them, and the cheque, as th
   caller sends the one notification after its commit.
 
 The payment's own `validate` refuses an approval of a cheque payment made any other way
-(`refuse_lone_approval`, `rules.lone_approval_problem`): every save `approve` makes carries
+(`refuse_lone_approval`, `approval_rules.lone_approval_problem`): every save `approve` makes carries
 `DECIDING_FLAG`, which a REST write cannot set.
 
 `reject` (#1481) takes any one payment on a Pending Payment cheque and, in one savepoint, runs THE reject
@@ -40,24 +40,27 @@ from frappe import _
 from frappe.utils import flt, nowdate
 
 from nirmaan_stack.services.approval_tiers import status_after_l1
+from nirmaan_stack.services.ceo_hold.core import CEO_HOLD_STATUS
 from nirmaan_stack.services.cheque_payments import move_to_reconciliation
+from nirmaan_stack.services.cheques.approval_rules import (
+    ApprovalLine,
+    approval_problem,
+    decision_step_problem,
+    is_approval,
+    lone_approval_problem,
+)
+from nirmaan_stack.services.cheques.payment_rules import CHEQUE_REFUSES_PAY, cheque_payment_problem
 from nirmaan_stack.services.cheques.rules import (
     CANCELLED,
-    CHEQUE_REFUSES_PAY,
     CHEQUE_TYPE_PAYMENT,
     ISSUED,
     PAYMENT_DOCTYPE,
     PAYMENT_REJECTED,
     PENDING,
     PO_DOCTYPE,
-    ApprovalLine,
-    approval_problem,
-    cheque_payment_problem,
-    decision_step_problem,
-    is_approval,
-    lone_approval_problem,
 )
 from nirmaan_stack.services.cheques.writer import CHEQUES, CHEQUES_CHANGED_EVENT, history_row
+from nirmaan_stack.services.po_terms import TERM_UPDATED, sync_term_in_memory
 from nirmaan_stack.services.settlement import (
     STATUS_APPROVED,
     STATUS_CEO_PENDING,
@@ -78,7 +81,6 @@ _STAGES = {
 DECIDING_FLAG = "cheque_decision"
 #: A Payment cheque whose payments are still live: rejecting one of them rejects them all and cancels it.
 LIVE_STATUSES = (PENDING, ISSUED)
-CEO_HOLD = "CEO Hold"
 
 
 def cheque_of(payment_name: str) -> str | None:
@@ -128,7 +130,7 @@ def _payment_of(row) -> str | None:
     return row.payment_name if row.payment_doctype == PAYMENT_DOCTYPE and row.payment_name else None
 
 
-def _approval_lines(doc) -> list[ApprovalLine]:
+def approval_lines(doc) -> list[ApprovalLine]:
     return [
         ApprovalLine(payment=_payment_of(row), record=row.record_name, amount=flt(row.amount))
         for row in doc.get("lines") or []
@@ -164,7 +166,7 @@ def _approve(cheque: str, *, stage: str, user: str) -> dict:
     doc = frappe.get_doc(CHEQUES, cheque, for_update=True)
     if doc.status != PENDING:
         frappe.throw(_("Cheque {0} is {1}: its payments have already been decided.").format(doc.cheque_no, doc.status))
-    problem = approval_problem(cheque_no=doc.cheque_no, amount=doc.amount, lines=_approval_lines(doc))
+    problem = approval_problem(cheque_no=doc.cheque_no, amount=doc.amount, lines=approval_lines(doc))
     if problem:
         frappe.throw(_(problem))
 
@@ -303,7 +305,7 @@ def lock_payments(payments: list[str]) -> dict:
 def _hold_problem(rows: dict) -> str | None:
     """A payment on a CEO Hold project holds the whole cheque (bulk approve skips such rows)."""
     projects = sorted({r.project for r in rows.values() if r.project})
-    held = set(frappe.get_all("Projects", filters={"name": ["in", projects], "status": CEO_HOLD}, pluck="name"))
+    held = set(frappe.get_all("Projects", filters={"name": ["in", projects], "status": CEO_HOLD_STATUS}, pluck="name"))
     for name in sorted(rows):
         if rows[name].project in held:
             return f"Payment {name}'s project is on CEO Hold, so the cheque cannot be approved."
@@ -318,12 +320,7 @@ def write_po_terms(rows: dict, status: str) -> None:
             by_po.setdefault(row.document_name, set()).add(name)
     for po, names in sorted(by_po.items()):
         po_doc = frappe.get_doc(PO_DOCTYPE, po)
-        changed = False
-        for term in po_doc.get("payment_terms") or []:
-            if term.project_payment in names and term.term_status != status:
-                term.term_status = status
-                changed = True
-        if changed:
+        if TERM_UPDATED in [sync_term_in_memory(po_doc, name, status) for name in sorted(names)]:
             po_doc.save(ignore_permissions=True)
 
 
@@ -346,7 +343,7 @@ def describe(payment_name: str, *, stage: str) -> dict | None:
         "Projects", filters={"name": ["in", sorted(projects)]}, fields=["name", "project_name"], as_list=True
     )) if projects else {}
 
-    problem = approval_problem(cheque_no=doc.cheque_no, amount=doc.amount, lines=_approval_lines(doc))
+    problem = approval_problem(cheque_no=doc.cheque_no, amount=doc.amount, lines=approval_lines(doc))
     if not problem and stage in _STAGES:
         problem = decision_step_problem(
             [(p, pay_rows[p].status if p in pay_rows else None) for p in payments], expected=_STAGES[stage][0]
@@ -396,6 +393,6 @@ def refuse_lone_approval(pay) -> None:
         cheque_amount=doc.amount,
     )
     if not problem and not deciding:
-        problem = approval_problem(cheque_no=doc.cheque_no, amount=doc.amount, lines=_approval_lines(doc))
+        problem = approval_problem(cheque_no=doc.cheque_no, amount=doc.amount, lines=approval_lines(doc))
     if problem:
         frappe.throw(_(problem), title=_("Approve the Whole Cheque"))

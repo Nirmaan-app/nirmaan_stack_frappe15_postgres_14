@@ -4,15 +4,15 @@
 """The cheque pass of Bulk Import Transactions: an ICICI statement line clears its Payment cheque (#1485,
 spec #1477, ADR-0035). Part of THE cheques service; never commits.
 
-An ICICI statement DEBIT whose cheque column is filled (`rules.bank_cheque_key`) is looked up against the
+An ICICI statement DEBIT whose cheque column is filled (`bank_import_rules.bank_cheque_key`) is looked up against the
 Payment cheques on ICICI Bank, not Old-type, by number with leading zeros ignored, and the one within ₹5
-of the line's amount (`rules.pick_bank_cheque`) is cleared through THE clear (`status.clear`), with the
+of the line's amount (`bank_import_rules.pick_bank_cheque`) is cleared through THE clear (`status.clear`), with the
 line's date as the clearance date and `CLEARED_BY_BANK_IMPORT`, in one savepoint per line:
 
 * Issued: cleared, every payment Paid and linked to the line (one bank-match row each);
 * Pending: the import approves the payments first (approval date = the line's date, history
-  `rules.BANK_APPROVAL_NOTE`), then as Issued;
-* Cancelled: Rejected -> Paid, history `rules.BANK_REVIVAL_NOTE`, and the review names any payment on its
+  `bank_import_rules.BANK_APPROVAL_NOTE`), then as Issued;
+* Cancelled: Rejected -> Paid, history `bank_import_rules.BANK_REVIVAL_NOTE`, and the review names any payment on its
   POs raised after the cancel (`double_payment_suspects`);
 * Cleared by hand with no line yet: the line is linked to it and its payments, nothing is paid again
   (`status.link_bank_line`);
@@ -30,8 +30,18 @@ from dataclasses import asdict, dataclass
 import frappe
 from frappe.utils import flt
 
-from nirmaan_stack.services.cheques.rules import (
+from nirmaan_stack.services.cheques.bank_import_rules import (
     BANK_MATCH_BASIS,
+    DoublePayment,
+    FoundCheque,
+    already_linked_note,
+    bank_cheque_key,
+    bank_clear_failed_note,
+    bank_cleared_note,
+    bank_start,
+    pick_bank_cheque,
+)
+from nirmaan_stack.services.cheques.rules import (
     CANCELLED,
     CHEQUE_TYPE_PAYMENT,
     CLEARED,
@@ -40,15 +50,7 @@ from nirmaan_stack.services.cheques.rules import (
     PAYMENT_DOCTYPE,
     PAYMENT_REJECTED,
     PO_DOCTYPE,
-    DoublePayment,
-    FoundCheque,
-    already_linked_note,
-    bank_cheque_key,
-    bank_clear_failed_note,
-    bank_cleared_note,
-    bank_start,
     cheque_no_key,
-    pick_bank_cheque,
 )
 from nirmaan_stack.services.cheques.status import clear, link_bank_line
 from nirmaan_stack.services.cheques.writer import CHEQUES
@@ -103,7 +105,7 @@ def clear_from_line(row, *, source: str, user: str) -> LineOutcome | None:
     savepoint = f"cheque_bank_{frappe.generate_hash(length=8)}"
     frappe.db.savepoint(savepoint)
     try:
-        # Copied onto each match record by the import's writer (`expenses._record_settlement`).
+        # Copied onto each match record by the import's writer (`row_settlement.record_settlement`).
         frappe.db.set_value(BANK_LINE_DOCTYPE, row.name, "match_basis", BANK_MATCH_BASIS, update_modified=False)
         if cheque.status == CLEARED:
             out = link_bank_line(cheque.name, bank_line=row.name, user=user)
@@ -166,7 +168,7 @@ def double_payment_suspects(cheque: str) -> list[DoublePayment]:
 
 def cheque_outcomes(row_names) -> dict[str, dict]:
     """For the import review: per bank line that a Payment cheque records (`Cheques.bank_line`), the
-    cheque, where it started (`rules.bank_start`: Issued, Pending, Cancelled, or Cleared when it was
+    cheque, where it started (`bank_import_rules.bank_start`: Issued, Pending, Cancelled, or Cleared when it was
     cleared by hand and the line only linked) and, for a Cancelled one, the possible double payments.
     Reads only."""
     names = [n for n in row_names or [] if n]

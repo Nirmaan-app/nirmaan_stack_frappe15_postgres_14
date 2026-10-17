@@ -51,6 +51,9 @@ from nirmaan_stack.constants.authorized_users import CEO_HOLD_SYSTEM_USER
 
 _REASON_DOCTYPE = "CEO Hold Reason"
 
+#: The project status a CEO Hold sets (a derived mirror, see the module docstring).
+CEO_HOLD_STATUS = "CEO Hold"
+
 # Source identifiers — must match the `source` Select options on CEO Hold Reason.
 SOURCE_CASHFLOW = "cashflow"
 SOURCE_DN = "dn_pending"

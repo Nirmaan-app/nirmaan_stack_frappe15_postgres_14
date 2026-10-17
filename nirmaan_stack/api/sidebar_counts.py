@@ -1,5 +1,6 @@
 import frappe, json
 from frappe import _
+from nirmaan_stack.services.cheque_payments import in_cheque_tracker_sql
 from nirmaan_stack.services.procurement_approval import AWAITING_APPROVAL_STATES, PENDING_ITEM_STATUS
 from nirmaan_stack.services.role_profiles import SERVICE_PROCUREMENT_EXECUTIVE_PROFILE
 
@@ -173,13 +174,14 @@ def sidebar_counts(user: str) -> str:
     pay_counts["all"] = simple("Project Payments", {**pay_filters})
     # A payment on an Issued cheque waits in the Cheque Tracker, not in Reconciliation Pending (#1483), so this
     # badge fallback leaves it out, as `get_approval_queue_counts` does.
+    in_tracker, marks = in_cheque_tracker_sql("p.status", "c.status")
     pay_counts["reconciliationpending"] = frappe.db.sql(
         f'''
         SELECT COUNT(*) FROM "tabProject Payments" p
         LEFT JOIN "tabCheques" c ON c.name = p.cheque
-        WHERE p.status = 'Reconciliation Pending' AND COALESCE(c.status, '') != 'Issued' {_proj("p")}
+        WHERE p.status = %(tracker_status)s AND NOT ({in_tracker}) {_proj("p")}
         ''',
-        _params({}),
+        _params(dict(marks)),
     )[0][0]
     # Credit counts: PO Payment Terms (child of Procurement Orders) scoped to non-Merged/Inactive POs.
     # Previously this plucked ALL valid PO names and passed `parent IN (<thousands>)`, which on prod

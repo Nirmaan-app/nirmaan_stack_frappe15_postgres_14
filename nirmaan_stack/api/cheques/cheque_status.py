@@ -21,6 +21,7 @@ from nirmaan_stack.services.cheques import pickers
 from nirmaan_stack.services.cheques.rules import CHEQUE_TYPE_SECURITY_DEPOSIT, CLEARED_BY_HAND, PAYMENT_DOCTYPE
 from nirmaan_stack.services.cheques.status import cancel, cancel_deposit, clear, clear_many
 from nirmaan_stack.services.cheques.writer import CHEQUES
+from nirmaan_stack.services.outflow_import.row_settlement import link_statement_file_to_target
 from nirmaan_stack.services.role_profiles import CHEQUE_ACCOUNTS_PROFILES, has_role_profile
 
 
@@ -49,10 +50,8 @@ def clear_cheque(cheque: str, clearance_date: str, bank_line: str | None = None,
     frappe.db.commit()
     if out["statement_file_url"]:
         # After the commit, as the import does: the File insert commits on its own.
-        from nirmaan_stack.api.outflow_import.expenses import _link_statement_file_to_target
-
         for payment in out["payments"]:
-            _link_statement_file_to_target(
+            link_statement_file_to_target(
                 out["statement_file_url"], SimpleNamespace(doctype=PAYMENT_DOCTYPE, name=payment)
             )
     return {k: out[k] for k in ("cheque", "cheque_no", "status", "payments", "bank_line")}

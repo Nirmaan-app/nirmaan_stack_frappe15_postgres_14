@@ -652,7 +652,7 @@ def write_deduction(
 	# surviving record of the original figure, so if the insert fails the amount must still be
 	# untouched -- a reduced payment with no row saying why, and no way to recover the gross, is the
 	# one unrecoverable state this function can produce. Same reasoning as the outflow import's
-	# `_record_settlement`, which inserts its match before flipping the row it describes.
+	# `record_settlement`, which inserts its match before flipping the row it describes.
 	#
 	# ⚠️ `db_set`, NOT `doc.amount = ...`. On the hook path this runs INSIDE the payment's own save,
 	# so assigning to the field would be discarded -- the row is already written by the time a hook

@@ -121,11 +121,11 @@ def _tell_the_ceo(result: dict) -> None:
     """One note to the CEO for the whole cheque, after the commit. Best effort: the approval stands."""
     try:
         # Local: the controller module pulls in the notification stack.
-        from nirmaan_stack.integrations.controllers.project_payments import _notify_ceo_payment_awaiting
+        from nirmaan_stack.integrations.controllers.project_payments import notify_ceo_payment_awaiting
 
         first = frappe.get_doc("Project Payments", result["payments"][0])
         others = len(result["payments"]) - 1
-        _notify_ceo_payment_awaiting(
+        notify_ceo_payment_awaiting(
             first,
             f"is on cheque {result['cheque_no']}"
             + (f" with {others} other payment(s); all were" if others else " and was")

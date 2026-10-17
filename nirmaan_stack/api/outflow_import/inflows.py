@@ -71,10 +71,7 @@ import frappe
 
 from nirmaan_stack.api.outflow_import.expenses import (
     _guard_money_not_recorded,
-    _link_statement_file_to_target,
     _load_settleable_row,
-    _record_settlement,
-    _refresh_row_allocation,
     _statement_file_url,
     _summary,
 )
@@ -82,7 +79,6 @@ from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.review import (
     MATCH_DOCTYPE,
     ROW_DOCTYPE,
-    refresh_batch_rollup,
 )
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.duplicates import (
@@ -100,6 +96,12 @@ from nirmaan_stack.services.outflow_import.settle import (
 from nirmaan_stack.services.outflow_import.ledgers import INFLOW_DOCTYPES
 from nirmaan_stack.services.outflow_import.status import RECORDED_ACTION_CREATE
 from nirmaan_stack.services.vendor_refunds import refund_documents
+from nirmaan_stack.services.outflow_import.row_settlement import (
+    link_statement_file_to_target,
+    record_settlement,
+    refresh_batch_rollup,
+    refresh_row_allocation,
+)
 
 __all__ = [
     "create_inflow",
@@ -149,17 +151,17 @@ def create_inflow(
             statement_file_url=statement_file_url,
             direction=doc.get("direction"),
         )
-        _record_settlement(staged, doc, result, actor)
-        # ⚠️ INSIDE THE SAVEPOINT, AND IT IS WHAT MARKS THE ROW DONE. `_record_settlement` writes
+        record_settlement(staged, doc, result, actor)
+        # ⚠️ INSIDE THE SAVEPOINT, AND IT IS WHAT MARKS THE ROW DONE. `record_settlement` writes
         # the leg; the row's own status is DERIVED from its legs (ADR-0020) and written here. This
-        # call is the port that was missed when the flip moved out of `_record_settlement` -- this
+        # call is the port that was missed when the flip moved out of `record_settlement` -- this
         # module never referenced either name, so a recorded credit sat at `Mismatched` and the
         # per-row guard both endpoints lean on never engaged.
         #
         # ⚠️ `result` IS PASSED SO THE NOTE READS "Recorded", NOT "Settled". Both credit paths
         # CREATE their record, and `allocation_note` distinguishes a record this import brought into
         # existence from one that was already sitting there approved.
-        _refresh_row_allocation(staged.name, actor, result)
+        refresh_row_allocation(staged.name, actor, result)
     except Exception:
         # Roll back to the savepoint rather than the whole request, for the reason `settle_row`
         # gives: the caller gets the real error and the database is exactly as it was.
@@ -176,7 +178,7 @@ def create_inflow(
     frappe.db.commit()
     # ⚠️ AFTER THE COMMIT, because a `File` insert wakes the cloud-attachment hook and that hook
     # commits -- inside the savepoint above it would make the rollback a silent no-op.
-    _link_statement_file_to_target(statement_file_url, result)
+    link_statement_file_to_target(statement_file_url, result)
     return _summary(row, result, doc["import_batch"], statuses)
 
 
@@ -229,10 +231,10 @@ def create_non_project_inflow(
             description=description,
             statement_file_url=statement_file_url,
         )
-        _record_settlement(staged, doc, result, actor)
+        record_settlement(staged, doc, result, actor)
         # INSIDE THE SAVEPOINT, AND IT IS WHAT MARKS THE ROW DONE -- see `create_inflow`. `result`
         # is passed so the note reads "Recorded", not "Settled".
-        _refresh_row_allocation(staged.name, actor, result)
+        refresh_row_allocation(staged.name, actor, result)
     except Exception:
         frappe.db.rollback(save_point=savepoint)
         raise
@@ -242,7 +244,7 @@ def create_non_project_inflow(
     frappe.db.commit()
     # ⚠️ AFTER THE COMMIT, because a `File` insert wakes the cloud-attachment hook and that hook
     # commits -- inside the savepoint above it would make the rollback a silent no-op.
-    _link_statement_file_to_target(statement_file_url, result)
+    link_statement_file_to_target(statement_file_url, result)
     return _summary(row, result, doc["import_batch"], statuses)
 
 
@@ -300,10 +302,10 @@ def create_vendor_refund(
             statement_file_url=statement_file_url,
         )
         for result in results:
-            _record_settlement(staged, doc, result, actor)
+            record_settlement(staged, doc, result, actor)
         # INSIDE THE SAVEPOINT, AND IT IS WHAT MARKS THE ROW DONE -- see `create_inflow`. Every result
         # was created, so the first one gives the note its "Recorded".
-        _refresh_row_allocation(staged.name, actor, results[0])
+        refresh_row_allocation(staged.name, actor, results[0])
     except Exception:
         frappe.db.rollback(save_point=savepoint)
         raise
@@ -314,7 +316,7 @@ def create_vendor_refund(
     # AFTER THE COMMIT, for the reason `create_non_project_inflow` gives -- once per record, so every
     # refund can open the statement.
     for result in results:
-        _link_statement_file_to_target(statement_file_url, result)
+        link_statement_file_to_target(statement_file_url, result)
     summary = _summary(row, results[0], doc["import_batch"], statuses)
     summary["records"] = [
         {"doctype": r.doctype, "name": r.name, "amount": float(r.amount)} for r in results

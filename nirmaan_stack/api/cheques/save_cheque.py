@@ -21,7 +21,7 @@ secures (none is fine). The Cheque Tracker and the PO / Work Order page's card b
 With `name` it saves the Edit of that Cheque (#1418). Admin, Accountant and Accountant Lead
 (`CHEQUE_ACCOUNTS_PROFILES`) edit any Cheque; Procurement only the Pending Payment cheques and Issued
 deposit cheques they created. A Payment cheque's lines change only while Pending, a deposit's while
-Issued; otherwise only the photo changes (`services/cheques/rules.edit_problem`). A payment whose line an edit takes off goes back to Online,
+Issued; otherwise only the photo changes (`services/cheques/edit_rules.edit_problem`). A payment whose line an edit takes off goes back to Online,
 its status unchanged.
 """
 

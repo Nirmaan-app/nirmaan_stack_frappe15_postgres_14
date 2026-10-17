@@ -8,7 +8,7 @@ import type { ChequeLineType } from "@/types/NirmaanStack/Cheques";
  * The Add Cheque dialog's lines (spec #1407; #1482, spec #1477), pure so vitest covers them without React (F4).
  *
  * A Payment cheque's line names one of the Vendor's POs and one of its payments, or "No payment yet" with a
- * typed amount. The server (`services/cheques/rules.tracker_payment_cheque_problem`, `lines.py`) enforces
+ * typed amount. The server (`services/cheques/edit_rules.tracker_payment_cheque_problem`, `lines.py`) enforces
  * every line rule; these only shape what the dialog shows: the lines total, the picker's "not shown" footer,
  * the hint on a picked payment, the note on what saving does.
  */

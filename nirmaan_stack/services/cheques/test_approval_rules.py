@@ -11,9 +11,8 @@ No database. Run with `devenv.sh unit nirmaan_stack.services.cheques.test_approv
 
 import unittest
 
-from nirmaan_stack.services import approval_tiers
-from nirmaan_stack.services.cheques import rules
-from nirmaan_stack.services.cheques.rules import ApprovalLine
+from nirmaan_stack.services.cheques import approval_rules
+from nirmaan_stack.services.cheques.approval_rules import ApprovalLine
 
 
 def _line(payment, amount, record="PO/267/00103/26-27"):
@@ -22,7 +21,7 @@ def _line(payment, amount, record="PO/267/00103/26-27"):
 
 class TestApprovalNeedsEveryLineAndTheWholeAmount(unittest.TestCase):
     def problem(self, amount, *lines):
-        return rules.approval_problem(cheque_no="000751", amount=amount, lines=list(lines))
+        return approval_rules.approval_problem(cheque_no="000751", amount=amount, lines=list(lines))
 
     def test_lines_naming_payments_that_add_up_may_be_approved(self):
         self.assertIsNone(self.problem(68400, _line("PAY-1", 28400), _line("PAY-2", 22000), _line("PAY-3", 18000)))
@@ -55,10 +54,10 @@ class TestApprovalNeedsEveryLineAndTheWholeAmount(unittest.TestCase):
 
 class TestAllPaymentsAtOneStep(unittest.TestCase):
     def test_every_payment_at_the_step_passes(self):
-        self.assertIsNone(rules.decision_step_problem([("PAY-1", "Requested"), ("PAY-2", "Requested")], expected="Requested"))
+        self.assertIsNone(approval_rules.decision_step_problem([("PAY-1", "Requested"), ("PAY-2", "Requested")], expected="Requested"))
 
     def test_a_payment_at_another_step_is_named_with_its_status(self):
-        problem = rules.decision_step_problem(
+        problem = approval_rules.decision_step_problem(
             [("PAY-1", "CEO Pending"), ("PAY-2", "Approved")], expected="CEO Pending"
         )
         self.assertIn("PAY-2", problem)
@@ -67,34 +66,22 @@ class TestAllPaymentsAtOneStep(unittest.TestCase):
         self.assertNotIn("PAY-1", problem)
 
 
-class TestTheChequeAmountPicksTheTier(unittest.TestCase):
-    """C3: the tier reads the cheque amount, so small payments on a big cheque still reach the CEO."""
-
-    def test_a_cheque_payment_is_tiered_on_the_cheque_amount(self):
-        self.assertEqual(approval_tiers.approval_amount(20000, cheque_amount=60000), 60000)
-        self.assertEqual(approval_tiers.status_after_l1(approval_tiers.approval_amount(20000, 60000)), "CEO Pending")
-
-    def test_an_online_payment_is_tiered_on_its_own_amount(self):
-        self.assertEqual(approval_tiers.approval_amount(20000), 20000)
-        self.assertEqual(approval_tiers.approval_amount(20000, cheque_amount=None), 20000)
-
-
 class TestTheGuardOnALoneApproval(unittest.TestCase):
     """The payment's own save refuses an approval of one cheque payment that is not its cheque's."""
 
     def test_an_approval_is_a_move_out_of_a_waiting_step_into_the_next(self):
-        self.assertTrue(rules.is_approval("Requested", "CEO Pending"))
-        self.assertTrue(rules.is_approval("Requested", "Approved"))
-        self.assertTrue(rules.is_approval("CEO Pending", "Approved"))
-        self.assertFalse(rules.is_approval("Approved", "Reconciliation Pending"))
-        self.assertFalse(rules.is_approval("Reconciliation Pending", "Approved"))  # Revert to Approved
-        self.assertFalse(rules.is_approval("Paid", "Approved"))  # Unreconcile
-        self.assertFalse(rules.is_approval("Requested", "Rejected"))
-        self.assertFalse(rules.is_approval("Requested", "Requested"))
-        self.assertFalse(rules.is_approval(None, "Approved"))  # a new payment, born approved
+        self.assertTrue(approval_rules.is_approval("Requested", "CEO Pending"))
+        self.assertTrue(approval_rules.is_approval("Requested", "Approved"))
+        self.assertTrue(approval_rules.is_approval("CEO Pending", "Approved"))
+        self.assertFalse(approval_rules.is_approval("Approved", "Reconciliation Pending"))
+        self.assertFalse(approval_rules.is_approval("Reconciliation Pending", "Approved"))  # Revert to Approved
+        self.assertFalse(approval_rules.is_approval("Paid", "Approved"))  # Unreconcile
+        self.assertFalse(approval_rules.is_approval("Requested", "Rejected"))
+        self.assertFalse(approval_rules.is_approval("Requested", "Requested"))
+        self.assertFalse(approval_rules.is_approval(None, "Approved"))  # a new payment, born approved
 
     def test_approving_one_payment_of_three_is_refused(self):
-        problem = rules.lone_approval_problem(
+        problem = approval_rules.lone_approval_problem(
             cheque_no="000751", payment_lines=3, deciding=False, from_status="Requested", to_status="CEO Pending",
             cheque_amount=68400,
         )
@@ -102,19 +89,19 @@ class TestTheGuardOnALoneApproval(unittest.TestCase):
         self.assertIn("all 3", problem)
 
     def test_the_cheque_decision_itself_passes(self):
-        self.assertIsNone(rules.lone_approval_problem(
+        self.assertIsNone(approval_rules.lone_approval_problem(
             cheque_no="000751", payment_lines=3, deciding=True, from_status="Requested", to_status="CEO Pending",
             cheque_amount=68400,
         ))
 
     def test_a_one_line_cheque_may_be_approved_at_its_cheque_s_tier(self):
-        self.assertIsNone(rules.lone_approval_problem(
+        self.assertIsNone(approval_rules.lone_approval_problem(
             cheque_no="000751", payment_lines=1, deciding=False, from_status="Requested", to_status="Approved",
             cheque_amount=20000,
         ))
 
     def test_skipping_the_ceo_a_cheque_amount_needs_is_refused(self):
-        problem = rules.lone_approval_problem(
+        problem = approval_rules.lone_approval_problem(
             cheque_no="000751", payment_lines=1, deciding=False, from_status="Requested", to_status="Approved",
             cheque_amount=60000,
         )
@@ -122,7 +109,7 @@ class TestTheGuardOnALoneApproval(unittest.TestCase):
         self.assertIn("₹60,000", problem)
 
     def test_a_ceo_approval_lands_at_approved(self):
-        self.assertIsNone(rules.lone_approval_problem(
+        self.assertIsNone(approval_rules.lone_approval_problem(
             cheque_no="000751", payment_lines=1, deciding=False, from_status="CEO Pending", to_status="Approved",
             cheque_amount=60000,
         ))

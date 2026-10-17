@@ -5,22 +5,23 @@
 (spec #1407, spec #1477). Part of THE cheques service; never commits.
 
 * `validate_mode_change` -- the mode changes only through a Cheque, which is what lets `mode_of_payment`
-  drop `set_only_once`. The rule itself is pure: `rules.mode_change_problem`.
+  drop `set_only_once`. The rule itself is pure: `payment_rules.mode_change_problem`.
 * `validate_cheque_mode` -- a payment requested in, or changing to, Cheque mode must be a PO payment: Work
-  Order payments are paid Online (#1487). The rule itself is pure: `rules.cheque_mode_problem`.
+  Order payments are paid Online (#1487). The rule itself is pure: `payment_rules.cheque_mode_problem`.
 """
 
 import frappe
 from frappe import _
 
 from nirmaan_stack.services.cheque_payments import is_cheque
-from nirmaan_stack.services.cheques.rules import PAYMENT_DOCTYPE, cheque_mode_problem, mode_change_problem
+from nirmaan_stack.services.cheques.payment_rules import cheque_mode_problem, mode_change_problem
+from nirmaan_stack.services.cheques.rules import PAYMENT_DOCTYPE
 from nirmaan_stack.services.cheques.writer import CHEQUES
 
 
 def validate_mode_change(pay) -> None:
     """Refuse a save of the Project Payment `pay` that changes its Mode of Payment other than through
-    a Cheque (`rules.mode_change_problem`). Called from its `validate`. A payment whose line an edit
+    a Cheque (`payment_rules.mode_change_problem`). Called from its `validate`. A payment whose line an edit
     took off its Cheque is no longer held by it, whatever that Cheque's status."""
     before = pay.get_doc_before_save()
     if not before or is_cheque(before) == is_cheque(pay):
@@ -43,7 +44,7 @@ def validate_mode_change(pay) -> None:
 
 
 def validate_cheque_mode(pay) -> None:
-    """Refuse a Project Payment becoming a Cheque payment on anything but a PO (`rules.cheque_mode_problem`):
+    """Refuse a Project Payment becoming a Cheque payment on anything but a PO (`payment_rules.cheque_mode_problem`):
     a new one requested in Cheque mode, or a saved one changing to it (put on a cheque). Called from its
     `validate`, so it holds for every path, before the insert's `after_insert` commits. A Work Order payment
     already in Cheque mode finishes as it is (spec #1477 story 88)."""

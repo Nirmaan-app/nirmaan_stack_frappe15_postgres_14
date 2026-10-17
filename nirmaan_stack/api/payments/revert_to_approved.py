@@ -30,7 +30,7 @@ from frappe import _
 
 from nirmaan_stack.services import settlement
 from nirmaan_stack.services.cheque_payments import is_cheque
-from nirmaan_stack.services.cheques.rules import CHEQUE_REFUSES_REVERT, cheque_payment_problem
+from nirmaan_stack.services.cheques.payment_rules import CHEQUE_REFUSES_REVERT, cheque_payment_problem
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.role_profiles import PAYMENT_SETTLE_PROFILES
 

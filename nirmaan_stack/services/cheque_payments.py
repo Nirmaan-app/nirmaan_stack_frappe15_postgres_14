@@ -33,6 +33,7 @@ payment at Approved and its cheque at Pending: the two never disagree.
 import frappe
 
 from nirmaan_stack.services import payment_tds, settlement
+from nirmaan_stack.services.cheques.rules import ISSUED
 
 MODE_ONLINE = "Online"
 MODE_CHEQUE = "Cheque"
@@ -118,3 +119,15 @@ def commit_move_to_reconciliation(payment_name: str) -> bool:
 			message=frappe.get_traceback(),
 		)
 		return False
+
+
+def in_cheque_tracker_sql(status_col: str, cheque_status_col: str) -> tuple[str, dict]:
+	"""`(condition, params)`: the SQL condition for a payment that waits in the Cheque Tracker, not in
+	Project Payments' Reconciliation Pending (#1483, spec #1477): at Reconciliation Pending on an Issued
+	cheque. `status_col` / `cheque_status_col` name the payment's status and its cheque's status in the
+	caller's query. Both Reconciliation Pending counts (the tab strip, the sidebar badge) leave these out
+	through here, so they cannot disagree. A blank status stays a blank: `COALESCE`, so `NOT (...)` keeps it."""
+	return (
+		f"COALESCE({status_col}, '') = %(tracker_status)s AND COALESCE({cheque_status_col}, '') = %(tracker_cheque)s",
+		{"tracker_status": settlement.STATUS_RECONCILIATION_PENDING, "tracker_cheque": ISSUED},
+	)

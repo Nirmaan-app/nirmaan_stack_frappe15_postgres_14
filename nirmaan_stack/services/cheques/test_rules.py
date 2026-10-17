@@ -10,7 +10,7 @@ import json
 import os
 import unittest
 
-from nirmaan_stack.services.cheques import rules
+from nirmaan_stack.services.cheques import bank_import_rules, edit_rules, payment_rules, rules
 
 DOCTYPES = os.path.join(os.path.dirname(__file__), "..", "..", "nirmaan_stack", "doctype")
 
@@ -33,7 +33,7 @@ class TestChequeNamesMatchTheDoctype(unittest.TestCase):
         self.assertEqual(_options("cheques", "made_from"), rules.MADE_FROM)
         self.assertEqual(_options("cheque_line", "line_type"), rules.LINE_TYPES)
         # A payment a cheque line of the bank import settled (#1485).
-        self.assertIn(rules.BANK_MATCH_BASIS, _options("outflow_row_match", "match_basis"))
+        self.assertIn(bank_import_rules.BANK_MATCH_BASIS, _options("outflow_row_match", "match_basis"))
 
     def test_a_cheque_saved_with_no_status_starts_pending(self):
         # A new Payment cheque waits for its payments' approval (spec #1477); a deposit sets Issued itself.
@@ -171,43 +171,43 @@ class TestWhatAChequePaymentRefuses(unittest.TestCase):
     cheque, so hold, Revert to Approved and a split each refuse it."""
 
     def test_only_a_po_payment_may_be_paid_by_cheque(self):
-        self.assertIsNone(rules.cheque_mode_problem(rules.PO_DOCTYPE))
+        self.assertIsNone(payment_rules.cheque_mode_problem(rules.PO_DOCTYPE))
         self.assertEqual(
-            rules.cheque_mode_problem(rules.WORK_ORDER_DOCTYPE),
+            payment_rules.cheque_mode_problem(rules.WORK_ORDER_DOCTYPE),
             "A Work Order payment is paid Online: only a PO payment can be paid by cheque.",
         )
 
     def test_an_online_payment_is_never_refused(self):
-        for action in rules.CHEQUE_PAYMENT_ACTIONS:
-            self.assertIsNone(rules.cheque_payment_problem("PAY-1", action, is_cheque=False))
+        for action in payment_rules.CHEQUE_PAYMENT_ACTIONS:
+            self.assertIsNone(payment_rules.cheque_payment_problem("PAY-1", action, is_cheque=False))
 
     def test_hold_revert_and_split_each_refuse_a_cheque_payment_saying_why(self):
         self.assertEqual(
-            rules.cheque_payment_problem("PAY-1", rules.CHEQUE_REFUSES_HOLD, is_cheque=True, cheque_no="000747"),
+            payment_rules.cheque_payment_problem("PAY-1", payment_rules.CHEQUE_REFUSES_HOLD, is_cheque=True, cheque_no="000747"),
             "PAY-1 is paid by cheque 000747, so it cannot be put on hold: a cheque's payments move together. "
             "Cancel the cheque in the Cheque Tracker instead.",
         )
         self.assertEqual(
-            rules.cheque_payment_problem("PAY-1", rules.CHEQUE_REFUSES_REVERT, is_cheque=True, cheque_no="000747"),
+            payment_rules.cheque_payment_problem("PAY-1", payment_rules.CHEQUE_REFUSES_REVERT, is_cheque=True, cheque_no="000747"),
             "PAY-1 is paid by cheque 000747, so it cannot go back to Approved: a cheque's payments move together. "
             "Cancel the cheque in the Cheque Tracker instead.",
         )
         self.assertEqual(
-            rules.cheque_payment_problem("PAY-1", rules.CHEQUE_REFUSES_SPLIT, is_cheque=True, cheque_no="000747"),
+            payment_rules.cheque_payment_problem("PAY-1", payment_rules.CHEQUE_REFUSES_SPLIT, is_cheque=True, cheque_no="000747"),
             "PAY-1 is paid by cheque 000747, so it cannot be split: a cheque pays its payments in full or not "
             "at all.",
         )
 
     def test_a_cheque_payment_with_no_number_still_refuses(self):
         self.assertTrue(
-            rules.cheque_payment_problem("PAY-1", rules.CHEQUE_REFUSES_HOLD, is_cheque=True).startswith(
+            payment_rules.cheque_payment_problem("PAY-1", payment_rules.CHEQUE_REFUSES_HOLD, is_cheque=True).startswith(
                 "PAY-1 is paid by cheque, so it cannot be put on hold"
             )
         )
 
     def test_an_unknown_action_is_a_bug(self):
         with self.assertRaises(KeyError):
-            rules.cheque_payment_problem("PAY-1", "delete", is_cheque=True)
+            payment_rules.cheque_payment_problem("PAY-1", "delete", is_cheque=True)
 
 
 class TestModeChange(unittest.TestCase):
@@ -215,7 +215,7 @@ class TestModeChange(unittest.TestCase):
 
     def test_the_mode_changes_only_through_a_cheque(self):
         def problem(was, now, *, cheque=None, old_cheque_status=None):
-            return rules.mode_change_problem(
+            return payment_rules.mode_change_problem(
                 was_cheque=was, now_cheque=now, cheque=cheque, old_cheque_status=old_cheque_status,
                 on_old_cheque_lines=old_cheque_status is not None,
             )
@@ -236,7 +236,7 @@ class TestModeChange(unittest.TestCase):
 
     def test_a_payment_whose_line_came_off_its_issued_cheque_may_go_online(self):
         # #1418, story 82: the report's Edit took its line off, so the Cheque no longer holds it.
-        self.assertIsNone(rules.mode_change_problem(
+        self.assertIsNone(payment_rules.mode_change_problem(
             was_cheque=True, now_cheque=False, cheque=None, old_cheque_status="Issued", on_old_cheque_lines=False
         ))
 
@@ -253,31 +253,31 @@ class TestEditTakesPaymentsOff(unittest.TestCase):
         wo, npe = rules.LINE_PO_WO_PAYMENT, rules.LINE_NON_PROJECT_EXPENSE
         before = [self._line(wo, "PAY-1"), self._line(wo, "PAY-2"), self._line(wo), self._line(npe, "NPE-1")]
         after = [self._line(wo, "PAY-2"), self._line(wo, "PAY-3")]
-        self.assertEqual(rules.payments_taken_off(before, after), ["PAY-1"])  # an expense is no payment
+        self.assertEqual(edit_rules.payments_taken_off(before, after), ["PAY-1"])  # an expense is no payment
 
     def test_only_a_pending_cheque_s_payment_line_may_come_off(self):
         # #1482: a Payment cheque's lines change only while Pending; Issued and on, only the photo.
         header = rules.parse_header({"bank": "ICICI Bank", "cheque_no": "1", "cheque_date": "2026-10-14",
                                      "amount": 100, "vendor": "V", "attachment": "x"})
         for made_from in rules.MADE_FROM:
-            self.assertIsNone(rules.edit_problem(
+            self.assertIsNone(edit_rules.edit_problem(
                 header, header, status=rules.PENDING, made_from=made_from,
                 lines_before=[self._line(rules.LINE_PO_WO_PAYMENT, "PAY-1")], lines_after=[],
             ))
         for status in (rules.ISSUED, rules.CLEARED, rules.CANCELLED):
-            self.assertIn(f"is {status}: only its photo can change", rules.edit_problem(
+            self.assertIn(f"is {status}: only its photo can change", edit_rules.edit_problem(
                 header, header, status=status, made_from=rules.MADE_FROM_REPORT,
                 lines_before=[self._line(rules.LINE_PO_WO_PAYMENT, "PAY-1")], lines_after=[],
             ))
 
     def test_procurement_edits_only_its_own_pending_cheques(self):
         # C6 (#1482): lines lock once Issued, so Procurement's edits stop there too.
-        self.assertIsNone(rules.edit_access_problem(status=rules.PENDING, owner="u", user="u", any_cheque=False))
+        self.assertIsNone(edit_rules.edit_access_problem(status=rules.PENDING, owner="u", user="u", any_cheque=False))
         for status in (rules.ISSUED, rules.CLEARED):
             self.assertIn("only the Pending cheques you created",
-                          rules.edit_access_problem(status=status, owner="u", user="u", any_cheque=False))
-        self.assertIsNotNone(rules.edit_access_problem(status=rules.PENDING, owner="v", user="u", any_cheque=False))
-        self.assertIsNone(rules.edit_access_problem(status=rules.ISSUED, owner="v", user="u", any_cheque=True))
+                          edit_rules.edit_access_problem(status=status, owner="u", user="u", any_cheque=False))
+        self.assertIsNotNone(edit_rules.edit_access_problem(status=rules.PENDING, owner="v", user="u", any_cheque=False))
+        self.assertIsNone(edit_rules.edit_access_problem(status=rules.ISSUED, owner="v", user="u", any_cheque=True))
 
     # The amount is left out: `flt(..., 2)` needs a site, so with no DB every amount reads 0.0.
     # `api/cheques/test_cheque_edit` covers it.
@@ -287,7 +287,7 @@ class TestEditTakesPaymentsOff(unittest.TestCase):
         after = rules.parse_header({"bank": "ICICI Bank", "cheque_no": "2", "cheque_date": "2026-10-15",
                                     "amount": 100, "vendor": "V", "attachment": "x"})
         on_it = [self._line(rules.LINE_PO_WO_PAYMENT, "PAY-1")]
-        self.assertIn("so its number and date cannot change here", rules.edit_problem(
+        self.assertIn("so its number and date cannot change here", edit_rules.edit_problem(
             before, after, status=rules.PENDING, made_from=rules.MADE_FROM_PO_WO_PAGE,
             lines_before=on_it, lines_after=on_it,
         ))
@@ -300,7 +300,7 @@ class TestEditTakesPaymentsOff(unittest.TestCase):
                                     "amount": 100, "vendor": "V", "attachment": "x"})
         no_payment = [self._line(rules.LINE_PO_WO_PAYMENT), self._line(rules.LINE_NON_PROJECT_EXPENSE, "NPE-1")]
         for lines in ([], no_payment):
-            self.assertIsNone(rules.edit_problem(
+            self.assertIsNone(edit_rules.edit_problem(
                 before, after, status=rules.PENDING, made_from=rules.MADE_FROM_PO_WO_PAGE,
                 lines_before=lines, lines_after=lines,
             ))
@@ -310,7 +310,7 @@ def _tracker_line(line_type=rules.LINE_PO_WO_PAYMENT, record_doctype=rules.PO_DO
                   status=None, on_hold=False, added=True):
     line = rules.parse_line({"line_type": line_type, "project": "P", "record_doctype": record_doctype,
                              "record_name": "R-1", "payment_name": payment, "amount": 100})
-    return rules.TrackerLine(line=line, added=added, payment_status=status, on_hold=on_hold)
+    return edit_rules.TrackerLine(line=line, added=added, payment_status=status, on_hold=on_hold)
 
 
 class TestTrackerPaymentCheque(unittest.TestCase):
@@ -321,7 +321,7 @@ class TestTrackerPaymentCheque(unittest.TestCase):
                                  "amount": 100, "vendor": "V", "attachment": "x"})
 
     def _problem(self, lines, header=None):
-        return rules.tracker_payment_cheque_problem(header or self.VENDOR, lines)
+        return edit_rules.tracker_payment_cheque_problem(header or self.VENDOR, lines)
 
     def test_po_lines_across_records_with_payments_at_one_step_are_taken(self):
         self.assertIsNone(self._problem([
@@ -380,7 +380,7 @@ class TestTrackerPaymentCheque(unittest.TestCase):
         line = rules.ChequeLineInput(line_type=rules.LINE_PO_WO_PAYMENT, project="P", record_doctype=rules.PO_DOCTYPE,
                                      record_name="R-1", payment_doctype=rules.PAYMENT_DOCTYPE if payment else None,
                                      payment_name=payment, amount=amount)
-        return rules.TrackerLine(line=line, added=True, payment_status=status)
+        return edit_rules.TrackerLine(line=line, added=True, payment_status=status)
 
     def test_approved_payments_beside_a_line_with_no_payment_yet_are_refused(self):
         # Approved payments issue the cheque at once, so a "No payment yet" line would leave it Pending
@@ -423,7 +423,7 @@ class TestOldTypeChequeEdit(unittest.TestCase):
     def _problem(self, after, *, lines_after=None, status=rules.ISSUED):
         lines = [rules.parse_line({"line_type": rules.LINE_NON_PROJECT_EXPENSE, "payment_name": "NPE-1",
                                    "amount": 100})]
-        return rules.edit_problem(
+        return edit_rules.edit_problem(
             rules.parse_header(self.BEFORE), rules.parse_header({**self.BEFORE, **after}),
             status=status, made_from=rules.MADE_FROM_REPORT, old_type=True,
             lines_before=lines, lines_after=lines if lines_after is None else lines_after,

@@ -12,7 +12,7 @@ No database. Run with `devenv.sh unit nirmaan_stack.services.cheques.test_deposi
 
 import unittest
 
-from nirmaan_stack.services.cheques import rules
+from nirmaan_stack.services.cheques import clear_rules, edit_rules, rules
 from nirmaan_stack.services.cheques.rules import ChequeHeader
 
 SD = "Security Deposit"
@@ -100,44 +100,44 @@ class TestADepositCheque_sHeader(unittest.TestCase):
                                               cheque_type=SD), "Upload the photo of the cheque.")
 
     def test_the_issue_date_is_required_and_never_after_today(self):
-        self.assertEqual(rules.issue_date_problem(None, today="2026-10-16"), "Enter the issue date: the day it was handed over.")
-        self.assertEqual(rules.issue_date_problem("2026-10-17", today="2026-10-16"), "The issue date cannot be after today.")
-        self.assertIsNone(rules.issue_date_problem("2026-10-16", today="2026-10-16"))
-        self.assertIsNone(rules.issue_date_problem("2026-01-02", today="2026-10-16"))
+        self.assertEqual(clear_rules.issue_date_problem(None, today="2026-10-16"), "Enter the issue date: the day it was handed over.")
+        self.assertEqual(clear_rules.issue_date_problem("2026-10-17", today="2026-10-16"), "The issue date cannot be after today.")
+        self.assertIsNone(clear_rules.issue_date_problem("2026-10-16", today="2026-10-16"))
+        self.assertIsNone(clear_rules.issue_date_problem("2026-01-02", today="2026-10-16"))
 
 
 class TestEditingADepositCheque(unittest.TestCase):
     def test_procurement_edits_its_own_deposit_while_issued(self):
         own = {"owner": "p@x", "user": "p@x", "any_cheque": False, "cheque_type": SD}
-        self.assertIsNone(rules.edit_access_problem(status="Issued", **own))
-        self.assertIsNotNone(rules.edit_access_problem(status="Cancelled", **own))
-        self.assertIsNotNone(rules.edit_access_problem(status="Issued", **{**own, "owner": "q@x"}))
+        self.assertIsNone(edit_rules.edit_access_problem(status="Issued", **own))
+        self.assertIsNotNone(edit_rules.edit_access_problem(status="Cancelled", **own))
+        self.assertIsNotNone(edit_rules.edit_access_problem(status="Issued", **{**own, "owner": "q@x"}))
 
     def test_procurement_edits_its_own_payment_cheque_only_while_pending(self):
         own = {"owner": "p@x", "user": "p@x", "any_cheque": False, "cheque_type": PAY}
-        self.assertIsNone(rules.edit_access_problem(status="Pending", **own))
-        self.assertIsNotNone(rules.edit_access_problem(status="Issued", **own))
+        self.assertIsNone(edit_rules.edit_access_problem(status="Pending", **own))
+        self.assertIsNotNone(edit_rules.edit_access_problem(status="Issued", **own))
 
     def test_an_issued_deposit_changes_in_full_and_a_cancelled_one_only_its_photo(self):
         before, after = _header(), _header(amount=150000, attachment="/private/files/new.jpg")
         lines = [_secured()]
-        self.assertIsNone(rules.edit_problem(before, after, status="Issued", made_from="Report", lines_before=[],
+        self.assertIsNone(edit_rules.edit_problem(before, after, status="Issued", made_from="Report", lines_before=[],
                                              lines_after=lines, cheque_type=SD))
         self.assertEqual(
-            rules.edit_problem(before, after, status="Cancelled", made_from="Report", lines_before=[],
+            edit_rules.edit_problem(before, after, status="Cancelled", made_from="Report", lines_before=[],
                                lines_after=[], cheque_type=SD),
             "Cheque 000760 is Cancelled: only its photo can change.",
         )
         photo_only = _header(attachment="/private/files/new.jpg")
-        self.assertIsNone(rules.edit_problem(before, photo_only, status="Cancelled", made_from="Report",
+        self.assertIsNone(edit_rules.edit_problem(before, photo_only, status="Cancelled", made_from="Report",
                                              lines_before=lines, lines_after=lines, cheque_type=SD))
 
 
 class TestCancellingADepositCheque(unittest.TestCase):
     def test_only_an_issued_deposit_is_cancelled(self):
-        self.assertIsNone(rules.deposit_cancel_problem(status="Issued", cheque_type=SD))
-        self.assertEqual(rules.deposit_cancel_problem(status="Cancelled", cheque_type=SD), "already Cancelled")
-        self.assertEqual(rules.deposit_cancel_problem(status="Issued", cheque_type=PAY),
+        self.assertIsNone(clear_rules.deposit_cancel_problem(status="Issued", cheque_type=SD))
+        self.assertEqual(clear_rules.deposit_cancel_problem(status="Cancelled", cheque_type=SD), "already Cancelled")
+        self.assertEqual(clear_rules.deposit_cancel_problem(status="Issued", cheque_type=PAY),
                          "it is a Payment cheque, not a Security Deposit")
 
 
@@ -148,18 +148,18 @@ class TestADepositIsNeverCleared(unittest.TestCase):
         for cleared_by in rules.CLEARED_BY:
             for status in rules.CHEQUE_STATUSES:
                 self.assertEqual(
-                    rules.clear_problem(status=status, cheque_type=SD, old_type=False, cleared_by=cleared_by,
+                    clear_rules.clear_problem(status=status, cheque_type=SD, old_type=False, cleared_by=cleared_by,
                                         payments=[], bank_line=cleared_by == rules.CLEARED_BY_BANK_IMPORT),
                     "a Security Deposit cheque is never cashed",
                     (cleared_by, status),
                 )
 
     def test_a_bank_line_with_its_number_and_amount_still_clears_nothing(self):
-        line = rules.BankLine(name="OFR-1", source=rules.ICICI_STATEMENT_SOURCE, direction="Debit",
+        line = clear_rules.BankLine(name="OFR-1", source=clear_rules.ICICI_STATEMENT_SOURCE, direction="Debit",
                               row_status="Mismatched", reference_id="760", amount=200000)
-        self.assertTrue(rules.bank_line_matches(line, cheque_no="000760", amount=200000))
+        self.assertTrue(clear_rules.bank_line_matches(line, cheque_no="000760", amount=200000))
         self.assertEqual(
-            rules.clear_problem(status="Issued", cheque_type=SD, old_type=False,
+            clear_rules.clear_problem(status="Issued", cheque_type=SD, old_type=False,
                                 cleared_by=rules.CLEARED_BY_BANK_IMPORT, payments=[], bank_line=True),
             "a Security Deposit cheque is never cashed",
         )

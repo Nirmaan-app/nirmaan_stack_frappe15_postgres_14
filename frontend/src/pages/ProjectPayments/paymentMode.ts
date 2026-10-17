@@ -51,7 +51,7 @@ export const EMPTY_PAYMENT_MODE: PaymentModeValue = {
 
 /**
  * Does Request Payment on this record offer Cheque? Only on a PO: a Work Order payment is paid Online
- * (spec #1477). The server refuses the same (`services/cheques/rules.cheque_mode_problem`).
+ * (spec #1477). The server refuses the same (`services/cheques/payment_rules.cheque_mode_problem`).
  */
 export const chequeModeOffered = (docType: string): boolean => docType === "Procurement Orders";
 

@@ -14,8 +14,8 @@ No database. Run with `devenv.sh unit nirmaan_stack.services.cheques.test_clear_
 
 import unittest
 
-from nirmaan_stack.services.cheques import rules
-from nirmaan_stack.services.cheques.rules import BankLine
+from nirmaan_stack.services.cheques import clear_rules, rules
+from nirmaan_stack.services.cheques.clear_rules import BankLine
 
 RP = "Reconciliation Pending"
 
@@ -41,7 +41,7 @@ class TestClearByHand(unittest.TestCase):
         values = {"cheque_type": "Payment", "old_type": False, "cleared_by": rules.CLEARED_BY_HAND,
                   "bank_line": False}
         values.update(kw)
-        return rules.clear_problem(status=status, payments=list(payments), **values)
+        return clear_rules.clear_problem(status=status, payments=list(payments), **values)
 
     def test_an_issued_cheque_whose_payments_wait_for_the_bank_may_be_cleared(self):
         self.assertIsNone(self.problem(payments=[("PAY-1", RP), ("PAY-2", RP)]))
@@ -85,40 +85,40 @@ class TestClearByHand(unittest.TestCase):
 class TestClearanceDate(unittest.TestCase):
     def test_a_date_is_required(self):
         self.assertEqual(
-            rules.clearance_date_problem(None, issue_date="2026-10-01", today="2026-10-17"),
+            clear_rules.clearance_date_problem(None, issue_date="2026-10-01", today="2026-10-17"),
             "Choose the clearance date.",
         )
 
     def test_it_cannot_be_after_today_or_before_the_issue_date(self):
         self.assertEqual(
-            rules.clearance_date_problem("2026-10-18", issue_date="2026-10-01", today="2026-10-17"),
+            clear_rules.clearance_date_problem("2026-10-18", issue_date="2026-10-01", today="2026-10-17"),
             "The clearance date cannot be after today.",
         )
         self.assertEqual(
-            rules.clearance_date_problem("2026-09-30", issue_date="2026-10-01", today="2026-10-17"),
+            clear_rules.clearance_date_problem("2026-09-30", issue_date="2026-10-01", today="2026-10-17"),
             "The clearance date cannot be before the cheque was issued (01-10-2026).",
         )
 
     def test_any_day_from_the_issue_date_to_today_is_fine(self):
         for day in ("2026-10-01", "2026-10-17"):
-            self.assertIsNone(rules.clearance_date_problem(day, issue_date="2026-10-01", today="2026-10-17"))
-        self.assertIsNone(rules.clearance_date_problem("2026-01-01", issue_date=None, today="2026-10-17"))
+            self.assertIsNone(clear_rules.clearance_date_problem(day, issue_date="2026-10-01", today="2026-10-17"))
+        self.assertIsNone(clear_rules.clearance_date_problem("2026-01-01", issue_date=None, today="2026-10-17"))
 
 
 class TestCancel(unittest.TestCase):
     def test_pending_and_issued_cheques_may_be_cancelled(self):
-        self.assertIsNone(rules.cancel_problem(status="Pending"))
-        self.assertIsNone(rules.cancel_problem(status="Issued"))
+        self.assertIsNone(clear_rules.cancel_problem(status="Pending"))
+        self.assertIsNone(clear_rules.cancel_problem(status="Issued"))
 
     def test_a_cleared_cheque_has_no_undo(self):
-        self.assertEqual(rules.cancel_problem(status="Cleared"), "it is Cleared: a cleared cheque cannot be cancelled")
+        self.assertEqual(clear_rules.cancel_problem(status="Cleared"), "it is Cleared: a cleared cheque cannot be cancelled")
 
     def test_a_cancelled_cheque_is_already_cancelled(self):
-        self.assertEqual(rules.cancel_problem(status="Cancelled"), "already Cancelled")
+        self.assertEqual(clear_rules.cancel_problem(status="Cancelled"), "already Cancelled")
 
     def test_a_note_is_required(self):
-        self.assertEqual(rules.cancel_note_problem("  "), "Write a note saying why the cheque is cancelled.")
-        self.assertIsNone(rules.cancel_note_problem("bounced"))
+        self.assertEqual(clear_rules.cancel_note_problem("  "), "Write a note saying why the cheque is cancelled.")
+        self.assertIsNone(clear_rules.cancel_note_problem("bounced"))
 
 
 def _line(**kw):
@@ -130,7 +130,7 @@ def _line(**kw):
 
 class TestWhichBankLineClearsACheque(unittest.TestCase):
     def problem(self, line, *, bank="ICICI Bank", cheque_no="000747", amount=50000):
-        return rules.bank_line_problem(line, bank=bank, cheque_no=cheque_no, amount=amount)
+        return clear_rules.bank_line_problem(line, bank=bank, cheque_no=cheque_no, amount=amount)
 
     def test_an_unmatched_icici_debit_with_the_number_and_amount_clears_it(self):
         self.assertIsNone(self.problem(_line()))

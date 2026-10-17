@@ -46,7 +46,7 @@ class TestChequeDetach(FrappeTestCase):
         self.project = self.fx.project()
         self.sr = self.fx.service_request(self.project, self.vendor)
         frappe.db.commit()
-        for target in (f"{CONTROLLER}._notify_admins_auto_approved", f"{CONTROLLER}._notify_ceo_payment_awaiting"):
+        for target in (f"{CONTROLLER}._notify_admins_auto_approved", f"{CONTROLLER}.notify_ceo_payment_awaiting"):
             quiet = patch(target)
             quiet.start()
             self.addCleanup(quiet.stop)

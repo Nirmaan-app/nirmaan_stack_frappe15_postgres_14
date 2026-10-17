@@ -26,7 +26,7 @@ from frappe.utils import getdate
 from frappe.utils.data import get_user_date_format
 
 from nirmaan_stack.services.outflow_import.settle import (
-    _outflow_import_write,
+    outflow_import_write,
     clear_statement_attachment,
 )
 from nirmaan_stack.services.vendor_refunds import RECEIVED, RECONCILIATION_PENDING, VENDOR_REFUNDS
@@ -67,7 +67,7 @@ def unmatch_refund(leg, statement_file_url: str | None) -> None:
         if field in before:
             doc.set(field, before[field])
     clear_statement_attachment(doc, statement_file_url)
-    with _outflow_import_write():
+    with outflow_import_write():
         doc.save(ignore_permissions=True, ignore_version=False)
 
 

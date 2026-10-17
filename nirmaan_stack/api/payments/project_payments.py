@@ -10,7 +10,6 @@ from nirmaan_stack.services.approval_raiser import raiser_level
 from nirmaan_stack.services.approval_tiers import (
     TIER_AUTO_APPROVE_BELOW,
     TIER_L2_ABOVE,
-    approval_amount,
     initial_status_for_raiser,
     is_auto_approved,
     steps_cleared_by_raiser,
@@ -51,6 +50,14 @@ def _route_new_payment(amount):
     status = initial_status_for_raiser(amount, TIER_L2_ABOVE, level)
     l1_cleared, ceo_cleared = steps_cleared_by_raiser(amount, TIER_L2_ABOVE, level)
     return status, l1_cleared, ceo_cleared
+
+
+def _tier_new_payment(amount, cheque):
+    """`(auto_approve, status, l1_cleared, ceo_cleared)` for a new payment of `amount` the session user
+    raises. A cheque payment (`cheque`, its cheque's header) is tiered on the CHEQUE amount (spec #1477,
+    C3): one cheque is one decision. Small payments auto-approve; a negative refund never does."""
+    tier_amount = cheque.amount if cheque else amount
+    return (is_auto_approved(tier_amount), *_route_new_payment(tier_amount))
 
 
 def _stamp_raiser_approval(pay, l1_cleared: bool, ceo_cleared: bool) -> None:
@@ -140,10 +147,7 @@ def create_payment_request_for_service(data: str) -> str:
     # ── create payment doc  (ACID wrapper) ─────────────────────────
     # Small payments auto-approve; negative refunds (amount < 0) always go
     # through manual review, hence the strict `0 < amount` lower bound.
-    # A cheque payment is tiered on its cheque's amount (spec #1477, C3).
-    tier_amount = approval_amount(amount, cheque.amount if cheque else None)
-    auto_approve = is_auto_approved(tier_amount)
-    status, l1_cleared, ceo_cleared = _route_new_payment(tier_amount)
+    auto_approve, status, l1_cleared, ceo_cleared = _tier_new_payment(amount, cheque)
 
     pay = frappe.new_doc("Project Payments")
     pay.update({
@@ -284,10 +288,7 @@ def create_project_payment(
         refuse_unless_cheque_can_be_made(cheque)
 
         # --- Step 4: Create the payment document (small ones skip both gates) ---
-        # A cheque payment is tiered on its cheque's amount (spec #1477, C3).
-        tier_amount = approval_amount(amount, cheque.amount if cheque else None)
-        auto_approve = is_auto_approved(tier_amount)
-        status, l1_cleared, ceo_cleared = _route_new_payment(tier_amount)
+        auto_approve, status, l1_cleared, ceo_cleared = _tier_new_payment(amount, cheque)
 
         pay = frappe.new_doc("Project Payments")
         pay.update({

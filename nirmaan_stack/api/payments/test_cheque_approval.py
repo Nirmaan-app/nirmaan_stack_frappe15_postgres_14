@@ -54,7 +54,7 @@ class PendingChequeCase(FrappeTestCase):
         quiet = patch(f"{CONTROLLER}.PrNotification")
         quiet.start()
         self.addCleanup(quiet.stop)
-        ceo_note = patch(f"{CONTROLLER}._notify_ceo_payment_awaiting")
+        ceo_note = patch(f"{CONTROLLER}.notify_ceo_payment_awaiting")
         self.ceo_note = ceo_note.start()
         self.addCleanup(ceo_note.stop)
 

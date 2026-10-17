@@ -18,28 +18,30 @@ Work Orders, each with its project: a deposit may secure either.
 The Clear dialog's picker (#1484): `bank_lines_for` -- the imported, unmatched ICICI debits carrying a
 cheque's number (leading zeros ignored) and amount, that a hand clear may link.
 
-The same rules are enforced on save (`rules.tracker_payment_cheque_problem`, `lines.lines_problem`);
+The same rules are enforced on save (`edit_rules.tracker_payment_cheque_problem`, `lines.lines_problem`);
 these lists only spare the user a refusal.
 """
 
 import frappe
 from frappe.utils import cint, flt
 
+from nirmaan_stack.services.cheques.clear_rules import (
+    DIRECTION_DEBIT,
+    ICICI_STATEMENT_SOURCE,
+    UNMATCHED_LINE_STATUSES,
+    BankLine,
+    bank_line_problem,
+)
+from nirmaan_stack.services.cheques.edit_rules import PICKABLE_STEPS
 from nirmaan_stack.services.cheques.lines import live_cheques_of
 from nirmaan_stack.services.cheques.rules import (
     CHEQUE_TYPE_PAYMENT,
-    DIRECTION_DEBIT,
     ICICI_BANK,
-    ICICI_STATEMENT_SOURCE,
     LINES_TOLERANCE,
     PAYMENT_DOCTYPE,
     PAYMENT_REJECTED,
-    PICKABLE_STEPS,
     PO_DOCTYPE,
-    UNMATCHED_LINE_STATUSES,
     WORK_ORDER_DOCTYPE,
-    BankLine,
-    bank_line_problem,
     cheque_no_key,
 )
 from nirmaan_stack.services.cheques.writer import CHEQUES
@@ -170,7 +172,7 @@ def bank_lines_for(cheque: str) -> list[dict]:
     """`[{name, added_on, amount, reference_id, remarks, import_batch}]`: the imported bank lines the Clear
     dialog offers for Payment cheque `cheque` (#1484), oldest first. Each is an ICICI statement debit nobody
     has matched yet, carrying the cheque's number (leading zeros ignored) and its amount within ₹5
-    (`rules.bank_line_problem`). Empty for a cheque no line can clear: not ICICI Bank, Old-type, a deposit.
+    (`clear_rules.bank_line_problem`). Empty for a cheque no line can clear: not ICICI Bank, Old-type, a deposit.
     """
     doc = frappe.db.get_value(
         CHEQUES, cheque, ["cheque_no", "bank", "amount", "cheque_type", "old_type"], as_dict=True

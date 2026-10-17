@@ -30,17 +30,14 @@ Built so far:
 
 * `edit_cheque` -- the Tracker's Edit (#1418, #1482): a Payment cheque's lines change only while Pending,
   a Security Deposit cheque's (and its issue date) while Issued (#1486); what else may change depends on
-  where the Cheque was made and who made it (`rules.edit_access_problem`, `rules.edit_problem`). A payment added on edit is put on the Cheque exactly as on create; one taken
+  where the Cheque was made and who made it (`edit_rules.edit_access_problem`, `edit_rules.edit_problem`). A payment added on edit is put on the Cheque exactly as on create; one taken
   off goes back to Online at its own step (`take_payment_off`), with a history note.
 * `take_payment_off` -- a payment back to Online, off its Cheque, status unchanged. The edit uses it.
 * `reshape_old_cheque` -- the cheque-types patch's write (#1478, spec #1477): an existing Cheque made a
   Payment cheque, Old-type or not, at the status and dates worked out from its payments.
 
-Status change for one or many, with history, is `services/cheques/status.py` (#1412). A Rejected or
-deleted payment's line comes off in `services/cheques/detach.py` (#1413).
-
-The line pickers' lists are read-only and live in `services/cheques/pickers.py`; the line rules
-that read the database in `services/cheques/lines.py`.
+Every status move is a named operation in `status.py`; a deleted payment's line comes off in `detach.py`.
+The line pickers are `pickers.py`; the line rules that read the database, `lines.py`.
 
 A Cheque moves no money figure: amounts paid, amounts owed, TDS and vendor credit come from payments.
 Becoming Issued is `services/cheques/status.issue`, the only code that issues a Payment cheque.
@@ -53,11 +50,22 @@ from frappe import _
 from frappe.utils import flt, now_datetime, nowdate
 
 from nirmaan_stack.services.cheque_payments import MODE_CHEQUE, MODE_ONLINE
+from nirmaan_stack.services.cheques.clear_rules import issue_date_problem
+from nirmaan_stack.services.cheques.edit_rules import (
+    EDITABLE_STATUSES,
+    TrackerLine,
+    edit_access_problem,
+    edit_problem,
+    editable_statuses,
+    line_identity,
+    payments_taken_off,
+    taken_off_note,
+    tracker_payment_cheque_problem,
+)
 from nirmaan_stack.services.cheques.lines import with_record_projects
 from nirmaan_stack.services.cheques.rules import (
     CHEQUE_TYPE_PAYMENT,
     CHEQUE_TYPE_SECURITY_DEPOSIT,
-    EDITABLE_STATUSES,
     ISSUED,
     LINE_PO_WO_PAYMENT,
     MADE_FROM,
@@ -68,21 +76,12 @@ from nirmaan_stack.services.cheques.rules import (
     PENDING,
     ChequeHeader,
     ChequeLineInput,
-    TrackerLine,
     bank_key,
-    edit_access_problem,
-    edit_problem,
-    editable_statuses,
     header_problem,
-    issue_date_problem,
-    line_identity,
     normalise_cheque_no,
     parse_header,
     parse_line,
     payment_duplicate_problem,
-    payments_taken_off,
-    taken_off_note,
-    tracker_payment_cheque_problem,
 )
 
 CHEQUES = "Cheques"
@@ -152,7 +151,7 @@ def create_cheque(header: ChequeHeader, *, user: str, made_from: str, lines: lis
 def add_payment_cheque(header: ChequeHeader, lines: list[ChequeLineInput], *, user: str):
     """The Cheque Tracker's Add Cheque (#1482, spec #1477): a Payment cheque made out to a Vendor, with PO
     lines whose payments are all at Requested, CEO Pending or Approved, at one step
-    (`rules.tracker_payment_cheque_problem`). Saves it Pending through `create_cheque`. Returns it.
+    (`edit_rules.tracker_payment_cheque_problem`). Saves it Pending through `create_cheque`. Returns it.
 
     ⚠️ THE CALLER COMMITS, THEN MOVES THE PAYMENTS ON: an Approved payment's move to Reconciliation
     Pending issues the cheque, its issue date the payments' approval date (`status.issue`).
@@ -259,11 +258,11 @@ def edit_cheque(
 
     Re-reads the Cheque under its row lock, then refuses with `frappe.PermissionError` a user who may
     not edit it (`any_cheque` is False for Procurement: only their own Pending Payment cheques and Issued
-    Security Deposit cheques), and with a validation error an edit the rules forbid (`rules.edit_problem`:
+    Security Deposit cheques), and with a validation error an edit the rules forbid (`edit_rules.edit_problem`:
     a Payment cheque's lines change only while Pending, a deposit's while Issued, and an Old-type cheque
     changes only its photo). A Security Deposit cheque's `issue_date` (None keeps it) changes with the
     rest while Issued (#1486). A Payment cheque that is not Old-type also keeps to
-    what the Tracker's Add takes (`rules.tracker_payment_cheque_problem`): a Vendor payee, at least one
+    what the Tracker's Add takes (`edit_rules.tracker_payment_cheque_problem`): a Vendor payee, at least one
     line, and each added line a PO payment at the step of the payments already on it. The `validate`
     controller still runs every header and line rule.
 
@@ -335,7 +334,7 @@ def edit_cheque(
 
 def _issue_date_edit_problem(doc, issue_date) -> str | None:
     """Why an edit may not set a Security Deposit cheque's issue date to `issue_date`, or None. It changes
-    only while the deposit is Issued (`rules.editable_statuses`), and is then required, never after today.
+    only while the deposit is Issued (`edit_rules.editable_statuses`), and is then required, never after today.
     A Payment cheque's issue date is its payments' approval, never typed: the argument is ignored."""
     if doc.cheque_type != CHEQUE_TYPE_SECURITY_DEPOSIT or issue_date is None:
         return None
@@ -480,7 +479,7 @@ def take_payment_off(payment_name: str):
     """Switch a Cheque payment back to Online and clear its `cheque` link. Returns the payment.
 
     Its status, amount and everything else stay as they are; the number and date are cleared by its own
-    `validate` (an Online payment has no cheque), whose mode rule (`rules.mode_change_problem`) refuses
+    `validate` (an Online payment has no cheque), whose mode rule (`payment_rules.mode_change_problem`) refuses
     it while its Cheque still holds it: Issued or Cleared with its line still on. The caller has
     checked it may go. Its Version row records who.
     """

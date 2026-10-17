@@ -19,7 +19,7 @@ cleared it, that line. A bank line (an imported `Outflow Import Row`) also gets 
 (`Outflow Row Match`) per payment, written as the import's own settle writes them, so the line reads
 Settled and no longer shows as unmatched. By hand (Accounts, from the Cheque Tracker) it starts from
 Issued only; the bank import (#1485, `bank_import.clear_from_line`) calls the same function with
-`cleared_by=CLEARED_BY_BANK_IMPORT` and may start from Pending or Cancelled too (`rules.CLEARABLE_FROM`):
+`cleared_by=CLEARED_BY_BANK_IMPORT` and may start from Pending or Cancelled too (`clear_rules.CLEARABLE_FROM`):
 the bank has already paid, so `_bring_forward` first approves a Pending cheque's payments (approval date =
 the line's date, the cheque Issued with history "approved by bank import") or revives a Cancelled one's
 Rejected payments (history "cancelled, but the bank paid it"), all inside the same savepoint, before the
@@ -32,7 +32,7 @@ on the cheque Rejected with the note as their reason, the cheque Cancelled. Refu
 
 **Cancel a deposit** (#1486). `cancel_deposit` is the one move a Security Deposit cheque has: Issued ->
 Cancelled when it comes back, with a required note. It pays nothing, so no payment is touched; it is never
-cleared (`rules.clear_problem`) and never issued (it is Issued when recorded, `writer.add_deposit_cheque`).
+cleared (`clear_rules.clear_problem`) and never issued (it is Issued when recorded, `writer.add_deposit_cheque`).
 
 Old-type cheques (#1478) are cleared or cancelled by hand only; a clear pays their Project Payment lines
 and leaves expense lines alone.
@@ -44,17 +44,26 @@ from frappe.utils import flt, nowdate
 
 from nirmaan_stack.api.outflow_import.vendor_credit_refresh import SETTLED_ENTRY_TYPE, recompute_vendor_credit
 from nirmaan_stack.services import payment_tds
+from nirmaan_stack.services.cheques.approval_rules import approval_problem
+from nirmaan_stack.services.cheques.bank_import_rules import BANK_APPROVAL_NOTE, BANK_REVIVAL_NOTE
+from nirmaan_stack.services.cheques.clear_rules import (
+    BANK_BRINGS_FORWARD,
+    BankLine,
+    bank_line_problem,
+    cancel_note_problem,
+    cancel_problem,
+    clear_problem,
+    clearance_date_problem,
+    deposit_cancel_problem,
+)
 from nirmaan_stack.services.cheques.decide import (
     DECIDING_FLAG,
-    _approval_lines,
+    approval_lines,
     lock_payments,
     reject_cheque,
     write_po_terms,
 )
 from nirmaan_stack.services.cheques.rules import (
-    BANK_APPROVAL_NOTE,
-    BANK_BRINGS_FORWARD,
-    BANK_REVIVAL_NOTE,
     CANCELLED,
     CHEQUE_TYPE_PAYMENT,
     CHEQUE_TYPE_SECURITY_DEPOSIT,
@@ -67,24 +76,23 @@ from nirmaan_stack.services.cheques.rules import (
     PAYMENT_REJECTED,
     PENDING,
     PO_DOCTYPE,
-    BankLine,
-    approval_problem,
-    bank_line_problem,
-    cancel_note_problem,
-    cancel_problem,
-    clear_problem,
-    clearance_date_problem,
-    deposit_cancel_problem,
     issue_date_from,
     ready_to_issue,
     rupees,
 )
 from nirmaan_stack.services.cheques.writer import CHEQUES, CHEQUES_CHANGED_EVENT, history_row
 from nirmaan_stack.services.outflow_import.amounts import amounts_match
+from nirmaan_stack.services.outflow_import.normalize import normalize_amount
+from nirmaan_stack.services.outflow_import.row_settlement import (
+    record_settlement,
+    refresh_batch_rollup,
+    refresh_row_allocation,
+)
 from nirmaan_stack.services.outflow_import.settle import (
-    _advance_po_latest_payment_date,
-    _outflow_import_write,
+    SettleResult,
+    advance_po_latest_payment_date,
     apply_statement_attachment,
+    outflow_import_write,
 )
 from nirmaan_stack.services.settlement import (
     STATUS_APPROVED,
@@ -125,12 +133,12 @@ def clear(
     By the bank import (`cleared_by=CLEARED_BY_BANK_IMPORT`, always with a line) it may start from Pending
     or Cancelled too: `_bring_forward` approves or revives the payments first, in the same savepoint.
 
-    With `bank_line` (an imported line, see `rules.bank_line_problem`) each payment also takes the line's
+    With `bank_line` (an imported line, see `clear_rules.bank_line_problem`) each payment also takes the line's
     reference as its UTR (when it has none) and the statement as its attachment, and gets one match record,
     as the import's settle writes them; the line becomes Settled and is recorded on the cheque.
 
     Refuses, naming the cheque and the reason, and changes nothing when the cheque cannot be cleared this
-    way (`rules.clear_problem`), the date is wrong (`rules.clearance_date_problem`) or the line does not
+    way (`clear_rules.clear_problem`), the date is wrong (`clear_rules.clearance_date_problem`) or the line does not
     fit. Locks the cheque, its POs, its payments and the line. Runs inside the caller's savepoint and
     NEVER COMMITS: each payment save carries the outflow import's flags, so no hook commits mid-cheque.
     """
@@ -149,7 +157,7 @@ def clear(
         clearance_date, issue_date=None if by_bank else doc.issue_date, today=nowdate(),
     )
     if not reason and started in BANK_BRINGS_FORWARD:
-        reason = approval_problem(cheque_no=doc.cheque_no, amount=doc.amount, lines=_approval_lines(doc))
+        reason = approval_problem(cheque_no=doc.cheque_no, amount=doc.amount, lines=approval_lines(doc))
     if reason:
         _refuse(doc, "cleared", reason.rstrip("."))
     clearance_date = str(clearance_date)[:10]
@@ -241,7 +249,7 @@ def _save_for_the_bank(pay, cheque: str) -> None:
     pay.flags.from_outflow_import = True
     pay.flags.bulk_approval = True
     pay.flags[DECIDING_FLAG] = cheque
-    with _outflow_import_write():
+    with outflow_import_write():
         pay.save(ignore_permissions=True)
 
 
@@ -252,7 +260,7 @@ def link_bank_line(cheque: str, *, bank_line: str, user: str) -> dict:
     as the hand clear left them. Returns what `clear` returns, `started` = Cleared.
 
     Refuses (and changes nothing) unless the cheque is a not Old-type Payment cheque, Cleared, with no
-    bank line yet, and the line fits it (`rules.bank_line_problem`, the paid payments' total within ₹5).
+    bank line yet, and the line fits it (`clear_rules.bank_line_problem`, the paid payments' total within ₹5).
     Runs inside the caller's savepoint and NEVER COMMITS.
     """
     doc = frappe.get_doc(CHEQUES, cheque, for_update=True)
@@ -292,7 +300,7 @@ def cleared_cheque_of(payment_name: str) -> str | None:
 
 def _lock_bank_line(doc, name: str, payments: list[str]):
     """Read bank line `name` under its row lock and refuse it unless it can clear this cheque: the bank
-    match rule (`rules.bank_line_problem`) and, since the line pays the payments, their total within ₹5
+    match rule (`clear_rules.bank_line_problem`) and, since the line pays the payments, their total within ₹5
     of the line (so the line ends Settled, never part allocated)."""
     line = frappe.db.get_value(BANK_LINE_DOCTYPE, name, "*", as_dict=True, for_update=True)
     if not line:
@@ -324,32 +332,24 @@ def _pay(name: str, payment_date: str, *, line, statement_file_url: str | None):
         apply_statement_attachment(pay, statement_file_url)
     pay.flags.from_outflow_import = True
     pay.flags.bulk_approval = True
-    with _outflow_import_write():
+    with outflow_import_write():
         pay.save(ignore_permissions=True)
-    _advance_po_latest_payment_date(pay, frappe.utils.getdate(payment_date))
+    advance_po_latest_payment_date(pay, frappe.utils.getdate(payment_date))
     return pay
 
 
 def _record_bank_line(line, paid: list, user: str) -> None:
     """One match record per paid payment on bank line `line`, then the line's status from its records
-    (Settled) and its batch's roll-up: the import's own writers (`api/outflow_import/expenses`), so the
-    line reads exactly as a line the import settled across several payments does."""
-    # Function-local: `api/outflow_import/expenses` imports much of the import, which must not load with
-    # the cheques service.
-    from nirmaan_stack.api.outflow_import.expenses import _record_settlement, _refresh_row_allocation
-    from nirmaan_stack.api.outflow_import.review import StagedRow, refresh_batch_rollup
-    from nirmaan_stack.services.outflow_import.normalize import normalize_amount
-    from nirmaan_stack.services.outflow_import.settle import SettleResult
-
-    staged = StagedRow(line)
+    (Settled) and its batch's roll-up: the import's own writers (`services/outflow_import/row_settlement`),
+    so the line reads exactly as a line the import settled across several payments does."""
     for pay in paid:
         amount = normalize_amount(pay.amount)
-        _record_settlement(
-            staged, line,
+        record_settlement(
+            line, line,
             SettleResult(doctype=PAYMENT_DOCTYPE, name=pay.name, amount=amount, created=False, original_amount=amount),
             user,
         )
-    _refresh_row_allocation(line.name, user)
+    refresh_row_allocation(line.name, user)
     refresh_batch_rollup(line.import_batch)
 
 
@@ -412,7 +412,7 @@ def cancel_deposit(cheque: str, *, note: str, user: str) -> dict:
     stay as the record of what it secured; no payment is touched. Returns `{cheque, cheque_no, payments,
     rejected, status}`, the shape `cancel` returns, with no payments.
 
-    Refuses without a note, a Payment cheque, and a deposit already Cancelled (`rules.deposit_cancel_problem`).
+    Refuses without a note, a Payment cheque, and a deposit already Cancelled (`clear_rules.deposit_cancel_problem`).
     Runs inside the caller's transaction and NEVER COMMITS.
     """
     reason = cancel_note_problem(note)
@@ -434,7 +434,7 @@ def issue(name: str, *, user: str, note: str | None = None):
 
     Re-reads the Cheque under its row lock. A Pending Payment cheque (not Old-type) whose every line's
     payment is at Reconciliation Pending (`rules.ready_to_issue`) becomes Issued, refused when its lines
-    fail the approval conditions (`rules.approval_problem`), with its issue date
+    fail the approval conditions (`approval_rules.approval_problem`), with its issue date
     set to the day of its payments' last approval (`rules.issue_date_from`; today when none is dated)
     and one history row by `user`, saying `note` if given. Returns the saved Cheque, or None when it
     stays as it is, so calling it again, or for a cheque that still waits on a payment, is harmless.
@@ -462,7 +462,7 @@ def issue(name: str, *, user: str, note: str | None = None):
         return None
     # The backstop under every route (story 13): no Issued cheque is short of its amount. Raised, so the
     # payment move that would issue it rolls back with it and the payment waits at Approved.
-    problem = approval_problem(cheque_no=doc.cheque_no, amount=doc.amount, lines=_approval_lines(doc))
+    problem = approval_problem(cheque_no=doc.cheque_no, amount=doc.amount, lines=approval_lines(doc))
     if problem:
         frappe.throw(_(problem))
     approvals = [r.approval_date for r in rows.values()] + [r.ceo_approval_date for r in rows.values()]

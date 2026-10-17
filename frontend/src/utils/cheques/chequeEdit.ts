@@ -9,23 +9,23 @@ import { LINE_TYPE, saveLineArgs, type ChequeLineDraft } from "./chequeLines";
  * Editing a Cheque from the Cheque Tracker (#1418, spec #1407; #1482, spec #1477), pure so vitest covers it
  * without React (F4).
  *
- * Mirrors `services/cheques/rules.edit_access_problem` and `edit_problem`, which are the enforcement:
+ * Mirrors `services/cheques/edit_rules.edit_access_problem` and `edit_problem`, which are the enforcement:
  * this only shapes the Edit dialog (which boxes are open, the hints) and who sees the Edit button.
  *
  * - A Payment cheque's fields and lines change only while it is Pending (`EDITABLE_STATUSES`, mirroring
- *   `rules.EDITABLE_STATUSES`). Issued, Cleared and Cancelled: only its photo.
+ *   `edit_rules.EDITABLE_STATUSES`). Issued, Cleared and Cancelled: only its photo.
  * - An Old-type cheque (spec #1477): only its photo, whatever its status.
  * - A Pending Cheque made from the PO/WO page: while a Project Payment line is still on it, its number,
  *   date and amount stay as on its payment; its other fields and its lines can change. With no Project
  *   Payment line left, it edits like a Tracker-made Cheque.
  * - Any line can come off a Pending Cheque. A Project Payment taken off switches back to Online, its
- *   status unchanged (`rules.payments_taken_off`); the dialog says so beside the lines.
+ *   status unchanged (`edit_rules.payments_taken_off`); the dialog says so beside the lines.
  * - A Security Deposit cheque (#1486): everything while Issued, only its photo once Cancelled.
  * - Admin, Accountant and Accountant Lead edit any Cheque; Procurement only the ones they made, a Payment
  *   cheque while Pending (C6), a deposit while Issued.
  */
 
-/** The statuses at which a Cheque's fields and lines may still change (`rules.editable_statuses`). */
+/** The statuses at which a Cheque's fields and lines may still change (`edit_rules.editable_statuses`). */
 const EDITABLE_STATUSES: readonly ChequeStatus[] = [CHEQUE_STATUS.PENDING];
 const DEPOSIT_EDITABLE_STATUSES: readonly ChequeStatus[] = [CHEQUE_STATUS.ISSUED];
 
@@ -41,7 +41,7 @@ const isEditableStatus = ({ status, cheque_type }: EditFacts): boolean =>
 /** Which of a Cheque's boxes the Edit dialog opens. */
 export type ChequeEditMode = "all" | "po_wo_page" | "photo_only";
 
-/** What a PO/WO-page Cheque keeps (`rules.LOCKED_ON_PO_WO_PAGE`). */
+/** What a PO/WO-page Cheque keeps (`edit_rules.LOCKED_ON_PO_WO_PAGE`). */
 const LOCKED_ON_PO_WO_PAGE = ["cheque_no", "cheque_date", "amount"];
 
 export const canEditCheque = (cheque: EditFacts & { owner: string }, role: string, user: string): boolean =>

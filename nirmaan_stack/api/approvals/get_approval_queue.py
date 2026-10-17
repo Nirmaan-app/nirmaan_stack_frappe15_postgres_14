@@ -36,7 +36,7 @@ from nirmaan_stack.services.payees.paid_to import paid_to_rows
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.payment_split import load_part_reconciled_split_families
 
-from nirmaan_stack.services.cheques.rules import ISSUED
+from nirmaan_stack.services.cheque_payments import in_cheque_tracker_sql
 from nirmaan_stack.services.approval_tiers import (
     TIER_L2_ABOVE,
     TIER_L2_ABOVE_EXPENSES,
@@ -102,9 +102,6 @@ DATE_FIELDS = {"creation", "approved_on", "paid_on"}
 # payment or an expense has a blank `cheque_status`, so it stays.
 FILTERABLE = SORTABLE | {"doctype", "cheque_status"}
 
-# The status a Cheque Tracker payment waits at, and its cheque's status: such a payment is counted under
-# `cheque_tracker`, not under Reconciliation Pending (`get_approval_queue_counts`).
-RECONCILIATION_PENDING = "Reconciliation Pending"
 SEARCHABLE = {
     "name", "against_primary", "against_secondary", "vendor", "project",
     "raised_by", "utr_ref", "cheque_no",
@@ -561,9 +558,7 @@ def get_approval_queue_counts():
     if not branches:
         frappe.throw(_("Not permitted"), frappe.PermissionError)
     union = " UNION ALL ".join(branches)
-    # COALESCE: a row with no status must stay counted under "" (NOT (NULL AND ...) would drop it).
-    in_tracker = 'COALESCE(q."status", \'\') = %(rp)s AND q."cheque_status" = %(issued)s'
-    marks = {"rp": RECONCILIATION_PENDING, "issued": ISSUED}
+    in_tracker, marks = in_cheque_tracker_sql('q."status"', 'q."cheque_status"')
     rows = frappe.db.sql(
         f'SELECT q."status" AS status, COUNT(*) AS cnt, COALESCE(SUM(q."amount"), 0) AS amt '
         f"FROM ({union}) q WHERE NOT ({in_tracker}) GROUP BY q.\"status\"",

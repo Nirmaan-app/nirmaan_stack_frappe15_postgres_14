@@ -13,8 +13,8 @@ No database. Run with `devenv.sh unit nirmaan_stack.services.cheques.test_bank_i
 
 import unittest
 
-from nirmaan_stack.services.cheques import rules
-from nirmaan_stack.services.cheques.rules import DoublePayment, FoundCheque
+from nirmaan_stack.services.cheques import bank_import_rules, clear_rules, rules
+from nirmaan_stack.services.cheques.bank_import_rules import DoublePayment, FoundCheque
 
 ICICI = "ICICI Bank Statement"
 RP = "Reconciliation Pending"
@@ -22,17 +22,17 @@ RP = "Reconciliation Pending"
 
 class TestWhichLinesAreChequeLines(unittest.TestCase):
     def test_an_icici_debit_with_the_cheque_column_filled_is_one_keyed_without_zeros(self):
-        self.assertEqual(rules.bank_cheque_key(source=ICICI, direction="Debit", reference_id="000747"), "747")
-        self.assertEqual(rules.bank_cheque_key(source=ICICI, direction="Debit", reference_id="747.0"), "747")
+        self.assertEqual(bank_import_rules.bank_cheque_key(source=ICICI, direction="Debit", reference_id="000747"), "747")
+        self.assertEqual(bank_import_rules.bank_cheque_key(source=ICICI, direction="Debit", reference_id="747.0"), "747")
 
     def test_a_credit_with_a_cheque_number_is_not(self):
-        self.assertEqual(rules.bank_cheque_key(source=ICICI, direction="Credit", reference_id="000190"), "")
+        self.assertEqual(bank_import_rules.bank_cheque_key(source=ICICI, direction="Credit", reference_id="000190"), "")
 
     def test_a_debit_with_an_empty_cheque_column_is_not(self):
-        self.assertEqual(rules.bank_cheque_key(source=ICICI, direction="Debit", reference_id="  "), "")
+        self.assertEqual(bank_import_rules.bank_cheque_key(source=ICICI, direction="Debit", reference_id="  "), "")
 
     def test_another_source_is_not(self):
-        self.assertEqual(rules.bank_cheque_key(source="Cashfree", direction="Debit", reference_id="747"), "")
+        self.assertEqual(bank_import_rules.bank_cheque_key(source="Cashfree", direction="Debit", reference_id="747"), "")
 
 
 def _cheque(name="CHQ-1", cheque_no="000747", amount=40000, status="Issued", bank_line=None):
@@ -41,14 +41,14 @@ def _cheque(name="CHQ-1", cheque_no="000747", amount=40000, status="Issued", ban
 
 class TestWhichChequeALineClears(unittest.TestCase):
     def test_no_payment_cheque_with_the_number_leaves_the_line_to_the_usual_guard(self):
-        self.assertEqual(rules.pick_bank_cheque([], amount=40000), (None, None))
+        self.assertEqual(bank_import_rules.pick_bank_cheque([], amount=40000), (None, None))
 
     def test_the_one_cheque_within_five_rupees_is_cleared(self):
         cheque = _cheque(amount=40004)
-        self.assertEqual(rules.pick_bank_cheque([cheque], amount=40000), (cheque, None))
+        self.assertEqual(bank_import_rules.pick_bank_cheque([cheque], amount=40000), (cheque, None))
 
     def test_the_number_found_with_another_amount_settles_nothing_and_says_why(self):
-        cheque, hint = rules.pick_bank_cheque([_cheque(cheque_no="000745", amount=448802)], amount=443802)
+        cheque, hint = bank_import_rules.pick_bank_cheque([_cheque(cheque_no="000745", amount=448802)], amount=443802)
         self.assertIsNone(cheque)
         self.assertEqual(
             hint,
@@ -57,7 +57,7 @@ class TestWhichChequeALineClears(unittest.TestCase):
         )
 
     def test_two_cheques_that_both_fit_settle_nothing(self):
-        cheque, hint = rules.pick_bank_cheque(
+        cheque, hint = bank_import_rules.pick_bank_cheque(
             [_cheque("CHQ-1", "000747"), _cheque("CHQ-2", "747")], amount=40000
         )
         self.assertIsNone(cheque)
@@ -69,12 +69,12 @@ class TestWhichChequeALineClears(unittest.TestCase):
 
     def test_of_two_with_the_number_the_one_with_the_amount_is_cleared(self):
         fits = _cheque("CHQ-2", "747", amount=40000)
-        self.assertEqual(rules.pick_bank_cheque([_cheque("CHQ-1", amount=9000), fits], amount=40000), (fits, None))
+        self.assertEqual(bank_import_rules.pick_bank_cheque([_cheque("CHQ-1", amount=9000), fits], amount=40000), (fits, None))
 
 
 class TestTheBankImportStartsFromMoreStatuses(unittest.TestCase):
     def problem(self, status, payments, *, cleared_by=rules.CLEARED_BY_BANK_IMPORT, bank_line=True):
-        return rules.clear_problem(status=status, cheque_type="Payment", old_type=False, cleared_by=cleared_by,
+        return clear_rules.clear_problem(status=status, cheque_type="Payment", old_type=False, cleared_by=cleared_by,
                                    payments=list(payments), bank_line=bank_line)
 
     def test_a_pending_cheque_whose_payments_wait_for_approval_may_be_cleared_by_the_bank(self):
@@ -98,7 +98,7 @@ class TestTheBankImportStartsFromMoreStatuses(unittest.TestCase):
 
 class TestWhatTheReviewSays(unittest.TestCase):
     def note(self, started, payments=2, suspects=()):
-        return rules.bank_cleared_note(cheque_no="000747", started=started, payments=payments, day="2026-10-14",
+        return bank_import_rules.bank_cleared_note(cheque_no="000747", started=started, payments=payments, day="2026-10-14",
                                        suspects=suspects)
 
     def test_an_issued_cheque(self):
@@ -132,14 +132,14 @@ class TestWhatTheReviewSays(unittest.TestCase):
 
     def test_a_failure_names_the_reason(self):
         self.assertEqual(
-            rules.bank_clear_failed_note(cheque_no="000747", reason="payment PAY-1 is on hold"),
+            bank_import_rules.bank_clear_failed_note(cheque_no="000747", reason="payment PAY-1 is on hold"),
             "Cheque 000747 matches this line but could not be cleared: payment PAY-1 is on hold. Nothing was "
             "settled.",
         )
 
     def test_a_line_whose_number_names_no_payment_cheque(self):
         self.assertEqual(
-            rules.no_payment_cheque_note("798"),
+            bank_import_rules.no_payment_cheque_note("798"),
             "No Payment cheque 798 on ICICI Bank. A Security Deposit cheque is never matched. Match this line "
             "by hand.",
         )
@@ -151,7 +151,7 @@ if __name__ == "__main__":
 
 class TestWhereABankClearedChequeStarted(unittest.TestCase):
     def start(self, cleared_by, *history):
-        return rules.bank_start(cleared_by=cleared_by, history=list(history))
+        return bank_import_rules.bank_start(cleared_by=cleared_by, history=list(history))
 
     def test_from_issued(self):
         self.assertEqual(
@@ -161,7 +161,7 @@ class TestWhereABankClearedChequeStarted(unittest.TestCase):
 
     def test_from_pending_when_the_import_approved_it(self):
         self.assertEqual(
-            self.start("Bank import", (None, "Pending", None), ("Pending", "Issued", rules.BANK_APPROVAL_NOTE),
+            self.start("Bank import", (None, "Pending", None), ("Pending", "Issued", bank_import_rules.BANK_APPROVAL_NOTE),
                        ("Issued", "Cleared", "x")),
             "Pending",
         )
