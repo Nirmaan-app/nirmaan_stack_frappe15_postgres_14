@@ -7,9 +7,10 @@
  * - Cheque Issued – Reconciliation Pending: the Issued Payment cheques waiting for the bank, oldest issue first,
  *   with days since issue, the Stale flag and the payment count.
  *
- * Each row expands into its lines. Its buttons come from `chequeRowActions`: Clear and Cancel open today's
- * Change status dialog on that target until #1484 gives them their own. The server enforces every rule; Admin,
- * Accountant, Accountant Lead and Procurement may read the list, Project Managers are refused.
+ * Each row expands into its lines. Its buttons come from `chequeRowActions`: Clear opens the Clear dialog (every
+ * payment becomes Paid), Cancel the Cancel dialog (every payment becomes Rejected), #1484. Accounts tick rows to
+ * clear several on one date. The server enforces every rule; Admin, Accountant, Accountant Lead and Procurement
+ * may read the list, Project Managers are refused.
  */
 
 import { useMemo, useState } from "react";
@@ -17,17 +18,18 @@ import { useFrappeEventListener } from "frappe-react-sdk";
 import { Info, Plus } from "lucide-react";
 
 import { AddChequeDialog } from "@/components/cheques/AddChequeDialog";
-import { ChangeChequeStatusDialog } from "@/components/cheques/ChangeChequeStatusDialog";
-import { ChequeDetailDialog } from "@/components/cheques/ChequeDetailDialog";
+import { CancelChequeDialog } from "@/components/cheques/CancelChequeDialog";
+import { ChequeDetailDialog, type ChequeDetailActions } from "@/components/cheques/ChequeDetailDialog";
+import { ClearChequeDialog, type ClearTarget } from "@/components/cheques/ClearChequeDialog";
 import { ChequeLinesView } from "@/components/cheques/ChequeLinesView";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { Button } from "@/components/ui/button";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { useUserData } from "@/hooks/useUserData";
-import { CHEQUE_STATUS, CHEQUES_CHANGED_EVENT, type ChequeStatus } from "@/types/NirmaanStack/Cheques";
+import { CHEQUES_CHANGED_EVENT } from "@/types/NirmaanStack/Cheques";
 import { chequeRowActions } from "@/utils/cheques/chequeRowActions";
-import { canChangeChequeStatus } from "@/utils/cheques/chequeStatus";
+import { canClearOrCancel } from "@/utils/cheques/chequeStatus";
 import { CHEQUE_TRACKER_TAB, chequeTabFilters, type ChequeTrackerTab } from "@/utils/cheques/chequeTabs";
 
 import { getChequePaymentColumns, getIssuedChequeColumns, type ChequeColumnActions } from "./chequePaymentColumns";
@@ -56,15 +58,14 @@ const DEFAULT_SORT: Record<ChequeTrackerTab, string> = {
     [CHEQUE_TRACKER_TAB.ISSUED]: "issue_date asc",
 };
 
-/** The Cheques a Change status dialog moves, with their shared status (undefined when mixed). */
-interface StatusTarget {
-    cheques: string[];
-    status?: ChequeStatus;
-    initialTarget?: ChequeStatus;
-}
-
-const sharedStatus = (rows: Pick<ChequeRow, "status">[]): ChequeStatus | undefined =>
-    rows.length && rows.every((r) => r.status === rows[0].status) ? rows[0].status : undefined;
+/** What the Clear dialog needs of a row or of the detail view's Cheque. */
+const clearTarget = (c: ClearTarget): ClearTarget => ({
+    name: c.name,
+    cheque_no: c.cheque_no,
+    bank: c.bank,
+    old_type: c.old_type,
+    issue_date: c.issue_date,
+});
 
 interface ChequeTrackerTableProps {
     tab: ChequeTrackerTab;
@@ -74,23 +75,22 @@ interface ChequeTrackerTableProps {
 
 export function ChequeTrackerTable({ tab, onChanged }: ChequeTrackerTableProps) {
     const { role, user_id } = useUserData();
-    const canChangeStatus = canChangeChequeStatus(role);
+    const canAct = canClearOrCancel(role);
     const isIssuedTab = tab === CHEQUE_TRACKER_TAB.ISSUED;
     const tabFilters = useMemo(() => chequeTabFilters(tab), [tab]);
     const [adding, setAdding] = useState(false);
     const [editing, setEditing] = useState<string | null>(null);
     const [detail, setDetail] = useState<string | null>(null);
-    const [statusTarget, setStatusTarget] = useState<StatusTarget>({ cheques: [] });
+    const [clearing, setClearing] = useState<ClearTarget[]>([]);
+    const [cancelling, setCancelling] = useState<string | null>(null);
 
     const columns = useMemo(() => {
         const actions: ChequeColumnActions = {
             actionsOf: (row) => chequeRowActions(row, { role, user: user_id }),
             onOpen: setDetail,
             onEdit: (row) => setEditing(row.name),
-            onClear: (row) =>
-                setStatusTarget({ cheques: [row.name], status: row.status, initialTarget: CHEQUE_STATUS.CLEARED }),
-            onCancel: (row) =>
-                setStatusTarget({ cheques: [row.name], status: row.status, initialTarget: CHEQUE_STATUS.CANCELLED }),
+            onClear: (row) => setClearing([clearTarget(row)]),
+            onCancel: (row) => setCancelling(row.name),
         };
         return isIssuedTab ? getIssuedChequeColumns(actions) : getChequePaymentColumns(actions);
     }, [isIssuedTab, role, user_id]);
@@ -120,7 +120,7 @@ export function ChequeTrackerTable({ tab, onChanged }: ChequeTrackerTableProps) 
         defaultSort: DEFAULT_SORT[tab],
         urlSyncKey: URL_KEY[tab],
         additionalFilters: tabFilters,
-        enableRowSelection: canChangeStatus,
+        enableRowSelection: canAct,
         getRowId: (row) => row.name,
     });
 
@@ -141,6 +141,13 @@ export function ChequeTrackerTable({ tab, onChanged }: ChequeTrackerTableProps) 
     const summary = useMemo(() => chequeSummary(aggregates), [aggregates]);
 
     const selected = table.getSelectedRowModel().rows.map((r) => r.original);
+    const detailActions: ChequeDetailActions | undefined = canAct
+        ? {
+              actionsOf: (cheque) => chequeRowActions(cheque, { role, user: user_id }),
+              onClear: (cheque) => setClearing([clearTarget(cheque)]),
+              onCancel: (cheque) => setCancelling(cheque.name),
+          }
+        : undefined;
 
     if (error) return <AlertDestructive error={error} />;
 
@@ -189,22 +196,12 @@ export function ChequeTrackerTable({ tab, onChanged }: ChequeTrackerTableProps) 
                 onExportAll={exportAllRows}
                 isExporting={isExporting}
                 exportFileName={isIssuedTab ? "cheques_issued" : "cheques"}
-                showRowSelection={canChangeStatus}
+                showRowSelection={canAct}
                 toolbarActions={
                     <div className="flex items-center gap-2">
-                        {canChangeStatus && selected.length > 0 && (
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() =>
-                                    setStatusTarget({
-                                        cheques: selected.map((r) => r.name),
-                                        status: sharedStatus(selected),
-                                        initialTarget: isIssuedTab ? CHEQUE_STATUS.CLEARED : undefined,
-                                    })
-                                }
-                            >
-                                {isIssuedTab ? "Clear selected" : "Change status"} ({selected.length})
+                        {canAct && selected.length > 0 && (
+                            <Button size="sm" variant="outline" onClick={() => setClearing(selected.map(clearTarget))}>
+                                Clear selected ({selected.length})
                             </Button>
                         )}
                         {!isIssuedTab && (
@@ -225,21 +222,25 @@ export function ChequeTrackerTable({ tab, onChanged }: ChequeTrackerTableProps) 
             <ChequeDetailDialog
                 cheque={detail}
                 onClose={() => setDetail(null)}
-                onChangeStatus={
-                    canChangeStatus ? (cheque, status) => setStatusTarget({ cheques: [cheque], status }) : undefined
-                }
+                actions={detailActions}
             />
-            {statusTarget.cheques.length > 0 && (
-                <ChangeChequeStatusDialog
-                    key={statusTarget.cheques.join("|")}
-                    cheques={statusTarget.cheques}
-                    currentStatus={statusTarget.status}
-                    initialTarget={statusTarget.initialTarget}
-                    onClose={() => setStatusTarget({ cheques: [] })}
+            {clearing.length > 0 && (
+                <ClearChequeDialog
+                    key={clearing.map((c) => c.name).join("|")}
+                    cheques={clearing}
+                    onClose={() => setClearing([])}
                     onDone={() => {
                         table.resetRowSelection();
                         refresh();
                     }}
+                />
+            )}
+            {cancelling && (
+                <CancelChequeDialog
+                    key={cancelling}
+                    cheque={cancelling}
+                    onClose={() => setCancelling(null)}
+                    onDone={refresh}
                 />
             )}
         </div>

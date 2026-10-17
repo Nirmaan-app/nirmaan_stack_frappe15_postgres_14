@@ -35,11 +35,17 @@ export const chequeChipTone = (status?: string | null): string =>
 export const isChequeStruck = (status?: string | null): boolean => status === CHEQUE_STATUS.CANCELLED;
 
 /**
- * Does this payment show a cheque chip? A cheque payment does, unless it is Rejected: a Rejected payment has
- * dropped off its Cheque (#1413), so a chip would name a Cheque that no longer lists it.
+ * Does this payment show a cheque chip? A cheque payment does. A Rejected one does only while its Cheque is
+ * Cancelled: a rejected Payment-cheque payment stays on its cancelled cheque (#1481, #1484), while any other
+ * Rejected payment has dropped off its Cheque (#1413), and a chip would name a Cheque that no longer lists it.
+ * `cheque_status` is the Cheque's status (the queue row's, or the chip lookup's).
  */
-export const showsChequeChip = (p: { cheque_no?: string | null; status?: string | null }): boolean =>
-    !!p.cheque_no && p.status !== PAYMENT_STATUS.REJECTED;
+export const showsChequeChip = (p: {
+    cheque_no?: string | null;
+    status?: string | null;
+    cheque_status?: string | null;
+}): boolean =>
+    !!p.cheque_no && (p.status !== PAYMENT_STATUS.REJECTED || p.cheque_status === CHEQUE_STATUS.CANCELLED);
 
 /** The cheque fields a payment row carries (the approval queue row has all of them). */
 export interface ChequeRowFacts {

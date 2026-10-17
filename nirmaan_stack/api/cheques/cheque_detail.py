@@ -1,7 +1,8 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The Cheque detail view: photo, header, lines and full status history (#1412, spec #1407).
+"""The Cheque detail view: photo, header (type, cheque, issue and clearance dates, how it was cleared and the
+bank line, #1484), lines and full status history (#1412, spec #1407).
 
 Read-only. Who: `CHEQUE_ACCESS_PROFILES` (Project Managers are refused).
 """
@@ -13,7 +14,8 @@ from nirmaan_stack.services.cheques.writer import CHEQUES
 from nirmaan_stack.services.role_profiles import assert_cheque_access
 
 _HEADER = ("name", "creation", "owner", "cheque_no", "bank", "bank_name", "cheque_date", "amount", "status",
-           "vendor", "payee_name", "description", "attachment", "made_from", "cheque_type", "old_type")
+           "vendor", "payee_name", "description", "attachment", "made_from", "cheque_type", "old_type",
+           "issue_date", "clearance_date", "cleared_by", "bank_line")
 
 
 def _name_map(doctype: str, field: str, names) -> dict:
@@ -37,6 +39,11 @@ def get_cheque(name: str) -> dict:
     out = {field: doc.get(field) for field in _HEADER}
     out["bank_label"] = bank_label(doc.bank or "", doc.bank_name)
     out["vendor_name"] = frappe.db.get_value("Vendors", doc.vendor, "vendor_name") if doc.vendor else None
+    # The imported bank line that cleared it (#1484): its date, amount and the number the statement printed.
+    out["bank_line_detail"] = frappe.db.get_value(
+        "Outflow Import Row", doc.bank_line, ["name", "added_on", "amount", "reference_id", "import_batch"],
+        as_dict=True,
+    ) if doc.bank_line else None
 
     lines = doc.get("lines") or []
     statuses = {}

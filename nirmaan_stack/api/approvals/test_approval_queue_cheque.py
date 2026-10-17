@@ -21,13 +21,19 @@ from frappe.utils import nowdate
 from nirmaan_stack.api.approvals.get_approval_queue import get_approval_queue, get_approval_queue_counts
 from nirmaan_stack.api.cheques.cheque_chips import get_cheque_chips
 from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
-from nirmaan_stack.api.cheques.cheque_status import change_cheque_status
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 
 U = "Administrator"
 SR = "Service Requests"
 PHOTO = "https://storage.example.invalid/private/files/cheque-test.jpg"
 CONTROLLER = "nirmaan_stack.integrations.controllers.project_payments"
+
+
+def _plant_status(cheque, status):
+	"""Put a Cheque straight at `status`: what its payments' chip reads, not how it got there (clearing and
+	cancelling move the payments too, #1484)."""
+	frappe.db.set_value("Cheques", cheque, "status", status, update_modified=False)
+	frappe.db.commit()
 
 
 class TestTheQueueCarriesTheCheque(FrappeTestCase):
@@ -84,7 +90,7 @@ class TestTheQueueCarriesTheCheque(FrappeTestCase):
 	def test_a_cancelled_cheque_reads_cancelled_on_its_payment(self):
 		payment = self._plant()
 		cheque = self._cheque(payment, self.cheques.number())
-		change_cheque_status(cheque, "Cancelled", note="Torn")
+		_plant_status(cheque, "Cancelled")
 		self.assertEqual(self._row(payment)["cheque_status"], "Cancelled")
 
 	def test_an_online_payment_has_no_cheque_and_keeps_its_utr(self):
@@ -95,7 +101,7 @@ class TestTheQueueCarriesTheCheque(FrappeTestCase):
 		first, second = self._plant(), self._plant()
 		one, two = self.cheques.number(), self.cheques.number()
 		a, b = self._cheque(first, one), self._cheque(second, two)
-		change_cheque_status(b, "Cleared")
+		_plant_status(b, "Cleared")
 
 		self.assertEqual(
 			get_cheque_chips(json.dumps([a, b, "CHQ-NOT-THERE"])),

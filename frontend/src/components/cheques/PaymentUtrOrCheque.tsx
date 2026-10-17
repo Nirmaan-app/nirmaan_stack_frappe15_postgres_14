@@ -16,10 +16,12 @@ interface PaymentUtrOrChequeProps {
 /**
  * The "UTR / Cheque" cell of the Transaction Details card (#1416, spec #1407): an Online payment's UTR, or a
  * cheque payment's chip with its UTR under it once it is reconciled. The chip opens the Cheque. A Rejected
- * payment has dropped off its Cheque, so it shows no chip.
+ * payment shows its chip only while its Cheque is Cancelled (`showsChequeChip`).
  */
 export const PaymentUtrOrCheque = ({ payment, chip, className }: PaymentUtrOrChequeProps) => {
-    if (!showsChequeChip(payment)) return <TruncatedText text={payment.utr} className={className} />;
+    if (!showsChequeChip({ ...payment, cheque_status: chip?.status })) {
+        return <TruncatedText text={payment.utr} className={className} />;
+    }
     return (
         <div className="flex flex-col items-start gap-0.5">
             <ChequeChip cheque={payment.cheque} chequeNo={chip?.cheque_no || payment.cheque_no || ""} status={chip?.status} />

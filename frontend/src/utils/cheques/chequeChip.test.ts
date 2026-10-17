@@ -30,8 +30,13 @@ describe("showsChequeChip", () => {
         }
     });
 
-    it("shows none on a Rejected payment: it has dropped off its Cheque", () => {
+    it("shows none on a Rejected payment that has dropped off its Cheque", () => {
         expect(showsChequeChip({ cheque_no: "004521", status: "Rejected" })).toBe(false);
+        expect(showsChequeChip({ cheque_no: "004521", status: "Rejected", cheque_status: "Issued" })).toBe(false);
+    });
+
+    it("shows one on a Rejected payment whose Cheque is Cancelled: it stays on its cancelled cheque", () => {
+        expect(showsChequeChip({ cheque_no: "004521", status: "Rejected", cheque_status: "Cancelled" })).toBe(true);
     });
 
     it("shows none on an Online payment", () => {
@@ -61,8 +66,14 @@ describe("utrOrChequeText (the UTR / Ref export)", () => {
         expect(utrOrChequeText({ utr_ref: "", cheque_no: "", cheque_status: "", status: "Approved" })).toBe("");
     });
 
-    it("names no cheque on a Rejected payment", () => {
+    it("names no cheque on a Rejected payment that has dropped off its Cheque", () => {
         expect(utrOrChequeText({ utr_ref: "", cheque_no: "004521", cheque_status: "Issued", status: "Rejected" })).toBe("");
+    });
+
+    it("names the cancelled cheque on a Rejected payment still on it", () => {
+        expect(utrOrChequeText({ utr_ref: "", cheque_no: "004521", cheque_status: "Cancelled", status: "Rejected" })).toBe(
+            "Cheque 004521 · Cancelled",
+        );
     });
 });
 
