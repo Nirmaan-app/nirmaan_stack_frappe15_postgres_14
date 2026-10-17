@@ -28,7 +28,7 @@ cascade `reject_cheque`: every payment Rejected with the reason as a comment, th
 per PO, the cheque Cancelled with the reason in its history (it keeps its lines). Same locks, same flags.
 A payment saved to Rejected any other way needs no refusal in `validate`: its own hook runs the same
 cascade (`integrations/controllers/cheques.on_payment_rejected`), so no path rejects one alone.
-Cancelling the cheque (#1484) is `reject_cheque` too.
+Cancelling the cheque by hand (`status.cancel`, #1484) is `reject_cheque` too.
 
 Endpoints: `api/payments/cheque_approval.py` (single L1 approve, single reject, the dialogs' reads),
 `api/payments/project_payments.ceo_approve_payment` and `api/payments/bulk_actions` (bulk groups by
@@ -155,7 +155,7 @@ def _approve(cheque: str, *, stage: str, user: str) -> dict:
         frappe.throw(_(problem))
 
     payments = sorted({_payment_of(row) for row in doc.lines})
-    rows = _lock(payments)
+    rows = lock_payments(payments)
     source, date_field = _STAGES[stage]
     problem = decision_step_problem([(p, rows[p].status) for p in payments], expected=source) or _hold_problem(rows)
     if problem:
@@ -180,7 +180,7 @@ def _approve(cheque: str, *, stage: str, user: str) -> dict:
             if not move_to_reconciliation(name, sync_po_term=False):
                 frappe.throw(_("Payment {0} could not be moved on to Reconciliation Pending.").format(name))
     landed = STATUS_RECONCILIATION_PENDING if target == STATUS_APPROVED else target
-    _write_po_terms(rows, landed)
+    write_po_terms(rows, landed)
     issued = frappe.db.get_value(CHEQUES, cheque, "status") != PENDING
     return {
         "cheque": cheque, "cheque_no": doc.cheque_no, "payments": payments, "status": landed, "issued": issued,
@@ -234,15 +234,15 @@ def reject_cheque(cheque: str, *, reason: str, user: str) -> dict:
 
     Called by `reject` (the approval screens), by the payment's own hook when one payment on the cheque is
     saved to Rejected any other way (`integrations/controllers/cheques.on_payment_rejected`), and by
-    cancelling the cheque (#1484). It runs inside the caller's savepoint and NEVER COMMITS: each payment
-    is saved with `bulk_approval` (no notification or PO save mid-cheque) and `DECIDING_FLAG` (so its
-    own hook does not cascade again); the PO terms are written once per PO here.
+    cancelling the cheque by hand (`status.cancel`, #1484). It runs inside the caller's savepoint and
+    NEVER COMMITS: each payment is saved with `bulk_approval` (no notification or PO save mid-cheque) and
+    `DECIDING_FLAG` (so its own hook does not cascade again); the PO terms are written once per PO here.
     """
     doc = frappe.get_doc(CHEQUES, cheque, for_update=True)
     if doc.status not in LIVE_STATUSES:
         frappe.throw(_("Cheque {0} is {1}: its payments can no longer be rejected.").format(doc.cheque_no, doc.status))
     payments = sorted({p for p in (_payment_of(row) for row in doc.lines) if p})
-    rows = _lock(payments) if payments else {}
+    rows = lock_payments(payments) if payments else {}
     paid = [name for name in payments if rows[name].status == STATUS_PAID]
     if paid:
         frappe.throw(_("Payment {0} on cheque {1} is Paid, so it cannot be rejected.").format(paid[0], doc.cheque_no))
@@ -255,7 +255,7 @@ def reject_cheque(cheque: str, *, reason: str, user: str) -> dict:
         pay.flags[DECIDING_FLAG] = cheque
         pay.save(ignore_permissions=True)
         pay.add_comment("Comment", text=_("Rejected: {0}").format(reason))
-    _write_po_terms({name: rows[name] for name in rejected}, PAYMENT_REJECTED)
+    write_po_terms({name: rows[name] for name in rejected}, PAYMENT_REJECTED)
 
     doc.append("status_history", history_row(doc.status, CANCELLED, user, reason))
     doc.status = CANCELLED
@@ -266,7 +266,7 @@ def reject_cheque(cheque: str, *, reason: str, user: str) -> dict:
     }
 
 
-def _lock(payments: list[str]) -> dict:
+def lock_payments(payments: list[str]) -> dict:
     """Row-lock the cheque's POs, then its payments (each in name order, as bulk approve locks a PO
     before its payments, so the two never deadlock). Returns `{payment: row}` read under the lock."""
     parents = frappe.get_all(
@@ -296,7 +296,7 @@ def _hold_problem(rows: dict) -> str | None:
     return None
 
 
-def _write_po_terms(rows: dict, status: str) -> None:
+def write_po_terms(rows: dict, status: str) -> None:
     """Mirror `status` onto each payment's PO term, one save per PO (the payment hooks skipped it)."""
     by_po: dict[str, set[str]] = {}
     for name, row in rows.items():

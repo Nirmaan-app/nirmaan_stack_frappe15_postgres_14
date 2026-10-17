@@ -19,7 +19,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, flt, nowdate
 
 from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
-from nirmaan_stack.api.cheques.cheque_status import change_cheque_status
+from nirmaan_stack.api.cheques.cheque_status import clear_cheque
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 from nirmaan_stack.patches.v3_0.backfill_cheques_from_cheque_payments import backfill_cheques
 from nirmaan_stack.services.cheques.rules import MADE_FROM_PO_WO_PAGE, ChequeHeader
@@ -150,12 +150,12 @@ class TestBackfillCheques(FrappeTestCase):
         self.assertEqual([l.payment_name for l in cheque.lines], [paid])
         self.assertEqual(self._cheque_of(rejected), cheque.name)
 
-    def test_a_cancelled_cheque_of_rejected_payments_cannot_go_live(self):
+    def test_a_cancelled_cheque_of_rejected_payments_cannot_be_cleared_by_hand(self):
         rejected = self._plant("Rejected", self.cheques.number())
         self._backfill()
         name = self._cheque_of(rejected)
-        with self.assertRaisesRegex(frappe.ValidationError, f"payment {rejected} is Rejected"):
-            change_cheque_status(name, "Issued")
+        with self.assertRaisesRegex(frappe.ValidationError, "it is Cancelled: its payments are Rejected"):
+            clear_cheque(name, nowdate())
         frappe.db.rollback()
         self.assertEqual(self._cheque(name).status, "Cancelled")
 

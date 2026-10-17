@@ -52,15 +52,26 @@ const PAYMENT_SEARCHABLE_FIELDS: SearchFieldOption[] = [
  * The cheque chip in the UTR cell (spec #1407). Every chip on the page asks for the whole page's Cheques
  * under one key, so the page makes one call, not one per row.
  */
-const PaymentChequeChip = ({ payment, table }: { payment: ProjectPayments; table: Table<ProjectPayments> }) => {
+const PaymentChequeOrUtr = ({
+  payment,
+  table,
+  utr,
+}: {
+  payment: ProjectPayments;
+  table: Table<ProjectPayments>;
+  /** The cell for a payment that shows no chip. */
+  utr: React.ReactNode;
+}) => {
   const chips = useChequeChips(table.getRowModel().rows.map((r) => r.original.cheque));
   const chip = payment.cheque ? chips[payment.cheque] : undefined;
+  if (!showsChequeChip({ ...payment, cheque_status: chip?.status })) return <>{utr}</>;
   return (
-    <ChequeChip
-      cheque={payment.cheque}
-      chequeNo={chip?.cheque_no || payment.cheque_no || ""}
-      status={chip?.status}
-    />
+    <div className="min-w-[150px] space-y-0.5">
+      <ChequeChip cheque={payment.cheque} chequeNo={chip?.cheque_no || payment.cheque_no || ""} status={chip?.status} />
+      {payment.utr && (
+        <TruncatedText text={payment.utr} className="block font-mono text-[10px] text-muted-foreground" />
+      )}
+    </div>
   );
 };
 
@@ -88,17 +99,7 @@ export const VendorPaymentsTable: React.FC<VendorPaymentsTableProps> = ({
         header: "UTR / Ref No.",
         cell: ({ row, table }) => {
           const payment = row.original;
-          if (showsChequeChip(payment)) {
-            return (
-              <div className="min-w-[150px] space-y-0.5">
-                <PaymentChequeChip payment={payment} table={table} />
-                {payment.utr && (
-                  <TruncatedText text={payment.utr} className="block font-mono text-[10px] text-muted-foreground" />
-                )}
-              </div>
-            );
-          }
-          return (
+          const utr = (
             <div className="font-medium min-w-[150px] flex items-center gap-1.5">
               {payment.utr && payment.payment_attachment ? (
                 <a
@@ -125,6 +126,8 @@ export const VendorPaymentsTable: React.FC<VendorPaymentsTableProps> = ({
               )}
             </div>
           );
+          // An Online payment never asks for chips.
+          return payment.cheque_no ? <PaymentChequeOrUtr payment={payment} table={table} utr={utr} /> : utr;
         },
         size: 180,
       },

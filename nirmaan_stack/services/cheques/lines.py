@@ -83,8 +83,8 @@ def lines_problem(doc) -> str | None:
     on_before = {_key(parse_line(row.as_dict())) for row in (before.get("lines") if before else []) or []}
 
     # A Rejected payment is refused only on a live Cheque: a Cancelled one (the backfill's, #1419,
-    # whose payments were all Rejected) shows nothing as paid, and cannot leave Cancelled while a
-    # line's payment is Rejected (`status.move_problem`).
+    # whose payments were all Rejected, or one cancelled since #1481) shows nothing as paid, and a
+    # Cancelled cheque never leaves Cancelled by hand (#1484: no hand move goes back).
     cancelled = (doc.get("status") or "") == CANCELLED
     seen: set[tuple[str, str]] = set()
     for n, line in enumerate(lines, 1):

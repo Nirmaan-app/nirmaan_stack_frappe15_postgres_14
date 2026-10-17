@@ -16,7 +16,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, nowdate
 
 from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
-from nirmaan_stack.api.cheques.cheque_status import change_cheque_status
+from nirmaan_stack.api.cheques.cheque_status import cancel_cheque, clear_cheque
 from nirmaan_stack.api.cheques.list_cheques import get_cheque_facets, get_cheques
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 
@@ -217,8 +217,8 @@ class TestChequeReportFiltersAndSummary(FrappeTestCase):
         issued = self._save(25000)
         cleared = self._save(10000)
         cancelled = self._save(5000)
-        change_cheque_status(cleared, "Cleared")
-        change_cheque_status(cancelled, "Cancelled", note="Torn up")
+        clear_cheque(cleared, nowdate())
+        cancel_cheque(cancelled, "Torn up")
 
         summary = self._list()["aggregates"]
         self.assertEqual(
@@ -249,7 +249,7 @@ class TestChequeReportFiltersAndSummary(FrappeTestCase):
     def test_facets_name_what_the_filtered_rows_hold(self):
         self._two_project_cheque()
         cleared = self._save(10000, lines=[self._wo_line(self.project_a, self.wo_a, 10000)])
-        change_cheque_status(cleared, "Cleared")
+        clear_cheque(cleared, nowdate())
         vendor_only = json.dumps([["vendor", "=", self.vendor]])
 
         projects = get_cheque_facets("project", filters=vendor_only)["values"]

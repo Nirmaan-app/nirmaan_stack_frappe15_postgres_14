@@ -738,3 +738,149 @@ def lone_approval_problem(
         needs = "CEO approval as well" if expected == STATUS_CEO_PENDING else "L1 approval only"
         return f"Cheque {cheque_no} is for {rupees(cheque_amount)}, so its payments need {needs}."
     return None
+
+
+# -- clearing and cancelling a cheque (#1484, spec #1477, ADR-0035) -------------------------------
+#: The statuses each way of clearing may start from. By hand: Issued only (Q34). The bank import (#1485)
+#: will add Pending (its payments approved by the import first) and Cancelled (its Rejected payments
+#: revived): extend ITS entry here and give `status.clear` the step that brings such a cheque to Issued.
+CLEARABLE_FROM = {
+    CLEARED_BY_HAND: (ISSUED,),
+    CLEARED_BY_BANK_IMPORT: (ISSUED,),
+}
+#: Why a cheque at a status no clear starts from cannot be cleared.
+_NOT_CLEARABLE = {
+    PENDING: "it is Pending: its payments are not approved yet",
+    CANCELLED: "it is Cancelled: its payments are Rejected",
+}
+#: The bank-statement source whose lines clear cheques, and the direction that spends money
+#: (`outflow_import/sources.BANK_STATEMENT_SOURCES`, `outflow_import/parser.DIRECTION_DEBIT`).
+ICICI_STATEMENT_SOURCE = "ICICI Bank Statement"
+DIRECTION_DEBIT = "Debit"
+#: An imported line nobody has matched yet (`api/outflow_import/review._NOT_MATCHED_STATUSES`).
+UNMATCHED_LINE_STATUSES = ("Pending match run", "Mismatched", "Error")
+
+
+def cheque_no_key(value) -> str:
+    """The form a cheque number is compared in, against a bank statement: spaces removed, a spreadsheet's
+    trailing ".0" dropped and leading zeros stripped ("000747", "747" and "747.0" are all "747"). Blank
+    stays blank; all zeros is "0". The Cheque keeps the number as written (`normalise_cheque_no`)."""
+    text = normalise_cheque_no(value)
+    if text.endswith(".0"):
+        text = text[:-2]
+    if not text:
+        return ""
+    return text.lstrip("0") or "0"
+
+
+def clear_problem(
+    *,
+    status: str,
+    cheque_type: str,
+    old_type: bool,
+    cleared_by: str,
+    payments: Sequence[tuple[str, str | None]],
+    bank_line: bool,
+) -> str | None:
+    """Why this cheque cannot be cleared, as a short reason ("already Cleared"), or None. Pure.
+
+    `payments` holds `(payment, status)` for every Project Payment its lines name. Clearing pays them,
+    so each must be waiting for the bank (Reconciliation Pending); one already Paid is left as it is,
+    unless a bank line is being linked (that line would then pay it twice). An Old-type cheque is cleared
+    by hand only, and with no bank line: its lines may pay expenses the line cannot be split across.
+    """
+    if cheque_type != CHEQUE_TYPE_PAYMENT:
+        return "a Security Deposit cheque is never cashed"
+    if status == CLEARED:
+        return "already Cleared"
+    if old_type and (bank_line or cleared_by != CLEARED_BY_HAND):
+        return "an Old-type cheque is cleared by hand, without a bank line"
+    if status not in CLEARABLE_FROM.get(cleared_by, ()):
+        return _NOT_CLEARABLE.get(status, f"it is {status}")
+    for name, payment_status in payments:
+        payment_status = (payment_status or "").strip()
+        if payment_status == STATUS_PAID:
+            if bank_line:
+                return f"payment {name} is already Paid"
+        elif payment_status != STATUS_RECONCILIATION_PENDING:
+            return f"payment {name} is {payment_status or 'blank'}"
+    return None
+
+
+def _day_text(day: str) -> str:
+    year, month, date = day[:10].split("-")
+    return f"{date}-{month}-{year}"
+
+
+def clearance_date_problem(clearance_date, *, issue_date, today) -> str | None:
+    """Why `clearance_date` cannot be a cheque's clearance date, or None. Pure. It becomes each payment's
+    payment date, so it is required, never after `today` and never before the cheque was issued."""
+    if not clearance_date:
+        return "Choose the clearance date."
+    day = str(clearance_date)[:10]
+    if day > str(today)[:10]:
+        return "The clearance date cannot be after today."
+    if issue_date and day < str(issue_date)[:10]:
+        return f"The clearance date cannot be before the cheque was issued ({_day_text(str(issue_date))})."
+    return None
+
+
+def cancel_problem(*, status: str) -> str | None:
+    """Why a cheque at `status` cannot be cancelled by hand, as a short reason, or None. Pure. Pending and
+    Issued cheques may be (their payments are Rejected); a Cleared one has no undo (ADR-0035 §5)."""
+    if status == CLEARED:
+        return "it is Cleared: a cleared cheque cannot be cancelled"
+    if status == CANCELLED:
+        return "already Cancelled"
+    return None
+
+
+def cancel_note_problem(note: str | None) -> str | None:
+    """Cancelling rejects every payment on the cheque, with the note as their reason: it is required."""
+    if not (note or "").strip():
+        return "Write a note saying why the cheque is cancelled."
+    return None
+
+
+@dataclass(frozen=True)
+class BankLine:
+    """An imported bank-statement line (`Outflow Import Row`) as the clearing rules read it."""
+
+    name: str
+    source: str | None
+    direction: str | None
+    row_status: str | None
+    reference_id: str | None
+    amount: float
+
+
+def bank_line_matches(line: BankLine, *, cheque_no: str, amount) -> bool:
+    """Does `line` carry this cheque's number (leading zeros ignored) and amount (within ₹5)? Pure."""
+    key = cheque_no_key(line.reference_id)
+    return (
+        bool(key)
+        and key == cheque_no_key(cheque_no)
+        and abs(round(flt(line.amount), 2) - round(flt(amount), 2)) <= LINES_TOLERANCE
+    )
+
+
+def bank_line_problem(line: BankLine, *, bank: str, cheque_no: str, amount) -> str | None:
+    """Why `line` cannot clear this cheque, as a short reason, or None. Pure.
+
+    The bank match rule (spec #1477): an ICICI Bank cheque only, an ICICI statement DEBIT nobody has
+    matched yet, the same number with leading zeros ignored, the amount within ₹5.
+    """
+    if bank != ICICI_BANK:
+        return "only an ICICI Bank cheque is matched to a bank line"
+    if line.source != ICICI_STATEMENT_SOURCE:
+        return f"line {line.name} is not from an ICICI bank statement"
+    if line.direction != DIRECTION_DEBIT:
+        return f"line {line.name} is a credit, not a debit"
+    if line.row_status not in UNMATCHED_LINE_STATUSES:
+        return f"line {line.name} is already {line.row_status}"
+    if cheque_no_key(line.reference_id) != cheque_no_key(cheque_no):
+        number = (line.reference_id or "").strip() or "none"
+        return f"line {line.name} carries cheque number {number}, not {cheque_no}"
+    if not bank_line_matches(line, cheque_no=cheque_no, amount=amount):
+        return f"line {line.name} is for {rupees(line.amount)}, but the cheque is for {rupees(amount)}"
+    return None
