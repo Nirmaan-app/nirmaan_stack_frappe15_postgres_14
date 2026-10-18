@@ -1215,6 +1215,42 @@ On a BoQ row the model opened with no insulation item, the section is priced by 
 material by the row-kind default, the ruled thickness then the ladder (the thickness priority ends at 9 mm, 12d-2), cladding
 "No" -- each amber with its line. The calculator keeps "choose the material" (D1b).
 
+**INSULATION'S TYPED PIPE SIZE FOLLOWS PIPING'S ONE-SIZE RULE; `typed_entry` NEVER CHANGES THE WORDING (owner U1, 2026-10-18:
+"ok" + "make typed_entry control only the typed one-size rule, not the 12e-2 wording"; slice 12e-6c, HVAC v46).** A pipe size the
+pricer TYPES on Insulation (Calculator -> Insulation, or a panel block's own box) is one size, exactly as on Piping: "40-50" and
+"50 mm O.D." refuse "Type one pipe size, in mm or inches". The MODEL's reading is unchanged (a range takes its top value). HVAC v46
+carries Piping's own key on Insulation's `pipe_size_mm`; `itemListPricing`'s `declares` no longer counts `typed_entry`, so the
+12e-2 size wording still comes only from `inch_mm_alt` / `size_match.near` / `size_match.below_smallest` -- the stored rows'
+words are pinned unchanged on both categories (`slice12e6c.test.ts`). A section's size mirrored from its pipe is a number the pipe
+already read, so the rule never refuses a mirror.
+
+**F-3 IS THE RULE OF EVERY AXIS THAT READS INCHES (owner U2, 2026-10-18: "apply F-3 ... to every axis with inches: true, testing
+x25.4 / x25 as ruled. No config key, no wording change, no second conversion"; slice 12e-6c).** A bare number with no unit, below
+the smallest stocked size, whose reading in inches (x 25.4 or x 25) falls within the stocked range refuses "size N has no unit -
+price this row by hand" -- on Insulation's `pipe_size_mm` as on Piping's `size_mm` (`f3InchAlt`; the x25 is a test, never a
+ladder conversion). A test pins the covered axes (exactly those two today) and fails if the set changes. As ruled, the range is
+the TYPE's own: a bare "4" on Nitrile (101.6 / 100 mm, above its 53.98) still takes the smallest size, while an MS pipe "4"
+refuses and its section follows the pipe.
+
+**A FIXING IS NEVER A CLADDING, ALSO TO THE GI MAP (owner O3, 2026-10-18: "fix it"; slice 12e-6c).** `choiceTextFor` masks the
+fixing and duct words (`withoutFixingWords`) before R2's GI words are looked for, so "GI strip at 1 m grid" names no cladding;
+"26 G GI cladding" still prices as 26G Aluminium (12e-5b R2).
+
+**A COPIED CLOTH FACING IS THE GLASS-CLOTH CLADDING, IN CODE TOO (owner O4, 2026-10-18: "ok" -- "aluminium + cloth with no
+gauge -> 26G Aluminium with Glass Cloth; cloth alone -> the glass-cloth cladding; an answered cladding is never overridden";
+slice 12e-6c).** The code backstop of 12e-6 R6: with the cladding UNANSWERED and a glass / fibre cloth copied as written
+("factory laminated fire resistant fibre cloth fabric", "reinforced glass cloth", "FR fabric"), `clothFacingCladding` prices it as
+"Glass Cloth with paint", or "<gauge> Aluminium with Glass Cloth" where aluminium is named too (no gauge: 26G; a gauge the
+catalogue does not stock refuses with R2's sentence), amber: "BoQ says <words> -> priced as <cladding>". A sheet row still
+refuses glass cloth (D9b). Word lists in code, as R8 / R4; no config key.
+
+**RPUF WITH NO MATERIAL ANSWERED PRICES AS TUBULAR PUF (owner R, ruled 2026-10-15 14:24 "accept", code ruling 2026-10-18 "ok";
+slice 12e-6c).** With nothing answered, "not mentioned" or a no-SKU answer by the model, "RPUF" (or "rigid PUF") in the row's own
+text or the material as written prices as the category's PUF family for the row's unit -- the ladders then take the next stocked
+thickness up exactly as for a picked Tubular PUF (the stored 00321 / 15 figure, 9,459 / 1,904, both ways); 30 mm on a small pipe
+still refuses. An answered material is never overridden; a per-sq.m row has no PUF rule and is read as before. NBR is nitrile
+(owner 2026-10-16 13:53) and needed no change.
+
 **A DEFAULT IS NAMED AS THE DEFAULT, SAID ONCE, BY ITS FIELD'S LABEL (owner G1 / G2 / G3, 2026-10-12 "yes"; slice
 12e-4b).** G1: a number nobody stated (the ruled default) heads its field note "Default 9 mm -> priced as 13 mm
 (the smallest size)" (12e-4d AC3: below the smallest stocked size the field's line and the working both say "(the

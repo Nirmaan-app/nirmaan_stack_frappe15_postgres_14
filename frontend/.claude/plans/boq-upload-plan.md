@@ -48233,3 +48233,71 @@ declaration, `CUB\` (P6 dump, group lists, proofs).
 - FINDING: non-BoQ test modules (expense, TDS, outflow, schedule tests) still leave residue on every full run (since the
   deletes: Expense Request 136, Non Project Expenses 54, Projects 8, Users 12, Nirmaan Users 16, Contacts 67, DC Items 6,
   Nirmaan Versions 561 of which 317 on BOQs from delete_doc teardowns). Not in this slice; a later hygiene slice.
+
+## Slice 12e-6c - Insulation: the five consistency fixes from 12e-6R (U1, U2, O3, O4, RPUF) and HVAC v46 - as built 2026-10-18
+
+**Commits (unpushed at the time of writing):**
+- `9edce7f9b` fix(rate-helper): the five rules in `itemListPricing.ts`.
+  - U1: `declares` no longer counts `typed_entry`.
+  - U2: F-3 on every axis that reads inches (`f3InchAlt`, `F3_INCH_ALT`).
+  - O3: `withoutFixingWords` runs inside `choiceTextFor`.
+  - O4: `clothFacingCladding`.
+  - R: `rpufFamily`, called before the row-kind default.
+  - Five add-only Derivation-tab lines in `itemListRuleOrder.ts` (RPUF, the GI map with fixings, the cloth facing, F-3 on Insulation; U1's typed line comes from v46's key).
+  - New `slice12e6c.test.ts` (23).
+  - `ruleReachability` cases C1-C5, positive and negative, plus a 12e-6c guard on the live asset.
+  - Pins inverted by mechanical authority (BEFORE lines kept) in `slice12d8` / `12e2` / `12e2b` / `12e3b` / `12e3c` / `12e4b` / `12e4d` and `calculatorPanelParity`. The owner widened the test scope for these files (RULED-2).
+- `3c7c69469` feat(rate-master): HVAC v46 = v45 + `typed_entry: "one_size"` on Insulation's `numbers.pipe_size_mm` (Piping's own key).
+  - Pins: `max(ns)` 45 -> 46 (10), `CURRENT_HVAC_ASSET` v45 -> v46.
+  - Two cross-version Insulation pins normalise the key out by name (`_without_12e6c_typed_entry`).
+  - `TestSlice12e6cAssetV46` (test_45-47).
+- The docs commit that carries this entry.
+
+Start tip `3077ae9d5` (= origin). Live on dev: HVAC v46 (items `93bbac8f3c13d86c` unchanged, configs `447e1d967a655768`; snapshot BRMS-26-01415, batch `rmbulk-056c5223c650`), Electrical v66 unchanged. Report on the Desktop: `2026-10-18_12e6c_Report.md` (ledger first), `_Paths.xlsx`, screens in `2026-10-18_12e6c_screens\`.
+
+### 1. The rulings and how they were built (owner 2026-10-18)
+
+- **STOP-1, then RULED-1.** Piping's own keys put on Insulation move 0 figures but rewrite size wording on 893-978 stored rows.
+  - Measured by a scratch replay of v45 + each candidate key.
+  - `typed_entry` and `inch_mm_alt` each flip `declares`.
+  - `below_smallest` is category-wide and also rewrites thickness notes.
+  - New config keys would need `config_validation.py`, whose key sets are closed.
+  - The owner's options, all option 1:
+    - U1: the v46 key, with `typed_entry` controlling only the one-size rule.
+    - U2: F-3 in code on every `inches: true` axis, as ruled (x25.4 / x25 within the type's range).
+    - O4 + R: code word lists like R8 / R4, with no config key.
+- **U1.** A typed "40-50" / "50 mm O.D." on Insulation refuses "Type one pipe size, in mm or inches". A model-read range is unchanged. A test pins every stored-row wording equal with and without the key, on both categories.
+- **U2.** The covered axes are pinned: exactly Piping `size_mm` and Insulation `pipe_size_mm`. As ruled, the range is the type's own: a bare "4" on Nitrile (101.6 / 100 mm > 53.98) still prices at 6.35, while "4" on Tubular PUF or an MS pipe refuses.
+- **O3.** "GI strip at 1 m grid" names no cladding; "26 G GI cladding" still maps to 26G.
+- **O4.** A cloth facing copied with the cladding unanswered prices as Glass Cloth with paint, or as `<gauge>` Aluminium with Glass Cloth when aluminium is named (no gauge: 26G). An answered cladding stands; a sheet row still refuses (D9b).
+- **R.** RPUF in the row or as written, with no material answered (including a no-SKU answer), prices as Tubular PUF at the next thickness up. 00321 / 15's 12e-5 reading ("none of these" + RPUF) prices 9,459 / 1,904, the stored figure where the model picked Tubular PUF. 30 mm on a 40 mm pipe refuses. NBR is nitrile (owner 2026-10-16 13:53); no change needed.
+- **Corpus.** Only "RPUF" appears: 12 stored items on 00321, all already answered Tubular PUF, so 0 moves. 0 stored items have a cloth facing with the cladding unanswered. The GI map fired 12 times, all "26 G GI cladding". 0 stored Insulation items carry a bare pipe size below 6.35.
+
+### 2. The free recheck (AC8) and v46 (AC7)
+
+- **Replay, both harnesses, 17,883 rows, after the code commit and again after the v46 load.**
+  - 0 rows moved, wording included.
+  - Plain `85869b59717d1b2a2787bbcd8a382e4a811bee601d773bd6ed008a97420d16f7` and section-aware `5c824dd331a0b9d53c0250685e864bb82c9c7976d9691fcbbccae73221e4c5a5` are unchanged (the baseline stands).
+- **Stub proof.** The adp / insulation / piping extraction requests rebuilt from v45 and v46 are identical (a pricing key only).
+- **Vacuity.** One break per mechanism, on the targeted tests: 3 / 4 / 3 / 5 / 6 red, each restore sha-exact.
+
+### 3. Suites, cert
+
+- **Python full at `3c7c69469`:** Ran 8,533 (= 8,530 + 3). Failures 7 / errors 2 = the 8 known names plus `test_daily_window_picks_a_wo_touched_since` (run 00:08-00:37 IST, inside its window).
+- **vitest:** 187 files / 7,031 tests, 1 failed (writeOffControl).
+- **tsc:** 3,170, identical by file and message.
+- **Capture log:** 461 (+0).
+- **Cert at :8080** after the full de-stale (honcho needed `kill -9`; ping after 236 s). The served module carried the five code strings; a runtime import read `F3_INCH_ALT` 25.
+  - **C1.** Calculator > Insulation, typed "40-50": "Type one pipe size, in mm or inches"; "50": 615 / 224.
+  - **C2.** A bare "2" on Nitrile, and "4" on Tubular PUF: "size N has no unit - price this row by hand". A bare "4" on Nitrile: 327 / 224, as ruled.
+  - **C3.** No stored row shows O4 or RPUF (0 moves), and the calculator cannot express either input (both fields are plain dropdowns). The page's own module priced in-memory fixture rows against the live v46 configs: the cloth line at 461 / 84, and the RPUF line on an Insulation row and on 00321 / 15 (9,459 / 1,904).
+  - **C4.** The Derivation tab shows 38 lines, the new ones at 6, 18, 26, 27 and 31.
+  - **C5.** 2,123 / 588, 7,830 / 692 and 1,884.
+
+### 4. Findings for the next slice
+
+1. **"2 inch" under a pipe.** On a Piping row the insulation section takes the pipe's size as 50 (the x25 conversion) and prices 604 / 224. An Insulation row or tab reads "2 inch" as 50.8 and prices 607 / 224. This predates the slice; the code paths it changed do not reach it.
+2. **The C2 example "4".** It refuses on Tubular PUF, not on Nitrile: under F-3 as ruled, 4 inches lies above Nitrile's range.
+3. **A GI frame copied as the cladding.** With the cladding unanswered, "GI frame with perforated Al sheet" no longer maps to 26G Aluminium: the frame words are masked. 0 stored items are affected. The stocked option for it is "GI Framework with perforated Al sheet", which the model answers.
+4. **RPUF on a per-sq.m row** has no PUF rule, so it reads as before (the row-kind default where nothing names a stocked material). This is not ruled.
+5. **The browser session re-saved its FCM token.** `dev_isolate.py --verify` fails on push_tokens / push_on (the CU-B finding); `disable_push` still blocks sends. Not re-run: it is outside this slice's writes.
