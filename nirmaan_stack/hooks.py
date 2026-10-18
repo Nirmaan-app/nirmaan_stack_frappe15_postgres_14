@@ -84,6 +84,13 @@ pdf_generator = ["nirmaan_stack.api.pdf_helper.keep_links.keep_links_pdf"]
 #before_install = "nirmaan_stack.install.before_install"
 #after_install = "nirmaan_stack.install.after_install"
 
+# Migration
+# ------------
+# CU-A: after every migrate, create any missing index of the index manifest under its own
+# table-unique name. Frappe's model sync can drop a bare-name index of ANOTHER table; this puts the
+# named one back in the same migrate. It never drops anything.
+after_migrate = ["nirmaan_stack.services.index_manifest.ensure_indexes"]
+
 # Uninstallation
 # ------------
 
