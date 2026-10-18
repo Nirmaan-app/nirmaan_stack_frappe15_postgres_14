@@ -37,6 +37,7 @@ failure, exactly like the classifier.
 import json
 import os
 import re
+import tempfile
 import time
 from collections import OrderedDict
 
@@ -225,7 +226,14 @@ _NONE_SENTINEL = "None"
 def _capture_path():
     """The bench logs directory -- resolved, never hardcoded -- alongside the existing boq_*.log
     family. Returns None if it cannot be resolved or is not writable, so capture can never break a
-    run by failing to find somewhere to write."""
+    run by failing to find somewhere to write.
+
+    ⚠️ UNDER TESTS (`frappe.flags.in_test`, set by `bench run-tests`) it returns a per-process temp
+    file instead, never the real log: a full suite once appended 89 mocked records to it, and the
+    capture log is the evidence the audits read (CU-0 AC3a, CU-B AC2a). A test that needs the real
+    path patches this function, as the existing ones do."""
+    if frappe.flags.in_test:
+        return os.path.join(tempfile.gettempdir(), "test_%s_%d" % (CAPTURE_FILENAME, os.getpid()))
     try:
         logs = os.path.join(frappe.utils.get_bench_path(), "logs")
         if os.path.isdir(logs) and os.access(logs, os.W_OK):
