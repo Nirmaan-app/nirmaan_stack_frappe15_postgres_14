@@ -34,13 +34,15 @@ const INS = "hvac_insulation", PIP = "hvac_piping";
 const ITEMS: RateMasterItem[] = V45.items.map((it) => ({ ...it, discipline: V45.discipline } as RateMasterItem));
 const cfgOf = (a: Asset) => Object.fromEntries(a.category_configs.map((c) => [c.category_id, c])) as Record<string, RateCategoryConfig>;
 const CFG45 = cfgOf(V45);
+const V46 = readJsonFixture<Asset>(new URL(`${DATA}rate_master_hvac_all_v46.json`, import.meta.url));
 /** U1's config: v45 with exactly the one key HVAC v46 adds (`typed_entry` on Insulation's pipe size). */
 const withTypedEntry = (cfg: Record<string, RateCategoryConfig>): Record<string, RateCategoryConfig> => {
   const c = structuredClone(cfg) as Record<string, any>;
   c[INS].list_spec.pricing.numbers.pipe_size_mm.typed_entry = "one_size";
   return c as Record<string, RateCategoryConfig>;
 };
-const CFG = withTypedEntry(CFG45);
+// 12e-6c AC7: the LIVE asset, v46. BEFORE (commit 1, no v46 yet): `const CFG = withTypedEntry(CFG45)` -- pinned equal below.
+const CFG = cfgOf(V46);
 const NR = "Nitrile Rubber Insulation", PUF = "Tubular Puf Insulation";
 const NIT = { item: NR, cladding: "26G Aluminium", thickness_mm: "19", pipe_size_mm: "50" };
 
@@ -92,6 +94,8 @@ const SPEC = itemListPricingSpec(CFG45[INS])!;
 // =====================================================================================================
 describe("12e-6c U1 -- a TYPED Insulation pipe size is one size, as Piping's; the model's reading and every wording unchanged", () => {
   it("the key: v46 adds exactly `typed_entry: \"one_size\"` to Insulation's pipe size (Piping's own key, already read by the one-size reader)", () => {
+    expect(CFG).toEqual(withTypedEntry(CFG45));
+    expect(V46.items).toEqual(V45.items);
     expect((CFG45[INS] as any).list_spec.pricing.numbers.pipe_size_mm.typed_entry).toBeUndefined();
     expect((CFG45[PIP] as any).list_spec.pricing.numbers.size_mm.typed_entry).toBe("one_size");
     expect(itemListPricingSpec(CFG[INS])!.numbers.pipe_size_mm.typed_entry).toBe("one_size");

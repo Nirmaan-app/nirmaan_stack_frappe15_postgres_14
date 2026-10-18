@@ -46,7 +46,7 @@ const ITEMS42: RateMasterItem[] = ASSET42.items.map((it) => ({ ...it, discipline
 // SLICE 12e-6c: the LIVE asset, for the rules whose config keys only it carries (O3 / O4 read `choice_text`, v40+; U1 reads
 // Insulation's `typed_entry`, v46); a case marked `live` runs on it, on the panel's entry point and the pure pricer alike
 const ASSET_LIVE = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
-  new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v45.json", import.meta.url),
+  new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v46.json", import.meta.url),   // 12e-6c AC7: v46 (BEFORE, commit 1: v45)
 );
 const CFG_LIVE: Record<string, RateCategoryConfig> = Object.fromEntries(ASSET_LIVE.category_configs.map((c) => [c.category_id, c]));
 const CONFIGS_LIVE = new Map<string, RateCategoryConfig>(Object.entries(CFG_LIVE));
@@ -473,6 +473,10 @@ const CASES: Case[] = [
   { id: "C4b", rule: T.cloth, cat: INS, path: "panel", kind: "pos", unit: "RMT", live: true, model: [m(NIT, { cladding: "None", cladding_as_written: "aluminium sheet with reinforced glass cloth" })], re: ["BoQ says aluminium sheet with reinforced glass cloth -> priced as 26G Aluminium with Glass Cloth"], priced: true },
   { id: "C4c", rule: T.cloth, cat: INS, path: "panel", kind: "pos", unit: "RMT", live: true, model: [m(NIT, { cladding: "None", cladding_as_written: "24 G aluminium with glass cloth facing" })], re: ["BoQ says 24 G aluminium with glass cloth facing -> priced as 24G Aluminium with Glass Cloth"], priced: true },
   { id: "C4d-neg", rule: T.cloth, cat: INS, path: "panel", kind: "neg", unit: "RMT", live: true, model: [m(NIT, { cladding: "26G Aluminium", cladding_as_written: "reinforced glass cloth" })], re: [], not: ["priced as Glass Cloth", "priced as 26G Aluminium with Glass Cloth"], priced: true },
+  // U1 (live: v46's `typed_entry` on Insulation's pipe size): a TYPED range refuses; the model's range is read as before
+  { id: "C5a", rule: T.typedSize, cat: INS, path: "ptyped", kind: "pos", unit: "RMT", live: true, model: [NIT], edits: ptyped({ pipe_size_mm: "40-50" }, ["pipe_size_mm"]), re: ["Type one pipe size, in mm or inches"], priced: false },
+  { id: "C5b-calc", rule: T.typedSize, cat: INS, path: "calc", kind: "pos", live: true, edits: calc(NR, { cladding: "26G Aluminium", thickness_mm: "19", pipe_size_mm: "50 mm O.D." }, ["pipe_size_mm"]), rowUnit: "mts", re: ["Type one pipe size, in mm or inches"], priced: false },
+  { id: "C5c-neg", rule: T.typedSize, cat: INS, path: "panel", kind: "neg", unit: "RMT", live: true, model: [m(NIT, { pipe_size_mm: "40-50" })], re: ["pipe size: range '40-50' -> its top value 50"], not: ["Type one pipe size"], priced: true },
   { id: "P8c-neg", rule: T.drainCpvc, cat: PIP, path: "calc", kind: "neg", edits: [{ base: null, family: null, attrs: { size_mm: "25" }, other: ["size_mm"] }], rowUnit: "mts", re: ["no pipe type could be told for this item"], not: ["no material stated", "family:CPVC"], priced: false },
 ];
 
@@ -650,8 +654,8 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
 
   // SLICE 12e-6c (owner rulings 2026-10-18; AC6): THE 12e-6c GUARD on the LIVE asset -- every line this slice adds to
   // Insulation's tab is generated there, has a positive and a negative case above, and ADP and Piping gain none of them
-  it("12e-6c: every new Insulation line (live) has a positive and a negative case; ADP and Piping gain none", () => {
-    const NEW = [T.noUnit, T.rpuf, T.giMap, T.cloth];
+  it("12e-6c: every new Insulation line (live v46) has a positive and a negative case; ADP and Piping gain none", () => {
+    const NEW = [T.noUnit, T.rpuf, T.giMap, T.cloth, T.typedSize];
     const tLive = (cat: string) => itemListRuleOrder(CFG_LIVE[cat], ITEMS_LIVE).map((l) => l.title);
     expect(NEW.filter((t) => tLive(INS).includes(t))).toEqual(NEW);
     for (const t of NEW) {
