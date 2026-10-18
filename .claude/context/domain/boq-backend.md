@@ -251,6 +251,41 @@ carry, classification-freeze and BCS invariants live in `boq-pricing-editor.md`.
   change and must stay:** `pricingRollup` sums a node's own amount PLUS its descendants', so a priced
   parent item double-counts -- advisory only, it never blocks.
 
+### Clean-up invariants (CU-A, 2026-10-18)
+
+- **Index manifest (a new `search_index` field needs a manifest entry):** every index nirmaan needs is
+  listed in `services/index_manifest.INDEXES` under its own table-unique name (`<Table_Slug>_<cols>_idx`,
+  the doctype's case KEPT, a stable 8-char hash past 63 chars), and `ensure_indexes()` (hooks
+  `after_migrate`) creates any missing one after every migrate and never drops anything. Frappe 15 on
+  Postgres names a `search_index` index after the bare fieldname, schema-wide, and its model sync later
+  issues a table-less `DROP INDEX IF EXISTS "<field>"`; the named twin survives that. A new
+  `search_index` field, or a new `add_index` / `add_unique` call in a doctype controller, without a manifest
+  entry fails `test_index_manifest`. Never lowercase the slug: Frappe's "is this column indexed" test is a
+  case-sensitive LIKE over the whole index definition, and lowercase table words (`color`, `config`) match
+  unindexed fields and queue new bare drops. No doctype JSON is changed for index work.
+- **BoQ delete cascade (owner "children only"):** `integrations/controllers/boqs.after_delete` removes the
+  drafts' `BoQ Sheet Work Package` grandchildren on every BOQs delete and, on a FORCED delete, each linked
+  `BoQ Sheet`'s work packages and each linked `BoQ Committed Sheet Grid`'s rows. It never deletes the Sheet /
+  Grid / Review Row / BOQ Nodes documents. `after_delete`, never `on_trash`: `delete_doc` runs `on_trash`
+  before its link check and never says whether it was forced, so an unforced delete of a linked BoQ must
+  stay refused with nothing removed (pinned). A forced delete still leaves every document with a `boq` link
+  (Sheet + its row, Grid, Review Rows, Nodes + qty-by-area, cell pricing / colour / remark / formula /
+  dismissal / reconciliation, locks, BCS rates, row categories, truth snapshots, suggestion runs / events,
+  AI run logs) for the orphan report.
+- **Orphans: report, then delete the approved counts:** `services/orphans.report()` counts, from live meta,
+  BoQ child rows whose parent is gone, documents whose `boq` names a missing BOQs, and every row below them.
+  `delete(confirm_counts=...)` deletes only when a fresh scan equals the counts the owner approved, label for
+  label, else nothing. Provenance links (`source_boq`, `carried_from_boq`) are info only. It is a function,
+  not a patch; production runs `report()` first. Tests pass `scope=` so they never touch real orphans.
+- **Stale suggestion runs:** `tasks/suggest_run_healer` (cron every 5 min) marks a `running` BoQ Rate
+  Suggestion Run `failed`, reason "stale - worker gone", only when no suggest job for it is queued / started /
+  deferred on any queue, matched by `run_id` AND by `(boq, sheet_name)` (a resume runs under a new job id),
+  and `modified` is older than 2 h. It never touches another status, `active`, the rows or `modified`.
+- **Dev-only off-switches:** site config `disable_push` (the one `messaging.send`, in
+  `pr_notifications.send_firebase_notification`) and `disable_cloud_upload` (a File `before_insert` drops
+  the GCP `after_insert` upload handler for the request). Set on dev only, NEVER on production. Their log
+  lines need `logger.setLevel(logging.INFO)`: Frappe file loggers default to ERROR off the dev server.
+
 ### Wizard scope discipline (Phase 3 onward)
 
 When a wizard decision has two paths — (a) build the capability inside the wizard, or (b) defer to or extend an existing app-wide flow — surface the fork explicitly in chat before writing code. Default lean: if the capability has reach beyond the Upload BoQ flow (i.e., other Nirmaan features would benefit from it), keep it outside wizard scope. The lean is a starting point only; the final call is case-by-case after discussion.

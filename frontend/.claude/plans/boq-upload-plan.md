@@ -48109,3 +48109,66 @@ refused, pipe size 80 above 53.98; 00336 / HVAC 207 refused, polyshield coating;
 - 62 sheets with Piping / Insulation rows have no run at today's version (Piping_State.xlsx (b)); 12 Insulation rows on run sheets
   were never read.
 - residence_check: unchanged pre-existing F5 / F2 counts (no 12e-6b file changes either).
+
+## Slice CU-A - clean-up, production-bound code: index safety, the BoQ delete cascade + orphan report, the stale-run healer, two dev off-switches - as built 2026-10-18
+
+**Commits (unpushed at the time of writing):**
+- `8d3c53844` feat(db): AC1 - `services/index_manifest.py` (118 entries: 88 `search_index` fields + the 30 controller
+  `add_index` / `add_unique` calls) + `ensure_indexes()` wired as hooks `after_migrate`; `test_index_manifest` (18).
+- `2e2d05dcc` feat(boq): AC2 + AC3 - `integrations/controllers/boqs.after_delete` (owner "children only") and
+  `services/orphans.py` `report()` / `delete(confirm_counts=...)`; `test_boq_delete_cascade` (5), `test_orphans` (6).
+- `cb5beed06` feat(rate-helper): AC4 - `tasks/suggest_run_healer.py`, cron every 5 min; `test_suggest_run_healer` (11).
+- `ecd9c24ac` feat(integrations): AC5 - `disable_push` (in `send_firebase_notification`) and `disable_cloud_upload` (new
+  `integrations/controllers/file.before_insert`); `test_off_switches` (10).
+- `a94b39785` test(boq): the two full-suite fixes (owner 2026-10-18): cascade fixtures by set_name, the `test_ai_run_log`
+  */5 pin inverted by mechanical authority.
+- The docs commit that carries this entry.
+
+Start tip `8fe44b7da` (= origin). Report on the Desktop: `2026-10-17_CUA_Report.md` (ledger first),
+`2026-10-17_CUA_Deploy_Notes.md`, evidence in `CUA\` (pg_indexes snapshots / diffs, migrate logs, P6 dump).
+
+### 1. Index manifest (AC1)
+- Frappe 15 on Postgres names a `search_index` index after the bare fieldname, schema-wide, and later drops it with a
+  table-less `DROP INDEX IF EXISTS "<field>"` (CU-0 s1). The manifest gives every index a table-unique name and
+  `ensure_indexes()` creates the missing ones after every migrate; it never drops. No doctype JSON changed.
+- Name rule `<Table_Slug>_<cols>_idx`, the doctype's CASE KEPT. The first dev build used a lowercase slug and queued
+  4 NEW bare drops (`color`, `config`, `choice`, `document` matched unindexed fields through Frappe's case-sensitive
+  LIKE over the whole definition); those 99 own indexes were dropped and rebuilt case-preserving. Pinned by test.
+- Explicit controller names are reused (19 already existed by name). Plain `CREATE INDEX IF NOT EXISTS`, committed per
+  index: `after_migrate` runs inside a transaction, so CONCURRENTLY is impossible.
+- Dev: 99 created in 2.63 s (largest `BoQ Committed Sheet Grid Row.parent`, 1,041,984 rows, 0.71 s); second run 0.
+  pg_indexes 666 -> 765, ADDED 99, REMOVED 0. Pending bare drops 95 -> 95, identical set.
+- Its log lines needed `logger.setLevel(logging.INFO)`: Frappe file loggers default to ERROR off the dev server, and
+  the first version's INFO lines (and the healer's and both switches') were silently dropped. A mocked-logger test had
+  passed; tests now read the real log file back.
+
+### 2. Delete cascade and orphans (AC2, AC3)
+- `delete_doc` runs `on_trash` BEFORE its link check and never tells the document it was forced, so the cascade is
+  `after_delete`: an unforced delete of a linked BoQ is refused with nothing removed (pinned). Always: drafts' work
+  packages; forced: linked sheets' work packages and grids' rows. Documents themselves are never deleted.
+- `orphans.report()` on dev at the slice's start: 3,374 = 3,209 child + 165 link rows, exactly CU-0. After today's suite
+  runs: 3,554 (locks 131 -> 140, drafts 323 -> 342, formulas 34 -> 36) - test residue. `delete()` was NOT run (CU-B).
+- Found in the full run: Frappe rolls a deleted BoQ's series number back, so a new BoQ can take a deleted one's name
+  and inherit its orphan rows (a fixture became BOQ-26-00834 and met a leftover pricing lock).
+
+### 3. Healer and switches (AC4, AC5)
+- Healer: `running` + no suggest job queued / started / deferred on any queue (by `run_id` AND by `(boq, sheet_name)`,
+  since a resume runs under a new job id) + `modified` older than 2 h -> `failed`, "stale - worker gone". First
+  scheduled run on dev (11:35:53 IST): exactly BRSR-26-00048..00064 (no 00057) and BRSR-26-00766; 352 / 199 unchanged.
+- The one push send point is `pr_notifications.py` `messaging.send` (line 160, not 134). The upload switch drops
+  `frappe_gcp_attachment.controller.file_upload_to_gcs` from `frappe.local.doc_events_hooks` for the request; no other
+  app is edited. Both set to 1 on dev (were absent); never on production.
+
+### 4. Migrate, suites, cert
+- `bench migrate` twice (pre- and post-logger-fix): exit 0, no patch (Patch Log 404), 0 index change, columns sha
+  unchanged, new Scheduled Job Type `suggest_run_healer.heal_stale_suggestion_runs` not stopped, 20 guards + mute kept.
+- Python full suite once: Ran 8,509 (+50 new), failures 7 / errors 3. New vs 12e-6b: the cascade fixture-name collision
+  and the */5 pin - both fixed in `a94b39785`, modules re-run green; expected net = the 8 known names. vitest / tsc not
+  re-run: no frontend file changed.
+- Cert at :8080 after the full de-stale: C1 boot + runtime import; C2 HVAC-8F unchanged, the failed run read via REST;
+  C3 2,123 / 588, 7,830 / 692, 1,884. Replay 17,883 rows 85869b59 / 5c824dd3 unchanged; HVAC v45 / Electrical v66 0 / 0.
+
+### 5. Findings for CU-B
+- Orphans 3,554 (140 pricing locks still point at deleted BoQ names). The capture log has no test guard (+103 mocked
+  lines today, 0 real calls). Test BoQs 00829-00832 and other suite residue; `test_piping_v34` minted a new live HVAC
+  batch again (`rmbulk-91325a615f4e`, equal content). residence_check F5 / F2 unchanged pre-existing.
