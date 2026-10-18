@@ -453,6 +453,9 @@ doc_events = {
         "validate": "nirmaan_stack.integrations.controllers.boqs.validate",
         "on_update": "nirmaan_stack.integrations.controllers.boqs.on_update",
         "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
+        # CU-A: the delete cascade. after_delete, never on_trash -- on_trash runs before the link
+        # check, so a refused delete would already have removed the sheet / grid rows.
+        "after_delete": "nirmaan_stack.integrations.controllers.boqs.after_delete",
     },
     "BOQ Nodes": {
         "validate": "nirmaan_stack.integrations.controllers.boq_nodes.validate",
