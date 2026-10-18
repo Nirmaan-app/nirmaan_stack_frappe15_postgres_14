@@ -85,9 +85,9 @@ export interface NumberReader {
   /**
    * SLICE 12e-2 (owner P2): a value the PRICER types on this axis must be ONE size -- a number in mm (an NB
    * number is mm; a trailing "mm" / "NB" accepted) or an inch form (5/8", 1-1/4", 1 1/4", 1¼", 2", 2 inch).
-   * "40/50" and "two inch" refuse with `ONE_SIZE_MESSAGE`. It also turns the field's line into the full read
-   * ("You typed 5/8\" -> 15.875 mm -> priced as 15.9 mm ..."). TYPED cells only; a model cell is read as
-   * before. ABSENT => the reader is byte-identical.
+   * "40/50" and "two inch" refuse with `ONE_SIZE_MESSAGE`. TYPED cells only; a model cell is read as
+   * before. ABSENT => the reader is byte-identical. SLICE 12e-6c (owner U1): the key no longer turns the field's
+   * line into the full read ("You typed 5/8\" -> 15.875 mm -> ..."); Piping's line comes from its other keys.
    */
   typed_entry?: "one_size";
   /**
@@ -666,7 +666,7 @@ export interface LadderHop {
   exact: boolean;
   /**
    * SLICE 12e-2 (owner Q14 / Q14a / Q17 / Q11): HOW the stated value landed on `fitted`, set on an axis that
-   * declares `typed_entry` / `inch_mm_alt` / `size_match.near` / `size_match.below_smallest` -- the field's line
+   * declares `inch_mm_alt` / `size_match.near` / `size_match.below_smallest` (12e-6c: no longer `typed_entry`) -- the field's line
    * names it ("the sheet's own spelling of this size", "the smallest size", "next size up"). ABSENT on every
    * other axis, so every existing hop is byte-identical.
    *   exact      the stated value is a rung
@@ -972,6 +972,18 @@ export const BARE_NUMBER_RE = /^\s*\d+(?:\.\d+)?\s*$/;
 /** SLICE 12e-4b (owner F-3): the ONE sentence a bare number that could be an inch size refuses with. */
 export function noUnitMessage(size: string): string {
   return `size ${size} has no unit - price this row by hand`;
+}
+/** SLICE 12e-6c (owner U2): F-3's "x 25" where the axis declares no second conversion of its own (12e-4b's ruling). */
+export const F3_INCH_ALT = 25;
+/**
+ * SLICE 12e-6c (owner U2, 2026-10-18). PURE. The second inch factor F-3 tests on this axis, or null where F-3 does not
+ * apply. F-3 is the rule of EVERY axis that reads inches (`inches: true`): Piping's `size_mm` (at its own `inch_mm_alt`)
+ * and Insulation's `pipe_size_mm` (at 25). Nothing else changes on the axis -- the ladder never converts at this factor.
+ */
+export function f3InchAlt(spec: ItemListPricingSpec, attr: string): number | null {
+  const rd = spec.numbers[attr];
+  if (!rd || rd.inches !== true) return null;
+  return typeof rd.inch_mm_alt === "number" && rd.inch_mm_alt > 0 ? rd.inch_mm_alt : F3_INCH_ALT;
 }
 
 export function isOneSizeEntry(text: string | number | null | undefined): boolean {
@@ -1776,13 +1788,16 @@ function wholeWordHit(text: string, words: readonly string[]): boolean {
  * "None"): the text the model copied as written, when it holds one of the entry's words, prices as the option its
  * gauge maps to (no gauge -> `default_to`; a gauge the table does not list -> the entry's `unlisted_line` refusal,
  * never the choice's default). The map is config: a GI cladding SKU later is a config / catalogue change, no code.
+ * SLICE 12e-6c (owner O3, 2026-10-18: "fix it"; 12e-6 AC4 "fixings are not cladding"): the FIXING and DUCT words are
+ * masked before the words are looked for (`withoutFixingWords`), so "GI strip at 1 m grid" names no cladding; "26 G
+ * GI cladding" still maps to 26G Aluminium (12e-5b R2), and the line still quotes the words as written.
  */
 export function choiceTextFor(spec: ItemListPricingSpec, attr: string, item: ExtractedListItem): { to: string; line: string; rule: string } | { refuse: string } | null {
   for (const e of spec.choice_text ?? []) {
     if (e.attr !== attr) continue;
     const raw = rawValue(item, e.from_attr);
     const said = raw !== null && raw !== "None" ? String(raw).trim() : "";
-    if (said === "" || !wholeWordHit(said, e.words)) continue;
+    if (said === "" || !wholeWordHit(withoutFixingWords(said), e.words)) continue;
     let to: string | undefined = e.default_to;
     if (e.gauge_pattern) {
       let m: RegExpMatchArray | null = null;
@@ -1950,6 +1965,69 @@ export function coatingOnlyRefusal(said: string): string | null {
   return `No SKU in the catalogue for ${s} - price this row by hand`;
 }
 
+/** SLICE 12e-6c (owner O4): a glass or fibre CLOTH named in a copied cladding -- the 12e-6 R6 words ("factory laminated
+ * fire resistant fibre cloth fabric", "reinforced glass cloth"). A bare "fabric" or "laminated" names no cloth. */
+const CLOTH_FACING_RE = /(^|[^a-z0-9])(?:(?:glass|fib(?:re|er)|fib(?:re|er)\s*glass|glass\s*fib(?:re|er))\s*(?:cloth|fabric)|fr\s+fabric|cloth\s+fabric)(?![a-z0-9])/i;
+/** ... and aluminium named beside it: then the cloth is on aluminium sheet, by its gauge. */
+const ALUMINIUM_RE = /(^|[^a-z0-9])(?:alumin(?:i)?um|alu|al\.?)(?![a-z0-9])/i;
+const GAUGE_RE = /(\d{2})\s*(?:g|swg|gauge)(?![a-z0-9])/i;
+/** The cladding options the backstop prices, by the catalogue's own spelling. */
+const CLOTH_CLADDING = "Glass Cloth with paint";
+const CLOTH_ON_ALUMINIUM: Record<string, string> = { "24": "24G Aluminium with Glass Cloth", "26": "26G Aluminium with Glass Cloth" };
+
+/**
+ * SLICE 12e-6c (owner O4, 2026-10-18: "ok" -- "aluminium + cloth with no gauge -> 26G Aluminium with Glass Cloth;
+ * cloth alone -> the glass-cloth cladding; an answered cladding is never overridden"). PURE. The code backstop of the
+ * 12e-6 R6 note (HVAC v43: "a factory-laminated or reinforced glass / fibre cloth facing IS the glass cloth cladding"):
+ * where the model left the cladding UNANSWERED but copied a cloth facing as written, it prices as the cladding the note
+ * tells the model to choose -- "Glass Cloth with paint", or "<gauge> Aluminium with Glass Cloth" where aluminium is
+ * named too (no gauge: 26G; a gauge the catalogue has no cloth-on-aluminium option for refuses, as R2's unlisted gauge
+ * does, with that entry's own sentence). Read only for the attribute a `choice_text` entry names, from that entry's
+ * as-written attribute, and the line is the entry's own ("BoQ says {from} -> priced as {to}"); the caller asks only for
+ * an unanswered choice the R2 map did not take.
+ */
+export function clothFacingCladding(
+  spec: ItemListPricingSpec, attr: string, item: ExtractedListItem,
+): { to: string; line: string } | { refuse: string } | null {
+  for (const e of spec.choice_text ?? []) {
+    if (e.attr !== attr) continue;
+    const raw = rawValue(item, e.from_attr);
+    const said = raw !== null && raw !== "None" ? String(raw).trim() : "";
+    if (said === "" || !CLOTH_FACING_RE.test(said)) continue;
+    let to: string | undefined = CLOTH_CLADDING;
+    if (ALUMINIUM_RE.test(said)) {
+      const g = said.match(GAUGE_RE);
+      to = CLOTH_ON_ALUMINIUM[g ? g[1] : "26"];
+      if (!to) return { refuse: e.unlisted_line.replace("{from}", said) };
+    }
+    // a family that stocks no such cladding refuses at the SKU match, naming it, exactly as a picked one would
+    return { to, line: e.line.replace("{from}", said).replace("{to}", to) };
+  }
+  return null;
+}
+
+/** SLICE 12e-6c (owner R): RPUF -- rigid polyurethane foam -- as the BoQ writes it. The corpus writes "RPUF" only. */
+const RPUF_RE = /(^|[^a-z0-9])(r\.?\s?p\.?\s?u\.?\s?f\.?|rigid\s+(?:puf|pu\s+foam|polyurethane(?:\s+foam)?))(?![a-z0-9])/i;
+/**
+ * SLICE 12e-6c (owner R, 2026-10-18: "ok"; ruled 2026-10-15 14:24 "accept": RPUF -> Tubular PUF, priced at the next
+ * stocked thickness up; 30 mm on a small pipe still refuses). PURE. With NO material answered -- nothing, "not
+ * mentioned", or a no-SKU answer -- RPUF in the row's own text or in the material as written prices as the
+ * category's PUF family for the row's unit, with the line "BoQ says RPUF -> priced as <family>"; the ladders then fit
+ * the thickness exactly as for a picked Tubular PUF. A family the row's unit has no PUF rule for maps to nothing (the
+ * row is read as before). The caller never asks for an answered material, so an answered item is never overridden.
+ */
+export function rpufFamily(
+  spec: ItemListPricingSpec, item: ExtractedListItem, ownText: string, rowUnitClass: string | null,
+): { family: string; line: string } | null {
+  const named = spec.no_sku_named_by ? rawValue(item, spec.no_sku_named_by) : null;
+  const copied = named !== null && named !== "None" ? String(named) : "";
+  const m = `${copied} | ${ownText}`.match(RPUF_RE);
+  if (!m) return null;
+  const fam = Object.keys(spec.families).find((f) => /(^|[^a-z0-9])puf(?![a-z0-9])/i.test(f));
+  if (!fam || rowUnitClass === null || !spec.families[fam].units[rowUnitClass]) return null;
+  return { family: fam, line: `BoQ says ${m[2].trim()} -> priced as ${fam.trim()}` };
+}
+
 /**
  * SLICE 12e-6 (AC4): the words of a row that name a FIXING or a DUCT, not a cladding -- "GI strip", "GI grid", "C shape
  * GI frame", "GI bolt", "aluminium and GI duct" -- are masked before the "cladding named in this row but not read" test,
@@ -2078,6 +2156,19 @@ function priceOneItem(
     const unstockedNamed = (spec.unstocked_materials && wordStartHit(rowText, spec.unstocked_materials.words) !== null)
       || /(^|[^a-z0-9])xlpe(?![a-z0-9])/i.test(rowText) || XLPE_RE.test(rowText);
     if (namedText === "" && !unstockedNamed && familyWhenNone(spec, rowUnitClass, rowText)) out.familyRaw = "None";
+  }
+  // SLICE 12e-6c (owner R, 2026-10-18 "ok"): NO material answered -- nothing, "not mentioned", or a no-SKU answer by
+  // the MODEL -- and RPUF in the row's own text or as written: Tubular PUF, with its line, BEFORE the row-kind default
+  // could read the row as naming no material. A material the model or the pricer answered is never touched.
+  const unanswered = out.familyRaw === null || out.familyRaw === "None"
+    || (modelAnswered && (spec.no_sku_families ?? []).includes(out.familyRaw!));
+  if (unanswered) {
+    const rpuf = rpufFamily(spec, item, ownText, rowUnitClass);
+    if (rpuf) {
+      out.familyRaw = rpuf.family;
+      out.familyLine = rpuf.line;
+      out.working.push(rpuf.line);
+    }
   }
   // SLICE 12d-1a (owner R2): a row that names NO material prices as the family its ROW KIND implies --
   // declared in config, marked as a default. ONLY over an absent / "None" answer; a stated family,
@@ -2401,7 +2492,8 @@ function priceOneItem(
     // SLICE 12e-5b (owner R2): an UNANSWERED choice the BoQ named in a word the catalogue does not stock ("26 G GI
     // cladding", copied as written) prices as the stocked option the config maps it to, with its amber line
     if (v === null || v === "None") {
-      const ct = choiceTextFor(spec, attr, item);
+      // SLICE 12e-6c (owner O4): ... and, where R2's map takes nothing, a copied glass / fibre cloth facing
+      const ct = choiceTextFor(spec, attr, item) ?? clothFacingCladding(spec, attr, item);
       if (ct && "refuse" in ct) { unreadable[attr] = ct.refuse; continue; }
       if (ct) {
         read[attr] = ct.to;
@@ -2790,9 +2882,13 @@ function priceOneItem(
      * range (MS 15: 381 mm) all price exactly as before. The rule rides on keys the axis already declares --
      * it reads inches two ways (`inch_mm_alt`) and rules below-the-smallest (`size_match.below_smallest`) -- so
      * no other category reaches it; the test is the text the pricer or the model wrote, never the row around it.
+     * SLICE 12e-6c (owner U2, 2026-10-18: "apply F-3 ... to every axis with inches: true, testing x25.4 / x25 as
+     * ruled. No config key, no wording change, no second conversion"): the rule is the AXIS's -- any axis that reads
+     * inches (`f3Axis`) -- so Insulation's pipe size refuses a bare "1" exactly as Piping's does. The x25 test is the
+     * ruling's own (`F3_INCH_ALT` where the axis declares no `inch_mm_alt`); it is a test, never a ladder conversion.
      */
-    const inchAlt = spec.numbers[attr]?.inch_mm_alt;
-    if (!matched && typeof inchAlt === "number" && spec.size_match?.below_smallest === "smallest" && want < rungs[0].size) {
+    const inchAlt = f3InchAlt(spec, attr);
+    if (!matched && inchAlt !== null && want < rungs[0].size) {
       const written = (spec.numbers[attr]?.from ?? []).map((src) => rawValue(item, src)).find((v) => v !== null);
       // ... or the size TAKEN from a pair / list that carried no unit ("8/7"): the same question, the same answer
       // (owner, in the run: "the size taken from a pair or list goes through the same F-3 check as a bare number")
@@ -2837,7 +2933,10 @@ function priceOneItem(
     }
     resolvedLadders.add(attr);
     // SLICE 12e-2: `how` is written ONLY where a declaring key is present (owner Q17 / Q11 / Q14 / Q14a)
-    const declares = !!(spec.numbers[attr]?.typed_entry || spec.numbers[attr]?.inch_mm_alt
+    // SLICE 12e-6c (owner U1, 2026-10-18: "make typed_entry control only the typed one-size rule, not the 12e-2
+    // wording"): `typed_entry` no longer declares. Piping keeps its wording through its other keys; Insulation's pipe
+    // size gains the typed rule with every line it had.
+    const declares = !!(spec.numbers[attr]?.inch_mm_alt
       || spec.size_match?.near !== undefined || spec.size_match?.below_smallest !== undefined);
     if (declares && how === undefined) how = fit.exact ? "exact" : (want < rungs[0].size ? "smallest" : "up");
     // SLICE 12e-4d (owner, 2026-10-14: "fix"; AC3): ONE wording for the size step on the field's line and the

@@ -580,22 +580,26 @@ describe("12e-4b AC7 (F-3) -- a bare number below the smallest stocked size that
     // with the unit in the ANSWER it prices
     expect(panel(PIP, [{ pipe_type: "CPVC", size_mm: "1 inch" }], undefined, "RMT", { description: "1 CPVC" }).v.rowPriced).toBe(true);
   });
-  it("NEGATIVE: the rule rides on the two keys Piping's size axis declares -- Insulation's pipe size and ADP's sizes never say it", () => {
+  // INVERTED at 12e-6c (owner U2, 2026-10-18: "apply F-3 ... to every axis with inches: true, testing x25.4 / x25 as ruled")
+  // by mechanical authority. BEFORE (title "the rule rides on the two keys Piping's size axis declares -- Insulation's pipe
+  // size and ADP's sizes never say it"): a typed Insulation "1" priced at 6.35; only Piping declared both keys; dropping
+  // `inch_mm_alt` or `below_smallest` from a Piping copy let the bare 1 price at 25. AFTER: the rule rides on `inches`.
+  it("NEGATIVE: the rule rides on the axis reading inches (12e-6c U2) -- Piping's size and Insulation's pipe size say it, ADP's sizes never do", () => {
     const one = compute(INS, { items: [ins(NITRILE, { cladding: "No", thickness_mm: "13", pipe_size_mm: "1" }, ["pipe_size_mm"])] });
-    expect(one.v.rowPriced).toBe(true);
-    expect(field(one.v.items[0], "pipe_size_mm").value).toBe("6.35");
+    expect(one.v.rowPriced).toBe(false);
+    expect(one.v.items[0].reason).toBe(R(1));
+    // the negative half kept: an Insulation pipe size at or above its smallest stocked size prices as before
+    expect(compute(INS, { items: [ins(NITRILE, { cladding: "No", thickness_mm: "13", pipe_size_mm: "6.35" }, ["pipe_size_mm"])] }).v.rowPriced).toBe(true);
     for (const cat of ITEM_LIST) {
       const spec = itemListPricingSpec(CFG[cat])!;
-      const declares = Object.values(spec.numbers).some((rd) => typeof rd.inch_mm_alt === "number") && spec.size_match?.below_smallest === "smallest";
-      expect({ cat, declares }).toEqual({ cat, declares: cat === PIP });
+      const reads = Object.values(spec.numbers).some((rd) => rd.inches === true);
+      expect({ cat, reads }).toEqual({ cat, reads: cat === PIP || cat === INS });
     }
-    // remove either key from a copy and the bare 1 prices as the smallest size again
-    for (const drop of ["inch_mm_alt", "below_smallest"] as const) {
-      const c = structuredClone(CFG) as Record<string, any>;
-      if (drop === "inch_mm_alt") delete c[PIP].list_spec.pricing.numbers.size_mm.inch_mm_alt; else delete c[PIP].list_spec.pricing.size_match.below_smallest;
-      const x = compute(PIP, { items: [pipe("CPVC", "1")] }, "mts", new Map(Object.entries(c as Record<string, RateCategoryConfig>)));
-      expect({ drop, priced: x.v.rowPriced, size: field(x.v.items[0], "size_mm").value }).toEqual({ drop, priced: true, size: "25" });
-    }
+    // remove `inches` from a copy and the bare 1 prices as the smallest size again
+    const c = structuredClone(CFG) as Record<string, any>;
+    delete c[PIP].list_spec.pricing.numbers.size_mm.inches;
+    const x = compute(PIP, { items: [pipe("CPVC", "1")] }, "mts", new Map(Object.entries(c as Record<string, RateCategoryConfig>)));
+    expect({ priced: x.v.rowPriced, size: field(x.v.items[0], "size_mm").value }).toEqual({ priced: true, size: "25" });
   });
 });
 
@@ -726,7 +730,10 @@ describe("12e-4b AC11 -- the Derivation tab says the new rules, generated from t
   });
   it("Insulation: 25 lines -- the 0.1 mm rule directly after the pipe-size fit; ADP: 18, unchanged", () => {
     const all = lines(CFG[INS]);
-    expect(all).toHaveLength(25);
+    // INVERTED at 12e-6c (owner U2 / R, 2026-10-18) by mechanical authority: BEFORE `expect(all).toHaveLength(25)`. The F-3
+    // line (U2) and the RPUF line (R) generate here too; without them the tab is still 25.
+    expect(all).toHaveLength(27);
+    expect(all.filter((l) => ![NO_UNIT_TITLE, "RPUF with no material answered prices as Tubular Puf Insulation"].includes(l.title))).toHaveLength(25);
     const at = all.findIndex((l) => l.title === NEAR_TITLE);
     expect(all[at - 1].title).toBe("Fitting the stated pipe size to the catalogue");
     expect(all[at].detail).toBe("with a line saying so: 'pipe size <stated> is <stocked> on the sheet (within 0.1 mm)'; a size further away takes the next size the catalogue stocks, as before");
@@ -737,12 +744,15 @@ describe("12e-4b AC11 -- the Derivation tab says the new rules, generated from t
   it("NEGATIVE: each line follows its key -- v37 (no `from_attr`, no axis `near`) reads Piping 20 and Insulation 24; removing a key from a copy removes exactly its line", () => {
     expect(lines(CFG37[PIP]).map((l) => l.title)).not.toContain(AS_WRITTEN_TITLE);
     expect(lines(CFG37[PIP])).toHaveLength(20);
-    expect(lines(CFG37[INS])).toHaveLength(24);
+    // INVERTED at 12e-6c (owner U2 / R, 2026-10-18) by mechanical authority: BEFORE `expect(lines(CFG37[INS])).toHaveLength(24)`
+    // and the no-unit line dropping with `inch_mm_alt` or `below_smallest` from a Piping copy. F-3 now follows `inches`.
+    expect(lines(CFG37[INS])).toHaveLength(26);
+    expect(lines(CFG37[INS]).filter((l) => ![NO_UNIT_TITLE, "RPUF with no material answered prices as Tubular Puf Insulation"].includes(l.title))).toHaveLength(24);
     expect(lines(CFG37[INS]).map((l) => l.title)).not.toContain(NEAR_TITLE);
     const without = (mut: (c: Record<string, any>) => void, cat: string) => { const c = structuredClone(CFG) as Record<string, any>; mut(c); return lines(c[cat] as RateCategoryConfig).map((l) => l.title); };
     expect(without((c) => delete c[PIP].list_spec.pricing.family_text.from_attr, PIP)).toEqual(lines(CFG[PIP]).map((l) => l.title).filter((t) => t !== AS_WRITTEN_TITLE));
-    expect(without((c) => delete c[PIP].list_spec.pricing.numbers.size_mm.inch_mm_alt, PIP)).not.toContain(NO_UNIT_TITLE);
-    expect(without((c) => delete c[PIP].list_spec.pricing.size_match.below_smallest, PIP)).not.toContain(NO_UNIT_TITLE);
+    expect(without((c) => delete c[PIP].list_spec.pricing.numbers.size_mm.inches, PIP)).not.toContain(NO_UNIT_TITLE);
+    expect(without((c) => delete c[INS].list_spec.pricing.numbers.pipe_size_mm.inches, INS)).not.toContain(NO_UNIT_TITLE);
     expect(without((c) => delete c[INS].list_spec.pricing.numbers.pipe_size_mm.near, INS)).toEqual(lines(CFG37[INS]).map((l) => l.title));
   });
   it("no internal id, tag or code on any new line", () => {

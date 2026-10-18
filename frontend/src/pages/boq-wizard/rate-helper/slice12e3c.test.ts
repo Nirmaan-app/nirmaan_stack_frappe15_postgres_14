@@ -479,7 +479,10 @@ describe("12e-3c AC6 -- the Derivation tab says the quantity rule, generated fro
     expect(l.detail).toContain("shown 'as the pipe'");
   });
   it("NEGATIVE: Insulation 24 and ADP 18 are unchanged, and neither says anything about a section", () => {
-    expect(lines(CFG[INS])).toHaveLength(24);
+    // INVERTED at 12e-6c (owner U2 / R, 2026-10-18) by mechanical authority: BEFORE `expect(lines(CFG[INS])).toHaveLength(24)`.
+    // The F-3 line and the RPUF line generate on Insulation; without them it is still 24.
+    expect(lines(CFG[INS])).toHaveLength(26);
+    expect(lines(CFG[INS]).filter((l) => !["A pipe size written as a bare number that could be inches refuses", "RPUF with no material answered prices as Tubular Puf Insulation"].includes(l.title))).toHaveLength(24);
     expect(lines(CFG[ADP])).toHaveLength(18);
     for (const cat of [INS, ADP]) expect(lines(CFG[cat]).map((l) => l.title).join("\n")).not.toMatch(/section/i);
   });

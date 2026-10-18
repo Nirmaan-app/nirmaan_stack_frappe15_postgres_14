@@ -373,9 +373,15 @@ describe("SLICE 12d-8 / R4 option (b) -- Aluminium Foil is offered on the pipe f
 describe("SLICE 12d-8 / R5 + R6 -- the Derivation tab, generated from config", () => {
   it("Insulation: 24 lines; line 9 says a range takes its top value (a comma list and a tolerance still refuse)", () => {
     const lines = itemListRuleOrder(INS, ITEMS);
-    expect(lines).toHaveLength(24);
+    // INVERTED at 12e-6c (owner U2 / R, 2026-10-18) by mechanical authority: BEFORE `expect(lines).toHaveLength(24)`.
+    // The F-3 line (every inches axis) and the RPUF line generate on this config too; without them it is still 24.
+    expect(lines).toHaveLength(26);
+    expect(lines.filter((l) => !["A pipe size written as a bare number that could be inches refuses", "RPUF with no material answered prices as Tubular Puf Insulation"].includes(l.title))).toHaveLength(24);
     const several = lines.find((l) => /^Several thickness values stated take the highest$/.test(l.title))!;
-    expect(several.n).toBe(9);
+    // INVERTED at 12e-6c (owner R) by mechanical authority: BEFORE `expect(several.n).toBe(9)`. The RPUF line sits above it;
+    // on the tab without the two 12e-6c lines it is still the ninth.
+    expect(several.n).toBe(10);
+    expect(lines.filter((l) => !["A pipe size written as a bare number that could be inches refuses", "RPUF with no material answered prices as Tubular Puf Insulation"].includes(l.title)).findIndex((l) => l.title === several.title) + 1).toBe(9);
     expect(several.detail).toBe("a bare slash list ('19 / 25 / 32'); a size range ('25 to 50') takes its top value; a comma list and a tolerance ('25 +/- 2') still refuse");
     expect(several.detail).not.toMatch(/\('25 to 50'\), a comma list and a tolerance .* still refuse/);
   });

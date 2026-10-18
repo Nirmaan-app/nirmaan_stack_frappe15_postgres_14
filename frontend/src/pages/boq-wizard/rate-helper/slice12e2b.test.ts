@@ -450,9 +450,15 @@ describe("12e-2b AC7 -- the Derivation tab: the family is named, and Piping neve
     }
     // INVERTED at 12e-4b (owner F-3): Piping's tab gains the no-unit line. BEFORE: `toEqual([24, 18, 14])`.
     // The negative half is kept: Insulation and ADP are still 24 and 18.
-    expect([lines(INS).length, lines(ADP).length, lines(PIP).length]).toEqual([24, 18, 15]);
+    // INVERTED at 12e-6c (owner U2 / R, 2026-10-18) by mechanical authority: BEFORE `toEqual([24, 18, 15])` and Insulation
+    // listed beside ADP as never saying the no-unit line. F-3 now follows `inches` (U2), so Insulation's pipe size says it;
+    // the RPUF line (R) is Insulation's too. Without those two Insulation is still 24; ADP is 18 and never says it.
+    const NEW_12E6C = ["A pipe size written as a bare number that could be inches refuses", "RPUF with no material answered prices as Tubular Puf Insulation"];
+    expect([lines(INS).length, lines(ADP).length, lines(PIP).length]).toEqual([26, 18, 15]);
+    expect(lines(INS).filter((l) => !NEW_12E6C.includes(l.title))).toHaveLength(24);
     expect(lines(PIP).map((l) => l.title)).toContain("A pipe size written as a bare number that could be inches refuses");
-    for (const cat of [INS, ADP]) expect(lines(cat).map((l) => l.title)).not.toContain("A pipe size written as a bare number that could be inches refuses");
+    expect(lines(INS).map((l) => l.title)).toContain("A pipe size written as a bare number that could be inches refuses");
+    expect(lines(ADP).map((l) => l.title)).not.toContain("A pipe size written as a bare number that could be inches refuses");
   });
   it("NEGATIVE (vacuity): a config with two unit classes keeps the old sentence even if it is Piping-shaped", () => {
     const two = structuredClone(CFG[PIP]) as RateCategoryConfig & { list_spec: { pricing: { unit_classes: Record<string, string[]> } } };

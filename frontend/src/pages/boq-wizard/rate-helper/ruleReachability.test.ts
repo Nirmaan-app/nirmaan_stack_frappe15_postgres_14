@@ -43,6 +43,14 @@ const ASSET42 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMast
 const CFG42: Record<string, RateCategoryConfig> = Object.fromEntries(ASSET42.category_configs.map((c) => [c.category_id, c]));
 const CONFIGS42 = new Map<string, RateCategoryConfig>(Object.entries(CFG42));
 const ITEMS42: RateMasterItem[] = ASSET42.items.map((it) => ({ ...it, discipline: ASSET42.discipline } as RateMasterItem));
+// SLICE 12e-6c: the LIVE asset, for the rules whose config keys only it carries (O3 / O4 read `choice_text`, v40+; U1 reads
+// Insulation's `typed_entry`, v46); a case marked `live` runs on it, on the panel's entry point and the pure pricer alike
+const ASSET_LIVE = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
+  new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v45.json", import.meta.url),
+);
+const CFG_LIVE: Record<string, RateCategoryConfig> = Object.fromEntries(ASSET_LIVE.category_configs.map((c) => [c.category_id, c]));
+const CONFIGS_LIVE = new Map<string, RateCategoryConfig>(Object.entries(CFG_LIVE));
+const ITEMS_LIVE: RateMasterItem[] = ASSET_LIVE.items.map((it) => ({ ...it, discipline: ASSET_LIVE.discipline } as RateMasterItem));
 const CONFIGS = new Map<string, RateCategoryConfig>(Object.entries(CFG));
 const ITEMS: RateMasterItem[] = ASSET.items.map((it) => ({ ...it, discipline: ASSET.discipline } as RateMasterItem));
 const INS = "hvac_insulation";
@@ -77,6 +85,8 @@ interface Case {
   pure?: boolean;
   /** SLICE 12e-6: run on the live v42 asset (configs and items) instead of v38 */
   v42?: boolean;
+  /** SLICE 12e-6c: run on the LIVE asset (v45, then v46) instead of v38 */
+  live?: boolean;
 }
 const NR = "Nitrile Rubber Insulation", PUF = "Tubular Puf Insulation", THM = "Thermal Nitrile Insulation",
   ACO = "Acoustic Nitrile Insulation", FGB = " Fiberglass Rigid Board Insulation, Density 48Kg/m3", CLO = "Cladding Only";
@@ -160,6 +170,10 @@ const T = {
   secDefaults: "Insulated Yes with no insulation facts opens the insulation section on Insulation's defaults",
   // ── SLICE 12e-6b (owner R1; U2): the one line it adds ──
   drainCpvc: "A drain pipe whose material the BoQ does not name prices as CPVC",
+  // ── SLICE 12e-6c (owner rulings 2026-10-18): the lines it adds (U2's F-3 line on Insulation is `noUnit`; U1's is `typedSize`) ──
+  rpuf: "RPUF with no material answered prices as Tubular Puf Insulation",
+  giMap: "A cladding written as 'gi', 'g.i' with none answered is priced as the stocked one of its gauge",
+  cloth: "A glass or fibre cloth facing copied as the cladding with none answered prices as the glass cloth cladding",
 };
 /** Tab lines that are NOT panel-path rules (a catalogue / rate-master rule the pricer never reads), by name. */
 const NOT_PANEL_RULES: Record<string, string> = {
@@ -440,6 +454,25 @@ const CASES: Case[] = [
   // ── SLICE 12e-6b (owner R1; U2): an untold drain -> CPVC; a named material keeps its rule; the calculator has no row text ──
   { id: "P8a", rule: T.drainCpvc, cat: PIP, path: "panel", kind: "pos", unit: "mts", model: [{ pipe_type: "None", pipe_type_as_written: "DRAIN", size_mm: "25MM DIA" }], description: "DRAIN PIPE 25MM DIA WITH 6 MM INSULATION", re: ["drain pipe, no material stated -> priced as CPVC", "family:CPVC"], priced: true },
   { id: "P8b-neg", rule: T.drainCpvc, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "None", pipe_type_as_written: "uPVC", size_mm: "25" }], description: "Drain pipe 25 mm", re: ["BoQ says uPVC -> priced as PVC", "family:PVC"], not: ["no material stated"], priced: true },
+  // ── SLICE 12e-6c (owner rulings 2026-10-18): one positive and one negative per rule, panel and calculator ──
+  // U2: F-3 on Insulation's pipe size (every axis reading inches); a bare 4 is no inch size Nitrile stocks (101.6 > 53.98)
+  { id: "C2a", rule: T.noUnit, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { pipe_size_mm: "1" })], re: ["size 1 has no unit - price this row by hand"], priced: false },
+  { id: "C2b-calc", rule: T.noUnit, cat: INS, path: "calc", kind: "pos", edits: calc(NR, { cladding: "26G Aluminium", thickness_mm: "19", pipe_size_mm: "2" }, ["pipe_size_mm"]), rowUnit: "mts", re: ["size 2 has no unit - price this row by hand"], priced: false },
+  { id: "C2c-neg", rule: T.noUnit, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [m(NIT, { pipe_size_mm: "4" })], re: ["pipe size 4 is not on the sheet -> 6.35 (the smallest size"], not: ["has no unit"], priced: true },
+  { id: "C2d-neg", rule: T.noUnit, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [m(NIT, { pipe_size_mm: "1 inch" })], not: ["has no unit"], re: ["28.58"], priced: true },
+  // R: RPUF with no material answered -> Tubular PUF, the next thickness up; 30 mm on a small pipe refuses; an answer stands
+  { id: "C1a", rule: T.rpuf, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [{ item: "none of these", cladding: "No", thickness_mm: "40", pipe_size_mm: "100", material_as_written: "RPUF" }], re: ["BoQ says RPUF -> priced as Tubular Puf Insulation", "family:Tubular Puf Insulation"], not: ["No SKU in the catalogue for RPUF"], priced: true },
+  { id: "C1b", rule: T.rpuf, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [{ item: "None", cladding: "No", thickness_mm: "40", pipe_size_mm: "100" }], description: "RPUF insulation 40 mm thick", re: ["BoQ says RPUF -> priced as Tubular Puf Insulation"], not: ["not mentioned -> Nitrile"], priced: true },
+  { id: "C1c-neg", rule: T.rpuf, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [m(NIT, { material_as_written: "RPUF" })], re: ["family:Nitrile Rubber Insulation"], not: ["priced as Tubular Puf"], priced: true },
+  { id: "C1d-neg", rule: T.rpuf, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [{ item: "none of these", cladding: "No", thickness_mm: "30", pipe_size_mm: "40", material_as_written: "RPUF" }], re: ["BoQ says RPUF -> priced as Tubular Puf Insulation", "thickness 30 is above the largest size on the sheet"], priced: false },
+  // O3: a fixing is not a cladding, before R2's GI map reads the words; "26 G GI cladding" still maps (live: v40+ `choice_text`)
+  { id: "C3a", rule: T.giMap, cat: INS, path: "panel", kind: "pos", unit: "RMT", live: true, model: [m(NIT, { cladding: "None", cladding_as_written: "26 G GI cladding" })], re: ["BoQ says 26 G GI cladding -> priced as 26G Aluminium"], priced: true },
+  { id: "C3b-neg", rule: T.giMap, cat: INS, path: "panel", kind: "neg", unit: "RMT", live: true, model: [m(NIT, { cladding: "None", cladding_as_written: "GI strip at 1 m grid" })], re: ["cladding not mentioned -> No (without cladding)"], not: ["priced as 26G Aluminium"], priced: true },
+  // O4: a copied cloth facing with the cladding unanswered -> the glass-cloth cladding; an answered cladding stands
+  { id: "C4a", rule: T.cloth, cat: INS, path: "panel", kind: "pos", unit: "RMT", live: true, model: [m(NIT, { cladding: "None", cladding_as_written: "factory laminated fire resistant fibre cloth fabric" })], re: ["BoQ says factory laminated fire resistant fibre cloth fabric -> priced as Glass Cloth with paint"], priced: true },
+  { id: "C4b", rule: T.cloth, cat: INS, path: "panel", kind: "pos", unit: "RMT", live: true, model: [m(NIT, { cladding: "None", cladding_as_written: "aluminium sheet with reinforced glass cloth" })], re: ["BoQ says aluminium sheet with reinforced glass cloth -> priced as 26G Aluminium with Glass Cloth"], priced: true },
+  { id: "C4c", rule: T.cloth, cat: INS, path: "panel", kind: "pos", unit: "RMT", live: true, model: [m(NIT, { cladding: "None", cladding_as_written: "24 G aluminium with glass cloth facing" })], re: ["BoQ says 24 G aluminium with glass cloth facing -> priced as 24G Aluminium with Glass Cloth"], priced: true },
+  { id: "C4d-neg", rule: T.cloth, cat: INS, path: "panel", kind: "neg", unit: "RMT", live: true, model: [m(NIT, { cladding: "26G Aluminium", cladding_as_written: "reinforced glass cloth" })], re: [], not: ["priced as Glass Cloth", "priced as 26G Aluminium with Glass Cloth"], priced: true },
   { id: "P8c-neg", rule: T.drainCpvc, cat: PIP, path: "calc", kind: "neg", edits: [{ base: null, family: null, attrs: { size_mm: "25" }, other: ["size_mm"] }], rowUnit: "mts", re: ["no pipe type could be told for this item"], not: ["no material stated", "family:CPVC"], priced: false },
 ];
 
@@ -460,7 +493,7 @@ function run(c: Case) {
   const overrides: Record<string, string> = {};
   if (c.edits) overrides[ITEM_LIST_OVERRIDE_KEY] = JSON.stringify({ items: c.edits });
   if (c.rowUnit !== undefined) overrides[ROW_UNIT_OVERRIDE_KEY] = c.rowUnit;
-  const h = makePricingSheetHelper({ configsByCategory: c.v42 ? CONFIGS42 : CONFIGS, items: c.v42 ? ITEMS42 : ITEMS, extractionByRow: ext });
+  const h = makePricingSheetHelper({ configsByCategory: c.live ? CONFIGS_LIVE : c.v42 ? CONFIGS42 : CONFIGS, items: c.live ? ITEMS_LIVE : c.v42 ? ITEMS42 : ITEMS, extractionByRow: ext });
   const ctx: RateHelperRowContext & { unit?: string } = {
     excelRow: 1, description: c.path === "calc" ? "" : (c.description ?? ""), nodeType: "Line Item", category: c.cat, discipline: "HVAC",
     rateKinds: ["supply_rate", "install_rate", "combined_rate"], headings: c.path === "calc" ? [] : (c.headings ?? []), ownNotes: c.path === "calc" ? [] : (c.ownNotes ?? []),
@@ -511,13 +544,13 @@ function run(c: Case) {
     if (v.rowPriced) lines.push(`total:${s.values.supply_rate}/${s.values.install_rate}`);
   }
   // the pure pricer over the SAME assembled inputs
-  const spec = itemListPricingSpec((c.v42 ? CFG42 : CFG)[c.cat])!;
+  const spec = itemListPricingSpec((c.live ? CFG_LIVE : c.v42 ? CFG42 : CFG)[c.cat])!;
   const edits = decodeItemEdits(overrides[ITEM_LIST_OVERRIDE_KEY], modelItems.length);
   const assembled = assembleItems(edits, modelItems, familyAttr(spec));
   const unitForPure = c.path === "calc" ? v.unit : (c.unit ?? v.unit);
   const rowText = c.path === "calc" ? "" : [c.description ?? "", ...(c.headings ?? [])].join(" | ");
   const ownText = c.path === "calc" ? "" : [c.description ?? "", ...(c.ownNotes ?? [])].join(" | ");
-  const pure = priceItemList(spec, c.v42 ? ITEMS42 : ITEMS, unitForPure, assembled, rowText, ownText);
+  const pure = priceItemList(spec, c.live ? ITEMS_LIVE : c.v42 ? ITEMS42 : ITEMS, unitForPure, assembled, rowText, ownText);
   const working = v.items.flatMap((b) => b.working);
   // 12e-3c (AC2): the strings exactly as a pricer reads them -- no test-side lead -- for the field-id sweep
   const raw: string[] = [...(v.reason ? [v.reason] : []), ...(v.unitNote ? [v.unitNote] : []), ...(s.workings.derivation ?? [])];
@@ -543,12 +576,14 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
   const NEW_12E6 = (): string[] => [T.noneNamed, T.altMaterial, T.xlpe, T.rowKindSwap, T.thkRange, T.mmNb, T.fixings, T.coating, T.twoTypes, T.secDefaults];
   // SLICE 12e-6b (owner R1; U2): ADD only, so the pins below read the tab without its one line as well
   const NEW_12E6B = (): string[] => [T.drainCpvc];
-  const before12e6 = (cat: string) => titles(cat).filter((t) => !NEW_12E6().includes(t) && !NEW_12E6B().includes(t));
+  // SLICE 12e-6c (owner U2 / R): ADD only, on Insulation (Piping's no-unit line is its own, since 12e-4b, and stays counted)
+  const NEW_12E6C = (cat: string): string[] => (cat === INS ? [T.rpuf, T.noUnit] : []);
+  const before12e6 = (cat: string) => titles(cat).filter((t) => !NEW_12E6().includes(t) && !NEW_12E6B().includes(t) && !NEW_12E6C(cat).includes(t));
 
   it("THE GUARD: the rules this file names EQUAL the rules the config generates (Insulation 25, ADP 18, Piping 21 at 12e-4b / v38 -- Insulation 24 and Piping 19 before it); a new rule without a case, or a case naming a dead rule, fails here", () => {
     for (const cat of [INS, ADP, PIP]) {
       const generated = new Set(titles(cat));
-      const named = new Set([...CASES.filter((c) => c.cat === cat && (!c.v42 || generated.has(c.rule))).map((c) => c.rule), ...PICKER_CASES.filter(() => cat === ADP).map((p) => p.rule), ...Object.keys(NOT_PANEL_RULES).filter((t) => generated.has(t))]);
+      const named = new Set([...CASES.filter((c) => c.cat === cat && ((!c.v42 && !c.live) || generated.has(c.rule))).map((c) => c.rule), ...PICKER_CASES.filter(() => cat === ADP).map((p) => p.rule), ...Object.keys(NOT_PANEL_RULES).filter((t) => generated.has(t))]);
       const uncovered = [...generated].filter((t) => !named.has(t));
       const dead = [...named].filter((t) => !generated.has(t));
       expect({ cat, uncovered, dead }).toEqual({ cat, uncovered: [], dead: [] });
@@ -557,7 +592,9 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
     // INVERTED at 12e-6 (AC14 / U9) by mechanical authority: BEFORE `expect(titles(INS)).toHaveLength(25)` and
     // `expect(titles(PIP)).toHaveLength(21)` with the positional pins on `titles(PIP)`. The six v38-generated Insulation lines
     // and the two Piping lines this slice adds are counted here; every old pin now reads the tab without them.
-    expect(titles(INS)).toHaveLength(31);
+    // INVERTED at 12e-6c (owner U2 / R) by mechanical authority: BEFORE `expect(titles(INS)).toHaveLength(31)`. The F-3 line and
+    // the RPUF line; `before12e6` (below) reads the tab without them, so every older pin stands.
+    expect(titles(INS)).toHaveLength(33);
     expect(before12e6(INS)).toHaveLength(25);
     // INVERTED at 12e-6b (owner R1 / U2) by mechanical authority: BEFORE `expect(titles(PIP)).toHaveLength(23)`. The one R1 line.
     expect(titles(PIP)).toHaveLength(24);
@@ -576,7 +613,10 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
     expect(before12e6(PIP)[12]).toBe(T.noUnit);
     expect(before12e6(PIP).slice(16)).toEqual([T.secToggle, T.secRules, T.secMirror, T.secQty, T.secTotal]);
     expect(before12e6(PIP).slice(0, 16).filter((t) => t !== T.asWritten)).toEqual(itemListRuleOrder(V36_PIPING, ITEMS).map((l) => l.title).filter((t) => !NEW_12E6().includes(t)));
-    for (const cat of [INS, ADP]) expect(titles(cat)).not.toContain(T.noUnit);
+    // INVERTED at 12e-6c (owner U2: F-3 on every axis reading inches) by mechanical authority: BEFORE
+    // `for (const cat of [INS, ADP]) expect(titles(cat)).not.toContain(T.noUnit)`. ADP still never says it.
+    expect(titles(INS)).toContain(T.noUnit);
+    expect(titles(ADP)).not.toContain(T.noUnit);
     // every NOT-panel rule is a REAL tab line (never a stale excuse)
     for (const t of Object.keys(NOT_PANEL_RULES)) expect(titles(INS).includes(t) || titles(ADP).includes(t)).toBe(true);
   });
@@ -606,6 +646,20 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
     for (const cat of [INS, ADP]) { expect(titles(cat)).not.toContain(T.drainCpvc); expect(t42(cat)).not.toContain(T.drainCpvc); }
     const mine = CASES.filter((c) => c.rule === T.drainCpvc);
     expect({ pos: mine.some((c) => c.kind === "pos"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ pos: true, neg: true });
+  });
+
+  // SLICE 12e-6c (owner rulings 2026-10-18; AC6): THE 12e-6c GUARD on the LIVE asset -- every line this slice adds to
+  // Insulation's tab is generated there, has a positive and a negative case above, and ADP and Piping gain none of them
+  it("12e-6c: every new Insulation line (live) has a positive and a negative case; ADP and Piping gain none", () => {
+    const NEW = [T.noUnit, T.rpuf, T.giMap, T.cloth];
+    const tLive = (cat: string) => itemListRuleOrder(CFG_LIVE[cat], ITEMS_LIVE).map((l) => l.title);
+    expect(NEW.filter((t) => tLive(INS).includes(t))).toEqual(NEW);
+    for (const t of NEW) {
+      const mine = CASES.filter((c) => c.cat === INS && c.rule === t);
+      expect({ rule: t, pos: mine.some((c) => c.kind === "pos" && c.path !== "calc"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
+    }
+    for (const t of [T.rpuf, T.giMap, T.cloth]) { expect(tLive(ADP)).not.toContain(t); expect(tLive(PIP)).not.toContain(t); }
+    expect(tLive(ADP)).not.toContain(T.noUnit);
   });
 
   it("every panel-path rule has a POSITIVE model-read case and a NEGATIVE (near-miss) case", () => {

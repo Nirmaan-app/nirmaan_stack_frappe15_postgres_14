@@ -486,14 +486,26 @@ describe("12e-2 AC6 -- the Derivation tab lists P1-P5 from the config, no intern
     expect(without((pr) => delete pr.numbers.size_mm.inch_mm_alt)).not.toContain("then at 25");
     expect(without((pr) => delete pr.numbers.size_mm.typed_entry)).not.toContain("A typed pipe size is one size");
     expect(without((pr) => delete pr.size_match.near)).not.toContain("within 0.1 mm");
-    expect(without((pr) => delete pr.size_match.below_smallest)).not.toContain("takes the smallest");
+    // INVERTED at 12e-6c (owner U2, 2026-10-18: F-3 follows `inches`; "re-point the vacuity check to inches") by mechanical
+    // authority. BEFORE: `expect(without((pr) => delete pr.size_match.below_smallest)).not.toContain("takes the smallest")` --
+    // the F-3 line rode on `below_smallest` and its detail says "takes the smallest size, as before". The key still drops
+    // its own bit of the fit line; the F-3 line now drops with `inches`.
+    expect(without((pr) => delete pr.size_match.below_smallest)).not.toContain("below the smallest stocked size takes the smallest");
+    expect(without((pr) => delete pr.numbers.size_mm.inches)).not.toContain("written as a bare number that could be inches refuses");
+    expect(text(CFG[PIP])).toContain("written as a bare number that could be inches refuses");
     expect(without((pr) => delete pr.read_notes)).not.toContain("carries a line saying what was priced");
   });
   it("NEGATIVE: Insulation's and ADP's tabs are byte-identical to their 12d-8 counts (24 and 18) and carry none of the Piping lines", () => {
-    expect(itemListRuleOrder(CFG.hvac_insulation, ITEMS)).toHaveLength(24);
+    // INVERTED at 12e-6c (owner U2 / R, 2026-10-18) by mechanical authority: BEFORE `expect(itemListRuleOrder(CFG.hvac_insulation,
+    // ITEMS)).toHaveLength(24)` and the Piping words checked on Insulation's whole tab. Insulation gains the F-3 line (U2:
+    // every inches axis) and the RPUF line (R); WITHOUT those two its tab is still 24 and carries none of the Piping lines.
+    const NEW_12E6C = ["A pipe size written as a bare number that could be inches refuses", "RPUF with no material answered prices as Tubular Puf Insulation"];
+    expect(itemListRuleOrder(CFG.hvac_insulation, ITEMS)).toHaveLength(26);
+    expect(itemListRuleOrder(CFG.hvac_insulation, ITEMS).filter((l) => !NEW_12E6C.includes(l.title))).toHaveLength(24);
     expect(itemListRuleOrder(CFG.hvac_adp, ITEMS)).toHaveLength(18);
     for (const cid of ["hvac_insulation", "hvac_adp"]) {
-      const t = text(CFG[cid]);
+      const t = itemListRuleOrder(CFG[cid], ITEMS).filter((l) => !NEW_12E6C.includes(l.title)).map((l) => `${l.title} -- ${l.detail ?? ""}`).join("\n");
+      if (cid === "hvac_adp") expect(t).toBe(text(CFG[cid]));
       for (const not of ["pipe type", "one size", "then at 25", "within 0.1", "takes the smallest", "any other unit refuses"]) expect(t, `${cid}: ${not}`).not.toContain(not);
     }
   });

@@ -174,6 +174,12 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     add(`A ${quoteList(noSku)} answer where the BoQ names no material takes the kind its row implies`,
         "nothing copied as the material and no unstocked material in the row or its headings -- shown as assumed; a material the BoQ names keeps the refusal");
   }
+  // SLICE 12e-6c (owner R, 2026-10-18): ADDED -- the lines above keep their words
+  const pufFam = fams.find((f) => /(^|[^a-z0-9])puf(?![a-z0-9])/i.test(f));
+  if (pufFam && pr.no_sku_named_by) {
+    add(`RPUF with no material answered prices as ${famWord(pufFam)}`,
+        `RPUF in the row's own text or the ${name(String(pr.no_sku_named_by))}, where no material was answered or the answer was ${quoteList(noSku)} -- in amber: 'BoQ says RPUF -> priced as ${famWord(pufFam)}', at the next stocked thickness up; a thickness above the largest for the pipe still refuses; an answered material stands`);
+  }
   const um = pr.unstocked_materials;
   if (um && Array.isArray(um.words) && um.words.length) {
     add("A material the catalogue does not stock refuses by name, whatever kind was picked",
@@ -303,6 +309,17 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     if (!c?.attr) continue;
     add(`A ${name(String(c.attr))} written as a coating with no glass cloth refuses by name`,
         `polyshield, fire retardant or protective coating, a paint: 'No SKU in the catalogue for <the coating as written> - price this row by hand'; a ${name(String(c.attr))} the model answered stands`);
+    // SLICE 12e-6c (owner O3 / O4, 2026-10-18): ADDED -- the line above keeps its words
+    const gauges = Object.entries<any>(c.to_by_gauge ?? {}).map(([g, to]) => `${g} G -> ${String(to)}`);
+    if (Array.isArray(c.words) && c.words.length && c.default_to) {
+      add(`A ${name(String(c.attr))} written as ${quoteList(c.words.slice(0, 2))} with none answered is priced as the stocked one of its gauge`,
+          [`${quoteList(c.words, 5)} in the ${name(String(c.from_attr ?? ""))}`,
+           gauges.length ? `${list(gauges, 3)}; no gauge: ${String(c.default_to)}; any other gauge refuses` : `priced as ${String(c.default_to)}`,
+           `a fixing is not a ${name(String(c.attr))}: GI strip, GI grid, a GI frame, bolts, clamps, channels, angles or a duct never count`,
+           "with a line saying 'BoQ says <the words> -> priced as <the option>'"].join("; "));
+    }
+    add(`A glass or fibre cloth facing copied as the ${name(String(c.attr))} with none answered prices as the glass cloth ${name(String(c.attr))}`,
+        `'factory laminated fire resistant fibre cloth fabric', 'reinforced glass cloth' -> Glass Cloth with paint; with aluminium named too -> 24G / 26G Aluminium with Glass Cloth by its gauge (no gauge: 26G); with a line saying 'BoQ says <the words> -> priced as <the option>'; a ${name(String(c.attr))} the model answered stands`);
   }
   for (const r of (pr.read_notes ?? []) as any[]) {
     if (!r?.line) continue;
@@ -346,8 +363,10 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     }
     // SLICE 12e-4b (owner F-3): a bare number that could be an inch size, on an axis that reads inches two ways
     // and rules below-the-smallest
-    const inchAlt = pr.numbers?.[a]?.inch_mm_alt;
-    if (typeof inchAlt === "number" && pr.size_match?.below_smallest === "smallest") {
+    // SLICE 12e-6c (owner U2): ... on EVERY axis that reads inches, tested at its own second factor or the ruled 25
+    const rawAlt = pr.numbers?.[a]?.inch_mm_alt;
+    const inchAlt = typeof rawAlt === "number" && rawAlt > 0 ? rawAlt : 25;
+    if (pr.numbers?.[a]?.inches === true) {
       add(`A ${name(a)} written as a bare number that could be inches refuses`,
           [`a number with no unit, below the smallest stocked size, whose reading in inches (at 25.4 or ${inchAlt} ${String(pr.numbers?.[a]?.unit ?? "mm")} to the inch) falls within the stocked sizes: 'size <number> has no unit - price this row by hand'`,
            `the same number written with its unit ('1 inch', '1 mm') prices`,

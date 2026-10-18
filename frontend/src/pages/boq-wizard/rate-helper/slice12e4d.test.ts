@@ -227,7 +227,13 @@ describe("12e-4d AC2 -- an insulation section never prices a size its pipe refus
     expect(CASES).toHaveLength(7);
   });
   it("BEFORE, measured: on 'size 1 has no unit' the section priced 191 / 14 from the bare 1 read as millimetres -- that figure is what is gone", () => {
-    expect(pure(INS, ins({ cladding: "No", thickness_mm: "6", pipe_size_mm: "1" }, ["pipe_size_mm"]))).toEqual([191, 14]);
+    // INVERTED at 12e-6c (owner U2, 2026-10-18: F-3 on every axis that reads inches) by mechanical authority. BEFORE:
+    // `expect(pure(INS, ins({ cladding: "No", thickness_mm: "6", pipe_size_mm: "1" }, ["pipe_size_mm"]))).toEqual([191, 14])`.
+    // The input is a TYPED entry (the "Other..." box); Piping's typed path refuses the same bare 1 (`calc("MS", "1")` above),
+    // and now Insulation's does too, so the 191 / 14 is gone from Calculator -> Insulation as well. The negative half kept:
+    // a pipe size at the smallest stocked size, 6.35, still prices there.
+    expect(pure(INS, ins({ cladding: "No", thickness_mm: "6", pipe_size_mm: "1" }, ["pipe_size_mm"]))).toEqual([undefined, undefined]);
+    expect(pure(INS, ins({ cladding: "No", thickness_mm: "6", pipe_size_mm: "6.35" }, ["pipe_size_mm"]))).toEqual([191, 14]);
     expect(JSON.stringify(attached(model("CPVC", "1").v))).not.toMatch(/"supply_rate":191/);
   });
   it("a size the pricer TYPES in the section's own box prices the section exactly as Calculator -> Insulation does (owner: 'the user can change it')", () => {
