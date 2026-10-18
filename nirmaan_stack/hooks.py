@@ -457,6 +457,10 @@ doc_events = {
         # check, so a refused delete would already have removed the sheet / grid rows.
         "after_delete": "nirmaan_stack.integrations.controllers.boqs.after_delete",
     },
+    # CU-A: the dev-only cloud-upload off-switch (site config `disable_cloud_upload`; never on prod).
+    "File": {
+        "before_insert": "nirmaan_stack.integrations.controllers.file.before_insert",
+    },
     "BOQ Nodes": {
         "validate": "nirmaan_stack.integrations.controllers.boq_nodes.validate",
         "before_save": "nirmaan_stack.integrations.controllers.boq_nodes.before_save",
