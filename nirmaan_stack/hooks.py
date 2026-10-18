@@ -520,7 +520,9 @@ scheduler_events = {
 		# Every 5 min -- BoQ Claude review health check: a run with no heartbeat (or whose job is
 		# gone) is marked Failed and its "AI pass running" flag cleared. Light: no AI, no library.
 		"*/5 * * * *": [
-			"nirmaan_stack.api.boq.wizard.ai_run_log.heal_stale_runs_task"
+			"nirmaan_stack.api.boq.wizard.ai_run_log.heal_stale_runs_task",
+			# CU-A: a rate-suggestion run left `running` by a killed worker -> failed, "stale - worker gone".
+			"nirmaan_stack.tasks.suggest_run_healer.heal_stale_suggestion_runs",
 		],
 		"0 2 * * *": [
 			"nirmaan_stack.tasks.action_item_reconcile.run_nightly_reconcile"
