@@ -286,6 +286,23 @@ carry, classification-freeze and BCS invariants live in `boq-pricing-editor.md`.
   the GCP `after_insert` upload handler for the request). Set on dev only, NEVER on production. Their log
   lines need `logger.setLevel(logging.INFO)`: Frappe file loggers default to ERROR off the dev server.
 
+### Dev hygiene invariants (CU-B, 2026-10-18)
+
+- **Tests never write the real capture log.** Under `frappe.flags.in_test` (set by `bench run-tests`)
+  `extraction._capture_path` returns a per-process temp file; a test that needs a path patches the function.
+- **Fixture BoQs use the shared teardown and a non-series name.** Create them with
+  `insert(set_name=fixture_boq_name(...))` (`BOQ-TEST-<TAG>-<hash>`: never a `BOQ-YY-#####` series name, so a
+  rolled-back series number cannot inherit another test's leftovers; the `BOQ-` prefix stays for the category
+  harness) and tear them down with `purge_boq` / `purge_docs` (`services/boq_fixture_teardown.py`), which
+  replace a raw parent delete and also take every child row. A raw `frappe.db.delete` of BOQs / BoQ Sheet /
+  BOQ Nodes / the committed grid in a test leaves orphans -- that is where most of dev's 3,579 came from.
+- **Run `scripts/dev_isolate.py --yes` after every dev refresh, then `--verify`** (from the host via docker exec,
+  with `--stopped-file` = the ruled stopped set). Dev is a copy of production: until it runs, dev holds live push
+  tokens, mail accounts and API credentials. It refuses without the `nirmaan_env: "dev"` site-config marker,
+  which production never has; `--restore <backup>` puts every value back.
+- **A vacuity break never runs against live data** (owner, 2026-10-18): break a fixture-only test, or a scratch
+  copy, or skip and declare. A break of `test_live_01`'s reinstate line once left MS 300 / 250 with no active row.
+
 ### Wizard scope discipline (Phase 3 onward)
 
 When a wizard decision has two paths — (a) build the capability inside the wizard, or (b) defer to or extend an existing app-wide flow — surface the fork explicitly in chat before writing code. Default lean: if the capability has reach beyond the Upload BoQ flow (i.e., other Nirmaan features would benefit from it), keep it outside wizard scope. The lean is a starting point only; the final call is case-by-case after discussion.

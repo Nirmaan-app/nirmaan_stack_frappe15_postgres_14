@@ -1524,6 +1524,8 @@ reader, which shares `readNumber`, is byte-identical -- it still reads "25/32" a
 read by ONE reader (`family_text`: GI -> MS, uPVC / HDPE -> PVC with the line, SS refuses with its sentence, any
 other spelling refuses by name), shared by the calculator's typed "Other..." pipe type and the model's "Pipe type as written" (12e-4b: `readFamilyWord`, above).
 
+
+**A LIVE-SITE RATE TEST LEAVES THE MASTER'S PROVENANCE AS IT FOUND IT (CU-B, 2026-10-18).** A test that writes through the live grid path (`update_rate_master_item`) re-mints the derived rows in a NEW batch on every edit and every restore (`loader.recompute_derived_after_write`), so restoring the VALUES is not enough: `test_piping_v34` `test_live_01` records the active MS 300 / 250 rows before its edit and afterwards reactivates exactly those rows, deletes the rows it minted and the Version rows its saves wrote, and pins that the active row and the uid's row set are as before. Before this, every run left the live rows in a test batch (CU-0: 140 two-row batches, one live; the live pair was swapped back to v45's own batch `rmbulk-c7b9569bd0e8` in CU-B AC4). A new live-write test does the same.
 ---
 
 ## Rate-master invariants filed under Domain Gotchas
