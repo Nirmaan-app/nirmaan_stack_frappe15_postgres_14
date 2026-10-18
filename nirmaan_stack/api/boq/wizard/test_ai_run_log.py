@@ -24,6 +24,7 @@ from rq.timeouts import JobTimeoutException
 
 from nirmaan_stack.api.boq.wizard import ai_assist, ai_run_log
 from nirmaan_stack.services import boq_ai_assist
+from nirmaan_stack.services.boq_fixture_teardown import purge_boq
 
 _RUN_LOG = "BoQ AI Run Log"
 _CLAUDE_WORKER = "nirmaan_stack.api.boq.wizard.ai_assist._run_ai_pass_worker"
@@ -99,6 +100,7 @@ class _RunLogCase(FrappeTestCase):
         for b in frappe.get_all("BOQs", filters={"project": cls.test_project.name}, pluck="name"):
             frappe.db.delete(_RUN_LOG, {"boq": b})
             frappe.db.delete("BoQ Review Row", {"boq": b})
+            purge_boq(b)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", b, force=True, ignore_permissions=True)
         frappe.delete_doc("Projects", cls.test_project.name, force=True, ignore_permissions=True)
         frappe.db.commit()

@@ -23,6 +23,7 @@ from nirmaan_stack.api.boq.wizard.review_screen import _boq_origin_is_template
 from nirmaan_stack.api.boq.wizard.template_select import set_row_excluded
 from nirmaan_stack.api.boq.wizard.template_rows import _guard_template_write
 from nirmaan_stack.api.boq.wizard.export_writeback import export_priced_workbook
+from nirmaan_stack.services.boq_fixture_teardown import purge_boq
 
 
 # ---------------------------------------------------------------------------
@@ -56,6 +57,7 @@ def _make_boq(project_name, origin, source_boq=None, boq_name=None):
 
 def _cleanup_project(project_name):
     for boq in frappe.get_all("BOQs", filters={"project": project_name}, fields=["name"]):
+        purge_boq(boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
         frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
     frappe.delete_doc("Projects", project_name, force=True, ignore_permissions=True)
     frappe.db.commit()

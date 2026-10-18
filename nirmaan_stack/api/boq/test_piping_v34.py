@@ -388,6 +388,30 @@ class TestSlice12e1LiveLinks(FrappeTestCase):
         self.assertEqual(before300, 2 * base)
         self.assertEqual(before250, base + self._rates(ms100["uid"])[1]["cost_supply"])
 
+        # CU-B AC2(b): leave the live master's PROVENANCE as found. Each edit re-mints the derived MS 300 / 250
+        # rows in a new batch (loader.recompute_derived_after_write), so without this a run left the live rows
+        # in a test batch (CU-0: 140 two-row batches, one of them live). Registered BEFORE `restore`, so it
+        # runs after it (cleanups are LIFO) and also undoes a failed run.
+        started = frappe.utils.now()
+        derived = {u: self._rates(u)[0] for u in (ms300["uid"], ms250["uid"])}
+        existing = {u: set(frappe.get_all("BoQ Rate Master Item", filters={"item_uid": u}, pluck="name")) for u in derived}
+
+        def reinstate():
+            frappe.db.rollback()
+            for uid, original in derived.items():
+                minted = [n for n in frappe.get_all("BoQ Rate Master Item", filters={"item_uid": uid}, pluck="name")
+                          if n not in existing[uid]]
+                # Raw on purpose: this puts back the exact pre-test rows, whose content the test has just
+                # proved equal; no recompute is owed, and the item doctype carries no doc_events.
+                frappe.db.sql('update "tabBoQ Rate Master Item" set active = 0 where item_uid = %s', (uid,))
+                frappe.db.sql('update "tabBoQ Rate Master Item" set active = 1 where name = %s', (original,))
+                if minted:
+                    frappe.db.sql('delete from "tabBoQ Rate Master Item" where name in %s', (tuple(minted),))
+            frappe.db.sql('''delete from "tabVersion" where ref_doctype = 'BoQ Rate Master Item' and docname = %s
+                             and creation >= %s''', (ms150["name"], started))
+            frappe.db.commit()
+        self.addCleanup(reinstate)
+
         def restore():
             name, _ = self._rates(ms150["uid"])
             rate_master.update_rate_master_item(name=name, rates_patch=json.dumps({"cost_supply": base}))
@@ -406,6 +430,11 @@ class TestSlice12e1LiveLinks(FrappeTestCase):
         self.assertEqual(self._rates(ms150["uid"])[1]["cost_supply"], base)
         self.assertEqual(self._rates(ms300["uid"])[1]["cost_supply"], before300, "MS 300 back")
         self.assertEqual(self._rates(ms250["uid"])[1]["cost_supply"], before250, "MS 250 back")
+        reinstate()
+        for uid, original in derived.items():
+            self.assertEqual(self._rates(uid)[0], original, "the live row is the one active before the test")
+            self.assertEqual(set(frappe.get_all("BoQ Rate Master Item", filters={"item_uid": uid}, pluck="name")),
+                             existing[uid], "the rows the test minted are gone")
 
     def test_live_02_the_served_payload_carries_the_forty_rows_with_the_sheets_figures(self):
         served = rate_master.get_rate_master_items(discipline="HVAC", kind=KIND)

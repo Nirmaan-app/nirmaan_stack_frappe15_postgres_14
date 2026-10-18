@@ -109,6 +109,7 @@ class TestAIAssist(FrappeTestCase):
         for b in frappe.get_all("BOQs", filters={"project": cls.test_project.name}, fields=["name"]):
             frappe.db.delete("BoQ Review Row", {"boq": b.name})
             frappe.db.delete("BoQ AI Run Log", {"boq": b.name})  # S2: a manual run writes one
+            purge_boq(b.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", b.name, force=True, ignore_permissions=True)
         frappe.delete_doc("Projects", cls.test_project.name, force=True, ignore_permissions=True)
         frappe.db.commit()
@@ -685,6 +686,7 @@ class TestAcceptRejectAiSuggestion(FrappeTestCase):
         frappe.db.commit()
         for b in frappe.get_all("BOQs", filters={"project": cls.test_project.name}, fields=["name"]):
             frappe.db.delete("BoQ Review Row", {"boq": b.name})
+            purge_boq(b.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", b.name, force=True, ignore_permissions=True)
         frappe.delete_doc("Projects", cls.test_project.name, force=True, ignore_permissions=True)
         frappe.db.commit()
@@ -993,6 +995,7 @@ class TestAcceptRejectAiSuggestion(FrappeTestCase):
 # ===========================================================================
 
 from nirmaan_stack.services import boq_ai_assist as _svc  # noqa: E402
+from nirmaan_stack.services.boq_fixture_teardown import purge_boq
 
 
 def _payload(excel, cls="line_item", level=None, parent=None, sl_no=None, desc=""):

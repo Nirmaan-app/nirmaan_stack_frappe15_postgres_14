@@ -44,6 +44,7 @@ from nirmaan_stack.api.boq.wizard.export_bcs_writeback import (
 from nirmaan_stack.api.boq.wizard.export_writeback import _generate_priced_workbook
 from nirmaan_stack.api.boq.wizard.test_export_writeback import _seed_committed_sheet
 from nirmaan_stack.api.boq.wizard.test_review_screen import _cleanup_project, _make_project
+from nirmaan_stack.services.boq_fixture_teardown import fixture_boq_name, purge_boq, purge_docs
 
 _ROLE_MAP = {
     "A": {"role": "description", "area": None},
@@ -274,7 +275,7 @@ class TestInternalWorkbookEndToEnd(FrappeTestCase):
         boq.boq_name = "Internal Export BoQ"
         boq.tax_treatment = "Pre-tax"
         boq.source_file_url = "/files/synthetic.xlsx"  # never read: we inject the path
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("EXPORT_BCS_WRITEBACK"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq = boq.name
         now = frappe.utils.now()
@@ -390,8 +391,8 @@ class TestInternalWorkbookEndToEnd(FrappeTestCase):
                 pass
         for dt in ("BoQ Row BCS Rate", "BoQ Cell Remark", "BoQ Cell Amount Formula",
                    "BoQ Cell Pricing", "BoQ Committed Sheet Grid", "BoQ Sheet"):
-            frappe.db.delete(dt, {"boq": cls.boq})
-        frappe.db.delete("BOQs", {"name": cls.boq})
+            purge_docs(dt, {"boq": cls.boq})
+        purge_boq(cls.boq)
         frappe.db.commit()
         _cleanup_project(cls.project.name)
         super().tearDownClass()
@@ -700,13 +701,13 @@ class TestRefusalsAndConstruction(FrappeTestCase):
         boq.boq_name = "Template Origin BoQ"
         boq.tax_treatment = "Pre-tax"
         boq.origin = "template"
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("EXPORT_BCS_WRITEBACK"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq = boq.name
 
     @classmethod
     def tearDownClass(cls):
-        frappe.db.delete("BOQs", {"name": cls.boq})
+        purge_boq(cls.boq)
         frappe.db.commit()
         _cleanup_project(cls.project.name)
         super().tearDownClass()
@@ -822,7 +823,7 @@ class TestPlacementCombinedRateAndEverySkip(FrappeTestCase):
         boq.boq_name = "Placement And Skips BoQ"
         boq.tax_treatment = "Pre-tax"
         boq.source_file_url = "/files/synthetic.xlsx"
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("EXPORT_BCS_WRITEBACK"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq = boq.name
         now = frappe.utils.now()
@@ -927,8 +928,8 @@ class TestPlacementCombinedRateAndEverySkip(FrappeTestCase):
                 pass
         for dt in ("BoQ Row BCS Rate", "BoQ Cell Amount Formula", "BoQ Cell Pricing",
                    "BoQ Committed Sheet Grid", "BoQ Sheet"):
-            frappe.db.delete(dt, {"boq": cls.boq})
-        frappe.db.delete("BOQs", {"name": cls.boq})
+            purge_docs(dt, {"boq": cls.boq})
+        purge_boq(cls.boq)
         frappe.db.commit()
         _cleanup_project(cls.project.name)
         super().tearDownClass()

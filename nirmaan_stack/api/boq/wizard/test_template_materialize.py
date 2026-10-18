@@ -23,6 +23,7 @@ import json
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from nirmaan_stack.services.boq_fixture_teardown import purge_boq
 
 from nirmaan_stack.api.boq.wizard.template_materialize import (
     _collapse_to_single_area,
@@ -218,6 +219,7 @@ class TestSetAsMasterTemplate(FrappeTestCase):
             )
         frappe.db.delete("BoQ Sheet", {"boq": cls.seed})
         frappe.db.delete("BoQ Review Row", {"boq": cls.seed})
+        purge_boq(cls.seed)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
         frappe.delete_doc("BOQs", cls.seed, force=True, ignore_permissions=True)
         frappe.delete_doc("Work Headers", cls.work_header, force=True, ignore_permissions=True)
         frappe.db.commit()
@@ -388,6 +390,7 @@ class TestSetAsMasterTemplate(FrappeTestCase):
                 set_as_master_template(seed_boq=other.name)
         finally:
             frappe.db.delete("BoQ Review Row", {"boq": other.name})
+            purge_boq(other.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", other.name, force=True, ignore_permissions=True)
             frappe.db.commit()
 
@@ -403,6 +406,7 @@ class TestSetAsMasterTemplate(FrappeTestCase):
             with self.assertRaises(frappe.ValidationError):
                 set_as_master_template(seed_boq=other.name)
         finally:
+            purge_boq(other.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", other.name, force=True, ignore_permissions=True)
             frappe.db.commit()
 

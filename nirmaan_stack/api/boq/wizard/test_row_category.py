@@ -43,6 +43,7 @@ from nirmaan_stack.services.boq_category.context_builder import build_sheet_cont
 from nirmaan_stack.services.boq_category.routing import route_r3d
 from nirmaan_stack.services.boq_category.runner import load_ruleset
 from nirmaan_stack.api.boq.wizard.test_review_screen import _cleanup_project, _make_project
+from nirmaan_stack.services.boq_fixture_teardown import fixture_boq_name, purge_boq, purge_docs
 
 _ROW_CATEGORY = "BoQ Row Category"
 _AI_SETTINGS = "BOQ Upload Review AI Settings"
@@ -148,7 +149,7 @@ class TestRowCategoryPersistence(FrappeTestCase):
         boq.project = cls.project.name
         boq.boq_name = "Row Category Persist BoQ"
         boq.tax_treatment = "Pre-tax"
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("ROW_CATEGORY"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq = boq.name
         cls.sheet = "RC Persist "  # VERBATIM trailing space (#152)
@@ -158,6 +159,7 @@ class TestRowCategoryPersistence(FrappeTestCase):
     def tearDownClass(cls):
         frappe.db.delete(_ROW_CATEGORY, {"boq": cls.boq})
         frappe.db.commit()
+        purge_boq(cls.boq)
         _cleanup_project(cls.project.name)
         super().tearDownClass()
 
@@ -322,7 +324,7 @@ class TestRowCategoryPersistence(FrappeTestCase):
             self.assertEqual(by[21]["human_category_id"], "panels")
             self.assertEqual(by[21]["effective_category_id"], "panels")
         finally:
-            frappe.db.delete("BoQ Sheet", {"name": bs.name})
+            purge_docs("BoQ Sheet", {"name": bs.name})
             frappe.db.commit()
 
     def test_set_human_verdict_upsert_then_clear(self):
@@ -351,7 +353,7 @@ class TestContextBuilder(FrappeTestCase):
         boq.project = cls.project.name
         boq.boq_name = "Context Builder BoQ"
         boq.tax_treatment = "Pre-tax"
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("ROW_CATEGORY"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq = boq.name
         cls.sheet = "CtxFix "  # VERBATIM trailing space (#152)
@@ -410,9 +412,10 @@ class TestContextBuilder(FrappeTestCase):
 
     @classmethod
     def tearDownClass(cls):
-        frappe.db.delete("BOQ Nodes", {"boq": cls.boq})
-        frappe.db.delete("BoQ Sheet", {"boq": cls.boq})
+        purge_docs("BOQ Nodes", {"boq": cls.boq})
+        purge_docs("BoQ Sheet", {"boq": cls.boq})
         frappe.db.commit()
+        purge_boq(cls.boq)
         _cleanup_project(cls.project.name)
         super().tearDownClass()
 

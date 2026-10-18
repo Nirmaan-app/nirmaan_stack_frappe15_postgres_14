@@ -55,6 +55,7 @@ from nirmaan_stack.services.boq_category import engines, orchestrator, persist
 from nirmaan_stack.services.boq_category.persist import resolve_row_ladder as _resolve_row_ladder
 from nirmaan_stack.services.boq_category.runner import classify_line
 from nirmaan_stack.api.boq.wizard.test_review_screen import _cleanup_project, _make_project
+from nirmaan_stack.services.boq_fixture_teardown import fixture_boq_name, purge_boq, purge_docs
 
 _ROW_CATEGORY = "BoQ Row Category"
 _AI_SETTINGS = "BOQ Upload Review AI Settings"
@@ -104,7 +105,7 @@ def _new_boq(project_name, name):
     boq.project = project_name
     boq.boq_name = name
     boq.tax_treatment = "Pre-tax"
-    boq.insert(ignore_permissions=True)
+    boq.insert(set_name=fixture_boq_name("CLASSIFY"), ignore_permissions=True)
     frappe.db.commit()
     return boq.name
 
@@ -241,9 +242,10 @@ class TestOrchestrator(FrappeTestCase):
         # Restore the ORIGINAL captured value -- never a hardcoded constant (persist commits leak it).
         frappe.db.set_single_value(_AI_SETTINGS, "enabled", cls._orig_ai_enabled)
         frappe.db.delete(_ROW_CATEGORY, {"boq": cls.boq})
-        frappe.db.delete("BOQ Nodes", {"boq": cls.boq})
-        frappe.db.delete("BoQ Sheet", {"boq": cls.boq})
+        purge_docs("BOQ Nodes", {"boq": cls.boq})
+        purge_docs("BoQ Sheet", {"boq": cls.boq})
         frappe.db.commit()
+        purge_boq(cls.boq)
         _cleanup_project(cls.project.name)
         super().tearDownClass()
 
@@ -423,8 +425,9 @@ class TestStartClassify(FrappeTestCase):
     def tearDownClass(cls):
         frappe.cache().delete_value(classify._marker_key(cls.boq, cls.sheet, "Electrical"))
         frappe.cache().delete_value(classify._status_key(cls.boq, cls.sheet, "Electrical"))
-        frappe.db.delete("BoQ Sheet", {"boq": cls.boq})
+        purge_docs("BoQ Sheet", {"boq": cls.boq})
         frappe.db.commit()
+        purge_boq(cls.boq)
         _cleanup_project(cls.project.name)
         super().tearDownClass()
 
@@ -647,8 +650,9 @@ class TestReclassifyClearsOverride(FrappeTestCase):
     @classmethod
     def tearDownClass(cls):
         frappe.db.delete(_ROW_CATEGORY, {"boq": cls.boq})
-        frappe.db.delete("BoQ Sheet", {"boq": cls.boq})
+        purge_docs("BoQ Sheet", {"boq": cls.boq})
         frappe.db.commit()
+        purge_boq(cls.boq)
         _cleanup_project(cls.project.name)
         super().tearDownClass()
 
@@ -825,8 +829,9 @@ class TestGetSheetCategories(FrappeTestCase):
     @classmethod
     def tearDownClass(cls):
         frappe.db.delete(_ROW_CATEGORY, {"boq": cls.boq})
-        frappe.db.delete("BoQ Sheet", {"boq": cls.boq})
+        purge_docs("BoQ Sheet", {"boq": cls.boq})
         frappe.db.commit()
+        purge_boq(cls.boq)
         _cleanup_project(cls.project.name)
         super().tearDownClass()
 
@@ -982,8 +987,9 @@ class TestGetSheetCategoriesResolved(FrappeTestCase):
     @classmethod
     def tearDownClass(cls):
         frappe.db.delete(_ROW_CATEGORY, {"boq": cls.boq})
-        frappe.db.delete("BoQ Sheet", {"boq": cls.boq})
+        purge_docs("BoQ Sheet", {"boq": cls.boq})
         frappe.db.commit()
+        purge_boq(cls.boq)
         _cleanup_project(cls.project.name)
         super().tearDownClass()
 
@@ -1024,7 +1030,7 @@ class TestGetSheetCategoriesResolved(FrappeTestCase):
             self.assertEqual(sorted(by[11]["votes"].keys()), ["Electrical", "HVAC"])
         finally:
             frappe.db.delete(_ROW_CATEGORY, {"boq": self.boq, "sheet_name": sheet})
-            frappe.db.delete("BoQ Sheet", {"boq": self.boq, "sheet_name": sheet})
+            purge_docs("BoQ Sheet", {"boq": self.boq, "sheet_name": sheet})
             frappe.db.commit()
 
     def test_uncommitted_sheet_returns_empty(self):
@@ -1117,8 +1123,9 @@ class TestResolvedCarryProvenance(FrappeTestCase):
     @classmethod
     def tearDownClass(cls):
         frappe.db.delete(_ROW_CATEGORY, {"boq": cls.boq})
-        frappe.db.delete("BoQ Sheet", {"boq": cls.boq})
+        purge_docs("BoQ Sheet", {"boq": cls.boq})
         frappe.db.commit()
+        purge_boq(cls.boq)
         _cleanup_project(cls.project.name)
         super().tearDownClass()
 
@@ -1243,8 +1250,9 @@ class TestVersionScopedSheetCategories(FrappeTestCase):
     @classmethod
     def tearDownClass(cls):
         frappe.db.delete(_ROW_CATEGORY, {"boq": cls.boq})
-        frappe.db.delete("BoQ Sheet", {"boq": cls.boq})
+        purge_docs("BoQ Sheet", {"boq": cls.boq})
         frappe.db.commit()
+        purge_boq(cls.boq)
         _cleanup_project(cls.project.name)
         super().tearDownClass()
 
@@ -1351,8 +1359,9 @@ class TestSetRowCategory(FrappeTestCase):
     @classmethod
     def tearDownClass(cls):
         frappe.db.delete(_ROW_CATEGORY, {"boq": cls.boq})
-        frappe.db.delete("BoQ Sheet", {"boq": cls.boq})
+        purge_docs("BoQ Sheet", {"boq": cls.boq})
         frappe.db.commit()
+        purge_boq(cls.boq)
         _cleanup_project(cls.project.name)
         super().tearDownClass()
 
@@ -1391,9 +1400,10 @@ class TestFreezeClassification(FrappeTestCase):
     def tearDownClass(cls):
         frappe.db.delete(classify._TRUTH_SNAPSHOT, {"boq": cls.boq})
         frappe.db.delete(_ROW_CATEGORY, {"boq": cls.boq})
-        frappe.db.delete("BOQ Nodes", {"boq": cls.boq})
-        frappe.db.delete("BoQ Sheet", {"boq": cls.boq})
+        purge_docs("BOQ Nodes", {"boq": cls.boq})
+        purge_docs("BoQ Sheet", {"boq": cls.boq})
         frappe.db.commit()
+        purge_boq(cls.boq)
         _cleanup_project(cls.project.name)
         super().tearDownClass()
 
@@ -1764,9 +1774,10 @@ class TestFreezeSummaryResolved(FrappeTestCase):
     @classmethod
     def tearDownClass(cls):
         frappe.db.delete(_ROW_CATEGORY, {"boq": cls.boq})
-        frappe.db.delete("BOQ Nodes", {"boq": cls.boq})
-        frappe.db.delete("BoQ Sheet", {"boq": cls.boq})
+        purge_docs("BOQ Nodes", {"boq": cls.boq})
+        purge_docs("BoQ Sheet", {"boq": cls.boq})
         frappe.db.commit()
+        purge_boq(cls.boq)
         _cleanup_project(cls.project.name)
         super().tearDownClass()
 

@@ -42,6 +42,7 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
 )
 from nirmaan_stack.services import boq_gemini_assist as svc
 from nirmaan_stack.services.boq_gemini_assist import _NonRetryable
+from nirmaan_stack.services.boq_fixture_teardown import purge_boq
 
 # The enable gate + the worker's settings read both go through this symbol (imported
 # into gemini_assist). Patch it there to flip boq_ai_enabled.
@@ -171,6 +172,7 @@ class _GeminiDBBase(FrappeTestCase):
         frappe.db.commit()
         for b in frappe.get_all("BOQs", filters={"project": cls.test_project.name}, fields=["name"]):
             frappe.db.delete("BoQ Review Row", {"boq": b.name})
+            purge_boq(b.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", b.name, force=True, ignore_permissions=True)
         frappe.delete_doc("Projects", cls.test_project.name, force=True, ignore_permissions=True)
         frappe.db.commit()
@@ -535,6 +537,7 @@ class TestAcceptRejectGemini(FrappeTestCase):
         frappe.db.commit()
         for b in frappe.get_all("BOQs", filters={"project": cls.test_project.name}, fields=["name"]):
             frappe.db.delete("BoQ Review Row", {"boq": b.name})
+            purge_boq(b.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", b.name, force=True, ignore_permissions=True)
         frappe.delete_doc("Projects", cls.test_project.name, force=True, ignore_permissions=True)
         frappe.db.commit()

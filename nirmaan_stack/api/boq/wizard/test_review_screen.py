@@ -14,6 +14,7 @@ import unittest
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from nirmaan_stack.services.boq_fixture_teardown import fixture_boq_name, purge_boq, purge_docs
 
 from nirmaan_stack.api.boq.wizard.ai_assist import (
     accept_ai_suggestion,
@@ -76,8 +77,9 @@ def _make_project():
 
 def _cleanup_project(project_name: str):
     for boq in frappe.get_all("BOQs", filters={"project": project_name}, fields=["name"]):
+        purge_boq(boq.name)
         frappe.db.delete("BoQ Review Row", {"boq": boq.name})
-        frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
+        purge_boq(boq.name)
     frappe.delete_doc("Projects", project_name, force=True, ignore_permissions=True)
     frappe.db.commit()
 
@@ -242,8 +244,8 @@ def cleanup_committed_fixture(boq_name: str) -> None:
     if node_names:
         frappe.db.delete("BOQ Node Qty By Area", {"parent": ["in", node_names]})
     frappe.db.delete("BoQ Cell Pricing", {"boq": boq_name})
-    frappe.db.delete("BOQ Nodes", {"boq": boq_name})
-    frappe.db.delete("BoQ Sheet", {"boq": boq_name})
+    purge_docs("BOQ Nodes", {"boq": boq_name})
+    purge_docs("BoQ Sheet", {"boq": boq_name})
     frappe.db.commit()
 
 
@@ -719,7 +721,7 @@ class TestGetReviewRows(FrappeTestCase):
         boq.append("sheet_drafts", {
             "sheet_name": "GRSheet", "sheet_order": 1, "wizard_status": "Parsed",
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
         cls.sheet_name = "GRSheet"
@@ -814,7 +816,7 @@ class TestGetReviewRowsEffectiveLevel(FrappeTestCase):
             boq.append("sheet_drafts", {
                 "sheet_name": name, "sheet_order": i, "wizard_status": "Parsed",
             })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
 
@@ -958,7 +960,7 @@ class TestSaveReviewEdit(FrappeTestCase):
         boq.append("sheet_drafts", {
             "sheet_name": "EditSheet", "sheet_order": 1, "wizard_status": "Parsed",
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
         cls.sheet_name = "EditSheet"
@@ -1228,7 +1230,7 @@ class TestSaveReviewRemark(FrappeTestCase):
         boq.append("sheet_drafts", {
             "sheet_name": "RemarkSheet", "sheet_order": 1, "wizard_status": "Parsed",
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
         cls.sheet_name = "RemarkSheet"
@@ -1363,7 +1365,7 @@ class TestDismissRowFlags(FrappeTestCase):
         boq.append("sheet_drafts", {
             "sheet_name": "DismissSheet", "sheet_order": 1, "wizard_status": "Parsed",
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
         cls.sheet_name = "DismissSheet"
@@ -1552,7 +1554,7 @@ class TestSaveReviewEditPerArea(FrappeTestCase):
             # No sheet_config -> no defined areas -> per-area edits must be rejected.
             "sheet_name": "NoDimSheet", "sheet_order": 2, "wizard_status": "Parsed",
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
         cls.sheet_name = "AreaSheet"
@@ -1913,7 +1915,7 @@ class TestMarkSheetParsedCheckDone(FrappeTestCase):
             boq.append("sheet_drafts", {
                 "sheet_name": name, "sheet_order": i, "wizard_status": "Parsed",
             })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
 
@@ -2145,7 +2147,7 @@ class TestMarkTemplateQtyGate(FrappeTestCase):
         boq.append("sheet_drafts", {
             "sheet_name": "TplQtySheet", "sheet_order": 1, "wizard_status": "Parsed",
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
         # preamble + child line_item; structurally clean; qty_total left blank on the line_item.
@@ -2283,7 +2285,7 @@ class TestTemplateResumQtyTotal(FrappeTestCase):
             "sheet_name": "AreaSheet", "sheet_order": 1, "wizard_status": "Parsed",
             "sheet_config": json.dumps({"area_dimensions": ["Zone A", "Zone B"]}),
         })
-        tboq.insert(ignore_permissions=True)
+        tboq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         cls.tpl_boq = tboq.name
         # Upload-origin BoQ (origin defaults to "upload") -> the re-sum must NOT fire.
         uboq = frappe.new_doc("BOQs")
@@ -2294,7 +2296,7 @@ class TestTemplateResumQtyTotal(FrappeTestCase):
             "sheet_name": "AreaSheet", "sheet_order": 1, "wizard_status": "Parsed",
             "sheet_config": json.dumps({"area_dimensions": ["Zone A", "Zone B"]}),
         })
-        uboq.insert(ignore_permissions=True)
+        uboq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         cls.upl_boq = uboq.name
         frappe.db.commit()
 
@@ -2413,7 +2415,7 @@ class TestGetStructuralBreaks(FrappeTestCase):
             boq.append("sheet_drafts", {
                 "sheet_name": name, "sheet_order": i, "wizard_status": "Parsed",
             })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
 
@@ -2719,7 +2721,7 @@ class TestGetReviewRowsColumnDescriptors(FrappeTestCase):
             "sheet_order": 2,
             "wizard_status": "Parsed",
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
 
@@ -3126,7 +3128,7 @@ class TestGetStructuralBreaksB2a(FrappeTestCase):
         boq.append("sheet_drafts", {
             "sheet_name": "CleanSheet3", "sheet_order": 2, "wizard_status": "Parsed",
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
 
@@ -3242,7 +3244,7 @@ class TestSaveReviewRestructure(FrappeTestCase):
         boq.append("sheet_drafts", {
             "sheet_name": "RestructureSheet", "sheet_order": 1, "wizard_status": "Parsed",
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
         cls.sheet_name = "RestructureSheet"
@@ -4163,7 +4165,7 @@ class TestParsedCheckDoneFreeze(FrappeTestCase):
         boq.append("sheet_drafts", {
             "sheet_name": "FreezeSheet", "sheet_order": 1, "wizard_status": "Parsed",
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
         cls.sheet_name = "FreezeSheet"
@@ -4304,7 +4306,7 @@ class TestUnmarkSheetParsedCheckDone(FrappeTestCase):
         boq.append("sheet_drafts", {
             "sheet_name": "UnmarkSheet", "sheet_order": 1, "wizard_status": "Parsed",
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
         cls.sheet_name = "UnmarkSheet"
@@ -4421,7 +4423,7 @@ class TestParseInProgressWriteGuard(FrappeTestCase):
             "sheet_name": "OpenSheet", "sheet_order": 2,
             "wizard_status": "Parsed", "parse_in_progress": 0,
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
 
@@ -4511,7 +4513,7 @@ class TestGetCommittedRows(FrappeTestCase):
         boq.project = cls.test_project.name
         boq.boq_name = "Committed-Read Test BoQ"
         boq.tax_treatment = "Pre-tax"
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
         cls.uncommitted_boq = boq.name  # same BOQs; an un-committed sheet name -> empty path
@@ -4760,7 +4762,7 @@ class TestChokepointGeminiInvalidation(FrappeTestCase):
         boq.append("sheet_drafts", {
             "sheet_name": "ChokeSheet", "sheet_order": 1, "wizard_status": "Parsed",
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
         cls.sheet_name = "ChokeSheet"
@@ -4936,7 +4938,7 @@ class TestDualAISwitch(FrappeTestCase):
         boq.append("sheet_drafts", {
             "sheet_name": "SwitchSheet", "sheet_order": 1, "wizard_status": "Parsed",
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
         cls.sheet_name = "SwitchSheet"
@@ -5131,7 +5133,7 @@ class TestRevertToParser(FrappeTestCase):
         boq.append("sheet_drafts", {
             "sheet_name": "RevertSheet", "sheet_order": 1, "wizard_status": "Parsed",
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
         cls.sheet_name = "RevertSheet"
@@ -5320,7 +5322,7 @@ class TestNoteAttachmentFollowsReparent(FrappeTestCase):
         boq.append("sheet_drafts", {
             "sheet_name": "AttachSheet", "sheet_order": 1, "wizard_status": "Parsed",
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
         cls.sheet_name = "AttachSheet"
@@ -5614,7 +5616,7 @@ class TestRevertReturnsMovedChildren(FrappeTestCase):
         boq.append("sheet_drafts", {
             "sheet_name": "CascadeSheet", "sheet_order": 1, "wizard_status": "Parsed",
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("REVIEW_SCREEN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
         cls.sheet_name = "CascadeSheet"
