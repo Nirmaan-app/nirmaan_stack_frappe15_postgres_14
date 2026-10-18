@@ -505,7 +505,12 @@ class TestTimedCheck(FrappeTestCase):
 
     def test_exactly_one_scheduler_entry_every_five_minutes(self):
         events = frappe.get_hooks("scheduler_events")
-        self.assertEqual(events["cron"]["*/5 * * * *"], [self._TASK])
+        # CU-A (mechanical inversion, owner 2026-10-18): the */5 list now also carries the suggest-run
+        # healer. This task is still there exactly once, and the healer is the ONLY other entry.
+        five = events["cron"]["*/5 * * * *"]
+        self.assertEqual(five.count(self._TASK), 1)
+        self.assertEqual([m for m in five if m != self._TASK],
+                         ["nirmaan_stack.tasks.suggest_run_healer.heal_stale_suggestion_runs"])
         every_entry = [
             method
             for group in events.values()

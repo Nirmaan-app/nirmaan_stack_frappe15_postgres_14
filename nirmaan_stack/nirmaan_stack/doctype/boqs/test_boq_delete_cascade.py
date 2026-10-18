@@ -22,15 +22,18 @@ def _make_boq(suffix, with_links):
     """A BoQ with 2 drafts x 2 work packages; with_links adds a BoQ Sheet (2 WPs), a committed grid
     (3 rows) and a Review Row, all pointing at it."""
     wh = _work_header()
+    # set_name, not the BOQ-.YY.- series: Frappe rolls a deleted BoQ's number back, so a series name can
+    # be one another test deleted while leaving rows linked to it (a full run hit an orphan lock that way).
+    tag = f"{TAG}_{suffix}_{frappe.generate_hash(length=6)}"
     boq = frappe.get_doc({
         "doctype": "BOQs",
         "is_template_source": 1,
-        "boq_name": f"{TAG}_{suffix}_{frappe.generate_hash(length=6)}",
+        "boq_name": tag,
         "sheet_drafts": [
             {"sheet_name": "A", "sheet_order": 1, "wizard_status": "Pending"},
             {"sheet_name": "B", "sheet_order": 2, "wizard_status": "Pending"},
         ],
-    }).insert(ignore_permissions=True)
+    }).insert(ignore_permissions=True, set_name=tag)
     for draft in boq.sheet_drafts:
         for i in range(2):
             frappe.get_doc({
