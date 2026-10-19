@@ -397,7 +397,7 @@ doc_events = {
         # ordinary saves cost one field comparison each. STATE FIRST, then the telling:
         # the request must already read Paid by the time the requester is notified.
         "on_update": [
-            "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_paid",
+            "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_status_changed",
             "nirmaan_stack.integrations.controllers.expense_request_notify.on_expense_update",
         ],
         "on_trash": [
@@ -426,7 +426,7 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
             # Carries Paid back onto the originating request, then tells the requester.
             # STATE FIRST -- the request must already read Paid when the message goes out.
-            "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_paid",
+            "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_status_changed",
             "nirmaan_stack.integrations.controllers.expense_request_notify.on_expense_update",
         ],
         # generate_versions needs the pre-delete data, so it stays on on_trash.

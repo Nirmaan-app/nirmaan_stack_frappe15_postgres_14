@@ -2,12 +2,46 @@
 // Project Expenses / Non Project Expenses row, which carries `request_id` back to it; the
 // request itself never appears in any financial rollup.
 //
-// `Paid` is set by the LEDGER, through the on_update hook that fires when the expense row is
-// paid — never by a reviewer, and there is no endpoint that sets it.
+// Once a request has an Expense, its `status` MIRRORS that Expense (`expense_request_status`,
+// #1500): Rejected when the Expense is rejected, Paid when it is paid, Approved otherwise. The
+// finer step and the live amount are read from the Expense through `get_request_standing`.
 
 import type { PayToAccount } from "./Payee";
 
 export type ExpenseRequestStatus = "Pending Approval" | "Approved" | "Rejected" | "Paid";
+
+/** One step of the request page's "Where it stands" (`services/expense_standing.where_it_stands`). */
+export interface StandingStep {
+  key: "raised" | "review" | "admin" | "ceo" | "paid";
+  label: string;
+  state: "done" | "current" | "upcoming" | "rejected";
+  /** A user id, or null. */
+  by: string | null;
+  /** A date or datetime string, or null. */
+  on: string | null;
+  note: string | null;
+}
+
+/** The Expense a request created, as `standing.expenses_of` reads it. */
+export interface RequestExpense {
+  doctype: "Project Expenses" | "Non Project Expenses";
+  name: string;
+  status: string;
+  amount: number;
+}
+
+/** Where one request stands, LIVE from its Expense (`api/expense_requests/standing`). */
+export interface RequestStanding {
+  /** The label to show: the Expense's status ("Waiting for Admin", "CEO Pending", ...) once it
+   *  exists, else the request's own. */
+  status: string;
+  /** The Expense's amount once it exists (Accounts may have corrected it), else the request's. */
+  amount: number;
+  expense: RequestExpense | null;
+  steps: StandingStep[];
+}
+
+export type GetRequestStandingResponse = Record<string, RequestStanding>;
 
 export interface ExpenseRequest {
   name: string;
@@ -92,6 +126,8 @@ export interface ExpenseRequestDetail {
   /** Server-computed (`invoice.invoice_refusal`): the raiser or an Admin, until the Expense is Paid. */
   can_add_invoice: boolean;
   can_edit: boolean;
+  /** Live from the Expense (#1500): the status label and amount to show, and "Where it stands". */
+  standing: Omit<RequestStanding, "expense">;
 }
 
 export interface GetMyExpenseRequestsResponse {

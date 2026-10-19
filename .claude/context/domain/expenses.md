@@ -489,8 +489,9 @@ Full rationale: `docs/adr/0016-expense-request-vs-expense.md`.
 PM raises  ->  Pending Approval  ->  routed reviewer
                                        |- Reject (comment required)  -> terminal
                                        `- Approve -> ONE ledger row, status "Approved"
-                                                     -> Accountant marks Paid
-                                                        -> request follows to Paid (hook)
+                                                     -> L1 / CEO approve or reject, Accountant marks Paid
+                                                        -> request follows: Rejected / Paid,
+                                                           back to Approved on unreconcile (hook)
                                                      -> ledger row DELETED
                                                         -> request deleted with it (hook)
 ```
@@ -659,16 +660,23 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   points that row at its Project, Vendor and Expense Type — so Frappe blocks deleting the
   REQUEST while an expense names it, and does nothing about the reverse. Only child tables
   cascade.
-- **⚠️ THE LEDGER OWNS `Paid`.** `Expense Request.status` reaches `Paid` through
-  `integrations/controllers/expense_request_status.on_expense_paid` and NOWHERE else — no
-  endpoint, no button, no reviewer action. Payment happens on the expense row, so the request
-  can only report what the ledger already did; a second writer would let the two disagree
-  about whether money moved. It rides the ledger's own transaction (both land or neither),
-  guards on the TRANSITION into Paid, and flips only `Approved → Paid` — a whitelist of the
-  one legal predecessor, because anything else means our model of the flow is wrong and
-  overwriting would erase the evidence. It uses `set_value`, so this transition writes NO
-  `Version` row; the audit lives on the ledger row, which carries the payment date, reference
-  and attachment.
+- **⚠️ THE EXPENSE OWNS EVERY STATUS AFTER REVIEW** (spec #1494, #1500; this replaced "the ledger
+  owns `Paid`"). Once a request has an Expense, `Expense Request.status` is a mirror of it, set by
+  `integrations/controllers/expense_request_status.on_expense_status_changed` (both ledgers'
+  `on_update`) and NOWHERE else: Expense `Rejected` (L1 or CEO) → request `Rejected`; `Paid` →
+  `Paid`; every other status (`Requested`, `CEO Pending`, `Approved`, `Reconciliation Pending`) →
+  `Approved`. So an unreconcile moves a request back from `Paid` to `Approved`. It fires on a status
+  CHANGE only, touches only a request already at `Approved` / `Paid` / `Rejected` (`Pending Approval`
+  is the review's: the Expense is inserted while the request still waits, and the review sets
+  `Approved` itself), rides the ledger's transaction, and uses `set_value`, so it writes NO `Version`
+  row. The request keeps its own four statuses ON PURPOSE: the finer step and the amount Accounts may
+  have corrected are READ live from the Expense by `api/expense_requests/standing.standing_of`: the
+  Expenses list's Status and Amount columns through `get_request_standing`, and the request page
+  `/expense/requests/:id` through `standing` on `read.get_expense_request`, with its "Where it stands"
+  steps from the pure `services/expense_standing.where_it_stands`. Never copied, so the two cannot
+  disagree. The list's status FACET still filters the request's own status.
+  A request marked `approved_on_submit` (#1498) shows "Approved on submit (no review)" in place of its
+  review step.
 - **⚠️ DELETING THE EXPENSE DELETES THE REQUEST** (`on_expense_deleted`, owner ruling
   2026-08-18) — and it MUST be `after_delete`, never `on_trash`: `on_trash` fires BEFORE the
   row leaves the database, so the expense still points at the request and Frappe refuses

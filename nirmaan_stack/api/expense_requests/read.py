@@ -34,6 +34,7 @@ from nirmaan_stack.api.expense_requests.flatten import (
 	native_invoice,
 )
 from nirmaan_stack.api.expense_requests.invoice import invoice_refusal, linked_expense
+from nirmaan_stack.api.expense_requests.standing import expenses_of, standing_of
 from nirmaan_stack.api.expense_requests.update import can_edit
 from nirmaan_stack.services.expense_request_routing import (
 	category_for_type,
@@ -41,6 +42,7 @@ from nirmaan_stack.services.expense_request_routing import (
 	resolved_categories,
 	reviewer_role_for_type,
 )
+from nirmaan_stack.services.approval_raiser import raiser_level
 from nirmaan_stack.services.payees.expense_rules import NOT_ASKED
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS, pay_to_account
 
@@ -161,9 +163,10 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 def get_expense_request(name: str):
 	"""One request, for its page (`/expense/requests/<name>`, #1502).
 
-	Built for the page to grow: #1502 reads the invoice and whether one may be added; the live
-	status of the Expense ("Where it stands", #1500) belongs here too. `expense` is the Expense
-	created from it, as `{doctype, name, status}`, or None before approval.
+	Built for the page to grow: #1502 reads the invoice and whether one may be added. `expense` is
+	the Expense created from it, as `{doctype, name, status}`, or None before approval. `standing`
+	(#1500) is `{status, amount, steps}` read live from that Expense: the status label and amount
+	the page shows, and its "Where it stands" steps (`standing.standing_of`).
 	"""
 	doc = frappe.get_doc("Expense Request", name)
 	doc.check_permission("read")
@@ -191,6 +194,7 @@ def get_expense_request(name: str):
 	row["invoice"] = native_invoice(doc.source_data)
 	row["can_add_invoice"] = invoice_refusal(row, expense) is None
 	row["can_edit"] = can_edit(row)
+	row["standing"] = standing_of(row, expenses_of([name]).get(name), raiser_level(doc.owner))
 	return row
 
 
