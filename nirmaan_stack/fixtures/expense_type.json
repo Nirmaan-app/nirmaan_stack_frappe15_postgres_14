@@ -193,33 +193,6 @@
   "source_format_enabled": 1
  },
  {
-  "allowed_roles": [
-   {
-    "parent": "Salaries & Employee Wages",
-    "parentfield": "allowed_roles",
-    "parenttype": "Expense Type",
-    "role_profile": "Nirmaan Accountant Lead Profile"
-   },
-   {
-    "parent": "Salaries & Employee Wages",
-    "parentfield": "allowed_roles",
-    "parenttype": "Expense Type",
-    "role_profile": "Nirmaan Accountant Profile"
-   }
-  ],
-  "docstatus": 0,
-  "doctype": "Expense Type",
-  "expense_category": "Uncategorized",
-  "expense_name": "Salaries & Employee Wages",
-  "modified": "2026-10-14 15:12:44.205823",
-  "name": "Salaries & Employee Wages",
-  "non_project": 1,
-  "payee_rule": "Optional",
-  "project": 0,
-  "source_format": "{\n  \"templateId\": \"payroll-payment\",\n  \"templateVersion\": 4,\n  \"title\": \"Payroll Payment\",\n  \"description_template\": \"{payout_head} for {salary_month}[[ via {payout_channel}]][[, {headcount} employee(s)]].\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Payout\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"payout_head\",\n          \"label\": \"Payout Head\",\n          \"type\": \"select\",\n          \"options\": [\n            \"Monthly Salary\",\n            \"Advance Salary\",\n            \"Full & Final Settlement\",\n            \"PF (EPFO)\",\n            \"ESI\",\n            \"Professional Tax\",\n            \"Employee Reimbursement\",\n            \"Bonus / Incentive\"\n          ],\n          \"required\": true\n        },\n        {\n          \"key\": \"salary_month\",\n          \"label\": \"For the Month\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"payout_channel\",\n          \"label\": \"Channel\",\n          \"type\": \"select\",\n          \"options\": [\n            \"Razorpay Payroll\",\n            \"Bank Transfer\",\n            \"Portal (EPFO / Treasury)\",\n            \"Cash\"\n          ]\n        },\n        {\n          \"key\": \"headcount\",\n          \"label\": \"No. of Employees\",\n          \"type\": \"number\",\n          \"min\": 1\n        }\n      ]\n    },\n    {\n      \"id\": \"proof\",\n      \"type\": \"image_attachments\",\n      \"title\": \"Proof\",\n      \"columns\": 2,\n      \"slots\": [\n        {\n          \"key\": \"bill\",\n          \"label\": \"Statement / Challan\",\n          \"accept\": \"image/*,application/pdf\",\n          \"maxSizeMb\": 5,\n          \"maps_to\": \"invoice_attachment\"\n        }\n      ]\n    }\n  ]\n}",
-  "source_format_enabled": 1
- },
- {
   "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",

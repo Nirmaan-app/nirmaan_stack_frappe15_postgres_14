@@ -29,7 +29,6 @@ EXPECTED_RULES = {
 	# The landlord's account: a deposit is transferred to, and recovered from, whoever holds it.
 	"Accommodation Deposit": REQUIRED,
 	# Sometimes paid by card or cash, or a batch with no single payee.
-	"Salaries & Employee Wages": OPTIONAL,
 	"Rent/PG for Staff": OPTIONAL,
 	"Office Maintenance": OPTIONAL,
 	"Pooja Expenses": OPTIONAL,

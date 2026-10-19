@@ -535,8 +535,8 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   import and the request list are untouched.
   **Owner's role mapping (2026-09-16, in the fixture)** — Project Manager + Project Lead:
   Accommodation Deposit, Rent/PG for Staff, Rent/PG for Labour. Accountant + Accountant Lead: Audit
-  Fee, GST Payment, TDS Payment, Other Project Expenses, Professional Charges, Salaries &
-  Employee Wages. HR Executive + HR Lead: Electricity Expenses,
+  Fee, GST Payment, TDS Payment, Other Project Expenses, Professional Charges. HR Executive + HR
+  Lead: Electricity Expenses,
   Fixed Assets, Internet & Mobile Charges, Software Chagres. **Every other type is
   Admin only.** "Salary – TDS" and "Misc. Expenses" had no matching type and are unassigned.
   To make that mapping usable, `create` on Expense Request was granted to Nirmaan Accountant,
@@ -553,6 +553,9 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   Accommodation Rent → Rent/PG for Staff, Labour Accommodation Rent → Rent/PG for Labour, Other
   Project Related Charges → Other Project Expenses. `duplicates.RULES` is keyed by type name, so a
   rename must rename its key too, or that type's duplicate check silently switches off.
+- **Merged by SQL (2026-10-19):** Salaries & Employee Wages → the existing Salary - Employee Payout
+  (every Link, Dynamic Link and plain-text column), and Salaries & Employee Wages dropped from the
+  fixture. Salary - Employee Payout is not in the fixture; it lives on the site only.
 - **Rename an Expense Type — ADMIN ONLY (2026-09-16).** Expense Packages → Rename →
   `masters.rename_expense_type`, which runs Frappe's model-level `rename_doc`. That moves the
   docname, `expense_name` (the autoname field), the `allowed_roles` child rows and every LINK to
@@ -700,13 +703,13 @@ save an invalid template**.
     (`expense_payee.change_expense_account`, #1438; Accounts, an approved, unpaid expense with no
     vendor, a screen rule) overwrites the copy with a picked or added Payee's account, recorded with
     who and when (`.claude/context/domain/payees.md` § Paid to).
-  - **No format asks for bank details or who gets paid as free text** (#1430): the Payroll,
-    Accommodation Deposit and Rent/PG for Staff "Payee Bank Details" sections, and the
+  - **No format asks for bank details or who gets paid as free text** (#1430): the Payroll
+    (Salaries & Employee Wages, since removed), Accommodation Deposit and Rent/PG for Staff "Payee Bank Details" sections, and the
     fields that only named the payee (Rent's landlord, the Deposit's landlord / PG, Payroll's
     employee, the "Paid To" of Office Maintenance, Pooja, Other Financial and Staff Welfare), are
     gone. Those types ask for a Payee instead: *Required* for Accommodation Deposit (paid by
     transfer into the landlord's account, and recovered from it),
-    *Optional* for the other six (card, cash, or a payroll batch with no single payee). The choice
+    *Optional* for the other five (card, cash, or a batch with no single payee). The choice
     is pinned by `api/expense_requests/test_request_forms.py`, which also refuses a bank field or a
     `description_template` placeholder naming a field the form no longer asks. Bank Interest's
     "Bank Account No." stays: it is the company's own account, not who gets paid. Supplier-name
