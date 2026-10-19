@@ -60,7 +60,7 @@ import {
 } from "@/utils/payees/expensePayee";
 import { payToSave } from "@/utils/payees/payToChoice";
 
-import { invoiceNotes, newExpenseFields, newExpenseSubmit } from "@/utils/newExpenseForm";
+import { invoiceNotes, newExpenseFields, newExpenseSubmit, whoApprovesNext } from "@/utils/newExpenseForm";
 import { raiserLevelOf } from "@/utils/approvalTiers";
 import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
 import { useDialogStore } from "@/zustand/useDialogStore";
@@ -69,7 +69,8 @@ import { parseNumber } from "@/utils/parseNumber";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import type {
-    ExpenseRequest, GetRequestCatalogResponse, RequestCatalogType, StayDuplicate,
+    ExpenseRequest, GetRequestCatalogResponse, RequestCatalogType, SaveExpenseRequestResponse,
+    StayDuplicate,
 } from "@/types/NirmaanStack/ExpenseRequest";
 import {
     answersFromSourceData, NATIVE_INVOICE_SECTION, parseFormat,
@@ -136,18 +137,17 @@ const EMPTY: FormState = {
  *  with its status, so the toast says where it now waits. */
 const submittedToast = (
     isEdit: boolean,
-    created: { name?: string; created_expense?: string | null; expense_status?: string | null } | undefined,
+    created: SaveExpenseRequestResponse | undefined,
+    amount: number,
 ): { title: string; description: string } => {
     if (isEdit) return { title: "Changes saved", description: `${created?.name} is saved.` };
     if (!created?.created_expense) {
         return { title: "Sent for review", description: `${created?.name} waits for a reviewer.` };
     }
-    const next = created.expense_status === "Requested"
-        ? "It waits for an Admin to approve."
-        : created.expense_status === "CEO Pending"
-            ? "It waits for the CEO to approve."
-            : "It is approved.";
-    return { title: "Expense recorded", description: `${created.name}: ${next}` };
+    return {
+        title: "Expense recorded",
+        description: `${created.name}: ${whoApprovesNext(created.expense_status, amount)}`,
+    };
 };
 
 export const NewExpenseRequestDialog: React.FC<Props> = ({
@@ -167,6 +167,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         (patch: Partial<InvoiceValue>) => setInvoice((v) => ({ ...v, ...patch })), []
     );
     const [submitting, setSubmitting] = useState(false);
+    const amountRef = useRef<HTMLInputElement>(null);
     // Edit-only: the requester has asked to swap the project, so hand them the picker.
     const [changingProject, setChangingProject] = useState(false);
     // Who gets paid when no vendor is picked: an existing Payee, or a new one added on send. On an
@@ -184,10 +185,10 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
             editing?.type ? `expense_request_catalog_${editing.type}` : "expense_request_catalog"
         );
 
-    const { call: updateRequest } = useFrappePostCall(
+    const { call: updateRequest } = useFrappePostCall<{ message?: SaveExpenseRequestResponse }>(
         "nirmaan_stack.api.expense_requests.update.update_expense_request"
     );
-    const { call: createRequest } = useFrappePostCall(
+    const { call: createRequest } = useFrappePostCall<{ message?: SaveExpenseRequestResponse }>(
         "nirmaan_stack.api.expense_requests.create.create_expense_request"
     );
     const { upload } = useFrappeFileUpload();
@@ -520,10 +521,10 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                         }
                         : undefined,
             });
-            const created = (res as any)?.message;
+            const created = res?.message;
             // The server's own invoice warnings: a submit is never refused for them.
-            const warnings: string[] = created?.warnings ?? [];
-            const said = submittedToast(isEdit, created);
+            const warnings = created?.warnings ?? [];
+            const said = submittedToast(isEdit, created, amountValue);
             toast({
                 title: said.title,
                 description: [said.description, ...warnings].join(" "),
@@ -531,7 +532,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
             });
             close();
             onSuccess?.();
-        } catch (e: any) {
+        } catch (e) {
             if (e instanceof DuplicatePayeeError) {
                 toast({ title: "This account is already a payee", description: e.message, variant: "destructive" });
                 return;
@@ -557,7 +558,10 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
             open={newExpenseRequestDialog || isEdit}
             onOpenChange={(o) => { if (!o) close(); else setNewExpenseRequestDialog(true); }}
         >
-            <AlertDialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            {/* Pinned to the top, not centred: picking a type adds the Project, Who gets paid, the
+                form and the invoice, and a centred dialog then slid the Amount up from under the
+                pointer (#1494 review S4; the focus half is on the type picker below). */}
+            <AlertDialogContent className="top-[5vh] translate-y-0 max-w-2xl max-h-[90vh] overflow-y-auto">
                 <AlertDialogHeader>
                     <AlertDialogTitle>{isEdit ? `Edit ${editing!.name}` : "New Expense"}</AlertDialogTitle>
                 </AlertDialogHeader>
@@ -574,7 +578,14 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                                 tokenSearchConfig={EXPENSE_TYPE_SEARCH}
                                 isLoading={catalogLoading}
                                 value={selectedTypeOption}
-                                onChange={(o) => handleTypeChange(o?.value ?? "")}
+                                onChange={(o) => {
+                                    handleTypeChange(o?.value ?? "");
+                                    // Hand focus to the Amount, the next field (#1494 review S4). Left in
+                                    // the picker, the first click on the Amount was lost: the picker's
+                                    // blur re-renders it, and while nothing holds focus the dialog's focus
+                                    // trap takes it, so the Amount never got the click or the typing.
+                                    setTimeout(() => amountRef.current?.focus(), 0);
+                                }}
                                 placeholder={catalogLoading ? "Loading…" : "Search or select a type…"}
                                 // Scope rides the menu rows only; the chosen value stays a clean name
                                 // -- the `VendorSelect` convention.
@@ -599,6 +610,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                         <div className="space-y-1.5">
                             <Label>Amount <span className="text-destructive">*</span></Label>
                             <Input
+                                ref={amountRef}
                                 type="number" placeholder="0" value={form.amount}
                                 onChange={(e) => set("amount", e.target.value)}
                             />

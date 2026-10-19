@@ -192,7 +192,9 @@ def get_expense_request(name: str):
 	# What approval carries onto the Expense: a request raised before #1502 has its bill in its
 	# form's slot.
 	row["invoice"] = request_invoice(doc.source_data, source_format)
-	row["can_add_invoice"] = invoice_refusal(row, expense) is None
+	# Why the caller may not add it now (None when they may): the page words its empty state by it.
+	row["invoice_refusal"] = invoice_refusal(row, expense)
+	row["can_add_invoice"] = row["invoice_refusal"] is None
 	row["can_edit"] = can_edit(row)
 	row["standing"] = standing_of(row, expenses_of([name]).get(name), raiser_level(doc.owner))
 	return row
