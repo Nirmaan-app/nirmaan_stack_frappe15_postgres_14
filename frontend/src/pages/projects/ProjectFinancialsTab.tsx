@@ -273,7 +273,7 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       label: "Total OutFlow Amount",
 
       value: projectMoney?.outflow ?? 0,
-      info: "Money paid out for the project: Paid payments less Received vendor refunds, plus Paid expenses. (Hover for breakdown)",
+      info: "Money paid out for the project: Paid payments less Received vendor refunds, plus Paid expenses, plus the TDS on Paid WO payments. (Hover for breakdown)",
       style: "text-red-600",
       breakdown: projectMoney && {
         poAmount: projectMoney.po_outflow,
