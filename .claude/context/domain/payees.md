@@ -123,8 +123,9 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     Payee that does not exist is refused (`frappe.DoesNotExistError`), so nothing is saved.
   - **A Direct Expense** (#1471; GLOSSARY *Direct Expense*): Add Expense's Project Expense /
     Non-Project Expense, with no Expense Request behind it, names who gets paid too.
-    `api/expenses/direct_expense.create_direct_expense(doctype, expense, payee=None)` (POST; Frappe's
-    `create` permission on the doctype) inserts it with the Payee's account copied in the same save
+    `api/expenses/direct_expense.create_direct_expense(doctype, expense, payee=None)` (POST; a caller in
+    `role_profiles.ADD_EXPENSE_PROFILES`, the profiles shown Add Expense, #1495, and Frappe's `create`
+    permission on the doctype) inserts it with the Payee's account copied in the same save
     (`expense_payee.create_direct_expense`, through `apply_picked_payee`, so a vendor named wins as on
     a request) and commits once. `expense` is a closed field list (`DIRECT_EXPENSE_FIELDS`): a
     `status`, approval stamp or `pay_to_*` sent is refused, so the status stays the doctype's
