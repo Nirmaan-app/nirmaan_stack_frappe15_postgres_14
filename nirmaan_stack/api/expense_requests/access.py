@@ -99,12 +99,44 @@ def guard_requestable(expense_type: str, check_visibility: bool = True) -> None:
 		)
 
 
-def can_raise_requests(user: str | None = None) -> bool:
-	"""May the caller raise an expense request at all: is any requestable type visible to them?"""
-	profile = caller_role_profile(user)
+def profile_can_raise(profile: str | None) -> bool:
+	"""May a role profile raise at least one requestable type? Admin always may."""
 	if profile == ADMIN_PROFILE:
 		return True
 	return bool(profile) and any(profile in allowed_roles_for_type(t) for t in requestable_types())
+
+
+def can_raise_requests(user: str | None = None) -> bool:
+	"""May the caller raise an expense request at all: is any requestable type visible to them?"""
+	return profile_can_raise(caller_role_profile(user))
+
+
+# Records without review (spec #1494, #1498; GLOSSARY): the role profiles listed on the single
+# `Expense Settings`, as `Expense Type Role` rows. Admin is implicit and never stored.
+EXPENSE_SETTINGS = "Expense Settings"
+RECORDS_WITHOUT_REVIEW_FIELD = "records_without_review"
+
+
+def listed_records_without_review() -> list[str]:
+	"""The profiles stored on the list, in order. Admin is never among them."""
+	return frappe.get_all(
+		"Expense Type Role",
+		filters={"parenttype": EXPENSE_SETTINGS, "parentfield": RECORDS_WITHOUT_REVIEW_FIELD},
+		pluck="role_profile",
+		order_by="idx asc",
+	)
+
+
+def records_without_review(user: str | None = None) -> bool:
+	"""Does the caller record without review: is their Expense Request approved on submit?
+
+	Admin (and `Administrator`) always does; anyone else when their profile is listed on
+	Expense Settings. It skips the Reviewer, never the amount rule.
+	"""
+	profile = caller_role_profile(user)
+	if profile == ADMIN_PROFILE:
+		return True
+	return bool(profile) and profile in listed_records_without_review()
 
 
 def can_name_expense_payee(user: str | None = None) -> bool:

@@ -1,0 +1,47 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-10-20 01:16:12.030708",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "records_without_review"
+ ],
+ "fields": [
+  {
+   "description": "Role profiles whose Expense Requests are approved on submit, with no Reviewer. Admin always records without review and is never listed. Only a profile that may raise at least one expense type can be listed. Edited in Packages Settings > Expense Packages.",
+   "fieldname": "records_without_review",
+   "fieldtype": "Table",
+   "label": "Records without review",
+   "options": "Expense Type Role"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-10-20 01:16:12.030708",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Expense Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

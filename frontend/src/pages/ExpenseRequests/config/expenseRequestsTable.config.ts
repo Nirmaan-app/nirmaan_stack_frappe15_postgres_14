@@ -7,6 +7,8 @@ export const DEFAULT_EXR_FIELDS_TO_FETCH: (keyof ExpenseRequest | "name" | "owne
     "name", "creation", "modified", "owner",
     "type", "projects", "amount", "comment",
     "status", "reviewed_by", "reviewed_on", "review_comment",
+    // Records without review (#1498): shown in place of a reviewer.
+    "approved_on_submit",
 ];
 
 export const EXR_SEARCHABLE_FIELDS: SearchFieldOption[] = [

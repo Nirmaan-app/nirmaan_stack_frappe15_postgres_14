@@ -328,7 +328,14 @@ class TestExpenseRequests(FrappeTestCase):
 		self.assertEqual(out["status"], "Rejected")
 
 	def test_accountant_cannot_review_a_request_a_pm_did_not_raise(self):
-		res = self._raise_as("Administrator")
+		# An Admin's request is approved on submit (#1498), so a pending one an Admin owns is
+		# put in place directly: this tests the review gate, not the intake.
+		doc = frappe.get_doc({
+			"doctype": "Expense Request", "type": NON_PROJECT_TYPE, "amount": 4300,
+			"status": "Pending Approval",
+			"source_data": json.dumps({"responses": {"detail": {"description": "test req"}}}),
+		}).insert(ignore_permissions=True)
+		res = {"name": doc.name}
 		self.addCleanup(frappe.delete_doc, "Expense Request", res["name"],
 		                force=True, ignore_permissions=True)
 		self.assertFalse(self._row_as(ACC_USER, res["name"])["can_review"])
