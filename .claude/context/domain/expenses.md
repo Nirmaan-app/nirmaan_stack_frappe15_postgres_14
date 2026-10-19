@@ -45,6 +45,15 @@ Both share one approval lifecycle and are entered/managed together in a single u
   Paid = Admin, Accountant, Accountant Lead** (`can_mark_paid` = `PAYMENT_SETTLE_PROFILES`); HR Executive
   lost Mark as Paid on the old pages with #1497. A reject needs a reason; Mark as Paid needs payment
   date, reference and receipt. The bank-line rules (`expense_bank_links.validate`) still have the last word.
+- **An L1 reviewer's review of an Expense Request is the L1 step** (#1499, ADR-0016 amendment 3).
+  `starting_status(amount, raised_by, reviewed_by)` clears L1 when the request's `reviewed_by` is L1
+  (`is_l1`), exactly as for an L1 raiser: an Admin-reviewed ₹22,000 request's Expense is born
+  `Approved`, ₹60,000 `CEO Pending` with `approval_date` stamped. An HR or Accounts review clears
+  nothing, so ₹15,000 and above still waits for an Admin. The review clears L1 only, even when the
+  CEO reviews. ⚠️ `review.approve_expense_request` saves the request's `reviewed_by` BEFORE it
+  inserts the ledger row, because the ledger's `validate` reads the reviewer from the request
+  (`approval_raiser.expense_reviewer`). The dialog's preview passes the caller as the reviewer
+  (`convert.target_status(req, reviewer)`).
 - **Project Expenses use only project-flagged (`project=1`) Expense Types** (ADR 0009), and Non
   Project Expenses only `non_project=1` ones. **Enforced on the server by both ledgers' `validate`**
   (`services/expense_type_ledger.check_expense_type`, #1496), so it covers every write path: the

@@ -27,6 +27,7 @@ import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import SITEURL from "@/constants/siteURL";
 import { attachmentsFromSourceData } from "@/utils/expenseFormat";
+import { TIER_AUTO_APPROVE_BELOW, TIER_L2_ABOVE_EXPENSES } from "@/utils/approvalTiers";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { PAYEE_RULE, asPayeeRule, noAccountReviewLine, payeeAccountLine } from "@/utils/payees/expensePayee";
 import { bankLine } from "@/utils/payees/payeeForm";
@@ -243,10 +244,25 @@ export const ReviewActionDialog: React.FC<Props> = ({
                                 would be free to disagree with what `validate` actually does. */}
                             <span className="font-medium">{targetStatus}</span>
                         </p>
+                        {/* Who approves next (#1499). An Admin's review IS the L1 step, so the
+                            server's landing status already says whose approval comes next:
+                            Requested = an Admin's, CEO Pending = the CEO's. */}
+                        {targetStatus === "Requested" && (
+                            <p className="mt-1.5 font-medium">
+                                An Admin approves it next{(r?.amount ?? 0) > TIER_L2_ABOVE_EXPENSES ? ", then the CEO" : ""}.
+                            </p>
+                        )}
+                        {targetStatus === "CEO Pending" && (
+                            <p className="mt-1.5 font-medium">
+                                Your approval is the first-level step. The CEO approves it next.
+                            </p>
+                        )}
                         <p className="mt-1 text-xs text-muted-foreground">
                             {landsApproved
                                 ? "The answers above are written onto it, the bill is carried across, and the accountant marks it Paid. Money moves at that step, not this one."
-                                : "The answers above are written onto it and the bill is carried across — but this amount still needs the expense itself to be approved before it can be paid. Money moves at that step, not this one."}
+                                : targetStatus === "Requested"
+                                    ? `At ${formatToRoundedIndianRupee(TIER_AUTO_APPROVE_BELOW)} and above, an HR or Accounts approval is not the last one: the expense waits for an Admin in Approve Payments before it can be paid. Money moves at that step, not this one.`
+                                    : `Above ${formatToRoundedIndianRupee(TIER_L2_ABOVE_EXPENSES)} the CEO approves the expense in Approve Payments before it can be paid. Money moves at that step, not this one.`}
                         </p>
                     </div>
                 )}

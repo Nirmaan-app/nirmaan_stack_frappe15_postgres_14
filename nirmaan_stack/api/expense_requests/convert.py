@@ -118,8 +118,8 @@ def compose_description(req, source_format=None) -> str:
 	return " · ".join(p for p in (body, f"[{req.name}]") if p)
 
 
-def target_status(req) -> str:
-	"""What status the ledger row WILL be born at, without creating it.
+def target_status(req, reviewer: str | None = None) -> str:
+	"""What status the ledger row WILL be born at if `reviewer` approves it, without creating it.
 
 	The reviewer is told the outcome before they commit to it, and since 2026-08-20 that
 	outcome depends on the amount -- so the dialog can no longer say "Approved" and be right.
@@ -129,9 +129,10 @@ def target_status(req) -> str:
 	hardcoding a number in this module, or worse in TypeScript -- is how the screen would come to
 	promise one thing while `validate` did another.
 
-	The raiser is the REQUEST's owner -- never the reviewer calling this.
+	The raiser is the REQUEST's owner -- never the reviewer calling this. The reviewer matters too:
+	an Admin's review is the L1 step (#1499), so an Admin and an Accountant are told different things.
 	"""
-	return starting_status(req.amount, req.get("owner")).status
+	return starting_status(req.amount, req.get("owner"), reviewer).status
 
 
 def create_ledger_row(req):
