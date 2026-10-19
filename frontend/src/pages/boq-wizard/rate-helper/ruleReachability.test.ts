@@ -30,6 +30,7 @@ import {
   type ItemListSuggestion,
 } from "./pricingSheetHelper";
 import { familyAttr, itemListPricingSpec, priceItemList } from "./itemListPricing";
+import { applyAdp1 } from "./adp1.harness";
 
 const ASSET = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
   new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v38.json", import.meta.url),   // 12e-4b: v37 -> v38 (Insulation, ADP and every item carried; Piping gains its model questions, the as-written rule and the second opinion; Insulation one key). BEFORE: v37. 12e-2: v33 -> v36 (Insulation and ADP carried byte-equal; Piping gains its rules); 12e-3b: v36 -> v37 (Piping gains its insulation section; Insulation and ADP byte-equal)
@@ -51,6 +52,12 @@ const ASSET_LIVE = readJsonFixture<{ discipline: string; items: Array<Omit<RateM
 const CFG_LIVE: Record<string, RateCategoryConfig> = Object.fromEntries(ASSET_LIVE.category_configs.map((c) => [c.category_id, c]));
 const CONFIGS_LIVE = new Map<string, RateCategoryConfig>(Object.entries(CFG_LIVE));
 const ITEMS_LIVE: RateMasterItem[] = ASSET_LIVE.items.map((it) => ({ ...it, discipline: ASSET_LIVE.discipline } as RateMasterItem));
+// ADP-1 (owner rulings 2026-10-19): v46 + this slice's changes (`applyAdp1`; the asset commit pins it EQUAL to v47); a case
+// marked `adp1` runs on it, on the panel's entry point and the pure pricer alike
+const ASSET_ADP1 = applyAdp1(ASSET_LIVE as any) as typeof ASSET_LIVE;
+const CFG_ADP1: Record<string, RateCategoryConfig> = Object.fromEntries(ASSET_ADP1.category_configs.map((c) => [c.category_id, c]));
+const CONFIGS_ADP1 = new Map<string, RateCategoryConfig>(Object.entries(CFG_ADP1));
+const ITEMS_ADP1: RateMasterItem[] = ASSET_ADP1.items.map((it) => ({ ...it, discipline: ASSET_ADP1.discipline } as RateMasterItem));
 const CONFIGS = new Map<string, RateCategoryConfig>(Object.entries(CFG));
 const ITEMS: RateMasterItem[] = ASSET.items.map((it) => ({ ...it, discipline: ASSET.discipline } as RateMasterItem));
 const INS = "hvac_insulation";
@@ -87,6 +94,8 @@ interface Case {
   v42?: boolean;
   /** SLICE 12e-6c: run on the LIVE asset (v45, then v46) instead of v38 */
   live?: boolean;
+  /** ADP-1: run on the ADP-1 config (v46 + `applyAdp1`, = v47) instead of v38 */
+  adp1?: boolean;
 }
 const NR = "Nitrile Rubber Insulation", PUF = "Tubular Puf Insulation", THM = "Thermal Nitrile Insulation",
   ACO = "Acoustic Nitrile Insulation", FGB = " Fiberglass Rigid Board Insulation, Density 48Kg/m3", CLO = "Cladding Only";
@@ -174,6 +183,18 @@ const T = {
   rpuf: "RPUF with no material answered prices as Tubular Puf Insulation",
   giMap: "A cladding written as 'gi', 'g.i' with none answered is priced as the stocked one of its gauge",
   cloth: "A glass or fibre cloth facing copied as the cladding with none answered prices as the glass cloth cladding",
+  // ── ADP-1 (owner rulings 2026-10-19; U6): the lines it adds. F4's is generated wherever the RPUF line is (code over keys
+  // v38 carries); F3's wherever `choice_text` is (v40+); the rest from v47's keys ──
+  rpufSheet: "RPUF on a per-sq.m row refuses by name",
+  giFramework: "A GI frame or framework with perforated aluminium sheet, with no cladding answered, prices as GI Framework with perforated Al sheet",
+  f1Above: "A pipe size written as a bare number whose inch reading is above the largest refuses",
+  slotNos: "A per-number slot diffuser is priced from the per-metre rate",
+  slotMissing: "A per-number slot diffuser without slot count refuses, naming what is missing",
+  mixNos: "A per-number mixing box / LP plenum is priced from the per-sq.m rate",
+  mixMissing: "A per-number mixing box / LP plenum without width, height, depth refuses, naming what is missing",
+  slotsStock: "A slot count the catalogue does not stock refuses",
+  pieceLen: "A piece length is typed in 'Piece length (m)', else read from the size",
+  slotSqm: "without as the damper on a per-sq.m row of slot diffuser refuses",
 };
 /** Tab lines that are NOT panel-path rules (a catalogue / rate-master rule the pricer never reads), by name. */
 const NOT_PANEL_RULES: Record<string, string> = {
@@ -477,6 +498,33 @@ const CASES: Case[] = [
   { id: "C5a", rule: T.typedSize, cat: INS, path: "ptyped", kind: "pos", unit: "RMT", live: true, model: [NIT], edits: ptyped({ pipe_size_mm: "40-50" }, ["pipe_size_mm"]), re: ["Type one pipe size, in mm or inches"], priced: false },
   { id: "C5b-calc", rule: T.typedSize, cat: INS, path: "calc", kind: "pos", live: true, edits: calc(NR, { cladding: "26G Aluminium", thickness_mm: "19", pipe_size_mm: "50 mm O.D." }, ["pipe_size_mm"]), rowUnit: "mts", re: ["Type one pipe size, in mm or inches"], priced: false },
   { id: "C5c-neg", rule: T.typedSize, cat: INS, path: "panel", kind: "neg", unit: "RMT", live: true, model: [m(NIT, { pipe_size_mm: "40-50" })], re: ["pipe size: range '40-50' -> its top value 50"], not: ["Type one pipe size"], priced: true },
+  // ── ADP-1 (owner rulings 2026-10-19): one positive and one negative case per new line, from the panel's entry point ──
+  { id: "AD1a", rule: T.slotNos, cat: ADP, path: "panel", kind: "pos", unit: "Nos", adp1: true, model: [{ family: "slot diffuser", damper: "with", slot_count: "3", size_mm: "1500 mm long" }], re: ["H3 per-number slot diffuser: the per-metre rate (slots and damper) x the piece length in metres", "supply: 1520 x 1.5 = 2280"], priced: true },
+  { id: "AD1a-calc", rule: T.slotNos, cat: ADP, path: "calc", kind: "pos", adp1: true, edits: calc("slot diffuser", { damper: "with", slot_count: "3", piece_length_m: "1.5" }), rowUnit: "nos", re: ["supply: 1520 x 1.5 = 2280"], priced: true },
+  { id: "AD1b-neg", rule: T.slotNos, cat: ADP, path: "panel", kind: "neg", unit: "RMT", adp1: true, model: [{ family: "slot diffuser", damper: "with", slot_count: "3", size_mm: "1500 mm long" }], re: [], not: ["x the piece length in metres", "1520 x 1.5"], priced: true },
+  { id: "AD2a", rule: T.slotMissing, cat: ADP, path: "panel", kind: "pos", unit: "Nos", adp1: true, model: [{ family: "slot diffuser", damper: "with", size_mm: "600x600" }], re: ["per-number row: no slot count stated to convert the per-metre rate"], priced: false },
+  { id: "AD2b-neg", rule: T.slotMissing, cat: ADP, path: "panel", kind: "neg", unit: "Nos", adp1: true, model: [{ family: "slot diffuser", damper: "with", slot_count: "2", size_mm: "600x600" }], re: [], not: ["stated to convert"], priced: true },
+  { id: "AD3a", rule: T.mixNos, cat: ADP, path: "panel", kind: "pos", unit: "Nos", adp1: true, model: [{ family: "mixing box / LP plenum", insulated: "None", size_mm: "450x450x350" }], re: ["supply: 1230 x 2 x (450 x 450 + 450 x 350 + 450 x 350) / 10^6 + 150 = 1423.05", "supply: pricing input: Mixing box supply adder (amount) = 150"], priced: true },
+  { id: "AD3a-calc", rule: T.mixNos, cat: ADP, path: "calc", kind: "pos", adp1: true, edits: calc("mixing box / LP plenum", { insulated: "with", size_mm: "450x450x350" }, ["size_mm"]), rowUnit: "nos", re: ["/ 10^6 + 150 = 1423.05"], priced: true },
+  { id: "AD3b-neg", rule: T.mixNos, cat: ADP, path: "panel", kind: "neg", unit: "sqm", adp1: true, model: [{ family: "mixing box / LP plenum", insulated: "with" }], re: [], not: ["/ 10^6 + 150", "Mixing box supply adder"], priced: true },
+  { id: "AD4a", rule: T.mixMissing, cat: ADP, path: "panel", kind: "pos", unit: "EA", adp1: true, model: [{ family: "mixing box / LP plenum", insulated: "None", size_mm: "2200 mm Length" }], re: ["per-number row: no width and height stated to convert the per-sq.m rate"], priced: false },
+  { id: "AD4a-calc", rule: T.mixMissing, cat: ADP, path: "calc", kind: "pos", adp1: true, edits: calc("mixing box / LP plenum", { insulated: "with", size_mm: "2200 mm length" }, ["size_mm"]), rowUnit: "nos", re: ["per-number row: no width and height stated to convert the per-sq.m rate"], priced: false },
+  { id: "AD4b-neg", rule: T.mixMissing, cat: ADP, path: "panel", kind: "neg", unit: "Nos", adp1: true, model: [{ family: "mixing box / LP plenum", insulated: "with", size_mm: "600x600x400" }], re: [], not: ["stated to convert"], priced: true },
+  { id: "AD5a", rule: T.slotsStock, cat: ADP, path: "panel", kind: "pos", unit: "RMT", adp1: true, model: [{ family: "slot diffuser", damper: "None", slot_count: "4 Slot" }], re: ["No SKU for a 4-slot diffuser - price this row by hand"], priced: false },
+  { id: "AD5b-neg", rule: T.slotsStock, cat: ADP, path: "panel", kind: "neg", unit: "RMT", adp1: true, model: [{ family: "slot diffuser", damper: "None", slot_count: "3 Slot" }], re: [], not: ["-slot diffuser"], priced: true },
+  { id: "AD6a", rule: T.pieceLen, cat: ADP, path: "panel", kind: "pos", unit: "Nos", adp1: true, model: [{ family: "slot diffuser", damper: "with", slot_count: "3", size_mm: "1000x150" }], re: ["BoQ says 1000x150 -> 1 m (the longest side)"], priced: true },
+  { id: "AD6a-calc", rule: T.pieceLen, cat: ADP, path: "calc", kind: "pos", adp1: true, edits: calc("slot diffuser", { damper: "with", slot_count: "3", piece_length_m: "1500 mm" }), rowUnit: "nos", re: ["piece length: 1500 mm read as 1.5 m"], priced: true },
+  { id: "AD6b-neg", rule: T.pieceLen, cat: ADP, path: "panel", kind: "neg", unit: "Nos", adp1: true, model: [{ family: "slot diffuser", damper: "with", slot_count: "3", size_mm: "75mm" }], re: ["piece length not mentioned -> 1 (no piece length stated - priced at 1 m)"], not: ["BoQ says 75mm"], priced: true },
+  { id: "AD7a", rule: T.slotSqm, cat: ADP, path: "panel", kind: "pos", unit: "sqm", adp1: true, model: [{ family: "slot diffuser", damper: "None" }], re: ["No SKU for a slot diffuser per sq.m without damper - price this row by hand"], priced: false },
+  { id: "AD7b-neg", rule: T.slotSqm, cat: ADP, path: "panel", kind: "neg", unit: "sqm", adp1: true, model: [{ family: "slot diffuser", damper: "with" }], re: [], not: ["per sq.m without damper"], priced: true },
+  { id: "AF1a", rule: T.f1Above, cat: INS, path: "panel", kind: "pos", unit: "RMT", adp1: true, model: [m(NIT, { pipe_size_mm: "4" })], re: ["size 4 has no unit - price this row by hand"], priced: false },
+  { id: "AF1a-calc", rule: T.f1Above, cat: INS, path: "calc", kind: "pos", adp1: true, edits: calc(NR, { cladding: "26G Aluminium", thickness_mm: "19", pipe_size_mm: "4" }, ["pipe_size_mm"]), rowUnit: "mts", re: ["size 4 has no unit - price this row by hand"], priced: false },
+  { id: "AF1b-neg", rule: T.f1Above, cat: INS, path: "panel", kind: "neg", unit: "RMT", adp1: true, model: [m(NIT, { pipe_size_mm: "4 mm" })], re: [], not: ["has no unit"], priced: true },
+  { id: "AF3a", rule: T.giFramework, cat: INS, path: "panel", kind: "pos", unit: "sqm", live: true, model: [{ item: ACO, cladding: "None", thickness_mm: "19", cladding_as_written: "GI frame with perforated Al sheet" }], description: "Acoustic lining with GI frame with perforated Al sheet", re: ["BoQ says GI frame with perforated Al sheet -> priced as GI Framework with perforated Al sheet"], priced: true },
+  { id: "AF3a-head", rule: T.giFramework, cat: INS, path: "panel", kind: "pos", unit: "sqm", live: true, model: [{ item: ACO, cladding: "None", thickness_mm: "19" }], headings: ["Acoustic insulation with GI framework and perforated aluminium sheet"], re: ["BoQ says GI framework and perforated aluminium sheet -> priced as GI Framework with perforated Al sheet"], priced: true },
+  { id: "AF3b-neg", rule: T.giFramework, cat: INS, path: "panel", kind: "neg", unit: "sqm", live: true, model: [{ item: ACO, cladding: "No", thickness_mm: "19", cladding_as_written: "GI frame with perforated Al sheet" }], re: [], not: ["priced as GI Framework"], priced: true },
+  { id: "AF4a", rule: T.rpufSheet, cat: INS, path: "panel", kind: "pos", unit: "sqm", model: [{ item: "None", cladding: "No", thickness_mm: "50", material_as_written: "RPUF" }], re: ["No SKU in the catalogue for RPUF - price this row by hand"], priced: false },
+  { id: "AF4b-neg", rule: T.rpufSheet, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [{ item: "None", cladding: "No", thickness_mm: "40", pipe_size_mm: "100", material_as_written: "RPUF" }], re: ["BoQ says RPUF -> priced as Tubular Puf Insulation"], not: ["No SKU in the catalogue for RPUF"], priced: true },
   { id: "P8c-neg", rule: T.drainCpvc, cat: PIP, path: "calc", kind: "neg", edits: [{ base: null, family: null, attrs: { size_mm: "25" }, other: ["size_mm"] }], rowUnit: "mts", re: ["no pipe type could be told for this item"], not: ["no material stated", "family:CPVC"], priced: false },
 ];
 
@@ -497,7 +545,7 @@ function run(c: Case) {
   const overrides: Record<string, string> = {};
   if (c.edits) overrides[ITEM_LIST_OVERRIDE_KEY] = JSON.stringify({ items: c.edits });
   if (c.rowUnit !== undefined) overrides[ROW_UNIT_OVERRIDE_KEY] = c.rowUnit;
-  const h = makePricingSheetHelper({ configsByCategory: c.live ? CONFIGS_LIVE : c.v42 ? CONFIGS42 : CONFIGS, items: c.live ? ITEMS_LIVE : c.v42 ? ITEMS42 : ITEMS, extractionByRow: ext });
+  const h = makePricingSheetHelper({ configsByCategory: c.adp1 ? CONFIGS_ADP1 : c.live ? CONFIGS_LIVE : c.v42 ? CONFIGS42 : CONFIGS, items: c.adp1 ? ITEMS_ADP1 : c.live ? ITEMS_LIVE : c.v42 ? ITEMS42 : ITEMS, extractionByRow: ext });
   const ctx: RateHelperRowContext & { unit?: string } = {
     excelRow: 1, description: c.path === "calc" ? "" : (c.description ?? ""), nodeType: "Line Item", category: c.cat, discipline: "HVAC",
     rateKinds: ["supply_rate", "install_rate", "combined_rate"], headings: c.path === "calc" ? [] : (c.headings ?? []), ownNotes: c.path === "calc" ? [] : (c.ownNotes ?? []),
@@ -548,13 +596,13 @@ function run(c: Case) {
     if (v.rowPriced) lines.push(`total:${s.values.supply_rate}/${s.values.install_rate}`);
   }
   // the pure pricer over the SAME assembled inputs
-  const spec = itemListPricingSpec((c.live ? CFG_LIVE : c.v42 ? CFG42 : CFG)[c.cat])!;
+  const spec = itemListPricingSpec((c.adp1 ? CFG_ADP1 : c.live ? CFG_LIVE : c.v42 ? CFG42 : CFG)[c.cat])!;
   const edits = decodeItemEdits(overrides[ITEM_LIST_OVERRIDE_KEY], modelItems.length);
   const assembled = assembleItems(edits, modelItems, familyAttr(spec));
   const unitForPure = c.path === "calc" ? v.unit : (c.unit ?? v.unit);
   const rowText = c.path === "calc" ? "" : [c.description ?? "", ...(c.headings ?? [])].join(" | ");
   const ownText = c.path === "calc" ? "" : [c.description ?? "", ...(c.ownNotes ?? [])].join(" | ");
-  const pure = priceItemList(spec, c.live ? ITEMS_LIVE : c.v42 ? ITEMS42 : ITEMS, unitForPure, assembled, rowText, ownText);
+  const pure = priceItemList(spec, c.adp1 ? ITEMS_ADP1 : c.live ? ITEMS_LIVE : c.v42 ? ITEMS42 : ITEMS, unitForPure, assembled, rowText, ownText);
   const working = v.items.flatMap((b) => b.working);
   // 12e-3c (AC2): the strings exactly as a pricer reads them -- no test-side lead -- for the field-id sweep
   const raw: string[] = [...(v.reason ? [v.reason] : []), ...(v.unitNote ? [v.unitNote] : []), ...(s.workings.derivation ?? [])];
@@ -582,12 +630,14 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
   const NEW_12E6B = (): string[] => [T.drainCpvc];
   // SLICE 12e-6c (owner U2 / R): ADD only, on Insulation (Piping's no-unit line is its own, since 12e-4b, and stays counted)
   const NEW_12E6C = (cat: string): string[] => (cat === INS ? [T.rpuf, T.noUnit] : []);
-  const before12e6 = (cat: string) => titles(cat).filter((t) => !NEW_12E6().includes(t) && !NEW_12E6B().includes(t) && !NEW_12E6C(cat).includes(t));
+  // ADP-1 (owner F4; U6): ADD only -- the one line v38 generates (F4's, wherever the RPUF line is)
+  const NEW_ADP1 = (cat: string): string[] => (cat === INS ? [T.rpufSheet] : []);
+  const before12e6 = (cat: string) => titles(cat).filter((t) => !NEW_12E6().includes(t) && !NEW_12E6B().includes(t) && !NEW_12E6C(cat).includes(t) && !NEW_ADP1(cat).includes(t));
 
   it("THE GUARD: the rules this file names EQUAL the rules the config generates (Insulation 25, ADP 18, Piping 21 at 12e-4b / v38 -- Insulation 24 and Piping 19 before it); a new rule without a case, or a case naming a dead rule, fails here", () => {
     for (const cat of [INS, ADP, PIP]) {
       const generated = new Set(titles(cat));
-      const named = new Set([...CASES.filter((c) => c.cat === cat && ((!c.v42 && !c.live) || generated.has(c.rule))).map((c) => c.rule), ...PICKER_CASES.filter(() => cat === ADP).map((p) => p.rule), ...Object.keys(NOT_PANEL_RULES).filter((t) => generated.has(t))]);
+      const named = new Set([...CASES.filter((c) => c.cat === cat && ((!c.v42 && !c.live && !c.adp1) || generated.has(c.rule))).map((c) => c.rule), ...PICKER_CASES.filter(() => cat === ADP).map((p) => p.rule), ...Object.keys(NOT_PANEL_RULES).filter((t) => generated.has(t))]);
       const uncovered = [...generated].filter((t) => !named.has(t));
       const dead = [...named].filter((t) => !generated.has(t));
       expect({ cat, uncovered, dead }).toEqual({ cat, uncovered: [], dead: [] });
@@ -598,7 +648,9 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
     // and the two Piping lines this slice adds are counted here; every old pin now reads the tab without them.
     // INVERTED at 12e-6c (owner U2 / R) by mechanical authority: BEFORE `expect(titles(INS)).toHaveLength(31)`. The F-3 line and
     // the RPUF line; `before12e6` (below) reads the tab without them, so every older pin stands.
-    expect(titles(INS)).toHaveLength(33);
+    // INVERTED at ADP-1 (owner F4, 2026-10-19) by mechanical authority: BEFORE `expect(titles(INS)).toHaveLength(33)`. The F4 line;
+    // `before12e6` reads the tab without it, so every older pin stands.
+    expect(titles(INS)).toHaveLength(34);
     expect(before12e6(INS)).toHaveLength(25);
     // INVERTED at 12e-6b (owner R1 / U2) by mechanical authority: BEFORE `expect(titles(PIP)).toHaveLength(23)`. The one R1 line.
     expect(titles(PIP)).toHaveLength(24);
@@ -654,6 +706,26 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
 
   // SLICE 12e-6c (owner rulings 2026-10-18; AC6): THE 12e-6c GUARD on the LIVE asset -- every line this slice adds to
   // Insulation's tab is generated there, has a positive and a negative case above, and ADP and Piping gain none of them
+  // ADP-1 (owner rulings 2026-10-19; U6, AC8): THE ADP-1 GUARD on the ADP-1 config -- every line this slice adds is generated
+  // there, has a positive model-read case and a negative one above (the calculator cases ride beside them), and Piping
+  // gains none of them
+  it("ADP-1: every new line (on v46 + ADP-1 = v47) has a positive and a negative case; Piping gains none", () => {
+    const NEW: Record<string, string[]> = { [ADP]: [T.slotNos, T.slotMissing, T.mixNos, T.mixMissing, T.slotsStock, T.pieceLen, T.slotSqm], [INS]: [T.rpufSheet, T.giFramework, T.f1Above] };
+    const tA = (cat: string) => itemListRuleOrder(CFG_ADP1[cat], ITEMS_ADP1).map((l) => l.title);
+    const tL = (cat: string) => itemListRuleOrder(CFG_LIVE[cat], ITEMS_LIVE).map((l) => l.title);
+    for (const [cat, list] of Object.entries(NEW)) {
+      expect({ cat, onTab: list.filter((t) => tA(cat).includes(t)) }).toEqual({ cat, onTab: list });
+      // the tab gained exactly these lines over v46 (the F3 / F4 lines are generated on v46 too, by the code)
+      expect({ cat, added: tA(cat).filter((t) => !tL(cat).includes(t)).sort() }).toEqual({ cat, added: list.filter((t) => !tL(cat).includes(t)).sort() });
+      for (const t of list) {
+        const mine = CASES.filter((c) => c.cat === cat && c.rule === t);
+        expect({ rule: t, pos: mine.some((c) => c.kind === "pos" && c.path !== "calc"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
+      }
+    }
+    expect(tA(PIP)).toEqual(tL(PIP));
+    for (const t of [...NEW[ADP], ...NEW[INS]]) expect(tA(PIP)).not.toContain(t);
+  });
+
   it("12e-6c: every new Insulation line (live v46) has a positive and a negative case; ADP and Piping gain none", () => {
     const NEW = [T.noUnit, T.rpuf, T.giMap, T.cloth, T.typedSize];
     const tLive = (cat: string) => itemListRuleOrder(CFG_LIVE[cat], ITEMS_LIVE).map((l) => l.title);

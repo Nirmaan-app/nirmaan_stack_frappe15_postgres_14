@@ -576,8 +576,10 @@ describe("12e-3b AC6 -- the Derivation tab lists the insulation section's lines 
   it("NEGATIVE: a config that declares no delegated section adds nothing -- Insulation 24, ADP 18, v36 Piping 14, and no internal id or tag on any line", () => {
     // INVERTED at 12e-6c (owner U2 / R, 2026-10-18) by mechanical authority: BEFORE `expect(lines(CFG[INS])).toHaveLength(24)`.
     // The F-3 line and the RPUF line generate on Insulation; without them it is still 24.
-    expect(lines(CFG[INS])).toHaveLength(26);
-    expect(lines(CFG[INS]).filter((l) => !["A pipe size written as a bare number that could be inches refuses", "RPUF with no material answered prices as Tubular Puf Insulation"].includes(l.title))).toHaveLength(24);
+    // INVERTED at ADP-1 (owner F4, 2026-10-19) by mechanical authority: BEFORE `expect(lines(CFG[INS])).toHaveLength(26)`. The F4 line (RPUF on a per-sq.m row)
+    // generates wherever the RPUF line does; without it the count below it is unchanged.
+    expect(lines(CFG[INS])).toHaveLength(27);
+    expect(lines(CFG[INS]).filter((l) => !["A pipe size written as a bare number that could be inches refuses", "RPUF with no material answered prices as Tubular Puf Insulation", "RPUF on a per-sq.m row refuses by name"].includes(l.title))).toHaveLength(24);
     expect(lines(CFG[ADP])).toHaveLength(18);
     const v36pip = V36.category_configs.find((c) => c.category_id === PIP)!;
     // INVERTED at 12e-4b (owner F-3): BEFORE `toHaveLength(14)` and `.slice(0, 14)`. v36 already carries the keys the

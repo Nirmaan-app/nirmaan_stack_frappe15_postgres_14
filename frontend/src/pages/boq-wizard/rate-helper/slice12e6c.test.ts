@@ -295,7 +295,10 @@ describe("12e-6c AC6 -- each rule has its own Derivation-tab line, generated fro
   });
   it("each line says its rule in plain words: no internal id, no tag", () => {
     const lines = itemListRuleOrder(CFG[INS], ITEMS).filter((l) => /RPUF|cloth facing|'gi'|bare number|typed pipe size/.test(l.title));
-    expect(lines).toHaveLength(5);
+    // INVERTED at ADP-1 (owner F4, 2026-10-19) by mechanical authority: BEFORE `expect(lines).toHaveLength(5)`. The F4 line (RPUF on a per-sq.m row)
+    // generates wherever the RPUF line does; without it the count below it is unchanged.
+    expect(lines).toHaveLength(6);
+    expect(lines.filter((l) => l.title !== "RPUF on a per-sq.m row refuses by name")).toHaveLength(5);
     const text = lines.map((l) => `${l.title} | ${l.detail ?? ""}`).join("\n");
     expect(text).not.toMatch(/\b[a-z0-9]+_[a-z0-9_]+\b/i);
     expect(text).not.toMatch(/\(owner/i);

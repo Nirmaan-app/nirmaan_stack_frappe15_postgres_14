@@ -59,6 +59,7 @@ import {
 } from "./calculatorPanelParity.harness";
 import { calculatorCtx } from "./PricingCalculator";
 import { itemListRuleOrder } from "./rate-master/itemListRuleOrder";
+import { applyAdp1 } from "@/pages/boq-wizard/rate-helper/adp1.harness";
 
 // ── the fixtures, as snapshotted from the live site on 2026-10-06 ───────────────────────────────
 
@@ -858,6 +859,8 @@ describe("SLICE 12d-8 / T2 -- one parity case per Derivation-tab rule, on the li
     // ── SLICE 12e-6c (owner U2 / R, 2026-10-18): the two lines this slice adds to the v33-generated tab, one parity case each ──
     ins("I32", "A pipe size written as a bare number that could be inches refuses", "RMT", { ...NIT, pipe_size_mm: "1" }),
     ins("I33", "RPUF with no material answered prices as Tubular Puf Insulation", "RMT", { item: "none of these", cladding: "No", thickness_mm: "40", pipe_size_mm: "100", material_as_written: "RPUF" }),
+    // ── ADP-1 (owner F4, 2026-10-19): the one line it adds to the v33-generated tab, one parity case ──
+    ins("I34", "RPUF on a per-sq.m row refuses by name", "sqm", { item: "none of these", cladding: "No", thickness_mm: "50", material_as_written: "RPUF" }),
     adp("A1", "The row's unit decides which kind of rate applies", "nos", { family: "VCD", variant: "GI rectangular", size_mm: "600x600" }),
     adp("A2", "The item's own kind decides which products can price it", "nos", { family: "grille, type not stated", damper: "with", size_mm: "600x150" }),
     adp("A3", "A material the model could not match to any kind refuses", "nos", { family: "none of these", damper: "with", dia_mm: "200" }),
@@ -906,6 +909,49 @@ describe("SLICE 12d-8 / T2 -- one parity case per Derivation-tab rule, on the li
 
   it("the exclusions are exactly the seven named ones", () => {
     expect(CASES.filter((r) => r.expect !== "agree").map((r) => r.id)).toEqual(["I6", "I8", "I13", "I14", "I15", "A4", "A5"]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// ADP-1 (owner rulings 2026-10-19; AC8: each new rule keeps one permanent calculator = panel parity case) -- every line
+// the slice adds, through BOTH surfaces on v46 + ADP-1 (= v47; `applyAdp1`, pinned equal to the asset in its commit)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe("ADP-1 parity -- one case per new rule (slot diffuser H3, plenum H4, F1 / F3 / F4), on v46 + ADP-1", () => {
+  const v46 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
+    new URL("../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v46.json", import.meta.url),
+  );
+  const a = applyAdp1(v46 as any) as typeof v46;
+  const cfgA = new Map<string, RateCategoryConfig>(a.category_configs.map((c) => [c.category_id, c]));
+  const itemsA: RateMasterItem[] = a.items.map((it) => ({ ...it, discipline: a.discipline } as RateMasterItem));
+  const INS = "hvac_insulation", ADP = "hvac_adp";
+  const NIT = { item: "Nitrile Rubber Insulation", cladding: "26G Aluminium", thickness_mm: "19" };
+  const SLOT = "slot diffuser", MIX = "mixing box / LP plenum";
+  const CASES_ADP1: Array<{ id: string; rule: string; c: ParityCase; excludedBy?: string }> = [
+    { id: "N1", rule: "A per-number slot diffuser is priced from the per-metre rate", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: SLOT, damper: "with", slot_count: "3", size_mm: "1000x150" }] } },
+    { id: "N2", rule: "A per-number slot diffuser without slot count refuses, naming what is missing", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: SLOT, damper: "with" }] } },
+    { id: "N3", rule: "A per-number mixing box / LP plenum is priced from the per-sq.m rate", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: MIX, insulated: "with", size_mm: "450x450x350" }] } },
+    { id: "N4", rule: "A per-number mixing box / LP plenum without width, height, depth refuses, naming what is missing", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: MIX, insulated: "with", size_mm: "2200 mm Length" }] } },
+    { id: "N5", rule: "A slot count the catalogue does not stock refuses", c: { cat: ADP, unit: "rmt", desc: "", attrs: {}, items: [{ family: SLOT, damper: "with", slot_count: "4" }] },
+      excludedBy: "not offered by design (the R4 shape): the calculator's Slots dropdown stocks 2 and 3 only, so a 4 cannot be picked -- it is cleared (R1) and refuses 'choose again' where the panel names the 4-slot" },
+    { id: "N6", rule: "A piece length is typed in 'Piece length (m)', else read from the size", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: SLOT, damper: "without", slot_count: "2", size_mm: "600x150" }] } },
+    { id: "N7", rule: "without as the damper on a per-sq.m row of slot diffuser refuses", c: { cat: ADP, unit: "sqm", desc: "", attrs: {}, items: [{ family: SLOT, damper: "without" }] } },
+    { id: "N8", rule: "A pipe size written as a bare number whose inch reading is above the largest refuses", c: { cat: INS, unit: "RMT", desc: "", attrs: {}, items: [{ ...NIT, pipe_size_mm: "4" }] } },
+    { id: "N9", rule: "A GI frame or framework with perforated aluminium sheet, with no cladding answered, prices as GI Framework with perforated Al sheet", c: { cat: INS, unit: "sqm", desc: "", attrs: {}, items: [{ item: "Acoustic Nitrile Insulation", cladding: "None", thickness_mm: "19", cladding_as_written: "GI frame with perforated Al sheet" }] } },
+    { id: "N10", rule: "RPUF on a per-sq.m row refuses by name", c: { cat: INS, unit: "sqm", desc: "", attrs: {}, items: [{ item: "none of these", cladding: "No", thickness_mm: "50", material_as_written: "RPUF" }] } },
+  ];
+  it("the cases name every new line of the ADP-1 config, and only those", () => {
+    const t = (cat: string) => itemListRuleOrder(cfgA.get(cat)!, itemsA).map((l) => l.title);
+    for (const r of CASES_ADP1) expect({ id: r.id, onTab: t(r.c.cat).includes(r.rule) }).toEqual({ id: r.id, onTab: true });
+    expect(new Set(CASES_ADP1.map((r) => r.rule)).size).toBe(CASES_ADP1.length);
+  });
+  it.each(CASES_ADP1.map((r) => [r.id, r] as const))("%s: the calculator and the panel agree", (_, r) => {
+    const run = runParity(cfgA, itemsA, r.c, "full");
+    if (r.excludedBy) {
+      // EXCLUDED by name: the two must differ (a stale exclusion fails) and neither may price
+      expect({ id: r.id, diverges: run.divergences.length > 0, bothPriced: hasPrice(run.panel) || hasPrice(run.calculator) }).toEqual({ id: r.id, diverges: true, bothPriced: false });
+      return;
+    }
+    expect({ id: r.id, rule: r.rule, divergences: run.divergences }).toEqual({ id: r.id, rule: r.rule, divergences: [] });
   });
 });
 

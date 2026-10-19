@@ -99,6 +99,30 @@ export interface NumberReader {
    * the axis resolves exactly as before, byte-identical.
    */
   near?: number;
+  /**
+   * ADP-1 (owner H3, 2026-10-19: "when priced in numbers, we match with SKU (based on slots and damper) and arive at
+   * the per nos rate usingthe lentgh of the piece. so we need to caputre the length"). A TYPED-ONLY number: `from[0]`
+   * names a box the PRICER types into and no model attribute -- it is not a list_spec definition, so the model is
+   * never asked it and the extraction request is byte-identical. It is read only where the family's rule for the
+   * row's unit NEEDS it, so no other family reads it, shows it, or carries a line about it. ABSENT => as before.
+   */
+  typed_only?: boolean;
+  /** ADP-1 (owner H3): with nothing typed, the number is read from this model text attribute -- the size as written --
+   * by `readPieceLength` (the side written as the length, else the longest side of "a x b"). Needs `typed_only`. */
+  length_from?: string;
+  /** ADP-1: the panel label of a `typed_only` box ("Piece length (m)"); a list_spec definition has its own. */
+  label?: string;
+  /** ADP-1 (owner H3 (c), 2026-10-19: 1- and 4-slot rows "refuse"): where the family's rule for the row's unit NEEDS
+   * this number and none of its SKUs in that unit carries the value read, the item refuses with this sentence
+   * (`{value}` = the number). ABSENT => the generic "No SKU for ..." sentence, as before. */
+  not_stocked?: string;
+  /**
+   * ADP-1 (owner F1, 2026-10-19: "agree on all F1 to F4"): on an axis that reads inches (the F-3 rule), a BARE number
+   * below the smallest stocked size whose inch readings (x 25.4 and x the axis's second factor) are ALL ABOVE the
+   * largest also refuses with the F-3 sentence -- nobody can tell "4" from 4 mm or 4 inches (Nitrile "4"). Declared per
+   * axis, so Piping's pipe size is untouched. ABSENT => such a number takes the smallest size, as before.
+   */
+  bare_above_largest?: "refuse";
 }
 
 /**
@@ -131,6 +155,13 @@ export interface ConversionOption {
   needs: string[];
   rule: string;
   pipelines: Record<string, Pipeline>;
+  /** ADP-1 (owner H4 / U4): every geometry step of this option (a `scale` reading a `_from_attr`) also writes its
+   * arithmetic WITH THE NUMBERS into the working ("supply: 1230 x 2 x (450 x 450 + ...) / 10^6 + 150 = 1423.05").
+   * ABSENT => the working is byte-identical. */
+  show_numbers?: boolean;
+  /** ADP-1 (owner H4: "a missing dimension REFUSES and names the missing one"): when no option can be chosen, this
+   * option's part of the refusal names only the facts NOT stated. ABSENT => it names all of its needs, as before. */
+  name_missing?: boolean;
 }
 
 export interface UnitPricing {
@@ -642,7 +673,10 @@ export interface ExtractedListItem {
     /** SLICE 12d-8 (owner R1, 2026-10-09): the SYSTEM cleared this value -- a pick the block's other answers
      * no longer stock (12c-S E2E-1). It is NOT "not mentioned": no default may fill it, the row refuses
      * until the pricer chooses again. Set by the panel helper only; the pure pricer never writes it. */
-    cleared?: boolean }>;
+    cleared?: boolean;
+    /** ADP-1: a section's size MIRRORED from the item above it -- the size that item READ, in mm (12e-3a D3b), entered
+     * as a typed cell. It carries no unit of its own, and is not a bare number the BoQ wrote: F1 never reads it so. */
+    mirrored?: boolean }>;
   /** SLICE 6 (T4, the owner's unit-rate ruling): how many of this item ONE row unit pays for. Absent => 1.
    * Blank / non-numeric / non-positive => the item refuses ("quantity per row unit is blank"). */
   qtyPerRowUnit?: number | string | null;
@@ -751,6 +785,9 @@ export interface ItemPriceResult {
   /** SLICE 12e-5b (owner R2): choices priced from the BoQ's own words through `choice_text` -- the value priced and
    * the amber line the field shows ("BoQ says 26 G GI cladding -> priced as 26G Aluminium"). Present only then. */
   textMapped?: Array<{ attr: string; value: string; line: string }>;
+  /** ADP-1 (owner H3): a `typed_only` number read from the size as written (`length_from`) -- the field shows the value
+   * used and this line ("BoQ says 1000x150 -> 1 m (the longest side)"). Present only then. */
+  lengthRead?: { attr: string; metres: number; line: string };
   /**
    * SLICE 12c-S. EVERY FACT THIS BLOCK RESOLVED, whether or not the row got far enough to use it.
    *
@@ -1398,6 +1435,12 @@ export function readNumber(text: string | number | null | undefined, reader: Num
       if (/^\s*(m|mtr|mtrs|metre|meter)\b/.test(after) && !/^\s*mm/.test(after)) return { value: f.n * 1000, note: `${f.n} m read as ${f.n * 1000} mm` };
       if (/^\s*cm\b/.test(after)) return { value: f.n * 10, note: `${f.n} cm read as ${f.n * 10} mm` };
     }
+    // ADP-1 (owner H3): a reader in METRES (the piece length a pricer types) -- a bare number is metres; a number in
+    // mm or cm is scaled to metres, with its line. No other reader declares "m", so every other reading is unchanged.
+    if (reader.unit === "m") {
+      if (/^\s*mm\b/.test(after)) return { value: f.n / 1000, note: `${f.n} mm read as ${f.n / 1000} m` };
+      if (/^\s*cm\b/.test(after)) return { value: f.n / 100, note: `${f.n} cm read as ${f.n / 100} m` };
+    }
     return { value: f.n };
   };
   const below = (v: { value: number; note?: string }): NumberRead =>
@@ -2006,6 +2049,52 @@ export function clothFacingCladding(
   return null;
 }
 
+/**
+ * ADP-1 (owner F3, 2026-10-19: "GI frame / framework" + "perforated Al sheet", cladding unanswered -> the stocked "GI
+ * Framework with perforated Al sheet"). The 12e-6c fixing mask (O3) reads "GI frame" as a FIXING, which is right for a
+ * frame alone and wrong for this cladding, so the cladding is told FIRST, on the raw words: a GI word, a frame word,
+ * "perforated" and an aluminium word, all present.
+ */
+export const GI_FRAMEWORK_CLADDING = "GI Framework with perforated Al sheet";
+const GI_WORD_RE = /(^|[^a-z0-9])(?:gi|g\.i\.?|galvani[sz]ed)(?![a-z0-9])/i;
+const FRAME_WORD_RE = /(^|[^a-z0-9])frame(?:s|work|works)?(?![a-z0-9])/i;
+const PERFORATED_RE = /(^|[^a-z0-9])perforated(?![a-z0-9])/i;
+/** PURE. Does the text name the GI framework with perforated aluminium sheet? Returns the words as written, or null. */
+export function namesGiFramework(text: string): string | null {
+  const t = String(text ?? "");
+  const gi = t.match(GI_WORD_RE), fr = t.match(FRAME_WORD_RE), pf = t.match(PERFORATED_RE);
+  if (!gi || !fr || !pf || !ALUMINIUM_RE.test(t.slice(pf.index ?? 0))) return null;
+  // the phrase as written: from the first of the GI / frame words to the aluminium word after "perforated" (and a
+  // following "sheet"), so a heading is quoted by its own words, not whole
+  const start = Math.min(gi.index! + gi[1].length, fr.index! + fr[1].length);
+  const afterPf = t.slice(pf.index!);
+  const al = afterPf.match(/(^|[^a-z0-9])(?:alumin(?:i)?um|alu|al\.?)(?![a-z0-9])(?:\s+sheets?(?![a-z0-9]))?/i);
+  if (!al) return null;
+  const end = pf.index! + al.index! + al[0].length;
+  return start < end ? t.slice(start, end).replace(/\s+/g, " ").trim() : null;
+}
+/**
+ * ADP-1 (owner F3). PURE. For the cladding a `choice_text` entry names, left UNANSWERED: the GI framework cladding where
+ * the cladding as written -- else the row's own text or its headings -- names it, with the entry's line ("BoQ says
+ * <words> -> priced as GI Framework with perforated Al sheet"). Only where the category's own cladding definition lists
+ * that option, so no other category reaches it. A family that stocks no such cladding refuses at the SKU match.
+ */
+export function giFrameworkCladding(
+  spec: ItemListPricingSpec, attr: string, item: ExtractedListItem, rowText: string,
+): { to: string; line: string } | null {
+  const values = spec.choice_defs?.[attr]?.values ?? [];
+  if (!values.includes(GI_FRAMEWORK_CLADDING)) return null;
+  for (const e of spec.choice_text ?? []) {
+    if (e.attr !== attr) continue;
+    const raw = rawValue(item, e.from_attr);
+    const said = raw !== null && raw !== "None" ? String(raw).trim() : "";
+    const words = (said !== "" ? namesGiFramework(said) : null) ?? namesGiFramework(rowText);
+    if (words === null) continue;
+    return { to: GI_FRAMEWORK_CLADDING, line: e.line.replace("{from}", words).replace("{to}", GI_FRAMEWORK_CLADDING) };
+  }
+  return null;
+}
+
 /** SLICE 12e-6c (owner R): RPUF -- rigid polyurethane foam -- as the BoQ writes it. The corpus writes "RPUF" only. */
 const RPUF_RE = /(^|[^a-z0-9])(r\.?\s?p\.?\s?u\.?\s?f\.?|rigid\s+(?:puf|pu\s+foam|polyurethane(?:\s+foam)?))(?![a-z0-9])/i;
 /**
@@ -2026,6 +2115,65 @@ export function rpufFamily(
   const fam = Object.keys(spec.families).find((f) => /(^|[^a-z0-9])puf(?![a-z0-9])/i.test(f));
   if (!fam || rowUnitClass === null || !spec.families[fam].units[rowUnitClass]) return null;
   return { family: fam, line: `BoQ says ${m[2].trim()} -> priced as ${fam.trim()}` };
+}
+/**
+ * ADP-1 (owner F4, 2026-10-19: "RPUF on a per-sq.m row refuses by name unless a PUF sheet is stocked"). PURE. Asked
+ * where `rpufFamily` found RPUF but no PUF rule for the row's unit: the refusal by name, or null. A category with no
+ * PUF family (ADP: "RPUF injected panel" on a double-skin plenum) never reaches it, and a unit the PUF family DOES
+ * price returns null (that is `rpufFamily`'s case).
+ */
+export function rpufSheetRefusal(
+  spec: ItemListPricingSpec, item: ExtractedListItem, ownText: string, rowUnitClass: string | null,
+): string | null {
+  const named = spec.no_sku_named_by ? rawValue(item, spec.no_sku_named_by) : null;
+  const copied = named !== null && named !== "None" ? String(named) : "";
+  const m = `${copied} | ${ownText}`.match(RPUF_RE);
+  if (!m) return null;
+  const fam = Object.keys(spec.families).find((f) => /(^|[^a-z0-9])puf(?![a-z0-9])/i.test(f));
+  if (!fam || rowUnitClass === null || spec.families[fam].units[rowUnitClass]) return null;
+  return `No SKU in the catalogue for ${m[2].trim()} - price this row by hand`;
+}
+
+/**
+ * ADP-1 (owner H3, 2026-10-19: per number, "arive at the per nos rate usingthe lentgh of the piece"). PURE. The piece
+ * LENGTH a size as written states, in metres, or null where it states none:
+ *   - a part written as the length ("1500 mm long", "2200 mm Length", "1500 L") -- that part;
+ *   - else a size written "a x b" or "a x b x c" -- its LONGEST side ("1000x150" -> 1 m) (owner, 2026-10-19: confirmed);
+ *   - else a single number with NO label at all, when it is `PIECE_LENGTH_MIN_MM` (300 mm) or more ("1000 mm" -> 1 m);
+ *     below that it is a slot width ("75mm") and is not read (owner ruling on H3, 2026-10-19);
+ *   - nothing else: a single number with any other word ("20mm slot", "110 mm wide"), a list, a range or anything the
+ *     size splitter does not read is not a length.
+ * Each part is read in mm by the ordinary reader (a part in m or cm is scaled), so "1.5 m long" is 1.5 m.
+ */
+const LENGTH_LABEL_RE = /(^|[^a-z])(?:l|lg|long|length)([^a-z]|$)/i;
+/** Owner ruling on H3 (2026-10-19): a lone unlabelled number this long or longer (mm) is the piece length; below it, a slot width. */
+export const PIECE_LENGTH_MIN_MM = 300;
+export function readPieceLength(text: string | number | null | undefined): { metres: number; how: "the length as written" | "the longest side" | "a single size of 300 mm or more" } | null {
+  if (text === null || text === undefined) return null;
+  const raw = String(text).trim();
+  if (raw === "" || raw === "None") return null;
+  const parts = raw.split(/\s*[x×*]\s*/i).map((p) => p.trim()).filter((p) => p !== "");
+  if (parts.length < 1 || parts.length > 3 || !parts.every(partIsReadable)) return null;
+  const mm = (p: string): number | null => {
+    const r = readNumber(p, { from: [], name: "piece length", unit: "mm" });
+    return r && "value" in r && Number.isFinite(r.value) && r.value > 0 ? r.value : null;
+  };
+  const tail = (p: string) => p.replace(/[\d.]+/g, " ").replace(/\b(?:mm|cm|m|mtr|mtrs|metre|meter|nos?|no)\b/gi, " ");
+  const named = parts.filter((p) => LENGTH_LABEL_RE.test(tail(p)));
+  if (named.length > 1) return null;
+  if (named.length === 1) {
+    const v = mm(named[0]);
+    return v === null ? null : { metres: v / 1000, how: "the length as written" };
+  }
+  if (parts.length < 2) {
+    // a single number with no word beside it at all
+    if (/[a-z]/i.test(tail(parts[0]))) return null;
+    const v = mm(parts[0]);
+    return v !== null && v >= PIECE_LENGTH_MIN_MM ? { metres: v / 1000, how: "a single size of 300 mm or more" } : null;
+  }
+  const sides = parts.map(mm);
+  if (sides.some((v) => v === null)) return null;
+  return { metres: Math.max(...(sides as number[])) / 1000, how: "the longest side" };
 }
 
 /**
@@ -2168,6 +2316,11 @@ function priceOneItem(
       out.familyRaw = rpuf.family;
       out.familyLine = rpuf.line;
       out.working.push(rpuf.line);
+    } else {
+      // ADP-1 (owner F4): RPUF on a row whose unit no PUF item is stocked in (a sheet) refuses by name, before the
+      // row-kind default could price it as Thermal Nitrile
+      const sheet = rpufSheetRefusal(spec, item, ownText, rowUnitClass);
+      if (sheet !== null) return blank(sheet);
     }
   }
   // SLICE 12d-1a (owner R2): a row that names NO material prices as the family its ROW KIND implies --
@@ -2365,8 +2518,13 @@ function priceOneItem(
   const unitlessLists = new Set<string>();
   let layersFrom: { attr: string; raw: string; layers: number[] } | null = null;
   const notes: string[] = [];
+  // ADP-1 (owner H3): what this family's rule for the row's unit READS -- its needs, its unit block's, else its
+  // conversions'. A `typed_only` number is read only here, so no other family or unit reads, shows or mentions it.
+  const readsHere = new Set<string>([...fam.needs, ...(fam.units[rowUnitClass]?.needs ?? []),
+    ...(fam.units[rowUnitClass] ? [] : (fam.convert?.[rowUnitClass] ?? []).flatMap((o) => o.needs))]);
   for (const attr of spec.match_attrs) {
     const reader = spec.numbers[attr];
+    if (reader?.typed_only && !readsHere.has(attr)) continue;
     /**
      * SLICE 12d-8 (owner R1, 2026-10-09): A VALUE THE SYSTEM CLEARED STAYS BLANK AND THE ROW REFUSES.
      *
@@ -2469,6 +2627,16 @@ function priceOneItem(
           if (got !== null) break;
         }
       }
+      // ADP-1 (owner H3): nothing typed -- the length the size as written states (`readPieceLength`), with its line
+      if (got === null && reader.length_from) {
+        const said = rawValue(item, reader.length_from);
+        const pl = readPieceLength(said);
+        if (pl) {
+          got = { value: pl.metres };
+          out.lengthRead = { attr, metres: pl.metres, line: `BoQ says ${String(said).trim()} -> ${fmt(pl.metres)} ${reader.unit ?? "m"} (${pl.how})` };
+          notes.push(`${reader.name}: ${out.lengthRead.line}`);
+        }
+      }
       if (got === null) continue;
       if ("value" in got && typeof got.alt === "number") altReads[attr] = { alt: got.alt, raw: got.raw ?? "" };
       if ("blank" in got) {
@@ -2493,7 +2661,8 @@ function priceOneItem(
     // cladding", copied as written) prices as the stocked option the config maps it to, with its amber line
     if (v === null || v === "None") {
       // SLICE 12e-6c (owner O4): ... and, where R2's map takes nothing, a copied glass / fibre cloth facing
-      const ct = choiceTextFor(spec, attr, item) ?? clothFacingCladding(spec, attr, item);
+      // ADP-1 (owner F3): ... and FIRST, the GI framework with perforated aluminium sheet, in the copy or the row's text
+      const ct = giFrameworkCladding(spec, attr, item, rowText) ?? choiceTextFor(spec, attr, item) ?? clothFacingCladding(spec, attr, item);
       if (ct && "refuse" in ct) { unreadable[attr] = ct.refuse; continue; }
       if (ct) {
         read[attr] = ct.to;
@@ -2573,7 +2742,11 @@ function priceOneItem(
     const v = read[rule.attr];
     const byValue = v !== undefined && String(v).toLowerCase().includes(rule.value_contains.toLowerCase());
     const byWord = noneSaid.has(rule.attr) && wordStartHit(ownText, rule.words) !== null;
-    if (byValue || byWord) return { ...blank(rule.refuse), selection: { [familyAttr(spec)]: family } };
+    // ADP-1 (owner H3 (b)): a ruled default that IS the refused value (a slot diffuser's damper not mentioned -> without,
+    // per sq.m) stays on the field, amber, exactly as the SKU-match refusal showed it before; a word-triggered refusal
+    // carries none (the default it would show is not what refused)
+    if (byValue || byWord) return { ...blank(rule.refuse), selection: { [familyAttr(spec)]: family },
+      ...(byValue ? { defaulted: readDefaulted.filter((d) => d.attr === rule.attr) } : {}) };
   }
   /**
    * SLICE 12e-6 (owner R4, 2026-10-16: "ok"): a cladding AS WRITTEN that is a COATING with no glass cloth ("polyshield
@@ -2615,6 +2788,7 @@ function priceOneItem(
   //     else no SKU per that unit
   let unit: UnitPricing | undefined = fam.units[rowUnitClass];
   let target = rowUnitClass;
+  let showNumbers = false;
   let needs = [...fam.needs];
   if (unit) {
     needs.push(...(unit.needs ?? []));
@@ -2622,15 +2796,25 @@ function priceOneItem(
     if (!unit.pipelines) unit = { ...unit, pipelines: spec.default_pipelines };
   } else {
     const options = fam.convert?.[rowUnitClass] ?? [];
-    const chosen = options.find((o) => o.needs.every((n) => n in read));
+    // ADP-1 (owner H3 (d)): a need the config gives a ruled number default for THIS family (the 1 m piece length) does
+    // not stop its option being chosen -- the needs loop below fills it, marked. A need read but unreadable still does
+    // (its refusal names it). No shipped option before ADP-1 needs such a number, so every other choice is unchanged.
+    const ruledNumber = (n: string): boolean => {
+      const nd = spec.number_defaults?.[n];
+      return !!nd && Number.isFinite(nd.value) && !(n in unreadable) && (!nd.families || nd.families.includes(family));
+    };
+    const chosen = options.find((o) => o.needs.every((n) => n in read || ruledNumber(n)));
     if (chosen) {
       unit = { pipelines: chosen.pipelines };
       target = chosen.to;
       needs.push(...chosen.needs);
       out.conversion = { rule: chosen.rule, to: chosen.to };
       out.working.push(chosen.rule);
+      if (chosen.show_numbers) showNumbers = true;
     } else if (options.length) {
-      const wanted = options.map((o) => o.needs.map((n) => reasonName(spec, n)).join(" and ")).join(", or ");
+      // ADP-1 (owner H4): an option declaring `name_missing` names only the facts the row did not state
+      const wanted = options.map((o) => (o.name_missing ? o.needs.filter((n) => !(n in read) && !ruledNumber(n)) : o.needs)
+        .map((n) => reasonName(spec, n)).join(" and ")).join(", or ");
       const bad = options.flatMap((o) => o.needs).map((n) => unreadable[n]).find(Boolean);
       // SLICE 12e-3b (AC5, owner Q12 "option a"): the row waits for the fact that picks its conversion (a size),
       // but the kind's OWN facts do not depend on which conversion that will be -- their ruled defaults are
@@ -2767,6 +2951,15 @@ function priceOneItem(
     return { ...blank(spec.choice_attrs.includes(n) ? `could not tell ${reasonName(spec, n)}` : `no ${reasonName(spec, n)} stated`), selection: sel, ...held(n) };
   }
   out.defaulted = readDefaulted.filter((d) => needs.includes(d.attr));
+  // ADP-1 (owner H3 (c): a 1- or 4-slot row "refuse"): a NEEDED number declaring `not_stocked` whose value none of the
+  // family's SKUs in the target unit carries refuses with that sentence, before the SKU match could name every fact
+  for (const n of needs) {
+    const rd = spec.numbers[n];
+    if (!rd?.not_stocked || !(n in sel)) continue;
+    const rows = projected.filter((it) => it.kind === spec.kind && it.attributes[familyAttr(spec)] === family && it.attributes[spec.unit_class_attr] === target && n in it.attributes);
+    if (!rows.length || rows.some((it) => sameValue(it.attributes[n], sel[n]))) continue;
+    return { ...blank(rd.not_stocked.replace("{value}", fmt(Number(sel[n])))), selection: sel, defaulted: out.defaulted };
+  }
 
   // (5) the ladders (R6): the family's rows of the target class that carry the attribute, narrowed by the
   //     other stated keys those rows carry; exact else next up; above the largest = refuse
@@ -2896,7 +3089,11 @@ function priceOneItem(
         || (written !== undefined && written !== null && BARE_NUMBER_RE.test(withoutTrailingPunctuation(String(written))));
       const lo = rungs[0].size, hi = rungs[rungs.length - 1].size;
       const couldBeInches = [want * 25.4, want * inchAlt].some((mm) => mm >= lo && mm <= hi);
-      if (bare && couldBeInches) return { ...blank(noUnitMessage(fmt(want))), selection: sel, sizeRefused: attr };
+      // ADP-1 (owner F1): on an axis declaring it, a bare number whose every inch reading is ABOVE the largest refuses too
+      // ... and never on a size MIRRORED from the pipe above, which is that pipe's reading in mm (its unit was read there)
+      const mirroredCell = (spec.numbers[attr]?.from ?? []).some((src) => item.attributes?.[src]?.mirrored === true);
+      const aboveAsInches = spec.numbers[attr]?.bare_above_largest === "refuse" && !mirroredCell && [want * 25.4, want * inchAlt].every((mm) => mm > hi);
+      if (bare && (couldBeInches || aboveAsInches)) return { ...blank(noUnitMessage(fmt(want))), selection: sel, sizeRefused: attr };
     }
     const fit = fitModuleLadder(rungs, matched ? matched.rung : want, "up");
     if (!fit) {
@@ -3054,8 +3251,18 @@ function priceOneItem(
       finals[o] = v;
     }
     if (!out.sku && r.matchedItem) out.sku = skuOf(r.matchedItem);
+    // ADP-1 (owner H4 / U4): a geometry step of a `show_numbers` option also writes its arithmetic with the numbers
+    const scaleDefs = showNumbers ? pl.steps.filter((s) => (s as { step?: string }).step === "scale") : [];
+    let scaleAt = 0;
+    let before: Record<string, unknown> = {};
     for (const st of r.steps) {
       if (st.produced) out.working.push(`${id}: ${claddingLabel(st)} = ${fmt(st.produced.value)}`);
+      if (showNumbers && st.step === "scale") {
+        const def = scaleDefs[scaleAt++] as { target?: string; formula?: string; params?: Record<string, unknown> } | undefined;
+        const line = def && st.produced ? numbersLine(def, before, runSel) : null;
+        if (line !== null) out.working.push(`${id}: ${line} = ${fmt(st.produced!.value)}`);
+      }
+      before = (st as { runningValues?: Record<string, unknown> }).runningValues ?? before;
     }
   }
   // (6b) SLICE 11 (owner ruling, 2026-09-25) -- THE ROW UNIT'S CONVERSION FACTOR. The catalogue quotes this
@@ -3080,6 +3287,44 @@ function priceOneItem(
  * no sheet ("cladding: glass cloth x girth"), a bare aluminium sheet no cloth ("cladding: aluminium sheet x overlap x
  * girth"). Both parts, or neither (no cladding), keep the config's label. Every other step's label is untouched. PURE.
  */
+/**
+ * ADP-1 (owner H4 / U4: "working lines show the area formula with the numbers and the + 150 on supply"). PURE. A
+ * `scale` step's formula written with its numbers -- `base` is the step's target before it ran, `<x>_from_attr` the
+ * selection's value, `<x>_from_ctx` the running value (a Pricing Input), a number param itself -- in the working's
+ * words ("x", "/ 10^6"). Null where the step reads no geometry (`_from_attr`), so a markup step adds no line, or where
+ * a number is missing.
+ */
+export function numbersLine(
+  def: { target?: string; formula?: string; params?: Record<string, unknown> },
+  before: Record<string, unknown>,
+  sel: Record<string, string | number>,
+): string | null {
+  const params = def.params ?? {};
+  if (!Object.keys(params).some((k) => k.endsWith("_from_attr"))) return null;
+  const env: Record<string, number> = {};
+  const base = before[String(def.target)];
+  if (typeof base !== "number" || !Number.isFinite(base)) return null;
+  env.base = base;
+  for (const [k, v] of Object.entries(params)) {
+    if (k.endsWith("_from_attr")) {
+      const x = Number(sel[String(v)]);
+      if (!Number.isFinite(x)) return null;
+      env[k.slice(0, -"_from_attr".length)] = x;
+    } else if (k.endsWith("_from_ctx")) {
+      const x = before[String(v)];
+      if (typeof x !== "number" || !Number.isFinite(x)) return null;
+      env[k.slice(0, -"_from_ctx".length)] = x;
+    } else if (typeof v === "number") {
+      env[k] = v;
+    }
+  }
+  return String(def.formula ?? "")
+    .replace(/\/\s*1000000(?![0-9])/g, " / 10^6")
+    .replace(/[A-Za-z_][A-Za-z0-9_]*/g, (id) => (id in env ? fmt(env[id]) : id))
+    .replace(/\s*\*\s*/g, " x ").replace(/\s*\+\s*/g, " + ").replace(/\s*-\s*/g, " - ")
+    .replace(/\(\s*/g, "(").replace(/\s*\)/g, ")").replace(/\s+/g, " ").trim();
+}
+
 const BOTH_PARTS_LABEL = "cladding: (aluminium sheet x overlap + glass cloth) x girth";
 export function claddingLabel(st: { step: string; label: string; params?: Record<string, string | number> }): string {
   if (st.step !== "component" || !st.label.startsWith(BOTH_PARTS_LABEL) || !st.params) return st.label;
@@ -3624,7 +3869,8 @@ export function itemFieldDefs(
       const modelId = reader.from[0];
       if (seenIds.has(modelId)) continue;
       seenIds.add(modelId);
-      const d = defById.get(modelId);
+      // ADP-1: a `typed_only` box has no list_spec definition -- its label is the reader's own
+      const d = defById.get(modelId) ?? (reader.label ? { id: modelId, label: reader.label, type: "text" } as ListSpecDef : undefined);
       const control = controlOf(attr, "text");
       if ((control === "dropdown" || control === "dropdown_or_other") && skus) {
         // a STOCKED size: the options are the sheet's sizes for this family, narrowed by the block's other answers.

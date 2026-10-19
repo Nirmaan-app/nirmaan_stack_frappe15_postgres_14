@@ -45,6 +45,7 @@ const quoteList = (xs: readonly string[], max = 6): string => list(xs.map((x) =>
  * 12d-4c caller and pin stands; do not copy either back here.
  */
 import { plainSentence, pricingInputLabel } from "./plainEnglish";
+import { GI_FRAMEWORK_CLADDING, PIECE_LENGTH_MIN_MM } from "../../boq-wizard/rate-helper/itemListPricing";
 export { plainSentence };
 
 /**
@@ -179,6 +180,12 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   if (pufFam && pr.no_sku_named_by) {
     add(`RPUF with no material answered prices as ${famWord(pufFam)}`,
         `RPUF in the row's own text or the ${name(String(pr.no_sku_named_by))}, where no material was answered or the answer was ${quoteList(noSku)} -- in amber: 'BoQ says RPUF -> priced as ${famWord(pufFam)}', at the next stocked thickness up; a thickness above the largest for the pipe still refuses; an answered material stands`);
+    // ADP-1 (owner F4, 2026-10-19; U6): ADDED -- the line above keeps its words
+    const unpriced = classes.filter((cls) => !pr.families?.[pufFam]?.units?.[cls]);
+    if (unpriced.length) {
+      add(`RPUF on a per-${list(unpriced.map((cls) => String(pr.unit_words?.[cls] ?? cls)))} row refuses by name`,
+          `no ${famWord(pufFam)} is stocked per ${list(unpriced.map((cls) => String(pr.unit_words?.[cls] ?? cls)))}: 'No SKU in the catalogue for RPUF - price this row by hand', where no material was answered; an answered material stands`);
+    }
   }
   const um = pr.unstocked_materials;
   if (um && Array.isArray(um.words) && um.words.length) {
@@ -212,6 +219,29 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     for (const u of fv?.units_not_offered ?? []) notOffered.push(`${famWord(f)} is not offered per ${pr.unit_words?.[u] ?? u}`);
   }
   if (notOffered.length) add("A kind the catalogue does not price in the row's unit", list(notOffered, 4));
+  // ADP-1 (owner H3 / H4, 2026-10-19; U6): ADDED -- a conversion that shows its numbers, a refusal that names the missing
+  // facts, a number the catalogue does not stock. Each keyed on its own config key; the lines above keep their words.
+  for (const [f, fv] of Object.entries<any>(pr.families ?? {})) {
+    for (const [cls, opts] of Object.entries<any>(fv?.convert ?? {})) {
+      for (const o of (Array.isArray(opts) ? opts : []) as any[]) {
+        const from = pr.unit_words?.[cls] ?? cls, to = pr.unit_words?.[o?.to] ?? o?.to;
+        if (o?.show_numbers) {
+          add(`A per-${from} ${famWord(f)} is priced from the per-${to} rate`,
+              `${plainSentence(String(o.rule ?? ""))} -- the working shows the arithmetic with the numbers`);
+        }
+        if (o?.name_missing) {
+          add(`A per-${from} ${famWord(f)} without ${list((o.needs ?? []).filter((n: string) => !pr.number_defaults?.[n]).map(name))} refuses, naming what is missing`,
+              `'per-${from} row: no <the missing ones> stated to convert the per-${to} rate'`);
+        }
+      }
+    }
+  }
+  for (const [attr, rd] of Object.entries<any>(pr.numbers ?? {})) {
+    if (typeof rd?.not_stocked !== "string") continue;
+    const stocked = [...new Set(items.filter((it) => it.kind === pr.kind && typeof it.attributes?.[attr] === "number").map((it) => Number(it.attributes![attr])))].sort((a, b) => a - b);
+    add(`A ${name(attr)} the catalogue does not stock refuses`,
+        `${plainSentence(String(rd.not_stocked).replace("{value}", "<n>"))}${stocked.length ? ` -- the catalogue stocks ${list(stocked.map(String))}` : ""}; only where the kind's rule for the row's unit reads it`);
+  }
 
   const needs = new Set<string>();
   for (const f of Object.values<any>(pr.families ?? {})) {
@@ -246,6 +276,11 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       // SLICE 12e-6 (owner R10; U9): ADDED
       add(`A ${name(attr)} range takes the higher value`, "'25-50 mm' or '25 to 50' prices 50, with a line saying 'states a range - the higher, 50, is taken'");
     }
+    // ADP-1 (owner H3; U6): ADDED -- a number the pricer types, read from the size as written when nothing is typed
+    if (rd?.typed_only && rd?.length_from) {
+      add(`A ${name(attr)} is typed in '${String(rd.label ?? name(attr))}', else read from the ${name(String(rd.length_from))}`,
+          `the side written as the length ('1500 mm long'), else the longest side of a size written 'a x b' or 'a x b x c' ('1000x150' -> 1 ${rd.unit ?? "m"}), else a single number with no label of ${PIECE_LENGTH_MIN_MM} mm or more ('1000 mm' -> 1 ${rd.unit ?? "m"}); below ${PIECE_LENGTH_MIN_MM} mm it is a slot width and is not read; a typed value in mm or cm is converted -- with a line saying so`);
+    }
     if (rd?.inches) {
       // SLICE 12e-2 (owner Q14): the second conversion, where the reader declares one
       const alt = typeof rd.inch_mm_alt === "number" ? `; converted at 25.4 ${rd.unit ?? "mm"} to the inch, then at ${rd.inch_mm_alt} where the first lands on no stocked size` : "";
@@ -267,7 +302,11 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     else if (d && typeof d === "object") defaultLines.push(`${name(attr)} not mentioned -> its ruled value`);
   }
   for (const [attr, d] of Object.entries<any>(pr.number_defaults ?? {})) {
-    if (d && d.value !== undefined) defaultLines.push(`${name(attr)} not mentioned at all -> ${String(d.value)} mm, then the ladder; a ${name(attr)} the row itself states always wins, over a heading's too`);
+    // ADP-1: the unit is the reader's own and "then the ladder" is said only of a laddered number (a 1 m piece length is
+    // neither mm nor laddered); Insulation's thickness (mm, laddered) reads byte-identically
+    const unit = String(pr.numbers?.[attr]?.unit ?? "mm");
+    const ladder = (pr.ladders ?? []).includes(attr) ? ", then the ladder" : "";
+    if (d && d.value !== undefined) defaultLines.push(`${name(attr)} not mentioned at all -> ${String(d.value)} ${unit}${ladder}; a ${name(attr)} the row itself states always wins, over a heading's too`);
   }
   for (const d of (pr.derive_when_none ?? []) as any[]) {
     if (d?.attr) defaultLines.push(`${name(String(d.attr))} not mentioned on ${list((d.families ?? []).map(famWord), 3)} when ${d.when?.attr ? name(String(d.when.attr)) : "a fact"} is ${String(d.when?.equals ?? "stated")} -> ${String(d.then)}`);
@@ -320,6 +359,12 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     }
     add(`A glass or fibre cloth facing copied as the ${name(String(c.attr))} with none answered prices as the glass cloth ${name(String(c.attr))}`,
         `'factory laminated fire resistant fibre cloth fabric', 'reinforced glass cloth' -> Glass Cloth with paint; with aluminium named too -> 24G / 26G Aluminium with Glass Cloth by its gauge (no gauge: 26G); with a line saying 'BoQ says <the words> -> priced as <the option>'; a ${name(String(c.attr))} the model answered stands`);
+    // ADP-1 (owner F3, 2026-10-19; U6): ADDED, where the category's cladding offers the GI framework option
+    const vals = ((ls?.attribute_definitions ?? []) as any[]).find((d) => d?.id === c.attr)?.values ?? [];
+    if (Array.isArray(vals) && vals.includes(GI_FRAMEWORK_CLADDING)) {
+      add(`A GI frame or framework with perforated aluminium sheet, with no ${name(String(c.attr))} answered, prices as ${GI_FRAMEWORK_CLADDING}`,
+          `in the ${name(String(c.from_attr ?? ""))}, else the row's own text or its headings: 'GI frame with perforated Al sheet', 'GI framework and perforated aluminium sheet' -- read before the fixing words are set aside; with a line saying 'BoQ says <the words> -> priced as ${GI_FRAMEWORK_CLADDING}'; a ${name(String(c.attr))} the model answered stands`);
+    }
   }
   for (const r of (pr.read_notes ?? []) as any[]) {
     if (!r?.line) continue;
@@ -371,6 +416,11 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
           [`a number with no unit, below the smallest stocked size, whose reading in inches (at 25.4 or ${inchAlt} ${String(pr.numbers?.[a]?.unit ?? "mm")} to the inch) falls within the stocked sizes: 'size <number> has no unit - price this row by hand'`,
            `the same number written with its unit ('1 inch', '1 mm') prices`,
            `a bare number that cannot be an inch size takes the smallest size, as before`].join("; "));
+    }
+    // ADP-1 (owner F1, 2026-10-19; U6): ADDED -- the line above keeps its words
+    if (pr.numbers?.[a]?.inches === true && pr.numbers?.[a]?.bare_above_largest === "refuse") {
+      add(`A ${name(a)} written as a bare number whose inch reading is above the largest refuses`,
+          `a number with no unit, below the smallest stocked size, whose readings in inches (at 25.4 and ${inchAlt} ${String(pr.numbers?.[a]?.unit ?? "mm")} to the inch) are both above the largest stocked size: 'size <number> has no unit - price this row by hand'`);
     }
   }
 

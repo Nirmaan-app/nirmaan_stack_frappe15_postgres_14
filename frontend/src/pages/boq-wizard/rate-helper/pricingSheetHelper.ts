@@ -1663,6 +1663,9 @@ export interface ItemEdit {
    * Absent (and an empty list) means no field is in Other mode, which is what a fresh item has.
    */
   other?: string[];
+  /** ADP-1: the attribute ids this edit carries MIRRORED from the item above (a section's pipe size). Written only by
+   * the section pass, which encodes it into its own call; never typed by a person and never in a saved edit state. */
+  mirrored?: string[];
   /**
    * SLICE 12e-3a (owner 13:40): the edits of the sections ATTACHED to this item, by section id -- a pipe's own
    * insulation. Kept ON the item so removing or changing the item takes its section with it. Absent on every
@@ -1703,6 +1706,8 @@ export function decodeItemEdits(raw: string | undefined, modelCount: number, sec
       // SLICE 12c-S (F15): the fields explicitly switched to "Other...". A stored state written
       // before this key existed simply has none, which is the fresh-item reading and is correct.
       ...(Array.isArray(e.other) ? { other: e.other.filter((x) => typeof x === "string") } : {}),
+      // ADP-1: the section pass's own mirrored-size marker survives its one encode / decode round
+      ...(Array.isArray(e.mirrored) ? { mirrored: e.mirrored.filter((x) => typeof x === "string") } : {}),
       ...(Object.keys(secs).length ? { sections: secs } : {}),
     };
   };
@@ -1752,7 +1757,7 @@ export function assembleItems(
       attributes[familyAttrId] = { value: e.family };
     }
     // SLICE 12d-1b (owner T6): a value the PRICER typed is marked, so the pricer never parses it as layers.
-    for (const [k, v] of Object.entries(e.attrs)) attributes[k] = { value: v === "" ? null : v, typed: true };
+    for (const [k, v] of Object.entries(e.attrs)) attributes[k] = { value: v === "" ? null : v, typed: true, ...((e.mirrored ?? []).includes(k) ? { mirrored: true } : {}) };
     // SLICE 12e-2 (owner P1): a family TYPED through the family field's "Other..." box (recorded in `other`
     // under the family attribute id, exactly as a size field records it) is marked typed too, so the
     // `family_text` reader can tell a pricer's spelling from a model's answer. A block that never opened the
@@ -2278,9 +2283,13 @@ function itemBlockView(
     const d = defaultedBy.get(f.skuAttr);
     // a "None" (or an absent-as-none) answer shows the ruled default it became, marked; the pricer's own pick
     // shows as picked
-    const defaulted = !!d && !userEdited && (stated === "None" || stated === "");
+    // ADP-1 (owner H3 (d) / U2): a TYPED-ONLY box the pricer cleared is not stated either -- it shows its ruled default
+    const defaulted = !!d && (stated === "None" || stated === "") && (!userEdited || (stated === "" && !!spec.numbers[f.skuAttr]?.typed_only));
     const tm = userEdited ? undefined : textMappedBy.get(f.skuAttr);
     let value = defaulted ? d!.value : tm ? tm.value : stated;
+    // ADP-1 (owner H3): a typed-only number read from the size as written shows the value USED, with its line below
+    const lr = stated === "" && res.lengthRead?.attr === f.skuAttr ? res.lengthRead : undefined;
+    if (lr) value = fmtNum(lr.metres);
     const hop = hopBy.get(f.skuAttr);
     // OWNER FA8: `dropdown_or_other` is a size dropdown too -- it shows the LADDER RESULT with the
     // note naming the stated size, which is the whole reason an unstocked size may be typed.
@@ -2469,6 +2478,7 @@ function itemBlockView(
         if (!note && line && /->/.test(line) && /priced as/.test(line)) note = line;
       }
     }
+    if (lr && !note) note = lr.line;
     const dropped = clearedByBlock.get(f.id);
     if (dropped !== undefined) note = `${dropped}${u} is not stocked with the other answers on this item -- choose again`;
     const ov = overrideBy.get(f.skuAttr);
@@ -2923,6 +2933,8 @@ function computeItemListOwn(
    *     own choice fields and their labels.
    */
   const fieldLabels: Record<string, string> = Object.fromEntries(defs.map((d) => [d.id, String(d.label ?? d.id)]));
+  // ADP-1: a `typed_only` number has no definition -- its own label names it ("piece length not mentioned -> 1 ...")
+  for (const [id, rd] of Object.entries(spec.numbers)) if (rd.typed_only && rd.label && !(id in fieldLabels)) fieldLabels[id] = rd.label;
   const pickSentences: Array<[string, string]> = calculator
     ? spec.choice_attrs.map((id) => {
         const word = labelAsWord(fieldLabels[id] ?? id);
@@ -3105,6 +3117,8 @@ function computeItemList(
       attrs: mirrored ? { ...secEdit.attrs, [toId!]: mirrorText! } : refusedByPipe ? { ...secEdit.attrs, [toId!]: "" } : { ...secEdit.attrs },
       ...(qtyLinked ? { qty: ownerQty } : (secEdit.qty !== undefined ? { qty: secEdit.qty } : {})),
       ...(mirrored || refusedByPipe ? { other: [...new Set([...(secEdit.other ?? []), toId!])] } : (secEdit.other ? { other: [...secEdit.other] } : {})),
+      // ADP-1: the mirrored size is marked, so F1 does not read the pipe's mm size as a bare number the BoQ wrote
+      ...(mirrored ? { mirrored: [toId!] } : {}),
     };
     const dext = modelItem ? ({ excelRow: ctx.excelRow, description: ctx.description, attributes: {}, items: [modelItem] } as ExtractionRowWithItems) : undefined;
     /**

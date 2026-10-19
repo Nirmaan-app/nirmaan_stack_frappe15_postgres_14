@@ -237,8 +237,8 @@ export function pipelinesOf(cfg: unknown): Array<[string, any]> {
  * itself hold a slash ("mixing box / LP plenum") -- so the family travels beside the id. `pipelinesOf` is this
  * list without the third member, so the ids and their order are one definition.
  */
-function pipelinesWithFamily(cfg: unknown): Array<[string, any, string | null]> {
-  const out: Array<[string, any, string | null]> = [];
+function pipelinesWithFamily(cfg: unknown): Array<[string, any, string | null, boolean?]> {
+  const out: Array<[string, any, string | null, boolean?]> = [];
   const own = (cfg as any)?.pipelines ?? {};
   for (const pid of Object.keys(own).sort()) out.push([pid, own[pid] ?? {}, null]);
   const fams = (cfg as any)?.list_spec?.pricing?.families ?? {};
@@ -247,6 +247,20 @@ function pipelinesWithFamily(cfg: unknown): Array<[string, any, string | null]> 
     for (const uc of Object.keys(units).sort()) {
       const pls = units[uc]?.pipelines ?? {};
       for (const pid of Object.keys(pls).sort()) out.push([`${fam}/${uc}/${pid}`, pls[pid] ?? {}, fam]);
+    }
+    /**
+     * ADP-1 (owner Q2, 2026-10-19: "ok"): ... and every `convert` option's pipelines. ADP's per-number rules (the
+     * mixing-box supply adder, the flexible duct's metres per piece) live there, and the walk above alone reported
+     * them read by nothing. The id carries the option's index, since one class may convert in several ways. An
+     * option prices a per-number ROW, never a SKU at its own unit, so the impact panel truthfully moves 0 SKUs
+     * through it; the input is still reached ("used by").
+     */
+    const conv = fams[fam]?.convert ?? {};
+    for (const uc of Object.keys(conv).sort()) {
+      (Array.isArray(conv[uc]) ? conv[uc] : []).forEach((o: any, i: number) => {
+        const pls = o?.pipelines ?? {};
+        for (const pid of Object.keys(pls).sort()) out.push([`${fam}/${uc}->${String(o?.to)}#${i}/${pid}`, pls[pid] ?? {}, fam, true]);
+      });
     }
   }
   return out;
@@ -357,7 +371,7 @@ export function computePricingInputReach(
     const cfg = (configs ?? {})[cid];
     // SLICE 12e-2b (AC8): the attribute an item-list category keeps its family in
     const famAttrId = String((cfg as any)?.list_spec?.family_attribute_id ?? "family");
-    for (const [pid, pl, ownerFamily] of pipelinesWithFamily(cfg)) {
+    for (const [pid, pl, ownerFamily, isConvert] of pipelinesWithFamily(cfg)) {
       const steps: any[] = pl.steps ?? [];
       const owners = ctxOwners(pl);
       const prov = new Map<string, Set<string>>();
@@ -382,6 +396,10 @@ export function computePricingInputReach(
           pipesBy.get(id)!.add(`${cid}|${pid}`);
           if (!readBy.has(id)) readBy.set(id, new Set<string>());
           readBy.get(id)!.add(cid);
+          // ADP-1 (owner Q2): a CONVERSION prices a per-number ROW from another unit's SKU; no catalogue SKU is ever
+          // priced through it at its own unit, so it reaches no SKU column -- the input is "read by" the category
+          // and moves 0 SKUs, which is the truth the impact panel shows
+          if (isConvert) continue;
           if (!hits.has(id)) hits.set(id, new Map<string, Set<string>>());
           const m = hits.get(id)!;
           for (const k of ks) {

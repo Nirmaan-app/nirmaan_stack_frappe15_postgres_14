@@ -499,8 +499,10 @@ describe("12e-2 AC6 -- the Derivation tab lists P1-P5 from the config, no intern
     // INVERTED at 12e-6c (owner U2 / R, 2026-10-18) by mechanical authority: BEFORE `expect(itemListRuleOrder(CFG.hvac_insulation,
     // ITEMS)).toHaveLength(24)` and the Piping words checked on Insulation's whole tab. Insulation gains the F-3 line (U2:
     // every inches axis) and the RPUF line (R); WITHOUT those two its tab is still 24 and carries none of the Piping lines.
-    const NEW_12E6C = ["A pipe size written as a bare number that could be inches refuses", "RPUF with no material answered prices as Tubular Puf Insulation"];
-    expect(itemListRuleOrder(CFG.hvac_insulation, ITEMS)).toHaveLength(26);
+    // INVERTED at ADP-1 (owner F4, 2026-10-19) by mechanical authority: BEFORE `expect(itemListRuleOrder(CFG.hvac_insulation, ITEMS)).toHaveLength(26)`. The F4 line (RPUF on a per-sq.m row)
+    // generates wherever the RPUF line does; without it the count below it is unchanged.
+    const NEW_12E6C = ["A pipe size written as a bare number that could be inches refuses", "RPUF with no material answered prices as Tubular Puf Insulation", "RPUF on a per-sq.m row refuses by name"];
+    expect(itemListRuleOrder(CFG.hvac_insulation, ITEMS)).toHaveLength(27);
     expect(itemListRuleOrder(CFG.hvac_insulation, ITEMS).filter((l) => !NEW_12E6C.includes(l.title))).toHaveLength(24);
     expect(itemListRuleOrder(CFG.hvac_adp, ITEMS)).toHaveLength(18);
     for (const cid of ["hvac_insulation", "hvac_adp"]) {

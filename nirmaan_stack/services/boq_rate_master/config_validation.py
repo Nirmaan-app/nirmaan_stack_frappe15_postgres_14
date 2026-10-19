@@ -811,8 +811,19 @@ _PRICING_NUMBER_KEYS = {"from", "name", "unit", "square", "ratio", "reject_token
                        # stocked size within this distance counts as the stated size (the rule
                        # `size_match.near` declares for a whole category, for one ladder alone). ABSENT =>
                        # the axis resolves exactly as before.
-                       "near"}
+                       "near",
+                       # ADP-1 (owner H3 / F1, 2026-10-19): `typed_only` -- `from` names ONE box the PRICER types
+                       # into, which is no list_spec definition (so the model is never asked it); `length_from` --
+                       # with nothing typed, the length the named TEXT definition (the size as written) states;
+                       # `label` -- that box's panel label; `not_stocked` -- the refusal where the family's SKUs in
+                       # the row's unit carry no such value; `bare_above_largest: "refuse"` -- on an inches axis, a
+                       # bare number whose inch readings all lie above the largest refuses (F-3's sentence).
+                       # ABSENT => every reader is byte-identical.
+                       "typed_only", "length_from", "label", "not_stocked", "bare_above_largest"}
 _PRICING_TYPED_ENTRY = {"one_size"}
+# ADP-1: the units a number reader may declare. Closed so a misspelling cannot read silently as mm. "m" is the
+# piece length a pricer types in metres (H3); the other three are the units the reader has always understood.
+_PRICING_NUMBER_UNITS = {"mm", "nm", "sqm", "m"}
 # SLICE 9 (owner A-4): `second_key` -- a second match key beside a family's primary one (a diffuser's OUTER size
 # beside its neck). Closed, like every other block here: a misspelled key would ship a silently inert rule.
 _PRICING_SECOND_KEY_KEYS = {"families", "primary", "key", "alt_key", "name", "primary_pick"}
@@ -824,7 +835,11 @@ _PRICING_PRIMARY_PICKS = {"largest"}
 # so the difference between them is knowledge about the product and has to be DECLARED.
 _PRICING_FAMILY_KEYS = {"needs", "units", "convert", "units_not_offered"}
 _PRICING_UNIT_KEYS = {"needs", "pipelines"}
-_PRICING_CONVERT_KEYS = {"to", "needs", "rule", "pipelines"}
+_PRICING_CONVERT_KEYS = {"to", "needs", "rule", "pipelines",
+                         # ADP-1 (owner H4 / U4): `show_numbers` -- the option's geometry steps write their arithmetic
+                         # with the numbers into the working; `name_missing` -- its refusal names only the facts not
+                         # stated. Both true or omitted. ABSENT => the working and the refusal are byte-identical.
+                         "show_numbers", "name_missing"}
 # SLICE 6 (owner S6): `absent_as_none` -- an ABSENT answer is read as NOT MENTIONED, so the default fires on it too
 # (declared per attribute; the owner ruled it for UL ONLY, and the config is where that stays).
 _PRICING_DEFAULT_KEYS = {"value", "by_family", "rule", "absent_as_none"}
@@ -1272,8 +1287,27 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         if unk:
             _vthrow(f"list_spec.pricing.numbers['{nid}']: unknown key(s): {', '.join(sorted(unk))}.")
         frm = rd.get("from")
-        if not isinstance(frm, list) or not frm or not all(isinstance(f, str) and f in text_ids for f in frm):
+        if "typed_only" in rd and rd["typed_only"] is not True:
+            _vthrow(f"list_spec.pricing.numbers['{nid}'].typed_only must be exactly true, or be omitted.")
+        if rd.get("typed_only") is True:
+            # ADP-1: ONE typed box, named by an id that is NOT a definition -- a definition would put the question in
+            # the model's request, which is exactly what `typed_only` exists to avoid
+            if not isinstance(frm, list) or len(frm) != 1 or not isinstance(frm[0], str) or not frm[0] or frm[0] in by_id:
+                _vthrow(f"list_spec.pricing.numbers['{nid}'].from must name exactly one typed box that is not an item attribute definition (typed_only).")
+            if not isinstance(rd.get("label"), str) or not rd["label"].strip():
+                _vthrow(f"list_spec.pricing.numbers['{nid}'] is typed_only and needs a label for its box.")
+        elif not isinstance(frm, list) or not frm or not all(isinstance(f, str) and f in text_ids for f in frm):
             _vthrow(f"list_spec.pricing.numbers['{nid}'].from must list text item attribute definitions.")
+        if "length_from" in rd and (rd.get("typed_only") is not True or rd["length_from"] not in text_ids):
+            _vthrow(f"list_spec.pricing.numbers['{nid}'].length_from needs typed_only: true and must name a text item attribute definition.")
+        if "label" in rd and (not isinstance(rd["label"], str) or not rd["label"].strip()):
+            _vthrow(f"list_spec.pricing.numbers['{nid}'].label must be a non-empty string.")
+        if "not_stocked" in rd and (not isinstance(rd["not_stocked"], str) or not rd["not_stocked"].strip()):
+            _vthrow(f"list_spec.pricing.numbers['{nid}'].not_stocked must be a non-empty sentence.")
+        if "bare_above_largest" in rd and (rd["bare_above_largest"] != "refuse" or rd.get("inches") is not True):
+            _vthrow(f"list_spec.pricing.numbers['{nid}'].bare_above_largest must be 'refuse', on a reader with inches: true.")
+        if "unit" in rd and rd["unit"] not in _PRICING_NUMBER_UNITS:
+            _vthrow(f"list_spec.pricing.numbers['{nid}'].unit must be one of {sorted(_PRICING_NUMBER_UNITS)}, or be omitted.")
         if not isinstance(rd.get("name"), str) or not rd.get("name"):
             _vthrow(f"list_spec.pricing.numbers['{nid}'] needs a name.")
         for bkey in ("square", "ratio"):
@@ -1580,13 +1614,16 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
                 for oi, o in enumerate(opts):
                     oloc = f"{cloc}[{oi}]"
                     if not isinstance(o, dict) or set(o) - _PRICING_CONVERT_KEYS:
-                        _vthrow(f"{oloc} must be an object with to / needs / rule / pipelines only.")
+                        _vthrow(f"{oloc} must be an object with to / needs / rule / pipelines (and show_numbers / name_missing) only.")
                     if o.get("to") not in units:
                         _vthrow(f"{oloc}.to must name a unit class the family prices.")
                     if not isinstance(o.get("needs"), list) or not o["needs"] or not all(isinstance(n, str) and n in sku_attrs for n in o["needs"]):
                         _vthrow(f"{oloc}.needs must be a non-empty list of SKU attributes.")
                     if not isinstance(o.get("rule"), str) or not o["rule"]:
                         _vthrow(f"{oloc}.rule must be a non-empty string.")
+                    for bkey in ("show_numbers", "name_missing"):
+                        if bkey in o and o[bkey] is not True:
+                            _vthrow(f"{oloc}.{bkey} must be exactly true, or be omitted.")
                     _validate_pricing_pipelines(o.get("pipelines"), oloc, pr, sku_attrs)
         # SLICE 12c-S (owner S10): every hidden class must be one the family could otherwise be offered
         # in, and a family may not hide ALL of them -- a picker with nothing in it cannot be used.

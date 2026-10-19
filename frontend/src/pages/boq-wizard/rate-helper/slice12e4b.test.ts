@@ -732,8 +732,10 @@ describe("12e-4b AC11 -- the Derivation tab says the new rules, generated from t
     const all = lines(CFG[INS]);
     // INVERTED at 12e-6c (owner U2 / R, 2026-10-18) by mechanical authority: BEFORE `expect(all).toHaveLength(25)`. The F-3
     // line (U2) and the RPUF line (R) generate here too; without them the tab is still 25.
-    expect(all).toHaveLength(27);
-    expect(all.filter((l) => ![NO_UNIT_TITLE, "RPUF with no material answered prices as Tubular Puf Insulation"].includes(l.title))).toHaveLength(25);
+    // INVERTED at ADP-1 (owner F4, 2026-10-19) by mechanical authority: BEFORE `expect(all).toHaveLength(27)`. The F4 line (RPUF on a per-sq.m row)
+    // generates wherever the RPUF line does; without it the count below it is unchanged.
+    expect(all).toHaveLength(28);
+    expect(all.filter((l) => ![NO_UNIT_TITLE, "RPUF with no material answered prices as Tubular Puf Insulation", "RPUF on a per-sq.m row refuses by name"].includes(l.title))).toHaveLength(25);
     const at = all.findIndex((l) => l.title === NEAR_TITLE);
     expect(all[at - 1].title).toBe("Fitting the stated pipe size to the catalogue");
     expect(all[at].detail).toBe("with a line saying so: 'pipe size <stated> is <stocked> on the sheet (within 0.1 mm)'; a size further away takes the next size the catalogue stocks, as before");
@@ -746,8 +748,10 @@ describe("12e-4b AC11 -- the Derivation tab says the new rules, generated from t
     expect(lines(CFG37[PIP])).toHaveLength(20);
     // INVERTED at 12e-6c (owner U2 / R, 2026-10-18) by mechanical authority: BEFORE `expect(lines(CFG37[INS])).toHaveLength(24)`
     // and the no-unit line dropping with `inch_mm_alt` or `below_smallest` from a Piping copy. F-3 now follows `inches`.
-    expect(lines(CFG37[INS])).toHaveLength(26);
-    expect(lines(CFG37[INS]).filter((l) => ![NO_UNIT_TITLE, "RPUF with no material answered prices as Tubular Puf Insulation"].includes(l.title))).toHaveLength(24);
+    // INVERTED at ADP-1 (owner F4, 2026-10-19) by mechanical authority: BEFORE `expect(lines(CFG37[INS])).toHaveLength(26)`. The F4 line (RPUF on a per-sq.m row)
+    // generates wherever the RPUF line does; without it the count below it is unchanged.
+    expect(lines(CFG37[INS])).toHaveLength(27);
+    expect(lines(CFG37[INS]).filter((l) => ![NO_UNIT_TITLE, "RPUF with no material answered prices as Tubular Puf Insulation", "RPUF on a per-sq.m row refuses by name"].includes(l.title))).toHaveLength(24);
     expect(lines(CFG37[INS]).map((l) => l.title)).not.toContain(NEAR_TITLE);
     const without = (mut: (c: Record<string, any>) => void, cat: string) => { const c = structuredClone(CFG) as Record<string, any>; mut(c); return lines(c[cat] as RateCategoryConfig).map((l) => l.title); };
     expect(without((c) => delete c[PIP].list_spec.pricing.family_text.from_attr, PIP)).toEqual(lines(CFG[PIP]).map((l) => l.title).filter((t) => t !== AS_WRITTEN_TITLE));
