@@ -515,6 +515,19 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   the rest of this module. It refuses two distinct ways — wrong role, and own request — and
   runs before any write, so a refusal mutates nothing. Admin passes both (they are the
   fallback reviewer for every unrouted category).
+- **Records without review (spec #1494, #1498).** A raiser whose profile is on the single
+  `Expense Settings` list (`records_without_review`, `Expense Type Role` rows), or any Admin, has
+  the request approved on submit: `create.create_expense_request` creates the Expense in the
+  same transaction, sets the request `Approved` and `approved_on_submit = 1` and leaves
+  `reviewed_by` blank. The Expense's status still comes from the ledger `validate`
+  (`expense_decision.apply_starting_status`), so it skips the Reviewer, never the amount rule:
+  HR ₹40,000 lands at Requested for an Admin. The one question "is this raiser on it" is
+  `access.records_without_review(user)`; the dialog reads it from `get_request_catalog`. The
+  list is NOT a fixture (Admin edits survive migrate); `Expense Settings.validate` refuses the
+  Admin profile and any profile that can raise no type (`access.profile_can_raise`); the
+  Expense Packages read drops a listed profile that has since lost all its types. Seeded once
+  by `v3_0.seed_records_without_review` (Accountant, Accountant Lead, HR Executive, HR Lead).
+  Edited only through the admin-gated `api/expense_requests/expense_settings`.
 - **⚠️ `Expense Type` IS A FIXTURE, so `fixtures/expense_type.json` is AUTHORITATIVE.** Every
   `bench migrate` re-imports each row and RESETS any field the file does not carry. When
   `source_format` and `expense_category` were added and the fixture was not regenerated, ONE

@@ -8,6 +8,10 @@
  */
 
 import type { RequestCatalogType } from "@/types/NirmaanStack/ExpenseRequest";
+import {
+    APPROVAL_TIERS, initialStatusForRaiser, requiredTier, TIER_L2_ABOVE_EXPENSES, type RaiserLevel,
+} from "@/utils/approvalTiers";
+import { parseNumber } from "@/utils/parseNumber";
 
 /** The Project field: absent on a non-project type, required on a project-only type. */
 export type ProjectField = "hidden" | "optional" | "required";
@@ -53,4 +57,40 @@ export const newExpenseFields = ({
         ? "form"
         : type.has_format && formatLoading ? "loading" : "description";
     return { project, vendor: project !== "hidden" && projectChosen, details };
+};
+
+export interface NewExpenseSubmitInput {
+    /** The raiser records without review (server-computed, `get_request_catalog`). */
+    recordsWithoutReview: boolean;
+    amount: string | number | null | undefined;
+    /** The raiser's own approval level (`raiserLevelOf`). */
+    level: RaiserLevel | null;
+}
+
+export interface NewExpenseSubmit {
+    label: "Record expense" | "Send for review";
+    /** For a raiser on Records without review: who approves the Expense next. Null otherwise. */
+    nextApprover: string | null;
+}
+
+/**
+ * The submit button of a new expense (#1498). A raiser on Records without review has the request
+ * approved on submit, so the button reads "Record expense" and says who approves the Expense next:
+ * the amount rule plus the raiser's own step, as the ledger applies it
+ * (`expense_decision.starting_status`). Everyone else sends it for review.
+ */
+export const newExpenseSubmit = ({
+    recordsWithoutReview, amount, level,
+}: NewExpenseSubmitInput): NewExpenseSubmit => {
+    if (!recordsWithoutReview) return { label: "Send for review", nextApprover: null };
+    if (parseNumber(amount) <= 0) return { label: "Record expense", nextApprover: null };
+    const status = initialStatusForRaiser(amount, TIER_L2_ABOVE_EXPENSES, level);
+    const nextApprover = status === "Approved"
+        ? "Approved as soon as you record it."
+        : status === "CEO Pending"
+            ? "The CEO approves it next."
+            : requiredTier(amount, TIER_L2_ABOVE_EXPENSES) === APPROVAL_TIERS.l1l2
+                ? "An Admin approves it next, then the CEO."
+                : "An Admin approves it next.";
+    return { label: "Record expense", nextApprover };
 };

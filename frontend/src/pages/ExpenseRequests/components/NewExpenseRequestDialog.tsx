@@ -1,7 +1,8 @@
 // src/pages/ExpenseRequests/components/NewExpenseRequestDialog.tsx
 //
 // Raise an expense request. This creates an `Expense Request`, NOT an expense — the ledger
-// row only exists once a reviewer approves.
+// row only exists once a reviewer approves, or at once for a raiser on Records without review
+// (#1498: the button then reads "Record expense" and says who approves next).
 //
 // The type list comes from the backend (`get_request_catalog`) rather than a TS mirror, so
 // the picker can never offer a type the create endpoint would then refuse. The catalog also
@@ -52,7 +53,9 @@ import {
 } from "@/utils/payees/expensePayee";
 import { payToSave } from "@/utils/payees/payToChoice";
 
-import { newExpenseFields } from "@/utils/newExpenseForm";
+import { newExpenseFields, newExpenseSubmit } from "@/utils/newExpenseForm";
+import { raiserLevelOf } from "@/utils/approvalTiers";
+import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useUserData } from "@/hooks/useUserData";
 import { parseNumber } from "@/utils/parseNumber";
@@ -126,12 +129,30 @@ const EMPTY: FormState = {
     recordInvoice: false, invoice_date: "", invoice_ref: "", existingInvoiceUrl: "",
 };
 
+/** What the toast says once the request is saved. An Expense approved on submit (#1498) comes back
+ *  with its status, so the toast says where it now waits. */
+const submittedToast = (
+    isEdit: boolean,
+    created: { name?: string; created_expense?: string | null; expense_status?: string | null } | undefined,
+): { title: string; description: string } => {
+    if (isEdit) return { title: "Changes saved", description: `${created?.name} is saved.` };
+    if (!created?.created_expense) {
+        return { title: "Sent for review", description: `${created?.name} waits for a reviewer.` };
+    }
+    const next = created.expense_status === "Requested"
+        ? "It waits for an Admin to approve."
+        : created.expense_status === "CEO Pending"
+            ? "It waits for the CEO to approve."
+            : "It is approved.";
+    return { title: "Expense recorded", description: `${created.name}: ${next}` };
+};
+
 export const NewExpenseRequestDialog: React.FC<Props> = ({
     onSuccess, editing = null, onEditingChange,
 }) => {
     const { newExpenseRequestDialog, setNewExpenseRequestDialog } = useDialogStore();
     const { toast } = useToast();
-    const { full_name, user_id } = useUserData();
+    const { full_name, user_id, role } = useUserData();
 
     const [form, setForm] = useState<FormState>(EMPTY);
     const [answers, setAnswers] = useState<FormatAnswers>({});
@@ -319,6 +340,13 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                 !!form.invoice_date && (!hasInvoiceFile || !!form.invoice_ref.trim())
             ))
         );
+    // Records without review (#1498): the server says whether this raiser's request is approved on
+    // submit; the button then reads "Record expense" and says who approves the Expense next.
+    const submitWording = newExpenseSubmit({
+        recordsWithoutReview: !!catalogRes?.message?.records_without_review,
+        amount: amountValue,
+        level: raiserLevelOf(role, user_id, CEO_AUTHORIZED_USER),
+    });
     const canSubmit =
         !!form.expense_type &&
         amountValue > 0 &&
@@ -471,11 +499,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                         : undefined,
             });
             const created = (res as any)?.message;
-            toast({
-                title: "Sent for approval",
-                description: `${created?.name} is now pending review.`,
-                variant: "success",
-            });
+            toast({ ...submittedToast(isEdit, created), variant: "success" });
             close();
             onSuccess?.();
         } catch (e: any) {
@@ -688,12 +712,17 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                 </div>
 
                 <Separator />
+                {!isEdit && submitWording.nextApprover && (
+                    <p className="text-sm text-muted-foreground text-right">
+                        {submitWording.nextApprover}
+                    </p>
+                )}
                 <AlertDialogFooter className="gap-2">
                     <AlertDialogCancel onClick={close} disabled={submitting}>Cancel</AlertDialogCancel>
                     <Button onClick={handleSubmit} disabled={!canSubmit}>
                         {submitting
                             ? <TailSpin color="white" height={20} width={20} />
-                            : isEdit ? "Save changes" : "Send for Approval"}
+                            : isEdit ? "Save changes" : submitWording.label}
                     </Button>
                 </AlertDialogFooter>
             </AlertDialogContent>

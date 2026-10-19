@@ -28,6 +28,8 @@ export interface ExpenseRequest {
   reviewed_by?: string | null;
   reviewed_on?: string | null;
   review_comment?: string | null;
+  /** 1 when its raiser records without review (#1498): approved on submit, with no Reviewer. */
+  approved_on_submit?: 0 | 1;
   owner: string;
   creation: string;
   modified: string;
@@ -86,4 +88,6 @@ export interface RequestCatalogCategory {
 
 export interface GetRequestCatalogResponse {
   categories: RequestCatalogCategory[];
+  /** The caller records without review (#1498): their request is approved on submit. */
+  records_without_review?: boolean;
 }

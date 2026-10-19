@@ -10,7 +10,13 @@ import json
 
 import frappe
 
-from nirmaan_stack.api.expense_requests.access import PENDING, guard_requestable
+from nirmaan_stack.api.expense_requests.access import (
+	APPROVED,
+	PENDING,
+	guard_requestable,
+	records_without_review,
+)
+from nirmaan_stack.api.expense_requests.convert import create_ledger_row
 from nirmaan_stack.api.expense_requests.flatten import (
 	filled_against_a_form,
 	flat_responses,
@@ -31,7 +37,17 @@ def create_expense_request(
 	source_data=None,
 	payee: str | None = None,
 ):
-	"""Create one `Expense Request` at `Pending Approval`.
+	"""Raise one `Expense Request`: at `Pending Approval` for a Reviewer, or approved on submit.
+
+	A raiser who records without review (`access.records_without_review`: Admin, or a profile on
+	Expense Settings) has the request approved at once: its Expense is created in the same
+	transaction and the request is marked `approved_on_submit`. That skips the Reviewer, never
+	the amount rule: the Expense's status comes from the ledger's own `validate`
+	(`expense_decision.apply_starting_status`, the amount rule plus the Raiser's own step), so an
+	HR raiser's Rs 40,000 Expense still waits at Requested for an Admin.
+
+	Returns `{name, status, projects, created_expense, created_expense_doctype, expense_status}`;
+	the last three are None when the request waits for review.
 
 	`projects` is passed through as given and left to the doctype's `validate`, which
 	checks it against the Expense Type's own project / non_project flags. There is no
@@ -101,9 +117,32 @@ def create_expense_request(
 	# After the promotion, so a vendor a format inferred is paid into its Payee just the same.
 	apply_picked_payee(doc, payee)
 	doc.insert()
+	# One transaction: the request and its Expense land together or not at all.
+	expense = _approve_on_submit(doc) if records_without_review() else None
 	frappe.db.commit()
 
-	return {"name": doc.name, "status": doc.status, "projects": doc.projects}
+	return {
+		"name": doc.name,
+		"status": doc.status,
+		"projects": doc.projects,
+		"created_expense": expense.name if expense else None,
+		"created_expense_doctype": expense.doctype if expense else None,
+		"expense_status": expense.status if expense else None,
+	}
+
+
+def _approve_on_submit(req):
+	"""Approve a just-raised request with no Reviewer and create its Expense; return the Expense.
+
+	`reviewed_by` stays blank: nobody reviewed it, and `approved_on_submit` says why. The Expense's
+	raiser is the request's owner (`approval_raiser.expense_raiser`), so the Raiser's own step
+	is the raiser's, as for a reviewed request.
+	"""
+	expense = create_ledger_row(req)
+	req.status = APPROVED
+	req.approved_on_submit = 1
+	req.save(ignore_permissions=True)
+	return expense
 
 
 def guard_vendor_scope(vendor, projects) -> str | None:
