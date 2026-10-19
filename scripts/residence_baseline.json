@@ -30,7 +30,7 @@
     "rule": "P1"
   },
   "t1_tests_pick_any_row": {
-    "count": 23,
+    "count": 22,
     "description": "Lines in test_*.py fetching a row with empty filters (get_value(doctype, {}...)): the record depends on whatever was modified last.",
     "rule": "T1"
   }
