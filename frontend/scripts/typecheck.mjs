@@ -29,11 +29,14 @@ const FRONTEND_DIRS = [...new Set([process.cwd(), realpathSync(process.cwd())])]
 
 /**
  * Makes a path or message the same in every checkout and on CI: this folder's absolute path is dropped, and a
- * path into node_modules (this checkout's own or a linked one elsewhere) becomes `node_modules/...`.
+ * path into node_modules (this checkout's own or a linked one elsewhere) becomes `node_modules/...`. An absolute
+ * path into any other checkout's `frontend/src/` is dropped too: a worktree's first run reuses another checkout's
+ * `.tsbuildinfo` (devenv.sh typecheck seeds it), and tsc replays that checkout's cached messages.
  */
 function portable(text) {
   let out = text.replace(/\\/g, "/");
   for (const dir of FRONTEND_DIRS) out = out.split(dir).join("");
+  out = out.replace(/(^|["'(\s])\/[^"'(\s]*?\/frontend\/(src\/)/g, "$1$2");
   return out.replace(/(^|["'(\s])[^"'(\s]*?node_modules\//g, "$1node_modules/");
 }
 
