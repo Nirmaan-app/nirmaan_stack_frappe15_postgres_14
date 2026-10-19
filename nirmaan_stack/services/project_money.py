@@ -45,6 +45,15 @@ LIABILITY_EXCLUDED_PO_STATUSES = ("Merged", "Cancelled", "Inactive")
 #: Payments and refunds on this order kind make the Work Order part of the outflow; every other order
 #: kind's make the PO part, so no payment can fall out of the outflow.
 WORK_ORDER_DOCTYPE = "Service Requests"
+#: The TDS on each Paid Work Order payment, both kinds: one row per deduction, with its payment's project
+#: and dates. Binds `%(work_order)s`. Part of the outflow (`project_money`), and read on its own by
+#: `work_order_tds_by_project`.
+_WORK_ORDER_TDS_ROWS = f"""
+    SELECT p.project, p.payment_date, p.creation, d.tds_amount
+    FROM "tab{TDS_DOCTYPE}" d
+    INNER JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = d.project_payment
+    WHERE p.status = 'Paid' AND p.document_type = %(work_order)s
+"""
 
 
 @dataclass(frozen=True)
@@ -73,6 +82,27 @@ class ProjectMoney:
 def project_money_of(project: str, from_date=None, to_date=None) -> ProjectMoney:
     """`project_money` for one project."""
     return project_money([project], from_date, to_date).get(project, ProjectMoney())
+
+
+def work_order_tds_by_project(projects=None) -> dict[str, float]:
+    """`{project: tax}`, all time: the part of each project's `wo_outflow` that is the TDS on its Paid
+    Work Order payments (both kinds), the same rows `project_money` counts. For the 2026-10-20 recount
+    patch, whose CEO Hold preview works out each gap as it was before the tax was counted (#1513).
+    A project with no such tax is missing; read it as 0."""
+    if projects is not None and not projects:
+        return {}
+    in_projects = "AND project IN %(projects)s" if projects is not None else ""
+    rows = frappe.db.sql(
+        f"""
+        SELECT project, SUM(tds_amount) AS tds
+        FROM ({_WORK_ORDER_TDS_ROWS}) AS work_order_tds
+        WHERE COALESCE(project, '') <> '' {in_projects}
+        GROUP BY project
+        """,
+        {"work_order": WORK_ORDER_DOCTYPE, "projects": tuple(projects or ())},
+        as_dict=True,
+    )
+    return {row.project: flt(row.tds) for row in rows}
 
 
 def project_money(projects=None, from_date=None, to_date=None) -> dict[str, ProjectMoney]:
@@ -122,12 +152,7 @@ def project_money(projects=None, from_date=None, to_date=None) -> dict[str, Proj
               AND {scope("project", ON_PAYMENT_DATE)}
             UNION ALL
             SELECT project, 0, tds_amount, 0, 0, 0
-            FROM (
-                SELECT p.project, p.payment_date, p.creation, d.tds_amount
-                FROM "tab{TDS_DOCTYPE}" d
-                INNER JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = d.project_payment
-                WHERE p.status = 'Paid' AND p.document_type = %(work_order)s
-            ) AS work_order_tds
+            FROM ({_WORK_ORDER_TDS_ROWS}) AS work_order_tds
             WHERE {scope("project", ON_PAYMENT_DATE)}
             UNION ALL
             SELECT projects, 0, 0, amount, 0, 0

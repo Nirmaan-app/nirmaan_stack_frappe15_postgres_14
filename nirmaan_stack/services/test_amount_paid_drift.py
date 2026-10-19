@@ -127,11 +127,12 @@ class OrdersFixture(unittest.TestCase):
         frappe.db.commit()
         return name
 
-    def _taxed_payment(self, order, amount, gross, tds, borne_by="Vendor"):
+    def _taxed_payment(self, order, amount, gross, tds, borne_by="Vendor", project=None):
         """A Paid Work Order payment of `amount` with a deduction of `tds` taken on `gross`, borne by
         `borne_by`: `amount` is `gross - tds` when the tax was withheld from the vendor, `gross` when
         the company bore it and the payment was kept whole."""
-        payment = self._payment(WO, order, amount)
+        project = project or self.project
+        payment = self._payment(WO, order, amount, project=project)
         frappe.db.sql(
             f"""INSERT INTO "tab{DEDUCTIONS}"
                     (name, creation, modified, modified_by, owner, docstatus, idx, project_payment,
@@ -140,7 +141,7 @@ class OrdersFixture(unittest.TestCase):
                 VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s,
                         %s, %s, %s, %s, %s, 1, %s, CURRENT_DATE, %s)""",
             (f"{self.PREFIX}-PTD-{frappe.generate_hash(length=10)}", payment, WO, order, self.vendor,
-             self.project, gross, tds, borne_by),
+             project, gross, tds, borne_by),
         )
         frappe.db.commit()
         return payment
