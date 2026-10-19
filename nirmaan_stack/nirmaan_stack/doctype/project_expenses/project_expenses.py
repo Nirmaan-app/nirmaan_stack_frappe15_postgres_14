@@ -11,6 +11,7 @@ from nirmaan_stack.services.approval_tiers import (
 	is_auto_approved,
 	steps_cleared_by_raiser,
 )
+from nirmaan_stack.services.expense_type_ledger import check_expense_type
 
 # ⚠️ THE LOCAL `AUTO_APPROVE_LIMIT = 10000` IS GONE — the rule now lives in ONE
 # place, `services/approval_tiers.py`, shared with payments and mirrored in
@@ -29,6 +30,10 @@ from nirmaan_stack.services.approval_tiers import (
 
 class ProjectExpenses(Document):
 	def validate(self):
+		# The type must belong in this ledger (#1496). On every save, before the create-time
+		# return below; it asks only when the row is new or its type changed.
+		check_expense_type(self)
+
 		# Route the expense on creation by the shared amount rule. Create-time
 		# ONLY, and only while the status is still the pre-approval default, so it
 		# never overrides an explicit status or re-flips a row on a later edit.
