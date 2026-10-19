@@ -105,3 +105,67 @@ class TestVendorsPaid(FrappeTestCase):
                 get_vendors_paid()
         finally:
             frappe.set_user("Administrator")
+
+
+class TestVendorsPaidCountWorkOrderTds(FrappeTestCase):
+    """A Work Order payment counts the TDS withheld from the vendor on it, on the payment's date (#1512,
+    ADR-0034 Amendment A); tax the company paid on top counts nothing. One vendor, by hand:
+
+    - WO W: Paid 9,800 net (10,000 gross, 200 withheld) on 10-May-2026, in FY 2026-27.
+    - WO W: Paid 4,900 net (5,000 gross, 100 withheld) on 10-Mar-2026, in FY 2025-26.
+    - WO C: Paid 800 kept whole, 16 paid by the company on top, on 10-Jun-2026.
+    - WO W: an Approved 2,450 net with 50 withheld: not Paid, so neither counts.
+
+    FY 2026-27: 10,000 + 800 = 10,800. FY 2025-26: 5,000. All time: 15,800.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.V = _raw("Vendors", vendor_name="TEST-1512-VENDOR-PAID")
+        cls.W = _raw(WO, vendor=cls.V, status="Approved")
+        cls.C = _raw(WO, vendor=cls.V, status="Approved")
+        for order, net, gross, tds, borne_by, status, date in (
+            (cls.W, 9800, 10000, 200, "Vendor", "Paid", "2026-05-10"),
+            (cls.W, 4900, 5000, 100, "Vendor", "Paid", "2026-03-10"),
+            (cls.C, 800, 800, 16, "Company", "Paid", "2026-06-10"),
+            (cls.W, 2450, 2500, 50, "Vendor", "Approved", "2026-05-20"),
+        ):
+            payment = _raw("Project Payments", vendor=cls.V, document_type=WO, document_name=order, amount=net,
+                           status=status, payment_date=date)
+            _raw("Payment TDS Deduction", project_payment=payment, vendor=cls.V, document_type=WO,
+                 document_name=order, gross_amount=gross, tds_percentage=2, tds_amount=tds, borne_by=borne_by,
+                 status="Pending")
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.rollback()
+        failures = []
+        for doctype, field in (
+            ("Payment TDS Deduction", "vendor"),
+            ("Project Payments", "vendor"),
+            (WO, "vendor"),
+            ("Vendors", "name"),
+        ):
+            try:
+                frappe.db.delete(doctype, {field: cls.V})
+                frappe.db.commit()
+            except Exception as error:  # noqa: BLE001 - report every scope, strand none silently
+                frappe.db.rollback()
+                failures.append(f"{doctype}: {error}")
+        super().tearDownClass()
+        if failures:
+            raise AssertionError(f"test_vendor_paid left rows behind: {failures}")
+
+    def _paid(self, **dates):
+        return flt(get_vendors_paid(**dates).get(self.V, 0), 2)
+
+    def test_current_fy_paid_counts_the_withheld_tax_of_a_payment_dated_in_the_year(self):
+        self.assertEqual(self._paid(from_date="2026-04-01", to_date="2027-03-31"), 10800.0)
+
+    def test_the_tax_of_a_payment_dated_outside_the_year_counts_in_that_payments_year(self):
+        self.assertEqual(self._paid(from_date="2025-04-01", to_date="2026-03-31"), 5000.0)
+
+    def test_all_time_is_the_work_orders_amount_paid_added_up(self):
+        self.assertEqual(self._paid(), 15800.0)
