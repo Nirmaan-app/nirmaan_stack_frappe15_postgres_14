@@ -34,7 +34,8 @@ def get_customer_financial_details(customer_id):
 
         # What the customer's orders were paid: the stored Amount Paid of every PO and WO on its projects,
         # whatever their status (a Cancelled or Inactive order's Amount Paid is real money out). Never a
-        # sum of payments (ADR-0034): Amount Paid already counts only Paid payments, less Received refunds.
+        # sum of payments (ADR-0034): Amount Paid already counts only Paid payments (on a WO plus the TDS
+        # withheld from the vendor, Amendment A), less Received refunds.
         total_amount_paid = 0.0
         for doctype in ("Procurement Orders", "Service Requests"):
             for chunk in create_batch(project_names, 500):

@@ -2,7 +2,8 @@
  * Which WOs the Reports → WO "Pending Invoices" and "PO with Excess Payments" reports list.
  *
  * Every Approved WO is a candidate and the report's own condition on the stored Amount Paid (Paid
- * payments less Received refunds, ADR-0034) decides. There is no separate "has been paid" filter: one
+ * payments plus the TDS withheld from the vendor, less Received refunds, ADR-0034 Amendment A) decides,
+ * so a WO is never flagged under-paid by its own tax. There is no separate "has been paid" filter: one
  * dropped a WO whose Amount Paid a refund took to zero before its condition was asked (#1461). A WO
  * refunded to zero meets neither condition by itself; one refunded but still overpaid is listed.
  */
