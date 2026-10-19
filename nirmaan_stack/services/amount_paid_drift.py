@@ -178,3 +178,14 @@ def recount_pos(po_names, credit_entry_type: str) -> list[Drift]:
 
 def _drift(m: Mismatch) -> Drift:
     return Drift(m.name, m.stored_paid, m.correct_paid)
+
+
+# ── the 2026-10-20 Work Order recount patch (#1513) ─────────────────────────────────────────────
+# `patches/v3_0/recount_work_order_amount_paid_with_tds` (append-only) calls this by name.
+
+
+def recount_work_orders(names=None) -> list[Mismatch]:
+    """`recount` for many Work Orders at once, every one when `names` is None: each the judge finds
+    wrong is written through the one writer. Returns them as found before; throws if any still differs
+    after. Commits nothing."""
+    return _recount(SERVICE_REQUESTS, names, RECOUNT_CREDIT_ENTRY)

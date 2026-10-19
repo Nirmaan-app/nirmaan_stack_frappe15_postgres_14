@@ -46,16 +46,10 @@ def sync_cashflow_reason(project_id: str) -> None:
 		return  # scheduled-recheck mode — only tasks.ceo_hold_recheck may decide.
 
 	limit = flt(row.cashflow_gap_limit)
-	over_limit = False
-	if row.status != "Completed" and limit > 0:
-		gap = _compute_cashflow_gap(project_id)
-		over_limit = gap > limit
-		if over_limit:
-			core.set_reason(
-				project_id, core.SOURCE_CASHFLOW, core.cashflow_reason_text(gap, limit)
-			)
-		else:
-			core.clear_reason(project_id, core.SOURCE_CASHFLOW)
+	gap = _compute_cashflow_gap(project_id) if watches_cashflow_gap(row.status, limit) else 0.0
+	over_limit = over_cashflow_limit(row.status, limit, gap)
+	if over_limit:
+		core.set_reason(project_id, core.SOURCE_CASHFLOW, core.cashflow_reason_text(gap, limit))
 	else:
 		core.clear_reason(project_id, core.SOURCE_CASHFLOW)
 
@@ -72,6 +66,19 @@ def sync_cashflow_reason(project_id: str) -> None:
 		and "@" in row.ceo_hold_by
 	):
 		_notify_manual_hold_releasable(project_id, row.ceo_hold_by)
+
+
+def watches_cashflow_gap(status, limit) -> bool:
+	"""Whether a project's cashflow gap can hold it at all: it is not Completed and has a positive
+	`cashflow_gap_limit`. Pure."""
+	return status != "Completed" and flt(limit) > 0
+
+
+def over_cashflow_limit(status, limit, gap) -> bool:
+	"""THE cashflow hold rule: a watched project (`watches_cashflow_gap`) whose gap is over its limit
+	carries the `cashflow` CEO Hold reason. Pure: `sync_cashflow_reason` decides with it, and so does
+	the CEO Hold preview of the 2026-10-20 WO recount patch (#1513)."""
+	return watches_cashflow_gap(status, limit) and flt(gap) > flt(limit)
 
 
 def _notify_manual_hold_releasable(project_id: str, holder_user: str) -> None:
