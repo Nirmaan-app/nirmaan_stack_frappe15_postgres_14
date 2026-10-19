@@ -460,7 +460,11 @@ describe("slice 5 / R13 -- 'supply air' = with damper on LINEAR and PLAIN grille
   it("POSITIVE: a linear grille, damper not mentioned, supply air -> with damper, marked with the R13 rule", () => {
     const r = one("Sqm", { family: "linear grille", damper: "None", air: "supply" });
     expect(figures(r)).toEqual([true, 9628, 2800]);
-    expect(r.items[0].defaulted).toEqual([{ attr: "damper", value: "with", rule: "R13 supply-air linear / plain grille = with damper" }]);
+    // INVERTED at ADP-2 (owner H5 / U3, 2026-10-19) by mechanical authority: BEFORE
+    // `toEqual([{ attr: "damper", value: "with", rule: "R13 supply-air linear / plain grille = with damper" }])`. A default a stated
+    // fact decided now carries that fact, so its line can name it ("supply air, damper not mentioned -> ..."); the figures above
+    // are unchanged.
+    expect(r.items[0].defaulted).toEqual([{ attr: "damper", value: "with", rule: "R13 supply-air linear / plain grille = with damper", when: { attr: "air", equals: "supply" } }]);
     // the untyped grille prices as linear (R3), so R13 reaches it too
     expect(figures(one("Sqm", { family: "grille, type not stated", damper: "None", air: "supply" }))).toEqual([true, 9628, 2800]);
   });

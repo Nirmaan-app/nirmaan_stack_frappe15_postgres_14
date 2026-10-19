@@ -456,7 +456,10 @@ describe("12e-2b AC7 -- the Derivation tab: the family is named, and Piping neve
     // INVERTED at ADP-1 (owner F4, 2026-10-19) by mechanical authority: BEFORE `toEqual([26, 18, 15])`. The F4 line (RPUF on a per-sq.m row)
     // generates wherever the RPUF line does; without it the count below it is unchanged.
     const NEW_12E6C = ["A pipe size written as a bare number that could be inches refuses", "RPUF with no material answered prices as Tubular Puf Insulation", "RPUF on a per-sq.m row refuses by name"];
-    expect([lines(INS).length, lines(ADP).length, lines(PIP).length]).toEqual([27, 18, 15]);
+    // INVERTED at ADP-2 H5 fix (a) (owner 2026-10-20) by mechanical authority: BEFORE `toEqual([27, 18, 15])`. R13 reads the air
+    // stream, so the both-streams line generates on this config too; without it the count is unchanged.
+    expect([lines(INS).length, lines(ADP).length, lines(PIP).length]).toEqual([27, 19, 15]);
+    expect(lines(ADP).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(18);
     expect(lines(INS).filter((l) => !NEW_12E6C.includes(l.title))).toHaveLength(24);
     expect(lines(PIP).map((l) => l.title)).toContain("A pipe size written as a bare number that could be inches refuses");
     expect(lines(INS).map((l) => l.title)).toContain("A pipe size written as a bare number that could be inches refuses");

@@ -223,16 +223,28 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   // facts, a number the catalogue does not stock. Each keyed on its own config key; the lines above keep their words.
   for (const [f, fv] of Object.entries<any>(pr.families ?? {})) {
     for (const [cls, opts] of Object.entries<any>(fv?.convert ?? {})) {
-      for (const o of (Array.isArray(opts) ? opts : []) as any[]) {
+      // ADP-2 (owner H7; U6): several conversions that each name what is missing are ONE either-or rule -- the
+      // single-fact option says which fact it takes, and one refusal line offers every way (the lines above keep their words)
+      const optList = (Array.isArray(opts) ? opts : []) as any[];
+      const eitherOr = optList.length > 1 && optList.every((o) => o?.name_missing);
+      const article = (w: string) => (/^[aeiou]/i.test(w) ? "an" : "a");
+      for (const o of optList) {
         const from = pr.unit_words?.[cls] ?? cls, to = pr.unit_words?.[o?.to] ?? o?.to;
+        const single = eitherOr && (o.needs ?? []).length === 1 ? ` with ${article(name(o.needs[0]))} ${name(o.needs[0])}` : "";
         if (o?.show_numbers) {
-          add(`A per-${from} ${famWord(f)} is priced from the per-${to} rate`,
+          add(`A per-${from} ${famWord(f)}${single} is priced from the per-${to} rate`,
               `${plainSentence(String(o.rule ?? ""))} -- the working shows the arithmetic with the numbers`);
         }
+        if (eitherOr) continue;
         if (o?.name_missing) {
           add(`A per-${from} ${famWord(f)} without ${list((o.needs ?? []).filter((n: string) => !pr.number_defaults?.[n]).map(name))} refuses, naming what is missing`,
               `'per-${from} row: no <the missing ones> stated to convert the per-${to} rate'`);
         }
+      }
+      if (eitherOr) {
+        const ways = optList.map((o) => ((o.needs ?? []).length === 1 ? `${article(name(o.needs[0]))} ${name(o.needs[0])}` : (o.needs ?? []).map(name).join(" + "))).join(", or ");
+        add(`A per-${pr.unit_words?.[cls] ?? cls} ${famWord(f)} without ${ways} refuses, naming what is missing`,
+            `'${f} needs ${ways} - <the missing ones> not stated - price this row by hand'; the missing ones are those of the way the row came nearest to`);
       }
     }
   }
@@ -277,9 +289,27 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       add(`A ${name(attr)} range takes the higher value`, "'25-50 mm' or '25 to 50' prices 50, with a line saying 'states a range - the higher, 50, is taken'");
     }
     // ADP-1 (owner H3; U6): ADDED -- a number the pricer types, read from the size as written when nothing is typed
-    if (rd?.typed_only && rd?.length_from) {
+    if (rd?.typed_only && rd?.length_from && rd?.box_side) {
+      // ADP-2 (owner H7 / Q2; U6): ADDED -- ONE line for the sides of a box read from the same size
+      const sides = Object.entries<any>(pr.numbers).filter(([, x]) => x?.typed_only && x?.box_side && x?.length_from === rd.length_from);
+      if (sides[0]?.[0] === attr) {
+        const sideNames = sides.map(([a]) => name(a));
+        add(`The ${sideNames.length > 1 ? `${sideNames.slice(0, -1).join(", ")} and ${sideNames[sideNames.length - 1]}` : sideNames[0]} are typed in their own boxes, else read from the ${name(String(rd.length_from))}`,
+            `in the order length x width x height, the height last ('550 x 550 x 400 mm Ht' -> 550 / 550 / 400); a side written with its label -- L / long / length, W / B / width, H / Ht / high / depth -- goes to that side ('3000 mm Length' -> length 3000); the field shows the value used, with a line saying so; a typed value always wins`);
+      }
+    } else if (rd?.typed_only && rd?.length_from && rd?.unit !== "m") {
+      // ADP-2 (owner H7 / Q3, "should be priced at max"; U6): ADDED
+      add(`An ${name(attr)} is typed in '${String(rd.label ?? name(attr))}', else read from the ${name(String(rd.length_from))}${rd.range === "max" ? ", at its largest value" : ""}`,
+          `'up to 0.5 sqm' -> 0.5 sq.m, with a line saying 'priced at 0.5 sq.m (the largest value)'; a typed value always wins`);
+    } else if (rd?.typed_only && rd?.length_from) {
       add(`A ${name(attr)} is typed in '${String(rd.label ?? name(attr))}', else read from the ${name(String(rd.length_from))}`,
           `the side written as the length ('1500 mm long'), else the longest side of a size written 'a x b' or 'a x b x c' ('1000x150' -> 1 ${rd.unit ?? "m"}), else a single number with no label of ${PIECE_LENGTH_MIN_MM} mm or more ('1000 mm' -> 1 ${rd.unit ?? "m"}); below ${PIECE_LENGTH_MIN_MM} mm it is a slot width and is not read; a typed value in mm or cm is converted -- with a line saying so`);
+    }
+    // ADP-2 (owner B3, 2026-10-19 14:24 "ok"; U6): ADDED -- a SQUARE size offered as a list with "Other..." (ADP's neck)
+    if (rd?.square && pr.panel_controls?.[attr] === "dropdown_or_other") {
+      const stocked = [...new Set(items.filter((it) => it.kind === pr.kind && typeof it.attributes?.[attr] === "number").map((it) => Number(it.attributes![attr])))].sort((x, y) => x - y);
+      add(`A ${name(attr)} the catalogue does not stock can be typed in 'Other...'`,
+          `the list offers the stocked ${name(attr)}s${stocked.length ? ` (${list(stocked.map(String))})` : ""}; a typed one between them takes the next stocked size up, with a line saying so; above the largest${stocked.length ? ` (${stocked[stocked.length - 1]})` : ""} it refuses`);
     }
     if (rd?.inches) {
       // SLICE 12e-2 (owner Q14): the second conversion, where the reader declares one
@@ -308,8 +338,32 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     const ladder = (pr.ladders ?? []).includes(attr) ? ", then the ladder" : "";
     if (d && d.value !== undefined) defaultLines.push(`${name(attr)} not mentioned at all -> ${String(d.value)} ${unit}${ladder}; a ${name(attr)} the row itself states always wins, over a heading's too`);
   }
-  for (const d of (pr.derive_when_none ?? []) as any[]) {
-    if (d?.attr) defaultLines.push(`${name(String(d.attr))} not mentioned on ${list((d.families ?? []).map(famWord), 3)} when ${d.when?.attr ? name(String(d.when.attr)) : "a fact"} is ${String(d.when?.equals ?? "stated")} -> ${String(d.then)}`);
+  // ADP-2 (owner H5; U6): two or more rules deciding the SAME attribute from the SAME fact on the SAME families are one
+  // rule (the air stream decides a damper not mentioned) and read as their own line; a single rule keeps its words
+  const dwn = ((pr.derive_when_none ?? []) as any[]).filter((d) => d?.attr);
+  const dwnKey = (d: any) => `${d.attr}|${d.when?.attr}|${(d.families ?? []).join(",")}`;
+  const dwnGroups = new Map<string, any[]>();
+  for (const d of dwn) dwnGroups.set(dwnKey(d), [...(dwnGroups.get(dwnKey(d)) ?? []), d]);
+  for (const d of dwn) {
+    if ((dwnGroups.get(dwnKey(d)) ?? []).length > 1) continue;
+    defaultLines.push(`${name(String(d.attr))} not mentioned on ${list((d.families ?? []).map(famWord), 3)} when ${d.when?.attr ? name(String(d.when.attr)) : "a fact"} is ${String(d.when?.equals ?? "stated")} -> ${String(d.then)}`);
+  }
+  for (const g of dwnGroups.values()) {
+    if (g.length < 2) continue;
+    const d0 = g[0];
+    add(`A ${name(String(d0.attr))} not mentioned is decided by the ${name(String(d0.when?.attr))}`,
+        `on ${list((d0.families ?? []).map(famWord), 8)}: ${g.map((d) => `${String(d.when?.equals)} -> ${String(d.then)}`).join("; ")}; a ${name(String(d0.attr))} the row states, with or without, always wins; no ${name(String(d0.when?.attr))} stated -> the ruled default -- with a line naming the ${name(String(d0.when?.attr))}`);
+  }
+  // ADP-2 (owner H5 fix (a), 2026-10-20; U6): ADDED wherever a rule reads an AIR STREAM (its values hold supply and
+  // return) -- the code applies it there, so the tab says it there
+  const airRules = dwn.filter((d) => {
+    const v = ((ls?.attribute_definitions ?? []) as any[]).find((x) => x?.id === d.when?.attr)?.values ?? [];
+    return Array.isArray(v) && v.includes("supply") && v.includes("return");
+  });
+  if (airRules.length) {
+    const a = name(String(airRules[0].attr));
+    add(`A row naming supply and return air leaves the ${a} as read`,
+        `the row's own text naming exactly one air stream decides ('supply air diffuser'); a row naming both ('Supply / Return air diffuser'), or naming none under a heading that names both ('Supply & return air diffusers'), keeps the ${a} as the model read it (not mentioned -> the ruled default), whatever stream the model answered -- with a line 'BoQ names supply and return air -> ${a} as read'; only words used for the air count ('Supply and installation of ...' names no stream)`);
   }
   if (defaultLines.length) {
     add("A fact the row does not mention takes its ruled value",

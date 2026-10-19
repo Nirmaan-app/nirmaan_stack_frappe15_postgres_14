@@ -60,6 +60,7 @@ import {
 import { calculatorCtx } from "./PricingCalculator";
 import { itemListRuleOrder } from "./rate-master/itemListRuleOrder";
 import { applyAdp1 } from "@/pages/boq-wizard/rate-helper/adp1.harness";
+import { applyAdp2 } from "@/pages/boq-wizard/rate-helper/adp2.harness";
 
 // ── the fixtures, as snapshotted from the live site on 2026-10-06 ───────────────────────────────
 
@@ -878,6 +879,8 @@ describe("SLICE 12d-8 / T2 -- one parity case per Derivation-tab rule, on the li
     adp("A14", "Then the priced steps below, in their own order", "nos", { family: "round diffuser", damper: "with", dia_mm: "200" }),
     adp("A16", "The rate converts to the unit the row is written in", "sqft", { family: "VCD", variant: "GI rectangular" }),
     adp("A17", "Multiplied by how many of the item one unit of the row pays for", "nos", { family: "round diffuser", damper: "with", dia_mm: "200", qty_per_row_unit: "2" }),
+    // ── ADP-2 H5 fix (a) (owner 2026-10-20): v33's R13 reads the air stream, so the both-streams line is generated here too ──
+    adp("A18", "A row naming supply and return air leaves the damper as read", "nos", { family: "linear grille", air: "supply", damper: "None", size_mm: "600x150" }, "agree", { desc: "Supply / Return air linear grille" }),
   ];
 
   it("THE GUARD: the rules these cases name EQUAL the rules the live config generates (Insulation 24, ADP 18)", () => {
@@ -952,6 +955,46 @@ describe("ADP-1 parity -- one case per new rule (slot diffuser H3, plenum H4, F1
       return;
     }
     expect({ id: r.id, rule: r.rule, divergences: run.divergences }).toEqual({ id: r.id, rule: r.rule, divergences: [] });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// ADP-2 (owner rulings H5 / H7 / B3; AC6: each new rule keeps one permanent calculator = panel parity case) -- every line
+// the slice adds, through BOTH surfaces on v46 + ADP-1 + ADP-2 (= v48; `applyAdp2`, pinned equal to the asset in its commit)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe("ADP-2 parity -- one case per new rule (air stream H5, plenum H7, neck B3), on the ADP-1 config + ADP-2", () => {
+  const v46 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
+    new URL("../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v46.json", import.meta.url),
+  );
+  const a = applyAdp2(applyAdp1(v46 as any)) as typeof v46;
+  const cfgA = new Map<string, RateCategoryConfig>(a.category_configs.map((c) => [c.category_id, c]));
+  const itemsA: RateMasterItem[] = a.items.map((it) => ({ ...it, discipline: a.discipline } as RateMasterItem));
+  const ADP = "hvac_adp", MIX = "mixing box / LP plenum", SQ = "square diffuser";
+  const CASES_ADP2: Array<{ id: string; rule: string; c: ParityCase }> = [
+    { id: "P1", rule: "A damper not mentioned is decided by the air stream", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: SQ, air: "supply", damper: "None", neck_mm: "450 x 450" }] } },
+    { id: "P2", rule: "A per-number mixing box / LP plenum with an area is priced from the per-sq.m rate", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: MIX, insulated: "with", area_band: "up to 0.5 sqm" }] } },
+    { id: "P3", rule: "A per-number mixing box / LP plenum without an area, or length + width + height refuses, naming what is missing", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: MIX, insulated: "with", size_mm: "3000 mm Length" }] } },
+    { id: "P4", rule: "The length, width and height are typed in their own boxes, else read from the size", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: MIX, insulated: "with", size_mm: "900x200x350mm Ht." }] } },
+    { id: "P5", rule: "An area is typed in 'Area (sq.m)', else read from the area band, at its largest value", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: MIX, insulated: "without", area_band: "1.1 to 2.0 sqm" }] } },
+    { id: "P6", rule: "A neck size the catalogue does not stock can be typed in 'Other...'", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: SQ, damper: "without", neck_mm: "225 x 225" }] } },
+    // H5 fix (a) (owner 2026-10-20): the row names ONE stream under a heading naming both -> the row wins, the two agree
+    { id: "P7", rule: "A row naming supply and return air leaves the damper as read", c: { cat: ADP, unit: "nos", desc: "Aluminium powder coated supply air diffuser 450x450", headings: ["Supply & return air diffusers"], attrs: {}, items: [{ family: SQ, air: "supply", damper: "None", neck_mm: "450 x 450" }] } },
+  ];
+  it("the cases name every new line of the ADP-2 config, and only those", () => {
+    const t = (cat: string) => itemListRuleOrder(cfgA.get(cat)!, itemsA).map((l) => l.title);
+    for (const r of CASES_ADP2) expect({ id: r.id, onTab: t(r.c.cat).includes(r.rule) }).toEqual({ id: r.id, onTab: true });
+    expect(new Set(CASES_ADP2.map((r) => r.rule)).size).toBe(CASES_ADP2.length);
+  });
+  it.each(CASES_ADP2.map((r) => [r.id, r] as const))("%s: the calculator and the panel agree", (_, r) => {
+    const run = runParity(cfgA, itemsA, r.c, "full");
+    expect({ id: r.id, rule: r.rule, divergences: run.divergences }).toEqual({ id: r.id, rule: r.rule, divergences: [] });
+  });
+  // H5 fix (a): a row naming BOTH streams -- the panel keeps the damper as read ("without"), and the calculator, fed the
+  // panel's fields, prices that same "without": the two agree (the calculator has no row text, but it needs none here)
+  it("P7x: a row naming supply AND return air -- the calculator, fed the panel's damper, agrees", () => {
+    const c: ParityCase = { cat: ADP, unit: "nos", desc: "Aluminium powder coated Supply / Return air diffuser of 450x450 mm neck size", attrs: {}, items: [{ family: SQ, air: "supply", damper: "None", neck_mm: "450 x 450" }] };
+    const run = runParity(cfgA, itemsA, c, "full");
+    expect({ divergences: run.divergences, bothPriced: hasPrice(run.panel) && hasPrice(run.calculator) }).toEqual({ divergences: [], bothPriced: true });
   });
 });
 

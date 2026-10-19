@@ -1344,14 +1344,17 @@ function ItemListBlocks({
               )}
             </div>
           )}
-          {b.fields.map((f) => {
+          {b.fields.map((f, fi) => {
             const tone = f.blank
               ? "border-red-500 dark:border-red-500"
               : f.defaulted
                 ? "bg-amber-50 dark:bg-amber-950/30"
                 : undefined;
+            // ADP-2 (owner H7, U1): an either-or group's plain label, once, above its first field
+            const groupStart = !!f.group && f.group !== b.fields[fi - 1]?.group;
             return (
               <div key={f.id} className="group/attr space-y-0.5">
+                {groupStart && <p className="pt-1 text-[11px] font-medium text-muted-foreground">{f.group}</p>}
                 <label className="flex items-center justify-between gap-2 text-xs">
                   <span className="flex items-center gap-1 text-muted-foreground">
                     {f.label}

@@ -504,7 +504,10 @@ describe("12e-2 AC6 -- the Derivation tab lists P1-P5 from the config, no intern
     const NEW_12E6C = ["A pipe size written as a bare number that could be inches refuses", "RPUF with no material answered prices as Tubular Puf Insulation", "RPUF on a per-sq.m row refuses by name"];
     expect(itemListRuleOrder(CFG.hvac_insulation, ITEMS)).toHaveLength(27);
     expect(itemListRuleOrder(CFG.hvac_insulation, ITEMS).filter((l) => !NEW_12E6C.includes(l.title))).toHaveLength(24);
-    expect(itemListRuleOrder(CFG.hvac_adp, ITEMS)).toHaveLength(18);
+    // INVERTED at ADP-2 H5 fix (a) (owner 2026-10-20) by mechanical authority: BEFORE `expect(itemListRuleOrder(CFG.hvac_adp, ITEMS)).toHaveLength(18)`. R13 reads the air
+    // stream, so the both-streams line generates on this config too; without it the count is unchanged.
+    expect(itemListRuleOrder(CFG.hvac_adp, ITEMS)).toHaveLength(19);
+    expect(itemListRuleOrder(CFG.hvac_adp, ITEMS).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(18);
     for (const cid of ["hvac_insulation", "hvac_adp"]) {
       const t = itemListRuleOrder(CFG[cid], ITEMS).filter((l) => !NEW_12E6C.includes(l.title)).map((l) => `${l.title} -- ${l.detail ?? ""}`).join("\n");
       if (cid === "hvac_adp") expect(t).toBe(text(CFG[cid]));

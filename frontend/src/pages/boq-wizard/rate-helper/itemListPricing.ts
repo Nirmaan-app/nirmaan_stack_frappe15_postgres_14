@@ -110,6 +110,12 @@ export interface NumberReader {
   /** ADP-1 (owner H3): with nothing typed, the number is read from this model text attribute -- the size as written --
    * by `readPieceLength` (the side written as the length, else the longest side of "a x b"). Needs `typed_only`. */
   length_from?: string;
+  /** ADP-2 (owner H7 / Q2, 2026-10-20: "Ok" -- fill Length / Width / Height from the size as written in the order
+   * L x W x H, height last, a written label winning). With `length_from`, the typed box is filled from ONE SIDE of the
+   * box the size states (`readBoxSides`), not from the W / H / D axes of a face size. Display and fill only: the
+   * plenum formula reads all three sides and is symmetric, so no figure depends on which side is which. ABSENT =>
+   * `length_from` reads a piece length (unit "m", ADP-1) or, for any other unit, the attribute as one number. */
+  box_side?: "length" | "width" | "height";
   /** ADP-1: the panel label of a `typed_only` box ("Piece length (m)"); a list_spec definition has its own. */
   label?: string;
   /** ADP-1 (owner H3 (c), 2026-10-19: 1- and 4-slot rows "refuse"): where the family's rule for the row's unit NEEDS
@@ -690,6 +696,9 @@ export interface DefaultedAttr {
   attr: string;
   value: string;
   rule: string;
+  /** ADP-2 (owner H5): the stated fact a `derive_when_none` default was decided by ("air" = "supply"), so its line
+   * names it: "supply air, damper not mentioned -> with damper". Absent on every ruled default. */
+  when?: { attr: string; equals: string };
 }
 
 export interface LadderHop {
@@ -788,6 +797,9 @@ export interface ItemPriceResult {
   /** ADP-1 (owner H3): a `typed_only` number read from the size as written (`length_from`) -- the field shows the value
    * used and this line ("BoQ says 1000x150 -> 1 m (the longest side)"). Present only then. */
   lengthRead?: { attr: string; metres: number; line: string };
+  /** ADP-2 (owner H7): typed-only numbers FILLED from the model's own reading (a plenum's sides from the size as
+   * written, its area from the area band) -- the field shows the value used and this line. Present only then. */
+  filledReads?: Record<string, { value: number; line: string }>;
   /**
    * SLICE 12c-S. EVERY FACT THIS BLOCK RESOLVED, whether or not the row got far enough to use it.
    *
@@ -1322,6 +1334,71 @@ export function splitSizePhrase(text: string | number | null | undefined): strin
     return null;   // labelled, but not the axes this phrase has slots for -- ambiguous, so not a phrase
   }
   return parts;
+}
+
+/**
+ * ADP-2 (owner H7 / Q2, 2026-10-20: "Ok") -- THE SIDES OF A BOX, AS WRITTEN. PURE.
+ *
+ * A plenum / mixing box's size is a box, and the stored BoQs write it LENGTH x WIDTH x HEIGHT with the height last
+ * ("550 x 550 x 400 mm Ht", "525 x 525 x 450 mm High", "900x200x350mm Ht."). The owner's order: L x W x H, and a
+ * written label wins -- L / long / length -> length; W / wide / width / B / breadth -> width; H / Ht / high / height /
+ * D / deep / depth -> height. Unlabelled parts take the free sides in order. This is NOT `splitSizePhrase`, whose
+ * axes are a FACE's (width, height, then depth) and which reads "Length" as the depth.
+ *
+ * Returns each side's part AS WRITTEN with how it landed there, or null when the text is not one to three x-joined
+ * readable parts, or two parts name the same side. The caller reads the part with the reader's own rules.
+ */
+const _BOX_SIDE_PATTERNS: Array<{ re: RegExp; side: "length" | "width" | "height" }> = [
+  { re: /(^|[^a-z])(?:l|long|length)([^a-z]|$)/i, side: "length" },
+  { re: /(^|[^a-z])(?:w|wide|width|b|breadth)([^a-z]|$)/i, side: "width" },
+  { re: /(^|[^a-z])(?:h|ht|hgt|high|height|d|deep|depth)([^a-z]|$)/i, side: "height" },
+];
+export const BOX_SIDE_ORDER = ["length", "width", "height"] as const;
+export type BoxSide = (typeof BOX_SIDE_ORDER)[number];
+export function readBoxSides(
+  text: string | number | null | undefined,
+): Partial<Record<BoxSide, { part: string; how: "as written" | "by position" }>> | null {
+  if (text === null || text === undefined) return null;
+  const raw = String(text).trim();
+  if (raw === "" || raw === "None") return null;
+  const parts = raw.split(/\s*[x×*]\s*/i).map((p) => p.trim()).filter((p) => p !== "");
+  if (parts.length < 1 || parts.length > 3) return null;
+  for (const p of parts) if (!partIsReadable(p)) return null;
+  const sideOf = (p: string): BoxSide | null => {
+    const tail = p.replace(/[\d.]+/g, " ").replace(/\b(?:mm|cm|m|mtr|mtrs|metre|meter|nos?|no)\b/gi, " ");
+    const hit = _BOX_SIDE_PATTERNS.filter((a) => a.re.test(tail));
+    return hit.length === 1 ? hit[0].side : null;
+  };
+  const out: Partial<Record<BoxSide, { part: string; how: "as written" | "by position" }>> = {};
+  const unlabelled: string[] = [];
+  for (const p of parts) {
+    const s = sideOf(p);
+    if (s === null) { unlabelled.push(p); continue; }
+    if (out[s]) return null;   // two parts name the same side: not one box
+    out[s] = { part: p, how: "as written" };
+  }
+  for (const p of unlabelled) {
+    const free = BOX_SIDE_ORDER.find((s) => !out[s]);
+    if (!free) return null;
+    out[free] = { part: p, how: "by position" };
+  }
+  return out;
+}
+
+/**
+ * ADP-2 (owner H5 fix (a), 2026-10-20) -- THE AIR STREAMS A TEXT NAMES. PURE. A stream word counts only where it is
+ * used FOR the air -- "supply air", "return air", or a list of them ending in "air" ("Supply / Return air", "supply &
+ * return air", "supply and return air") -- so the BoQ's everyday "Supply and installation of ..." names no stream.
+ * Returns the streams named, lower-cased.
+ */
+export function airStreamsNamed(text: string, streams: readonly string[]): Set<string> {
+  const out = new Set<string>();
+  if (!text || !streams.length) return out;
+  const alt = streams.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  const re = new RegExp(`\\b((?:(?:${alt})\\s*(?:\\/|&|,|\\band\\b|\\bor\\b)\\s*)*(?:${alt}))\\s+air\\b`, "gi");
+  const word = new RegExp(`\\b(?:${alt})\\b`, "gi");
+  for (const m of text.matchAll(re)) for (const w of m[1].match(word) ?? []) out.add(w.toLowerCase());
+  return out;
 }
 
 /** Read one number from as-written text under a reader's rules. PURE.
@@ -2627,8 +2704,41 @@ function priceOneItem(
           if (got !== null) break;
         }
       }
+      // ADP-2 (owner H7 / Q2 / Q3): nothing typed -- a BOX SIDE read from the size as written (L x W x H, a label
+      // winning), or any other unit's number read from the attribute as one number (the area band, its largest value);
+      // the field shows the value used with its line. A part stated but unreadable refuses with its own reason.
+      if (got === null && reader.length_from && (reader.box_side || reader.unit !== "m")) {
+        const said = rawValue(item, reader.length_from);
+        const { typed_only: _t, length_from: _l, box_side: _b, label: _lb, ...plain } = reader;
+        let part: string | number | null = null;
+        let how = "";
+        if (reader.box_side) {
+          const side = readBoxSides(said)?.[reader.box_side];
+          if (side) {
+            part = side.part;
+            how = side.how === "as written" ? `the ${reader.box_side} as written` : `the ${["first", "second", "third"][BOX_SIDE_ORDER.indexOf(reader.box_side)]} of length x width x height`;
+          }
+        } else {
+          part = said;
+        }
+        if (part !== null && part !== undefined) {
+          const r = readNumber(part, plain);
+          if (r && "value" in r) {
+            const several = reader.range === "max" && ((String(said).match(/\d+(?:\.\d+)?/g) ?? []).length > 1 || /\bup\s*to\b/i.test(String(said)));
+            const u = reader.unit === "sqm" ? "sq.m" : (reader.unit ?? "");
+            const line = reader.box_side
+              ? `BoQ says ${String(said).trim()} -> ${fmt(r.value)} ${u} (${how})`
+              : several ? `BoQ says ${String(said).trim()} -> priced at ${fmt(r.value)} ${u} (the largest value)` : `BoQ says ${String(said).trim()} -> ${fmt(r.value)} ${u}`;
+            got = { value: r.value };
+            (out.filledReads ??= {})[attr] = { value: r.value, line };
+            notes.push(`${reader.name}: ${line}`);
+          } else if (r) {
+            got = r;
+          }
+        }
+      }
       // ADP-1 (owner H3): nothing typed -- the length the size as written states (`readPieceLength`), with its line
-      if (got === null && reader.length_from) {
+      if (got === null && reader.length_from && !reader.box_side && reader.unit === "m") {
         const said = rawValue(item, reader.length_from);
         const pl = readPieceLength(said);
         if (pl) {
@@ -2690,10 +2800,29 @@ function priceOneItem(
   for (const rule of spec.derive_when_none ?? []) {
     if (!rule.families.includes(family) || !noneSaid.has(rule.attr)) continue;
     if (String(rawValue(item, rule.when.attr) ?? "") !== rule.when.equals) continue;
+    /**
+     * ADP-2 (owner H5 fix (a), 2026-10-20; H5 14:34: "if supply is mentioned along with return and we are not able to
+     * determine whether it is a supply or return grill/diffuser ... then we price with or without damper as per the
+     * actual model value"). Where the condition is an AIR STREAM (its values hold both supply and return): the row's OWN
+     * text naming exactly one stream decides, as built; a row naming BOTH supply and return, or naming none under a
+     * heading that names both, does NOT let the stream decide -- the attribute stays as read (not mentioned -> its ruled
+     * default), with a line saying so. The calculator has no row text, so it is unchanged.
+     */
+    const streams = spec.choice_defs?.[rule.when.attr]?.values ?? [];
+    if (streams.includes("supply") && streams.includes("return")) {
+      const own = airStreamsNamed(ownText, streams);
+      const both = (x: Set<string>) => x.has("supply") && x.has("return");
+      if (own.size !== 1 && (both(own) || (own.size === 0 && both(airStreamsNamed(rowText, streams))))) {
+        const line = `BoQ names supply and return air -> ${rule.attr} as read (not mentioned -> ${String(read[rule.attr] ?? "None")})`;
+        if (!notes.includes(line)) notes.push(line);
+        continue;
+      }
+    }
     read[rule.attr] = rule.then;
     const i = readDefaulted.findIndex((d) => d.attr === rule.attr);
     if (i >= 0) readDefaulted.splice(i, 1);
-    readDefaulted.push({ attr: rule.attr, value: rule.then, rule: rule.rule });
+    // ADP-2 (owner H5): the stated fact that decided it rides on the record, so the line can name it
+    readDefaulted.push({ attr: rule.attr, value: rule.then, rule: rule.rule, when: { ...rule.when } });
   }
   // SLICE 8 (owner M-b): the OVERRIDES -- a stated fact that decides the pick whatever else the row said.
   // It runs LAST over the reads, so it wins over both a stated value and a ruled default (a fire damper row
@@ -2816,6 +2945,19 @@ function priceOneItem(
       const wanted = options.map((o) => (o.name_missing ? o.needs.filter((n) => !(n in read) && !ruledNumber(n)) : o.needs)
         .map((n) => reasonName(spec, n)).join(" and ")).join(", or ");
       const bad = options.flatMap((o) => o.needs).map((n) => unreadable[n]).find(Boolean);
+      // ADP-2 (owner H7 (c), 2026-10-19 23:13: "if nboth are not there the it should refuse"): where SEVERAL
+      // conversions each name what is missing (a plenum's area, or its length + width + height), the refusal offers
+      // every way to price the row and names what the nearest one lacks -- the option with the most facts stated,
+      // the later one on a tie. A family with one such option keeps ADP-1's sentence byte for byte.
+      if (!bad && options.length > 1 && options.every((o) => o.name_missing)) {
+        const missingOf = (o: ConversionOption) => o.needs.filter((n) => !(n in read) && !ruledNumber(n));
+        const nearest = options.reduce((best, o) => (o.needs.length - missingOf(o).length >= best.needs.length - missingOf(best).length ? o : best));
+        const ways = options.map((o) => o.needs.length === 1
+          ? `${/^[aeiou]/i.test(reasonName(spec, o.needs[0])) ? "an" : "a"} ${reasonName(spec, o.needs[0])}`
+          : o.needs.map((n) => reasonName(spec, n)).join(" + ")).join(", or ");
+        return { ...blank(`${family} needs ${ways} - ${missingOf(nearest).map((n) => reasonName(spec, n)).join(" and ")} not stated - price this row by hand`),
+                 defaulted: readDefaulted.filter((d) => fam.needs.includes(d.attr)) };
+      }
       // SLICE 12e-3b (AC5, owner Q12 "option a"): the row waits for the fact that picks its conversion (a size),
       // but the kind's OWN facts do not depend on which conversion that will be -- their ruled defaults are
       // carried on the refusal, so the fields show them (amber, with their rule) exactly as the same kind shows
@@ -3163,7 +3305,9 @@ function priceOneItem(
   // SLICE 12d-1a (owner R2): the family default is a working line like every other default, named by
   // the family attribute, so a pricer reads WHY the row prices as this family beside the figure.
   if (out.familyDefaulted) out.working.push(`${familyAttr(spec)} not mentioned -> ${out.familyDefaulted.value} (${out.familyDefaulted.rule})`);
-  for (const d of out.defaulted) out.working.push(`${d.attr} not mentioned -> ${d.value} (${d.rule})`);
+  // ADP-2 (owner H5, U3): a default a stated fact decided names that fact first -- "supply air, damper not mentioned
+  // -> with damper" -- and every ruled default reads exactly as before
+  for (const d of out.defaulted) out.working.push(`${d.when ? `${d.when.equals} ${d.when.attr}, ` : ""}${d.attr} not mentioned -> ${d.value} (${d.rule})`);
 
   // SLICE 6 (T4): the quantity per row unit -- the PRICER's typed value, which always wins over the count the
   // model read (SLICE 6d) and over code's default; stated but unreadable / non-positive = blank.
@@ -3739,6 +3883,10 @@ export interface ItemFieldDef {
   /** SLICE 12e-3a (owner 13:40): this field is a section's `include_when` toggle -- a Yes / No the pricing
    * never reads; `equals` is the value that opens section `section` under the item. Absent on every other field. */
   gate?: { section: string; equals: string };
+  /** ADP-2 (owner H7, U1): the plain label of an EITHER-OR group of fields -- "Area, or all three of Length, Width,
+   * Height" -- on every field of a family whose rule for the row's unit offers several conversions that each name
+   * what is missing. A label only (ADP-3's required / either-or marker replaces it). Absent everywhere else. */
+  group?: string;
 }
 
 /**
@@ -3954,6 +4102,20 @@ export function itemFieldDefs(
         : {}),
       optionSource,
     });
+  }
+  // ADP-2 (owner H7, U1): several conversions that each name what is missing are ONE either-or choice -- the fields
+  // they read carry the group's plain label, generated from their own labels (no config text)
+  const eitherOr = fam.units[cls] ? [] : (fam.convert?.[cls] ?? []);
+  if (eitherOr.length > 1 && eitherOr.every((o) => o.name_missing)) {
+    const plain = (attr: string) => {
+      const f = out.find((x) => x.skuAttr === attr);
+      return (f?.label ?? reasonName(spec, attr)).replace(/\s*\([^)]*\)\s*$/, "");
+    };
+    const words = ["", "", "both", "all three", "all four"];
+    const group = eitherOr.map((o) => (o.needs.length === 1 ? plain(o.needs[0])
+      : `${words[o.needs.length] ?? `all ${o.needs.length}`} of ${o.needs.map(plain).join(", ")}`)).join(", or ");
+    const inGroup = new Set(eitherOr.flatMap((o) => o.needs));
+    for (const f of out) if (inGroup.has(f.skuAttr)) f.group = group;
   }
   /**
    * SLICE 12e-2 (owner Q10): the `panel_optional` boxes -- a class / wall thickness the row may state. Rendered

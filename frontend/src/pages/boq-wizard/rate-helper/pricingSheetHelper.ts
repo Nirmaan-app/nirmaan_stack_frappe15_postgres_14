@@ -2290,6 +2290,9 @@ function itemBlockView(
     // ADP-1 (owner H3): a typed-only number read from the size as written shows the value USED, with its line below
     const lr = stated === "" && res.lengthRead?.attr === f.skuAttr ? res.lengthRead : undefined;
     if (lr) value = fmtNum(lr.metres);
+    // ADP-2 (owner H7): a typed-only box FILLED from the model's own reading (a plenum side, its area) likewise
+    const fr = stated === "" ? res.filledReads?.[f.skuAttr] : undefined;
+    if (fr) value = fmtNum(fr.value);
     const hop = hopBy.get(f.skuAttr);
     // OWNER FA8: `dropdown_or_other` is a size dropdown too -- it shows the LADDER RESULT with the
     // note naming the stated size, which is the whole reason an unstocked size may be typed.
@@ -2479,6 +2482,7 @@ function itemBlockView(
       }
     }
     if (lr && !note) note = lr.line;
+    if (fr && !note) note = fr.line;
     const dropped = clearedByBlock.get(f.id);
     if (dropped !== undefined) note = `${dropped}${u} is not stocked with the other answers on this item -- choose again`;
     const ov = overrideBy.get(f.skuAttr);

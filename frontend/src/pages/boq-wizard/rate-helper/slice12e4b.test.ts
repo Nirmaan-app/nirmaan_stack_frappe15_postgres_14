@@ -740,7 +740,10 @@ describe("12e-4b AC11 -- the Derivation tab says the new rules, generated from t
     expect(all[at - 1].title).toBe("Fitting the stated pipe size to the catalogue");
     expect(all[at].detail).toBe("with a line saying so: 'pipe size <stated> is <stocked> on the sheet (within 0.1 mm)'; a size further away takes the next size the catalogue stocks, as before");
     expect(all.filter((l) => l.title.includes("within 0.1"))).toHaveLength(1);       // the thickness fit has no such line
-    expect(lines(CFG[ADP])).toHaveLength(18);
+    // INVERTED at ADP-2 H5 fix (a) (owner 2026-10-20) by mechanical authority: BEFORE `expect(lines(CFG[ADP])).toHaveLength(18)`. R13 reads the air
+    // stream, so the both-streams line generates on this config too; without it the count is unchanged.
+    expect(lines(CFG[ADP])).toHaveLength(19);
+    expect(lines(CFG[ADP]).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(18);
     expect(lines(CFG[ADP])).toEqual(lines(CFG37[ADP]));
   });
   it("NEGATIVE: each line follows its key -- v37 (no `from_attr`, no axis `near`) reads Piping 20 and Insulation 24; removing a key from a copy removes exactly its line", () => {

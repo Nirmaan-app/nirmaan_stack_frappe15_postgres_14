@@ -392,7 +392,10 @@ describe("SLICE 12d-8 / R5 + R6 -- the Derivation tab, generated from config", (
 
   it("ADP: 18 lines; the outer-size match has its own line, before the ladders, in the config's own words", () => {
     const lines = itemListRuleOrder(ADP, ITEMS);
-    expect(lines).toHaveLength(18);
+    // INVERTED at ADP-2 H5 fix (a) (owner 2026-10-20) by mechanical authority: BEFORE `expect(lines).toHaveLength(18)`. R13 reads the air
+    // stream, so the both-streams line generates on this config too; without it the count is unchanged.
+    expect(lines).toHaveLength(19);
+    expect(lines.filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(18);
     const outer = lines.find((l) => /outer size/.test(l.title))!;
     expect(outer.title).toBe("A stated outer size is matched beside the neck size on square diffuser");
     expect(outer.detail).toBe("both stated: the outer size narrows the products the neck size then fits; outer size only: the one product behind it is used as it stands, else the largest neck size behind it; an outer size the catalogue does not stock is set aside and the neck size prices the row; the catalogue's alternative wording of the same size counts as that size");
@@ -403,7 +406,10 @@ describe("SLICE 12d-8 / R5 + R6 -- the Derivation tab, generated from config", (
   it("NEGATIVE: a config without second_key gains no line (Insulation), and a key with no name / primary is skipped", () => {
     expect(itemListRuleOrder(INS, ITEMS).some((l) => /outer size|matched beside/.test(l.title))).toBe(false);
     const broken = { ...ADP, list_spec: { ...(ADP as any).list_spec, pricing: { ...(ADP as any).list_spec.pricing, second_key: [{ families: ["square diffuser"] }] } } };
-    expect(itemListRuleOrder(broken, ITEMS)).toHaveLength(17);
+    // INVERTED at ADP-2 H5 fix (a) (owner 2026-10-20) by mechanical authority: BEFORE `expect(itemListRuleOrder(broken, ITEMS)).toHaveLength(17)`. R13 reads the air
+    // stream, so the both-streams line generates on this config too; without it the count is unchanged.
+    expect(itemListRuleOrder(broken, ITEMS)).toHaveLength(18);
+    expect(itemListRuleOrder(broken, ITEMS).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(17);
   });
 });
 

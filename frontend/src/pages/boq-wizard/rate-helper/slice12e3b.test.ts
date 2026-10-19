@@ -580,7 +580,10 @@ describe("12e-3b AC6 -- the Derivation tab lists the insulation section's lines 
     // generates wherever the RPUF line does; without it the count below it is unchanged.
     expect(lines(CFG[INS])).toHaveLength(27);
     expect(lines(CFG[INS]).filter((l) => !["A pipe size written as a bare number that could be inches refuses", "RPUF with no material answered prices as Tubular Puf Insulation", "RPUF on a per-sq.m row refuses by name"].includes(l.title))).toHaveLength(24);
-    expect(lines(CFG[ADP])).toHaveLength(18);
+    // INVERTED at ADP-2 H5 fix (a) (owner 2026-10-20) by mechanical authority: BEFORE `expect(lines(CFG[ADP])).toHaveLength(18)`. R13 reads the air
+    // stream, so the both-streams line generates on this config too; without it the count is unchanged.
+    expect(lines(CFG[ADP])).toHaveLength(19);
+    expect(lines(CFG[ADP]).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(18);
     const v36pip = V36.category_configs.find((c) => c.category_id === PIP)!;
     // INVERTED at 12e-4b (owner F-3): BEFORE `toHaveLength(14)` and `.slice(0, 14)`. v36 already carries the keys the
     // no-unit line is generated from, so it reads 15 under this code; the claim itself is unchanged -- everything
