@@ -22,7 +22,7 @@ class TestBoqOrphans(FrappeTestCase):
         self.live = f"{PREFIX}LIVE_{h}"   # a BOQs record that does
         self.rows = []                    # (doctype, name) of every fixture row, for cleanup
         self.addCleanup(self._purge)
-        wh = frappe.db.get_value("Work Headers", {}, "name")
+        wh = frappe.db.get_value("Work Headers", {"work_header_name": ["is", "set"]}, "name", order_by="name asc")
         # the live BoQ, its draft and the draft's work package: owned, never orphans
         frappe.get_doc({"doctype": "BOQs", "is_template_source": 1, "boq_name": self.live}).insert(
             ignore_permissions=True, set_name=self.live)
