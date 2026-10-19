@@ -379,3 +379,23 @@ describe("ADP-1 U6 -- the Derivation tab: lines ADDED, every earlier line kept",
     expect([...ADP1_ALL].sort()).toEqual(["a4", "f1", "h3", "h4", "retire"]);
   });
 });
+
+// =====================================================================================================================
+describe("ADP-1 AC10 -- the minted HVAC v47 IS v46 + applyAdp1 (the harness every test above runs on cannot drift from the asset)", () => {
+  const V47 = readJsonFixture<AssetLike>(new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v47.json", import.meta.url));
+  it("every config is deep-equal, in the same order", () => {
+    expect(V47.category_configs.map((c) => c.category_id)).toEqual(NEW.category_configs.map((c) => c.category_id));
+    for (const c of V47.category_configs) expect({ id: c.category_id, cfg: c }).toEqual({ id: c.category_id, cfg: NEW.category_configs.find((x) => x.category_id === c.category_id) });
+  });
+  it("the items: every carried one byte-equal, the two retired absent, the three inputs equal by content (their uids are the mint's)", () => {
+    const strip = (it: any) => ({ kind: it.kind, brand: it.brand ?? null, unit: it.unit, attributes: it.attributes, rates: it.rates });
+    const byUid = new Map(V47.items.map((it) => [String(it.item_uid), it]));
+    const carried = NEW.items.filter((it) => it.item_uid);
+    for (const it of carried) expect({ uid: it.item_uid, it: byUid.get(String(it.item_uid)) }).toEqual({ uid: it.item_uid, it });
+    for (const u of ADP1_RETIRED_UIDS) expect(byUid.has(u)).toBe(false);
+    const fresh = V47.items.filter((it) => !V46.items.some((o) => o.item_uid === it.item_uid));
+    expect(fresh.map(strip).sort((a, b) => String(a.attributes.item).localeCompare(String(b.attributes.item))))
+      .toEqual(NEW.items.filter((it) => !it.item_uid).map(strip).sort((a, b) => String(a.attributes.item).localeCompare(String(b.attributes.item))));
+    expect(V47.items).toHaveLength(NEW.items.length);
+  });
+});

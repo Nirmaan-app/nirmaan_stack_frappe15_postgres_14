@@ -76,6 +76,23 @@ const GI = "GI Framework with perforated Al sheet";
 
 const servedHvac = served.items.HVAC;
 const storedHvac = storedItems(HVAC);
+/**
+ * ADP-1 (owner H4 / A4, 2026-10-19; this inversion owner "go" 2026-10-19): HVAC v47 added three Pricing Inputs and retired the
+ * two per-number plenum SKUs. The served fixture is a snapshot taken before them and is NOT refreshed, so those five -- and ONLY
+ * those, BY NAME -- are normalised out of the STORED side: the three taken out, the two put back from v46. It asserts all five
+ * are exactly as v47 has them, so it cannot pass vacuously. Every other uid and every rate stays under full force.
+ */
+const ADP1_INPUTS = ["rmi-1c12e3f08472", "rmi-22297aebf841", "rmi-26006c5ca808"];
+const ADP1_RETIRED = ["rmi-4184735331c3", "rmi-a23b43d34447"];
+function withoutAdp1(items: RateMasterItem[]): RateMasterItem[] {
+  const ids = new Set(items.map((it) => String(it.item_uid)));
+  for (const u of ADP1_INPUTS) if (!ids.has(u)) throw new Error(`ADP-1 input ${u} is not in the stored asset`);
+  for (const u of ADP1_RETIRED) if (ids.has(u)) throw new Error(`ADP-1 retired SKU ${u} is still in the stored asset`);
+  const v46 = readJsonFixture<Asset>(new URL("rate_master_hvac_all_v46.json", DATA_DIR));
+  const back = storedItems({ ...v46, items: v46.items.filter((it) => ADP1_RETIRED.includes(it.item_uid)) });
+  if (back.length !== 2) throw new Error("the two retired SKUs are not both in v46");
+  return [...items.filter((it) => !ADP1_INPUTS.includes(String(it.item_uid))), ...back];
+}
 
 /** ONE block per SKU, from the SKU's own attributes -- the replay_insulation instrument's construction. */
 function skuBlock(it: RateMasterItem) {
@@ -116,7 +133,9 @@ describe("the served fixture is the live endpoint's payload, and its rates ARE t
   });
 
   it("every served item's rates deep-equal the asset's stored rates -- both disciplines, every uid NAMED on failure", () => {
-    for (const [label, s, a] of [["HVAC", servedHvac, storedHvac], ["Electrical", served.items.Electrical, storedItems(ELEC)]] as const) {
+    // INVERTED at ADP-1 under mechanical authority (owner "go"). BEFORE: [["HVAC", servedHvac, storedHvac], ...] -- the five ADP-1
+    // uids are normalised out of the stored side by name (`withoutAdp1`); everything else is compared as before.
+    for (const [label, s, a] of [["HVAC", servedHvac, withoutAdp1(storedHvac)], ["Electrical", served.items.Electrical, storedItems(ELEC)]] as const) {
       const stored = new Map(a.map((it) => [String(it.item_uid), it.rates]));
       expect(new Set(s.map((it) => String(it.item_uid))), `${label}: the same uids`).toEqual(new Set(stored.keys()));
       const bad = s.filter((it) => JSON.stringify(it.rates) !== JSON.stringify(stored.get(String(it.item_uid))))
