@@ -22,6 +22,7 @@ from nirmaan_stack.api.expense_requests.review import (
 	reject_expense_request,
 )
 from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
+from nirmaan_stack.api.expense_requests.test_records_without_review import _listed, _write_list
 from nirmaan_stack.services import expense_request_routing as routing
 
 PM_USER = "exr_l1_pm@example.com"
@@ -158,6 +159,11 @@ class TestAnAdminsReviewIsTheFirstApproval(FrappeTestCase):
 	# --- unchanged guards ----------------------------------------------------
 
 	def test_nobody_reviews_their_own_request(self):
+		# An HR Lead on Records without review (#1498) has nothing left to review: their request is
+		# approved on submit. Taken off the list here, so the request waits and the guard is reached.
+		listed = _listed()
+		_write_list([p for p in listed if p != "Nirmaan HR Lead Profile"])
+		self.addCleanup(_write_list, listed)
 		name = self._raise(22000, user=HRL_USER)
 		with self.assertRaises(frappe.PermissionError):
 			self._as(HRL_USER, approve_expense_request, name)
