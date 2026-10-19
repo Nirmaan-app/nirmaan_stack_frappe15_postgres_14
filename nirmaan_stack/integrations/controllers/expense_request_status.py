@@ -1,73 +1,74 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Carry a ledger row's LIFECYCLE back to the request it came from -- paid, and deleted.
+"""Carry a ledger row's LIFECYCLE back to the request it came from -- every status, and deleted.
 
-⚠️ THE LEDGER OWNS `Paid`, NOT THE REVIEWER. `Expense Request.status` reaches `Paid` through
-this hook and NOWHERE else -- there is no endpoint, no button and no reviewer action that
-sets it. Payment happens on the expense row, so the request can only ever be reporting what
-the ledger already did; a second writer would let the two disagree about whether money moved.
+⚠️ THE EXPENSE OWNS EVERY STATUS AFTER REVIEW, NOT THE REVIEWER (spec #1494, #1500). Once a request
+has an Expense, `Expense Request.status` is a MIRROR of that Expense, set by this hook and NOWHERE
+else:
 
-SEPARATE FROM `expense_request_notify` DELIBERATELY, though both fire on the same transition.
-This one changes STATE and rides the ledger's own transaction -- if the expense is Paid, the
-request is Paid, atomically. That one only TELLS the requester and is self-swallowing, because
-a bell message must never roll back a payment. Folding them together would force one policy
-onto both.
+    Expense status                                         request status
+    Requested, CEO Pending, Approved, Reconciliation Pending  Approved
+    Paid                                                   Paid
+    Rejected (by L1 or the CEO)                            Rejected
+
+So an L1 or CEO reject reads Rejected on the request, and an unreconcile (Paid -> Reconciliation
+Pending) moves it back from Paid to Approved. The request keeps its own four statuses; the finer
+step (waiting for Admin, CEO Pending, Reconciliation Pending) is the Expense's own and is READ live
+by `api/expense_requests/standing`, never copied, so the two cannot disagree.
+
+It hangs off the ledgers' `on_update`, so every door that saves an Expense moves the request: the
+decision call (`services/expense_decision.decide`), the bank-line settle and unreconcile, and the
+bank-line re-derive on any save. A raw SQL write would skip it; none writes an Expense's status.
+
+SEPARATE FROM `expense_request_notify` DELIBERATELY, though both fire on the same save. This one
+changes STATE and rides the ledger's own transaction -- the Expense and its request move together or
+not at all. That one only TELLS the requester and is self-swallowing, because a bell message must
+never roll back a payment.
 """
 
 import frappe
 
-from nirmaan_stack.api.expense_requests.access import APPROVED, PAID
+from nirmaan_stack.api.expense_requests.access import APPROVED, PAID, REJECTED
 
-PAID_LEDGER_STATUS = "Paid"
+# The request statuses an Expense can move. `Pending Approval` is the review's, never this hook's:
+# the Expense is inserted while the request still waits, and the review sets Approved itself.
+MIRRORED = (APPROVED, PAID, REJECTED)
 
 
-def on_expense_paid(doc, method=None) -> None:
-	"""Ledger `on_update`: mark the originating request Paid.
+def request_status_for(expense_status: str | None) -> str:
+	"""The request status that mirrors an Expense at `expense_status`."""
+	if expense_status == PAID:
+		return PAID
+	if expense_status == REJECTED:
+		return REJECTED
+	return APPROVED
+
+
+def on_expense_status_changed(doc, method=None) -> None:
+	"""Ledger `on_update`: bring the originating request to the status its Expense now mirrors.
 
 	⚠️ NARROW ON PURPOSE. This fires on EVERY save of BOTH expense doctypes -- including the
-	~3,300 rows that never came from a request -- so it exits on the cheapest checks first and
-	only touches the database once all three have passed.
+	thousands of rows that never came from a request -- so it exits on the cheapest checks first.
+	It fires on a status CHANGE only, so an edit that leaves the status alone (an Accounts amount
+	fix) does no work; the amount is read live, not mirrored.
 
-	It fires on the TRANSITION into Paid, not on the state, so a later edit of an
-	already-Paid row does no work.
+	NOT wrapped in a try/except. The write rides the ledger's own transaction: swallowing a
+	failure would strand the request at a status its Expense has left.
 
-	NOT wrapped in a try/except, unlike the notification. The write rides the ledger's own
-	transaction: if marking the expense Paid succeeds, the request is Paid too, and if it
-	cannot be, the payment record should not land either. Silently swallowing a failure here
-	would strand the request at `Approved` with nothing anywhere saying why.
+	`set_value` rather than `doc.save`: this runs inside the ledger's save, and the request's own
+	`validate` governs fields this does not touch. So this write leaves NO `Version` row; the audit
+	lives on the Expense, which carries the approval and payment stamps.
 	"""
-	if doc.status != PAID_LEDGER_STATUS:
-		return
-	if not doc.has_value_changed("status"):
-		return
 	request = doc.get("request_id")
 	if not request:
 		return  # an ordinary expense, raised directly rather than through a request
-
-	_mark_request_paid(request)
-
-
-def _mark_request_paid(request: str) -> None:
-	"""Flip ONE request `Approved` -> `Paid`.
-
-	The guard is a whitelist of the only legal predecessor, not a blacklist. `Approved` is the
-	single state a request can be in when its ledger row is paid -- `Pending Approval` has no
-	row yet and `Rejected` never gets one -- so anything else means our assumption about the
-	flow is wrong, and quietly overwriting it would erase the evidence. A row already `Paid`
-	lands here too (a re-save that re-triggers the transition) and is a no-op.
-
-	`set_value` rather than `doc.save`: this runs inside the ledger's save, so going through
-	the document lifecycle would re-run the request's own `validate` for a field it does not
-	govern. The trade-off is deliberate and worth stating -- `set_value` bypasses the
-	lifecycle, so this transition writes NO `Version` row despite the doctype's
-	`track_changes`. The audit lives on the ledger row, which carries the payment date,
-	reference and attachment; the request is only mirroring it.
-	"""
-	current = frappe.db.get_value("Expense Request", request, "status")
-	if current != APPROVED:
+	if not doc.has_value_changed("status"):
 		return
-	frappe.db.set_value("Expense Request", request, "status", PAID)
+	current = frappe.db.get_value("Expense Request", request, "status")
+	target = request_status_for(doc.status)
+	if current in MIRRORED and current != target:
+		frappe.db.set_value("Expense Request", request, "status", target)
 
 
 def on_expense_deleted(doc, method=None) -> None:

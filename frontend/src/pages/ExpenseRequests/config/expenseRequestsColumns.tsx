@@ -3,6 +3,10 @@
 // Columns for the Expense Request table. Shaped like the two ledger tables so all three
 // tabs of /expense read as one module.
 //
+// Status and Amount are LIVE (#1500): once a request has an Expense they show that Expense's own
+// status ("Waiting for Admin", "CEO Pending", "Reconciliation Pending", ...) and its amount, as
+// `get_request_standing` reads them. A row the standing read has not answered shows the request's.
+//
 // Tab-driven visibility:
 //   Status                   -> on "All" and on "Raised By Me". Every OTHER tab is a single
 //                               status by definition, so the column would repeat its own
@@ -26,6 +30,7 @@ import { Link } from "react-router-dom";
 import { EXR_RAISED_BY_ME } from "./expenseRequestsTable.config";
 import { Check, Pencil, Trash2, X } from "lucide-react";
 
+import LiveStatusBadge from "../components/LiveStatusBadge";
 import RequestHoverCard from "../components/RequestHoverCard";
 
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
@@ -34,17 +39,9 @@ import { Button } from "@/components/ui/button";
 import {
     Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import type { ExpenseRequest, ExpenseRequestStatus } from "@/types/NirmaanStack/ExpenseRequest";
-
-const STATUS_BADGE: Record<ExpenseRequestStatus, string> = {
-    "Pending Approval": "bg-amber-100 text-amber-800",
-    Approved: "bg-emerald-100 text-emerald-800",
-    Rejected: "bg-red-100 text-red-800",
-    Paid: "bg-sky-100 text-sky-800",
-};
+import type { ExpenseRequest, RequestStanding } from "@/types/NirmaanStack/ExpenseRequest";
 
 /** The mark on a request whose raiser records without review (GLOSSARY, #1498). */
 const APPROVED_ON_SUBMIT = "Approved on submit (no review)";
@@ -65,6 +62,9 @@ interface Args {
     /** The row's answers labelled by its form, from the scoped read. Undefined for a row that
      *  read did not return; the hover card then shows its header alone. */
     getDetail: (name: string) => { label: string; value: string }[] | undefined;
+    /** The row's live status and amount from its Expense (`get_request_standing`), or undefined
+     *  until that read answers. */
+    getStanding: (name: string) => RequestStanding | undefined;
     onApprove: (r: ExpenseRequest) => void;
     onReject: (r: ExpenseRequest) => void;
     onEdit: (r: ExpenseRequest) => void;
@@ -72,7 +72,7 @@ interface Args {
 }
 
 export const getExpenseRequestColumns = ({
-    statusTab, getUserName, getCategory, canReview, canEdit, canDelete, getDetail,
+    statusTab, getUserName, getCategory, canReview, canEdit, canDelete, getDetail, getStanding,
     onApprove, onReject, onEdit, onDelete,
 }: Args): ColumnDef<ExpenseRequest>[] => {
     const showStatus = statusTab === "All" || statusTab === EXR_RAISED_BY_ME;
@@ -80,6 +80,8 @@ export const getExpenseRequestColumns = ({
     const isPendingTab = statusTab === "Pending Approval";
     const showActions = isPendingTab || statusTab === "All" || statusTab === EXR_RAISED_BY_ME;
     const showComment = statusTab !== "Pending Approval";
+    const liveStatus = (r: ExpenseRequest) => getStanding(r.name)?.status ?? r.status;
+    const liveAmount = (r: ExpenseRequest) => getStanding(r.name)?.amount ?? r.amount;
 
     const columns: ColumnDef<ExpenseRequest>[] = [
         {
@@ -91,15 +93,15 @@ export const getExpenseRequestColumns = ({
                     <div className="font-medium">
                         <RequestHoverCard info={{
                             name: row.original.name,
-                            status: row.original.status,
+                            status: liveStatus(row.original),
                             type: row.original.type,
                             project: row.original.projects_name || row.original.projects,
-                            amount: row.original.amount,
+                            amount: liveAmount(row.original),
                             raisedBy: getUserName(row.original.owner),
                             creation: row.original.creation,
                             detail: getDetail(row.original.name),
                         }}>
-                            {/* The request's page: its invoice can be added there (#1502). */}
+                            {/* The request's page: where it stands (#1500), its invoice (#1502). */}
                             <Link to={`/expense/requests/${row.original.name}`} className="text-primary">
                                 {row.original.name}
                             </Link>
@@ -166,9 +168,9 @@ export const getExpenseRequestColumns = ({
             size: 130,
             header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" />,
             cell: ({ row }) => (
-                <span className="tabular-nums">{formatToRoundedIndianRupee(row.original.amount)}</span>
+                <span className="tabular-nums">{formatToRoundedIndianRupee(liveAmount(row.original))}</span>
             ),
-            meta: { exportHeaderName: "Amount", exportValue: (r: ExpenseRequest) => r.amount },
+            meta: { exportHeaderName: "Amount", exportValue: liveAmount },
         },
         {
             accessorKey: "owner",
@@ -220,18 +222,13 @@ export const getExpenseRequestColumns = ({
             size: 140,
             header: "Status",
             enableColumnFilter: true,
-            cell: ({ row }) => (
-                <span className={cn(
-                    "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                    STATUS_BADGE[row.original.status] || "bg-gray-100 text-gray-700"
-                )}>
-                    {row.original.status}
-                </span>
-            ),
+            cell: ({ row }) => <LiveStatusBadge status={liveStatus(row.original)} />,
             meta: {
+                // The facet filters the REQUEST's own status (Approved spans every step between
+                // review and payment); the cell shows the Expense's live one.
                 ...facetMeta({ field: "status", title: "Status" }),
                 exportHeaderName: "Status",
-                exportValue: (r: ExpenseRequest) => r.status,
+                exportValue: liveStatus,
             },
         });
     }

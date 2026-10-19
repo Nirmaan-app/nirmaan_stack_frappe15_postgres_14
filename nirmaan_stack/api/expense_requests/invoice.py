@@ -22,8 +22,8 @@ from nirmaan_stack.api.expense_requests.flatten import (
 	native_invoice,
 	with_native_invoice,
 )
-from nirmaan_stack.integrations.controllers.expense_request_status import PAID_LEDGER_STATUS
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
+from nirmaan_stack.services.outflow_import.ledgers import PAID as PAID_LEDGER_STATUS
 
 INVOICE_FIELDS = ("invoice_attachment", "invoice_date", "invoice_ref")
 

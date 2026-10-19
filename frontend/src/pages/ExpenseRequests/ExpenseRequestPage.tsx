@@ -2,23 +2,26 @@
 //
 // One expense request's page, `/expense/requests/:requestId`, reached from its ID on the list.
 //
-// Built by #1502 for "Add invoice later" and kept MINIMAL on purpose: its header, its answers and
-// the Invoice card. Spec #1494's "Where it stands" view (#1500) belongs in the main column, above
-// the details, and the read it needs belongs in the same server call (`read.get_expense_request`).
+// Built by #1502 for "Add invoice later": its header, its answers and the Invoice card. #1500 added
+// the live status and amount in the header and "Where it stands" at the top of the main column,
+// both from `standing` in the same server call (`read.get_expense_request`), read from the
+// Expense on the server. This page never works out a status itself.
 
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { useFrappeGetCall } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import { ArrowLeft, FileText } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import type { ExpenseRequestDetail } from "@/types/NirmaanStack/ExpenseRequest";
+import type { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 
 import AddInvoiceDialog from "./components/AddInvoiceDialog";
+import LiveStatusBadge from "./components/LiveStatusBadge";
+import WhereItStands from "./components/WhereItStands";
 
 // Answers are stored as ISO dates; the screen reads dd-MMM-yyyy.
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -40,6 +43,15 @@ export const ExpenseRequestPage: React.FC = () => {
         requestId ? `expense_request_page_${requestId}` : null
     );
     const req = data?.message;
+
+    // Who acted on each step, by name.
+    const { data: users } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
+        fields: ["name", "full_name"], limit: 0,
+    });
+    const getUserName = useCallback(
+        (id?: string) => users?.find((u) => u.name === id)?.full_name || id || "--",
+        [users]
+    );
 
     if (error) return <AlertDestructive error={error} />;
     if (isLoading || !req) return <p className="p-4 text-sm text-muted-foreground">Loading…</p>;
@@ -63,15 +75,26 @@ export const ExpenseRequestPage: React.FC = () => {
                     </p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <span className="text-xl font-bold tabular-nums">
-                        {formatToRoundedIndianRupee(Number(req.amount))}
-                    </span>
-                    <Badge variant="outline">{req.status}</Badge>
+                    <div className="text-right">
+                        <span className="text-xl font-bold tabular-nums">
+                            {formatToRoundedIndianRupee(req.standing.amount)}
+                        </span>
+                        {/* Accounts may have corrected the Expense's amount since it was raised. */}
+                        {req.standing.amount !== Number(req.amount) && (
+                            <div className="text-xs text-muted-foreground">
+                                Raised for {formatToRoundedIndianRupee(Number(req.amount))}
+                            </div>
+                        )}
+                    </div>
+                    <LiveStatusBadge status={req.standing.status} />
                 </div>
             </div>
 
             <div className="flex flex-wrap items-start gap-5">
                 <div className="flex min-w-0 flex-[999_1_480px] flex-col gap-5">
+                    <Card title="Where it stands">
+                        <WhereItStands steps={req.standing.steps} getUserName={getUserName} />
+                    </Card>
                     <Card title="Details">
                         {req.detail.length ? (
                             <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">

@@ -23,7 +23,7 @@
 // `can_review` is SERVER-computed, fetched once per page via the scoped endpoint and keyed by
 // request name. Never re-derive who may approve.
 
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import memoize from "lodash/memoize";
 
@@ -45,6 +45,7 @@ import type {
 import NewExpenseRequestDialog from "./components/NewExpenseRequestDialog";
 import ReviewActionDialog, { ReviewAction } from "./components/ReviewActionDialog";
 import DeleteRequestDialog from "./components/DeleteRequestDialog";
+import { useRequestStanding } from "./hooks/useRequestStanding";
 import { getExpenseRequestColumns } from "./config/expenseRequestsColumns";
 import {
     DEFAULT_EXR_FIELDS_TO_FETCH, EXR_DATE_COLUMNS, EXR_RAISED_BY_ME, EXR_SEARCHABLE_FIELDS,
@@ -206,15 +207,22 @@ const ExpenseRequestsList: React.FC<{ isReviewer: boolean; userId: string }> = (
         };
     }, [additionalFilters]);
 
+    // The live status and amount of the rows on screen, read from their Expenses (#1500). The
+    // names come from the table's current page, which is known only after the table hook runs,
+    // so they are held in state and set from `data` below.
+    const [visibleNames, setVisibleNames] = useState<string[]>([]);
+    const { standing, mutate: mutateStanding } = useRequestStanding(visibleNames);
+    const getStanding = useCallback((name: string) => standing[name], [standing]);
+
     const columnsDefinition = useMemo(
         () => getExpenseRequestColumns({
-            statusTab, getUserName, getCategory, canReview, canEdit, canDelete, getDetail,
+            statusTab, getUserName, getCategory, canReview, canEdit, canDelete, getDetail, getStanding,
             onApprove: (r) => setReview({ action: "approve", request: r }),
             onReject: (r) => setReview({ action: "reject", request: r }),
             onEdit: openEdit,
             onDelete: setDeleting,
         }),
-        [statusTab, getUserName, getCategory, canReview, canEdit, canDelete, getDetail, openEdit]
+        [statusTab, getUserName, getCategory, canReview, canEdit, canDelete, getDetail, getStanding, openEdit]
     );
 
     const {
@@ -232,9 +240,16 @@ const ExpenseRequestsList: React.FC<{ isReviewer: boolean; userId: string }> = (
         additionalFilters,
     });
 
+    // A primitive key of the page's names, so the effect runs when the rows change, not on every
+    // render (a fresh `data` array each time).
+    const namesKey = (data ?? []).map((r) => r.name).join("\n");
+    useEffect(() => {
+        setVisibleNames(namesKey ? namesKey.split("\n") : []);
+    }, [namesKey]);
+
     const refreshAll = useCallback(() => {
-        refetch(); mutateCounts(); mutateScoped();
-    }, [refetch, mutateCounts, mutateScoped]);
+        refetch(); mutateCounts(); mutateScoped(); mutateStanding();
+    }, [refetch, mutateCounts, mutateScoped, mutateStanding]);
 
     if (error && !data?.length) return <div className="m-4"><AlertDestructive error={error} /></div>;
 
