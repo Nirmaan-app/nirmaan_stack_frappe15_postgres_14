@@ -5,9 +5,12 @@
 
 An Expense is a `Project Expenses` or a `Non Project Expenses` row. This module has two doors:
 
-    starting_status(amount, raised_by)  the status a NEW row is born at: the amount rule plus the
-                                        Raiser's own step. Both ledgers' `validate` apply it through
-                                        `apply_starting_status`; `convert.target_status` previews it.
+    starting_status(amount, raised_by, reviewed_by=None)
+                                        the status a NEW row is born at: the amount rule plus the
+                                        Raiser's own step, where an L1 reviewer's review of the
+                                        Expense Request counts as the L1 step (#1499). Both ledgers'
+                                        `validate` apply it through `apply_starting_status`;
+                                        `convert.target_status` previews it.
     decide(doctype, name, action, user, reason=None, payment=None)
                                         one status change on an existing row. It locks the row,
                                         refuses a from-status the action does not expect and a user
@@ -39,8 +42,9 @@ from frappe import _
 from frappe.utils import flt, nowdate
 
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
-from nirmaan_stack.services.approval_raiser import expense_raiser, raiser_level
+from nirmaan_stack.services.approval_raiser import expense_raiser, expense_reviewer, raiser_level
 from nirmaan_stack.services.approval_tiers import (
+	RAISER_L1,
 	STATUS_APPROVED,
 	STATUS_CEO_PENDING,
 	STATUS_REQUESTED,
@@ -111,17 +115,22 @@ class StartingStatus:
 	ceo_done: bool
 
 
-def starting_status(amount, raised_by: str | None) -> StartingStatus:
+def starting_status(amount, raised_by: str | None, reviewed_by: str | None = None) -> StartingStatus:
 	"""Where a new Expense of `amount`, raised by `raised_by`, is born.
 
 	Under Rs 15,000 it is auto-approved (both steps stamped, `auto_approved`). Otherwise the
-	raiser's own level clears the steps it holds (Raiser's own step), and those steps are dated
+	level already held clears the steps it holds (Raiser's own step), and those steps are dated
 	like a person's approval -- not `auto_approved`. Everyone else is born at Requested.
+
+	`reviewed_by` is the Reviewer of the Expense Request the row is born from. An L1 reviewer's
+	review IS the L1 step (ADR-0016, 2026-10-19 amendment 3), so the row lands as it would for an
+	L1 raiser: Approved up to Rs 50,000, CEO Pending above it. An HR or Accounts review clears
+	nothing. A review clears L1 only, even the CEO's: the CEO step is the CEO's own approval.
 	"""
 	value = flt(amount)
 	if is_auto_approved(value):
 		return StartingStatus(STATUS_APPROVED, auto_approved=True, l1_done=True, ceo_done=True)
-	level = raiser_level(raised_by)
+	level = raiser_level(raised_by) or (RAISER_L1 if is_l1(reviewed_by) else None)
 	l1_done, ceo_done = steps_cleared_by_raiser(value, TIER_L2_ABOVE_EXPENSES, level)
 	return StartingStatus(
 		initial_status_for_raiser(value, TIER_L2_ABOVE_EXPENSES, level),
@@ -137,12 +146,13 @@ def apply_starting_status(doc) -> None:
 	Create-time only, and only while the status is still the default `Requested`, so an explicit
 	status (an import's Paid row) is kept and a later edit never re-routes a row. The raiser is
 	`approval_raiser.expense_raiser`: the Expense Request's owner, never the reviewer who inserted it.
+	The reviewer is the request's `reviewed_by` (`approval_raiser.expense_reviewer`).
 	"""
 	if not doc.is_new():
 		return
 	if doc.status and doc.status != STATUS_REQUESTED:
 		return
-	start = starting_status(doc.amount, expense_raiser(doc))
+	start = starting_status(doc.amount, expense_raiser(doc), expense_reviewer(doc))
 	doc.status = start.status
 	if start.auto_approved:
 		doc.auto_approved = 1

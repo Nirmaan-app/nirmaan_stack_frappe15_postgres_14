@@ -141,7 +141,7 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 		r["pay_to"] = pay_to_account(r)
 		r["payee_rule"] = payee_rules.get(r["type"]) or NOT_ASKED
 		r["target_doctype"] = target_doctype(frappe._dict(r))
-		r["target_status"] = target_status(frappe._dict(r))
+		r["target_status"] = target_status(frappe._dict(r), user)
 
 	return {"role_profile": profile, "requests": rows}
 

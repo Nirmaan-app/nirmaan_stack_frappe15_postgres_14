@@ -367,7 +367,10 @@ class TestExpenseRequests(FrappeTestCase):
 	def test_a_project_targets_the_project_ledger_and_carries_it(self):
 		res = self._raise_as(PM_USER, expense_type=PROJECT_TYPE, amount=15000,
 		                     projects=self.project)
+		# An Accountant reviews: an Admin's review would be the L1 step itself (#1499).
+		frappe.set_user(ACC_USER)
 		out = approve_expense_request(res["name"])
+		frappe.set_user("Administrator")
 		self.assertEqual(out["created_expense_doctype"], "Project Expenses")
 		row = frappe.get_doc("Project Expenses", out["created_expense"])
 		self.assertEqual(row.projects, self.project)
@@ -378,12 +381,18 @@ class TestExpenseRequests(FrappeTestCase):
 		"""Owner ruling 2026-08-20: approval no longer forces `Approved`.
 
 		The row is born at the ledger default and each doctype's own `validate` applies the
-		SAME threshold it applies to a directly-entered row.
+		SAME threshold it applies to a directly-entered row. An Accountant reviews here: an
+		Admin's review is the L1 step (#1499, `test_review_is_l1`).
 		"""
 		for amount, expected in ((900, "Approved"), (14999, "Approved"),
 		                         (15000, "Requested"), (20000, "Requested")):
 			with self.subTest(amount=amount):
-				out = approve_expense_request(self._raise_as(PM_USER, amount=amount)["name"])
+				name = self._raise_as(PM_USER, amount=amount)["name"]
+				frappe.set_user(ACC_USER)
+				try:
+					out = approve_expense_request(name)
+				finally:
+					frappe.set_user("Administrator")
 				self.assertEqual(
 					frappe.db.get_value(out["created_expense_doctype"],
 					                    out["created_expense"], "status"),

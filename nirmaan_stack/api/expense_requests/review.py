@@ -47,11 +47,13 @@ def approve_expense_request(name: str):
 	savepoint = f"exr_approve_{frappe.generate_hash(length=10)}"
 	frappe.db.savepoint(savepoint)
 	try:
-		row = create_ledger_row(req)
+		# The request is saved FIRST: the ledger's `validate` reads `reviewed_by` from it, because an
+		# Admin's review is the L1 step (`expense_decision.starting_status`, #1499).
 		req.status = APPROVED
 		req.reviewed_by = frappe.session.user
 		req.reviewed_on = now_datetime()
 		req.save(ignore_permissions=True)
+		row = create_ledger_row(req)
 	except Exception:
 		frappe.db.rollback(save_point=savepoint)
 		raise
