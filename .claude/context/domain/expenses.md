@@ -556,6 +556,7 @@ PM raises  ->  Pending Approval  ->  routed reviewer
 - **Merged by SQL (2026-10-19):** Salaries & Employee Wages → the existing Salary - Employee Payout
   (every Link, Dynamic Link and plain-text column), and Salaries & Employee Wages dropped from the
   fixture. Salary - Employee Payout is not in the fixture; it lives on the site only.
+- **Removed (2026-10-19), no record used it:** Other Financial Expenses, from the site and the fixture.
 - **Rename an Expense Type — ADMIN ONLY (2026-09-16).** Expense Packages → Rename →
   `masters.rename_expense_type`, which runs Frappe's model-level `rename_doc`. That moves the
   docname, `expense_name` (the autoname field), the `allowed_roles` child rows and every LINK to
@@ -706,10 +707,10 @@ save an invalid template**.
   - **No format asks for bank details or who gets paid as free text** (#1430): the Payroll
     (Salaries & Employee Wages, since removed), Accommodation Deposit and Rent/PG for Staff "Payee Bank Details" sections, and the
     fields that only named the payee (Rent's landlord, the Deposit's landlord / PG, Payroll's
-    employee, the "Paid To" of Office Maintenance, Pooja, Other Financial and Staff Welfare), are
+    employee, the "Paid To" of Office Maintenance, Pooja, Other Financial (since removed) and Staff Welfare), are
     gone. Those types ask for a Payee instead: *Required* for Accommodation Deposit (paid by
     transfer into the landlord's account, and recovered from it),
-    *Optional* for the other five (card, cash, or a batch with no single payee). The choice
+    *Optional* for the other four (card, cash, or a batch with no single payee). The choice
     is pinned by `api/expense_requests/test_request_forms.py`, which also refuses a bank field or a
     `description_template` placeholder naming a field the form no longer asks. Bank Interest's
     "Bank Account No." stays: it is the company's own account, not who gets paid. Supplier-name

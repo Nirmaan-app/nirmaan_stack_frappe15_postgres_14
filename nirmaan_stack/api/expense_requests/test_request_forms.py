@@ -32,7 +32,6 @@ EXPECTED_RULES = {
 	"Rent/PG for Staff": OPTIONAL,
 	"Office Maintenance": OPTIONAL,
 	"Pooja Expenses": OPTIONAL,
-	"Other Financial Expenses": OPTIONAL,
 	"Staff Welfare Expenses": OPTIONAL,
 }
 
