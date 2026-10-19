@@ -21,6 +21,7 @@
 //                               dashes costs width and tells the reviewer nothing.
 
 import { ColumnDef } from "@tanstack/react-table";
+import { Link } from "react-router-dom";
 
 import { EXR_RAISED_BY_ME } from "./expenseRequestsTable.config";
 import { Check, Pencil, Trash2, X } from "lucide-react";
@@ -95,7 +96,10 @@ export const getExpenseRequestColumns = ({
                             creation: row.original.creation,
                             detail: getDetail(row.original.name),
                         }}>
-                            {row.original.name}
+                            {/* The request's page: its invoice can be added there (#1502). */}
+                            <Link to={`/expense/requests/${row.original.name}`} className="text-primary">
+                                {row.original.name}
+                            </Link>
                         </RequestHoverCard>
                     </div>
                     <div className="text-[11px] text-muted-foreground">

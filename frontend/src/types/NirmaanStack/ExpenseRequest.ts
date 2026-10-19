@@ -58,6 +58,39 @@ export interface ExpenseRequest {
   payee_rule?: string;
 }
 
+/** An expense's invoice (#1502): only the parts given. */
+export interface ExpenseRequestInvoice {
+  invoice_attachment?: string;
+  invoice_date?: string;
+  invoice_ref?: string;
+}
+
+/** One request, for its page (`read.get_expense_request`). */
+export interface ExpenseRequestDetail {
+  name: string;
+  type: string;
+  projects?: string | null;
+  projects_name?: string | null;
+  amount: number;
+  vendor?: string | null;
+  comment?: string | null;
+  source_data?: string | null;
+  status: ExpenseRequestStatus;
+  owner: string;
+  owner_name: string;
+  creation: string;
+  review_comment?: string | null;
+  /** The answers, labelled by the request's form; the invoice is in `invoice`. */
+  detail: { label: string; value: string }[];
+  pay_to?: PayToAccount | null;
+  /** The Expense created from it; null before approval. */
+  expense: { doctype: string; name: string; status: string } | null;
+  invoice: ExpenseRequestInvoice;
+  /** Server-computed (`invoice.invoice_refusal`): the raiser or an Admin, until the Expense is Paid. */
+  can_add_invoice: boolean;
+  can_edit: boolean;
+}
+
 export interface GetMyExpenseRequestsResponse {
   role_profile: string | null;
   requests: ExpenseRequest[];

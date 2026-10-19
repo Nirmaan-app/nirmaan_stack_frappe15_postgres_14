@@ -1040,22 +1040,7 @@ class TestExpenseRequests(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			self._own_type(enabled=1)
 
-	def test_standard_invoice_details_must_hang_together(self):
-		off = self._own_type()
-
-		def raise_with(invoice=None, files=None):
-			data = {"responses": {"detail": {"description": "cement"}}}
-			if invoice is not None:
-				data["responses"]["invoice"] = invoice
-			if files is not None:
-				data["attachments"] = {"invoice": files}
-			return self._raise_as(PM_USER, expense_type=off, source_data=data)
-
-		with self.assertRaises(frappe.ValidationError):   # a file needs a reference
-			raise_with({"invoice_date": "2026-09-01"}, ["/private/files/exr_test_inv.pdf"])
-		with self.assertRaises(frappe.ValidationError):   # any detail needs a date
-			raise_with({"invoice_ref": "INV-1"})
-		self.assertTrue(raise_with({"invoice_date": "2026-09-01"})["name"])
+	# A missing invoice date or number warns and no longer refuses (#1502): `test_request_invoice`.
 
 	def test_a_standard_request_carries_its_invoice_to_the_ledger(self):
 		off = self._own_type()

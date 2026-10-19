@@ -5,6 +5,7 @@
 
 URLs:
   /api/method/nirmaan_stack.api.expense_requests.read.get_my_expense_requests
+  /api/method/nirmaan_stack.api.expense_requests.read.get_expense_request
   /api/method/nirmaan_stack.api.expense_requests.read.get_request_catalog
 """
 
@@ -24,7 +25,12 @@ from nirmaan_stack.api.expense_requests.convert import (
 	target_status,
 )
 from nirmaan_stack.api.expense_requests.delete import can_delete, requests_with_an_expense
-from nirmaan_stack.api.expense_requests.flatten import flatten_pairs
+from nirmaan_stack.api.expense_requests.flatten import (
+	NATIVE_INVOICE_SECTION,
+	flatten_pairs,
+	native_invoice,
+)
+from nirmaan_stack.api.expense_requests.invoice import invoice_refusal, linked_expense
 from nirmaan_stack.api.expense_requests.update import can_edit
 from nirmaan_stack.services.expense_request_routing import (
 	category_for_type,
@@ -144,6 +150,43 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 		r["target_status"] = target_status(frappe._dict(r))
 
 	return {"role_profile": profile, "requests": rows}
+
+
+@frappe.whitelist()
+def get_expense_request(name: str):
+	"""One request, for its page (`/expense/requests/<name>`, #1502).
+
+	Built for the page to grow: #1502 reads the invoice and whether one may be added; the live
+	status of the Expense ("Where it stands", #1500) belongs here too. `expense` is the Expense
+	created from it, as `{doctype, name, status}`, or None before approval.
+	"""
+	doc = frappe.get_doc("Expense Request", name)
+	doc.check_permission("read")
+	row = {f: doc.get(f) for f in FIELDS}
+
+	fmt = frappe.db.get_value("Expense Type", doc.type,
+	                          ["source_format", "source_format_enabled"], as_dict=True) or {}
+	row["detail"] = [
+		{"label": label, "value": value}
+		for label, value in flatten_pairs(
+			doc.source_data,
+			applicable_format(fmt.get("source_format"), fmt.get("source_format_enabled"),
+			                  doc.source_data),
+			skip_sections=(NATIVE_INVOICE_SECTION,),
+		)
+	]
+	row["projects_name"] = (
+		frappe.db.get_value("Projects", doc.projects, "project_name") if doc.projects else None
+	)
+	row["owner_name"] = frappe.db.get_value("User", doc.owner, "full_name") or doc.owner
+	row["pay_to"] = pay_to_account(row)
+
+	expense = linked_expense(name)
+	row["expense"] = dict(expense) if expense else None
+	row["invoice"] = native_invoice(doc.source_data)
+	row["can_add_invoice"] = invoice_refusal(row, expense) is None
+	row["can_edit"] = can_edit(row)
+	return row
 
 
 @frappe.whitelist()
