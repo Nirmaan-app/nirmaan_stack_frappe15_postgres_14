@@ -22,8 +22,7 @@ THE RULE (owner note, 11/09/2026)
 ⚠️ THIS REVERSES THE EXPENSE RULE OF 2026-09-04, WHICH WAS `<= 10000` (INCLUSIVE). That ruling
 made exactly Rs 10,000 auto-approve. The new lower edge is EXCLUSIVE at a different number, so
 the old ruling is superseded rather than contradicted -- but anything written against "exactly
-the limit auto-approves" is stale, including the note still standing in
-`frontend/src/utils/expenseApproval.ts` until that module is retired.
+the limit auto-approves" is stale.
 
 ⚠️ A REFUND / CREDIT (amount <= 0) ALWAYS TAKES THE FULL PATH. It is "less than 15,000" on a
 plain reading of the number, and auto-approving it would let money move back with no review.

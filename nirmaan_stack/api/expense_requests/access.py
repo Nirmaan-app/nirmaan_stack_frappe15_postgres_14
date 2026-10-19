@@ -18,7 +18,6 @@ from nirmaan_stack.services.expense_request_routing import (
 	reviewer_role_for_type,
 	types_reviewed_by,
 )
-from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 
 ADMIN_PROFILE = "Nirmaan Admin Profile"
 PM_PROFILE = "Nirmaan Project Manager Profile"
@@ -139,22 +138,33 @@ def records_without_review(user: str | None = None) -> bool:
 	return bool(profile) and profile in listed_records_without_review()
 
 
+def reviews_requests(profile: str | None) -> bool:
+	"""Does this role profile review expense requests: Admin every one, Accountant / HR a Project
+	Manager's (`PM_REQUEST_REVIEWERS`)? Mirrored client-side by `EXPENSE_REQUEST_REVIEW_PROFILES`."""
+	return profile == ADMIN_PROFILE or profile in PM_REQUEST_REVIEWERS
+
+
+def opens_expenses(user: str | None = None) -> bool:
+	"""Does the caller get the Expenses page (sidebar item and route, spec #1494 #1506): can they
+	raise at least one type, or do they review?"""
+	profile = caller_role_profile(user)
+	return profile_can_raise(profile) or reviews_requests(profile)
+
+
 def can_name_expense_payee(user: str | None = None) -> bool:
-	"""May the caller name who gets paid on an expense: raise an expense request, or record a Direct
-	Expense (Frappe's create right on `Project Expenses` or `Non Project Expenses`, #1471)?"""
-	user = user or frappe.session.user
-	return can_raise_requests(user) or any(
-		frappe.has_permission(doctype, "create", user=user) for doctype in EXPENSE_DOCTYPES
-	)
+	"""May the caller name who gets paid on an expense: can they raise at least one type?
+
+	Since no person creates a ledger row directly (spec #1494, #1506), raising a request is the
+	only way anyone names who gets paid, so the ledgers' create right no longer counts."""
+	return can_raise_requests(user)
 
 
 def guard_can_name_expense_payee() -> None:
-	"""Refuse a caller who can neither raise an expense request nor record an expense. Gates the
-	Payee search / check / add that the request dialog and the Add Expense dialogs share
-	(`api/expense_requests/payees`)."""
+	"""Refuse a caller who can raise no expense type. Gates the Payee search / check / add of the
+	New Expense dialog and the expense edit dialogs (`api/expense_requests/payees`)."""
 	if not can_name_expense_payee():
 		frappe.throw(
-			"Only someone who can raise an expense request or record an expense may do this.",
+			"Only someone who can raise an expense may do this.",
 			frappe.PermissionError,
 			title="Not a requester",
 		)

@@ -7,6 +7,7 @@ URLs:
   /api/method/nirmaan_stack.api.expense_requests.read.get_my_expense_requests
   /api/method/nirmaan_stack.api.expense_requests.read.get_expense_request
   /api/method/nirmaan_stack.api.expense_requests.read.get_request_catalog
+  /api/method/nirmaan_stack.api.expense_requests.read.get_expense_access
 """
 
 import frappe
@@ -17,6 +18,7 @@ from nirmaan_stack.api.expense_requests.access import (
 	REJECTED,
 	caller_role_profile,
 	can_request_type,
+	opens_expenses,
 	records_without_review,
 	reviews_pm_request,
 )
@@ -257,6 +259,17 @@ def get_request_catalog(include_type: str | None = None):
 		categories.append({"category": name, "reviewer_role": reviewer_role, "types": entries})
 
 	return {"categories": categories, "records_without_review": records_without_review()}
+
+
+@frappe.whitelist()
+def get_expense_access():
+	"""Whether the caller gets the Expenses page: `{opens_expenses}` (`access.opens_expenses`: can
+	raise at least one type, or reviews). Read by the sidebar item and the `/expense` route guard,
+	so both answer from the same `Expense Type.allowed_roles` the request-creating call enforces.
+
+	Example: `{"opens_expenses": true}`.
+	"""
+	return {"opens_expenses": opens_expenses()}
 
 
 @frappe.whitelist()

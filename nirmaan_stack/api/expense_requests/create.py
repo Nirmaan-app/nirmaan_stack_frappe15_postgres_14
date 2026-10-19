@@ -122,7 +122,10 @@ def create_expense_request(
 	)
 	# After the promotion, so a vendor a format inferred is paid into its Payee just the same.
 	apply_picked_payee(doc, payee)
-	doc.insert()
+	# Elevated, like every write the intake makes (spec #1494, #1506): who may raise is
+	# `guard_requestable` above (the type's `allowed_roles`), not the request's DocPerm, so a
+	# PMO or Procurement raiser needs no create right of their own.
+	doc.insert(ignore_permissions=True)
 	# One transaction: the request and its Expense land together or not at all.
 	expense = _approve_on_submit(doc) if records_without_review() else None
 	frappe.db.commit()

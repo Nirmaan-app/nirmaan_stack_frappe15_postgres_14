@@ -585,12 +585,13 @@ export const PAYMENT_VOUCHER_EDIT: readonly string[] = [
  *
  * HR LEAD IS IN, and needed a sidebar entry to go with it (owner, 2026-09-23): it was
  * already a valid reviewer server-side but had no nav item anywhere, so the right it held
- * was unreachable. See the `/expense` gate in `NewSidebar.tsx`.
+ * was unreachable. The `/expense` sidebar item and route now open to a reviewer or anyone who
+ * can raise a type (`access.opens_expenses`, spec #1494 #1506).
  *
- * NOT an access gate: `/expense` has no route guard, so any logged-in user who types the
- * URL reaches the page. They land on `Expense Raised By Me`, which is the safe direction --
- * hence the predicate asks "is this a reviewer", never "is this one of the narrowed roles".
- * An unknown or new profile then defaults to its own rows.
+ * NOT an access gate: it decides only the tabs. A raiser who reviews nothing lands on
+ * `Expense Raised By Me`, which is the safe direction -- hence the predicate asks "is this a
+ * reviewer", never "is this one of the narrowed roles". An unknown or new profile then
+ * defaults to its own rows.
  */
 export const EXPENSE_REQUEST_REVIEW_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
