@@ -6,9 +6,16 @@
 The terms are `GLOSSARY.md` *Project outflow* and *Current Liabilities*:
 
   * outflow -- cash, not orders: every Paid Project Payment on the project (whatever state its order is
-    in now), less its Received Vendor Refunds against a PO / Work Order, plus its Paid Expenses. It is
-    kept as its three parts (PO payments, Work Order payments, expenses; each refund comes off its own
-    order kind), which the project's Financials shows as the outflow breakdown; `outflow` is their sum.
+    in now), less its Received Vendor Refunds against a PO / Work Order, plus its Paid Expenses, plus the
+    TDS on its Paid Work Order payments, both the tax withheld from the vendor and the tax the company paid
+    on top (ADR-0034 Amendment A). It is kept as its three parts (PO payments, Work Order payments and
+    their TDS, expenses; each refund comes off its own order kind), which the project's Financials shows as
+    the outflow breakdown; `outflow` is their sum.
+
+    The tax is read off the deduction rows of the Paid payments, keyed and dated by the PAYMENT (its
+    project, its date), never by the challan: a challan covers many projects and a whole year. The
+    challan itself is recorded later as a *TDS Payment* expense, a Non-Project Expense, which this figure
+    never reads, so the tax is not counted twice.
   * liabilities -- max(0, delivered - Amount Paid) per PO, summed over the project's POs except Merged,
     Cancelled and Inactive (what they delivered is counted on the PO that replaced them).
   * inflow -- every Project Inflow.
@@ -19,7 +26,7 @@ CEO Hold (`integrations/controllers/project_cashflow_hold_update`), the Projects
 `api/projects/project_money` read `project_money`; no reader works the gap out on its own.
 
 A date range counts each row on its own date: a payment, expense and inflow on its `payment_date`, a
-refund on the refund's `payment_date` (not its order's), each falling back to the row's creation date
+refund on the refund's `payment_date` (not its order's), a WO payment's TDS on its payment's, each falling back to the row's creation date
 when blank. Liabilities are a standing figure, not cash on a date: in a range they cover the POs created
 in it (the Cash Sheet's PO set).
 """
@@ -30,6 +37,7 @@ import frappe
 from frappe.utils import flt
 
 from nirmaan_stack.services.money_dates import ON_PAYMENT_DATE, date_range_clauses
+from nirmaan_stack.services.payment_tds import PAYMENT_DOCTYPE, TDS_DOCTYPE
 from nirmaan_stack.services.vendor_refunds import LOWERS_PAID_STATUSES, REFUND_DOCUMENT_FIELDS
 
 #: POs whose delivered value is not a liability: it is counted on the PO that replaced them.
@@ -112,6 +120,15 @@ def project_money(projects=None, from_date=None, to_date=None) -> dict[str, Proj
             FROM "tabVendor Refunds"
             WHERE status IN %(refund_statuses)s AND document_type IN %(refund_doctypes)s
               AND {scope("project", ON_PAYMENT_DATE)}
+            UNION ALL
+            SELECT project, 0, tds_amount, 0, 0, 0
+            FROM (
+                SELECT p.project, p.payment_date, p.creation, d.tds_amount
+                FROM "tab{TDS_DOCTYPE}" d
+                INNER JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = d.project_payment
+                WHERE p.status = 'Paid' AND p.document_type = %(work_order)s
+            ) AS work_order_tds
+            WHERE {scope("project", ON_PAYMENT_DATE)}
             UNION ALL
             SELECT projects, 0, 0, amount, 0, 0
             FROM "tabProject Expenses"
