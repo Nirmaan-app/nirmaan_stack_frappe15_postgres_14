@@ -626,6 +626,19 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   **⚠️ COST, accepted by the owner: this destroys the only copy of the request detail** —
   `source_data` is the sole home for what was asked, so a delete-and-redo loses the original
   ask and the requester's record of it.
+- **A REJECTED request with no Expense can be deleted by its raiser or an Admin** (spec #1494,
+  `api/expense_requests/delete.py`). `delete_expense_request` refuses any other status, anyone
+  else (`PermissionError`), and a request any Expense row still points at through `request_id`:
+  that request goes only with its Expense (above), including one that reads Rejected because
+  its Expense was rejected. It clears the notifications first, for the same Dynamic Link
+  reason. `can_delete` is server-computed on `get_my_expense_requests` like `can_edit`; the
+  trash button shows on "Raised By Me" and "All".
+- **The edit pencil shows on "Raised By Me" as well as "Pending Approval"** (spec #1494).
+  The rule is unchanged (`update.can_edit`: raiser or Admin, Pending only). Before this, a
+  Project Manager could never reach it, because only reviewers get the pending tab. Approve /
+  Reject stay on the pending tab. The Request ID cell carries a hover card
+  (`RequestHoverCard.tsx`) that renders the scoped read's `detail`; rows past that read's
+  200-row cap get no Edit / Delete and a header-only card.
 - **A reviewer is a `Nirmaan Users.role_profile`, NEVER a Frappe Role.** The Role Profile
   `Nirmaan Admin Profile` grants `Nirmaan Project Manager` among seven others, and a Role of
   that exact name is assigned to nobody — a `frappe.get_roles()` gate would match no one and

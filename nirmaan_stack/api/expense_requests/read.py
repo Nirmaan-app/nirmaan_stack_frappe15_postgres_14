@@ -13,6 +13,7 @@ import frappe
 from nirmaan_stack.api.expense_requests.access import (
 	ADMIN_PROFILE,
 	PM_REQUEST_REVIEWERS,
+	REJECTED,
 	caller_role_profile,
 	can_request_type,
 	reviews_pm_request,
@@ -22,6 +23,7 @@ from nirmaan_stack.api.expense_requests.convert import (
 	target_doctype,
 	target_status,
 )
+from nirmaan_stack.api.expense_requests.delete import can_delete, requests_with_an_expense
 from nirmaan_stack.api.expense_requests.flatten import flatten_pairs
 from nirmaan_stack.api.expense_requests.update import can_edit
 from nirmaan_stack.services.expense_request_routing import (
@@ -92,6 +94,10 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 		                        fields=["name", "source_format", "source_format_enabled"],
 		                        filters={"source_format": ["is", "set"]})
 	}
+	# Which rejected rows still have an Expense, read once for the page: those are deleted only
+	# through their Expense, so they carry no trash button.
+	with_expense = requests_with_an_expense(r["name"] for r in rows if r["status"] == REJECTED)
+
 	# Each type's *Who gets paid* (#1466), so the review dialog words a missing account by it.
 	payee_rules = dict(frappe.get_all("Expense Type", fields=["name", "payee_rule"], as_list=True))
 
@@ -107,6 +113,8 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 		# Must say what `access.guard_reviewer` says, or the button appears on a row the
 		# endpoint then refuses.
 		r["can_edit"] = can_edit(r, user)
+		r["can_delete"] = can_delete(r, user, admin=profile == ADMIN_PROFILE,
+		                             has_expense=r["name"] in with_expense)
 		r["can_review"] = profile == ADMIN_PROFILE or (
 			r["owner"] != user
 			and (profile == r["reviewer_role"]
