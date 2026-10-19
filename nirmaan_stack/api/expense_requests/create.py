@@ -17,6 +17,7 @@ from nirmaan_stack.api.expense_requests.access import (
 	records_without_review,
 )
 from nirmaan_stack.api.expense_requests.convert import create_ledger_row
+from nirmaan_stack.api.expense_requests.duplicates import find_stay_duplicates
 from nirmaan_stack.api.expense_requests.flatten import (
 	filled_against_a_form,
 	flat_responses,
@@ -48,8 +49,9 @@ def create_expense_request(
 	HR raiser's Rs 40,000 Expense still waits at Requested for an Admin.
 
 	Returns `{name, status, projects, created_expense, created_expense_doctype, expense_status,
-	warnings}`; the three expense fields are None when the request waits for review, and
-	`warnings` are the invoice warnings (#1502), which never refuse.
+	warnings, duplicates}`; the three expense fields are None when the request waits for review,
+	`warnings` are the invoice warnings (#1502), and `duplicates` the other stays for the same
+	person on overlapping days (`duplicates.find_stay_duplicates`, #1504). Neither ever refuses.
 
 	`projects` is passed through as given and left to the doctype's `validate`, which
 	checks it against the Expense Type's own project / non_project flags. There is no
@@ -92,11 +94,10 @@ def create_expense_request(
 	guard_request_form(expense_type, source_data)
 
 	# ⚠️ A DUPLICATE IS NEVER REFUSED HERE (owner ruling, 2026-08-20, REVERSING the 2026-08-19
-	# submission block). The review dialog shows the approver same-type, same-amount expenses
-	# (`similar.get_similar`) and stops nothing. A duplicate is genuinely hard to tell from a
-	# legitimate repeat, so the judgement belongs to a human -- and a refusal the requester
-	# disagrees with has nowhere to go. (The create-dialog warning went with the per-type
-	# duplicate rules, removed 2026-09-19.)
+	# submission block). A duplicate stay is RETURNED as `duplicates` (`duplicates.py`, #1504) and
+	# shown to whoever approves; the review dialog also shows same-type, same-amount expenses
+	# (`similar.get_similar`). A duplicate is genuinely hard to tell from a legitimate repeat, so
+	# the judgement belongs to a human -- and a refusal the requester disagrees with has nowhere to go.
 
 	# A format field carrying `maps_to` names a REAL column on the request -- the answer is
 	# promoted rather than left only in `source_data`, so it is queryable, referentially
@@ -135,6 +136,7 @@ def create_expense_request(
 		"created_expense_doctype": expense.doctype if expense else None,
 		"expense_status": expense.status if expense else None,
 		"warnings": invoice_warnings(native_invoice(doc.source_data)),
+		"duplicates": find_stay_duplicates(doc.source_data, exclude=doc.name),
 	}
 
 

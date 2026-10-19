@@ -607,8 +607,8 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   moved to Staff Accommodation Rent (now Rent/PG for Staff).
 - **Renamed by SQL (2026-10-19), every reference moved, plain-text columns included:** Staff
   Accommodation Rent → Rent/PG for Staff, Labour Accommodation Rent → Rent/PG for Labour, Other
-  Project Related Charges → Other Project Expenses. `duplicates.RULES` is keyed by type name, so a
-  rename must rename its key too, or that type's duplicate check silently switches off.
+  Project Related Charges → Other Project Expenses. (The name-keyed `duplicates.RULES` table is
+  gone since #1504; the stay check is keyed on the form's `templateId`, which no rename touches.)
 - **Merged by SQL (2026-10-19):** Salaries & Employee Wages → the existing Salary - Employee Payout
   (every Link, Dynamic Link and plain-text column), and Salaries & Employee Wages dropped from the
   fixture. Salary - Employee Payout is not in the fixture; it lives on the site only.
@@ -625,12 +625,19 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   **Refused** for any name the code looks up by name (`masters.names_referenced_in_code`: today
   only `outflow_import.cashbook.FALLBACK_EXPENSE_TYPE` "Petty Cash"), since a rename would silently
   switch off the bank-import fallback.
-  **⚠️ NO PER-TYPE DUPLICATE RULES (owner ruling 2026-09-19).** The `duplicates.RULES` table (6
-  types, matched on person/building + overlapping dates) was REMOVED with its create-dialog
-  warning and the review dialog's "Already requested for this period" box: it keyed on the type's
-  NAME, so it blocked renaming those types, and the owner did not want static rules. The approver
-  still sees `similar.get_similar`'s same-type + same-amount count over the last 60 days. Do not
-  bring back a name-keyed rule table.
+  **⚠️ NO NAME-KEYED DUPLICATE RULES (owner ruling 2026-09-19).** The `duplicates.RULES` table (6
+  types, keyed on the type's NAME) was removed: it blocked renaming those types. Do not bring back
+  a name-keyed rule table. The approver also sees `similar.get_similar`'s same-type + same-amount
+  count over the last 60 days.
+  **⚠️ DUPLICATE STAFF STAY: FLAGGED, NEVER REFUSED (spec #1494, #1504).** `duplicates.STAY_FORMS`
+  is keyed on the form's `templateId` (only `staff-accommodation`). A match is the same person (case
+  and spacing ignored) whose stay shares at least one night (a stay starting the day another ends is
+  not a match), on any project, against any request not Rejected whose Expense, if any, is not
+  Rejected either. An Expense is reached only through its request: a ledger row with no request
+  holds no person or dates. Shown in bold to the Reviewer (`similar.get_similar` → `stays`) and to a
+  raiser on Records without review before submit; a quiet note to any other raiser
+  (`duplicates.check_duplicate_stay`). `create` / `update` return the matches as `duplicates`; an
+  edit re-checks only when the stay itself changed. The 2026-08-20 "never refuse" ruling stands.
   **⚠️ Update `fixtures/expense_type.json` too** — it is keyed by name and re-imported on every
   migrate, so an app rename alone comes back after the next deploy as a SECOND type under the old
   name.

@@ -31,14 +31,16 @@ import { TIER_AUTO_APPROVE_BELOW, TIER_L2_ABOVE_EXPENSES } from "@/utils/approva
 import { getFrappeError } from "@/utils/frappeErrors";
 import { PAYEE_RULE, asPayeeRule, noAccountReviewLine, payeeAccountLine } from "@/utils/payees/expensePayee";
 import { bankLine } from "@/utils/payees/payeeForm";
-import type { ExpenseRequest } from "@/types/NirmaanStack/ExpenseRequest";
+import type { ExpenseRequest, StayDuplicate } from "@/types/NirmaanStack/ExpenseRequest";
+import DuplicateStayNote from "./DuplicateStayNote";
 
 export type ReviewAction = "approve" | "reject";
 
-/** Same-type, same-amount expenses of the last 60 days. The per-type "same person, overlapping
- *  dates" warning was removed with its rules (owner, 2026-09-19). */
+/** Same-type, same-amount expenses of the last 60 days (`nearby`), and other stays for the same
+ *  person on overlapping dates (`stays`, #1504: keyed on the form, never on the type's name). */
 interface SimilarResponse {
     nearby: { doctype: string; name: string; amount: number; status: string; on: string }[];
+    stays: StayDuplicate[];
 }
 
 interface Props {
@@ -199,6 +201,9 @@ export const ReviewActionDialog: React.FC<Props> = ({
                         ))}
                     </div>
                 )}
+
+                {/* Bold to the Reviewer, with every match (#1504). It never blocks the decision. */}
+                <DuplicateStayNote matches={similar?.stays ?? []} variant="warning" />
 
                 {(similar?.nearby?.length ?? 0) > 0 && (
                     <p className="text-xs text-muted-foreground">
