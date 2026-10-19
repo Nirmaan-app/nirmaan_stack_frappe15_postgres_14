@@ -158,10 +158,10 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     // reaches that hook; a figure typed here landed in the legacy `Project Payments.tds` column and
     // rendered as "--" in the payments table below, which reads the new doctype.
     //
-    // Removing it is ARITHMETICALLY NEUTRAL: `update_parent_amount_paid` sums `amount`, never
-    // `amount - tds`, so these payments have always contributed their GROSS figure to `amount_paid`,
-    // and with `total_tds` at 0 for them `amount_due = total_amount - amount_paid - total_tds` was
-    // and stays correct. What is lost is only the CAPTURE of the withheld figure here -- intended,
+    // Removing it is ARITHMETICALLY NEUTRAL: `amount_paid` sums `amount`, never `amount - tds`, so
+    // these payments have always contributed their GROSS figure to `amount_paid`, and with no
+    // deduction row for them `amount_due = total_amount - amount_paid` was and stays correct.
+    // What is lost is only the CAPTURE of the withheld figure here -- intended,
     // because the sanctioned route is approve -> net -> export payout -> settle from the statement.
     const [newPayment, setNewPayment] = useState({
         amount: "",

@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	amountPaidParts,
 	forecastTds,
 	forecastTdsTotals,
 	isCompanyBorneWorkOrder,
 	isDeductible,
 	withholdsOnApproval,
-	workOrderTdsLabel,
 } from "./tdsForecast";
 
 const SR = "Service Requests";
@@ -200,16 +200,39 @@ describe("withholdsOnApproval", () => {
 	});
 });
 
-describe("the Work Order page's TDS label (server answer `get_work_order_tds`, #1451)", () => {
-	it("names who bore the paid tax", () => {
-		// SR-00105-000908: Misc-only, its tax withheld from the vendor before the 2026-09-17 rule.
-		expect(workOrderTdsLabel({ withheld: 248, company: 0, kind: "withheld", payments: {} })).toBe("TDS withheld");
-		expect(workOrderTdsLabel({ withheld: 0, company: 200, kind: "company", payments: {} })).toBe("TDS (paid by company)");
-		// SR-00107-001055: 120 withheld, 282.40 paid on top.
-		expect(workOrderTdsLabel({ withheld: 120, company: 282.4, kind: "part", payments: {} })).toBe("TDS (part paid by company)");
+describe("the Work Order page's Amount Paid hover (stored amount_paid + server answer `get_work_order_tds`, #1509)", () => {
+	it("splits a vendor-borne Amount Paid into what reached the vendor and the tax withheld for them", () => {
+		// Rs 10,000 gross, Rs 200 withheld: Amount Paid is Rs 10,000, Rs 9,800 reached the vendor.
+		expect(amountPaidParts(10000, { withheld: 200, company: 0, kind: "withheld", payments: {} })).toEqual({
+			paidToVendor: 9800,
+			tdsWithheld: 200,
+			total: 10000,
+			companyOnTop: 0,
+		});
 	});
 
-	it("claims no side until the server has answered", () => {
-		expect(workOrderTdsLabel(undefined)).toBe("TDS");
+	it("shows the company's tax on its own line, outside the total", () => {
+		// Rs 800 paid whole, Rs 16 paid by the company on top.
+		expect(amountPaidParts(800, { withheld: 0, company: 16, kind: "company", payments: {} })).toEqual({
+			paidToVendor: 800,
+			tdsWithheld: 0,
+			total: 800,
+			companyOnTop: 16,
+		});
+		// SR-00107-001055: 5,880 + 120 withheld, 14,120 kept whole with 282.40 on top.
+		expect(amountPaidParts(20120, { withheld: 120, company: 282.4, kind: "part", payments: {} })).toEqual({
+			paidToVendor: 20000,
+			tdsWithheld: 120,
+			total: 20120,
+			companyOnTop: 282.4,
+		});
+	});
+
+	it("rounds to the paisa, as the server stores money", () => {
+		expect(amountPaidParts(1000.3, { withheld: 0.1, company: 0, kind: "withheld", payments: {} })?.paidToVendor).toBe(1000.2);
+	});
+
+	it("claims no split until the server has answered", () => {
+		expect(amountPaidParts(10000, undefined)).toBeUndefined();
 	});
 });

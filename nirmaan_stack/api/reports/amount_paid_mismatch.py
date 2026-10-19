@@ -4,13 +4,14 @@
 """The Amount Paid Mismatch report (Reports → PO and Reports → WO, #1455, ADR-0034).
 
 Thin doors onto the judge, `services/amount_paid_drift`: it decides what is a mismatch (stored Amount
-Paid or Amount Due ₹1 or more off Paid payments less Received refunds) and how an order is recounted.
-Nothing here re-states that rule.
+Paid, Amount Due or a WO's Total TDS ₹1 or more off Paid payments, plus a WO's TDS withheld from the
+vendor, less Received refunds) and how an order is recounted. Nothing here re-states that rule.
 
     nirmaan_stack.api.reports.amount_paid_mismatch.get_amount_paid_mismatches
         doctype="Procurement Orders"            (or "Service Requests")
         -> [{doctype, name, project, project_name, vendor, vendor_name, status,
-             stored_paid, correct_paid, paid_difference, stored_due, correct_due}, ...]
+             stored_paid, correct_paid, paid_difference, stored_due, correct_due,
+             stored_tds, correct_tds}, ...]          (the two TDS figures 0 on a PO)
         worked out live on every call, sorted by order name
 
     nirmaan_stack.api.reports.amount_paid_mismatch.recount_amount_paid      (POST)

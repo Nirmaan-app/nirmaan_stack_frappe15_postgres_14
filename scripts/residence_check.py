@@ -361,6 +361,38 @@ def payment_sum_copies() -> list[str]:
     return [f"{rel}:{n}" for rel, n in sorted(found)]
 
 
+# P1's second shape (#1509): a Work Order's tax added onto its Amount Paid. Since ADR-0034 Amendment A the
+# stored `amount_paid` already holds the TDS withheld from the vendor, so `amount_paid + total_tds` (or a
+# deduction's `tds_amount`) counts it twice. Either order, one line, any language (TS, Python, SQL, Jinja).
+_TAX = r"\b(?:total_tds|tds_amount)\b"
+_TDS_ONTO_AMOUNT_PAID = (
+    re.compile(r"\bamount_paid\b[^;\n]*?\+[^;\n]*?" + _TAX),
+    re.compile(_TAX + r"[^;\n]*?\+[^;\n]*?\bamount_paid\b"),
+)
+
+
+def tds_added_to_amount_paid_lines(src: str) -> list[int]:
+    """1-based lines of a source (TS, Python, SQL, Jinja) that add a Work Order's tax onto its Amount Paid.
+    Comment lines (`//`, `*`, `#`) are prose, not code."""
+    return [
+        i + 1 for i, line in enumerate(src.splitlines())
+        if not (_is_comment_line(line) or line.strip().startswith("#"))
+        and any(p.search(line) for p in _TDS_ONTO_AMOUNT_PAID)
+    ]
+
+
+def tds_added_to_amount_paid() -> list[str]:
+    """Every `path:line` outside PAYMENT_SUM_OWNERS that adds `total_tds` / `tds_amount` onto
+    `amount_paid`. Test files and patches are not scanned."""
+    found = []
+    for p in iter_files("nirmaan_stack", (".py",)) + iter_files("frontend/src", (".ts", ".tsx", ".html")):
+        rel = p.relative_to(REPO_ROOT).as_posix()
+        if rel in PAYMENT_SUM_OWNERS or p.name.startswith("test_") or ".test." in p.name or "/patches/" in rel:
+            continue
+        found.extend(f"{rel}:{n}" for n in tds_added_to_amount_paid_lines(read(p)))
+    return sorted(found)
+
+
 # --- check registry ----------------------------------------------------------
 
 @dataclass
@@ -463,6 +495,18 @@ CHECKS: list[Check] = [
                    f"'{CAP_MARKER}' on the line or the comment line above it.",
         measure=lambda: len(payment_sum_copies()),
         locate=payment_sum_copies,
+    ),
+    # P1's second shape (#1509, ADR-0034 Amendment A): baseline 0 from the day it was added.
+    Check(
+        id="p1_tds_added_to_amount_paid",
+        rule="P1",
+        description="Lines adding a Work Order's total_tds (or a deduction's tds_amount) onto amount_paid outside "
+                    "PAYMENT_SUM_OWNERS: amount_paid already holds the TDS withheld from the vendor, so the "
+                    "sum counts it twice.",
+        route_hint="read amount_paid as it is (it includes the vendor's TDS); for its parts ask the server "
+                   "(api/payments/work_order_tds.get_work_order_tds: withheld, company).",
+        measure=lambda: len(tds_added_to_amount_paid()),
+        locate=tds_added_to_amount_paid,
     ),
 ]
 

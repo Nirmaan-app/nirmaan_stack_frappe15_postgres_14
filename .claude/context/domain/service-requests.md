@@ -5,13 +5,14 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
 ## Load-bearing invariants
 
 - **`amount_paid` / `amount_due` are recounted by the system, never typed (ADR-0034).** `amount_paid` = the WO's
-  *Paid* Project Payments less its *Received* Vendor Refunds (TDS withheld is not part of it); `amount_due` =
-  `total_amount - amount_paid - TDS withheld from the vendor`: `total_tds` less the tax the company paid on top
-  (`payment_tds.company_borne_tds_sql`). Who bore each deduction is its stored `Payment TDS Deduction.borne_by`,
-  set once when it is created; the WO's categories (Misc/Transport only) decide only that creation, never a
-  reader, so a Misc/Transport WO paid net of TDS before 2026-09-17 still subtracts it and a later category
-  change moves nothing (`payment-tds.md` § Company-borne). The request caps and the WO page's TDS label read
-  the same field. The watched fields that
+  *Paid* Project Payments plus the TDS withheld from the vendor on them, less its *Received* Vendor Refunds
+  (ADR-0034 Amendment A, #1509; tax the company paid on top is not part of it); `amount_due` =
+  `total_amount - amount_paid`. The tax by who bore it has one source, `payment_tds.borne_tds_by_order_sql`;
+  never add `total_tds` onto `amount_paid` (ratchet `p1_tds_added_to_amount_paid`). Who bore each deduction is
+  its stored `Payment TDS Deduction.borne_by`, set once when it is created; the WO's categories (Misc/Transport
+  only) decide only that creation, never a reader, so a Misc/Transport WO paid net of TDS before 2026-09-17
+  still counts it as paid and a later category change moves nothing (`payment-tds.md` § Company-borne). The
+  request caps and the WO page's Amount Paid hover read the same field. The watched fields that
   recount them (a payment's `status`, `amount`, `document_type`, `document_name`, both the WO it leaves and the
   one it joins; a refund's) and the judge `services/amount_paid_drift.mismatches` are in `procurement.md`
   § Load-bearing invariants, shared with POs.

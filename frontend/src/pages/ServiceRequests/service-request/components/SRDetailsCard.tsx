@@ -1,11 +1,12 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Separator } from "@/components/ui/separator";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
-import { workOrderTdsLabel, type WorkOrderTds } from "@/pages/ProjectPayments/tdsForecast";
+import { amountPaidParts, type WorkOrderTds } from "@/pages/ProjectPayments/tdsForecast";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
@@ -13,7 +14,7 @@ import { Eye, FileText, Lock, PencilRuler, Trash2, Unlock } from "lucide-react";
 
 interface SRDetailsCardProps {
   orderData: ServiceRequests | undefined;
-  /** Who bore the WO's paid TDS, as the server answers it (`get_work_order_tds`); undefined while loading. */
+  /** The WO's paid TDS by who bore it, as the server answers it (`get_work_order_tds`); undefined while loading. */
   workOrderTds?: WorkOrderTds;
   project: Projects | undefined;
   vendor: Vendors | undefined;
@@ -54,7 +55,7 @@ interface SRDetailsCardProps {
  * Sections:
  * 1. Header - Title with Status badge
  * 2. Info - Project, Package, Vendor (with separators)
- * 3. Amounts - Total, Invoiced, Paid, TDS withheld, Due, GST status (color-coded)
+ * 3. Amounts - Total, Invoiced, Paid (hover: paid to vendor / TDS withheld), Due, GST status (color-coded)
  * 4. Timeline - Created, Modified, Approved dates
  * 5. Actions - Role-conditional action buttons
  */
@@ -104,17 +105,14 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
     }
   };
 
-  // The three money figures are the WO's stored fields, the same ones the WO list shows (ADR-0034):
-  // never re-added from payments here. `amount_paid` is what the vendor got (Paid payments less
-  // Received refunds), `total_tds` the tax beside it, and `amount_due` the server's
-  // `total_amount - amount_paid - TDS withheld from the vendor` (the tax the company paid on top is
-  // not taken off).
+  // The money figures are the WO's stored fields, the same ones the WO list shows (ADR-0034): never
+  // re-added from payments here. `amount_paid` is the Paid payments plus the TDS withheld from the
+  // vendor, less Received refunds (Amendment A); `amount_due` is `total_amount - amount_paid`.
   const amountPaid = parseNumber(orderData?.amount_paid);
-  const tdsWithheld = parseNumber(orderData?.total_tds);
   const amountDue = parseNumber(orderData?.amount_due);
-  // Who bore the tax is the server's answer off the WO's deductions (`borne_by`), never its categories
+  // The hover's split is the server's answer off the WO's deductions (`borne_by`), never its categories
   // and never the page's own deduction read, which a Procurement user is refused (#1451).
-  const tdsLabel = workOrderTdsLabel(workOrderTds);
+  const paidParts = amountPaidParts(amountPaid, workOrderTds);
 
   return (
     <Card className="rounded-sm shadow-md overflow-x-auto">
@@ -191,7 +189,7 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
               Amounts
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
               {/* Total Value */}
               <div className="space-y-0.5">
                 <p className="text-xs text-gray-500">
@@ -219,22 +217,45 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
                 )}
               </div>
 
-              {/* Amount Paid: what the vendor got, refunds taken off, tax not in it */}
+              {/* Amount Paid: payments + the vendor's TDS - refunds; the hover splits it */}
               <div className="space-y-0.5">
                 <p className="text-xs text-gray-500">Amount Paid</p>
-                <p className="text-sm font-medium text-green-600 tabular-nums">
-                  {formatToIndianRupeeOrZero(amountPaid)}
-                </p>
-              </div>
-
-              {/* TDS withheld: settled with the tax office, beside Amount Paid */}
-              <div className="space-y-0.5">
-                <p className="text-xs text-gray-500">
-                  {tdsLabel}
-                </p>
-                <p className="text-sm font-medium text-gray-700 tabular-nums">
-                  {formatToIndianRupeeOrZero(tdsWithheld)}
-                </p>
+                {paidParts ? (
+                  <HoverCard openDelay={100}>
+                    <HoverCardTrigger asChild>
+                      <p className="text-sm font-medium text-green-600 tabular-nums underline decoration-dotted underline-offset-4 cursor-help">
+                        {formatToIndianRupeeOrZero(amountPaid)}
+                      </p>
+                    </HoverCardTrigger>
+                    <HoverCardContent className="w-72" align="start">
+                      <p className="text-xs font-semibold mb-2">Amount Paid</p>
+                      <div className="space-y-1 text-xs">
+                        <div className="flex justify-between gap-4">
+                          <span className="text-gray-500">Paid to vendor</span>
+                          <span className="font-medium tabular-nums">{formatToIndianRupeeOrZero(paidParts.paidToVendor)}</span>
+                        </div>
+                        <div className="flex justify-between gap-4">
+                          <span className="text-gray-500">TDS withheld</span>
+                          <span className="font-medium tabular-nums">{formatToIndianRupeeOrZero(paidParts.tdsWithheld)}</span>
+                        </div>
+                        <div className="flex justify-between gap-4 border-t pt-1">
+                          <span className="font-semibold">Total</span>
+                          <span className="font-semibold tabular-nums">{formatToIndianRupeeOrZero(paidParts.total)}</span>
+                        </div>
+                        {paidParts.companyOnTop > 0 && (
+                          <div className="flex justify-between gap-4 pt-2 text-gray-500">
+                            <span>TDS paid by company (on top)</span>
+                            <span className="tabular-nums">{formatToIndianRupeeOrZero(paidParts.companyOnTop)}</span>
+                          </div>
+                        )}
+                      </div>
+                    </HoverCardContent>
+                  </HoverCard>
+                ) : (
+                  <p className="text-sm font-medium text-green-600 tabular-nums">
+                    {formatToIndianRupeeOrZero(amountPaid)}
+                  </p>
+                )}
               </div>
 
               {/* Amount Due: negative when the WO is overpaid */}

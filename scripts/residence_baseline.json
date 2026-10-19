@@ -29,6 +29,11 @@
     "description": "Lines that add up Project Payments amounts (frontend, backend, print formats) outside the allowed owners in PAYMENT_SUM_OWNERS: the Amount Paid rule, the payment caps, the bank cash-out lists.",
     "rule": "P1"
   },
+  "p1_tds_added_to_amount_paid": {
+    "count": 0,
+    "description": "Lines adding a Work Order's total_tds (or a deduction's tds_amount) onto amount_paid outside PAYMENT_SUM_OWNERS: amount_paid already holds the TDS withheld from the vendor, so the sum counts it twice.",
+    "rule": "P1"
+  },
   "t1_tests_pick_any_row": {
     "count": 23,
     "description": "Lines in test_*.py fetching a row with empty filters (get_value(doctype, {}...)): the record depends on whatever was modified last.",
