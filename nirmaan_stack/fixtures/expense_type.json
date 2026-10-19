@@ -375,13 +375,13 @@
  {
   "allowed_roles": [
    {
-    "parent": "Other Project Related Charges",
+    "parent": "Other Project Expenses",
     "parentfield": "allowed_roles",
     "parenttype": "Expense Type",
     "role_profile": "Nirmaan Accountant Lead Profile"
    },
    {
-    "parent": "Other Project Related Charges",
+    "parent": "Other Project Expenses",
     "parentfield": "allowed_roles",
     "parenttype": "Expense Type",
     "role_profile": "Nirmaan Accountant Profile"
@@ -390,9 +390,9 @@
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
-  "expense_name": "Other Project Related Charges",
+  "expense_name": "Other Project Expenses",
   "modified": "2026-08-18 13:20:59.189476",
-  "name": "Other Project Related Charges",
+  "name": "Other Project Expenses",
   "non_project": 0,
   "payee_rule": "Not asked",
   "project": 1,
@@ -593,13 +593,13 @@
  {
   "allowed_roles": [
    {
-    "parent": "Labour Accommodation Rent",
+    "parent": "Rent/PG for Labour",
     "parentfield": "allowed_roles",
     "parenttype": "Expense Type",
     "role_profile": "Nirmaan Project Lead Profile"
    },
    {
-    "parent": "Labour Accommodation Rent",
+    "parent": "Rent/PG for Labour",
     "parentfield": "allowed_roles",
     "parenttype": "Expense Type",
     "role_profile": "Nirmaan Project Manager Profile"
@@ -608,9 +608,9 @@
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Hotel & Accommodation",
-  "expense_name": "Labour Accommodation Rent",
+  "expense_name": "Rent/PG for Labour",
   "modified": "2026-08-18 13:20:59.203900",
-  "name": "Labour Accommodation Rent",
+  "name": "Rent/PG for Labour",
   "non_project": 0,
   "payee_rule": "Not asked",
   "project": 1,
@@ -620,13 +620,13 @@
  {
   "allowed_roles": [
    {
-    "parent": "Staff Accommodation Rent",
+    "parent": "Rent/PG for Staff",
     "parentfield": "allowed_roles",
     "parenttype": "Expense Type",
     "role_profile": "Nirmaan Project Lead Profile"
    },
    {
-    "parent": "Staff Accommodation Rent",
+    "parent": "Rent/PG for Staff",
     "parentfield": "allowed_roles",
     "parenttype": "Expense Type",
     "role_profile": "Nirmaan Project Manager Profile"
@@ -635,9 +635,9 @@
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Hotel & Accommodation",
-  "expense_name": "Staff Accommodation Rent",
+  "expense_name": "Rent/PG for Staff",
   "modified": "2026-10-14 15:12:44.856324",
-  "name": "Staff Accommodation Rent",
+  "name": "Rent/PG for Staff",
   "non_project": 0,
   "payee_rule": "Optional",
   "project": 1,

@@ -36,7 +36,7 @@ HR_USER = "exr_test_hr@example.com"
 ACC_USER = "exr_test_acc@example.com"
 HRL_USER = "exr_test_hrl@example.com"
 
-PROJECT_TYPE = "Staff Accommodation Rent"      # project=1, non_project=0
+PROJECT_TYPE = "Rent/PG for Staff"      # project=1, non_project=0
 NON_PROJECT_TYPE = "Travel Expenses (Bus)"     # project=0, non_project=1
 BOTH_TYPE = "Petty Cash"                       # project=1, non_project=1
 HOTEL_CATEGORY = "Hotel & Accommodation"

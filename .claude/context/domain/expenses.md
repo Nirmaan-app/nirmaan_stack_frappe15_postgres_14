@@ -310,7 +310,8 @@ List-page **summary cards stay tab-scoped** (they reflect the active status tab)
 ### Data normalization (ADR 0009)
 - Patch `v3_0.normalize_project_expense_types`: repoints Project Expenses using 6
   non-project-flagged types (Printing & Stationery, Staff Welfare, Hotel, Postage & Courier,
-  Pooja, Travel (Flight)) → **Other Project Related Charges**. Type-only raw `UPDATE`,
+  Pooja, Travel (Flight)) → **Other Project Related Charges** (renamed Other Project Expenses
+  2026-10-19). Type-only raw `UPDATE`,
   `modified` preserved, idempotent, Non-Project untouched. Fixes the Outflow(Project) facet
   so that report reconciles.
 
@@ -533,8 +534,8 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   the edit dialog passes `include_type`). Scope is the REQUEST dialog only: ledger dialogs, outflow
   import and the request list are untouched.
   **Owner's role mapping (2026-09-16, in the fixture)** — Project Manager + Project Lead:
-  Accommodation Deposit, Staff / Labour Accommodation Rent. Accountant + Accountant Lead: Audit
-  Fee, GST Payment, TDS Payment, Other Project Related Charges, Professional Charges, Salaries &
+  Accommodation Deposit, Rent/PG for Staff, Rent/PG for Labour. Accountant + Accountant Lead: Audit
+  Fee, GST Payment, TDS Payment, Other Project Expenses, Professional Charges, Salaries &
   Employee Wages. HR Executive + HR Lead: Electricity Expenses,
   Fixed Assets, Internet & Mobile Charges, Software Chagres. **Every other type is
   Admin only.** "Salary – TDS" and "Misc. Expenses" had no matching type and are unassigned.
@@ -547,7 +548,11 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   the fixture does not remove it from a site that has it. Removed both ways (2026-10-19): Rent
   Expenses, Professional Tax, Loan Received, Interest Received, Fixed Deposit Proceeds, EPFO
   Payment, Advertising & Marketing, Advance Returned. Manpower Rent too, after its expenses were
-  moved to Staff Accommodation Rent.
+  moved to Staff Accommodation Rent (now Rent/PG for Staff).
+- **Renamed by SQL (2026-10-19), every reference moved, plain-text columns included:** Staff
+  Accommodation Rent → Rent/PG for Staff, Labour Accommodation Rent → Rent/PG for Labour, Other
+  Project Related Charges → Other Project Expenses. `duplicates.RULES` is keyed by type name, so a
+  rename must rename its key too, or that type's duplicate check silently switches off.
 - **Rename an Expense Type — ADMIN ONLY (2026-09-16).** Expense Packages → Rename →
   `masters.rename_expense_type`, which runs Frappe's model-level `rename_doc`. That moves the
   docname, `expense_name` (the autoname field), the `allowed_roles` child rows and every LINK to
@@ -696,7 +701,7 @@ save an invalid template**.
     vendor, a screen rule) overwrites the copy with a picked or added Payee's account, recorded with
     who and when (`.claude/context/domain/payees.md` § Paid to).
   - **No format asks for bank details or who gets paid as free text** (#1430): the Payroll,
-    Accommodation Deposit and Staff Accommodation Rent "Payee Bank Details" sections, and the
+    Accommodation Deposit and Rent/PG for Staff "Payee Bank Details" sections, and the
     fields that only named the payee (Rent's landlord, the Deposit's landlord / PG, Payroll's
     employee, the "Paid To" of Office Maintenance, Pooja, Other Financial and Staff Welfare), are
     gone. Those types ask for a Payee instead: *Required* for Accommodation Deposit (paid by
@@ -739,7 +744,7 @@ save an invalid template**.
   missing, which is what stops a skipped field leaving `", ,"` behind. ISO dates become
   `1 Aug 2026`. **The placeholder is the field `key`, never its label** — rename a key and the
   template must be renamed in the same edit, or it silently stops working with no error
-  anywhere. Live on Staff Accommodation Rent and all three Travel types (each stating its own
+  anywhere. Live on Rent/PG for Staff and all three Travel types (each stating its own
   mode, since the mode is the TYPE).
 - An attachment slot may declare `"maps_to": "invoice_attachment"` — at most one per format;
   the first declaring slot wins and a format declaring none carries no file.

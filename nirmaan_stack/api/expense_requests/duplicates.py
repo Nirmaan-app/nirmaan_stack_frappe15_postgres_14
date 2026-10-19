@@ -43,7 +43,7 @@ REJECTED = "Rejected"
 # travel departure), which is a period of one day, so one overlap test serves both shapes.
 # `show` is CONTEXT for the message and is never compared.
 RULES: dict[str, dict] = {
-	"Staff Accommodation Rent": {
+	"Rent/PG for Staff": {
 		"match_on": ["person_name"],
 		"period": {"from": "rent_period_from", "to": "rent_period_to"},
 		# `building_name` was removed from this form 2026-09-16; `city` took its place.
@@ -52,7 +52,7 @@ RULES: dict[str, dict] = {
 	# NO person field on this one -- it is a BUILDING-level cost, so the building IS the
 	# subject. Free text and therefore driftable; a miss means a duplicate slips through,
 	# which is the direction to fail in when the alternative is refusing a real request.
-	"Labour Accommodation Rent": {
+	"Rent/PG for Labour": {
 		"match_on": ["building_name"],
 		"period": {"from": "rent_period_from", "to": "rent_period_to"},
 		"show": ["city", "no_of_occupants"],
@@ -151,8 +151,8 @@ def describe(flat: dict, rule: dict) -> str:
 def find_overlapping(expense_type: str, source_data, exclude: str | None = None) -> list:
 	"""Requests of this type, same subject, period overlapping. Newest first.
 
-	⚠️ SCOPED TO THE EXPENSE TYPE. An `Accommodation Deposit` and a `Staff Accommodation
-	Rent` for the same August are two different asks about one stay, and blocking the second
+	⚠️ SCOPED TO THE EXPENSE TYPE. An `Accommodation Deposit` and a `Rent/PG for Staff`
+	for the same August are two different asks about one stay, and blocking the second
 	would refuse a real request.
 
 	A REJECTED request is skipped: it never became money, so it cannot be double-paid.

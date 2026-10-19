@@ -30,7 +30,7 @@ EXPECTED_RULES = {
 	"Accommodation Deposit": REQUIRED,
 	# Sometimes paid by card or cash, or a batch with no single payee.
 	"Salaries & Employee Wages": OPTIONAL,
-	"Staff Accommodation Rent": OPTIONAL,
+	"Rent/PG for Staff": OPTIONAL,
 	"Office Maintenance": OPTIONAL,
 	"Pooja Expenses": OPTIONAL,
 	"Other Financial Expenses": OPTIONAL,
