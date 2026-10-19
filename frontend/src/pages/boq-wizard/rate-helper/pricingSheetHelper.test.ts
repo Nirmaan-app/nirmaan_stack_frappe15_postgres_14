@@ -5125,7 +5125,7 @@ describe("SLICE 6 / the item-list path -- blocks, edits, the quantity, all or no
     // 12d-5 (owner P2, F-C5b) INVERTED: the rule reaches the field in PLAIN ENGLISH -- the config's "R14 / S6 "
     // prefix is dropped by the one plain-English pass (before: "R14 / S6 UL not mentioned (or not answered) = non-UL")
     expect(ul).toMatchObject({ value: "no", defaulted: true, rule: "UL not mentioned (or not answered) = non-UL", userEdited: false, blank: false });
-    expect(ul.rule).not.toMatch(/[RDTS]-?\d/);
+    expect(ul.rule).not.toMatch(/\b[RDTS]-?\d/);
   });
   it("T2 / S4: a refused item shows ITS reason; the row has no price and no Use-able value; the other item keeps its figures", () => {
     const { r, v } = list(runWith([{ excel_row: 8, items: [ACT, li({ family: "control panel" })] }]).compute(adpCtx(8, "Nos")));
@@ -5674,7 +5674,10 @@ describe("SLICE 9 / the item-list view under v12 -- one size box, the outer-size
     expect(variant.value).toBe("UL");
     expect(variant.options).toContain("UL");
     expect(variant.options).not.toContain("UL 555");
-    expect(variant.note).toBe("UL stated, so the UL 555 SKU is used (R-M-b)");
+    // INVERTED at 12e-3b (block 38; the owner's "Yes, those three pins"). BEFORE:
+    //   expect(variant.note).toBe("UL stated, so the UL 555 SKU is used (R-M-b)");
+    expect(variant.note).toBe("UL stated, so the UL 555 SKU is used");
+    expect(variant.note).not.toContain("(R-M-b)");
     expect(v.items[0].figures).toMatchObject({ supply_rate: 21750, install_rate: 1920 });
   });
 
@@ -5698,8 +5701,12 @@ describe("SLICE 9 / the item-list view under v12 -- one size box, the outer-size
 
   it("A-4: the outer-size notes are on the panel -- the alternative name, the largest neck behind it, and the set-aside", () => {
     const { v } = list(runWith([{ excel_row: 43, items: [li({ family: "square diffuser", damper: "without", size_mm: "600 x 600" })] }]).compute(adpCtx(43, "Nos")));
-    expect(v.items[0].working.join(" | ")).toContain("the outer size 600x600 is the sheet's 595x595 (A-5)");
-    expect(v.items[0].working.join(" | ")).toContain("largest neck size behind it is 450 (A-4)");
+    // INVERTED at 12e-3b (owner 2026-10-12, "Strip them too": "(A-4)" / "(A-5)" go at the plain-English step). BEFORE:
+    //   toContain("the outer size 600x600 is the sheet's 595x595 (A-5)");
+    //   toContain("largest neck size behind it is 450 (A-4)");
+    expect(v.items[0].working).toContain("the outer size 600x600 is the sheet's 595x595");
+    expect(v.items[0].working).toContain("matched on the outer size 595x595; largest neck size behind it is 450");
+    expect(v.items[0].working.join(" | ")).not.toMatch(/\(A-[45]\)/);
     expect(v.items[0].figures).toMatchObject({ supply_rate: 1813, install_rate: 400 });
     // a stated outer the catalogue does not stock is SET ASIDE and the neck prices the row, visibly
     const { v: v2 } = list(runWith([{ excel_row: 44, items: [li({ family: "square diffuser", damper: "without", neck_mm: "300 x 300", size_mm: "450 x 450" })] }]).compute(adpCtx(44, "Nos")));
@@ -5712,6 +5719,8 @@ import HVAC_V25_FAM from "../../../../../nirmaan_stack/services/boq_rate_master/
 import HVAC_V26_S from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v26.json";
 import { assembleItems as assembleItemsFam, initialItemEdits as initialItemEditsFam } from "./pricingSheetHelper";
 import { itemListPricingSpec as specOfFam, priceItemList as priceItemListFam } from "./itemListPricing";
+// SLICE 12d-8: the LIVE asset is READ at runtime for the re-pointed E2E-1 pin (a JSON import OOMs tsc)
+import { readJsonFixture } from "@/pages/pricing/calculatorPanelParity.harness";
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════
  * SLICE 12c FINISH -- A CHANGED OR ADDED ITEM WRITES ITS FAMILY WHERE THE PRICER READS IT
@@ -6072,19 +6081,70 @@ describe("SLICE 12c-S -- units, Other... state and per-field lines", () => {
   });
 
   // -- E2E-1 -- a stale pick is CLEARED, never substituted --------------------------------------
-  it("E2E-1: a thickness the new pipe size does not stock is CLEARED, with a line saying why", () => {
-    // pipe 100 stocks only 65; a 25 picked at an earlier pipe size must not quietly price as 65
-    const { block, field } = view({
+  /**
+   * RE-POINTED at 12d-8 (owner, 2026-10-09) to the LIVE asset. This pin ran on the frozen v26 asset,
+   * where no thickness default could reach a cleared pick -- and so it stayed green while, on the live
+   * v33 config (T1's 9 mm default widened to every family at 12d-2), the panel DELETED the cleared pick
+   * and the default re-priced the row at 65 beside the "choose again" note (12d-7 F-1: 412 / 14). Owner
+   * R1: a cleared value stays blank and the row refuses. The LIVE config is what this now guards.
+   */
+  const LIVE_ASSET = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
+    new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v33.json", import.meta.url),
+  );
+  const viewLive = (o: { category: string; unit?: string; family: string; attrs?: Record<string, string>; other?: string[] }) => {
+    const cfgs = new Map<string, RateCategoryConfig>(LIVE_ASSET.category_configs.map((c) => [c.category_id, c]));
+    const its: RateMasterItem[] = LIVE_ASSET.items.map((i) => ({ ...i, discipline: LIVE_ASSET.discipline } as RateMasterItem));
+    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: its, extractionByRow: buildExtractionByRow([]) });
+    const edits = { items: [{ base: null, family: o.family, attrs: o.attrs ?? {}, ...(o.other ? { other: o.other } : {}) }] };
+    const rowCtx: RateHelperRowContext & { unit?: string | null } = {
+      excelRow: 1, description: "x", nodeType: "Line Item", category: o.category,
+      discipline: "HVAC", rateKinds: ["supply_rate", "install_rate"], unit: null,
+    };
+    const ov: Record<string, string> = { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(edits) };
+    if (o.unit !== undefined) ov[ROW_UNIT_OVERRIDE_KEY] = o.unit;
+    const r = h.compute(rowCtx, ov);
+    if (!isSuggestion(r)) throw new Error("expected a suggestion");
+    const v = (r as ItemListSuggestion).itemList!;
+    return { r: r as ItemListSuggestion, v, block: v.items[0], field: (id: string) => v.items[0].fields.find((f) => f.id === id)! };
+  };
+  /**
+   * INVERTED at 12e-2b (owner, 2026-10-10, AC13: a pick on a LADDER field follows "the general ladder rule we have").
+   * BEFORE (12c-S E2E-1 as 12d-8 R1 left it): thickness "" (cleared), note "25 mm is not stocked with the other
+   * answers on this item -- choose again", block blank, values {}, reason "choose again: thickness -- the value picked
+   * is not stocked with the other answers on this item", working not matching /not mentioned -> 9|-> 65/.
+   * What 12c-S ruled out was a SILENT substitution; the pick now ladders with the field showing the value used and
+   * the line saying so. The 12d-7 half is kept: the 9 mm default never fills it.
+   */
+  it("E2E-1 (LIVE asset; INVERTED at 12e-2b, AC13): a thickness the new pipe size does not stock is LADDERED, shown as the value used, with its line -- and the 9 mm default never fills it", () => {
+    const { r, block, field } = viewLive({
       category: "hvac_insulation", family: "Tubular Puf Insulation",
       attrs: { cladding: "No", pipe_size_mm: "100", thickness_mm: "25" },
     });
     const th = field("thickness_mm");
-    expect(th.value).toBe("");                       // cleared
-    expect(th.options).toEqual(["65"]);              // narrowed to what this pipe stocks
-    expect(th.note).toBe("25 mm is not stocked with the other answers on this item -- choose again");
-    expect(block.state).toBe("blank");               // and the row refuses rather than substituting
-    // the COARSE axis is untouched -- only the dependent one goes
+    expect(th.value).toBe("65");                     // the value USED
+    expect(th.options).toEqual(["65"]);              // narrowed to what this pipe stocks (unchanged)
+    // INVERTED at 12e-4d (AC3: below the smallest stocked size both lines say "the smallest size"). BEFORE
+    // "25 mm is not stocked with pipe size 100 -> priced as 65 mm (next size up)"
+    expect(th.note).toBe("25 mm is not stocked with pipe size 100 -> priced as 65 mm (the smallest size)");
+    expect(block.state).toBe("priced");
+    expect(r.values).toEqual({ supply_rate: 412, install_rate: 14, combined_rate: 426 });
+    expect(block.working.join("\n")).not.toMatch(/not mentioned -> 9|choose again/);
+    // the COARSE axis is untouched
     expect(field("pipe_size_mm").value).toBe("100");
+  });
+
+  // INVERTED at 12e-2b (AC13). BEFORE ("the pin as 12c-S wrote it still holds"): thickness "", note "25 mm is not
+  // stocked with the other answers on this item -- choose again", block blank. The frozen-asset half is kept so a
+  // future mint cannot silently move it.
+  it("E2E-1 on the frozen v26 asset (INVERTED at 12e-2b, AC13): the same pick ladders to 65 with the line", () => {
+    const { block, field } = view({
+      category: "hvac_insulation", family: "Tubular Puf Insulation",
+      attrs: { cladding: "No", pipe_size_mm: "100", thickness_mm: "25" },
+    });
+    expect(field("thickness_mm").value).toBe("65");
+    // INVERTED at 12e-4d (AC3). BEFORE "25 mm is not stocked with pipe size 100 -> priced as 65 mm (next size up)"
+    expect(field("thickness_mm").note).toBe("25 mm is not stocked with pipe size 100 -> priced as 65 mm (the smallest size)");
+    expect(block.state).toBe("priced");
   });
 
   it("E2E-1 NEGATIVE: a size TYPED through Other... is never cleared -- the ladder still has it", () => {
@@ -6095,7 +6155,8 @@ describe("SLICE 12c-S -- units, Other... state and per-field lines", () => {
     });
     expect(block.state).toBe("priced");
     expect(field("thickness_mm").value).toBe("65");  // the ladder's next size up, as before
-    expect(field("thickness_mm").note).toMatch(/next size up/);
+    // INVERTED at 12e-4d (AC3: 25 is below the smallest thickness pipe 100 stocks). BEFORE toMatch(/next size up/)
+    expect(field("thickness_mm").note).toMatch(/the smallest size/);
   });
 
   // -- the edit operations themselves -----------------------------------------------------------
@@ -6190,7 +6251,7 @@ describe("SLICE 12d-1a / R2 -- headings reach the pricer; the ruled family is ma
     expect(v.items[0].family).toBe(AN);
     // 12d-5 (owner P2, F-C5b) INVERTED: plain English on the block's family rule (before: "R2 material not mentioned -> Nitrile by row kind")
     expect(v.items[0].familyDefaulted).toEqual({ value: AN, rule: "material not mentioned -> Nitrile by row kind" });
-    expect(v.items[0].familyDefaulted!.rule).not.toMatch(/[RDTS]-?\d/);
+    expect(v.items[0].familyDefaulted!.rule).not.toMatch(/\b[RDTS]-?\d/);
     expect(v.totals).toEqual({ supply_rate: 1371, install_rate: 154, combined_rate: 1525 });
   });
 

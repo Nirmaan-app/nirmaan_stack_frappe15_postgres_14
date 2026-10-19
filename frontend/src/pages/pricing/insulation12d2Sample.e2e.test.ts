@@ -64,19 +64,44 @@ export const ACCEPTED_SAMPLE_DIVERGENCES: ReadonlyArray<{ id: string; what: stri
    * CAUSE: an input the calculator has no control for (the 12c-P "input-surface difference" class, counted and
    * reported, never quietly supplied). Owner S7: recorded in full, NOT fixed in 12d-2. Owner F2 (12d-2F): ACCEPTED.
    */
+  // INVERTED at 12e-2b (owner D3, Decision 1 "option a", Decision 2 "a colon form"): the PANEL sentence on the two
+  // #290 entries. BEFORE: "no SKU for this combination (Acoustic Nitrile Insulation: cladding GI Framework with perforated Al sheet)". Wording only -- both surfaces still refuse, no figure or field moved.
   {
     id: "BOQ-26-00169#290", what: "item blocks",
-    panel: '[{"family":"Acoustic Nitrile Insulation","state":"blank","reason":"no SKU for this combination (Acoustic Nitrile Insulation: cladding GI Framework with perforated Al sheet)","figures":"supply_rate=- install_rate=- combined_rate=-","qty":"1"}]',
-    calculator: '[{"family":"Acoustic Nitrile Insulation","state":"blank","reason":"could not tell cladding","figures":"supply_rate=- install_rate=- combined_rate=-","qty":"1"}]',
+    panel: '[{"family":"Acoustic Nitrile Insulation","state":"blank","reason":"No SKU for Acoustic Nitrile Insulation: cladding GI Framework with perforated Al sheet - price this row by hand","figures":"supply_rate=- install_rate=- combined_rate=-","qty":"1"}]',
+    // INVERTED at 12d-8 (owner R1): the calculator's cleared pick now refuses "choose again: cladding ..."
+    // (BEFORE: "could not tell cladding" -- the cleared value was read as absent). Both surfaces still refuse.
+    calculator: '[{"family":"Acoustic Nitrile Insulation","state":"blank","reason":"choose again: cladding -- the value picked is not stocked with the other answers on this item","figures":"supply_rate=- install_rate=- combined_rate=-","qty":"1"}]',
     cause: "C_option_not_offered: the model-read cladding is not a stocked option of the family, so the calculator cannot carry it",
-    accepted: "ACCEPTED BY OWNER -- F2, 12d-2F, 2026-10-07: 'ok'",
+    accepted: "ACCEPTED BY OWNER -- F2, 12d-2F, 2026-10-07: 'ok'; wording under R1, 12d-8, 2026-10-09",
   },
   {
     id: "BOQ-26-00169#290", what: "item row reason",
-    panel: "no SKU for this combination (Acoustic Nitrile Insulation: cladding GI Framework with perforated Al sheet)",
-    calculator: "could not tell cladding",
+    panel: "No SKU for Acoustic Nitrile Insulation: cladding GI Framework with perforated Al sheet - price this row by hand",
+    calculator: "choose again: cladding -- the value picked is not stocked with the other answers on this item",
     cause: "C_option_not_offered: the model-read cladding is not a stocked option of the family, so the calculator cannot carry it",
     accepted: "ACCEPTED BY OWNER -- F2, 12d-2F, 2026-10-07: 'ok'",
+  },
+  /**
+   * SLICE 12e-3c (owner F4, 2026-10-12: "In the calculator it should say 'pick a cladding'" - "ok") -- BOQ-26-00169
+   * r292, a row whose cladding the model did not answer. BOTH surfaces refuse for the cladding; the BoQ row says
+   * "could not tell cladding" (the model could not), the calculator says "pick a cladding" (the pricer has not).
+   * Wording only: no figure, status or field differs. BEFORE 12e-3c both said "could not tell cladding" and the
+   * row was not in this list.
+   */
+  {
+    id: "BOQ-26-00169#292", what: "item blocks",
+    panel: '[{"family":"Acoustic Nitrile Insulation","state":"blank","reason":"could not tell cladding","figures":"supply_rate=- install_rate=- combined_rate=-","qty":"1"}]',
+    calculator: '[{"family":"Acoustic Nitrile Insulation","state":"blank","reason":"pick a cladding","figures":"supply_rate=- install_rate=- combined_rate=-","qty":"1"}]',
+    cause: "F4_calculator_wording: an unfilled choice reads 'pick a <field>' in the calculator and 'could not tell <field>' on a model-read row",
+    accepted: "APPROVED BY OWNER -- F4, 12e-3c, 2026-10-12: 'ok'",
+  },
+  {
+    id: "BOQ-26-00169#292", what: "item row reason",
+    panel: "could not tell cladding",
+    calculator: "pick a cladding",
+    cause: "F4_calculator_wording: an unfilled choice reads 'pick a <field>' in the calculator and 'could not tell <field>' on a model-read row",
+    accepted: "APPROVED BY OWNER -- F4, 12e-3c, 2026-10-12: 'ok'",
   },
   /**
    * SLICE 12d-6 (owner ruling (a) + U4, 2026-10-09) -- the six "Double layer of 19mm thick" rows (BOQ-26-00137
@@ -212,11 +237,20 @@ describe("PARITY (owner S7 / P1): every sampled row through BOTH paths", () => {
 
   it("12d-2F (owner F2): every listed divergence is row 290 and every one carries the owner's acceptance -- INVERTED by 12d-6 (owner U4): the six double-layer rows 32-37 are listed too, each APPROVED", () => {
     // before 12d-6: exactly 2 entries, all row 290
-    expect(ACCEPTED_SAMPLE_DIVERGENCES.length).toBe(14);
+    // INVERTED at 12e-3c (owner F4): BEFORE `toBe(14)`, and `u4` below was every entry that is not row 290. Row 292's
+    // two wording entries are listed and checked on their own; the 290 and U4 checks are unchanged.
+    expect(ACCEPTED_SAMPLE_DIVERGENCES.length).toBe(16);
+    const f4 = ACCEPTED_SAMPLE_DIVERGENCES.filter((d) => d.id === "BOQ-26-00169#292");
+    expect(f4.map((d) => d.what).sort()).toEqual(["item blocks", "item row reason"]);
+    for (const d of f4) {
+      expect(d.cause).toMatch(/^F4_calculator_wording/);
+      expect(d.accepted).toMatch(/^APPROVED BY OWNER -- F4, 12e-3c/);
+      expect(d.panel.split("could not tell cladding").join("pick a cladding")).toBe(d.calculator);   // wording only
+    }
     const r290 = ACCEPTED_SAMPLE_DIVERGENCES.filter((d) => d.id === "BOQ-26-00169#290");
     expect(r290.length).toBe(2);
     for (const d of r290) expect(d.accepted).toMatch(/^ACCEPTED BY OWNER/);
-    const u4 = ACCEPTED_SAMPLE_DIVERGENCES.filter((d) => d.id !== "BOQ-26-00169#290");
+    const u4 = ACCEPTED_SAMPLE_DIVERGENCES.filter((d) => d.id !== "BOQ-26-00169#290" && d.id !== "BOQ-26-00169#292");
     expect(u4.map((d) => d.id).sort()).toEqual(["32", "33", "34", "35", "36", "37"].flatMap((n) => [`BOQ-26-00137#${n}`, `BOQ-26-00137#${n}`]).sort());
     for (const d of u4) {
       expect(d.cause).toMatch(/^U4_typed_layered_text_refuses/);

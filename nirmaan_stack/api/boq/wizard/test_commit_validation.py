@@ -45,6 +45,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard import commit_validation as cv
+from nirmaan_stack.services.boq_fixture_teardown import fixture_boq_name, purge_boq, purge_docs
 from nirmaan_stack.api.boq.wizard.commit_validation import (
     PREFLIGHT_RESPONSE_SHAPE,
     build_sheet_node_plan,
@@ -675,7 +676,7 @@ class TestBuildSheetNodePlan(FrappeTestCase):
         boq.project = cls.test_project.name
         boq.boq_name = "Commit-Validation Build BoQ"
         boq.tax_treatment = "Pre-tax"
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("COMMIT_VALIDATION"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq = boq.name
 
@@ -683,6 +684,7 @@ class TestBuildSheetNodePlan(FrappeTestCase):
     def tearDownClass(cls):
         frappe.db.delete("BoQ Review Row", {"boq": cls.boq})
         frappe.db.commit()
+        purge_boq(cls.boq)
         _cleanup_project(cls.test_project.name)
         super().tearDownClass()
 
@@ -814,7 +816,7 @@ class TestEvaluateSheet(FrappeTestCase):
         boq.project = cls.test_project.name
         boq.boq_name = "Commit-Validation Evaluate BoQ"
         boq.tax_treatment = "Pre-tax"
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("COMMIT_VALIDATION"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq = boq.name
         cls.sheet = "Eval Fin "  # VERBATIM trailing space (#152)
@@ -827,6 +829,7 @@ class TestEvaluateSheet(FrappeTestCase):
     def tearDownClass(cls):
         frappe.db.delete("BoQ Review Row", {"boq": cls.boq})
         frappe.db.commit()
+        purge_boq(cls.boq)
         _cleanup_project(cls.test_project.name)
         super().tearDownClass()
 
@@ -893,7 +896,7 @@ class TestCommitPreflight(FrappeTestCase):
             "wizard_status": "Pending",
         })
         boq.append("general_specs_sheets", {"source_sheet_name": cls.GEN_SHEET})
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("COMMIT_VALIDATION"), ignore_permissions=True)
         cls.boq = boq.name
         frappe.db.commit()
 
@@ -909,7 +912,7 @@ class TestCommitPreflight(FrappeTestCase):
     @classmethod
     def tearDownClass(cls):
         frappe.db.delete("BoQ Review Row", {"boq": cls.boq})
-        frappe.db.delete("BOQs", {"name": cls.boq})
+        purge_boq(cls.boq)
         frappe.db.commit()
         _cleanup_project(cls.test_project.name)
         super().tearDownClass()

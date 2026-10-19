@@ -75,6 +75,43 @@ def validate(doc, method):
         frappe.throw(_("A Superseded BoQ cannot be reopened."))
 
 
+def after_delete(doc, method):
+    """The BoQ delete cascade (CU-A AC2, owner ruling 2026-10-18 "children only").
+
+    Frappe deletes a BoQ's own child rows (sheet drafts, general specs) but nothing below them, and
+    nothing of the documents that LINK the BoQ. This removes the rows that would otherwise be left
+    with no parent:
+      * always: the drafts' `BoQ Sheet Work Package` grandchildren;
+      * when the delete was FORCED past linked documents: each linked BoQ Sheet's work packages and
+        each linked BoQ Committed Sheet Grid's rows.
+    It NEVER deletes the BoQ Sheet / Grid / Review Row / BOQ Nodes documents themselves: a forced
+    delete still leaves those (and every other `boq` link) behind, for services/orphans.report() to count.
+
+    ⚠️ `after_delete`, NOT `on_trash`: `delete_doc` runs `on_trash` BEFORE its link check and never
+    tells the document whether it was forced, so an `on_trash` cascade would already have deleted
+    the sheet and grid rows of a BoQ whose (unforced) delete is then refused. `after_delete` runs only
+    once the delete went through -- an unforced delete of a linked BoQ is refused before it, with
+    nothing removed. The drafts are already gone from the table by now, so their names come from the
+    in-memory document. Raw deletes on purpose: these are child rows with no doc_events of their own.
+    """
+    draft_names = [d.name for d in (doc.get("sheet_drafts") or [])]
+    if draft_names:
+        frappe.db.delete(
+            "BoQ Sheet Work Package", {"parent": ("in", draft_names), "parenttype": "BoQ Sheet Draft"}
+        )
+    sheet_names = frappe.get_all("BoQ Sheet", filters={"boq": doc.name}, pluck="name")
+    if sheet_names:
+        frappe.db.delete(
+            "BoQ Sheet Work Package", {"parent": ("in", sheet_names), "parenttype": "BoQ Sheet"}
+        )
+    grid_names = frappe.get_all("BoQ Committed Sheet Grid", filters={"boq": doc.name}, pluck="name")
+    if grid_names:
+        frappe.db.delete(
+            "BoQ Committed Sheet Grid Row",
+            {"parent": ("in", grid_names), "parenttype": "BoQ Committed Sheet Grid"},
+        )
+
+
 def on_update(doc, method):
     # parent_boq (the master/sub BoQ link) was retired in Phase 4 P4-FINAL, and the
     # Draft->Approved approval cascade it drove was removed with it. on_update has no

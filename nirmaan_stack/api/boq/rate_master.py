@@ -401,6 +401,28 @@ def _carry_source_run(boq, sheet_name, committed_version):
     return run
 
 
+def _never_read_rows(boq, sheet_name, cv):
+    """SLICE 12e-5b (owner R8, "option a", 2026-10-15) -- the rows this sheet's suggest run accepts TODAY that the
+    run a selected-row pass would carry forward never read: {excel_row: category_id}. Empty where there is no
+    carry source (no selected-row run can start then anyway) or where that run read every row.
+
+    WHY IT EXISTS. A selected-row pass carries the active run's rows forward and completes only when the
+    population minus everything attempted is empty. A row that became eligible AFTER that run (re-classified,
+    or its category gained a rate config) was never attempted by anyone, so the pass ended "partial" on rows
+    nobody had picked -- BOQ-26-00231 in 12e-5 (42 such rows). `start_suggest` now adds these rows to the
+    selection, and `get_active_suggestion_run` names them so the confirmation can say so before any call."""
+    source = _carry_source_run(boq, sheet_name, cv)
+    if not source:
+        return {}
+    attempted = {int(x) for x in _parse_json(source.get("attempted_rows"), [])}
+    _cv, rows = extraction.assemble_population(boq, sheet_name)
+    return {
+        int(r["excel_row"]): (r.get("category_id") or "")
+        for r in rows
+        if int(r["excel_row"]) not in attempted
+    }
+
+
 def _guard_only_rows(boq, sheet_name, cv, only, resume_run_id):
     """Everything a SELECTED-ROW run must satisfy before a single token is spent. Throws with a
     named, actionable message on each failure; returns nothing.
@@ -488,8 +510,14 @@ def start_suggest(boq=None, sheet_name=None, resume_run_id=None, only_rows=None)
     # Normalise FIRST: an empty selection is indistinguishable from none, and both mean
     # "whole sheet" -- so the guards below never run on the unscoped path (G6).
     only = normalize_only_rows(only_rows)
+    never_read_added = []
     if only is not None:
         _guard_only_rows(boq, sheet_name, cv, only, resume_run_id)
+        # SLICE 12e-5b (owner R8 "option a"): rows no run has read yet join the selection, so the pass can
+        # complete -- the confirmation already named them and counted them (get_active_suggestion_run)
+        never_read_added = sorted(set(_never_read_rows(boq, sheet_name, cv)) - set(only))
+        if never_read_added:
+            only = sorted(set(only) | set(never_read_added))
 
     if resume_run_id:
         _validate_resume_target(boq, sheet_name, cv, resume_run_id)
@@ -524,6 +552,8 @@ def start_suggest(boq=None, sheet_name=None, resume_run_id=None, only_rows=None)
         # Echo the ACCEPTED selection so the caller can prove the server agreed with its ticks.
         "only_rows": only,
         "scoped_row_count": len(only) if only is not None else None,
+        # SLICE 12e-5b: the rows no run had read that joined the selection (empty when none did)
+        "never_read_added": never_read_added,
     }
 
 
@@ -1083,6 +1113,16 @@ def get_active_suggestion_run(boq=None, sheet_name=None):
     # actual acceptance the first time eligibility changes -- and the drift would present as ticks
     # the run silently ignores. Additive key; a client that ignores it is unaffected.
     out["eligible_rows"] = sorted(_population_rows(boq, sheet_name))
+    # SLICE 12e-5b (owner R8): the eligible rows the run a selected-row pass would carry forward never read --
+    # a selected-row run reads them too, and the confirmation names and counts them first. Additive key.
+    # Only where the ACTIVE run (already read above) can be carried: complete, on the current committed version --
+    # the condition `_carry_source_run` applies. No active run -> no further query.
+    never = {}
+    if out["run"] is not None and out["run"]["status"] == "complete":
+        cv_now = _resolve_committed_version(boq, sheet_name)
+        if cv_now is not None and out["run"].get("committed_version") == cv_now:
+            never = _never_read_rows(boq, sheet_name, cv_now)
+    out["never_read_rows"] = [{"excel_row": k, "category_id": v} for k, v in sorted(never.items())]
     return out
 
 
@@ -1750,6 +1790,7 @@ from nirmaan_stack.services.boq_rate_master.config_validation import (  # noqa: 
     _validate_config,
     _validate_params,
     _vthrow,
+    validate_delegated_sections,
 )
 
 
@@ -1784,6 +1825,8 @@ def update_rate_config(name=None, config=None):
         )
 
     _validate_config(cfg)  # raises a named ValidationError on any problem -- NO write on raise
+    # SLICE 12e-3a: the cross-category half of `list_spec.sections`, against the catalogue as it will stand
+    validate_delegated_sections([cfg], label="Config not saved")
 
     doc.config = json.dumps(cfg)
     doc.save(ignore_permissions=True, ignore_version=False)  # AUDITED (track_changes -> Version diff)

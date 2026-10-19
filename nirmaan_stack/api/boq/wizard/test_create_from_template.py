@@ -38,6 +38,7 @@ from nirmaan_stack.api.boq.wizard.create_from_template import (
     get_master_template,
 )
 from nirmaan_stack.services.boq_parser.config import SheetConfig
+from nirmaan_stack.services.boq_fixture_teardown import purge_boq
 
 _SHEET_A = "Sheet A"
 _SHEET_B = "Sheet B"
@@ -219,6 +220,7 @@ def _cleanup_boqs(project):
                 {"parent": ("in", draft_names), "parenttype": "BoQ Sheet Draft"},
             )
         frappe.db.delete("BoQ Review Row", {"boq": boq.name})
+        purge_boq(boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
         frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
     frappe.db.commit()
 

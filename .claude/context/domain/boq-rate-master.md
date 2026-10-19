@@ -234,6 +234,14 @@ reader. A category without the key is byte-identical to before (`spec_categories
 the fix for a wrong attribute is always the text or the reader's rules, never the cell. A flagged item must never
 match in pricing.
 
+**A CATALOGUE ITEM KEEPS THE SHEET'S OWN ITEM TEXT, VERBATIM, AS A DECLARED ATTRIBUTE (owner 2026-10-10, slice 12e-1b:
+"it should be kept exactly as per the excel file. we cant drop it").** The Rate Master grid and the rate file show an
+attribute ONLY when the category config declares it in `attribute_definitions`, so the key and its definition travel
+together: Insulation keeps its column A as `type`, ADP as the spec-read `item_name`, and Piping (HVAC v35) as a plain
+`item_name` declared FIRST -- rendered after brand and unit, before the other attributes; in the all-categories file a
+plain `item_name` shares ADP's text column (one column, told apart by `category`). The key is mandatory on every Piping
+item (`test_piping_v34.test_07`; no loader validator checks declared attributes against items).
+
 **A SPEC SUGGESTION IS STORED ONLY AFTER A USER CONFIRMS IT; A CONFIRMED ITEM RECORDS WHO AND WHEN (owner-locked,
 T-a / T-b).** When the exact read refuses, `spec_reader.suggest_spec` offers ONE best match by FIXED RULES -- the synonym
 table, a one-letter correction of a word of five or more letters to a UNIQUE family word, the exact rules re-run --
@@ -660,6 +668,19 @@ the input's own cladding -- plausible figures and a row count of 224 where 68 mo
 are therefore NOT passed on that path: each SKU's branch comes from its own attributes, which is what
 makes the moved COUNT fall out of the product rather than a guess.
 
+**A FAMILY'S OWN PIPELINE REACHES THAT FAMILY'S SKUs, AND THE REACH WALK FILTERS, IT DOES NOT RE-KEY (12e-2b, the
+12e-2 cert's finding 2).** An item-list family's pipeline matches its row with the family bound from the ROW, which
+the walk's `literalWhere` rightly drops -- so "Piping accessories - Copper", read by the Copper pipeline alone,
+listed all 40 pipes where 13 move. `pricingInputReach` records, per (input, column), WHICH FAMILY'S pipeline read
+the input, and drops a row whose family attribute names a family none of whose pipelines did: copper 13, MS 13, PVC
+8, CPVC 6. ⚠️ Putting the family into the column's `where` gave the same SKUs in a different ORDER on every
+Insulation input; the filter leaves every other input's record byte-identical, and a column any un-owned pipeline
+read (a config's own `pipelines`: every Electrical category, ADP's shared default) is OPEN and never filtered.
+`PricingInputImpactPanel.test.ts` pins all 46 inputs of both disciplines by id. The panel's row label names an
+ITEM-LIST SKU's facts by the panel field's label ("Pipe size 15.9", "Thickness (mm) 25"), applied in the panel
+(`plainSkuLabel`); Electrical rows and the shared `skuLabel` are untouched (owner 2026-10-10: "HVAC item-list rows").
+A value box keeps the TEXT as typed (`typeIntoField`): bound to the parsed number, "0.4" typed key by key became 4.
+
 **A LADDER'S `label_attr` IS A CORRECTNESS KEY, NOT A DISPLAY ONE.** `buildModuleLadder` SKIPS any row
 whose label attribute is missing, so pointing it at an attribute the SKUs do not carry builds an EMPTY
 ladder and refuses EVERY row with *"no SKU for this combination"* -- naming a size, never the display
@@ -795,6 +816,35 @@ need at a time and RETURNS at the first missing one, so a row refusing for a mis
 pipe size. `ItemPriceResult.readValues` publishes every resolved fact for OPTIONS AND DISPLAY ONLY —
 nothing from it reaches `match_master_row`, so no price can move.
 
+**A TWO-WAY FIELD ALWAYS OFFERS BOTH VALUES, AND IS NEVER NARROWED OR CLEARED (owner, 2026-10-10, slice 12e-2b).**
+The ruling: *"for attributes whose options are yes/no, with/without type both values must be shown in the dropdown
+else it becomes confusing ... valid for all disciplines all categories all attributes"*; a picked pair the catalogue
+does not stock refuses with a line naming it. **D1 (a): "two-way = any choice field whose list FOR THIS FAMILY has
+exactly two values - worked out from the list, no config key, no category or attribute named in code."** It is the
+ONE exemption to S1 above, and it lives in ONE function, `itemListPricing.twoWayValues` (the definition's `values`,
+or `values_by_family[family]`, of length two): `itemFieldDefs` offers those two in the definition's order and skips
+`fieldOptionsFromSkus`, which removes all three ways a value used to be hidden at once -- another pick, a ruled
+default acting as a pick, and the row's unit class. Because the stale-pick rule asks `itemFieldDefs`, a picked
+two-way value is never cleared; the two helper sites that read the SKU list directly (the model-value match and the
+unshowable-value check in `pricingSheetHelper`) ask `twoWayValues` first, so they can never disagree with the field.
+On HVAC v36 it selects exactly `ul`, `damper` and `insulated` on ADP and nothing on Insulation or Piping; Electrical's
+two-valued attributes are static config lists and were always shown in full. **Every other field keeps narrowing**
+(torque still narrows under UL). ⚠️ **"UL WINS" ON BOTH PATHS (D2):** a hand-picked UL "yes" beside any variant
+prices the UL 555 SKU through the SAME `override_when` the model path uses (slice 8 M-b) -- it is NOT a refusal; the
+variant field then shows what priced ("UL 555", with the rule) whenever its own list can no longer show the pick.
+⚠️ **D4 (a):** a slot diffuser per sq.m / per number keeps the ruled default "damper not mentioned -> without" and
+REFUSES by name (only "with" is stocked at those units); the calculator and the panel now say the same sentence, so
+the one sweep divergence that was awaiting a ruling is gone. The model's instructions are untouched: the choice lists
+sent to the model are built in Python from the definitions and always carried both values.
+
+**AN UNSTOCKED COMBINATION REFUSES "No SKU for <family>: <facts> - price this row by hand" (owner D3, Decision 1
+"option a", Decision 2 "a colon form", 2026-10-10).** EVERY HVAC item-list refusal that used to read `no SKU for this
+combination (...)` -- Insulation included -- is built by `plainEnglish.noSkuSentence` from labels that already exist
+(a choice definition's label, a number reader's name): a with / without value reads before its label ("without
+damper"), every other fact reads "<label> <value>" with the label's first letter lowered unless its first word is all
+capitals ("UL listed no", "variant UL", "width 600"), two-way facts first, comma-joined. No config key carries the
+wording. Electrical's sentence ("No ... rate row matches ...") is left as it is, by ruling.
+
 **A PICK THE LATER ANSWERS NO LONGER STOCK IS CLEARED, NEVER SUBSTITUTED — AND THE RULE IS BOUNDED BY
 THREE CONDITIONS, TWO OF WHICH WERE LEARNED BY BREAKING THEM.** (1) Only a value the PRICER picked from a
 list: one typed through "Other…" must still ladder (composition and next-size-up exist for unstocked
@@ -803,6 +853,395 @@ exempt — it cannot have offered anything, and without this guard a correctly p
 both its sizes cleared and stopped pricing. (3) The test is **DIRECTIONAL, down the config's own `ladders`
 order**, because an unstocked pair is unstocked BOTH ways round and a symmetric check wipes the answer the
 pricer just gave.
+
+**BUT A PICK ON A FIELD THAT HAS A LADDER IS LADDERED, NOT CLEARED (owner, 2026-10-10, slice 12e-2b: "this should
+also follow the ladder mechanism with correct note ... this is the general ladder rule we have").** The rule above
+now holds for fields WITHOUT a ladder -- a choice such as cladding, variant or the family: cleared, "choose again",
+never refilled by a default (12d-8 R1 stands). For a field named in `list_spec.pricing.ladders` (Insulation pipe size
+and thickness; ADP diameter, neck, torque, panel ratio, plenum thickness; Piping size) `unstockedPicks` leaves the
+pick on the item, so the pricer resolves it with that field's own ladder EXACTLY as it resolves the same value typed
+or model-read -- the same cell, the same function, nothing copied: next size up, the smallest, a composition where
+the field composes, above the largest -> the refusal naming it. The field shows the value USED and the line reads
+"<picked> is not stocked with <the other answer> -> priced as <used> (<reason>)" -- "6 nm is not stocked with UL
+listed yes -> priced as 8 nm (next size up)"; a composition's line is the working's own, re-opened with the pick's
+words. The answer named is each earlier answer that, alone, takes the pick off the list. `slice12e2b.test.ts` sweeps
+every reachable case (41 on v36: torque under UL, Insulation thickness under pipe size) and fails if a laddered pick
+prices differently from the same value typed. ⚠️ **A FAMILY CHANGE STILL STARTS THE BLOCK BLANK (owner S1, re-ruled
+2026-10-10: "Keep S1, in-family only")** -- so a pick is never carried across a change of material or pipe type, and
+Piping, whose block holds one ladder field and no other answer, has no in-block case.
+
+**A DELEGATED SECTION PRICES THROUGH THE DELEGATED CATEGORY'S OWN CONFIG, CATALOGUE AND PRICING INPUTS — NO COPY
+(owner D1, 2026-10-08; D1a, 2026-10-11; slice 12e-3a, HVAC v37).** Owner D1: the insulation section on a Piping row
+*"prices through the Insulation category's own spec, catalogue and inputs - no second copy of any Insulation rule."*
+D1a: *"the insulation section for piping will behave same as the insulation category except the pipe size
+mirror/overwrite rule i mentioned and the yes/no toggle."* The mechanism is `list_spec.sections` (a sibling of
+`pricing`): exactly one entry without a `category_id` is the config's own items (a Piping row's pipes); every other
+entry names another item-list category of the same discipline. `pricingSheetHelper.computeItemList` prices such a
+section by calling `computeItemListOwn` -- the function the delegated category's own rows and its calculator tab go
+through -- with THAT category's config object (resolved from the helper's own config map), its spec and the same
+items, for ONE item. Nothing of the section's own is read, defaulted, laddered or worded anywhere else: its material
+default, cladding, thickness, quantity box, refusals, lines and "Change item" list are the delegated category's.
+Exactly two things are added, both declared in config and neither named in code:
+
+* **`include_when {attr, equals}`** (the key name Electrical's `popup_boxes.has_modules` gate uses; the SHAPE of
+  `point_wiring.circuit_wire_included`. Those are row-level attribute / pipeline-step features an item-list config does
+  not have, so the gate itself is item-list code): a per-item two-value choice of THIS config ("Insulated" Yes / No)
+  that opens the section directly under its item. It is in no `needs` list, no `match_attrs` and no `choice_attrs`
+  (the validator refuses a toggle the pricing reads), so it can never move or refuse the item. `absent {value, line}`
+  is what it shows when nothing was read: amber with the line on a row the model read, plain on an item the pricer
+  added. Picking the closing value drops that section's edits in the same operation.
+* **`mirror {from, to, tag, line}`**: one number of the item pre-fills a number reader of the delegated category until
+  the pricer edits it there. What is mirrored is the size the item was READ as (owner D3b: *"for pricing we consider
+  1 NB = 1 mm and should be matched with the catalog as per that only"*): the stated number (5/8" -> 15.875, MS 100
+  -> 100), or the second inch conversion where that is the one the item priced on (4 inch -> 100). It enters the
+  delegated category as a value typed into its own "Other..." box would -- the same cell, reader and ladder -- and is
+  never resolved by the owner. The field carries the tag ("from pipe") and the delegated category's own line with
+  ONLY its lead changed ("From pipe: 15.875 mm -> priced as 15.88 mm ...", never "You typed" --
+  `plainEnglish.mirroredLead`). A hand edit is kept when the item's size later changes, the tag goes, and the line
+  reads "you chose 19.05 (pipe is 15.875)". The section never writes to its item.
+
+A section may also be added on its own ("+ Add insulation", owner 13:42): it belongs to no item, mirrors the first
+item with a readable number, keeps its own remove control, and no toggle adds or removes it. **Totals (owner D4 /
+Q2a):** every item and every section is a LINE, each rounded by its own rules; the row total is the sum of the lines;
+any refused line means no total and "n of m items need a person", priced lines keeping their figures. An attached
+section prices on its own even where its item refuses; a row with no item and a priced independent section totals
+that section. **The model's answer (owner Q3 / Q4; the sorting REPLACED by owner D-2, 12e-4b -- see the paragraph on
+the section marker below):** a section item is the one whose `section` equals the section's id; the k-th one attaches
+to the k-th item of the answer,
+extras are independent; facts present mean the toggle reads open even where the model said otherwise. **Session
+state:** an attached section's edits live ON its item's edit entry (`ItemEdit.sections`), so removing or changing the
+item (owner S1: a changed item starts blank) takes them with it; independent ones sit beside the items
+(`ItemListEditState.sections`). ⚠️ **The proof that nothing is copied is a parity sweep, not a reading:**
+`slice12e3a.test.ts` prices every Nitrile Rubber / Tubular Puf SKU x three pipe sizes (exact, laddered, refused) as a
+Piping section and through Calculator -> Insulation and compares figures, state, reason, working lines and every
+field, the mirrored field's lead excepted by name. ⚠️ **A helper that cannot resolve the delegated category refuses
+the section** ("Insulation cannot be priced here - its rules are not loaded; price it by hand") -- it never prices it
+by any other rules.
+
+**IN THE CALCULATOR A SECTION OPENS WITH NO MATERIAL PICKED; ON A BoQ ROW THE DELEGATED CATEGORY'S DEFAULT STAYS
+(owner D1b, 2026-10-12 "option a"; slice 12e-3b).** A section the toggle opens used to be handed to the delegated
+category with no family, so its "not mentioned" rule priced it as its default material with a "not mentioned" line --
+on a screen that has no BoQ. In the calculator (the helper's one test for it: no row supplies the unit) such a
+section is returned as `pickFamily: true`: the heading, the kinds the section offers, "Choose the insulation
+material", no items, not priced -- the same list "+ Add insulation" opens. A pick is the section's own
+`change_family`, after which every field behaves as the delegated category's own calculator does. On a BoQ row --
+model-read or opened by the pricer -- the delegated category's default is unchanged (Nitrile, amber, its own line).
+
+**NO RULE TAG REACHES A PRICER'S SCREEN, AND A UNIT KEY READS AS THE UNIT (block 38; owner Q13; "Strip them too",
+2026-10-12; slice 12e-3b).** `plainEnglish.plainSentence` drops a tag written with hyphens -- "(R-M-b)", "(R-M-c)" in
+config, "(A-4)", "(A-5)" written by the pricer's own code -- beside the numbered ones it always dropped
+(`HYPHEN_TAG`: one capital of R / A / D / T / S / Q, then one or two hyphenated parts of at most two characters, so
+"(UL-555)" and "(M-10)" are kept). `plainPricerText` then gives a number followed by an all-lower-case unit its
+standard spelling from `UNIT_SPELLINGS` ("6 nm" -> "6 Nm"); the table names units, never a category, and a unit the
+BoQ wrote in its own capitals is kept. ⚠️ Both live at the VIEW boundary only: the config keeps its tags and its
+`unit: "nm"`, and the pure pricer's working keeps them, so a test of `priceItemList` still reads "(R-M-b)".
+
+**A PER-NUMBER ROW WAITING FOR ITS SIZE SHOWS THE KIND'S RULED DEFAULTS (owner Q12 "option a"; "Accept the 7 rows",
+2026-10-12; slice 12e-3b).** Where a kind is priced per number through a conversion and the fact that picks the
+conversion is missing, the refusal carries the ruled defaults of the kind's OWN needs (never a conversion's), so the
+fields show them amber exactly as the same kind shows them on a row priced in its own unit. General by construction:
+fire damper (Variant, UL listed), slot diffuser (Damper), mixing box (Insulated). No figure and no refusal sentence
+changes.
+
+**AN ATTACHED SECTION'S QUANTITY IS ITS ITEM'S UNTIL THE PRICER TYPES THEIR OWN (owner F10, 2026-10-12; slice
+12e-3c).** Owner: *"its should be one only"*; *"for insulation under pipe keep the box and link it to pipe but the user
+can change it if they want"*. A section that sits under an item (opened by that item's toggle) is handed the quantity
+the item's own box shows -- typed, model-read or the assumed 1 -- as its own, and its block carries `qtyMirrorTag` (the
+section's `mirror.tag`, "from pipe") with `qtyDefaulted` false. It follows the item until the section's stored edit
+holds a `qty`; from then on that value stays, whatever the item does. A count the MODEL read on the section's own item
+does not break the link (owner: "The pipe's"). A section that belongs to no item keeps its own box (1, amber). The
+quantity enters the delegated category exactly as a quantity typed in its own box, so each line is still rounded by
+its own rules. No config key: the rule rides on the section being ATTACHED (`include_when`), and the Derivation tab
+says it from that.
+
+**A FIELD MARKED "default" ALWAYS SHOWS ITS VALUE (owner F11, 2026-10-12: "Something marked as defaulted should also
+show its value"; slice 12e-3c).** A ruled default that the ladder turns into a stocked size is shown as that size.
+Where the ladder cannot run (the row refused earlier, e.g. on its pipe size) the value is still the ruled one, and
+the field shows it: in its "Other..." box where the field allows one (thickness 9 -- owner: "Show 9"), or listed in a
+plain dropdown's options where the catalogue does not stock it ("Cladding Only" per sq.m, cladding not mentioned ->
+No). `value` is unchanged in both cases -- only what the control can display moves -- so nothing that prices or
+matches reads a different thing. Never an amber tag beside "- select -".
+
+**IN THE CALCULATOR AN UNFILLED CHOICE READS "pick a <field>", AND A FIELD ID NEVER REACHES A LINE (owner F4 / F7,
+2026-10-12; slice 12e-3c).** The pure pricer says "could not tell <field>" for a choice it has no answer to; on a BoQ
+row the model read, that is the right sentence and stays. In the calculator -- no row supplies the unit, or the
+section pass sets `noRow` on the context it hands a delegated category -- the same refusal is reworded at the view
+boundary to "pick a cladding", built from the config's choice fields and their labels (no field is named in code).
+The same boundary function (`say`, in `computeItemListOwn`) hands the category's own field labels to
+`plainPricerText`, which writes a field id spelled with an underscore as its label ("thickness not mentioned -> 9",
+never "thickness_mm ..."). An id with no underscore cannot be told from a word and is left -- except at the START of a default's line, where 12e-4b (owner G3) reads it as its label (BEFORE: "item not mentioned ->
+..."). ⚠️ Item-list categories only: HVAC Raceway and HVAC Cables are priced by Electrical's row-level engine and keep
+its lines until the Electrical retrofit (owner 2026-10-12: "Leave for the retrofit").
+
+**A DELEGATED SECTION'S QUESTIONS ARE ASKED FROM THE DELEGATED CONFIG, AND ITS ITEM CARRIES A MARKER (owner D-2,
+2026-10-13: a Piping row "is also asked Insulation's OWN questions for a second, marked item, built from
+Insulation's config at asking time - NO second copy"; slice 12e-4b).** `extraction.build_items_spec(cfg, configs,
+discipline)` attaches each delegated section under `"sections"` as `{id, label, items_spec}`, where `items_spec` is
+that same function's result for the delegated config -- the very object a row of that category is asked with, built
+when the request is assembled and written nowhere. A config with no delegated section, a call without the config
+map and a section whose category is not loaded all return the object exactly as before, so every other category's
+request is byte-identical (pinned against the pre-slice code, run side by side from `git show`). One paragraph,
+`SECTION_ITEMS_GUIDANCE`, tells the model how the second kind is returned; it lives in the wrapper (like SYNONYMS
+and DEFAULTS) and is appended only to a request whose spec carries sections, so the shared item-list prompt asset
+is untouched. The model returns a section item as a SEPARATE element marked `"section": "<id>"`.
+`parse_item_list` coerces a marked element by THAT section's definitions and family attribute and stores
+`{"attributes": {...}, "section": "<id>"}`; an unmarked element is stored exactly as before (no new key); a marker
+the config does not declare is recorded in `drops["items_unknown_section"]` and the element is kept as a main item,
+so it shows as a blank block that needs a person (owner decision 6: visible beats silent). The text check and the
+second opinion read a marked item by its own section's definitions, and the reviewer is shown the marker and the
+same paragraph. ⚠️ **THE PANEL SORTS BY THE MARKER AND BY NOTHING ELSE** (`pricingSheetHelper.computeItemList`): an
+item is a section's when `item.section` equals that section's id. The 12e-3a test -- an item NOT carrying the
+owner's family key -- could never be true of a stored item, because the parser stores every definition of the
+row's category on every item. A category that declares no section never reads the key.
+
+**THE FAMILY "AS WRITTEN" IS READ BY THE ONE READER A TYPED WORD GOES THROUGH (owner D-3, 2026-10-13; decisions 2 /
+3 / 4; slice 12e-4b, HVAC v38).** The Pipe type dropdown stays the four stocked types; a text definition
+(`pipe_type_as_written`) carries the BoQ's own word, from the row or else its headings. `list_spec.pricing.
+family_text.from_attr` names it (the key name `unstocked_materials.from_attr` uses; the validator requires a `text`
+definition of the category that the pricing does not match on, and allows it in `panel_readonly`). The pricer's
+order: (1) an ANSWERED family is used and the word does not decide it -- a dropdown answer wins over a disagreeing
+word; where the MODEL answered the family and the word reads as that SAME family (uPVC beside PVC, GI beside MS,
+"MS / GI" beside MS) the word's own line still shows ("BoQ says uPVC -> priced as PVC"), exactly as when the word
+decides (owner, 2026-10-14: "fix"; slice 12e-4d AC1); a word that reads as ANOTHER family, refuses or reads as nothing
+changes nothing -- the conflict case is not ruled and is pinned as it is; a family the pricer picked starts from the
+pick alone, so no word is read;
+(2) else the row's OWN words (`from_row`, unchanged); (3) else the as-written word becomes the family answer;
+(4) else "no pipe type could be told". Step 3 and a word typed in the family's "Other..." box go through ONE
+function, `itemListPricing.readFamilyWord`: the exact spelling of a stocked, mapped or refused family
+(`readFamilyText`, unchanged: uPVC -> PVC with its line, SS -> its sentence); then a word holding several names
+through the row-text rule ("MS / GI" -> MS, "uPVC/ CPVC" refuses naming both); then a refused word inside a longer
+text ("SS 304"); else the caller refuses by name. "Stainless steel" is a second entry of the config's refuse list,
+not code. The word is shown read-only and ONLY where it differs from the family priced (decision 2). ⚠️ On a
+refusal the typed word heads the block (it sits in the type box) while the as-written word sits on its read-only
+line -- the one named difference between the two paths; type, line, refusal, figures and working are equal
+(`slice12e4b.test.ts`, the parity set).
+
+**ONE AXIS MAY DECLARE THE NEAREST-SIZE RULE FOR ITSELF, AND INSULATION'S PIPE SIZE DOES (owner F-1, 2026-10-13:
+"insulation should get the original pipe size read by BoQ and then will match/ ladder independently based on
+insulation logic" + "option B"; slice 12e-4b, HVAC v38).** `numbers.<axis>.near` is `size_match.near` for that
+ladder alone; the axis key wins over the category one. Insulation declares `numbers.pipe_size_mm.near: 0.1`, so a
+pipe read as 22.3 is the sheet's 22.23 instead of the next size up (28.58), in the Insulation category and in a
+Piping section alike -- the section is still handed the size AS READ (22.3, "from pipe") and Insulation's own rule
+lands it. Where the axis key is what matched, the working says so: "pipe size 22.3 is 22.23 on the sheet (within
+0.1 mm)". ⚠️ It is deliberately NOT `size_match.near` on Insulation: that key is category-wide (the thickness ladder
+would take 13.05 as 13 instead of the next size up) and it switches every hop's line to the "declared rung" wording.
+The validator refuses the key on an axis that is not a ladder.
+
+**A TRAILING FULL STOP NEVER STOPS A SIZE FROM READING (owner F-2, 2026-10-13: "fix"; slice 12e-4b).**
+`itemListPricing.withoutTrailingPunctuation` drops a full stop, comma, semicolon or colon at the very END of a text
+before the three tests that anchor on the end look at it: whether a typed entry is one size (`isOneSizeEntry`),
+which size a slash list takes (`severalSizesPick`: "19/25 mm." -> 25) and whether a typed thickness is a single
+number. The text as written is still what every line quotes. `readNumber` itself is not changed: no reading inside
+it was stopped by a trailing mark. (Known and left: ADP's plenum-thickness reader does not recognise "26G." as a
+gauge because of the dot; reported in 12e-4b, not ruled.)
+
+**A BARE NUMBER THAT COULD BE AN INCH SIZE REFUSES (owner F-3, 2026-10-13: "this should refuse pricing if we cant
+determine the size/ unit correctly"; ruled in the run; slice 12e-4b).** On a size axis that reads inches two ways
+(`inch_mm_alt`) and rules below-the-smallest (`size_match.below_smallest`) -- Piping's, and no other -- a number
+written with NO unit that is below the smallest stocked size of its family refuses "size N has no unit - price this
+row by hand" when N x 25.4 OR N x `inch_mm_alt` falls within the family's stocked range (smallest to largest). The
+same number with its unit ("1 inch", "1 mm"), a number at or above the smallest size, and a small number whose inch
+reading is out of range (MS 15: 381 / 375 mm) price exactly as before. The size TAKEN from a pair or list written
+with no unit ("8/7" -> 8) goes through the same check; an inch fraction ("3/4") is already inches and never a bare
+number. The test reads the ANSWER -- what the pricer typed or the model returned -- never the row or its headings:
+a heading's "6mm nitrile rubber insulation" must not make a bare "1" priceable. The Pipe size note tells the model
+to take a bare size's UNIT (never the size) from a heading or the neighbouring rows of the same list and to write
+it with the size, else to return the number bare. No config key: the rule rides on the two keys above.
+
+**A SECTION NEVER PRICES A SIZE ITS PIPE REFUSED TO READ (owner, 2026-10-14: "fix"; slice 12e-4d AC2).** When an item
+refuses on the READING of a number axis -- "size N has no unit", "... - pick one" (several sizes), "no number in
+'...' for pipe size", "Type one pipe size, in mm or inches", a cleared pick -- `priceOneItem` names the axis on the
+result (`sizeRefused`); `mirroredNumber` mirrors nothing from it; and a section whose `mirror.from` is that axis,
+whose own size box the pricer has not typed in, refuses with the item's own sentence and shows no figure (its size
+field reads "From pipe: <sentence>", its box open and empty). A size the pricer TYPES in the section's box prices the
+section exactly as before ("the user can change it if they want"). An item refused for anything else -- SS, an
+unknown type, a size above the largest -- leaves its section as it was: nothing read, nothing mirrored, the section
+reads its own cell (SS) or refuses with its own sentence (above the largest). BEFORE: row 108's section priced the
+bare 1 as 1 mm (191 / 14), and a pipe size the model could not read let the section price the model's own section
+cell.
+
+**A SECTION REFUSING AT ITS MIRRORED SIZE SHOWS THE 'None' DEFAULTS ITS ITEM HAD READ (owner, 2026-10-14; slice 12e-5
+AC1, filed as a domain invariant at 12e-5b AC8c).** A section that refuses over its pipe's size keeps what the AI read
+for it: a cladding answered "None" shows as "No" with its amber default line, exactly as Insulation shows it on a
+priced row; a value with no dropdown word shows as before; no figure and no "priced as" line is shown.
+
+**AN INCH SIZE WITH ITS MM IN BRACKETS IS ONE SIZE (owner R6, 2026-10-15: "we need to fix"; slice 12e-5b AC1).**
+'1/2" (12.7mm)', '1 1/8" (28.6mm)', '1/4 " dia (6.4 MM)': where the bracketed mm equals the inch value's conversion
+within 0.5 mm (`INCH_MM_ECHO_MM`), the bracket is dropped and the inch value is read exactly as an inch value always
+was -- on every Piping / Insulation size reader, model-read and typed (`inchWithMmEcho`). Where they disagree by more
+the size refuses "the size is written two different ways (X and Y) - price this row by hand", and the size box shows
+no figure (the R-B option match skips the text, and the field clears with the refusal as its note) -- the box never
+shows a value the row then refuses on. A typed inch size followed by "dia" is still refused by the 12e-4b one-size
+forms; that rule is unchanged.
+
+**A COMPOSED INSULATION CARRIES ONE CLADDING, OVER THE OUTER SURFACE (owner R7, 2026-10-15: "the dia is 50+2*32=114
+mm"; slice 12e-5b AC2).** Composition itself is unchanged: two to four stocked layers within `compose.tolerance`
+(2.0 mm), fewest layers first, the cladding on the outer layer only (`outer_only`). The outer layer's cladding girth
+is 3.14 x (the pipe size AS READ + 2 x the TOTAL thickness) / 1000; where no size was read, the matched size, said so
+in the working line ("cladding: ONE wrap over the outer surface -- pipe size as read 50 + 2 x 32 (the total
+thickness) = 114 mm"). Config, not code: `compose.outer_surface` names the run-only attribute (`cladding_od_mm`) and
+carries its own `girth_step`, which the pricer swaps in for the step producing the same result on that ONE layer.
+The config's own girth step is never edited: the Derivation tab, the impact panel, `pricingInputExact` and
+`cladding_cost.py` run it over catalogue rows, which carry no outer diameter. A one-layer item now runs the same step too
+(12e-5b2 R6, below).
+
+**A CLADDING THE CATALOGUE DOES NOT STOCK IS READ AS WRITTEN AND MAPPED BY CONFIG (owner R2, 2026-10-15: "should read
+as 26G GI cladding and mapped to aluminium as we dont have gi cladding. if in future we have GI cladding sku, it
+should map to it"; slice 12e-5b AC3).** The model leaves the cladding choice out and copies the words into "Cladding
+as written" (`cladding_as_written`, read-only; the panel shows it as "Cladding as written (BoQ): ...", so the label
+never carries "(BoQ)" itself -- v39 did, and showed it twice; v40 fixed the label). `list_spec.pricing.choice_text` maps an UNANSWERED choice (absent
+or "None") whose as-written words hold one of its `words` to the stocked option of its gauge (`to_by_gauge`; no gauge
+-> `default_to`) with the amber line "BoQ says 26 G GI cladding -> priced as 26G Aluminium". A gauge the table does not
+list refuses with `unlisted_line` -- never the "No" default, which would price the row without the cladding it asked
+for. An answered cladding always wins. A GI cladding SKU later is a config / catalogue change, never code. "GI
+Framework with perforated Al sheet" (a frame, or a perforated sheet) is unchanged.
+
+**CLOSED CELL POLYETHYLENE PRICES AS NITRILE, AND ONLY CLOSED CELL (owner R5, 2026-10-15: "this also prices thermal
+nitrile"; scope "option a"; slice 12e-5b AC4).** `list_spec.pricing.material_text`: a family answered as one of
+`when_family` ("none of these") whose material as written hits EVERY `all_of` group (closed / close / closed-cell AND
+polyethylene / PE, whole words) prices as `to_by_unit_class` -- Nitrile Rubber Insulation per metre (a pipe), Thermal
+Nitrile Insulation per sq.m (a duct or sheet) -- with the amber family line "BoQ says closed cell polyethylene ->
+priced as <family>". Plain polyethylene, PE foam and XLPE keep refusing by name (`unstocked_materials`).
+
+**A SELECTED-ROW SUGGEST ALSO READS THE ROWS NO RUN HAS READ, AND SAYS SO FIRST (owner R8, "option a, with an
+appropriate declaration"; slice 12e-5b AC7).** A selected-row pass carries the active run's rows forward and completes
+only when the population minus everything attempted is empty, so a row that became eligible after that run left the
+pass "partial" on rows nobody ticked (BOQ-26-00231 in 12e-5). `rate_master._never_read_rows` = today's population minus
+what the carry-source run attempted; `start_suggest` adds them to a selected-row run (never a whole-sheet run) and
+echoes `never_read_added`; `get_active_suggestion_run` returns `never_read_rows` only where the active run is complete
+on the current version. The confirmation (`PricingGrid.suggestConfirmCopy`) adds "This sheet's last run is older than
+some of its rows. This run will also read N rows that no run has read yet (by category: ...)." and its action counts
+them; with none the copy is byte-identical. Proven live on 00231: 36 ticked + 42 never-read = 78, complete, superseded.
+
+**A THICKNESS WRITTEN AS SEVERAL VALUES TAKES THE HIGHEST (owner R4, 2026-10-15, within "several values -> the
+higher"; Q4: "a thickness written as any list of values joined by 'or', '/' or brackets takes the highest"; slice
+12e-5b2 AC4).** On the reader that declares `several: "highest"` (Insulation's thickness, which is also the reader
+of a Piping row's insulation section): numbers joined only by "/" or "or", plus every bracket holding ONE number
+(with mm / thk at most) -- "6mm thk (9MM)", "6 or 9 mm", "13/19 or 25", "6 (9) (13)" -- read as their highest, with
+the line "states two values -- the higher, 9, is taken" (three or more: "several values -- the highest"). A bracket
+of words ("(Class O)") is still a qualifier; a comma list and a "+" list are unchanged (refusal / layers); a pure
+slash list keeps the 12d-1b path. A TYPED thickness stays one number (12d-6 U4). Every other reader is byte-identical.
+
+**A COMPOSED FIELD SHOWS ITS TOTAL; THE CHOOSER IS C-R1 (owner R5, ruled in the 12e-5b2 run: "C-R1 (2026-10-04) is
+the full ruleset ... Leave ladderResolution.ts out of scope and unchanged"; slice 12e-5b2 AC5).** The composition is
+chosen by `composeSize` / `betterThan`: two to four stocked layers within +-2.0 mm, FEWEST layers -> CLOSEST to the
+stated thickness -> lowest MATERIAL cost (`compose.cost_key`, `cost_insulation`) -> fewest distinct sizes ->
+lexicographic. The thickness field of a composed block shows the TOTAL of its layers ("24" for 9 + 15), with the
+composition line as its note -- never the first layer's ("9"); a field the row refused on stays blank and red.
+
+**CLADDING IS MEASURED ON THE PIPE SIZE AS READ, EXCEPT A NOMINAL BORE (owner R6, 2026-10-15: "use the original size
+everywhere"; Q1 (b) / Q2, 2026-10-15; slice 12e-5b2 AC6).** A single layer's cladding girth is 3.14 x (the pipe size
+AS READ + 2 x its thickness) / 1000, as a composition's outer layer already was (12e-5b R7) -- on a Piping section
+and an Insulation-category row alike -- wherever the size as read differs from the matched size by more than 0.1 mm;
+the working line names both ("cladding: measured on the pipe size as read 31.8 (not the 34.93 it was priced at) + 2
+x 19 (the thickness) = 69.8 mm"). It runs the config's `compose.outer_surface.girth_step` (no new key). WHERE THE
+SIZE IS WRITTEN AS A NOMINAL BORE ("50NB", "50 N.B."), the cladding stays on the MATCHED size, single layer and
+composition alike: an NB is not the pipe's outside diameter (50 NB steel is about 60 mm), and the insulation was
+already matched up under the "50 NB keeps 53.98" ruling (option B). An exact match, a spelling-only match, a row
+without cladding and every catalogue-row computation (Derivation tab, impact panel, `pricingInputExact`,
+`cladding_cost.py`) are byte-identical.
+
+**A REPLY ELEMENT WITHOUT A ROW ID IS DROPPED BY NAME (owner R3, 2026-10-15: "ok"; slice 12e-5b2 AC3).**
+`extraction._reply_row_id` reads the id as `int(el["id"])` always did, or None (absent, null, not a whole number);
+such an element is recorded in `drops["items_no_id"]` and skipped, the rest of the batch kept -- no KeyError, no
+transient retry. An id not sent stays in `ids_not_in_batch`. `_TRANSIENT_MARKERS` is untouched.
+
+**COPIED BoQ WORDS ARE ONE CONTINUOUS PIECE, NEVER SHORTENED; A COPY NOT FOUND IN THE ROW IS FLAGGED AND KEPT (owner R1,
+2026-10-15; slice 12e-5c AC3, HVAC v42).** Every `type: text` attribute of the Piping and Insulation configs (Piping:
+`pipe_type_as_written`, `size_mm`, `pipe_class`; Insulation: `cladding_as_written`, `thickness_mm`, `pipe_size_mm`,
+`brand`, `material_as_written`) ends its note with: "Copy the words exactly as the BoQ writes them, as one continuous
+piece; never shorten, never join pieces with '...' or any other mark; if the words are long, copy the shortest continuous
+piece that holds the value." A new copied-text attribute carries the same sentence. `extraction.apply_row_text_check`
+compares each copied value with THAT row's own payload (its text, notes and ancestors): a value not found there is
+recorded in `drops["items_not_in_row_text"]` and flagged for a person - **the value is kept, never dropped** (owner
+ruling 2, 2026-09-23). Measured on the 12e-5c Stage B read (508 replies): 0 values with "..."; the 16 flagged values were
+a heading written as a sibling row (a structure shape, not shortening).
+
+**MM = NB AND NB = MM: A PIPE SIZE IN MM OR NB IS ONE SIZE, AND THE CLADDING IS MEASURED ON THE MATCHED SIZE (owner R7,
+STANDING, 2026-10-16: "for pricing purpose we are assuming mm = NB and NB = mm. I have ruled this so many times"; restates
+D3b 2026-10-11; slice 12e-6 AC1).** "50 mm", "50 mm dia", "50 NB" and "50 mm NB" get ONE treatment: the cladding girth is on
+the MATCHED insulation size (it supersedes 12e-5b2 R6 for every such size). Only a size AS READ that is an OUTSIDE DIAMETER keeps
+the size as read: written "OD" / "O.D." / "outer dia", an inch size, or a COPPER pipe (copper is sized by its outside diameter;
+VRF / refrigerant = Copper). `itemListPricing.sizeIsOutsideDiameter` reads the text; the section pass hands the pipe's family and
+size to its insulation (`odHint`); an Insulation row of its own reads its own words (`COPPER_WORDS`). 20 NB / 20 mm still
+ladders to the next stocked size.
+
+**INSULATION MATERIALS: THE DEFAULT, ALTERNATIVES, XLPE AND THE ROW KIND (owner 2026-10-16; slice 12e-6 AC2 / AC5 / AC6).**
+(a) 12d-1a: a material the BoQ does not NAME takes the row-kind default (Nitrile Rubber per metre, Thermal Nitrile per sq.m,
+Acoustic for acoustic / lining), amber with its line -- also where the model answered "none of these" with nothing copied as
+the material and no unstocked word (XLPE included, whatever the config lists) in the row or its headings; "none of these" stays
+a refusal by name wherever a material is named. (b) R1: an unstocked material offered beside a stocked one ("nitrile
+rubber/XLPE", "rockwool/glasswool") prices the stocked one with "BoQ says <as written> -> priced as <family>"; R3: two stocked
+ones ("open-cell acoustic foam / 32 kg fiberglass board") price the LOWER cost for the row's size and thickness, with "BoQ
+allows ... the lower cost". (c) R8 / R5: "cross linked", "XPE", "FR-XPE" and a "co-extruded" jacket or covering ARE XLPE and
+refuse by name, before closed cell polyethylene can map to nitrile. (d) AC5: a row-kind family on the other row kind (Nitrile
+Rubber per sq.m, Thermal Nitrile per metre) prices as the family `family_when_none.by_unit_class` names for the row's unit,
+"priced as ... (row is per ...)". (e) R9 (v43 note): closed cell nitrile on a duct is Thermal Nitrile even under an
+"acoustic" heading. (f) R11: "48 kg density elastomeric rubber" is nitrile as written.
+
+**CLADDING WORDS: A COATING WITH NO GLASS CLOTH REFUSES BY NAME; A CLOTH FACING IS THE GLASS CLOTH; A FIXING IS NO CLADDING
+(owner R4 / R6, 2026-10-16; slice 12e-6 AC4 / AC6 e, HVAC v43).** R4: a cladding as written that is a coating or paint with no
+glass cloth, sheet or foil ("polyshield coating", "fire retardant coating") refuses "No SKU in the catalogue for <the coating as
+written> - price this row by hand" -- ONLY where the cladding was not answered: a cladding the model DID answer stands, because
+the copy may be the shortest piece of a coating that IS sandwiched with glass cloth (measured: 00086 High side, 21 rows). R6: a
+factory-laminated or reinforced glass / fibre cloth facing IS the glass cloth cladding (Glass Cloth with paint, on nitrile).
+AC4: "cladding named in this row but not read" fires only on a word that names a cladding; fixings and duct material ("GI strip",
+"GI grid", a "C" shape GI frame, bolts, clamps, channels, angles, "aluminium and GI duct") are masked first
+(`withoutFixingWords`). OPEN (12e-6b): a coating a heading limits to exposed / outdoor / terrace pipes is NOT handled yet -- a
+model copy of it refuses by R4 on a row that does not meet the condition. HVAC v44 tried a note for it and was REVERTED (owner
+option 3, 2026-10-16): the model also dropped conditional glass cloth and read "between indoor & outdoor" as a condition.
+
+**TWO STOCKED PIPE TYPES FOR ONE PIPE (owner R2, amended 2026-10-16 14:22: "when both CPVC and PVC or uPVC pipes are mentioned
+together then we should quote for CPVC. this overrides my earlier rule for lesser price item selection"; slice 12e-6 AC7).**
+CPVC named with PVC or uPVC prices as CPVC ("BoQ allows CPVC or uPVC -> priced as CPVC"); any other two stocked types price the
+LOWER cost for the row's size. The person switches it with the family control; a PICK is never second-guessed, and a word typed
+naming two types reads exactly as the same word read off the BoQ ("You typed ..."). A row with two pipes stays two items.
+
+**A DRAIN PIPE WHOSE BoQ NAMES NO MATERIAL PRICES AS CPVC (owner R1, 2026-10-16 23:43: "for drain pipes consider CPVC if no
+material is mentioned"; slice 12e-6b).** A pipe the BoQ calls a drain (drain pipe, condensate drain, drain piping; in the row or a
+heading) with NO pipe material named anywhere in its payload is priced as CPVC, with the amber line "drain pipe, no material stated
+-> priced as CPVC"; the person can change the dropdown. A drain that names a material keeps the rules above (uPVC / HDPE -> PVC,
+GI -> MS, CPVC with PVC -> CPVC). Code: `itemListPricing.drainPipeDefault`, reached only where the pipe type was neither answered
+nor picked -- an answered type is never overridden, and the text it reads is the panel's (the row, its headings' descriptions, its
+own notes). The calculator has no row text, so it never fires there. HVAC v45's Piping `pipe_type` note tells the model to leave
+such a pipe's type out (do not guess); the code prices it as CPVC.
+
+**A THICKNESS RANGE TAKES THE HIGHER (owner R10, 2026-10-16: "ok"; slice 12e-6 AC8).** "25-50 mm" (hyphen or en dash) on a
+thickness reader (`several: "highest"`) reads "'25-50mm' states a range - the higher, 50, is taken"; a pipe size range keeps
+its own line.
+
+**"INSULATED: YES" WITH NO INSULATION FACTS OPENS THE SECTION ON INSULATION'S DEFAULTS (owner D1b / D5b; slice 12e-6 AC3).**
+On a BoQ row the model opened with no insulation item, the section is priced by Insulation's own "not mentioned" path: the
+material by the row-kind default, the ruled thickness then the ladder (the thickness priority ends at 9 mm, 12d-2), cladding
+"No" -- each amber with its line. The calculator keeps "choose the material" (D1b).
+
+**A DEFAULT IS NAMED AS THE DEFAULT, SAID ONCE, BY ITS FIELD'S LABEL (owner G1 / G2 / G3, 2026-10-12 "yes"; slice
+12e-4b).** G1: a number nobody stated (the ruled default) heads its field note "Default 9 mm -> priced as 13 mm
+(the smallest size)" (12e-4d AC3: below the smallest stocked size the field's line and the working both say "(the
+smallest size)", between two sizes both "(next size up)"), in the calculator and on a BoQ row alike; a value the BoQ stated keeps "BoQ says", one the pricer
+typed "You typed". G2: the pricer writes a default as "<field> not mentioned -> <value> (<rule>)" and the rule is
+usually that same statement, so `plainEnglish.onceOnly` keeps only what the rule ADDS ("thickness not mentioned ->
+9 mm, then the ladder"; "damper not mentioned -> without"; "cladding not mentioned -> No (without cladding)"). G3:
+at the START of such a line a field id with no underscore is known to be the field and reads as its label
+("insulation material not mentioned -> ...", "UL listed not mentioned -> no (non-UL)"); anywhere else such an id
+cannot be told from a word and is left. All three are at the view boundary: the pure pricer's working is unchanged.
+
+**THE SECTION DECLARATION IS CHECKED IN TWO HALVES, AND THE CROSS-CATEGORY HALF RUNS AT EVERY WRITE (12e-3a, owner
+2026-10-11: "Add loader.py to scope"; the config editor's save also runs it).** `_validate_list_sections` (inside
+`_validate_config`, so import AND editor) checks the shape: closed key lists, exactly one own section, a two-value
+toggle the pricing does not read, `absent.value` the value that does NOT open the section, `mirror.from` one of the
+config's number readers. `validate_delegated_sections(configs, items)` checks what one config cannot know: the
+category exists in the discipline, is an item-list config with pricing rules, is not the owner and does not keep its
+family in the owner's family attribute; every family offered is priceable in the section's unit class THERE and has
+an active SKU there; `mirror.to` is one of ITS number readers. It is called ONCE by `loader._load_multi` over the
+payload's configs and items BEFORE the first write, by the single-config load path (`load_rate_master` with a
+singular `category_config`; owner F9 "fix", 12e-3c) with the same arguments, and by `update_rate_config` before
+`doc.save` -- EVERY config load path runs it; both read whatever
+stays active outside the write from the database, so a write is checked against the catalogue AS IT WILL STAND and an
+edit to the DELEGATED category that would break another config's section is refused on its own save. The pure half is
+`delegated_section_problems`. ⚠️ The check does not decide WHICH families a section should offer: "Cladding Only" is
+priced and stocked per metre and would pass; it is absent from Piping's section because the owner ruled the two
+families.
 
 **A TYPED FIELD'S NOTE IS GENERATED FROM WHAT THE PRICING READS, NOT WRITTEN PER FAMILY (owner S3/S4/S5,
 2026-10-06).** A `panel_notes` entry may be a LIST OF CLAUSES, each conditioned on a fact about the block
@@ -1043,6 +1482,50 @@ cleaner beside this one, or a cleaned string written back into a config, is how 
 another; the NEGATIVE pin (`plainEnglish.test.ts`) runs every Insulation and ADP case of the 12c-S sweep
 through both paths and refuses any code, `slice N`, `(owner` or snake_case token on any display string.
 
+**A PIPE'S PRICE IS TWO ROUNDUPS, AND THE ACCESSORIES SHARE IS A PRICING INPUT PER FAMILY, NEVER A FOLDED
+RATE (owner "option b, yes", 2026-10-10, slice 12e-2).** HVAC Piping stores the sheet's **BCS Pipe** (column G) as
+`cost_supply`; the sheet's "BCS Accessories" column is FOUR `hvac_pricing_input` items (`Piping accessories -
+Copper` 0.30; `- MS`, `- PVC`, `- CPVC` 0.60), each read by ONE family's per-metre pipeline through a `rate_ref`;
+`supply = ROUNDUP(ROUNDUP(BCS pipe x (1 + accessories)) x (1 + the SKU's supply markup))` and
+`install = ROUNDUP(BCS install x (1 + the SKU's install markup))`. ⚠️ **THE INNER ROUNDUP IS NOT OPTIONAL**: the
+sheet's Total BCS Supply is already a rounded figure and the BoQ markup applies to IT -- fold the two steps and
+copper 15.9 reads 1297.5 -> 1298 either way today but the identity `ROUNDUP(G x (1 + acc)) == I` that every
+other row rests on is gone (`test_piping_v34.test_09` pins it on all 40). The input is per FAMILY because the sheet
+states one share per family; a per-SKU share would be a stored figure nobody edits. Piping is an ITEM-LIST config
+(families keyed by `pipe_type`, one `length` block each, no top-level `pipelines` -- the Insulation shape), so it
+is live on the calculator AND on a BoQ row the day its rules run (owner S1: there is no staging switch);
+`item_name` keeps its definition for the Rate Master under ADP's two flags and is never asked of the model.
+
+**A STATED PIPE SIZE LANDS ON A RUNG BY A DECLARED LADDER, AND EACH RUNG IS A CONFIG KEY (owner Q14 / Q14a / Q17
+/ Q11, 2026-10-10).** The order is: mm at 2 dp -> 1 dp (`size_match.dp`) -> the inch read x 25.4 at the same
+depths -> the SECOND conversion x 25 (`numbers.<axis>.inch_mm_alt`, carried as an ALTERNATIVE read beside the
+exact one, never instead of it) -> the nearest stocked size within `size_match.near` (0.1 mm: 1-1/4" = 31.75 is
+the sheet's own 31.7) -> below the smallest -> the smallest (`size_match.below_smallest: "smallest"`, a
+DECLARATION of what the ladder has always done, which is what lets the line say "the smallest size") -> between
+-> the next size up -> above the largest -> refuse naming it. ⚠️ **Every rung is confined by key presence**:
+Insulation and ADP declare none of the four, and `resolveSize` itself never reads `near`, so their every hop and
+line is byte-identical. A value the PRICER types on a `typed_entry: "one_size"` axis must be ONE size (a number
+in mm, or an inch form whose fraction has a power-of-two denominator); "40/50" and "two inch" refuse with one
+message. ⚠️ **TWO OR MORE SIZES ON THIS AXIS PRICE THE HIGHER, AND A SLASH IS AN INCH FRACTION ONLY BY THE RULED TEST
+(owner 2026-10-11, slice 12e-3b; REPLACES 12e-2b's "40/50 refuses").** Owner: *"its two sizes in such case if the
+model can determine the specific size for the row use it else use the higher size. like what we did for insulation"*;
+*"Highest of any list"*. An inch fraction is a top number of 16 or less over 2, 4, 8, 16, 32 or 64, with or without a
+whole number (7/8, 15/16, 1-1/4, 1 1/4) -- `itemListPricing.isInchFraction`; a top number carrying its own inch mark
+is a size, so `1"/2"` is a pair. Any other slash list states sizes: a pair prices the higher ("25/32" -> 32, where it
+used to read as 25/32 of an inch), three or more the highest, on the MODEL path and the typed path alike, with the
+line "pipe size states two sizes (25 / 32) - the higher, 32, is taken" in the working and "You typed / BoQ says 25/32:
+states two sizes ..." under the field (`slashSizes`, `severalSizesPick`, `severalSizesTaken`, `LadderHop.several`). The
+parts are compared as the reader reads them, so an inch size and an mm size compare in mm; a unit written once at the
+end is the unit of the bare parts before it. ⚠️ NOT RULED, SO NOT GUESSED: a list holding an inch fraction
+(`3/4" / 1"`) and a part that is not one size keep the "- pick one" refusal. The model's own choice of a row's size is
+whatever it returns as ONE size (the Pipe size note says so since HVAC v38, 12e-4b). The delegated section mirrors the read that LANDED, so
+it takes the taken size (owner D3b). The test is confined by the same `typed_entry` key, so Insulation's pipe-size
+reader, which shares `readNumber`, is byte-identical -- it still reads "25/32" as an inch fraction. A family answer written as the BoQ writes it is
+read by ONE reader (`family_text`: GI -> MS, uPVC / HDPE -> PVC with the line, SS refuses with its sentence, any
+other spelling refuses by name), shared by the calculator's typed "Other..." pipe type and the model's "Pipe type as written" (12e-4b: `readFamilyWord`, above).
+
+
+**A LIVE-SITE RATE TEST LEAVES THE MASTER'S PROVENANCE AS IT FOUND IT (CU-B, 2026-10-18).** A test that writes through the live grid path (`update_rate_master_item`) re-mints the derived rows in a NEW batch on every edit and every restore (`loader.recompute_derived_after_write`), so restoring the VALUES is not enough: `test_piping_v34` `test_live_01` records the active MS 300 / 250 rows before its edit and afterwards reactivates exactly those rows, deletes the rows it minted and the Version rows its saves wrote, and pins that the active row and the uid's row set are as before. Before this, every run left the live rows in a test batch (CU-0: 140 two-row batches, one live; the live pair was swapped back to v45's own batch `rmbulk-c7b9569bd0e8` in CU-B AC4). A new live-write test does the same.
 ---
 
 ## Rate-master invariants filed under Domain Gotchas
@@ -2521,11 +3004,18 @@ invariants:
 
 ### Catalogue-fed pick-lists for conduit size and wiring core/thickness (F-1 / F-8)
 
-- **⚠️ A `values_from` LIST IS GLOBAL AND THERE IS NO ROW-FILTERING SUPPORT (owner ruling R3,
-  owner-locked).** `where` accepts LITERAL constants only -- all three resolvers
+- **⚠️ A `values_from` LIST'S `where` IS GLOBAL: IT TAKES LITERAL CONSTANTS ONLY, AND THE CONFIG CANNOT
+  FILTER A LIST BY THE ROW (owner ruling R3, owner-locked).** All three resolvers
   (`extraction.values_from_catalog`, the panel's `attributeOptions`, the Derivation screen's
-  `valuesFromOptions`) compare `a[k] === v`. **There is no `@attr` indirection anywhere**, so a list
-  cannot be narrowed by the row's own other attributes. `conduit_piping.size_mm`,
+  `valuesFromOptions`) compare `a[k] === v`; **there is no `@attr` indirection anywhere**, so no config can
+  declare a row-dependent list, and the list the MODEL is sent is always the whole kind. ⚠️ **WHAT IS
+  CURRENTLY TRUE ON THE PANEL (reworded at 12e-2b; the old line said the list "cannot be narrowed by the
+  row's own other attributes", which stopped being true at 12c-S):** since owner S1 (2026-10-06, see
+  "A DROPDOWN OFFERS ONLY VALUES THAT CAN STILL PRICE" in the Load-bearing invariants) the panel NARROWS a
+  `values_from` list at display time by the answers already given -- in code (`attributeOptions`), never by
+  a `where` -- and skips an answer that would empty it. A STATIC `values` list is never narrowed, which is
+  why every two-valued Electrical attribute has always shown both values; on the item-list engine the
+  one exemption to S1 is the TWO-WAY field (owner 2026-10-10, same section). `conduit_piping.size_mm`,
   `wiring_cabling.core` and `wiring_cabling.thickness_sqmm` therefore carry **NO `where` key at all**,
   and a test asserts that absence. point_wiring's equivalents DO carry one (`{material: COPPER,
   insulation: UNARMOURED}`) -- **that asymmetry IS the ruling, not an oversight**: those constants are

@@ -1,0 +1,1340 @@
+{
+ "_source": "F1 v2 prompt for BOQ-26-00244 / CCTV as rendered by S1a (jev_exploration/s1a/prompt_v2_chunk1.txt): the 25 wire rows and their frozen aids only.",
+ "sheet_name": "CCTV",
+ "context": "(first slice -- this is the top of the sheet; nothing precedes it.)",
+ "prompt_sha256": "799d00a146294326bf4cd5fc447a3861d493c9ffdd654f68e2f04b08fdfe3423",
+ "prompt_chars": 43699,
+ "wire_rows": [
+  {
+   "excel_row": 5,
+   "classification": "spacer",
+   "parent_excel_row": null,
+   "sl_no": null,
+   "description": null,
+   "unit": null,
+   "has_qty": false
+  },
+  {
+   "excel_row": 6,
+   "classification": "preamble",
+   "parent_excel_row": null,
+   "sl_no": "D",
+   "description": "CCTV SYSTEM",
+   "unit": null,
+   "has_qty": false
+  },
+  {
+   "excel_row": 7,
+   "classification": "line_item",
+   "parent_excel_row": 6,
+   "sl_no": "1",
+   "description": "Supply, Installation, Testing & Commissioning : IP IR Dome 4.0 Megapixel lens: 3.6mm lens, 3 Array LED, Distance: 20 Meters, Power Input : POE 48V Standard/ DC 12V Compression: H.265; (without built-in mic) Supports Smart analysis: Target Count, Object Left /Lost, Area Detection, Line Crossing, ICR infrared filter for automatic switching from Day to Night mode and vice versa, Supports automatic electronic shutter function to adapt to different monitoring environments, High-performance 3D digital noise reduction and edge enhancement, using ROI video compression technology, high compression ratio, Support mobile phone or computer monitoring",
+   "unit": "Nos",
+   "has_qty": true
+  },
+  {
+   "excel_row": 8,
+   "classification": "line_item",
+   "parent_excel_row": 6,
+   "sl_no": "2",
+   "description": "Supply, Installation, Testing & Commissioning : IP IR Bullet 2.0 Megapixel lens: 2.8mm lens, Distance: 20 Meters, Power Input : POE 48V Standard / DC 12V DWDR Technology enabled, Front Cover - Metal, IP67 rated Compression: H.265; (without built-in mic) Supports Smart analysis: Target Count, Object Left /Lost, Area Detection, Line Crossing, ICR infrared filter for automatic switching from Day to Night mode and vice versa, Supports automatic electronic shutter function to adapt to different monitoring environments, High-performance 3D digital noise reduction and edge enhancement, using ROI video compression technology, high compression ratio, Support mobile phone or computer monitoring",
+   "unit": "Nos",
+   "has_qty": false
+  },
+  {
+   "excel_row": 9,
+   "classification": "line_item",
+   "parent_excel_row": 6,
+   "sl_no": "3",
+   "description": "Supply, Installation, Testing & Commissioning : IP IR Dome 2.0 Megapixel lens: 3.6mm lens, 3 Array LED, Distance: 20 Meters, Power Input : POE 48V Standard/ DC 12V Compression: H.265; (with built-in mic) Supports Smart analysis: Target Count, Object Left /Lost, Area Detection, Line Crossing, ICR infrared filter for automatic switching from Day to Night mode and vice versa, Supports automatic electronic shutter function to adapt to different monitoring environments, High-performance 3D digital noise reduction and edge enhancement, using ROI video compression technology, high compression ratio, Support mobile phone or computer monitoring",
+   "unit": "Nos",
+   "has_qty": false
+  },
+  {
+   "excel_row": 10,
+   "classification": "line_item",
+   "parent_excel_row": 6,
+   "sl_no": "4",
+   "description": "Supply, Installation, Testing & Commissioning : 5.0 Megapixel lens Network IR Waterproof Fisheye Camera, 5MP H.265 full real time coding, Effective pixels: 2160 × 2160, ICR auto switch, true day / night, 20 ~ 30m IR night view distance, 3D DNR, digital WDR, HLC, BLC and ROI coding, 1CH audio input, 1CH audio output, 1CH built-in MIC, Built-in micro SD card slot, up to 128GB, Hardware reset RS485, 1CH alarm input; 1CH alarm output, DC12V/PoE power supply. Supports smart phone, iPad, remote monitoring, IP67 ingress protection Support three streams",
+   "unit": "Nos",
+   "has_qty": false
+  },
+  {
+   "excel_row": 11,
+   "classification": "spacer",
+   "parent_excel_row": null,
+   "sl_no": null,
+   "description": null,
+   "unit": null,
+   "has_qty": false
+  },
+  {
+   "excel_row": 12,
+   "classification": "preamble",
+   "parent_excel_row": 6,
+   "sl_no": "5",
+   "description": "Supply, Installation, Testing & Commissioning : Network Video Recorder (NVR) with Ultra 265/H.265/H.264 video formats with the following features : (1) Third-party IP cameras supported with ONVIF conformance: Profile S, Profile G (2) Supports : (a) 1 channel HDMI (b) 1 channel VGA (c) HDMI 2 at up to 4K(3840x2160) resolution (d) HDMI 1/VGA and HDMI2 independent outputs (e) Up to 8.0 MP resolution (f) recording Up to 8TB for each HDD (min) (g) 12V Power output (h) ANR technology to enhance storage reliability when network is disconnected (i) cloud upgrade (j) 2 SATA Slots (minimum) (k) expected recording backup shall be 30 days @ 25fps under the specified compression ratios (l) 2 LAN ports (Gigabit Ethernet for fast speed) for remote monitoring/video analytics",
+   "unit": null,
+   "has_qty": false
+  },
+  {
+   "excel_row": 13,
+   "classification": "line_item",
+   "parent_excel_row": 12,
+   "sl_no": null,
+   "description": "16 Channel NVR",
+   "unit": "Set",
+   "has_qty": true
+  },
+  {
+   "excel_row": 14,
+   "classification": "spacer",
+   "parent_excel_row": null,
+   "sl_no": null,
+   "description": null,
+   "unit": null,
+   "has_qty": false
+  },
+  {
+   "excel_row": 15,
+   "classification": "preamble",
+   "parent_excel_row": 6,
+   "sl_no": "6",
+   "description": "Supply, Installation, Testing & Commissioning : Surveillance Storage NVR-ready Storage Devices; compatible to the NVR maximum capacity",
+   "unit": null,
+   "has_qty": false
+  },
+  {
+   "excel_row": 16,
+   "classification": "line_item",
+   "parent_excel_row": 15,
+   "sl_no": null,
+   "description": "10 TB HDD",
+   "unit": "Set",
+   "has_qty": true
+  },
+  {
+   "excel_row": 17,
+   "classification": "spacer",
+   "parent_excel_row": null,
+   "sl_no": null,
+   "description": null,
+   "unit": null,
+   "has_qty": false
+  },
+  {
+   "excel_row": 18,
+   "classification": "preamble",
+   "parent_excel_row": 6,
+   "sl_no": "7",
+   "description": "Supply, Installation, Testing & Commissioning : PoE switches of the following specification",
+   "unit": null,
+   "has_qty": false
+  },
+  {
+   "excel_row": 19,
+   "classification": "line_item",
+   "parent_excel_row": 18,
+   "sl_no": null,
+   "description": "16-Port PoE Switch 10/100/1000 Mbps",
+   "unit": "Set",
+   "has_qty": true
+  },
+  {
+   "excel_row": 20,
+   "classification": "spacer",
+   "parent_excel_row": null,
+   "sl_no": null,
+   "description": null,
+   "unit": null,
+   "has_qty": false
+  },
+  {
+   "excel_row": 21,
+   "classification": "preamble",
+   "parent_excel_row": 6,
+   "sl_no": "8",
+   "description": "Supply and laying of CAT 6 cable in existing conduits/cable trays/trunking etc (cost excluded)., including the cost of saddling/accessories, connectors; complete as required in approved drawings and per instructions of the EIC",
+   "unit": null,
+   "has_qty": false
+  },
+  {
+   "excel_row": 22,
+   "classification": "line_item",
+   "parent_excel_row": 21,
+   "sl_no": "8.1",
+   "description": "Unarmoured CAT 6 cable",
+   "unit": "Mtrs",
+   "has_qty": true
+  },
+  {
+   "excel_row": 23,
+   "classification": "line_item",
+   "parent_excel_row": 21,
+   "sl_no": "8.2",
+   "description": "Unarmoured CAT 6 cable - Patch Cord (3 Mtrs)",
+   "unit": "Mtrs",
+   "has_qty": true
+  },
+  {
+   "excel_row": 24,
+   "classification": "line_item",
+   "parent_excel_row": 21,
+   "sl_no": "8.3",
+   "description": "Armoured CAT 6 cable",
+   "unit": "Mtrs",
+   "has_qty": true
+  },
+  {
+   "excel_row": 25,
+   "classification": "spacer",
+   "parent_excel_row": null,
+   "sl_no": null,
+   "description": null,
+   "unit": null,
+   "has_qty": false
+  },
+  {
+   "excel_row": 26,
+   "classification": "preamble",
+   "parent_excel_row": 6,
+   "sl_no": "9",
+   "description": "Providing & installing Metal Bracket (fixed / adjustable) for Cameras (in open ceiling/false ceiling areas as required) with suspension rods / hangers for supporting cameras upto 1m, complete as required in approved drawings and per instructions of the EIC.",
+   "unit": "Nos",
+   "has_qty": true
+  },
+  {
+   "excel_row": 27,
+   "classification": "note",
+   "parent_excel_row": 26,
+   "sl_no": null,
+   "description": "Note : Vendor to include the cost of integrating the system with existing client's CCTV system.",
+   "unit": null,
+   "has_qty": false
+  },
+  {
+   "excel_row": 28,
+   "classification": "spacer",
+   "parent_excel_row": null,
+   "sl_no": null,
+   "description": null,
+   "unit": null,
+   "has_qty": false
+  },
+  {
+   "excel_row": 29,
+   "classification": "subtotal_marker",
+   "parent_excel_row": null,
+   "sl_no": null,
+   "description": "CCTV SYSTEM",
+   "unit": null,
+   "has_qty": false
+  }
+ ],
+ "guidance": {
+  "5": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    }
+   ],
+   "candidate_parents": [
+    "none (top level)"
+   ]
+  },
+  "6": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "I",
+     "description": "CCTV SYSTEM",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "preamble"
+    },
+    {
+     "sl_no": "",
+     "description": "Grand Total - CCTV System",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "subtotal_marker"
+    },
+    {
+     "sl_no": "",
+     "description": "Grand Total - CCTV System",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "subtotal_marker"
+    },
+    {
+     "sl_no": "",
+     "description": "Supply, Installation, Testing and Commissioning of CCTV System",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "note"
+    },
+    {
+     "sl_no": "9.4",
+     "description": "CCTV",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "subtotal_marker"
+    }
+   ],
+   "candidate_parents": [
+    "none (top level)"
+   ]
+  },
+  "7": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "1",
+     "description": "Supply, Installation, Testing & Commissioning (SITC) of STQC approved 1080p Indoor Dome camera with 1/2.8‑inch CMOS, Eff",
+     "unit": "Nos",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "1.0",
+     "description": "Supply, installation, testing and commissioning of UL Listed, IP CCTV Coloured  Dome camera, 4MP @ 25/30fps@1440P  (2560",
+     "unit": "Set",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "2.0",
+     "description": "Supply,   installation,   testing   and   commissioning   of   2 megapixels   resolution   Network   Bullet   camera   c",
+     "unit": "Each",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "18.0",
+     "description": "Installation, Testing & Commissioning of Cove  LED Lighting Fixture suitable for Arrival Areas, complete with high-effic",
+     "unit": "Rmt",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "23.0",
+     "description": "Installation, Testing & Commissioning of Decorative Acoustic Dome Dimensions: 750MM Dia globe  LED Light Fixture – Type ",
+     "unit": "nos",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    }
+   ],
+   "candidate_parents": [
+    "row 6 | sl D | CCTV SYSTEM",
+    "none (top level)"
+   ]
+  },
+  "8": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "15",
+     "description": "Supply,Installation,Testing and commissioning of Fresh/Exhaust air inline circular / rectangular fans duct mounted type ",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "preamble"
+    },
+    {
+     "sl_no": "37.0",
+     "description": "Installation, Testing & Commissioning of Stretched fabric LED Light Fixture – Type 13, complete with high-efficiency LED",
+     "unit": "nos",
+     "has_qty": false,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "19",
+     "description": "Supply, Installation, Programming, Testing & Commissioning of Ceiling-Mounted Occupancy Sensor with a 360° detection cov",
+     "unit": "nos",
+     "has_qty": false,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "20",
+     "description": "Supply, Installation, Programming, Testing & Commissioning (SITC) of Ceiling Mounted DALI Lux + Occupancy Daylight Senso",
+     "unit": "nos",
+     "has_qty": false,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "3.0",
+     "description": "SPIRAL ROUND DUCT : \nSupply, Erection, Installation, Testing and Commissioning of Round ducts made out of 120 GSM GSS, c",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "preamble"
+    }
+   ],
+   "candidate_parents": [
+    "row 6 | sl D | CCTV SYSTEM",
+    "none (top level)"
+   ]
+  },
+  "9": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "15",
+     "description": "Supply,Installation,Testing and commissioning of Fresh/Exhaust air inline circular / rectangular fans duct mounted type ",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "preamble"
+    },
+    {
+     "sl_no": "20",
+     "description": "Supply, Installation, Programming, Testing & Commissioning (SITC) of Ceiling Mounted DALI Lux + Occupancy Daylight Senso",
+     "unit": "nos",
+     "has_qty": false,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "37.0",
+     "description": "Installation, Testing & Commissioning of Stretched fabric LED Light Fixture – Type 13, complete with high-efficiency LED",
+     "unit": "nos",
+     "has_qty": false,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "9",
+     "description": "Supply, installation, testing and commissioning of 4 mm,6/12 mm lens, Light-sensitive, day/night fixed dome in a discree",
+     "unit": "Nos",
+     "has_qty": false,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "3",
+     "description": "Supply, installation, testing and commissioning of 5 MP 3.6/6 mm Light-sensitive, IP based, day/night fixed dome in a di",
+     "unit": "Nos",
+     "has_qty": false,
+     "correct_row_type": "line_item"
+    }
+   ],
+   "candidate_parents": [
+    "row 6 | sl D | CCTV SYSTEM",
+    "none (top level)"
+   ]
+  },
+  "10": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "7",
+     "description": "SITC Supply, installation, testing & commissioning of Below watts of EN54/16 certified amplifier Class-D digital amplifi",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "preamble"
+    },
+    {
+     "sl_no": "7",
+     "description": "SITC Supply, installation, testing & commissioning of Below watts of EN54/16 complied amplifier Class-D digital amplifie",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "preamble"
+    },
+    {
+     "sl_no": "7.0",
+     "description": "SITC Supply, installation, testing & commissioning of Below watts of EN54/16 certified amplifier Class-D digital amplifi",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "preamble"
+    },
+    {
+     "sl_no": "5",
+     "description": "Supply, installation, testing and commissioning of 4 MP, 6/12 mm Light-sensitive, IP based, day/night fixed dome in a di",
+     "unit": "Nos",
+     "has_qty": false,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "3",
+     "description": "Supply, installation, testing and commissioning of 5 MP 3.6/6 mm Light-sensitive, IP based, day/night fixed dome in a di",
+     "unit": "Nos",
+     "has_qty": false,
+     "correct_row_type": "line_item"
+    }
+   ],
+   "candidate_parents": [
+    "row 6 | sl D | CCTV SYSTEM",
+    "none (top level)"
+   ]
+  },
+  "11": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    }
+   ],
+   "candidate_parents": [
+    "row 6 | sl D | CCTV SYSTEM",
+    "none (top level)"
+   ]
+  },
+  "12": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "3",
+     "description": "Supply, Installation, Testing and Commssioining of Network Video Recording  Storage : Supports 8 channels video recordin",
+     "unit": "Nos",
+     "has_qty": false,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "24",
+     "description": "Supply, installation, testing and commissioning of  08CH , 2  to 32MP supported ,Max. 140Mbps network camera recording H",
+     "unit": "Nos",
+     "has_qty": false,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "26",
+     "description": "Supply, installation, testing and commissioning of 32CH, 2 to 32MP Resolution Max. 400Mbps network camera recording\nHDMI",
+     "unit": "Nos",
+     "has_qty": false,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "31",
+     "description": "Supply, installation, testing and commissioning of 32CH, 2 to 32MP Resolution Max. 400Mbps network camera recording\nHDMI",
+     "unit": "Nos",
+     "has_qty": false,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "25",
+     "description": "Supply, installation, testing and commissioning of  16CH , 2  to 32MP supported ,Max. 140Mbps network camera recording H",
+     "unit": "Nos",
+     "has_qty": false,
+     "correct_row_type": "line_item"
+    }
+   ],
+   "candidate_parents": [
+    "row 6 | sl D | CCTV SYSTEM",
+    "none (top level)"
+   ]
+  },
+  "13": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "9.43",
+     "description": "Supply, installation, testing & commissioning of 32-Channel 4K NVR with redundant power\n\nSPECIFICATION: 32-channel NVR, ",
+     "unit": "Nos",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "9.43",
+     "description": "Supply, installation, testing & commissioning of 32-Channel 4K NVR with redundant power\n\nSPECIFICATION: 32-channel NVR, ",
+     "unit": "Nos",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "2.0",
+     "description": "Supply,  Testing  &  Commissioning  of  12  Channel  Feed Though  Relay  20A  load  per  channel  for  Switching  the li",
+     "unit": "Nos.",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "18",
+     "description": "Supply, installation, testing and commissioning of 8 channel NVR With , TCP/IP Internal Storage with  2 SATA, each hardd",
+     "unit": "Nos",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "",
+     "description": "a.  16 mm  thick",
+     "unit": "SqM",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    }
+   ],
+   "candidate_parents": [
+    "row 12 | sl 5 | Supply, Installation, Testing & Commissioning : \nNetwork Video Recorder (NVR) with Ultra 265/H.265/H.264 video formats w",
+    "row 6 | sl D | CCTV SYSTEM",
+    "none (top level)"
+   ]
+  },
+  "14": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    }
+   ],
+   "candidate_parents": [
+    "row 12 | sl 5 | Supply, Installation, Testing & Commissioning : \nNetwork Video Recorder (NVR) with Ultra 265/H.265/H.264 video formats w",
+    "row 6 | sl D | CCTV SYSTEM",
+    "none (top level)"
+   ]
+  },
+  "15": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "62",
+     "description": "Supply, installation, testing and commissioning of 2TB video surveillance hard disk for above NVR",
+     "unit": "Nos",
+     "has_qty": false,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "19",
+     "description": "Supply, installation, testing and commissioning of 16 channel NVR With , TCP/IP Internal Storage with  2 SATA and Maximu",
+     "unit": "Nos",
+     "has_qty": false,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "17",
+     "description": "NETWORK VIDEO RECORDER( NVR) AND STORAGE",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "preamble"
+    },
+    {
+     "sl_no": "21",
+     "description": "Supply, installation, testing and commissioning of 64 channel NVR With ,· Supports RAID 0/1/5/10, TCP/IP Internal Storag",
+     "unit": "Nos",
+     "has_qty": false,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "65",
+     "description": "Supply, installation, testing and commissioning of 10TB video surveillance hard disk",
+     "unit": "Nos",
+     "has_qty": false,
+     "correct_row_type": "line_item"
+    }
+   ],
+   "candidate_parents": [
+    "row 6 | sl D | CCTV SYSTEM",
+    "row 12 | sl 5 | Supply, Installation, Testing & Commissioning : \nNetwork Video Recorder (NVR) with Ultra 265/H.265/H.264 video formats w",
+    "none (top level)"
+   ]
+  },
+  "16": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "11",
+     "description": "SITC of Surveillence HDD of 6/8/10 TB as required",
+     "unit": "Nos",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "12",
+     "description": "SITC of Surveillence HDD of 6/8/10 TB as required",
+     "unit": "Nos",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "3.0",
+     "description": "Supply,    installation,    testing    and    commissioning    of\nEnterprise Class  6TB HDD.",
+     "unit": "Each",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "",
+     "description": "b.  10 mm  thick",
+     "unit": "SqM",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "",
+     "description": "IF-10             150                     10                220V/1 Ph           Circular",
+     "unit": "No",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    }
+   ],
+   "candidate_parents": [
+    "row 15 | sl 6 | Supply, Installation, Testing & Commissioning : \nSurveillance Storage NVR-ready Storage Devices; compatible to the NVR m",
+    "row 12 | sl 5 | Supply, Installation, Testing & Commissioning : \nNetwork Video Recorder (NVR) with Ultra 265/H.265/H.264 video formats w",
+    "row 6 | sl D | CCTV SYSTEM",
+    "none (top level)"
+   ]
+  },
+  "17": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    }
+   ],
+   "candidate_parents": [
+    "row 15 | sl 6 | Supply, Installation, Testing & Commissioning : \nSurveillance Storage NVR-ready Storage Devices; compatible to the NVR m",
+    "row 12 | sl 5 | Supply, Installation, Testing & Commissioning : \nNetwork Video Recorder (NVR) with Ultra 265/H.265/H.264 video formats w",
+    "row 6 | sl D | CCTV SYSTEM",
+    "none (top level)"
+   ]
+  },
+  "18": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "75",
+     "description": "Supply, installation, testing and commissioning of 12 port PoE switch with rack mounting accessories",
+     "unit": "Nos",
+     "has_qty": false,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "76",
+     "description": "Supply, installation, testing and commissioning of 24 port PoE switch with rack mounting accessories",
+     "unit": "Nos",
+     "has_qty": false,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "",
+     "description": "Supply, Installation, Testing & Commissioning & Handing over of the following:",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "note"
+    },
+    {
+     "sl_no": "",
+     "description": "Supply, Installation, Testing & Commissioning & Handing over of the following:",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "preamble"
+    },
+    {
+     "sl_no": "",
+     "description": "Supply, Installation, Testing & Commissioning & Handing over of the following:",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "note"
+    }
+   ],
+   "candidate_parents": [
+    "row 6 | sl D | CCTV SYSTEM",
+    "row 15 | sl 6 | Supply, Installation, Testing & Commissioning : \nSurveillance Storage NVR-ready Storage Devices; compatible to the NVR m",
+    "row 12 | sl 5 | Supply, Installation, Testing & Commissioning : \nNetwork Video Recorder (NVR) with Ultra 265/H.265/H.264 video formats w",
+    "none (top level)"
+   ]
+  },
+  "19": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "6",
+     "description": "24 port 10/100/1000 POE Managed switches with  IP multicast snooping and data-driven IGMP support and with minimum two 1",
+     "unit": "Nos",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "6",
+     "description": "12 port 10/100/1000 POE Managed switches with  IP multicast snooping and data-driven IGMP support and with minimum two 1",
+     "unit": "Nos",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "10.0",
+     "description": "SITC of POE Network Switch 16 Port​",
+     "unit": "Nos",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "4",
+     "description": "Supply & Installation of 16 Port Layer 2 manageable  POE Network switch (24 PORT-10/100 BASE-T & 2 NOS. 1-G COMBO PORT F",
+     "unit": "Nos.",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "3",
+     "description": "Supply & Installation of 24 Port Layer 2 manageable  POE Network switch (24 PORT-10/100 BASE-T & 2 NOS. 1-G COMBO PORT F",
+     "unit": "Nos.",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    }
+   ],
+   "candidate_parents": [
+    "row 18 | sl 7 | Supply, Installation, Testing & Commissioning : \nPoE switches of the following specification",
+    "row 15 | sl 6 | Supply, Installation, Testing & Commissioning : \nSurveillance Storage NVR-ready Storage Devices; compatible to the NVR m",
+    "row 6 | sl D | CCTV SYSTEM",
+    "none (top level)"
+   ]
+  },
+  "20": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    }
+   ],
+   "candidate_parents": [
+    "row 18 | sl 7 | Supply, Installation, Testing & Commissioning : \nPoE switches of the following specification",
+    "row 15 | sl 6 | Supply, Installation, Testing & Commissioning : \nSurveillance Storage NVR-ready Storage Devices; compatible to the NVR m",
+    "row 6 | sl D | CCTV SYSTEM",
+    "none (top level)"
+   ]
+  },
+  "21": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "18",
+     "description": "Cable trays & Cable trunking (Copper pipes) : Supply and Erecting of Prefabricated Hot dip G.I. Cable tray/trunking of s",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "preamble"
+    },
+    {
+     "sl_no": "6.0",
+     "description": "Supplying and drawing of cable Fire Retardant PVC insulated copper conductor cable in the existing surface / recessed st",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "preamble"
+    },
+    {
+     "sl_no": "9.0",
+     "description": "Supply, installation, testing and commissioning of point wiring of 2.5 Sq.mm Copper, Class-2 stranded conductor, ZHFRLS ",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "preamble"
+    },
+    {
+     "sl_no": "1.0",
+     "description": "Receiving, Installation, testing and commissioning of following type of light fixtures as per drawings and specification",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "preamble"
+    },
+    {
+     "sl_no": "7",
+     "description": "Supply, Laying, Testing & Commissioning of cables for earthing   MS Conduits saddled to cable trays/Ceiling etc. with 1.",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "preamble"
+    }
+   ],
+   "candidate_parents": [
+    "row 6 | sl D | CCTV SYSTEM",
+    "row 18 | sl 7 | Supply, Installation, Testing & Commissioning : \nPoE switches of the following specification",
+    "row 15 | sl 6 | Supply, Installation, Testing & Commissioning : \nSurveillance Storage NVR-ready Storage Devices; compatible to the NVR m",
+    "none (top level)"
+   ]
+  },
+  "22": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "13.0",
+     "description": "Supply and Laying of FRLS armoured CAT 6 cable for CCTV system",
+     "unit": "Meter",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "1.0",
+     "description": "CAT 6 CABLING",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "preamble"
+    },
+    {
+     "sl_no": "1.06",
+     "description": "3C X 16 sq mm Cu Unarmoured FRLS cables",
+     "unit": "Mtrs",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "2.05",
+     "description": "3C X 16 sq mm Cu Unarmoured FRLS cables",
+     "unit": "Mtrs",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "3.2",
+     "description": "1Cx25 Sqmm Cu unArmoured Cable end termination",
+     "unit": "no.",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    }
+   ],
+   "candidate_parents": [
+    "row 21 | sl 8 | Supply and laying of CAT 6 cable in existing conduits/cable trays/trunking etc (cost excluded)., including the cost of s",
+    "row 18 | sl 7 | Supply, Installation, Testing & Commissioning : \nPoE switches of the following specification",
+    "row 6 | sl D | CCTV SYSTEM",
+    "none (top level)"
+   ]
+  },
+  "23": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "2.5",
+     "description": "Supplying and fixing Patch Cord-1 Meter-",
+     "unit": "Nos.",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "2.4",
+     "description": "Supplying and fixing Patch Cord-2 Meter- (DBPS Mounting\nCord)",
+     "unit": "Nos.",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "7.06",
+     "description": "CAT6 RJ45 Patch Cords- 3 Mtr- Green",
+     "unit": "Each",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "1.06",
+     "description": "3C X 16 sq mm Cu Unarmoured FRLS cables",
+     "unit": "Mtrs",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "2.05",
+     "description": "3C X 16 sq mm Cu Unarmoured FRLS cables",
+     "unit": "Mtrs",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    }
+   ],
+   "candidate_parents": [
+    "row 21 | sl 8 | Supply and laying of CAT 6 cable in existing conduits/cable trays/trunking etc (cost excluded)., including the cost of s",
+    "row 18 | sl 7 | Supply, Installation, Testing & Commissioning : \nPoE switches of the following specification",
+    "row 6 | sl D | CCTV SYSTEM",
+    "none (top level)"
+   ]
+  },
+  "24": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "13.0",
+     "description": "Supply and Laying of FRLS armoured CAT 6 cable for CCTV system",
+     "unit": "Meter",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "1.0",
+     "description": "CAT 6 CABLING",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "preamble"
+    },
+    {
+     "sl_no": "2.06",
+     "description": "3C X 6 sq mm  Cu  Armoured  Cable",
+     "unit": "m",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "2.06",
+     "description": "3C X 6 sq mm  Cu  Armoured  Cable",
+     "unit": "no.",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "72",
+     "description": "Supply and lnstalltion of Cat 6 cable",
+     "unit": "Mtrs",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    }
+   ],
+   "candidate_parents": [
+    "row 21 | sl 8 | Supply and laying of CAT 6 cable in existing conduits/cable trays/trunking etc (cost excluded)., including the cost of s",
+    "row 18 | sl 7 | Supply, Installation, Testing & Commissioning : \nPoE switches of the following specification",
+    "row 6 | sl D | CCTV SYSTEM",
+    "none (top level)"
+   ]
+  },
+  "25": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    }
+   ],
+   "candidate_parents": [
+    "row 21 | sl 8 | Supply and laying of CAT 6 cable in existing conduits/cable trays/trunking etc (cost excluded)., including the cost of s",
+    "row 18 | sl 7 | Supply, Installation, Testing & Commissioning : \nPoE switches of the following specification",
+    "row 6 | sl D | CCTV SYSTEM",
+    "none (top level)"
+   ]
+  },
+  "26": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "13.0",
+     "description": "SITC of Threaded Hollow Rods, Anchor Fasteners, as required for installation of sensors & sensor modules in open ceiling",
+     "unit": "No.",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "15.0",
+     "description": "Supply, Installation, Testing & Commissioning of Two Piece adjustable Rosette plates ( Metal & flushed / Recessed type, ",
+     "unit": "Nos.",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "7",
+     "description": "SITC of Threaded Hollow Rods, Anchor Fasteners, including PVC box as required for installation of sensors in open ceilin",
+     "unit": "Nos",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "11.0",
+     "description": "Installation,Testing & Commissioning of Suspended  - Angular Light complete with high-efficiency LED light source, integ",
+     "unit": "Rmt",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    },
+    {
+     "sl_no": "15.0",
+     "description": "Supply & Installation of Supporting GI threaded Rods for sensors in open areas with mounting accessories",
+     "unit": "Nos",
+     "has_qty": true,
+     "correct_row_type": "line_item"
+    }
+   ],
+   "candidate_parents": [
+    "row 6 | sl D | CCTV SYSTEM",
+    "row 21 | sl 8 | Supply and laying of CAT 6 cable in existing conduits/cable trays/trunking etc (cost excluded)., including the cost of s",
+    "row 18 | sl 7 | Supply, Installation, Testing & Commissioning : \nPoE switches of the following specification",
+    "none (top level)"
+   ]
+  },
+  "27": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "",
+     "description": "Supply, Installation, Testing and Commissioning of CCTV System",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "note"
+    },
+    {
+     "sl_no": "",
+     "description": "Grand Total - CCTV System",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "subtotal_marker"
+    },
+    {
+     "sl_no": "",
+     "description": "Grand Total - CCTV System",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "subtotal_marker"
+    },
+    {
+     "sl_no": "",
+     "description": "Supply, Installation, Testing and Commissioning of CCTV System:",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "note"
+    },
+    {
+     "sl_no": "I",
+     "description": "CCTV SYSTEM",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "preamble"
+    }
+   ],
+   "candidate_parents": [
+    "row 26 | sl 9 | Providing & installing Metal Bracket (fixed / adjustable) for Cameras (in open ceiling/false ceiling areas as required) ",
+    "row 21 | sl 8 | Supply and laying of CAT 6 cable in existing conduits/cable trays/trunking etc (cost excluded)., including the cost of s",
+    "row 6 | sl D | CCTV SYSTEM",
+    "none (top level)"
+   ]
+  },
+  "28": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    },
+    {
+     "sl_no": "",
+     "description": "",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "spacer"
+    }
+   ],
+   "candidate_parents": [
+    "row 26 | sl 9 | Providing & installing Metal Bracket (fixed / adjustable) for Cameras (in open ceiling/false ceiling areas as required) ",
+    "row 21 | sl 8 | Supply and laying of CAT 6 cable in existing conduits/cable trays/trunking etc (cost excluded)., including the cost of s",
+    "row 6 | sl D | CCTV SYSTEM",
+    "none (top level)"
+   ]
+  },
+  "29": {
+   "similar_reviewed_rows": [
+    {
+     "sl_no": "I",
+     "description": "CCTV SYSTEM",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "preamble"
+    },
+    {
+     "sl_no": "",
+     "description": "Grand Total - CCTV System",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "subtotal_marker"
+    },
+    {
+     "sl_no": "",
+     "description": "Grand Total - CCTV System",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "subtotal_marker"
+    },
+    {
+     "sl_no": "",
+     "description": "Supply, Installation, Testing and Commissioning of CCTV System",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "note"
+    },
+    {
+     "sl_no": "",
+     "description": "Supply, Installation, Testing and Commissioning of CCTV System:",
+     "unit": "",
+     "has_qty": false,
+     "correct_row_type": "note"
+    }
+   ],
+   "candidate_parents": [
+    "row 26 | sl 9 | Providing & installing Metal Bracket (fixed / adjustable) for Cameras (in open ceiling/false ceiling areas as required) ",
+    "row 21 | sl 8 | Supply and laying of CAT 6 cable in existing conduits/cable trays/trunking etc (cost excluded)., including the cost of s",
+    "row 6 | sl D | CCTV SYSTEM",
+    "none (top level)"
+   ]
+  }
+ }
+}

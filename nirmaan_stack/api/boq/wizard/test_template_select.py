@@ -11,6 +11,7 @@ import unittest
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from nirmaan_stack.services.boq_fixture_teardown import purge_boq
 
 from nirmaan_stack.api.boq.wizard.template_select import (
     _ancestor_chain,
@@ -224,7 +225,9 @@ class TestSetRowExcluded(FrappeTestCase):
     def tearDownClass(cls):
         frappe.db.delete("BoQ Review Row", {"boq": cls.boq_name})
         frappe.db.delete("BoQ Review Row", {"boq": cls.upload_boq_name})
+        purge_boq(cls.boq_name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
         frappe.delete_doc("BOQs", cls.boq_name, force=True, ignore_permissions=True)
+        purge_boq(cls.upload_boq_name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
         frappe.delete_doc("BOQs", cls.upload_boq_name, force=True, ignore_permissions=True)
         frappe.db.commit()
         frappe.delete_doc("Projects", cls.test_project.name, force=True, ignore_permissions=True)

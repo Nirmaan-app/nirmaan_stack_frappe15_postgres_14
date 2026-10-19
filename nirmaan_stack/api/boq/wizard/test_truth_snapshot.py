@@ -29,6 +29,7 @@ from frappe.tests.utils import FrappeTestCase
 from nirmaan_stack.services.boq_category import persist
 from nirmaan_stack.services.boq_category.harness import corpus_classify_and_label as loader
 from nirmaan_stack.api.boq.wizard.test_review_screen import _cleanup_project, _make_project
+from nirmaan_stack.services.boq_fixture_teardown import fixture_boq_name, purge_boq, purge_docs
 
 _SNAPSHOT = "BoQ Category Truth Snapshot"
 _SHEET = "RC Truth Sheet "  # VERBATIM trailing space (#152)
@@ -43,7 +44,7 @@ class TestTruthSnapshot(FrappeTestCase):
         boq.project = cls.project.name
         boq.boq_name = "Truth Snapshot BoQ"
         boq.tax_treatment = "Pre-tax"
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("TRUTH_SNAPSHOT"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq = boq.name
         cls.cv = 1
@@ -96,10 +97,11 @@ class TestTruthSnapshot(FrappeTestCase):
     def tearDownClass(cls):
         frappe.db.delete(_SNAPSHOT, {"boq": cls.boq})
         frappe.db.delete("BoQ Row Category", {"boq": cls.boq})
-        frappe.db.delete("BOQ Nodes", {"boq": cls.boq})
-        frappe.db.delete("BoQ Sheet", {"boq": cls.boq})
+        purge_docs("BOQ Nodes", {"boq": cls.boq})
+        purge_docs("BoQ Sheet", {"boq": cls.boq})
         frappe.db.commit()
         shutil.rmtree(cls.corpus, ignore_errors=True)
+        purge_boq(cls.boq)
         _cleanup_project(cls.project.name)
         super().tearDownClass()
 

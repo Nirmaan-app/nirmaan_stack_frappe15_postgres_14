@@ -78,7 +78,7 @@
  */
 import { useMemo, useRef, useEffect, useState, useCallback, Fragment } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
-import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageSquare, Search, X, Filter, CheckCircle2, Sparkles, AlertTriangle, AlertOctagon, MoreHorizontal, GitCompareArrows, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageSquare, Search, X, Filter, CheckCircle2, AlertTriangle, AlertOctagon, MoreHorizontal, GitCompareArrows, Trash2 } from "lucide-react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
@@ -106,14 +106,12 @@ import {
   reasonShortLabel,
 } from "./revisionChangeBlocks";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -185,17 +183,42 @@ import {
 // multi-area "Total Quantity" cell live-sums as the user types, WITHOUT re-rendering the
 // (non-memoized) whole tree on a keystroke. See AreaQtyCells.tsx for the alignment contract.
 import { AreaQtyCells } from "./AreaQtyCells";
-// DUAL-AI (ADR-0003 sec 8A): the Gemini provider column + detail-panel accept block. Visual
-// clones of Nitesh's Claude "AI Rec" column + "AI suggestion" block, reading gemini_* + calling
-// the gemini endpoints. Mounted ADDITIVELY beside the Claude pieces (Nitesh's stay untouched).
+// S4a (ADR-0034): the review flags. The server works them out (`check_flags` per row,
+// `check_summary` per sheet); reviewCheckFlags turns that into pills, filter membership, the
+// counter and every sentence, and ReviewCheckParts draws them. No flag rule lives in this file.
+import type { CheckSummary } from "./boqTypes";
 import {
-  GeminiHeaderCell,
-  GeminiBodyCell,
-  geminiSuggestionInfo,
-  geminiHasConfidence,
-  type GeminiFilter,
-} from "./GeminiSuggestionColumn";
-import { GeminiAcceptBlock } from "./GeminiAcceptBlock";
+  CHECK_FILTERS,
+  CHECK_FILTER_LABELS,
+  GRID_OK_LABEL,
+  REVERT_FAILED_MESSAGE,
+  REVERT_HINT,
+  REVERT_LABEL,
+  UNDO_LABEL,
+  checkCounter,
+  checkPill,
+  isCheckOpen,
+  matchesCheckFilter,
+  orderWithSuggestion,
+  revertMessageLines,
+  searchEnterAction,
+  suggestionFor,
+  type CheckFilter,
+} from "./reviewCheckFlags";
+import { afterEditIntent } from "./editIntent";
+import {
+  describeRevertEntry,
+  reasonWithExcelRows,
+  type DescribedEditEntry,
+} from "./reviewHistory";
+import {
+  CHECK_OPEN_ROW_EDGE,
+  CHECK_OPEN_ROW_TINT,
+  CheckCounterStrip,
+  SuggestedTag,
+  CheckPillBadge,
+  NeedsCheckingBlock,
+} from "./ReviewCheckParts";
 
 // computeDepths + CLS_LABELS were extracted to ./reviewRender (Slice 2) and are
 // imported at the top. Behaviour unchanged.
@@ -210,11 +233,7 @@ function formatEditAt(at: unknown): string {
 
 // A2 edit-log clarity: a described edit_log entry for render. `null` from
 // describeEditEntry means "suppress this entry" (the #162 no-op reclassify).
-interface DescribedEditEntry {
-  verb: string;
-  detail: string | null;
-  showField: boolean;
-}
+// DescribedEditEntry moved to ./reviewHistory (S6).
 
 // ClassificationPill + CLS_PILL_CLASSES + fmtNum were extracted to ./reviewRender
 // (Slice 2). ClassificationPill is imported at the top; fmtNum is now module-private
@@ -275,33 +294,6 @@ function DescriptionCellInner(
 // sl_no/description identically (they are dedicated CSV columns). No behaviour change.
 export const FIXED_ROLE_DEDUPE = new Set(["sl_no", "description"]);
 
-// C-v2: the 7 flat numeric value fields editable inline (mirrors backend
-// review_screen._VALUE_FIELDS). A descriptor is editable iff value_key === null
-// (a flat singleton column, NOT a per-area cell) AND its value_field is one of
-// these. Per-area cells (value_key !== null) and text fields are read-only here.
-const EDITABLE_VALUE_FIELDS = new Set<string>([
-  "qty_total", "rate_supply", "rate_install", "rate_combined",
-  "amount_total", "amount_supply", "amount_install",
-]);
-
-// C-v2b: the 2 flat text value fields editable inline (mirrors backend
-// review_screen._TEXT_FIELDS). Same descriptor-gating as EDITABLE_VALUE_FIELDS
-// (value_key === null && this Set has value_field). Unlike numeric edits, the
-// text Apply saves DIRECTLY with no confirm dialog (silent save) and the value
-// is a string (backend stores it verbatim, no float coercion). description and
-// row_notes stay read-only -- they are NOT here.
-const EDITABLE_TEXT_FIELDS = new Set<string>(["unit", "make_model"]);
-
-// C-v2d: the 3 per-area JSON value fields editable inline (mirrors backend
-// _AREA_JSON_FIELDS). A descriptor is per-area-editable iff value_key !== null (it
-// targets one area cell) AND its value_field is one of these. qty_by_area is flat
-// one-hop; rate_by_area AND amount_by_area are nested two-hop (Slice 2b) -- the
-// descriptor carries the inner kind in the generic rate_subkey slot (for amount it is
-// the amount kind supply/install/total). These commit through the SAME confirm dialog as
-// flat numeric edits; blank -> 0.0 (the area key stays). save_review_edit takes area
-// (+ rate_subkey for the two nested fields).
-const EDITABLE_AREA_FIELDS = new Set<string>(["qty_by_area", "amount_by_area", "rate_by_area"]);
-
 // C-v2c: per-row human-only remark cap (mirrors backend _REMARK_MAX_LEN). Enforced
 // here as a live counter + Save-disable; the backend hard-guards the same value.
 const REMARK_MAX_LEN = 250;
@@ -310,97 +302,36 @@ const REMARK_MAX_LEN = 250;
 // (mirrors backend _ASSIGNABLE_CLASSIFICATIONS). subtotal_marker / header_repeat are
 // parser-only DETECTIONS -- valid existing/FROM states but never offered as targets.
 const ASSIGNABLE_CLASSIFICATIONS = ["line_item", "preamble", "note", "spacer"] as const;
+// S6 (F6 / U5, owner rulings V3-2 / Q-d): the review Change list also offers "Subtotal" (mirrors the
+// backend's _REVIEW_ASSIGNABLE_CLASSIFICATIONS). Subtotal cannot have children, so a row with
+// children goes through RestructureModal like a note or spacer. Only the Change list uses this;
+// "Change parent" and the template Insert-row list stay on the four types.
+const REVIEW_TARGET_CLASSIFICATIONS = [...ASSIGNABLE_CLASSIFICATIONS, "subtotal_marker"] as const;
 
 // §9 #159: the 6 classification values offered in the Classification filter checklist --
 // the full FROM/read vocab (CLS_LABELS keys), NOT ASSIGNABLE_CLASSIFICATIONS (the 4 write
 // targets). A filter reads all 6 existing states (incl. subtotal_marker / header_repeat).
 const CLASS_FILTER_VALUES = ["preamble", "line_item", "note", "spacer", "subtotal_marker", "header_repeat"] as const;
 
-// §9 #159: Status filter option labels. AI-3a adds the third state "ai_accepted"
-// (an AI suggestion was Accepted -- distinct provenance from a plain human edit).
+// §9 #159: Status filter option labels.
 // S5 adds the three REVISION states. They are offered only on a revision sheet (same gate as the
 // Looks OK column) -- off a revision no row carries a carry stamp, so the options would all filter
 // to nothing.
 type StatusFilter =
-  | "all" | "edited" | "original" | "ai_accepted"
+  | "all" | "edited" | "original"
   | "copied" | "needs_review" | "reviewed";
 const STATUS_FILTER_LABELS: Record<StatusFilter, string> = {
   all: "All",
   edited: "Edited",
   original: "Original",
-  ai_accepted: "AI Accepted",
   copied: "Copied",
   needs_review: "Needs review",
   reviewed: "Reviewed",
 };
 
 /** The base options, and the revision-only additions appended after them. */
-const BASE_STATUS_FILTERS: readonly StatusFilter[] = ["all", "edited", "original", "ai_accepted"];
+const BASE_STATUS_FILTERS: readonly StatusFilter[] = ["all", "edited", "original"];
 const REVISION_STATUS_FILTERS: readonly StatusFilter[] = ["copied", "needs_review", "reviewed"];
-
-// AI-3a: AI Rec column filter. "all" = no narrowing (show every row); "any" = rows with a
-// pending AI suggestion; "high"/"medium"/"low" = rows whose suggestion carries that
-// confidence in EITHER axis (a H+M row appears in both the High and Medium views).
-type AiFilter = "all" | "any" | "high" | "medium" | "low";
-const AI_FILTER_LABELS: Record<AiFilter, string> = {
-  all: "Show all rows",
-  any: "Any AI suggestion",
-  high: "Has High",
-  medium: "Has Medium",
-  low: "Has Low",
-};
-
-// AI-3a: a row's pending-suggestion shape, used by the AI Rec cell + the AI filter.
-// A suggestion only "counts" while ai_suggestion_status === "Pending" (Accepted/Rejected
-// are resolved -> no badge, no tint). Parent suggestion = a real parent index OR a root flag.
-interface AiSuggestionInfo {
-  pending: boolean;
-  hasClass: boolean;
-  hasParent: boolean;
-  classConf: "High" | "Medium" | "Low" | null;
-  parentConf: "High" | "Medium" | "Low" | null;
-}
-function aiSuggestionInfo(row: ReviewRow): AiSuggestionInfo {
-  const pending = row.ai_suggestion_status === "Pending";
-  const hasClass = pending && row.ai_suggested_classification != null;
-  const hasParent =
-    pending &&
-    ((row.ai_suggested_parent != null && row.ai_suggested_parent !== -1) ||
-      row.ai_suggested_is_root === 1);
-  return {
-    pending,
-    hasClass,
-    hasParent,
-    classConf: hasClass ? (row.ai_classification_confidence ?? null) : null,
-    parentConf: hasParent ? (row.ai_parent_confidence ?? null) : null,
-  };
-}
-// AI-3a: does a row carry a pending suggestion at the given confidence (either axis)?
-function aiHasConfidence(info: AiSuggestionInfo, level: "High" | "Medium" | "Low"): boolean {
-  return info.classConf === level || info.parentConf === level;
-}
-// AI-3a: confidence -> small-pill classes (mirror the Status/AI-Accepted pill idiom:
-// High=green, Medium=amber, Low=gray). Null confidence on a present suggestion -> gray dot.
-const AI_CONF_PILL: Record<"High" | "Medium" | "Low", string> = {
-  High: "bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200",
-  Medium: "bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200",
-  Low: "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300",
-};
-function AiConfBadge({ conf, title }: { conf: "High" | "Medium" | "Low" | null; title: string }) {
-  const label = conf ? conf[0] : "?"; // H / M / L (or ? when the model omitted confidence)
-  const cls = conf ? AI_CONF_PILL[conf] : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400";
-  return (
-    <span
-      title={title}
-      className={cn(
-        "rounded-full py-0.5 px-1.5 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap",
-        cls,
-      )}
-    >
-      {label}
-    </span>
-  );
-}
 
 // R4: short per-category labels for the warnings panel (advisory flags). Mirrors the labels the
 // SheetReviewPage count strip used (FLAG_LABELS) -- moved here when the strip evolved into the
@@ -499,17 +430,19 @@ interface ReviewTreeProps {
   // backend enforces the same freeze, so this is the UI line of defence, not the only one.
   readOnly?: boolean;
   // B1 (ADR-0011): acquire the draft single-editor lock on FIRST edit-intent. Called at the top of
-  // every REAL-edit funnel (value/text edits, reclassify/restructure opens, AI/Gemini accept,
-  // revert) -- NOT the annotation-only paths (saveRemark, dismissFlags). Idempotent on the page
+  // every REAL-edit funnel (value/text edits, reclassify/restructure opens,
+  // revert) -- NOT the annotation-only paths (saveRemark, dismissFlags, the Looks OK tick). Idempotent on the page
   // side (heldVersionRef), so firing it from multiple funnels is harmless. Optional: every existing
   // caller that omits it renders exactly as before.
-  onEditIntent?: () => void;
-  // DUAL-AI (ADR-0003 sec 8A): gates the second provider ("Gemini") column + detail-panel accept
-  // block. Sourced from get_review_rows.gemini_enabled (Document AI Settings.boq_ai_enabled). When
-  // false/undefined the Gemini column + block are NOT mounted -- the layout is byte-identical to
-  // the Claude-only tree (totalCols / colSpans stay 8-based). ADDITIVE: every existing caller that
-  // omits this prop renders exactly as before.
-  geminiEnabled?: boolean;
+  // S4b (R33): it may return the lock call's promise, so an action that would otherwise fire its
+  // write in the same instant (Revert) can wait for it -- see editIntent.ts.
+  onEditIntent?: () => void | Promise<unknown>;
+  // S4a (ADR-0034): the sheet's review-flag counts from get_review_rows.check_summary -- the
+  // counter strip above the grid. Null/absent (an older payload, a template BoQ) -> no strip.
+  // The per-row flags ride each row's `check_flags`, so they need no prop.
+  checkSummary?: CheckSummary | null;
+  // S4b (U12): the automatic check is running -> the counter strip is not drawn.
+  checkRunning?: boolean;
   // Full-screen mode support: when true, the parent (SheetReviewPage) is rendering this
   // tree in an expanded/full-screen layout, so the table scroll container's max-h cap
   // should relax to reclaim the vertical space the normal page chrome would otherwise use.
@@ -517,7 +450,7 @@ interface ReviewTreeProps {
   expanded?: boolean;
   // ── Create-from-Template (ADR-0013 A2) -- template-origin review customizations ──
   // templateOrigin: the BoQ's origin === "template". When true the review screen hides the
-  // provenance/AI columns (Status, AI Rec, Gemini, Rate*, Amount*) and makes the Total-Quantity
+  // provenance columns (Status, Check, Rate*, Amount*) and makes the Total-Quantity
   // descriptor cell inline-editable. SEPARATE from templateControls (selectable||canCreateRows,
   // which is readOnly-coupled) so provenance columns stay hidden even on a finalized/locked
   // template sheet. DEFAULT false -> upload renders BYTE-IDENTICAL (every gate is a no-op).
@@ -550,7 +483,7 @@ interface ReviewTreeProps {
   onAffirmRow?: (rowIndex: number, affirmed: boolean) => void | Promise<void>;
 }
 
-export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, onEditIntent, geminiEnabled = false, expanded = false, templateOrigin = false, selectable = false, canCreateRows = false, onSelectionChanged, revisionMeta = null, onAffirmRow }: ReviewTreeProps) {
+export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, onEditIntent, checkSummary = null, checkRunning = false, expanded = false, templateOrigin = false, selectable = false, canCreateRows = false, onSelectionChanged, revisionMeta = null, onAffirmRow }: ReviewTreeProps) {
   // Create-from-Template: the two new props share ONE extra fixed-anchor column. When neither
   // is on, templateControls is false and nothing new renders (byte-identical to the upload flow).
   const templateControls = selectable || canCreateRows;
@@ -576,8 +509,10 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // B2b BUILD 1: per-row inline detail panel state (single-open, Option-B with flag accordion).
   const [expandedDetailRow, setExpandedDetailRow] = useState<number | null>(null);
 
-  // C-v2: inline value-editing for the 7 flat numeric fields (save_review_edit).
-  const { call: saveCall, loading: isSaving } = useFrappePostCall<{ message: SaveReviewEditResponse }>(
+  // save_review_edit -- since S4b called only by the template quantity cells (saveQtyInline /
+  // saveAreaQtyInline). The row detail's "Edit values / text / per-area values" blocks that also
+  // used it were removed (owner ruling R19); the endpoint itself is unchanged.
+  const { call: saveCall } = useFrappePostCall<{ message: SaveReviewEditResponse }>(
     "nirmaan_stack.api.boq.wizard.review_screen.save_review_edit",
   );
   // C-v2c: per-row remark write -- a SEPARATE endpoint + separate loading flag from
@@ -600,44 +535,15 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // C-v2c: dedicated inline error for the remark Save block ONLY -- kept separate
   // from saveError (numeric/text edits) so the two surfaces never cross-display.
   const [remarkError, setRemarkError] = useState<string | null>(null);
-  // Editable-value inputs for the currently-expanded detail row (value_field -> string).
-  const [editInputs, setEditInputs] = useState<Record<string, string>>({});
-  // C-v2b: editable text inputs (unit / make_model) for the expanded detail row.
-  const [textInputs, setTextInputs] = useState<Record<string, string>>({});
-  // C-v2d: per-area numeric inputs for the expanded detail row, keyed by descriptor
-  // col letter (value_field repeats across areas, so col is the unique key).
-  const [areaInputs, setAreaInputs] = useState<Record<string, string>>({});
-  // Pending value edit awaiting confirmation (single-open, mirrors expandedDetailRow).
-  // C-v2d: area / rateSubkey are present only for per-area edits (undefined for flat).
-  const [pendingEdit, setPendingEdit] = useState<{
-    rowIndex: number;
-    field: string;
-    col: string;
-    role: string;
-    excelRow: number;
-    from: string;
-    to: string;
-    area?: string;
-    rateSubkey?: string;
-  } | null>(null);
-  // Optional free-text reason captured in the confirm dialog (blank -> backend None).
-  const [pendingReason, setPendingReason] = useState("");
-  // Inline save error surfaced in the still-open detail panel (no toasts -- wizard convention).
-  const [saveError, setSaveError] = useState<string | null>(null);
+  // The quantity cells' save error. Its one render site was inside the removed "Edit Row" section
+  // of the row detail, which a template BoQ never showed -- so it is set, as before, and not drawn.
+  const [, setSaveError] = useState<string | null>(null);
 
   // Slice 1b-beta: restructure (reclassify + place children) surface.
   // restructureModal -> the heavy with-children modal; childlessConfirm -> the light path.
   const [restructureModal, setRestructureModal] = useState<{
     row: ReviewRow;
     newClassification: string;
-    // AI-3b-2: when an accepted AI parent on a WITH-children row opens the modal, the
-    // parent is pre-applied (children-only mode) + the status flips on Save (cancel-safe).
-    presetRowParent?: number | null;
-    presetParentMessage?: string;
-    markAiAccepted?: boolean;
-    // DUAL-AI (ADR-0003): the Gemini mirror of markAiAccepted. Set when a WITH-children Gemini
-    // accept routes here (GeminiAcceptBlock -> onOpenRestructureGemini). Independent flag.
-    markGeminiAccepted?: boolean;
   } | null>(null);
   const [childlessConfirm, setChildlessConfirm] = useState<{ row: ReviewRow; newClassification: string } | null>(null);
   // Inline error for the childless confirm dialog ONLY (the modal owns its own error state).
@@ -686,28 +592,32 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     }
   };
 
-  // AI-3b-1: per-field accept/reject of a PENDING AI suggestion (NON-MODAL scope --
-  // classification + CHILDLESS parent + reject). Checkbox state is seeded when the
-  // detail panel opens (see the seeding effect below); a parent change on a row WITH
-  // children is the AI-3b-2 (modal) path and is disabled here.
-  const [aiAcceptCls, setAiAcceptCls] = useState(false);
-  const [aiAcceptParent, setAiAcceptParent] = useState(false);
-  const [aiActionError, setAiActionError] = useState<string | null>(null);
-  const { call: acceptAiCall, loading: isAcceptingAi } = useFrappePostCall<{
-    message: { ok: boolean; edited_at: string | null };
-  }>("nirmaan_stack.api.boq.wizard.ai_assist.accept_ai_suggestion");
-  const { call: rejectAiCall, loading: isRejectingAi } = useFrappePostCall<{
-    message: { ok: boolean };
-  }>("nirmaan_stack.api.boq.wizard.ai_assist.reject_ai_suggestion");
-  // R3a (ADR-0006): the UNIFIED "Revert to parser". One endpoint that restores the row + any
-  // children a restructure moved to the PARSER BASELINE, regardless of whether the standing change
-  // was an AI acceptance (either provider) or a manual human_* edit. Replaces the two former
-  // provider-specific reverts (revert_ai_acceptance / revert_gemini_acceptance). Returns no
-  // edited_at, so the refresh runs through onRemarkSaved (mutate-only full re-fetch) -- the row
-  // re-renders clean (no override): badges/tint/accept blocks reset and AI Apply re-enables.
+  // R3a (ADR-0006): the UNIFIED "Revert to parser". One endpoint that restores the row to its
+  // parsed baseline, whatever the standing change was. S3 (R20): it also returns the children a
+  // restructure of the row moved. S4a (R27): its reply names the children that came back
+  // (`reverted_children`) and the ones that did not (`children_not_returned`), as row indexes.
+  // It returns no edited_at, so the refresh runs through onRemarkSaved (mutate-only re-fetch).
   const { call: revertToParserCall, loading: isRevertingToParser } = useFrappePostCall<{
-    message: { ok: boolean; reverted_children: number[] };
+    message: { ok: boolean; reverted_children?: number[]; children_not_returned?: number[] };
   }>("nirmaan_stack.api.boq.wizard.review_screen.revert_to_parser");
+  const [revertError, setRevertError] = useState<string | null>(null);
+  // U15: what the last revert did to the row's children. Shown in THAT row's detail panel until
+  // the panel moves to another row or the next revert / tick / undo.
+  const [revertNotice, setRevertNotice] = useState<{ rowIndex: number; lines: string[] } | null>(null);
+
+  // S4a: "Looks OK" on a flagged row, and its Undo -- one row per call, both ways (R13, R26).
+  // Like the revision tick these are acknowledgements, not edits: the server takes the draft
+  // lock itself, nothing is stamped on the row, and the refresh is the mutate-only one.
+  const { call: looksOkCall } = useFrappePostCall<{ message: { ok: boolean } }>(
+    "nirmaan_stack.api.boq.wizard.review_flags.mark_row_looks_ok",
+  );
+  const { call: undoLooksOkCall } = useFrappePostCall<{ message: { ok: boolean } }>(
+    "nirmaan_stack.api.boq.wizard.review_flags.unmark_row_looks_ok",
+  );
+  const [checkBusyRow, setCheckBusyRow] = useState<number | null>(null);
+  const [checkError, setCheckError] = useState<{ rowIndex: number; message: string } | null>(null);
+  // S4a: the Check column filter (default "all" = no narrowing).
+  const [checkFilter, setCheckFilter] = useState<CheckFilter>("all");
 
   // ── Create-from-Template (ADR-0013 T10/T11) -- write paths (template-origin only) ─────
   // T10: durable selection toggle. The server applies the two-direction cascade + re-emits
@@ -820,130 +730,57 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     }
   };
 
-  // Apply the checked AI suggestion(s). On success reuse onSaved -> mutate (the row
-  // re-fetches with status "Accepted": badge clears, Status -> "AI Accepted").
-  // AI-3b-2: a PARENT accept on a row WITH CHILDREN cannot apply directly (the children
-  // need disposition) -> open the children-only RestructureModal with the AI parent
-  // pre-applied + markAiAccepted (the status flips cancel-safely on the modal's Save).
-  // Otherwise (classification-only, or a CHILDLESS parent) the AI-3b-1 accept endpoint
-  // path runs unchanged.
-  const handleApplyAi = async (row: ReviewRow) => {
-    onEditIntent?.(); // B1: accepting an AI suggestion writes -> acquire the draft lock
-    setAiActionError(null);
-    const ai = aiSuggestionInfo(row);
-    const clsIsChange = aiAcceptCls && ai.hasClass &&
-      row.ai_suggested_classification !== row.effective_classification;
-    const isRoot = row.ai_suggested_is_root === 1;
-    const parentIsChange = ai.hasParent && (
-      isRoot ? row.effective_parent_index !== null
-        : row.ai_suggested_parent !== row.effective_parent_index
-    );
-    const parentAccept = aiAcceptParent && parentIsChange;
-    // AI-3c-3: mirror the manual onPickClass rule -- ANY accepted change on a row WITH
-    // children opens the child-disposition RestructureModal (a classification change to a
-    // non-parent class, e.g. Preamble->note, would otherwise silently orphan the children
-    // under a now-non-parent row; check_structural_integrity does not catch note-as-parent).
-    // A classification-ONLY accept must NOT force a parent move: OMIT presetRowParent so the
-    // modal defaults to "keep" the row's own parent (exactly what manual reclassify does).
-    if (hasChildrenSet.has(row.row_index) && (clsIsChange || parentAccept)) {
-      const presetRowParent = parentAccept
-        ? (isRoot ? -1 : (row.ai_suggested_parent ?? -1))
-        : undefined;
-      const parentLabel = isRoot
-        ? "Top level (root)"
-        : (() => {
-          const src = presetRowParent !== undefined
-            ? byIdx.get(presetRowParent)?.source_row_number
-            : undefined;
-          return src !== undefined ? `row ${src}` : `#${presetRowParent}`;
-        })();
-      setRestructureModal({
-        row,
-        // Fold an accepted classification change into the SAME restructure call; else a
-        // no-op reclassify (current effective class) -- exactly the #162 door's pattern.
-        newClassification: clsIsChange
-          ? (row.ai_suggested_classification as string)
-          : (row.effective_classification as string),
-        // Parent move only when a parent change is being accepted; omitted otherwise
-        // (-> modal keeps the row's own parent, child-disposition only).
-        ...(presetRowParent !== undefined
-          ? {
-            presetRowParent,
-            presetParentMessage: `Parent set to ${parentLabel} per AI suggestion — choose what happens to this row's children below.`,
-          }
-          : {}),
-        markAiAccepted: true,
-      });
-      return;
-    }
+  // S4a: tick ("Looks OK") or un-tick ("Undo") ONE flagged row. The pill, the counter and the
+  // Finalize button all resettle from the re-fetch -- never from local optimism, because the
+  // count they show is the one the server's finalize block refuses on.
+  const setRowLooksOk = async (row: ReviewRow, looksOk: boolean) => {
+    setCheckError(null);
+    setRevertNotice(null);
+    setCheckBusyRow(row.row_index);
     try {
-      const res = await acceptAiCall({
-        boq_name: boqName,
-        sheet_name: sheetName, // VERBATIM untrimmed -- #152
-        row_index: row.row_index,
-        accept_classification: aiAcceptCls,
-        accept_parent: aiAcceptParent,
-      });
-      onSaved?.(res.message.edited_at ?? "");
-    } catch (e: unknown) {
-      setAiActionError(getFrappeError(e) || "Could not apply the AI suggestion.");
-    }
-  };
-
-  // Reject: status-only (not a data edit) -> mutate-only refresh via onRemarkSaved
-  // (no edited_at to thread; the row stays "Original", the badge + tint clear).
-  const handleRejectAi = async (row: ReviewRow) => {
-    setAiActionError(null);
-    try {
-      await rejectAiCall({
+      await (looksOk ? looksOkCall : undoLooksOkCall)({
         boq_name: boqName,
         sheet_name: sheetName, // VERBATIM untrimmed -- #152
         row_index: row.row_index,
       });
       onRemarkSaved?.();
     } catch (e: unknown) {
-      setAiActionError(getFrappeError(e) || "Could not reject the AI suggestion.");
+      setCheckError({
+        rowIndex: row.row_index,
+        message: getFrappeError(e) || "Could not update. Please try again.",
+      });
+    } finally {
+      setCheckBusyRow(null);
     }
   };
 
-  // R3a (ADR-0006): the UNIFIED "Revert to parser" handler. Restores the row + any children a
-  // restructure moved to the parser baseline -- regardless of whether the standing change was an
-  // AI acceptance (either provider) or a manual edit. mutate-only refresh (no edited_at; the
-  // re-fetch re-renders the row clean so the Revert button disappears and AI Apply re-enables).
+  // R3a (ADR-0006): the UNIFIED "Revert to parser" handler. mutate-only refresh (no edited_at; the
+  // re-fetch re-renders the row clean so the Revert button disappears). U15: when the revert
+  // involved children, say which came back and which did not, by Excel row.
   const handleRevertToParser = async (row: ReviewRow) => {
-    onEditIntent?.(); // B1: revert-to-parser rewrites the row -> acquire the draft lock
-    setAiActionError(null);
+    setRevertError(null);
+    setRevertNotice(null);
     try {
-      await revertToParserCall({
+      // B1 + S4b (R33): the revert rewrites the row, so the page takes the draft lock -- and the
+      // revert waits for that call to answer. Fired together, as they used to be, the two requests
+      // wrote the one lock row at once and the database refused the revert ("There was an error."
+      // on the first click after a page load).
+      const res = await afterEditIntent(onEditIntent, () => revertToParserCall({
         boq_name: boqName,
         sheet_name: sheetName, // VERBATIM untrimmed -- #152
         row_index: row.row_index,
+      }));
+      const excelRow = (idx: number) => byIdx.get(idx)?.source_row_number ?? `#${idx}`;
+      const lines = revertMessageLines({
+        rowExcel: row.source_row_number ?? `#${row.row_index}`,
+        returned: (res.message.reverted_children ?? []).map(excelRow),
+        notReturned: (res.message.children_not_returned ?? []).map(excelRow),
       });
+      if (lines) setRevertNotice({ rowIndex: row.row_index, lines });
       onRemarkSaved?.();
     } catch (e: unknown) {
-      setAiActionError(getFrappeError(e) || "Could not revert this row to the parser baseline.");
+      setRevertError(getFrappeError(e) || REVERT_FAILED_MESSAGE);
     }
-  };
-
-  // DUAL-AI (ADR-0003): open the SHARED RestructureModal for a WITH-children Gemini accept.
-  // Mirror of handleApplyAi's setRestructureModal route, with markGeminiAccepted set (so the
-  // modal's Save flips gemini_suggestion_status="Accepted" cancel-safely). GeminiAcceptBlock owns
-  // the accept-axis math + the preset-parent decision and calls this with the resolved args.
-  const onOpenRestructureGemini = (args: {
-    row: ReviewRow;
-    newClassification: string;
-    presetRowParent?: number | null;
-    presetParentMessage?: string;
-  }) => {
-    onEditIntent?.(); // B1: a with-children Gemini accept opens the restructure modal -> acquire
-    setRestructureModal({
-      row: args.row,
-      newClassification: args.newClassification,
-      ...(args.presetRowParent !== undefined
-        ? { presetRowParent: args.presetRowParent, presetParentMessage: args.presetParentMessage }
-        : {}),
-      markGeminiAccepted: true,
-    });
   };
 
   const { depths, hasChildrenSet, byIdx, childrenByParent } = useMemo(() => {
@@ -981,7 +818,15 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // Returns null to SUPPRESS the entry entirely -- the #162 "Change parent" door
   // writes a no-op same-value human_classification entry alongside the real
   // human_parent move; rendering it would duplicate the move, so it is dropped.
-  const describeEditEntry = (entry: EditLogEntry): DescribedEditEntry | null => {
+  const describeEditEntry = (entry: EditLogEntry, row: ReviewRow): DescribedEditEntry | null => {
+    // S6 (F7 / Q-h): a revert entry stores what it cleared (to: null); name the parsed type /
+    // parent the row went back to (the row's own `classification` / `parent_index`).
+    const reverted = describeRevertEntry(entry, {
+      parsedClassification: row.classification,
+      parentLabel: editParentLabel,
+      parsedParent: row.parent_index,
+    });
+    if (reverted) return reverted;
     if (entry.field === "human_classification") {
       if (entry.from !== entry.to) {
         const f = CLS_LABELS[String(entry.from ?? "")] ?? String(entry.from ?? "—");
@@ -1005,9 +850,12 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       showField: true,
     };
   };
+  // S6 (F13 / U11): a stored reason's "row N" is the internal index; shown as the Excel row.
+  const reasonText = (reason: string): string =>
+    reasonWithExcelRows(reason, (idx) => byIdx.get(idx)?.source_row_number);
 
   // Descriptor processing: dedupe fixed-anchor roles, extract anchor letters, area map.
-  const { displayDescriptors, appendDescriptors, slNoLetter, descriptionLetter, descriptionDescriptors, areaColorMap, editableDescriptors, editableTextDescriptors, editableAreaDescriptors, hasPerAreaQty, areaQtyDescriptors, qtyTotalDescriptor } = useMemo(() => {
+  const { displayDescriptors, appendDescriptors, slNoLetter, descriptionLetter, descriptionDescriptors, areaColorMap, hasPerAreaQty, areaQtyDescriptors, qtyTotalDescriptor } = useMemo(() => {
     // A2: for template origin, additionally hide the pricing columns (Rate*/Amount*) -- they are
     // populated later in the pricing editor, not at template review. This predicate matches ONLY
     // rate*/amount* roles; it must NEVER match qty_total/qty/unit/make_model (qty_total must stay a
@@ -1031,22 +879,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     const areas = [
       ...new Set(displayDescriptors.filter(d => d.area !== null).map(d => d.area as string)),
     ];
-    // C-v2: descriptors whose value is a flat editable numeric field. A sheet
-    // whose value columns are ALL per-area surfaces zero editable inputs -- expected.
-    const editableDescriptors = displayDescriptors.filter(
-      d => d.value_key === null && EDITABLE_VALUE_FIELDS.has(d.value_field),
-    );
-    // C-v2b: descriptors whose value is a flat editable text field (unit / make_model).
-    // Gated identically to editableDescriptors so a text input shows only when the
-    // sheet actually maps that column. Empty list -> no text inputs rendered.
-    const editableTextDescriptors = displayDescriptors.filter(
-      d => d.value_key === null && EDITABLE_TEXT_FIELDS.has(d.value_field),
-    );
-    // C-v2d: per-area editable descriptors (one per area cell the sheet maps).
-    // value_key !== null distinguishes a per-area surface from a flat column.
-    const editableAreaDescriptors = displayDescriptors.filter(
-      d => d.value_key !== null && EDITABLE_AREA_FIELDS.has(d.value_field),
-    );
     // A2-D1 (decision D5): the ordered per-area qty descriptors + the flat qty_total descriptor,
     // delegated together to <AreaQtyCells> in the multi-area template body. filter() preserves
     // displayDescriptors order (Excel-letter sort), and the backend inserts the area cols
@@ -1064,9 +896,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       descriptionLetter,
       descriptionDescriptors,
       areaColorMap: buildAreaColorMap(areas),
-      editableDescriptors,
-      editableTextDescriptors,
-      editableAreaDescriptors,
       // A2 multi-area: true when this sheet has per-area qty columns. Drives the three-way cell
       // logic below (single-area edits qty_total; multi-area edits per-area cells + renders the
       // Total as a read-only sum). A pure function of the descriptors -> ref-stable per sheet.
@@ -1176,10 +1005,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   //   unchecking a type hides it (effective_classification membership). Empty set => show none.
   // searchQuery/searchCurrentIdx: description substring search + the cycling hit pointer.
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  // AI-3a: AI Rec column filter (default "all" = no narrowing).
-  const [aiFilter, setAiFilter] = useState<AiFilter>("all");
-  // DUAL-AI (ADR-0003): Gemini column filter -- mirror of aiFilter (default "all" = no narrowing).
-  const [geminiFilter, setGeminiFilter] = useState<GeminiFilter>("all");
   const [classFilter, setClassFilter] = useState<Set<string>>(() => new Set(CLASS_FILTER_VALUES));
   const [searchQuery, setSearchQuery] = useState("");
   const [searchCurrentIdx, setSearchCurrentIdx] = useState(0);
@@ -1232,68 +1057,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   const toggleDetailRow = (idx: number) => {
     setExpandedDetailRow(prev => prev === idx ? null : idx);
     setExpandedFlagRow(null);
-  };
-
-  // C-v2: open the per-edit confirm dialog for one editable value field.
-  const openValueConfirm = (row: ReviewRow, d: ColumnDescriptor, fromStr: string, toStr: string) => {
-    setPendingEdit({
-      rowIndex: row.row_index,
-      field: d.value_field,
-      col: d.col,
-      role: ROLE_LABELS[d.role] ?? d.role,
-      excelRow: row.source_row_number,
-      from: fromStr,
-      to: toStr,
-    });
-    setPendingReason("");
-    setSaveError(null);
-  };
-
-  // C-v2d: open the same confirm dialog for a per-area cell. Carries area
-  // (+ rate_subkey for rate_by_area) so confirmValueSave can target the cell.
-  const openAreaConfirm = (row: ReviewRow, d: ColumnDescriptor, fromStr: string, toStr: string) => {
-    setPendingEdit({
-      rowIndex: row.row_index,
-      field: d.value_field,
-      col: d.col,
-      role: ROLE_LABELS[d.role] ?? d.role,
-      excelRow: row.source_row_number,
-      from: fromStr,
-      to: toStr,
-      area: d.area ?? undefined,
-      rateSubkey: d.rate_subkey ?? undefined,
-    });
-    setPendingReason("");
-    setSaveError(null);
-  };
-
-  // C-v2: fire the save_review_edit POST. The dialog auto-closes on confirm
-  // (AlertDialogAction). Success advances the anchor + refreshes via onSaved;
-  // failure (the endpoint REJECTS) surfaces inline in the still-open detail panel.
-  const confirmValueSave = async () => {
-    if (!pendingEdit) return;
-    onEditIntent?.(); // B1: a value edit writes -> acquire the draft lock before the save
-    const { rowIndex, field, to, area, rateSubkey } = pendingEdit;
-    setSaveError(null);
-    try {
-      const res = await saveCall({
-        boq_name: boqName,
-        sheet_name: sheetName, // VERBATIM untrimmed -- #152 trailing-space guard
-        row_index: rowIndex,
-        field,
-        value: to,
-        reason: pendingReason, // blank/whitespace normalized to None by the backend
-        // C-v2d: present only for per-area edits; undefined keys are omitted by the SDK
-        // so the flat path is unchanged.
-        area,
-        rate_subkey: rateSubkey,
-      });
-      setPendingEdit(null);
-      onSaved?.(res.message.edited_at);
-    } catch (e: unknown) {
-      setPendingEdit(null);
-      setSaveError(getFrappeError(e) || "Save failed. Please try again.");
-    }
   };
 
   // A2 (template origin): inline Total-Quantity edit -- SILENT save (no confirm dialog), mirrors
@@ -1354,27 +1117,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
         area: d.value_key, // descriptor value_key == the area name
         value: raw,
         reason: "",
-      });
-      onSaved?.(res.message.edited_at);
-    } catch (e: unknown) {
-      setSaveError(getFrappeError(e) || "Save failed. Please try again.");
-    }
-  };
-
-  // C-v2b: save a text field (unit / make_model) DIRECTLY -- no confirm dialog
-  // (silent save), value is a string (backend stores verbatim, no float coercion).
-  // On success advances the anchor + refreshes via onSaved (row flips to "Edited"
-  // exactly like a numeric edit); failure surfaces inline in the still-open panel.
-  const saveTextField = async (rowIndex: number, field: string, value: string) => {
-    onEditIntent?.(); // B1: a text edit writes -> acquire the draft lock before the save
-    setSaveError(null);
-    try {
-      const res = await saveCall({
-        boq_name: boqName,
-        sheet_name: sheetName, // VERBATIM untrimmed -- #152 trailing-space guard
-        row_index: rowIndex,
-        field,
-        value,
       });
       onSaved?.(res.message.edited_at);
     } catch (e: unknown) {
@@ -1552,70 +1294,20 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     setVisibleCols(new Set([...displayDescriptors.map(d => d.col), ...extraDescColLetters]));
   }, [displayDescriptors, extraDescColLetters]);
 
-  // C-v2: seed editable-value inputs when the detail panel opens or row data
-  // changes (e.g. after a save -> mutate() refreshes rows; the inputs re-seed to
-  // the freshly stored values so the just-edited field reads non-dirty).
+  // Seed the row detail's remark box when the panel opens or the row data changes, and clear the
+  // panel's inline messages.
   useEffect(() => {
-    if (expandedDetailRow === null) {
-      setEditInputs({});
-      setTextInputs({});
-      setAreaInputs({});
-      setRemarkInput("");
-      setSaveError(null);
-      setRemarkError(null);
-      setAiAcceptCls(false);
-      setAiAcceptParent(false);
-      setAiActionError(null);
-      return;
-    }
-    const r = byIdx.get(expandedDetailRow);
-    if (!r) {
-      setEditInputs({});
-      setTextInputs({});
-      setAreaInputs({});
-      setRemarkInput("");
-      return;
-    }
-    const seed: Record<string, string> = {};
-    for (const d of editableDescriptors) {
-      const v = (r as unknown as Record<string, unknown>)[d.value_field];
-      seed[d.value_field] = v === null || v === undefined ? "" : String(v);
-    }
-    setEditInputs(seed);
-    // C-v2b: seed text inputs from the row's stored unit / make_model.
-    const textSeed: Record<string, string> = {};
-    for (const d of editableTextDescriptors) {
-      const v = (r as unknown as Record<string, unknown>)[d.value_field];
-      textSeed[d.value_field] = v === null || v === undefined ? "" : String(v);
-    }
-    setTextInputs(textSeed);
-    // C-v2d: seed per-area inputs (keyed by col -- value_field repeats per area).
-    const areaSeed: Record<string, string> = {};
-    for (const d of editableAreaDescriptors) {
-      const v = resolveDescriptorValue(r, d);
-      areaSeed[d.col] = v === null || v === undefined ? "" : String(v);
-    }
-    setAreaInputs(areaSeed);
-    // C-v2c: seed the remark Textarea from the row's stored remark (read+edit in panel).
-    setRemarkInput(r.remarks ?? "");
+    const r = expandedDetailRow === null ? undefined : byIdx.get(expandedDetailRow);
+    // C-v2c: the remark Textarea reads the row's stored remark (read + edit in the panel).
+    setRemarkInput(r?.remarks ?? "");
+    if (expandedDetailRow !== null && !r) return;
     setSaveError(null);
     setRemarkError(null);
-    // AI-3b-1: seed the accept checkboxes -- default checked when the AI suggests a REAL
-    // change (different from the current effective value). A parent change on a row WITH
-    // children is the AI-3b-2 path -> not auto-checked here (the checkbox is disabled).
-    const ai = aiSuggestionInfo(r);
-    const clsIsChange = ai.hasClass && r.ai_suggested_classification !== r.effective_classification;
-    const parentIsChange = ai.hasParent && (
-      r.ai_suggested_is_root === 1
-        ? r.effective_parent_index !== null
-        : r.ai_suggested_parent !== r.effective_parent_index
-    );
-    setAiAcceptCls(clsIsChange);
-    // AI-3b-2: default-check a real parent change even on a with-children row (Apply then
-    // routes through the children-only modal). The seed comment below still notes the route.
-    setAiAcceptParent(parentIsChange);
-    setAiActionError(null);
-  }, [expandedDetailRow, byIdx, hasChildrenSet, editableDescriptors, editableTextDescriptors, editableAreaDescriptors]);
+    setRevertError(null);
+    setCheckError(null);
+    // U15: the revert message belongs to the row it was about -- drop it when the panel moves.
+    setRevertNotice((prev) => (prev && prev.rowIndex === expandedDetailRow ? prev : null));
+  }, [expandedDetailRow, byIdx, hasChildrenSet]);
 
   // FIX 1: expand any collapsed ancestors of targetRowIdx, then scroll + highlight.
   // Uses setTimeout(50ms) to wait for React to commit the expand re-render.
@@ -1690,9 +1382,10 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   const allClassesShown = classFilter.size === CLASS_FILTER_VALUES.length;
   const statusFilterActive = statusFilter !== "all";
   const classFilterActive = !allClassesShown;
-  const aiFilterActive = aiFilter !== "all";
-  // DUAL-AI (ADR-0003): the Gemini filter-active styling is derived inside GeminiHeaderCell
-  // (from its geminiFilter prop), so no ReviewTree-level "active" flag is needed here.
+  const checkFilterActive = checkFilter !== "all";
+  // S4a: the counter strip above the grid -- null on a sheet with no flagged row, and (S4b, U12)
+  // while the automatic check is still running.
+  const checkCounterModel = checkCounter(checkSummary, checkRunning);
   const passesFilter = (row: ReviewRow): boolean => {
     // S5b (#1103, Amendment B): revision review filter -- one early-return, narrows to the rows
     // that did NOT copy and that the human has not handled. Tests MEMBERSHIP of the summary's
@@ -1710,15 +1403,13 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     // empty tree with no visible way to turn it off.
     if (qtyGapFilterOnly && qtyGapEntries.length > 0
         && !qtyGapRowIndexes.has(row.row_index)) return false;
-    // Status predicate. AI-3a: "ai_accepted" keys on ai_suggestion_status; edited/original
+    // Status predicate. edited/original
     // use the isEdited expression (mirrors the inline at the render row; a remark-only row
     // is Original since save_review_remark never stamps edited_at/edit_log).
     // S5: the three revision states read the row's OWN stamp via the pure predicates rather than
     // `revisionDelta`'s membership set -- so this stays a function of `row` alone and needs no
     // extra memo dependency to stay fresh.
-    if (statusFilter === "ai_accepted") {
-      if (row.ai_suggestion_status !== "Accepted") return false;
-    } else if (statusFilter === "copied") {
+    if (statusFilter === "copied") {
       if (!isRowCopied(row)) return false;
     } else if (statusFilter === "needs_review") {
       if (!isUnaffirmed(row)) return false;
@@ -1733,29 +1424,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       const cls = row.effective_classification;
       if (cls === null || !classFilter.has(cls)) return false;
     }
-    // AI-3a: AI Rec predicate. "any" = a pending suggestion exists; high/medium/low = a
-    // pending suggestion at that confidence in either axis. "all" = no narrowing.
-    if (aiFilter !== "all") {
-      const info = aiSuggestionInfo(row);
-      if (aiFilter === "any") {
-        if (!(info.hasClass || info.hasParent)) return false;
-      } else {
-        const level = aiFilter === "high" ? "High" : aiFilter === "medium" ? "Medium" : "Low";
-        if (!aiHasConfidence(info, level)) return false;
-      }
-    }
-    // DUAL-AI (ADR-0003): Gemini predicate -- mirror of the AI predicate, gated on geminiEnabled
-    // (the filter cannot narrow when the column is not mounted). "any" = a pending Gemini
-    // suggestion exists; high/medium/low = a pending suggestion at that confidence in either axis.
-    if (geminiEnabled && geminiFilter !== "all") {
-      const info = geminiSuggestionInfo(row);
-      if (geminiFilter === "any") {
-        if (!(info.hasClass || info.hasParent)) return false;
-      } else {
-        const level = geminiFilter === "high" ? "High" : geminiFilter === "medium" ? "Medium" : "Low";
-        if (!geminiHasConfidence(info, level)) return false;
-      }
-    }
+    // S4a: Check predicate -- membership is decided by the server's flags alone
+    // (matchesCheckFilter reads row.check_flags; no rule is re-derived here).
+    if (!matchesCheckFilter(row.check_flags, checkFilter)) return false;
     return true;
   };
 
@@ -1853,11 +1524,13 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     // S5b (#1103): deltaFilterOnly is a passesFilter input -> it MUST be a searchHits dep, or a
     // hit could survive from a now-filtered-out row (the compose interlock). Same for the A2
     // qty-gap filter and its row set (which changes as quantities are entered).
-  }, [rows, searchQuery, statusFilter, classFilter, aiFilter, geminiFilter, geminiEnabled, showSpacers, showNotes, showSubtotals, deltaFilterOnly, qtyGapFilterOnly, qtyGapRowIndexes]);
+  }, [rows, searchQuery, statusFilter, classFilter, checkFilter, showSpacers, showNotes, showSubtotals, deltaFilterOnly, qtyGapFilterOnly, qtyGapRowIndexes]);
 
   const searchHitSet = useMemo(() => new Set(searchHits), [searchHits]);
+  // S6 (F8): has the current match been scrolled to since the matches last changed?
+  const searchShownRef = useRef(false);
   // Reset the hit pointer whenever the hit set changes (mirror SheetSearchView :288-290).
-  useEffect(() => { setSearchCurrentIdx(0); }, [searchHits]);
+  useEffect(() => { setSearchCurrentIdx(0); searchShownRef.current = false; }, [searchHits]);
   const safeSearchIdx = searchHits.length > 0 ? Math.min(searchCurrentIdx, searchHits.length - 1) : 0;
   const currentHitRowIdx = searchHits.length > 0 ? searchHits[safeSearchIdx] : null;
 
@@ -1868,12 +1541,28 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     const ni = (safeSearchIdx - 1 + searchHits.length) % searchHits.length;
     setSearchCurrentIdx(ni);
     revealAndScrollToRow(searchHits[ni]);
+    searchShownRef.current = true;
   };
   const stepSearchNext = () => {
     if (searchHits.length === 0) return;
     const ni = (safeSearchIdx + 1) % searchHits.length;
     setSearchCurrentIdx(ni);
     revealAndScrollToRow(searchHits[ni]);
+    searchShownRef.current = true;
+  };
+  // S6 (F8 / U7): Enter scrolls to the current match (then steps on); Shift+Enter steps back --
+  // the same moves as the arrow buttons.
+  const onSearchKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "Enter") return;
+    const action = searchEnterAction(searchHits.length, searchShownRef.current, e.shiftKey);
+    if (!action) return;
+    e.preventDefault();
+    if (action === "prev") stepSearchPrev();
+    else if (action === "next") stepSearchNext();
+    else {
+      revealAndScrollToRow(searchHits[safeSearchIdx]);
+      searchShownRef.current = true;
+    }
   };
 
   if (rows.length === 0) {
@@ -2249,6 +1938,12 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
         </div>
       )}
 
+      {/* S4a (U9): the review-flag counter -- rows left to check, or the green "all checked"
+          state. Nothing on a sheet with no flagged row. Every number is the server's. */}
+      {!templateOrigin && checkCounterModel && (
+        <CheckCounterStrip counter={checkCounterModel} onFilter={setCheckFilter} />
+      )}
+
       <div className="rounded-md border border-border overflow-hidden">
         {/* B1.1b-ii: controls bar -- column-subset selector + classification toggles */}
         <div className="flex items-center gap-4 px-3 py-2 border-b border-border bg-muted/20 flex-wrap">
@@ -2360,6 +2055,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={onSearchKeyDown}
                 placeholder="Search description…"
                 className="h-8 w-56 pl-7 pr-7 text-xs"
                 aria-label="Search descriptions"
@@ -2438,8 +2134,8 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                 <th className="px-2 py-2 text-left font-medium text-muted-foreground w-10 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
                   Excel Row
                 </th>
-                {/* A2: Status + AI Rec provenance columns are HIDDEN for template origin (a clone has
-                  no AI layer). Wrapped together in one fragment; renders UNCHANGED when
+                {/* A2: Status + Check columns are HIDDEN for template origin (a clone is never
+                  checked, so it has no flags). Wrapped together in one fragment; renders UNCHANGED when
                   !templateOrigin (upload). MUST gate on the identical expression as the matching
                   body cells + the totalCols base-8 decrement, or the grid misaligns. */}
                 {!templateOrigin && (<>
@@ -2494,11 +2190,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                       </Popover>
                     </div>
                   </th>
-                  {/* AI Rec (AI-3a): confidence badges for a pending AI suggestion. Filter
-                  Popover mirrors the Status/Classification filter pattern. */}
-                  <th className="px-2 py-2 text-left font-medium text-muted-foreground w-20 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
+                  {/* Check (S4a): the review-flag pill of each row. Filter Popover mirrors the
+                  Status/Classification filter pattern; its options come from reviewCheckFlags. */}
+                  <th className="px-2 py-2 text-left font-medium text-muted-foreground w-28 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
                     <div className="flex items-center gap-1">
-                      <span>AI Rec</span>
+                      <span>Check</span>
                       <Popover>
                         <PopoverTrigger asChild>
                           <button
@@ -2506,32 +2202,32 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                             onClick={(e) => e.stopPropagation()}
                             className={cn(
                               "inline-flex items-center justify-center h-4 w-4 rounded transition-colors",
-                              aiFilterActive
+                              checkFilterActive
                                 ? "text-blue-600 dark:text-blue-400"
                                 : "text-muted-foreground/60 hover:text-foreground",
                             )}
-                            aria-label="Filter by AI suggestion"
-                            title="Filter by AI suggestion"
+                            aria-label="Filter by check"
+                            title="Filter by check"
                           >
                             <Filter className="h-3 w-3" />
                           </button>
                         </PopoverTrigger>
                         <PopoverContent align="start" className="w-auto min-w-[160px] p-2">
-                          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">AI suggestion</p>
+                          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Check</p>
                           <div className="space-y-0.5">
-                            {(["all", "any", "high", "medium", "low"] as const).map(opt => (
+                            {CHECK_FILTERS.map(opt => (
                               <button
                                 key={opt}
                                 type="button"
-                                onClick={() => setAiFilter(opt)}
+                                onClick={() => setCheckFilter(opt)}
                                 className={cn(
                                   "flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs transition-colors",
-                                  aiFilter === opt
+                                  checkFilter === opt
                                     ? "bg-muted font-medium text-foreground"
                                     : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
                                 )}
                               >
-                                {AI_FILTER_LABELS[opt]}
+                                {CHECK_FILTER_LABELS[opt]}
                               </button>
                             ))}
                           </div>
@@ -2540,13 +2236,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                     </div>
                   </th>
                 </>)}
-                {/* Gemini (DUAL-AI, ADR-0003): SECOND provider column -- mounted directly after the
-                  Claude "AI Rec" header. Visual clone of the AI Rec <th>; only when geminiEnabled.
-                  A2: geminiEnabled is passed as (geminiEnabled && !isTemplateOrigin), so this is
-                  never mounted for template origin. */}
-                {geminiEnabled && (
-                  <GeminiHeaderCell geminiFilter={geminiFilter} setGeminiFilter={setGeminiFilter} />
-                )}
                 {/* Sl.No: letter from the sl_no descriptor col, if mapped */}
                 <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
                   {slNoLetter ? `Sl.No (${slNoLetter})` : "Sl.No"}
@@ -2606,7 +2295,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                   provenance badges. Present ONLY on a revision sheet with carry content, and MUST
                   gate on the identical expression as the matching body cell + the totalCols term,
                   or every colSpan drifts by one.
-                  NOTE it sits OUTSIDE the !templateOrigin fragment that wraps Status / AI Rec --
+                  NOTE it sits OUTSIDE the !templateOrigin fragment that wraps Status / Check --
                   it has to, being after Classification -- which is safe because a template-origin
                   BoQ is never a revision, so showAffirmColumn is false there anyway. */}
                 {showAffirmColumn && (
@@ -2704,18 +2393,18 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                 // review. Accepted -- remarks are not a template-review concern (owner call).
                 const remarkMarkerShown = hasRemark && !templateOrigin;
                 // B2c: colSpan for flag-reasons + detail panel rows -- 8 fixed anchors
-                // (expander, Excel Row, Status, AI Rec [AI-3a], Sl.No, Parent, Classification,
+                // (expander, Excel Row, Status, Check [S4a], Sl.No, Parent, Classification,
                 // Description). append-to-notes-as-columns: +1 when "Append Notes" is shown.
-                // DUAL-AI (ADR-0003): +1 when the Gemini column is mounted (geminiEnabled) -- the
-                // 9th fixed anchor sits between AI Rec and Sl.No. Drives EVERY colSpan below (the
-                // flag-reasons row + the inline detail-panel row both span totalCols).
+                // Drives EVERY colSpan below (the flag-reasons row + the inline detail-panel row
+                // both span totalCols). S4a: the Check column took the AI Rec column's place, so
+                // the base stays 8.
                 // MC-4: pickerColumns = ordinary descriptor cols + extra (non-first)
                 // description fan-out cols. Base 8 still counts the FIRST/legacy Description
                 // anchor; the extra visible description cols ride pickerColumns. In legacy
                 // mode pickerColumns === displayDescriptors, so this is identical to before.
                 const visibleDescriptorCount = pickerColumns.filter(c => visibleCols.has(c.col)).length;
                 // T10/T11: +1 for the template-controls column when it is mounted (else unchanged).
-                // A2: template origin hides THREE fixed anchors -- Status, AI Rec, and (row-detail
+                // A2: template origin hides THREE fixed anchors -- Status, Check, and (row-detail
                 // suppressed) the Expander -> the base 8 drops by 3. Folded into ONE term because all
                 // three vanish together on the same condition; split it into separate terms only if a
                 // future change un-hides one of them independently.
@@ -2723,27 +2412,21 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                 // S5: `showAffirmColumn` adds the "Looks OK" column. It MUST appear in exactly
                 // three places -- this term, the <th>, and the body <td> -- all gated on the same
                 // expression, or every colSpan below drifts by one.
-                const totalCols = (8 - (templateOrigin ? 3 : 0)) + (templateControls ? 1 : 0) + (geminiEnabled ? 1 : 0) + (showAffirmColumn ? 1 : 0) + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
+                const totalCols = (8 - (templateOrigin ? 3 : 0)) + (templateControls ? 1 : 0) + (showAffirmColumn ? 1 : 0) + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
                 // B2c: edit-provenance rule -- edited_at set OR edit_log non-empty.
                 const isEdited = isReviewRowEdited(row);
                 // S4: stamped `Needs Review` and not yet confirmed -- the state that BLOCKS
                 // finalize. Membership, not a re-derived predicate: `revisionDelta` is the gate
                 // that knows whether this is even a revision sheet.
                 const needsRevisionReview = revisionDelta.needsActionRowIndexes.has(row.row_index);
-                // AI-3a: pending-suggestion shape for the AI Rec cell + the row tint.
-                const aiInfo = aiSuggestionInfo(row);
-                const hasPendingAi = aiInfo.hasClass || aiInfo.hasParent;
-                // R1 (ADR-0006 sec 5): Gemini DIFFS-ONLY pending shape -- drives a VIOLET tint that
-                // mirrors the Claude indigo one. geminiSuggestionInfo is now diffs-only (vs parser),
-                // so this is true only when Gemini genuinely diverges. Gated on geminiEnabled so the
-                // tint never appears when the Gemini column is not mounted.
-                const geminiInfo = geminiEnabled ? geminiSuggestionInfo(row) : null;
-                const hasPendingGemini = !!geminiInfo && (geminiInfo.hasClass || geminiInfo.hasParent);
-                // Both-providers-disagree precedence: Claude keeps the full-row indigo tint; Gemini
-                // then shows only as a VIOLET LEFT-EDGE ACCENT (a left border), so both signals stay
-                // visible. Gemini gets the full-row violet tint only when Claude is NOT also pending.
-                const geminiFullTint = hasPendingGemini && !hasPendingAi;
-                const geminiEdgeAccent = hasPendingGemini && hasPendingAi;
+                // S4a: the row's review flags, as the server worked them out -- the pill, the
+                // tint and the detail block all read these and nothing else.
+                const checkFlags = row.check_flags ?? null;
+                // S4b (U10): the type to mark "Suggested" in this row's Change list -- null unless
+                // the server says its "Check type" flag is open.
+                const suggestedType = suggestionFor(row).type;
+                const checkOpen = isCheckOpen(checkFlags);
+                const rowCheckPill = checkPill(checkFlags);
 
                 // B2b: parent label resolution for detail panel (Excel row numbers where resolvable).
                 const origParentLabel = (() => {
@@ -2783,20 +2466,14 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                       className={cn(
                         "border-b border-border hover:bg-muted/30 transition-colors",
                         isPreamble && "bg-muted/20",
-                        // AI-3a: subtle indigo tint for a row carrying a PENDING AI suggestion.
-                        // Placed BEFORE the edited-green tint so an edited row stays green
-                        // (twMerge keeps the last conflicting bg-*), and BEFORE the amber flash
-                        // so the scroll-highlight still wins on flash (existing tint ordering).
-                        hasPendingAi && "bg-indigo-50/50 dark:bg-indigo-950/20",
-                        // R1: full-row VIOLET tint when ONLY Gemini diverges (Claude not pending).
-                        // Same ordering slot as the indigo tint (before green so an edited row stays
-                        // green). When BOTH disagree, Claude's indigo above wins the full-row tint and
-                        // Gemini falls back to the left-edge accent below.
-                        geminiFullTint && "bg-violet-50/50 dark:bg-violet-950/20",
-                        // R1 both-disagree: VIOLET left-edge accent so the Gemini signal stays visible
-                        // alongside Claude's full-row indigo. A left border (not a bg-*) so it composes
-                        // with the indigo tint instead of overwriting it.
-                        geminiEdgeAccent && "border-l-2 border-l-violet-400 dark:border-l-violet-500",
+                        // S4a (U8): a light orange wash + an orange left edge while a review flag
+                        // is open; both go once the row is checked. The wash sits BEFORE the
+                        // edited-green tint so an edited row stays green (twMerge keeps the last
+                        // conflicting bg-*), and BEFORE the amber flash so the scroll-highlight
+                        // still wins. The edge is withheld on an unconfirmed revision row, whose
+                        // red edge below keeps the left border (owner ruling Q-k).
+                        checkOpen && CHECK_OPEN_ROW_TINT,
+                        checkOpen && !needsRevisionReview && CHECK_OPEN_ROW_EDGE,
                         isEdited && "bg-green-50 dark:bg-green-950/30",
                         // S4: a revision row nobody has confirmed yet. A red LEFT BORDER + a light
                         // wash rather than a fill, so it composes with the tints above instead of
@@ -2902,28 +2579,14 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                         {row.source_row_number}
                       </td>
 
-                      {/* A2: Status + AI Rec cells HIDDEN for template origin -- gate on the IDENTICAL
+                      {/* A2: Status + Check cells HIDDEN for template origin -- gate on the IDENTICAL
                         !templateOrigin expression as the matching headers, or the grid misaligns. */}
                       {!templateOrigin && (<>
                         {/* Status (B2c): edit-provenance badge -- not frozen-left.
-                        AI-3a: an accepted suggestion (indigo/violet) takes precedence over Edited
-                        -- an accepted suggestion writes to human_* and would otherwise read
-                        "Edited", erasing the provenance.
-                        DUAL-AI (ADR-0003): the badge is SOURCE-TAGGED. "Accepted · Claude" when the
-                        Claude suggestion is Accepted (indigo, unchanged hue); "Accepted · Gemini"
-                        when the Gemini suggestion is Accepted (violet). Only one can be Accepted at
-                        a time (the backend enforces exactly-one-Source). Claude is checked FIRST so
-                        its existing badge path is byte-identical to before for the Claude case. */}
+                        S4a: a row accepted from a suggestion pill before S4a reads "Edited" like
+                        any other changed row -- the accept wrote the human layer and its history. */}
                         <td className="px-2 py-1.5 align-top w-20 border-r border-border">
-                          {row.ai_suggestion_status === "Accepted" ? (
-                            <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200">
-                              Accepted · Claude
-                            </span>
-                          ) : row.gemini_suggestion_status === "Accepted" ? (
-                            <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-violet-100 dark:bg-violet-900 text-violet-800 dark:text-violet-200">
-                              Accepted · Gemini
-                            </span>
-                          ) : isEdited ? (
+                          {isEdited ? (
                             <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
                               Edited
                             </span>
@@ -2954,7 +2617,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                original's effective classification AND parenting (same Excel row, same
                                description, parent matched too). Calm + informational: it says the
                                decision came from the original, not from this parse.
-                               Ranks BELOW every "handled" state (Accepted·Claude/Gemini, Edited)
+                               Ranks BELOW the "handled" state (Edited)
                                because those describe work done in THIS revision, which supersedes the
                                provenance. Every non-copied row falls through to "Original" below --
                                byte-identical to a fresh upload. Inert off a revision (blank status). */
@@ -2971,37 +2634,42 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                           )}
                         </td>
 
-                        {/* AI Rec (AI-3a): confidence badge(s) for a PENDING suggestion --
-                        classification + parent each get one (H/M/L); both -> two side by
-                        side; none / resolved -> blank. */}
-                        <td className="px-2 py-1.5 align-top w-20 border-r border-border">
-                          {(aiInfo.hasClass || aiInfo.hasParent) ? (
-                            <div className="flex items-center gap-1">
-                              {aiInfo.hasClass && (
-                                <AiConfBadge
-                                  conf={aiInfo.classConf}
-                                  title={`AI suggests ${ROW_TYPE_LABEL.toLowerCase()}: ${row.ai_suggested_classification ?? "?"}${aiInfo.classConf ? ` (${aiInfo.classConf})` : ""}`}
-                                />
+                        {/* Check (S4a): the review-flag pill, with "OK" while a flag is open and
+                        "Undo" on a ticked row. Blank on a row that was never flagged. Both buttons
+                        are withheld when readOnly; the pill still shows. stopPropagation keeps the
+                        table's dismiss-onClick from closing an open detail panel. */}
+                        <td className="px-2 py-1.5 align-top w-28 border-r border-border">
+                          {rowCheckPill && (
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <CheckPillBadge pill={rowCheckPill} />
+                              {!readOnly && checkOpen && (
+                                <button
+                                  type="button"
+                                  disabled={checkBusyRow === row.row_index}
+                                  onClick={(e) => { e.stopPropagation(); void setRowLooksOk(row, true); }}
+                                  className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium leading-none text-foreground hover:bg-muted/60 disabled:opacity-50 transition-colors"
+                                  title="Looks OK"
+                                >
+                                  {GRID_OK_LABEL}
+                                </button>
                               )}
-                              {aiInfo.hasParent && (
-                                <AiConfBadge
-                                  conf={aiInfo.parentConf}
-                                  title={
-                                    row.ai_suggested_is_root === 1
-                                      ? `AI suggests making this a top-level root${aiInfo.parentConf ? ` (${aiInfo.parentConf})` : ""}`
-                                      : `AI suggests a new parent${aiInfo.parentConf ? ` (${aiInfo.parentConf})` : ""}`
-                                  }
-                                />
+                              {!readOnly && !checkOpen && checkFlags?.looks_ok && (
+                                <button
+                                  type="button"
+                                  disabled={checkBusyRow === row.row_index}
+                                  onClick={(e) => { e.stopPropagation(); void setRowLooksOk(row, false); }}
+                                  className="text-[10px] leading-none text-muted-foreground underline hover:text-foreground disabled:opacity-50 transition-colors"
+                                >
+                                  {UNDO_LABEL}
+                                </button>
                               )}
                             </div>
-                          ) : null}
+                          )}
+                          {checkError?.rowIndex === row.row_index && expandedDetailRow !== row.row_index && (
+                            <p className="mt-0.5 text-[10px] text-destructive leading-snug">{checkError.message}</p>
+                          )}
                         </td>
                       </>)}
-
-                      {/* Gemini (DUAL-AI, ADR-0003): SECOND provider cell -- mounted directly after
-                        the Claude "AI Rec" cell. Visual clone reading gemini_*; only when enabled.
-                        A2: geminiEnabled is false for template origin, so this never mounts. */}
-                      {geminiEnabled && <GeminiBodyCell row={row} />}
 
                       {/* Sl.No */}
                       <td className="px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border">
@@ -3375,9 +3043,14 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                       </button>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="start">
-                                      {ASSIGNABLE_CLASSIFICATIONS.map(c => (
+                                      {/* S4b (U10, R31): on a row whose "Check type" flag is open the
+                                        suggested type sits first, marked "Suggested". Every other type
+                                        follows in its usual order; nothing is pre-selected, and an
+                                        unflagged row's list is exactly as before. */}
+                                      {orderWithSuggestion<string>(REVIEW_TARGET_CLASSIFICATIONS, suggestedType).map(c => (
                                         <DropdownMenuItem key={c} onClick={() => onPickClass(row, c)}>
                                           {CLS_LABELS[c] ?? c}
+                                          {c === suggestedType && <SuggestedTag />}
                                         </DropdownMenuItem>
                                       ))}
                                     </DropdownMenuContent>
@@ -3427,135 +3100,25 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                               <ParentChain row={row} byIdx={byIdx} onNavigate={navigateToRow} />
                               <ChildrenList row={row} childrenByParent={childrenByParent} onNavigate={navigateToRow} />
                             </div>
-                            {/* AI-3b-1/3b-2: per-field accept/reject of a PENDING AI suggestion.
-                              Shown only when the row carries a pending suggestion + not readOnly.
-                              Classification + parent each get a checkbox + confidence badge +
-                              suggested value; one explanation line; Apply + Reject. AI-3b-2: a
-                              parent accept on a row WITH children is allowed -- Apply opens the
-                              children-only RestructureModal (handleApplyAi) instead of the accept
-                              endpoint; the status flips cancel-safely on the modal's Save. */}
-                            {!readOnly && (() => {
-                              const ai = aiSuggestionInfo(row);
-                              if (!(ai.hasClass || ai.hasParent)) return null;
-                              const clsIsChange = ai.hasClass &&
-                                row.ai_suggested_classification !== row.effective_classification;
-                              const parentIsChange = ai.hasParent && (
-                                row.ai_suggested_is_root === 1
-                                  ? row.effective_parent_index !== null
-                                  : row.ai_suggested_parent !== row.effective_parent_index
-                              );
-                              // AI-3b-2: a parent accept on a with-children row routes through the
-                              // modal (child disposition) rather than applying directly.
-                              const parentOpensModal = parentIsChange && hasChildrenSet.has(row.row_index);
-                              const suggestedParentLabel = row.ai_suggested_is_root === 1
-                                ? "Top level (root)"
-                                : (() => {
-                                  const p = row.ai_suggested_parent;
-                                  if (p === null || p === undefined || p < 0) return "—";
-                                  const src = byIdx.get(p)?.source_row_number;
-                                  return src !== undefined ? `row ${src}` : `#${p}`;
-                                })();
-                              const canApply =
-                                (aiAcceptCls && ai.hasClass && clsIsChange) ||
-                                (aiAcceptParent && ai.hasParent && parentIsChange);
-                              // R3a (ADR-0006): an AI apply must never silently overwrite a standing
-                              // decision (the other provider's accepted suggestion OR a manual edit).
-                              // Disable Apply while the row carries any override; the user must first
-                              // "Revert to parser" (the unified affordance below).
-                              const blockedByOverride = !!row.has_override;
-                              return (
-                                <div className="mb-2 rounded-md border border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20 p-2">
-                                  <p className="text-[10px] font-medium uppercase tracking-wide text-indigo-700 dark:text-indigo-300 mb-1.5 flex items-center gap-1">
-                                    <Sparkles className="h-3 w-3" /> AI suggestion
-                                  </p>
-                                  {ai.hasClass && (
-                                    <label className={cn(
-                                      "flex items-center gap-2 text-xs mb-1",
-                                      clsIsChange ? "cursor-pointer" : "cursor-not-allowed",
-                                    )}>
-                                      <Checkbox
-                                        checked={aiAcceptCls}
-                                        disabled={!clsIsChange}
-                                        onCheckedChange={(c) => setAiAcceptCls(!!c)}
-                                      />
-                                      <AiConfBadge conf={row.ai_classification_confidence ?? null} title={`AI ${ROW_TYPE_LABEL.toLowerCase()} confidence`} />
-                                      <span>
-                                        {ROW_TYPE_LABEL} &rarr;{" "}
-                                        <span className="font-medium">{CLS_LABELS[row.ai_suggested_classification ?? ""] ?? row.ai_suggested_classification}</span>
-                                        {!clsIsChange && <span className="text-muted-foreground italic"> (no change)</span>}
-                                      </span>
-                                    </label>
-                                  )}
-                                  {ai.hasParent && (
-                                    <label
-                                      className={cn(
-                                        "flex items-center gap-2 text-xs mb-1",
-                                        parentIsChange ? "cursor-pointer" : "cursor-not-allowed",
-                                      )}
-                                      title={parentOpensModal
-                                        ? "This row has children — applying opens the restructure step to choose where the children go."
-                                        : undefined}
-                                    >
-                                      <Checkbox
-                                        checked={aiAcceptParent}
-                                        disabled={!parentIsChange}
-                                        onCheckedChange={(c) => setAiAcceptParent(!!c)}
-                                      />
-                                      <AiConfBadge conf={row.ai_parent_confidence ?? null} title="AI parent confidence" />
-                                      <span>
-                                        Parent &rarr; <span className="font-medium">{suggestedParentLabel}</span>
-                                        {!parentIsChange && <span className="text-muted-foreground italic"> (no change)</span>}
-                                        {parentOpensModal && (
-                                          <span className="text-muted-foreground italic"> (opens restructure)</span>
-                                        )}
-                                      </span>
-                                    </label>
-                                  )}
-                                  {row.ai_explanation && (
-                                    <p className="text-[11px] text-muted-foreground mb-1.5 leading-snug">{row.ai_explanation}</p>
-                                  )}
-                                  {aiActionError && <p className="text-xs text-destructive mb-1">{aiActionError}</p>}
-                                  {blockedByOverride && (
-                                    <p className="text-[11px] text-muted-foreground italic mb-1.5 leading-snug">
-                                      Revert this row to parser before applying an AI suggestion.
-                                    </p>
-                                  )}
-                                  <div className="flex items-center gap-2">
-                                    <span title={blockedByOverride
-                                      ? "Revert this row to parser before applying an AI suggestion."
-                                      : undefined}>
-                                      <Button
-                                        size="sm"
-                                        className="h-7 px-2 text-xs"
-                                        disabled={!canApply || blockedByOverride || isAcceptingAi || isRejectingAi}
-                                        onClick={() => { void handleApplyAi(row); }}
-                                      >
-                                        {isAcceptingAi ? "Applying…" : "Apply selected changes"}
-                                      </Button>
-                                    </span>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-7 px-2 text-xs"
-                                      disabled={isAcceptingAi || isRejectingAi}
-                                      onClick={() => { void handleRejectAi(row); }}
-                                    >
-                                      {isRejectingAi ? "Rejecting…" : "Reject"}
-                                    </Button>
-                                  </div>
-                                </div>
-                              );
-                            })()}
-                            {/* R3a (ADR-0006): the UNIFIED "Revert to parser". Shown whenever the
-                              row carries any standing override (has_override) -- an accepted AI
-                              suggestion (either provider) OR a manual edit. It restores the row +
-                              any children a restructure moved to the parser baseline, regardless of
-                              the override kind, after which AI Apply re-enables. Replaces the two
-                              former provider-specific reverts ("Revert AI change" here + "Revert
-                              Gemini change" in GeminiAcceptBlock). Disabled under readOnly (a
-                              finalized sheet freezes the affordance). handleRevertToParser ->
-                              onRemarkSaved (mutate-only re-fetch -> the row re-renders clean, the
-                              accept blocks reappear Pending, this button disappears). */}
+                            {/* S4a (U11, U13, U14): the review flag of this row. While a flag is
+                              open: "Needs checking", one neutral line per reason, how to answer
+                              it, and "Looks OK". On a ticked row: the tick and "Undo". No
+                              suggestion and no AI name -- to the reviewer the parsed result is one
+                              result (R6, R21). The reason stays readable on a read-only sheet. */}
+                            <NeedsCheckingBlock
+                              flags={checkFlags}
+                              readOnly={readOnly}
+                              busy={checkBusyRow === row.row_index}
+                              error={checkError?.rowIndex === row.row_index ? checkError.message : null}
+                              onLooksOk={() => { void setRowLooksOk(row, true); }}
+                              onUndo={() => { void setRowLooksOk(row, false); }}
+                            />
+                            {/* R3a (ADR-0006): the UNIFIED revert, labelled "Revert to original" since S4b. Shown whenever the
+                              row carries any standing override (has_override). It restores the row
+                              + any children a restructure of it moved to the parsed baseline.
+                              Disabled under readOnly (a finalized sheet freezes the affordance).
+                              handleRevertToParser -> onRemarkSaved (mutate-only re-fetch -> the row
+                              re-renders clean and this button disappears). */}
                             {row.has_override && (
                               <div className="mb-2 rounded-md border border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20 p-2">
                                 <div className="flex items-center gap-2 flex-wrap">
@@ -3566,7 +3129,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                     disabled={readOnly || isRevertingToParser}
                                     onClick={() => { void handleRevertToParser(row); }}
                                   >
-                                    {isRevertingToParser ? "Reverting…" : "Revert to parser"}
+                                    {isRevertingToParser ? "Reverting…" : REVERT_LABEL}
                                   </Button>
                                   {readOnly ? (
                                     <span className="text-muted-foreground italic text-xs">
@@ -3574,219 +3137,23 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                     </span>
                                   ) : (
                                     <span className="text-muted-foreground italic text-xs">
-                                      Restores this row (and any moved children) to the parser baseline.
+                                      {REVERT_HINT}
                                     </span>
                                   )}
                                 </div>
-                                {aiActionError && <p className="text-xs text-destructive mt-1">{aiActionError}</p>}
+                                {revertError && <p className="text-xs text-destructive mt-1">{revertError}</p>}
                               </div>
                             )}
-                            {/* DUAL-AI (ADR-0003 sec 8A): the Gemini accept/reject block, mounted
-                              BENEATH the Claude block. Visual clone of the Claude block reading
-                              gemini_* + calling the gemini endpoints. R3a (ADR-0006): the block now
-                              owns ONLY the Pending accept/reject UI (gated on !readOnly) -- the
-                              former "Revert Gemini change" affordance is gone, folded into the ONE
-                              unified "Revert to parser" above (shown on any has_override row). With-
-                              children accepts route to the SHARED RestructureModal via
-                              onOpenRestructureGemini (markGeminiAccepted). Only mounted when
-                              geminiEnabled. */}
-                            {geminiEnabled && !readOnly && (
-                              <GeminiAcceptBlock
-                                row={row}
-                                boqName={boqName}
-                                sheetName={sheetName}
-                                hasChildren={hasChildrenSet.has(row.row_index)}
-                                parentLabel={(idx) => {
-                                  if (idx < 0) return "Top level (root)";
-                                  const src = byIdx.get(idx)?.source_row_number;
-                                  return src !== undefined ? `row ${src}` : `#${idx}`;
-                                }}
-                                readOnly={readOnly}
-                                onOpenRestructure={onOpenRestructureGemini}
-                                onChanged={() => { onRemarkSaved?.(); }}
-                                onAccepted={(editedAt) => { onSaved?.(editedAt); }}
-                              />
-                            )}
-                            {/* "Edit Row" accordion -- collapses the inline edit surfaces (values,
-                              text, per-area) behind one CLOSED-by-default toggle so the detail panel
-                              opens read-first. Only rendered when the sheet is editable AND at least
-                              one editable surface exists; on a read-only/finalized sheet none of the
-                              inner blocks render, so the accordion is suppressed entirely. Remarks is
-                              a SEPARATE section below (excluded by owner request). */}
-                            {!readOnly && (editableDescriptors.length > 0 || editableTextDescriptors.length > 0 || editableAreaDescriptors.length > 0) && (
-                              <Accordion type="single" collapsible className="mb-2 border-t border-border/60 pt-1">
-                                <AccordionItem value="edit-row" className="border-none">
-                                  {/* Compact INLINE trigger: neutralize shadcn's default `flex-1 justify-between`
-                                    (which strands the chevron at the far-right edge of this wide panel) so the
-                                    label + chevron sit together, left-aligned, matching the panel's other
-                                    text-[10px] uppercase section labels. */}
-                                  <AccordionTrigger className="w-auto flex-none justify-start gap-1.5 rounded px-1.5 py-1 -ml-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground hover:no-underline hover:text-foreground">
-                                    Edit Row
-                                  </AccordionTrigger>
-                                  <AccordionContent className="pb-0">
-                                    {/* C-v2: editable value inputs -- the flat numeric fields this sheet
-                                      surfaces (per-area cells + text fields stay read-only here). Each
-                                      commits via an explicit Apply button that opens the confirm dialog.
-                                      Slice D1: the whole block is gated OUT when readOnly. */}
-                                    {!readOnly && editableDescriptors.length > 0 && (
-                                      <div className="mb-2">
-                                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit values</p>
-                                        {/* Fixed 4-per-row, content-sized, left-packed grid: the four
-                                          fixed-width (w-36) fields sit close together then wrap to the next
-                                          row of 4, with no equal-grid dead space spreading them apart. */}
-                                        <div className="grid grid-cols-[repeat(4,max-content)] gap-2 justify-start">
-                                          {editableDescriptors.map(d => {
-                                            const stored = (row as unknown as Record<string, unknown>)[d.value_field];
-                                            const storedStr = stored === null || stored === undefined ? "" : String(stored);
-                                            const current = editInputs[d.value_field] ?? storedStr;
-                                            const dirty = current !== storedStr;
-                                            const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}`;
-                                            return (
-                                              <div key={d.value_field} className="flex flex-col gap-1">
-                                                <label
-                                                  htmlFor={`edit-${row.row_index}-${d.value_field}`}
-                                                  className="text-[10px] text-muted-foreground"
-                                                >
-                                                  {fieldLabel}
-                                                </label>
-                                                <div className="flex items-center gap-1">
-                                                  <Input
-                                                    id={`edit-${row.row_index}-${d.value_field}`}
-                                                    type="number"
-                                                    value={current}
-                                                    onChange={(e) =>
-                                                      setEditInputs(prev => ({ ...prev, [d.value_field]: e.target.value }))
-                                                    }
-                                                    className="h-7 text-xs w-36"
-                                                  />
-                                                  <Button
-                                                    type="button"
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className="h-7 px-2 text-xs shrink-0"
-                                                    disabled={!dirty || isSaving}
-                                                    onClick={() => openValueConfirm(row, d, storedStr, current)}
-                                                  >
-                                                    Apply
-                                                  </Button>
-                                                </div>
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
-                                      </div>
-                                    )}
-                                    {/* C-v2b: editable TEXT inputs (unit / make_model) -- a separate
-                                      block from the numeric one. Apply saves DIRECTLY (no confirm
-                                      dialog); the value is a string. Shown only when the sheet maps
-                                      the column (editableTextDescriptors gating). Slice D1: gated OUT when readOnly. */}
-                                    {!readOnly && editableTextDescriptors.length > 0 && (
-                                      <div className="mb-2">
-                                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit text</p>
-                                        {/* Fixed 4-per-row, content-sized, left-packed grid: the four
-                                          fixed-width (w-36) fields sit close together then wrap to the next
-                                          row of 4, with no equal-grid dead space spreading them apart. */}
-                                        <div className="grid grid-cols-[repeat(4,max-content)] gap-2 justify-start">
-                                          {editableTextDescriptors.map(d => {
-                                            const stored = (row as unknown as Record<string, unknown>)[d.value_field];
-                                            const storedStr = stored === null || stored === undefined ? "" : String(stored);
-                                            const current = textInputs[d.value_field] ?? storedStr;
-                                            const dirty = current !== storedStr;
-                                            const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}`;
-                                            return (
-                                              <div key={d.value_field} className="flex flex-col gap-1">
-                                                <label
-                                                  htmlFor={`edit-text-${row.row_index}-${d.value_field}`}
-                                                  className="text-[10px] text-muted-foreground"
-                                                >
-                                                  {fieldLabel}
-                                                </label>
-                                                <div className="flex items-center gap-1">
-                                                  <Input
-                                                    id={`edit-text-${row.row_index}-${d.value_field}`}
-                                                    type="text"
-                                                    value={current}
-                                                    onChange={(e) =>
-                                                      setTextInputs(prev => ({ ...prev, [d.value_field]: e.target.value }))
-                                                    }
-                                                    className="h-7 text-xs w-36"
-                                                  />
-                                                  <Button
-                                                    type="button"
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className="h-7 px-2 text-xs shrink-0"
-                                                    disabled={!dirty || isSaving}
-                                                    onClick={() => { void saveTextField(row.row_index, d.value_field, current); }}
-                                                  >
-                                                    Apply
-                                                  </Button>
-                                                </div>
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
-                                      </div>
-                                    )}
-                                    {/* C-v2d: editable PER-AREA values -- one input per area cell
-                                      the sheet maps (qty/amount/rate by area). Each commits via
-                                      the SAME confirm dialog as flat numeric edits (openAreaConfirm).
-                                      Blank -> 0.0 (the area key stays). Shown only when the sheet
-                                      maps per-area columns (editableAreaDescriptors gating). Slice D1: gated OUT when readOnly. */}
-                                    {!readOnly && editableAreaDescriptors.length > 0 && (
-                                      <div className="mb-2">
-                                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit per-area values</p>
-                                        {/* Fixed 4-per-row, content-sized, left-packed grid: the four
-                                          fixed-width (w-36) fields sit close together then wrap to the next
-                                          row of 4, with no equal-grid dead space spreading them apart. */}
-                                        <div className="grid grid-cols-[repeat(4,max-content)] gap-2 justify-start">
-                                          {editableAreaDescriptors.map(d => {
-                                            const storedVal = resolveDescriptorValue(row, d);
-                                            const storedStr = storedVal === null || storedVal === undefined ? "" : String(storedVal);
-                                            const current = areaInputs[d.col] ?? storedStr;
-                                            const dirty = current !== storedStr;
-                                            // Label: "E — Rate Combined (per area) · Zone A" (+ rate kind for rate).
-                                            const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
-                                            return (
-                                              <div key={d.col} className="flex flex-col gap-1">
-                                                <label
-                                                  htmlFor={`edit-area-${row.row_index}-${d.col}`}
-                                                  className="text-[10px] text-muted-foreground"
-                                                >
-                                                  {fieldLabel}
-                                                </label>
-                                                <div className="flex items-center gap-1">
-                                                  <Input
-                                                    id={`edit-area-${row.row_index}-${d.col}`}
-                                                    type="number"
-                                                    value={current}
-                                                    onChange={(e) =>
-                                                      setAreaInputs(prev => ({ ...prev, [d.col]: e.target.value }))
-                                                    }
-                                                    className="h-7 text-xs w-36"
-                                                  />
-                                                  <Button
-                                                    type="button"
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className="h-7 px-2 text-xs shrink-0"
-                                                    disabled={!dirty || isSaving}
-                                                    onClick={() => openAreaConfirm(row, d, storedStr, current)}
-                                                  >
-                                                    Apply
-                                                  </Button>
-                                                </div>
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
-                                      </div>
-                                    )}
-                                    {/* Shared inline save error (numeric + text + per-area edits) */}
-                                    {saveError && <p className="text-xs text-destructive mb-2">{saveError}</p>}
-                                  </AccordionContent>
-                                </AccordionItem>
-                              </Accordion>
+                            {/* S4a (U15, R27): what the last revert of THIS row did to its children --
+                              which came back, and which stayed because they were moved separately.
+                              Outside the has_override box on purpose: that box is gone the moment
+                              the revert lands. Nothing after a revert that involved no child. */}
+                            {revertNotice && revertNotice.rowIndex === row.row_index && (
+                              <div className="mb-2 rounded-md border border-border bg-muted/30 px-2.5 py-2">
+                                {revertNotice.lines.map((line) => (
+                                  <p key={line} className="text-xs text-foreground leading-snug">{line}</p>
+                                ))}
+                              </div>
                             )}
                             {/* C-v2c: per-row Remarks -- human-only annotation. SEPARATE write
                               path (save_review_remark): saving a remark does NOT mark the row
@@ -3896,7 +3263,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                 // post-suppression list.
                                 const described = (Array.isArray(row.edit_log) ? [...row.edit_log] : [])
                                   .reverse()
-                                  .map((entry) => ({ entry, d: describeEditEntry(entry) }))
+                                  .map((entry) => ({ entry, d: describeEditEntry(entry, row) }))
                                   .filter((x): x is { entry: EditLogEntry; d: DescribedEditEntry } => x.d !== null);
                                 return described.length > 0 ? (
                                   <ul className="mt-0.5 space-y-0.5">
@@ -3919,7 +3286,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                         {" — "}
                                         <span className="text-muted-foreground">{entry.by} · {formatEditAt(entry.at)}</span>
                                         {entry.reason ? (
-                                          <span className="text-muted-foreground"> · reason: {entry.reason}</span>
+                                          <span className="text-muted-foreground"> · reason: {reasonText(entry.reason)}</span>
                                         ) : null}
                                       </li>
                                     ))}
@@ -3943,39 +3310,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
         </div>
       </div>{/* R4: close the table-card div opened above; the dialogs/modal below are siblings
               inside the outer space-y-3 wrapper. */}
-
-      {/* C-v2: per-edit confirm dialog -- lightweight one-line summary + optional
-          reason. Value edits have no structural fallout, so this is a single-line
-          confirm (not the heavy children-fate confirm). Mounted once outside the
-          table; open state derived from pendingEdit. AlertDialogAction auto-closes
-          on confirm; success/failure feedback surfaces via the anchor / inline panel. */}
-      <AlertDialog open={pendingEdit !== null} onOpenChange={(o) => { if (!o) setPendingEdit(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirm value change</AlertDialogTitle>
-            <AlertDialogDescription>
-              {pendingEdit
-                ? `Row ${pendingEdit.excelRow} ${pendingEdit.col} — ${pendingEdit.role}${pendingEdit.area ? ` · ${pendingEdit.area}${pendingEdit.rateSubkey ? ` / ${pendingEdit.rateSubkey}` : ""}` : ""}: ${pendingEdit.from === "" ? "(blank)" : pendingEdit.from} → ${pendingEdit.to === "" ? "(blank)" : pendingEdit.to}. Confirm?`
-                : ""}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="py-1">
-            <Input
-              type="text"
-              value={pendingReason}
-              onChange={(e) => setPendingReason(e.target.value)}
-              placeholder="Reason (optional)"
-              className="h-8 text-xs"
-            />
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isSaving}>Cancel</AlertDialogCancel>
-            <AlertDialogAction disabled={isSaving} onClick={() => { void confirmValueSave(); }}>
-              Confirm
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {/* Slice 1b-beta: childless reclassify -- the LIGHT path. A leaf row has no children,
           so changing its class reparents nothing (its own parent is untouched). A plain
@@ -4054,11 +3388,10 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
           row={restructureModal.row}
           newClassification={restructureModal.newClassification}
           rows={rows}
-          presetRowParent={restructureModal.presetRowParent}
-          presetParentMessage={restructureModal.presetParentMessage}
-          markAiAccepted={restructureModal.markAiAccepted}
-          markGeminiAccepted={restructureModal.markGeminiAccepted}
           onRestructured={(editedAt) => { onRestructured?.(editedAt); setRestructureModal(null); }}
+          // S4b (R31c): offered only while the row's "Check parent" flag is open -- read from the
+          // LIVE row, not the snapshot the dialog was opened with.
+          suggestedParent={suggestionFor(byIdx.get(restructureModal.row.row_index) ?? restructureModal.row).parent}
         />
       )}
 

@@ -53,6 +53,179 @@ carry, classification-freeze and BCS invariants live in `boq-pricing-editor.md`.
   fetching it) is gone: **the invariant is enforced by `services/test_boq_gemini_assist.TestWirePayloadPin`,
   which freezes the 11-key payload contract -- a wording change must never make it red.** `chunk_rows`
   with ABSENT `section_flags` degrades to ceiling-only cuts, never back to the score rule.
+- **The Claude review pass sends the GUIDED prompt, version `v2` (S1b, ADR-0005 Amendment A, owner-locked):**
+  - **Wire row = exactly 7 keys, in this order:** `excel_row`, `classification`, `parent_excel_row`, `sl_no`,
+    `description`, `unit`, `has_qty`. **`has_qty` is a yes / no only** (from `qty_total` / `qty_by_area` non-zero);
+    no quantity, rate or amount value ever reaches the model. Pinned by `services/test_boq_ai_assist.TestClaudeWirePin`
+    (positive and negative) and, on real review rows through the worker's own fetch, by
+    `test_ai_assist.test_worker_fetch_builds_the_seven_wire_keys_from_review_rows`.
+  - **The template is still EMBEDDED VERBATIM.** Its six row-type definitions and the has_qty / GUIDANCE paragraph are
+    pinned by `TestGuidedPromptPins`; the whole rendered prompt is pinned byte-for-byte on BOQ-26-00244 / CCTV by
+    `TestGuidedPromptFixture`. **Pin first, reword second, and bump `boq_ai_assist.PROMPT_VERSION`** — the result
+    cache is keyed on it (`boq_ai_pass::<version>::<boq>::<sheet>::<last_parsed_at>`), so a result from an older
+    prompt is never served.
+  - **A GUIDANCE block follows the rows on EVERY call** (`_render_chunk_prompt` is the one definition of the rendered
+    prompt): per row, `similar_reviewed_rows` (at most 5) and `candidate_parents`, and nothing else — a stray key in
+    the guidance is dropped. The shortlist reads the **PARSER's** row type and parent, never the human / AI layer.
+  - **The examples library (`services/boq_ai_guidance.py`) is REBUILT ON DEMAND ONLY — there is NO scheduled job**
+    (owner: *"i dsont want any unnecssary jobs in production"*). A Claude run that finds the file missing or older than
+    24 h rebuilds it first, under ONE lock; a run that meets a rebuild in progress waits up to 3 minutes. It is one
+    file under the site's private folder, **never a Frappe File record** (so it never reaches the cloud bucket). It
+    reads the committed grid's sl_no / description / unit / qty columns only.
+  - **Exclusions are applied at LOOK-UP, not at build:** the checked BoQ and its revision family (`BOQs.source_boq`,
+    read live) and TestProject BoQs. Near-copy tenders under another BoQ number stay in (owner ruling).
+  - **A library failure never fails the pass:** it runs with candidate parents and no examples, and says so at
+    **ERROR** level — the `boq_ai` logger writes ERROR and above only, so a warning there is silently dropped.
+  - **Only Claude's job limit is 1200 s.** Gemini's and the parse job's stay 600 (pinned).
+- **The Claude review runs AUTOMATICALLY after a parse, every run is logged, and dead runs are healed (S2, ADR-0032,
+  owner-locked):**
+  - **`parse_run._run_parse_worker` has exactly ONE seam into the AI side: two calls into
+    `api/boq/wizard/ai_run_log.py`** -- `on_parse_start` at the start, `enqueue_after_parse` AFTER the parse commit and
+    before the parse event. Pinned by `test_parse_run.TestAutoClaudeCheckSeam`. Neither call can fail a parse.
+  - **One Claude job per sheet the parse left at "Parsed"** (upload and revision BoQs). Never for "Parse failed",
+    "Hidden", "Skip", a general-specs sheet or a template BoQ. **Gemini is never run automatically.**
+  - **Under a test run the automatic run is OFF** (`ai_run_log._auto_run_allowed`): `frappe.enqueue` is real under
+    tests and the site's AI settings are live, so a parse inside a test would otherwise queue a real, paid job. A test of
+    the automatic run patches `_auto_run_allowed` AND `frappe.enqueue`.
+  - **A run for an older parse writes NOTHING.** The run records the sheet's `last_parsed_at` when queued;
+    `_apply_ai_suggestions(..., expected_last_parsed_at=)` raises `RunSuperseded` when it no longer matches, and the run
+    is logged "Superseded". That refusal is the only change to the write-back; accept / reject / revert are untouched.
+  - **Every run has a `BoQ AI Run Log` record** (auto-after-parse, re-parse, manual, and a manual cache hit as Done with
+    `cached` = 1), written only by `ai_run_log.py`. **It never holds the API key:** every failure message goes through
+    `boq_ai_assist.scrub_keys` and is capped at 1,000 characters; so does the Error Log text.
+  - **The worker rolls back FIRST and writes the Error Log SECOND.** The other order rolls the Error Log entry back with
+    everything else, and the failure leaves no trace to link.
+  - **Health rule:** a Running run with no heartbeat for 6 minutes, or started more than 22 minutes ago, and a Queued run
+    whose job has left the queue, becomes Failed "worker stopped or timed out" and its flag is cleared. Time waiting in
+    the queue never fails a run. A stuck Claude or Gemini flag with no live run record and no live queue job is cleared;
+    **a flag whose job may be alive is never cleared, and nothing is cleared when the queue cannot be read.**
+  - **The health check runs on the status read, a run start, a parse start, and ONE scheduler entry every 5 minutes**
+    (`ai_run_log.heal_stale_runs_task`). That entry is the only timed job S2 adds; it makes no AI call and never loads
+    the library. **It needs the production scheduler enabled.** In a test, never call `heal_stale_runs()` with no
+    arguments -- it heals the site's real runs and clears its real flags.
+  - **The Anthropic client is created with `max_retries=0`;** the app's 3 attempts are the only retries, with a heartbeat
+    before each. The queue's `JobTimeoutException` is re-raised untouched, never retried.
+  - **The examples library file is format 2 and is RELEASED inside `build_guidance`, before the first Claude call.** It
+    must return exactly what format 1 returned -- same examples, same order, same scores (proved on all 16,851 F1 rows;
+    guarded by `test_boq_ai_guidance.TestCompactLibrary`, which keeps the format-1 code as its reference). Never drop
+    duplicate or blank rows from it (owner: option 3 not chosen).
+- **Review flags are WORKED OUT, never stored; Claude's sure changes ARE the parsed result (S3, ADR-0033,
+  owner-locked):**
+  - **The sure-change set is exactly one case:** Claude says `line_item` at **High** confidence and the parsed
+    type is `preamble`. `review_flags.apply_sure_changes` then writes `classification = line_item` and keeps the
+    parser's own type in the hidden `parser_classification`, which `get_review_rows` DROPS from its reply. No other
+    type change and **no parent** is ever applied. Skipped (and so flagged "Check type" instead): a row with a
+    standing human / accepted-AI change, a row with a child that is itself a preamble, every row of a Finalized
+    sheet. It runs right AFTER `_apply_ai_suggestions` in the same transaction, at both call sites (the worker and
+    the cached-result path), so a superseded run re-types nothing.
+  - **A flag is never a column.** `review_flags.sheet_flag_state` is THE reader behind the review data
+    (`check_flags` per row, `check_summary` per sheet), `get_check_summary` and the finalize block. Do not add a
+    stored flag: every write path would then have to keep it up to date, and the owner ruled that no edit path may
+    change.
+  - **No run-log record for the sheet's CURRENT parse = no flags at all** (`ai_run_log.check_state` ->
+    `not_run`): a sheet parsed before S2 behaves exactly as before until it is re-parsed. A failed or unfinished
+    check leaves only the unit / quantity rule. Claude's answers count only when a run for this parse is Done --
+    which is also what keeps old suggestions from ever becoming flags.
+  - **The rules:** "Check type" = Claude's type differs from the parsed type, OR the row has a unit or a non-zero
+    quantity and its parsed type is not `line_item`. "Check parent" = Claude's parent differs from the row's
+    PARSED parent (also on a surely re-typed row), and the row does not already sit on the parent Claude named.
+    Both doubts are measured against the parsed values, so a row that is moved or re-typed stays a flagged row and
+    becomes a checked one -- the percentage does not fall as the user works. Reason codes `type_doubt`, `unit_qty_not_item`, `parent_doubt`.
+    Never flagged: rows copied unchanged into a revision, de-selected template rows, anything from Gemini.
+  - **Read `ai_suggestion_status` before `ai_suggested_parent`.** A row Claude never answered has
+    `ai_suggested_parent` = 0 by column default, and row 0 is a real row.
+  - **Clearing reads the human layer and the edit history; nothing is written to clear a flag.** A human type
+    counts as a type change only when it DIFFERS from the parsed type (the screen's "Change parent" stores the
+    row's own type as a human type). A human parent counts as the user's own only when the latest standing parent
+    entry in `edit_log` is not a `parent moved:` entry -- a child the re-mapping moved KEEPS its "Check parent".
+  - **"Looks OK" is one row per call, and there is no bulk form** (`review_flags.mark_row_looks_ok`; fields
+    `ai_flags_ok` / `_by` / `_at`). It is a third mark, separate from `flags_dismissed` and `revision_reviewed`.
+    It stops counting when the row's history has a later entry whose reason contains `reverted` -- no revert path
+    knows about the mark.
+  - **Two history wordings are load-bearing and test-pinned:** `parent moved:` (written by
+    `save_review_restructure`) and `reverted` (written by every revert path).
+    `test_review_flags.TestHistoryWordingPins` makes the real endpoints write them; change a wording and that
+    class must fail first.
+  - **Finalize order:** must-fix -> revision rows -> quantities (template BoQs) -> `review_flags.guard_finalize`,
+    LAST. It refuses while the check is still running and while any flag is open, and it RAISES (the screen has no
+    branch for a new kind of `{ok: false}` reply and would show the must-fix sentence). A sheet with nothing open
+    finalizes exactly as before.
+  - **The percentage** is rows with any doubt, open or already checked, over NON-BLANK rows (blank = spacer);
+    heavy means MORE than 40%.
+  - **`revert_to_parser` also returns the children a restructure of that row moved (R20)** -- found from each
+    child's own history (`review_flags.plan_child_reverts`), back to the parent it had before the move, in the
+    same transaction, stamped `reverted with row N (parent restore)`. A child the user moved again himself is left
+    alone. A revert that would put a child back into a loop is refused BEFORE anything is written. Children an
+    old AI accept moved keep their snapshot revert. **Off for a template BoQ**: rows are renumbered there, so the
+    `row N` in a history entry cannot be trusted.
+  - **The review screen reads flags ONLY from `check_flags` / `check_summary` (S4a, ADR-0034).** It holds no
+    flag rule: every pill, filter result, count, reason line and the greyed Mark Finalized come from those two
+    through `frontend/.../reviewCheckFlags.ts`. A new need of the screen is met by ADDING to what
+    `review_flags` sends (`flagged_by_kind` was added that way - the kinds of ALL flagged rows, for the "all
+    checked" line, since `by_kind` counts open flags only), never by re-deriving on the client. **No AI or
+    Gemini piece is on the review screen**: no run button, no suggestion, no model name (R6, R21). The AI
+    answers still travel in the reply; nothing reads them.
+  - **The hub reads the same counts (S4b, ADR-0035).** The sheet cards, the footer and the "Parse complete"
+    summary read `review_flags.get_check_summary` and nothing else; S4b changed no Python. The check's answers
+    in the review reply (`ai_suggested_classification` / `_parent` / `_is_root`) are now read by the screen for
+    one purpose only: the "Suggested" mark on a row with an OPEN flag (R31). Keep those three fields in the
+    reply, and keep `get_check_summary`'s `heavy`, `flagged_pct`, `non_blank_rows` and `check_running` as they
+    are - the banners and the hub depend on them.
+  - **A first-click revert races the page's draft lock - fixed in the browser, not here (S4b, R33).**
+    `revert_to_parser` takes its own server lock; when the page's `acquire_draft_lock` ran at the same moment,
+    the lock-row refresh in `pricing_lock.py` raised under REPEATABLE READ (a 500, no Error Log). The page now
+    waits for its lock call before it sends the revert. Do not "fix" it by dropping the server-side lock.
+  - **The automatic check picks the parsed sheets by EXACT name (S6 F1, ADR-0036).** `ai_run_log._enqueue_after_parse`
+    reads the BoQ's drafts by parent and keeps `parsed_sheets` in Python. A Frappe `["in", [...]]` filter strips
+    every value (`frappe/model/db_query.py`), so " Rodent" and "FPS " used to get no run at all (S5 DEF-01; dev2
+    had 279 such drafts in 154 BoQs and not one run). Same rule as #152: never pass sheet names through an
+    `"in"` filter; `=` is not stripped. The S6 sweep of `api/` and `services/` found no other such filter.
+  - **`boq_ai_evaluation_exclude_boqs` is an EVALUATION list, empty in production (S6 F2).** A site-config list of
+    BoQ names that `build_guidance` adds to the look-up exclusion (`revision_family | testproject | list`). It
+    exists for a clean re-run of test copies whose originals sit in the library: a copy has no `source_boq`, so
+    its original is not in its family. Absent or `[]` changes nothing (pinned by a hash test). The library FILE is
+    never affected - exclusion happens at look-up only. Empty and remove it after an evaluation.
+  - **The review screen may set "Subtotal" (S6 F6, owner V3-2 / Q-d).** `save_review_edit` and
+    `save_review_restructure` check `_REVIEW_ASSIGNABLE_CLASSIFICATIONS` (the four types + `subtotal_marker`).
+    The shared `_ASSIGNABLE_CLASSIFICATIONS` is unchanged - the template paths import it and still refuse
+    subtotal - and `header_repeat` stays parser-only everywhere. The parser is not changed (it still reads a
+    "Total" row with a blank amount as note / spacer).
+  - **Stored history reasons keep the INTERNAL row index (S6 F13).** "parent moved: row N ..." and "reverted with
+    row N (parent restore)" are read back by the revert cascade (`_CHILD_MOVE_RE`, `_CASCADE_REVERT_RE`); the
+    screen shows the Excel row at display time. Never rewrite the stored numbers.
+  - **"Changed since its last commit" is decided on the client, from two existing times (S6 F12 / Q-f / Q-i):**
+    the draft's `last_parsed_at` (written only by the parse) later than the committed sheet's `committed_at`
+    (written only by the commit), or never committed. The commit gate, validation and writes are unchanged; a
+    sheet un-finalized, edited and re-finalized without a re-parse is NOT detected (accepted gap, Q-f).
+  - **S5's DEF-11 was not a defect (S6 F11).** The doctype is `BOQ Upload Review AI Settings` (capital BOQ); a
+    wrong-case `frappe.get_single('BoQ Upload ...')` fails on PostgreSQL with a module-import error.
+  - **"Looks OK" has an Undo: `review_flags.unmark_row_looks_ok` (S4a).** One row per call, a raw column write,
+    no edit history; refused on a Finalized sheet, during a parse and where no tick stands ("Row N has no Looks
+    OK to undo."). The whitelist of `review_flags` is pinned to exactly `get_check_summary`,
+    `mark_row_looks_ok`, `unmark_row_looks_ok`, each one row per call.
+  - **`revert_to_parser` replies with BOTH lists (S4a, R27):** `reverted_children` and
+    `children_not_returned` - the children a restructure of the row moved that stay because a later move of the
+    child still stands (`review_flags.children_left_behind`, read BEFORE the revert writes). The reply is
+    pinned as a whole dict.
+  - **A revert re-offers a suggestion only on a row that already carries a status (S4a, R23).**
+    `ai_suggested_parent` / `gemini_suggested_parent` are 0 by column default and row 0 is a real row, so
+    "parent >= 0" alone marked a never-answered row Pending - a stray Gemini block, and on the Claude side a
+    false "Check parent". Both tests in `revert_to_parser` require `*_suggestion_status` first.
+  - **The parser's "needs-review" warning is silent on a row Claude re-typed (S4a, R24):**
+    `_compute_advisory_flags` skips it when `parser_classification` is set and differs from
+    `classification`. Its only reason (`priced_preamble_with_children`) is about the PARSER's type. Every
+    other warning rule is unchanged; `get_structural_breaks` fetches `parser_classification` through
+    `_ADVISORY_EXTRA_FIELDS` so both readers agree.
+  - **Run-log records are kept 6 months**, pruned at most once a day by the EXISTING 5-minute task
+    (`ai_run_log.prune_old_runs`). No scheduler entry was added. Under a test run a prune with no BoQ deletes
+    nothing. An expiring cache key is read with `expires=True`: a plain read is answered from the process's own
+    copy of an earlier read.
+- **A doctype's index on PostgreSQL: flag every indexed column, and name the index yourself (found in S2).** Frappe names a
+  field-level index after the field alone and index names are unique per schema, so `search_index` on `boq` / `status`
+  usually creates nothing; and when a table is ALTERED, a column that is indexed but un-flagged makes Frappe run
+  `DROP INDEX IF EXISTS "<fieldname>"` with no table name -- which drops ANOTHER table's index. `BoQ AI Run Log` keeps
+  the flag on both indexed columns and creates `boq_ai_run_log_boq` / `boq_ai_run_log_status` in `on_doctype_update`;
+  its doctype test fails if a column is ever indexed without the flag.
 - **Committed `attached_notes` is DERIVED, not carried (EA-6a slice 2, owner-locked):** at commit,
   `commit_pipeline._derive_attached_notes` rebuilds every node's `attached_notes` from the EFFECTIVE
   tree (effective parent + effective classification, row_index order -- order is load-bearing,
@@ -77,6 +250,58 @@ carry, classification-freeze and BCS invariants live in `boq-pricing-editor.md`.
   review finalize a sheet the commit then rejects. **Warning #16 widened to Line Item in the SAME
   change and must stay:** `pricingRollup` sums a node's own amount PLUS its descendants', so a priced
   parent item double-counts -- advisory only, it never blocks.
+
+### Clean-up invariants (CU-A, 2026-10-18)
+
+- **Index manifest (a new `search_index` field needs a manifest entry):** every index nirmaan needs is
+  listed in `services/index_manifest.INDEXES` under its own table-unique name (`<Table_Slug>_<cols>_idx`,
+  the doctype's case KEPT, a stable 8-char hash past 63 chars), and `ensure_indexes()` (hooks
+  `after_migrate`) creates any missing one after every migrate and never drops anything. Frappe 15 on
+  Postgres names a `search_index` index after the bare fieldname, schema-wide, and its model sync later
+  issues a table-less `DROP INDEX IF EXISTS "<field>"`; the named twin survives that. A new
+  `search_index` field, or a new `add_index` / `add_unique` call in a doctype controller, without a manifest
+  entry fails `test_index_manifest`. Never lowercase the slug: Frappe's "is this column indexed" test is a
+  case-sensitive LIKE over the whole index definition, and lowercase table words (`color`, `config`) match
+  unindexed fields and queue new bare drops. No doctype JSON is changed for index work.
+- **BoQ delete cascade (owner "children only"):** `integrations/controllers/boqs.after_delete` removes the
+  drafts' `BoQ Sheet Work Package` grandchildren on every BOQs delete and, on a FORCED delete, each linked
+  `BoQ Sheet`'s work packages and each linked `BoQ Committed Sheet Grid`'s rows. It never deletes the Sheet /
+  Grid / Review Row / BOQ Nodes documents. `after_delete`, never `on_trash`: `delete_doc` runs `on_trash`
+  before its link check and never says whether it was forced, so an unforced delete of a linked BoQ must
+  stay refused with nothing removed (pinned). A forced delete still leaves every document with a `boq` link
+  (Sheet + its row, Grid, Review Rows, Nodes + qty-by-area, cell pricing / colour / remark / formula /
+  dismissal / reconciliation, locks, BCS rates, row categories, truth snapshots, suggestion runs / events,
+  AI run logs) for the orphan report.
+- **Orphans: report, then delete the approved counts:** `services/orphans.report()` counts, from live meta,
+  BoQ child rows whose parent is gone, documents whose `boq` names a missing BOQs, and every row below them.
+  `delete(confirm_counts=...)` deletes only when a fresh scan equals the counts the owner approved, label for
+  label, else nothing. Provenance links (`source_boq`, `carried_from_boq`) are info only. It is a function,
+  not a patch; production runs `report()` first. Tests pass `scope=` so they never touch real orphans.
+- **Stale suggestion runs:** `tasks/suggest_run_healer` (cron every 5 min) marks a `running` BoQ Rate
+  Suggestion Run `failed`, reason "stale - worker gone", only when no suggest job for it is queued / started /
+  deferred on any queue, matched by `run_id` AND by `(boq, sheet_name)` (a resume runs under a new job id),
+  and `modified` is older than 2 h. It never touches another status, `active`, the rows or `modified`.
+- **Dev-only off-switches:** site config `disable_push` (the one `messaging.send`, in
+  `pr_notifications.send_firebase_notification`) and `disable_cloud_upload` (a File `before_insert` drops
+  the GCP `after_insert` upload handler for the request). Set on dev only, NEVER on production. Their log
+  lines need `logger.setLevel(logging.INFO)`: Frappe file loggers default to ERROR off the dev server.
+
+### Dev hygiene invariants (CU-B, 2026-10-18)
+
+- **Tests never write the real capture log.** Under `frappe.flags.in_test` (set by `bench run-tests`)
+  `extraction._capture_path` returns a per-process temp file; a test that needs a path patches the function.
+- **Fixture BoQs use the shared teardown and a non-series name.** Create them with
+  `insert(set_name=fixture_boq_name(...))` (`BOQ-TEST-<TAG>-<hash>`: never a `BOQ-YY-#####` series name, so a
+  rolled-back series number cannot inherit another test's leftovers; the `BOQ-` prefix stays for the category
+  harness) and tear them down with `purge_boq` / `purge_docs` (`services/boq_fixture_teardown.py`), which
+  replace a raw parent delete and also take every child row. A raw `frappe.db.delete` of BOQs / BoQ Sheet /
+  BOQ Nodes / the committed grid in a test leaves orphans -- that is where most of dev's 3,579 came from.
+- **Run `scripts/dev_isolate.py --yes` after every dev refresh, then `--verify`** (from the host via docker exec,
+  with `--stopped-file` = the ruled stopped set). Dev is a copy of production: until it runs, dev holds live push
+  tokens, mail accounts and API credentials. It refuses without the `nirmaan_env: "dev"` site-config marker,
+  which production never has; `--restore <backup>` puts every value back.
+- **A vacuity break never runs against live data** (owner, 2026-10-18): break a fixture-only test, or a scratch
+  copy, or skip and declare. A break of `test_live_01`'s reinstate line once left MS 300 / 250 with no active row.
 
 ### Wizard scope discipline (Phase 3 onward)
 
@@ -110,6 +335,10 @@ This manifest names the **one owning module** for each BoQ backend concept (per 
 | **"Is this the same row?" across committed versions/BoQs** | `api/boq/wizard/committed_carry.py` (`committed_excel_row_match` / `version_addressed_excel_row_match`) | write a per-layer row matcher — that is a second answer to one question |
 | **Single-editor pricing lock** | `api/boq/wizard/pricing_lock.py` (`acquire_or_refresh`) | invent a second lock. A lock reject must mutate NOTHING |
 | **The joined `description` + `description_parts_raw` shape** | `services/boq_parser/classifier.py` (`_description_columns` / `_description_parts`) — owner-locked | re-join description columns anywhere else, or assume a single description column |
+| **The rendered Claude review prompt** (template + rows + GUIDANCE) and its version | `services/boq_ai_assist.py` (`_render_chunk_prompt`, `PROMPT_VERSION`) | build the prompt text anywhere else, or change it without bumping the version the result cache is keyed on |
+| **The Claude run log, its health check and the automatic run after a parse** (run records, heartbeat, the 6 / 22-minute rule, stuck-flag clean-up, the after-parse enqueue) | `api/boq/wizard/ai_run_log.py` (the worker and the endpoint in `ai_assist.py` only CALL it; `parse_run.py` calls `on_parse_start` + `enqueue_after_parse`) | write a `BoQ AI Run Log` field from anywhere else, clear `ai_in_progress` / `gemini_in_progress` outside `_publish_*_event` and the health check, or enqueue the Claude worker from a third place |
+| **Review flags** ("Check type" / "Check parent", their reason codes and counts, Claude's sure changes, "Looks OK" and its Undo, the finalize block, which children a revert returns and which it leaves) | `api/boq/wizard/review_flags.py` (`sheet_flag_state` is the single reader; `review_screen.get_review_rows`, `mark_sheet_parsed_check_done` and `revert_to_parser` only CALL it; `ai_run_log.check_state` owns the check status) | store a flag on a row, re-derive a flag or a count at a call site (the review SCREEN included - it reads `check_flags` / `check_summary` only), write `parser_classification` or `ai_flags_ok` from anywhere else, or add a bulk "Looks OK" / Undo |
+| **The examples library and the candidate-parent shortlist** (build, file, on-demand rebuild, look-up exclusions) | `services/boq_ai_guidance.py` (`build_guidance` is the worker's one entry point) — reads `frappe.db` by design, so it is **not** a `PURE_MODULES` entry | read the library file directly, rebuild it from a scheduler, or apply the family / TestProject exclusions anywhere but the look-up |
 | **Committed-tier amount / parent-rate recomputation** | **NONE, deliberately** — the committed controllers are CAPTURE-ONLY; the future tendering module owns calculations | re-add `amount = qty x rate` or a parent-rate overwrite to a committed controller |
 
 ---

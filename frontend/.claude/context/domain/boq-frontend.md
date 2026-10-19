@@ -75,6 +75,93 @@ owner-locked invariants. The full as-built detail (component contracts, per-slic
 - **Search highlight = RINGS (`ring-inset`), never backgrounds** (a background would mask the edited-green tint).
 - **Filters gate on the FILTER axis (`classificationVisible && passesFilter`), NOT the collapse axis** — a hit can
   never be a filtered-out row, and stepping auto-expands a collapsed-parent hit via `revealAndScrollToRow`.
+- **Review flags are DRAWN here, never decided here (S4a, ADR-0034, owner-locked).** The server works the flags
+  out (`review_flags.py`) and sends `check_flags` on each row and `check_summary` on the sheet. The pure
+  `reviewCheckFlags.ts` turns those into the pill (`checkPill`), the Check filter (`matchesCheckFilter`), the
+  counter strip (`checkCounter`), the reason lines (`checkReasonLines` - codes map to text there; an unknown code
+  shows NO line, a code is never shown), the reason Mark Finalized is greyed (`finalizeBlockMessage`, in the
+  SERVER's order of checks) and the revert message (`revertMessageLines`). `ReviewCheckParts.tsx` only draws.
+  **Do not add a client-side rule for "is this row flagged" or a client-side count** - ask the server for the
+  field instead, or the button and the server's refusal can disagree. Every sentence of the feature lives in
+  `reviewCheckFlags.ts`.
+- **No AI or Gemini piece on the review screen (S4a, owner-locked: R1, R6, R21, R22).** No run button, no
+  suggestion block, no confidence pill, no model name, no "Accepted" label - a row accepted from an old pill reads
+  "Edited". While the automatic check runs the page shows only the "Checking rows…" chip (`isCheckRunning`: the
+  sheet's `ai_in_progress` OR `check_summary.check_running`), and shows no text when it ends, whatever the
+  outcome. `RestructureModal.tsx` still has an AI-preset branch; nothing passes those props any more.
+- **The Check column took the AI Rec column's place**, so the fixed-anchor count stays 8 (`totalCols`); it is
+  inside the same `!templateOrigin` fragment as Status and must stay in lockstep with its header, its body cell
+  and that count. Order: Excel Row | Status | Check | Sl.No | Parent | Row Type | Looks OK (revision) |
+  Description.
+- **Three ticks, three meanings, never merged:** the parser-warning "Looks OK" (`dismiss_row_flags`), the
+  revision "Looks OK" column (`affirm_revision_row`), and the flag "OK" / "Looks OK" with its "Undo"
+  (`review_flags.mark_row_looks_ok` / `unmark_row_looks_ok`, one row per call). The flag tick is an
+  acknowledgement, not an edit: it does not call `onEditIntent` (the server takes the draft lock) and it refreshes
+  through `onRemarkSaved`.
+- **Row colour order (the channel-collision rule):** the orange wash of an open flag sits BEFORE the edited-green
+  tint, so an edited row stays green; the orange left edge is withheld on an unconfirmed revision row, whose red
+  edge keeps the left border.
+- **The page re-reads itself when a parse of its BoQ ends** (`boq:parse_run_done` in `SheetReviewPage.tsx`) and
+  when the check ends (`boq:ai_pass_done`, plus a 3-second poll while `isCheckRunning`). The poll stops itself
+  once the refreshed data says the check is over - the resolve handler must not stop it.
+- **The hub and the parse summary read S3's counts only (S4b, ADR-0035, owner-locked).** `BoqHubPage.tsx`
+  fetches `review_flags.get_check_summary` (SWR key `boq-check-summary::<boq>`, a 4-second poll only while a check
+  runs, re-read on `boq:parse_run_done` and `boq:ai_pass_done`); the pure `hubCheckSummary.ts` turns it into the
+  card lines (`cardCheck`), the footer piece (`footerRowsToCheck`) and the summary (`parseSummary`). The summary is
+  HELD until no sheet that parse parsed is still being checked (`summaryReady`, Q-c). A sheet whose check is
+  running is left out of the footer sum, and the review counter strip is hidden while the check runs
+  (`checkCounter(summary, checkRunning)` returns null, R32): until the check ends, the count is the raw parse's
+  unit / quantity flags. Sheet names are looked up VERBATIM (#152) and shown trimmed.
+- **"Suggested" is a soft mark, never a choice (S4b, R31).** Only a row with an OPEN flag gets it, worked out in
+  the browser from the reply (`suggestionFor` / `orderWithSuggestion` / `suggestedParentLine` in
+  `reviewCheckFlags.ts`); a unit / quantity-only flag suggests Item. The Change list puts that type first with
+  the "Suggested" tag; `RestructureModal.tsx` shows ONE clickable "Suggested parent: row N - ..." line BELOW the
+  Keep / Move radios (above them it took the dialog's opening focus). Nothing is pre-selected, no AI is named,
+  the children's pickers and `ReviewRowParentPicker.tsx` get no mark, and the mark goes with the flag.
+- **No value editing on the review screen (S4b, R19).** "Edit values", "Edit text", "Edit per-area values", the
+  empty "Edit Row" toggle and the "Confirm value change" dialog are gone (they were never used). The template
+  quantity cells still save through the same `saveCall`; `save_review_edit` and old history entries stay.
+- **A revert waits for the page's draft-lock call (S4b, R33).** `afterEditIntent(onEditIntent, write)` in
+  `editIntent.ts` awaits the page's `ensureLockAcquired` promise, then sends `revert_to_parser`. Sent together,
+  the two locks collided on the server ("There was an error." on a first-click revert). Only the revert uses it;
+  other edit paths are unchanged. A failure with no server message reads "Could not revert this row. Please try
+  again." (U14).
+- **Residence (S4b modules).** `hubCheckSummary.ts` owns what the hub says about the check (card, footer,
+  summary) - do not count or word it in `BoqHubPage.tsx` / `SheetCard.tsx`. `editIntent.ts` owns "wait for the
+  lock, then write". `reviewCheckFlags.ts` owns every check sentence on the review screen, including the banners,
+  "Suggested", "Revert to original" and its hint. `ReviewCheckParts.tsx` only draws.
+- **"Changed since its last commit" has ONE home: `hubState.ts` (S6 F12, ADR-0036).** Never committed, or the
+  draft's `last_parsed_at` later than the committed sheet's `committed_at` (`changedSinceCommit`,
+  `sheetsChangedSinceCommit`). It drives (U10) the commit dialog's pre-selection (`preselectedSheets` - only
+  changed sheets; the user may tick any other), the dialog's "re-parsed after vN" sub-label, the card's commit line
+  ("Re-parsed after vN — tendering still uses vN. Finalize and commit to update it." in place of "Ready for
+  tendering"), and the reach of "not checked" (Q-i). A re-finalize without a re-parse is not detected (Q-f). The
+  commit gate and pipeline are untouched.
+- **"Not checked" (S6 U1, owner V1 / Q-i).** A Parsed / Finalized sheet whose check never ran (`not_run`) AND that
+  changed since its last commit says so: card line `cardNotChecked`, footer `footerNotChecked` (" · N not
+  checked"), summary line "Parsed, not checked: X" (`parseSummary.notCheckedLine`) - all in `hubCheckSummary.ts` -
+  and the review banner `CheckNotRunBanner` (`isCheckNotRun` / `CHECK_NOT_RUN_BANNER` in `reviewCheckFlags.ts`).
+  `cardCheck` itself is unchanged; a committed sheet unchanged since shows nothing.
+- **Hub subtitle and footer follow the BoQ (S6 U4).** `hubState.hubSubtitle`: Map sheets before parsing / Review
+  parsed sheets / Ready to commit / Committed. Footer "{a} of {n} data sheets set up" (`setUpCount`: Config Done +
+  Parsed + Finalized, display only - `canParse` still counts Config Done) and the Finalized count is labelled
+  "finalized" (it was "checked").
+- **Mark Finalized says why it is off, as text (S6 U2).** `finalizeBlockMessage` adds the open rows (Excel rows from
+  `check_summary.open_rows`, 20 then "and N more" - the backend refusal's own sentence); `SheetReviewPage.tsx`
+  shows it beside the button. A disabled button's `title` never shows (`pointer-events-none`).
+- **"Subtotal" in the review Change list (S6 U5).** `REVIEW_TARGET_CLASSIFICATIONS` (the four + `subtotal_marker`)
+  in `ReviewTree.tsx` is used by the Change list ONLY; "Change parent" and the template Insert-row list keep the four.
+  Subtotal is not parent-capable, so a row with children goes through `RestructureModal` like a note (no modal change).
+- **Revert history and the Edited pill (S6 U6, U11, Q-g, Q-h).** `reviewHistory.describeRevertEntry`: a revert entry
+  reads "Reverted: Note → Preamble" / "Reverted parent: → row 8" (the row's parsed type / parent);
+  `reasonWithExcelRows` shows each "row N" in a stored reason as the Excel row (display only). `ReviewTree`'s own
+  `describeEditEntry` asks it first and keeps every other wording. The pill (`isReviewRowEdited`, the one home, also
+  used by the CSV export): with `has_override` on the row, edited = a standing change or any value / text edit; a
+  fully reverted row reads "Original". Without `has_override` the old rule holds.
+- **Small screen fixes (S6).** U3: `RoleRoute` (`utils/auth/ProtectedRoute.tsx`, `roleRouteState`) shows "Checking
+  access…" while `useUserData` reports role "Loading" - for every route it guards. U7: Enter in the review search =
+  the arrows (`searchEnterAction`). U8: column-map rows keep their place (`stableOrder.ts`; letter order on first
+  load only). U9: the upload-status poll sets `refreshWhenHidden`.
 - **Finalized / "Parsed Check Done" freeze:** `readOnly` HIDES every write affordance; backend
   `_guard_sheet_not_frozen` is the durable backstop. Restructure goes through `RestructureModal` (5 child-placement
   options + a batch cycle-guard). A flag dismissal / remark is NOT an edit (the row stays "Original").
@@ -1853,6 +1940,8 @@ The single header strip (`flex items-start gap-3` with an `ml-auto` cluster hold
 `SheetReviewPage` gains `const [expanded, setExpanded] = useState(false)` + an Esc-to-exit effect that REUSES the exported pure `shouldExitFullscreenOnEsc` from `./PricingGrid` (no duplication). Root wrapper className swaps via `cn()`: `fixed inset-0 z-50 flex flex-col space-y-4 overflow-auto bg-background p-4` when expanded, else the normal `flex-1 space-y-4 max-w-5xl mx-auto …`. ONE JSX tree → no remount → open detail panel / search / collapse / draft-lock survive the toggle (same rationale as pricing; NOT a Dialog/portal). `ReviewTree` gained an `expanded?: boolean` prop (default false) that relaxes its scroll-container cap at the table div: `cn("overflow-auto", expanded ? "max-h-[calc(100vh-6rem)]" : "max-h-[calc(100vh-16rem)]")` — a generous viewport cap rather than pricing's `flex-1 min-h-0` chain (the review banner stack makes the full flex-col plumbing fragile; the overlay's own `overflow-auto` scrolls regardless).
 
 ### "Edit Row" accordion in the row-detail panel (`ReviewTree.tsx`)
+> ⚠️ **REMOVED in S4b (ADR-0035, R19):** the accordion and the three blocks inside it are gone; kept below as the record.
+
 The three inline EDIT surfaces are collapsed behind ONE `Accordion type="single" collapsible` (shadcn `@/components/ui/accordion`), single `AccordionItem value="edit-row"`, label **"Edit Row"**, **closed by default** (no `defaultValue`; each row's panel mounts fresh → re-opens collapsed). Wraps **Edit values + Edit text + Edit per-area values + the shared save-error** (owner: per-area INCLUDED). **Remarks is EXCLUDED** — stays its own section immediately below the accordion, both its `readOnly` and editable branches untouched. Outer gate `!readOnly && (editableDescriptors.length > 0 || editableTextDescriptors.length > 0 || editableAreaDescriptors.length > 0)` → on a read-only/Finalized sheet the accordion is suppressed entirely (nothing editable inside) and the inline read-only remark shows as today. Trigger restyled to a COMPACT INLINE toggle (`w-auto flex-none justify-start gap-1.5 … text-[10px] uppercase …`) neutralizing shadcn's default `flex-1 justify-between` so the chevron sits beside the label (not stranded at the wide panel's right edge), matching the panel's other `text-[10px]` section labels; a subtle `border-t border-border/60 pt-1` divider sets it off. Everything else in the panel (edited/original badge, Classification/Parent reclassify controls, ParentChain/ChildrenList, AI + Gemini accept blocks, Warnings, Edit history) stays OUTSIDE, unchanged.
 
 ## Revised BoQ entry (S2, ADR-0014 D1/D2, branch `feature/upload-revised-boq`)

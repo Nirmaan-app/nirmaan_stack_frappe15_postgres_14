@@ -37,6 +37,36 @@ export function roundHalfUp(x: number, dp: number): number {
 export interface SizeMatchSpec {
   /** The rounding depths to try, in order. Declared in config; `[2, 1]` is what Insulation uses. */
   dp: number[];
+  /**
+   * SLICE 12e-2 (owner Q14a, 2026-10-10: "yes 0.1 mm i meant"): after every depth, the NEAREST rung within
+   * this distance of the stated value counts as the stated size (1-1/4" = 31.75 -> the sheet's own 31.7). Read
+   * by `nearestRung`, called by the pricer AFTER `resolveSize`; `resolveSize` itself never reads it, so a
+   * config without the key is byte-identical. The tolerance applies to the MATCH only -- the ladder above it
+   * still buys the next size up and refuses above the largest.
+   */
+  near?: number;
+  /**
+   * SLICE 12e-2 (owner Q17, "sam as per ladder rule"): DECLARES that a stated value below the smallest rung
+   * takes the smallest -- what `fitModuleLadder("up")` has always done. The declaration is what lets the
+   * field's line say "(the smallest size)" and the Derivation tab name the ruling; it changes no figure.
+   */
+  below_smallest?: "smallest";
+}
+
+/**
+ * SLICE 12e-2 (owner Q14a). PURE. The rung NEAREST to `stated` within `near` (inclusive, with the binary
+ * epsilon `roundHalfUp` needs), or null when none is that close. A tie (two rungs equally near) is resolved to
+ * the LOWER rung, so the answer is a function of the inputs alone and never of array order.
+ */
+export function nearestRung(stated: number, rungs: number[], near: number): number | null {
+  if (!Number.isFinite(stated) || !Number.isFinite(near) || near <= 0 || !rungs.length) return null;
+  let best: number | null = null;
+  let bestD = Number.POSITIVE_INFINITY;
+  for (const r of [...rungs].sort((a, b) => a - b)) {
+    const d = Math.abs(r - stated);
+    if (d <= near + 1e-9 && d < bestD - 1e-12) { best = r; bestD = d; }
+  }
+  return best;
 }
 
 export interface SizeMatch {

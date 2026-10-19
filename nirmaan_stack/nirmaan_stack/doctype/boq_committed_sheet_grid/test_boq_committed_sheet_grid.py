@@ -3,6 +3,7 @@
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from nirmaan_stack.services.boq_fixture_teardown import fixture_boq_name, purge_boq, purge_docs
 
 _TEST_PROJECT = "_TEST_BOQ_PROJECT_CGS"
 
@@ -32,15 +33,15 @@ class TestBoQCommittedSheetGrid(FrappeTestCase):
         boq = frappe.new_doc("BOQs")
         boq.project = _TEST_PROJECT
         boq.boq_name = "Shared Test BoQ for Committed General Specs"
-        boq.insert(ignore_permissions=True, ignore_links=True)
+        boq.insert(set_name=fixture_boq_name("BOQ_COMMITTED_SHEET_GRID"), ignore_permissions=True, ignore_links=True)
         cls.boq_name = boq.name
         frappe.db.commit()
 
     @classmethod
     def tearDownClass(cls):
         if hasattr(cls, "boq_name"):
-            frappe.db.delete("BoQ Committed Sheet Grid", {"boq": cls.boq_name})
-            frappe.db.delete("BOQs", {"name": cls.boq_name})
+            purge_docs("BoQ Committed Sheet Grid", {"boq": cls.boq_name})
+            purge_boq(cls.boq_name)
         frappe.db.commit()
         super().tearDownClass()
 

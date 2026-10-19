@@ -21,6 +21,7 @@ view of the tree that survives renumbering.
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from nirmaan_stack.services.boq_fixture_teardown import purge_boq
 
 from nirmaan_stack.api.boq.wizard.template_rows import (
     create_review_row,
@@ -96,6 +97,7 @@ class TestTemplateRows(FrappeTestCase):
         for b in frappe.get_all("BOQs", filters={"project": cls.test_project.name}, fields=["name"]):
             frappe.db.delete("BoQ Review Row", {"boq": b.name})
             frappe.db.delete("BoQ Sheet Pricing Lock", {"boq": b.name})
+            purge_boq(b.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", b.name, force=True, ignore_permissions=True)
         frappe.delete_doc("Projects", cls.test_project.name, force=True, ignore_permissions=True)
         frappe.db.commit()

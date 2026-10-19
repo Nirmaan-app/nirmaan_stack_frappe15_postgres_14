@@ -107,6 +107,11 @@ export const RATE_MASTER_DISCIPLINES: readonly RateMasterDisciplineEntry[] = [
       // Its config carries NO pipelines this slice, so it is not eligible for pricing or extraction --
       // pricing, extraction and the panel are 12b -- and no BoQ screen changes.
       { category_id: "hvac_insulation", label: "Insulation" },
+      // SLICE 12e-1 (2026-10-09, owner "(b) accept it"): the Piping CATALOGUE -- 40 per-metre items from the
+      // workbook's Piping sheet (copper / MS / PVC / CPVC) with a DATA-ONLY config (pipelines {}), so it holds
+      // items (listed here, beside Insulation -- the two piped catalogues together, Pricing Inputs last) and
+      // is never priced: a Piping BoQ row and the calculator show the "coming soon" card until 12e-2.
+      { category_id: "hvac_piping", label: "Piping" },
       // SLICE 12c (2026-10-03): HVAC's Pricing Inputs -- the seven numbers Insulation's cladding rule
       // reads. BORN CONNECTED, which is the whole point of minting them with the rule in one asset: an
       // input no pipeline reads shows "not used" and a zero-SKU impact panel. It DOES hold items, so

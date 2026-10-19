@@ -1,4 +1,5 @@
 import json
+from unittest import mock
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -13,6 +14,7 @@ from nirmaan_stack.api.boq.wizard.update_sheet_draft import (
 )
 # A1: the REAL un-mark endpoint (review_screen) used by the round-trip freeze test.
 from nirmaan_stack.api.boq.wizard.review_screen import unmark_sheet_parsed_check_done
+from nirmaan_stack.services.boq_fixture_teardown import purge_boq
 
 _SHEET_HVAC = "HVAC BOQ"
 _SHEET_ELEC = "ELECTRICAL"
@@ -43,6 +45,7 @@ def _make_boq(project_name: str):
 
 def _cleanup_project(project_name: str):
     for boq in frappe.get_all("BOQs", filters={"project": project_name}, fields=["name"]):
+        purge_boq(boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
         frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
     frappe.delete_doc("Projects", project_name, force=True, ignore_permissions=True)
     frappe.db.commit()
@@ -68,6 +71,7 @@ class TestSetSheetStatusPositive(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -126,6 +130,7 @@ class TestSetSheetStatusNegative(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -171,6 +176,7 @@ class TestSetSheetLabel(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -242,6 +248,7 @@ class TestSetGeneralSpecsSheet(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -450,6 +457,7 @@ class TestSetSheetConfig(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -553,6 +561,7 @@ class TestSetSheetConfigDirtyMarker(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -686,6 +695,7 @@ class TestSetSheetWorkPackages(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -797,7 +807,16 @@ class TestSetSheetWorkPackages(FrappeTestCase):
 
 class TestMigrateWorkPackageToMulti(FrappeTestCase):
     """Verify the migration patch: rows with a legacy work_package column value
-    get a matching BoQ Sheet Work Package child row, and the patch is idempotent."""
+    get a matching BoQ Sheet Work Package child row, and the patch is idempotent.
+
+    The legacy single-Link column is gone from the table (a database restored from
+    production, or a fresh install, never carried it), so the test can no longer
+    write it. The legacy state is simulated at the patch's two reads of that
+    column instead -- its has_column guard and its one SELECT of
+    (name, work_package) -- and every other statement the patch runs (the Work
+    Headers lookup, the already-migrated lookup, the child-row insert) goes to
+    the real database. No schema is changed.
+    """
 
     @classmethod
     def setUpClass(cls):
@@ -818,27 +837,56 @@ class TestMigrateWorkPackageToMulti(FrappeTestCase):
             {"parent": self.boq.name, "sheet_name": _SHEET_HVAC},
             "name",
         )
-        # Simulate legacy state: write the old work_package column value via raw SQL
-        frappe.db.sql(
-            'UPDATE "tabBoQ Sheet Draft" SET work_package = %s WHERE name = %s',
-            (self.__class__.wh_migrate, self._draft_name),
-        )
-        frappe.db.commit()
+
+    def _run_patch_on_legacy_state(self):
+        """Run the patch as if this test's draft row still held the legacy value.
+
+        Returns the number of times the patch read the legacy column, so a test
+        can prove the simulated read is the one the patch actually made.
+        """
+        from nirmaan_stack.patches.v3_0.migrate_boq_sheet_draft_work_package_to_multi import execute
+
+        db = frappe.local.db
+        real_sql = db.sql
+        real_has_column = db.has_column
+        legacy_rows = [
+            frappe._dict(name=self._draft_name, work_package=self.__class__.wh_migrate)
+        ]
+        legacy_reads = []
+
+        def fake_has_column(doctype, column):
+            if (doctype, column) == ("BoQ Sheet Draft", "work_package"):
+                return True
+            return real_has_column(doctype, column)
+
+        def fake_sql(query, *args, **kwargs):
+            text = " ".join(query.split()) if isinstance(query, str) else ""
+            if text.startswith('SELECT name, work_package FROM "tabBoQ Sheet Draft"'):
+                legacy_reads.append(text)
+                return list(legacy_rows)
+            return real_sql(query, *args, **kwargs)
+
+        with mock.patch.object(db, "has_column", side_effect=fake_has_column),                 mock.patch.object(db, "sql", side_effect=fake_sql):
+            execute()
+        return len(legacy_reads)
 
     def tearDown(self):
+        # A statement that failed inside a test leaves the transaction aborted;
+        # roll it back so the cleanup below, the next test and tearDownClass run.
+        frappe.db.rollback()
         # Remove any migration-created child rows before deleting the BOQ
         frappe.db.sql(
             'DELETE FROM "tabBoQ Sheet Work Package" WHERE parent = %s',
             (self._draft_name,),
         )
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
     def test_migration_creates_child_row_from_legacy_work_package(self):
         """Patch creates one BoQ Sheet Work Package row for the legacy work_package value."""
-        from nirmaan_stack.patches.v3_0.migrate_boq_sheet_draft_work_package_to_multi import execute
-        execute()
+        self.assertEqual(self._run_patch_on_legacy_state(), 1)
         rows = frappe.db.sql(
             'SELECT work_header FROM "tabBoQ Sheet Work Package" WHERE parent = %s',
             (self._draft_name,),
@@ -846,12 +894,22 @@ class TestMigrateWorkPackageToMulti(FrappeTestCase):
         )
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].work_header, self.__class__.wh_migrate)
+        # The row is a real child of the draft's multi work-package table.
+        self.assertEqual(
+            [r.work_header for r in _get_work_packages(self._draft_name)],
+            [self.__class__.wh_migrate],
+        )
+        self.assertEqual(
+            frappe.db.get_value(
+                "BoQ Sheet Work Package", {"parent": self._draft_name}, "parentfield"
+            ),
+            "work_packages",
+        )
 
     def test_migration_is_idempotent(self):
         """Running the patch twice must not create duplicate child rows."""
-        from nirmaan_stack.patches.v3_0.migrate_boq_sheet_draft_work_package_to_multi import execute
-        execute()
-        execute()
+        self.assertEqual(self._run_patch_on_legacy_state(), 1)
+        self.assertEqual(self._run_patch_on_legacy_state(), 1)
         rows = frappe.db.sql(
             'SELECT work_header FROM "tabBoQ Sheet Work Package" WHERE parent = %s',
             (self._draft_name,),
@@ -888,6 +946,7 @@ class TestGetBoqWorkPackages(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -997,6 +1056,7 @@ class TestParseHistoryNotTouched(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -1109,6 +1169,7 @@ class TestParseInProgressGuard(FrappeTestCase):
         frappe.db.commit()
 
     def tearDown(self):
+        purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
         frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -1167,6 +1228,7 @@ class TestStatusRenameRegression(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -1208,6 +1270,7 @@ class TestFinalizedConfigFreeze(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
