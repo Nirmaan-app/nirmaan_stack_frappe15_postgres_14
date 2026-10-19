@@ -139,6 +139,15 @@ figure — the company pays the tax on top:
     rule. There is no separate TDS tile. The same answer carries `payments`
     (`payment_tds.work_order_deductions`: each payment's `tds_amount` and `borne_by`, any status) for
     the WO page's transactions table TDS column.
+  - **The vendor-level figures read the same split per payment (#1512)**, off
+    `payment_tds.borne_tds_by_payment_sql` (one row per deduction, `vendor_borne_tds` /
+    `company_borne_tds`; `borne_tds_by_order_sql` is its per-order sum). The Vendor Ledger (screen and
+    PDF, `api/vendor/get_vendor_po_invoices.get_po_ledger_data` via `borne_tds_by_payment`): a WO
+    payment row is payment + its `Vendor` tax, details "incl. TDS ₹x". The Vendor report's dated paid
+    figure (`services/vendor_paid`): the `Vendor` tax on the payment's date. The payments pop-up
+    (`PaymentsDataDialog`, `paymentsDialogRows`): a TDS column from `get_work_order_tds` `payments`,
+    `Vendor` rows only, total = payments + TDS − Received refunds = Amount Paid. `Company` tax adds
+    nothing to any of them.
 - **`Payment TDS Deduction` is readable only by Accountant, Accountant Lead and System Manager**, and
   its permissions stay so. Anything a non-accountant screen needs from it goes through a whitelisted
   read that checks read on the parent order (`get_work_order_tds`, `get_payment_summary`). A page's

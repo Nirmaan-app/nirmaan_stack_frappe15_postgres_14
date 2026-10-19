@@ -8,13 +8,14 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import { useMemo } from "react";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { NoBankProofBadge } from "@/components/vendor-refunds/NoBankProofBadge";
 import { useVendorRefunds } from "@/components/vendor-refunds/useVendorRefunds";
 import { GstPaymentTag } from "./components/GstPaymentTag";
 import { paymentsDialogRows } from "./paymentsDialogRows";
+import type { WorkOrderTds } from "./tdsForecast";
 
 interface PaymentsDataDialogProps {
   open: boolean;
@@ -71,7 +72,19 @@ export const PaymentsDataDialog = ({
           return { project, vendor, document_name: data?.name, gst }
   }, [projects, vendors, data])
 
-  const { rows, total } = useMemo(() => paymentsDialogRows(fetchedPayments, refunds), [fetchedPayments, refunds])
+  // A Work Order's Amount Paid holds the TDS withheld from the vendor on each payment (ADR-0034
+  // Amendment A, #1512), so its rows show it. Asked of the server, which checks read on the Work Order:
+  // `Payment TDS Deduction` is readable by the accountants only (#1451). A PO takes no deductions.
+  const { data: workOrderTds } = useFrappeGetCall<{ message: WorkOrderTds }>(
+    "nirmaan_stack.api.payments.work_order_tds.get_work_order_tds",
+    { work_order: data?.name },
+    open && !isPO && data?.name ? `PaymentsDialogTds-${data.name}` : null
+  );
+
+  const { rows, total } = useMemo(
+    () => paymentsDialogRows(fetchedPayments, refunds, workOrderTds?.message?.payments),
+    [fetchedPayments, refunds, workOrderTds]
+  )
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -105,6 +118,7 @@ export const PaymentsDataDialog = ({
                 <TableRow>
                   <TableHead>Payment Date</TableHead>
                   <TableHead>Amount</TableHead>
+                  {!isPO && <TableHead>TDS</TableHead>}
                   <TableHead>UTR No.</TableHead>
                 </TableRow>
               </TableHeader>
@@ -124,6 +138,7 @@ export const PaymentsDataDialog = ({
                           <NoBankProofBadge refund={row.refund} />
                         </span>
                       </TableCell>
+                      {!isPO && <TableCell>--</TableCell>}
                       <TableCell className="font-semibold overflow-hidden truncate max-w-28"><TruncatedText text={row.refund.utr} fallback="--" className="max-w-28" /></TableCell>
                     </TableRow>
                   ) : (
@@ -135,6 +150,7 @@ export const PaymentsDataDialog = ({
                         {formatToRoundedIndianRupee(row.payment.amount)}
                         <GstPaymentTag payment={row.payment} />
                       </TableCell>
+                      {!isPO && <TableCell>{row.tds ? formatToRoundedIndianRupee(row.tds) : "--"}</TableCell>}
                       {row.payment.payment_attachment ? (
                           <TableCell className="font-semibold text-blue-500 underline overflow-hidden truncate max-w-28">
                               <a href={`${SITEURL}${row.payment.payment_attachment}`} target="_blank" rel="noreferrer"
@@ -159,7 +175,7 @@ export const PaymentsDataDialog = ({
                 <TableFooter>
                   <TableRow>
                     <TableCell className="font-semibold">Total</TableCell>
-                    <TableCell className="font-semibold" colSpan={2}>{formatToRoundedIndianRupee(total)}</TableCell>
+                    <TableCell className="font-semibold" colSpan={isPO ? 2 : 3}>{formatToRoundedIndianRupee(total)}</TableCell>
                   </TableRow>
                 </TableFooter>
               )}
