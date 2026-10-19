@@ -26,9 +26,25 @@ NPE = "Non Project Expenses"
 ACCOUNTANT = "dxe_test_accountant@example.com"
 # Holds no create right on either expense doctype, and no role profile (so it raises no request).
 NO_CREATE = "dxe_test_hrlead@example.com"
-# Holds the PMO Executive role alone: no System Manager, which the real PMO profile also carries (#1475).
+# The PMO profile holding the PMO Executive role alone: no System Manager, which the real PMO profile
+# also carries (#1475).
 PMO = "dxe_test_pmo@example.com"
-USERS = (ACCOUNTANT, NO_CREATE, PMO)
+# A Project Manager on the real profile and its real role (#1495).
+PM = "dxe_test_pm@example.com"
+# Every profile the Add Expense button is shown to (`frontend/.../addExpenseGate.ts`), each on a user
+# holding that profile's live roles.
+ADD_EXPENSE_PROFILES = (
+    "Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile",
+    "Nirmaan Procurement Executive Profile", "Nirmaan Procurement Lead Profile",
+    "Nirmaan Material Procurement Executive Profile", "Nirmaan Service Procurement Executive Profile",
+    "Nirmaan HR Executive Profile", "Nirmaan PMO Executive Profile",
+)
+DOOR_USERS = {profile: f"dxe_test_door_{i}@example.com" for i, profile in enumerate(ADD_EXPENSE_PROFILES)}
+USERS = (ACCOUNTANT, NO_CREATE, PMO, PM, *DOOR_USERS.values())
+
+
+def _profile_roles(profile: str) -> tuple[str, ...]:
+    return tuple(r.role for r in frappe.get_doc("Role Profile", profile).roles)
 
 
 class TestCreateDirectExpense(FrappeTestCase):
@@ -37,7 +53,10 @@ class TestCreateDirectExpense(FrappeTestCase):
         super().setUpClass()
         _make_user(ACCOUNTANT, "Nirmaan Accountant Profile", ("Nirmaan Accountant",))
         _make_user(NO_CREATE, None, ("Nirmaan HR Lead",))
-        _make_user(PMO, None, ("Nirmaan PMO Executive",))
+        _make_user(PMO, "Nirmaan PMO Executive Profile", ("Nirmaan PMO Executive",))
+        _make_user(PM, "Nirmaan Project Manager Profile", _profile_roles("Nirmaan Project Manager Profile"))
+        for profile, email in DOOR_USERS.items():
+            _make_user(email, profile, _profile_roles(profile))
         cls.types = {}
         for rule, project in (("Required", 0), ("Optional", 1)):
             name = f"dxe_test_{rule.lower()}_{frappe.generate_hash(length=5)}"
@@ -155,7 +174,44 @@ class TestCreateDirectExpense(FrappeTestCase):
                 self.assertEqual(frappe.db.get_value(doctype, created["name"], "owner"), PMO)
                 self.assertEqual(self._pay_to(doctype, created["name"]), self._account_of(payee))
 
+    def test_every_profile_shown_add_expense_records_both_kinds(self):
+        """Add Expense keeps working for each profile that sees it today, on that profile's live roles
+        (#1495). Administrator too."""
+        payee = self.payees.payee()
+        for profile, user in (*DOOR_USERS.items(), ("Administrator", U)):
+            for doctype in (PE, NPE):
+                with self.subTest(profile=profile, doctype=doctype):
+                    created = self._create(doctype, user=user, payee=payee)
+                    self.assertEqual(frappe.db.get_value(doctype, created["name"], "owner"), user)
+
     # -- refusals ---------------------------------------------------------------------------------
+    def test_a_project_manager_is_refused_and_nothing_is_saved(self):
+        """Add Expense is hidden from a Project Manager, so the server refuses one too (#1495)."""
+        payee = self.payees.payee()
+        for doctype in (PE, NPE):
+            with self.subTest(doctype=doctype):
+                with self.assertRaises(frappe.PermissionError):
+                    self._create(doctype, user=PM, payee=payee)
+                frappe.db.rollback()
+                self.assertFalse(frappe.db.exists(doctype, {"description": self.tag}))
+
+    def test_a_project_manager_cannot_create_a_ledger_row_through_the_document_api(self):
+        """No Direct Expense through Desk or REST either: the Project Manager role holds no create
+        right on either ledger (#1495)."""
+        for doctype in (PE, NPE):
+            with self.subTest(doctype=doctype):
+                values = {"doctype": doctype, "type": self.types["Optional" if doctype == PE else "Required"],
+                          "amount": 2500, "description": self.tag,
+                          **({"projects": self.project} if doctype == PE else {})}
+                frappe.set_user(PM)
+                try:
+                    with self.assertRaises(frappe.PermissionError):
+                        frappe.get_doc(values).insert()
+                finally:
+                    frappe.set_user(U)
+                frappe.db.rollback()
+                self.assertFalse(frappe.db.exists(doctype, {"description": self.tag}))
+
     def test_an_unknown_payee_leaves_no_expense_behind(self):
         for doctype in (PE, NPE):
             with self.subTest(doctype=doctype):

@@ -45,7 +45,13 @@ Both share one approval lifecycle and are entered/managed together in a single u
   Paid = Admin, Accountant, Accountant Lead** (`can_mark_paid` = `PAYMENT_SETTLE_PROFILES`); HR Executive
   lost Mark as Paid on the old pages with #1497. A reject needs a reason; Mark as Paid needs payment
   date, reference and receipt. The bank-line rules (`expense_bank_links.validate`) still have the last word.
-- **Project Expenses use only project-flagged (`project=1`) Expense Types** (ADR 0009).
+- **Project Expenses use only project-flagged (`project=1`) Expense Types** (ADR 0009), and Non
+  Project Expenses only `non_project=1` ones. **Enforced on the server by both ledgers' `validate`**
+  (`services/expense_type_ledger.check_expense_type`, #1496), so it covers every write path: the
+  request intake, the imports, the PO-adjustment ad-hoc expense, Desk and data import. It asks only
+  when the row is new or its type changed, so an old row whose type was re-flagged stays editable.
+  Paths that refuse before building anything (`settle._assert_type_scope`, `execute_adjustment`)
+  ask the same `expense_type_problem`.
 - **An expense's bank lines decide Paid, not a person** (ADR-0027, 2026-09-18). An expense can be
   settled by MANY imported bank lines — a salary or reimbursement run leaves the bank as one transfer
   per employee but is recorded as one expense. The **linked total** is the sum of the expense's live
@@ -316,7 +322,8 @@ List-page **summary cards stay tab-scoped** (they reflect the active status tab)
 
 ### PO adjustment
 - The ad-hoc adjustment expense is created directly as **`Paid`** (money has already moved)
-  — `api/po_adjustments/adjustment_logic.py`.
+  — `api/po_adjustments/adjustment_logic.py`. Its type must be project-flagged: the picker lists
+  `project=1` types only, and `execute_adjustment` refuses any other before it makes a payment (#1496).
 
 ### Data normalization (ADR 0009)
 - Patch `v3_0.normalize_project_expense_types`: repoints Project Expenses using 6
