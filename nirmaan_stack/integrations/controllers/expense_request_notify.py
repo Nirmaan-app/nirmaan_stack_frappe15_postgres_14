@@ -23,6 +23,7 @@ because a bell message could not be written.
 import frappe
 
 from nirmaan_stack.api.expense_requests.access import REJECTED
+from nirmaan_stack.services.expense_decision import DECIDING_FLAG
 
 PAID = "Paid"
 EXPENSE_DOCTYPES = ("Project Expenses", "Non Project Expenses")
@@ -65,7 +66,9 @@ def _notify(recipient: str, title: str, description: str, request_name: str,
 	# rides the import's transaction instead, and the socket waits for that commit, so the house
 	# rule still holds. Unlike the CEO-Hold notify, this one is NOT skipped: Paid is the one moment
 	# the requester is told about.
-	settling = bool(frappe.flags.get("outflow_import_settling"))
+	# The same holds inside `expense_decision.decide` (Mark as Paid), which runs in its caller's
+	# per-row savepoint.
+	settling = bool(frappe.flags.get("outflow_import_settling") or frappe.flags.get(DECIDING_FLAG))
 	if not settling:
 		frappe.db.commit()
 

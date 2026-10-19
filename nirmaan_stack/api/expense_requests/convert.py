@@ -34,8 +34,7 @@ from nirmaan_stack.api.expense_requests.flatten import (
 )
 from nirmaan_stack.services.outflow_import.settle import format_amount_for
 from nirmaan_stack.services.payees.pay_to import copy_pay_to
-from nirmaan_stack.services.approval_raiser import raiser_level
-from nirmaan_stack.services.approval_tiers import TIER_L2_ABOVE_EXPENSES, initial_status_for_raiser
+from nirmaan_stack.services.expense_decision import starting_status
 
 
 def target_doctype(req) -> str:
@@ -125,24 +124,14 @@ def target_status(req) -> str:
 	The reviewer is told the outcome before they commit to it, and since 2026-08-20 that
 	outcome depends on the amount -- so the dialog can no longer say "Approved" and be right.
 
-	⚠️ IT MAKES THE LEDGER'S OWN CALL, byte for byte: `initial_status_for_raiser(amount,
-	TIER_L2_ABOVE_EXPENSES, level)` is exactly the line `ProjectExpenses.validate` and
-	`NonProjectExpenses.validate` run on the row this request becomes. Restating the
-	comparison here -- or hardcoding a number in this module, or worse in TypeScript -- is how
-	the screen would come to promise one thing while `validate` did another.
+	⚠️ IT MAKES THE LEDGER'S OWN CALL: `expense_decision.starting_status` is exactly what both
+	ledgers' `validate` apply to the row this request becomes. Restating the comparison here -- or
+	hardcoding a number in this module, or worse in TypeScript -- is how the screen would come to
+	promise one thing while `validate` did another.
 
-	⚠️ THIS USED TO IMPORT `AUTO_APPROVE_LIMIT` FROM `project_expenses`, AND THAT NAME IS
-	GONE (16 Sep 2026): the rule moved into `services/approval_tiers.py` and the per-doctype
-	constants went with it. The dead import did not fail quietly -- it raised `ImportError`
-	inside `get_my_expense_requests`, which is the ONLY source of `can_review`, so the whole
-	scoped read 500'd and every row's Approve/Reject collapsed to "--" for everyone, Admin
-	included. Keep this pointed at the shared module.
-
-	⚠️ AND IT FOLLOWS THE REQUEST'S RAISER (owner, 2026-09-21), exactly as `validate` does via
-	`approval_raiser.expense_raiser`: an L1 approver's request is born past L1, the CEO's past
-	both. The raiser is the REQUEST's owner -- never the reviewer calling this.
+	The raiser is the REQUEST's owner -- never the reviewer calling this.
 	"""
-	return initial_status_for_raiser(flt(req.amount), TIER_L2_ABOVE_EXPENSES, raiser_level(req.get("owner")))
+	return starting_status(req.amount, req.get("owner")).status
 
 
 def create_ledger_row(req):
@@ -167,7 +156,7 @@ def create_ledger_row(req):
 	⚠️ CONSEQUENCE, ACCEPTED: an expense of ₹15,000 or more is NOT payable on approval alone.
 	It needs the ledger's own Approve -- and that queue held 7 stranded rows when this shipped.
 	If nobody works it, a large approved request never gets paid. The old text said ₹5,000 and
-	"admin-only"; the threshold moved (10,000 -> 15,000) and L1 is now Admin OR Accountant Lead.
+	"admin-only"; the threshold moved (10,000 -> 15,000) and L1 is the Admin profile (`expense_decision.is_l1`, #1497).
 	"""
 	doctype = target_doctype(req)
 	source_format = _source_format_for(req)
