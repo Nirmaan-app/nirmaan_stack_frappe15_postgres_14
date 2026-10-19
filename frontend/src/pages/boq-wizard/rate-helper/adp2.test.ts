@@ -318,3 +318,17 @@ describe("ADP-2 harness", () => {
     expect(JSON.stringify(V47)).toBe(before);
   });
 });
+
+// =====================================================================================================================
+describe("ADP-2 AC8 -- the minted HVAC v48 IS v47 + applyAdp2 (the harness every test above runs on cannot drift from the asset)", () => {
+  const V48 = readJsonFixture<AssetLike>(new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v48.json", import.meta.url));
+  it("every config is deep-equal, in the same order; only ADP's differs from v47", () => {
+    expect(V48.category_configs.map((c) => c.category_id)).toEqual(NEW.category_configs.map((c) => c.category_id));
+    for (const c of V48.category_configs) expect({ id: c.category_id, cfg: c }).toEqual({ id: c.category_id, cfg: NEW.category_configs.find((x) => x.category_id === c.category_id) });
+    const changed = V48.category_configs.filter((c) => JSON.stringify(c) !== JSON.stringify(V47.category_configs.find((x) => x.category_id === c.category_id))).map((c) => c.category_id);
+    expect(changed).toEqual([ADP]);
+  });
+  it("the catalogue is v47's, item for item (ADP-2 changes no item)", () => {
+    expect(V48.items).toEqual(V47.items);
+  });
+});
