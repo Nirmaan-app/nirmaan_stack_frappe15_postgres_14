@@ -179,6 +179,8 @@ __all__ = [
 	"is_approval_from_an_earlier_step",
 	"is_company_borne",
 	"categories_are_company_borne",
+	"borne_tds_by_payment_sql",
+	"borne_tds_by_payment",
 	"borne_tds_by_order_sql",
 	"borne_tds_by_order",
 	"borne_kind",
@@ -288,29 +290,71 @@ def categories_are_company_borne(raw) -> bool:
 	return bool(categories) and categories <= COMPANY_BORNE_CATEGORIES
 
 
+def borne_tds_by_payment_sql() -> str:
+	"""A derived table `(project_payment, vendor_borne_tds, company_borne_tds)`: each deduction's tax,
+	split by who bore it (`borne_by`), one row per payment that carries one (`project_payment` is
+	unique), WHATEVER THE PAYMENT'S STATUS: the reader joins the payment and keeps the Paid ones.
+	`vendor_borne_tds` was withheld from the vendor and is part of its order's Amount Paid (ADR-0034
+	Amendment A); `company_borne_tds` the company paid on top and is not.
+
+	THE ONE SPLIT: `borne_tds_by_order_sql` adds it up per order (the Amount Paid writer and the
+	mismatch judge), and the vendor-level figures read it per payment: the Vendor Ledger's WO payment
+	rows (`borne_tds_by_payment`) and the Vendor report's dated paid figure (`services/vendor_paid`).
+	Read off each row's stored `borne_by` (#1451), never off the categories or the amounts: a part
+	settlement cuts a kept-whole payment below its gross, an amount edit moves both figures, and a Work
+	Order's categories can change after the fact. A row with no `borne_by` (a raw insert) reads as
+	`Vendor`, the column default.
+	"""
+	return f"""
+		SELECT d.project_payment,
+		       CASE WHEN d.borne_by = '{BORNE_BY_COMPANY}' THEN 0 ELSE d.tds_amount END AS vendor_borne_tds,
+		       CASE WHEN d.borne_by = '{BORNE_BY_COMPANY}' THEN d.tds_amount ELSE 0 END AS company_borne_tds
+		FROM "tab{TDS_DOCTYPE}" d
+	"""
+
+
+def borne_tds_by_payment(vendor: str) -> dict:
+	"""`{payment name: {"vendor": tax withheld from the vendor, "company": tax the company paid on top}}`
+	for every Paid payment of `vendor` that carries a deduction (`borne_tds_by_payment_sql`); a payment
+	with none is absent. One query, keyed by the payment's own `vendor` as the Vendor Ledger is.
+	"""
+	if not vendor:
+		return {}
+	rows = frappe.db.sql(
+		f"""
+		SELECT t.project_payment, t.vendor_borne_tds, t.company_borne_tds
+		FROM ({borne_tds_by_payment_sql()}) t
+		INNER JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = t.project_payment
+		WHERE p.vendor = %(vendor)s AND p.status = '{PAID}'
+		""",
+		{"vendor": vendor},
+		as_dict=True,
+	)
+	return {
+		row.project_payment: {"vendor": flt(row.vendor_borne_tds, 2), "company": flt(row.company_borne_tds, 2)}
+		for row in rows
+	}
+
+
 def borne_tds_by_order_sql(exclude_payment: bool = False) -> str:
 	"""A derived table `(document_name, vendor_borne_tds, company_borne_tds)`: per order of
-	`%(doctype)s`, the tax on its Paid payments' deductions, split by who bore it (`borne_by`).
-	`vendor_borne_tds` was withheld from the vendor and is part of the order's Amount Paid (ADR-0034
-	Amendment A); `company_borne_tds` the company paid on top and is not. Together they are its
-	`total_tds`. With `exclude_payment`, the payment `%(exclude)s` is left out.
+	`%(doctype)s`, the tax on its Paid payments' deductions, split by who bore it
+	(`borne_tds_by_payment_sql`). Together the two are its `total_tds`. With `exclude_payment`, the
+	payment `%(exclude)s` is left out.
 
 	THE ONE SOURCE of "tax by order": the Amount Paid writer (`amount_paid.amount_paid_of`, through
 	`borne_tds_by_order`) selects from it and the mismatch judge (`services/amount_paid_drift.mismatches`)
-	joins it into its one query, so the two cannot disagree. Read off each row's stored `borne_by`
-	(#1451), never off the categories or the amounts: a part settlement cuts a kept-whole payment below
-	its gross, an amount edit moves both figures, and a Work Order's categories can change after the
-	fact. A row with no `borne_by` (a raw insert) reads as `Vendor`, the column default.
+	joins it into its one query, so the two cannot disagree.
 
 	Joined through the PAYMENT's order, not the deduction's own `document_name`: a Paid payment moved
 	to another order takes its tax with it.
 	"""
 	return f"""
 		SELECT p.document_name,
-		       SUM(CASE WHEN d.borne_by = '{BORNE_BY_COMPANY}' THEN 0 ELSE d.tds_amount END) AS vendor_borne_tds,
-		       SUM(CASE WHEN d.borne_by = '{BORNE_BY_COMPANY}' THEN d.tds_amount ELSE 0 END) AS company_borne_tds
-		FROM "tab{TDS_DOCTYPE}" d
-		INNER JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = d.project_payment
+		       SUM(t.vendor_borne_tds) AS vendor_borne_tds,
+		       SUM(t.company_borne_tds) AS company_borne_tds
+		FROM ({borne_tds_by_payment_sql()}) t
+		INNER JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = t.project_payment
 		WHERE p.document_type = %(doctype)s
 		  AND p.status = '{PAID}'
 		  {"AND p.name <> %(exclude)s" if exclude_payment else ""}

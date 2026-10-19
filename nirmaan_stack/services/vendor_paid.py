@@ -1,14 +1,16 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""What reached each vendor in a date range: the Amount Paid rule, dated (#1461, ADR-0034).
+"""What was paid to each vendor in a date range: the Amount Paid rule, dated (#1461, ADR-0034).
 
-An order's Amount Paid is its Paid Project Payments less its Received Vendor Refunds (`GLOSSARY.md`
-*Amount Paid*). Amount Paid carries no date, so a figure for a period (the Vendor report's Total Paid in a
-range, its Current FY Paid, and the cash behind its Balance Payable since the ledger start) applies the
-same rule to the rows themselves: a payment on its `payment_date`, a refund on the refund's own
-`payment_date`, each falling back to its creation date when blank. With no dates it is the vendor's
-orders' Amount Paid added up, worked out from source.
+An order's Amount Paid is its Paid Project Payments, plus (a Work Order's) the TDS withheld from the
+vendor on them, less its Received Vendor Refunds (`GLOSSARY.md` *Amount Paid*, ADR-0034 Amendment A).
+Amount Paid carries no date, so a figure for a period (the Vendor report's Total Paid in a range, its
+Current FY Paid, and the cash behind its Balance Payable since the ledger start) applies the same rule to
+the rows themselves: a payment and the tax withheld on it on the payment's `payment_date`, a refund on
+the refund's own `payment_date`, each falling back to its creation date when blank. With no dates it is
+the vendor's orders' Amount Paid added up, worked out from source. Tax the company paid on top
+(`borne_by` Company) was never the vendor's and counts nothing (`payment_tds.borne_tds_by_payment_sql`).
 
 Only PO and Work Order money counts, as for Amount Paid; a payment or refund is the vendor's by its own
 `vendor` field, as in the Vendor Ledger.
@@ -18,6 +20,7 @@ import frappe
 from frappe.utils import flt
 
 from nirmaan_stack.services.money_dates import ON_PAYMENT_DATE, date_range_clauses
+from nirmaan_stack.services.payment_tds import PAYMENT_DOCTYPE, borne_tds_by_payment_sql
 from nirmaan_stack.services.vendor_refunds import LOWERS_PAID_STATUSES, REFUND_DOCUMENT_FIELDS
 
 
@@ -47,6 +50,15 @@ def vendors_paid(from_date=None, to_date=None) -> dict[str, float]:
             SELECT vendor, amount AS paid
             FROM "tabProject Payments"
             WHERE status = 'Paid' AND {where}
+            UNION ALL
+            SELECT vendor, vendor_borne_tds
+            FROM (
+                SELECT p.vendor, p.document_type, p.payment_date, p.creation, t.vendor_borne_tds
+                FROM ({borne_tds_by_payment_sql()}) t
+                INNER JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = t.project_payment
+                WHERE p.status = 'Paid'
+            ) AS withheld
+            WHERE {where}
             UNION ALL
             SELECT vendor, -amount
             FROM "tabVendor Refunds"
