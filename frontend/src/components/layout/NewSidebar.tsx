@@ -72,6 +72,8 @@ import {
 } from "../ui/collapsible";
 import { Separator } from "../ui/separator";
 import { useCountsBridge } from "@/hooks/useSidebarCounts";
+import { useExpenseAccess } from "@/hooks/useExpenseAccess";
+import { showsExpenses } from "@/utils/expenseAccess";
 import {
   ACCOUNTANT_LEAD_PROFILE,
   ACCOUNTANT_PROFILE,
@@ -103,6 +105,7 @@ export function NewSidebar() {
 
   // * inside component body */
   useCountsBridge(user_id);
+  const { access: expenseAccess } = useExpenseAccess();
 
   const [collapsedKey, setCollapsedKey] = useState<string | null>(null); // Tracks the currently open group
 
@@ -581,7 +584,7 @@ export function NewSidebar() {
     // HR Executive added 2026-09-17 (owner): HR gets VIEW-ONLY tabs there (Reconciliation
     // Pending, Payment Done, Payments Pending, Payment By Me, and All Payments since #1476) --
     // `paymentsTabSet` holds it to them. HR LEAD added #1476 (spec #1470): the same view-only
-    // tabs, landing on "Payment Raised By Me", and no Add Expense (it holds no write right).
+    // tabs, landing on "Payment Raised By Me".
     ...(user_id == "Administrator" || [ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE, ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, PROJECT_LEAD_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, ...PROCUREMENT_PROFILES].includes(role as string)
       ? [
         {
@@ -608,20 +611,18 @@ export function NewSidebar() {
         },
       ]
       : []),
-    // HR LEAD ADDED 2026-09-23 (owner). It was already a valid REVIEWER server-side
-    // (`api/expense_requests/access.PM_REQUEST_REVIEWERS`) but appeared in no sidebar gate
-    // anywhere, so the approve right it held was unreachable -- there was no door to the
-    // screen. It now gets the same three tabs as Admin / Accountant / HR Executive; the tab
-    // set itself is decided by `reviewsExpenseRequests` in constants/roles.ts.
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan HR Executive Profile", "Nirmaan HR Lead Profile", "Nirmaan Project Manager Profile"].includes(role as string)
+    // Expenses (spec #1494, #1506): shown to someone who can raise at least one expense type, or who
+    // reviews -- the server's answer (`useExpenseAccess`, `access.opens_expenses`), read from the same
+    // `Expense Type.allowed_roles` the request-creating call enforces, and the same answer the
+    // `/expense` route guard (`ExpenseRoute`) reads. It replaced a fixed profile list that left out
+    // Project Lead (who raises three types) and kept in profiles that could raise nothing.
+    // ⚠️ The flat-nav Set below matches on this LABEL — both strings move together.
+    ...(showsExpenses(expenseAccess)
       ? [
         {
-          // Renamed "Expense" -> "Expense Request" (owner, 17 Sep 2026): the module now shows
-          // only the request list -- ExpenseLayout hides the Misc Project / Non-Project tabs.
-          // ⚠️ The flat-nav Set below matches on this LABEL — both strings move together.
           key: '/expense',
           icon: Landmark,
-          label: 'Expense Request',
+          label: 'Expenses',
         },
       ]
       : []),
@@ -631,10 +632,9 @@ export function NewSidebar() {
     // (owner, 2026-10-07).
     // ── "Expense" HIDDEN from the sidebar (owner, 15 Sep 2026) ──────────────────
     //
-    // Expenses are now raised and worked from "Project Payment & Expense": the unified
-    // queue lists all three money-out ledgers, and the top-bar "Expense Request"
-    // dropdown creates either kind. A second nav entry pointing at the same records
-    // was two doors into one room.
+    // Expenses are worked from "Project Payment & Expense": the unified queue lists all three
+    // money-out ledgers. They are raised through New Expense on the Expenses page (spec #1494).
+    // A second nav entry pointing at the same ledger records was two doors into one room.
     //
     // ⚠️ HIDDEN, NOT DELETED — exactly like PO Wise / All Payments on the payments tab
     // strip. `/expense/project` and `/expense/non-project` still RESOLVE
@@ -852,7 +852,7 @@ export function NewSidebar() {
 
 
 
-  ], [user_id, role, isAdminOnly, payeesPlace]);
+  ], [user_id, role, isAdminOnly, payeesPlace, expenseAccess]);
 
   const allKeys = useMemo(() => new Set([
     "projects",
@@ -1105,7 +1105,7 @@ export function NewSidebar() {
                     "Material Plan Tracker",
                     "Cashflow Plan Tracker",
                     "Project Invoices",
-                    "Expense Request",
+                    "Expenses",
                     "Users",
                     "Assets",
                     "Vendors",

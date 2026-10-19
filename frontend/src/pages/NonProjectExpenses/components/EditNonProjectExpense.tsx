@@ -381,7 +381,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                             <p className="col-span-3 col-start-2 text-xs text-muted-foreground mt-0.5">{project.hint}</p>
                         </div>
                     )}
-                    {/* Core Details: Type, Description, Amount - Similar to NewNonProjectExpense */}
+                    {/* Core Details: Type, Description, Amount */}
                     <div className="grid grid-cols-4 items-center gap-3">
                         <Label htmlFor="type_edit_npe_trigger" className="text-right col-span-1">Type <sup className="text-destructive">*</sup></Label>
                         <div className="col-span-3">

@@ -56,7 +56,6 @@ Filters out Halted/Completed projects from the dropdown by default.
 | DC & MIRs | `pages/DeliveryChallansAndMirs/DeliveryChallansAndMirs.tsx:397` | Project filter on DC/MIR list |
 | ManPower Report | `components/ManPowerReport.tsx:302` | Project filter for report |
 | Edit Invoice | `pages/ProjectInvoices/components/ProjectInvoiceDialog.tsx:154` | Project selector in edit dialog |
-| New Expense | `pages/ProjectExpenses/components/NewProjectExpenseDialog.tsx:170` | Project selector for new expense |
 
 **Without filter (`all={true}`, all projects shown):**
 

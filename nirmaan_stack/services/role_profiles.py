@@ -133,22 +133,6 @@ AMOUNT_PAID_MISMATCH_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 HR_EXECUTIVE_PROFILE = "Nirmaan HR Executive Profile"
 HR_LEAD_PROFILE = "Nirmaan HR Lead Profile"
 
-# Record a Direct Expense (#1495, spec #1494): the profiles shown the Add Expense button on Project Payment
-# & Expense. ENFORCEMENT boundary for `api/expenses/direct_expense.create_direct_expense`, beside the
-# ledger's create DocPerm, which about 16 other roles hold. Mirrored client-side by `ADD_EXPENSE_PROFILES` in
-# `frontend/src/pages/ProjectPayments/config/addExpenseGate.ts` -- keep the two lists in sync.
-ADD_EXPENSE_PROFILES = (
-    (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
-    + PROCUREMENT_PROFILES
-    + (HR_EXECUTIVE_PROFILE, PMO_EXECUTIVE_PROFILE)
-)
-
-
-def can_add_expense(user: str) -> bool:
-    """True when `user` is shown Add Expense, and so may record a Direct Expense. Administrator passes."""
-    return has_role_profile(user, ADD_EXPENSE_PROFILES)
-
-
 # Set or change a person's `Nirmaan Users.department` (owner, 2026-10-12). Many roles have
 # write on Nirmaan Users (their own profile), so the doctype's role rows cannot say this;
 # `NirmaanUsers.validate` enforces it. Mirrored client-side by `DEPARTMENT_EDIT_PROFILES` in

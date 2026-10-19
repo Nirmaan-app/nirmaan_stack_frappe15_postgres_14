@@ -14,8 +14,7 @@
 //
 // ⚠️ THE EDGES ARE THE RULE. "Below 15000" / "15000 to <l2>" / "Above <l2>" -- so exactly
 // 15,000 needs L1, and exactly 50,000 stops AT L1. This REVERSES the expense ruling of
-// 2026-09-04 (`<= 10000`, inclusive), which still stands documented in `expenseApproval.ts`
-// until that module is retired. Do not "fix" one to match the other.
+// 2026-09-04 (`<= 10000`, inclusive). Anything written against that ruling is stale.
 //
 // ⚠️ THE SIGN DOES ONE THING ONLY: IT BLOCKS AUTO-APPROVAL (owner, 2026-09-15). That is
 // exactly what it did before -- both ledgers guarded auto-approval with `0 < amount` and

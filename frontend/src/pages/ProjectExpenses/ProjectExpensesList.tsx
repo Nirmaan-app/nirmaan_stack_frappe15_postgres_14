@@ -36,7 +36,6 @@ import {
   DOCTYPE,
 } from "./config/projectExpensesTable.config";
 import { getProjectExpenseColumns } from "./config/projectExpensesColumns";
-import { NewProjectExpenseDialog } from "./components/NewProjectExpenseDialog";
 import { EditProjectExpenseDialog } from "./components/EditProjectExpenseDialog";
 import { UpdatePaymentDetailsDialog } from "./components/UpdatePaymentDetailsDialog";
 import { ProjectExpenseSummaryCard } from "./components/ProjectExpenseSummaryCard";
@@ -484,13 +483,6 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
             projectName={projectId ? getProjectName(projectId) : undefined}
           />
         }
-      />
-      <NewProjectExpenseDialog
-        projectId={projectId}
-        onSuccess={() => {
-          refetch();
-          mutateCounts();
-        }}
       />
       {expenseToEdit && (
         <EditProjectExpenseDialog

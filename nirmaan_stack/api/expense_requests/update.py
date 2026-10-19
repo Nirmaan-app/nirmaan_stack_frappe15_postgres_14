@@ -128,7 +128,8 @@ def update_expense_request(
 	)
 	if not sbool(keep_pay_to):
 		apply_picked_payee(req, payee)
-	req.save()
+	# Elevated, like `create`: who may edit is the owner-or-Admin check above, not the DocPerm.
+	req.save(ignore_permissions=True)
 	frappe.db.commit()
 
 	return {"name": req.name, "status": req.status, "projects": req.projects,
