@@ -46,6 +46,7 @@ import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 import { isProcurementProfile } from "@/constants/roles";
 import { PorterBadge } from "@/components/common/PorterExpense";
 import { invoiceAttachmentUrl } from "@/utils/porterExpense";
+import { canMarkExpensePaid } from "@/utils/expenses/expenseDecision";
 
 export interface GetProjectExpenseColumnsOptions {
   statusTab: string;
@@ -98,9 +99,8 @@ export const getProjectExpenseColumns = ({
   const canEditRequested =
     isAdmin || isPMO || isAccountant || isProcurement || isHR;
   const canApprove = isAdmin; // Requested -> Approved (Admin only)
-  // Approved -> Paid: Admin and Accounts, the server's rule (`expense_decision.can_mark_paid`, #1497).
-  // HR Executive lost it with #1497: the server refuses Mark as Paid to anyone outside Accounts.
-  const canMarkPaid = isAdmin || isAccountant;
+  // Approved -> Paid: the server's rule (`expense_decision.can_mark_paid`, #1497), mirrored once.
+  const canMarkPaid = canMarkExpensePaid(role);
   const canDelete = isAdmin; // Delete is Admin only (PMO removed)
 
   // --- Actions column visibility (scoped to the Paid and All tabs) ---

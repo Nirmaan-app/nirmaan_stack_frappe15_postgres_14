@@ -185,6 +185,23 @@ class TestExpenseDecisions(FrappeTestCase):
 		payment = {"payment_date": "2026-10-19", "payment_ref": "UTR-2", "payment_attachment": "/files/r.pdf"}
 		self.assertEqual(self._decide(ADMIN, [name], "mark_paid", payment=payment)["statuses"], {name: "Paid"})
 
+	def test_mark_as_paid_saves_the_invoice_details_in_the_same_call(self):
+		name = self._expense(30000, status="Approved", doctype=PE, invoice_ref="OLD-1")
+		payment = {"payment_date": "2026-10-19", "payment_ref": "UTR-inv", "payment_attachment": "/files/r.pdf"}
+		invoice = {"invoice_date": "2026-10-02", "invoice_ref": "INV-77", "invoice_attachment": "/files/i.pdf"}
+		result = self._decide(ACCOUNTANT, [name], "mark_paid", payment=payment, invoice=frappe.as_json(invoice))
+		self.assertEqual(result["statuses"], {name: "Paid"})
+		row = frappe.db.get_value(PE, name, ["invoice_date", "invoice_ref", "invoice_attachment"], as_dict=True)
+		self.assertEqual((str(row.invoice_date), row.invoice_ref, row.invoice_attachment),
+		                 ("2026-10-02", "INV-77", "/files/i.pdf"))
+
+	def test_a_refused_mark_as_paid_saves_no_invoice_details(self):
+		name = self._expense(30000, status="Approved", doctype=PE, invoice_ref="OLD-1")
+		result = self._decide(ACCOUNTANT, [name], "mark_paid", payment={"payment_ref": "UTR-x"},
+		                      invoice={"invoice_ref": "INV-NEW"})
+		self.assertIn("Mark as Paid needs", self._refused(result, name))
+		self.assertEqual(frappe.db.get_value(PE, name, ["status", "invoice_ref"]), ("Approved", "OLD-1"))
+
 	# -- nobody sets a status by hand (story 42) ------------------------------------------------
 	def _save_as(self, user, doctype, name, **changes):
 		"""Save the Expense the way Desk, REST and `frappe.client` do: a plain `doc.save()`."""

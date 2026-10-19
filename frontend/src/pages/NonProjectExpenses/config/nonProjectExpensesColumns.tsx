@@ -52,6 +52,7 @@ import { NonProjectExpenses } from "@/types/NirmaanStack/NonProjectExpenses";
 import { isProcurementProfile } from "@/constants/roles";
 import { PorterBadge } from "@/components/common/PorterExpense";
 import { invoiceAttachmentUrl } from "@/utils/porterExpense";
+import { canMarkExpensePaid } from "@/utils/expenses/expenseDecision";
 
 export interface GetNonProjectExpenseColumnsOptions {
   statusTab: string;
@@ -99,9 +100,8 @@ export const getNonProjectExpenseColumns = ({
   const canRecordInvoice =
     isAdmin || isPMO || isAccountant || isProcurement || isHR;
   const canApprove = isAdmin; // Requested -> Approved (Admin only)
-  // Approved -> Paid: Admin and Accounts, the server's rule (`expense_decision.can_mark_paid`, #1497).
-  // HR Executive lost it with #1497: the server refuses Mark as Paid to anyone outside Accounts.
-  const canMarkPaid = isAdmin || isAccountant;
+  // Approved -> Paid: the server's rule (`expense_decision.can_mark_paid`, #1497), mirrored once.
+  const canMarkPaid = canMarkExpensePaid(role);
   const canEdit = isAdmin || isPMO || isProcurement || isHR; // Requested-row edit
   const canDelete = isAdmin; // Delete is Admin only
 

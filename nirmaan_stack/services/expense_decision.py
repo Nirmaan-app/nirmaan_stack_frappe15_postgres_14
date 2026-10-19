@@ -83,6 +83,9 @@ FROM_STATUSES = {
 
 # What Mark as Paid must end up holding. A value passed in `payment` replaces the stored one.
 PAYMENT_FIELDS = ("payment_date", "payment_ref", "payment_attachment")
+# The invoice details Mark as Paid may save in the same write (the pay dialog's invoice). A field
+# passed replaces the stored one, a blank one clears it; a field left out keeps it.
+INVOICE_FIELDS = ("invoice_date", "invoice_ref", "invoice_attachment")
 
 # Set while `decide` saves. Hooks that commit (a notification) honour it, because `decide` runs
 # inside its caller's savepoint and a commit there ends the savepoint.
@@ -191,7 +194,7 @@ def refuse_hand_set_status(doc) -> None:
 # ── A change to an existing row ─────────────────────────────────────────────────────────────
 
 def decide(doctype: str, name: str, action: str, user: str, reason: str | None = None,
-           payment: dict | None = None) -> str:
+           payment: dict | None = None, invoice: dict | None = None) -> str:
 	"""Apply `action` to one Expense as `user`; return the status it now has.
 
 	Raises `frappe.ValidationError` (wrong ledger, action or status, missing reason or payment
@@ -226,6 +229,7 @@ def decide(doctype: str, name: str, action: str, user: str, reason: str | None =
 		doc.status = RECONCILIATION_PENDING
 	else:
 		_record_payment(doc, payment or {}, user)
+		_record_invoice(doc, invoice or {})
 		doc.status = PAID
 
 	frappe.flags[DECIDING_FLAG] = True
@@ -265,3 +269,10 @@ def _record_payment(doc, payment: dict, user: str) -> None:
 		frappe.throw(_("Mark as Paid needs: {0}.").format(", ".join(missing)))
 	if doc.meta.has_field("payment_by") and not doc.get("payment_by"):
 		doc.payment_by = user
+
+
+def _record_invoice(doc, invoice: dict) -> None:
+	for field in INVOICE_FIELDS:
+		if field in invoice:
+			value = invoice[field]
+			doc.set(field, (value.strip() if isinstance(value, str) else value) or None)
