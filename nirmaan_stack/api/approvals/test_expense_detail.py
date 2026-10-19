@@ -30,9 +30,11 @@ class TestExpenseApprovalDetail(FrappeTestCase):
 		self._commit = frappe.db.commit
 		frappe.db.commit = lambda *a, **k: None
 		frappe.set_user("Administrator")
-		self.type = frappe.db.get_value("Expense Type", {}, "name")
+		# A type both ledgers accept: the rows below are one of each, and each ledger refuses a
+		# type from the other (#1496).
+		self.type = frappe.db.get_value("Expense Type", {"project": 1, "non_project": 1}, "name")
 		if not self.type:
-			raise unittest.SkipTest("no Expense Type on this site")
+			raise unittest.SkipTest("no Expense Type allowed on both ledgers on this site")
 
 		self.raiser = next(iter(frappe.get_all(
 			"Nirmaan Users", filters={"role_profile": "Nirmaan Procurement Executive Profile"}, pluck="name",
