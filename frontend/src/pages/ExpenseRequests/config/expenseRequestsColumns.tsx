@@ -46,6 +46,9 @@ const STATUS_BADGE: Record<ExpenseRequestStatus, string> = {
     Paid: "bg-sky-100 text-sky-800",
 };
 
+/** The mark on a request whose raiser records without review (GLOSSARY, #1498). */
+const APPROVED_ON_SUBMIT = "Approved on submit (no review)";
+
 interface Args {
     statusTab: string;
     getUserName: (id: string | undefined) => string;
@@ -241,7 +244,12 @@ export const getExpenseRequestColumns = ({
             enableColumnFilter: true,
             cell: ({ row }) => (
                 <div className="text-sm">
-                    <div>{row.original.reviewed_by ? getUserName(row.original.reviewed_by) : "--"}</div>
+                    {/* Records without review (#1498): nobody reviewed it, and the row says so. */}
+                    <div>
+                        {row.original.approved_on_submit
+                            ? <span className="text-muted-foreground">{APPROVED_ON_SUBMIT}</span>
+                            : row.original.reviewed_by ? getUserName(row.original.reviewed_by) : "--"}
+                    </div>
                     {row.original.reviewed_on && (
                         <div className="text-[11px] text-muted-foreground">
                             {formatDate(row.original.reviewed_on)}
@@ -252,7 +260,8 @@ export const getExpenseRequestColumns = ({
             meta: {
                 ...facetMeta({ field: "reviewed_by", title: "Reviewed By" }),
                 exportHeaderName: "Reviewed By",
-                exportValue: (r: ExpenseRequest) => r.reviewed_by || "",
+                exportValue: (r: ExpenseRequest) =>
+                    r.approved_on_submit ? APPROVED_ON_SUBMIT : r.reviewed_by || "",
             },
         });
     }

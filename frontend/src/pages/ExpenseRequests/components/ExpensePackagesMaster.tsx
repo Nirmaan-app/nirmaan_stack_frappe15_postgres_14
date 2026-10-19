@@ -17,7 +17,7 @@
 // shown in the Payee column and set in the Add / Edit dialog.
 
 import React, { useMemo, useState } from "react";
-import { useFrappeGetCall, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDocList, useFrappePostCall, useSWRConfig } from "frappe-react-sdk";
 import ReactSelect from "react-select";
 import { TailSpin } from "react-loader-spinner";
 import { Braces, Pencil, PlusCircle, Search, TextCursorInput } from "lucide-react";
@@ -49,6 +49,7 @@ import {
 // no longer picked on this screen, so every new type lands here.
 const FALLBACK_CATEGORY = "Uncategorized";
 import { ExpenseFormatDialog } from "./ExpenseFormatDialog";
+import { RECORDS_WITHOUT_REVIEW_KEY, RecordsWithoutReviewSection } from "./RecordsWithoutReviewSection";
 
 type ScopeLabel = "Project" | "Non-Project" | "Both" | "Unusable";
 
@@ -116,6 +117,9 @@ export const ExpensePackagesMaster: React.FC = () => {
     // Rename is ADMIN ONLY. This hides the button; `rename_expense_type` is the real gate.
     const { role, user_id } = useUserData();
     const isAdmin = user_id === "Administrator" || role === "Nirmaan Admin Profile";
+    // Records without review offers only profiles that can raise a type, so a type's roles changing
+    // refreshes it.
+    const { mutate: mutateKey } = useSWRConfig();
 
     const { data, isLoading, error, mutate } = useFrappeGetDocList<ExpenseType>("Expense Type", {
         fields: ["name", "expense_name", "project", "non_project", "source_format",
@@ -248,6 +252,7 @@ export const ExpensePackagesMaster: React.FC = () => {
             setEdit(BLANK);
             mutate();
             mutateAccess();
+            mutateKey(RECORDS_WITHOUT_REVIEW_KEY);
         } catch (e) {
             toast({ title: "Could not save", description: getFrappeError(e), variant: "destructive" });
         }
@@ -277,6 +282,9 @@ export const ExpensePackagesMaster: React.FC = () => {
                     <PlusCircle className="mr-1.5 h-4 w-4" /> Add Expense Type
                 </Button>
             </div>
+
+            {/* Admin only: the endpoint behind it is admin-gated. */}
+            {isAdmin && <RecordsWithoutReviewSection />}
 
             <div className="relative max-w-sm">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />

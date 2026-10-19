@@ -17,6 +17,7 @@ from nirmaan_stack.api.expense_requests.access import (
 	REJECTED,
 	caller_role_profile,
 	can_request_type,
+	records_without_review,
 	reviews_pm_request,
 )
 from nirmaan_stack.api.expense_requests.convert import (
@@ -52,6 +53,8 @@ FIELDS = [
 	# reads it before deciding, and the edit dialog shows it.
 	*PAY_TO_FIELDS,
 	"source_data", "status", "reviewed_by", "reviewed_on", "review_comment",
+	# Records without review (#1498): approved on submit, with no Reviewer. Shown on the request.
+	"approved_on_submit",
 	"owner", "creation", "modified",
 ]
 
@@ -214,6 +217,9 @@ def get_request_catalog(include_type: str | None = None):
 	`has_format` drives whether the dialog renders a template step; `project` /
 	`non_project` drive the conditional Project field (mirroring the doctype's
 	`type_allows_project` fetch).
+
+	`records_without_review`: the caller's request is approved on submit (#1498), so the dialog's
+	button reads "Record expense" and says who approves next, rather than "Send for review".
 	"""
 	types = [
 		t for t in requestable_types()
@@ -254,7 +260,7 @@ def get_request_catalog(include_type: str | None = None):
 			)
 		categories.append({"category": name, "reviewer_role": reviewer_role, "types": entries})
 
-	return {"categories": categories}
+	return {"categories": categories, "records_without_review": records_without_review()}
 
 
 @frappe.whitelist()
