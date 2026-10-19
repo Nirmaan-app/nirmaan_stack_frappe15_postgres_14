@@ -1015,6 +1015,17 @@ class TestExpenseRequests(FrappeTestCase):
 		self.assertEqual(get_expense_format(on)["source_format"], fmt)
 		self.assertTrue(self._catalog_types()[on]["has_format"])
 
+	def test_a_type_with_no_form_needs_a_description_and_the_comment_stays_optional(self):
+		"""The short New Expense form (#1501): a type with no per-type form asks only Description
+		(required) and Comment (optional)."""
+		standard = self._own_type()
+		res = self._raise_as(PM_USER, expense_type=standard, description="Diesel for the generator")
+		self.assertEqual(res["status"], "Pending Approval")
+		self.assertFalse(frappe.db.get_value("Expense Request", res["name"], "comment"))
+
+		with self.assertRaises(frappe.ValidationError):
+			self._raise_as(PM_USER, expense_type=standard, description="   ", comment="see bill")
+
 	def test_the_switch_cannot_be_on_without_a_format(self):
 		with self.assertRaises(frappe.ValidationError):
 			self._own_type(enabled=1)

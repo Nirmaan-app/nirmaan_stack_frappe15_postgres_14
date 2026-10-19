@@ -10,10 +10,12 @@
 //   non-project only -> hidden entirely
 //   both             -> shown and optional; the choice picks the ledger
 //
-// The type's "Enable Source" switch decides the rest of the form. ON: the type's own
-// format. OFF (or no format): the STANDARD fields a directly-entered expense needs --
-// a required Description, a required Vendor once a project is chosen, and optional invoice
-// details that reach the ledger row's invoice columns at approval.
+// The New Expense form (spec #1494, #1501) asks, in order: Type, Amount, Project (as above),
+// an optional Vendor (searchable, once a project is chosen), Who gets paid (below), then the
+// details, and a Comment (optional). The type's "Enable Source" switch decides the details. ON:
+// the type's own format. OFF (or no format): the STANDARD fields -- a required Description and
+// optional invoice details that reach the ledger row's invoice columns at approval. Which fields
+// show is `utils/newExpenseForm.newExpenseFields`.
 //
 // Who gets paid (ADR-0033, #1429, #1436): when the type's `payee_rule` asks (Required / Optional), the
 // "Who gets paid" section picks or adds a Payee -- or, with a vendor picked, shows that vendor's
@@ -33,8 +35,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import { Checkbox } from "@/components/ui/checkbox";
-import { CustomAttachment, AcceptedFileType } from "@/components/helpers/CustomAttachment";
 import {
     FuzzySearchSelect, FuzzyOptionType, TokenSearchConfig,
 } from "@/components/ui/fuzzy-search-select";
@@ -52,6 +52,7 @@ import {
 } from "@/utils/payees/expensePayee";
 import { payToSave } from "@/utils/payees/payToChoice";
 
+import { newExpenseFields } from "@/utils/newExpenseForm";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useUserData } from "@/hooks/useUserData";
 import { parseNumber } from "@/utils/parseNumber";
@@ -67,6 +68,7 @@ import {
 import FormatFieldsRenderer, {
     FormatAnswers, FormatFiles, requiredKeys, toResponses,
 } from "./FormatFieldsRenderer";
+import StandardInvoiceSection from "./StandardInvoiceSection";
 import WhoGetsPaidSection from "./WhoGetsPaidSection";
 
 /** One option per expense type.
@@ -123,8 +125,6 @@ const EMPTY: FormState = {
     expense_type: "", projects: "", vendor: "", amount: "", description: "", comment: "",
     recordInvoice: false, invoice_date: "", invoice_ref: "", existingInvoiceUrl: "",
 };
-
-const INVOICE_ACCEPTED_TYPES: AcceptedFileType[] = ["image/*", "application/pdf"];
 
 export const NewExpenseRequestDialog: React.FC<Props> = ({
     onSuccess, editing = null, onEditingChange,
@@ -228,14 +228,22 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         : "";
 
     const selected = form.expense_type ? typesById.get(form.expense_type) : undefined;
-    const showProject = !!selected?.project_allowed;
-    const projectRequired = !!selected?.project_required;
-
-    // Vendor is a PROJECT-ONLY field, and the gate is the project being CHOSEN, not merely
-    // offered: `Non Project Expenses` has no vendor column at all, so a vendor recorded on a
-    // non-project request would be silently dropped at approval. Asking for it only once a
-    // project is on screen is what keeps the request and the ledger row able to agree.
-    const showVendor = showProject && !!form.projects;
+    // Which fields the type asks (`utils/newExpenseForm`). The Vendor is optional and PROJECT-ONLY,
+    // shown once a project is CHOSEN: `Non Project Expenses` has no vendor column, so a vendor on a
+    // non-project request would be dropped at approval. A type whose form is switched off (or
+    // unwritten, or unparseable) asks a Description instead; while a form is still loading neither
+    // is shown, so the Description never flashes up and vanishes.
+    const fields = newExpenseFields({
+        type: selected,
+        projectChosen: !!form.projects,
+        formatLoading,
+        formatReady: !!parsedFormat,
+    });
+    const showProject = fields.project !== "hidden";
+    const projectRequired = fields.project === "required";
+    const showVendor = fields.vendor;
+    const formatPending = fields.details === "loading";
+    const isStandard = fields.details === "description";
     const vendorChosen = showVendor && !!form.vendor && form.vendor !== OTHERS_VENDOR_VALUE;
 
     // Who gets paid: asked unless the type says Not asked. With a vendor picked it is the vendor's
@@ -270,13 +278,6 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         setForm((f) => ({ ...f, vendor: value }));
     };
 
-    // STANDARD mode: the type's form is switched off (or unwritten, or unparseable), so the
-    // dialog asks what a directly-entered expense needs. While a switched-on format is still
-    // loading neither mode is shown, so the standard fields never flash up and vanish.
-    const formatPending = !!selected?.has_format && formatLoading;
-    const isStandard = !!selected && !parsedFormat && !formatPending;
-    const showDescription = isStandard;
-
     const set = useCallback(
         <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((f) => ({ ...f, [k]: v })),
         []
@@ -308,14 +309,12 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         () => requiredKeys(parsedFormat).filter((k) => !(answers[k] || "").trim()),
         [parsedFormat, answers]
     );
-    // The standard request's own requirements -- the SAME rules the server's
-    // `guard_request_form` applies, plus the vendor pick, which only this screen can see
-    // ("Others (No Vendor)" and an untouched field both reach the server as nothing).
+    // The standard request's own requirements: the SAME rules the server's `guard_request_form`
+    // applies. The vendor is optional (#1501), so it is not among them.
     const hasInvoiceFile = !!invoiceFile || !!form.existingInvoiceUrl;
     const standardComplete =
         !isStandard || (
             !!form.description.trim() &&
-            (!showVendor || !!form.vendor) &&
             (!form.recordInvoice || (
                 !!form.invoice_date && (!hasInvoiceFile || !!form.invoice_ref.trim())
             ))
@@ -505,97 +504,116 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
             open={newExpenseRequestDialog || isEdit}
             onOpenChange={(o) => { if (!o) close(); else setNewExpenseRequestDialog(true); }}
         >
-            <AlertDialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+            <AlertDialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                 <AlertDialogHeader>
-                    <AlertDialogTitle>{isEdit ? `Edit ${editing!.name}` : "Raise Expense Request"}</AlertDialogTitle>
+                    <AlertDialogTitle>{isEdit ? `Edit ${editing!.name}` : "New Expense"}</AlertDialogTitle>
                 </AlertDialogHeader>
                 <Separator />
 
+                {/* The spec's order (#1501): Type, Amount, Project, Vendor, Who gets paid, then the
+                    type's own questions or a Description, then the invoice and the Comment. */}
                 <div className="space-y-4 py-2">
-                    <div className="space-y-1.5">
-                        <Label>Expense Type <span className="text-destructive">*</span></Label>
-                        <FuzzySearchSelect<ExpenseTypeOption, false>
-                            allOptions={typeOptions}
-                            tokenSearchConfig={EXPENSE_TYPE_SEARCH}
-                            isLoading={catalogLoading}
-                            value={selectedTypeOption}
-                            onChange={(o) => handleTypeChange(o?.value ?? "")}
-                            placeholder={catalogLoading ? "Loading…" : "Search or select a type…"}
-                            // Scope rides the menu rows only; the chosen value stays a clean name
-                            // -- the `VendorSelect` convention.
-                            formatOptionLabel={(o, meta) => meta.context === "value" ? o.label : (
-                                <span className="flex items-center justify-between gap-2 w-full">
-                                    <span className="truncate">{o.label}</span>
-                                    <span className="text-xs text-muted-foreground whitespace-nowrap">
-                                        {o.scope}
-                                    </span>
-                                </span>
-                            )}
-                            // The menu renders in the body -- REQUIRED inside a dialog or it
-                            // clips at the dialog's edge, the same reason VendorSelect portals.
-                            menuPortalTarget={document.body}
-                            menuPosition="fixed"
-                            // Clearing the type would leave the form with a format and no type
-                            // to file it under; switching to another type is the way out.
-                            isClearable={false}
-                        />
-                    </div>
-
-                    {showProject && (
+                    <div className="grid gap-4 sm:grid-cols-2">
                         <div className="space-y-1.5">
-                            <Label>
-                                Project {projectRequired && <span className="text-destructive">*</span>}
-                            </Label>
-                            {chosenProjectLabel ? (
-                                // ⚠️ `ProjectSelect` keeps its selection in INTERNAL state and
-                                // takes no `value`, so it CANNOT display a project the user did
-                                // not pick in this session -- on an edit it renders its
-                                // placeholder over a required field that IS set, which reads as
-                                // unset. It is shared across many screens, so the fix stays
-                                // HERE: show what the request already carries, and mount the
-                                // untouched picker only once the requester asks to change it.
-                                <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2">
-                                    <span className="truncate text-sm">{chosenProjectLabel}</span>
-                                    <Button
-                                        type="button" variant="ghost" size="sm"
-                                        className="h-7 shrink-0 text-xs"
-                                        onClick={() => setChangingProject(true)}
-                                    >
-                                        Change
-                                    </Button>
-                                </div>
-                            ) : (
-                                <ProjectSelect
-                                    universal={false}
-                                    usePortal
-                                    onChange={(o) => handleProjectChange(o?.value ?? "")}
-                                />
-                            )}
-                            {!projectRequired && (
+                            <Label>Expense Type <span className="text-destructive">*</span></Label>
+                            <FuzzySearchSelect<ExpenseTypeOption, false>
+                                allOptions={typeOptions}
+                                tokenSearchConfig={EXPENSE_TYPE_SEARCH}
+                                isLoading={catalogLoading}
+                                value={selectedTypeOption}
+                                onChange={(o) => handleTypeChange(o?.value ?? "")}
+                                placeholder={catalogLoading ? "Loading…" : "Search or select a type…"}
+                                // Scope rides the menu rows only; the chosen value stays a clean name
+                                // -- the `VendorSelect` convention.
+                                formatOptionLabel={(o, meta) => meta.context === "value" ? o.label : (
+                                    <span className="flex items-center justify-between gap-2 w-full">
+                                        <span className="truncate">{o.label}</span>
+                                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                            {o.scope}
+                                        </span>
+                                    </span>
+                                )}
+                                // The menu renders in the body -- REQUIRED inside a dialog or it
+                                // clips at the dialog's edge, the same reason VendorSelect portals.
+                                menuPortalTarget={document.body}
+                                menuPosition="fixed"
+                                // Clearing the type would leave the form with a format and no type
+                                // to file it under; switching to another type is the way out.
+                                isClearable={false}
+                            />
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <Label>Amount <span className="text-destructive">*</span></Label>
+                            <Input
+                                type="number" placeholder="0" value={form.amount}
+                                onChange={(e) => set("amount", e.target.value)}
+                            />
+                            {amountValue > 0 && (
                                 <p className="text-xs text-muted-foreground">
-                                    Optional. Pick a project to charge it there; leave blank for a
-                                    company-wide expense.
+                                    {formatToRoundedIndianRupee(amountValue)}
                                 </p>
                             )}
                         </div>
-                    )}
+                    </div>
 
-                    {showVendor && (
-                        <div className="space-y-1.5">
-                            <Label>
-                                Vendor {isStandard && <span className="text-destructive">*</span>}
-                            </Label>
-                            <VendorSelect
-                                usePortal
-                                value={form.vendor}
-                                onChange={(o) => handleVendorChange(o?.value ?? "")}
-                            />
-                            <p className="text-xs text-muted-foreground">
-                                {isStandard ? "" : "Optional. "}
-                                {asksPayee
-                                    ? "Pick a vendor and its bank account fills in below."
-                                    : 'Choose "Others (No Vendor)" if the payee is not on record.'}
-                            </p>
+                    {showProject && (
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            <div className="space-y-1.5">
+                                <Label>
+                                    Project {projectRequired && <span className="text-destructive">*</span>}
+                                </Label>
+                                {chosenProjectLabel ? (
+                                    // ⚠️ `ProjectSelect` keeps its selection in INTERNAL state and
+                                    // takes no `value`, so it CANNOT display a project the user did
+                                    // not pick in this session -- on an edit it renders its
+                                    // placeholder over a required field that IS set, which reads as
+                                    // unset. It is shared across many screens, so the fix stays
+                                    // HERE: show what the request already carries, and mount the
+                                    // untouched picker only once the requester asks to change it.
+                                    <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2">
+                                        <span className="truncate text-sm">{chosenProjectLabel}</span>
+                                        <Button
+                                            type="button" variant="ghost" size="sm"
+                                            className="h-7 shrink-0 text-xs"
+                                            onClick={() => setChangingProject(true)}
+                                        >
+                                            Change
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <ProjectSelect
+                                        universal={false}
+                                        usePortal
+                                        onChange={(o) => handleProjectChange(o?.value ?? "")}
+                                    />
+                                )}
+                                {!projectRequired && (
+                                    <p className="text-xs text-muted-foreground">
+                                        Optional. Pick a project to charge it there; leave blank for a
+                                        company-wide expense.
+                                    </p>
+                                )}
+                            </div>
+
+                            {showVendor && (
+                                <div className="space-y-1.5">
+                                    <Label>
+                                        Vendor <span className="text-xs font-normal text-muted-foreground">optional</span>
+                                    </Label>
+                                    <VendorSelect
+                                        usePortal
+                                        value={form.vendor}
+                                        placeholder="Search vendors…"
+                                        onChange={(o) => handleVendorChange(o?.value ?? "")}
+                                    />
+                                    {asksPayee && (
+                                        <p className="text-xs text-muted-foreground">
+                                            A vendor is paid into its own bank account.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -611,93 +629,6 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                             problem={payeeProblem}
                             disabled={submitting}
                         />
-                    )}
-
-                    <div className="space-y-1.5">
-                        <Label>Amount <span className="text-destructive">*</span></Label>
-                        <Input
-                            type="number" placeholder="0" value={form.amount}
-                            onChange={(e) => set("amount", e.target.value)}
-                        />
-                        {amountValue > 0 && (
-                            <p className="text-xs text-muted-foreground">
-                                {formatToRoundedIndianRupee(amountValue)}
-                            </p>
-                        )}
-                    </div>
-
-                    {showDescription && (
-                        <div className="space-y-1.5">
-                            <Label>Description <span className="text-destructive">*</span></Label>
-                            <Textarea
-                                placeholder="What is this for?"
-                                value={form.description}
-                                onChange={(e) => set("description", e.target.value)}
-                            />
-                        </div>
-                    )}
-
-                    {isStandard && (
-                        <div className="space-y-3">
-                            <label className="flex items-center gap-2 text-sm font-medium">
-                                <Checkbox
-                                    checked={form.recordInvoice}
-                                    onCheckedChange={(v) => set("recordInvoice", !!v)}
-                                    disabled={submitting}
-                                />
-                                Add invoice details
-                            </label>
-                            {form.recordInvoice && (
-                                <div className="ml-2 space-y-3 border-l-2 border-dashed pl-4">
-                                    <div className="space-y-1.5">
-                                        <Label>Invoice Date <span className="text-destructive">*</span></Label>
-                                        <Input
-                                            type="date"
-                                            value={form.invoice_date}
-                                            onChange={(e) => set("invoice_date", e.target.value)}
-                                        />
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <Label>
-                                            Invoice Ref {hasInvoiceFile && <span className="text-destructive">*</span>}
-                                        </Label>
-                                        <Input
-                                            value={form.invoice_ref}
-                                            onChange={(e) => set("invoice_ref", e.target.value)}
-                                        />
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <Label>Invoice Attachment</Label>
-                                        {form.existingInvoiceUrl && !invoiceFile ? (
-                                            <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2">
-                                                <span className="truncate text-sm">
-                                                    {form.existingInvoiceUrl.split("/").pop()}
-                                                </span>
-                                                <Button
-                                                    type="button" variant="ghost" size="sm"
-                                                    className="h-7 shrink-0 text-xs"
-                                                    onClick={() => set("existingInvoiceUrl", "")}
-                                                >
-                                                    Remove
-                                                </Button>
-                                            </div>
-                                        ) : (
-                                            <CustomAttachment
-                                                label="Upload Invoice Document"
-                                                selectedFile={invoiceFile}
-                                                onFileSelect={setInvoiceFile}
-                                                onError={({ message }) =>
-                                                    toast({ title: "Attachment", description: message, variant: "destructive" })
-                                                }
-                                                maxFileSize={5 * 1024 * 1024}
-                                                acceptedTypes={INVOICE_ACCEPTED_TYPES}
-                                                disabled={submitting}
-                                            />
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
                     )}
 
                     {parsedFormat && (
@@ -719,9 +650,36 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                         />
                     )}
 
+                    {isStandard && (
+                        <div className="space-y-1.5">
+                            <Label>Description <span className="text-destructive">*</span></Label>
+                            <Textarea
+                                placeholder="What is this for?"
+                                value={form.description}
+                                onChange={(e) => set("description", e.target.value)}
+                            />
+                        </div>
+                    )}
+
+                    {isStandard && (
+                        <StandardInvoiceSection
+                            value={form}
+                            onChange={(k, v) => setForm((f) => ({ ...f, [k]: v }))}
+                            file={invoiceFile}
+                            onFileSelect={setInvoiceFile}
+                            onFileError={(message) =>
+                                toast({ title: "Attachment", description: message, variant: "destructive" })
+                            }
+                            disabled={submitting}
+                        />
+                    )}
+
                     <div className="space-y-1.5">
-                        <Label>Comment</Label>
-                        <Input
+                        <Label>
+                            Comment <span className="text-xs font-normal text-muted-foreground">optional</span>
+                        </Label>
+                        <Textarea
+                            rows={2}
                             placeholder="Anything the reviewer should know"
                             value={form.comment}
                             onChange={(e) => set("comment", e.target.value)}
