@@ -1,6 +1,6 @@
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeFileUpload, useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { CheckIcon, CirclePlus, Edit, PencilIcon, Save, SquarePlus, Trash, Trash2, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
@@ -30,7 +30,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "@/components/ui/use-toast";
 import { InvoiceDialog } from "@/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog";
-import type { WorkOrderTds } from "@/pages/ProjectPayments/tdsForecast";
+import { useWorkOrderTds } from "@/pages/ProjectPayments/hooks/useWorkOrderTds";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
@@ -260,12 +260,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     // deduction (the transactions table's TDS column). Asked of the server, which checks read on the
     // Work Order. ⚠️ The page never reads `Payment TDS Deduction` itself: that doctype is readable by
     // the accountants only, and a Procurement user's list read was refused with a 403 (#1451).
-    const { data: workOrderTdsResponse, mutate: workOrderTdsMutate } = useFrappeGetCall<{ message: WorkOrderTds }>(
-        "nirmaan_stack.api.payments.work_order_tds.get_work_order_tds",
-        { work_order: id },
-        id ? `WorkOrderTds-${id}` : null
-    );
-    const tdsByPayment = workOrderTdsResponse?.message?.payments ?? {};
+    const { workOrderTds, mutate: workOrderTdsMutate } = useWorkOrderTds(id);
+    const tdsByPayment = workOrderTds?.payments ?? {};
 
     // A new request can be auto-approved with TDS withheld at insert, so the lists must refresh
     // together -- otherwise the new row shows its net amount with no TDS and the label lags.
@@ -536,7 +532,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
             {/* WO Details Card - using new SRDetailsCard component */}
             <SRDetailsCard
                 orderData={orderData}
-                workOrderTds={workOrderTdsResponse?.message}
+                workOrderTds={workOrderTds}
                 project={project}
                 vendor={service_vendor}
                 gstEnabled={gstEnabled}

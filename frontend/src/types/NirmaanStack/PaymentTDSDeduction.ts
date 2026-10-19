@@ -1,4 +1,15 @@
 /**
+ * `Payment TDS Deduction.borne_by`: who bears one deduction's tax, set once when it is created (#1451).
+ * Mirrors `payment_tds.BORNE_BY_VENDOR` / `BORNE_BY_COMPANY` on the server.
+ */
+export const TDS_BORNE_BY = {
+	VENDOR: "Vendor",
+	COMPANY: "Company",
+} as const;
+
+export type TdsBorneBy = (typeof TDS_BORNE_BY)[keyof typeof TDS_BORNE_BY];
+
+/**
  * Tax Deducted at Source withheld from one Project Payment.
  *
  * ⚠️ "TDS" HERE IS **TAX DEDUCTED AT SOURCE**, not the Technical Data Sheet doctypes
@@ -31,7 +42,7 @@ export interface PaymentTDSDeduction {
 	 *  payment cut to the net. "Company": paid on top, the payment kept whole. Read this, never the
 	 *  Work Order's categories. Readable by the accountants only, so the Work Order page asks the
 	 *  server instead (`get_work_order_tds`, `get_payment_summary`). */
-	borne_by?: "Vendor" | "Company";
+	borne_by?: TdsBorneBy;
 	/** The day the payment reached `Approved` and the tax was withheld. Renamed from
 	 *  `deducted_on` — same data, truer name. */
 	payment_approved_on?: string;

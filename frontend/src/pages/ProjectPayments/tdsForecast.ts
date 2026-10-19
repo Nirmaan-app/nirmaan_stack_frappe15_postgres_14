@@ -17,6 +17,7 @@
  * 2026-09-10): the figure matters at the moment of deciding, not while scanning a list.
  */
 
+import type { TdsBorneBy } from "@/types/NirmaanStack/PaymentTDSDeduction";
 import { statusAfterL1 } from "@/utils/approvalTiers";
 import { isGstPayment } from "./paymentKind";
 import { parseNumber } from "@/utils/parseNumber";
@@ -78,7 +79,7 @@ export interface WorkOrderTds {
 	company: number;
 	kind: TdsBorneKind;
 	/** Each payment's own deduction, whatever its status, keyed by payment name; a payment with none is absent. */
-	payments: Record<string, { tds_amount: number; borne_by: "Vendor" | "Company" }>;
+	payments: Record<string, { tds_amount: number; borne_by: TdsBorneBy }>;
 }
 
 /** The Work Order page's Amount Paid hover (#1509). `total` + `companyOnTop` is what the WO cost in all. */

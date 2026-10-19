@@ -60,4 +60,10 @@ describe("paymentsDialogRows on a Work Order with TDS (#1512, ADR-0034 Amendment
   it("adds up to the Work Order's Amount Paid: payments + TDS withheld - Received refunds", () => {
     expect(paymentsDialogRows(payments, refunds, deductions).total).toBe(9800);
   });
+
+  it("has no total and no TDS while the Work Order's TDS is still loading, never a total without the tax", () => {
+    const { rows, total } = paymentsDialogRows(payments, refunds, undefined, true);
+    expect(total).toBeUndefined();
+    expect(rows.filter((r) => r.kind === "payment").map((r) => r.tds)).toEqual([undefined, undefined]);
+  });
 });

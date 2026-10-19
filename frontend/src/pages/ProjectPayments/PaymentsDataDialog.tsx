@@ -2,20 +2,21 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import SITEURL from "@/constants/siteURL";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeGetDocList } from "frappe-react-sdk";
 import { useMemo } from "react";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { NoBankProofBadge } from "@/components/vendor-refunds/NoBankProofBadge";
 import { useVendorRefunds } from "@/components/vendor-refunds/useVendorRefunds";
 import { GstPaymentTag } from "./components/GstPaymentTag";
+import { useWorkOrderTds } from "./hooks/useWorkOrderTds";
 import { paymentsDialogRows } from "./paymentsDialogRows";
-import type { WorkOrderTds } from "./tdsForecast";
 
 interface PaymentsDataDialogProps {
   open: boolean;
@@ -74,17 +75,20 @@ export const PaymentsDataDialog = ({
 
   // A Work Order's Amount Paid holds the TDS withheld from the vendor on each payment (ADR-0034
   // Amendment A, #1512), so its rows show it. Asked of the server, which checks read on the Work Order:
-  // `Payment TDS Deduction` is readable by the accountants only (#1451). A PO takes no deductions.
-  const { data: workOrderTds } = useFrappeGetCall<{ message: WorkOrderTds }>(
-    "nirmaan_stack.api.payments.work_order_tds.get_work_order_tds",
-    { work_order: data?.name },
-    open && !isPO && data?.name ? `PaymentsDialogTds-${data.name}` : null
-  );
+  // `Payment TDS Deduction` is readable by the accountants only (#1451). A PO takes no deductions. The
+  // Work Order page's own cache entry, so its refresh after a payment change reaches this pop-up too.
+  const { workOrderTds, error: tdsError } = useWorkOrderTds(data?.name, open && !isPO);
+  // Until it answers, the TDS column and the total wait: a total without the tax is not the Amount Paid.
+  const tdsPending = !isPO && !workOrderTds;
 
   const { rows, total } = useMemo(
-    () => paymentsDialogRows(fetchedPayments, refunds, workOrderTds?.message?.payments),
-    [fetchedPayments, refunds, workOrderTds]
+    () => paymentsDialogRows(fetchedPayments, refunds, workOrderTds?.payments, tdsPending),
+    [fetchedPayments, refunds, workOrderTds, tdsPending]
   )
+
+  const tdsPendingCell = tdsError
+    ? <span className="text-xs text-muted-foreground">Unavailable</span>
+    : <Skeleton className="h-4 w-16" />;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -150,7 +154,11 @@ export const PaymentsDataDialog = ({
                         {formatToRoundedIndianRupee(row.payment.amount)}
                         <GstPaymentTag payment={row.payment} />
                       </TableCell>
-                      {!isPO && <TableCell>{row.tds ? formatToRoundedIndianRupee(row.tds) : "--"}</TableCell>}
+                      {!isPO && (
+                        <TableCell>
+                          {row.tds === undefined ? tdsPendingCell : row.tds ? formatToRoundedIndianRupee(row.tds) : "--"}
+                        </TableCell>
+                      )}
                       {row.payment.payment_attachment ? (
                           <TableCell className="font-semibold text-blue-500 underline overflow-hidden truncate max-w-28">
                               <a href={`${SITEURL}${row.payment.payment_attachment}`} target="_blank" rel="noreferrer"
@@ -175,7 +183,9 @@ export const PaymentsDataDialog = ({
                 <TableFooter>
                   <TableRow>
                     <TableCell className="font-semibold">Total</TableCell>
-                    <TableCell className="font-semibold" colSpan={isPO ? 2 : 3}>{formatToRoundedIndianRupee(total)}</TableCell>
+                    <TableCell className="font-semibold" colSpan={isPO ? 2 : 3}>
+                      {total === undefined ? tdsPendingCell : formatToRoundedIndianRupee(total)}
+                    </TableCell>
                   </TableRow>
                 </TableFooter>
               )}
