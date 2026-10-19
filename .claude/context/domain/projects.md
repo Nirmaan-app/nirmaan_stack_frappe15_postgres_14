@@ -109,9 +109,13 @@ again in the browser. The Cash Sheet report reads Inflow, Outflow, Current Liabi
 `get_projects_money` for its chosen dates.
 
 - Outflow is cash: Paid payments on the project (whatever its order's state now), less Received Vendor Refunds
-  against a PO / WO, plus Paid expenses. It is stored as three parts, `po_outflow`, `wo_outflow` and
-  `expense_outflow` (each refund off its own order kind), and `outflow` is their sum; Financials shows the
-  parts as the Total OutFlow breakdown.
+  against a PO / WO, plus Paid expenses, plus the TDS on Paid WO payments (ADR-0034 Amendment A, #1510). It
+  is stored as three parts, `po_outflow`, `wo_outflow` and `expense_outflow` (each refund off its own order
+  kind), and `outflow` is their sum; Financials shows the parts as the Total OutFlow breakdown.
+- WO TDS: `wo_outflow` adds the `tds_amount` of every `Payment TDS Deduction` on a Paid WO payment, **both
+  kinds** (`borne_by` Vendor and Company), on the payment's project and the payment's date, never the
+  challan's. The challan is later a *TDS Payment* Non-Project Expense, which project outflow never reads, so
+  the tax counts once. The bank cash-out lists (Outflow report, WO Payment Voucher) do not add it.
 - Liabilities: max(0, delivered − Amount Paid) per PO, over POs **not** Merged, Cancelled or Inactive.
 - Date range (optional, inclusive): each payment, refund, expense and inflow counts on its own `payment_date`
   (falling back to its creation date); a refund counts on the refund's date, not its order's. Liabilities in

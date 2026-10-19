@@ -31,7 +31,7 @@ export const AmountBreakdownHoverCard: React.FC<AmountBreakdownHoverCardProps> =
                         <span className="font-medium text-right">{formatToRoundedIndianRupee(poAmount)}</span>
                     </div>
                     <div className="flex justify-between gap-4">
-                        <span className="text-muted-foreground">WO Payments:</span>
+                        <span className="text-muted-foreground">WO Payments (incl. TDS):</span>
                         <span className="font-medium text-right">{formatToRoundedIndianRupee(srAmount)}</span>
                     </div>
                     <div className="flex justify-between gap-4">
