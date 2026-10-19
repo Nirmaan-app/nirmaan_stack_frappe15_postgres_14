@@ -268,7 +268,8 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     [vendorLabelMap]
   );
 
-  // "Total Paid" is the order's stored Amount Paid (ADR-0034): Paid payments less Received refunds.
+  // "Total Paid" is the order's stored Amount Paid (ADR-0034): Paid payments (on a WO plus the TDS
+  // withheld from the vendor, Amendment A) less Received refunds.
   const getAmountPaid = useMemo(
     () =>
       memoize((docName: string, docType: string) => {

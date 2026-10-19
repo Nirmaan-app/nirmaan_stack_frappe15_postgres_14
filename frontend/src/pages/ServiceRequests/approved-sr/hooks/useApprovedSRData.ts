@@ -112,7 +112,8 @@ export const useApprovedSRData = (srId: string): ApprovedSRData => {
         return serviceRequestWithParsedJSON.gst === "true" ? totalExclusiveGST * 1.18 : totalExclusiveGST;
     }, [totalExclusiveGST, serviceRequestWithParsedJSON?.gst]);
 
-    // The WO's stored Amount Paid (ADR-0034): Paid payments less Received refunds, never re-added here.
+    // The WO's stored Amount Paid (ADR-0034, Amendment A): Paid payments plus the TDS withheld from the
+    // vendor, less Received refunds, never re-added here.
     const amountPaid = parseNumber(srDoc?.amount_paid);
 
     const amountPendingForRequest = useMemo(() =>
