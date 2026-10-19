@@ -310,6 +310,16 @@ class TestExpenseRequests(FrappeTestCase):
 				self.assertEqual(
 					frappe.db.get_value("Expense Request", res["name"], "reviewed_by"), reviewer)
 
+	def test_approval_records_the_expense_a_project_manager_may_not_create(self):
+		"""A Project Manager holds no create right on either ledger (#1495), yet approving their
+		request still records its Expense, on both ledgers."""
+		for kw in ({}, {"expense_type": PROJECT_TYPE, "projects": self.project}):
+			res = self._raise_as(PM_USER, **kw)
+			out = approve_expense_request(res["name"])
+			with self.subTest(doctype=out["created_expense_doctype"]):
+				self.assertFalse(frappe.has_permission(out["created_expense_doctype"], "create", user=PM_USER))
+				self.assertTrue(frappe.db.exists(out["created_expense_doctype"], out["created_expense"]))
+
 	def test_accountant_may_reject_a_pm_request(self):
 		res = self._raise_as(PM_USER)
 		frappe.set_user(ACC_USER)
