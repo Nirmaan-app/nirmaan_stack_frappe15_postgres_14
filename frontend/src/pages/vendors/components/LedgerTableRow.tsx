@@ -49,9 +49,10 @@ export const LedgerTableRow: React.FC<LedgerTableRowProps> = ({ item }) => {
             const poId = part.substring('For PO: '.length);
             return (
                 <React.Fragment key={index}>
-                    For PO: <Link className="text-blue-600 hover:underline font-medium" to={`${poId.replace(/\//g, "&=")}`}> 
+                    For PO: <Link className="text-blue-600 hover:underline font-medium" to={`${poId.replace(/\//g, "&=")}`}>
                               {poId}
                           </Link>
+                    {index < parts.length - 1 && <br />}
                 </React.Fragment>
             );
         }
@@ -59,9 +60,10 @@ export const LedgerTableRow: React.FC<LedgerTableRowProps> = ({ item }) => {
             const poId = part.substring('PO: '.length);
             return (
                 <React.Fragment key={index}>
-                   PO: <Link className="text-blue-600 hover:underline font-medium" to={`${poId.replace(/\//g, "&=")}`}> 
+                   PO: <Link className="text-blue-600 hover:underline font-medium" to={`${poId.replace(/\//g, "&=")}`}>
                               {poId}
                           </Link>
+                   {index < parts.length - 1 && <br />}
                 </React.Fragment>
             );
         }
@@ -73,6 +75,7 @@ export const LedgerTableRow: React.FC<LedgerTableRowProps> = ({ item }) => {
                 {prefix}<Link className="text-blue-600 hover:underline font-medium" to={`/service-requests-list/${id}`}>
                     {id}
                 </Link>
+                {index < parts.length - 1 && <br />}
             </React.Fragment>
         );
     }
