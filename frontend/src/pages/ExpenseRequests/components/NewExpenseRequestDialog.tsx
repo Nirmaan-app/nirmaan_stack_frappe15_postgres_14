@@ -13,10 +13,13 @@
 //
 // The New Expense form (spec #1494, #1501) asks, in order: Type, Amount, Project (as above),
 // an optional Vendor (searchable, once a project is chosen), Who gets paid (below), then the
-// details, and a Comment (optional). The type's "Enable Source" switch decides the details. ON:
-// the type's own format. OFF (or no format): the STANDARD fields -- a required Description and
-// optional invoice details that reach the ledger row's invoice columns at approval. Which fields
-// show is `utils/newExpenseForm.newExpenseFields`.
+// details, "Do you have the invoice?" and a Comment (optional). The type's "Enable Source" switch
+// decides the details. ON: the type's own format. OFF (or no format): a required Description.
+// Which fields show is `utils/newExpenseForm.newExpenseFields`.
+//
+// The invoice (#1502) is asked the same way for every type (`InvoiceSection`): Yes uploads it and
+// Gemini fills its date and number; No adds it later from the request's page. Its notes are
+// warnings and never block submit; the server returns the same ones (`flatten.invoice_warnings`).
 //
 // Who gets paid (ADR-0033, #1429, #1436): when the type's `payee_rule` asks (Required / Optional), the
 // "Who gets paid" section picks or adds a Payee -- or, with a vendor picked, shows that vendor's
@@ -53,7 +56,7 @@ import {
 } from "@/utils/payees/expensePayee";
 import { payToSave } from "@/utils/payees/payToChoice";
 
-import { newExpenseFields, newExpenseSubmit } from "@/utils/newExpenseForm";
+import { invoiceNotes, newExpenseFields, newExpenseSubmit } from "@/utils/newExpenseForm";
 import { raiserLevelOf } from "@/utils/approvalTiers";
 import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
 import { useDialogStore } from "@/zustand/useDialogStore";
@@ -65,13 +68,15 @@ import type {
     ExpenseRequest, GetRequestCatalogResponse, RequestCatalogType,
 } from "@/types/NirmaanStack/ExpenseRequest";
 import {
-    answersFromSourceData, NATIVE_INVOICE_SECTION, NATIVE_INVOICE_SLOT, parseFormat,
+    answersFromSourceData, NATIVE_INVOICE_SECTION, parseFormat,
     readDetailDescription, readNativeInvoice, seedAnswers,
 } from "@/utils/expenseFormat";
 import FormatFieldsRenderer, {
     FormatAnswers, FormatFiles, requiredKeys, toResponses,
 } from "./FormatFieldsRenderer";
-import StandardInvoiceSection from "./StandardInvoiceSection";
+import InvoiceQuestion, {
+    checksLine, EMPTY_INVOICE, invoiceSourceData, InvoiceValue,
+} from "./InvoiceSection";
 import WhoGetsPaidSection from "./WhoGetsPaidSection";
 
 /** One option per expense type.
@@ -116,17 +121,10 @@ interface FormState {
     amount: string;
     description: string;
     comment: string;
-    // Standard-request invoice details (form OFF only).
-    recordInvoice: boolean;
-    invoice_date: string;
-    invoice_ref: string;
-    /** The file already on a request being edited; kept unless replaced or removed. */
-    existingInvoiceUrl: string;
 }
 
 const EMPTY: FormState = {
     expense_type: "", projects: "", vendor: "", amount: "", description: "", comment: "",
-    recordInvoice: false, invoice_date: "", invoice_ref: "", existingInvoiceUrl: "",
 };
 
 /** What the toast says once the request is saved. An Expense approved on submit (#1498) comes back
@@ -158,7 +156,11 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     const [answers, setAnswers] = useState<FormatAnswers>({});
     // Files are held, not uploaded, until submit -- a cancelled dialog then cannot orphan one.
     const [files, setFiles] = useState<FormatFiles>({});
-    const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
+    // The invoice belongs to the expense, not to its type, so a type change keeps it.
+    const [invoice, setInvoice] = useState<InvoiceValue>(EMPTY_INVOICE);
+    const patchInvoice = useCallback(
+        (patch: Partial<InvoiceValue>) => setInvoice((v) => ({ ...v, ...patch })), []
+    );
     const [submitting, setSubmitting] = useState(false);
     // Edit-only: the requester has asked to swap the project, so hand them the picker.
     const [changingProject, setChangingProject] = useState(false);
@@ -309,7 +311,6 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     const handleTypeChange = (value: string) => {
         setAnswers({});
         setFiles({});
-        setInvoiceFile(null);
         // Clear the project: a stale value on a type that just became non-project would be
         // refused by the server, which reads as the form ignoring what was typed. The vendor
         // hangs off the project, so it goes with it -- a vendor left behind on a now
@@ -330,16 +331,16 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         () => requiredKeys(parsedFormat).filter((k) => !(answers[k] || "").trim()),
         [parsedFormat, answers]
     );
-    // The standard request's own requirements: the SAME rules the server's `guard_request_form`
-    // applies. The vendor is optional (#1501), so it is not among them.
-    const hasInvoiceFile = !!invoiceFile || !!form.existingInvoiceUrl;
-    const standardComplete =
-        !isStandard || (
-            !!form.description.trim() &&
-            (!form.recordInvoice || (
-                !!form.invoice_date && (!hasInvoiceFile || !!form.invoice_ref.trim())
-            ))
-        );
+    // The standard request's own requirement: the SAME rule the server's `guard_request_form`
+    // applies. The vendor is optional (#1501) and the invoice only warns (#1502).
+    const standardComplete = !isStandard || !!form.description.trim();
+    const notes = invoiceNotes({
+        hasFile: invoice.has === "yes" && !!invoice.file_url,
+        read: invoice.read,
+        invoice_date: invoice.invoice_date,
+        invoice_ref: invoice.invoice_ref,
+        typedAmount: amountValue,
+    });
     // Records without review (#1498): the server says whether this raiser's request is approved on
     // submit; the button then reads "Record expense" and says who approves the Expense next.
     const submitWording = newExpenseSubmit({
@@ -356,6 +357,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         standardComplete &&
         payeeReady &&
         !payeeChoice.adding &&
+        !invoice.busy &&
         !submitting;
 
     const close = useCallback(() => {
@@ -363,7 +365,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         setChangingProject(false);
         setAnswers({});
         setFiles({});
-        setInvoiceFile(null);
+        setInvoice(EMPTY_INVOICE);
         payeeChoice.reset();
         setNewExpenseRequestDialog(false);
         onEditingChange?.(null);
@@ -374,7 +376,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     // requester mid-edit and discard what they had typed.
     useEffect(() => {
         if (!editing) return;
-        const invoice = readNativeInvoice(editing.source_data);
+        const stored = readNativeInvoice(editing.source_data);
         setForm({
             expense_type: editing.type ?? "",
             projects: editing.projects ?? "",
@@ -390,10 +392,13 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
             // key -- the doctype has no `description` column to read it back from.
             description: readDetailDescription(editing.source_data),
             comment: editing.comment ?? "",
-            recordInvoice: !!(invoice.invoice_date || invoice.invoice_ref || invoice.invoice_attachment),
-            invoice_date: invoice.invoice_date,
-            invoice_ref: invoice.invoice_ref,
-            existingInvoiceUrl: invoice.invoice_attachment,
+        });
+        setInvoice({
+            ...EMPTY_INVOICE,
+            has: stored.invoice_date || stored.invoice_ref || stored.invoice_attachment ? "yes" : "no",
+            file_url: stored.invoice_attachment,
+            invoice_date: stored.invoice_date,
+            invoice_ref: stored.invoice_ref,
         });
         setChangingProject(false);
         // The request's own account (`pay_to`), seeded as the pick when it was picked rather than
@@ -402,7 +407,6 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         skipNextSeed.current = true;
         setAnswers(answersFromSourceData(editing.source_data));
         setFiles({});
-        setInvoiceFile(null);
     }, [editing?.name]);   // eslint-disable-line react-hooks/exhaustive-deps
 
     const handleSubmit = useCallback(async () => {
@@ -428,19 +432,12 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                 attachments[slotKey] = [uploaded.file_url];
             }
 
-            // A standard request's invoice file: a new pick replaces the one already on the
-            // request; unticking "Add invoice details" drops both.
-            let invoiceUrl = "";
-            if (isStandard && form.recordInvoice) {
-                if (invoiceFile) {
-                    const uploaded = await upload(invoiceFile, {
-                        doctype: "Expense Request", fieldname: "source_data", isPrivate: true,
-                    });
-                    invoiceUrl = uploaded.file_url;
-                } else {
-                    invoiceUrl = form.existingInvoiceUrl;
-                }
-            }
+            // The invoice, already uploaded when it was picked (so Gemini could read it), under
+            // the same native keys for every type. It REPLACES any the edited request held: its
+            // seeded answers carry the old one under the same section.
+            const inv = invoiceSourceData(invoice);
+            const { [NATIVE_INVOICE_SECTION]: _storedInvoice, ...formResponses } = toResponses(answers);
+            const allAttachments = { ...attachments, ...inv.attachments };
 
             const submit = isEdit ? updateRequest : createRequest;
             const res = await submit({
@@ -478,28 +475,28 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                     ? {
                         templateId: parsedFormat.templateId,
                         templateVersion: parsedFormat.templateVersion,
-                        responses: toResponses(answers),
-                        ...(Object.keys(attachments).length ? { attachments } : {}),
+                        responses: { ...formResponses, ...inv.responses },
+                        ...(Object.keys(allAttachments).length ? { attachments: allAttachments } : {}),
                     }
                     : isStandard
                         ? {
                             responses: {
                                 detail: { description: form.description.trim() },
-                                ...(form.recordInvoice ? {
-                                    [NATIVE_INVOICE_SECTION]: {
-                                        invoice_date: form.invoice_date,
-                                        ...(form.invoice_ref.trim()
-                                            ? { invoice_ref: form.invoice_ref.trim() } : {}),
-                                    },
-                                } : {}),
+                                ...inv.responses,
                             },
-                            ...(invoiceUrl
-                                ? { attachments: { [NATIVE_INVOICE_SLOT]: [invoiceUrl] } } : {}),
+                            ...(inv.attachments ? { attachments: inv.attachments } : {}),
                         }
                         : undefined,
             });
             const created = (res as any)?.message;
-            toast({ ...submittedToast(isEdit, created), variant: "success" });
+            // The server's own invoice warnings: a submit is never refused for them.
+            const warnings: string[] = created?.warnings ?? [];
+            const said = submittedToast(isEdit, created);
+            toast({
+                title: said.title,
+                description: [said.description, ...warnings].join(" "),
+                variant: "success",
+            });
             close();
             onSuccess?.();
         } catch (e: any) {
@@ -519,7 +516,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
             setSubmitting(false);
         }
     }, [canSubmit, createRequest, updateRequest, isEdit, editing, upload, files, form,
-        amountValue, showProject, showVendor, isStandard, invoiceFile,
+        amountValue, showProject, showVendor, isStandard, invoice,
         parsedFormat, answers, toast, close, onSuccess,
         asksPayee, vendorChosen, payeeChoice.resolve]);
 
@@ -685,14 +682,14 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                         </div>
                     )}
 
-                    {isStandard && (
-                        <StandardInvoiceSection
-                            value={form}
-                            onChange={(k, v) => setForm((f) => ({ ...f, [k]: v }))}
-                            file={invoiceFile}
-                            onFileSelect={setInvoiceFile}
-                            onFileError={(message) =>
-                                toast({ title: "Attachment", description: message, variant: "destructive" })
+                    {selected && (
+                        <InvoiceQuestion
+                            value={invoice}
+                            onChange={patchInvoice}
+                            notes={notes}
+                            docname={editing?.name}
+                            onError={(title, description) =>
+                                toast({ title, description, variant: "destructive" })
                             }
                             disabled={submitting}
                         />
@@ -717,7 +714,12 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                         {submitWording.nextApprover}
                     </p>
                 )}
-                <AlertDialogFooter className="gap-2">
+                <AlertDialogFooter className="flex-wrap items-center gap-2">
+                    {notes.count > 0 && (
+                        <span className="mr-auto text-sm text-muted-foreground">
+                            {checksLine(notes.count)}
+                        </span>
+                    )}
                     <AlertDialogCancel onClick={close} disabled={submitting}>Cancel</AlertDialogCancel>
                     <Button onClick={handleSubmit} disabled={!canSubmit}>
                         {submitting

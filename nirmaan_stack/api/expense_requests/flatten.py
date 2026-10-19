@@ -173,14 +173,16 @@ def undeclared_pairs(source_data, source_format) -> list[tuple[str, str]]:
 	readable key, since the format no longer holds one.
 	"""
 	declared = set(build_label_map(source_format))
+	# The invoice is no form's field: it has its own ledger columns (`native_invoice`).
+	invoice = set(_native_section(source_data, NATIVE_INVOICE_SECTION))
 	return [
 		(_label_for(key, {}), text)
 		for key, value in flat_responses(source_data).items()
-		if key not in declared and (text := _render(value))
+		if key not in declared and key not in invoice and (text := _render(value))
 	]
 
 
-def flatten_source_data(source_data, source_format=None) -> str:
+def flatten_source_data(source_data, source_format=None, skip_sections=()) -> str:
 	"""`Label: value · Label: value` from the stored answers.
 
 	Returns "" for absent, unparseable or empty answers — a format-less request must produce
@@ -189,7 +191,7 @@ def flatten_source_data(source_data, source_format=None) -> str:
 	# ONE walk, shared with `flatten_pairs` -- see the note there.
 	return SEP.join(
 		f"{label}: {value}" if label else value
-		for label, value in flatten_pairs(source_data, source_format)
+		for label, value in flatten_pairs(source_data, source_format, skip_sections)
 	)
 
 
@@ -283,12 +285,16 @@ def flat_responses(source_data) -> dict:
 	return out
 
 
-# --- The standard request (the type's form switched OFF) ------------------------------
+# --- The native keys: the standard request's details, and every request's invoice -----
 #
 # With the form off the dialog asks the standard expense fields instead, and they ride the
 # SAME envelope under keys WE mint -- the request doctype has no columns for them:
 #
 #   responses.detail.description               -> the ledger row's description
+#
+# The invoice is asked of EVERY request, form or not ("Do you have the invoice?", #1502), and
+# rides the same envelope under its own minted keys. No form may name a section `invoice`:
+#
 #   responses.invoice.invoice_date / invoice_ref -> the ledger columns of the same name
 #   attachments.invoice                        -> the ledger row's invoice_attachment
 #
@@ -335,6 +341,52 @@ def native_invoice(source_data) -> dict:
 			out["invoice_attachment"] = f.strip()
 			break
 	return out
+
+
+def with_native_invoice(source_data, invoice: dict) -> str:
+	"""`source_data` as JSON with its invoice REPLACED by `invoice` (`native_invoice`'s shape).
+
+	The whole invoice is replaced, so a number left blank on the new one clears the old number
+	rather than pairing it with another file. Every other answer is kept as it was.
+	"""
+	data = _as_dict(source_data) or {}
+	responses = data.get("responses") if isinstance(data.get("responses"), dict) else {}
+	answers = {k: invoice[k] for k in ("invoice_date", "invoice_ref") if invoice.get(k)}
+	responses = {k: v for k, v in responses.items() if k != NATIVE_INVOICE_SECTION}
+	if answers:
+		responses[NATIVE_INVOICE_SECTION] = answers
+	attachments = data.get("attachments") if isinstance(data.get("attachments"), dict) else {}
+	attachments = {k: v for k, v in attachments.items() if k != NATIVE_INVOICE_SLOT}
+	if invoice.get("invoice_attachment"):
+		attachments[NATIVE_INVOICE_SLOT] = [invoice["invoice_attachment"]]
+	data = {**data, "responses": responses}
+	if attachments:
+		data["attachments"] = attachments
+	else:
+		data.pop("attachments", None)
+	return json.dumps(data)
+
+
+INVOICE_DATE_MISSING ="The invoice date is missing. Add it if you can."
+INVOICE_NUMBER_MISSING = "The invoice number is missing. Add it if you can."
+
+
+def invoice_warnings(invoice: dict) -> list[str]:
+	"""What an attached invoice still lacks, as warnings that never stop a submit (#1502).
+
+	`invoice` is `native_invoice`'s shape. Only an invoice with its FILE is checked: the date
+	and number are read off that file (Gemini, in the dialog), and a field it could not read is
+	the raiser's to type. Until #1502 a missing date or number refused the request.
+	"""
+	if not invoice.get("invoice_attachment"):
+		return []
+	return [
+		message for key, message in (
+			("invoice_date", INVOICE_DATE_MISSING),
+			("invoice_ref", INVOICE_NUMBER_MISSING),
+		)
+		if not invoice.get(key)
+	]
 
 
 def _prose_value(value) -> str | None:

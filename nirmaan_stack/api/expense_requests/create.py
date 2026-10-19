@@ -21,6 +21,7 @@ from nirmaan_stack.api.expense_requests.flatten import (
 	filled_against_a_form,
 	flat_responses,
 	mapped_fields,
+	invoice_warnings,
 	native_description,
 	native_invoice,
 )
@@ -46,8 +47,9 @@ def create_expense_request(
 	(`expense_decision.apply_starting_status`, the amount rule plus the Raiser's own step), so an
 	HR raiser's Rs 40,000 Expense still waits at Requested for an Admin.
 
-	Returns `{name, status, projects, created_expense, created_expense_doctype, expense_status}`;
-	the last three are None when the request waits for review.
+	Returns `{name, status, projects, created_expense, created_expense_doctype, expense_status,
+	warnings}`; the three expense fields are None when the request waits for review, and
+	`warnings` are the invoice warnings (#1502), which never refuse.
 
 	`projects` is passed through as given and left to the doctype's `validate`, which
 	checks it against the Expense Type's own project / non_project flags. There is no
@@ -74,6 +76,10 @@ def create_expense_request(
 	named it is ignored: the save copies the vendor's Payee instead
 	(`services/payees/pay_to.fill_from_vendor`), on every write path. Nothing is refused here: a
 	*Required* type with no account is a screen rule.
+
+	The invoice ("Do you have the invoice?", #1502) rides `source_data` under the native keys
+	(`flatten.native_invoice`) for every type, form or not. What it lacks comes back as
+	`warnings`; nothing about it is refused.
 	"""
 	guard_requestable(expense_type)
 
@@ -128,6 +134,7 @@ def create_expense_request(
 		"created_expense": expense.name if expense else None,
 		"created_expense_doctype": expense.doctype if expense else None,
 		"expense_status": expense.status if expense else None,
+		"warnings": invoice_warnings(native_invoice(doc.source_data)),
 	}
 
 
@@ -166,9 +173,8 @@ def guard_request_form(expense_type: str, source_data) -> None:
 	"""The answers must match the type's `source_format_enabled` switch -- when it is OFF.
 
 	SHARED with `update`, like `guard_vendor_scope`. With the form OFF the request is a
-	STANDARD one and must carry what a directly-entered expense requires: a description, and
-	invoice details that hang together (a date whenever any invoice detail is given, a
-	reference whenever a file is attached -- the direct-entry dialogs' own rules).
+	STANDARD one and must carry a description. Its invoice is checked by nobody: since #1502 a
+	missing invoice date or number is a warning (`flatten.invoice_warnings`), never a refusal.
 
 	⚠️ ONLY THE OFF SIDE IS ENFORCED. A form's own required answers have never been checked
 	server-side (the dialog checks them), and nothing here changes that.
@@ -187,18 +193,6 @@ def guard_request_form(expense_type: str, source_data) -> None:
 		)
 	if not native_description(source_data):
 		frappe.throw("A description is required.", title="Description required")
-
-	invoice = native_invoice(source_data)
-	if invoice.get("invoice_attachment") and not invoice.get("invoice_ref"):
-		frappe.throw(
-			"An invoice reference is required when an invoice is attached.",
-			title="Invoice reference required",
-		)
-	if invoice and not invoice.get("invoice_date"):
-		frappe.throw(
-			"An invoice date is required when recording invoice details.",
-			title="Invoice date required",
-		)
 
 
 # The columns a format is allowed to write into. A CLOSED allowlist, deliberately: `maps_to`

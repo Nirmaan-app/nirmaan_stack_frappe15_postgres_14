@@ -108,9 +108,10 @@ def compose_description(req, source_format=None) -> str:
 			f"{label}: {value}" for label, value in undeclared_pairs(req.source_data, source_format)
 		])
 	elif source_format:
-		body = flatten_source_data(req.source_data, source_format)
+		# The invoice answers land in their own ledger columns, never in the prose.
+		body = flatten_source_data(req.source_data, source_format,
+		                           skip_sections=(NATIVE_INVOICE_SECTION,))
 	else:
-		# The invoice answers of a standard request land in their own ledger columns.
 		body = SEP.join(
 			value for _label, value
 			in flatten_pairs(req.source_data, skip_sections=(NATIVE_INVOICE_SECTION,))
@@ -177,14 +178,14 @@ def create_ledger_row(req):
 		"comment": req.comment or None,
 	}
 
-	# Declared mapping, not convention: a format slot carrying
-	# `"maps_to": "invoice_attachment"` puts its file on the ledger row. Absent => no file.
+	# The invoice (#1502): asked once for every type, form or not, by "Do you have the
+	# invoice?", and carried under the native keys onto the Expense's own invoice columns.
+	# A request raised before that, against a form slot declaring
+	# `"maps_to": "invoice_attachment"`, still has its file carried from that slot.
 	bill = first_mapped_attachment(req.source_data, source_format)
 	if bill:
 		values["invoice_attachment"] = bill
-	if not source_format:
-		# A standard request carries its invoice details as answers, not a declared slot.
-		values.update(native_invoice(req.source_data))
+	values.update(native_invoice(req.source_data))
 	if doctype == PROJECT_EXPENSE_DOCTYPE:
 		# `Non Project Expenses` has NEITHER of these columns, so both are project-only.
 		# ⚠️ The vendor is copied as a plain field, exactly like the project -- it reached the

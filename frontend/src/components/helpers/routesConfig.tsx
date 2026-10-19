@@ -82,6 +82,7 @@ import NonProjectExpensesPage from "@/pages/NonProjectExpenses/NonProjectExpense
 import AllProjectExpensesPage from "@/pages/ProjectExpenses/AllProjectExpenses";
 import ExpenseLayout from "@/pages/Expenses/ExpenseLayout";
 import ExpenseRequestsPage from "@/pages/ExpenseRequests/ExpenseRequestsPage";
+import ExpenseRequestPage from "@/pages/ExpenseRequests/ExpenseRequestPage";
 import { ExpenseIndexRedirect } from "@/pages/Expenses/ExpenseIndexRedirect";
 import AdminApprovedQuotationsTable from "@/pages/ApprovedQuotationsFlow/AdminApprovedQuotationsTable";
 import { MilestonesSummary } from "@/pages/Manpower-and-WorkMilestones/MilestonesSummary";
@@ -405,6 +406,7 @@ export const appRoutes: RouteObject[] = [
               // hidden (ExpenseLayout), but their routes below still resolve for deep links.
               { index: true, element: <ExpenseIndexRedirect /> },
               { path: "requests", element: <ExpenseRequestsPage /> },
+              { path: "requests/:requestId", element: <ExpenseRequestPage /> },
               { path: "project", element: <AllProjectExpensesPage /> },
               { path: "non-project", element: <NonProjectExpensesPage /> },
             ],

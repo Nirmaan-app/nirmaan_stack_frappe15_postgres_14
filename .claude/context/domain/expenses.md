@@ -565,8 +565,23 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   (doctype `validate`); clearing a format switches it OFF (`save_expense_format`). ONE rule picks
   the governing form — `convert.applicable_format`: the switch, EXCEPT a request already filled
   against the form (`templateId` in its answers) keeps it after the switch goes off. **Only the
-  OFF side is server-enforced** (`create.guard_request_form`: description, invoice coherence,
-  refuses form answers); a form's own required answers are still dialog-only, as before.
+  OFF side is server-enforced** (`create.guard_request_form`: description, refuses form answers);
+  a form's own required answers are still dialog-only, as before.
+- **The invoice is asked once, the same way, for every type (#1502).** "Do you have the invoice?"
+  replaces the "Add invoice details" tick. It rides `source_data` under the native keys
+  (`responses.invoice.{invoice_date, invoice_ref}`, `attachments.invoice`) on a form-filled request
+  too, so **no form may name a section `invoice`**; it never reaches the ledger description
+  (`flatten_source_data(skip_sections=)`, `undeclared_pairs`). Approval copies it onto the Expense's
+  invoice columns (`convert.create_ledger_row`; a form slot with `maps_to: invoice_attachment` is read
+  only for requests raised before, and the dialog no longer shows such a slot). **A missing invoice
+  date or number is a warning, never a refusal**: `flatten.invoice_warnings`, returned as `warnings`
+  by create, update and Add invoice. **Added later** from the request's page
+  (`/expense/requests/<name>`, `read.get_expense_request`) by the raiser or an Admin, until the Expense
+  is Paid (`invoice.invoice_refusal`, the one rule; refused on a Rejected request).
+  `invoice.add_request_invoice` REPLACES the request's invoice and writes the same three columns on
+  its Expense (`doc.save`, hooks fire). The file is uploaded when picked, so Gemini
+  (`invoice_autofill.extract_invoice_fields`) can fill the date and number; the amount is never
+  filled, a differing total only warns (`utils/newExpenseForm.invoiceNotes`).
 - **Per-type visibility (`Expense Type.allowed_roles`, 2026-09-16).** Role PROFILES that may pick
   the type in the request dialog; Admin sees every type and is never listed, so **EMPTY = Admin
   only**. Enforced in `access.can_request_type` → `get_request_catalog` filter + `guard_requestable`
