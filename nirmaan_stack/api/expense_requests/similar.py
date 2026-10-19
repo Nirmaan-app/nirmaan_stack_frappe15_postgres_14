@@ -6,19 +6,21 @@
 URL: /api/method/nirmaan_stack.api.expense_requests.similar.get_similar
 
 READ-ONLY, AND NOTHING HERE REFUSES ANYTHING (owner ruling, 2026-08-20). The REVIEW dialog
-asks it for the approver: same type + amount + project inside a window, over BOTH expense
-doctypes -- phrased as a prompt, because it cannot tell August rent from September.
+asks it for the approver, two things:
+  nearby  same type + amount + project inside a window, over BOTH expense doctypes -- phrased
+          as a prompt, because it cannot tell August rent from September;
+  stays   every other request or Expense for the same person's overlapping stay
+          (`duplicates.find_stay_duplicates`, #1504), shown in bold.
 
-⚠️ NO PER-TYPE DUPLICATE RULES (owner ruling, 2026-09-19). The strong tier -- a table of
-expense types naming each one's subject and period fields, matched on overlapping dates --
-was REMOVED with its create-dialog warning. It keyed on the type's NAME, so it blocked
-renaming those types, and the owner did not want static rules. Do not reintroduce a
-name-keyed table here.
+⚠️ NO NAME-KEYED DUPLICATE RULES (owner ruling, 2026-09-19). The stay rule is keyed on the
+form's `templateId`, so renaming a type cannot switch it off. Do not reintroduce a table keyed
+on the type's name.
 """
 
 import frappe
 from frappe.utils import add_days, flt, nowdate
 
+from nirmaan_stack.api.expense_requests.duplicates import find_stay_duplicates
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 
 # How far back the check looks. A month plus slack, so a monthly expense shows its
@@ -30,7 +32,12 @@ NEARBY_DAYS = 60
 def get_similar(name: str) -> dict:
 	"""Everything already on record that resembles this request. Writes nothing."""
 	req = frappe.get_doc("Expense Request", name)
-	return {"nearby": _scan_ledgers(req)}
+	# The stay matches name other people's requests, so only a caller who may read this one asks.
+	req.check_permission("read")
+	return {
+		"nearby": _scan_ledgers(req),
+		"stays": find_stay_duplicates(req.source_data, exclude=req.name),
+	}
 
 
 def _scan_ledgers(req) -> list:

@@ -40,6 +40,7 @@ from nirmaan_stack.api.expense_requests.create import (
 	guard_request_form,
 	guard_vendor_scope,
 )
+from nirmaan_stack.api.expense_requests.duplicates import find_stay_duplicates, stay_changed
 from nirmaan_stack.api.expense_requests.flatten import invoice_warnings, native_invoice
 from nirmaan_stack.api.expense_requests.form_snapshot import stamp_live_form
 from nirmaan_stack.services.payees.pay_to import apply_picked_payee
@@ -112,6 +113,7 @@ def update_expense_request(
 
 	promoted = _promote_mapped(expense_type, source_data)
 
+	stored_source_data = req.source_data
 	req.update(
 		{
 			"type": expense_type,
@@ -132,5 +134,9 @@ def update_expense_request(
 	req.save(ignore_permissions=True)
 	frappe.db.commit()
 
+	# A duplicate stay is re-checked only when the stay itself changed (#1504), and never refused.
+	duplicates = (find_stay_duplicates(req.source_data, exclude=req.name)
+	              if stay_changed(stored_source_data, req.source_data) else [])
 	return {"name": req.name, "status": req.status, "projects": req.projects,
-	        "warnings": invoice_warnings(native_invoice(req.source_data))}
+	        "warnings": invoice_warnings(native_invoice(req.source_data)),
+	        "duplicates": duplicates}

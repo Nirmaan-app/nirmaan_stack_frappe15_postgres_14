@@ -21,6 +21,10 @@
 // Gemini fills its date and number; No adds it later from the request's page. Its notes are
 // warnings and never block submit; the server returns the same ones (`flatten.invoice_warnings`).
 //
+// A staff stay that overlaps another for the same person (#1504) is flagged while the form is
+// filled: in bold with the matches for a raiser on Records without review, as a quiet note for
+// anyone else. It never blocks submit (`api/expense_requests/duplicates`).
+//
 // Who gets paid (ADR-0033, #1429, #1436): when the type's `payee_rule` asks (Required / Optional), the
 // "Who gets paid" section picks or adds a Payee -- or, with a vendor picked, shows that vendor's
 // account read-only. The server COPIES the account into the request's own pay-to fields
@@ -65,7 +69,7 @@ import { parseNumber } from "@/utils/parseNumber";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import type {
-    ExpenseRequest, GetRequestCatalogResponse, RequestCatalogType,
+    ExpenseRequest, GetRequestCatalogResponse, RequestCatalogType, StayDuplicate,
 } from "@/types/NirmaanStack/ExpenseRequest";
 import {
     answersFromSourceData, NATIVE_INVOICE_SECTION, parseFormat,
@@ -78,6 +82,7 @@ import InvoiceQuestion, {
     checksLine, EMPTY_INVOICE, invoiceSourceData, InvoiceValue,
 } from "./InvoiceSection";
 import WhoGetsPaidSection from "./WhoGetsPaidSection";
+import DuplicateStayNote from "./DuplicateStayNote";
 
 /** One option per expense type.
  *
@@ -325,6 +330,33 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         if (form.projects === projectId) return;
         setForm((f) => ({ ...f, projects: projectId, vendor: "" }));
     };
+
+    // DUPLICATE STAY (#1504): asked of the server while the form is filled, never blocking. The
+    // answers go in the same envelope submit sends; the server knows which forms it checks, so no
+    // field name lives here. On an edit the server answers only once the stay itself has changed.
+    // Debounced, so typing is not a call.
+    const stayQueryNow = useMemo(
+        () => (parsedFormat
+            ? JSON.stringify({
+                templateId: parsedFormat.templateId,
+                templateVersion: parsedFormat.templateVersion,
+                responses: toResponses(answers),
+            })
+            : ""),
+        [parsedFormat, answers]
+    );
+    const [stayQuery, setStayQuery] = useState("");
+    useEffect(() => {
+        const t = setTimeout(() => setStayQuery(stayQueryNow), 500);
+        return () => clearTimeout(t);
+    }, [stayQueryNow]);
+    const { data: stayRes } = useFrappeGetCall<{ message: { matches: StayDuplicate[] } }>(
+        "nirmaan_stack.api.expense_requests.duplicates.check_duplicate_stay",
+        { source_data: stayQuery, ...(isEdit ? { exclude: editing!.name } : {}) },
+        stayQuery ? `exr_stay_${editing?.name ?? ""}_${stayQuery}` : null
+    );
+    // Only an answer about what is on screen NOW: a stale one would warn over changed dates.
+    const stayMatches = stayQuery === stayQueryNow ? stayRes?.message?.matches ?? [] : [];
 
     const amountValue = parseNumber(form.amount);
     const missingFormatAnswers = useMemo(
@@ -670,6 +702,13 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                             disabled={submitting}
                         />
                     )}
+
+                    {/* Bold with the matches for a raiser on Records without review, who acts as
+                        their own reviewer; a quiet note for anyone else (#1504). Never blocks. */}
+                    <DuplicateStayNote
+                        matches={stayMatches}
+                        variant={catalogRes?.message?.records_without_review ? "warning" : "note"}
+                    />
 
                     {isStandard && (
                         <div className="space-y-1.5">

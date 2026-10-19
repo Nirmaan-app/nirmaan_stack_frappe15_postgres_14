@@ -43,6 +43,26 @@ export interface RequestStanding {
 
 export type GetRequestStandingResponse = Record<string, RequestStanding>;
 
+/** Another stay for the same person on overlapping dates (`duplicates.find_stay_duplicates`, #1504).
+ *  One per request; `expense` is the Expense it became, if any. Never a refusal. */
+export interface StayDuplicate {
+  request: string;
+  /** The live label: the Expense's status once there is one, else the request's. */
+  status: string;
+  expense: { doctype: string; name: string; status: string } | null;
+  type: string;
+  projects: string | null;
+  project_name: string | null;
+  amount: number;
+  /** The name as it was typed on that request. */
+  person: string;
+  period_from: string;
+  period_to: string;
+  owner_name: string;
+  creation: string;
+  detail: { label: string; value: string }[];
+}
+
 export interface ExpenseRequest {
   name: string;
   type: string;
