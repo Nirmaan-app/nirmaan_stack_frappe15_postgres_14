@@ -46,3 +46,15 @@ def expense_raiser(doc) -> str | None:
         if owner:
             return owner
     return doc.get("owner") or frappe.session.user
+
+
+def expense_reviewer(doc) -> str | None:
+    """Who reviewed the Expense Request an expense ledger row was born from, if anyone.
+
+    Read from the request's `reviewed_by`, so `review.approve_expense_request` saves that BEFORE it
+    inserts the row. None for a row with no request.
+    """
+    request_id = doc.get("request_id")
+    if not request_id:
+        return None
+    return frappe.db.get_value("Expense Request", request_id, "reviewed_by") or None

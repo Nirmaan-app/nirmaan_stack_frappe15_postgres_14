@@ -99,7 +99,9 @@ export const getNonProjectExpenseColumns = ({
   const canRecordInvoice =
     isAdmin || isPMO || isAccountant || isProcurement || isHR;
   const canApprove = isAdmin; // Requested -> Approved (Admin only)
-  const canMarkPaid = isAdmin || isAccountant || isHR; // Approved -> Paid (records payment)
+  // Approved -> Paid: Admin and Accounts, the server's rule (`expense_decision.can_mark_paid`, #1497).
+  // HR Executive lost it with #1497: the server refuses Mark as Paid to anyone outside Accounts.
+  const canMarkPaid = isAdmin || isAccountant;
   const canEdit = isAdmin || isPMO || isProcurement || isHR; // Requested-row edit
   const canDelete = isAdmin; // Delete is Admin only
 
@@ -112,12 +114,12 @@ export const getNonProjectExpenseColumns = ({
       ? isAdmin
       : statusTab === "All"
         // The All tab mixes statuses; every button inside the cell is already
-        // gated by the ROW's status, so opening the column to Accountant/HR
+        // gated by the ROW's status, so opening the column to Accountants
         // surfaces exactly the Mark-as-Paid they have on the Approved tab.
-        ? isAdmin || isAccountant || isHR
-        // Approved tab: Procurement has no available action here (Mark-as-Paid is
-        // Admin/Accountant/HR), so hide the empty Actions column for them.
-        : statusTab === "Approved" && isProcurement
+        ? isAdmin || isAccountant
+        // Approved tab: Procurement and HR have no available action here (Mark-as-Paid
+        // is Admin/Accountant), so hide the empty Actions column for them.
+        : statusTab === "Approved" && (isProcurement || isHR)
           ? false
           : true;
 

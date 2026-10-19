@@ -34,6 +34,26 @@ Both share one approval lifecycle and are entered/managed together in a single u
   **EXCLUSIVE** — exactly ₹15,000 needs L1), and the expense-only ₹30,000 CEO line of
   2026-09-15 (moved to ₹50,000 on 2026-09-16, so all three money-out ledgers now band
   identically).
+- **One module decides every Expense status: `services/expense_decision.py`** (spec #1494 seam 2,
+  #1497). `apply_starting_status` / `starting_status` give a NEW row its status (both ledgers'
+  `validate`, previewed by `convert.target_status`); `decide` makes every later change, through the one
+  call `api/approvals/expense_actions.decide_expenses` (actions `l1_approve`, `ceo_approve`, `reject`,
+  `mark_done`, `mark_paid`; one row or a hundred, same code). No screen writes an expense's `status`:
+  Approve Payments (row and bulk), the accountant tabs' Mark as Paid (`mark_done`) and the old pages'
+  Approve / Mark as Paid all call it. **L1 = `Administrator` or the Admin profile** (`is_l1`; Accountants
+  are NOT L1, though the payments bulk gate still admits them for payments). **Mark as Done / Mark as
+  Paid = Admin, Accountant, Accountant Lead** (`can_mark_paid` = `PAYMENT_SETTLE_PROFILES`); HR Executive
+  lost Mark as Paid on the old pages with #1497. A reject needs a reason; Mark as Paid needs payment
+  date, reference and receipt. The bank-line rules (`expense_bank_links.validate`) still have the last word.
+- **An L1 reviewer's review of an Expense Request is the L1 step** (#1499, ADR-0016 amendment 3).
+  `starting_status(amount, raised_by, reviewed_by)` clears L1 when the request's `reviewed_by` is L1
+  (`is_l1`), exactly as for an L1 raiser: an Admin-reviewed ₹22,000 request's Expense is born
+  `Approved`, ₹60,000 `CEO Pending` with `approval_date` stamped. An HR or Accounts review clears
+  nothing, so ₹15,000 and above still waits for an Admin. The review clears L1 only, even when the
+  CEO reviews. ⚠️ `review.approve_expense_request` saves the request's `reviewed_by` BEFORE it
+  inserts the ledger row, because the ledger's `validate` reads the reviewer from the request
+  (`approval_raiser.expense_reviewer`). The dialog's preview passes the caller as the reviewer
+  (`convert.target_status(req, reviewer)`).
 - **Project Expenses use only project-flagged (`project=1`) Expense Types** (ADR 0009), and Non
   Project Expenses only `non_project=1` ones. **Enforced on the server by both ledgers' `validate`**
   (`services/expense_type_ledger.check_expense_type`, #1496), so it covers every write path: the
@@ -374,7 +394,7 @@ Primary actions render inline; secondary (Requested-only) sit in a `⋯` overflo
 | Requested | Delete (inline) | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Requested | Record Invoice (⋯) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Requested | Edit (⋯) | ✅ | ✅ | ❌ | ✅ | ✅ |
-| Approved | Mark as Paid (inline) | ✅ | ❌ | ✅ | ❌ | ✅ |
+| Approved | Mark as Paid (inline) | ✅ | ❌ | ✅ | ❌ | ❌ (server-refused since #1497) |
 | Approved | Delete (inline) | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Paid | Edit (inline) | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Paid | Delete (inline) | ✅ | ❌ | ❌ | ❌ | ❌ |
@@ -399,7 +419,7 @@ dialog.
 | Requested | Edit | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Requested | Approve | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Requested | Delete | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Approved | Mark as Paid | ✅ | ❌ | ✅ | ❌ | ✅ |
+| Approved | Mark as Paid | ✅ | ❌ | ✅ | ❌ | ❌ (server-refused since #1497) |
 | Approved | Delete | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Paid | Edit / Delete | ✅ | ❌ | ❌ | ❌ | ❌ |
 | All | per row, by row status | ✅ | ❌ | ✅ | ❌ | ✅ |
@@ -410,9 +430,9 @@ Actions column visibility: same rule as Non-Project.
 - **Accountant\* Edit split:** can Edit a Requested **Project** expense but not a Requested
   **Non-Project** one (their Non-Project Requested action is *Record Invoice* instead).
 - **Approve = Admin only; Delete = Admin only** in both tables.
-- **HR Executive can Mark as Paid but still lands on the `Requested` tab by default**
-  (only Accountant\* defaults to `Approved`) — deliberate, owner call 2026-07-28.
-- Enforcement is **frontend-only** (button/column visibility) — no backend `validate` gate…
+- **HR Executive no longer Marks as Paid (#1497)**: the server allows Admin and Accounts only. It still
+  lands on the `Requested` tab by default (only Accountant\* defaults to `Approved`), owner call 2026-07-28.
+- **Approve and Mark as Paid are server-checked** (`services/expense_decision`, #1497); the rest is **frontend-only** (button/column visibility)…
   **with one caveat that IS a real backend gate:** the `Nirmaan HR Executive` *Role* has
   `write = 0` on both expense doctypes. Mark-as-Paid works only because the
   `Nirmaan HR Executive Profile` *also* carries **System Manager**, and Frappe permissions are

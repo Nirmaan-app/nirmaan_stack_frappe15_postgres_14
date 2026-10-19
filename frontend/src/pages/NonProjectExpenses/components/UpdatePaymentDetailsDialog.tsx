@@ -22,6 +22,9 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { cn } from "@/lib/utils";
 import { PayToBox } from "@/components/payees/PayToBox";
+import { useExpenseDecision } from "@/hooks/useExpenseDecision";
+import { splitMarkPaid } from "@/utils/expenses/expenseDecision";
+import { getFrappeError } from "@/utils/frappeErrors";
 
 interface UpdatePaymentDetailsDialogProps {
     isOpen: boolean;
@@ -48,6 +51,7 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
 }) => {
     const { toast } = useToast();
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
+    const { decideOne, loading: decideLoading } = useExpenseDecision();
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
 
     const [formState, setFormState] = useState<PaymentFormState>({ payment_date: "", payment_ref: "", invoice_date: "", invoice_ref: "" });
@@ -219,9 +223,6 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
             invoice_date: formState.invoice_date || null,
             invoice_ref: formState.invoice_ref.trim() || null,
         };
-        if (markAsPaid) {
-            dataToUpdate.status = "Paid";
-        }
 
         try {
             if (attachmentAction === "replace" && newAttachmentFile) {
@@ -249,16 +250,24 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
                 dataToUpdate.invoice_attachment = uploadedInvoice.file_url;
             }
 
-            await updateDoc("Non Project Expenses", expense.name, dataToUpdate);
+            if (markAsPaid) {
+                // The status, and the payment it records, are the server's to write (#1497): the
+                // invoice details are an ordinary save, then Mark as Paid goes through the decision call.
+                const { payment, details } = splitMarkPaid(dataToUpdate);
+                await updateDoc("Non Project Expenses", expense.name, details);
+                await decideOne(expense.name, "mark_paid", { payment });
+            } else {
+                await updateDoc("Non Project Expenses", expense.name, dataToUpdate);
+            }
             toast({ title: "Success", description: markAsPaid ? "Expense marked Paid." : "Payment details updated.", variant: "success" });
             onSuccess?.();
             setIsOpen(false);
         } catch (error: any) {
-            toast({ title: "Error", description: error.message || "Failed to update payment details.", variant: "destructive" });
+            toast({ title: "Error", description: getFrappeError(error) || "Failed to update payment details.", variant: "destructive" });
         }
     };
 
-    const isLoadingOverall = updateLoading || uploadLoading || isAutofilling;
+    const isLoadingOverall = updateLoading || decideLoading || uploadLoading || isAutofilling;
 
     // Existing saved attachment (shown unless a new file is staged or it's marked for removal).
     const effectiveExistingUrl = (attachmentAction === "keep" || attachmentAction === "replace") ? existingAttachmentUrl : undefined;

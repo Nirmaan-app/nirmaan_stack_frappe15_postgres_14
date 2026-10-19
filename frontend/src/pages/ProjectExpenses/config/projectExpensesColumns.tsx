@@ -98,13 +98,15 @@ export const getProjectExpenseColumns = ({
   const canEditRequested =
     isAdmin || isPMO || isAccountant || isProcurement || isHR;
   const canApprove = isAdmin; // Requested -> Approved (Admin only)
-  const canMarkPaid = isAdmin || isAccountant || isHR; // Approved -> Paid (Accountant + HR)
+  // Approved -> Paid: Admin and Accounts, the server's rule (`expense_decision.can_mark_paid`, #1497).
+  // HR Executive lost it with #1497: the server refuses Mark as Paid to anyone outside Accounts.
+  const canMarkPaid = isAdmin || isAccountant;
   const canDelete = isAdmin; // Delete is Admin only (PMO removed)
 
   // --- Actions column visibility (scoped to the Paid and All tabs) ---
   // The column shows only for users who can actually act on the tab's rows:
   //   - Paid tab: Edit/Delete are Admin-only, so only Admin sees it.
-  //   - All tab:  Admin, plus Accountant/HR (who can Mark as Paid the Approved rows).
+  //   - All tab:  Admin, plus Accountants (who can Mark as Paid the Approved rows).
   // Requested/Approved tabs are left unchanged (column always present).
   const canSeeActionsColumn = disableActions
     ? false
@@ -112,12 +114,12 @@ export const getProjectExpenseColumns = ({
       ? isAdmin
       : statusTab === "All"
         // The All tab mixes statuses; every button inside the cell is already
-        // gated by the ROW's status, so opening the column to Accountant/HR
+        // gated by the ROW's status, so opening the column to Accountants
         // surfaces exactly the Mark-as-Paid they have on the Approved tab.
-        ? isAdmin || isAccountant || isHR
-        // Approved tab: Procurement has no available action here (Mark-as-Paid is
-        // Admin/Accountant/HR), so hide the empty Actions column for them.
-        : statusTab === "Approved" && isProcurement
+        ? isAdmin || isAccountant
+        // Approved tab: Procurement and HR have no available action here (Mark-as-Paid
+        // is Admin/Accountant), so hide the empty Actions column for them.
+        : statusTab === "Approved" && (isProcurement || isHR)
           ? false
           : true;
 
