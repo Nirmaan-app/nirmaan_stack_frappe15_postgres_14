@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { newExpenseFields } from "./newExpenseForm";
+import { invoiceNotes, newExpenseFields } from "./newExpenseForm";
 
 const PROJECT_ONLY = { project_allowed: true, project_required: true, has_format: false };
 const NON_PROJECT = { project_allowed: false, project_required: false, has_format: false };
@@ -48,5 +48,49 @@ describe("newExpenseFields", () => {
 
     it("falls back to a description when a type's form cannot be read", () => {
         expect(fields({ type: WITH_FORM }).details).toBe("description");
+    });
+});
+
+const READ = { invoice_no: "GN/24/118", invoice_date: "2026-09-30", amount: "21500" };
+const notes = (over: Partial<Parameters<typeof invoiceNotes>[0]> = {}) =>
+    invoiceNotes({
+        hasFile: true, read: READ, invoice_date: "2026-09-30", invoice_ref: "GN/24/118",
+        typedAmount: 21500, ...over,
+    });
+
+describe("invoiceNotes", () => {
+    it("says nothing before an invoice is attached", () => {
+        expect(notes({ hasFile: false, read: null, invoice_date: "", invoice_ref: "" }))
+            .toEqual({ date: null, number: null, amountMismatch: null, count: 0 });
+    });
+
+    it("marks the fields Gemini filled", () => {
+        expect(notes()).toEqual({ date: "read", number: "read", amountMismatch: null, count: 0 });
+    });
+
+    it("asks the raiser to type a field Gemini could not read", () => {
+        const n = notes({ read: { ...READ, invoice_no: "" }, invoice_ref: "" });
+        expect(n.number).toBe("unread");
+        expect(n.count).toBe(1);
+    });
+
+    it("drops the prompt once the raiser types the field", () => {
+        expect(notes({ read: { ...READ, invoice_no: "" }, invoice_ref: "GN/1" }).number).toBeNull();
+    });
+
+    it("asks for both fields when the file could not be read at all", () => {
+        const n = notes({ read: null, invoice_date: "", invoice_ref: "" });
+        expect([n.date, n.number, n.count]).toEqual(["unread", "unread", 2]);
+    });
+
+    it("warns when the invoice amount differs from the typed amount", () => {
+        const n = notes({ typedAmount: 22000 });
+        expect(n.amountMismatch).toEqual({ invoice: 21500, typed: 22000 });
+        expect(n.count).toBe(1);
+    });
+
+    it("ignores a difference of a rupee or less, and an amount Gemini did not read", () => {
+        expect(notes({ typedAmount: 21501 }).amountMismatch).toBeNull();
+        expect(notes({ read: { ...READ, amount: "" }, typedAmount: 9000 }).amountMismatch).toBeNull();
     });
 });

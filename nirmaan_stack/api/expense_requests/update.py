@@ -40,6 +40,7 @@ from nirmaan_stack.api.expense_requests.create import (
 	guard_request_form,
 	guard_vendor_scope,
 )
+from nirmaan_stack.api.expense_requests.flatten import invoice_warnings, native_invoice
 from nirmaan_stack.services.payees.pay_to import apply_picked_payee
 
 
@@ -127,4 +128,5 @@ def update_expense_request(
 	req.save()
 	frappe.db.commit()
 
-	return {"name": req.name, "status": req.status, "projects": req.projects}
+	return {"name": req.name, "status": req.status, "projects": req.projects,
+	        "warnings": invoice_warnings(native_invoice(req.source_data))}
