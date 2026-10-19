@@ -13,8 +13,8 @@ routed reviewer is still refused: seeing a request in your queue never grants a 
 ⚠️ AMENDED (owner ruling): AN ADMIN MAY EDIT ANY PENDING REQUEST, including one they did not
 raise. Admin was previously refused for exactly the reason above -- they are the fallback
 reviewer for every unrouted category -- so this deliberately relaxes that control, and the
-residual risk is worth stating plainly: an Admin can now correct a request and then approve
-it themselves, because `guard_reviewer` lets an Admin past both of its gates. The mitigation
+residual risk is worth stating plainly: an Admin can now correct someone else's request and then
+approve it themselves (`guard_reviewer` refuses an Admin only their own request). The mitigation
 is evidence, not prevention -- `track_changes` records every edit with its author, and the
 requester is not an Admin. If that becomes unacceptable, the fix is to bar an Admin from
 REVIEWING a request they edited, not to take the pencil away again.

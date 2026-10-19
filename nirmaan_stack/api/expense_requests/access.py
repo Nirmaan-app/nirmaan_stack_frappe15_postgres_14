@@ -130,12 +130,25 @@ def records_without_review(user: str | None = None) -> bool:
 	"""Does the caller record without review: is their Expense Request approved on submit?
 
 	Admin (and `Administrator`) always does; anyone else when their profile is listed on
-	Expense Settings. It skips the Reviewer, never the amount rule.
+	Expense Settings AND can still raise a type (story 28: a profile that lost every type is off
+	the list, even while its row has not been pruned). It skips the Reviewer, never the amount rule.
 	"""
 	profile = caller_role_profile(user)
 	if profile == ADMIN_PROFILE:
 		return True
-	return bool(profile) and profile in listed_records_without_review()
+	return bool(profile) and profile in listed_records_without_review() and profile_can_raise(profile)
+
+
+def prune_records_without_review() -> None:
+	"""Take off the list every profile that can no longer raise a type (story 28), so one given a
+	type again later does not come back ticked. Called after a type's `allowed_roles` change."""
+	listed = listed_records_without_review()
+	keep = [p for p in listed if profile_can_raise(p)]
+	if keep == listed:
+		return
+	doc = frappe.get_single(EXPENSE_SETTINGS)
+	doc.set(RECORDS_WITHOUT_REVIEW_FIELD, [{"role_profile": p} for p in keep])
+	doc.save(ignore_permissions=True)
 
 
 def reviews_requests(profile: str | None) -> bool:
@@ -192,30 +205,33 @@ def guard_reviewer(req) -> None:
 	A caller passes the role check as the type's routed reviewer (always Admin today), or
 	as Accountant / HR on a request a Project Manager raised -- see `reviews_pm_request`.
 
-	An Admin passes both. They are the configured fallback reviewer for every unrouted
-	category, so blocking Admin self-review would strand any request an Admin raised with
-	nobody able to action it.
+	NOBODY reviews their own request, an Admin included (spec #1494, story 35). An Admin's own
+	request is approved on submit (Records without review), so the only one that waits is one
+	raised before that, and another Admin reviews it.
 	"""
 	user = frappe.session.user
-	profile = caller_role_profile(user)
-
-	if profile == ADMIN_PROFILE:
-		return
-
-	expected = reviewer_role_for_type(req.type)
-	if profile != expected and not reviews_pm_request(profile, caller_role_profile(req.owner)):
+	if not may_review(req, user, caller_role_profile(user), caller_role_profile(req.owner)):
+		if req.owner == user:
+			frappe.throw(
+				"You cannot approve or reject your own expense request.",
+				frappe.PermissionError,
+				title="Self-review",
+			)
 		frappe.throw(
-			f"Expense requests of type '{req.type}' are reviewed by {expected}.",
+			f"Expense requests of type '{req.type}' are reviewed by {reviewer_role_for_type(req.type)}.",
 			frappe.PermissionError,
 			title="Not your review",
 		)
 
-	if req.owner == user:
-		frappe.throw(
-			"You cannot approve or reject your own expense request.",
-			frappe.PermissionError,
-			title="Self-review",
-		)
+
+def may_review(req, user: str, profile: str | None, requester_profile: str | None) -> bool:
+	"""May `user` (holding `profile`) decide this request? The one rule behind `guard_reviewer`
+	and the list's `can_review`: never their own; an Admin any other; the type's reviewer; or
+	Accountant / HR on a Project Manager's request (`reviews_pm_request`)."""
+	if req.get("owner") == user:
+		return False
+	return (profile == ADMIN_PROFILE or profile == reviewer_role_for_type(req.get("type"))
+	        or reviews_pm_request(profile, requester_profile))
 
 
 def get_permission_query_conditions(user: str | None = None) -> str:

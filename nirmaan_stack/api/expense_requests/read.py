@@ -18,9 +18,9 @@ from nirmaan_stack.api.expense_requests.access import (
 	REJECTED,
 	caller_role_profile,
 	can_request_type,
+	may_review,
 	opens_expenses,
 	records_without_review,
-	reviews_pm_request,
 )
 from nirmaan_stack.api.expense_requests.convert import (
 	applicable_format,
@@ -131,11 +131,7 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 		r["can_edit"] = can_edit(r, user)
 		r["can_delete"] = can_delete(r, user, admin=profile == ADMIN_PROFILE,
 		                             has_expense=r["name"] in with_expense)
-		r["can_review"] = profile == ADMIN_PROFILE or (
-			r["owner"] != user
-			and (profile == r["reviewer_role"]
-			     or reviews_pm_request(profile, requester_profiles.get(r["owner"])))
-		)
+		r["can_review"] = may_review(r, user, profile, requester_profiles.get(r["owner"]))
 		# The answers, labelled, for the approval screen. Built by the SAME walk that writes
 		# the ledger description, so what a reviewer approves and what lands on the expense
 		# can never describe the request differently.
