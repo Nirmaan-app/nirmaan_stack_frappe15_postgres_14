@@ -48109,3 +48109,127 @@ refused, pipe size 80 above 53.98; 00336 / HVAC 207 refused, polyshield coating;
 - 62 sheets with Piping / Insulation rows have no run at today's version (Piping_State.xlsx (b)); 12 Insulation rows on run sheets
   were never read.
 - residence_check: unchanged pre-existing F5 / F2 counts (no 12e-6b file changes either).
+
+## Slice CU-A - clean-up, production-bound code: index safety, the BoQ delete cascade + orphan report, the stale-run healer, two dev off-switches - as built 2026-10-18
+
+**Commits (unpushed at the time of writing):**
+- `8d3c53844` feat(db): AC1 - `services/index_manifest.py` (118 entries: 88 `search_index` fields + the 30 controller
+  `add_index` / `add_unique` calls) + `ensure_indexes()` wired as hooks `after_migrate`; `test_index_manifest` (18).
+- `2e2d05dcc` feat(boq): AC2 + AC3 - `integrations/controllers/boqs.after_delete` (owner "children only") and
+  `services/orphans.py` `report()` / `delete(confirm_counts=...)`; `test_boq_delete_cascade` (5), `test_orphans` (6).
+- `cb5beed06` feat(rate-helper): AC4 - `tasks/suggest_run_healer.py`, cron every 5 min; `test_suggest_run_healer` (11).
+- `ecd9c24ac` feat(integrations): AC5 - `disable_push` (in `send_firebase_notification`) and `disable_cloud_upload` (new
+  `integrations/controllers/file.before_insert`); `test_off_switches` (10).
+- `a94b39785` test(boq): the two full-suite fixes (owner 2026-10-18): cascade fixtures by set_name, the `test_ai_run_log`
+  */5 pin inverted by mechanical authority.
+- The docs commit that carries this entry.
+
+Start tip `8fe44b7da` (= origin). Report on the Desktop: `2026-10-17_CUA_Report.md` (ledger first),
+`2026-10-17_CUA_Deploy_Notes.md`, evidence in `CUA\` (pg_indexes snapshots / diffs, migrate logs, P6 dump).
+
+### 1. Index manifest (AC1)
+- Frappe 15 on Postgres names a `search_index` index after the bare fieldname, schema-wide, and later drops it with a
+  table-less `DROP INDEX IF EXISTS "<field>"` (CU-0 s1). The manifest gives every index a table-unique name and
+  `ensure_indexes()` creates the missing ones after every migrate; it never drops. No doctype JSON changed.
+- Name rule `<Table_Slug>_<cols>_idx`, the doctype's CASE KEPT. The first dev build used a lowercase slug and queued
+  4 NEW bare drops (`color`, `config`, `choice`, `document` matched unindexed fields through Frappe's case-sensitive
+  LIKE over the whole definition); those 99 own indexes were dropped and rebuilt case-preserving. Pinned by test.
+- Explicit controller names are reused (19 already existed by name). Plain `CREATE INDEX IF NOT EXISTS`, committed per
+  index: `after_migrate` runs inside a transaction, so CONCURRENTLY is impossible.
+- Dev: 99 created in 2.63 s (largest `BoQ Committed Sheet Grid Row.parent`, 1,041,984 rows, 0.71 s); second run 0.
+  pg_indexes 666 -> 765, ADDED 99, REMOVED 0. Pending bare drops 95 -> 95, identical set.
+- Its log lines needed `logger.setLevel(logging.INFO)`: Frappe file loggers default to ERROR off the dev server, and
+  the first version's INFO lines (and the healer's and both switches') were silently dropped. A mocked-logger test had
+  passed; tests now read the real log file back.
+
+### 2. Delete cascade and orphans (AC2, AC3)
+- `delete_doc` runs `on_trash` BEFORE its link check and never tells the document it was forced, so the cascade is
+  `after_delete`: an unforced delete of a linked BoQ is refused with nothing removed (pinned). Always: drafts' work
+  packages; forced: linked sheets' work packages and grids' rows. Documents themselves are never deleted.
+- `orphans.report()` on dev at the slice's start: 3,374 = 3,209 child + 165 link rows, exactly CU-0. After today's suite
+  runs: 3,554 (locks 131 -> 140, drafts 323 -> 342, formulas 34 -> 36) - test residue. `delete()` was NOT run (CU-B).
+- Found in the full run: Frappe rolls a deleted BoQ's series number back, so a new BoQ can take a deleted one's name
+  and inherit its orphan rows (a fixture became BOQ-26-00834 and met a leftover pricing lock).
+
+### 3. Healer and switches (AC4, AC5)
+- Healer: `running` + no suggest job queued / started / deferred on any queue (by `run_id` AND by `(boq, sheet_name)`,
+  since a resume runs under a new job id) + `modified` older than 2 h -> `failed`, "stale - worker gone". First
+  scheduled run on dev (11:35:53 IST): exactly BRSR-26-00048..00064 (no 00057) and BRSR-26-00766; 352 / 199 unchanged.
+- The one push send point is `pr_notifications.py` `messaging.send` (line 160, not 134). The upload switch drops
+  `frappe_gcp_attachment.controller.file_upload_to_gcs` from `frappe.local.doc_events_hooks` for the request; no other
+  app is edited. Both set to 1 on dev (were absent); never on production.
+
+### 4. Migrate, suites, cert
+- `bench migrate` twice (pre- and post-logger-fix): exit 0, no patch (Patch Log 404), 0 index change, columns sha
+  unchanged, new Scheduled Job Type `suggest_run_healer.heal_stale_suggestion_runs` not stopped, 20 guards + mute kept.
+- Python full suite once: Ran 8,509 (+50 new), failures 7 / errors 3. New vs 12e-6b: the cascade fixture-name collision
+  and the */5 pin - both fixed in `a94b39785`, modules re-run green; expected net = the 8 known names. vitest / tsc not
+  re-run: no frontend file changed.
+- Cert at :8080 after the full de-stale: C1 boot + runtime import; C2 HVAC-8F unchanged, the failed run read via REST;
+  C3 2,123 / 588, 7,830 / 692, 1,884. Replay 17,883 rows 85869b59 / 5c824dd3 unchanged; HVAC v45 / Electrical v66 0 / 0.
+
+### 5. Findings for CU-B
+- Orphans 3,554 (140 pricing locks still point at deleted BoQ names). The capture log has no test guard (+103 mocked
+  lines today, 0 real calls). Test BoQs 00829-00832 and other suite residue; `test_piping_v34` minted a new live HVAC
+  batch again (`rmbulk-91325a615f4e`, equal content). residence_check F5 / F2 unchanged pre-existing.
+
+## Slice CU-B - clean-up, dev only: the isolation script, test hygiene, the approved deletes, the MS 300 / 250 swap, queue records, log retention - as built 2026-10-18
+
+**Commits (unpushed at the time of writing):**
+- `59f8588dd` feat(scripts): AC1 - `scripts/dev_isolate.py` + `services/test_dev_isolate.py` (11).
+- `42b0d109c` test(boq): AC2(a) - `extraction._capture_path` returns a temp file under `frappe.flags.in_test`;
+  `test_capture_guard` (3).
+- `cb3737d16` test(boq): AC2(b)(c) - `test_live_01` keeps the master's provenance; `services/boq_fixture_teardown.py`
+  (`fixture_boq_name`, `purge_docs`, `purge_boq`, hardened) + `test_boq_fixture_teardown` (7); 253 mechanical lines in
+  the 16 CU-0 modules + 3 cleanups in `test_boq_nodes` + 43 tidy-up lines in 15 more modules (owner: every module).
+- The docs commit that carries this entry.
+
+Start tip `2887426ec` (= origin). Report on the Desktop: `2026-10-18_CUB_Report.md` (ledger first), the delete
+declaration, `CUB\` (P6 dump, group lists, proofs).
+
+### 1. Isolation (AC1)
+- Refuses unless site `localhost`, developer_mode 1, db_host `postgresql`, site config `nirmaan_env: "dev"`, `--yes`.
+  The ruled stopped set is an input (`--stopped-file`). Every before-value is backed up (Password fields as raw
+  encrypted `__Auth` rows, never decrypted) to `sites/localhost/private/isolation_backup_<stamp>.json`, mode 600.
+- Dev run: email accounts 3 off, Nirmaan Users 57 (tokens blanked, push off), Token Cache 2, api_secret 8 rotated,
+  asset secrets 87 removed; config and stopped flags were already as ruled; `--verify` PASS.
+
+### 2. Test hygiene (AC2)
+- After the final full suite: 0 new orphans, 0 new real capture lines, the MS 300 / 250 rows untouched (see 4).
+- Fixture BoQs: `BOQ-TEST-<TAG>-<hash>` (never a series name; `BOQ-` kept for the category harness, which reads
+  `BOQ-*__*` corpus files). `purge_boq` refuses a BoQ created before the test process or the restore cutoff and
+  deletes only linked rows created since the process started (a recycled series name once took six old orphan locks).
+
+### 3. Deletes (AC3 - AC5), owner "go" 2026-10-18
+- Groups G01-G16, each recounted first, raw children-aware deletes, no hooks (declaration section 1): G01 orphans 3,579;
+  G02 BRSR-26-00449 / 00766; G03 the Test Project S7 set (13; File `9ffc2fe1c7` DB row only - bucket object stays,
+  Abhishek); G04 64 test BoQs (each proven: after the cutoff, no run / event, Administrator only, test pattern) + 269
+  rows; G05 Nirmaan Versions 10,168; G06 expenses 1,700; G07 projects 211; G08 packages 71; G09 users 1,570; G10
+  `_Test` 12; G11 email accounts 4; G12 OFI-26-15033 733; G13 orphan DC Items 51; G14 Print Formats 2; G15 orphan
+  locks 2 (declared 8: six were taken by a test teardown on a recycled name - disclosed); G16 14 File rows leaked by
+  the first version of the teardown edit. 18 orphan rq records deleted.
+- KEPT (owner): Nirmaan Versions on other doctypes, the inactive test batches, the 80 Suggestion Events, the paid runs
+  (209 post-13:40 after G02: the "211" included 00449 / 00766 and the production BRSR-26-00142).
+
+### 4. Swap, retention, proofs
+- AC4: MS 300 / 250 back on v45's own rows BRMI-26-4493526 / 4493842 (`rmbulk-c7b9569bd0e8`): 379 active, all in v45's
+  batch; HVAC 93bbac8f / 077bbe33; replay 17,883 rows 85869b59 / 5c824dd3 unchanged.
+- AC6: Logs To Clear Scheduled Job Log 7 -> 30, Error Log 14 -> 30, Activity Log 90 -> 30 (owner ruling; two lengthen);
+  `log_settings.run_log_clean_up` un-stopped (19 stopped); its first run removed 2,257 Activity Log rows.
+- INCIDENT (A11): a vacuity break of `test_live_01` ran on live data and left MS 300 / 250 with no active row
+  16:18:34-16:21:04 IST; repaired on the owner's word; nothing priced or ran in the window. Owner rule since: no
+  vacuity break against live data.
+
+### 5. Suites, cert, findings
+- Python full suite, run twice (the second after `purge_boq` was hardened; it is the slice's "after"): Ran 8,530,
+  failures 6 / errors 2 = exactly the 8 known 12e-6b names; 0 PurgeRefused; after it orphans.report() = 0, the real
+  capture log +0 (461), MS 300 / 250 on v45's rows, 0 leaked Files. vitest / tsc not run (no frontend change).
+- Cert at :8080 after the full de-stale: dashboard + runtime import; BOQ-26-00281 hub and HVAC pricing ("32 of 32
+  priced"); 0 test-pattern BoQs in the API list; 2,123 / 588, 7,830 / 692, 1,884. Replay byte-equal.
+- FINDING: the SPA's sidebar (`NewSidebar.tsx`) re-saves the browser's FCM token and turns push on at every login on dev,
+  undoing that part of the isolation (`disable_push` still blocks every send). Re-run `dev_isolate.py --yes` after a
+  browser session, or stop the save when `nirmaan_env` is dev (a later slice). Each re-run rotates the api secrets again;
+  a real `--restore` must use the FIRST backup (`isolation_backup_2026-10-18_155111.json`).
+- FINDING: non-BoQ test modules (expense, TDS, outflow, schedule tests) still leave residue on every full run (since the
+  deletes: Expense Request 136, Non Project Expenses 54, Projects 8, Users 12, Nirmaan Users 16, Contacts 67, DC Items 6,
+  Nirmaan Versions 561 of which 317 on BOQs from delete_doc teardowns). Not in this slice; a later hygiene slice.

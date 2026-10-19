@@ -24,6 +24,7 @@ from nirmaan_stack.services.boq_parser.config import (
 )
 from nirmaan_stack.services.boq_parser.orchestrator import parse_boq
 from nirmaan_stack.services.boq_parser.tests.fixtures.generate_synthetic import generate_all
+from nirmaan_stack.services.boq_fixture_teardown import fixture_boq_name, purge_boq, purge_docs
 
 from nirmaan_stack.api.boq.wizard.parse_run import (
     _LIST_JSON_FIELDS,
@@ -115,8 +116,9 @@ def _make_project():
 
 def _cleanup_project(project_name: str):
     for boq in frappe.get_all("BOQs", filters={"project": project_name}, fields=["name"]):
+        purge_boq(boq.name)
         frappe.db.delete("BoQ Review Row", {"boq": boq.name})
-        frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
+        purge_boq(boq.name)
     frappe.delete_doc("Projects", project_name, force=True, ignore_permissions=True)
     frappe.db.commit()
 
@@ -175,7 +177,7 @@ class TestAssembleMappingConfig(FrappeTestCase):
             "sheet_name": "Sheet5", "sheet_order": 5,
             "wizard_status": "Config Done",
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("PARSE_RUN"), ignore_permissions=True)
         frappe.db.commit()
         return boq
 
@@ -185,7 +187,7 @@ class TestAssembleMappingConfig(FrappeTestCase):
             filters={"project": self.__class__.test_project.name},
             fields=["name"],
         ):
-            frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
+            purge_boq(boq.name)
         frappe.db.commit()
 
     def test_reviewed_sheet_included_as_data(self):
@@ -261,7 +263,7 @@ class TestAssembleMappingConfig(FrappeTestCase):
             "sheet_name": "SheetParsed", "sheet_order": 1,
             "wizard_status": "Parsed", "sheet_config": blob,
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("PARSE_RUN"), ignore_permissions=True)
         frappe.db.commit()
 
         config, not_eligible = assemble_mapping_config(boq.name)
@@ -290,7 +292,7 @@ class TestAssembleMappingConfig(FrappeTestCase):
             "sheet_name": "NoBlob", "sheet_order": 2,
             "wizard_status": "Config Done",
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("PARSE_RUN"), ignore_permissions=True)
         frappe.db.commit()
 
         config, not_eligible = assemble_mapping_config(boq.name)
@@ -326,7 +328,7 @@ class TestAssembleMappingConfig(FrappeTestCase):
             "sheet_name": "Data Sheet", "sheet_order": 2,
             "wizard_status": "Config Done", "sheet_config": sc_blob,
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("PARSE_RUN"), ignore_permissions=True)
         frappe.db.commit()
 
         config, not_eligible = assemble_mapping_config(boq.name)
@@ -384,7 +386,7 @@ class TestAssembleMappingConfig(FrappeTestCase):
             "wizard_status": "Config Done",
             "sheet_config": production_blob,
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("PARSE_RUN"), ignore_permissions=True)
         frappe.db.commit()
 
         config, not_eligible = assemble_mapping_config(boq.name)
@@ -420,7 +422,7 @@ class TestAssembleMappingConfig(FrappeTestCase):
             "sheet_name": "DataSheet", "sheet_order": 3,
             "wizard_status": "Config Done", "sheet_config": blob,
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("PARSE_RUN"), ignore_permissions=True)
         frappe.db.commit()
 
         # Verify two distinct source_sheet_names exist in child table
@@ -475,7 +477,7 @@ class TestAssembleMappingConfig(FrappeTestCase):
             "sheet_name": "ParsedSheet", "sheet_order": 3,
             "wizard_status": "Parsed", "sheet_config": blob,
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("PARSE_RUN"), ignore_permissions=True)
         frappe.db.commit()
         return boq
 
@@ -535,7 +537,7 @@ class TestAssembleMappingConfig(FrappeTestCase):
             "sheet_name": "CheckedNoBlob", "sheet_order": 2,
             "wizard_status": "Finalized",
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("PARSE_RUN"), ignore_permissions=True)
         frappe.db.commit()
 
         config, not_eligible = assemble_mapping_config(boq.name, force_reparse=True)
@@ -806,7 +808,7 @@ class TestBoQReviewRowRoundTrip(FrappeTestCase):
         boq.project = cls.test_project.name
         boq.boq_name = "Round Trip Test BoQ"
         boq.tax_treatment = "Pre-tax"
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("PARSE_RUN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
 
@@ -1047,7 +1049,7 @@ class TestRunParseWorker(FrappeTestCase):
             "BOQs", filters={"project": self.__class__.test_project.name}, fields=["name"]
         ):
             frappe.db.delete("BoQ Review Row", {"boq": boq.name})
-            frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
+            purge_boq(boq.name)
         frappe.db.commit()
 
     def _make_boq(
@@ -1081,7 +1083,7 @@ class TestRunParseWorker(FrappeTestCase):
                 "wizard_status": "Config Done",
                 # no sheet_config: Rule 2 (master_preamble) fires before Rule 3 (blob check)
             })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("PARSE_RUN"), ignore_permissions=True)
         frappe.db.commit()
         return boq
 
@@ -1304,7 +1306,7 @@ class TestRunParseWorker(FrappeTestCase):
             "sheet_name": "SOW", "sheet_order": 3,
             "wizard_status": "Skip",
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("PARSE_RUN"), ignore_permissions=True)
         frappe.db.commit()
 
         self._run(boq.name)
@@ -1390,7 +1392,7 @@ class TestRunParseWorker(FrappeTestCase):
         boq.source_file_url = self.__class__._worker_wb_path
         boq.append("sheet_drafts", {"sheet_name": "SheetA", "sheet_order": 1, "wizard_status": "Config Done", "sheet_config": blob})
         boq.append("sheet_drafts", {"sheet_name": "SheetB", "sheet_order": 2, "wizard_status": "Skip"})
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("PARSE_RUN"), ignore_permissions=True)
         frappe.db.commit()
 
         self._run(boq.name)
@@ -1493,7 +1495,7 @@ class TestParseHistoryFields(FrappeTestCase):
             "BOQs", filters={"project": self.__class__.test_project.name}, fields=["name"]
         ):
             frappe.db.delete("BoQ Review Row", {"boq": boq.name})
-            frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
+            purge_boq(boq.name)
         frappe.db.commit()
 
     def _make_boq(self, include_sow: bool = False):
@@ -1514,7 +1516,7 @@ class TestParseHistoryFields(FrappeTestCase):
                 "sheet_name": "SOW", "sheet_order": 2,
                 "wizard_status": "Config Done",
             })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("PARSE_RUN"), ignore_permissions=True)
         frappe.db.commit()
         return boq
 
@@ -1680,7 +1682,7 @@ class TestParseInProgressMarker(FrappeTestCase):
             "sheet_name": "SheetA", "sheet_order": 1,
             "wizard_status": "Config Done", "sheet_config": blob,
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("PARSE_RUN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
 
@@ -1814,7 +1816,7 @@ class TestParseEnqueueMarking(FrappeTestCase):
             "sheet_name": "SheetC", "sheet_order": 3,
             "wizard_status": "Parsed", "sheet_config": blob,
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("PARSE_RUN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
 
@@ -1935,7 +1937,7 @@ class TestSelfHealParseState(FrappeTestCase):
         boq.append("sheet_drafts", {
             "sheet_name": "SheetB", "sheet_order": 2, "wizard_status": "Config Done",
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("PARSE_RUN"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
 
@@ -2105,7 +2107,7 @@ class TestPerSheetParseMarkersWorker(FrappeTestCase):
             "BOQs", filters={"project": self.__class__.test_project.name}, fields=["name"]
         ):
             frappe.db.delete("BoQ Review Row", {"boq": boq.name})
-            frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
+            purge_boq(boq.name)
         frappe.db.commit()
 
     def _make_boq(self, sheet_b_status="Config Done"):
@@ -2124,7 +2126,7 @@ class TestPerSheetParseMarkersWorker(FrappeTestCase):
             "wizard_status": sheet_b_status,
             "sheet_config": blob if sheet_b_status in ("Config Done", "Parsed") else None,
         })
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("PARSE_RUN"), ignore_permissions=True)
         frappe.db.commit()
         return boq
 
@@ -2258,7 +2260,7 @@ class TestParseFailureReason(FrappeTestCase):
             "BOQs", filters={"project": self.__class__.test_project.name}, fields=["name"]
         ):
             frappe.db.delete("BoQ Review Row", {"boq": boq.name})
-            frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
+            purge_boq(boq.name)
         frappe.db.commit()
 
     # -- helpers ---------------------------------------------------------
@@ -2284,7 +2286,7 @@ class TestParseFailureReason(FrappeTestCase):
         for i, d in enumerate(drafts, start=1):
             row = {"sheet_order": i, **d}
             boq.append("sheet_drafts", row)
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("PARSE_RUN"), ignore_permissions=True)
         frappe.db.commit()
         return boq
 
@@ -2492,7 +2494,7 @@ class TestGetStaleSheets(FrappeTestCase):
         for boq in frappe.get_all(
             "BOQs", filters={"project": self.__class__.test_project.name}, fields=["name"]
         ):
-            frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
+            purge_boq(boq.name)
         frappe.db.commit()
 
     def _make_boq(self, drafts, general_specs=None):
@@ -2504,7 +2506,7 @@ class TestGetStaleSheets(FrappeTestCase):
             boq.append("general_specs_sheets", {"source_sheet_name": sn, "preamble_text": ""})
         for i, d in enumerate(drafts, start=1):
             boq.append("sheet_drafts", {"sheet_order": i, **d})
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("PARSE_RUN"), ignore_permissions=True)
         frappe.db.commit()
         return boq
 
@@ -2731,8 +2733,9 @@ class TestParseDoneRevisionCarryPayload(FrappeTestCase):
         except OSError:
             pass
         for boq in frappe.get_all("BOQs", filters={"project": cls.project.name}, fields=["name"]):
-            frappe.db.delete("BOQ Nodes", {"boq": boq.name})
-            frappe.db.delete("BoQ Sheet", {"boq": boq.name})
+            purge_boq(boq.name)
+            purge_docs("BOQ Nodes", {"boq": boq.name})
+            purge_docs("BoQ Sheet", {"boq": boq.name})
         frappe.db.commit()
         _cleanup_project(cls.project.name)
         super().tearDownClass()
@@ -2746,7 +2749,7 @@ class TestParseDoneRevisionCarryPayload(FrappeTestCase):
             if boq.name == self.__class__.original.name:
                 continue
             frappe.db.delete("BoQ Review Row", {"boq": boq.name})
-            frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
+            purge_boq(boq.name)
         frappe.db.commit()
         super().tearDown()
 
@@ -2762,7 +2765,7 @@ class TestParseDoneRevisionCarryPayload(FrappeTestCase):
         if source_boq:
             boq.source_boq = source_boq
         boq.source_file_url = cls._wb_path
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("PARSE_RUN"), ignore_permissions=True)
         frappe.db.commit()
         return boq
 
@@ -3037,7 +3040,7 @@ class TestAutoClaudeCheckSeam(FrappeTestCase):
         ):
             frappe.db.delete("BoQ AI Run Log", {"boq": boq.name})
             frappe.db.delete("BoQ Review Row", {"boq": boq.name})
-            frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
+            purge_boq(boq.name)
         frappe.db.commit()
 
     def _make_boq(self, sheet_b_status="Config Done"):
@@ -3057,7 +3060,7 @@ class TestAutoClaudeCheckSeam(FrappeTestCase):
             "sheet_config": blob if sheet_b_status == "Config Done" else None,
         })
         boq.append("sheet_drafts", {"sheet_name": "SOW", "sheet_order": 3, "wizard_status": "Config Done"})
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("PARSE_RUN"), ignore_permissions=True)
         frappe.db.commit()
         return boq
 

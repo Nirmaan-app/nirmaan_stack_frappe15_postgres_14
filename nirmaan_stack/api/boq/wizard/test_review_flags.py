@@ -24,6 +24,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard import ai_assist, ai_run_log, review_flags, review_screen
+from nirmaan_stack.services.boq_fixture_teardown import purge_boq
 
 _ROW = "BoQ Review Row"
 _RUN_LOG = "BoQ AI Run Log"
@@ -514,6 +515,7 @@ class _FlagCase(FrappeTestCase):
         for b in frappe.get_all("BOQs", filters={"project": cls.test_project.name}, pluck="name"):
             frappe.db.delete(_RUN_LOG, {"boq": b})
             frappe.db.delete(_ROW, {"boq": b})
+            purge_boq(b)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", b, force=True, ignore_permissions=True)
         frappe.delete_doc("Projects", cls.test_project.name, force=True, ignore_permissions=True)
         frappe.db.commit()

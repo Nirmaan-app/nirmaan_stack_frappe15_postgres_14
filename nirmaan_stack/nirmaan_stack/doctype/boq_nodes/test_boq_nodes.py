@@ -5,6 +5,7 @@ import json
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from nirmaan_stack.services.boq_fixture_teardown import fixture_boq_name, purge_boq, purge_docs
 
 _TEST_PROJECT = "_TEST_BOQ_PROJECT_NODES"
 
@@ -33,7 +34,7 @@ class TestBOQNodes(FrappeTestCase):
         boq = frappe.new_doc("BOQs")
         boq.project = _TEST_PROJECT
         boq.boq_name = "Shared Test BoQ"
-        boq.insert(ignore_permissions=True, ignore_links=True)
+        boq.insert(set_name=fixture_boq_name("BOQ_NODES"), ignore_permissions=True, ignore_links=True)
 
         # P4-2: nodes link to a BoQ Sheet (the sheet tier); boq is denormalized and
         # auto-filled from the sheet by the controller. A shared sheet under the
@@ -59,9 +60,9 @@ class TestBOQNodes(FrappeTestCase):
     @classmethod
     def tearDownClass(cls):
         if hasattr(cls, "boq_name"):
-            frappe.db.delete("BOQ Nodes", {"boq": cls.boq_name})
-            frappe.db.delete("BoQ Sheet", {"boq": cls.boq_name})
-            frappe.db.delete("BOQs", {"name": cls.boq_name})
+            purge_docs("BOQ Nodes", {"boq": cls.boq_name})
+            purge_docs("BoQ Sheet", {"boq": cls.boq_name})
+            purge_boq(cls.boq_name)
             frappe.db.commit()
         super().tearDownClass()
 
@@ -125,7 +126,7 @@ class TestBOQNodes(FrappeTestCase):
         other_boq = frappe.new_doc("BOQs")
         other_boq.project = _TEST_PROJECT
         other_boq.boq_name = "Other BoQ for sync mismatch"
-        other_boq.insert(ignore_permissions=True, ignore_links=True)
+        other_boq.insert(set_name=fixture_boq_name("BOQ_NODES"), ignore_permissions=True, ignore_links=True)
         try:
             with self.assertRaises(frappe.ValidationError):
                 bad = frappe.new_doc("BOQ Nodes")
@@ -136,7 +137,7 @@ class TestBOQNodes(FrappeTestCase):
                 bad.description = "Sync mismatch test"
                 bad.insert(ignore_permissions=True, ignore_links=True)
         finally:
-            frappe.db.delete("BOQs", {"name": other_boq.name})
+            purge_boq(other_boq.name)
             frappe.db.commit()
 
     def test_validate_requires_node_type(self):
@@ -696,7 +697,7 @@ class TestBOQNodes(FrappeTestCase):
                 "Nirmaan Versions",
                 {"ref_doctype": "BOQ Nodes", "docname": node_name},
             )
-            frappe.db.delete("BOQ Nodes", {"name": node_name})
+            purge_docs("BOQ Nodes", {"name": node_name})
             frappe.db.commit()
 
     def test_audit_entry_without_reason_defaults_to_desk_edit(self):
@@ -722,7 +723,7 @@ class TestBOQNodes(FrappeTestCase):
                 "Nirmaan Versions",
                 {"ref_doctype": "BOQ Nodes", "docname": node_name},
             )
-            frappe.db.delete("BOQ Nodes", {"name": node_name})
+            purge_docs("BOQ Nodes", {"name": node_name})
             frappe.db.commit()
 
     def test_audit_entry_not_written_on_initial_insert(self):
@@ -754,7 +755,7 @@ class TestBOQNodes(FrappeTestCase):
                     "Nirmaan Versions",
                     {"ref_doctype": "BOQ Nodes", "docname": node.name},
                 )
-                frappe.db.delete("BOQ Nodes", {"name": node.name})
+                purge_docs("BOQ Nodes", {"name": node.name})
                 frappe.db.commit()
 
     # ------------------------------------------------------------------ #
@@ -771,7 +772,8 @@ class TestBOQNodes(FrappeTestCase):
         approved_boq = frappe.new_doc("BOQs")
         approved_boq.project = _TEST_PROJECT
         approved_boq.boq_name = "Approved BoQ Trash Test"
-        approved_boq.insert(ignore_permissions=True, ignore_links=True)
+        approved_boq.insert(set_name=fixture_boq_name("BOQ_NODES"), ignore_permissions=True, ignore_links=True)
+        self.addCleanup(lambda n=approved_boq.name: (purge_boq(n), frappe.db.commit()))  # CU-B: it leaked 3 BoQs a run
         frappe.db.set_value("BOQs", approved_boq.name, "status", "Approved")
 
         sheet = frappe.new_doc("BoQ Sheet")
@@ -868,7 +870,8 @@ class TestBOQNodes(FrappeTestCase):
         boq.project = _TEST_PROJECT
         boq.boq_name = "Area Dims Warn Test BoQ"
         boq.area_dimensions = '["B1", "B2"]'
-        boq.insert(ignore_permissions=True, ignore_links=True)
+        boq.insert(set_name=fixture_boq_name("BOQ_NODES"), ignore_permissions=True, ignore_links=True)
+        self.addCleanup(lambda n=boq.name: (purge_boq(n), frappe.db.commit()))  # CU-B: it leaked 3 BoQs a run
 
         sheet = frappe.new_doc("BoQ Sheet")
         sheet.boq = boq.name
@@ -899,7 +902,8 @@ class TestBOQNodes(FrappeTestCase):
         boq.project = _TEST_PROJECT
         boq.boq_name = "Area Dims Clean Test BoQ"
         boq.area_dimensions = '["B1", "B2"]'
-        boq.insert(ignore_permissions=True, ignore_links=True)
+        boq.insert(set_name=fixture_boq_name("BOQ_NODES"), ignore_permissions=True, ignore_links=True)
+        self.addCleanup(lambda n=boq.name: (purge_boq(n), frappe.db.commit()))  # CU-B: it leaked 3 BoQs a run
 
         sheet = frappe.new_doc("BoQ Sheet")
         sheet.boq = boq.name
@@ -1156,7 +1160,7 @@ class TestBOQNodes(FrappeTestCase):
                 "Nirmaan Versions",
                 {"ref_doctype": "BOQ Nodes", "docname": node_name},
             )
-            frappe.db.delete("BOQ Nodes", {"name": node_name})
+            purge_docs("BOQ Nodes", {"name": node_name})
             frappe.db.commit()
 
     def test_audit_entry_not_written_when_no_fields_change(self):

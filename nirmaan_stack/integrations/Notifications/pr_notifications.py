@@ -1,3 +1,5 @@
+import logging
+
 from firebase_admin import messaging
 import frappe
 import time
@@ -132,7 +134,19 @@ def get_allowed_accountants(doc):
 
 
 def send_firebase_notification(fcm_token, title, body, click_action_url):
-    """Sends a push notification using Firebase Admin SDK."""
+    """Sends a push notification using Firebase Admin SDK.
+
+    THE one place the app sends a push (every PrNotification caller ends here). With the site config
+    `disable_push` set -- dev only, never on production (CU-A AC5) -- it logs what it would have sent
+    (recipient count and title; never the token or the body) and sends nothing."""
+    if frappe.conf.get("disable_push"):
+        logger = frappe.logger("nirmaan_push", allow_site=True)
+        # Frappe file loggers default to ERROR off the dev server (utils/logger.py): INFO needs this
+        logger.setLevel(logging.INFO)
+        logger.info(
+            f"push disabled (disable_push): not sent to 1 recipient, title {title!r}"
+        )
+        return
     message = messaging.Message(
         notification=messaging.Notification(
             title=title,

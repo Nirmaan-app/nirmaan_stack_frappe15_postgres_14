@@ -1,5 +1,6 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from nirmaan_stack.services.boq_fixture_teardown import purge_boq
 
 
 class TestBoQSheetDraft(FrappeTestCase):
@@ -27,6 +28,7 @@ class TestBoQSheetDraft(FrappeTestCase):
         for boq in frappe.get_all(
             "BOQs", filters={"project": cls.test_project.name}, fields=["name"]
         ):
+            purge_boq(boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
         frappe.delete_doc(
             "Projects", cls.test_project.name, force=True, ignore_permissions=True
@@ -69,5 +71,6 @@ class TestBoQSheetDraft(FrappeTestCase):
             # Where the retired column still exists (an in-place upgrade), it is unset.
             self.assertIsNone(child.get("work_package"))
         finally:
+            purge_boq(boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
             frappe.db.commit()

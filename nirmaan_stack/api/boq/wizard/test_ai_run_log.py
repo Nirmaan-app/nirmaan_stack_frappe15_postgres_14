@@ -24,6 +24,7 @@ from rq.timeouts import JobTimeoutException
 
 from nirmaan_stack.api.boq.wizard import ai_assist, ai_run_log
 from nirmaan_stack.services import boq_ai_assist
+from nirmaan_stack.services.boq_fixture_teardown import purge_boq
 
 _RUN_LOG = "BoQ AI Run Log"
 _CLAUDE_WORKER = "nirmaan_stack.api.boq.wizard.ai_assist._run_ai_pass_worker"
@@ -99,6 +100,7 @@ class _RunLogCase(FrappeTestCase):
         for b in frappe.get_all("BOQs", filters={"project": cls.test_project.name}, pluck="name"):
             frappe.db.delete(_RUN_LOG, {"boq": b})
             frappe.db.delete("BoQ Review Row", {"boq": b})
+            purge_boq(b)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", b, force=True, ignore_permissions=True)
         frappe.delete_doc("Projects", cls.test_project.name, force=True, ignore_permissions=True)
         frappe.db.commit()
@@ -505,7 +507,12 @@ class TestTimedCheck(FrappeTestCase):
 
     def test_exactly_one_scheduler_entry_every_five_minutes(self):
         events = frappe.get_hooks("scheduler_events")
-        self.assertEqual(events["cron"]["*/5 * * * *"], [self._TASK])
+        # CU-A (mechanical inversion, owner 2026-10-18): the */5 list now also carries the suggest-run
+        # healer. This task is still there exactly once, and the healer is the ONLY other entry.
+        five = events["cron"]["*/5 * * * *"]
+        self.assertEqual(five.count(self._TASK), 1)
+        self.assertEqual([m for m in five if m != self._TASK],
+                         ["nirmaan_stack.tasks.suggest_run_healer.heal_stale_suggestion_runs"])
         every_entry = [
             method
             for group in events.values()

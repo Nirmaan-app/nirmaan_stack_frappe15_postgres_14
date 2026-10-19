@@ -14,6 +14,7 @@ from nirmaan_stack.api.boq.wizard.update_sheet_draft import (
 )
 # A1: the REAL un-mark endpoint (review_screen) used by the round-trip freeze test.
 from nirmaan_stack.api.boq.wizard.review_screen import unmark_sheet_parsed_check_done
+from nirmaan_stack.services.boq_fixture_teardown import purge_boq
 
 _SHEET_HVAC = "HVAC BOQ"
 _SHEET_ELEC = "ELECTRICAL"
@@ -44,6 +45,7 @@ def _make_boq(project_name: str):
 
 def _cleanup_project(project_name: str):
     for boq in frappe.get_all("BOQs", filters={"project": project_name}, fields=["name"]):
+        purge_boq(boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
         frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
     frappe.delete_doc("Projects", project_name, force=True, ignore_permissions=True)
     frappe.db.commit()
@@ -69,6 +71,7 @@ class TestSetSheetStatusPositive(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -127,6 +130,7 @@ class TestSetSheetStatusNegative(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -172,6 +176,7 @@ class TestSetSheetLabel(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -243,6 +248,7 @@ class TestSetGeneralSpecsSheet(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -451,6 +457,7 @@ class TestSetSheetConfig(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -554,6 +561,7 @@ class TestSetSheetConfigDirtyMarker(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -687,6 +695,7 @@ class TestSetSheetWorkPackages(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -871,6 +880,7 @@ class TestMigrateWorkPackageToMulti(FrappeTestCase):
             (self._draft_name,),
         )
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -936,6 +946,7 @@ class TestGetBoqWorkPackages(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -1045,6 +1056,7 @@ class TestParseHistoryNotTouched(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -1157,6 +1169,7 @@ class TestParseInProgressGuard(FrappeTestCase):
         frappe.db.commit()
 
     def tearDown(self):
+        purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
         frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -1215,6 +1228,7 @@ class TestStatusRenameRegression(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -1256,6 +1270,7 @@ class TestFinalizedConfigFreeze(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 

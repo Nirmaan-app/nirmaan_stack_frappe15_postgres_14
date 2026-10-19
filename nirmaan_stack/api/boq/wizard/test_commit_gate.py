@@ -19,6 +19,7 @@ nothing here commits, writes BOQ Nodes, or changes wizard_status.
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from nirmaan_stack.services.boq_fixture_teardown import fixture_boq_name, purge_boq, purge_docs
 
 from nirmaan_stack.api.boq.wizard.commit_gate import (
     compute_committable_sheets,
@@ -159,14 +160,14 @@ class TestGetCommittableSheetsEndpoint(FrappeTestCase):
         for name in ("Sheet_GenSpecs", "Sheet_Overlap"):
             boq.append("general_specs_sheets", {"source_sheet_name": name})
 
-        boq.insert(ignore_permissions=True, ignore_links=True)
+        boq.insert(set_name=fixture_boq_name("COMMIT_GATE"), ignore_permissions=True, ignore_links=True)
         cls.boq_name = boq.name
         frappe.db.commit()
 
     @classmethod
     def tearDownClass(cls):
         if hasattr(cls, "boq_name"):
-            frappe.db.delete("BOQs", {"name": cls.boq_name})
+            purge_boq(cls.boq_name)
         frappe.db.commit()
         super().tearDownClass()
 
@@ -230,14 +231,14 @@ class TestGetCommittedState(FrappeTestCase):
         boq = frappe.new_doc("BOQs")
         boq.project = _TEST_PROJECT_COMMITTED
         boq.boq_name = "Shared Test BoQ for Committed State"
-        boq.insert(ignore_permissions=True, ignore_links=True)
+        boq.insert(set_name=fixture_boq_name("COMMIT_GATE"), ignore_permissions=True, ignore_links=True)
         cls.boq_name = boq.name
 
         # A SECOND BoQ with NO committed grid rows (the empty case).
         empty = frappe.new_doc("BOQs")
         empty.project = _TEST_PROJECT_COMMITTED
         empty.boq_name = "Shared Test BoQ for Committed State (empty)"
-        empty.insert(ignore_permissions=True, ignore_links=True)
+        empty.insert(set_name=fixture_boq_name("COMMIT_GATE"), ignore_permissions=True, ignore_links=True)
         cls.empty_boq_name = empty.name
 
         # Grid rows on cls.boq_name:
@@ -266,8 +267,8 @@ class TestGetCommittedState(FrappeTestCase):
     def tearDownClass(cls):
         for name in (getattr(cls, "boq_name", None), getattr(cls, "empty_boq_name", None)):
             if name:
-                frappe.db.delete("BoQ Committed Sheet Grid", {"boq": name})
-                frappe.db.delete("BOQs", {"name": name})
+                purge_docs("BoQ Committed Sheet Grid", {"boq": name})
+                purge_boq(name)
         frappe.db.commit()
         super().tearDownClass()
 
@@ -325,7 +326,7 @@ class TestGetCommittedStateOrdering(FrappeTestCase):
         boq = frappe.new_doc("BOQs")
         boq.project = _TEST_PROJECT_COMMITTED
         boq.boq_name = "Shared Test BoQ for Committed State Ordering"
-        boq.insert(ignore_permissions=True, ignore_links=True)
+        boq.insert(set_name=fixture_boq_name("COMMIT_GATE"), ignore_permissions=True, ignore_links=True)
         cls.boq_name = boq.name
 
         # Three committed sheets seeded OUT of natural order: Gamma(3), Alpha(1), Beta(2).
@@ -353,9 +354,9 @@ class TestGetCommittedStateOrdering(FrappeTestCase):
     def tearDownClass(cls):
         name = getattr(cls, "boq_name", None)
         if name:
-            frappe.db.delete("BoQ Committed Sheet Grid", {"boq": name})
-            frappe.db.delete("BoQ Sheet", {"boq": name})
-            frappe.db.delete("BOQs", {"name": name})
+            purge_docs("BoQ Committed Sheet Grid", {"boq": name})
+            purge_docs("BoQ Sheet", {"boq": name})
+            purge_boq(name)
         frappe.db.commit()
         super().tearDownClass()
 
@@ -381,7 +382,7 @@ class TestGetCommittedStateDisposition(FrappeTestCase):
         boq = frappe.new_doc("BOQs")
         boq.project = _TEST_PROJECT_COMMITTED
         boq.boq_name = "Shared Test BoQ for Committed State Disposition"
-        boq.insert(ignore_permissions=True, ignore_links=True)
+        boq.insert(set_name=fixture_boq_name("COMMIT_GATE"), ignore_permissions=True, ignore_links=True)
         cls.boq_name = boq.name
 
         for name, disp in (("Specs", "grid_only"), ("Electrical", "grid_and_nodes")):
@@ -399,8 +400,8 @@ class TestGetCommittedStateDisposition(FrappeTestCase):
     def tearDownClass(cls):
         name = getattr(cls, "boq_name", None)
         if name:
-            frappe.db.delete("BoQ Committed Sheet Grid", {"boq": name})
-            frappe.db.delete("BOQs", {"name": name})
+            purge_docs("BoQ Committed Sheet Grid", {"boq": name})
+            purge_boq(name)
         frappe.db.commit()
         super().tearDownClass()
 
@@ -432,7 +433,7 @@ class TestGetCommittedStateBcsFlag(FrappeTestCase):
         boq = frappe.new_doc("BOQs")
         boq.project = _TEST_PROJECT_COMMITTED
         boq.boq_name = "Shared Test BoQ for Committed State BCS Flag"
-        boq.insert(ignore_permissions=True, ignore_links=True)
+        boq.insert(set_name=fixture_boq_name("COMMIT_GATE"), ignore_permissions=True, ignore_links=True)
         cls.boq_name = boq.name
 
         # Three sheets: one with cost tracking ON, one explicitly OFF, and one with NO
@@ -466,9 +467,9 @@ class TestGetCommittedStateBcsFlag(FrappeTestCase):
     def tearDownClass(cls):
         name = getattr(cls, "boq_name", None)
         if name:
-            frappe.db.delete("BoQ Sheet", {"boq": name})
-            frappe.db.delete("BoQ Committed Sheet Grid", {"boq": name})
-            frappe.db.delete("BOQs", {"name": name})
+            purge_docs("BoQ Sheet", {"boq": name})
+            purge_docs("BoQ Committed Sheet Grid", {"boq": name})
+            purge_boq(name)
         frappe.db.commit()
         super().tearDownClass()
 
@@ -514,7 +515,7 @@ class TestGetCommittedStateStaleness(FrappeTestCase):
         boq = frappe.new_doc("BOQs")
         boq.project = _TEST_PROJECT_COMMITTED
         boq.boq_name = "Shared Test BoQ for Committed State Staleness"
-        boq.insert(ignore_permissions=True, ignore_links=True)
+        boq.insert(set_name=fixture_boq_name("COMMIT_GATE"), ignore_permissions=True, ignore_links=True)
         cls.boq_name = boq.name
 
         T_EARLY = "2026-06-20 10:00:00"
@@ -605,8 +606,8 @@ class TestGetCommittedStateStaleness(FrappeTestCase):
         if name:
             for dt in ("BoQ Cell Pricing", "BoQ Cell Color", "BoQ Cell Remark",
                        "BoQ Sheet", "BoQ Committed Sheet Grid"):
-                frappe.db.delete(dt, {"boq": name})
-            frappe.db.delete("BOQs", {"name": name})
+                purge_docs(dt, {"boq": name})
+            purge_boq(name)
         frappe.db.commit()
         super().tearDownClass()
 
@@ -661,7 +662,7 @@ class TestGetSheetVersions(FrappeTestCase):
         boq = frappe.new_doc("BOQs")
         boq.project = cls._PROJECT
         boq.boq_name = "Shared Test BoQ for Sheet Versions"
-        boq.insert(ignore_permissions=True, ignore_links=True)
+        boq.insert(set_name=fixture_boq_name("COMMIT_GATE"), ignore_permissions=True, ignore_links=True)
         cls.boq_name = boq.name
 
         # Three committed grid versions of the SAME sheet (v3 current). v2 is priced.
@@ -705,8 +706,8 @@ class TestGetSheetVersions(FrappeTestCase):
         name = getattr(cls, "boq_name", None)
         if name:
             for dt in ("BoQ Cell Pricing", "BoQ Committed Sheet Grid"):
-                frappe.db.delete(dt, {"boq": name})
-            frappe.db.delete("BOQs", {"name": name})
+                purge_docs(dt, {"boq": name})
+            purge_boq(name)
         frappe.db.commit()
         super().tearDownClass()
 

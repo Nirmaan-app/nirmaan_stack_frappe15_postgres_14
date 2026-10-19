@@ -84,6 +84,13 @@ pdf_generator = ["nirmaan_stack.api.pdf_helper.keep_links.keep_links_pdf"]
 #before_install = "nirmaan_stack.install.before_install"
 #after_install = "nirmaan_stack.install.after_install"
 
+# Migration
+# ------------
+# CU-A: after every migrate, create any missing index of the index manifest under its own
+# table-unique name. Frappe's model sync can drop a bare-name index of ANOTHER table; this puts the
+# named one back in the same migrate. It never drops anything.
+after_migrate = ["nirmaan_stack.services.index_manifest.ensure_indexes"]
+
 # Uninstallation
 # ------------
 
@@ -522,6 +529,13 @@ doc_events = {
         "validate": "nirmaan_stack.integrations.controllers.boqs.validate",
         "on_update": "nirmaan_stack.integrations.controllers.boqs.on_update",
         "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
+        # CU-A: the delete cascade. after_delete, never on_trash -- on_trash runs before the link
+        # check, so a refused delete would already have removed the sheet / grid rows.
+        "after_delete": "nirmaan_stack.integrations.controllers.boqs.after_delete",
+    },
+    # CU-A: the dev-only cloud-upload off-switch (site config `disable_cloud_upload`; never on prod).
+    "File": {
+        "before_insert": "nirmaan_stack.integrations.controllers.file.before_insert",
     },
     "BOQ Nodes": {
         "validate": "nirmaan_stack.integrations.controllers.boq_nodes.validate",
@@ -586,7 +600,9 @@ scheduler_events = {
 		# Every 5 min -- BoQ Claude review health check: a run with no heartbeat (or whose job is
 		# gone) is marked Failed and its "AI pass running" flag cleared. Light: no AI, no library.
 		"*/5 * * * *": [
-			"nirmaan_stack.api.boq.wizard.ai_run_log.heal_stale_runs_task"
+			"nirmaan_stack.api.boq.wizard.ai_run_log.heal_stale_runs_task",
+			# CU-A: a rate-suggestion run left `running` by a killed worker -> failed, "stale - worker gone".
+			"nirmaan_stack.tasks.suggest_run_healer.heal_stale_suggestion_runs",
 		],
 		"0 2 * * *": [
 			"nirmaan_stack.tasks.action_item_reconcile.run_nightly_reconcile"

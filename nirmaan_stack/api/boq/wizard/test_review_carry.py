@@ -31,6 +31,7 @@ from nirmaan_stack.api.boq.wizard.test_revision_entry import (
     _make_project,
 )
 from nirmaan_stack.api.boq.wizard.test_revision_mapping import _make_revision
+from nirmaan_stack.services.boq_fixture_teardown import fixture_boq_name, purge_boq, purge_docs
 from nirmaan_stack.services.boq_revision.reasons import (
     ALL_REASONS,
     PARENT_NOT_CARRIED,
@@ -164,9 +165,10 @@ class TestReviewCarryMerge(FrappeTestCase):
     @classmethod
     def tearDownClass(cls):
         for boq in frappe.get_all("BOQs", filters={"project": cls.project.name}, fields=["name"]):
+            purge_boq(boq.name)
             frappe.db.delete("BoQ Review Row", {"boq": boq.name})
-            frappe.db.delete("BOQ Nodes", {"boq": boq.name})
-            frappe.db.delete("BoQ Sheet", {"boq": boq.name})
+            purge_docs("BOQ Nodes", {"boq": boq.name})
+            purge_docs("BoQ Sheet", {"boq": boq.name})
         frappe.db.commit()
         _cleanup_project(cls.project.name)
         super().tearDownClass()
@@ -387,6 +389,7 @@ class TestRevisionSourceGuard(FrappeTestCase):
     @classmethod
     def tearDownClass(cls):
         for boq in frappe.get_all("BOQs", filters={"project": cls.project.name}, fields=["name"]):
+            purge_boq(boq.name)
             frappe.db.delete("BoQ Review Row", {"boq": boq.name})
         frappe.db.commit()
         _cleanup_project(cls.project.name)
