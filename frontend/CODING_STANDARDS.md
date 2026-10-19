@@ -292,6 +292,8 @@ committing).
   Module records at PW-2b-i, where the tests assert the emitted formula text and cannot see that the engine
   mis-reads it at runtime — which is why that class now has somewhere to live. Keep rules in pure helpers (F4)
   all the same.
+- **A pricing rule is done only when tested from the panel's entry point (`makePricingSheetHelper(...).compute`); `ruleReachability.test.ts` fails for any Derivation-tab rule without a case** (12d-8, owner standing rule 1: a rule can work in the inner pricer and in its own tests and never fire on the panel, because an earlier step on the path rewrote its input first -- the 12d-6 double layer, then 12d-7's F-1/F-2/F-3).
+- **A cleared pick is never filled by a default; defaults fill only what the BoQ or user never gave** (12d-8, owner R1: the stale-pick clearing marks the cell `cleared` on the pricer's input and `priceOneItem` refuses it by name before `number_defaults` / `defaults` / `absent_as_none` are consulted -- deleting the cell made it indistinguishable from "never given").
 - **Browser verification:** the Playwright walkthrough, test user and key routes are in
   `.claude/context/testing.md`.
 - **Cypress** (`yarn test-local`, `cypress.config.ts`) is configured but largely unimplemented.

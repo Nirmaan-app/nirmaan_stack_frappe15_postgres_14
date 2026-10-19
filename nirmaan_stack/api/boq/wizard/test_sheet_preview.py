@@ -21,6 +21,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from nirmaan_stack.services.boq_fixture_teardown import purge_boq
 
 from nirmaan_stack.api.boq.wizard.sheet_preview import (
     _derive_s3_key,
@@ -88,6 +89,7 @@ def _make_boq_with_url(project_name: str, source_file_url: str = _FAKE_S3_URL):
 
 def _cleanup_project(project_name: str):
     for row in frappe.get_all("BOQs", filters={"project": project_name}, fields=["name"]):
+        purge_boq(row.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
         frappe.delete_doc("BOQs", row.name, force=True, ignore_permissions=True)
     frappe.delete_doc("Projects", project_name, force=True, ignore_permissions=True)
     frappe.db.commit()
@@ -201,6 +203,7 @@ class TestGetSheetPreviewShape(FrappeTestCase):
     def tearDown(self):
         self.patcher.stop()
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -276,6 +279,7 @@ class TestGetSheetPreviewPagination(FrappeTestCase):
     def tearDown(self):
         self.patcher.stop()
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -319,6 +323,7 @@ class TestGetSheetPreviewHasMore(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -448,6 +453,7 @@ class TestGetSheetPreviewFull(FrappeTestCase):
 
     def tearDown(self):
         if frappe.db.exists("BOQs", self.boq.name):
+            purge_boq(self.boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -541,5 +547,6 @@ class TestGetSheetPreviewFull(FrappeTestCase):
                     boq_name=boq_no_url.name, sheet_name=_SIMPLE_SHEET
                 )
         finally:
+            purge_boq(boq_no_url.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
             frappe.delete_doc("BOQs", boq_no_url.name, force=True, ignore_permissions=True)
             frappe.db.commit()

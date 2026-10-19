@@ -138,7 +138,7 @@ describe("the impact panel offers an edit box for a rate or a factor", () => {
   it("every HVAC input has at least one editable field", () => {
     const inputs = (HVAC as unknown as { items: any[] }).items
       .filter((i) => i.kind === "hvac_pricing_input");
-    expect(inputs).toHaveLength(7);
+    expect(inputs).toHaveLength(7);   // the v16 asset by name (the 12e-2 Piping inputs live in v36, pinned in slice12e2.test.ts)
     for (const i of inputs) {
       const f = editableFieldsOf(i.rates);
       expect(f.length, `${i.attributes.item} has no editable field -- the panel shows no input`).toBe(1);

@@ -439,6 +439,61 @@ _Moved verbatim from `frontend/CLAUDE.md` when it was cut down to material every
   (a second Escape exits full-screen -- never trapped). Persisted to **`nirmaan-fullscreen-top-collapsed`**.
   EMBEDDED is untouched (`topCollapsed` only bites while `expanded`). **Memo shield + virtualizer math
   untouched** across all three.
+- **A delegated section is drawn by the SAME component and priced by the delegated category's own path (12e-3a,
+  owner D1 / D1a / 13:40 / 13:42; full text in root `.claude/context/domain/boq-rate-master.md` § Load-bearing
+  invariants).** On a config declaring `list_spec.sections` (Piping) `ItemListView.sections` is present and
+  `ItemListBlocks` reads it: the add buttons are the config's ("+ Add pipe", "+ Add insulation" on every state),
+  each pipe block carries the "Insulated" Yes / No field, and a section is a NESTED `ItemListBlocks` over the
+  delegated category's own one-item view (`SectionBlockView.view`) -- so its fields, defaults, notes, working,
+  quantity box and "Change item" list are Insulation's, unchanged. Only the frame differs in section mode: the
+  heading ("Insulation - priced by Insulation's rules"), no row-unit picker, no add button, no row total, and the x
+  only on an independent section. Edits inside a section travel as ONE operation, `{op: "section", section, pipe,
+  index, inner}`, applied to the stored edit of that section; the toggle's select sends ONE `set_attr` carrying
+  `dropSection` when it closes. `view.editState` is what every operation must be applied to: it holds the open
+  sections' edits materialised. A config that declares no section has no `sections` key anywhere in its view and
+  renders exactly as before -- the "+ Add item" button's markup included.
+- **A section open with nothing picked is drawn from the view, and the row-total sentence is built in one place
+  (12e-3b, owner D1b; full text in root `.claude/context/domain/boq-rate-master.md` § Load-bearing invariants).** A
+  `SectionBlockView` whose `view.pickFamily` is true has no items: `ItemListBlocks` draws its heading and
+  `view.families` as buttons (`data-testid="item-section-family-picker"`, no Cancel -- the toggle closes the section),
+  and a pick sends the section's own `{op: "change_family", index: 0, family}`. The other empty-section frame (a
+  category whose rules are not loaded) is the same test with `!view.pickFamily`. The helper decides which, never the
+  panel: `pickFamily` is set only in the calculator. The "n of m items need a person" sentence is
+  `pricingSheetHelper.needPersonSentence(bad, lines)` ("1 of 1 item needs", "1 of 2 items need"); the panel calls it and
+  builds no sentence of its own. Every line the panel shows has passed `plainPricerText`, so it carries no rule tag
+  and reads "Nm".
+- **A section's quantity box, a default's value and the calculator's "pick" sentence all come from the view (12e-3c,
+  owner F10 / F11 / F4; full text in root `.claude/context/domain/boq-rate-master.md` § Load-bearing invariants).** A
+  block whose `qtyMirrorTag` is set draws that tag beside "How many in one ..." (`data-testid="item-qty-mirror-tag"`):
+  the quantity is the item's the section sits under, and typing in the box makes it the section's own. A defaulted
+  field the dropdown does not stock arrives with `otherMode` true and the ruled value in `typedValue`, or with the
+  value appended to `options`; the panel draws what it is given and decides nothing. "pick a cladding" is the
+  helper's rewording of the pricer's "could not tell cladding" in the calculator only.
+- **A section's item is the one the run MARKED, and the as-written word and a default's wording come from the view
+  (12e-4b, owner D-2 / D-3 / G1-G3; full text in root `.claude/context/domain/boq-rate-master.md` § Load-bearing
+  invariants).** `computeItemList` sorts a stored item into a delegated section when `item.section` equals that
+  section's id (`ExtractedListItem.section`) and by nothing else; an item with no marker, or a marker no section
+  declares, is the config's own and shows as a block. A fixture that hands a Piping row a model-read insulation item
+  must carry `section: "insulation"` ON THE ITEM, beside `attributes` -- without it the test still runs, on a blank
+  pipe block. The read-only line a config declares for the family as written (`family_text.from_attr` +
+  `panel_readonly`) is in `ItemBlockView.readOnly` only where the word differs from the family priced; the panel
+  draws it with its existing read-only markup ("<label> (BoQ): <value>") and no new code. A defaulted number's note
+  leads "Default"; a default's working line arrives already said once and by its field's label
+  (`plainEnglish.onceOnly`) -- the panel words nothing itself.
+- **A two-way field always offers both values; a ladder pick ladders; an unstocked pair refuses by name (12e-2b,
+  owner 2026-10-10; full text in root `.claude/context/domain/boq-rate-master.md` § Load-bearing invariants, beside
+  S1).** Owner: *"for attributes whose options are yes/no, with/without type both values must be shown in the
+  dropdown else it becomes confusing ... valid for all disciplines all categories all attributes"*; D1 (a): *"two-way
+  = any choice field whose list FOR THIS FAMILY has exactly two values - worked out from the list, no config key, no
+  category or attribute named in code."* On the panel and the calculator alike (one helper serves both): the ONE test
+  is `itemListPricing.twoWayValues`; such a field is never narrowed and its pick is never cleared, and every other
+  field keeps the S1 narrowing. A hand-picked UL "yes" prices the UL 555 SKU through the model path's own override
+  (D2), and the variant field then shows what priced. A PICK on a field with a ladder that another answer unstocks is
+  laddered exactly as the same value typed, the field showing the value used with "<picked> is not stocked with <the
+  other answer> -> priced as <used> (<reason>)"; a choice field (no ladder) is still cleared with "choose again" and
+  never refilled by a default. A family change still starts the block blank (owner S1, kept). The refusal for an
+  unstocked combination reads "No SKU for <family>: <facts> - price this row by hand" on every HVAC item-list
+  category, built by `plainEnglish.noSkuSentence`.
 
 ### Rendering, virtualization and sockets
 
@@ -699,6 +754,25 @@ _Moved verbatim from `frontend/CLAUDE.md` when it was cut down to material every
   branches are unit-testable; the selected-row branch carries NO warning because it has no such
   consequence.
 - **Matching a stated value to a dropdown option must never discard meaning the pricer reads (layers, compositions); option matching runs only on values the pricer would read the same way** (12d-6, owner-locked: `computeItemList` skips `matchStatedToOption` for any value `readLayers` accepts -- the panel used to hand the pricer the option "19" for a model-read "Double layer of 19 mm" and price one layer).
+- **A pipe row's figure is two ROUNDUPs with the accessories share read from a per-family Pricing Input
+  (owner "option b, yes", 2026-10-10, slice 12e-2).** The Piping block's working reads, in order, the family's
+  `Piping accessories - <family>` input, `BCS pipe = <G>`, `BCS pipe x (1 + the accessories share)`,
+  `ROUNDUP(BCS supply, 0)`, `BCS supply x (1 + the SKU's supply markup)`, `ROUNDUP(supply, 0)`; install is
+  `BCS install x (1 + the SKU's install markup)`, rounded up. The inner ROUNDUP is the sheet's own Total BCS
+  Supply and must stay (the pins are `test_piping_v34.test_09` and `slice12e2.test.ts`, the 40 figures named by
+  family and size on BOTH paths). The impact panel prices the same way through `priceSkuExactItemList`.
+- **A typed pipe size lands on its rung by the declared ladder, and the field's line shows the whole read
+  (owner Q14 / Q14a / Q17 / Q11).** On an axis declaring `typed_entry: "one_size"`, the line reads
+  `You typed 5/8" -> 15.875 mm -> priced as 15.9 mm (the sheet's own spelling of this size)`,
+  `You typed 4 inch -> 101.6 mm / 100 mm -> priced as 100 mm` (the x 25 conversion landed),
+  `You typed 15 -> priced as 19 mm (the smallest size)`, `You typed 110 -> priced as 150 mm (next size up)`;
+  the 0.1 mm rung (`size_match.near`) is what takes 1-1/4" (31.75) to the sheet's 31.7. `LadderHop.how` is
+  written ONLY where a declaring key is present, so Insulation's `You typed 31.75 mm -> priced as 34.93 mm
+  (next size up)` is byte-identical. The pipe type is a CONTROL on Piping alone (`panel_controls.pipe_type:
+  dropdown_or_other`): a select of the stocked families plus "Other...", whose box is bound to what the pricer
+  TYPED (`familyControl.typedValue`, the family id in `edit.other`) while the block's heading shows the family
+  USED and the config's line sits beneath (`familyLine`, amber, in place of the built-in alias sentence);
+  Insulation and ADP (`dropdown`) keep the "Change item" picker alone.
 - **Rate-helper panel + Rate Master attribute semantics:** every invariant moved to `frontend/.claude/context/domain/pricing-rate-master-frontend.md` -- load it before any rate-helper work.
 
 ## Where the full component contracts live

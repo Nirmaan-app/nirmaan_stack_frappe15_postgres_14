@@ -549,9 +549,12 @@ describe("slice 5 / R18 -- no SKU in the catalogue = blank; two closed-list valu
     expect(r.reason).toBe("no SKU in the catalogue for 'none of these' -- the user decides (R18)");
     const pair = one("Sqm", { family: "fire damper", variant: "with sleeve", ul: "yes" });
     expect(pair.priced).toBe(false);
-    expect(pair.reason).toBe("no SKU for this combination (fire damper: variant with sleeve, ul yes)");
+    // INVERTED at 12e-2b (owner D3, Decision 1 (a) + Decision 2 "a colon form"): the sentence, not the pair, changed.
+    // BEFORE: "no SKU for this combination (fire damper: variant with sleeve, ul yes)"
+    expect(pair.reason).toBe("No SKU for fire damper: UL listed yes, variant with sleeve - price this row by hand");
     const slots = one("Rmt", { family: "slot diffuser", damper: "without", slot_count: "4 slot" });
-    expect(slots.reason).toBe("no SKU for this combination (slot diffuser: damper without, slot count 4)");
+    // BEFORE: "no SKU for this combination (slot diffuser: damper without, slot count 4)"
+    expect(slots.reason).toBe("No SKU for slot diffuser: without damper, slot count 4 - price this row by hand");
   });
   it("NEGATIVE: the stocked pair prices", () => {
     expect(figures(one("Sqm", { family: "fire damper", variant: "UL", ul: "yes" }))).toEqual([true, 21750, 1920]);
@@ -605,7 +608,8 @@ describe("slice 5 / R20 -- derived items keep their formulas and follow a CSV ed
   it("NEGATIVE: a size the sheet does not derive is blank (never a geometry guess); the base row itself prices per sq.m", () => {
     const r = one("Nos", { family: "cross-talk", face_w_mm: "400", face_h_mm: "300" });
     expect(r.priced).toBe(false);
-    expect(r.reason).toBe("no SKU for this combination (cross-talk: width 400, height 300)");
+    // INVERTED at 12e-2b (owner D3): BEFORE "no SKU for this combination (cross-talk: width 400, height 300)"
+    expect(r.reason).toBe("No SKU for cross-talk: width 400, height 300 - price this row by hand");
     expect(figures(one("Sqm", { family: "cross-talk" }))).toEqual([true, 2320, 800]);
   });
 });
@@ -978,6 +982,17 @@ describe("slice 6b / V1, V4 -- a dropdown's options come from the ACTIVE SKUs, n
     // 12d-2 S4: UL carries a ruled default (not mentioned -> no), so "None" is not offered
     expect(ul({}).options).toEqual(["yes", "no"].filter((v) => stocked("actuator", "ul").includes(v)));
     expect(ul({ torque_nm: "20" }).options).toEqual(["yes", "no"].filter((v) => stocked("actuator", "ul", { torque_nm: "20" }).includes(v)));
+    /**
+     * SLICE 12e-2b (owner D1 (a); recon anomaly 6): the line above asserts only at torque 20, where BOTH UL
+     * values are stocked, so it passed with or without narrowing. The REAL assertion, at a torque where the
+     * SKUs stock ONE side: torque 6 exists only as non-UL, and until this slice the UL list narrowed to ["no"].
+     * UL is a TWO-WAY field (its list has exactly two values), so it now offers both whatever the torque --
+     * while the torque list, which is not two-way, still narrows under UL (asserted above, unchanged).
+     */
+    expect(stocked("actuator", "ul", { torque_nm: "6" })).toEqual(["no"]);            // the SKUs: one side only
+    expect(ul({ torque_nm: "6" }).options).toEqual(["yes", "no"]);                     // the field: both (BEFORE: ["no"])
+    expect(ul({ torque_nm: "3.5" }).options).toEqual(["yes", "no"]);                   // BEFORE: ["yes"]
+    expect(torque({ ul: "yes" }).options).not.toContain("6");                          // NEGATIVE: torque still narrows
   });
   it("a newly added SKU appears as an option with NO code change (X2); the family's other options are untouched", () => {
     const extra: RateMasterItem = { ...items9.find((i) => i.attributes.family === "disc valve")!, name: "TEST-DV-200", item_uid: "test-dv-200", attributes: { item_name: "PVC Disc Valve", item_detail: "200MM DIA", family: "disc valve", dia_mm: 200 } };
@@ -1262,7 +1277,8 @@ describe("slice 8 / M-b -- a stated UL decides the fire damper, whatever the var
       // NEGATIVE, the same row on v10: refused, which is the defect M-b answers
       const was = priceItemList(spec10, items10, "Sq.m", [ext({ family: "fire damper", ul: "yes", variant })]);
       expect(was.priced, variant).toBe(false);
-      expect(was.reason, variant).toContain("no SKU for this combination");
+      // INVERTED at 12e-2b (owner D3): BEFORE toContain("no SKU for this combination")
+      expect(was.reason, variant).toBe(`No SKU for fire damper: UL listed yes, variant ${variant} - price this row by hand`);
     }
   });
 
@@ -3131,7 +3147,8 @@ describe("SLICE 12d-1a / R4 -- value_map: foil on a pipe prices as 26G; foil on 
   it("NEGATIVE: without the block, foil on a pipe refuses as it always did (no SKU for that combination)", () => {
     const r = price("Rmt", { item: NR, cladding: "Aluminium Foil", thickness_mm: "25 mm", pipe_size_mm: "32 mm NB" }, spec({ ...INS, list_spec: { ...INS.list_spec, pricing: { ...INS.list_spec.pricing, defaults: CLAD } } } as Cfg));
     expect(r.priced).toBe(false);
-    expect(r.items[0].reason).toMatch(/no SKU for this combination/);
+    // INVERTED at 12e-2b (owner D3): BEFORE toMatch(/no SKU for this combination/)
+    expect(r.items[0].reason).toBe("No SKU for Nitrile Rubber Insulation: cladding Aluminium Foil - price this row by hand");
   });
 
   it("the map runs AFTER the defaults and overrides: a ruled 'No' never reads as foil, and the panel's field shows the mapped word", () => {
@@ -3280,7 +3297,9 @@ describe("SLICE 12d-1b / T2 -- several = highest: a bare slash list of any lengt
   });
 
   it("HAZARD PIN (recon item 10): '50 mm - 32 mm' copied into thickness reads as a RANGE -> its top, 50 -- pinned so a prompt change that starts copying such phrases is caught", () => {
-    expect(readNumber("50 mm - 32 mm thick", HIGHEST)).toEqual({ value: 50, note: "range '50 mm - 32 mm thick' -> its top value 50 (R6)" });
+    // 12e-6 AC8 (owner R10 / U6) INVERTED by mechanical authority: the VALUE is unchanged (50); a thickness reader states
+    // the range in the or / slash rule's words. Before: note "range '50 mm - 32 mm thick' -> its top value 50 (R6)".
+    expect(readNumber("50 mm - 32 mm thick", HIGHEST)).toEqual({ value: 50, note: "'50 mm - 32 mm thick' states a range - the higher, 50, is taken" });
   });
 });
 

@@ -27,6 +27,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard.revision import confirm_revision_mapping
 from nirmaan_stack.api.boq.wizard.revision_carry import current_committed_sheets
+from nirmaan_stack.services.boq_fixture_teardown import fixture_boq_name, purge_boq, purge_docs
 from nirmaan_stack.api.boq.wizard.test_revision_entry import (
     _cleanup_project,
     _make_boq,
@@ -122,7 +123,8 @@ class TestConfigColumnCarry(FrappeTestCase):
         # as_dict() would trip the "cannot be a list" wall (CLAUDE.md). frappe.db.delete skips
         # the doc load entirely. The grid + BOQs + project are dropped by _cleanup_project.
         for boq in frappe.get_all("BOQs", filters={"project": cls.project.name}, fields=["name"]):
-            frappe.db.delete("BoQ Sheet", {"boq": boq.name})
+            purge_boq(boq.name)
+            purge_docs("BoQ Sheet", {"boq": boq.name})
         frappe.db.commit()
         _cleanup_project(cls.project.name)
         super().tearDownClass()
@@ -426,7 +428,8 @@ class TestConfigSnapshotCarry(FrappeTestCase):
     @classmethod
     def tearDownClass(cls):
         for boq in frappe.get_all("BOQs", filters={"project": cls.project.name}, fields=["name"]):
-            frappe.db.delete("BoQ Sheet", {"boq": boq.name})
+            purge_boq(boq.name)
+            purge_docs("BoQ Sheet", {"boq": boq.name})
         frappe.db.commit()
         _cleanup_project(cls.project.name)
         super().tearDownClass()
@@ -608,7 +611,8 @@ class TestWorkPackageCarry(FrappeTestCase):
     @classmethod
     def tearDownClass(cls):
         for boq in frappe.get_all("BOQs", filters={"project": cls.project.name}, fields=["name"]):
-            frappe.db.delete("BoQ Sheet", {"boq": boq.name})
+            purge_boq(boq.name)
+            purge_docs("BoQ Sheet", {"boq": boq.name})
         for name in [*cls.headers, cls.padded_header]:
             frappe.delete_doc("Work Headers", name, force=True, ignore_permissions=True)
         frappe.db.commit()
@@ -742,7 +746,8 @@ class TestNewSheetConfigPrefill(FrappeTestCase):
     @classmethod
     def tearDownClass(cls):
         for boq in frappe.get_all("BOQs", filters={"project": cls.project.name}, fields=["name"]):
-            frappe.db.delete("BoQ Sheet", {"boq": boq.name})
+            purge_boq(boq.name)
+            purge_docs("BoQ Sheet", {"boq": boq.name})
         frappe.db.commit()
         _cleanup_project(cls.project.name)
         super().tearDownClass()

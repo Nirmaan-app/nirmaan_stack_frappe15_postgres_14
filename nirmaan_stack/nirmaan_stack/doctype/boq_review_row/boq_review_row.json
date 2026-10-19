@@ -3,7 +3,7 @@
  "allow_import": 1,
  "allow_rename": 1,
  "autoname": "BOQRR-.YY.-.#####",
- "creation": "2026-06-03 00:00:00.000000",
+ "creation": "2026-06-03 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -14,6 +14,7 @@
   "source_row_number",
   "row_index",
   "classification",
+  "parser_classification",
   "level",
   "parent_index",
   "path",
@@ -76,6 +77,9 @@
   "ai_suggestion_status",
   "ai_accept_snapshot",
   "ai_snapshot_owner",
+  "ai_flags_ok",
+  "ai_flags_ok_by",
+  "ai_flags_ok_at",
   "gemini_suggestions_section",
   "gemini_suggested_classification",
   "gemini_classification_confidence",
@@ -625,12 +629,40 @@
    "fieldtype": "Datetime",
    "label": "Revision Reviewed At",
    "read_only": 1
+  },
+  {
+   "description": "S3 (ADR-0033): the parser's own row type, kept ONLY on a row whose parsed type Claude surely changed (High-confidence preamble -> line_item, written by review_flags.apply_sure_changes). Blank on every other row. Never shown to the user and never sent to the review screen.",
+   "fieldname": "parser_classification",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Parser Classification (before a sure AI change)",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "S3 (ADR-0033): the reviewer's 'Looks OK' on this row's Check type / Check parent flags. Written ONLY by review_flags.mark_row_looks_ok, one row per call. It stops counting once the row's edit history has a later 'reverted' entry. Kept SEPARATE from flags_dismissed (parser advisories) and revision_reviewed (revision rows).",
+   "fieldname": "ai_flags_ok",
+   "fieldtype": "Check",
+   "label": "Review Flags Looks OK"
+  },
+  {
+   "fieldname": "ai_flags_ok_by",
+   "fieldtype": "Link",
+   "label": "Review Flags Looks OK By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ai_flags_ok_at",
+   "fieldtype": "Datetime",
+   "label": "Review Flags Looks OK At",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-22 00:00:00.000000",
+ "modified": "2026-10-13 01:19:31.406521",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "BoQ Review Row",

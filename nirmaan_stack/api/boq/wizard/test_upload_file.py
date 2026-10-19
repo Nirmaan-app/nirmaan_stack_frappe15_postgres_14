@@ -8,6 +8,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard.upload_file import _upload_file_worker, upload_file
+from nirmaan_stack.services.boq_fixture_teardown import purge_boq
 
 _FIXTURE_DIR = os.path.abspath(os.path.join(
     os.path.dirname(__file__),  # api/boq/wizard/
@@ -79,6 +80,7 @@ def _cleanup_for_project(project_name):
             fields=["name"],
         ):
             frappe.delete_doc("Nirmaan Attachments", att.name, force=True, ignore_permissions=True)
+        purge_boq(boq.name)  # CU-B: takes the BoQ-linked rows (locks, review rows) delete_doc leaves
         frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
     # Orphaned attachments (corrupted/zero_sheets cases where BOQs row was never created)
     for att in frappe.get_all(

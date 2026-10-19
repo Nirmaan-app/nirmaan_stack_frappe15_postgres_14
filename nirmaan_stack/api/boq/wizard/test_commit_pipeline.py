@@ -25,6 +25,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard import commit_pipeline
+from nirmaan_stack.services.boq_fixture_teardown import fixture_boq_name, purge_boq, purge_docs
 
 _GRID = "BoQ Committed Sheet Grid"
 _SHEET = "BoQ Sheet"
@@ -120,7 +121,7 @@ class TestCommitPipeline(FrappeTestCase):
         })
         # Designate SOW as general-specs via the pointer overlay.
         boq.append("general_specs_sheets", {"source_sheet_name": "SOW"})
-        boq.insert(ignore_permissions=True, ignore_links=True)
+        boq.insert(set_name=fixture_boq_name("COMMIT_PIPELINE"), ignore_permissions=True, ignore_links=True)
         cls.boq_name = boq.name
         frappe.db.commit()
 
@@ -128,7 +129,7 @@ class TestCommitPipeline(FrappeTestCase):
     def tearDownClass(cls):
         if hasattr(cls, "boq_name"):
             cls._purge(cls.boq_name)
-            frappe.db.delete("BOQs", {"name": cls.boq_name})
+            purge_boq(cls.boq_name)
             frappe.db.commit()
         super().tearDownClass()
 
@@ -1288,7 +1289,7 @@ class TestCommitBoqPartialFailure(FrappeTestCase):
                 "sheet_name": s, "sheet_order": i,
                 "wizard_status": "Finalized", "sheet_config": json.dumps(_CFG),
             })
-        boq.insert(ignore_permissions=True, ignore_links=True)
+        boq.insert(set_name=fixture_boq_name("COMMIT_PIPELINE"), ignore_permissions=True, ignore_links=True)
         cls.boq_name = boq.name
         # commit_boq reads source_file_url before the loop (throws if blank); the
         # value is never dereferenced because the fetch/open are patched.
@@ -1299,7 +1300,7 @@ class TestCommitBoqPartialFailure(FrappeTestCase):
     def tearDownClass(cls):
         if hasattr(cls, "boq_name"):
             TestCommitPipeline._purge(cls.boq_name)
-            frappe.db.delete("BOQs", {"name": cls.boq_name})
+            purge_boq(cls.boq_name)
             frappe.db.commit()
         super().tearDownClass()
 

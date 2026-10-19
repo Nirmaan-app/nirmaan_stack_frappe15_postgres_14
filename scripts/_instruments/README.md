@@ -33,6 +33,7 @@ are the guard — if a last-run date is old, assume the rig needs checking befor
 | `recheck12d4b_runner.py` | 12d-4b step 3: the 12d-3 runner scoped to the set (`_suggest_worker(only_rows=...)`), cap-guarded at 300 calls, one resume-retry, resumable progress | **12d-4b, 2026-10-08** -- 0 errors / halts / retries |
 | `recheck12d4b_analyse.py` | 12d-4b item 4 a-f + the Review Pack's P1 / P2 / P4: stored 12d-3 answers vs the fresh ones, both priced through the current rules; the Excel | **12d-4b, 2026-10-08** |
 | `audit12d3_analyse.py` | 12d-3 analysis: the automatic reading + rule checks, the stratified 60-row hand-review dump, the second-opinion merge, the Excel (host; openpyxl) | **12d-3, 2026-10-08** — `2026-10-10_12d3_Audit_Rows.xlsx` |
+| `mint_hvac_v34_piping.py` | 12e-1: mints HVAC v34 = v33 + the 40-row Piping catalogue (`build`: workbook sheet -> candidate, uids through the ONE mint, validated offline, no DB write; `load`: pre-load snapshot, `load_rate_master(replace=True)`, canonical export). 12e-1b: `name` phase -- v35 = v34 + `attributes.item_name` (the sheet's column A, verbatim, MANDATORY on every Piping item) + its definition FIRST in the Piping config; uids kept, no mint. 12e-2: `price` phase -- v36 = v35 + `cost_supply` = the sheet's BCS Pipe (column G) on the 40 Piping items (VERIFY-FIRST: ROUNDUP(G x (1 + the family's accessories)) == column I on all 40, the MS links hold on G, else it stops naming the rows) + four `hvac_pricing_input` accessories items (uids through the ONE mint) + the item-list Piping config (families by pipe_type, the P5 pipeline, the P1-P4 keys; `item_name` under ADP's two flags). 12e-3a: `sections` phase -- v37 = v36 + two additions to the Piping config's `list_spec` and nothing else: the per-item `insulated` (Yes / No) definition, last, and `sections` (the config's own items + one section delegating to `hvac_insulation`: the two ruled families, `include_when`, `absent`, `mirror`). No item touched, no uid minted: the candidate is the base file with that one config edited in place (it stops if re-dumping the unedited base does not reproduce its bytes), validated offline by the config validator AND the cross-category check. Container, bench python; `--base` / `--out` must be ABSOLUTE paths (the script changes directory to `sites/`) | **12e-3a, 2026-10-11** -- `sections` 379 / 10, Piping questions `pipe_type, size_mm, pipe_class` -> `+ insulated`; load batch `rmbulk-28e5a8d53518`, pre-load snapshot `BRMS-26-00300`, retirements_without_reason 0; NO hand step this time (the candidate already carries the series order and `intentional_removals`; live == the file by content, 0 items / 0 configs differing); mint gate v36 -> v37 PASS. (12e-2, 2026-10-10: `price` 379 / 10, 40 re-based, inputs `rmi-67fd225ee50b` / `rmi-8ee2e7eafdcd` / `rmi-59a191e345dc` / `rmi-f9e817c46120`; load batch `rmbulk-a656afd62046`, pre-load snapshot `BRMS-26-00185`, retirements_without_reason 0; the same two hand steps after the export (series order, `intentional_removals`); mint gate v35 -> v36 PASS. (12e-1b, 2026-10-10: `name` 375 / 10, 40 named, definitions `item_name, pipe_type, size_mm`; load batch `rmbulk-d012e907473f`, pre-load snapshot `BRMS-26-00127`, retirements_without_reason 0; the same two hand steps after the export (re-order into the series convention, carry `intentional_removals`); mint gate v34 -> v35 PASS; 12e-1, 2026-10-09: build 375 / 10, load batch `rmbulk-fede1f42b846`, snapshot `BRMS-26-00069`, gate PASS)) |
 
 ---
 
@@ -91,6 +92,33 @@ Runs the config validator over every asset JSON on disk. This is the mechanical 
 `CLAUDE.md`: *before switching such a gate on, sweep every asset on disk* — a new refusal that lands on
 a HISTORICAL asset is a defect in the current slice, not in that asset. It chdirs into the bench `sites/`
 directory, so it runs **in-container**.
+
+### `mint_hvac_v34_piping.py` — the Piping catalogue mint (12e-1)
+
+Two explicit phases, both in-container under the bench python. `build` reads the owner's HVAC workbook
+sheet `Piping` (header shape pinned in the file) plus the base asset, mints one `item_uid` per row through
+`csv_importer.mint_item_uid` (never inline), assembles the candidate (base items + 40 Piping items; base
+configs + the one data-only `hvac_piping` config carrying the two LIVE MS `derived_rates` links) and
+validates it offline with the loader's own config / item validators and `derived_rate_updates`; it writes
+no database row. `load` takes the pre-load snapshot, runs `loader.load_rate_master(replace=True)` on the
+candidate and exports the text from the database. Re-running `build` mints fresh uids by design; the
+committed file is the record. ⚠️ TWO HAND STEPS FOLLOW THE EXPORT, both measured in 12e-1: (1) the
+exporter orders items `kind asc, item_uid asc` and configs `category_id asc`, but the HVAC series files
+(v32 / v33 checked) hold items in GLOBAL `item_uid` order and configs in creation order with the newest
+last -- and the cross-version pins compare ORDERED lists -- so the export is re-ordered into that
+convention (content asserted byte-equal to the previous asset per uid / category while doing so);
+(2) the exporter does not emit the top-level `intentional_removals` key that v29 onwards carry (the
+declared `calculator_only` removal), so it is carried from the previous asset -- without it
+`mint_completeness_check.py` reports one UNDECLARED removal (`top:intentional_removals`).
+
+12e-1b added the third phase, `name` (owner 2026-10-10: the item name "should be kept exactly as per the
+excel file. we cant drop it."; ruling option (a)): v35 = v34 + `attributes.item_name` on every Piping item --
+the sheet's column A text verbatim, matched by `source.row`, uids KEPT (nothing is minted) -- plus the
+`item_name` definition FIRST in the Piping config (a plain choice over the four sheet texts, label "Item", no
+`attributes_from_spec`: the spec reader has no Piping rules). The key is MANDATORY: the offline validation
+refuses a Piping item without it, and `build` now carries it too, so a future re-mint cannot drop it. The
+viewer and the rate file show an attribute ONLY when the config declares it, which is why the key and the
+definition travel together. `load` and the two hand steps are unchanged.
 
 ### `hvac_v1_attrs_for.py` — ⚠️ PROVENANCE ONLY, NEVER RUN
 

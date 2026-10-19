@@ -80,7 +80,11 @@ describe("SLICE 12d-6 / AC1 -- a layered thickness survives option matching on t
     // AC2: displayed the way "25 mm thick - 2 Layers" already is -- the Other... box holds the stated text
     expect(thk(block).otherMode).toBe(true);
     expect(thk(block).typedValue).toBe(stated);
-    expect(thk(block).note).toBeUndefined();
+    // INVERTED at 12e-5b2 (owner R5 / U2: a composed field shows the TOTAL with the composition line). BEFORE: the
+    // note was undefined and the value the first layer's 19
+    expect(thk(block).note).toBe(`BoQ says ${stated} -> priced as two layers, 19 + 19 mm (38 mm); cladding on the outer layer only`);
+    expect(thk(block).value).toBe("38");
+    expect(thk(block).value).not.toBe("19");
   });
 
   it("(iv) \"25 mm thick - 2 Layers\" -> 1016 / 238 and (v) \"13+13\" -> 904 / 238, UNCHANGED by this slice", () => {
@@ -221,8 +225,9 @@ describe("SLICE 12d-6 / AC3 -- a hyphenated mixed inch is one number", () => {
     expect(readNumber('1-1/4"', thickness)).toEqual({ blank: "thickness stated in inches ('1-1/4\"')" });
   });
 
-  it("REPORTED, not built: a unicode fraction (1¼\") has no reader path and still reads as 1\"", () => {
-    expect(mm('1¼"')).toBeCloseTo(25.4, 3);
+  it("INVERTED at 12d-8 (owner U8): a unicode fraction (1¼\") now reads as 1-1/4\" = 31.75 -- BEFORE: 25.4 (reported, not built)", () => {
+    expect(mm('1¼"')).toBeCloseTo(31.75, 3);
+    expect(mm('1¼"')).not.toBeCloseTo(25.4, 3);
   });
 });
 

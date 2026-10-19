@@ -123,8 +123,8 @@ function displayStrings(res: unknown): Array<[string, string]> {
 }
 const offenders = (t: string) => [CODE.test(t) && "code", SLICE.test(t) && "slice", OWNER.test(t) && "owner", SNAKE.test(t) && "snake"].filter(Boolean) as string[];
 
-describe("12d-5 NEGATIVE PIN: no internal code or name on the panel or the calculator for every Insulation and ADP SKU of the 12c-S sweep", () => {
-  for (const cid of ["hvac_insulation", "hvac_adp"]) {
+describe("12d-5 NEGATIVE PIN: no internal code or name on the panel or the calculator for every Insulation and ADP SKU of the 12c-S sweep (12e-2: and Piping)", () => {
+  for (const cid of ["hvac_insulation", "hvac_adp", "hvac_piping"]) {
     it(`${cid}: every display string of every case, both paths`, () => {
       const cfg = configs.get(cid)!;
       expect(itemListPricingSpec(cfg), cid).toBeTruthy();

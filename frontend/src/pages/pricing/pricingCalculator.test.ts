@@ -165,7 +165,9 @@ describe("Calculator slice 2 / the plumbing is defined ONCE and the BoQ page imp
     // ⚠️ SLICE 12b(A) (20 -> 21): `electrical_pricing_inputs`. It DOES hold items, so it is not a
     // `holds_items: false` entry -- it is an ordinary fetched target that also shows on the page.
     // ⚠️ SLICE 12c (21 -> 22): `hvac_pricing_inputs`, the same shape one discipline over.
-    expect(RATE_MASTER_CONFIG_TARGETS.length).toBe(22);
+    // ⚠️ SLICE 12e-1 (22 -> 23): `hvac_piping`, the 40-item Piping CATALOGUE with a data-only config -- it holds
+    // items (on the page), is fetched like every other target, and is never priced (owner "(b) accept it", 2026-10-09).
+    expect(RATE_MASTER_CONFIG_TARGETS.length).toBe(23);
     for (const name of ["export const RATE_MASTER_CONFIG_TARGETS", "export function RateConfigFetcher", "export function useConfigsByCategory", "export function useRateMasterItems"]) {
       expect(PLUMBING_SRC).toContain(name);
     }
@@ -492,9 +494,11 @@ describe("SLICE 2 / HVAC calculator: ADP coming soon, the four vendor-quote cate
   // SLICE 12c INVERTS THE COUNT (eight -> nine), not the claim: `hvac_pricing_inputs` holds the seven
   // numbers Insulation's cladding rule reads, so it is an items-holding entry like ADP and Insulation.
   // The six `holds_items: false` entries are untouched, which is what this pin is really about.
-  it("the registry lists nine HVAC categories: ADP, Insulation and Pricing Inputs hold items, the four vendor-quote and the two alias ones do not", () => {
+  // SLICE 12e-1 INVERTS THE COUNT AGAIN (nine -> ten): `hvac_piping` holds the 40 Piping items (data-only config),
+  // listed beside Insulation; the six `holds_items: false` entries are untouched (owner "(b) accept it", 2026-10-09).
+  it("the registry lists ten HVAC categories: ADP, Insulation, Piping and Pricing Inputs hold items, the four vendor-quote and the two alias ones do not", () => {
     expect(hvacEntry.categories.map((c) => c.category_id))
-      .toEqual(["hvac_adp", ...noItems, "hvac_insulation", "hvac_pricing_inputs"]);
+      .toEqual(["hvac_adp", ...noItems, "hvac_insulation", "hvac_piping", "hvac_pricing_inputs"]);
     expect(noItems).toHaveLength(6);
     expect(vendor).toHaveLength(4);
     // every vendor entry's CONFIG carries the two messages -- the registry names no message
@@ -516,7 +520,7 @@ describe("SLICE 2 / HVAC calculator: ADP coming soon, the four vendor-quote cate
     // SLICE 12c: Pricing Inputs holds items too, so the page keeps it as well. The NEGATIVE half --
     // that the filter drops exactly the six and nothing else -- is unchanged, and is the point.
     expect(pageHvac.categories.map((c) => c.category_id))
-      .toEqual(["hvac_adp", "hvac_insulation", "hvac_pricing_inputs"]);
+      .toEqual(["hvac_adp", "hvac_insulation", "hvac_piping", "hvac_pricing_inputs"]);   // 12e-1: + Piping (holds items)
     const electrical = RATE_MASTER_DISCIPLINES[0];
     expect(electrical.discipline).toBe("Electrical");
     expect(rateMasterPageEntry(electrical)).toBe(electrical);        // reference-identical
@@ -593,7 +597,7 @@ describe("SLICE 3 / HVAC Cables and Raceway price EXACTLY as Electrical wiring a
     }
     expect(rateMasterPageEntry(hvacEntry).categories.map((c) => c.category_id))
       // SLICE 12a: Insulation holds items. SLICE 12c: so does Pricing Inputs.
-      .toEqual(["hvac_adp", "hvac_insulation", "hvac_pricing_inputs"]);
+      .toEqual(["hvac_adp", "hvac_insulation", "hvac_piping", "hvac_pricing_inputs"]);   // 12e-1: + Piping (holds items)
   });
 
   for (const [own, target] of ALIASES) {

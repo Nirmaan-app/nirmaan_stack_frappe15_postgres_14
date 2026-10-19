@@ -36,6 +36,7 @@ import {
   CLS_LABELS,
 } from "./reviewRender";
 import { FIXED_ROLE_DEDUPE } from "./ReviewTree";
+import { isReviewRowEdited } from "./revisionReviewDelta";
 
 export interface BuildAndDownloadReviewCsvArgs {
   /** BOQs docname -- used for the filename only. */
@@ -88,15 +89,11 @@ function formatAppendNotes(v: unknown): string {
 }
 
 /**
- * Edited predicate -- IDENTICAL to ReviewTree's Status-column rule
- * (edited_at set OR edit_log non-empty). A remark-only / dismissed-only row is
- * NOT edited (those paths never stamp edited_at / edit_log).
+ * Edited predicate -- the SAME rule as ReviewTree's Status column (S6 F7, owner ruling Q-g): the
+ * one home is revisionReviewDelta.isReviewRowEdited, so the screen and the CSV cannot disagree.
  */
 function isEditedRow(row: ReviewRow): boolean {
-  return (
-    row.edited_at !== null ||
-    (Array.isArray(row.edit_log) && row.edit_log.length > 0)
-  );
+  return isReviewRowEdited(row);
 }
 
 /** Generic cell coercion: null/undefined -> ""; everything else -> String(). */

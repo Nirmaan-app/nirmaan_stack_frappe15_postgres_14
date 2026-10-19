@@ -165,8 +165,10 @@ export function ParseRunDialog({
               </DialogDescription>
             </DialogHeader>
             <p className="text-sm font-semibold text-amber-600 dark:text-amber-400 mt-1">
-              This runs in the background and can take up to ~10 minutes. You
-              can keep working; you'll see a summary here when it's done.
+              Each sheet is parsed and then its rows are checked automatically.
+              This runs in the background and can take up to ~15 minutes on
+              large workbooks. You can keep working; you'll see a summary here
+              when it's done.
             </p>
 
             {/* Scrollable sheet lists */}
@@ -387,8 +389,10 @@ export function ParseRunDialog({
               </ul>
             )}
             <p className="text-sm font-semibold text-amber-600 dark:text-amber-400 mt-1">
-              This runs in the background and can take up to ~10 minutes. You
-              can keep working; you'll see a summary here when it's done.
+              Each sheet is parsed and then its rows are checked automatically.
+              This runs in the background and can take up to ~15 minutes on
+              large workbooks. You can keep working; you'll see a summary here
+              when it's done.
             </p>
 
             <DialogFooter>

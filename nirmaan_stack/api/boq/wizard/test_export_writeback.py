@@ -33,6 +33,7 @@ from openpyxl import Workbook, load_workbook
 from nirmaan_stack.api.boq.wizard import export_template_workbook as etw
 from nirmaan_stack.api.boq.wizard.export_writeback import export_priced_workbook
 from nirmaan_stack.api.boq.wizard.test_review_screen import _make_project, _cleanup_project
+from nirmaan_stack.services.boq_fixture_teardown import fixture_boq_name, purge_boq, purge_docs
 
 
 # The canonical stored amount formula: a simple qty_total * scalar-rate multiply.
@@ -309,7 +310,7 @@ def _seed_template_boq(project_name):
         "source_sheet_name": "Make List ",
         "preamble_text": "Line 1\nLine 2\nLine 3",
     })
-    boq.insert(ignore_permissions=True)
+    boq.insert(set_name=fixture_boq_name("EXPORT_WRITEBACK"), ignore_permissions=True)
     frappe.db.commit()
     boq_name = boq.name
     now = frappe.utils.now()
@@ -457,8 +458,8 @@ class TestTemplateExportEndToEnd(FrappeTestCase):
             ("BoQ Committed Sheet Grid", {"boq": cls.boq}),
             ("BoQ Sheet", {"boq": cls.boq}),
         ):
-            frappe.db.delete(dt, flt)
-        frappe.db.delete("BOQs", {"name": cls.boq})
+            purge_docs(dt, flt)
+        purge_boq(cls.boq)
         frappe.db.commit()
         _cleanup_project(cls.project.name)
         super().tearDownClass()
@@ -593,7 +594,7 @@ class TestTemplateExportBlankRowCompaction(FrappeTestCase):
         boq.boq_name = "Compaction Test BoQ"
         boq.tax_treatment = "Pre-tax"
         boq.origin = "template"
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("EXPORT_WRITEBACK"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq = boq.name
         now = frappe.utils.now()
@@ -648,8 +649,8 @@ class TestTemplateExportBlankRowCompaction(FrappeTestCase):
     def tearDownClass(cls):
         for dt in ("BoQ Cell Color", "BoQ Cell Remark", "BoQ Cell Amount Formula",
                    "BoQ Cell Pricing", "BoQ Committed Sheet Grid", "BoQ Sheet"):
-            frappe.db.delete(dt, {"boq": cls.boq})
-        frappe.db.delete("BOQs", {"name": cls.boq})
+            purge_docs(dt, {"boq": cls.boq})
+        purge_boq(cls.boq)
         frappe.db.commit()
         _cleanup_project(cls.project.name)
         super().tearDownClass()
@@ -709,13 +710,13 @@ class TestUploadPathBranchUnchanged(FrappeTestCase):
         boq.boq_name = "Upload Guard BoQ"
         boq.tax_treatment = "Pre-tax"
         # origin defaults to "upload"; source_file_url left unset.
-        boq.insert(ignore_permissions=True)
+        boq.insert(set_name=fixture_boq_name("EXPORT_WRITEBACK"), ignore_permissions=True)
         frappe.db.commit()
         cls.boq = boq.name
 
     @classmethod
     def tearDownClass(cls):
-        frappe.db.delete("BOQs", {"name": cls.boq})
+        purge_boq(cls.boq)
         frappe.db.commit()
         _cleanup_project(cls.project.name)
         super().tearDownClass()
@@ -797,8 +798,8 @@ class TestBcsCostRatesNeverReachTheExport(FrappeTestCase):
             ("BoQ Committed Sheet Grid", {"boq": cls.boq}),
             ("BoQ Sheet", {"boq": cls.boq}),
         ):
-            frappe.db.delete(dt, flt)
-        frappe.db.delete("BOQs", {"name": cls.boq})
+            purge_docs(dt, flt)
+        purge_boq(cls.boq)
         frappe.db.commit()
         _cleanup_project(cls.project.name)
         super().tearDownClass()

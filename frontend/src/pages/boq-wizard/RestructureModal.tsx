@@ -50,6 +50,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ReviewRowParentPicker } from "./ReviewRowParentPicker";
+import { suggestedParentLine } from "./reviewCheckFlags";
 import type { ReviewRow } from "./boqTypes";
 
 // Mirror of ReviewTree's CLS_LABELS (the assignable subset + the two parser-only
@@ -120,6 +121,14 @@ interface RestructureModalProps {
    * endpoint pre-reverts any standing Claude acceptance, so they never both fire on one call).
    */
   markGeminiAccepted?: boolean;
+  /**
+   * S4b (owner rulings R31c, Q-g): the parent to OFFER for this row's own position -- a
+   * row_index, or -1 for top level -- passed only while the row's "Check parent" flag is open.
+   * It draws one line in the "This row's position" block. Nothing is pre-selected; clicking the
+   * line makes the same two choices the user can make by hand ("Move this row under a new
+   * parent", then that row); Save, the five child options and every check are as before.
+   */
+  suggestedParent?: number | null;
 }
 
 export function RestructureModal({
@@ -135,6 +144,7 @@ export function RestructureModal({
   presetParentMessage,
   markAiAccepted,
   markGeminiAccepted,
+  suggestedParent,
 }: RestructureModalProps) {
   // AI-3b-2: a preset parent means the row's parent is pre-applied (from an accepted AI
   // suggestion) -> the keep/move radio + picker are replaced by a read-only message line.
@@ -220,6 +230,9 @@ export function RestructureModal({
     setCurrentSelIdx(null);
     setSaveError(null);
   };
+
+  // S4b (R31c): the offered parent, or null (nothing offered / the row itself / a descendant / gone).
+  const suggestedLine = suggestedParentLine(row.row_index, suggestedParent, rows);
 
   const canSave = (() => {
     // 1b-beta2b: a childless row has no children to place, so the child-option
@@ -429,6 +442,21 @@ export function RestructureModal({
               />
               <span>Move this row under a new parent</span>
             </label>
+            {/* S4b (R31c, Q-g): the offered parent. Below the two radios on purpose -- above them it
+                would be the dialog's first control and take the opening keyboard focus. */}
+            {suggestedLine && (
+              <button
+                type="button"
+                title={suggestedLine.text}
+                className="block w-full truncate rounded border border-orange-200 dark:border-orange-900 bg-orange-50/60 dark:bg-orange-950/20 px-2 py-1 text-left text-xs text-foreground hover:bg-orange-100 dark:hover:bg-orange-900/40 transition-colors"
+                onClick={() => {
+                  selectRowPosition("move");
+                  setRowParentIdx(suggestedLine.target);
+                }}
+              >
+                {suggestedLine.text}
+              </button>
+            )}
 
             {rowPosition === "move" && (
               <div className="rounded-md border border-border p-2 space-y-2">
