@@ -25,6 +25,7 @@ ADMIN = "xdec_test_admin@example.com"
 ACCOUNTANT = "xdec_test_accountant@example.com"
 PM = "xdec_test_pm@example.com"
 HR = "xdec_test_hr@example.com"
+PMO = "xdec_test_pmo@example.com"
 
 
 class TestExpenseDecisions(FrappeTestCase):
@@ -38,6 +39,7 @@ class TestExpenseDecisions(FrappeTestCase):
 		_make_user(ACCOUNTANT, "Nirmaan Accountant Profile", ("Nirmaan Accountant",))
 		_make_user(PM, "Nirmaan Project Manager Profile", ("Nirmaan Project Manager",))
 		_make_user(HR, "Nirmaan HR Executive Profile", ("Nirmaan HR Executive", "System Manager"))
+		_make_user(PMO, "Nirmaan PMO Executive Profile", ("Nirmaan PMO Executive",))
 		if not frappe.db.exists("User", CEO_AUTHORIZED_USER):
 			_make_user(CEO_AUTHORIZED_USER, "Nirmaan Admin Profile", ("System Manager",))
 
@@ -182,3 +184,37 @@ class TestExpenseDecisions(FrappeTestCase):
 		name = self._expense(30000, status="Reconciliation Pending")
 		payment = {"payment_date": "2026-10-19", "payment_ref": "UTR-2", "payment_attachment": "/files/r.pdf"}
 		self.assertEqual(self._decide(ADMIN, [name], "mark_paid", payment=payment)["statuses"], {name: "Paid"})
+
+	# -- nobody sets a status by hand (story 42) ------------------------------------------------
+	def _save_as(self, user, doctype, name, **changes):
+		"""Save the Expense the way Desk, REST and `frappe.client` do: a plain `doc.save()`."""
+		frappe.set_user(user)
+		try:
+			doc = frappe.get_doc(doctype, name)
+			doc.update(changes)
+			doc.save()
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_a_status_set_through_a_document_save_is_refused(self):
+		for user in (PM, PMO, ACCOUNTANT, ADMIN, "Administrator"):
+			for doctype in (PE, NPE):
+				with self.subTest(user=user, doctype=doctype):
+					name = self._expense(30000, status="Approved", doctype=doctype)
+					with self.assertRaises(frappe.ValidationError) as refused:
+						self._save_as(user, doctype, name, status="Paid", payment_ref="UTR-hand")
+					self.assertIn("Mark as Paid", str(refused.exception))
+					self.assertEqual(self._status(name, doctype), "Approved")
+
+	def test_a_document_save_that_leaves_the_status_alone_still_saves(self):
+		name = self._expense(30000, status="Approved")
+		self._save_as(ACCOUNTANT, NPE, name, description="xdec corrected")
+		self.assertEqual(frappe.db.get_value(NPE, name, ["status", "description"]),
+		                 ("Approved", "xdec corrected"))
+
+	def test_a_new_expense_carrying_a_status_through_a_document_insert_is_refused(self):
+		doc = frappe.new_doc(NPE)
+		doc.update({"amount": 30000, "status": "Paid", "description": "xdec hand-made paid"})
+		with self.assertRaises(frappe.ValidationError):
+			doc.insert()
+		self.assertFalse(frappe.db.exists(NPE, {"description": "xdec hand-made paid"}))

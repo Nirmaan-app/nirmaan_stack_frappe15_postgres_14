@@ -162,6 +162,32 @@ def apply_starting_status(doc) -> None:
 		doc.ceo_approval_date = nowdate()
 
 
+# ── Nobody else writes a status ─────────────────────────────────────────────────────────────
+
+def refuse_hand_set_status(doc) -> None:
+	"""Both ledgers' `validate`, FIRST: refuse a status a person writes through a document save.
+
+	Every human door -- Desk, the REST resource API, `frappe.client`, bulk edit, data import --
+	saves with the caller's permissions checked. Every system writer saves with
+	`ignore_permissions=True`: `decide`, the request intake, the bank-statement settle and its
+	unreconcile, the cashbook and Porter creates, the PO adjustment. So a permission-checked save
+	that changes the status, or inserts a row at any status but `Requested`, is a person setting it
+	by hand, and is refused, `Administrator` included (spec #1494, story 42). The bank-line re-derive
+	runs after this, so an edit that moves a settled amount still moves the status it derives.
+	"""
+	if doc.flags.ignore_permissions:
+		return
+	if doc.is_new():
+		hand_set = (doc.status or STATUS_REQUESTED) != STATUS_REQUESTED
+	else:
+		hand_set = doc.has_value_changed("status")
+	if hand_set:
+		frappe.throw(
+			_("An expense's status is set by the server. Use Approve, Reject, Mark as Done or Mark as Paid."),
+			title=_("Status is not editable"),
+		)
+
+
 # ── A change to an existing row ─────────────────────────────────────────────────────────────
 
 def decide(doctype: str, name: str, action: str, user: str, reason: str | None = None,
