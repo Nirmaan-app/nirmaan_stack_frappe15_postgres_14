@@ -239,7 +239,7 @@ effects, `dd-MMM-yyyy` dates, realtime event naming, role checks, F1–F5, vites
 - **Location:** `nirmaan_stack/nirmaan_stack/doctype/<name>/test_<name>.py` — co-located with each doctype.
 - **Existing tests:** Nearly all are empty stubs. Don't rely on them to catch regressions.
 - **New code:** Pure-Python modules (parsers, services) must have real unit tests with fixture files. No stubs for logic-bearing code. Test both the accepted and the refused path.
-- **Frontend tests** (vitest, node-only, a local gate; Cypress): `frontend/CODING_STANDARDS.md` § Writing a test.
+- **Frontend tests** (vitest, node-only, run with `yarn typecheck` by the Frontend CI job; Cypress): `frontend/CODING_STANDARDS.md` § Writing a test.
 - **Running:** use the bench runner, in-container; the exact invocation and the `python -m unittest` import
   failure are in root `CLAUDE.md` § Commands.
 
