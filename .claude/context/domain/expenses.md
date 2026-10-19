@@ -583,6 +583,23 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   its Expense (`doc.save`, hooks fire). The file is uploaded when picked, so Gemini
   (`invoice_autofill.extract_invoice_fields`) can fill the date and number; the amount is never
   filled, a differing total only warns (`utils/newExpenseForm.invoiceNotes`).
+- **A request reads against the form it was filled with (#1503, ADR-0016 decision 1).** Create and
+  edit store the type's live form in `Expense Request Template Snapshot` (named by its hash, shared
+  helper `services/template_snapshots`) and stamp `source_data.snapshotHash`
+  (`api/expense_requests/form_snapshot`). `convert.applicable_format(..., frozen=)` prefers that
+  form to the live one, in every reader: the ledger row (description, the slot bill), the request
+  list `detail`, the request page (`detail`, and `invoice` = `flatten.request_invoice`: native
+  first, else the form slot's bill) and the approval detail. So trimming or switching off a form
+  never changes how a request in flight reads. An **edit** is filled against today's form and takes
+  its snapshot. Requests from before were stamped with their type's form of the day by
+  `patches/v3_0/freeze_expense_request_forms` (a `[post_model_sync]` patch: migrate runs it before
+  the fixture sync). A request with no snapshot still reads the live form (`undeclared_pairs`).
+- **The forms after the owner's per-field review (2026-10-19, #1503).** Ten types keep a short form
+  (pinned field by field in `api/expense_requests/test_request_forms.EXPECTED_FORMS`); the other 25,
+  Fixed Deposit included, have none (Description + Comment). No form has an upload slot. Renamed
+  fields kept their keys (`premises` = Location, `billing_month` = Bill Date, `bank_name` = Bank
+  Name), so answers already given still fill them. Rent/PG for Staff stays `staff-accommodation` with
+  `person_name` and the rent period, which the duplicate staff-stay check reads.
 - **Per-type visibility (`Expense Type.allowed_roles`, 2026-09-16).** Role PROFILES that may pick
   the type in the request dialog; Admin sees every type and is never listed, so **EMPTY = Admin
   only**. Enforced in `access.can_request_type` → `get_request_catalog` filter + `guard_requestable`
@@ -795,6 +812,8 @@ save an invalid template**.
   - **Old requests keep their text.** Their answers stay in `source_data`; a request raised
     before a field was removed and approved after gets those answers after the format's sentence,
     labelled from the key (`flatten.undeclared_pairs`, used by `convert.compose_description`).
+    Since #1503 a request reads against its own frozen form, so this applies only to one with no
+    snapshot (see "A request reads against the form it was filled with").
     Ledger descriptions already written are never rewritten.
 - **ONE FORMAT PER EXPENSE TYPE** (owner, 2026-08-18), replacing an earlier shared
   accommodation shape. A staff PG, a labour dorm, a deposit and a hotel booking are four

@@ -41,6 +41,8 @@ NON_PROJECT_TYPE = "Travel Expenses (Bus)"     # project=0, non_project=1
 BOTH_TYPE = "Petty Cash"                       # project=1, non_project=1
 HOTEL_CATEGORY = "Hotel & Accommodation"
 PM_PROFILE = "Nirmaan Project Manager Profile"
+# The answers of a type with no form: its Description.
+STANDARD_ANSWERS = {"responses": {"detail": {"description": "test req"}}}
 
 
 def _make_user(email: str, profile: str, roles: tuple[str, ...]):
@@ -220,12 +222,16 @@ class TestExpenseRequests(FrappeTestCase):
 		self.assertEqual(b["projects"], self.project)
 
 	def test_source_data_accepts_an_object_and_stores_json(self):
-		res = self._raise_as(PM_USER, source_data={"responses": {"stay": {"nights": 2}}})
+		res = self._raise_as(PM_USER, source_data={
+			"responses": {"detail": {"description": "two nights"}, "stay": {"nights": 2}}})
 		stored = frappe.db.get_value("Expense Request", res["name"], "source_data")
 		self.assertIn('"nights"', stored)
 
 	def test_source_data_is_optional(self):
-		res = self._raise_as(PM_USER, description=None)
+		"""On a type with a form: a type with none needs its Description (#1501)."""
+		formed = self._own_type(fmt=json.dumps({"templateId": "exr-test-opt", "templateVersion": 1,
+		                                        "sections": []}), enabled=1)
+		res = self._raise_as(PM_USER, expense_type=formed, description=None)
 		self.assertIsNone(frappe.db.get_value("Expense Request", res["name"], "source_data"))
 
 	def test_a_format_less_request_stores_its_description_in_source_data(self):
@@ -672,7 +678,10 @@ class TestExpenseRequests(FrappeTestCase):
 	def _edit(self, user, res, **kw):
 		frappe.set_user(user)
 		try:
-			payload = {"name": res["name"], "expense_type": NON_PROJECT_TYPE, "amount": 4300}
+			# A type with no form needs its Description on every save, as on create (#1503 took
+			# the form off NON_PROJECT_TYPE).
+			payload = {"name": res["name"], "expense_type": NON_PROJECT_TYPE, "amount": 4300,
+			           "source_data": STANDARD_ANSWERS}
 			payload.update(kw)
 			return update_expense_request(**payload)
 		finally:
@@ -709,7 +718,7 @@ class TestExpenseRequests(FrappeTestCase):
 		res = self._raise_as(PM_USER, amount=4300)
 
 		update_expense_request(name=res["name"], expense_type=NON_PROJECT_TYPE, amount=8800,
-		                       comment="fixed by admin")
+		                       comment="fixed by admin", source_data=STANDARD_ANSWERS)
 		doc = frappe.get_doc("Expense Request", res["name"])
 		self.assertEqual(doc.amount, 8800)
 		self.assertEqual(doc.comment, "fixed by admin")
@@ -1095,7 +1104,10 @@ class TestExpenseRequests(FrappeTestCase):
 	def test_an_answer_the_form_no_longer_asks_still_reaches_the_description(self):
 		"""#1430 took the free-text bank fields off the forms. A request raised before that and
 		approved after keeps its typed text: the form's sentence no longer names it, so it
-		follows the sentence, labelled."""
+		follows the sentence, labelled.
+
+		The request is stored as one raised before form snapshots (#1503): with its snapshot it
+		would read against the form it was filled with (`test_request_form_snapshot`)."""
 		before = json.dumps({
 			"templateId": "exr-test-dropped", "templateVersion": 1,
 			"description_template": "Stay for {guest}.[[ Pay to {account_holder}.]]",
@@ -1118,6 +1130,9 @@ class TestExpenseRequests(FrappeTestCase):
 			"templateId": "exr-test-dropped", "templateVersion": 1,
 			"responses": {"detail": {"guest": "Asha"},
 			              "payee_bank": {"account_holder": "R Kumar", "ifsc": "HDFC0000123"}}})
+		data = json.loads(frappe.db.get_value("Expense Request", res["name"], "source_data"))
+		data.pop("snapshotHash", None)
+		frappe.db.set_value("Expense Request", res["name"], "source_data", json.dumps(data))
 
 		frappe.db.set_value("Expense Type", typ, "source_format", after)
 		frappe.db.commit()
