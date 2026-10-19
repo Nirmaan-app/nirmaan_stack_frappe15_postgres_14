@@ -75,6 +75,8 @@ NOT here, and each absence is deliberate:
     a Work Order's GST is paid as its own payment and `is_deductible` refuses it.
 """
 
+from typing import NamedTuple
+
 import frappe
 from frappe.utils import cint, flt, nowdate
 
@@ -170,16 +172,27 @@ COMPANY_BORNE_CATEGORIES = frozenset({"Miscellaneous Services", "Transportation 
 BORNE_BY_VENDOR = "Vendor"
 BORNE_BY_COMPANY = "Company"
 
+
+class BorneTds(NamedTuple):
+	"""Paid tax split by who bore it (`borne_by`). `vendor` was withheld from the vendor and is part of
+	its order's Amount Paid (ADR-0034 Amendment A); `company` the company paid on top and is not."""
+
+	vendor: float = 0.0
+	company: float = 0.0
+
+
 __all__ = [
 	"APPROVAL_SOURCE_STATUSES",
 	"COMPANY_BORNE_CATEGORIES",
 	"BORNE_BY_VENDOR",
 	"BORNE_BY_COMPANY",
+	"BorneTds",
 	"DEDUCTIBLE_PARENTS",
 	"is_approval_from_an_earlier_step",
 	"is_company_borne",
 	"categories_are_company_borne",
 	"borne_tds_by_payment_sql",
+	"paid_borne_tds_sql",
 	"borne_tds_by_payment",
 	"borne_tds_by_order_sql",
 	"borne_tds_by_order",
@@ -297,9 +310,10 @@ def borne_tds_by_payment_sql() -> str:
 	`vendor_borne_tds` was withheld from the vendor and is part of its order's Amount Paid (ADR-0034
 	Amendment A); `company_borne_tds` the company paid on top and is not.
 
-	THE ONE SPLIT: `borne_tds_by_order_sql` adds it up per order (the Amount Paid writer and the
-	mismatch judge), and the vendor-level figures read it per payment: the Vendor Ledger's WO payment
-	rows (`borne_tds_by_payment`) and the Vendor report's dated paid figure (`services/vendor_paid`).
+	THE ONE SPLIT, read through `paid_borne_tds_sql` (its Paid payments) by every reader:
+	`borne_tds_by_order_sql` adds it up per order (the Amount Paid writer and the mismatch judge), the
+	Vendor Ledger's WO payment rows read it per payment (`borne_tds_by_payment`), and so do the Vendor
+	report's dated paid figure (`services/vendor_paid`) and project outflow (`services/project_money`).
 	Read off each row's stored `borne_by` (#1451), never off the categories or the amounts: a part
 	settlement cuts a kept-whole payment below its gross, an amount edit moves both figures, and a Work
 	Order's categories can change after the fact. A row with no `borne_by` (a raw insert) reads as
@@ -313,59 +327,70 @@ def borne_tds_by_payment_sql() -> str:
 	"""
 
 
-def borne_tds_by_payment(vendor: str) -> dict:
-	"""`{payment name: {"vendor": tax withheld from the vendor, "company": tax the company paid on top}}`
-	for every Paid payment of `vendor` that carries a deduction (`borne_tds_by_payment_sql`); a payment
-	with none is absent. One query, keyed by the payment's own `vendor` as the Vendor Ledger is.
+def paid_borne_tds_sql() -> str:
+	"""A derived table: one row per PAID payment that carries a deduction, with the payment's own
+	`project_payment` (its name), `vendor`, `project`, `document_type`, `document_name`, `payment_date`
+	and `creation`, and its tax split by who bore it, `vendor_borne_tds` and `company_borne_tds`
+	(`borne_tds_by_payment_sql`). Only a Paid payment's tax is paid money: in its order's Amount Paid
+	and `total_tds`, the vendor's paid figures and project outflow. Keyed by the PAYMENT's order,
+	project and date, never the deduction's: a Paid payment moved to another order takes its tax along.
+	"""
+	return f"""
+		SELECT p.name AS project_payment, p.vendor, p.project, p.document_type, p.document_name,
+		       p.payment_date, p.creation, t.vendor_borne_tds, t.company_borne_tds
+		FROM ({borne_tds_by_payment_sql()}) t
+		INNER JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = t.project_payment
+		WHERE p.status = '{PAID}'
+	"""
+
+
+def _borne_tds(row) -> BorneTds:
+	return BorneTds(flt(row.vendor_borne_tds, 2), flt(row.company_borne_tds, 2))
+
+
+def borne_tds_by_payment(vendor: str) -> dict[str, BorneTds]:
+	"""`{payment name: BorneTds}` for every Paid payment of `vendor` that carries a deduction
+	(`paid_borne_tds_sql`); a payment with none is absent. One query, keyed by the payment's own
+	`vendor` as the Vendor Ledger is.
 	"""
 	if not vendor:
 		return {}
 	rows = frappe.db.sql(
 		f"""
 		SELECT t.project_payment, t.vendor_borne_tds, t.company_borne_tds
-		FROM ({borne_tds_by_payment_sql()}) t
-		INNER JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = t.project_payment
-		WHERE p.vendor = %(vendor)s AND p.status = '{PAID}'
+		FROM ({paid_borne_tds_sql()}) t
+		WHERE t.vendor = %(vendor)s
 		""",
 		{"vendor": vendor},
 		as_dict=True,
 	)
-	return {
-		row.project_payment: {"vendor": flt(row.vendor_borne_tds, 2), "company": flt(row.company_borne_tds, 2)}
-		for row in rows
-	}
+	return {row.project_payment: _borne_tds(row) for row in rows}
 
 
 def borne_tds_by_order_sql(exclude_payment: bool = False) -> str:
 	"""A derived table `(document_name, vendor_borne_tds, company_borne_tds)`: per order of
 	`%(doctype)s`, the tax on its Paid payments' deductions, split by who bore it
-	(`borne_tds_by_payment_sql`). Together the two are its `total_tds`. With `exclude_payment`, the
+	(`paid_borne_tds_sql`). Together the two are its `total_tds`. With `exclude_payment`, the
 	payment `%(exclude)s` is left out.
 
 	THE ONE SOURCE of "tax by order": the Amount Paid writer (`amount_paid.amount_paid_of`, through
 	`borne_tds_by_order`) selects from it and the mismatch judge (`services/amount_paid_drift.mismatches`)
 	joins it into its one query, so the two cannot disagree.
-
-	Joined through the PAYMENT's order, not the deduction's own `document_name`: a Paid payment moved
-	to another order takes its tax with it.
 	"""
 	return f"""
-		SELECT p.document_name,
+		SELECT t.document_name,
 		       SUM(t.vendor_borne_tds) AS vendor_borne_tds,
 		       SUM(t.company_borne_tds) AS company_borne_tds
-		FROM ({borne_tds_by_payment_sql()}) t
-		INNER JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = t.project_payment
-		WHERE p.document_type = %(doctype)s
-		  AND p.status = '{PAID}'
-		  {"AND p.name <> %(exclude)s" if exclude_payment else ""}
-		GROUP BY p.document_name
+		FROM ({paid_borne_tds_sql()}) t
+		WHERE t.document_type = %(doctype)s
+		  {"AND t.project_payment <> %(exclude)s" if exclude_payment else ""}
+		GROUP BY t.document_name
 	"""
 
 
-def borne_tds_by_order(document_type: str, names, exclude_payment: str | None = None) -> dict:
-	"""`{name: {"vendor": tax withheld from the vendor, "company": tax the company paid on top}}` for
-	the given Work Orders (`borne_tds_by_order_sql`); an order with no paid tax is absent. Empty for an
-	order type that takes no deductions.
+def borne_tds_by_order(document_type: str, names, exclude_payment: str | None = None) -> dict[str, BorneTds]:
+	"""`{name: BorneTds}` for the given Work Orders (`borne_tds_by_order_sql`); an order with no paid
+	tax is absent. Empty for an order type that takes no deductions.
 
 	`exclude_payment` as in `total_tds_of`: a payment being trashed is still in the table, and its tax
 	must leave these figures as it leaves `total_tds`.
@@ -382,10 +407,7 @@ def borne_tds_by_order(document_type: str, names, exclude_payment: str | None = 
 		{"doctype": document_type, "names": tuple(names), "exclude": exclude_payment},
 		as_dict=True,
 	)
-	return {
-		row.document_name: {"vendor": flt(row.vendor_borne_tds, 2), "company": flt(row.company_borne_tds, 2)}
-		for row in rows
-	}
+	return {row.document_name: _borne_tds(row) for row in rows}
 
 
 #: Who bore a Work Order's paid TDS, as its page labels it (`borne_kind`).
@@ -419,8 +441,7 @@ def work_order_tds_borne(work_order: str) -> dict:
 	(`is_company_borne`) says who would bear the next one. No permission check: the endpoint checks
 	read on the Work Order.
 	"""
-	tds = borne_tds_by_order(SERVICE_REQUEST_DOCTYPE, [work_order]).get(work_order) or {}
-	withheld, company = flt(tds.get("vendor"), 2), flt(tds.get("company"), 2)
+	withheld, company = borne_tds_by_order(SERVICE_REQUEST_DOCTYPE, [work_order]).get(work_order, BorneTds())
 	kind = borne_kind(withheld, company)
 	if kind is None:
 		kind = (
@@ -615,7 +636,19 @@ def restate_deduction_on_amount_change(doc) -> str | None:
 def _recount_parent(doc) -> None:
 	"""Recount the order of payment `doc` through the one writer after its deduction changed, when the
 	payment is Paid: only a Paid payment's tax counts in the order's Amount Paid, `total_tds` and Amount
-	Due, so any other status moves nothing (and stamps no `modified` on the order). Commits nothing."""
+	Due, so any other status moves nothing (and stamps no `modified` on the order). Commits nothing.
+
+	⚠️ `write_amount_paid` IS A `set_value`, SO NO HOOK FIRES, AND THE TAX ON A PAID PAYMENT MOVES ITS
+	PROJECT'S OUTFLOW (#1510). The CEO Hold re-check is left to the payment's own hooks, and runs AFTER
+	this on both callers' paths:
+	  * restate (`restate_deduction_on_amount_change`): reached from `controllers/project_payments.on_update`
+	    on an amount edit of a Paid payment. `hooks.py` runs `project_cashflow_hold_update.on_project_payment`
+	    after that `on_update`, and an amount edit changes the payment's `paid_money`, so it re-checks the
+	    project on the restated figures (`test_amount_paid_tds`, the restate test).
+	  * record (`write_deduction`): every approval route records at `Approved`, where this returns, so the
+	    project's outflow is unchanged until the payment reaches Paid, whose save re-checks it. Only the
+	    historical backfill patches write a deduction on a Paid payment, and CEO Hold is skipped in a patch.
+	A deduction deleted on its own re-checks in `controllers/payment_tds_deduction.after_delete`."""
 	if (doc.get("status") or "").strip() != PAID:
 		return
 	# Local: `amount_paid` imports this module.

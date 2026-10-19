@@ -16,6 +16,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt
 
 from nirmaan_stack.api.vendor.vendor_paid import get_vendors_paid
+from nirmaan_stack.services.payment_tds import BORNE_BY_COMPANY, BORNE_BY_VENDOR
 
 PO = "Procurement Orders"
 WO = "Service Requests"
@@ -126,10 +127,10 @@ class TestVendorsPaidCountWorkOrderTds(FrappeTestCase):
         cls.W = _raw(WO, vendor=cls.V, status="Approved")
         cls.C = _raw(WO, vendor=cls.V, status="Approved")
         for order, net, gross, tds, borne_by, status, date in (
-            (cls.W, 9800, 10000, 200, "Vendor", "Paid", "2026-05-10"),
-            (cls.W, 4900, 5000, 100, "Vendor", "Paid", "2026-03-10"),
-            (cls.C, 800, 800, 16, "Company", "Paid", "2026-06-10"),
-            (cls.W, 2450, 2500, 50, "Vendor", "Approved", "2026-05-20"),
+            (cls.W, 9800, 10000, 200, BORNE_BY_VENDOR, "Paid", "2026-05-10"),
+            (cls.W, 4900, 5000, 100, BORNE_BY_VENDOR, "Paid", "2026-03-10"),
+            (cls.C, 800, 800, 16, BORNE_BY_COMPANY, "Paid", "2026-06-10"),
+            (cls.W, 2450, 2500, 50, BORNE_BY_VENDOR, "Approved", "2026-05-20"),
         ):
             payment = _raw("Project Payments", vendor=cls.V, document_type=WO, document_name=order, amount=net,
                            status=status, payment_date=date)

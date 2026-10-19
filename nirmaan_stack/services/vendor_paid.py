@@ -10,7 +10,7 @@ Current FY Paid, and the cash behind its Balance Payable since the ledger start)
 the rows themselves: a payment and the tax withheld on it on the payment's `payment_date`, a refund on
 the refund's own `payment_date`, each falling back to its creation date when blank. With no dates it is
 the vendor's orders' Amount Paid added up, worked out from source. Tax the company paid on top
-(`borne_by` Company) was never the vendor's and counts nothing (`payment_tds.borne_tds_by_payment_sql`).
+(`borne_by` Company) was never the vendor's and counts nothing (`payment_tds.paid_borne_tds_sql`).
 
 Only PO and Work Order money counts, as for Amount Paid; a payment or refund is the vendor's by its own
 `vendor` field, as in the Vendor Ledger.
@@ -20,7 +20,7 @@ import frappe
 from frappe.utils import flt
 
 from nirmaan_stack.services.money_dates import ON_PAYMENT_DATE, date_range_clauses
-from nirmaan_stack.services.payment_tds import PAYMENT_DOCTYPE, borne_tds_by_payment_sql
+from nirmaan_stack.services.payment_tds import paid_borne_tds_sql
 from nirmaan_stack.services.vendor_refunds import LOWERS_PAID_STATUSES, REFUND_DOCUMENT_FIELDS
 
 
@@ -52,12 +52,7 @@ def vendors_paid(from_date=None, to_date=None) -> dict[str, float]:
             WHERE status = 'Paid' AND {where}
             UNION ALL
             SELECT vendor, vendor_borne_tds
-            FROM (
-                SELECT p.vendor, p.document_type, p.payment_date, p.creation, t.vendor_borne_tds
-                FROM ({borne_tds_by_payment_sql()}) t
-                INNER JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = t.project_payment
-                WHERE p.status = 'Paid'
-            ) AS withheld
+            FROM ({paid_borne_tds_sql()}) AS withheld
             WHERE {where}
             UNION ALL
             SELECT vendor, -amount

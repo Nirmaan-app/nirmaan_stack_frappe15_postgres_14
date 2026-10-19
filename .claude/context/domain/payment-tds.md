@@ -120,7 +120,11 @@ figure — the company pays the tax on top:
     (Amount Paid, `total_tds`, Amount Due): a deduction created on a Paid payment
     (`write_deduction`) or restated by an amount edit (`restate_deduction_on_amount_change`), both via
     `payment_tds._recount_parent`, which does nothing for a payment not Paid (its tax counts nowhere
-    yet); a delete through the payment's `on_trash` recount (`exclude_payment`).
+    yet); a delete through the payment's `on_trash` recount (`exclude_payment`); a deduction deleted
+    on its own (Desk, REST) through `controllers/payment_tds_deduction.after_delete`. The tax on a Paid
+    payment moves project outflow (#1510), so the CEO Hold check runs after each: the payment's own
+    `on_project_payment` hook after its `on_update` (restate), `recheck_after_recount` (deduction
+    delete). The cashflow hold rule itself is pure, `services/ceo_hold/rules.over_cashflow_limit`.
   - An amount edit (`restate_deduction_on_amount_change`) restates the figures by the row's own
     `borne_by` (`Company`: the edit is the gross, `tds = amount × rate`; `Vendor`: it is the net,
     inverted) and keeps `borne_by`.
@@ -140,13 +144,17 @@ figure — the company pays the tax on top:
     (`payment_tds.work_order_deductions`: each payment's `tds_amount` and `borne_by`, any status) for
     the WO page's transactions table TDS column.
   - **The vendor-level figures read the same split per payment (#1512)**, off
-    `payment_tds.borne_tds_by_payment_sql` (one row per deduction, `vendor_borne_tds` /
-    `company_borne_tds`; `borne_tds_by_order_sql` is its per-order sum). The Vendor Ledger (screen and
+    `payment_tds.paid_borne_tds_sql` (one row per Paid payment's deduction, `vendor_borne_tds` /
+    `company_borne_tds` from `borne_tds_by_payment_sql`, with the payment's columns;
+    `borne_tds_by_order_sql` is its per-order sum, and project outflow's WO TDS adds both kinds). Python
+    readers get `payment_tds.BorneTds(vendor, company)`. The Vendor Ledger (screen and
     PDF, `api/vendor/get_vendor_po_invoices.get_po_ledger_data` via `borne_tds_by_payment`): a WO
     payment row is payment + its `Vendor` tax, details "incl. TDS ₹x". The Vendor report's dated paid
     figure (`services/vendor_paid`): the `Vendor` tax on the payment's date. The payments pop-up
     (`PaymentsDataDialog`, `paymentsDialogRows`): a TDS column from `get_work_order_tds` `payments`,
-    `Vendor` rows only, total = payments + TDS − Received refunds = Amount Paid. `Company` tax adds
+    `Vendor` rows only, total = payments + TDS − Received refunds = Amount Paid; read through the one
+    accessor `useWorkOrderTds` (SWR key `WorkOrderTds-<id>`, shared with the WO page), and the column
+    and total show a loading state until it answers. `Company` tax adds
     nothing to any of them.
 - **`Payment TDS Deduction` is readable only by Accountant, Accountant Lead and System Manager**, and
   its permissions stay so. Anything a non-accountant screen needs from it goes through a whitelisted
@@ -243,7 +251,7 @@ Three callers, and none is redundant:
 |---|---|
 | `api/tds_challan/pay_tds` | Paying. Adds its own over-application guard before writing. |
 | `controllers/project_payments.on_trash` | The payment cascade, which deletes the deduction with **raw SQL that fires no hooks**. |
-| `controllers/payment_tds_deduction.on_trash` | A doc-layer delete (Desk, REST) — the route the raw delete bypasses. |
+| `controllers/payment_tds_deduction.on_trash` | A doc-layer delete (Desk, REST) — the route the raw delete bypasses. Its `after_delete` also recounts the WO of a Paid payment and re-checks CEO Hold. |
 
 ⚠️ **MEASURED BUG (2026-09-15), fixed:** deleting a payment deleted its deduction, but nothing
 recomputed — a challan sat at ₹150 used with **zero** deductions behind it, permanently ₹150 short

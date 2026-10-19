@@ -4,6 +4,7 @@ from frappe.utils import flt
 
 from nirmaan_stack.nirmaan_stack.doctype.projects.projects import CEO_HOLD_SYSTEM_USER
 from nirmaan_stack.services.ceo_hold import core
+from nirmaan_stack.services.ceo_hold.rules import over_cashflow_limit, watches_cashflow_gap
 from nirmaan_stack.services.project_money import project_money_of
 from nirmaan_stack.services.amount_paid import paid_money
 from ..Notifications.pr_notifications import PrNotification
@@ -66,19 +67,6 @@ def sync_cashflow_reason(project_id: str) -> None:
 		and "@" in row.ceo_hold_by
 	):
 		_notify_manual_hold_releasable(project_id, row.ceo_hold_by)
-
-
-def watches_cashflow_gap(status, limit) -> bool:
-	"""Whether a project's cashflow gap can hold it at all: it is not Completed and has a positive
-	`cashflow_gap_limit`. Pure."""
-	return status != "Completed" and flt(limit) > 0
-
-
-def over_cashflow_limit(status, limit, gap) -> bool:
-	"""THE cashflow hold rule: a watched project (`watches_cashflow_gap`) whose gap is over its limit
-	carries the `cashflow` CEO Hold reason. Pure: `sync_cashflow_reason` decides with it, and so does
-	the CEO Hold preview of the 2026-10-20 WO recount patch (#1513)."""
-	return watches_cashflow_gap(status, limit) and flt(gap) > flt(limit)
 
 
 def _notify_manual_hold_releasable(project_id: str, holder_user: str) -> None:

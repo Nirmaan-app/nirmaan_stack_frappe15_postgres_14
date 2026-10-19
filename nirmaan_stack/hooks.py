@@ -273,7 +273,9 @@ doc_events = {
     # to stop being counted as spent. Covers a DOC-LAYER delete only; the payment cascade deletes
     # with raw SQL and recomputes explicitly in `project_payments.on_trash`.
     "Payment TDS Deduction": {
-        "on_trash": "nirmaan_stack.integrations.controllers.payment_tds_deduction.on_trash"
+        "on_trash": "nirmaan_stack.integrations.controllers.payment_tds_deduction.on_trash",
+        # after_delete, never on_trash: the Work Order recount must read the deduction gone.
+        "after_delete": "nirmaan_stack.integrations.controllers.payment_tds_deduction.after_delete",
     },
     "Critical PO Items": {
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.critical_po_items.critical_po_items.after_insert",

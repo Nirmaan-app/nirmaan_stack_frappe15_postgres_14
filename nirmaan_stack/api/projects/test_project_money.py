@@ -24,6 +24,7 @@ from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import 
     sync_cashflow_reason,
 )
 from nirmaan_stack.services.ceo_hold import core as ceo_hold
+from nirmaan_stack.services.payment_tds import BORNE_BY_COMPANY, BORNE_BY_VENDOR
 
 PO = "Procurement Orders"
 
@@ -183,14 +184,14 @@ class TestProjectOutflowCountsWorkOrderTds(FrappeTestCase):
         cls.P = _raw("Projects", project_name="TEST-1510-WO-TDS", status="WIP")
         cls.payments = []
         for order, amount, status, date, tds, borne_by in (
-            ("TEST-1510-WO-V", 9800, "Paid", "2026-04-10", 200, "Vendor"),
-            ("TEST-1510-WO-C", 800, "Paid", "2026-06-10", 16, "Company"),
-            ("TEST-1510-WO-V", 4900, "Approved", "2026-05-12", 100, "Vendor"),
+            ("TEST-1510-WO-V", 9800, "Paid", "2026-04-10", 200, BORNE_BY_VENDOR),
+            ("TEST-1510-WO-C", 800, "Paid", "2026-06-10", 16, BORNE_BY_COMPANY),
+            ("TEST-1510-WO-V", 4900, "Approved", "2026-05-12", 100, BORNE_BY_VENDOR),
         ):
             payment = _raw("Project Payments", project=cls.P, document_type=WO, document_name=order,
                            amount=amount, status=status, payment_date=date)
             cls.payments.append(payment)
-            gross = amount + tds if borne_by == "Vendor" else amount
+            gross = amount + tds if borne_by == BORNE_BY_VENDOR else amount
             _raw("Payment TDS Deduction", project_payment=payment, document_type=WO, document_name=order,
                  gross_amount=gross, tds_percentage=2, tds_amount=tds, borne_by=borne_by, status="Pending")
         cls.challan = _raw("Non Project Expenses", type="TDS Payment", amount=216, status="Paid",

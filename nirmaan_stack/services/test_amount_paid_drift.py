@@ -23,6 +23,7 @@ from nirmaan_stack.services.amount_paid_drift import (
     recount,
     recount_pos,
 )
+from nirmaan_stack.services.payment_tds import BORNE_BY_COMPANY, BORNE_BY_VENDOR
 
 PO = "Procurement Orders"
 WO = "Service Requests"
@@ -127,7 +128,7 @@ class OrdersFixture(unittest.TestCase):
         frappe.db.commit()
         return name
 
-    def _taxed_payment(self, order, amount, gross, tds, borne_by="Vendor", project=None):
+    def _taxed_payment(self, order, amount, gross, tds, borne_by=BORNE_BY_VENDOR, project=None):
         """A Paid Work Order payment of `amount` with a deduction of `tds` taken on `gross`, borne by
         `borne_by`: `amount` is `gross - tds` when the tax was withheld from the vendor, `gross` when
         the company bore it and the payment was kept whole."""
@@ -267,13 +268,13 @@ class FindingMismatches(OrdersFixture):
         # the company pays the 240 TDS on top. Paid is 12,000, due 0; -240 counted the tax as well.
         right = self._wo(stored_paid=12000, total=12000, tds=240, stored_due=0,
                          categories=["Miscellaneous Services", "Transportation Services"])
-        self._taxed_payment(right, 12000, gross=12000, tds=240, borne_by="Company")
+        self._taxed_payment(right, 12000, gross=12000, tds=240, borne_by=BORNE_BY_COMPANY)
         stale = self._wo(stored_paid=12000, total=12000, tds=240, stored_due=-240, categories=["Miscellaneous Services"])
-        self._taxed_payment(stale, 12000, gross=12000, tds=240, borne_by="Company")
+        self._taxed_payment(stale, 12000, gross=12000, tds=240, borne_by=BORNE_BY_COMPANY)
         # The deduction says who bore it, not today's categories: this WO gained Electrical afterwards.
         recategorised = self._wo(stored_paid=12000, total=12000, tds=240, stored_due=0,
                                  categories=["Miscellaneous Services", "Electrical Services"])
-        self._taxed_payment(recategorised, 12000, gross=12000, tds=240, borne_by="Company")
+        self._taxed_payment(recategorised, 12000, gross=12000, tds=240, borne_by=BORNE_BY_COMPANY)
 
         found = mismatches(WO, [right, stale, recategorised])
 
@@ -284,11 +285,11 @@ class FindingMismatches(OrdersFixture):
         # Paid is 5,880 + 120 + 14,120 = 20,120; due 0.
         right = self._wo(stored_paid=20120, total=20120, tds=402.4, categories=["Miscellaneous Services"])
         self._taxed_payment(right, 5880, gross=6000, tds=120)
-        self._taxed_payment(right, 14120, gross=14120, tds=282.4, borne_by="Company")
+        self._taxed_payment(right, 14120, gross=14120, tds=282.4, borne_by=BORNE_BY_COMPANY)
         # Both taxes counted as paid.
         stale = self._wo(stored_paid=20402.4, total=20120, tds=402.4, categories=["Miscellaneous Services"])
         self._taxed_payment(stale, 5880, gross=6000, tds=120)
-        self._taxed_payment(stale, 14120, gross=14120, tds=282.4, borne_by="Company")
+        self._taxed_payment(stale, 14120, gross=14120, tds=282.4, borne_by=BORNE_BY_COMPANY)
 
         found = mismatches(WO, [right, stale])
 
@@ -336,7 +337,7 @@ class RecountingOneOrder(OrdersFixture):
         self._taxed_payment(withheld, 24552, gross=24800, tds=248)
         kept_whole = self._wo(stored_paid=12000, total=12000, tds=240, stored_due=-240,
                               categories=["Miscellaneous Services"])
-        self._taxed_payment(kept_whole, 12000, gross=12000, tds=240, borne_by="Company")
+        self._taxed_payment(kept_whole, 12000, gross=12000, tds=240, borne_by=BORNE_BY_COMPANY)
 
         recount(WO, withheld, ENTRY)
         recount(WO, kept_whole, ENTRY)

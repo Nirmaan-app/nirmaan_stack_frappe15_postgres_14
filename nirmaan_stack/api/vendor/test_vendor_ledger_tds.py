@@ -21,6 +21,7 @@ from frappe.utils import flt
 
 from nirmaan_stack.api.vendor.get_vendor_po_invoices import get_po_ledger_data
 from nirmaan_stack.api.vendor.vendor_ledger_statement import get_vendor_ledger_statement
+from nirmaan_stack.services.payment_tds import BORNE_BY_COMPANY, BORNE_BY_VENDOR
 
 PO = "Procurement Orders"
 WO = "Service Requests"
@@ -63,8 +64,8 @@ class TestVendorLedgerWorkOrderTds(FrappeTestCase):
         _raw(PAYMENTS, vendor=cls.V, document_type=PO, document_name=cls.A, amount=400, status="Paid",
              payment_date="2026-04-10", utr="UTR-1512-P")
         for order, net, gross, tds, borne_by, date, utr in (
-            (cls.W_VENDOR, 9800, 10000, 200, "Vendor", "2026-05-10", "UTR-1512-V"),
-            (cls.W_COMPANY, 800, 800, 16, "Company", "2026-06-10", "UTR-1512-C"),
+            (cls.W_VENDOR, 9800, 10000, 200, BORNE_BY_VENDOR, "2026-05-10", "UTR-1512-V"),
+            (cls.W_COMPANY, 800, 800, 16, BORNE_BY_COMPANY, "2026-06-10", "UTR-1512-C"),
         ):
             payment = _raw(PAYMENTS, vendor=cls.V, document_type=WO, document_name=order, amount=net,
                            status="Paid", payment_date=date, utr=utr)

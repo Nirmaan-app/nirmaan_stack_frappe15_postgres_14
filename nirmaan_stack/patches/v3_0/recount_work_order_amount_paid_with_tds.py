@@ -21,7 +21,7 @@ HOW
 THE CEO HOLD PREVIEW (for the owner, before the run on production)
     `preview` also lists each project the larger outflow newly puts over its cashflow limit: its gap
     without the TDS on its Paid WO payments (old) and with it (new, `project_money` today), decided by
-    the owner's hold rule (`project_cashflow_hold_update.over_cashflow_limit`). A project marked
+    the owner's hold rule (`services/ceo_hold/rules.over_cashflow_limit`). A project marked
     "already on CEO Hold" is held for another reason and only gains the cashflow reason; one marked
     "recheck scheduled" is decided at its recheck date (`tasks/ceo_hold_recheck`), not before.
 
@@ -50,9 +50,9 @@ from typing import NamedTuple
 import frappe
 from frappe.utils import flt
 
-from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import over_cashflow_limit
 from nirmaan_stack.services.amount_paid_drift import Mismatch, mismatches, recount_work_orders
 from nirmaan_stack.services.ceo_hold import core as ceo_hold
+from nirmaan_stack.services.ceo_hold.rules import over_cashflow_limit
 from nirmaan_stack.services.project_money import project_money, work_order_tds_by_project
 
 WO = "Service Requests"
@@ -69,11 +69,6 @@ class NewHold(NamedTuple):
     old_gap: float
     new_gap: float
     recheck_scheduled: bool
-
-
-def changed_work_orders(names=None) -> list[Mismatch]:
-    """Every Work Order (only those in `names` when given) whose stored figures `execute` would change."""
-    return mismatches(WO, names)
 
 
 def new_ceo_holds(projects=None) -> list[NewHold]:
@@ -103,7 +98,8 @@ def new_ceo_holds(projects=None) -> list[NewHold]:
 
 def preview(names=None, projects=None):
     """Print what `execute` would change, and the projects that would newly go on CEO Hold. Writes nothing."""
-    _print_work_orders("would change", changed_work_orders(names))
+    # The judge's mismatches are exactly what `execute` changes.
+    _print_work_orders("would change", mismatches(WO, names))
     holds = new_ceo_holds(projects)
     print(f"{TAG}: {len(holds)} projects newly over their cashflow limit (old gap: without WO TDS; new: with it)")
     for h in holds:

@@ -110,7 +110,7 @@ def amount_paid_of(document_type: str, document_name: str, exclude_payment: str 
     )
     tds = payment_tds.borne_tds_by_order(document_type, [document_name], exclude_payment).get(document_name)
     if tds:
-        total_paid += tds["vendor"]
+        total_paid += tds.vendor
     refunded = refunded_on(document_type, [document_name], LOWERS_PAID_STATUSES).get(document_name)
     return total_paid - float(refunded) if refunded else total_paid
 

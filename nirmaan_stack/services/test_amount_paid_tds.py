@@ -9,16 +9,21 @@ paid on top (`borne_by` Company) is not part of it. Amount Due = total - Amount 
 Driven through the real doors: approval by `ceo_approve_payment` (`TaxedWorkOrderFixture`), Paid, an
 amount edit and a move by a payment save, delete by `frappe.delete_doc`, a refund Received by a refund
 save. After each, THE JUDGE (`services/amount_paid_drift.mismatches`) finds nothing on the Work Orders
-involved, and the stored figures are what a user reads.
+involved, and the stored figures are what a user reads. A change that moves the tax on a Paid payment
+moves project outflow (#1510), so the CEO Hold check runs after it and reads the recounted figures.
 
 ⚠️ RUNS AGAINST THE SITE DATABASE. Everything is `TEST-TWO-*`, purged by `TaxedWorkOrderFixture`.
 """
 
+import contextlib
+from unittest.mock import patch
+
 import frappe
 from frappe.utils import flt
 
+from nirmaan_stack.integrations.controllers import project_cashflow_hold_update as cashflow_hold
 from nirmaan_stack.services.amount_paid_drift import mismatches
-from nirmaan_stack.services.test_tds_borne_by import MISC, MISC_AND_ELECTRICAL, PAYMENT, SR, BorneByFixture
+from nirmaan_stack.services.test_tds_borne_by import MISC, MISC_AND_ELECTRICAL, PAYMENT, PTD, SR, BorneByFixture
 
 REFUNDS = "Vendor Refunds"
 
@@ -42,6 +47,16 @@ class AmountPaidFixture(BorneByFixture):
 
     def assertRight(self, *wos):
         self.assertEqual(mismatches(SR, wos), [])
+
+    @contextlib.contextmanager
+    def _ceo_hold_checks(self, wo):
+        """Each CEO Hold check run inside the block, as `(project, wo's stored figures at that moment)`."""
+        checks = []
+        frappe.flags.pop(f"ceo_hold_checked:{self.project}", None)
+        with patch.object(
+            cashflow_hold, "sync_cashflow_reason", side_effect=lambda project: checks.append((project, self._wo_figures(wo)))
+        ):
+            yield checks
 
 
 class TestTheStoredFigure(AmountPaidFixture):
@@ -72,10 +87,40 @@ class TestEveryChangeRecountsTheTax(AmountPaidFixture):
         wo = self._wo(MISC_AND_ELECTRICAL, total=50000)
         made = self._paid(wo, 10000)
 
-        self._save_payment(made.name, amount=4900)
+        with self._ceo_hold_checks(wo) as checks:
+            self._save_payment(made.name, amount=4900)
 
         self.assertEqual(self._wo_figures(wo), (5000.0, 100.0, 45000.0))
         self.assertRight(wo)
+        # The restated tax moves project outflow: the check ran after the restate, on its figures.
+        self.assertEqual(checks, [(self.project, (5000.0, 100.0, 45000.0))])
+
+    def test_deleting_a_deduction_on_its_own_takes_its_tax_out(self):
+        # Desk / REST delete of the deduction alone: the payment stays Paid at its net 9,800.
+        wo = self._wo(MISC_AND_ELECTRICAL, total=50000)
+        made = self._paid(wo, 10000)
+        self.addCleanup(frappe.db.delete, "Deleted Document", {"deleted_doctype": PTD, "deleted_name": made.deduction})
+
+        with self._ceo_hold_checks(wo) as checks:
+            frappe.delete_doc(PTD, made.deduction, force=True, ignore_permissions=True)
+            frappe.db.commit()
+
+        self.assertEqual(self._wo_figures(wo), (9800.0, 0.0, 40200.0))
+        self.assertRight(wo)
+        self.assertEqual(checks, [(self.project, (9800.0, 0.0, 40200.0))])
+
+    def test_deleting_a_deduction_on_an_unpaid_payment_moves_nothing(self):
+        wo = self._wo(MISC_AND_ELECTRICAL, total=50000)
+        made = self._approve(wo, 10000)
+        self.addCleanup(frappe.db.delete, "Deleted Document", {"deleted_doctype": PTD, "deleted_name": made.deduction})
+        modified = frappe.db.get_value(SR, wo, "modified")
+
+        with self._ceo_hold_checks(wo) as checks:
+            frappe.delete_doc(PTD, made.deduction, force=True, ignore_permissions=True)
+            frappe.db.commit()
+
+        self.assertEqual(frappe.db.get_value(SR, wo, "modified"), modified)
+        self.assertEqual(checks, [])
 
     def test_moving_a_paid_payment_to_another_work_order_takes_its_tax_along(self):
         left = self._wo(MISC_AND_ELECTRICAL, total=50000)

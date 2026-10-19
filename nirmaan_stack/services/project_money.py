@@ -37,7 +37,7 @@ import frappe
 from frappe.utils import flt
 
 from nirmaan_stack.services.money_dates import ON_PAYMENT_DATE, date_range_clauses
-from nirmaan_stack.services.payment_tds import PAYMENT_DOCTYPE, TDS_DOCTYPE
+from nirmaan_stack.services.payment_tds import paid_borne_tds_sql
 from nirmaan_stack.services.vendor_refunds import LOWERS_PAID_STATUSES, REFUND_DOCUMENT_FIELDS
 
 #: POs whose delivered value is not a liability: it is counted on the PO that replaced them.
@@ -45,14 +45,14 @@ LIABILITY_EXCLUDED_PO_STATUSES = ("Merged", "Cancelled", "Inactive")
 #: Payments and refunds on this order kind make the Work Order part of the outflow; every other order
 #: kind's make the PO part, so no payment can fall out of the outflow.
 WORK_ORDER_DOCTYPE = "Service Requests"
-#: The TDS on each Paid Work Order payment, both kinds: one row per deduction, with its payment's project
-#: and dates. Binds `%(work_order)s`. Part of the outflow (`project_money`), and read on its own by
-#: `work_order_tds_by_project`.
+#: The TDS on each Paid Work Order payment, both kinds (withheld from the vendor + paid by the company on
+#: top), from the one split (`payment_tds.paid_borne_tds_sql`): one row per deduction, with its payment's
+#: project and dates. Binds `%(work_order)s`. Part of the outflow (`project_money`), and read on its own
+#: by `work_order_tds_by_project`.
 _WORK_ORDER_TDS_ROWS = f"""
-    SELECT p.project, p.payment_date, p.creation, d.tds_amount
-    FROM "tab{TDS_DOCTYPE}" d
-    INNER JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = d.project_payment
-    WHERE p.status = 'Paid' AND p.document_type = %(work_order)s
+    SELECT project, payment_date, creation, vendor_borne_tds + company_borne_tds AS tds_amount
+    FROM ({paid_borne_tds_sql()}) AS paid_tds
+    WHERE document_type = %(work_order)s
 """
 
 

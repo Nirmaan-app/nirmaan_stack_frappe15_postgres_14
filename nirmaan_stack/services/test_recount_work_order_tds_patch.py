@@ -28,6 +28,7 @@ from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import 
 from nirmaan_stack.patches.v3_0 import recount_work_order_amount_paid_with_tds as patch
 from nirmaan_stack.services.amount_paid_drift import mismatches
 from nirmaan_stack.services.ceo_hold import core as ceo_hold
+from nirmaan_stack.services.payment_tds import BORNE_BY_COMPANY
 from nirmaan_stack.services.test_amount_paid_drift import WO, OrdersFixture
 
 
@@ -78,14 +79,14 @@ class ThePreview(RecountFixture):
         project = self._project(limit=0)
         stale = self._stale_vendor_borne_wo(project)
         right = self._wo(stored_paid=816, total=816, tds=16, project=project)
-        self._taxed_payment(right, 816, gross=816, tds=16, borne_by="Company", project=project)
+        self._taxed_payment(right, 816, gross=816, tds=16, borne_by=BORNE_BY_COMPANY, project=project)
         modified = frappe.db.get_value(WO, stale, "modified")
 
         printed = self._preview()
 
         self.assertEqual(
             [(m.name, m.stored_paid, m.correct_paid, m.stored_due, m.correct_due)
-             for m in patch.changed_work_orders(self.orders[WO])],
+             for m in mismatches(WO, self.orders[WO])],
             [(stale, 9800.0, 10000.0, 200.0, 0.0)],
         )
         self.assertIn(stale, printed)
@@ -104,7 +105,7 @@ class ThePreview(RecountFixture):
         for project in (newly, already_over, still_under, completed, scheduled):
             self._stale_vendor_borne_wo(project)
         kept_whole = self._wo(stored_paid=800, total=800, tds=16, project=company)
-        self._taxed_payment(kept_whole, 800, gross=800, tds=16, borne_by="Company", project=company)
+        self._taxed_payment(kept_whole, 800, gross=800, tds=16, borne_by=BORNE_BY_COMPANY, project=company)
 
         holds = patch.new_ceo_holds(self.projects)
         printed = self._preview()
