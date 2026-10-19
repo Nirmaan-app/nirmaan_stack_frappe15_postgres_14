@@ -48301,3 +48301,60 @@ Start tip `3077ae9d5` (= origin). Live on dev: HVAC v46 (items `93bbac8f3c13d86c
 3. **A GI frame copied as the cladding.** With the cladding unanswered, "GI frame with perforated Al sheet" no longer maps to 26G Aluminium: the frame words are masked. 0 stored items are affected. The stocked option for it is "GI Framework with perforated Al sheet", which the model answers.
 4. **RPUF on a per-sq.m row** has no PUF rule, so it reads as before (the row-kind default where nothing names a stocked material). This is not ruled.
 5. **The browser session re-saved its FCM token.** `dev_isolate.py --verify` fails on push_tokens / push_on (the CU-B finding); `disable_push` still blocks sends. Not re-run: it is outside this slice's writes.
+
+## Slice ADP-1 - ADP retrofit, pricing rules part 1: slot diffusers (H3), per-number plenums (H4), the three ADP Pricing Inputs (A4), Insulation riders F1 / F3 / F4, and HVAC v47 - as built 2026-10-19
+
+**Commits (unpushed at the time of writing):**
+- `8a56dcb05` feat(rate-helper): code + tests.
+  - `itemListPricing.ts`: number-reader keys `typed_only`, `length_from`, `label`, `not_stocked`, `bare_above_largest` and the unit "m"; convert keys `show_numbers`, `name_missing`; `readPieceLength` (`PIECE_LENGTH_MIN_MM` 300), `numbersLine`, `giFrameworkCladding` (F3), `rpufSheetRefusal` (F4), F1 in the inch reading with the `mirrored` exemption.
+  - `pricingSheetHelper.ts` (display only): the value actually used (a length read from the size, a cleared typed box's default), the `mirrored` marker through `decodeItemEdits`.
+  - `itemListRuleOrder.ts`: add-only Derivation lines; the number_defaults line takes the reader's unit and says "then the ladder" only of a laddered number.
+  - `pricingInputReach.ts` walks `convert` (owner Q2); `pricingInputExact.ts` / `pricingInputImpact.ts` price an ADP SKU's own W x H and confirm a directly priced candidate directly.
+  - `config_validation.py`: the closed key sets widened by exactly these keys; units {mm, nm, sqm, m}.
+  - Tests: `adp1.harness.ts` + `adp1.test.ts`; `ruleReachability` AD1-AD7 / AF1 / AF3 / AF4 + an ADP-1 guard; `calculatorPanelParity` N1-N10 (N5 excluded by name: the Slots dropdown cannot offer 4); `test_config_validation_adp1.py` (11). Count pins inverted by mechanical authority, BEFORE lines kept.
+  - The replay harness tracked in `scripts/_instruments/` (AC7): `ac5_dump.py`, `ac7_harness.ts`, `ac7v2_harness.ts`, `replay.sh` (`REPLAY_DIR`), README row.
+- `1c32ebbf1` feat(rate-master): HVAC v47 = v46 - the 2 per-number plenum SKUs + the 3 ADP Pricing Inputs + the ADP-1 config keys. `mint_hvac_v47_adp1.py` (deactivate / export / build / load / verify). Pins: `max(ns)` 47, `CURRENT_HVAC_ASSET` v47, cross-version pins normalised by name (`_without_adp1_*`), `TestAdp1AssetV47` (test_48-50), `servedVsStoredPricing` normalised by name (`withoutAdp1()`, BEFORE kept; owner go - it was missed by the commit-2 targeted set and folded in by amend from `10a4e2637`).
+- The docs commit that carries this entry.
+
+Start tip `113a32949` (= origin). Live on dev: HVAC v47 (items `793a2b39344242ad`, configs `37b49f9506fe7cf6`; batch `rmbulk-76a1917667e7`, snapshot BRMS-26-01508), Electrical v66 unchanged (`784d1dbe8024d5f8` / `aa8d0a49ef645120`). Report on the Desktop: `2026-10-19_ADP-1_Report.md` (ledger first), `_Ledger.md`, `_Moved_Rows.xlsx`.
+
+### 1. The rulings and how they were built (owner 2026-10-19)
+
+- **H3 slot diffusers.** Per sq.m: damper only, "without" refuses by name. Per metre: slots + damper, 1 / 4 slots refuse ("No SKU for a N-slot diffuser"). Per number: the per-metre SKU x the piece length (m); no slot count refuses naming it. Fields (owner 15:56): per sq.m Damper; per metre Damper + Slots; per number Damper + Slots + Piece length (m). Removed from per number: "Size (as written)", "Area band (as written)". The quantity box stays.
+- **The piece length (owner ruling).** Typed wins; else the side written as the length; else the longest side of a x b (x c); else a single unlabelled number >= 300 mm; below 300 it is a slot width. Nothing read -> 1 m, amber "no piece length stated - priced at 1 m".
+- **H4 per-number plenums.** 2 x (LB + BH + LH) / 10^6 x the per-sq.m rate, + the adder on supply only at S7's position; a missing dimension refuses naming each. The 2 Nos SKUs (rmi-4184735331c3, rmi-a23b43d34447) retired through the per-SKU deactivate path (owner Q1), export after, v47 minted from the export and proved equal to the database by content. The mint gate has no item atoms and cannot see the removal.
+- **A4.** 150 / 300 / 2.5 are HVAC Pricing Inputs (rmi-22297aebf841, rmi-1c12e3f08472, rmi-26006c5ca808), `shared_by: adp`. The 150 stays before the markup (Q2b). The impact panel: 0 SKUs for the 150 and the 2.5 m, the 6 cross-talk Nos SKUs for the 300 (Q2).
+- **F1.** A bare number whose inch readings are both above the largest refuses (Nitrile "4"); a mirrored section size is exempt. **F3.** "GI frame / framework" + perforated aluminium sheet, cladding unanswered -> "GI Framework with perforated Al sheet" (row text or heading). **F4.** RPUF on a per-sq.m Insulation row refuses by name; ADP's double-skin "RPUF injected panel" rows are unchanged.
+
+### 2. The replay (AC3 / AC7 / AC9) and v47 (AC10)
+
+- **AC7.** The tracked harness reproduces 17,883 rows, plain `85869b59...` / section-aware `5c824dd3...`, at START.
+- **Ladder.** Code only on v46: 0 moved. A4 alone: 0 figures, 139 ADP rows change working lines only (117 mixing box, 12 flexible duct, 10 cross-talk). Full delta = live v47: plain `777736f7590431cc...`, section-aware `5b2bfd9196692a85...`.
+- **Moved rows (AC9).** 9 rows change figures, all H3: BOQ-26-00093 x4 1,949 / 430 -> 2,204 / 352; BOQ-26-00329 x4 (the slot item now priced at 1 m, the rows still blank); BOQ-26-00245 / 116 now 1,160 / 352. 186 change wording only (A4+H4 117, H3 31, A4 22, H4 16). 0 unexplained; Electrical 0; Piping 0. The unchanged-set sha is equal before and after (`ef82320a6d137066...`).
+- **The first full-delta pass moved 2 Piping rows** (a mirrored "6.24" read by F1 as bare); fixed before any commit with the `mirrored` exemption, pinned by test, re-run Piping 0.
+- **v47.** Series 1..47 contiguous; gate PASS; live == file 0 / 0; the stub proof (extraction requests rebuilt from v46 and v47) identical.
+- **Vacuity.** 18 frontend breaks + 1 Python, each red on its own tests, each restore sha-exact.
+
+### 3. Suites, cert
+
+- **Python full:** 8,547 run (= 8,533 + 14), failures 6 / errors 2 = the 8 known names.
+- **vitest:** 188 files / 7,104 tests, 1 failed (writeOffControl), after the owner-approved `servedVsStoredPricing` inversion.
+- **tsc:** 3,170, identical by file and message (`NODE_OPTIONS=--max-old-space-size=5120`; the default heap OOMs).
+- **Capture log:** 461 (+0) throughout; byte-equal to START at the end.
+- **Cert at :8080** after the full de-stale (honcho needed `kill -9`; ping after 222 s; the served modules carried the code strings; a runtime import read `PIECE_LENGTH_MIN_MM` 300).
+  - **C1-C3.** Slot per sq.m: Damper only, "without" refuses, "with" 12,992 / 2,864. Per metre: Damper + Slots (2, 3), 2-slot with damper 1,465 / 352. Per number: Damper + Slots + Piece length; 1.5 -> 3,306 / 528 ("1520 x 1.5 = 2280"); cleared -> amber 1 m, 2,204 / 352.
+  - **C4.** BOQ-26-00093 / 150: 2,204 / 352, "1000x150 -> 1 m (the longest side)".
+  - **C2 stored row.** BOQ-26-00341 / 87 (4-slot): "No SKU for a 4-slot diffuser - price this row by hand".
+  - **C5 / C6(i).** 450x450x350 -> "1230 x 2 x (...) / 10^6 + 150 = 1423.05" -> 2,065, no +150 on install; "2200 mm length" refuses "no width and height stated".
+  - **AC0 (d).** The adder 150 -> 200 through Rate Master > Pricing Inputs moved BOQ-26-00186 / 58 2,233 -> 2,306 (+73 = 50 x 1.45, rounded); the impact panel said "added to the row", 0 SKUs; restored 150, read back from the database (2 Version rows), live == v47 by content.
+  - **C7 / C8.** Pricing Inputs 14 items with the 3 new rows; the Derivation tab shows every new line.
+  - **C9.** Nitrile "4" refuses (F1); GI framework copy and heading -> GI Framework 2,368 / 364 (F3); RPUF per sq.m refuses (F4); ADP BOQ-26-00312 / 27 "RPUF injected panel" 4,785 / 640 unchanged.
+  - **C10.** Electrical BOQ-26-00183 / 19 120 / 24; Piping BOQ-26-00100 / 61 602 / 234 (the mirrored 6.4 still matched to 6.35).
+  - **C11.** Live == v47 / v66 by content; the replay dump after the cert byte-equal to the AC9 dump, and the replay reproduces 17,883 rows, `777736f7...` / `5b2bfd91...` (= AC9); capture byte-equal to START.
+
+### 4. Findings for the next slice
+
+1. **A slot-diffuser plenum that gives only a length refuses** (BOQ-26-00087 rows 68-74 state only a length: "Plenum Box for N Slot Linear Diffuser - L mm Length"), as H4 ruled; pricing them needs a ruling on the plenum's W and H for a slot count.
+2. **The calculator's Slots dropdown offers only stocked counts (2, 3)**, so a 4-slot refusal is shown on stored rows only (BOQ-26-00341 / 87).
+3. **A scoped Suggest run needs a completed run to carry from**, so a sheet with no runs (BOQ-26-00087) can be suggested only whole.
+4. **`scripts/residence_check.py` already fails at START** (F5 120 vs 117, F2 221 vs 217); ADP-1 adds 0 to either.

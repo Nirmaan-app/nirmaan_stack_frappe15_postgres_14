@@ -1230,7 +1230,8 @@ the smallest stocked size, whose reading in inches (x 25.4 or x 25) falls within
 price this row by hand" -- on Insulation's `pipe_size_mm` as on Piping's `size_mm` (`f3InchAlt`; the x25 is a test, never a
 ladder conversion). A test pins the covered axes (exactly those two today) and fails if the set changes. As ruled, the range is
 the TYPE's own: a bare "4" on Nitrile (101.6 / 100 mm, above its 53.98) still takes the smallest size, while an MS pipe "4"
-refuses and its section follows the pipe.
+refuses and its section follows the pipe. ⚠️ **The Nitrile "4" half is SUPERSEDED by ADP-1 F1 (owner 2026-10-19, below): a bare
+number whose inch readings are both ABOVE the largest stocked size now refuses too.**
 
 **A FIXING IS NEVER A CLADDING, ALSO TO THE GI MAP (owner O3, 2026-10-18: "fix it"; slice 12e-6c).** `choiceTextFor` masks the
 fixing and duct words (`withoutFixingWords`) before R2's GI words are looked for, so "GI strip at 1 m grid" names no cladding;
@@ -1249,7 +1250,69 @@ slice 12e-6c).** With nothing answered, "not mentioned" or a no-SKU answer by th
 text or the material as written prices as the category's PUF family for the row's unit -- the ladders then take the next stocked
 thickness up exactly as for a picked Tubular PUF (the stored 00321 / 15 figure, 9,459 / 1,904, both ways); 30 mm on a small pipe
 still refuses. An answered material is never overridden; a per-sq.m row has no PUF rule and is read as before. NBR is nitrile
-(owner 2026-10-16 13:53) and needed no change.
+(owner 2026-10-16 13:53) and needed no change. ⚠️ **"A per-sq.m row is read as before" is SUPERSEDED by ADP-1 F4 (owner
+2026-10-19, below): RPUF on a per-sq.m Insulation row now refuses by name.**
+
+**ADP-1 F1: A BARE NUMBER WHOSE INCH READING IS ABOVE THE LARGEST REFUSES (owner 2026-10-19 09:57 "agree on all F1 to F4", 10:16
+"ride along with ADP retrofit"; HVAC v47).** On an axis with `inches: true` and `bare_above_largest: "refuse"` (Insulation's
+`pipe_size_mm` today), a number with no unit, below the smallest stocked size, whose readings in inches (x 25.4 and x 25) are
+BOTH above the largest stocked size refuses "size N has no unit - price this row by hand" (Nitrile "4"). It sits beside F-3
+(within the range) and never replaces it; "2" and "4" on Tubular PUF and F2's "2 inch" under a pipe (604 vs 607) are unchanged.
+⚠️ **A section's size MIRRORED from its pipe is exempt** (the cell carries `mirrored: true`, passed through `decodeItemEdits`):
+the pipe already read it in mm, and without the exemption a mirrored "6.24" refused on 2 stored Piping rows in the first
+replay. The calculator, which has no pipe to mirror from, is never exempt.
+
+**ADP-1 F3: A GI FRAME WITH PERFORATED ALUMINIUM SHEET PRICES AS THE GI FRAMEWORK OPTION (owner 2026-10-19; HVAC v47).** With
+the cladding UNANSWERED, "GI frame / framework" with "perforated Al / aluminium sheet" -- in the cladding as written, else the
+row's own text, else a heading -- prices as `GI_FRAMEWORK_CLADDING` ("GI Framework with perforated Al sheet"), amber "BoQ says
+<words> -> priced as GI Framework with perforated Al sheet". It is read BEFORE O3's fixing mask (which would hide "frame") and
+BEFORE the GI map and O4's cloth facing (`giFrameworkCladding ?? choiceTextFor ?? clothFacingCladding`). A cladding the model
+answered stands. Word lists in code; no config key.
+
+**ADP-1 F4: RPUF ON A PER-SQ.M INSULATION ROW REFUSES BY NAME (owner 2026-10-19; HVAC v47).** Where the category stocks no PUF
+family at the row's unit (per sq.m today), R's RPUF reading refuses "No SKU in the catalogue for RPUF - price this row by hand"
+instead of falling to the row-kind default -- only where no material was answered; an answered material stands. Scoped to
+INSULATION: an ADP double-skin plenum "RPUF injected panel" row prices from its own SKU, unchanged (BOQ-26-00312 / 27 4,785 / 640,
+00234, 00273, 00171 proved). The day a PUF sheet is stocked per sq.m, the refusal stops by itself (the test reads the families'
+units, not a word list).
+
+**ADP-1 H3: SLOT DIFFUSERS MATCH ON SLOTS AND DAMPER; PER NUMBER = THE PER-METRE SKU x THE PIECE LENGTH (owner 2026-10-19
+14:15 / 14:24 / 14:34; HVAC v47).** Per sq.m: the damper only (slots never asked); "without" -- stated or the ruled default --
+refuses "No SKU for a slot diffuser per sq.m without damper - price this row by hand" (only "with" is stocked per sq.m; D4 (a)
+holds there). Per metre: slots + damper; a slot count the catalogue does not stock (1, 4) refuses "No SKU for a N-slot
+diffuser" (`not_stocked`). Per number: the per-metre SKU (slots + damper) x the piece length in metres, on supply and install
+before the markup (`convert` with `show_numbers`); no slot count refuses naming it (`name_missing`). Because per number now
+reads the per-metre SKUs, which stock both damper values, D4 (a)'s per-number refusal of "without" no longer applies. The
+fields shown are only the unit's (owner 15:56): per sq.m Damper; per metre Damper + Slots; per number Damper + Slots + "Piece
+length (m)"; "Size (as written)" and "Area band (as written)" are gone from slot diffusers; the quantity box stays.
+
+**ADP-1 THE PIECE LENGTH (owner 2026-10-19).** `numbers.piece_length_m` is `typed_only` (the model is never asked) with
+`length_from: size_mm`. Typed wins (mm / cm converted, with a line). Else, from the size as written: the side labelled as the
+length ("1500 mm long"); else the LONGEST side of "a x b" or "a x b x c" ("1000x150" -> 1 m); else a single unlabelled number
+>= `PIECE_LENGTH_MIN_MM` (300) mm IS the length; below 300 it is a slot width and is not read. Nothing read -> 1 m, amber,
+"no piece length stated - priced at 1 m" (H3 (d)). The field shows the value actually used with how it landed there.
+
+**ADP-1 H4: A PER-NUMBER MIXING BOX / LP PLENUM IS 2 x (LB + BH + LH) / 10^6 x THE PER-SQ.M RATE, + THE ADDER ON SUPPLY (owner
+2026-10-19 14:34 / 14:41; HVAC v47).** This supersedes the 2026-10-05 ruling "without dimensions -> a fixed rate". Per-number
+rows (Nos / each / no-unit priced per number) convert the per-sq.m SKU by the surface area of W x H x D; the mixing-box supply
+adder is added to SUPPLY only, before the round-up and the supply markup, exactly where S7 put it (never to install). A missing
+dimension REFUSES naming each one ("per-number row: no width and height stated to convert the per-sq.m rate") -- including a
+slot-diffuser plenum that gives only a length (BOQ-26-00087 rows 72-74). Per-sq.m plenum rows keep per-sq.m pricing.
+⚠️ **THE TWO PER-NUMBER PLENUM SKUs ARE RETIRED, NOT DELETED (owner Q1, 2026-10-19 15:50).** rmi-4184735331c3 and
+rmi-a23b43d34447 were deactivated through the product's per-SKU path (`deactivate_rate_master_item`: active = 0, every row and
+its history kept), v47 was exported from the database after that and proved equal to it by content. Reason, as recorded: H4 --
+"use this logic to price all low pressure plenums / mixing box"; the formula makes the Nos SKUs redundant (they were never
+matched by any stored row). ⚠️ **The mint gate cannot see this:** `mint_completeness_check.py` has no item atoms, so a
+removed SKU passes it silently -- an item retirement is proved by the uid diff, never by the gate.
+
+**ADP-1 A4: THE THREE ADP LITERALS ARE HVAC PRICING INPUTS (owner 2026-10-19 14:24 "yes"; HVAC v47).** Mixing box supply adder
+150 (amount, Rs per number), cross-talk assumed depth 300 (factor, mm), flexible duct length per piece 2.5 (factor, m per piece),
+`shared_by: adp`, read through a `rate_ref` step + `<x>_from_ctx` exactly as Insulation's. The move changed ZERO figures (the
+A4-alone replay: 139 ADP rows changed working lines only). The 150 stays BEFORE the markup (owner Q2b). ⚠️ **Reach (owner Q2
+"ok"):** `pricingInputReach` walks `convert` options too; a conversion records "used by ADP" with NO SKU columns, so the impact
+panel shows 0 SKUs for the 150 and the 2.5 m (they act only when a per-number row converts) and the 6 cross-talk Nos SKUs for
+the 300. A per-number row's supply moves by exactly the edit x (1 + markup) (AC0 (d): 150 -> 200 moved 00186 / 58 2,233 ->
+2,306).
 
 **A DEFAULT IS NAMED AS THE DEFAULT, SAID ONCE, BY ITS FIELD'S LABEL (owner G1 / G2 / G3, 2026-10-12 "yes"; slice
 12e-4b).** G1: a number nobody stated (the ruled default) heads its field note "Default 9 mm -> priced as 13 mm
