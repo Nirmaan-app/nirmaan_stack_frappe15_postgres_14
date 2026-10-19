@@ -50,9 +50,10 @@ export interface ExpenseRequest {
   detail?: { label: string; value: string }[];
   /** Which ledger approval will write to. Resolved server-side, not re-derived here. */
   target_doctype?: string;
-  /** What status the ledger row will be BORN at — server-resolved, because it depends on the
-   *  amount and the threshold lives on the ledger doctypes. Never re-derive it here. */
-  target_status?: "Approved" | "Requested";
+  /** What status the ledger row will be BORN at if THIS caller approves it — server-resolved,
+   *  because it depends on the amount, the raiser and whether the caller is L1 (an Admin's review
+   *  is the L1 step, #1499). Never re-derive it here. */
+  target_status?: "Approved" | "Requested" | "CEO Pending";
   /** Who gets paid (ADR-0033, #1436): the request's own pay-to account, copied from the Payee picked
    *  or the vendor's Payee; approval copies it onto the Expense as it is. Null when it has none. */
   pay_to?: PayToAccount | null;
