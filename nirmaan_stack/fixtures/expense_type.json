@@ -195,33 +195,6 @@
  {
   "allowed_roles": [
    {
-    "parent": "Rent Expenses",
-    "parentfield": "allowed_roles",
-    "parenttype": "Expense Type",
-    "role_profile": "Nirmaan HR Executive Profile"
-   },
-   {
-    "parent": "Rent Expenses",
-    "parentfield": "allowed_roles",
-    "parenttype": "Expense Type",
-    "role_profile": "Nirmaan HR Lead Profile"
-   }
-  ],
-  "docstatus": 0,
-  "doctype": "Expense Type",
-  "expense_category": "Uncategorized",
-  "expense_name": "Rent Expenses",
-  "modified": "2026-10-14 15:12:44.860516",
-  "name": "Rent Expenses",
-  "non_project": 1,
-  "payee_rule": "Required",
-  "project": 0,
-  "source_format": "{\n  \"templateId\": \"premises-rent\",\n  \"templateVersion\": 2,\n  \"title\": \"Premises Rent\",\n  \"description_template\": \"{premises} rent for {rent_month}[[, {location}]].\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Rent\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"premises\",\n          \"label\": \"Premises\",\n          \"type\": \"select\",\n          \"options\": [\n            \"Office\",\n            \"Store Room\",\n            \"Godown\",\n            \"Coworking Space\",\n            \"Branch Office\",\n            \"Other\"\n          ],\n          \"required\": true\n        },\n        {\n          \"key\": \"location\",\n          \"label\": \"Location / City\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"rent_month\",\n          \"label\": \"For the Month\",\n          \"type\": \"date\",\n          \"required\": true\n        }\n      ]\n    },\n    {\n      \"id\": \"proof\",\n      \"type\": \"image_attachments\",\n      \"title\": \"Proof\",\n      \"columns\": 2,\n      \"slots\": [\n        {\n          \"key\": \"bill\",\n          \"label\": \"Rent Invoice / Receipt\",\n          \"accept\": \"image/*,application/pdf\",\n          \"maxSizeMb\": 5,\n          \"maps_to\": \"invoice_attachment\"\n        }\n      ]\n    }\n  ]\n}",
-  "source_format_enabled": 1
- },
- {
-  "allowed_roles": [
-   {
     "parent": "Salaries & Employee Wages",
     "parentfield": "allowed_roles",
     "parenttype": "Expense Type",
@@ -424,20 +397,6 @@
   "payee_rule": "Not asked",
   "project": 1,
   "source_format": "{\n  \"templateId\": \"site-misc\",\n  \"templateVersion\": 2,\n  \"title\": \"Other Project Charge\",\n  \"description_template\": \"{sub_head} \u2013 {purpose} on {expense_date}.\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Charge\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"sub_head\",\n          \"label\": \"Expense Head\",\n          \"type\": \"select\",\n          \"options\": [\n            \"Team Food & Refreshments\",\n            \"Fuel & Local Travel\",\n            \"Site Utility Bill\",\n            \"Printing\",\n            \"Courier\",\n            \"Site Accommodation\",\n            \"Tools & Consumables\",\n            \"Miscellaneous\"\n          ],\n          \"required\": true\n        },\n        {\n          \"key\": \"purpose\",\n          \"label\": \"Purpose\",\n          \"type\": \"textarea\",\n          \"required\": true\n        },\n        {\n          \"key\": \"expense_date\",\n          \"label\": \"Expense Date\",\n          \"type\": \"date\",\n          \"required\": true\n        }\n      ]\n    },\n    {\n      \"id\": \"proof\",\n      \"type\": \"image_attachments\",\n      \"title\": \"Proof\",\n      \"columns\": 2,\n      \"slots\": [\n        {\n          \"key\": \"bill\",\n          \"label\": \"Bill / Invoice\",\n          \"accept\": \"image/*,application/pdf\",\n          \"maxSizeMb\": 5,\n          \"maps_to\": \"invoice_attachment\"\n        }\n      ]\n    }\n  ]\n}",
-  "source_format_enabled": 1
- },
- {
-  "allowed_roles": [],
-  "docstatus": 0,
-  "doctype": "Expense Type",
-  "expense_category": "Uncategorized",
-  "expense_name": "Advertising & Marketing",
-  "modified": "2026-08-18 13:20:59.200040",
-  "name": "Advertising & Marketing",
-  "non_project": 1,
-  "payee_rule": "Not asked",
-  "project": 0,
-  "source_format": "{\n  \"templateId\": \"marketing-spend\",\n  \"templateVersion\": 1,\n  \"title\": \"Advertising & Marketing\",\n  \"description_template\": \"{channel} \u2013 {campaign_or_purpose} ({vendor_name})[[, {period_from} to {period_to}]].\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Campaign\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"campaign_or_purpose\",\n          \"label\": \"Campaign / Purpose\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"channel\",\n          \"label\": \"Channel\",\n          \"type\": \"select\",\n          \"options\": [\n            \"Digital Ads\",\n            \"Print\",\n            \"Event / Exhibition\",\n            \"Branding Collateral\",\n            \"Sponsorship\",\n            \"Other\"\n          ],\n          \"required\": true\n        },\n        {\n          \"key\": \"vendor_name\",\n          \"label\": \"Agency / Vendor\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"period_from\",\n          \"label\": \"Period From\",\n          \"type\": \"date\"\n        },\n        {\n          \"key\": \"period_to\",\n          \"label\": \"Period To\",\n          \"type\": \"date\"\n        }\n      ]\n    },\n    {\n      \"id\": \"proof\",\n      \"type\": \"image_attachments\",\n      \"title\": \"Proof\",\n      \"columns\": 2,\n      \"slots\": [\n        {\n          \"key\": \"bill\",\n          \"label\": \"Invoice\",\n          \"accept\": \"image/*,application/pdf\",\n          \"maxSizeMb\": 5,\n          \"maps_to\": \"invoice_attachment\"\n        }\n      ]\n    }\n  ]\n}",
   "source_format_enabled": 1
  },
  {
@@ -717,20 +676,6 @@
   "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Uncategorized",
-  "expense_name": "Interest Received",
-  "modified": "2026-10-14 15:17:18.313405",
-  "name": "Interest Received",
-  "non_project": 1,
-  "payee_rule": "Not asked",
-  "project": 0,
-  "source_format": null,
-  "source_format_enabled": 0
- },
- {
-  "allowed_roles": [],
-  "docstatus": 0,
-  "doctype": "Expense Type",
   "expense_category": "Travel",
   "expense_name": "Travel Expenses (Bus)",
   "modified": "2026-08-18 18:51:19.441955",
@@ -745,45 +690,6 @@
   "allowed_roles": [],
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_name": "Fixed Deposit Proceeds",
-  "modified": "2026-09-07 00:00:00.000000",
-  "name": "Fixed Deposit Proceeds",
-  "non_project": 1,
-  "payee_rule": "Not asked",
-  "project": 0,
-  "source_format": null,
-  "source_format_enabled": 0
- },
- {
-  "allowed_roles": [],
-  "docstatus": 0,
-  "doctype": "Expense Type",
-  "expense_name": "Loan Received",
-  "modified": "2026-09-07 00:00:00.000000",
-  "name": "Loan Received",
-  "non_project": 1,
-  "payee_rule": "Not asked",
-  "project": 0,
-  "source_format": null,
-  "source_format_enabled": 0
- },
- {
-  "allowed_roles": [],
-  "docstatus": 0,
-  "doctype": "Expense Type",
-  "expense_name": "Advance Returned",
-  "modified": "2026-09-07 00:00:00.000000",
-  "name": "Advance Returned",
-  "non_project": 1,
-  "payee_rule": "Not asked",
-  "project": 0,
-  "source_format": null,
-  "source_format_enabled": 0
- },
- {
-  "allowed_roles": [],
-  "docstatus": 0,
-  "doctype": "Expense Type",
   "expense_category": "Travel",
   "expense_name": "Travel Expenses (Train)",
   "modified": "2026-08-18 18:51:19.731430",
@@ -793,59 +699,5 @@
   "project": 0,
   "source_format": "{\n  \"templateId\": \"travel\",\n  \"templateVersion\": 4,\n  \"title\": \"Travel\",\n  \"description_template\": \"{traveller_name} \u2013 train travel from {from_location} to {to_location} on {depart_date}[[ for {purpose}]].\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Trip\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"traveller_name\",\n          \"label\": \"Traveller Name\",\n          \"type\": \"text\",\n          \"required\": true,\n          \"bind\": \"user.full_name\"\n        },\n        {\n          \"key\": \"purpose\",\n          \"label\": \"Purpose\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"from_location\",\n          \"label\": \"From\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"to_location\",\n          \"label\": \"To\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"depart_date\",\n          \"label\": \"Departure Date\",\n          \"type\": \"date\",\n          \"required\": true\n        }\n      ]\n    },\n    {\n      \"id\": \"proof\",\n      \"type\": \"image_attachments\",\n      \"title\": \"Proof\",\n      \"columns\": 2,\n      \"slots\": [\n        {\n          \"key\": \"bill\",\n          \"label\": \"Ticket / Invoice\",\n          \"accept\": \"image/*,application/pdf\",\n          \"maxSizeMb\": 5,\n          \"maps_to\": \"invoice_attachment\"\n        }\n      ]\n    }\n  ]\n}",
   "source_format_enabled": 1
- },
- {
-  "allowed_roles": [
-   {
-    "parent": "EPFO Payment",
-    "parentfield": "allowed_roles",
-    "parenttype": "Expense Type",
-    "role_profile": "Nirmaan Accountant Lead Profile"
-   },
-   {
-    "parent": "EPFO Payment",
-    "parentfield": "allowed_roles",
-    "parenttype": "Expense Type",
-    "role_profile": "Nirmaan Accountant Profile"
-   }
-  ],
-  "docstatus": 0,
-  "doctype": "Expense Type",
-  "expense_category": null,
-  "expense_name": "EPFO Payment",
-  "modified": "2026-09-08 17:52:40.536931",
-  "name": "EPFO Payment",
-  "non_project": 1,
-  "payee_rule": "Not asked",
-  "project": 0,
-  "source_format": null,
-  "source_format_enabled": 0
- },
- {
-  "allowed_roles": [
-   {
-    "parent": "Professional Tax",
-    "parentfield": "allowed_roles",
-    "parenttype": "Expense Type",
-    "role_profile": "Nirmaan Accountant Lead Profile"
-   },
-   {
-    "parent": "Professional Tax",
-    "parentfield": "allowed_roles",
-    "parenttype": "Expense Type",
-    "role_profile": "Nirmaan Accountant Profile"
-   }
-  ],
-  "docstatus": 0,
-  "doctype": "Expense Type",
-  "expense_category": null,
-  "expense_name": "Professional Tax",
-  "modified": "2026-09-08 17:52:27.169861",
-  "name": "Professional Tax",
-  "non_project": 1,
-  "payee_rule": "Not asked",
-  "project": 0,
-  "source_format": null,
-  "source_format_enabled": 0
  }
 ]

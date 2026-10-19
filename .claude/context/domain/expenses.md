@@ -535,12 +535,18 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   **Owner's role mapping (2026-09-16, in the fixture)** — Project Manager + Project Lead:
   Accommodation Deposit, Staff / Labour Accommodation Rent. Accountant + Accountant Lead: Audit
   Fee, GST Payment, TDS Payment, Other Project Related Charges, Professional Charges, Salaries &
-  Employee Wages, EPFO Payment, Professional Tax. HR Executive + HR Lead: Electricity Expenses,
-  Fixed Assets, Internet & Mobile Charges, Software Chagres, Rent Expenses. **Every other type is
+  Employee Wages. HR Executive + HR Lead: Electricity Expenses,
+  Fixed Assets, Internet & Mobile Charges, Software Chagres. **Every other type is
   Admin only.** "Salary – TDS" and "Misc. Expenses" had no matching type and are unassigned.
   To make that mapping usable, `create` on Expense Request was granted to Nirmaan Accountant,
   Accountant Lead, HR Executive and HR Lead (they held read + write only). The test suite grants
   the PM profile on the real types it uses for its run and removes exactly those rows after.
+- **Remove an Expense Type: delete it on the site AND drop it from `fixtures/expense_type.json`.**
+  The fixture ships every type, so a type deleted only on the site comes back on the next
+  `bench migrate`. Fixture sync only inserts and updates; it never deletes, so dropping a type from
+  the fixture does not remove it from a site that has it. Removed both ways (2026-10-19): Rent
+  Expenses, Professional Tax, Loan Received, Interest Received, Fixed Deposit Proceeds, EPFO
+  Payment, Advertising & Marketing, Advance Returned.
 - **Rename an Expense Type — ADMIN ONLY (2026-09-16).** Expense Packages → Rename →
   `masters.rename_expense_type`, which runs Frappe's model-level `rename_doc`. That moves the
   docname, `expense_name` (the autoname field), the `allowed_roles` child rows and every LINK to
@@ -692,8 +698,8 @@ save an invalid template**.
     Accommodation Deposit and Staff Accommodation Rent "Payee Bank Details" sections, and the
     fields that only named the payee (Rent's landlord, the Deposit's landlord / PG, Payroll's
     employee, the "Paid To" of Office Maintenance, Pooja, Other Financial and Staff Welfare), are
-    gone. Those types ask for a Payee instead: *Required* for Rent Expenses and Accommodation
-    Deposit (paid by transfer into the landlord's account, and a deposit is recovered from it),
+    gone. Those types ask for a Payee instead: *Required* for Accommodation Deposit (paid by
+    transfer into the landlord's account, and recovered from it),
     *Optional* for the other six (card, cash, or a payroll batch with no single payee). The choice
     is pinned by `api/expense_requests/test_request_forms.py`, which also refuses a bank field or a
     `description_template` placeholder naming a field the form no longer asks. Bank Interest's

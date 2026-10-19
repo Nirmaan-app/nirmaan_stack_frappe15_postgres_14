@@ -26,9 +26,7 @@ FIXTURE = os.path.join(
 
 # The per-type choice (#1430). Every type not listed here is Not asked.
 EXPECTED_RULES = {
-	# The landlord's account: rent and deposits are transferred, and a deposit is recovered
-	# from whoever holds it.
-	"Rent Expenses": REQUIRED,
+	# The landlord's account: a deposit is transferred to, and recovered from, whoever holds it.
 	"Accommodation Deposit": REQUIRED,
 	# Sometimes paid by card or cash, or a batch with no single payee.
 	"Salaries & Employee Wages": OPTIONAL,
