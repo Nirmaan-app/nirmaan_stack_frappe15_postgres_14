@@ -25,10 +25,11 @@ from nirmaan_stack.api.expense_requests.convert import (
 	target_status,
 )
 from nirmaan_stack.api.expense_requests.delete import can_delete, requests_with_an_expense
+from nirmaan_stack.api.expense_requests.form_snapshot import frozen_form, frozen_forms, snapshot_of
 from nirmaan_stack.api.expense_requests.flatten import (
 	NATIVE_INVOICE_SECTION,
 	flatten_pairs,
-	native_invoice,
+	request_invoice,
 )
 from nirmaan_stack.api.expense_requests.invoice import invoice_refusal, linked_expense
 from nirmaan_stack.api.expense_requests.update import can_edit
@@ -93,7 +94,9 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 			as_list=True,
 		))
 
-	# One read of the formats for the whole page, rather than one per row.
+	# One read of the formats for the whole page, rather than one per row, and of the forms the
+	# rows were filled against (#1503), which win over today's.
+	frozen = frozen_forms(r.get("source_data") for r in rows)
 	formats = {
 		f["name"]: f
 		for f in frappe.get_all("Expense Type",
@@ -137,7 +140,8 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 			for label, value in flatten_pairs(
 				r.get("source_data"),
 				applicable_format(fmt.get("source_format"), fmt.get("source_format_enabled"),
-				                  r.get("source_data")),
+				                  r.get("source_data"),
+				                  frozen=frozen.get(snapshot_of(r.get("source_data")))),
 			)
 		]
 		# Which ledger this becomes, AND what status it will land at -- both resolved
@@ -166,14 +170,12 @@ def get_expense_request(name: str):
 
 	fmt = frappe.db.get_value("Expense Type", doc.type,
 	                          ["source_format", "source_format_enabled"], as_dict=True) or {}
+	source_format = applicable_format(fmt.get("source_format"), fmt.get("source_format_enabled"),
+	                                  doc.source_data, frozen=frozen_form(doc.source_data))
 	row["detail"] = [
 		{"label": label, "value": value}
 		for label, value in flatten_pairs(
-			doc.source_data,
-			applicable_format(fmt.get("source_format"), fmt.get("source_format_enabled"),
-			                  doc.source_data),
-			skip_sections=(NATIVE_INVOICE_SECTION,),
-		)
+			doc.source_data, source_format, skip_sections=(NATIVE_INVOICE_SECTION,))
 	]
 	row["projects_name"] = (
 		frappe.db.get_value("Projects", doc.projects, "project_name") if doc.projects else None
@@ -183,7 +185,9 @@ def get_expense_request(name: str):
 
 	expense = linked_expense(name)
 	row["expense"] = dict(expense) if expense else None
-	row["invoice"] = native_invoice(doc.source_data)
+	# What approval carries onto the Expense: a request raised before #1502 has its bill in its
+	# form's slot.
+	row["invoice"] = request_invoice(doc.source_data, source_format)
 	row["can_add_invoice"] = invoice_refusal(row, expense) is None
 	row["can_edit"] = can_edit(row)
 	return row

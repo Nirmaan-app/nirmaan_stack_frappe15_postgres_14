@@ -11,6 +11,7 @@ import json
 import frappe
 
 from nirmaan_stack.api.expense_requests.access import PENDING, guard_requestable
+from nirmaan_stack.api.expense_requests.form_snapshot import stamp_live_form
 from nirmaan_stack.api.expense_requests.flatten import (
 	filled_against_a_form,
 	flat_responses,
@@ -73,6 +74,9 @@ def create_expense_request(
 		source_data = json.dumps(source_data)
 
 	guard_request_form(expense_type, source_data)
+	# The form these answers were filled against, frozen, so the request reads against it after
+	# the type's form changes (#1503).
+	source_data = stamp_live_form(expense_type, source_data)
 
 	# ⚠️ A DUPLICATE IS NEVER REFUSED HERE (owner ruling, 2026-08-20, REVERSING the 2026-08-19
 	# submission block). The review dialog shows the approver same-type, same-amount expenses

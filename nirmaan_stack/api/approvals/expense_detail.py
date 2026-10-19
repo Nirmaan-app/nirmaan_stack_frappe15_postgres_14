@@ -23,6 +23,7 @@ from frappe.utils import flt
 
 from nirmaan_stack.api.expense_requests.convert import applicable_format
 from nirmaan_stack.api.expense_requests.flatten import NATIVE_INVOICE_SECTION, flatten_pairs
+from nirmaan_stack.api.expense_requests.form_snapshot import frozen_form
 from nirmaan_stack.api.expense_requests.similar import _scan_ledgers
 from nirmaan_stack.services.approval_raiser import expense_raiser
 from nirmaan_stack.services.outflow_import.ledgers import (
@@ -88,7 +89,8 @@ def _request_detail(request_id: str | None) -> dict | None:
 		"Expense Type", req.type, ["source_format", "source_format_enabled"], as_dict=True
 	) or {}
 	source_format = applicable_format(
-		fmt.get("source_format"), fmt.get("source_format_enabled"), req.source_data
+		fmt.get("source_format"), fmt.get("source_format_enabled"), req.source_data,
+		frozen=frozen_form(req.source_data),
 	)
 	return {
 		"name": req.name,
