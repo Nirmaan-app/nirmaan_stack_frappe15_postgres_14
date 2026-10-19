@@ -3,12 +3,13 @@
 
 """THE JUDGE of "is this order's stored Amount Paid right" (ADR-0034), and its recount.
 
-An order is a PO or a Work Order. Its source is THE rule every writer shares: Paid Project Payments less
-Received Vendor Refunds (`services/amount_paid.amount_paid_of`); its Amount Due is built from that with
-the order's own formula (`services/amount_paid.amount_due_from`: PO invoiced - paid, WO total - paid - TDS
-withheld from the vendor). An order is a MISMATCH when its stored `amount_paid` or `amount_due` is ₹1 or more off
-(paisa rounding is not a mismatch). A mismatch means some path skipped the recount; it is reported,
-never fixed silently.
+An order is a PO or a Work Order. Its source is THE rule every writer shares: Paid Project Payments, plus
+(a Work Order's) the TDS withheld from the vendor on them, less Received Vendor Refunds
+(`services/amount_paid.amount_paid_of`, ADR-0034 Amendment A); its Amount Due is built from that with the
+order's own formula (`services/amount_paid.amount_due_from`: PO invoiced - paid, WO total - paid). An
+order is a MISMATCH when its stored `amount_paid`, `amount_due` or (a Work Order's) `total_tds` is ₹1 or
+more off (paisa rounding is not a mismatch). A mismatch means some path skipped the recount; it is
+reported, never fixed silently.
 
   * `mismatches(doctype, names=None)` -- every mismatched order of one doctype (or of `names`), worked
     out live in ONE set-based query. Reads only.
@@ -31,7 +32,7 @@ from frappe.utils import flt
 
 from nirmaan_stack.api.po_adjustments.refund_links import sync_po_refund_links
 from nirmaan_stack.services.amount_paid import amount_due_columns, amount_due_from, write_amount_paid
-from nirmaan_stack.services.payment_tds import DEDUCTIBLE_PARENTS, company_borne_tds_sql
+from nirmaan_stack.services.payment_tds import DEDUCTIBLE_PARENTS, borne_tds_by_order_sql
 from nirmaan_stack.services.vendor_refunds import LOWERS_PAID_STATUSES, PROCUREMENT_ORDERS, SERVICE_REQUESTS
 
 #: The orders that store an Amount Paid.
@@ -53,6 +54,9 @@ class Mismatch(NamedTuple):
     correct_paid: float
     stored_due: float
     correct_due: float
+    #: A Work Order's `total_tds` (both kinds, Paid payments) as stored and from its deduction rows; 0 on a PO.
+    stored_tds: float = 0.0
+    correct_tds: float = 0.0
 
     @property
     def paid_difference(self) -> float:
@@ -62,26 +66,30 @@ class Mismatch(NamedTuple):
 
 def mismatches(doctype: str, names=None) -> list[Mismatch]:
     """Every order of `doctype` (only those in `names` when given) whose stored Amount Paid or Amount
-    Due is ₹1 or more off its source, sorted by name. One query, which joins a Work Order's
-    company-borne tax from the writer's own source (`payment_tds.company_borne_tds_sql`); writes
-    nothing."""
+    Due -- or a Work Order's stored `total_tds` -- is ₹1 or more off its source, sorted by name. One
+    query, which joins a Work Order's tax by who bore it from the writer's own source
+    (`payment_tds.borne_tds_by_order_sql`): the deduction rows, never the stored `total_tds`, so a
+    drifted `total_tds` is reported rather than trusted. Writes nothing."""
     _assert_order_doctype(doctype)
     names = None if names is None else sorted({n for n in names if n})
     if names == []:
         return []
     due_columns = ", ".join(f'o."{col}"' for col in amount_due_columns(doctype))
-    # A PO takes no deductions: nothing to join, and its formula has no TDS to give back.
+    # A PO takes no deductions: nothing to join and no `total_tds` to read.
     taxed = doctype in DEDUCTIBLE_PARENTS
-    company_borne_join = f"LEFT JOIN ({company_borne_tds_sql()}) c ON c.document_name = o.name" if taxed else ""
-    company_borne_tds = "COALESCE(c.company_borne_tds, 0)" if taxed else "0"
+    tds_join = f"LEFT JOIN ({borne_tds_by_order_sql()}) t ON t.document_name = o.name" if taxed else ""
+    vendor_borne_tds = "COALESCE(t.vendor_borne_tds, 0)" if taxed else "0"
+    correct_tds = "COALESCE(t.vendor_borne_tds, 0) + COALESCE(t.company_borne_tds, 0)" if taxed else "0"
+    stored_tds = "COALESCE(o.total_tds, 0)" if taxed else "0"
     # Table and column names come from the constants above, never from a caller.
     rows = frappe.db.sql(
         f"""
         SELECT o.name, o.project, o.vendor, o.status,
                COALESCE(o.amount_paid, 0) AS stored_paid,
                COALESCE(o.amount_due, 0) AS stored_due,
-               COALESCE(p.paid, 0) - COALESCE(r.refunded, 0) AS correct_paid,
-               {company_borne_tds} AS company_borne_tds,
+               COALESCE(p.paid, 0) + {vendor_borne_tds} - COALESCE(r.refunded, 0) AS correct_paid,
+               {stored_tds} AS stored_tds,
+               {correct_tds} AS correct_tds,
                {due_columns}
         FROM "tab{doctype}" o
         LEFT JOIN (
@@ -94,7 +102,7 @@ def mismatches(doctype: str, names=None) -> list[Mismatch]:
             WHERE document_type = %(doctype)s AND status IN %(lowers)s
             GROUP BY document_name
         ) r ON r.document_name = o.name
-        {company_borne_join}
+        {tds_join}
         {"WHERE o.name IN %(names)s" if names else ""}
         ORDER BY o.name
         """,
@@ -104,14 +112,16 @@ def mismatches(doctype: str, names=None) -> list[Mismatch]:
     found = []
     for row in rows:
         correct_paid = flt(row.correct_paid, 2)
-        correct_due = flt(
-            amount_due_from(doctype, {**row, "amount_paid": correct_paid}, row.company_borne_tds), 2
-        )
+        correct_due = flt(amount_due_from(doctype, {**row, "amount_paid": correct_paid}), 2)
         stored_paid, stored_due = flt(row.stored_paid, 2), flt(row.stored_due, 2)
-        if abs(stored_paid - correct_paid) >= THRESHOLD or abs(stored_due - correct_due) >= THRESHOLD:
+        stored_tds, correct_tds = flt(row.stored_tds, 2), flt(row.correct_tds, 2)
+        if any(
+            abs(stored - correct) >= THRESHOLD
+            for stored, correct in ((stored_paid, correct_paid), (stored_due, correct_due), (stored_tds, correct_tds))
+        ):
             found.append(Mismatch(
                 doctype, row.name, row.project, row.vendor, row.status,
-                stored_paid, correct_paid, stored_due, correct_due,
+                stored_paid, correct_paid, stored_due, correct_due, stored_tds, correct_tds,
             ))
     return found
 

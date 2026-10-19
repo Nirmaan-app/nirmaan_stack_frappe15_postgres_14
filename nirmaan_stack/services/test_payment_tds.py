@@ -508,11 +508,12 @@ class TestPaymentTDS(FrappeTestCase):
 
 		write_amount_paid(SR, self.sr)
 		frappe.db.commit()
-		# amount_paid is the NET sum now; amount_due closes only because total_tds is subtracted too.
-		self.assertEqual(frappe.db.get_value(SR, self.sr, "amount_paid"), 3920)
+		# The payment is NET (3,920); amount_paid adds back the 80 withheld for the vendor (ADR-0034
+		# Amendment A), so amount_due is total - 4,000.
+		self.assertEqual(frappe.db.get_value(SR, self.sr, "amount_paid"), 4000)
 		self.assertEqual(frappe.db.get_value(SR, self.sr, "total_tds"), 80.0)
 		total = frappe.db.get_value(SR, self.sr, "total_amount")
-		self.assertEqual(frappe.db.get_value(SR, self.sr, "amount_due"), total - 3920 - 80)
+		self.assertEqual(frappe.db.get_value(SR, self.sr, "amount_due"), total - 4000)
 
 	# -- company-borne Work Orders (owner ruling 2026-09-17) ---------------------------------
 	def test_company_borne_is_decided_by_all_categories(self):

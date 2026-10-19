@@ -63,8 +63,8 @@ export const isCompanyBorneWorkOrder = (serviceCategoryList: unknown): boolean =
 /**
  * A Work Order's TDS as the server answers it (`api/payments/work_order_tds.get_work_order_tds`, #1451):
  * who bore its PAID tax, read off each deduction's `Payment TDS Deduction.borne_by` over the Paid
- * payments only (the same population as `total_tds`, the figure the label sits beside; with nothing
- * paid yet the server answers by the category rule), and each payment's own deduction.
+ * payments only (the same population as `amount_paid`, which the page's hover splits with it; with
+ * nothing paid yet the server answers `kind` by the category rule), and each payment's own deduction.
  *
  * ⚠️ ASKED OF THE SERVER, NEVER READ OFF THE DEDUCTIONS HERE: that doctype is readable only by the
  * accountants, so a Procurement user's list read is refused with a 403.
@@ -81,15 +81,30 @@ export interface WorkOrderTds {
 	payments: Record<string, { tds_amount: number; borne_by: "Vendor" | "Company" }>;
 }
 
-const TDS_LABEL: Record<TdsBorneKind, string> = {
-	withheld: "TDS withheld",
-	company: "TDS (paid by company)",
-	part: "TDS (part paid by company)",
-};
+/** The Work Order page's Amount Paid hover (#1509). `total` + `companyOnTop` is what the WO cost in all. */
+export interface AmountPaidParts {
+	/** What reached the vendor's bank: Paid payments less Received refunds. */
+	paidToVendor: number;
+	/** Tax withheld from the vendor and paid to the tax office for them; part of Amount Paid. */
+	tdsWithheld: number;
+	/** The WO's stored Amount Paid. */
+	total: number;
+	/** Tax the company paid on top of a payment kept whole; NOT part of Amount Paid. */
+	companyOnTop: number;
+}
 
-/** The Work Order page's label for its TDS figure; a plain "TDS" until the server has answered. */
-export const workOrderTdsLabel = (answer: WorkOrderTds | undefined): string =>
-	answer ? TDS_LABEL[answer.kind] : "TDS";
+/**
+ * Split a Work Order's stored `amount_paid` for its hover (ADR-0034 Amendment A): the stored figure
+ * already holds the TDS withheld from the vendor, so what reached the vendor is Amount Paid less the
+ * server's `withheld`. Nothing is added up here. Undefined until the server has answered.
+ */
+export const amountPaidParts = (amountPaid: number, answer: WorkOrderTds | undefined): AmountPaidParts | undefined =>
+	answer && {
+		paidToVendor: round2(amountPaid - answer.withheld),
+		tdsWithheld: answer.withheld,
+		total: amountPaid,
+		companyOnTop: answer.company,
+	};
 
 export interface TdsForecast {
 	/** The rate applied, as a percentage. */

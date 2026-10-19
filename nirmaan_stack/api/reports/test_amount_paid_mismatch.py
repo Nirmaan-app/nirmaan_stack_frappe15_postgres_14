@@ -49,13 +49,16 @@ class ListingMismatches(OrdersFixture):
         )
 
     def test_lists_a_work_order_off_on_its_amount_due(self):
-        due_off = self._wo(stored_paid=490, payments=[490], tds=10, stored_due=510)
+        # 490 reached the vendor and 10 was withheld for them: 500 paid, 500 due on a 1,000 order.
+        due_off = self._wo(stored_paid=500, tds=10, stored_due=510)
+        self._taxed_payment(due_off, 490, gross=500, tds=10)
 
         rows = self._listed(WO, due_off)
 
         self.assertEqual(
-            [(r["name"], r["stored_due"], r["correct_due"], r["paid_difference"]) for r in rows.values()],
-            [(due_off, 510.0, 500.0, 0.0)],
+            [(r["name"], r["stored_due"], r["correct_due"], r["paid_difference"], r["stored_tds"], r["correct_tds"])
+             for r in rows.values()],
+            [(due_off, 510.0, 500.0, 0.0, 10.0, 10.0)],
         )
 
     def test_a_reconciliation_pending_refund_is_not_part_of_the_source(self):

@@ -106,11 +106,21 @@ figure — the company pays the tax on top:
   cuts the payment only for `Vendor`. `write_deduction` defaults to `Vendor`, so the historical
   backfills are unchanged. Nothing rewrites `borne_by` after that.
 - **Every reader reads the field, never the categories or the amounts:**
-  - Amount Due: `amount_due = total − paid − total_tds + company-borne tax` (owner ruling 2026-10-16),
-    the company-borne tax being the `Company` deductions on Paid payments. ONE source,
-    `payment_tds.company_borne_tds_sql`: the writer (`amount_paid.recompute_document_amount_due`, via
-    `company_borne_tds_by_order`, with `exclude_payment` on a delete) selects from it and the mismatch
-    judge (`amount_paid_drift.mismatches`) joins it into its one query per doctype.
+  - **Amount Paid includes the vendor's tax (ADR-0034 Amendment A, #1509).** A WO's stored
+    `amount_paid` = its Paid payments + the `Vendor` deductions on them − its Received refunds;
+    `amount_due = total − amount_paid`. `Company` tax (paid on top) is in neither. ₹10,000 gross,
+    ₹200 withheld, ₹9,800 paid → Amount Paid ₹10,000. ONE source for "tax by order",
+    `payment_tds.borne_tds_by_order_sql` (columns `vendor_borne_tds`, `company_borne_tds`, Paid
+    payments only, joined through the PAYMENT's order): the writer (`amount_paid.amount_paid_of`, via
+    `borne_tds_by_order`, with `exclude_payment` on a delete) selects from it and the mismatch judge
+    (`amount_paid_drift.mismatches`) joins it into its one query per doctype. `total_tds` (both kinds)
+    is still stored and judged against the deduction rows, but it is no Amount Due operand, and adding
+    it onto `amount_paid` counts the tax twice (ratchet `p1_tds_added_to_amount_paid`, baseline 0).
+  - **Every change to a Paid payment's deduction recounts through `amount_paid.write_amount_paid`**
+    (Amount Paid, `total_tds`, Amount Due): a deduction created on a Paid payment
+    (`write_deduction`) or restated by an amount edit (`restate_deduction_on_amount_change`), both via
+    `payment_tds._recount_parent`, which does nothing for a payment not Paid (its tax counts nowhere
+    yet); a delete through the payment's `on_trash` recount (`exclude_payment`).
   - An amount edit (`restate_deduction_on_amount_change`) restates the figures by the row's own
     `borne_by` (`Company`: the edit is the gross, `tds = amount × rate`; `Vendor`: it is the net,
     inverted) and keeps `borne_by`.
@@ -120,12 +130,13 @@ figure — the company pays the tax on top:
     `payment_summary`, `work_order_payment_limit`). Per deduction, so a Work Order with both kinds
     counts each payment right. The WO Request Payment dialog reads only that server balance
     (`get_payment_summary`) and confirms nothing until it has loaded; it has no local WO figure.
-  - The WO page label (`SRDetailsCard`, `tdsForecast.workOrderTdsLabel`) comes from the server,
+  - The WO page's one Amount Paid tile has a hover (`SRDetailsCard`, `tdsForecast.amountPaidParts`):
+    Paid to vendor (Amount Paid − withheld) / TDS withheld / Total (= stored Amount Paid), plus "TDS
+    paid by company (on top)" outside the Total. The parts come from the server,
     `api/payments/work_order_tds.get_work_order_tds` → `payment_tds.work_order_tds_borne`: the
-    deductions on the WO's **Paid** payments only (the population `total_tds` counts), split
-    withheld / company, kind `withheld` / `company` / `part`; nothing paid yet → the category rule.
-    `company` is `company_borne_tds_by_order` and `withheld` is `total_tds_of` less it, so the label
-    reads the same sources as the Amount Due. The same answer carries `payments`
+    deductions on the WO's **Paid** payments only, split withheld / company off `borne_tds_by_order`
+    (the writer's own source), kind `withheld` / `company` / `part`; nothing paid yet → the category
+    rule. There is no separate TDS tile. The same answer carries `payments`
     (`payment_tds.work_order_deductions`: each payment's `tds_amount` and `borne_by`, any status) for
     the WO page's transactions table TDS column.
 - **`Payment TDS Deduction` is readable only by Accountant, Accountant Lead and System Manager**, and
@@ -255,8 +266,9 @@ the bank, so an edit to it is an edit to the net. `restate_deduction_on_amount_c
 gross = net / (1 - rate/100)        tds = gross - net
 ```
 
-at the deduction's **own snapshotted rate**, then recomputes the challan and re-syncs the parent's
-`total_tds`.
+at the deduction's **own snapshotted rate**, then recomputes the challan and, on a Paid payment,
+recounts the parent through `amount_paid.write_amount_paid` (Amount Paid holds the vendor's tax, so
+the restated tax moves it, not only `total_tds`).
 
 - ⚠️ **It must NOT re-net the payment.** `write_deduction` rewrites `amount` once, at creation;
   doing it again would shrink the payment on every edit, compounding.
