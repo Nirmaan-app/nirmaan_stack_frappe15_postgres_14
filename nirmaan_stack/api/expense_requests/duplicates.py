@@ -115,9 +115,10 @@ def find_stay_duplicates(source_data, exclude: str | None = None) -> list[dict]:
 	`{request, status, expense, type, projects, project_name, amount, person, period_from,
 	period_to, owner_name, creation, detail}`; `status` is the live label (the Expense's once there
 	is one), `expense` is `{doctype, name, status}` or None, and `detail` is that request's answers,
-	labelled by its own form, for the hover card.
+	labelled by the form it was filled against (its snapshot), for the hover card.
 	"""
 	from nirmaan_stack.api.expense_requests.convert import applicable_format
+	from nirmaan_stack.api.expense_requests.form_snapshot import frozen_forms, snapshot_of
 	from nirmaan_stack.api.expense_requests.standing import expenses_of
 	from nirmaan_stack.services.expense_standing import live_status
 
@@ -146,6 +147,7 @@ def find_stay_duplicates(source_data, exclude: str | None = None) -> list[dict]:
 		return []
 
 	expenses = expenses_of([r.name for r, _ in candidates])
+	frozen = frozen_forms(r.source_data for r, _ in candidates)
 	formats = {
 		f.name: f for f in frappe.get_all(
 			"Expense Type", filters={"name": ["in", list({r.type for r, _ in candidates})]},
@@ -182,7 +184,7 @@ def find_stay_duplicates(source_data, exclude: str | None = None) -> list[dict]:
 				for label, value in flatten_pairs(
 					r.source_data,
 					applicable_format(fmt.get("source_format"), fmt.get("source_format_enabled"),
-					                  r.source_data),
+					                  r.source_data, frozen=frozen.get(snapshot_of(r.source_data))),
 					skip_sections=(NATIVE_INVOICE_SECTION,),
 				)
 			],

@@ -18,6 +18,7 @@ from nirmaan_stack.api.expense_requests.access import (
 )
 from nirmaan_stack.api.expense_requests.convert import create_ledger_row
 from nirmaan_stack.api.expense_requests.duplicates import find_stay_duplicates
+from nirmaan_stack.api.expense_requests.form_snapshot import stamp_live_form
 from nirmaan_stack.api.expense_requests.flatten import (
 	filled_against_a_form,
 	flat_responses,
@@ -92,6 +93,9 @@ def create_expense_request(
 		source_data = json.dumps(source_data)
 
 	guard_request_form(expense_type, source_data)
+	# The form these answers were filled against, frozen, so the request reads against it after
+	# the type's form changes (#1503).
+	source_data = stamp_live_form(expense_type, source_data)
 
 	# ⚠️ A DUPLICATE IS NEVER REFUSED HERE (owner ruling, 2026-08-20, REVERSING the 2026-08-19
 	# submission block). A duplicate stay is RETURNED as `duplicates` (`duplicates.py`, #1504) and
@@ -123,7 +127,10 @@ def create_expense_request(
 	)
 	# After the promotion, so a vendor a format inferred is paid into its Payee just the same.
 	apply_picked_payee(doc, payee)
-	doc.insert()
+	# Elevated, like every write the intake makes (spec #1494, #1506): who may raise is
+	# `guard_requestable` above (the type's `allowed_roles`), not the request's DocPerm, so a
+	# PMO or Procurement raiser needs no create right of their own.
+	doc.insert(ignore_permissions=True)
 	# One transaction: the request and its Expense land together or not at all.
 	expense = _approve_on_submit(doc) if records_without_review() else None
 	frappe.db.commit()

@@ -25,13 +25,13 @@ from nirmaan_stack.api.expense_requests.flatten import (
 	NATIVE_INVOICE_SECTION,
 	SEP,
 	filled_against_a_form,
-	first_mapped_attachment,
 	flatten_pairs,
 	flatten_source_data,
-	native_invoice,
 	render_description_template,
+	request_invoice,
 	undeclared_pairs,
 )
+from nirmaan_stack.api.expense_requests.form_snapshot import frozen_form
 from nirmaan_stack.services.outflow_import.settle import format_amount_for
 from nirmaan_stack.services.payees.pay_to import copy_pay_to
 from nirmaan_stack.services.expense_decision import starting_status
@@ -47,16 +47,23 @@ def target_doctype(req) -> str:
 	return PROJECT_EXPENSE_DOCTYPE if req.projects else NON_PROJECT_EXPENSE_DOCTYPE
 
 
-def applicable_format(source_format, form_enabled, source_data) -> str | None:
+def applicable_format(source_format, form_enabled, source_data, frozen=None) -> str | None:
 	"""The format that governs a request, or None when it is a STANDARD request.
 
-	The type's `source_format_enabled` switch decides -- EXCEPT for a request already filled
+	`frozen` is the form the request was filled against (`form_snapshot.frozen_form`), and it
+	WINS (#1503): a request in flight reads against its own form after the type's form is trimmed
+	or switched off, so its answers keep the labels they were asked with, its sentence, and the
+	bill in the slot it was uploaded to. A request with no snapshot falls back to the type's live
+	form: the type's `source_format_enabled` switch decides -- EXCEPT for a request already filled
 	against the form (`templateId` in its answers): that one keeps its form even if the switch
 	was turned off after it was raised, or its answers would convert unlabelled.
 
-	ONE rule, shared by the conversion, the promotion at create and the reviewer's detail
-	list, so the approval screen and the ledger row cannot disagree about which form applies.
+	ONE rule, shared by the conversion, the promotion at create, the reviewer's detail list, the
+	request page and the approval detail, so the approval screen and the ledger row cannot
+	disagree about which form applies.
 	"""
+	if (frozen or "").strip():
+		return frozen
 	if not (source_format or "").strip():
 		return None
 	if form_enabled or filled_against_a_form(source_data):
@@ -65,18 +72,13 @@ def applicable_format(source_format, form_enabled, source_data) -> str | None:
 
 
 def _source_format_for(req) -> str | None:
-	"""The type's format, used only to LABEL the flatten and locate the mapped attachment.
-
-	Read live rather than from the snapshot deliberately: this is presentation, and a label
-	corrected on the master should improve an approval made afterwards. The snapshot governs
-	how the request RENDERS, which is a different question.
-	"""
+	"""The form that governs `req` (`applicable_format`): its snapshot, else the type's form."""
+	source_data = req.get("source_data")
 	row = frappe.db.get_value(
 		"Expense Type", req.type, ["source_format", "source_format_enabled"], as_dict=True
-	)
-	if not row:
-		return None
-	return applicable_format(row.source_format, row.source_format_enabled, req.get("source_data"))
+	) or frappe._dict()
+	return applicable_format(row.source_format, row.source_format_enabled, source_data,
+	                         frozen=frozen_form(source_data))
 
 
 def compose_description(req, source_format=None) -> str:
@@ -182,10 +184,7 @@ def create_ledger_row(req):
 	# invoice?", and carried under the native keys onto the Expense's own invoice columns.
 	# A request raised before that, against a form slot declaring
 	# `"maps_to": "invoice_attachment"`, still has its file carried from that slot.
-	bill = first_mapped_attachment(req.source_data, source_format)
-	if bill:
-		values["invoice_attachment"] = bill
-	values.update(native_invoice(req.source_data))
+	values.update(request_invoice(req.source_data, source_format))
 	if doctype == PROJECT_EXPENSE_DOCTYPE:
 		# `Non Project Expenses` has NEITHER of these columns, so both are project-only.
 		# ⚠️ The vendor is copied as a plain field, exactly like the project -- it reached the

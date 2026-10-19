@@ -45,6 +45,20 @@ Both share one approval lifecycle and are entered/managed together in a single u
   Paid = Admin, Accountant, Accountant Lead** (`can_mark_paid` = `PAYMENT_SETTLE_PROFILES`); HR Executive
   lost Mark as Paid on the old pages with #1497. A reject needs a reason; Mark as Paid needs payment
   date, reference and receipt. The bank-line rules (`expense_bank_links.validate`) still have the last word.
+- **No person creates a ledger row; every expense a person raises starts as an Expense Request**
+  (spec #1494, #1506, ADR-0016 amendment 5). `create` is off every role on both ledgers, System
+  Manager included (`Administrator` bypasses permissions). The writers insert with `ignore_permissions`:
+  the request intake (`api/expense_requests/create`, approve on submit and review approval, through
+  `convert.create_ledger_row`), the outflow-import, cashbook and Porter creates
+  (`settle.create_expense_from_row`) and the PO-adjustment ad-hoc expense. The intake's own
+  `Expense Request` insert and edit are elevated too: who may raise is the type's `allowed_roles`
+  (`access.guard_requestable`), who may edit is owner-or-Admin, never the request's DocPerm, so
+  PMO and Procurement raise like everyone else. The Add Expense dropdown, its two create dialogs
+  and the Direct Expense endpoint are gone; old Direct Expenses keep no request.
+- **The Expenses page** (sidebar item *Expenses*, route `/expense`, one *New Expense* button) opens to
+  someone who can raise at least one type or who reviews: `access.opens_expenses`, served by
+  `read.get_expense_access` and read by the sidebar, the Service Procurement dashboard card and the
+  route guard `ExpenseRoute` (`frontend/src/hooks/useExpenseAccess`, rule `utils/expenseAccess`).
 - **An L1 reviewer's review of an Expense Request is the L1 step** (#1499, ADR-0016 amendment 3).
   `starting_status(amount, raised_by, reviewed_by)` clears L1 when the request's `reviewed_by` is L1
   (`is_l1`), exactly as for an L1 raiser: an Admin-reviewed ₹22,000 request's Expense is born
@@ -365,25 +379,17 @@ roles. **Accountant\*** below = both `Nirmaan Accountant Profile` and
 `Nirmaan Accountant Lead Profile` (Lead mirrors Accountant everywhere).
 
 ### Module visibility & create
-- **Sees the Expense sidebar entry + can open `/expense`** (`NewSidebar.tsx`): Admin,
-  PMO, Accountant\*, Procurement, HR (+ the `Administrator` user). Everyone else
-  (Project Lead, PM, Estimates, Design, Sales, …) has **no access**.
-- **Create** ("Add New Expense" / "Add New Project Expense",
-  `renderRightActionButton.tsx`): **no extra role gate** — the same 5 groups can create,
-  for both Project and Non-Project.
+- **Sees the Expenses sidebar entry + can open `/expense`** (`NewSidebar.tsx`, `ExpenseRoute`):
+  anyone who can raise at least one type or who reviews (`access.opens_expenses`, #1506), so it
+  follows `Expense Type.allowed_roles` rather than a fixed profile list.
+- **Create**: only through New Expense on `/expense/requests` (an Expense Request, spec #1494).
+  The old "Add New Expense" / "Add New Project Expense" buttons and the Add Expense dropdown are
+  gone (#1506).
 - **Default landing tab:** Accountant\* → `Approved`; everyone else → `Requested`.
-- **Add Expense on Project Payment & Expense** (`/project-payments`, the Project Expense /
-  Non-Project Expense dropdown): one pure, tested gate,
-  `pages/ProjectPayments/config/addExpenseGate.canAddExpense` — the `Administrator` user, Admin,
-  Accountant\*, every procurement profile, HR Executive and PMO Executive; not HR Lead, Project
-  Lead or Project Manager. It hides the button only: the Direct Expense endpoint's `create` check
-  is the boundary.
-- **PMO Executive's create right sits on its own role** (#1475): the `Nirmaan PMO Executive` DocPerm
-  on `Project Expenses` and `Non Project Expenses` is create + write + read, no delete (a DocType
-  save in developer mode, not a hand-edit). Before it held read only, and a PMO save worked only
-  because the PMO profile also carries System Manager; the right is on the role so it survives
-  System Manager coming off that profile. It grants no approval or settle tab: the 2026-09-17 PMO
-  access review stands (`paymentsTabSet` is unchanged).
+- **No Add Expense on Project Payment & Expense** (#1506): the dropdown, its gate
+  (`addExpenseGate`) and the Direct Expense endpoint are removed. No role holds `create` on either
+  ledger (the PMO Executive `create` of #1475 is taken back); PMO and Procurement raise through New
+  Expense.
 
 ### Non-Project Expenses — actions per tab
 Primary actions render inline; secondary (Requested-only) sit in a `⋯` overflow menu.
@@ -440,22 +446,25 @@ Actions column visibility: same rule as Non-Project.
   with NO System Manager, so it has genuinely no write.** It is not matched by the
   `role === "Nirmaan HR Executive Profile"` check, so it is safe today (0 such users) — but
   do NOT extend any write action to HR Lead without adding a real DocPerm first. (PMO
-  Executive was in the same position until #1475 gave its role create + write; see
-  Module visibility & create.)
+  Executive was in the same position until #1475 gave its role create + write; #1506 took
+  the create back off every role.)
 
 ---
 
 ## Key files
 
 - Doctypes: `doctype/project_expenses/`, `doctype/non_project_expenses/` (`.json` + `.py`).
-- Auto-approval rule (FE mirror): `frontend/src/utils/expenseApproval.ts` (+ `.test.ts`).
+- Auto-approval rule (FE mirror): `frontend/src/utils/approvalTiers.ts` (`expenseApproval.ts`,
+  the retired create dialogs' button copy, was removed with them, #1506).
 - Backend calc/controllers: `integrations/controllers/project_cashflow_hold_update.py`,
   `api/payments/get_project_payment_summary.py`, `api/po_adjustments/adjustment_logic.py`,
   `hooks.py` (doc_events).
 - Frontend module: `pages/Expenses/ExpenseLayout.tsx`, `pages/ProjectExpenses/*`,
   `pages/NonProjectExpenses/*` (list pages, `config/*Columns.tsx`, dialogs). Project
-  dialogs: `NewProjectExpenseDialog.tsx` (invoice autofill), `EditProjectExpenseDialog.tsx`,
-  `UpdatePaymentDetailsDialog.tsx` (Mark-as-Paid, payment autofill).
+  dialogs: `EditProjectExpenseDialog.tsx`, `UpdatePaymentDetailsDialog.tsx` (Mark-as-Paid,
+  payment autofill). The create dialogs (`NewProjectExpenseDialog`, `NewNonProjectExpense`) were
+  removed by #1506; New Expense (`pages/ExpenseRequests/components/NewExpenseRequestDialog.tsx`)
+  replaces them.
 - Queue surface (2026-09-21): `pages/ProjectPayments/config/queueRowActions.ts`,
   `components/QueueRowEditDialog.tsx`, `approve-payments/components/ExpenseApprovalDetails.tsx`
   (+ pure `expenseApprovalDetail.ts`); backend `api/approvals/expense_detail.py`,
@@ -583,6 +592,23 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   its Expense (`doc.save`, hooks fire). The file is uploaded when picked, so Gemini
   (`invoice_autofill.extract_invoice_fields`) can fill the date and number; the amount is never
   filled, a differing total only warns (`utils/newExpenseForm.invoiceNotes`).
+- **A request reads against the form it was filled with (#1503, ADR-0016 decision 1).** Create and
+  edit store the type's live form in `Expense Request Template Snapshot` (named by its hash, shared
+  helper `services/template_snapshots`) and stamp `source_data.snapshotHash`
+  (`api/expense_requests/form_snapshot`). `convert.applicable_format(..., frozen=)` prefers that
+  form to the live one, in every reader: the ledger row (description, the slot bill), the request
+  list `detail`, the request page (`detail`, and `invoice` = `flatten.request_invoice`: native
+  first, else the form slot's bill) and the approval detail. So trimming or switching off a form
+  never changes how a request in flight reads. An **edit** is filled against today's form and takes
+  its snapshot. Requests from before were stamped with their type's form of the day by
+  `patches/v3_0/freeze_expense_request_forms` (a `[post_model_sync]` patch: migrate runs it before
+  the fixture sync). A request with no snapshot still reads the live form (`undeclared_pairs`).
+- **The forms after the owner's per-field review (2026-10-19, #1503).** Ten types keep a short form
+  (pinned field by field in `api/expense_requests/test_request_forms.EXPECTED_FORMS`); the other 25,
+  Fixed Deposit included, have none (Description + Comment). No form has an upload slot. Renamed
+  fields kept their keys (`premises` = Location, `billing_month` = Bill Date, `bank_name` = Bank
+  Name), so answers already given still fill them. Rent/PG for Staff stays `staff-accommodation` with
+  `person_name` and the rent period, which the duplicate staff-stay check reads.
 - **Per-type visibility (`Expense Type.allowed_roles`, 2026-09-16).** Role PROFILES that may pick
   the type in the request dialog; Admin sees every type and is never listed, so **EMPTY = Admin
   only**. Enforced in `access.can_request_type` → `get_request_catalog` filter + `guard_requestable`
@@ -765,8 +791,7 @@ save an invalid template**.
     `api/expense_requests/payees.add_request_payee`) is copied in, unless the request names a vendor.
     **Editing** (`update_expense_request`): `keep_pay_to=1` leaves the copy as it is; otherwise the
     `payee` sent is copied (none clears it). Both through `pay_to.apply_picked_payee`, which refuses
-    a Payee that does not exist. A **Direct Expense** (#1471) is recorded the same way:
-    `api/expenses/direct_expense.create_direct_expense` (rules in `payees.md` § Expense payee).
+    a Payee that does not exist. (The Direct Expense create of #1471 was removed by #1506.)
   - **A vendor named** (request or Project Expense, every write path): the save hook copies the
     vendor's Payee when the record has no copy and whenever the vendor changes, until the record is
     paid (`pay_to.fill_from_vendor`, from `guard.check_payee_links`). New expense dialogs, Bulk
@@ -802,6 +827,8 @@ save an invalid template**.
   - **Old requests keep their text.** Their answers stay in `source_data`; a request raised
     before a field was removed and approved after gets those answers after the format's sentence,
     labelled from the key (`flatten.undeclared_pairs`, used by `convert.compose_description`).
+    Since #1503 a request reads against its own frozen form, so this applies only to one with no
+    snapshot (see "A request reads against the form it was filled with").
     Ledger descriptions already written are never rewritten.
 - **ONE FORMAT PER EXPENSE TYPE** (owner, 2026-08-18), replacing an earlier shared
   accommodation shape. A staff PG, a labour dorm, a deposit and a hotel booking are four

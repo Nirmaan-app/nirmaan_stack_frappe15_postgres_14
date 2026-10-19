@@ -57,7 +57,6 @@ import {
 import { getNonProjectExpenseColumns } from "./config/nonProjectExpensesColumns";
 
 // --- Child Components ---
-import { NewNonProjectExpense } from "./components/NewNonProjectExpense";
 import { EditNonProjectExpense } from "./components/EditNonProjectExpense";
 import { UpdatePaymentDetailsDialog } from "./components/UpdatePaymentDetailsDialog";
 import { UpdateInvoiceDetailsDialog } from "./components/UpdateInvoiceDetailsDialog";
@@ -508,13 +507,6 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
         }
       // errorMessage="Could not load expenses. Please try again." // Already handled by main error display
       />
-      <NewNonProjectExpense
-        refetchList={() => {
-          refetch();
-          mutateCounts();
-        }}
-      />
-
       {selectedExpenseForEdit && ( // NEW: Render Edit Dialog
         <EditNonProjectExpense
           expenseToEdit={selectedExpenseForEdit}

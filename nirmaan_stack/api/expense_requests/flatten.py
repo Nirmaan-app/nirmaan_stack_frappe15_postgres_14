@@ -343,6 +343,18 @@ def native_invoice(source_data) -> dict:
 	return out
 
 
+def request_invoice(source_data, source_format=None) -> dict:
+	"""The invoice this request gives its Expense, in `native_invoice`'s shape.
+
+	The native invoice ("Do you have the invoice?", #1502), and for a request raised before it,
+	the bill in the slot of its form declaring `"maps_to": "invoice_attachment"`. Pass the form
+	the request was filled against (`convert.applicable_format`): #1503 took every such slot off
+	the live forms. A native file wins over a slot's.
+	"""
+	bill = first_mapped_attachment(source_data, source_format)
+	return {**({"invoice_attachment": bill} if bill else {}), **native_invoice(source_data)}
+
+
 def with_native_invoice(source_data, invoice: dict) -> str:
 	"""`source_data` as JSON with its invoice REPLACED by `invoice` (`native_invoice`'s shape).
 

@@ -42,6 +42,7 @@ from nirmaan_stack.api.expense_requests.create import (
 )
 from nirmaan_stack.api.expense_requests.duplicates import find_stay_duplicates, stay_changed
 from nirmaan_stack.api.expense_requests.flatten import invoice_warnings, native_invoice
+from nirmaan_stack.api.expense_requests.form_snapshot import stamp_live_form
 from nirmaan_stack.services.payees.pay_to import apply_picked_payee
 
 
@@ -107,6 +108,8 @@ def update_expense_request(
 		source_data = json.dumps(source_data)
 
 	guard_request_form(expense_type, source_data)
+	# An edit is filled against the type's form as it is now, so that is the form it keeps.
+	source_data = stamp_live_form(expense_type, source_data)
 
 	promoted = _promote_mapped(expense_type, source_data)
 
@@ -127,7 +130,8 @@ def update_expense_request(
 	)
 	if not sbool(keep_pay_to):
 		apply_picked_payee(req, payee)
-	req.save()
+	# Elevated, like `create`: who may edit is the owner-or-Admin check above, not the DocPerm.
+	req.save(ignore_permissions=True)
 	frappe.db.commit()
 
 	# A duplicate stay is re-checked only when the stay itself changed (#1504), and never refused.

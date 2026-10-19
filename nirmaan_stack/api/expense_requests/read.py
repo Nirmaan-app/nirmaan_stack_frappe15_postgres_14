@@ -7,6 +7,7 @@ URLs:
   /api/method/nirmaan_stack.api.expense_requests.read.get_my_expense_requests
   /api/method/nirmaan_stack.api.expense_requests.read.get_expense_request
   /api/method/nirmaan_stack.api.expense_requests.read.get_request_catalog
+  /api/method/nirmaan_stack.api.expense_requests.read.get_expense_access
 """
 
 import frappe
@@ -17,6 +18,7 @@ from nirmaan_stack.api.expense_requests.access import (
 	REJECTED,
 	caller_role_profile,
 	can_request_type,
+	opens_expenses,
 	records_without_review,
 	reviews_pm_request,
 )
@@ -26,10 +28,11 @@ from nirmaan_stack.api.expense_requests.convert import (
 	target_status,
 )
 from nirmaan_stack.api.expense_requests.delete import can_delete, requests_with_an_expense
+from nirmaan_stack.api.expense_requests.form_snapshot import frozen_form, frozen_forms, snapshot_of
 from nirmaan_stack.api.expense_requests.flatten import (
 	NATIVE_INVOICE_SECTION,
 	flatten_pairs,
-	native_invoice,
+	request_invoice,
 )
 from nirmaan_stack.api.expense_requests.invoice import invoice_refusal, linked_expense
 from nirmaan_stack.api.expense_requests.standing import expenses_of, standing_of
@@ -98,7 +101,9 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 			as_list=True,
 		))
 
-	# One read of the formats for the whole page, rather than one per row.
+	# One read of the formats for the whole page, rather than one per row, and of the forms the
+	# rows were filled against (#1503), which win over today's.
+	frozen = frozen_forms(r.get("source_data") for r in rows)
 	formats = {
 		f["name"]: f
 		for f in frappe.get_all("Expense Type",
@@ -142,7 +147,8 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 			for label, value in flatten_pairs(
 				r.get("source_data"),
 				applicable_format(fmt.get("source_format"), fmt.get("source_format_enabled"),
-				                  r.get("source_data")),
+				                  r.get("source_data"),
+				                  frozen=frozen.get(snapshot_of(r.get("source_data")))),
 			)
 		]
 		# Which ledger this becomes, AND what status it will land at -- both resolved
@@ -172,14 +178,12 @@ def get_expense_request(name: str):
 
 	fmt = frappe.db.get_value("Expense Type", doc.type,
 	                          ["source_format", "source_format_enabled"], as_dict=True) or {}
+	source_format = applicable_format(fmt.get("source_format"), fmt.get("source_format_enabled"),
+	                                  doc.source_data, frozen=frozen_form(doc.source_data))
 	row["detail"] = [
 		{"label": label, "value": value}
 		for label, value in flatten_pairs(
-			doc.source_data,
-			applicable_format(fmt.get("source_format"), fmt.get("source_format_enabled"),
-			                  doc.source_data),
-			skip_sections=(NATIVE_INVOICE_SECTION,),
-		)
+			doc.source_data, source_format, skip_sections=(NATIVE_INVOICE_SECTION,))
 	]
 	row["projects_name"] = (
 		frappe.db.get_value("Projects", doc.projects, "project_name") if doc.projects else None
@@ -189,7 +193,9 @@ def get_expense_request(name: str):
 
 	expense = linked_expense(name)
 	row["expense"] = dict(expense) if expense else None
-	row["invoice"] = native_invoice(doc.source_data)
+	# What approval carries onto the Expense: a request raised before #1502 has its bill in its
+	# form's slot.
+	row["invoice"] = request_invoice(doc.source_data, source_format)
 	row["can_add_invoice"] = invoice_refusal(row, expense) is None
 	row["can_edit"] = can_edit(row)
 	row["standing"] = standing_of(row, expenses_of([name]).get(name), raiser_level(doc.owner))
@@ -261,6 +267,17 @@ def get_request_catalog(include_type: str | None = None):
 		categories.append({"category": name, "reviewer_role": reviewer_role, "types": entries})
 
 	return {"categories": categories, "records_without_review": records_without_review()}
+
+
+@frappe.whitelist()
+def get_expense_access():
+	"""Whether the caller gets the Expenses page: `{opens_expenses}` (`access.opens_expenses`: can
+	raise at least one type, or reviews). Read by the sidebar item and the `/expense` route guard,
+	so both answer from the same `Expense Type.allowed_roles` the request-creating call enforces.
+
+	Example: `{"opens_expenses": true}`.
+	"""
+	return {"opens_expenses": opens_expenses()}
 
 
 @frappe.whitelist()

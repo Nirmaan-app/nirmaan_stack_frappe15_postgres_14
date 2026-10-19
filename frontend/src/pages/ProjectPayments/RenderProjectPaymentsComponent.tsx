@@ -4,8 +4,6 @@ import { useUserData } from "@/hooks/useUserData";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { APPROVAL_COUNTS_API, APPROVAL_COUNTS_SWR_KEY, APPROVAL_STATUS } from "./config/approvalsTable.config";
-import { NewProjectExpenseDialog } from "../ProjectExpenses/components/NewProjectExpenseDialog";
-import { NewNonProjectExpense } from "../NonProjectExpenses/components/NewNonProjectExpense";
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFrappeDocTypeEventListener, useFrappeGetCall } from "frappe-react-sdk";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -155,21 +153,6 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         [PP_TABS.ALL_PAYMENTS]: { ...PP_ALL_TAB_OPTIONS[0], countValue: queueCounts?.message?.all },
     }), [withUnionCount, unionCount, counts, queueCounts]);
 
-    /**
-     * Refresh after an expense is created from this page.
-     *
-     * A new expense lands in one of THESE tabs, so leaving the screen stale would show
-     * a queue that does not contain the row the user just created. The badges are ours
-     * to refresh; the ledger tables are owned by the lazy children, so they are
-     * invalidated by SWR key prefix rather than through a lifted handle.
-     */
-    const handleExpenseCreated = useCallback(() => {
-        mutateQueueCounts();
-        // The three queue TABLES refresh themselves: each now listens for realtime
-        // events on both expense doctypes (see the listeners in ApprovePayments /
-        // AllPayments / AccountantTabs). Only the badges are ours.
-    }, [mutateQueueCounts]);
-
     // Render a single tab button
     const renderTabButton = (option: PPTabOption | { label: string, value: string, countValue: number | string }) => {
         // Resolve count either straight from passed value or via dot notation from countKey
@@ -274,21 +257,6 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                                 )
                 }
             </Suspense >
-
-            {/*
-              The "Expense Request" dropdown in the top bar (renderRightActionButton.tsx)
-              only flips these two zustand flags. Both dialogs are bare controlled
-              AlertDialogs that render no trigger of their own and were mounted ONLY on
-              their own list pages -- so without these two lines the button would look
-              wired and do nothing.
-
-              `projectId` is deliberately OMITTED: this page has no project in scope, and
-              with it absent the dialog renders its own ProjectSelect. The two take
-              differently-named callbacks (`onSuccess` vs `refetchList`), so they cannot
-              share one prop even though both point at the same refresh.
-            */}
-            <NewProjectExpenseDialog onSuccess={handleExpenseCreated} />
-            <NewNonProjectExpense refetchList={handleExpenseCreated} />
         </div >
     );
 };
