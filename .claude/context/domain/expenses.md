@@ -546,7 +546,8 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   `bench migrate`. Fixture sync only inserts and updates; it never deletes, so dropping a type from
   the fixture does not remove it from a site that has it. Removed both ways (2026-10-19): Rent
   Expenses, Professional Tax, Loan Received, Interest Received, Fixed Deposit Proceeds, EPFO
-  Payment, Advertising & Marketing, Advance Returned.
+  Payment, Advertising & Marketing, Advance Returned. Manpower Rent too, after its expenses were
+  moved to Staff Accommodation Rent.
 - **Rename an Expense Type — ADMIN ONLY (2026-09-16).** Expense Packages → Rename →
   `masters.rename_expense_type`, which runs Frappe's model-level `rename_doc`. That moves the
   docname, `expense_name` (the autoname field), the `allowed_roles` child rows and every LINK to

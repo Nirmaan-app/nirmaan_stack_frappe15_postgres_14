@@ -523,20 +523,6 @@
   "source_format_enabled": 1
  },
  {
-  "allowed_roles": [],
-  "docstatus": 0,
-  "doctype": "Expense Type",
-  "expense_category": "Uncategorized",
-  "expense_name": "Manpower Rent",
-  "modified": "2026-08-18 13:20:59.189080",
-  "name": "Manpower Rent",
-  "non_project": 0,
-  "payee_rule": "Not asked",
-  "project": 1,
-  "source_format": "{\n  \"templateId\": \"worker-accommodation\",\n  \"templateVersion\": 2,\n  \"title\": \"Worker Accommodation\",\n  \"description_template\": \"{occupant_names} \u2013 {accommodation_type}[[ at {city}]], {rent_period_from} to {rent_period_to}.\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Accommodation\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"occupant_names\",\n          \"label\": \"Occupant Name(s)\",\n          \"type\": \"textarea\",\n          \"required\": true\n        },\n        {\n          \"key\": \"accommodation_type\",\n          \"label\": \"Accommodation Type\",\n          \"type\": \"select\",\n          \"options\": [\n            \"PG\",\n            \"Room\",\n            \"Flat / House\",\n            \"Hostel\",\n            \"Other\"\n          ],\n          \"required\": true\n        },\n        {\n          \"key\": \"city\",\n          \"label\": \"City\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"rent_period_from\",\n          \"label\": \"Rent Period From\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"rent_period_to\",\n          \"label\": \"Rent Period To\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"no_of_occupants\",\n          \"label\": \"No. of Occupants\",\n          \"type\": \"number\",\n          \"min\": 1\n        },\n        {\n          \"key\": \"rent_per_occupant\",\n          \"label\": \"Rent per Occupant\",\n          \"type\": \"number\",\n          \"min\": 0\n        }\n      ]\n    },\n    {\n      \"id\": \"proof\",\n      \"type\": \"image_attachments\",\n      \"title\": \"Proof\",\n      \"columns\": 2,\n      \"slots\": [\n        {\n          \"key\": \"bill\",\n          \"label\": \"Rent Receipt / Agreement\",\n          \"accept\": \"image/*,application/pdf\",\n          \"maxSizeMb\": 5,\n          \"maps_to\": \"invoice_attachment\"\n        }\n      ]\n    }\n  ]\n}",
-  "source_format_enabled": 1
- },
- {
   "allowed_roles": [
    {
     "parent": "Fixed Assets",
