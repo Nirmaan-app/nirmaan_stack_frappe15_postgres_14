@@ -520,7 +520,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
             } else if (created) {
                 // What happens next (`whatHappensNext`): the same message on every page that opens this
                 // dialog. The Toaster sits outside the router, so the link navigates from here.
-                const said = whatHappensNext(created);
+                const said = whatHappensNext(created, amountValue);
                 const requestPath = said.requestPath;
                 toast({
                     title: said.title,

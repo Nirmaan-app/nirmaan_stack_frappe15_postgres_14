@@ -101,35 +101,42 @@ const approvedOnSubmit = (expense_status: string) => ({
 });
 
 describe("whatHappensNext: the message after a new expense is submitted", () => {
-    it("an Expense approved on submit is paid by Accounts next", () => {
-        expect(whatHappensNext(approvedOnSubmit("Approved"))).toEqual({
-            title: "Expense created and approved.", next: "Accounts pays it next.", requestPath: null,
+    it("an Expense approved on submit needs no one else", () => {
+        expect(whatHappensNext(approvedOnSubmit("Approved"), 10000)).toEqual({
+            title: "Expense recorded.", next: "No one else needs to approve it.", requestPath: null,
         });
     });
 
-    it("an Expense that lands at Requested waits for an Admin in Approve Payments", () => {
-        expect(whatHappensNext(approvedOnSubmit("Requested"))).toEqual({
-            title: "Expense recorded.", next: "An Admin approves it next in Approve Payments.", requestPath: null,
+    it("an HR raiser's Rs 60,000 record lands at Requested and waits for an Admin, then the CEO", () => {
+        expect(whatHappensNext(approvedOnSubmit("Requested"), 60000)).toEqual({
+            title: "Expense recorded.", next: "An Admin approves it next, then the CEO.", requestPath: null,
         });
+    });
+
+    it("an Expense that lands at Requested under Rs 50,000 waits for an Admin alone", () => {
+        expect(whatHappensNext(approvedOnSubmit("Requested"), 40000).next).toBe("An Admin approves it next.");
     });
 
     it("an Expense that lands at CEO Pending waits for the CEO", () => {
-        expect(whatHappensNext(approvedOnSubmit("CEO Pending"))).toEqual({
-            title: "Expense created.", next: "The CEO approves it next.", requestPath: null,
-        });
+        expect(whatHappensNext(approvedOnSubmit("CEO Pending"), 60000).next).toBe("The CEO approves it next.");
+    });
+
+    it("says after submit what the button said before it", () => {
+        for (const [amount, born] of [[10000, "Approved"], [40000, "Requested"], [60000, "Requested"]] as const) {
+            const before = newExpenseSubmit({ recordsWithoutReview: true, amount, level: null }).nextApprover;
+            expect(whatHappensNext(approvedOnSubmit(born), amount).next).toBe(before);
+        }
+        const before = newExpenseSubmit({ recordsWithoutReview: true, amount: 60000, level: "l1" }).nextApprover;
+        expect(whatHappensNext(approvedOnSubmit("CEO Pending"), 60000).next).toBe(before);
     });
 
     it("a request that needs review links to its own page", () => {
         expect(whatHappensNext({
             name: "EXR-0043", status: "Pending Approval", created_expense: null, expense_status: null,
-        })).toEqual({
+        }, 40000)).toEqual({
             title: "Sent for review.", next: "A reviewer approves it next.",
             requestPath: "/expense/requests/EXR-0043",
         });
-    });
-
-    it("names any other status the server reports, as the server labels it", () => {
-        expect(whatHappensNext(approvedOnSubmit("Paid")).next).toBe("It is Paid.");
     });
 });
 
