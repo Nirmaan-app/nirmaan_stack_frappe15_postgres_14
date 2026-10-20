@@ -123,8 +123,8 @@ interface Props {
 interface FormState {
     expense_type: string;
     projects: string;
-    // Holds the SENTINEL for "Others (No Vendor)", never "" -- see `vendor-select`. The
-    // payload maps it back to nothing, so the sentinel never leaves this file.
+    // "" for no vendor chosen, or the SENTINEL once "Others (No Vendor)" is picked -- see
+    // `vendor-select`. The payload maps both to nothing, so the sentinel never leaves this file.
     vendor: string;
     amount: string;
     description: string;
@@ -400,13 +400,11 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         setForm({
             expense_type: editing.type ?? "",
             projects: editing.projects ?? "",
-            // "Others (No Vendor)" is a UI-ONLY sentinel that submit strips, so a request
-            // saved with it is stored exactly like one whose Vendor field was never touched
-            // -- both hold an empty `vendor`, and nothing records which happened. On a SAVED
-            // request there is no undecided state left to represent: an empty vendor IS "no
-            // vendor on record", so seed the sentinel back and the field reads as the
-            // requester left it instead of as an untouched prompt.
-            vendor: editing.vendor || OTHERS_VENDOR_VALUE,
+            // A saved request with no vendor shows the Vendor field EMPTY (spec #1494): the Vendor is
+            // optional (#1501), so empty is how "no vendor" reads on a new request too. "Others (No
+            // Vendor)" is a UI-only sentinel submit strips, so seeding it back named a choice the
+            // requester may never have made.
+            vendor: editing.vendor || "",
             amount: String(editing.amount ?? ""),
             // A format-less request keeps its typed text under the synthetic `detail`
             // key -- the doctype has no `description` column to read it back from.
@@ -589,7 +587,10 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                                     // the picker, the first click on the Amount was lost: the picker's
                                     // blur re-renders it, and while nothing holds focus the dialog's focus
                                     // trap takes it, so the Amount never got the click or the typing.
-                                    setTimeout(() => amountRef.current?.focus(), 0);
+                                    // ⚠️ IN THIS EVENT, never from a timer: the pick re-renders
+                                    // the whole form, and the browser dispatches keys typed meanwhile
+                                    // before a timer runs, so they went to the picker and Amount stayed empty.
+                                    amountRef.current?.focus();
                                 }}
                                 placeholder={catalogLoading ? "Loading…" : "Search or select a type…"}
                                 // Scope rides the menu rows only; the chosen value stays a clean name
