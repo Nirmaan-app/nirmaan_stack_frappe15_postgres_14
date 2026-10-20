@@ -150,6 +150,7 @@ def header_problem(
     photo_required: bool,
     cancelled: bool = False,
     cheque_type: str = CHEQUE_TYPE_PAYMENT,
+    drawn_anew: bool = True,
 ) -> str | None:
     """Why this header cannot be saved, or None.
 
@@ -158,9 +159,17 @@ def header_problem(
     (#1413). A Security Deposit cheque pays nothing, so it needs no line and no description (#1486).
     `photo_required` is True for every new Cheque except a backfilled one.
     A post-dated cheque date is allowed.
+
+    A Payment cheque is drawn on ICICI Bank, the only bank whose statement the import reads, so nothing
+    else can clear it (#1516, ADR-0035 Amendment A). `drawn_anew` is True for a new Cheque and for a save
+    that changes its bank or number; a Payment cheque on Others made before the rule keeps saving while
+    both stay, since cancelling it, the only way to close it, saves it. A Security Deposit cheque is never
+    cleared, so it may be on any bank.
     """
     if header.bank not in BANKS:
         return "Choose the bank the cheque is drawn on: ICICI Bank or Others."
+    if cheque_type == CHEQUE_TYPE_PAYMENT and header.bank != ICICI_BANK and drawn_anew:
+        return "A Payment cheque is drawn on ICICI Bank, the only bank whose statement clears it."
     if header.bank == OTHER_BANK and not header.bank_name:
         return "Type the name of the bank the cheque is drawn on."
     if not header.cheque_no:
@@ -442,7 +451,8 @@ def old_type_reason(*, vendor: str | None, payee_name: str | None, line_types: S
     """Why a Cheque recorded before spec #1477 is an Old-type cheque, or None. Pure.
 
     It is one when it pays Expenses, has no lines (an Ad-hoc cheque), or is made out to a typed payee
-    (GLOSSARY.md). An Old-type cheque keeps its status; it is cleared or cancelled by hand only.
+    (GLOSSARY.md). An Old-type cheque keeps its status; it is cleared by its bank line like any other
+    (#1516, every line paid in full) and may be cancelled by hand.
     """
     if any(t in EXPENSE_LINE_TYPES for t in line_types):
         return "pays expenses"

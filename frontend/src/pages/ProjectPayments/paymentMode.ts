@@ -26,8 +26,9 @@ export type PaymentMode = typeof PAYMENT_MODE_ONLINE | typeof PAYMENT_MODE_CHEQU
  */
 export interface PaymentModeValue {
 	mode: PaymentMode;
+	/** Always ICICI Bank: the form shows it fixed and `paymentModeArgs` sends it (#1516). */
 	bank: ChequeBank;
-	/** The printed bank name, for an Others bank only. */
+	/** Kept blank: an ICICI Bank cheque has no typed bank name. */
 	bank_name: string;
 	cheque_no: string;
 	cheque_date: string;
@@ -67,27 +68,29 @@ export interface PaymentModeArgs {
 }
 
 /**
- * Online needs nothing more. A cheque needs its photo (uploaded and read), the bank (and its name
- * for Others), number, date and an amount, and a bank + number not already recorded: `duplicateOf` is
- * the Cheque that has them (`useDuplicateChequeOf`), "" when none. The server refuses the same
- * (`payment_cheque.refuse_unless_cheque_can_be_made`).
+ * Online needs nothing more. A cheque needs its photo (uploaded and read), number, date and an amount,
+ * and a bank + number not already recorded: `duplicateOf` is the Cheque that has them
+ * (`useDuplicateChequeOf`), "" when none. The server refuses the same
+ * (`payment_cheque.refuse_unless_cheque_can_be_made`). The bank is not asked: it is ICICI Bank.
  */
 export const isPaymentModeComplete = (v: PaymentModeValue, duplicateOf: string): boolean =>
 	v.mode !== PAYMENT_MODE_CHEQUE ||
 	(!v.photoBusy &&
 		!duplicateOf &&
 		v.attachment !== "" &&
-		(v.bank !== CHEQUE_BANK.OTHERS || v.bank_name.trim() !== "") &&
 		v.cheque_no.trim() !== "" &&
 		v.cheque_date.trim() !== "" &&
 		parseNumber(v.amount) > 0);
 
+/**
+ * What a request sends. A Payment cheque is always drawn on ICICI Bank, the only bank whose statement the
+ * import reads, since only an imported line clears a cheque (#1516); the server refuses any other bank.
+ */
 export const paymentModeArgs = (v: PaymentModeValue): PaymentModeArgs =>
 	v.mode === PAYMENT_MODE_CHEQUE
 		? {
 				mode_of_payment: PAYMENT_MODE_CHEQUE,
-				bank: v.bank,
-				...(v.bank === CHEQUE_BANK.OTHERS ? { bank_name: v.bank_name.trim() } : {}),
+				bank: CHEQUE_BANK.ICICI,
 				cheque_no: v.cheque_no.trim(),
 				cheque_date: v.cheque_date,
 				cheque_amount: parseNumber(v.amount),

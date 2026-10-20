@@ -64,8 +64,8 @@ _CHEQUE_REFUSALS = {
     CHEQUE_REFUSES_REVERT: f"cannot go back to Approved: {_CANCEL_INSTEAD}",
     CHEQUE_REFUSES_SPLIT: "cannot be split: a cheque pays its payments in full or not at all.",
     CHEQUE_REFUSES_PAY: (
-        "cannot be paid on its own: a cheque's payments are paid when the cheque is cleared. Clear it in the "
-        "Cheque Tracker, where its bank line can be linked."
+        "cannot be paid on its own: a cheque's payments are paid when a bank-statement line with the cheque's "
+        "number and amount is imported, which clears the cheque."
     ),
 }
 CHEQUE_PAYMENT_ACTIONS = tuple(_CHEQUE_REFUSALS)

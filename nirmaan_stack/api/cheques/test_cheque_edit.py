@@ -180,8 +180,6 @@ class TestChequeEdit(FrappeTestCase):
 
         out = self._edit(
             name,
-            bank="Others",
-            bank_name="HDFC Bank",
             cheque_no=number,
             cheque_date=date,
             amount=23000,
@@ -193,12 +191,17 @@ class TestChequeEdit(FrappeTestCase):
         cheque = self._cheque(name)
         self.assertEqual(
             (cheque.bank, cheque.bank_name, cheque.cheque_no, str(cheque.cheque_date), flt(cheque.amount)),
-            ("Others", "HDFC Bank", number, date, 23000.0),
+            ("ICICI Bank", None, number, date, 23000.0),
         )
         self.assertEqual((cheque.description, cheque.attachment), ("Two PO payments", NEW_PHOTO))
         self.assertEqual([(l.payment_name, flt(l.amount)) for l in cheque.lines], [(pay, 20000.0), (None, 3000.0)])
         self.assertEqual((cheque.status, cheque.made_from), ("Pending", "Report"))
         self.assertEqual((self._payment(pay).mode_of_payment, self._payment(pay).cheque), ("Cheque", name))
+
+    def test_a_payment_cheque_cannot_be_moved_to_another_bank(self):
+        # Only ICICI Bank's statement clears a cheque (#1516).
+        name = self._add()
+        self._refused("A Payment cheque is drawn on ICICI Bank", name, bank="Others", bank_name="HDFC Bank")
 
     def test_a_new_number_and_date_are_copied_onto_its_payments(self):
         pay = self._plant("Requested")

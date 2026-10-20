@@ -32,6 +32,8 @@ PROCUREMENT = (
     "Nirmaan Service Procurement Executive Profile",
 )
 PHOTO = "https://storage.example.invalid/private/files/cheque-test.jpg"
+#: What makes a save a Security Deposit cheque, the only kind that may be on another bank (#1516).
+DEPOSIT = {"cheque_type": "Security Deposit", "issue_date": nowdate(), "lines": []}
 
 
 class TestSaveCheque(FrappeTestCase):
@@ -118,8 +120,12 @@ class TestSaveCheque(FrappeTestCase):
     def test_the_photo_is_required_on_a_new_cheque(self):
         self._refused("Upload the photo of the cheque", attachment=None)
 
+    def test_a_payment_cheque_on_another_bank_is_refused(self):
+        # Only ICICI Bank's statement is imported, and only an imported line clears a cheque (#1516).
+        self._refused("A Payment cheque is drawn on ICICI Bank", bank="Others", bank_name="HDFC Bank")
+
     def test_an_others_bank_needs_its_name(self):
-        self._refused("Type the name of the bank", bank="Others", bank_name=None)
+        self._refused("Type the name of the bank", bank="Others", bank_name=None, **DEPOSIT)
 
     def test_a_post_dated_cheque_is_accepted(self):
         name = self._save(cheque_date=add_days(nowdate(), 45))
@@ -134,17 +140,17 @@ class TestSaveCheque(FrappeTestCase):
 
     def test_an_others_bank_name_matches_ignoring_case_and_repeated_spaces(self):
         number = self.cheques.number()
-        first = self._save(bank="Others", bank_name="HDFC Bank", cheque_no=number)
+        first = self._save(bank="Others", bank_name="HDFC Bank", cheque_no=number, **DEPOSIT)
 
         self._refused(
-            f"is already recorded as {first}", bank="Others", bank_name="hdfc  bank ", cheque_no=number
+            f"is already recorded as {first}", bank="Others", bank_name="hdfc  bank ", cheque_no=number, **DEPOSIT
         )
 
     def test_the_same_number_on_another_bank_is_a_different_cheque(self):
         number = self.cheques.number()
         self._save(cheque_no=number)
 
-        other = self._save(bank="Others", bank_name="HDFC Bank", cheque_no=number)
+        other = self._save(bank="Others", bank_name="HDFC Bank", cheque_no=number, **DEPOSIT)
         self.assertEqual(frappe.db.get_value("Cheques", other, "bank_name"), "HDFC Bank")
 
     # -- who may add ----------------------------------------------------------------------------

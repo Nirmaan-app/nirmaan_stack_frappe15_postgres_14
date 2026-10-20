@@ -244,7 +244,7 @@ class TestChequeRequest(FrappeTestCase):
     # -- the PO page (a payment term) -----------------------------------------------------------
     def test_a_po_cheque_request_makes_the_payment_and_a_one_line_cheque(self):
         term = self._term(20000)
-        out = self._request_po(term, 20000, **self._cheque_fields(20000, bank="Others", bank_name="HDFC Bank"))
+        out = self._request_po(term, 20000, **self._cheque_fields(20000))
         [payment] = self._payments_of(PO, self.po)
         # A PO withholds no tax: raised by an L1 holder, born Approved, then straight on.
         pay = self._payment(payment)
@@ -253,7 +253,7 @@ class TestChequeRequest(FrappeTestCase):
             tuple(frappe.db.get_value(TERMS, term, ["term_status", "project_payment"])), (RECON, payment)
         )
         self._assert_one_line_cheque(out["cheque"], payment, record=(PO, self.po), amount=20000.0, status="Issued")
-        self.assertEqual(self._cheque(out["cheque"]).bank_name, "HDFC Bank")
+        self.assertEqual(self._cheque(out["cheque"]).bank, "ICICI Bank")
 
     def test_the_cheque_amount_picks_the_approval_a_request_starts_at(self):
         """C3 (#1480): a Rs 20,000 payment on a cheque written for Rs 60,000 is tiered on the cheque. Raised
@@ -300,23 +300,24 @@ class TestChequeRequest(FrappeTestCase):
         self.assertEqual(self._payments_of(SR, self.sr), [])
         self.assertEqual(frappe.get_all("Cheques", filters={"cheque_no": number}, pluck="name"), [recorded])
 
-    def test_a_recorded_others_bank_matches_ignoring_case_and_spaces_on_the_po_request(self):
-        number = self.cheques.number()
-        self._record_cheque(number, bank="Others", bank_name="HDFC Bank")
+    def test_a_po_cheque_request_on_another_bank_is_refused_and_nothing_is_made(self):
+        """A Payment cheque is drawn on ICICI Bank, the only bank whose statement clears it (#1516)."""
         term = self._term(20000)
-        with self.assertRaises(DuplicateChequeError):
+        number = self.cheques.number()
+        with self.assertRaisesRegex(frappe.ValidationError, "A Payment cheque is drawn on ICICI Bank"):
             self._request_po(
-                term, 20000, **self._cheque_fields(20000, cheque_no=number, bank="Others", bank_name=" hdfc  BANK")
+                term, 20000, **self._cheque_fields(20000, cheque_no=number, bank="Others", bank_name="HDFC Bank")
             )
         frappe.db.rollback()
         self.assertEqual(self._payments_of(PO, self.po), [])
         self.assertEqual(
             tuple(frappe.db.get_value(TERMS, term, ["term_status", "project_payment"])), ("Created", None)
         )
+        self.assertEqual(frappe.get_all("Cheques", filters={"cheque_no": number}, pluck="name"), [])
 
     def test_the_same_number_on_another_bank_is_not_a_duplicate(self):
         number = self.cheques.number()
-        self._record_cheque(number, bank="Others", bank_name="HDFC Bank")
+        ChequeFixture.move_to_other_bank(self._record_cheque(self.cheques.number()), "HDFC Bank", cheque_no=number)
         out = self._request_po(self._term(20000), 20000, **self._cheque_fields(20000, cheque_no=number))
         self.assertTrue(out["cheque"])
 

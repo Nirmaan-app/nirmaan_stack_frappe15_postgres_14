@@ -63,8 +63,8 @@ class TestWhichChequeALineClears(unittest.TestCase):
         self.assertIsNone(cheque)
         self.assertEqual(
             hint,
-            "Cheques 000747 and 747 both carry this number and amount. Nothing was settled. Clear the right "
-            "one by hand from the Cheque Tracker.",
+            "Cheques 000747 and 747 both carry this number and amount. Nothing was settled. Cancel the one the "
+            "bank did not pay, then run the match again.",
         )
 
     def test_of_two_with_the_number_the_one_with_the_amount_is_cleared(self):
@@ -73,9 +73,9 @@ class TestWhichChequeALineClears(unittest.TestCase):
 
 
 class TestTheBankImportStartsFromMoreStatuses(unittest.TestCase):
-    def problem(self, status, payments, *, cleared_by=rules.CLEARED_BY_BANK_IMPORT, bank_line=True):
-        return clear_rules.clear_problem(status=status, cheque_type="Payment", old_type=False, cleared_by=cleared_by,
-                                   payments=list(payments), bank_line=bank_line)
+    def problem(self, status, payments, *, bank_line=True):
+        return clear_rules.clear_problem(status=status, cheque_type="Payment", old_type=False,
+                                         payments=list(payments), bank_line=bank_line)
 
     def test_a_pending_cheque_whose_payments_wait_for_approval_may_be_cleared_by_the_bank(self):
         self.assertIsNone(self.problem("Pending", [("PAY-1", "Requested"), ("PAY-2", "CEO Pending")]))
@@ -86,10 +86,10 @@ class TestTheBankImportStartsFromMoreStatuses(unittest.TestCase):
     def test_a_paid_payment_still_refuses_the_bank_line(self):
         self.assertEqual(self.problem("Cancelled", [("PAY-1", "Paid")]), "payment PAY-1 is already Paid")
 
-    def test_by_hand_they_are_still_refused(self):
+    def test_without_a_bank_line_they_are_still_refused(self):
         self.assertEqual(
-            self.problem("Pending", [("PAY-1", "Requested")], cleared_by=rules.CLEARED_BY_HAND, bank_line=False),
-            "it is Pending: its payments are not approved yet",
+            self.problem("Pending", [("PAY-1", "Requested")], bank_line=False),
+            "only a bank-statement line with its number and amount clears a cheque",
         )
 
     def test_an_issued_cheque_still_needs_every_payment_waiting_for_the_bank(self):

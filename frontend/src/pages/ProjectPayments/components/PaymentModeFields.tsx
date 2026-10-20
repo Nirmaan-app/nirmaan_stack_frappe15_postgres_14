@@ -10,10 +10,9 @@ import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
-import { CHEQUE_BANK, type ChequeBank } from "@/types/NirmaanStack/Cheques";
+import { CHEQUE_BANK } from "@/types/NirmaanStack/Cheques";
 import { isFromPhoto, type ChequePhotoField } from "@/utils/cheques/chequePhoto";
 import { chequeReportPath } from "@/utils/cheques/chequeReportLink";
 import formatToIndianRupee from "@/utils/FormatPrice";
@@ -29,8 +28,11 @@ import {
 } from "../paymentMode";
 import type { TdsForecast } from "../tdsForecast";
 
-/** The cheque fields this form has: no payee box, the cheque is made out to the PO / WO's Vendor. */
-const PHOTO_FIELDS: readonly ChequePhotoField[] = ["bank", "cheque_no", "cheque_date", "amount"];
+/**
+ * The cheque fields the photo fills: no payee box, the cheque is made out to the PO / WO's Vendor, and no
+ * bank, which is fixed to ICICI Bank (#1516).
+ */
+const PHOTO_FIELDS: readonly ChequePhotoField[] = ["cheque_no", "cheque_date", "amount"];
 
 interface Props {
 	value: PaymentModeValue;
@@ -59,7 +61,8 @@ const Required = () => <span className="ml-0.5 text-red-500">*</span>;
  * Work Order page, Credits). A Work Order request is Online only (`chequeOffered={false}`).
  *
  * Cheque mode (#1414, spec #1407) starts from the cheque's photo: it is uploaded, read, and what it
- * says fills the bank, number, date and amount, tagged "From photo". On Submit the server makes the
+ * says fills the number, date and amount, tagged "From photo". The bank is fixed to ICICI Bank, the only
+ * bank whose statement clears a cheque (#1516). On Submit the server makes the
  * payment and a new Cheque with one line for it. A bank + number already recorded is shown here,
  * with a link to that Cheque, and the request stays disabled: the dialog asks `useDuplicateChequeOf` for
  * `isPaymentModeComplete`.
@@ -180,32 +183,12 @@ export const PaymentModeFields = ({
 
 					<div className="grid grid-cols-2 gap-2">
 						<div className="space-y-1">
-							<Label className="text-xs">Bank<Required />{fromPhoto("bank") && <FromPhotoTag />}</Label>
-							<Select value={value.bank} onValueChange={(bank) => set({ bank: bank as ChequeBank })} disabled={disabled}>
-								<SelectTrigger className={cn("h-8", fromPhoto("bank") && FROM_PHOTO_INPUT)}>
-									<SelectValue placeholder="Choose the bank" />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value={CHEQUE_BANK.ICICI}>ICICI Bank</SelectItem>
-									<SelectItem value={CHEQUE_BANK.OTHERS}>Others</SelectItem>
-								</SelectContent>
-							</Select>
+							<Label htmlFor="cheque-bank" className="text-xs">Bank</Label>
+							<Input id="cheque-bank" className="h-8" value={CHEQUE_BANK.ICICI} readOnly disabled />
+							<p className="text-[11px] text-muted-foreground">
+								A Payment cheque is drawn on ICICI Bank: only its statement clears the cheque.
+							</p>
 						</div>
-						{value.bank === CHEQUE_BANK.OTHERS && (
-							<div className="space-y-1">
-								<Label htmlFor="cheque-bank-name" className="text-xs">
-									Bank name<Required />{fromPhoto("bank") && <FromPhotoTag />}
-								</Label>
-								<Input
-									id="cheque-bank-name"
-									className={cn("h-8", fromPhoto("bank") && FROM_PHOTO_INPUT)}
-									placeholder="e.g. HDFC Bank"
-									value={value.bank_name}
-									onChange={(e) => set({ bank_name: e.target.value })}
-									disabled={disabled}
-								/>
-							</div>
-						)}
 						<div className="space-y-1">
 							<Label htmlFor="cheque-no" className="text-xs">
 								Cheque No<Required />{fromPhoto("cheque_no") && <FromPhotoTag />}

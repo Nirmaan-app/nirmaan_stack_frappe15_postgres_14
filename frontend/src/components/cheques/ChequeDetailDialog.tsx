@@ -15,10 +15,9 @@ import { getFrappeError } from "@/utils/frappeErrors";
 
 import { type ChequeDetail, useChequeDetail } from "./useChequeDetail";
 
-/** The Clear and Cancel buttons the detail view shows, as the Tracker row offers them (`chequeRowActions`). */
+/** The Cancel button the detail view shows, as the Tracker row offers it (`chequeRowActions`). */
 export interface ChequeDetailActions {
     actionsOf: (cheque: ChequeDetail) => ChequeRowAction[];
-    onClear: (cheque: ChequeDetail) => void;
     onCancel: (cheque: ChequeDetail) => void;
 }
 
@@ -26,7 +25,7 @@ interface ChequeDetailDialogProps {
     /** The Cheque shown; the dialog is closed while null. */
     cheque: string | null;
     onClose: () => void;
-    /** Clear and Cancel, when the viewer may (the Cheque Tracker passes them). */
+    /** Cancel, when the viewer may (the Cheque Tracker passes it). */
     actions?: ChequeDetailActions;
 }
 
@@ -45,8 +44,8 @@ const clearedText = (cheque: ChequeDetail) =>
 
 /**
  * The Cheque detail view (#1412, spec #1407; #1484): photo, header (type, the cheque, issue and clearance dates,
- * how it was cleared and the bank line), lines and the full status history, with Clear and Cancel when the
- * viewer may. Holds the Cheque's name and refetches on every Cheque change, so it stays live after a move.
+ * how it was cleared and the bank line), lines and the full status history, with Cancel when the viewer may.
+ * Nothing here clears a cheque (#1516): only an imported bank-statement line does. Holds the Cheque's name and refetches on every Cheque change, so it stays live after a move.
  */
 export const ChequeDetailDialog = ({ cheque: name, onClose, actions }: ChequeDetailDialogProps) => {
     const { cheque, error, isLoading } = useChequeDetail(name);
@@ -61,18 +60,11 @@ export const ChequeDetailDialog = ({ cheque: name, onClose, actions }: ChequeDet
                     <DialogTitle className="flex flex-wrap items-center gap-3">
                         Cheque {cheque?.cheque_no ?? ""}
                         {cheque && <ChequeStatusBadge status={cheque.status} />}
-                        {cheque && actions && (offered.includes("clear") || offered.includes("cancel")) && (
+                        {cheque && actions && offered.includes("cancel") && (
                             <span className="ml-auto mr-6 flex gap-2">
-                                {offered.includes("clear") && (
-                                    <Button size="sm" variant="outline" onClick={() => actions.onClear(cheque)}>
-                                        Clear
-                                    </Button>
-                                )}
-                                {offered.includes("cancel") && (
-                                    <Button size="sm" variant="outline" className="text-destructive" onClick={() => actions.onCancel(cheque)}>
-                                        {isDeposit ? "Mark returned" : "Cancel cheque"}
-                                    </Button>
-                                )}
+                                <Button size="sm" variant="outline" className="text-destructive" onClick={() => actions.onCancel(cheque)}>
+                                    {isDeposit ? "Mark returned" : "Cancel cheque"}
+                                </Button>
                             </span>
                         )}
                     </DialogTitle>

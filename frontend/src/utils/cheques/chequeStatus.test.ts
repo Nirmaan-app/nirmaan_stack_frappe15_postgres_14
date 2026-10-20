@@ -1,37 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-    bulkClearText,
-    canClearOrCancel,
-    cancelNote,
-    cancelNoteProblem,
-    clearanceDateOf,
-    clearanceDateProblem,
-    offersBankLines,
-    paymentsRejectedByCancel,
-    todayISO,
-} from "./chequeStatus";
-
-describe("clearanceDateProblem", () => {
-    it("asks for a date", () => {
-        expect(clearanceDateProblem("", "2026-10-01", "2026-10-17")).toBe("Choose the clearance date.");
-    });
-
-    it("refuses a day after today or before the cheque was issued", () => {
-        expect(clearanceDateProblem("2026-10-18", "2026-10-01", "2026-10-17")).toBe(
-            "The clearance date cannot be after today.",
-        );
-        expect(clearanceDateProblem("2026-09-30", "2026-10-01", "2026-10-17")).toBe(
-            "The clearance date cannot be before the cheque was issued (01-10-2026).",
-        );
-    });
-
-    it("takes any day from the issue date to today", () => {
-        expect(clearanceDateProblem("2026-10-01", "2026-10-01", "2026-10-17")).toBeNull();
-        expect(clearanceDateProblem("2026-10-17", "2026-10-01 00:00:00", "2026-10-17")).toBeNull();
-        expect(clearanceDateProblem("2026-01-01", null, "2026-10-17")).toBeNull();
-    });
-});
+import { canCancelCheques, cancelNote, cancelNoteProblem, paymentsRejectedByCancel, todayISO } from "./chequeStatus";
 
 describe("todayISO", () => {
     it("is the local day, zero-padded", () => {
@@ -67,39 +36,12 @@ describe("cancelNote", () => {
     });
 });
 
-describe("offersBankLines", () => {
-    it("looks for lines only for an ICICI Bank cheque that is not Old-type", () => {
-        expect(offersBankLines({ bank: "ICICI Bank", old_type: 0 })).toBe(true);
-        expect(offersBankLines({ bank: "Others", old_type: 0 })).toBe(false);
-        expect(offersBankLines({ bank: "ICICI Bank", old_type: 1 })).toBe(false);
-    });
-});
-
-describe("clearanceDateOf", () => {
-    it("is the day the bank line moved the money", () => {
-        expect(clearanceDateOf({ name: "OFR-1", amount: 1, added_on: "2026-10-12 00:00:00" })).toBe("2026-10-12");
-        expect(clearanceDateOf({ name: "OFR-1", amount: 1 })).toBeNull();
-    });
-});
-
-describe("bulkClearText", () => {
-    it("counts what cleared and names each skipped cheque with its reason", () => {
-        expect(
-            bulkClearText({
-                changed: [{ cheque: "CHQ-1" }, { cheque: "CHQ-2" }],
-                skipped: [{ cheque: "CHQ-3", cheque_no: "004521", reason: "already Cleared" }],
-            }),
-        ).toBe("2 cleared, 1 skipped: 004521 already Cleared");
-        expect(bulkClearText({ changed: [{ cheque: "CHQ-1" }], skipped: [] })).toBe("1 cleared");
-    });
-});
-
-describe("canClearOrCancel", () => {
-    it("lets accounts clear and cancel, never procurement", () => {
-        expect(canClearOrCancel("Nirmaan Accountant Profile")).toBe(true);
-        expect(canClearOrCancel("Nirmaan Accountant Lead Profile")).toBe(true);
-        expect(canClearOrCancel("Nirmaan Admin Profile")).toBe(true);
-        expect(canClearOrCancel("Nirmaan Procurement Executive Profile")).toBe(false);
-        expect(canClearOrCancel("Nirmaan Project Manager Profile")).toBe(false);
+describe("canCancelCheques", () => {
+    it("lets accounts cancel, never procurement", () => {
+        expect(canCancelCheques("Nirmaan Accountant Profile")).toBe(true);
+        expect(canCancelCheques("Nirmaan Accountant Lead Profile")).toBe(true);
+        expect(canCancelCheques("Nirmaan Admin Profile")).toBe(true);
+        expect(canCancelCheques("Nirmaan Procurement Executive Profile")).toBe(false);
+        expect(canCancelCheques("Nirmaan Project Manager Profile")).toBe(false);
     });
 });
