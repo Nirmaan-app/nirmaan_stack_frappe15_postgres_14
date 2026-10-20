@@ -28,6 +28,7 @@ from nirmaan_stack.api.expense_requests.review import (
 	reject_expense_request,
 )
 from nirmaan_stack.services import expense_request_routing as routing
+from nirmaan_stack.services.approval_tiers import TIER_AUTO_APPROVE_BELOW
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 
 PM_USER = "exr_test_pm@example.com"
@@ -43,6 +44,12 @@ HOTEL_CATEGORY = "Hotel & Accommodation"
 PM_PROFILE = "Nirmaan Project Manager Profile"
 # The answers of a type with no form: its Description.
 STANDARD_ANSWERS = {"responses": {"detail": {"description": "test req"}}}
+
+#: The auto-approve line, read from the rule (services/approval_tiers) so a moved line moves these
+#: tests with it. The rule is a strict `<`: an amount AT the line needs L1, one rupee below it does not.
+AT_THE_LINE = int(TIER_AUTO_APPROVE_BELOW)
+BELOW_THE_LINE = AT_THE_LINE - 1
+ABOVE_THE_LINE = AT_THE_LINE + 5000
 
 
 def _make_user(email: str, profile: str, roles: tuple[str, ...]):
@@ -364,9 +371,9 @@ class TestExpenseRequests(FrappeTestCase):
 	# --- what approval creates ----------------------------------------------
 
 	def test_ledger_row_is_created_at_approved_not_requested(self):
-		"""The load-bearing one. `Approved` is what bypasses the < 15,000 auto-approve AND
+		"""The load-bearing one. `Approved` is what bypasses the auto-approve line AND
 		what keeps the row out of the `Requested` queue nothing drains."""
-		res = self._raise_as(PM_USER, amount=1000)  # deliberately under the limit
+		res = self._raise_as(PM_USER, amount=BELOW_THE_LINE)  # deliberately under the limit
 		out = approve_expense_request(res["name"])
 		self.assertEqual(
 			frappe.db.get_value("Non Project Expenses", out["created_expense"], "status"),
@@ -378,7 +385,7 @@ class TestExpenseRequests(FrappeTestCase):
 		self.assertEqual(out["created_expense_doctype"], "Non Project Expenses")
 
 	def test_a_project_targets_the_project_ledger_and_carries_it(self):
-		res = self._raise_as(PM_USER, expense_type=PROJECT_TYPE, amount=15000,
+		res = self._raise_as(PM_USER, expense_type=PROJECT_TYPE, amount=AT_THE_LINE,
 		                     projects=self.project)
 		# An Accountant reviews: an Admin's review would be the L1 step itself (#1499).
 		frappe.set_user(ACC_USER)
@@ -387,7 +394,7 @@ class TestExpenseRequests(FrappeTestCase):
 		self.assertEqual(out["created_expense_doctype"], "Project Expenses")
 		row = frappe.get_doc("Project Expenses", out["created_expense"])
 		self.assertEqual(row.projects, self.project)
-		# ₹15,000 EXACTLY is not below the limit -- the rule is a strict `<` (services/approval_tiers).
+		# EXACTLY the line is not below it -- the rule is a strict `<` (services/approval_tiers).
 		self.assertEqual(row.status, "Requested")
 
 	def test_the_ledger_rule_decides_the_status_not_the_approval(self):
@@ -397,8 +404,8 @@ class TestExpenseRequests(FrappeTestCase):
 		SAME threshold it applies to a directly-entered row. An Accountant reviews here: an
 		Admin's review is the L1 step (#1499, `test_review_is_l1`).
 		"""
-		for amount, expected in ((900, "Approved"), (14999, "Approved"),
-		                         (15000, "Requested"), (20000, "Requested")):
+		for amount, expected in ((AT_THE_LINE // 10, "Approved"), (BELOW_THE_LINE, "Approved"),
+		                         (AT_THE_LINE, "Requested"), (ABOVE_THE_LINE, "Requested")):
 			with self.subTest(amount=amount):
 				name = self._raise_as(PM_USER, amount=amount)["name"]
 				frappe.set_user(ACC_USER)

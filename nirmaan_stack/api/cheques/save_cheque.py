@@ -15,8 +15,8 @@ Cheque. Once the save is committed each linked payment that is Approved moves on
 Pending through the same move every approval route uses, and the last one's move issues the cheque.
 
 A Security Deposit cheque (`cheque_type`, #1486) is made out to a Vendor or a typed name, carries its
-typed `issue_date` and is Issued as it is saved; its lines only name the Vendor's POs and Work Orders it
-secures (none is fine). The Cheque Tracker and the PO / Work Order page's card both add one here.
+typed `issue_date` and is Issued as it is saved; its lines only name the Vendor's POs it
+secures (none is fine). The Cheque Tracker and the PO page's card both add one here.
 
 With `name` it saves the Edit of that Cheque (#1418). Admin, Accountant and Accountant Lead
 (`CHEQUE_ACCOUNTS_PROFILES`) edit any Cheque; Procurement only the Pending Payment cheques and Issued

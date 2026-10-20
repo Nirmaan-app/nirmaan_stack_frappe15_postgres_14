@@ -15,7 +15,7 @@ export const useVendorRecords = (vendor: string | undefined) => {
     return { records: data?.message ?? [], error, isLoading };
 };
 
-/** The Vendor's open POs and Work Orders: what a Security Deposit cheque may secure (#1486). */
+/** The Vendor's open POs: what a Security Deposit cheque may secure (#1486; POs only, spec #1514). */
 export const useSecurableRecords = (vendor: string | undefined) => {
     const { data, error, isLoading } = useFrappeGetCall<{ message: SecurableRecord[] }>(
         `${PICKERS}.get_securable_records`,

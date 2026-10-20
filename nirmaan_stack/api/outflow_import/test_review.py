@@ -4509,14 +4509,16 @@ class TestTheSettledLedgerSplit(OutflowReviewFixture):
             ["Project Payments", "Project Expenses", "Non Project Expenses"],
         )
         # Received carries its OWN books, plus the anomaly. `Non Project Inflows` since #1266,
-        # `Vendor Refunds` since; `Non Project Expenses` stays for rows the removed receipt path wrote.
+        # `Vendor Refunds` since. `Non Project Expenses` left it (owner ruling 2026-09-24,
+        # services/outflow_import/ledgers.RECEIVED_LEDGER_DOCTYPES): no receipt reaches that book,
+        # and a leftover row of the removed receipt path lands in `Other`, as this one does.
         received = by_direction["Received"]
         self.assertEqual(received["rows"], 1)
         self.assertEqual(
-            [b["ledger"] for b in received["ledgers"]][:4],
-            ["Project Inflows", "Non Project Inflows", "Vendor Refunds", "Non Project Expenses"],
+            [b["ledger"] for b in received["ledgers"]],
+            ["Project Inflows", "Non Project Inflows", "Vendor Refunds", "Other"],
         )
-        self.assertEqual(received["ledgers"][-1]["ledger"], "Other")
+        self.assertEqual(received["ledgers"][-1]["rows"], 1)
 
         # Both reconciliations, and the sum, all still exact.
         for block in blocks:
