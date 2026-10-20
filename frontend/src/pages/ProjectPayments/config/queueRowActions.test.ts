@@ -6,7 +6,6 @@ import {
   canEditQueueRow,
   canHoldQueueRow,
   canPayQueueRow,
-  canRaiserEditQueueRow,
   canRevertQueueRow,
   canUploadInvoiceRow,
   canWorkQueueRows,
@@ -64,40 +63,6 @@ describe("roles", () => {
         for (const status of STATUSES) expect(canRevertQueueRow(row(ledger, status), role)).toBe(false);
       }
     }
-  });
-});
-
-describe("canRaiserEditQueueRow — the raiser's pencil on Payment Raised By Me (#1472)", () => {
-  const ME = "procurement@nirmaan.app";
-  type RaiserRow = Parameters<typeof canRaiserEditQueueRow>[0];
-  const own = (doctype: RaiserRow["doctype"], status: string, request_id = ""): RaiserRow =>
-    ({ doctype, status, raised_by: ME, request_id });
-
-  it("shows on the viewer's own Direct Expense, either ledger, only while it is Requested", () => {
-    for (const ledger of LEDGERS) {
-      for (const status of STATUSES) {
-        const want = ledger !== "Project Payments" && status === "Requested";
-        expect(canRaiserEditQueueRow(own(ledger, status), ME, ACCOUNTS_EDITS)).toBe(want);
-      }
-    }
-  });
-
-  it("reads a padded status", () => {
-    expect(canRaiserEditQueueRow(own("Non Project Expenses", " Requested "), ME, ACCOUNTS_EDITS)).toBe(true);
-  });
-
-  it("never shows on an expense from an Expense Request", () => {
-    expect(canRaiserEditQueueRow(own("Project Expenses", "Requested", "EXR-0042"), ME, ACCOUNTS_EDITS)).toBe(false);
-  });
-
-  it("never shows where the server lets the viewer edit nothing", () => {
-    expect(canRaiserEditQueueRow(own("Project Expenses", "Requested"), ME, [])).toBe(false);
-  });
-
-  it("never shows on someone else's row, or with no viewer", () => {
-    expect(canRaiserEditQueueRow(own("Project Expenses", "Requested"), "someone.else@nirmaan.app", ACCOUNTS_EDITS)).toBe(false);
-    expect(canRaiserEditQueueRow(own("Project Expenses", "Requested"), null, ACCOUNTS_EDITS)).toBe(false);
-    expect(canRaiserEditQueueRow({ ...own("Project Expenses", "Requested"), raised_by: "" }, "", ACCOUNTS_EDITS)).toBe(false);
   });
 });
 

@@ -9,10 +9,10 @@
  * Record Payment's "Pay ₹X to" box; and decide from it whether a row can be paid (`rowEligibility`).
  */
 
-import { PAYMENT_STATUS } from "@/constants/paymentStatus";
 import type { PayToAccount } from "@/types/NirmaanStack/Payee";
 import { formatDate } from "@/utils/FormatDate";
-import { SETTLED_STATUSES, STATUS_APPROVED } from "@/utils/settlement";
+import { mayEditExpenseField, type ExpenseEditAccess } from "@/utils/expenses/expenseDecision";
+import { SETTLED_STATUSES } from "@/utils/settlement";
 import { toastList } from "@/utils/toastList";
 
 import { PAYEE_RULE, asPayeeRule } from "./expensePayee";
@@ -361,55 +361,52 @@ export const payToBoxView = (doctype: PayToBoxDoctype, box: PayToBoxFacts, expen
     }
 };
 
+/** The fields Change account writes: an expense's own pay-to account (`services/payees/pay_to.PAY_TO_FIELDS`). */
+export const PAY_TO_FIELDS = [
+    "pay_to_account_name",
+    "pay_to_account_number",
+    "pay_to_ifsc",
+    "pay_to_bank_name",
+    "pay_to_bank_branch",
+] as const;
+
 /**
- * Whether Record Payment offers Change account (a screen rule, ADR-0033): Accounts change an expense's
- * account until it is paid, unless a vendor is named (then it is the vendor's). A PO / WO payment's
- * copy is never edited by hand: it follows its vendor's account when it is paid (#1463).
+ * May the viewer change the account of an expense at `status`? The server's edit answer says
+ * (`expense_actions.get_expense_edit_access`, read by `hooks/useExpenseDecision.useExpenseFieldAccess`):
+ * the pay-to account is payment information, so Accounts change it until the expense is paid and
+ * nobody once it is Paid. `change_expense_account` asks the same rule before it saves.
+ */
+export const mayChangeExpenseAccount = (access: ExpenseEditAccess, status: string | null | undefined): boolean =>
+    PAY_TO_FIELDS.every((field) => mayEditExpenseField(access, status, field));
+
+/**
+ * Whether Record Payment offers Change account: an expense the viewer may change the account of
+ * (`mayChangeExpenseAccount`), not yet paid, with no vendor named (then it is the vendor's). A PO / WO
+ * payment's copy is never edited by hand: it follows its vendor's account when it is paid (#1463).
  */
 export const canChangeExpenseAccount = (
     doctype: PayToBoxDoctype,
-    box: { paid: boolean; vendor_fixed: boolean },
-    isAccounts: boolean,
-): boolean => isAccounts && doctype !== PAYMENT_DOCTYPE && !box.paid && !box.vendor_fixed;
+    box: { status: string | null; paid: boolean; vendor_fixed: boolean },
+    access: ExpenseEditAccess,
+): boolean =>
+    doctype !== PAYMENT_DOCTYPE && !box.paid && !box.vendor_fixed && mayChangeExpenseAccount(access, box.status);
 
 /** What the expense Edit dialog's *Who gets paid* section offers (#1465): `change`, Change account's
  *  picker, saved with the edit; `vendor`, the vendor's account read-only; `none`, no section. */
 export type EditDialogPayTo = "none" | "vendor" | "change";
 
-/** What decides who may change an expense's account: its status, who raised it (`owner`) and the
- *  Expense Request behind it (`request_id`, blank on a Direct Expense). */
-export interface RaisedExpense {
-    status?: string | null;
-    owner?: string | null;
-    request_id?: string | null;
-}
-
 /**
- * The raiser of a Direct Expense changes its account while it is Requested (GLOSSARY *Pay-to account*:
- * "the raiser may change it until approval", #1472). An expense an Expense Request's approval created
- * is not a Direct Expense: its raiser changes the account on the request. A screen rule: the server
- * asks only Frappe's write permission.
- */
-export const raiserMayChangeAccount = (expense: RaisedExpense, user: string | null | undefined): boolean =>
-    !!user
-    && expense.owner === user
-    && !(expense.request_id || "").trim()
-    && (expense.status || "").trim() === PAYMENT_STATUS.REQUESTED;
-
-/**
- * The expense Edit dialog's *Who gets paid* (a screen rule, ADR-0033 decision 9): Accounts set an
- * expense's account once it is Approved and until it is paid; before that, the raiser of a Direct
- * Expense sets it while it is Requested (`raiserMayChangeAccount`). While a vendor is named in the
+ * The expense Edit dialog's *Who gets paid* (ADR-0033 decision 9): shown where the viewer may change
+ * the account of an expense at `status` (`mayChangeExpenseAccount`). While a vendor is named in the
  * form it is the vendor's account, read-only: to pay someone else, the Vendor becomes "Others (No
- * Vendor)". `viewer.isAccounts` is `canManagePayees`.
+ * Vendor)".
  */
 export const editDialogPayTo = (
-    expense: RaisedExpense,
-    viewer: { user: string | null | undefined; isAccounts: boolean },
+    status: string | null | undefined,
+    access: ExpenseEditAccess,
     vendorNamed: boolean,
 ): EditDialogPayTo => {
-    const accountsMay = viewer.isAccounts && (expense.status || "").trim() === STATUS_APPROVED;
-    if (!accountsMay && !raiserMayChangeAccount(expense, viewer.user)) return "none";
+    if (!mayChangeExpenseAccount(access, status)) return "none";
     return vendorNamed ? "vendor" : "change";
 };
 

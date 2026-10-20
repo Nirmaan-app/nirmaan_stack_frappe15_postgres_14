@@ -15,7 +15,7 @@
  *
  * A PO / WO payment gets no pencil at all, so it cannot be edited from the app in any status.
  */
-import { raiserMayChangeAccount, unpayableReason } from "@/utils/payees/paidTo";
+import { unpayableReason } from "@/utils/payees/paidTo";
 
 import { APPROVAL_STATUS, ApprovalQueueRow } from "./approvalsTable.config";
 
@@ -42,20 +42,6 @@ export const canWorkQueueRows = (role?: string | null): boolean =>
 /** The expense pencil: an expense row in a status the server lets the viewer edit (`editableStatuses`). */
 export const canEditQueueRow = (row: QueueRowLike, editableStatuses: readonly string[]): boolean =>
   EXPENSE_DOCTYPES.includes(row.doctype) && editableStatuses.includes(statusOf(row));
-
-/**
- * The raiser's pencil on "Payment Raised By Me" (#1472): the viewer's own Direct Expense, while it is
- * Requested, so they can change who gets paid before a reviewer approves it. The Edit dialog's *Who
- * gets paid* asks the same rule (`paidTo.raiserMayChangeAccount`). Its save is an edit, so it also
- * needs the server's leave (`editableStatuses`, story 50).
- */
-export const canRaiserEditQueueRow = (
-  row: Pick<ApprovalQueueRow, "doctype" | "status" | "raised_by" | "request_id">,
-  user: string | null | undefined,
-  editableStatuses: readonly string[],
-): boolean =>
-  canEditQueueRow(row, editableStatuses) &&
-  raiserMayChangeAccount({ status: row.status, owner: row.raised_by, request_id: row.request_id }, user);
 
 export const canRevertQueueRow = (row: QueueRowLike, role?: string | null): boolean =>
   canWorkQueueRows(role) &&

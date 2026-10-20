@@ -50,7 +50,7 @@ import { PP_ACCOUNTANT_ROLES, PP_TABS } from "./config/ppTabs.constants";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { QueueRowEditDialog } from "./components/QueueRowEditDialog";
 import { useUpdatePaymentRequest } from "./hooks/useUpdatePaymentRequests";
-import { canEditQueueRow, canRaiserEditQueueRow, canRevertQueueRow, canUploadInvoiceRow, canWorkQueueRows } from "./config/queueRowActions";
+import { canEditQueueRow, canRevertQueueRow, canUploadInvoiceRow, canWorkQueueRows } from "./config/queueRowActions";
 import { useUserData } from "@/hooks/useUserData";
 import { useExpenseEditAccess } from "@/hooks/useExpenseDecision";
 import { useDialogStore } from "@/zustand/useDialogStore";
@@ -174,7 +174,6 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     // Who may press either is ONE rule, `queueRowActions`; the old admin payment-edit pencil
     // (retired 17 Sep, and it saved blanks over UTR / date / proof) is gone for good.
     const canWork = canWorkQueueRows(role);
-    const raisedByMe = tab === PP_TABS.PAYMENT_BY_ME;
     const [editRow, setEditRow] = useState<ApprovalQueueRow | null>(null);
     const closeEdit = useCallback(() => setEditRow(null), []);
     const [revertRow, setRevertRow] = useState<ApprovalQueueRow | null>(null);
@@ -354,10 +353,8 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         userLabels: userLabelMap,
         getDocumentTotal,
         getPoAmountDelivered,
-        // On "Payment Raised By Me" the raiser also gets the pencil on their own Requested Direct
-        // Expense, to change who gets paid before approval (#1472).
-        onEdit: canWork || raisedByMe ? setEditRow : undefined,
-        canEdit: (row) => canEditQueueRow(row, editableStatuses) || (raisedByMe && canRaiserEditQueueRow(row, user_id, editableStatuses)),
+        onEdit: canWork ? setEditRow : undefined,
+        canEdit: (row) => canEditQueueRow(row, editableStatuses),
         onRevert: canWork ? setRevertRow : undefined,
         canRevert: (row) => canRevertQueueRow(row, role),
         onMarkReconciled: openPayDialog,
@@ -373,7 +370,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         ),
     }), [
         tab, projectMap, vendorLabelMap, userLabelMap, getDocumentTotal,
-        getPoAmountDelivered, canWork, raisedByMe, role, user_id, notifications, editableStatuses,
+        getPoAmountDelivered, canWork, role, notifications, editableStatuses,
         handleSeenNotification, openPayDialog,
     ]);
 

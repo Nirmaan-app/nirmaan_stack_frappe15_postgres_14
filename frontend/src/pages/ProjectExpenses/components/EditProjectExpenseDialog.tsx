@@ -144,14 +144,14 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
 
     const expenseTypeOptions = useMemo(() => expenseTypesData?.map(et => ({ value: et.name, label: et.expense_name })) || [], [expenseTypesData]);
 
-    // Who gets paid (#1465, #1472): Accounts set an Approved expense's account here, and the raiser of a
-    // Direct Expense a Requested one's, saved with the edit.
+    // Who gets paid (#1465): whoever the server lets change the account at this status sets it here,
+    // saved with the edit.
     const selectedExpenseType = expenseTypesData?.find(et => et.name === formState.type);
     const vendorNamed = !!formState.vendor && formState.vendor !== OTHERS_VENDOR_VALUE;
     const payTo = useExpenseEditPayTo({
         doctype: DOCTYPE,
         name: expenseToEdit.name,
-        expense: expenseToEdit,
+        status: expenseToEdit.status,
         rule: selectedExpenseType ? selectedExpenseType.payee_rule ?? null : undefined,
         vendorNamed,
     });

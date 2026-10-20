@@ -326,77 +326,66 @@ describe("namedByText", () => {
     });
 });
 
-describe("canChangeExpenseAccount", () => {
-    const unpaid = { paid: false, vendor_fixed: false };
+/** The server's edit answers (`expense_actions.get_expense_edit_access`), as `expense_decision.edit_access`
+ *  gives them: Accounts edit every field until paid; Admin a Paid expense's details only. */
+const ACCOUNTANT_ACCESS = {
+    editable_statuses: ["Requested", "CEO Pending", "Approved", "Reconciliation Pending"],
+    field_limits: {},
+};
+const ADMIN_ACCESS = {
+    editable_statuses: ["Paid"],
+    field_limits: { Paid: ["description", "comment", "invoice_attachment", "invoice_ref", "invoice_date", "projects", "vendor", "type"] },
+};
+const NO_ACCESS = { editable_statuses: [], field_limits: {} };
 
-    it("lets Accounts change an approved, unpaid expense with no vendor", () => {
-        expect(canChangeExpenseAccount("Non Project Expenses", unpaid, true)).toBe(true);
-        expect(canChangeExpenseAccount("Project Expenses", unpaid, true)).toBe(true);
+describe("canChangeExpenseAccount: Record Payment's Change account follows the server's edit answer", () => {
+    const unpaid = { status: "Approved", paid: false, vendor_fixed: false };
+
+    it("offers an Accountant Change account on an approved, unpaid expense with no vendor", () => {
+        expect(canChangeExpenseAccount("Non Project Expenses", unpaid, ACCOUNTANT_ACCESS)).toBe(true);
+        expect(canChangeExpenseAccount("Project Expenses", unpaid, ACCOUNTANT_ACCESS)).toBe(true);
     });
 
-    it("keeps the account read-only once paid, with a vendor named, outside Accounts, and on a PO payment", () => {
-        expect(canChangeExpenseAccount("Project Expenses", { ...unpaid, paid: true }, true)).toBe(false);
-        expect(canChangeExpenseAccount("Project Expenses", { ...unpaid, vendor_fixed: true }, true)).toBe(false);
-        expect(canChangeExpenseAccount("Project Expenses", unpaid, false)).toBe(false);
-        expect(canChangeExpenseAccount("Project Payments", unpaid, true)).toBe(false);
+    it("never offers it to an Admin, whom the server lets edit only a Paid expense's details", () => {
+        expect(canChangeExpenseAccount("Project Expenses", unpaid, ADMIN_ACCESS)).toBe(false);
+        expect(canChangeExpenseAccount("Project Expenses", { ...unpaid, status: "Paid", paid: true }, ADMIN_ACCESS)).toBe(false);
+    });
+
+    it("never offers it to someone the server lets edit nothing", () => {
+        expect(canChangeExpenseAccount("Project Expenses", unpaid, NO_ACCESS)).toBe(false);
+    });
+
+    it("keeps the account read-only once paid, with a vendor named, and on a PO payment", () => {
+        expect(canChangeExpenseAccount("Project Expenses", { ...unpaid, status: "Paid", paid: true }, ACCOUNTANT_ACCESS)).toBe(false);
+        expect(canChangeExpenseAccount("Project Expenses", { ...unpaid, vendor_fixed: true }, ACCOUNTANT_ACCESS)).toBe(false);
+        expect(canChangeExpenseAccount("Project Payments", unpaid, ACCOUNTANT_ACCESS)).toBe(false);
     });
 });
 
-describe("editDialogPayTo: Who gets paid in the expense Edit dialog", () => {
-    const RAISER = "raiser@nirmaan.app";
-    const OTHER = "someone.else@nirmaan.app";
-    /** A Direct Expense RAISER recorded: no Expense Request behind it. */
-    const direct = (status: string) => ({ status, owner: RAISER, request_id: null });
-    /** An expense an Expense Request's approval created: its raiser changes the account on the request. */
-    const fromRequest = (status: string) => ({ status, owner: RAISER, request_id: "EXR-0042" });
-    const accounts = { user: "accountant@nirmaan.app", isAccounts: true };
-    const raiser = { user: RAISER, isAccounts: false };
-    const other = { user: OTHER, isAccounts: false };
-
-    it("offers Accounts Change account's picker on an approved expense with no vendor", () => {
-        expect(editDialogPayTo(direct("Approved"), accounts, false)).toBe("change");
-        expect(editDialogPayTo(fromRequest("Approved"), accounts, false)).toBe("change");
+describe("editDialogPayTo: Who gets paid in the expense Edit dialog follows the server's edit answer", () => {
+    it("offers Change account's picker wherever the server lets the viewer change the account", () => {
+        for (const status of ["Requested", "CEO Pending", "Approved", " Approved ", "Reconciliation Pending"]) {
+            expect(editDialogPayTo(status, ACCOUNTANT_ACCESS, false)).toBe("change");
+        }
     });
 
     it("shows the vendor's account read-only while a vendor is named", () => {
-        expect(editDialogPayTo(direct("Approved"), accounts, true)).toBe("vendor");
+        expect(editDialogPayTo("Approved", ACCOUNTANT_ACCESS, true)).toBe("vendor");
     });
 
-    it("lets the raiser of a Direct Expense change its account while it is Requested", () => {
-        expect(editDialogPayTo(direct("Requested"), raiser, false)).toBe("change");
-        expect(editDialogPayTo(direct(" Requested "), raiser, false)).toBe("change");
+    it("shows nothing on a Paid or Rejected expense, even to Accounts", () => {
+        expect(editDialogPayTo("Paid", ACCOUNTANT_ACCESS, false)).toBe("none");
+        expect(editDialogPayTo("Rejected", ACCOUNTANT_ACCESS, false)).toBe("none");
     });
 
-    it("shows the raiser the vendor's account read-only while a vendor is named", () => {
-        expect(editDialogPayTo(direct("Requested"), raiser, true)).toBe("vendor");
+    it("shows nothing to an Admin on a Paid expense: its account is payment information", () => {
+        expect(editDialogPayTo("Paid", ADMIN_ACCESS, false)).toBe("none");
+        expect(editDialogPayTo("Approved", ADMIN_ACCESS, false)).toBe("none");
     });
 
-    it("gives the raiser nothing once the expense is past Requested", () => {
-        for (const status of ["CEO Pending", "Approved", "Reconciliation Pending", "Paid", "Rejected"]) {
-            expect(editDialogPayTo(direct(status), raiser, false)).toBe("none");
-        }
-    });
-
-    it("gives someone who did not raise it nothing while it is Requested", () => {
-        expect(editDialogPayTo(direct("Requested"), other, false)).toBe("none");
-        expect(editDialogPayTo(direct("Requested"), { user: null, isAccounts: false }, false)).toBe("none");
-        expect(editDialogPayTo({ status: "Requested", owner: null, request_id: null }, { user: null, isAccounts: false }, false)).toBe("none");
-    });
-
-    it("gives an expense from an Expense Request nothing while it is Requested, even to its raiser", () => {
-        expect(editDialogPayTo(fromRequest("Requested"), raiser, false)).toBe("none");
-    });
-
-    it("gives Accounts nothing before approval on an expense they did not raise, once paid, or to anyone outside Accounts", () => {
-        for (const status of ["Requested", "CEO Pending", "Reconciliation Pending", "Paid", "Rejected"]) {
-            expect(editDialogPayTo(direct(status), accounts, false)).toBe("none");
-        }
-        expect(editDialogPayTo(direct("Approved"), other, false)).toBe("none");
-        expect(editDialogPayTo(direct("Approved"), other, true)).toBe("none");
-    });
-
-    it("lets Accounts who raised a Direct Expense change it while it is Requested, as any raiser can", () => {
-        expect(editDialogPayTo({ status: "Requested", owner: accounts.user, request_id: "" }, accounts, false)).toBe("change");
+    it("shows nothing to someone the server lets edit nothing, a raiser included", () => {
+        expect(editDialogPayTo("Requested", NO_ACCESS, false)).toBe("none");
+        expect(editDialogPayTo(null, NO_ACCESS, false)).toBe("none");
     });
 });
 

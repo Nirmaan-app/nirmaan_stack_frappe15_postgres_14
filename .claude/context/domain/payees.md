@@ -233,24 +233,23 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     paid*, below): copies a picked or added Payee's account
     onto the expense, overwriting its copy (`expense_payee.change_expense_account`; the save leaves a
     Version row: who and when). The endpoint (`api/payees/paid_to.change_expense_account`) asks
-    Frappe's write permission on the expense (its save ignores permissions, so that check is the
-    boundary) and refuses a PO / WO payment; offering it to Accounts only, and only for an approved,
-    unpaid expense with no vendor, is a screen rule (`utils/payees/paidTo.canChangeExpenseAccount`). A PO / WO payment's copy
+    the expense edit rule for the `pay_to_*` fields (`expense_decision.assert_may_edit`, spec #1494:
+    Accounts until the expense is paid, nobody once Paid; its save ignores permissions, so that check
+    is the boundary) and refuses a PO / WO payment. The screen offers it from the same answer
+    (`get_expense_edit_access`, read through `utils/payees/paidTo.mayChangeExpenseAccount` at the
+    `pay_to_box`'s `status`), on an unpaid expense with no vendor (`paidTo.canChangeExpenseAccount`). A PO / WO payment's copy
     is never edited by hand: it follows its vendor's account when paid (above). The dialog names the expense by
     its description (`pay_to_box`'s `description`, `paidTo.expenseTitle`), words its type's rule
     (`paidTo.changeAccountRuleLine`) and offers Remove account only when the type is not *Required*
     (`paidTo.canRemoveExpenseAccount`, a screen rule).
-  - **Who gets paid in the expense Edit dialogs** (#1465; the pencil on "Payment need to paid" and on
-    the expense pages): Change account inside the edit, for Accounts on an Approved expense, and for
-    the raiser of a **Direct Expense** (its `owner`, with no `request_id`) while it is Requested
-    (#1472, `paidTo.editDialogPayTo`, whose raiser case is `paidTo.raiserMayChangeAccount`). An
-    expense an Expense Request's approval created never gets the raiser case: its raiser changes the
-    account on the request. The raiser reaches the dialog from the pencil on their own Requested
-    Direct Expense rows on "Payment Raised By Me" (`queueRowActions.canRaiserEditQueueRow`; the
-    queue row's `request_id` says whether a request is behind it); the settle-side pencil is
-    unchanged. A raiser outside Accounts searches and adds Payees through the request's endpoints
-    (`api/expense_requests/payees`), Accounts through theirs. Both save through Change account's
-    endpoint, which asks write permission on the expense and leaves the Version row "Set by" reads.
+  - **Who gets paid in the expense Edit dialogs** (#1465; the pencil on the Payments queue and on
+    the expense pages): Change account inside the edit, wherever the server's edit answer lets the
+    viewer change the `pay_to_*` fields at the expense's status (`paidTo.editDialogPayTo` ->
+    `mayChangeExpenseAccount`): Accounts, until it is paid. The raiser's own case (#1472, a Direct
+    Expense while Requested) is gone: no person creates a ledger row any more, and the server refuses
+    anyone outside Accounts (spec #1494 story 50). Payees are searched and added through the Accounts
+    endpoints, and the save goes through Change account's endpoint, which leaves the Version row
+    "Set by" reads.
     Same picker and rule wording; it saves with Save Changes:
     the pick is resolved first (a new Payee is added, a duplicate stops the save), the fields are
     updated, then the Payee is copied (`components/payees/ExpenseEditPayTo`,

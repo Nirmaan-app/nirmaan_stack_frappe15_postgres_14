@@ -123,13 +123,13 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
         "Expense Type", expenseTypeFetchOptions as GetDocListArgs<FrappeDoc<ExpenseType>>, expenseTypeQueryKey
     );
 
-    // Who gets paid (#1465, #1472): Accounts set an Approved expense's account here, and the raiser of a
-    // Direct Expense a Requested one's, saved with the edit.
+    // Who gets paid (#1465): whoever the server lets change the account at this status sets it here,
+    // saved with the edit.
     const selectedExpenseType = expenseTypesData?.find(et => et.name === formState.type);
     const payTo = useExpenseEditPayTo({
         doctype: "Non Project Expenses",
         name: expenseToEdit.name,
-        expense: expenseToEdit,
+        status: expenseToEdit.status,
         rule: selectedExpenseType ? selectedExpenseType.payee_rule ?? null : undefined,
         vendorNamed: false,
     });

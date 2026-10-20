@@ -638,6 +638,14 @@ class TestPaidTo(FrappeTestCase):
             with self.subTest(status=status):
                 self.assertEqual(get_pay_to_box(NPE, self._expense(copy_of=payee, status=status))["paid"], paid)
 
+    def test_the_box_names_the_rows_status_for_change_accounts_edit_answer(self):
+        """Record Payment shows Change account where the server's edit answer at this status lets
+        the viewer change the pay-to fields, so the box carries the status it is read at."""
+        payee = self.payees.payee()
+        for status in ("Requested", "Approved", "Paid"):
+            with self.subTest(status=status):
+                self.assertEqual(get_pay_to_box(NPE, self._expense(copy_of=payee, status=status))["status"], status)
+
     def test_an_expense_can_be_left_without_an_account(self):
         expense = self._expense(rule="Optional", copy_of=self.payees.payee())
 
