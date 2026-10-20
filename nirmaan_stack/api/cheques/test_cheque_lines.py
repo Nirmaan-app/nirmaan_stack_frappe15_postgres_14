@@ -159,7 +159,7 @@ class TestChequeLines(FrappeTestCase):
                 (self.project, self.po, None, None, 5000.0),  # no payment yet: the typed amount
             ],
         )
-        self.assertEqual(self._cheque(name), ("Pending", None))
+        self.assertEqual(self._cheque(name), ("Approval Pending", None))
 
     def test_a_work_order_line_is_refused(self):
         wo_pay = self._plant("Requested", parent=(SR, self.sr))
@@ -210,7 +210,7 @@ class TestChequeLines(FrappeTestCase):
         pay = self._plant("Requested")
         first = self._save([self._line(pay)])
         number = frappe.db.get_value("Cheques", first, "cheque_no")
-        self._refused(f"Line 1: payment {pay} is already on cheque {number} \\(Pending\\)", [self._line(pay)])
+        self._refused(f"Line 1: payment {pay} is already on cheque {number} \\(Approval Pending\\)", [self._line(pay)])
         self._refused("is on two lines", [self._line(pay), self._line(pay)], cheque_no=self.cheques.number())
 
     def test_a_payment_only_on_a_cancelled_cheque_can_be_linked_again(self):
@@ -235,7 +235,7 @@ class TestChequeLines(FrappeTestCase):
         self.assertEqual(state.cheque_no, frappe.db.get_value("Cheques", name, "cheque_no"))
         self.assertEqual(str(state.cheque_date), date)
         self.assertEqual(state.status, "CEO Pending")
-        self.assertEqual(self._cheque(name), ("Pending", None))
+        self.assertEqual(self._cheque(name), ("Approval Pending", None))
 
     def test_approved_payments_issue_the_cheque_at_once_on_their_approval_date(self):
         first = self._plant("Approved", approved_on=add_days(nowdate(), -3))
@@ -250,7 +250,7 @@ class TestChequeLines(FrappeTestCase):
         self.assertEqual(self._cheque(name), ("Issued", add_days(nowdate(), -2)))  # the last approval's day
         self.assertEqual(result["status"], "Issued")
         history = [(h.from_status, h.to_status) for h in frappe.get_doc("Cheques", name).status_history]
-        self.assertEqual(history, [(None, "Pending"), ("Pending", "Issued")])
+        self.assertEqual(history, [(None, "Approval Pending"), ("Approval Pending", "Issued")])
 
     def test_approved_payments_beside_a_line_with_no_payment_yet_are_refused(self):
         # Saved, the Approved payment would move on alone and the cheque would stay Pending for good.
@@ -267,7 +267,7 @@ class TestChequeLines(FrappeTestCase):
     def test_requested_waits_then_the_l1_approve_issues_the_cheque(self):
         pay = self._plant("Requested")
         name = self._save([self._line(pay)], amount=20000)
-        self.assertEqual((self._status(pay), self._cheque(name)), ("Requested", ("Pending", None)))
+        self.assertEqual((self._status(pay), self._cheque(name)), ("Requested", ("Approval Pending", None)))
 
         approve_cheque_payments(pay)  # the L1 approve of a cheque payment (#1480)
         self.assertEqual(self._status(pay), RECON)
@@ -306,7 +306,7 @@ class TestChequeLines(FrappeTestCase):
         self.assertIsNone(out["step"])
         self.assertEqual(out["hidden"], {
             "on_cheque": [{"payment": on_live, "cheque": live,
-                           "cheque_no": frappe.db.get_value("Cheques", live, "cheque_no"), "status": "Pending"}],
+                           "cheque_no": frappe.db.get_value("Cheques", live, "cheque_no"), "status": "Approval Pending"}],
             "rejected": 1,
             "other_step": 0,
             "on_hold": 1,

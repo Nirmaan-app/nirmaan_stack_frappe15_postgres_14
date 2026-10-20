@@ -13,7 +13,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
-import { CHEQUE_BANK, type ChequeBank } from "@/types/NirmaanStack/Cheques";
+import { CHEQUE_BANK, CHEQUE_STATUS, type ChequeBank } from "@/types/NirmaanStack/Cheques";
 import { isFromPhoto, type ChequePhotoField } from "@/utils/cheques/chequePhoto";
 import { chequeReportPath } from "@/utils/cheques/chequeReportLink";
 import formatToIndianRupee from "@/utils/FormatPrice";
@@ -300,7 +300,7 @@ export const PaymentModeFields = ({
 						</div>
 					)}
 					<p className="text-[11px] text-muted-foreground">
-						This payment gets its own new cheque. The cheque starts Pending; once the payment is
+						This payment gets its own new cheque. The cheque starts {CHEQUE_STATUS.PENDING}; once the payment is
 						approved, the cheque is Issued and waits in the Cheque Tracker until the bank clears it.
 					</p>
 				</>

@@ -19,7 +19,7 @@ describe("chequeRowActions for accounts", () => {
     });
 
     it("offers Cancel but never Clear on a Pending Payment cheque: only the bank import clears one", () => {
-        expect(chequeRowActions(cheque("Pending"), ACCOUNTANT)).toEqual(["view", "edit", "cancel"]);
+        expect(chequeRowActions(cheque("Approval Pending"), ACCOUNTANT)).toEqual(["view", "edit", "cancel"]);
     });
 
     it("offers neither on a Cleared or Cancelled cheque: there is no undo by hand", () => {
@@ -35,15 +35,15 @@ describe("chequeRowActions for accounts", () => {
 
 describe("chequeRowActions for Procurement", () => {
     it("never offers Clear or Cancel", () => {
-        for (const status of ["Pending", "Issued", "Cleared", "Cancelled"]) {
+        for (const status of ["Approval Pending", "Issued", "Cleared", "Cancelled"]) {
             expect(chequeRowActions(cheque(status, "Payment", "someone@else"), PROCUREMENT)).toEqual(["view"]);
         }
     });
 
     it("offers Edit on a Pending cheque it made, as the edit rule allows (#1482)", () => {
-        expect(chequeRowActions(cheque("Pending"), PROCUREMENT)).toContain("edit");
+        expect(chequeRowActions(cheque("Approval Pending"), PROCUREMENT)).toContain("edit");
         expect(chequeRowActions(cheque("Issued"), PROCUREMENT)).not.toContain("edit");
-        expect(chequeRowActions(cheque("Pending", "Payment", "someone@else"), PROCUREMENT)).not.toContain("edit");
+        expect(chequeRowActions(cheque("Approval Pending", "Payment", "someone@else"), PROCUREMENT)).not.toContain("edit");
     });
 });
 

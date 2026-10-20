@@ -96,14 +96,14 @@ class TestSaveCheque(FrappeTestCase):
         result = save_cheque(**self._values())
         name = self.cheques.track(result["cheque"])
 
-        self.assertEqual(result["status"], "Pending")
+        self.assertEqual(result["status"], "Approval Pending")
         cheque = frappe.get_doc("Cheques", name)
-        self.assertEqual((cheque.cheque_type, cheque.status, cheque.made_from), ("Payment", "Pending", "Report"))
+        self.assertEqual((cheque.cheque_type, cheque.status, cheque.made_from), ("Payment", "Approval Pending", "Report"))
         self.assertFalse(cheque.issue_date)
         self.assertEqual(len(cheque.status_history), 1)
         created = cheque.status_history[0]
         self.assertFalse(created.from_status)
-        self.assertEqual(created.to_status, "Pending")
+        self.assertEqual(created.to_status, "Approval Pending")
         self.assertEqual(created.changed_by, U)
         self.assertTrue(created.changed_at)
 

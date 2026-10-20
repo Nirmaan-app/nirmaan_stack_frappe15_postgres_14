@@ -78,7 +78,7 @@ class TestTheBankImportStartsFromMoreStatuses(unittest.TestCase):
                                    payments=list(payments), bank_line=bank_line)
 
     def test_a_pending_cheque_whose_payments_wait_for_approval_may_be_cleared_by_the_bank(self):
-        self.assertIsNone(self.problem("Pending", [("PAY-1", "Requested"), ("PAY-2", "CEO Pending")]))
+        self.assertIsNone(self.problem("Approval Pending", [("PAY-1", "Requested"), ("PAY-2", "CEO Pending")]))
 
     def test_a_cancelled_cheque_whose_payments_are_rejected_may_be_cleared_by_the_bank(self):
         self.assertIsNone(self.problem("Cancelled", [("PAY-1", "Rejected"), ("PAY-2", "Rejected")]))
@@ -88,8 +88,8 @@ class TestTheBankImportStartsFromMoreStatuses(unittest.TestCase):
 
     def test_by_hand_they_are_still_refused(self):
         self.assertEqual(
-            self.problem("Pending", [("PAY-1", "Requested")], cleared_by=rules.CLEARED_BY_HAND, bank_line=False),
-            "it is Pending: its payments are not approved yet",
+            self.problem("Approval Pending", [("PAY-1", "Requested")], cleared_by=rules.CLEARED_BY_HAND, bank_line=False),
+            "it is Approval Pending: its payments are not approved yet",
         )
 
     def test_an_issued_cheque_still_needs_every_payment_waiting_for_the_bank(self):
@@ -109,8 +109,8 @@ class TestWhatTheReviewSays(unittest.TestCase):
 
     def test_a_pending_cheque_says_the_import_approved_it(self):
         self.assertEqual(
-            self.note("Pending", payments=1),
-            "Cheque 000747 was Pending: the bank paid it before approval. Its 1 payment was approved by bank "
+            self.note("Approval Pending", payments=1),
+            "Cheque 000747 was Approval Pending: the bank paid it before approval. Its 1 payment was approved by bank "
             "import (approval date 14-10-2026), then Paid.",
         )
 
@@ -155,15 +155,15 @@ class TestWhereABankClearedChequeStarted(unittest.TestCase):
 
     def test_from_issued(self):
         self.assertEqual(
-            self.start("Bank import", (None, "Pending", None), ("Pending", "Issued", None), ("Issued", "Cleared", "x")),
+            self.start("Bank import", (None, "Approval Pending", None), ("Approval Pending", "Issued", None), ("Issued", "Cleared", "x")),
             "Issued",
         )
 
     def test_from_pending_when_the_import_approved_it(self):
         self.assertEqual(
-            self.start("Bank import", (None, "Pending", None), ("Pending", "Issued", bank_import_rules.BANK_APPROVAL_NOTE),
+            self.start("Bank import", (None, "Approval Pending", None), ("Approval Pending", "Issued", bank_import_rules.BANK_APPROVAL_NOTE),
                        ("Issued", "Cleared", "x")),
-            "Pending",
+            "Approval Pending",
         )
 
     def test_from_cancelled(self):

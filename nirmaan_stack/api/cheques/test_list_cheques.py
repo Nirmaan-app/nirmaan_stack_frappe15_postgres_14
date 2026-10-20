@@ -336,7 +336,7 @@ class TestChequeTypeAndDates(FrappeTestCase):
         self.assertEqual(self._names(["clearance_date", "between", ["2026-09-19", "2026-09-21"]]), [early])
 
     def test_the_summary_counts_pending_cheques(self):
-        self._save(10000, status="Pending")
+        self._save(10000, status="Approval Pending")
         self._save(25000)
 
         summary = get_cheques(filters=json.dumps([["vendor", "=", self.vendor]]))["aggregates"]
@@ -378,7 +378,7 @@ class TestTheChequeTrackerTabs(FrappeTestCase):
 
     def test_the_issued_tab_lists_only_issued_payment_cheques(self):
         issued = self._cheque(issue_date=nowdate())
-        self._cheque(status="Pending")
+        self._cheque(status="Approval Pending")
         self._cheque(status="Cleared", clearance_date=nowdate())
         self._cheque(status="Cancelled")
         self._cheque(cheque_type="Security Deposit", issue_date=nowdate())
