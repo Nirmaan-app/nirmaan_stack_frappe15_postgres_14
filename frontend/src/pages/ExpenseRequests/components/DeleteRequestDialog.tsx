@@ -24,6 +24,10 @@ interface Props {
 const DeleteRequestDialog: React.FC<Props> = ({ request, onClose, onDone }) => {
     const { toast } = useToast();
     const [busy, setBusy] = useState(false);
+    // The request on screen, kept after `request` turns null: the dialog animates out AFTER the
+    // caller clears it, and read straight from the prop it then said "Delete ?" while closing.
+    const [shown, setShown] = useState(request);
+    if (request && request !== shown) setShown(request);
     const { call: remove } = useFrappePostCall(
         "nirmaan_stack.api.expense_requests.delete.delete_expense_request"
     );
@@ -47,9 +51,9 @@ const DeleteRequestDialog: React.FC<Props> = ({ request, onClose, onDone }) => {
         <AlertDialog open={!!request} onOpenChange={(o) => !o && !busy && onClose()}>
             <AlertDialogContent>
                 <AlertDialogHeader>
-                    <AlertDialogTitle>Delete {request?.name}?</AlertDialogTitle>
+                    <AlertDialogTitle>Delete {shown?.name}?</AlertDialogTitle>
                     <AlertDialogDescription>
-                        This rejected request ({request?.type}) will be removed from the list.
+                        This rejected request ({shown?.type}) will be removed from the list.
                         You cannot undo this here.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
