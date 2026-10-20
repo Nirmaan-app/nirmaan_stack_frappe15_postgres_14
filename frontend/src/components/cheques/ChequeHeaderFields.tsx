@@ -31,8 +31,8 @@ interface ChequeHeaderFieldsProps<T extends ChequeHeaderInput, V extends FieldVa
 }
 
 /**
- * The photo, bank, number, date and amount of a Cheque form (spec #1407, #1477): Add Cheque's Payment form
- * and the Security Deposit form. A box the photo filled carries the "From photo" tag while it still holds
+ * The photo, bank, number, date and amount of a Cheque form (spec #1407, #1477): a Payment cheque's Edit
+ * (spec #1514) and the Security Deposit form. A box the photo filled carries the "From photo" tag while it still holds
  * what the photo said. Renders inside the form's `<Form>` provider.
  */
 export const ChequeHeaderFields = <T extends ChequeHeaderInput, V extends FieldValues>({

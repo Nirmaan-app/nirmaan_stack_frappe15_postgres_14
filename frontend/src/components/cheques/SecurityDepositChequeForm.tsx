@@ -46,7 +46,7 @@ interface SecurityDepositChequeFormProps {
 }
 
 /**
- * Add Cheque › Security Deposit cheque (#1486, spec #1477): photo first (its bank, number, date and amount
+ * The Security Deposit cheque form, added from the PO page's cheques card (#1486, spec #1477; spec #1514): photo first (its bank, number, date and amount
  * are read off it), the issue date (today by default), who it is made out to (a Vendor or a typed name),
  * and the Vendor's POs it secures (optional). It saves Issued; it pays nothing and no bank
  * statement line is ever matched to it. Also the Edit of a deposit: everything while Issued, the photo only
