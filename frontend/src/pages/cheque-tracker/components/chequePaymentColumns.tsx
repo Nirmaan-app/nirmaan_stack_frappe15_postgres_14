@@ -407,7 +407,7 @@ const projectNames = (r: ChequeRow) => [...new Set(r.lines.map((l) => l.project_
 
 const securesText = (r: ChequeRow) => securedRecords(r.lines).join(", ") || "Nothing named";
 
-/** The Secures cell of the Security Deposits tab: the POs and Work Orders the deposit names, and their projects. */
+/** The Secures cell of the Security Deposits tab: the POs the deposit names, and their projects. */
 const securesColumn: ColumnDef<ChequeRow> = {
     id: "secures",
     accessorFn: (r) => securesText(r),

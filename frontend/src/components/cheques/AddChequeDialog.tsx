@@ -55,7 +55,7 @@ interface AddChequeDialogProps {
     edit?: ChequeEditTarget | null;
     /** The kind of cheque a new one starts as; absent asks first. The Security Deposits tab opens a deposit. */
     initialType?: ChequeType;
-    /** A Security Deposit cheque added from a PO or Work Order page: its Vendor and record (#1486). */
+    /** A Security Deposit cheque added from a PO page: its Vendor and PO (#1486). */
     depositFrom?: DepositPageRecord;
 }
 

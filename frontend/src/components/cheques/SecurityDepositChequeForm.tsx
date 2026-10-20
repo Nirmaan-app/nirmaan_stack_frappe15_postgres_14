@@ -39,7 +39,7 @@ import { getFrappeError } from "@/utils/frappeErrors";
 interface SecurityDepositChequeFormProps {
     /** The deposit being edited, as recorded; absent for a new one. */
     edit?: ChequeDetail;
-    /** A new deposit from a PO or Work Order page: made out to its Vendor, naming that record (story 61). */
+    /** A new deposit from a PO page: made out to its Vendor, naming that PO (story 61). */
     from?: DepositPageRecord;
     onDone: (cheque: string) => void;
     onCancel: () => void;
@@ -48,7 +48,7 @@ interface SecurityDepositChequeFormProps {
 /**
  * Add Cheque › Security Deposit cheque (#1486, spec #1477): photo first (its bank, number, date and amount
  * are read off it), the issue date (today by default), who it is made out to (a Vendor or a typed name),
- * and the Vendor's POs and Work Orders it secures (optional). It saves Issued; it pays nothing and no bank
+ * and the Vendor's POs it secures (optional). It saves Issued; it pays nothing and no bank
  * statement line is ever matched to it. Also the Edit of a deposit: everything while Issued, the photo only
  * once Cancelled (`utils/cheques/chequeEdit`). Rules: `utils/cheques/chequeDeposit`; the server re-checks.
  */
@@ -204,7 +204,7 @@ export const SecurityDepositChequeForm = ({ edit, from, onDone, onCancel }: Secu
                             <FormLabel>
                                 Secures{" "}
                                 <span className="font-normal text-muted-foreground">
-                                    (optional: the POs or Work Orders this deposit guarantees)
+                                    (optional: the POs this deposit guarantees)
                                 </span>
                             </FormLabel>
                             <div className="flex flex-wrap items-center gap-1.5 rounded-md border p-2">
@@ -244,8 +244,8 @@ export const SecurityDepositChequeForm = ({ edit, from, onDone, onCancel }: Secu
                                             ]);
                                         }}
                                     >
-                                        <SelectTrigger className="h-7 w-auto min-w-[200px] border-dashed text-xs" aria-label="Add a PO or Work Order">
-                                            <SelectValue placeholder="+ Add PO or Work Order" />
+                                        <SelectTrigger className="h-7 w-auto min-w-[200px] border-dashed text-xs" aria-label="Add a PO">
+                                            <SelectValue placeholder="+ Add PO" />
                                         </SelectTrigger>
                                         <SelectContent>
                                             {options.map((o) => (
@@ -259,7 +259,7 @@ export const SecurityDepositChequeForm = ({ edit, from, onDone, onCancel }: Secu
                                 )}
                             </div>
                             <p className="text-xs text-muted-foreground">
-                                Only this Vendor's POs and Work Orders. With a typed payee there is nothing to pick.
+                                Only this Vendor's POs. With a typed payee there is nothing to pick.
                             </p>
                             <FormMessage />
                         </FormItem>

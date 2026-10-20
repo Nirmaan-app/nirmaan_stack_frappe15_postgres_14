@@ -3,7 +3,7 @@
 
 """Security Deposit cheques through the endpoints (#1486, spec #1477, ADR-0035).
 
-Drives what the Add Cheque dialog, the PO / Work Order page card, the Edit dialog and the Cancel dialog call
+Drives what the Add Cheque dialog, the PO page card, the Edit dialog and the Cancel dialog call
 (`save_cheque.save_cheque` with `cheque_type`, `cheque_status.cancel_cheque`, the bank import's
 `status.clear`, `pickers.get_securable_records`, `list_cheques.get_cheques`) and reads back what a user sees: the Cheque's
 type, status, issue date, lines and history, the tracker's tabs and the PO card's list, or the refusal.
@@ -139,13 +139,20 @@ class TestSecurityDepositCheques(FrappeTestCase):
         cheque = frappe.get_doc("Cheques", name)
         self.assertEqual((cheque.vendor, cheque.payee_name, cheque.status), (None, "Kavitha Properties", "Issued"))
 
-    def test_it_names_the_vendor_s_pos_and_work_orders_it_secures_as_records_only(self):
-        name = self._save(lines=self._secures((PO, self.po), (WO, self.wo)))
+    def test_it_names_the_vendor_s_pos_it_secures_as_records_only(self):
+        second_po = ChequeFixture.plant_po(self, self.fx, project=self.project, vendor=self.vendor)
+        name = self._save(lines=self._secures((PO, self.po), (PO, second_po)))
 
         self.assertEqual(self._lines(name), [
             ("Secured PO/WO", PO, self.po, self.project, None, 0.0),
-            ("Secured PO/WO", WO, self.wo, self.project, None, 0.0),
+            ("Secured PO/WO", PO, second_po, self.project, None, 0.0),
         ])
+
+    def test_it_never_secures_a_work_order_even_the_vendor_s_own(self):
+        # Spec #1514 story 18: Work Orders have no cheques.
+        self._refused(f"Line 2: {self.wo} is a Work Order: a Security Deposit cheque secures POs only",
+                      lines=self._secures((PO, self.po), (WO, self.wo)))
+        self.assertFalse(frappe.get_all("Cheque Line", filters={"record_name": self.wo, "parenttype": "Cheques"}))
 
     def test_the_issue_date_is_required_and_never_after_today(self):
         self._refused("Enter the issue date", issue_date="")
@@ -161,8 +168,8 @@ class TestSecurityDepositCheques(FrappeTestCase):
 
     def test_it_secures_only_its_vendor_s_records_and_a_typed_payee_none(self):
         other_po = ChequeFixture.plant_po(self, self.fx, project=self.project, vendor=self.fx.vendor())
-        self._refused("is not a PO or Work Order of this cheque's Vendor", lines=self._secures((PO, other_po)))
-        self._refused("a cheque made out to a typed payee names no PO or Work Order",
+        self._refused("is not a PO of this cheque's Vendor", lines=self._secures((PO, other_po)))
+        self._refused("a cheque made out to a typed payee names no PO",
                       vendor=None, payee_name="Kavitha Properties", lines=self._secures((PO, self.po)))
         self._refused("is on two lines", lines=self._secures((PO, self.po), (PO, self.po)))
 
@@ -176,25 +183,25 @@ class TestSecurityDepositCheques(FrappeTestCase):
         self._refused(f"already recorded as {first}", cheque_no=number)
 
     # -- where it shows ---------------------------------------------------------------------------
-    def test_it_shows_in_security_deposits_and_on_its_po_and_wo_but_never_in_the_issued_tab(self):
-        name = self._save(lines=self._secures((PO, self.po), (WO, self.wo)))
+    def test_it_shows_in_security_deposits_and_on_its_po_but_never_in_the_issued_tab(self):
+        name = self._save(lines=self._secures((PO, self.po)))
         elsewhere = self._save(lines=[])
 
         self.assertIn(name, self._listed(DEPOSITS_TAB))
         self.assertNotIn(name, self._listed(ISSUED_TAB))
-        # The PO and Work Order page cards: the deposit cheques whose lines name that record.
+        # The PO page card: the deposit cheques whose lines name that PO.
         self.assertEqual(self._listed(DEPOSITS_TAB + [["record_name", "=", self.po]]), {name})
-        self.assertEqual(self._listed(DEPOSITS_TAB + [["record_name", "=", self.wo]]), {name})
         self.assertNotIn(elsewhere, self._listed(DEPOSITS_TAB + [["record_name", "=", self.po]]))
 
-    def test_the_secures_picker_offers_the_vendor_s_open_pos_and_work_orders(self):
+    def test_the_secures_picker_offers_the_vendor_s_open_pos_and_no_work_order(self):
         merged = ChequeFixture.plant_po(self, self.fx, project=self.project, vendor=self.vendor, status="Merged")
         offered = {(r["doctype"], r["name"]): r for r in get_securable_records(self.vendor)}
 
         self.assertIn((PO, self.po), offered)
-        self.assertIn((WO, self.wo), offered)
         self.assertNotIn((PO, merged), offered)
-        self.assertEqual(offered[(WO, self.wo)]["project"], self.project)
+        self.assertEqual(offered[(PO, self.po)]["project"], self.project)
+        # The Vendor's approved Work Order is open, and still not offered (spec #1514 story 18).
+        self.assertEqual({doctype for doctype, _ in offered}, {PO})
 
     # -- cancel: the one move ---------------------------------------------------------------------
     def test_accounts_cancel_it_with_a_note_and_no_other_move_exists(self):
@@ -247,11 +254,11 @@ class TestSecurityDepositCheques(FrappeTestCase):
         earlier = add_days(nowdate(), -10)
         self._as(buyer, save_cheque, **self._values(
             name=name, cheque_no=frappe.db.get_value("Cheques", name, "cheque_no"), amount=150000,
-            issue_date=earlier, lines=self._secures((WO, self.wo)),
+            issue_date=earlier, lines=self._secures((PO, self.po)),
         ))
         cheque = frappe.get_doc("Cheques", name)
         self.assertEqual((cheque.amount, str(cheque.issue_date), cheque.status), (150000, earlier, "Issued"))
-        self.assertEqual(self._lines(name), [("Secured PO/WO", WO, self.wo, self.project, None, 0.0)])
+        self.assertEqual(self._lines(name), [("Secured PO/WO", PO, self.po, self.project, None, 0.0)])
 
         other = self._user(PROCUREMENT, other_than=(buyer,))
         with self.assertRaisesRegex(frappe.PermissionError, "Issued Security Deposit cheques you created"):

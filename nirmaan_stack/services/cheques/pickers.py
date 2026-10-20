@@ -12,8 +12,8 @@ payments or "No payment yet":
   Approved, not on hold, on no live (not Cancelled) Cheque, and at the same step as the cheque's other
   payments. It counts what it hid and why, so the dialog can say so.
 
-A Security Deposit cheque's "Secures" picker (#1486): `securable_records` -- the Vendor's open POs AND
-Work Orders, each with its project: a deposit may secure either.
+A Security Deposit cheque's "Secures" picker (#1486): `securable_records` -- the Vendor's open POs, each
+with its project. Never a Work Order: Work Orders have no cheques (spec #1514).
 
 The same rules are enforced on save (`edit_rules.tracker_payment_cheque_problem`, `lines.lines_problem`);
 these lists only spare the user a refusal.
@@ -28,13 +28,10 @@ from nirmaan_stack.services.cheques.rules import (
     PAYMENT_DOCTYPE,
     PAYMENT_REJECTED,
     PO_DOCTYPE,
-    WORK_ORDER_DOCTYPE,
 )
 
 #: A PO in these statuses holds no payment of its own any more.
 PO_CLOSED_STATUSES = ("Merged", "Cancelled")
-#: A Work Order is a live order of its Vendor once approved (amended ones too).
-WO_OPEN_STATUSES = ("Approved", "Amendment")
 
 
 def _project_names(projects) -> dict:
@@ -45,22 +42,17 @@ def _project_names(projects) -> dict:
 
 
 def securable_records(vendor: str) -> list[dict]:
-    """`[{doctype, name, project, project_name, status}]`: the Vendor's open POs, then its open Work Orders,
-    each newest first. What a Security Deposit cheque may name as secured (#1486)."""
+    """`[{doctype, name, project, project_name, status}]`: the Vendor's open POs, newest first. What a
+    Security Deposit cheque may name as secured (#1486; POs only, spec #1514)."""
     pos = frappe.get_all(
         PO_DOCTYPE, filters={"vendor": vendor, "status": ["not in", PO_CLOSED_STATUSES]},
         fields=["name", "project", "status"], order_by="creation desc",
     )
-    wos = frappe.get_all(
-        WORK_ORDER_DOCTYPE, filters={"vendor": vendor, "status": ["in", WO_OPEN_STATUSES]},
-        fields=["name", "project", "status"], order_by="creation desc",
-    )
-    names = _project_names(r.project for r in pos + wos)
+    names = _project_names(r.project for r in pos)
     return [
-        {"doctype": doctype, "name": r.name, "project": r.project,
+        {"doctype": PO_DOCTYPE, "name": r.name, "project": r.project,
          "project_name": names.get(r.project) or r.project, "status": r.status}
-        for doctype, rows in ((PO_DOCTYPE, pos), (WORK_ORDER_DOCTYPE, wos))
-        for r in rows
+        for r in pos
     ]
 
 

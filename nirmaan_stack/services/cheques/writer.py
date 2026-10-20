@@ -15,7 +15,7 @@ Built so far:
   picked at one step (Requested, CEO Pending or Approved), then `create_cheque`.
 * `add_deposit_cheque` -- THE "create deposit cheque" operation (#1486): a Security Deposit cheque,
   Issued at once on its typed issue date, made out to a Vendor or a typed name, its lines naming the
-  Vendor's POs and Work Orders it secures. It pays nothing, so no payment is touched.
+  Vendor's POs it secures. It pays nothing, so no payment is touched.
 * `backfill_cheque` -- the backfill patch's Cheque for old cheque payments (#1419): no photo, made
   from the PO/WO page, straight at its status, created by the earliest payment's requester.
 * `existing_cheque` -- the Cheque already recorded for a bank + cheque number, if any. The `validate`
@@ -170,7 +170,7 @@ def add_deposit_cheque(
     "created" history row. Returns it.
 
     It is made out to a Vendor or a typed name and needs its photo (`rules.header_problem`); its `lines` are
-    Secured PO/WO lines naming the Vendor's POs and Work Orders, zero or more. The `validate` controller
+    Secured PO/WO lines naming the Vendor's POs, zero or more (never a Work Order, spec #1514). The `validate` controller
     refuses any other line kind on it (`rules.line_kind_problem`): it pays nothing, so no payment is linked,
     nothing waits for approval and the bank import never matches it. Never commits.
     """

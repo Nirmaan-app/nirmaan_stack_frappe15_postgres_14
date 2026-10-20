@@ -3,8 +3,6 @@ import { describe, expect, it } from "vitest";
 import type { ChequeDetail } from "@/components/cheques/useChequeDetail";
 
 import {
-    alsoSecures,
-    depositCardFilters,
     depositFigures,
     depositFormFromDetail,
     depositPrefill,
@@ -18,7 +16,7 @@ import {
 
 const TODAY = "2026-10-16";
 const PO = { record_doctype: "Procurement Orders", record_name: "PO/301/00012/26-27", project: "PROJ-1" };
-const WO = { record_doctype: "Service Requests", record_name: "SR/301/00004/26-27", project: "PROJ-1" };
+const PO2 = { record_doctype: "Procurement Orders", record_name: "PO/301/00019/26-27", project: "PROJ-1" };
 
 const valid = (overrides: Partial<DepositFormInput> = {}): DepositFormInput => ({
     ...emptyDepositForm(TODAY),
@@ -63,7 +61,7 @@ describe("the Security Deposit cheque form", () => {
 
     it("lets a typed payee secure nothing", () => {
         expect(problems(valid({ payee_kind: "typed", vendor: "", payee_name: "Kavitha", secures: [PO] }))).toEqual({
-            secures: "A cheque made out to a typed payee names no PO or Work Order.",
+            secures: "A cheque made out to a typed payee names no PO.",
         });
     });
 
@@ -74,7 +72,7 @@ describe("the Security Deposit cheque form", () => {
 
 describe("saveDepositArgs", () => {
     it("sends a Security Deposit cheque, its issue date and one Secured PO/WO line per record", () => {
-        const values = makeDepositFormSchema({ photoRequired: true, today: TODAY }).parse(valid({ secures: [PO, WO] }));
+        const values = makeDepositFormSchema({ photoRequired: true, today: TODAY }).parse(valid({ secures: [PO, PO2] }));
         expect(saveDepositArgs(values)).toEqual({
             cheque_type: "Security Deposit",
             issue_date: TODAY,
@@ -86,7 +84,7 @@ describe("saveDepositArgs", () => {
             attachment: "/private/files/sd.jpg",
             lines: [
                 { line_type: "Secured PO/WO", record_doctype: "Procurement Orders", record_name: "PO/301/00012/26-27", project: "PROJ-1" },
-                { line_type: "Secured PO/WO", record_doctype: "Service Requests", record_name: "SR/301/00004/26-27", project: "PROJ-1" },
+                { line_type: "Secured PO/WO", record_doctype: "Procurement Orders", record_name: "PO/301/00019/26-27", project: "PROJ-1" },
             ],
         });
     });
@@ -103,15 +101,15 @@ describe("saveDepositArgs", () => {
     });
 });
 
-describe("a deposit added from a PO or Work Order page", () => {
-    it("is made out to its Vendor and names that record", () => {
+describe("a deposit added from a PO page", () => {
+    it("is made out to its Vendor and names that PO", () => {
         const form = depositPrefill(
-            { doctype: "Service Requests", name: "SR/301/00004/26-27", project: "PROJ-1", vendor: "VEN-1" },
+            { doctype: "Procurement Orders", name: "PO/301/00012/26-27", project: "PROJ-1", vendor: "VEN-1" },
             TODAY,
         );
         expect(form.vendor).toBe("VEN-1");
         expect(form.payee_kind).toBe("vendor");
-        expect(form.secures).toEqual([WO]);
+        expect(form.secures).toEqual([PO]);
         expect(form.issue_date).toBe(TODAY);
     });
 });
@@ -138,29 +136,13 @@ describe("what a deposit secures, as the tab and the PO card show it", () => {
         expect(securedLabel("Procurement Orders", "PO/301/00012/26-27")).toBe("PO/301/00012/26-27");
     });
 
-    it("lists the records a card's deposit also secures, beside the page's own", () => {
-        const lines = [
-            { line_type: "Secured PO/WO" as const, ...PO, amount: 0 },
-            { line_type: "Secured PO/WO" as const, ...WO, amount: 0 },
-        ];
-        expect(alsoSecures(lines, PO.record_name)).toEqual(["SR/301/00004/26-27 (Work Order)"]);
-        expect(alsoSecures(lines.slice(0, 1), PO.record_name)).toEqual([]);
-    });
-
-    it("asks the list for the deposit cheques that name the page's record", () => {
-        expect(depositCardFilters("PO/301/00012/26-27")).toEqual([
-            ["cheque_type", "=", "Security Deposit"],
-            ["record_name", "=", "PO/301/00012/26-27"],
-        ]);
-    });
-
     it("offers in the picker only the records not already secured", () => {
         const records = [
             { doctype: "Procurement Orders" as const, name: PO.record_name, project: "PROJ-1", project_name: "Sarjapur", status: "Delivered" },
-            { doctype: "Service Requests" as const, name: WO.record_name, project: "PROJ-1", project_name: "Sarjapur", status: "Approved" },
+            { doctype: "Procurement Orders" as const, name: PO2.record_name, project: "PROJ-1", project_name: "Sarjapur", status: "Dispatched" },
         ];
-        expect(securableOptions(records, [PO]).map((o) => o.value)).toEqual([`Service Requests|${WO.record_name}`]);
-        expect(securableOptions(records, [])[1].label).toBe("SR/301/00004/26-27 (Work Order) · Sarjapur");
+        expect(securableOptions(records, [PO]).map((o) => o.value)).toEqual([`Procurement Orders|${PO2.record_name}`]);
+        expect(securableOptions(records, [])[1].label).toBe("PO/301/00019/26-27 · Sarjapur");
     });
 });
 
