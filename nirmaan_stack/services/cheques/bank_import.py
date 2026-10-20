@@ -10,8 +10,8 @@ one within ₹5 of the line's amount (`bank_import_rules.pick_bank_cheque`) is c
 (`status.clear`, the only way a cheque is cleared), on the line's date, in one savepoint per line:
 
 * Issued: cleared, every payment Paid and linked to the line (one bank-match row each);
-* Old-type and Issued: every line's record (payment or expense) settled for the line's amount, one
-  bank-match row per line;
+* Old-type and Issued: every line paid in full, each record (payment or expense) not yet Paid settled
+  for the line's amount, one bank-match row per line; a record already Paid is left as it is;
 * Pending: the import approves the payments first (approval date = the line's date, history
   `bank_import_rules.BANK_APPROVAL_NOTE`), then as Issued;
 * Cancelled: Rejected -> Paid, history `bank_import_rules.BANK_REVIVAL_NOTE`, and the review names any payment on its

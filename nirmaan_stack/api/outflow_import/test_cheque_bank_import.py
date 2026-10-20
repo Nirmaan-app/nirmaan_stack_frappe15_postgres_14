@@ -268,6 +268,82 @@ class TestALineClearsAnOldTypeCheque(ChequeImportCase):
         )
         self.assertEqual(self._history(cheque)[-1][:2], ("Issued", "Cleared"))
 
+    def _paid_earlier(self, amount):
+        """A payment on the cheque already marked Paid ten days ago, as the old rules let one be."""
+        name = self._payment(amount, "Paid")
+        frappe.db.set_value(PAYMENT, name, "payment_date", add_days(self.day, -10), update_modified=False)
+        frappe.db.commit()
+        return name
+
+    def _left_at_approved(self, payment):
+        """Raw back to Approved after the fixture moved it on: what a move to Reconciliation Pending that
+        failed leaves (`cheque_payments.move_to_reconciliation`)."""
+        frappe.db.set_value(PAYMENT, payment, "status", "Approved", update_modified=False)
+        frappe.db.commit()
+
+    def test_an_approved_payment_is_paid_and_a_paid_one_is_left_as_it_is(self):
+        number = self._number()
+        approved, paid = self._payment(30000, RP), self._paid_earlier(15000)
+        expense = self._waiting_expense(5000)
+        cheque = self._old_type(number, 50000, [(approved, 30000), (paid, 15000)], [(expense, 5000)])
+        self._left_at_approved(approved)
+
+        (row,) = self._import((number, 50000))
+
+        self.assertEqual(self._statuses(approved, paid), ["Paid", "Paid"])
+        self.assertEqual(self._payment_dates(approved, paid), [self.day, add_days(self.day, -10)])
+        self.assertEqual(frappe.db.get_value(NPE, expense, "status"), "Paid")
+        legs = frappe.get_all(MATCH, filters={"import_row": row, "match_kind": "Settled"},
+                              fields=["target_doctype", "target_name", "target_amount"])
+        # The Paid payment had no bank line yet: this one is its first.
+        self.assertEqual(
+            sorted((m.target_doctype, m.target_name, flt(m.target_amount)) for m in legs),
+            sorted([(PAYMENT, approved, 30000.0), (PAYMENT, paid, 15000.0), (NPE, expense, 5000.0)]),
+        )
+        self.assertEqual(self._line(row).row_status, "Settled")
+        self.assertEqual(self._state(cheque).status, "Cleared")
+
+    def test_a_paid_expense_is_left_as_it_is(self):
+        number = self._number()
+        a, expense = self._payment(30000, RP), self._waiting_expense(5000)
+        frappe.db.set_value(NPE, expense, "status", "Paid", update_modified=False)
+        frappe.db.commit()
+        cheque = self._old_type(number, 35000, [(a, 30000)], [(expense, 5000)])
+
+        (row,) = self._import((number, 35000))
+
+        self.assertEqual(self._statuses(a), ["Paid"])
+        paid = frappe.db.get_value(NPE, expense, ["status", "payment_date"], as_dict=True)
+        self.assertEqual((paid.status, paid.payment_date), ("Paid", None))
+        self.assertEqual(self._legs(row), sorted([(a, "cheque number"), (expense, "cheque number")]))
+        self.assertEqual(self._line(row).row_status, "Settled")
+        self.assertEqual(self._state(cheque).status, "Cleared")
+
+    def test_a_paid_payment_another_bank_line_settled_gets_no_second_match(self):
+        number = self._number()
+        approved, paid = self._payment(30000, RP), self._paid_earlier(20000)
+        other = self._bank_line(reference_id="UTR-ELSEWHERE", amount=20000)
+        frappe.db.sql(
+            """INSERT INTO "tabOutflow Row Match" (name, creation, modified, modified_by, owner, docstatus, idx,
+                   import_row, import_batch, transfer_id, target_doctype, target_name, target_amount, match_kind,
+                   match_basis)
+               SELECT %s, NOW(), NOW(), %s, %s, 0, 0, name, import_batch, transfer_id, %s, %s, 20000, 'Settled',
+                      'Manual'
+               FROM "tabOutflow Import Row" WHERE name = %s""",
+            (frappe.generate_hash(length=12), U, U, PAYMENT, paid, other),
+        )
+        frappe.db.commit()
+        cheque = self._old_type(number, 50000, [(approved, 30000), (paid, 20000)])
+        self._left_at_approved(approved)
+
+        (row,) = self._import((number, 50000))
+
+        self.assertEqual(self._statuses(approved, paid), ["Paid", "Paid"])
+        self.assertEqual(self._legs(row), [(approved, "cheque number")])
+        # 20,000 of the line stays unexplained: the bank paid that payment twice.
+        self.assertEqual(self._line(row).row_status, "Partially Allocated")
+        self.assertEqual(self._state(cheque).status, "Cleared")
+
 
 class TestALineThatClearsNothing(ChequeImportCase):
     def test_the_number_with_another_amount_settles_nothing_and_shows_the_hint(self):

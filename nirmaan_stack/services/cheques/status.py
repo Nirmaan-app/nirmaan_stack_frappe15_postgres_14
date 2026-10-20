@@ -28,9 +28,11 @@ hand before #1516 gets a later bank line through `link_bank_line` (spec story 48
 nothing paid again. A Cleared cheque has no undo: the import's Unreconcile refuses its payments
 (`cleared_cheque_of`).
 
-**Old-type cheques** (#1478) are cleared by their bank line too, from Issued only (#1516): every record a
-line names (a Project Payment or an expense) is settled for that line's amount, with one match record per
-line, and the lines must add up to the line (`clear_rules.old_type_lines_problem`).
+**Old-type cheques** (#1478) are cleared by their bank line too, from Issued only (#1516): every line is
+paid in full. Each record a line names (a Project Payment or an expense) that is not yet Paid is settled
+for that line's amount, an Approved payment first moved on to Reconciliation Pending; one already Paid is
+left as it is. Each line gets one match record, except a Paid record another bank line already matches.
+The lines must add up to the line (`clear_rules.old_type_lines_problem`).
 
 **Cancel** (#1484). `cancel` is THE reject cascade (`decide.reject_cheque`) behind a note: every payment
 on the cheque Rejected with the note as their reason, the cheque Cancelled. Refused once Cleared.
@@ -82,9 +84,11 @@ from nirmaan_stack.services.cheques.rules import (
     rupees,
 )
 from nirmaan_stack.services.cheques.writer import CHEQUES, CHEQUES_CHANGED_EVENT, history_row
+from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.amounts import amounts_match
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.row_settlement import (
+    MATCH_DOCTYPE,
     record_settlement,
     refresh_batch_rollup,
     refresh_row_allocation,
@@ -167,6 +171,13 @@ def clear(cheque: str, *, bank_line: str | None, user: str) -> dict:
                        day=day, user=user, bank_line=bank_line)
         doc = frappe.get_doc(CHEQUES, cheque, for_update=True)
         rows = lock_payments(payments)
+    elif old_type:
+        # Every line is paid in full: an Approved payment moves on to Reconciliation Pending, as its approval
+        # would have taken it, and is paid below. A Paid one is left as it is.
+        approved = [p for p in payments if rows[p].status == STATUS_APPROVED]
+        if approved:
+            _bring_forward(doc, approved, day=day, user=user, bank_line=bank_line)
+            rows = lock_payments(payments)
 
     to_pay = [p for p in payments if rows[p].status == STATUS_RECONCILIATION_PENDING]
     statement_file_url = frappe.db.get_value(BANK_BATCH_DOCTYPE, line.import_batch, "source_file") or None
@@ -177,7 +188,7 @@ def clear(cheque: str, *, bank_line: str | None, user: str) -> dict:
     # watches Approved -> Paid; recomputed from source once per vendor, as the import's settle does.
     recompute_vendor_credit([r.document_name for r in paid if r.document_type == PO_DOCTYPE], SETTLED_ENTRY_TYPE)
     if old_type:
-        _settle_old_type(doc, line, statement_file_url=statement_file_url, user=user)
+        _settle_old_type(doc, line, paid=set(to_pay), statement_file_url=statement_file_url, user=user)
     else:
         _record_bank_line(line, [_leg(pay) for pay in paid], user)
 
@@ -212,16 +223,26 @@ def _old_type_lines(doc, rows) -> list[OldTypeLine]:
     ]
 
 
-def _settle_old_type(doc, line, *, statement_file_url: str | None, user: str) -> None:
+def _settle_old_type(doc, line, *, paid: set[str], statement_file_url: str | None, user: str) -> None:
     """Settle every record Old-type cheque `doc`'s lines name for its line's amount, one match record per
-    line (#1516). Its payments are already Paid (`clear`'s pay loop); an expense is linked to the bank line
-    through the import's own expense settle (`settle.link_lines_to_expense`), as if the line's amount were
-    the bank line's, so it is checked, dated and made Paid exactly as a linked expense is."""
+    line (#1516). The payments in `paid` were just paid (`clear`'s pay loop); an expense is linked to the
+    bank line through the import's own expense settle (`settle.link_lines_to_expense`), as if the line's
+    amount were the bank line's, so it is checked, dated and made Paid exactly as a linked expense is.
+
+    A record Paid before the clear is left as it is. It gets the line's match record only when no bank line
+    matches it yet: a second would count the same money twice, and the bank line then shows the gap."""
     legs = []
     for row in doc.get("lines") or []:
+        leg = SettleResult(doctype=row.payment_doctype, name=row.payment_name, amount=normalize_amount(row.amount),
+                           created=False, original_amount=normalize_amount(row.amount))
         if row.payment_doctype == PAYMENT_DOCTYPE:
-            legs.append(SettleResult(doctype=PAYMENT_DOCTYPE, name=row.payment_name, amount=normalize_amount(row.amount),
-                                     created=False, original_amount=normalize_amount(row.amount)))
+            # Every payment is Paid by now: by the pay loop (`paid`), or before the clear.
+            if row.payment_name in paid or not _bank_matched(PAYMENT_DOCTYPE, row.payment_name):
+                legs.append(leg)
+            continue
+        if _status_of(row) == STATUS_PAID:
+            if not _bank_matched(row.payment_doctype, row.payment_name):
+                legs.append(leg)
             continue
         # The line's share of the bank line; every other field is the bank line's.
         share = frappe._dict({**line, "amount": flt(row.amount)})
@@ -232,6 +253,16 @@ def _settle_old_type(doc, line, *, statement_file_url: str | None, user: str) ->
     _record_bank_line(line, legs, user)
 
 
+def _status_of(row) -> str:
+    return (frappe.db.get_value(row.payment_doctype, row.payment_name, "status") or "").strip()
+
+
+def _bank_matched(doctype: str, name: str) -> bool:
+    """Does a bank line already settle record `name` (a live match record)?"""
+    return bool(frappe.db.exists(MATCH_DOCTYPE, {"target_doctype": doctype, "target_name": name,
+                                                 "match_kind": MATCH_SETTLED}))
+
+
 def _leg(pay) -> SettleResult:
     """The match record of a payment the line paid in full."""
     amount = normalize_amount(pay.amount)
@@ -239,9 +270,10 @@ def _leg(pay) -> SettleResult:
 
 
 def _bring_forward(doc, payments: list[str], *, day: str, user: str, bank_line: str | None) -> None:
-    """Bring each of `payments` (on bank-cleared cheque `doc`, Pending or Cancelled) to Reconciliation
-    Pending, as an approval followed by the move would (`cheque_payments.move_to_reconciliation`): each is
-    saved Approved, its TDS recorded if it owes any, then saved Reconciliation Pending. A Pending cheque's
+    """Bring each of `payments` (on bank-cleared cheque `doc`: Pending, Cancelled, or an Old-type cheque's
+    Approved payments) to Reconciliation Pending, as an approval followed by the move would
+    (`cheque_payments.move_to_reconciliation`): each is saved Approved, its TDS recorded if it owes any (for
+    one already Approved, the move's retry), then saved Reconciliation Pending. A Pending cheque's
     payments are approved by the bank import, dated `day` (the line's date: L1 for one waiting at
     Requested, CEO for one at CEO Pending), and the cheque is then Issued with the history note
     `BANK_APPROVAL_NOTE`; a Cancelled cheque's Rejected payments are revived, each with a comment.
@@ -259,14 +291,14 @@ def _bring_forward(doc, payments: list[str], *, day: str, user: str, bank_line: 
                 pay.approval_date = day
             elif was == STATUS_CEO_PENDING:
                 pay.ceo_approval_date = day
-        for status in (STATUS_APPROVED, STATUS_RECONCILIATION_PENDING):
-            if (pay.status or "").strip() == status:
-                continue
-            pay.status = status
+        if was != STATUS_APPROVED:
+            pay.status = STATUS_APPROVED
             _save_for_the_bank(pay, doc.name)
-            if status == STATUS_APPROVED and payment_tds.is_deductible(pay):
-                payment_tds.record_deduction(pay)
-                pay.reload()
+        if payment_tds.is_deductible(pay):
+            payment_tds.record_deduction(pay)
+            pay.reload()
+        pay.status = STATUS_RECONCILIATION_PENDING
+        _save_for_the_bank(pay, doc.name)
         if was == PAYMENT_REJECTED:
             line = f", bank line {bank_line}" if bank_line else ""
             pay.add_comment("Comment", text=_("Revived by the bank import: cheque {0} was cancelled, but the bank "

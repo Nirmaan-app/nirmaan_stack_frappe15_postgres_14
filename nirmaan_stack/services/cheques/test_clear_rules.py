@@ -80,6 +80,19 @@ class TestClear(unittest.TestCase):
             "it is Cancelled: an Old-type cheque is cleared only while Issued",
         )
 
+    def test_an_old_type_cheque_s_approved_and_paid_payments_do_not_hold_it(self):
+        # Every line is paid in full: an Approved one is paid, a Paid one is left as it is.
+        self.assertIsNone(self.problem(payments=[("PAY-1", "Approved"), ("PAY-2", "Paid"), ("PAY-3", RP)],
+                                       old_type=True))
+
+    def test_an_old_type_cheque_with_a_payment_waiting_for_approval_or_rejected_is_refused(self):
+        for status in ("Requested", "CEO Pending", "Rejected", ""):
+            self.assertEqual(
+                self.problem(payments=[("PAY-1", RP), ("PAY-2", status)], old_type=True),
+                f"payment PAY-2 is {status or 'blank'}",
+                status,
+            )
+
 
 def _old(idx=1, doctype="Project Payments", name="PAY-1", amount=30000.0, record_amount=30000.0):
     return clear_rules.OldTypeLine(idx=idx, doctype=doctype, name=name, amount=amount, record_amount=record_amount)

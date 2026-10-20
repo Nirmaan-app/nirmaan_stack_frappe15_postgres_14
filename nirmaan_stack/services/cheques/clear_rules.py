@@ -29,6 +29,7 @@ from nirmaan_stack.services.cheques.rules import (
     rupees,
 )
 from nirmaan_stack.services.settlement import (
+    STATUS_APPROVED,
     STATUS_PAID,
     STATUS_RECONCILIATION_PENDING,
 )
@@ -40,6 +41,9 @@ from nirmaan_stack.services.settlement import (
 CLEARABLE_FROM = (ISSUED, PENDING, CANCELLED)
 #: The starts the bank import brings to Reconciliation Pending itself before it pays (`status.clear`).
 BANK_BRINGS_FORWARD = (PENDING, CANCELLED)
+#: The payment statuses an Old-type cheque's clear takes: Approved and Reconciliation Pending ones are paid,
+#: a Paid one is left as it is (`status.clear`).
+OLD_TYPE_PAYMENT_STATUSES = (STATUS_APPROVED, STATUS_RECONCILIATION_PENDING, STATUS_PAID)
 #: The bank-statement source whose lines clear cheques, and the direction that spends money
 #: (`outflow_import/sources.BANK_STATEMENT_SOURCES`, `outflow_import/parser.DIRECTION_DEBIT`).
 ICICI_STATEMENT_SOURCE = "ICICI Bank Statement"
@@ -62,8 +66,13 @@ def clear_problem(
     `(payment, status)` for every Project Payment its lines name. Clearing pays them, so each must be
     waiting for the bank (Reconciliation Pending); one already Paid refuses, since the line would pay it
     twice. Starting from Pending or Cancelled (`BANK_BRINGS_FORWARD`) the import takes any unpaid payment:
-    it approves or revives it first. An Old-type cheque is cleared from Issued only: its old status says
-    nothing about its payments (#1478), so the import neither approves nor revives them.
+    it approves or revives it first.
+
+    An Old-type cheque is cleared from Issued only, with every line paid in full (ADR-0035 Amendment A):
+    its payments may be Approved or Reconciliation Pending (paid by the clear) or already Paid (left as
+    they are), never waiting for approval or Rejected. Its old status says nothing about its payments
+    (#1478), so the import neither approves nor revives them; it is never Approval Pending, and a
+    Cancelled one was torn up under rules that left its payments as they were.
     """
     if cheque_type != CHEQUE_TYPE_PAYMENT:
         return "a Security Deposit cheque is never cashed"
@@ -71,8 +80,14 @@ def clear_problem(
         return "only a bank-statement line with its number and amount clears a cheque"
     if status == CLEARED:
         return "already Cleared"
-    if old_type and status != ISSUED:
-        return f"it is {status}: an Old-type cheque is cleared only while Issued"
+    if old_type:
+        if status != ISSUED:
+            return f"it is {status}: an Old-type cheque is cleared only while Issued"
+        for name, payment_status in payments:
+            payment_status = (payment_status or "").strip()
+            if payment_status not in OLD_TYPE_PAYMENT_STATUSES:
+                return f"payment {name} is {payment_status or 'blank'}"
+        return None
     if status not in CLEARABLE_FROM:
         return f"it is {status}"
     for name, payment_status in payments:
