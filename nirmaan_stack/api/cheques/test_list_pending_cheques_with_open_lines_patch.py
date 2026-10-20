@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The one-time patch that lists the Pending Payment cheques left with a line naming no payment (#1517,
+"""The one-time patch that lists the Approval Pending Payment cheques left with a line naming no payment (#1517,
 spec #1514).
 
 Drives the patch's entry function (`stuck_cheques`) on planted cheques only, the way `execute` runs it over
@@ -84,7 +84,7 @@ class TestListPendingChequesWithOpenLinesPatch(FrappeTestCase):
         printed = summary(found)
         self.assertIn("1 ", printed[0])
         self.assertIn("cancel each one and raise its payment again from the PO", printed[0])
-        self.assertIn(f"{stuck} (cheque {stuck_cheque_no}", printed[1])
+        self.assertIn(f"{stuck} (cheque {stuck_cheque_no}, {self.vendor}, ₹20,000)", printed[1])
         self.assertIn(f"no payment yet on {self.other_po}", printed[1])
 
         self.assertEqual(self._state(planted, [pay, other]), before, "the patch changed nothing")

@@ -1,7 +1,8 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""List the Pending Payment cheques that can no longer be approved (#1517, spec #1514, ADR-0035 Amendment A).
+"""List the Approval Pending Payment cheques that can no longer be approved (#1517, spec #1514, ADR-0035
+Amendment A).
 
 WHY THIS PATCH EXISTS
     A Payment cheque's payments are approved only once every line names its payment (`approval_rules`).
@@ -10,11 +11,12 @@ WHY THIS PATCH EXISTS
     cancelled, and its payment raised again from the PO in Cheque mode.
 
 WHAT IT DOES
-    Prints each Pending Payment cheque with a PO/WO Payment line that names no payment: its number, Vendor,
-    amount and the records of its open lines, so Accounts can cancel them. It changes nothing.
+    Prints each Approval Pending Payment cheque with a PO/WO Payment line that names no payment: its number,
+    Vendor, amount and the records of its open lines, so Accounts can cancel them.
 
-IDEMPOTENT
-    It writes nothing, so every run prints what is still stuck.
+IT CHANGES NOTHING
+    It only reads. Frappe runs a patch once per site, so the list is printed once, at the migrate that
+    brings it in.
 
 ORDER
     Its `patches.txt` line sits under [post_model_sync], after the patch that renames Pending (#1515), so it
@@ -23,7 +25,7 @@ ORDER
 
 import frappe
 
-from nirmaan_stack.services.cheques.rules import CHEQUE_TYPE_PAYMENT, LINE_PO_WO_PAYMENT, PENDING
+from nirmaan_stack.services.cheques.rules import CHEQUE_TYPE_PAYMENT, LINE_PO_WO_PAYMENT, PENDING, rupees
 from nirmaan_stack.services.cheques.writer import CHEQUES
 
 PATCH = "list_pending_cheques_with_open_lines"
@@ -36,7 +38,7 @@ def execute():
 
 
 def stuck_cheques(cheques: list[str] | None = None) -> list[dict]:
-    """Every Pending Payment cheque with a PO/WO Payment line that names no payment -- or only those among
+    """Every Approval Pending Payment cheque with a PO/WO Payment line that names no payment -- or only those among
     `cheques`, which is what the tests pass so they never read a cheque they did not plant. Reads only.
 
     Returns `[{cheque, cheque_no, vendor, amount, open_records: [record_name]}]`, by cheque name; each open
@@ -77,7 +79,7 @@ def summary(stuck: list[dict]) -> list[str]:
     ]
     for c in stuck:
         lines.append(
-            f"{c['cheque']} (cheque {c['cheque_no']}, {c['vendor']}, amount {c['amount']}): no payment yet on "
+            f"{c['cheque']} (cheque {c['cheque_no']}, {c['vendor']}, {rupees(c['amount'])}): no payment yet on "
             f"{', '.join(c['open_records'])}"
         )
     return lines

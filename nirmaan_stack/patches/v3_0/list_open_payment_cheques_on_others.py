@@ -16,7 +16,8 @@ WHAT IT DOES
     and may stay on any bank.
 
 IT CHANGES NOTHING
-    It only reads. A second run prints the same list, less any cheque cancelled since.
+    It only reads. Frappe runs a patch once per site, so the list is printed once, at the migrate that
+    brings it in.
 
 Counts: check them on a fresh production copy before release.
 """
