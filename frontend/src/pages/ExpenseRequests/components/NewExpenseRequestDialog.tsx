@@ -32,6 +32,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFrappeFileUpload, useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
+import { useNavigate } from "react-router-dom";
 import { TailSpin } from "react-loader-spinner";
 
 import {
@@ -47,6 +48,7 @@ import {
     FuzzySearchSelect, FuzzyOptionType, TokenSearchConfig,
 } from "@/components/ui/fuzzy-search-select";
 import { useToast } from "@/components/ui/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import ProjectSelect from "@/components/custom-select/project-select";
 import VendorSelect, { OTHERS_VENDOR_VALUE } from "@/components/custom-select/vendor-select";
 
@@ -60,7 +62,7 @@ import {
 } from "@/utils/payees/expensePayee";
 import { payToSave } from "@/utils/payees/payToChoice";
 
-import { invoiceNotes, newExpenseFields, newExpenseSubmit, whoApprovesNext } from "@/utils/newExpenseForm";
+import { invoiceNotes, newExpenseFields, newExpenseSubmit, whatHappensNext } from "@/utils/newExpenseForm";
 import { raiserLevelOf } from "@/utils/approvalTiers";
 import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
 import { useDialogStore } from "@/zustand/useDialogStore";
@@ -133,28 +135,13 @@ const EMPTY: FormState = {
     expense_type: "", projects: "", vendor: "", amount: "", description: "", comment: "",
 };
 
-/** What the toast says once the request is saved. An Expense approved on submit (#1498) comes back
- *  with its status, so the toast says where it now waits. */
-const submittedToast = (
-    isEdit: boolean,
-    created: SaveExpenseRequestResponse | undefined,
-    amount: number,
-): { title: string; description: string } => {
-    if (isEdit) return { title: "Changes saved", description: `${created?.name} is saved.` };
-    if (!created?.created_expense) {
-        return { title: "Sent for review", description: `${created?.name} waits for a reviewer.` };
-    }
-    return {
-        title: "Expense recorded",
-        description: `${created.name}: ${whoApprovesNext(created.expense_status, amount)}`,
-    };
-};
 
 export const NewExpenseRequestDialog: React.FC<Props> = ({
     onSuccess, editing = null, onEditingChange,
 }) => {
     const { newExpenseRequestDialog, setNewExpenseRequestDialog } = useDialogStore();
     const { toast } = useToast();
+    const navigate = useNavigate();
     const { full_name, user_id, role } = useUserData();
 
     const [form, setForm] = useState<FormState>(EMPTY);
@@ -524,12 +511,30 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
             const created = res?.message;
             // The server's own invoice warnings: a submit is never refused for them.
             const warnings = created?.warnings ?? [];
-            const said = submittedToast(isEdit, created, amountValue);
-            toast({
-                title: said.title,
-                description: [said.description, ...warnings].join(" "),
-                variant: "success",
-            });
+            if (isEdit) {
+                toast({
+                    title: "Changes saved",
+                    description: [`${created?.name} is saved.`, ...warnings].join(" "),
+                    variant: "success",
+                });
+            } else if (created) {
+                // What happens next (`whatHappensNext`): the same message on every page that opens this
+                // dialog. The Toaster sits outside the router, so the link navigates from here.
+                const said = whatHappensNext(created);
+                const requestPath = said.requestPath;
+                toast({
+                    title: said.title,
+                    description: [`${created.name}: ${said.next}`, ...warnings].join(" "),
+                    variant: "success",
+                    ...(requestPath ? {
+                        action: (
+                            <ToastAction altText="Open the request" onClick={() => navigate(requestPath)}>
+                                Open request
+                            </ToastAction>
+                        ),
+                    } : {}),
+                });
+            }
             close();
             onSuccess?.();
         } catch (e) {
@@ -550,7 +555,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         }
     }, [canSubmit, createRequest, updateRequest, isEdit, editing, upload, files, form,
         amountValue, showProject, showVendor, isStandard, invoice,
-        parsedFormat, answers, toast, close, onSuccess,
+        parsedFormat, answers, toast, navigate, close, onSuccess,
         asksPayee, vendorChosen, payeeChoice.resolve]);
 
     return (
