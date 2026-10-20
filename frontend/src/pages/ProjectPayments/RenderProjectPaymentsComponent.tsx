@@ -70,13 +70,13 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
     }, []);
 
     // ── + New Expense (spec #1494): the Expenses page's dialog, opened by the header button under the
-    // same gate (`offersNewExpense`, the server's `can_raise`). After a submit the open tab's table
-    // refetches its rows (`refreshKey`, kept mounted so its filters and page stay), so any Expense the
-    // submit created shows at once, and the badges refetch.
+    // same gate (`offersNewExpense`, the server's `can_raise`). The submit handler refetches the open
+    // tab's rows (the tab publishes its refetch here, `usePublishRefetch`; it stays mounted, so its
+    // filters and page stay), so any Expense the submit created shows at once, and the badges refetch.
     const { access: expenseAccess } = useExpenseAccess();
-    const [listsVersion, setListsVersion] = useState(0);
+    const listRefetchRef = useRef<(() => void) | null>(null);
     const refreshLists = useCallback(() => {
-        setListsVersion((v) => v + 1);
+        listRefetchRef.current?.();
         mutateQueueCounts();
     }, [mutateQueueCounts]);
 
@@ -229,7 +229,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                 {
                     tab === PP_TABS.APPROVE_PAYMENTS ? (
                         canApprovePayments ? (
-                            <ApprovePayments refreshKey={listsVersion} />
+                            <ApprovePayments refetchRef={listRefetchRef} />
                         ) : (
                             // Reachable only via a hand-edited / bookmarked `?tab=Approve Payments`
                             // URL -- the tab button is not rendered for these roles.
@@ -241,7 +241,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                             </Alert>
                         )
                     ) : tab === PP_TABS.CEO_PENDING ? (
-                        <ApprovePayments mode="ceo" readOnly={!isCEO} refreshKey={listsVersion} />
+                        <ApprovePayments mode="ceo" readOnly={!isCEO} refetchRef={listRefetchRef} />
                     ) : ((tab === PP_TABS.NEW_PAYMENTS && !canSettlePayments) || (tab === PP_TABS.RECONCILIATION_PENDING && !canViewReconciliation)) ? (
                         // Reachable only via a hand-edited / bookmarked `?tab=` URL -- the tab
                         // buttons are not rendered for these roles (PMO removed 2026-09-17).
@@ -257,13 +257,13 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
 
                         [PP_TABS.NEW_PAYMENTS].includes(tab as any) ?
                             (
-                                <AccountantTabs refreshKey={listsVersion} />
+                                <AccountantTabs refetchRef={listRefetchRef} />
                             ) : [PP_TABS.PAYMENTS_PENDING, PP_TABS.PAYMENTS_DONE, PP_TABS.ALL_PAYMENTS, PP_TABS.RECONCILIATION_PENDING, PP_TABS.PAYMENT_BY_ME].includes(tab as any) ? (
                                 <>
                                     {tab === PP_TABS.RECONCILIATION_PENDING && (
                                         <ChequeTrackerNote role={role} waiting={queueCounts?.message?.cheque_tracker} />
                                     )}
-                                    <AllPayments tab={tab} refreshKey={listsVersion} />
+                                    <AllPayments tab={tab} refetchRef={listRefetchRef} />
                                 </>
                             )
                                 : (

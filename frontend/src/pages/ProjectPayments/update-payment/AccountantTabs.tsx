@@ -24,7 +24,7 @@ import { useExpenseDecision, useExpenseEditAccess } from "@/hooks/useExpenseDeci
 import { isExpenseDoctype } from "@/utils/expenses/expenseDecision";
 import { GstPaymentTag } from "../components/GstPaymentTag";
 import { useServerDataTable } from '@/hooks/useServerDataTable';
-import { useRefetchOnChange } from '@/hooks/useRefetchOnChange';
+import { usePublishRefetch, type RefetchRef } from '@/hooks/usePublishRefetch';
 import {
     APPROVAL_QUEUE_API,
     APPROVAL_FETCH_FIELDS,
@@ -89,8 +89,9 @@ const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
 
 interface AccountantTabsProps {
     tab?: string; // "New Payments" or "Fulfilled Payments"
-    /** Changes when the page's lists changed (a New Expense submit): refetch the rows, keep the filters. */
-    refreshKey?: number;
+    /** Where this tab publishes its refetch, which the page calls when its lists changed (a New Expense
+     *  submit): the rows refresh, the filters stay (`usePublishRefetch`). */
+    refetchRef?: RefetchRef;
 }
 
 interface SelectOption { label: string; value: string; }
@@ -102,7 +103,7 @@ interface SelectOption { label: string; value: string; }
  */
 const ICICI_DEBIT_ACCOUNT = "093705003327";
 
-export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payments", refreshKey }) => {
+export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payments", refetchRef }) => {
     const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
     const { role, user_id } = useUserData();
@@ -383,7 +384,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         enableRowSelection: canPaymentRowBeSelected,
         additionalFilters: staticFilters,
     });
-    useRefetchOnChange(refreshKey, refetch);
+    usePublishRefetch(refetchRef, refetch);
 
     // Type / Vendor / Project / Raised by facets, counted over the same union the table reads,
     // under the table's live column filters and search -- hence AFTER the table hook.

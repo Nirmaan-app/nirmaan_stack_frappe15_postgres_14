@@ -43,7 +43,7 @@ import { canViewPaymentSummary } from "@/constants/roles";
 // --- Hooks & Utils ---
 import { Row } from "@tanstack/react-table";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
-import { useRefetchOnChange } from "@/hooks/useRefetchOnChange";
+import { usePublishRefetch, type RefetchRef } from "@/hooks/usePublishRefetch";
 import { PP_TABS } from "../config/ppTabs.constants";
 import {
   APPROVAL_QUEUE_API,
@@ -114,11 +114,12 @@ interface ApprovePaymentsProps {
    *                   ceo_approval_date). Reject sets status = "Rejected" via PATCH.
    */
   mode?: ApprovePaymentsMode;
-  /** Changes when the page's lists changed (a New Expense submit): refetch the rows, keep the filters. */
-  refreshKey?: number;
+  /** Where this tab publishes its refetch, which the page calls when its lists changed (a New Expense
+   *  submit): the rows refresh, the filters stay (`usePublishRefetch`). */
+  refetchRef?: RefetchRef;
 }
 
-export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = false, mode = "lead", refreshKey }) => {
+export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = false, mode = "lead", refetchRef }) => {
   const isCEOMode = mode === "ceo";
   const { toast } = useToast();
   const { db } = useContext(FrappeContext) as FrappeConfig;
@@ -575,7 +576,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     // and every mutate() in the hook is commented out.)
     useFrappeDocTypeEventListener("Project Expenses", () => refetch());
     useFrappeDocTypeEventListener("Non Project Expenses", () => refetch());
-    useRefetchOnChange(refreshKey, refetch);
+    usePublishRefetch(refetchRef, refetch);
 
   // --- Update Logic ---
   const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();

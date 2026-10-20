@@ -12,7 +12,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
-import { useRefetchOnChange } from '@/hooks/useRefetchOnChange';
+import { usePublishRefetch, type RefetchRef } from '@/hooks/usePublishRefetch';
 import {
     APPROVAL_QUEUE_API,
     APPROVAL_FETCH_FIELDS,
@@ -77,8 +77,9 @@ interface AllPaymentsProps {
     // Additional prop to distinguish URL state contexts if this component is used multiple times
     // on the same page with different projectId/customerId props.
     contextKey?: string;
-    /** Changes when the page's lists changed (a New Expense submit): refetch the rows, keep the filters. */
-    refreshKey?: number;
+    /** Where this tab publishes its refetch, which the page calls when its lists changed (a New Expense
+     *  submit): the rows refresh, the filters stay (`usePublishRefetch`). */
+    refetchRef?: RefetchRef;
 }
 
 // --- Constants ---
@@ -144,7 +145,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     tab = "Payments Pending", // Default tab
     projectId,
     customerId,
-    refreshKey,
+    refetchRef,
     contextKey = "all" // Default context for URL key
 }) => {
     const { db } = useContext(FrappeContext) as FrappeConfig;
@@ -465,7 +466,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     // and every mutate() in the hook is commented out.)
     useFrappeDocTypeEventListener("Project Expenses", () => refetch());
     useFrappeDocTypeEventListener("Non Project Expenses", () => refetch());
-    useRefetchOnChange(refreshKey, refetch);
+    usePublishRefetch(refetchRef, refetch);
 
     const handleConfirmDelete = useCallback(async () => {
         if (!deleteRow) return;
