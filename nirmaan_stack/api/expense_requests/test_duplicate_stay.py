@@ -24,6 +24,7 @@ from nirmaan_stack.api.expense_requests.similar import get_similar
 from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
 from nirmaan_stack.api.expense_requests.update import update_expense_request
 from nirmaan_stack.services import expense_request_routing as routing
+from nirmaan_stack.services.expense_decision import decide
 
 PM_USER = "exr_dup_pm@example.com"
 HR_USER = "exr_dup_hr@example.com"
@@ -132,11 +133,11 @@ class TestDuplicateStay(FrappeTestCase):
 
 	# --- helpers -------------------------------------------------------------
 
-	def _raise(self, user, stay, project=None):
+	def _raise(self, user, stay, project=None, amount=4000):
 		frappe.set_user(user)
 		try:
 			return create_expense_request(
-				expense_type=STAY_TYPE, amount=4000, comment=MARK,
+				expense_type=STAY_TYPE, amount=amount, comment=MARK,
 				projects=project or self.project, source_data=stay,
 			)
 		finally:
@@ -196,8 +197,11 @@ class TestDuplicateStay(FrappeTestCase):
 
 	def test_a_request_whose_expense_was_rejected_is_not_a_match(self):
 		"""The Expense's own status decides, even where the request still reads Approved."""
-		req = self._raise(HR_USER, _stay(self.person, "2031-10-01", "2031-10-31"))
-		frappe.db.set_value(req["created_expense_doctype"], req["created_expense"], "status", "Rejected")
+		# Rs 20,000 from HR is approved on submit and its Expense waits for an Admin, who rejects it.
+		req = self._raise(HR_USER, _stay(self.person, "2031-10-01", "2031-10-31"), amount=20000)
+		decide(req["created_expense_doctype"], req["created_expense"], "reject", "Administrator",
+		       reason="exr_dup same stay")
+		self.assertEqual(frappe.db.get_value("Expense Request", req["name"], "status"), "Rejected")
 		self.assertEqual(self._check(PM_USER, _stay(self.person, "2031-10-05", "2031-10-06")), [])
 
 	def test_a_stay_the_raiser_left_unfinished_returns_no_match(self):
