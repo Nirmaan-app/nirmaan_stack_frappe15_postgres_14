@@ -23,6 +23,8 @@ from ._payment_utils import (
     usable_po_credit,
 )
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
+from nirmaan_stack.services.expense_type_ledger import expense_type_problem
+from nirmaan_stack.services.outflow_import.ledgers import PROJECT_EXPENSE_DOCTYPE
 from nirmaan_stack.services.vendor_refunds import held_on, waiting_refunds_of
 
 
@@ -117,6 +119,12 @@ def execute_adjustment(po_id, adjustments_json):
                 frappe.throw(_(
                     "{0} is not an adjustment method. A vendor refund is recorded as a waiting Vendor Refund."
                 ).format(entry.get("return_type") or "A blank method"))
+            # The ad-hoc expense is a Project Expense, which refuses a non-project type on save
+            # (#1496). Asked here too, so a wrong type is refused before any payment is made.
+            if entry.get("return_type") == "Ad-hoc":
+                problem = expense_type_problem(PROJECT_EXPENSE_DOCTYPE, entry.get("ad-hoc_type"))
+                if problem:
+                    frappe.throw(problem, title=_("Wrong expense type"))
 
         adj_name = frappe.db.get_value("PO Adjustments", {"po_id": po_id}, "name")
         if not adj_name:

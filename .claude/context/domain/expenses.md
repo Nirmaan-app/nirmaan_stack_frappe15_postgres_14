@@ -34,7 +34,90 @@ Both share one approval lifecycle and are entered/managed together in a single u
   **EXCLUSIVE** — exactly ₹15,000 needs L1), and the expense-only ₹30,000 CEO line of
   2026-09-15 (moved to ₹50,000 on 2026-09-16, so all three money-out ledgers now band
   identically).
-- **Project Expenses use only project-flagged (`project=1`) Expense Types** (ADR 0009).
+- **One module decides every Expense status: `services/expense_decision.py`** (spec #1494 seam 2,
+  #1497). `apply_starting_status` / `starting_status` give a NEW row its status (both ledgers'
+  `validate`, previewed by `convert.target_status`); `decide` makes every later change, through the one
+  call `api/approvals/expense_actions.decide_expenses` (actions `l1_approve`, `ceo_approve`, `reject`,
+  `mark_done`, `mark_paid`; one row or a hundred, same code). No screen writes an expense's `status`:
+  Approve Payments (row and bulk), the accountant tabs' Mark as Paid (`mark_done`) and the old pages'
+  Approve / Mark as Paid all call it. **L1 = `Administrator` or the Admin profile** (`is_l1`; Accountants
+  are NOT L1, though the payments bulk gate still admits them for payments). **Mark as Done / Mark as
+  Paid = Admin, Accountant, Accountant Lead** (`can_mark_paid` = `PAYMENT_SETTLE_PROFILES`); HR Executive
+  lost Mark as Paid on the old pages with #1497. A reject needs a reason; Mark as Paid needs payment
+  date, reference and receipt. The bank-line rules (`expense_bank_links.validate`) still have the last word.
+  **The server refuses a status a person writes** (story 42): both ledgers' `validate` call
+  `expense_decision.guard_hand_save` first, which refuses a permission-checked save (Desk, REST,
+  `frappe.client`, bulk edit, data import; `Administrator` included) that changes `status`, or inserts a
+  row at any status but `Requested`. Every system writer (`decide`, the intake, the bank-statement settle
+  and unreconcile, the cashbook and Porter creates, the PO adjustment) saves with
+  `ignore_permissions=True`, so it needs no flag. ⚠️ A new system writer must save with
+  `ignore_permissions=True` too, or its status change is refused. Two person-facing endpoints also save
+  elevated, and each asks its own rule first: **Change account** (`expense_payee.change_expense_account`
+  asks `expense_decision.assert_may_edit` for the `pay_to_*` fields: Accounts before Reconciliation
+  Pending, nobody at Reconciliation Pending or Paid) and the raiser's **Add invoice** (`expense_decision.save_raiser_invoice`, story 15's carve-out:
+  the invoice fields only, until Paid). ⚠️ A new person-facing endpoint that saves an Expense elevated
+  must call `assert_may_edit`. Pinned by `api/approvals/test_expense_decisions`, `api/payees/test_paid_to`
+  and `api/expense_requests/test_request_invoice`.
+  **Who edits an Expense by hand** (story 50, owner 2026-10-20), `expense_decision.edit_access`, enforced
+  by the same `guard_hand_save`:
+  - before Paid (Requested, CEO Pending, Approved, Reconciliation Pending): an Accountant or Accountant
+    Lead, every field but the status; nobody else (`Administrator` and Admin included);
+  - **Reconciliation Pending** also locks every `pay_to_*` field, for everyone (`LOCKED_FIELDS`;
+    ADR-0033 Amendment A): the account says where the money went;
+  - **Paid**: Admin (`Administrator` included) and the Accountant Lead, and only its details
+    (`PAID_EDITABLE_FIELDS`: description, comment, invoice attachment / ref / date, project, vendor,
+    type, which still meets the ledger type check). Its payment information -- amount, payment date /
+    by / ref / attachment, every `pay_to_*`, status, approval and CEO approval dates, auto-approved,
+    request, Porter order -- is locked for everyone; an Accountant cannot edit a Paid one at all;
+  - **Rejected**: nobody.
+  System paths are unaffected; Change account asks this same rule (above). `expense_actions.get_expense_edit_access` serves the same answer as
+  `editable_statuses` plus `field_limits` (per status, the only fields an edit may change) and
+  `locked_fields` (per status, the fields no edit may change). Every Edit /
+  Record Invoice button on the old ledger pages and the Payments queue (pencil, raiser pencil, Upload
+  Invoice on a Paid expense) shows only where the row's status is listed
+  (`hooks/useExpenseDecision.useExpenseEditAccess`), and both edit dialogs disable and never send a
+  field the answer withholds (`useExpenseFieldAccess` + `utils/expenses/expenseDecision.mayEditExpenseField`);
+  no screen restates the rule. The Project Expense edit dialog has a Project picker (a Porter
+  Expense's project stays locked: it moves through Rectify).
+- **No person creates a ledger row; every expense a person raises starts as an Expense Request**
+  (spec #1494, #1506, ADR-0016 amendment 5). `create` is off every role on both ledgers, System
+  Manager included (`Administrator` bypasses permissions). The writers insert with `ignore_permissions`:
+  the request intake (`api/expense_requests/create`, approve on submit and review approval, through
+  `convert.create_ledger_row`), the outflow-import, cashbook and Porter creates
+  (`settle.create_expense_from_row`) and the PO-adjustment ad-hoc expense. The intake's own
+  `Expense Request` insert and edit are elevated too: who may raise is the type's `allowed_roles`
+  (`access.guard_requestable`), who may edit is owner-or-Admin, never the request's DocPerm, so
+  PMO and Procurement raise like everyone else. The Add Expense dropdown, its two create dialogs
+  and the Direct Expense endpoint are gone; old Direct Expenses keep no request.
+- **The Expenses page** (sidebar item *Expenses*, route `/expense`, one *New Expense* button) opens to
+  someone who can raise at least one type or who reviews: `access.opens_expenses`, served by
+  `read.get_expense_access` and read by the sidebar, the Service Procurement dashboard card and the
+  route guard `ExpenseRoute` (`frontend/src/hooks/useExpenseAccess`, rule `utils/expenseAccess`).
+  The **New Expense button** shows only to someone who can raise at least one type (`can_raise` in the
+  same answer, `access.can_raise_requests`; `utils/expenseAccess.offersNewExpense`): a reviewer who
+  raises nothing gets the page, not the button (story 22).
+  **Project Payment & Expense has the same New Expense button**, under the same gate, opening the same
+  `NewExpenseRequestDialog` (no second dialog); after a submit its open tab refetches its rows in place
+  (`hooks/useRefetchOnChange`), keeping its filters and page. After a submit the dialog says what
+  happens next, the same on both pages: `utils/newExpenseForm.whatHappensNext`, from the server's
+  answer and the submitted amount, in the submit button's own words (`whoApprovesNext`: the CEO is
+  named above ₹50,000 either way; a request that waits for review links to `/expense/requests/<name>`).
+- **An L1 reviewer's review of an Expense Request is the L1 step** (#1499, ADR-0016 amendment 3).
+  `starting_status(amount, raised_by, reviewed_by)` clears L1 when the request's `reviewed_by` is L1
+  (`is_l1`), exactly as for an L1 raiser: an Admin-reviewed ₹22,000 request's Expense is born
+  `Approved`, ₹60,000 `CEO Pending` with `approval_date` stamped. An HR or Accounts review clears
+  nothing, so ₹15,000 and above still waits for an Admin. The review clears L1 only, even when the
+  CEO reviews. ⚠️ `convert.approve_request` (the one approve path, for a review and for approval on submit) saves the request's `reviewed_by` BEFORE it
+  inserts the ledger row, because the ledger's `validate` reads the reviewer from the request
+  (`approval_raiser.expense_reviewer`). The dialog's preview passes the caller as the reviewer
+  (`convert.target_status(req, reviewer)`).
+- **Project Expenses use only project-flagged (`project=1`) Expense Types** (ADR 0009), and Non
+  Project Expenses only `non_project=1` ones. **Enforced on the server by both ledgers' `validate`**
+  (`services/expense_type_ledger.check_expense_type`, #1496), so it covers every write path: the
+  request intake, the imports, the PO-adjustment ad-hoc expense, Desk and data import. It asks only
+  when the row is new or its type changed, so an old row whose type was re-flagged stays editable.
+  Paths that refuse before building anything (`settle._assert_type_scope`, `execute_adjustment`)
+  ask the same `expense_type_problem`.
 - **An expense's bank lines decide Paid, not a person** (ADR-0027, 2026-09-18). An expense can be
   settled by MANY imported bank lines — a salary or reimbursement run leaves the bank as one transfer
   per employee but is recorded as one expense. The **linked total** is the sum of the expense's live
@@ -197,7 +280,9 @@ Owner rulings; commits `0fc6cd146`, `9e73e97ed`, `fc4a3de42` on `develop`. Terms
 - **Raiser skip.** Both doctypes' `validate` routes a new row with
   `initial_status_for_raiser(amount, TIER_L2_ABOVE_EXPENSES, raiser_level(expense_raiser(self)))`.
   `expense_raiser` = the **Expense Request's owner** when `request_id` is set: the ledger row is inserted
-  by the reviewer, so its own `owner` names the wrong person. Steps the raiser clears are stamped
+  by the reviewer, so its own `owner` names the reviewer while `validate` runs (and on rows made before
+  2026-10-20). `convert.create_ledger_row` then sets the row's `owner` to the request's owner, so
+  "Raised by" and "Payment Raised By Me" (both read `owner`) name the raiser, never the reviewer. Steps the raiser clears are stamped
   (`approval_date` / `ceo_approval_date`) and are NOT `auto_approved`. `convert.target_status` makes the
   same call, so the review dialog's "lands at" matches.
 - **The queue's Approve / Reject dialog now shows the expense.** `api/approvals/expense_detail.
@@ -205,7 +290,9 @@ Owner rulings; commits `0fc6cd146`, `9e73e97ed`, `fc4a3de42` on `develop`. Terms
   `ExpenseApprovalDetails`. It shows: type, amount, project, vendor, raiser + date, description (hidden
   when the request's labelled answers already say it), comment, invoice ref / date / file, the Expense
   Request's answers + reviewer + extra attachments, same-type-and-amount expenses in the last 60 days
-  (`similar._scan_ledgers`, the row itself excluded), and whether this click finishes the approval or
+  (`similar._scan_ledgers`, the row itself excluded), other stays for the same person on overlapping
+  days in bold (`stays`, `duplicates.find_stay_duplicates` via `DuplicateStayNote`, #1504: flagged to
+  whoever approves, never blocking), and whether this click finishes the approval or
   forwards it to the CEO. The CEO's partial-amount box is suppressed on expenses: the CEO expense
   approve is a plain status write and always approved the full amount.
 
@@ -305,7 +392,8 @@ List-page **summary cards stay tab-scoped** (they reflect the active status tab)
 
 ### PO adjustment
 - The ad-hoc adjustment expense is created directly as **`Paid`** (money has already moved)
-  — `api/po_adjustments/adjustment_logic.py`.
+  — `api/po_adjustments/adjustment_logic.py`. Its type must be project-flagged: the picker lists
+  `project=1` types only, and `execute_adjustment` refuses any other before it makes a payment (#1496).
 
 ### Data normalization (ADR 0009)
 - Patch `v3_0.normalize_project_expense_types`: repoints Project Expenses using 6
@@ -338,25 +426,17 @@ roles. **Accountant\*** below = both `Nirmaan Accountant Profile` and
 `Nirmaan Accountant Lead Profile` (Lead mirrors Accountant everywhere).
 
 ### Module visibility & create
-- **Sees the Expense sidebar entry + can open `/expense`** (`NewSidebar.tsx`): Admin,
-  PMO, Accountant\*, Procurement, HR (+ the `Administrator` user). Everyone else
-  (Project Lead, PM, Estimates, Design, Sales, …) has **no access**.
-- **Create** ("Add New Expense" / "Add New Project Expense",
-  `renderRightActionButton.tsx`): **no extra role gate** — the same 5 groups can create,
-  for both Project and Non-Project.
+- **Sees the Expenses sidebar entry + can open `/expense`** (`NewSidebar.tsx`, `ExpenseRoute`):
+  anyone who can raise at least one type or who reviews (`access.opens_expenses`, #1506), so it
+  follows `Expense Type.allowed_roles` rather than a fixed profile list.
+- **Create**: only through New Expense on `/expense/requests` (an Expense Request, spec #1494).
+  The old "Add New Expense" / "Add New Project Expense" buttons and the Add Expense dropdown are
+  gone (#1506).
 - **Default landing tab:** Accountant\* → `Approved`; everyone else → `Requested`.
-- **Add Expense on Project Payment & Expense** (`/project-payments`, the Project Expense /
-  Non-Project Expense dropdown): one pure, tested gate,
-  `pages/ProjectPayments/config/addExpenseGate.canAddExpense` — the `Administrator` user, Admin,
-  Accountant\*, every procurement profile, HR Executive and PMO Executive; not HR Lead, Project
-  Lead or Project Manager. It hides the button only: the Direct Expense endpoint's `create` check
-  is the boundary.
-- **PMO Executive's create right sits on its own role** (#1475): the `Nirmaan PMO Executive` DocPerm
-  on `Project Expenses` and `Non Project Expenses` is create + write + read, no delete (a DocType
-  save in developer mode, not a hand-edit). Before it held read only, and a PMO save worked only
-  because the PMO profile also carries System Manager; the right is on the role so it survives
-  System Manager coming off that profile. It grants no approval or settle tab: the 2026-09-17 PMO
-  access review stands (`paymentsTabSet` is unchanged).
+- **No Add Expense on Project Payment & Expense** (#1506): the dropdown, its gate
+  (`addExpenseGate`) and the Direct Expense endpoint are removed. No role holds `create` on either
+  ledger (the PMO Executive `create` of #1475 is taken back); PMO and Procurement raise through New
+  Expense.
 
 ### Non-Project Expenses — actions per tab
 Primary actions render inline; secondary (Requested-only) sit in a `⋯` overflow menu.
@@ -367,7 +447,7 @@ Primary actions render inline; secondary (Requested-only) sit in a `⋯` overflo
 | Requested | Delete (inline) | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Requested | Record Invoice (⋯) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Requested | Edit (⋯) | ✅ | ✅ | ❌ | ✅ | ✅ |
-| Approved | Mark as Paid (inline) | ✅ | ❌ | ✅ | ❌ | ✅ |
+| Approved | Mark as Paid (inline) | ✅ | ❌ | ✅ | ❌ | ❌ (server-refused since #1497) |
 | Approved | Delete (inline) | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Paid | Edit (inline) | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Paid | Delete (inline) | ✅ | ❌ | ❌ | ❌ | ❌ |
@@ -392,7 +472,7 @@ dialog.
 | Requested | Edit | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Requested | Approve | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Requested | Delete | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Approved | Mark as Paid | ✅ | ❌ | ✅ | ❌ | ✅ |
+| Approved | Mark as Paid | ✅ | ❌ | ✅ | ❌ | ❌ (server-refused since #1497) |
 | Approved | Delete | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Paid | Edit / Delete | ✅ | ❌ | ❌ | ❌ | ❌ |
 | All | per row, by row status | ✅ | ❌ | ✅ | ❌ | ✅ |
@@ -403,9 +483,9 @@ Actions column visibility: same rule as Non-Project.
 - **Accountant\* Edit split:** can Edit a Requested **Project** expense but not a Requested
   **Non-Project** one (their Non-Project Requested action is *Record Invoice* instead).
 - **Approve = Admin only; Delete = Admin only** in both tables.
-- **HR Executive can Mark as Paid but still lands on the `Requested` tab by default**
-  (only Accountant\* defaults to `Approved`) — deliberate, owner call 2026-07-28.
-- Enforcement is **frontend-only** (button/column visibility) — no backend `validate` gate…
+- **HR Executive no longer Marks as Paid (#1497)**: the server allows Admin and Accounts only. It still
+  lands on the `Requested` tab by default (only Accountant\* defaults to `Approved`), owner call 2026-07-28.
+- **Approve and Mark as Paid are server-checked** (`services/expense_decision`, #1497); the rest is **frontend-only** (button/column visibility)…
   **with one caveat that IS a real backend gate:** the `Nirmaan HR Executive` *Role* has
   `write = 0` on both expense doctypes. Mark-as-Paid works only because the
   `Nirmaan HR Executive Profile` *also* carries **System Manager**, and Frappe permissions are
@@ -413,22 +493,25 @@ Actions column visibility: same rule as Non-Project.
   with NO System Manager, so it has genuinely no write.** It is not matched by the
   `role === "Nirmaan HR Executive Profile"` check, so it is safe today (0 such users) — but
   do NOT extend any write action to HR Lead without adding a real DocPerm first. (PMO
-  Executive was in the same position until #1475 gave its role create + write; see
-  Module visibility & create.)
+  Executive was in the same position until #1475 gave its role create + write; #1506 took
+  the create back off every role.)
 
 ---
 
 ## Key files
 
 - Doctypes: `doctype/project_expenses/`, `doctype/non_project_expenses/` (`.json` + `.py`).
-- Auto-approval rule (FE mirror): `frontend/src/utils/expenseApproval.ts` (+ `.test.ts`).
+- Auto-approval rule (FE mirror): `frontend/src/utils/approvalTiers.ts` (`expenseApproval.ts`,
+  the retired create dialogs' button copy, was removed with them, #1506).
 - Backend calc/controllers: `integrations/controllers/project_cashflow_hold_update.py`,
   `api/payments/get_project_payment_summary.py`, `api/po_adjustments/adjustment_logic.py`,
   `hooks.py` (doc_events).
 - Frontend module: `pages/Expenses/ExpenseLayout.tsx`, `pages/ProjectExpenses/*`,
   `pages/NonProjectExpenses/*` (list pages, `config/*Columns.tsx`, dialogs). Project
-  dialogs: `NewProjectExpenseDialog.tsx` (invoice autofill), `EditProjectExpenseDialog.tsx`,
-  `UpdatePaymentDetailsDialog.tsx` (Mark-as-Paid, payment autofill).
+  dialogs: `EditProjectExpenseDialog.tsx`, `UpdatePaymentDetailsDialog.tsx` (Mark-as-Paid,
+  payment autofill). The create dialogs (`NewProjectExpenseDialog`, `NewNonProjectExpense`) were
+  removed by #1506; New Expense (`pages/ExpenseRequests/components/NewExpenseRequestDialog.tsx`)
+  replaces them.
 - Queue surface (2026-09-21): `pages/ProjectPayments/config/queueRowActions.ts`,
   `components/QueueRowEditDialog.tsx`, `approve-payments/components/ExpenseApprovalDetails.tsx`
   (+ pure `expenseApprovalDetail.ts`); backend `api/approvals/expense_detail.py`,
@@ -453,8 +536,9 @@ Full rationale: `docs/adr/0016-expense-request-vs-expense.md`.
 PM raises  ->  Pending Approval  ->  routed reviewer
                                        |- Reject (comment required)  -> terminal
                                        `- Approve -> ONE ledger row, status "Approved"
-                                                     -> Accountant marks Paid
-                                                        -> request follows to Paid (hook)
+                                                     -> L1 / CEO approve or reject, Accountant marks Paid
+                                                        -> request follows: Rejected / Paid,
+                                                           back to Approved on unreconcile (hook)
                                                      -> ledger row DELETED
                                                         -> request deleted with it (hook)
 ```
@@ -466,7 +550,7 @@ PM raises  ->  Pending Approval  ->  routed reviewer
 | `Expense Request` | NEW — 10 columns: `type` · `type_allows_project` · `projects` · `amount` · `comment` · `source_data` · `status` · `reviewed_by` · `reviewed_on` · `review_comment`. `status` is `Pending Approval` / `Approved` / `Rejected` / **`Paid`** |
 | `Expense Request Template Snapshot` | NEW — freezes the format a request was filled against |
 | `Expense Category` | NEW — `category_name` · `description` (`reviewer_role` REMOVED 2026-09-16) |
-| `Expense Type` | `+source_format` (Long Text, JSON) · `+expense_category` (Link) · `+source_format_enabled` (Check, "Enable Source", 2026-09-16) · `+allowed_roles` (Table → `Expense Type Role`, 2026-09-16) |
+| `Expense Type` | `+source_format` (Long Text, JSON) · `+expense_category` (Link) · `+source_format_enabled` (Check, "Enable Source", 2026-09-16) · `+allowed_roles` (Table → `Expense Type Role`, 2026-09-16) · `+confirmed_as_request` (Check, "Confirmed as Expense Request", 2026-10-20) |
 | `Expense Type Role` | NEW child table (2026-09-16) — `role_profile` (Link → Role Profile) |
 | `Project Expenses` / `Non Project Expenses` | `+request_id` (Link → Expense Request, read-only, indexed). Otherwise unchanged — approval writes a row through the existing schema |
 
@@ -495,8 +579,29 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   never gets paid.
 - **The reviewer gate is SERVER-SIDE** (`api/expense_requests/access.guard_reviewer`), unlike
   the rest of this module. It refuses two distinct ways — wrong role, and own request — and
-  runs before any write, so a refusal mutates nothing. Admin passes both (they are the
-  fallback reviewer for every unrouted category).
+  runs before any write, so a refusal mutates nothing. **Nobody reviews their own request, an
+  Admin included** (story 35): an Admin passes the role check only. An Admin's own new request is
+  approved on submit, so the one that waits (raised before, or before its raiser became Admin) is
+  reviewed by another Admin. The list's `can_review` asks the same rule (`access.may_review`).
+- **Records without review (spec #1494, #1498).** A raiser whose profile is on the single
+  `Expense Settings` list (`records_without_review`, `Expense Type Role` rows), or any Admin, has
+  the request approved on submit: `create.create_expense_request` creates the Expense in the
+  same transaction, sets the request `Approved` and `approved_on_submit = 1` and leaves
+  `reviewed_by` blank. The Expense's status still comes from the ledger `validate`
+  (`expense_decision.apply_starting_status`), so it skips the Reviewer, never the amount rule:
+  HR ₹40,000 lands at Requested for an Admin. The one question "is this raiser on it" is
+  `access.records_without_review(user)`; the dialog reads it from `get_request_catalog`. The
+  list is NOT a fixture (Admin edits survive migrate); `Expense Settings.validate` refuses the
+  Admin profile and any profile that can raise no type (`access.profile_can_raise`). A listed
+  profile that has since lost all its types is off the list (story 28): `records_without_review`
+  and the Expense Packages read ignore it, and a type's roles changed by any path (Expense Packages,
+  Desk, REST; or a type deleted) prune it from the stored list (`integrations/controllers/expense_type`
+  `on_update` / `after_delete` -> `access.prune_records_without_review`), so giving it a type again
+  does not tick it. A fixture sync deletes and re-inserts each type, so `after_delete` stands down
+  while Frappe imports (`frappe.flags.in_import`), the re-insert has no previous version for
+  `on_update` to compare, and the controller's `after_migrate` prunes once against the synced types: a reload never drops a profile whose only type it reloads. Seeded once
+  by `v3_0.seed_records_without_review` (Accountant, Accountant Lead, HR Executive, HR Lead).
+  Edited only through the admin-gated `api/expense_requests/expense_settings`.
 - **⚠️ `Expense Type` IS A FIXTURE, so `fixtures/expense_type.json` is AUTHORITATIVE.** Every
   `bench migrate` re-imports each row and RESETS any field the file does not carry. When
   `source_format` and `expense_category` were added and the fixture was not regenerated, ONE
@@ -523,10 +628,42 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   `responses.invoice.{invoice_date, invoice_ref}`, `attachments.invoice`) and approval copies them
   to the ledger's invoice columns (`flatten.native_invoice`). **Cannot be ON without a format**
   (doctype `validate`); clearing a format switches it OFF (`save_expense_format`). ONE rule picks
-  the governing form — `convert.applicable_format`: the switch, EXCEPT a request already filled
+  the governing form — `form_snapshot.applicable_format`: the switch, EXCEPT a request already filled
   against the form (`templateId` in its answers) keeps it after the switch goes off. **Only the
-  OFF side is server-enforced** (`create.guard_request_form`: description, invoice coherence,
-  refuses form answers); a form's own required answers are still dialog-only, as before.
+  OFF side is server-enforced** (`create.guard_request_form`: description, refuses form answers);
+  a form's own required answers are still dialog-only, as before.
+- **The invoice is asked once, the same way, for every type (#1502).** "Do you have the invoice?"
+  replaces the "Add invoice details" tick. It rides `source_data` under the native keys
+  (`responses.invoice.{invoice_date, invoice_ref}`, `attachments.invoice`) on a form-filled request
+  too, so **no form may name a section `invoice`**; it never reaches the ledger description
+  (`flatten_source_data(skip_sections=)`, `undeclared_pairs`). Approval copies it onto the Expense's
+  invoice columns (`convert.create_ledger_row`; a form slot with `maps_to: invoice_attachment` is read
+  only for requests raised before, and the dialog no longer shows such a slot). **A missing invoice
+  date or number is a warning, never a refusal**: `flatten.invoice_warnings`, returned as `warnings`
+  by create, update and Add invoice. **Added later** from the request's page
+  (`/expense/requests/<name>`, `read.get_expense_request`) by the raiser or an Admin, until the Expense
+  is Paid (`invoice.invoice_refusal`, the one rule; refused on a Rejected request).
+  `invoice.add_request_invoice` REPLACES the request's invoice and writes the same three columns on
+  its Expense (`doc.save`, hooks fire). The file is uploaded when picked, so Gemini
+  (`invoice_autofill.extract_invoice_fields`) can fill the date and number; the amount is never
+  filled, a differing total only warns (`utils/newExpenseForm.invoiceNotes`).
+- **A request reads against the form it was filled with (#1503, ADR-0016 decision 1).** Create and
+  edit store the type's live form in `Expense Request Template Snapshot` (named by its hash, shared
+  helper `services/template_snapshots`) and stamp `source_data.snapshotHash`
+  (`api/expense_requests/form_snapshot`). `form_snapshot.applicable_format(..., frozen=)` (read through `governing_form(s)`) prefers that
+  form to the live one, in every reader: the ledger row (description, the slot bill), the request
+  list `detail`, the request page (`detail`, and `invoice` = `flatten.request_invoice`: native
+  first, else the form slot's bill) and the approval detail. So trimming or switching off a form
+  never changes how a request in flight reads. An **edit** is filled against today's form and takes
+  its snapshot. Requests from before were stamped with their type's form of the day by
+  `patches/v3_0/freeze_expense_request_forms` (a `[post_model_sync]` patch: migrate runs it before
+  the fixture sync). A request with no snapshot still reads the live form (`undeclared_pairs`).
+- **The forms after the owner's per-field review (2026-10-19, #1503).** Ten types keep a short form
+  (pinned field by field in `api/expense_requests/test_request_forms.EXPECTED_FORMS`); the other 25,
+  Fixed Deposit included, have none (Description + Comment). No form has an upload slot. Renamed
+  fields kept their keys (`premises` = Location, `billing_month` = Bill Date, `bank_name` = Bank
+  Name), so answers already given still fill them. Rent/PG for Staff stays `staff-accommodation` with
+  `person_name` and the rent period, which the duplicate staff-stay check reads.
 - **Per-type visibility (`Expense Type.allowed_roles`, 2026-09-16).** Role PROFILES that may pick
   the type in the request dialog; Admin sees every type and is never listed, so **EMPTY = Admin
   only**. Enforced in `access.can_request_type` → `get_request_catalog` filter + `guard_requestable`
@@ -542,6 +679,18 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   To make that mapping usable, `create` on Expense Request was granted to Nirmaan Accountant,
   Accountant Lead, HR Executive and HR Lead (they held read + write only). The test suite grants
   the PM profile on the real types it uses for its run and removes exactly those rows after.
+- **"Confirmed as Expense Request" (`Expense Type.confirmed_as_request`, spec #1494, owner
+  2026-10-20) is a LABEL ONLY.** It gates nothing: raising, intake, the catalog and routing never
+  read it. Only Admin may change it, refused for anyone else by `ExpenseType.validate` on every path
+  (Desk, REST, `masters.update_expense_type`), also on a new type created with it ticked. Shown in
+  Expense Packages' Confirmed column and ticked in its Edit dialog (Admin only). ⚠️ Like
+  `allowed_roles`, the fixture wins on migrate: it ships 0 on every row, so a mark set in the app
+  survives the next migrate only once `fixtures/expense_type.json` is re-exported and committed.
+  Pinned by `api/expense_requests/test_confirmed_marker` and `test_fixture_completeness`.
+- **Expense Packages filters (2026-10-20).** The table's Scope, Payee, Role Access (role profiles,
+  plus "Admin only (empty list)") and Confirmed filters sit in their column headers and narrow the
+  loaded rows with AND, together with the search; Clear filters resets both. The rule is
+  `frontend/src/utils/expenses/expensePackagesFilter.ts`.
 - **Remove an Expense Type: delete it on the site AND drop it from `fixtures/expense_type.json`.**
   The fixture ships every type, so a type deleted only on the site comes back on the next
   `bench migrate`. Fixture sync only inserts and updates; it never deletes, so dropping a type from
@@ -551,8 +700,8 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   moved to Staff Accommodation Rent (now Rent/PG for Staff).
 - **Renamed by SQL (2026-10-19), every reference moved, plain-text columns included:** Staff
   Accommodation Rent → Rent/PG for Staff, Labour Accommodation Rent → Rent/PG for Labour, Other
-  Project Related Charges → Other Project Expenses. `duplicates.RULES` is keyed by type name, so a
-  rename must rename its key too, or that type's duplicate check silently switches off.
+  Project Related Charges → Other Project Expenses. (The name-keyed `duplicates.RULES` table is
+  gone since #1504; the stay check is keyed on the form's `templateId`, which no rename touches.)
 - **Merged by SQL (2026-10-19):** Salaries & Employee Wages → the existing Salary - Employee Payout
   (every Link, Dynamic Link and plain-text column), and Salaries & Employee Wages dropped from the
   fixture. Salary - Employee Payout is not in the fixture; it lives on the site only.
@@ -569,12 +718,19 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   **Refused** for any name the code looks up by name (`masters.names_referenced_in_code`: today
   only `outflow_import.cashbook.FALLBACK_EXPENSE_TYPE` "Petty Cash"), since a rename would silently
   switch off the bank-import fallback.
-  **⚠️ NO PER-TYPE DUPLICATE RULES (owner ruling 2026-09-19).** The `duplicates.RULES` table (6
-  types, matched on person/building + overlapping dates) was REMOVED with its create-dialog
-  warning and the review dialog's "Already requested for this period" box: it keyed on the type's
-  NAME, so it blocked renaming those types, and the owner did not want static rules. The approver
-  still sees `similar.get_similar`'s same-type + same-amount count over the last 60 days. Do not
-  bring back a name-keyed rule table.
+  **⚠️ NO NAME-KEYED DUPLICATE RULES (owner ruling 2026-09-19).** The `duplicates.RULES` table (6
+  types, keyed on the type's NAME) was removed: it blocked renaming those types. Do not bring back
+  a name-keyed rule table. The approver also sees `similar.get_similar`'s same-type + same-amount
+  count over the last 60 days.
+  **⚠️ DUPLICATE STAFF STAY: FLAGGED, NEVER REFUSED (spec #1494, #1504).** `duplicates.STAY_FORMS`
+  is keyed on the form's `templateId` (only `staff-accommodation`). A match is the same person (case
+  and spacing ignored) whose stay shares at least one night (a stay starting the day another ends is
+  not a match), on any project, against any request not Rejected whose Expense, if any, is not
+  Rejected either. An Expense is reached only through its request: a ledger row with no request
+  holds no person or dates. Shown in bold to the Reviewer (`similar.get_similar` → `stays`) and to a
+  raiser on Records without review before submit; a quiet note to any other raiser
+  (`duplicates.check_duplicate_stay`). `create` / `update` return the matches as `duplicates`; an
+  edit re-checks only when the stay itself changed. The 2026-08-20 "never refuse" ruling stands.
   **⚠️ Update `fixtures/expense_type.json` too** — it is keyed by name and re-imported on every
   migrate, so an app rename alone comes back after the next deploy as a SECOND type under the old
   name.
@@ -595,16 +751,23 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   points that row at its Project, Vendor and Expense Type — so Frappe blocks deleting the
   REQUEST while an expense names it, and does nothing about the reverse. Only child tables
   cascade.
-- **⚠️ THE LEDGER OWNS `Paid`.** `Expense Request.status` reaches `Paid` through
-  `integrations/controllers/expense_request_status.on_expense_paid` and NOWHERE else — no
-  endpoint, no button, no reviewer action. Payment happens on the expense row, so the request
-  can only report what the ledger already did; a second writer would let the two disagree
-  about whether money moved. It rides the ledger's own transaction (both land or neither),
-  guards on the TRANSITION into Paid, and flips only `Approved → Paid` — a whitelist of the
-  one legal predecessor, because anything else means our model of the flow is wrong and
-  overwriting would erase the evidence. It uses `set_value`, so this transition writes NO
-  `Version` row; the audit lives on the ledger row, which carries the payment date, reference
-  and attachment.
+- **⚠️ THE EXPENSE OWNS EVERY STATUS AFTER REVIEW** (spec #1494, #1500; this replaced "the ledger
+  owns `Paid`"). Once a request has an Expense, `Expense Request.status` is a mirror of it, set by
+  `integrations/controllers/expense_request_status.on_expense_status_changed` (both ledgers'
+  `on_update`) and NOWHERE else: Expense `Rejected` (L1 or CEO) → request `Rejected`; `Paid` →
+  `Paid`; every other status (`Requested`, `CEO Pending`, `Approved`, `Reconciliation Pending`) →
+  `Approved`. So an unreconcile moves a request back from `Paid` to `Approved`. It fires on a status
+  CHANGE only, touches only a request already at `Approved` / `Paid` / `Rejected` (`Pending Approval`
+  is the review's: the Expense is inserted while the request still waits, and the review sets
+  `Approved` itself), rides the ledger's transaction, and uses `set_value`, so it writes NO `Version`
+  row. The request keeps its own four statuses ON PURPOSE: the finer step and the amount Accounts may
+  have corrected are READ live from the Expense by `api/expense_requests/standing.standing_of`: the
+  Expenses list's Status and Amount columns through `get_request_standing`, and the request page
+  `/expense/requests/:id` through `standing` on `read.get_expense_request`, with its "Where it stands"
+  steps from the pure `services/expense_standing.where_it_stands`. Never copied, so the two cannot
+  disagree. The list's status FACET still filters the request's own status.
+  A request marked `approved_on_submit` (#1498) shows "Approved on submit (no review)" in place of its
+  review step.
 - **⚠️ DELETING THE EXPENSE DELETES THE REQUEST** (`on_expense_deleted`, owner ruling
   2026-08-18) — and it MUST be `after_delete`, never `on_trash`: `on_trash` fires BEFORE the
   row leaves the database, so the expense still points at the request and Frappe refuses
@@ -619,6 +782,19 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   **⚠️ COST, accepted by the owner: this destroys the only copy of the request detail** —
   `source_data` is the sole home for what was asked, so a delete-and-redo loses the original
   ask and the requester's record of it.
+- **A REJECTED request with no Expense can be deleted by its raiser or an Admin** (spec #1494,
+  `api/expense_requests/delete.py`). `delete_expense_request` refuses any other status, anyone
+  else (`PermissionError`), and a request any Expense row still points at through `request_id`:
+  that request goes only with its Expense (above), including one that reads Rejected because
+  its Expense was rejected. It clears the notifications first, for the same Dynamic Link
+  reason. `can_delete` is server-computed on `get_my_expense_requests` like `can_edit`; the
+  trash button shows on "Raised By Me" and "All".
+- **The edit pencil shows on "Raised By Me" as well as "Pending Approval"** (spec #1494).
+  The rule is unchanged (`update.can_edit`: raiser or Admin, Pending only). Before this, a
+  Project Manager could never reach it, because only reviewers get the pending tab. Approve /
+  Reject stay on the pending tab. The Request ID cell carries a hover card
+  (`RequestHoverCard.tsx`) that renders the scoped read's `detail`; rows past that read's
+  200-row cap get no Edit / Delete and a header-only card.
 - **A reviewer is a `Nirmaan Users.role_profile`, NEVER a Frappe Role.** The Role Profile
   `Nirmaan Admin Profile` grants `Nirmaan Project Manager` among seven others, and a Role of
   that exact name is assigned to nobody — a `frappe.get_roles()` gate would match no one and
@@ -682,8 +858,7 @@ save an invalid template**.
     `api/expense_requests/payees.add_request_payee`) is copied in, unless the request names a vendor.
     **Editing** (`update_expense_request`): `keep_pay_to=1` leaves the copy as it is; otherwise the
     `payee` sent is copied (none clears it). Both through `pay_to.apply_picked_payee`, which refuses
-    a Payee that does not exist. A **Direct Expense** (#1471) is recorded the same way:
-    `api/expenses/direct_expense.create_direct_expense` (rules in `payees.md` § Expense payee).
+    a Payee that does not exist. (The Direct Expense create of #1471 was removed by #1506.)
   - **A vendor named** (request or Project Expense, every write path): the save hook copies the
     vendor's Payee when the record has no copy and whenever the vendor changes, until the record is
     paid (`pay_to.fill_from_vendor`, from `guard.check_payee_links`). New expense dialogs, Bulk
@@ -719,6 +894,8 @@ save an invalid template**.
   - **Old requests keep their text.** Their answers stay in `source_data`; a request raised
     before a field was removed and approved after gets those answers after the format's sentence,
     labelled from the key (`flatten.undeclared_pairs`, used by `convert.compose_description`).
+    Since #1503 a request reads against its own frozen form, so this applies only to one with no
+    snapshot (see "A request reads against the form it was filled with").
     Ledger descriptions already written are never rewritten.
 - **ONE FORMAT PER EXPENSE TYPE** (owner, 2026-08-18), replacing an earlier shared
   accommodation shape. A staff PG, a labour dorm, a deposit and a hotel booking are four

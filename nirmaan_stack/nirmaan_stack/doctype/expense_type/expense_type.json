@@ -11,6 +11,7 @@
   "project",
   "non_project",
   "expense_category",
+  "confirmed_as_request",
   "access_section",
   "allowed_roles",
   "request_form_section",
@@ -88,12 +89,19 @@
    "fieldtype": "Select",
    "label": "Who Gets Paid",
    "options": "Required\nOptional\nNot asked"
+  },
+  {
+   "default": "0",
+   "description": "A label only: Admin's mark that this type is confirmed as an Expense Request type. It changes nothing about raising, intake or the catalog. Only Admin may change it.",
+   "fieldname": "confirmed_as_request",
+   "fieldtype": "Check",
+   "label": "Confirmed as Expense Request"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-14 16:00:00.000000",
+ "modified": "2026-10-20 08:49:12.235129",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Expense Type",

@@ -4,6 +4,7 @@ from frappe.utils import flt
 
 from nirmaan_stack.nirmaan_stack.doctype.projects.projects import CEO_HOLD_SYSTEM_USER
 from nirmaan_stack.services.ceo_hold import core
+from nirmaan_stack.services.caller_transaction import caller_owns_the_commit
 from nirmaan_stack.services.project_money import project_money_of
 from nirmaan_stack.services.amount_paid import paid_money
 from ..Notifications.pr_notifications import PrNotification
@@ -111,7 +112,8 @@ def _notify_manual_hold_releasable(project_id: str, holder_user: str) -> None:
 	# cleared in a `finally`. It covers BOTH ledgers: this module is wired to `Project Payments`
 	# on_update AND `Project Expenses` on_update, so the payment path was exposed to this same
 	# commit before the expense path ever reached it.
-	if frappe.flags.get("outflow_import_settling"):
+	# `expense_decision.decide` saves inside its caller's per-row savepoint too, so the same holds.
+	if caller_owns_the_commit():
 		return
 
 	if frappe.db.exists(

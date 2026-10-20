@@ -7,14 +7,16 @@ in `tearDown`.
 """
 
 import json
-import unittest
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.approvals.expense_detail import get_expense_approval_detail
+from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
 
 AMOUNT = 31237  # odd on purpose, so real rows of the same type rarely share it
+BOTH_LEDGERS_TYPE = "Petty Cash"
+RAISER = "xdetail_test_procurement@example.com"
 
 
 def _raw(doctype, **fields):
@@ -30,13 +32,11 @@ class TestExpenseApprovalDetail(FrappeTestCase):
 		self._commit = frappe.db.commit
 		frappe.db.commit = lambda *a, **k: None
 		frappe.set_user("Administrator")
-		self.type = frappe.db.get_value("Expense Type", {}, "name")
-		if not self.type:
-			raise unittest.SkipTest("no Expense Type on this site")
-
-		self.raiser = next(iter(frappe.get_all(
-			"Nirmaan Users", filters={"role_profile": "Nirmaan Procurement Executive Profile"}, pluck="name",
-		)), None) or "Administrator"
+		# Both ledgers take this type, so it must be flagged for both (#1496): Petty Cash is one of the
+		# fixture's two both-flag types (Material Transportation Charges is the other).
+		self.type = BOTH_LEDGERS_TYPE
+		_make_user(RAISER, "Nirmaan Procurement Executive Profile", ("Nirmaan Procurement Executive",))
+		self.raiser = RAISER
 		frappe.set_user(self.raiser)
 		try:
 			self.request = _raw(

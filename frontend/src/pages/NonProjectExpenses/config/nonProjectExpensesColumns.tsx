@@ -52,6 +52,7 @@ import { NonProjectExpenses } from "@/types/NirmaanStack/NonProjectExpenses";
 import { isProcurementProfile } from "@/constants/roles";
 import { PorterBadge } from "@/components/common/PorterExpense";
 import { invoiceAttachmentUrl } from "@/utils/porterExpense";
+import { canMarkExpensePaid } from "@/utils/expenses/expenseDecision";
 
 export interface GetNonProjectExpenseColumnsOptions {
   statusTab: string;
@@ -59,6 +60,8 @@ export interface GetNonProjectExpenseColumnsOptions {
   getUserName: (id?: string) => string;
   /** Report/embedded mode: hide the Actions column entirely. */
   disableActions?: boolean;
+  /** The statuses the caller may edit, from the server (`useExpenseEditAccess`). */
+  editableStatuses?: readonly string[];
   onEdit: (expense: NonProjectExpenses) => void;
   onApprove: (expense: NonProjectExpenses) => void;
   onRecordInvoice: (expense: NonProjectExpenses) => void;
@@ -82,10 +85,10 @@ export const getNonProjectExpenseColumns = ({
   onRecordInvoice,
   onMarkPaid,
   onDelete,
+  editableStatuses = [],
 }: GetNonProjectExpenseColumnsOptions): ColumnDef<NonProjectExpenses>[] => {
   // --- Role gating (frontend-only enforcement, mirrors Project Expenses) ---
   const isAdmin = role === "Nirmaan Admin Profile";
-  const isPMO = role === "Nirmaan PMO Executive Profile";
   // Accountant Lead mirrors Accountant for role checks (parity by design).
   const isAccountant =
     role === "Nirmaan Accountant Profile" ||
@@ -94,30 +97,31 @@ export const getNonProjectExpenseColumns = ({
   const isHR = role === "Nirmaan HR Executive Profile";
 
   // Action-level permissions
-  // Requested-stage work (Record Invoice + Edit) is open to the broader creation set
-  // (Admin, PMO, Accountant/Lead, Procurement, HR) — mirrors Project Expenses.
-  const canRecordInvoice =
-    isAdmin || isPMO || isAccountant || isProcurement || isHR;
+  // Record Invoice and Edit are edits: the server's answer (`expense_actions.get_expense_edit_access`,
+  // story 50): Accounts until paid; on a Paid row Admin and the Accountant Lead (its details only);
+  // never Rejected. Both ledgers' `validate` refuse any other.
+  const canEditRow = (status: string) => editableStatuses.includes(status);
   const canApprove = isAdmin; // Requested -> Approved (Admin only)
-  const canMarkPaid = isAdmin || isAccountant || isHR; // Approved -> Paid (records payment)
-  const canEdit = isAdmin || isPMO || isProcurement || isHR; // Requested-row edit
+  // Approved -> Paid: the server's rule (`expense_decision.can_mark_paid`, #1497), mirrored once.
+  const canMarkPaid = canMarkExpensePaid(role);
   const canDelete = isAdmin; // Delete is Admin only
 
   // Actions column visibility: shown only to users who can act on the tab's rows.
-  // Requested/Approved show it to everyone (gated per button); Paid -> Admin only.
+  // Requested/Approved show it to everyone (gated per button); Paid -> Admin (Delete), and whoever
+  // the server lets edit a Paid row.
   // In report/embedded mode the Actions column is hidden entirely.
   const canSeeActionsColumn = disableActions
     ? false
     : statusTab === "Paid"
-      ? isAdmin
+      ? isAdmin || canEditRow("Paid")
       : statusTab === "All"
         // The All tab mixes statuses; every button inside the cell is already
-        // gated by the ROW's status, so opening the column to Accountant/HR
+        // gated by the ROW's status, so opening the column to Accountants
         // surfaces exactly the Mark-as-Paid they have on the Approved tab.
-        ? isAdmin || isAccountant || isHR
-        // Approved tab: Procurement has no available action here (Mark-as-Paid is
-        // Admin/Accountant/HR), so hide the empty Actions column for them.
-        : statusTab === "Approved" && isProcurement
+        ? isAdmin || isAccountant
+        // Approved tab: Procurement and HR have no available action here (Mark-as-Paid
+        // is Admin/Accountant), so hide the empty Actions column for them.
+        : statusTab === "Approved" && (isProcurement || isHR)
           ? false
           : true;
 
@@ -420,7 +424,7 @@ export const getNonProjectExpenseColumns = ({
       const status = expense.status || "Requested";
       // Overflow "..." holds the secondary Requested-stage actions only.
       const hasOverflow =
-        status === "Requested" && (canRecordInvoice || canEdit);
+        status === "Requested" && canEditRow(status);
 
       return (
         <TooltipProvider delayDuration={300}>
@@ -458,8 +462,8 @@ export const getNonProjectExpenseColumns = ({
               </Tooltip>
             )}
 
-            {/* Paid -> Edit (outside, Admin only) */}
-            {status === "Paid" && isAdmin && (
+            {/* Edit past Requested (outside): wherever the server lets the caller edit. */}
+            {status !== "Requested" && canEditRow(status) && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -500,16 +504,12 @@ export const getNonProjectExpenseColumns = ({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  {canRecordInvoice && (
-                    <DropdownMenuItem onClick={() => onRecordInvoice(expense)}>
-                      <FileText className="mr-2 h-4 w-4" /> Record Invoice
-                    </DropdownMenuItem>
-                  )}
-                  {canEdit && (
-                    <DropdownMenuItem onClick={() => onEdit(expense)}>
-                      <Pencil className="mr-2 h-4 w-4" /> Edit
-                    </DropdownMenuItem>
-                  )}
+                  <DropdownMenuItem onClick={() => onRecordInvoice(expense)}>
+                    <FileText className="mr-2 h-4 w-4" /> Record Invoice
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onEdit(expense)}>
+                    <Pencil className="mr-2 h-4 w-4" /> Edit
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             )}

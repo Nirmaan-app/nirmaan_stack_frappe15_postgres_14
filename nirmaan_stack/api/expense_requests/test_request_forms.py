@@ -99,3 +99,71 @@ class TestDescriptionTemplatesNameOnlyAskedFields(unittest.TestCase):
 			for key in re.findall(r"\{([A-Za-z0-9_]+)\}", template):
 				with self.subTest(type=row["name"], placeholder=key):
 					self.assertIn(key, asked)
+
+
+# The owner's per-field review of 2026-10-19 (spec #1494, ticket #1503): the ten types that keep a
+# form, each as (label, required) in form order. Every other type asks Description + Comment.
+EXPECTED_FORMS = {
+	"Rent/PG for Staff": [("Person Name", True), ("Accommodation Type", True), ("City", False),
+	                      ("Rent Period From", True), ("Rent Period To", True)],
+	"Rent/PG for Labour": [("Accommodation Type", True), ("City", False), ("Rent Period From", True),
+	                       ("Rent Period To", True), ("No. of Occupants", True)],
+	"Hotel Expenses": [("Guest Name", True), ("City", False), ("Check-in", True), ("Check-out", True)],
+	"Repair & Maintenance": [("Type", True), ("Work Done / Part", True), ("Date", True)],
+	"Electricity Expenses": [("Location", True), ("Bill Date", True)],
+	"Fixed Assets": [("Asset Category", True), ("Item Description", True)],
+	"Bank Fees & Charges": [("Bank Name", True), ("For the Month", False)],
+	"Bank Interest": [("Bank Name", False)],
+	"Accommodation Deposit": [("Deposit For", True)],
+	"Audit Fee": [("Period / FY", True)],
+}
+
+
+def _format(row):
+	return json.loads(row.get("source_format") or "{}")
+
+
+class TestTheFormsAreTheOwnersReview(unittest.TestCase):
+	def test_the_ten_types_ask_exactly_the_reviewed_fields(self):
+		rows = {r["name"]: r for r in _types()}
+		for name, expected in EXPECTED_FORMS.items():
+			with self.subTest(type=name):
+				self.assertEqual(rows[name]["source_format_enabled"], 1)
+				asked = [(f["label"], bool(f.get("required"))) for _s, f in _fields(rows[name])]
+				self.assertEqual(asked, expected)
+
+	def test_every_other_type_has_no_form_and_asks_description_and_comment(self):
+		others = [r for r in _types() if r["name"] not in EXPECTED_FORMS]
+		# 25 from the owner's review, plus the 8 database-only types #1507 brought into the fixture.
+		self.assertEqual(len(others), 33)
+		for row in others:
+			with self.subTest(type=row["name"]):
+				self.assertFalse((row.get("source_format") or "").strip())
+				self.assertEqual(row["source_format_enabled"], 0)
+
+	def test_fixed_deposit_keeps_its_type_and_loses_its_form(self):
+		row = next(r for r in _types() if r["name"] == "Fixed Deposit")
+		self.assertFalse((row.get("source_format") or "").strip())
+
+	def test_no_form_has_an_upload_slot(self):
+		"""The invoice is asked once, for every type, by "Do you have the invoice?" (#1502)."""
+		for row in _types():
+			for section in _format(row).get("sections") or []:
+				with self.subTest(type=row["name"], section=section.get("id")):
+					self.assertNotEqual(section.get("type"), "image_attachments")
+					self.assertFalse(section.get("slots"))
+
+	def test_a_renamed_field_keeps_its_key_so_answers_already_given_still_fill_it(self):
+		keys = {r["name"]: {f["label"]: f["key"] for _s, f in _fields(r)} for r in _types()}
+		self.assertEqual(keys["Electricity Expenses"]["Location"], "premises")
+		self.assertEqual(keys["Electricity Expenses"]["Bill Date"], "billing_month")
+		self.assertEqual(keys["Bank Fees & Charges"]["Bank Name"], "bank_name")
+		self.assertEqual(keys["Bank Interest"]["Bank Name"], "bank_name")
+
+	def test_the_staff_stay_keeps_what_the_duplicate_check_reads(self):
+		"""The duplicate staff-stay check (#1504) is keyed on this template id and matches the
+		person and the dates."""
+		row = next(r for r in _types() if r["name"] == "Rent/PG for Staff")
+		self.assertEqual(_format(row)["templateId"], "staff-accommodation")
+		keys = {f["key"] for _s, f in _fields(row)}
+		self.assertLessEqual({"person_name", "rent_period_from", "rent_period_to"}, keys)

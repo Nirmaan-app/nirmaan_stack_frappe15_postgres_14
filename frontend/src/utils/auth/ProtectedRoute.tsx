@@ -4,6 +4,8 @@ import { UserContext } from './UserProvider'
 import { TailSpin } from 'react-loader-spinner'
 import { useUserData } from '@/hooks/useUserData'
 import { canManageTendering } from '@/pages/projects/tendering/tenderingAuth'
+import { useExpenseAccess } from '@/hooks/useExpenseAccess'
+import { expenseRouteState } from '@/utils/expenseAccess'
 
 /**
  * What RoleRoute shows (S6 F4 / U3, owner ruling Q-e). Pure.
@@ -265,8 +267,21 @@ export const RoleRoute = ({
     what: string
 }) => {
     const { role, user_id } = useUserData()
-    const state = roleRouteState(role, user_id, allowed)
+    return <RouteGate state={roleRouteState(role, user_id, allowed)} what={what} />
+}
 
+/**
+ * The `/expense` route (spec #1494, #1506): open to someone who can raise at least one expense type,
+ * or who reviews. The server answers (`useExpenseAccess`), from the same `allowed_roles` the
+ * request-creating call enforces; the sidebar item reads the same answer.
+ */
+export const ExpenseRoute = () => {
+    const { access, failed } = useExpenseAccess()
+    return <RouteGate state={expenseRouteState(access, failed)} what="Expenses" />
+}
+
+/** The page, a loading state, or "Access Denied", by `state`. */
+const RouteGate = ({ state, what }: { state: RoleRouteState; what: string }) => {
     if (state === "allow") {
         return <Outlet />
     }

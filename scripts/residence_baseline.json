@@ -20,7 +20,7 @@
     "rule": "F2"
   },
   "f5_raw_updatedoc_files": {
-    "count": 113,
+    "count": 109,
     "description": "Frontend files calling useFrappeUpdateDoc / updateDoc( directly instead of one write-safety seam.",
     "rule": "F5"
   },
@@ -30,7 +30,7 @@
     "rule": "P1"
   },
   "t1_tests_pick_any_row": {
-    "count": 23,
+    "count": 22,
     "description": "Lines in test_*.py fetching a row with empty filters (get_value(doctype, {}...)): the record depends on whatever was modified last.",
     "rule": "T1"
   }

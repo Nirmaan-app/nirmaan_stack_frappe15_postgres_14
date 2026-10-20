@@ -2,7 +2,7 @@
 # See license.txt
 
 """The request's payee picker (spec #1420 tickets #1429, #1434, #1436, ADR-0033): search (by holder
-name), add, the vendor's Payee, and changing an Expense's account.
+name), add, and the vendor's Payee. Changing an Expense's account: `api/payees/test_paid_to`.
 
 Anyone who can raise an Expense Request may search Payees and add one from the request; nobody else.
 
@@ -22,17 +22,17 @@ from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
 from nirmaan_stack.api.payees.payee_fixture import TEST_IFSC, PayeeFixture, delete_each
 from nirmaan_stack.api.payees.vendor_payee import get_vendor_account
 from nirmaan_stack.services import expense_request_routing as routing
-from nirmaan_stack.services.payees.expense_payee import change_expense_account
 
 PM_USER = "exr_test_pyepm@example.com"
 NOBODY = "exr_test_pyenobody@example.com"
-# Can record an expense (Frappe create on both expense doctypes) but raise no request: no role profile.
+# A Procurement Executive whose profile may raise the test type: names who gets paid like any raiser.
 PROCUREMENT = "exr_test_pyeproc@example.com"
-# Holds the PMO Executive role alone (no System Manager, no role profile): may record an expense (#1475).
+# Holds the PMO Executive role alone and no role profile, so raises no type. It once named a Payee on
+# its role's ledger create right (#1475); no person holds that right now (spec #1494, #1506).
 PMO = "exr_test_pyepmo@example.com"
 USERS = (PM_USER, NOBODY, PROCUREMENT, PMO)
 PM_PROFILE = "Nirmaan Project Manager Profile"
-NPE = "Non Project Expenses"
+PROCUREMENT_PROFILE = "Nirmaan Procurement Executive Profile"
 
 
 class TestRequestPayees(FrappeTestCase):
@@ -43,14 +43,14 @@ class TestRequestPayees(FrappeTestCase):
 		# A signed-in user with no role profile (so no expense type to raise) and no create right on
 		# either expense doctype (HR Lead holds read only): they may name no Payee.
 		_make_user(NOBODY, None, ("Nirmaan HR Lead",))
-		_make_user(PROCUREMENT, None, ("Nirmaan Procurement Executive",))
+		_make_user(PROCUREMENT, PROCUREMENT_PROFILE, ("Nirmaan Procurement Executive",))
 		_make_user(PMO, None, ("Nirmaan PMO Executive",))
-		# The PM must be able to raise SOME type: one of their own, removed after.
+		# The PM and Procurement must be able to raise SOME type: one of their own, removed after.
 		cls.expense_type = f"exr_test_pye_{frappe.generate_hash(length=6)}"
 		d = frappe.new_doc("Expense Type")
 		d.update({"expense_name": cls.expense_type, "non_project": 1,
 		          "expense_category": "Uncategorized", "payee_rule": "Required"})
-		d.set("allowed_roles", [{"role_profile": PM_PROFILE}])
+		d.set("allowed_roles", [{"role_profile": PM_PROFILE}, {"role_profile": PROCUREMENT_PROFILE}])
 		d.insert(ignore_permissions=True)
 		frappe.db.commit()
 
@@ -80,20 +80,6 @@ class TestRequestPayees(FrappeTestCase):
 			return fn(**kw)
 		finally:
 			frappe.set_user("Administrator")
-
-	def _expense(self, status="Approved", doctype=NPE) -> str:
-		"""An expense row with no account, inserted raw (no hooks), deleted after the test."""
-		name = f"exr-test-pye-{frappe.generate_hash(length=8)}"
-		frappe.db.sql(
-			f"""INSERT INTO "tab{doctype}" (name, creation, modified, modified_by, owner, docstatus, idx,
-			                                type, amount, status)
-			   VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s, 100, %s)""",
-			(name, self.expense_type, status),
-		)
-		frappe.db.commit()
-
-		self.addCleanup(delete_each, [(doctype, name)], raw={doctype})
-		return name
 
 	def _search(self, text):
 		return {r["name"]: r for r in self._as(PM_USER, search_payees, text=text)}
@@ -128,29 +114,31 @@ class TestRequestPayees(FrappeTestCase):
 		payee = self.payees.payee(account_number=number)
 		self.assertIn(payee, self._search(f"00{number[:5]} {number[5:]}"))
 
-	def test_someone_who_can_record_an_expense_but_raise_no_request_searches_checks_and_adds(self):
-		"""The Add Expense dialogs name who gets paid through these endpoints too (#1471): Procurement,
-		and a PMO Executive on its own role's create right (#1475)."""
-		for user in (PROCUREMENT, PMO):
-			with self.subTest(user=user):
-				number = self.payees.account_number()
-				existing = self.payees.payee(account_number=number)
-				self.assertIn(existing, [r["name"] for r in self._as(user, search_payees, text=number)])
-				checked = self._as(user, check_request_payee, account_number=number, ifsc=TEST_IFSC)
-				self.assertEqual(checked["duplicate"]["name"], existing)
-				holder = self.payees.holder("Raiser")
-				out = self._as(user, add_request_payee, account_name=holder,
-				               account_number=self.payees.account_number(), ifsc=TEST_IFSC)
-				self.assertEqual(frappe.db.get_value("Payee", out["payee"]["name"], "account_name"), holder)
+	def test_a_procurement_raiser_searches_checks_and_adds(self):
+		"""Procurement raises through New Expense like everyone else, so it names who gets paid the
+		same way (spec #1494, #1506)."""
+		number = self.payees.account_number()
+		existing = self.payees.payee(account_number=number)
+		self.assertIn(existing, [r["name"] for r in self._as(PROCUREMENT, search_payees, text=number)])
+		checked = self._as(PROCUREMENT, check_request_payee, account_number=number, ifsc=TEST_IFSC)
+		self.assertEqual(checked["duplicate"]["name"], existing)
+		holder = self.payees.holder("Raiser")
+		out = self._as(PROCUREMENT, add_request_payee, account_name=holder,
+		               account_number=self.payees.account_number(), ifsc=TEST_IFSC)
+		self.assertEqual(frappe.db.get_value("Payee", out["payee"]["name"], "account_name"), holder)
 
-	def test_someone_who_can_neither_raise_a_request_nor_record_an_expense_cannot_search_or_add(self):
-		with self.assertRaises(frappe.PermissionError):
-			self._as(NOBODY, search_payees, text="TESTPYE")
-		with self.assertRaises(frappe.PermissionError):
-			self._as(NOBODY, add_request_payee, account_name=self.payees.holder(),
-			         account_number=self.payees.account_number(), ifsc=TEST_IFSC)
-		with self.assertRaises(frappe.PermissionError):
-			self._as(NOBODY, check_request_payee, account_number="1234", ifsc=TEST_IFSC)
+	def test_someone_who_can_raise_no_type_cannot_search_check_or_add(self):
+		"""Whatever ledger roles they hold: the PMO Executive role alone, with no profile, raises
+		nothing, so it names no Payee."""
+		for user in (NOBODY, PMO):
+			with self.subTest(user=user):
+				with self.assertRaises(frappe.PermissionError):
+					self._as(user, search_payees, text="TESTPYE")
+				with self.assertRaises(frappe.PermissionError):
+					self._as(user, add_request_payee, account_name=self.payees.holder(),
+					         account_number=self.payees.account_number(), ifsc=TEST_IFSC)
+				with self.assertRaises(frappe.PermissionError):
+					self._as(user, check_request_payee, account_number="1234", ifsc=TEST_IFSC)
 
 	# --- add -----------------------------------------------------------------
 
@@ -185,19 +173,3 @@ class TestRequestPayees(FrappeTestCase):
 		out = self._as(PM_USER, get_vendor_account, vendor=vendor)
 		self.assertEqual((out["vendor_name"], out["payee"]["name"]), ("TESTPYE Raiser Vendor", payee))
 		self.assertIsNone(self._as(PM_USER, get_vendor_account, vendor=self.payees.vendor())["payee"])
-
-	# --- changing an Expense's account ---------------------------------------
-
-	def test_changing_an_expenses_account_copies_it_paid_or_not(self):
-		"""Change account copies the Payee's account onto the expense (#1436, #1438). Whether it may
-		still change once paid is a screen rule, not a server refusal."""
-		first, second = self.payees.payee(), self.payees.payee()
-		for status in ("Approved", "Paid"):
-			with self.subTest(status=status):
-				expense = self._expense(status=status)
-				change_expense_account(NPE, expense, first)
-				change_expense_account(NPE, expense, second)
-				self.assertEqual(
-					frappe.db.get_value(NPE, expense, ["pay_to_account_name", "pay_to_account_number", "pay_to_ifsc"]),
-					frappe.db.get_value("Payee", second, ["account_name", "account_number", "ifsc"]),
-				)

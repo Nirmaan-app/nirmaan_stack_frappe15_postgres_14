@@ -196,7 +196,8 @@ def paid_to_for(keys: list[dict]) -> list[dict]:
 
 def pay_to_box(doctype: str, name: str) -> dict:
     """The "Pay ₹X to" box for a payment or an expense: its `paid_to_rows` answer plus `{name,
-    description, amount, vendor, vendor_name, vendor_fixed, paid, named_by}`. `description`: an
+    description, amount, vendor, vendor_name, vendor_fixed, status, paid, named_by}`. `status`: the
+    row's, at which the screen asks the caller's edit answer whether Change account shows. `description`: an
     expense's, so Change account names it by what it is, not its ID; None on a PO / WO payment. `vendor_fixed`: an expense with a
     vendor is paid into the vendor's account, so the screen offers no other. `paid`: money has left
     Approved (`rules.PAID_STATUSES`). `named_by` is `{how, user, full_name, on}` (`on` an ISO date) or
@@ -216,6 +217,7 @@ def pay_to_box(doctype: str, name: str) -> dict:
         "vendor": vendor,
         "vendor_name": frappe.db.get_value("Vendors", vendor, "vendor_name") if vendor else None,
         "vendor_fixed": bool(vendor),
+        "status": doc.status,
         "paid": doc.status in PAID_STATUSES,
         "named_by": _named_by(doctype, doc, vendor) if answer["account"] else None,
     }

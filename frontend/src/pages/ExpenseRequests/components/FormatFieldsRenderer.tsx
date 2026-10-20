@@ -186,7 +186,17 @@ interface Props {
 export const FormatFieldsRenderer: React.FC<Props> = ({
     format, answers, onChange, files, onFileChange, onFileError, disabled,
 }) => {
-    const sections = format.sections ?? [];
+    // The invoice is asked once, by "Do you have the invoice?" (#1502), so a form's own slot for it
+    // (`maps_to: invoice_attachment`, removed from the shipped forms by #1503) is not shown too.
+    const sections = useMemo(
+        () => (format.sections ?? [])
+            .map((s) => s.type !== ATTACHMENTS ? s : {
+                ...s,
+                slots: (s.slots ?? []).filter((slot) => slot.maps_to !== "invoice_attachment"),
+            })
+            .filter((s) => s.type !== ATTACHMENTS || (s.slots ?? []).length > 0),
+        [format]
+    );
     const unrendered = useMemo(
         () => sections.filter((s) => !RENDERED.has(s.type)).map((s) => s.title || s.id),
         [sections]
@@ -218,15 +228,10 @@ export const FormatFieldsRenderer: React.FC<Props> = ({
                                 selectedFile={files[slot.key] ?? null}
                                 onFileSelect={(f: File | null) => onFileChange(slot.key, f)}
                                 onError={(e) => onFileError(e.message)}
-                                maxFileSize={((slot as any).maxSizeMb ?? 5) * 1024 * 1024}
-                                acceptedTypes={parseAccept((slot as any).accept)}
+                                maxFileSize={(slot.maxSizeMb ?? 5) * 1024 * 1024}
+                                acceptedTypes={parseAccept(slot.accept)}
                                 disabled={disabled}
                             />
-                            {(slot as any).maps_to === "invoice_attachment" && (
-                                <p className="text-[11px] text-muted-foreground">
-                                    Carried onto the expense once approved.
-                                </p>
-                            )}
                         </div>
                     ))}
                 </div>

@@ -5,31 +5,42 @@
 
 URLs:
   /api/method/nirmaan_stack.api.expense_requests.read.get_my_expense_requests
+  /api/method/nirmaan_stack.api.expense_requests.read.get_expense_request
   /api/method/nirmaan_stack.api.expense_requests.read.get_request_catalog
+  /api/method/nirmaan_stack.api.expense_requests.read.get_expense_access
 """
 
 import frappe
 
 from nirmaan_stack.api.expense_requests.access import (
-	ADMIN_PROFILE,
 	PM_REQUEST_REVIEWERS,
 	caller_role_profile,
+	can_raise_requests,
 	can_request_type,
-	reviews_pm_request,
+	is_admin,
+	may_review,
+	opens_expenses,
+	records_without_review,
 )
-from nirmaan_stack.api.expense_requests.convert import (
-	applicable_format,
-	target_doctype,
-	target_status,
+from nirmaan_stack.api.expense_requests.convert import target_doctype, target_status
+from nirmaan_stack.api.expense_requests.delete import can_delete
+from nirmaan_stack.api.expense_requests.flatten import (
+	NATIVE_INVOICE_SECTION,
+	detail_rows,
+	request_invoice,
 )
-from nirmaan_stack.api.expense_requests.flatten import flatten_pairs
+from nirmaan_stack.api.expense_requests.form_snapshot import governing_form, governing_forms
+from nirmaan_stack.api.expense_requests.invoice import invoice_refusal
+from nirmaan_stack.api.expense_requests.standing import expenses_of, standing_of
 from nirmaan_stack.api.expense_requests.update import can_edit
+from nirmaan_stack.services.expense_decision import approval_level
 from nirmaan_stack.services.expense_request_routing import (
 	category_for_type,
 	requestable_types,
 	resolved_categories,
 	reviewer_role_for_type,
 )
+from nirmaan_stack.services.expense_statuses import REQUEST_REJECTED
 from nirmaan_stack.services.payees.expense_rules import NOT_ASKED
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS, pay_to_account
 
@@ -43,6 +54,8 @@ FIELDS = [
 	# reads it before deciding, and the edit dialog shows it.
 	*PAY_TO_FIELDS,
 	"source_data", "status", "reviewed_by", "reviewed_on", "review_comment",
+	# Records without review (#1498): approved on submit, with no Reviewer. Shown on the request.
+	"approved_on_submit",
 	"owner", "creation", "modified",
 ]
 
@@ -85,13 +98,14 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 			as_list=True,
 		))
 
-	# One read of the formats for the whole page, rather than one per row.
-	formats = {
-		f["name"]: f
-		for f in frappe.get_all("Expense Type",
-		                        fields=["name", "source_format", "source_format_enabled"],
-		                        filters={"source_format": ["is", "set"]})
-	}
+	# One read of the forms for the whole page, rather than one per row: each row's own snapshot
+	# (#1503) wins over today's form (`form_snapshot.governing_forms`).
+	forms = governing_forms(rows)
+	# Which rejected rows still have an Expense, read once for the page: those are deleted only
+	# through their Expense, so they carry no trash button.
+	with_expense = expenses_of(r["name"] for r in rows if r["status"] == REQUEST_REJECTED)
+	admin = is_admin(user)
+
 	# Each type's *Who gets paid* (#1466), so the review dialog words a missing account by it.
 	payee_rules = dict(frappe.get_all("Expense Type", fields=["name", "payee_rule"], as_list=True))
 
@@ -107,25 +121,14 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 		# Must say what `access.guard_reviewer` says, or the button appears on a row the
 		# endpoint then refuses.
 		r["can_edit"] = can_edit(r, user)
-		r["can_review"] = profile == ADMIN_PROFILE or (
-			r["owner"] != user
-			and (profile == r["reviewer_role"]
-			     or reviews_pm_request(profile, requester_profiles.get(r["owner"])))
-		)
+		r["can_delete"] = can_delete(r, user, admin=admin, has_expense=r["name"] in with_expense)
+		r["can_review"] = may_review(r, user, profile, requester_profiles.get(r["owner"]))
 		# The answers, labelled, for the approval screen. Built by the SAME walk that writes
 		# the ledger description, so what a reviewer approves and what lands on the expense
 		# can never describe the request differently.
 		# EVERY request, formatted or not -- `source_data` is the only home for the detail
 		# now, so this block is the only thing that shows what was asked for.
-		fmt = formats.get(r["type"]) or {}
-		r["detail"] = [
-			{"label": label, "value": value}
-			for label, value in flatten_pairs(
-				r.get("source_data"),
-				applicable_format(fmt.get("source_format"), fmt.get("source_format_enabled"),
-				                  r.get("source_data")),
-			)
-		]
+		r["detail"] = detail_rows(r.get("source_data"), forms.get(r["name"]))
 		# Which ledger this becomes, AND what status it will land at -- both resolved
 		# server-side so the dialog states the outcome rather than re-deriving the rule.
 		# The status is amount-dependent since 2026-08-20, and the threshold lives on the
@@ -133,9 +136,44 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 		r["pay_to"] = pay_to_account(r)
 		r["payee_rule"] = payee_rules.get(r["type"]) or NOT_ASKED
 		r["target_doctype"] = target_doctype(frappe._dict(r))
-		r["target_status"] = target_status(frappe._dict(r))
+		r["target_status"] = target_status(frappe._dict(r), user)
 
 	return {"role_profile": profile, "requests": rows}
+
+
+@frappe.whitelist()
+def get_expense_request(name: str):
+	"""One request, for its page (`/expense/requests/<name>`, #1502).
+
+	Built for the page to grow: #1502 reads the invoice and whether one may be added. `expense` is
+	the Expense created from it, as `{doctype, name, status}`, or None before approval. `standing`
+	(#1500) is `{status, amount, steps}` read live from that Expense: the status label and amount
+	the page shows, and its "Where it stands" steps (`standing.standing_of`).
+	"""
+	doc = frappe.get_doc("Expense Request", name)
+	doc.check_permission("read")
+	row = {f: doc.get(f) for f in FIELDS}
+
+	source_format = governing_form(doc)
+	row["detail"] = detail_rows(doc.source_data, source_format, skip_sections=(NATIVE_INVOICE_SECTION,))
+	row["projects_name"] = (
+		frappe.db.get_value("Projects", doc.projects, "project_name") if doc.projects else None
+	)
+	row["owner_name"] = frappe.db.get_value("User", doc.owner, "full_name") or doc.owner
+	row["pay_to"] = pay_to_account(row)
+
+	expense = expenses_of([name]).get(name)
+	row["expense"] = ({"doctype": expense.doctype, "name": expense.name, "status": expense.status}
+	                  if expense else None)
+	# What approval carries onto the Expense: a request raised before #1502 has its bill in its
+	# form's slot.
+	row["invoice"] = request_invoice(doc.source_data, source_format)
+	# Why the caller may not add it now (None when they may): the page words its empty state by it.
+	row["invoice_refusal"] = invoice_refusal(row, expense)
+	row["can_add_invoice"] = row["invoice_refusal"] is None
+	row["can_edit"] = can_edit(row)
+	row["standing"] = standing_of(row, expense, approval_level(doc.owner, doc.reviewed_by))
+	return row
 
 
 @frappe.whitelist()
@@ -159,6 +197,9 @@ def get_request_catalog(include_type: str | None = None):
 	`has_format` drives whether the dialog renders a template step; `project` /
 	`non_project` drive the conditional Project field (mirroring the doctype's
 	`type_allows_project` fetch).
+
+	`records_without_review`: the caller's request is approved on submit (#1498), so the dialog's
+	button reads "Record expense" and says who approves next, rather than "Send for review".
 	"""
 	types = [
 		t for t in requestable_types()
@@ -199,7 +240,21 @@ def get_request_catalog(include_type: str | None = None):
 			)
 		categories.append({"category": name, "reviewer_role": reviewer_role, "types": entries})
 
-	return {"categories": categories}
+	return {"categories": categories, "records_without_review": records_without_review()}
+
+
+@frappe.whitelist()
+def get_expense_access():
+	"""Whether the caller gets the Expenses page, and whether they get its New Expense button:
+	`{opens_expenses, can_raise}`. `opens_expenses` (`access.opens_expenses`: can raise at least one
+	type, or reviews) is read by the sidebar item and the `/expense` route guard; `can_raise`
+	(`access.can_raise_requests`: can raise at least one type) by the New Expense button on the
+	Expenses page and on Project Payment & Expense, so a reviewer who raises nothing sees no button.
+	Both answer from the same `Expense Type.allowed_roles` the request-creating call enforces.
+
+	Example: `{"opens_expenses": true, "can_raise": false}`.
+	"""
+	return {"opens_expenses": opens_expenses(), "can_raise": can_raise_requests()}
 
 
 @frappe.whitelist()

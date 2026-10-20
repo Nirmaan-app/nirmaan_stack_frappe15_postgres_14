@@ -14,6 +14,7 @@ import { PorterSection } from "@/components/common/PorterExpense";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { invoiceAttachmentUrl } from "@/utils/porterExpense";
+import DuplicateStayNote from "@/components/common/DuplicateStayNote";
 import {
   ApprovalStage,
   ExpenseApprovalDetail,
@@ -156,6 +157,10 @@ export const ExpenseApprovalDetails: React.FC<Props> = ({ doctype, name, isOpen,
           )}
         </div>
       )}
+
+      {/* A duplicate stay is flagged in bold to whoever approves, with the matches, and never blocks
+          (#1504): the same note the Reviewer sees. */}
+      <DuplicateStayNote matches={d.stays ?? []} variant="warning" />
 
       {d.similar.length > 0 && (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm dark:border-amber-900 dark:bg-amber-950/30">

@@ -10,14 +10,19 @@ import json
 
 import frappe
 
-from nirmaan_stack.api.expense_requests.access import PENDING, guard_requestable
+from nirmaan_stack.api.expense_requests.access import guard_requestable, records_without_review
+from nirmaan_stack.api.expense_requests.convert import approve_request
+from nirmaan_stack.api.expense_requests.duplicates import find_stay_duplicates
 from nirmaan_stack.api.expense_requests.flatten import (
 	filled_against_a_form,
 	flat_responses,
+	invoice_warnings,
 	mapped_fields,
 	native_description,
 	native_invoice,
 )
+from nirmaan_stack.api.expense_requests.form_snapshot import governing_form, stamp_live_form
+from nirmaan_stack.services.expense_statuses import REQUEST_PENDING
 from nirmaan_stack.services.payees.pay_to import apply_picked_payee
 
 
@@ -31,7 +36,19 @@ def create_expense_request(
 	source_data=None,
 	payee: str | None = None,
 ):
-	"""Create one `Expense Request` at `Pending Approval`.
+	"""Raise one `Expense Request`: at `Pending Approval` for a Reviewer, or approved on submit.
+
+	A raiser who records without review (`access.records_without_review`: Admin, or a profile on
+	Expense Settings) has the request approved at once: its Expense is created in the same
+	transaction and the request is marked `approved_on_submit`. That skips the Reviewer, never
+	the amount rule: the Expense's status comes from the ledger's own `validate`
+	(`expense_decision.apply_starting_status`, the amount rule plus the Raiser's own step), so an
+	HR raiser's Rs 40,000 Expense still waits at Requested for an Admin.
+
+	Returns `{name, status, projects, created_expense, created_expense_doctype, expense_status,
+	warnings, duplicates}`; the three expense fields are None when the request waits for review,
+	`warnings` are the invoice warnings (#1502), and `duplicates` the other stays for the same
+	person on overlapping days (`duplicates.find_stay_duplicates`, #1504). Neither ever refuses.
 
 	`projects` is passed through as given and left to the doctype's `validate`, which
 	checks it against the Expense Type's own project / non_project flags. There is no
@@ -43,7 +60,7 @@ def create_expense_request(
 	honest half of that: the requester is told, rather than discovering it downstream.
 
 	It is the NATIVE field, not the format's. A format may still promote one through
-	`maps_to` (see `_promote_mapped`), which is how a type can ask for a vendor its own way;
+	`maps_to` (see `promote_mapped`), which is how a type can ask for a vendor its own way;
 	an explicit argument WINS over a promoted answer, because it is the one the requester
 	chose on screen.
 
@@ -58,6 +75,10 @@ def create_expense_request(
 	named it is ignored: the save copies the vendor's Payee instead
 	(`services/payees/pay_to.fill_from_vendor`), on every write path. Nothing is refused here: a
 	*Required* type with no account is a screen rule.
+
+	The invoice ("Do you have the invoice?", #1502) rides `source_data` under the native keys
+	(`flatten.native_invoice`) for every type, form or not. What it lacks comes back as
+	`warnings`; nothing about it is refused.
 	"""
 	guard_requestable(expense_type)
 
@@ -68,19 +89,21 @@ def create_expense_request(
 		source_data = json.dumps(source_data)
 
 	guard_request_form(expense_type, source_data)
+	# The form these answers were filled against, frozen, so the request reads against it after
+	# the type's form changes (#1503).
+	source_data = stamp_live_form(expense_type, source_data)
 
 	# ⚠️ A DUPLICATE IS NEVER REFUSED HERE (owner ruling, 2026-08-20, REVERSING the 2026-08-19
-	# submission block). The review dialog shows the approver same-type, same-amount expenses
-	# (`similar.get_similar`) and stops nothing. A duplicate is genuinely hard to tell from a
-	# legitimate repeat, so the judgement belongs to a human -- and a refusal the requester
-	# disagrees with has nowhere to go. (The create-dialog warning went with the per-type
-	# duplicate rules, removed 2026-09-19.)
+	# submission block). A duplicate stay is RETURNED as `duplicates` (`duplicates.py`, #1504) and
+	# shown to whoever approves; the review dialog also shows same-type, same-amount expenses
+	# (`similar.get_similar`). A duplicate is genuinely hard to tell from a legitimate repeat, so
+	# the judgement belongs to a human -- and a refusal the requester disagrees with has nowhere to go.
 
 	# A format field carrying `maps_to` names a REAL column on the request -- the answer is
 	# promoted rather than left only in `source_data`, so it is queryable, referentially
 	# checked by the Link, and copied to the ledger as a plain field rather than parsed out of
 	# prose. Which types ask for it is the FORMAT's decision, so nothing is named here.
-	promoted = _promote_mapped(expense_type, source_data)
+	promoted = promote_mapped(expense_type, source_data)
 
 	doc = frappe.new_doc("Expense Request")
 	doc.update(
@@ -90,7 +113,7 @@ def create_expense_request(
 			"amount": amount,
 			"comment": comment,
 			"source_data": source_data or None,
-			"status": PENDING,
+			"status": REQUEST_PENDING,
 			**promoted,
 			# AFTER the promoted spread, deliberately: an explicit argument is the vendor the
 			# requester picked on screen, so it outranks one a format inferred. `None` would
@@ -100,10 +123,26 @@ def create_expense_request(
 	)
 	# After the promotion, so a vendor a format inferred is paid into its Payee just the same.
 	apply_picked_payee(doc, payee)
-	doc.insert()
+	# Elevated, like every write the intake makes (spec #1494, #1506): who may raise is
+	# `guard_requestable` above (the type's `allowed_roles`), not the request's DocPerm, so a
+	# PMO or Procurement raiser needs no create right of their own.
+	doc.insert(ignore_permissions=True)
+	# One transaction: the request and its Expense land together or not at all.
+	# Approved on submit, with no Reviewer (`approved_on_submit` says why): the same approve path a
+	# Reviewer's approval takes, so the Expense's raiser is the request's owner for the Raiser's own step.
+	expense = approve_request(doc) if records_without_review() else None
 	frappe.db.commit()
 
-	return {"name": doc.name, "status": doc.status, "projects": doc.projects}
+	return {
+		"name": doc.name,
+		"status": doc.status,
+		"projects": doc.projects,
+		"created_expense": expense.name if expense else None,
+		"created_expense_doctype": expense.doctype if expense else None,
+		"expense_status": expense.status if expense else None,
+		"warnings": invoice_warnings(native_invoice(doc.source_data)),
+		"duplicates": find_stay_duplicates(doc.source_data, exclude=doc.name),
+	}
 
 
 def guard_vendor_scope(vendor, projects) -> str | None:
@@ -127,9 +166,8 @@ def guard_request_form(expense_type: str, source_data) -> None:
 	"""The answers must match the type's `source_format_enabled` switch -- when it is OFF.
 
 	SHARED with `update`, like `guard_vendor_scope`. With the form OFF the request is a
-	STANDARD one and must carry what a directly-entered expense requires: a description, and
-	invoice details that hang together (a date whenever any invoice detail is given, a
-	reference whenever a file is attached -- the direct-entry dialogs' own rules).
+	STANDARD one and must carry a description. Its invoice is checked by nobody: since #1502 a
+	missing invoice date or number is a warning (`flatten.invoice_warnings`), never a refusal.
 
 	⚠️ ONLY THE OFF SIDE IS ENFORCED. A form's own required answers have never been checked
 	server-side (the dialog checks them), and nothing here changes that.
@@ -149,18 +187,6 @@ def guard_request_form(expense_type: str, source_data) -> None:
 	if not native_description(source_data):
 		frappe.throw("A description is required.", title="Description required")
 
-	invoice = native_invoice(source_data)
-	if invoice.get("invoice_attachment") and not invoice.get("invoice_ref"):
-		frappe.throw(
-			"An invoice reference is required when an invoice is attached.",
-			title="Invoice reference required",
-		)
-	if invoice and not invoice.get("invoice_date"):
-		frappe.throw(
-			"An invoice date is required when recording invoice details.",
-			title="Invoice date required",
-		)
-
 
 # The columns a format is allowed to write into. A CLOSED allowlist, deliberately: `maps_to`
 # is read from data an admin edits, so an open one would let a format aim at any column on the
@@ -168,15 +194,13 @@ def guard_request_form(expense_type: str, source_data) -> None:
 PROMOTABLE = {"vendor"}
 
 
-def _promote_mapped(expense_type: str, source_data) -> dict:
+def promote_mapped(expense_type: str, source_data) -> dict:
 	"""`{column: value}` for every format field declaring a promotable `maps_to`.
 
 	Silently ignores a `maps_to` naming anything outside `PROMOTABLE`, and a blank answer --
 	an unfilled optional field must not write an empty Link.
 	"""
-	from nirmaan_stack.api.expense_requests.convert import _source_format_for
-
-	fmt = _source_format_for(frappe._dict({"type": expense_type, "source_data": source_data}))
+	fmt = governing_form(frappe._dict({"type": expense_type, "source_data": source_data}))
 	mapping = mapped_fields(fmt)
 	if not mapping:
 		return {}

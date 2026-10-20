@@ -111,7 +111,9 @@ from typing import Callable
 
 import frappe
 
+from nirmaan_stack.services.caller_transaction import OUTFLOW_IMPORT_SETTLING
 from nirmaan_stack.services.cheques.decide import pay_alone_problem
+from nirmaan_stack.services.expense_type_ledger import expense_type_problem
 from nirmaan_stack.services.non_project_inflows import inflow_type_problem
 from nirmaan_stack.services.vendor_refunds import (
     RECEIVED,
@@ -340,12 +342,12 @@ def outflow_import_write():
     break a nesting caller. `finally` covers the raise path, which is the one that matters -- a
     settlement that throws is exactly when the caller is about to roll back to its savepoint.
     """
-    previous = frappe.flags.get("outflow_import_settling")
-    frappe.flags.outflow_import_settling = True
+    previous = frappe.flags.get(OUTFLOW_IMPORT_SETTLING)
+    frappe.flags[OUTFLOW_IMPORT_SETTLING] = True
     try:
         yield
     finally:
-        frappe.flags.outflow_import_settling = previous
+        frappe.flags[OUTFLOW_IMPORT_SETTLING] = previous
 
 
 # Every one of the three ledgers happens to spell it the same way. Named once so a fourth ledger
@@ -450,19 +452,14 @@ def format_amount_for(doctype: str, amount: Decimal):
 def _assert_type_scope(doctype: str, expense_type: str) -> None:
     """A Project Expense needs a `project=1` type; a Non-Project one needs `non_project=1`.
 
-    Nothing in the app enforces this today -- the two create dialogs simply query different lists --
-    so an endpoint that accepts a type name has to check it itself.
+    The ledger's own `validate` refuses the same (`services/expense_type_ledger`, #1496); this asks
+    its answer BEFORE anything is built, and refuses a blank type, which the ledger allows.
     """
     if not expense_type:
         frappe.throw("An expense type is required.", ExpenseTypeScopeError, title="Missing type")
-    field = "project" if doctype == PROJECT_EXPENSE else "non_project"
-    allowed = frappe.db.get_value("Expense Type", expense_type, field)
-    if not allowed:
-        frappe.throw(
-            f"'{expense_type}' is not an expense type available for {doctype}.",
-            ExpenseTypeScopeError,
-            title="Wrong expense type",
-        )
+    problem = expense_type_problem(doctype, expense_type)
+    if problem:
+        frappe.throw(problem, ExpenseTypeScopeError, title="Wrong expense type")
 
 
 def _not_settleable_message(name: str, status: str) -> str:
