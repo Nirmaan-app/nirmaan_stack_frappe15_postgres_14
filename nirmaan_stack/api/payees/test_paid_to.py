@@ -17,10 +17,13 @@ Run:
   devenv.sh test --module nirmaan_stack.api.payees.test_paid_to
 """
 
+from contextlib import contextmanager
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
+import frappe.utils.data
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import today
 
@@ -58,6 +61,18 @@ PROCUREMENT_USER = "pye_paidto_proc@example.com"
 PAYMENT = "Project Payments"
 PE = "Project Expenses"
 NPE = "Non Project Expenses"
+
+
+@contextmanager
+def _site_clock_at(moment: datetime):
+    """Stop Frappe's clock (`now()`, `today()`, every document save) at `moment`, in the site's time zone.
+
+    FrappeTestCase.freeze_time needs freezegun, which this bench does not install. The database server's
+    own clock (Postgres `NOW()`) keeps running: that is the clock a test must never date a row by.
+    """
+    with patch.object(frappe.utils.data, "now_datetime", return_value=moment), \
+            patch.object(frappe.utils, "now_datetime", return_value=moment):
+        yield
 
 
 class TestPaidTo(FrappeTestCase):
@@ -585,15 +600,17 @@ class TestPaidTo(FrappeTestCase):
     # -- the "Pay ₹X to" box -----------------------------------------------------------------------
     def test_the_box_names_the_raiser_who_set_the_account_on_the_request(self):
         payee = self.payees.payee()
-        expense = self._expense(copy_of=payee, request_id=self._request(payee))
-
-        box = get_pay_to_box(NPE, expense)
+        # 00:30 IST is still the previous day in UTC, the database server's clock: the request's date
+        # must be the site's day, so the site clock is stopped where the two disagree.
+        with _site_clock_at(datetime(2026, 10, 17, 0, 30)):
+            expense = self._expense(copy_of=payee, request_id=self._request(payee))
+            box = get_pay_to_box(NPE, expense)
 
         self.assertEqual(box["account"], self._account(payee))
         self.assertEqual(box["account"]["bank_name"], "Test Bank")
         self.assertEqual(box["amount"], 25000)
         self.assertEqual((box["named_by"]["how"], box["named_by"]["user"]), ("request", PM_USER))
-        self.assertEqual(box["named_by"]["on"], today())
+        self.assertEqual(box["named_by"]["on"], "2026-10-17")
 
     def test_the_box_names_the_expense_and_its_types_rule_whether_or_not_it_has_an_account(self):
         # Change account words its line by the type's rule and offers Remove only when the type allows it.

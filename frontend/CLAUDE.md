@@ -31,7 +31,11 @@ Four standards fail silently when broken, so they are summarised here too (full 
   must be running.
 - `yarn build` writes `../nirmaan_stack/public/frontend/` and copies `index.html` to
   `../nirmaan_stack/www/frontend.html` (plus the Firebase service worker into `www/`); both are generated output.
-- `yarn test` (vitest) is a local gate: CI runs only the Python bench suite, so run it yourself.
+- `yarn test` (vitest) and `yarn typecheck` run on every PR (`.github/workflows/frontend.yml`); run both yourself
+  first.
+- `yarn typecheck` prints only type errors that are new against `tsc-baseline.json` (keyed by file, code and
+  message, not line) and exits 1 on any. Re-baseline (`yarn typecheck --update-baseline`) only to lock in old
+  errors you fixed, never to hide a new one.
 - `python3 scripts/residence_check.py` runs from the app root, not `frontend/`.
 
 ## Domain docs
