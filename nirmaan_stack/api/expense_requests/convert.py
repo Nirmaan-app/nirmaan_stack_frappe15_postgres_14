@@ -169,6 +169,12 @@ def create_ledger_row(req):
 	# carried none (`services/payees/pay_to.fill_from_vendor`).
 	copy_pay_to(req, row)
 	row.insert(ignore_permissions=True)
+	# The Expense is the RAISER's, not the reviewer's who approved it (spec #1494): "Raised by" and
+	# "Payment Raised By Me" read its `owner`, and Frappe stamps the session user on insert. Raw on
+	# purpose: no hook or rule reads an Expense's owner (the approval path reads the request's,
+	# `approval_raiser.expense_raiser`), and it moves no money figure.
+	if req.owner and row.owner != req.owner:
+		row.db_set("owner", req.owner, update_modified=False)
 	return row
 
 

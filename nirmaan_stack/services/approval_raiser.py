@@ -36,9 +36,10 @@ def raiser_level(user: str | None) -> str | None:
 def expense_raiser(doc) -> str | None:
     """Who raised an expense ledger row.
 
-    ⚠️ NOT `doc.owner`. A row born from an Expense Request is inserted by the REVIEWER who
-    approved that request (`expense_requests.convert.create_ledger_row`), so its owner is the
-    reviewer. The person who asked for the money is the request's owner.
+    The request's owner when there is one. A row born from an Expense Request is inserted by the
+    REVIEWER who approved that request; `expense_requests.convert.create_ledger_row` hands its
+    `owner` to the request's owner only after the insert, so while the row's own `validate` runs
+    (where this decides the approval path), and on rows made before that, `owner` is the reviewer.
     """
     request_id = doc.get("request_id")
     if request_id:

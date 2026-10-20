@@ -9,9 +9,9 @@ description), so the Approve / Reject dialog showed an amount and nothing else (
 Request behind it (labelled answers + attachments, and who approved that request), and the
 same-type-and-amount expenses of the last 60 days.
 
-⚠️ THE RAISER IS THE REQUEST'S OWNER, NOT THE ROW'S. A request-born row is inserted by the
-reviewer who approved the request, so `owner` names the wrong person. One answer for that,
-`approval_raiser.expense_raiser`, which is also what decides the row's approval path.
+⚠️ THE RAISER IS THE REQUEST'S OWNER. A request-born row is inserted by the reviewer who approved
+the request, and rows made before 2026-10-20 still name that reviewer as `owner`. One answer for
+that, `approval_raiser.expense_raiser`, which is also what decides the row's approval path.
 
 The request is read WITHOUT its own permission check on purpose: anyone who may read the
 ledger row already reads the same answers flattened into its `description`.

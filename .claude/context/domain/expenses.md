@@ -277,7 +277,9 @@ Owner rulings; commits `0fc6cd146`, `9e73e97ed`, `fc4a3de42` on `develop`. Terms
 - **Raiser skip.** Both doctypes' `validate` routes a new row with
   `initial_status_for_raiser(amount, TIER_L2_ABOVE_EXPENSES, raiser_level(expense_raiser(self)))`.
   `expense_raiser` = the **Expense Request's owner** when `request_id` is set: the ledger row is inserted
-  by the reviewer, so its own `owner` names the wrong person. Steps the raiser clears are stamped
+  by the reviewer, so its own `owner` names the reviewer while `validate` runs (and on rows made before
+  2026-10-20). `convert.create_ledger_row` then sets the row's `owner` to the request's owner, so
+  "Raised by" and "Payment Raised By Me" (both read `owner`) name the raiser, never the reviewer. Steps the raiser clears are stamped
   (`approval_date` / `ceo_approval_date`) and are NOT `auto_approved`. `convert.target_status` makes the
   same call, so the review dialog's "lands at" matches.
 - **The queue's Approve / Reject dialog now shows the expense.** `api/approvals/expense_detail.

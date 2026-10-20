@@ -15,6 +15,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from nirmaan_stack.api.approvals.get_approval_queue import get_approval_queue
 from nirmaan_stack.api.expense_requests.create import create_expense_request
 from nirmaan_stack.api.expense_requests.read import get_my_expense_requests
 from nirmaan_stack.api.expense_requests.review import (
@@ -155,6 +156,19 @@ class TestAnAdminsReviewIsTheFirstApproval(FrappeTestCase):
 		self.assertEqual(self._landing_for(ADMIN_USER, name), "Approved")
 		self.assertEqual(self._landing_for(HRL_USER, name), "Requested")
 		self.assertEqual(self._landing_for(ADMIN_USER, self._raise(60000)), "CEO Pending")
+
+	# --- who raised it ------------------------------------------------------
+
+	def test_the_expense_a_review_creates_is_raised_by_the_requester_not_the_reviewer(self):
+		"""Project Payment & Expense's "Raised by" and "Payment Raised By Me" read the Expense's owner
+		(#1494): a PM's request approved by HR is the PM's, never HR's."""
+		out = self._as(HRL_USER, approve_expense_request, self._raise(22000))
+		expense = out["created_expense"]
+		self.assertEqual(frappe.db.get_value(out["created_expense_doctype"], expense, "owner"), PM_USER)
+
+		raised_by = {r["name"]: r["raised_by"] for r in get_approval_queue(
+			filters=[["raised_by", "in", [PM_USER, HRL_USER]]], limit_page_length=0)["data"]}
+		self.assertEqual(raised_by.get(expense), PM_USER)
 
 	# --- unchanged guards ----------------------------------------------------
 
