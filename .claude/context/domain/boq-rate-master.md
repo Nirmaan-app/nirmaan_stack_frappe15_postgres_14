@@ -1377,6 +1377,49 @@ there"); measured: 9 stored spigot items whose heading names a butterfly damper 
 **A6 (the Derivation tab priced through the panel's entry point) -> ADP-4**: the tab has no row unit, so it cannot price a
 converted row (VCD 550X300: 7,830 / 1,920 per sq.m on the tab vs 1,292 / 317 per number on the panel).
 
+**ADP-3a H1: THE "*" IS THE GATE'S OWN CONDITION, BUILT ONCE (owner 2026-10-20; every discipline).** A field carries `required`
+(the "*" after its label, `aria-required`, one "* needed to price" note per panel / calculator) exactly when a blank in it
+withholds the price: on an item list, the family's / unit block's / single conversion's needs minus a need a default fills on a
+BLANK (`absent_as_none`, `number_defaults`) -- a default that fires only on "not mentioned" (Insulation's cladding) still
+refuses a blank, so it is starred; on an attribute row, the gate's own sets (not derived, or a blank self-fit bind, or an
+unfillable derived one), never a disabled field. Never a second list: a starred blank field on a priced row is 0 over every
+stored row. A field in an either-or group carries no "*"; the group heading does.
+
+**ADP-3a H2: SEVERAL WAYS TO PRICE ONE FAMILY ON ONE UNIT ARE ONE GROUP ON SCREEN.** The heading is generated from the fields
+(`waysLabel`, the refusal's own helper): "Size (W x H), or Area band", "Area, or all three of Length, Width, Height", "Neck
+size, or Outer size" (the square diffuser's outer size is SHOWN as its own field). The group's fields sit together where the
+first of them sits (cert C3: a field read between them drew the heading twice). With neither way stated the row refuses
+naming the group: "<kind> needs <ways> - neither stated - price this row by hand", every box it names outlined.
+
+**ADP-3a B6: A NO-SKU SENTENCE NAMES ONLY WHAT THE KIND'S PRODUCTS VARY ON.** A fact the products do not carry, or carry with
+one shared value the row agrees with, is left out ("No SKU for fire damper: UL listed no, variant UL"); a shared value the row
+CONTRADICTS stays (the one access door is 450 x 450, so "No SKU for access door: width 600, height 600"). The same rule on the
+attribute path ("... matches these answers.").
+
+**ADP-3a UNIT REFUSALS (owner 13:35).** A kind not stocked in the row's unit, or a unit the catalogue does not know ('Lot',
+'Nos/Ro'), refuses as "<kind> is not stocked per <unit> (stocked per <units>) - price this row by hand". The code sentence
+supersedes the config's `unit_refusal` on the item-list path; the key stays the fallback where no family is known.
+
+**ADP-3a U3 / U6: EVERY MISSING FIELD IS NAMED, EVERY USED VALUE IS SAID.** "Missing to price: A, B -- fill them to compute a
+rate." (panel) / "Fill to price: A, B." (calculator); an item list names every missing need ("could not tell cladding; no pipe
+size stated"); the outline is keyed to the field the refusal is about (`refusedFor`), not to the sentence. A value the
+pricing landed on says how, under its field: W x H read from Size, the area band at its largest, the neck behind an outer
+size, the area multiplied, the sq.ft rate before and after, and on attribute rows the `landed` note (fitted / mapped / worked
+out / module fit; a stocked size given as asked is "As given - a stocked size").
+
+**ADP-3a U7: THE CALCULATOR ASKS WHAT THE SERVER WOULD (calculator only; a BoQ row is untouched).** A controller's
+`absent_when_value` (circuit wiring included = No) sets each BLANK `absent_dependents` field to None, exactly the server's
+`force_absent_dependents`; a stated value is never overwritten. A computed item's quantity (the face plate, `requires_named`)
+takes its `extraction_defaults` value once the item is NAMED, shown as a default -- never before.
+
+**ADP-3a U8: EVERY CONTROL IS NAMED BY ITS OWN LABEL.** `<label htmlFor>` with a `useId` prefix per mounted panel; no control
+inside a wrapping label (an undo button inside one took the field's name, and a wrapping label made a select's name run on into
+its whole option list). Proved in jsdom (`adp3a.dom.test.tsx`: every category's calculator, 0 unnamed).
+
+**ADP-3a DERIVATION LINES, LAST ON EACH TAB.** The unit refusal (every item-list tab); the unstocked combination (only where
+the category has a choice attribute -- not Piping); ADP's per-number either-or, titled by the GROUP, never the kinds (they
+change between catalogue versions). Old pins read a tab with these set aside (`withoutAdp3aLines`).
+
 **A DEFAULT IS NAMED AS THE DEFAULT, SAID ONCE, BY ITS FIELD'S LABEL (owner G1 / G2 / G3, 2026-10-12 "yes"; slice
 12e-4b).** G1: a number nobody stated (the ruled default) heads its field note "Default 9 mm -> priced as 13 mm
 (the smallest size)" (12e-4d AC3: below the smallest stocked size the field's line and the working both say "(the

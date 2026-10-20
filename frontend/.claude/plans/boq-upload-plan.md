@@ -48401,3 +48401,46 @@ Start tip `82b11f9ce` (= origin). Live on dev: HVAC v48 (items `793a2b39344242ad
 3. **The model leaves allow_none attributes out** (ADP-1 audit: `insulated` x20, `variant` x11 on BRSR-26-01103) where the spec says to answer "None"; harmless under F-1, a prompt point for ADP-5.
 4. **`scripts/residence_check.py` still fails at START** (F5 120 vs 117, F2 221 vs 217); ADP-2 adds 0.
 5. **`writeOffControl.test.ts` times out at 5 s** on its dynamic import of `SheetPricingPage` (the pricing module graph); a per-test timeout or a lighter import would end the standing one-failure vitest run.
+
+## Slice ADP-3a - the needed-to-price marker, either-or groups, field-keyed refusals, value-used lines, screen-reader names (every discipline, no price move) - as built 2026-10-20
+
+**Commits (unpushed at the time of writing):**
+- `c9581a251` feat(rate-helper): code + tests (was `516ea2053`; amended once with the cert-found group-order fix, below).
+  - `itemListPricing.ts`: `ItemFieldDef.required` / `axes` / `secondKey`; the square diffuser's Outer size shown as its own field (second_key); either-or groups from `waysLabel` (+ "Neck size, or Outer size"), a group's fields moved together; the multi-way refusal "<kind> needs <ways> - neither stated / <box> not stated / Size '<raw>' gives one length ... - price this row by hand"; the U5 sentence "<kind> is not stocked per <unit> (stocked per <units>) - price this row by hand" (an unrecognised unit too); every missing need named; `refusedFor` on the field a refusal is about; the area working line; the sq.ft before / after line; the B6 rule in the no-SKU facts.
+  - `pricingSheetHelper.ts`: `required` on every attribute (the gate's own condition, plus a blank self-fit bind); "Missing to price: A, B -- fill them to compute a rate." / "Fill to price: A, B."; the "landed" value-used note (catalog_fit, map, derive, module_fit; a stocked size given as asked reads "As given - a stocked size"); U7 on the calculator only (absent_dependents; the named plate's quantity default); the item outline keyed to the field; the text-box value notes; the B6 rule in the attribute and wiring no-match sentences.
+  - `rateHelperTypes.ts` (`required`, the `landed` note, last in ATTR_NOTE_ORDER), `RateHelperPanel.tsx` (the "*" and the one note, group headings, `<label htmlFor>` naming every control, undo buttons out of the labels, the quantity named), `itemListRuleOrder.ts` (three Derivation lines, LAST on each tab).
+  - Tests: `adp3a.harness.ts`, `adp3a.test.ts` (27), `adp3a.dom.test.tsx` (6, jsdom); `ruleReachability` (+14 cases N1-N3, the ADP-3a guard); `calculatorPanelParity` I35 / I36 / A19-A21; pins inverted by mechanical authority, BEFORE kept (sentences and Derivation counts only; no price pin).
+- The docs commit that carries this entry. No asset commit: HVAC v48 / Electrical v66 stay live (0 / 0 differing, the START shas).
+
+Start tip `da840a9ce` (= origin). Report on the Desktop: `2026-10-20_ADP-3a_Report.md` (ledger first), `_Ledger.md`, `_Field_Table.xlsx`, `_Wording_Rows.xlsx`, the three test logs, `2026-10-20_ADP-3a_Cert\`.
+
+### 1. The rulings and how they were built
+
+- **H1 (the "*").** One rule in the shared code: a field carries `required` exactly when a blank in it withholds the price (item list: the family's / unit block's / single conversion's needs minus a need a default fills on a BLANK; attribute path: the gate's own sets, plus a blank self-fit bind). Proof on every stored row: a starred blank field on a priced row = 0 (attribute 6,958 starred blanks, all refused; item 287, all blank blocks).
+- **H2 (either-or).** ADP "Size (W x H), or Area band" on the per-number families; the plenum "Area, or all three of Length, Width, Height"; the square diffuser "Neck size, or Outer size" with the outer size SHOWN. A field in a group carries no "*"; its heading does.
+- **B6.** A no-SKU sentence keeps a fact only where the kind's products carry it AND vary on it, or all share one value the row contradicts ("No SKU for fire damper: UL listed no, variant UL" -- the per-sq.m SKU has no width or height; the one access door is 450 x 450, so a 600 x 600 row still names both).
+- **Unit refusals (owner 13:35).** Code supersedes the config `unit_refusal` sentence on the item-list path (kept as the fallback with no family).
+- **H6.** Nothing removed.
+- **U7.** Calculator only, so no stored row can move: circuit wiring No sets a blank circuit dependent to None (the server's `force_absent_dependents`); a plate's quantity takes the extraction default once the plate is named (literal rule; extending it to unnamed computed plates made the calculator price rows the panel refuses, so it was not built).
+
+### 2. The replay
+
+- START = ADP-2's fix (a) replay: 17,914 rows, plain `75823633...` / section-aware `e21be24e...`. Every stage: **figures changed 0 of 17,914**.
+- AC9 (a richer record: label / required / group / blank / outline / note per field, notes per attribute, the derivation), HEAD sources vs the commit on the same dump: 17,050 rows wording only -- U1 16,660, U2 361, U3 4,138, U4 8, U5 63, U6 5,250; 0 unexplained.
+- AC1 vs the ADP-R3 Field_Table: 180 agree; the 35 "NO" are explained (Electrical quantities / wire 2 / circuit cores and runs lose the "*" only where a None controller disables them; cabletray / hvac_raceway thickness keeps it unless the gauge supplies it; Insulation's cladding is starred -- a blank refuses; the fire damper variant is not -- a blank takes the default).
+- AC5: 224 calculator controls over 23 categories, 0 unnamed before and after; before, a name ran on into the whole option list and the "default" / "90%" badges.
+
+### 3. Suites, cert
+
+- Targeted before commit 1: boq-wizard + pricing 119 files / 5,343 OK; Python `test_rate_master` 742 OK + `test_extraction_coercion` 216 OK (both read the changed sources); tsc 3,170 (= ADP-2); residence F5 120 / F2 221 (= START; the harness's parse routed through `readJsonFixture` so ADP-3a adds 0).
+- **Full, at `c9581a251`:** Python `--app nirmaan_stack` Ran 8,560 -- failures 6 / errors 2 = the same 8 known as ADP-2, test for test; vitest 191 files / 7,227 -- 1 failure, the known `writeOffControl` 5 s timeout; tsc 3,170 (= ADP-2; the three TS18048 `b.familyControl` lines in RateHelperPanel.tsx). Capture unchanged through every run (465 lines, `89c4ea9c...`).
+- Vacuity: V1-V6 (marker off, old U5 words, the either-or line not generated, a label without htmlFor, "As given" off, the group not moved together), each red on its own tests, each restored sha-exact.
+- Cert C1-C11 at :8080 after the full de-stale (twice -- the second after the mid-cert fix), all PASS; C3 first found the either-or heading drawn TWICE on a square diffuser whose Air stream sat between Neck size and Outer size -- fixed (the group's fields move together), +2 tests, V6, replay 219 rows field order only.
+
+### 4. Findings for the next slice
+
+1. **The plenum outline follows ADP-2's sentence**: with nothing stated only Length / Width / Height are outlined (the sentence names those three, not Area).
+2. **Insulation's unstocked combination cannot reach the calculator** (its options are stocked combinations, so it shows the stale-pick "choose again"); parity I36 is an exclusion for that reason.
+3. **The panel's stored rows that refuse on a blank plate quantity remain** (the plate is computed, never named; U7's default is calculator-only by the ruling's words).
+4. **A circuit-wire thickness forced to None still carries the "*"** (an allow-None field is answered by None and the gate still asks for it) -- consistent with every allow-None field; flagged for the owner.
+5. **The Field_Table's "OPTIONAL" for Insulation's cladding and cabletray thickness, and "REQUIRED (default ...)" for the fire damper variant**, were field-level summaries the marker now measures per row.
