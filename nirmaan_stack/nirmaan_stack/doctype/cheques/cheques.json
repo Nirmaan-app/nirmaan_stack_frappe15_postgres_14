@@ -20,6 +20,7 @@
   "status",
   "made_from",
   "issue_date",
+  "clearance_date",
   "cleared_by",
   "bank_line",
   "old_type",
@@ -193,12 +194,20 @@
    "fieldtype": "Check",
    "label": "Old Type",
    "read_only": 1
+  },
+  {
+   "description": "Not shown, and written by no code since #1520: the clearance date from before the Cheque/Payment Date, kept only so the earlier cheque patches still run on a site that first gets Cheques from this file.",
+   "fieldname": "clearance_date",
+   "fieldtype": "Date",
+   "hidden": 1,
+   "label": "Clearance Date (old)",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-20 20:17:22.718467",
+ "modified": "2026-10-20 21:01:00.852132",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Cheques",

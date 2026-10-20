@@ -7,8 +7,8 @@ Drives the patch's entry function (`copy_clearance_dates`) on planted Cheques, t
 every Cheque, and reads back each Cheque's Cheque/Payment Date and what the patch reports.
 
 Each planted Cheque is made through the cheques service with its paper date, then given its pre-#1520
-clearance date with a raw write: the `clearance_date` field is gone from the doctype, but Frappe's migrate
-never drops a removed field's column, so the old values are still in it. That is the old data the patch meets.
+clearance date with a raw write: nothing writes the hidden `clearance_date` field since #1520, but the old
+values are still in its column. That is the old data the patch meets.
 
 ⚠️ RUNS AGAINST THE ENV DATABASE. Every planted cheque number starts with TESTCHQ, so `ChequeFixture` purges
 the Cheques.

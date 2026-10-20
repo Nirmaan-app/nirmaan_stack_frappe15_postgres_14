@@ -7,7 +7,7 @@ Amendment A).
 WHAT IT DOES
     The cheque date and the clearance date are one Cheque/Payment Date now (`Cheques.cheque_date`): the paper
     date until the bank import clears a Payment cheque, then the day the bank paid. The `clearance_date` field
-    is removed from the doctype in the same change. For every Cheque at Cleared with a clearance date, this
+    is hidden in the same change, and no code writes it. For every Cheque at Cleared with a clearance date, this
     copies that date into `cheque_date`, so a cheque cleared before the change reads the same as one cleared
     after it. Every other Cheque keeps its paper date: an Issued, Approval Pending or Cancelled one, and every
     Security Deposit cheque (never cleared). A Cleared cheque with no clearance date keeps its date too, and is
@@ -15,11 +15,11 @@ WHAT IT DOES
     `cheque_date` still holds it.
 
 THE OLD COLUMN
-    Frappe's migrate never drops the column of a field removed from a doctype (its schema sync only adds and
-    alters columns; `bench trim-tables` is the command that drops them). So `clearance_date` is still in
-    `tabCheques` when this runs, under [post_model_sync], and stays there unused afterwards. It is read with
-    raw SQL, since the doctype no longer knows the field. A database that never had the column (a fresh
-    install) has nothing to copy, and the patch does nothing.
+    `clearance_date` stays on the doctype as a hidden field, only so the earlier cheque patches still run on a
+    site that first gets Cheques in this release: the cheque-types patch (#1478) selects it. It is read with
+    raw SQL. On such a site that patch has already written each Cleared cheque's last payment date into
+    `cheque_date` and left `clearance_date` blank, so those cheques are listed here as having no clearance
+    date, with the right date already in place.
 
 IDEMPOTENT
     Only a Cleared cheque whose `cheque_date` differs from its clearance date is written, so a second run

@@ -40,6 +40,11 @@ class TestChequeNamesMatchTheDoctype(unittest.TestCase):
         # A new Payment cheque waits for its payments' approval (spec #1477); a deposit sets Issued itself.
         self.assertEqual(_field("cheques", "status").get("default"), "Approval Pending")
 
+    def test_the_old_clearance_date_stays_hidden_so_earlier_patches_run(self):
+        # The #1478 patch selects it; a site that first gets Cheques from this JSON must still have the column.
+        field = _field("cheques", "clearance_date")
+        self.assertEqual((field["fieldtype"], field.get("hidden"), field.get("read_only")), ("Date", 1, 1))
+
     def test_the_statuses_and_types_are_the_glossary_s(self):
         self.assertEqual(rules.CHEQUE_STATUSES, ("Approval Pending", "Issued", "Cleared", "Cancelled"))
         self.assertEqual(rules.CHEQUE_TYPES, ("Payment", "Security Deposit"))
