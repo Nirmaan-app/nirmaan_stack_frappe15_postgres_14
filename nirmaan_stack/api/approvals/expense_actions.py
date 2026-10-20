@@ -31,7 +31,7 @@ import frappe
 from frappe import _
 
 from nirmaan_stack.api.payments.bulk_actions import MAX_BATCH_SIZE
-from nirmaan_stack.services.expense_decision import ACTIONS, REJECT, decide
+from nirmaan_stack.services.expense_decision import ACTIONS, REJECT, decide, editable_statuses
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 
 
@@ -90,6 +90,17 @@ def decide_expenses(expense_ids, action: str, reason: Optional[str] = None, paym
         ),
         "data": {"succeeded": succeeded, "failed": failed, "statuses": statuses, "total": len(names)},
     }
+
+
+@frappe.whitelist()
+def get_expense_edit_access():
+    """In which statuses the caller may edit an Expense by hand (story 50): `{editable_statuses}`,
+    empty for anyone but Accounts. The old ledger pages show Edit on a row only when its status is
+    listed, so the button and both ledgers' `validate` (`expense_decision.guard_hand_save`) agree.
+
+    Example: `{"editable_statuses": ["Requested", "CEO Pending", "Approved", "Reconciliation Pending"]}`.
+    """
+    return {"editable_statuses": editable_statuses(frappe.session.user)}
 
 
 def _parse_dict(value) -> dict | None:

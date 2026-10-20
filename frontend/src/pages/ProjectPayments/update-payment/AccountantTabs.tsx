@@ -20,7 +20,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { useFrappeUpdateDoc, useFrappeDeleteDoc, useFrappePostCall } from 'frappe-react-sdk';
 import { useUpdatePaymentRequest } from "../hooks/useUpdatePaymentRequests";
 import { getFrappeError } from "@/utils/frappeErrors";
-import { useExpenseDecision } from "@/hooks/useExpenseDecision";
+import { useExpenseDecision, useExpenseEditAccess } from "@/hooks/useExpenseDecision";
 import { isExpenseDoctype } from "@/utils/expenses/expenseDecision";
 import { GstPaymentTag } from "../components/GstPaymentTag";
 import { useServerDataTable } from '@/hooks/useServerDataTable';
@@ -103,6 +103,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
     const { role, user_id } = useUserData();
+    const editableStatuses = useExpenseEditAccess();
 
     // --- CEO Hold Highlighting ---
     const { ceoHoldProjectIds } = useCEOHoldProjects();
@@ -293,7 +294,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         onRecordPayment: (row) => openMarkPaid([row]),
         onDelete: setDeleteRow,
         onEdit: canWork ? setEditRow : undefined,
-        canEdit: (row) => canEditQueueRow(row, role),
+        canEdit: (row) => canEditQueueRow(row, editableStatuses),
         onToggleHold: canWork ? setHoldRow : undefined,
         canHold: (row) => canHoldQueueRow(row, role),
         isUnseen: (row) => !!notifications.find(
@@ -304,7 +305,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         ),
     }), [
         tab, projectLabelMap, vendorLabelMap, userLabelMap, getTotalAmount, getDeliveredAmount,
-        getAmountPaid, notifications, handleNewPaymentSeen, canWork, role, openMarkPaid,
+        getAmountPaid, notifications, handleNewPaymentSeen, canWork, role, openMarkPaid, editableStatuses,
     ]);
 
     const columns = useMemo(

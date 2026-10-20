@@ -51,6 +51,7 @@ import { QueueRowEditDialog } from "./components/QueueRowEditDialog";
 import { useUpdatePaymentRequest } from "./hooks/useUpdatePaymentRequests";
 import { canEditQueueRow, canRaiserEditQueueRow, canRevertQueueRow, canUploadInvoiceRow, canWorkQueueRows } from "./config/queueRowActions";
 import { useUserData } from "@/hooks/useUserData";
+import { useExpenseEditAccess } from "@/hooks/useExpenseDecision";
 import { useDialogStore } from "@/zustand/useDialogStore";
 
 
@@ -144,6 +145,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
 }) => {
     const { db } = useContext(FrappeContext) as FrappeConfig;
     const { role, user_id } = useUserData(); // Get user role
+    const editableStatuses = useExpenseEditAccess();
     const refreshTabCounts = useRefreshApprovalCounts();
 
     // --- CEO Hold Highlighting ---
@@ -351,13 +353,13 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         // On "Payment Raised By Me" the raiser also gets the pencil on their own Requested Direct
         // Expense, to change who gets paid before approval (#1472).
         onEdit: canWork || raisedByMe ? setEditRow : undefined,
-        canEdit: (row) => canEditQueueRow(row, role) || (raisedByMe && canRaiserEditQueueRow(row, user_id)),
+        canEdit: (row) => canEditQueueRow(row, editableStatuses) || (raisedByMe && canRaiserEditQueueRow(row, user_id, editableStatuses)),
         onRevert: canWork ? setRevertRow : undefined,
         canRevert: (row) => canRevertQueueRow(row, role),
         onMarkReconciled: openPayDialog,
         onDelete: tab === PP_TABS.PAYMENT_BY_ME ? setDeleteRow : undefined,
         onUploadInvoice: canWork && tab === PP_TABS.PAYMENTS_DONE ? setInvoiceRow : undefined,
-        canUploadInvoice: (row) => canUploadInvoiceRow(row, role),
+        canUploadInvoice: (row) => canUploadInvoiceRow(row, role, editableStatuses),
         isUnseen: (row) => !!notifications.find(
             (n) => n.docname === row.name && n.seen === "false"
                 && n.event_id === (tab === "Payments Done" ? "payment:fulfilled" : null)
@@ -367,7 +369,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         ),
     }), [
         tab, projectMap, vendorLabelMap, userLabelMap, getDocumentTotal,
-        getPoAmountDelivered, canWork, raisedByMe, role, user_id, notifications,
+        getPoAmountDelivered, canWork, raisedByMe, role, user_id, notifications, editableStatuses,
         handleSeenNotification, openPayDialog,
     ]);
 

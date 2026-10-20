@@ -61,7 +61,12 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     PROJECT_EXPENSE_DOCTYPE,
     RECONCILIATION_PENDING,
 )
-from nirmaan_stack.services.role_profiles import PAYMENT_SETTLE_PROFILES, has_role_profile
+from nirmaan_stack.services.role_profiles import (
+    ACCOUNTANT_LEAD_PROFILE,
+    ACCOUNTANT_PROFILE,
+    PAYMENT_SETTLE_PROFILES,
+    has_role_profile,
+)
 
 REJECTED = "Rejected"
 
@@ -165,18 +170,38 @@ def apply_starting_status(doc) -> None:
         doc.ceo_approval_date = nowdate()
 
 
-# ── Nobody else writes a status ─────────────────────────────────────────────────────────────
+# ── What a person may write ─────────────────────────────────────────────────────────────────
 
-def refuse_hand_set_status(doc) -> None:
-    """Both ledgers' `validate`, FIRST: refuse a status a person writes through a document save.
+# Who edits an Expense by hand, and in which statuses (story 50, owner 2026-10-20): Accounts only,
+# and only until it is paid. A Rejected one is closed too. `Administrator` is not let past.
+EDIT_PROFILES = (ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+EDITABLE_STATUSES = (STATUS_REQUESTED, STATUS_CEO_PENDING, STATUS_APPROVED, RECONCILIATION_PENDING)
+
+
+def editable_statuses(user: str | None) -> list[str]:
+    """The statuses in which `user` may edit an Expense by hand: none, or `EDITABLE_STATUSES` for
+    Accounts. Served to the old ledger pages, so their Edit buttons show the server's answer."""
+    if user and has_role_profile(user, EDIT_PROFILES, superuser_passes=False):
+        return list(EDITABLE_STATUSES)
+    return []
+
+
+def guard_hand_save(doc) -> None:
+    """Both ledgers' `validate`, FIRST: the rules for a save a person makes through a document door.
 
     Every human door -- Desk, the REST resource API, `frappe.client`, bulk edit, data import --
     saves with the caller's permissions checked. Every system writer saves with
-    `ignore_permissions=True`: `decide`, the request intake, the bank-statement settle and its
-    unreconcile, the cashbook and Porter creates, the PO adjustment. So a permission-checked save
-    that changes the status, or inserts a row at any status but `Requested`, is a person setting it
-    by hand, and is refused, `Administrator` included (spec #1494, story 42). The bank-line re-derive
-    runs after this, so an edit that moves a settled amount still moves the status it derives.
+    `ignore_permissions=True`: `decide`, the request intake and its Add invoice, the bank-statement
+    settle and its unreconcile, the cashbook and Porter creates, the PO adjustment, Change account.
+    So a permission-checked save is a person's, and these hold for it, `Administrator` included:
+
+      * it may not change the status, nor insert a row at any status but `Requested` (story 42):
+        statuses move only through `decide`;
+      * it may not edit a Paid or Rejected Expense at all, and only Accounts may edit any other
+        (`editable_statuses`, story 50).
+
+    The bank-line re-derive runs after this, so an edit that moves a settled amount still moves the
+    status it derives.
     """
     if doc.flags.ignore_permissions:
         return
@@ -189,6 +214,15 @@ def refuse_hand_set_status(doc) -> None:
             _("An expense's status is set by the server. Use Approve, Reject, Mark as Done or Mark as Paid."),
             title=_("Status is not editable"),
         )
+    if doc.is_new():
+        return
+    stored = (doc.get_doc_before_save() or doc).status
+    if stored not in EDITABLE_STATUSES:
+        frappe.throw(_("{0} is {1}; a {2} expense can no longer be edited.").format(
+            doc.name, stored, (stored or "closed").lower()), title=_("Expense is closed"))
+    if not editable_statuses(frappe.session.user):
+        frappe.throw(_("Only Accounts edit an expense once it is raised."), frappe.PermissionError,
+                     title=_("Not yours to edit"))
 
 
 # ── A change to an existing row ─────────────────────────────────────────────────────────────

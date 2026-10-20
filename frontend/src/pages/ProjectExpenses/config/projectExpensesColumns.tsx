@@ -58,6 +58,8 @@ export interface GetProjectExpenseColumnsOptions {
   getProjectName: (id?: string) => string;
   getVendorName: (id?: string) => string;
   getUserName: (id?: string) => string;
+  /** The statuses the caller may edit, from the server (`useExpenseEditAccess`). */
+  editableStatuses?: readonly string[];
   onEdit: (expense: ProjectExpenses) => void;
   onApprove: (expense: ProjectExpenses) => void;
   onMarkPaid: (expense: ProjectExpenses) => void;
@@ -82,10 +84,10 @@ export const getProjectExpenseColumns = ({
   onApprove,
   onMarkPaid,
   onDelete,
+  editableStatuses = [],
 }: GetProjectExpenseColumnsOptions): ColumnDef<ProjectExpenses>[] => {
   // --- Role gating (frontend-only enforcement, mirrors the existing flow) ---
   const isAdmin = role === "Nirmaan Admin Profile";
-  const isPMO = role === "Nirmaan PMO Executive Profile";
   // Accountant Lead mirrors Accountant for role checks (parity by design).
   const isAccountant =
     role === "Nirmaan Accountant Profile" ||
@@ -94,10 +96,9 @@ export const getProjectExpenseColumns = ({
   const isHR = role === "Nirmaan HR Executive Profile";
 
   // Action-level permissions
-  // Editing a *Requested* expense is allowed for the broader managing set
-  // (Admin, PMO, Accountant/Lead, Procurement, HR). Paid-row edit stays Admin-only.
-  const canEditRequested =
-    isAdmin || isPMO || isAccountant || isProcurement || isHR;
+  // Edit: the server's answer (`expense_actions.get_expense_edit_access`, story 50): Accounts only,
+  // never once Paid or Rejected. Both ledgers' `validate` refuse any other edit.
+  const canEditRow = (status: string) => editableStatuses.includes(status);
   const canApprove = isAdmin; // Requested -> Approved (Admin only)
   // Approved -> Paid: the server's rule (`expense_decision.can_mark_paid`, #1497), mirrored once.
   const canMarkPaid = canMarkExpensePaid(role);
@@ -461,7 +462,7 @@ export const getProjectExpenseColumns = ({
           <div className="flex items-center gap-1">
             {status === "Requested" && (
               <>
-                {canEditRequested && (
+                {canEditRow(status) && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -508,8 +509,8 @@ export const getProjectExpenseColumns = ({
               </Tooltip>
             )}
 
-            {/* A Paid expense can only be edited by an Admin */}
-            {status === "Paid" && isAdmin && (
+            {/* Edit past Requested: wherever the server lets the caller edit (never Paid). */}
+            {status !== "Requested" && canEditRow(status) && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button

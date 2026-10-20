@@ -14,7 +14,7 @@ Run:
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from nirmaan_stack.api.approvals.expense_actions import decide_expenses
+from nirmaan_stack.api.approvals.expense_actions import decide_expenses, get_expense_edit_access
 from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 
@@ -26,6 +26,7 @@ ACCOUNTANT = "xdec_test_accountant@example.com"
 PM = "xdec_test_pm@example.com"
 HR = "xdec_test_hr@example.com"
 PMO = "xdec_test_pmo@example.com"
+ACCOUNTANT_LEAD = "xdec_test_accountant_lead@example.com"
 
 
 class TestExpenseDecisions(FrappeTestCase):
@@ -40,6 +41,7 @@ class TestExpenseDecisions(FrappeTestCase):
 		_make_user(PM, "Nirmaan Project Manager Profile", ("Nirmaan Project Manager",))
 		_make_user(HR, "Nirmaan HR Executive Profile", ("Nirmaan HR Executive", "System Manager"))
 		_make_user(PMO, "Nirmaan PMO Executive Profile", ("Nirmaan PMO Executive",))
+		_make_user(ACCOUNTANT_LEAD, "Nirmaan Accountant Lead Profile", ("Nirmaan Accountant Lead",))
 		if not frappe.db.exists("User", CEO_AUTHORIZED_USER):
 			_make_user(CEO_AUTHORIZED_USER, "Nirmaan Admin Profile", ("System Manager",))
 
@@ -228,6 +230,44 @@ class TestExpenseDecisions(FrappeTestCase):
 		self._save_as(ACCOUNTANT, NPE, name, description="xdec corrected")
 		self.assertEqual(frappe.db.get_value(NPE, name, ["status", "description"]),
 		                 ("Approved", "xdec corrected"))
+
+	# -- only Accounts edit an expense, and only until it is paid (story 50) --------------------
+	def test_only_accounts_edit_an_expense_past_review(self):
+		for status in ("Requested", "CEO Pending", "Approved", "Reconciliation Pending"):
+			for doctype in (PE, NPE):
+				name = self._expense(30000, status=status, doctype=doctype)
+				for user in (PM, PMO, HR, ADMIN):
+					with self.subTest(status=status, doctype=doctype, user=user):
+						with self.assertRaises(frappe.PermissionError):
+							self._save_as(user, doctype, name, description=f"xdec by {user}")
+				for user in (ACCOUNTANT, ACCOUNTANT_LEAD):
+					with self.subTest(status=status, doctype=doctype, user=user):
+						self._save_as(user, doctype, name, description=f"xdec by {user}")
+						self.assertEqual(frappe.db.get_value(doctype, name, "description"), f"xdec by {user}")
+
+	def test_a_paid_expense_is_edited_by_nobody(self):
+		for doctype in (PE, NPE):
+			name = self._expense(30000, status="Paid", doctype=doctype)
+			for user in (ACCOUNTANT, ACCOUNTANT_LEAD, ADMIN, "Administrator"):
+				with self.subTest(doctype=doctype, user=user):
+					with self.assertRaises(frappe.ValidationError) as refused:
+						self._save_as(user, doctype, name, description="xdec after paid")
+					self.assertIn("paid", str(refused.exception).lower())
+			self.assertEqual(frappe.db.get_value(doctype, name, "description"), "xdec test")
+
+	def test_the_ledger_pages_are_told_which_statuses_the_caller_may_edit(self):
+		frappe.set_user(ACCOUNTANT)
+		try:
+			self.assertEqual(sorted(get_expense_edit_access()["editable_statuses"]),
+			                 sorted(["Requested", "CEO Pending", "Approved", "Reconciliation Pending"]))
+		finally:
+			frappe.set_user("Administrator")
+		for user in (PM, ADMIN):
+			frappe.set_user(user)
+			try:
+				self.assertEqual(get_expense_edit_access()["editable_statuses"], [])
+			finally:
+				frappe.set_user("Administrator")
 
 	def test_a_new_expense_carrying_a_status_through_a_document_insert_is_refused(self):
 		doc = frappe.new_doc(NPE)

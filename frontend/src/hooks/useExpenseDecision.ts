@@ -1,4 +1,4 @@
-import { useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useCallback } from "react";
 
 import {
@@ -59,6 +59,22 @@ export function useExpenseDecision() {
   );
 
   return { decide, decideOne, loading };
+}
+
+const NO_STATUSES: readonly string[] = [];
+
+/**
+ * In which statuses the caller may edit an Expense by hand (story 50), as the server answers it
+ * (`expense_actions.get_expense_edit_access`): Accounts only, never once Paid. The old ledger pages
+ * show Edit on a row only when its status is listed; nothing here restates the rule.
+ */
+export function useExpenseEditAccess(): readonly string[] {
+  const { data } = useFrappeGetCall<{ message?: { editable_statuses?: string[] } }>(
+    "nirmaan_stack.api.approvals.expense_actions.get_expense_edit_access",
+    undefined,
+    "expense_edit_access",
+  );
+  return data?.message?.editable_statuses ?? NO_STATUSES;
 }
 
 /**

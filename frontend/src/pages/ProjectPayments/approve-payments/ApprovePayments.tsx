@@ -55,7 +55,7 @@ import {
 } from "../config/approvalsTable.config";
 import { buildApprovalColumns, ApprovalColumnCtx } from "../config/approvalColumns";
 import { statusAfterL1 } from "@/utils/approvalTiers";
-import { useExpenseDecision } from "@/hooks/useExpenseDecision";
+import { useExpenseDecision, useExpenseEditAccess } from "@/hooks/useExpenseDecision";
 import { isExpenseDoctype } from "@/utils/expenses/expenseDecision";
 import { isChequePayment } from "../paymentMode";
 import { APPROVE_CHEQUE_API, REJECT_CHEQUE_API, approvesThroughCheque } from "@/utils/cheques/chequeApproval";
@@ -120,6 +120,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   const { toast } = useToast();
   const { db } = useContext(FrappeContext) as FrappeConfig;
   const { role, user_id } = useUserData();
+  const editableStatuses = useExpenseEditAccess();
   const refreshTabCounts = useRefreshApprovalCounts();
   // const { mutate } = useSWRConfig();
   // --- State for Dialogs ---
@@ -409,7 +410,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         ? undefined
         : (row) => openDialog(row as unknown as ProjectPayments, DIALOG_ACTION_TYPES.REJECT),
       onEdit: canWork ? setEditRow : undefined,
-      canEdit: (row) => canEditQueueRow(row, role),
+      canEdit: (row) => canEditQueueRow(row, editableStatuses),
     }),
     [
       activeTab,
@@ -427,6 +428,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
       readOnly,
       canWork,
       role,
+      editableStatuses,
     ]
   );
 

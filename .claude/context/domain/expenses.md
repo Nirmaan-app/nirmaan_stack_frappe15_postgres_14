@@ -46,13 +46,22 @@ Both share one approval lifecycle and are entered/managed together in a single u
   lost Mark as Paid on the old pages with #1497. A reject needs a reason; Mark as Paid needs payment
   date, reference and receipt. The bank-line rules (`expense_bank_links.validate`) still have the last word.
   **The server refuses a status a person writes** (story 42): both ledgers' `validate` call
-  `expense_decision.refuse_hand_set_status` first, which refuses a permission-checked save (Desk, REST,
+  `expense_decision.guard_hand_save` first, which refuses a permission-checked save (Desk, REST,
   `frappe.client`, bulk edit, data import; `Administrator` included) that changes `status`, or inserts a
   row at any status but `Requested`. Every system writer (`decide`, the intake, the bank-statement settle
   and unreconcile, the cashbook and Porter creates, the PO adjustment) saves with
   `ignore_permissions=True`, so it needs no flag. ⚠️ A new system writer must save with
   `ignore_permissions=True` too, or its status change is refused. Pinned by
   `api/approvals/test_expense_decisions`.
+  **Only Accounts edit an Expense, and never once it is Paid** (story 50, owner 2026-10-20): the same
+  `guard_hand_save` refuses a person's save of a Paid or Rejected Expense (everyone, `Administrator`
+  included) and of any other Expense by anyone but an Accountant or Accountant Lead
+  (`expense_decision.EDIT_PROFILES` / `EDITABLE_STATUSES`). System paths are unaffected. Every Edit /
+  Record Invoice button on the old ledger pages and the Payments queue (pencil, raiser pencil, Upload
+  Invoice) shows only where `expense_actions.get_expense_edit_access` lists the row's status
+  (`hooks/useExpenseDecision.useExpenseEditAccess`); no screen restates the rule. ⚠️ This retires the
+  Payments-queue Upload Invoice on a Paid expense (2026-10-05/07 below) and the Admin's Paid-row
+  Edit: the button stays wired to the server answer, so allowing it again is a server change.
 - **No person creates a ledger row; every expense a person raises starts as an Expense Request**
   (spec #1494, #1506, ADR-0016 amendment 5). `create` is off every role on both ledgers, System
   Manager included (`Administrator` bypasses permissions). The writers insert with `ignore_permissions`:
