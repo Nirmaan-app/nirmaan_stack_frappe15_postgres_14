@@ -79,7 +79,7 @@ export const LINE_TYPE = {
     PO_WO: "PO/WO Payment",
     PROJECT_EXPENSE: "Project Expense",
     NON_PROJECT_EXPENSE: "Non-project Expense",
-    /** A Security Deposit cheque's line: a PO or Work Order it secures (#1486). */
+    /** A Security Deposit cheque's line: a PO it secures (#1486; never a Work Order, spec #1514). */
     SECURED: "Secured PO/WO",
 } as const satisfies Record<string, ChequeLineType>;
 
@@ -101,7 +101,7 @@ export const LINE_LABELS: Record<ChequeLineType, string> = {
     [LINE_TYPE.PO_WO]: "PO or Work Order payment",
     [LINE_TYPE.PROJECT_EXPENSE]: "Project expense",
     [LINE_TYPE.NON_PROJECT_EXPENSE]: "Non-project expense",
-    [LINE_TYPE.SECURED]: "Secured PO or Work Order",
+    [LINE_TYPE.SECURED]: "Secured PO",
 };
 
 /** A new PO line, nothing picked yet. */
