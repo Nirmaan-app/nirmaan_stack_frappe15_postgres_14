@@ -8,7 +8,8 @@ URL: /api/method/nirmaan_stack.api.expense_requests.invoice.add_request_invoice
 A raiser who answered "Do you have the invoice?" with No adds it later, from the request's
 page, until its Expense is Paid. The invoice is written to BOTH records: the request's
 `source_data` under the native keys (`flatten.native_invoice`), and the Expense's own invoice
-columns once one exists, so Accounts sees it where they pay. Before approval only the request
+columns once one exists, so Accounts sees it where they pay. The Expense write is story 15's
+carve-out from who edits an Expense (`expense_decision.save_raiser_invoice`): the invoice fields only. Before approval only the request
 holds it, and approval carries it over (`convert.create_ledger_row`).
 
 WHO: the raiser, or an Admin (`access.is_raiser_or_admin`). A missing invoice date or number warns
@@ -24,9 +25,8 @@ from nirmaan_stack.api.expense_requests.flatten import (
 	with_native_invoice,
 )
 from nirmaan_stack.api.expense_requests.standing import expenses_of
+from nirmaan_stack.services.expense_decision import save_raiser_invoice
 from nirmaan_stack.services.expense_statuses import EXPENSE_PAID
-
-INVOICE_FIELDS = ("invoice_attachment", "invoice_date", "invoice_ref")
 
 
 def invoice_refusal(req, expense, user: str | None = None) -> str | None:
@@ -66,9 +66,7 @@ def add_request_invoice(name: str, invoice_attachment=None, invoice_date=None, i
 	req.save(ignore_permissions=True)
 
 	if expense:
-		row = frappe.get_doc(expense.doctype, expense.name)
-		row.update({key: invoice.get(key) for key in INVOICE_FIELDS})
-		row.save(ignore_permissions=True)
+		save_raiser_invoice(expense.doctype, expense.name, invoice)
 
 	frappe.db.commit()
 	return {

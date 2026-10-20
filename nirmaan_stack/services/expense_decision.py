@@ -219,16 +219,22 @@ def guard_hand_save(doc) -> None:
     """Both ledgers' `validate`, FIRST: the rules for a save a person makes through a document door.
 
     Every human door -- Desk, the REST resource API, `frappe.client`, bulk edit, data import --
-    saves with the caller's permissions checked. Every system writer saves with
-    `ignore_permissions=True`: `decide`, the request intake and its Add invoice, the bank-statement
-    settle and its unreconcile, the cashbook and Porter creates, the PO adjustment, Change account.
-    So a permission-checked save is a person's, and these hold for it, `Administrator` included:
+    saves with the caller's permissions checked, and these hold for it, `Administrator` included:
 
       * it may not change the status, nor insert a row at any status but `Requested` (story 42):
         statuses move only through `decide`;
       * it may edit only what `edit_access` grants the person (story 50): Accounts an Expense not
         yet paid; Admin and the Accountant Lead a Paid one's details, never its payment; nobody a
-        Rejected one.
+        Rejected one (`assert_may_edit`).
+
+    A save with `ignore_permissions=True` is trusted, and only these make one:
+      * system writers, which move no field a person chose: `decide`, the request intake, the
+        bank-statement settle and its unreconcile, the cashbook and Porter creates, the PO adjustment;
+      * two person-facing endpoints, each asking its own rule before it saves: Change account
+        (`services/payees/expense_payee.change_expense_account` asks `assert_may_edit` for the
+        `pay_to_*` fields) and the raiser's Add invoice (`save_raiser_invoice`, story 15's carve-out:
+        the invoice fields only, until Paid).
+    A new person-facing endpoint that saves an Expense elevated must ask `assert_may_edit` too.
 
     The bank-line re-derive runs after this, so an edit that moves a settled amount still moves the
     status it derives.
@@ -247,19 +253,37 @@ def guard_hand_save(doc) -> None:
     if doc.is_new():
         return
     stored = (doc.get_doc_before_save() or doc).status
+    assert_may_edit(doc, stored, frappe.session.user, _changed_fields(doc))
+
+
+def assert_may_edit(doc, stored: str | None, user: str | None, fields) -> None:
+    """Refuse `user` changing `fields` of Expense `doc`, stored at status `stored`, unless
+    `edit_access` grants it: `frappe.PermissionError` when the row is not theirs to edit at that
+    status, `frappe.ValidationError` when it is closed or a field is locked (a Paid row's payment)."""
     if stored not in (*EDITABLE_STATUSES, PAID):
         frappe.throw(_("{0} is {1}; a {2} expense can no longer be edited.").format(
             doc.name, stored, (stored or "closed").lower()), title=_("Expense is closed"))
-    access = edit_access(frappe.session.user)
+    access = edit_access(user)
     if stored not in access:
         frappe.throw(_("Only an Admin or the Accountant Lead edits a paid expense.") if stored == PAID
                      else _("Only Accounts edit an expense once it is raised."),
                      frappe.PermissionError, title=_("Not yours to edit"))
     allowed = access[stored]
-    locked = [f for f in _changed_fields(doc) if allowed is not None and f not in allowed]
+    locked = [f for f in fields if allowed is not None and f not in allowed]
     if locked:
         frappe.throw(_("{0} is paid; its {1} can no longer be changed.").format(
             doc.name, ", ".join(_(doc.meta.get_label(f)) for f in locked)), title=_("Payment is locked"))
+
+
+def save_raiser_invoice(doctype: str, name: str, invoice: dict) -> None:
+    """Story 15's carve-out from `edit_access`: the raiser of an Expense Request (or an Admin) adds
+    its invoice later, until the Expense is Paid (`api/expense_requests/invoice.add_request_invoice`
+    checks who). Writes `INVOICE_FIELDS` and nothing else, so it saves elevated. Never commits."""
+    doc = frappe.get_doc(doctype, name, for_update=True)
+    if doc.status in (PAID, EXPENSE_REJECTED):
+        frappe.throw(_("{0} is {1}; its invoice can no longer be added here.").format(name, doc.status))
+    doc.update({field: invoice.get(field) for field in INVOICE_FIELDS})
+    doc.save(ignore_permissions=True)
 
 
 # ── A change to an existing row ─────────────────────────────────────────────────────────────

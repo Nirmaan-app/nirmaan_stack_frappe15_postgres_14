@@ -51,8 +51,13 @@ Both share one approval lifecycle and are entered/managed together in a single u
   row at any status but `Requested`. Every system writer (`decide`, the intake, the bank-statement settle
   and unreconcile, the cashbook and Porter creates, the PO adjustment) saves with
   `ignore_permissions=True`, so it needs no flag. ⚠️ A new system writer must save with
-  `ignore_permissions=True` too, or its status change is refused. Pinned by
-  `api/approvals/test_expense_decisions`.
+  `ignore_permissions=True` too, or its status change is refused. Two person-facing endpoints also save
+  elevated, and each asks its own rule first: **Change account** (`expense_payee.change_expense_account`
+  asks `expense_decision.assert_may_edit` for the `pay_to_*` fields: Accounts before Paid, nobody once
+  Paid) and the raiser's **Add invoice** (`expense_decision.save_raiser_invoice`, story 15's carve-out:
+  the invoice fields only, until Paid). ⚠️ A new person-facing endpoint that saves an Expense elevated
+  must call `assert_may_edit`. Pinned by `api/approvals/test_expense_decisions`, `api/payees/test_paid_to`
+  and `api/expense_requests/test_request_invoice`.
   **Who edits an Expense by hand** (story 50, owner 2026-10-20), `expense_decision.edit_access`, enforced
   by the same `guard_hand_save`:
   - before Paid (Requested, CEO Pending, Approved, Reconciliation Pending): an Accountant or Accountant
@@ -63,7 +68,7 @@ Both share one approval lifecycle and are entered/managed together in a single u
     by / ref / attachment, every `pay_to_*`, status, approval and CEO approval dates, auto-approved,
     request, Porter order -- is locked for everyone; an Accountant cannot edit a Paid one at all;
   - **Rejected**: nobody.
-  System paths are unaffected. `expense_actions.get_expense_edit_access` serves the same answer as
+  System paths are unaffected; Change account asks this same rule (above). `expense_actions.get_expense_edit_access` serves the same answer as
   `editable_statuses` plus `field_limits` (per status, the only fields an edit may change). Every Edit /
   Record Invoice button on the old ledger pages and the Payments queue (pencil, raiser pencil, Upload
   Invoice on a Paid expense) shows only where the row's status is listed

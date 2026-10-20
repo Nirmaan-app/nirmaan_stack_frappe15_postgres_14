@@ -623,13 +623,13 @@ class TestPaidTo(FrappeTestCase):
         first, second = self.payees.payee(), self.payees.payee()
         expense = self._expense(rule="Required", copy_of=first, request_id=self._request(first))
 
-        box = change_expense_account(NPE, expense, second)
+        box = self._as(ACCOUNTANT_USER, change_expense_account, doctype=NPE, name=expense, payee=second)
 
         self.assertEqual(frappe.db.get_value(NPE, expense, list(PAY_TO_FIELDS), as_dict=True),
                          self._copy_of(second))
         self.assertEqual(box["account"], self._account(second))
         self.assertEqual((box["named_by"]["how"], box["named_by"]["user"], box["named_by"]["on"]),
-                         ("changed", U, today()))
+                         ("changed", ACCOUNTANT_USER, today()))
         self.assertEqual(get_pay_to_box(NPE, expense)["named_by"]["how"], "changed")
 
     def test_the_box_says_paid_once_money_has_left_approved(self):
@@ -641,31 +641,33 @@ class TestPaidTo(FrappeTestCase):
     def test_an_expense_can_be_left_without_an_account(self):
         expense = self._expense(rule="Optional", copy_of=self.payees.payee())
 
-        box = change_expense_account(NPE, expense, None)
+        box = self._as(ACCOUNTANT_USER, change_expense_account, doctype=NPE, name=expense, payee=None)
 
         self.assertIsNone(box["account"])
         self.assertEqual(box["missing"], "expense_has_no_account")
         self.assertIsNone(frappe.db.get_value(NPE, expense, "pay_to_account_number"))
 
-    def test_a_user_who_may_not_write_the_expense_cannot_change_its_account(self):
+    def test_only_accounts_change_an_unpaid_expenses_account_and_nobody_a_paid_ones(self):
+        # The pay-to account is payment information (spec #1494 story 50, owner 2026-10-20): before
+        # Paid only an Accountant or the Accountant Lead changes it, and once Paid nobody does, whoever
+        # may write the row. Change account saves with permissions ignored, so it asks this itself.
         first, second = self.payees.payee(), self.payees.payee()
-        expense = self._expense(copy_of=first)
-        with self.assertRaises(frappe.PermissionError):
-            self._as(HR_LEAD_USER, change_expense_account, doctype=NPE, name=expense, payee=second)
-        self.assertEqual(frappe.db.get_value(NPE, expense, "pay_to_account_number"),
-                         self._copy_of(first)["pay_to_account_number"])
-
-    def test_any_user_who_may_write_the_expense_changes_its_account(self):
-        # Showing Change account to Accounts only is a screen rule (spec #1420 Drops): the server asks
-        # Frappe's own write permission, which a Project Manager holds on expenses.
-        first, second = self.payees.payee(), self.payees.payee()
-        expense = self._expense(copy_of=first)
-
-        box = self._as(PM_USER, change_expense_account, doctype=NPE, name=expense, payee=second)
-
-        self.assertEqual(box["account"], self._account(second))
-        self.assertEqual(frappe.db.get_value(NPE, expense, "pay_to_account_number"),
-                         self._copy_of(second)["pay_to_account_number"])
+        refused = [(user, "Approved") for user in (PM_USER, PMO_USER, HR_LEAD_USER, U)]
+        refused += [(user, "Paid") for user in (PM_USER, PMO_USER, HR_LEAD_USER, U, ACCOUNTANT_USER,
+                                                 ACCOUNTANT_LEAD_USER)]
+        for user, status in refused:
+            with self.subTest(user=user, status=status):
+                expense = self._expense(copy_of=first, status=status)
+                # Not theirs to edit (PermissionError), or a Paid row's payment is locked (ValidationError).
+                with self.assertRaises((frappe.PermissionError, frappe.ValidationError)):
+                    self._as(user, change_expense_account, doctype=NPE, name=expense, payee=second)
+                self.assertEqual(frappe.db.get_value(NPE, expense, "pay_to_account_number"),
+                                 self._copy_of(first)["pay_to_account_number"])
+        for user in (ACCOUNTANT_USER, ACCOUNTANT_LEAD_USER):
+            with self.subTest(user=user, status="Approved"):
+                expense = self._expense(copy_of=first)
+                box = self._as(user, change_expense_account, doctype=NPE, name=expense, payee=second)
+                self.assertEqual(box["account"], self._account(second))
 
     def test_accounts_save_the_edit_dialog_and_its_picked_payee_onto_an_approved_expense(self):
         # The expense Edit dialog (the pencil on "Payment need to paid", #1465) saves its fields the
@@ -712,31 +714,20 @@ class TestPaidTo(FrappeTestCase):
         self.assertEqual(by_name, {direct: "", payment: "",
                                    from_request: frappe.db.get_value(PE, from_request, "request_id")})
 
-    def test_the_raiser_changes_a_requested_direct_expenses_account_and_set_by_names_them(self):
+    def test_the_raiser_of_a_requested_direct_expense_cannot_change_its_account(self):
+        # Once a row is on the ledger, only Accounts edit it before Paid (story 50), its raiser included.
         first, picked = self.payees.payee(), self.payees.payee()
         for doctype in (PE, NPE):
             with self.subTest(doctype=doctype):
                 expense = self._expense(doctype, rule="Required", copy_of=first, status="Requested",
                                         owner=PROCUREMENT_USER)
-                self.addCleanup(self._purge_versions, doctype, expense)
 
-                box = self._as(PROCUREMENT_USER, change_expense_account, doctype=doctype, name=expense,
-                               payee=picked)
+                with self.assertRaises(frappe.PermissionError):
+                    self._as(PROCUREMENT_USER, change_expense_account, doctype=doctype, name=expense,
+                             payee=picked)
 
                 self.assertEqual(frappe.db.get_value(doctype, expense, list(PAY_TO_FIELDS), as_dict=True),
-                                 self._copy_of(picked))
-                versions = frappe.get_all("Version", filters={"ref_doctype": doctype, "docname": expense},
-                                          pluck="owner")
-                self.assertEqual(versions, [PROCUREMENT_USER])
-                # Record Payment's "Set by" line reads that Version row.
-                self.assertEqual((box["named_by"]["how"], box["named_by"]["user"], box["named_by"]["on"]),
-                                 ("changed", PROCUREMENT_USER, today()))
-                self.assertEqual(get_pay_to_box(doctype, expense)["named_by"]["user"], PROCUREMENT_USER)
-
-    def _purge_versions(self, doctype, name):
-        frappe.db.rollback()
-        frappe.db.delete("Version", {"ref_doctype": doctype, "docname": name})
-        frappe.db.commit()
+                                 self._copy_of(first))
 
     def test_the_endpoints_refuse_a_doctype_that_is_not_paid(self):
         payment = self._payment(self._vendor(), copy_of=self.payees.payee())

@@ -17,10 +17,11 @@ payment that switches to its vendor's current account.
 * `change_expense_account` -- Change account: copy a Payee's account onto an expense.
 
 Who: reading follows the ledger (whoever may read the payment or expense sees who it pays, as the
-queue shows it). Changing follows it too: whoever may write the expense (Frappe's permission).
+queue shows it). Changing is payment information: Frappe's write permission on the expense, then
+`expense_decision.assert_may_edit` (before Paid, an Accountant or the Accountant Lead; once Paid, nobody).
 Searching Payees is Accounts only (`PAYEE_MANAGE_PROFILES`); new bank details in Change account go
-through the Payees page's `add_payee` / `check_payee`, Accounts only too. Who sees Change account
-(Accounts) and which expenses may still change (approved, unpaid, no vendor) are screen rules.
+through the Payees page's `add_payee` / `check_payee`, Accounts only too. That the screen offers Change
+account only on an approved, unpaid expense with no vendor is a screen rule (`canChangeExpenseAccount`).
 """
 
 import json
@@ -92,8 +93,9 @@ def change_expense_account(doctype: str, name: str, payee: str | None = None) ->
     """Overwrite expense `name`'s pay-to account with Payee `payee`'s (or clear it). Returns the new
     box. A PO / WO payment's copy is never changed in the app (ADR-0033): it is refused here.
 
-    Asks Frappe's own write permission on the expense: the save ignores permissions, so this check is
-    the boundary. That only Accounts see Change account is a screen rule (`canChangeExpenseAccount`)."""
+    Asks Frappe's own write permission on the expense here, and the service asks who may edit its
+    pay-to account (`expense_decision.assert_may_edit`): the save ignores permissions, so these are
+    the boundary."""
     assert_paid_to_doctype(doctype, EXPENSE_DOCTYPES)
     frappe.has_permission(doctype, "write", doc=name, throw=True)
     expense_payee.change_expense_account(doctype, name, payee or None)
