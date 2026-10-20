@@ -278,12 +278,14 @@ doc_events = {
         # Client Status (ADR-0025 Amendment B). Doc-layer deletes only, which includes REST.
         "on_trash": "nirmaan_stack.integrations.controllers.project_tds_item_list.on_trash",
     },
-    # TAX DEDUCTED AT SOURCE (not the Technical Data Sheet family above). A challan's
+    # TAX DEDUCTED AT SOURCE (not the Technical Data Sheet family above). `validate`: a row names
+    # exactly one of a Project Payment and a Non-Project Expense (#1523). `on_trash`: a challan's
     # `reconciled_amount` is the sum of the deductions pointing at it, so a deleted deduction has
     # to stop being counted as spent. Covers a DOC-LAYER delete only; the payment cascade deletes
     # with raw SQL and recomputes explicitly in `project_payments.on_trash`.
     "Payment TDS Deduction": {
-        "on_trash": "nirmaan_stack.integrations.controllers.payment_tds_deduction.on_trash"
+        "validate": "nirmaan_stack.integrations.controllers.payment_tds_deduction.validate",
+        "on_trash": "nirmaan_stack.integrations.controllers.payment_tds_deduction.on_trash",
     },
     "Critical PO Items": {
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.critical_po_items.critical_po_items.after_insert",

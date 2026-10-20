@@ -64,6 +64,7 @@ export const PAYMENT_TDS_FIELDS_TO_FETCH: string[] = [
     "tds_percentage",
     "tds_amount",
     "payment_approved_on",
+    "tds_section",
     // Drives the Status column AND the Pay-TDS selection gate (only `Pending` rows are selectable),
     // so a missing fetch here would silently make every row unselectable.
     "status",
@@ -196,6 +197,21 @@ export const getPaymentTdsColumns = ({
         },
     },
     {
+        accessorKey: "tds_section",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Section" />,
+        // The Income Tax section, set once when the row is written (#1523): 194C on a Work Order
+        // payment, 194-I on an Office Rent expense. Every row from before the field reads 194C.
+        cell: ({ row }) => (
+            <span className="tabular-nums whitespace-nowrap">{row.original.tds_section || "--"}</span>
+        ),
+        filterFn: facetedFilterFn,
+        meta: {
+            exportHeaderName: "Section",
+            exportValue: (row: PaymentTDSDeductionRow) => row.tds_section || "--",
+            facet: { field: "tds_section", title: "Section" } satisfies FacetDeclaration,
+        },
+    },
+    {
         accessorKey: "project",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
         cell: ({ row }) =>
@@ -265,21 +281,25 @@ export const getPaymentTdsColumns = ({
     {
         accessorKey: "project_payment",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Payment" />,
-        cell: ({ row }) => (
-            // `isPaid: false` on purpose -- the deduction row does not carry the payment's status,
-            // and that argument only picks which TAB to land on. `false` selects "All Payments",
-            // which carries no status filter and therefore always contains the row; passing `true`
-            // would filter to Paid and land an Approved payment on an empty table.
-            <Link
-                to={paymentHref(row.original.project_payment, false)}
-                className="text-blue-600 hover:underline tabular-nums whitespace-nowrap"
-            >
-                {row.original.project_payment}
-            </Link>
-        ),
+        cell: ({ row }) =>
+            // An expense row has no payment (#1523): it names its Non-Project Expense instead.
+            row.original.project_payment ? (
+                // `isPaid: false` on purpose -- the deduction row does not carry the payment's status,
+                // and that argument only picks which TAB to land on. `false` selects "All Payments",
+                // which carries no status filter and therefore always contains the row; passing `true`
+                // would filter to Paid and land an Approved payment on an empty table.
+                <Link
+                    to={paymentHref(row.original.project_payment, false)}
+                    className="text-blue-600 hover:underline tabular-nums whitespace-nowrap"
+                >
+                    {row.original.project_payment}
+                </Link>
+            ) : (
+                <span className="text-muted-foreground">--</span>
+            ),
         meta: {
             exportHeaderName: "Payment",
-            exportValue: (row: PaymentTDSDeductionRow) => row.project_payment,
+            exportValue: (row: PaymentTDSDeductionRow) => row.project_payment || "--",
         },
     },
     {

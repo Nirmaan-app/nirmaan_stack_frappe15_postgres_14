@@ -172,13 +172,47 @@ letter decides it (owner, 2026-10-16):
 
 ---
 
+## One tax record, two sources: a Work Order payment or an Office Rent expense (spec #1522)
+
+### Load-bearing invariants: which rows a reader counts
+
+- **A row names EXACTLY ONE source:** `project_payment` (a Work Order payment's tax, section **194C**)
+  or `non_project_expense` (an Office Rent expense's tax, section **194-I**), never both, never neither.
+  ONE rule, `payment_tds.deduction_link_problem` (pure), run on every doc-layer save by
+  `controllers/payment_tds_deduction.validate`; the message says which case it is. Both links are
+  UNIQUE, so one payment or one expense carries at most one row.
+- ⚠️ **EVERY WORK ORDER, VENDOR OR PROJECT READER JOINS THROUGH `project_payment`**, never filters on the
+  row's snapshot `vendor` / `project` / `document_type` / `document_name`: `total_tds_of` (total TDS,
+  Amount Paid's recount), `company_borne_tds_sql` (Amount Due, the mismatch judge),
+  `work_order_deductions` / `work_order_tds_borne` (the WO page), `order_payments.load_payments` (the
+  request caps, the payment summary), the WO Payment Voucher report (filters to rows with a payment).
+  So an expense row moves no Work Order figure and no project outflow (`project_money` reads no tax at
+  all). A new reader must do the same. `existing_deduction` answers None for a blank payment name, so
+  a blank filter can never match an expense row.
+- **Readers of EVERY row, on purpose:** the challan total (`recompute_challan_reconciled`), Pay TDS
+  (`api/tds_challan/pay_tds`, which reads only the deduction rows) and the TDS register. Both kinds are
+  paid under the same challans.
+- **`tds_section`** is set once when the row is created (`write_deduction` writes 194C); the Select
+  options are `payment_tds.TDS_SECTIONS`, pinned by test. The register shows it as the Section column,
+  with a facet.
+- **`deductee_name` / `deductee_pan`** hold the landlord on a rent row; empty on a Work Order row, which
+  names its vendor.
+- Pinned by `services/test_tds_expense_records` (a rent row naming the SAME vendor, project and Work
+  Order as a taxed payment, one of them Company-borne, leaves every Work Order and project figure as it
+  was) and `services/test_tds_record_shape`.
+
+---
+
 ## The two doctypes
 
-**`Payment TDS Deduction`** — one deduction, one payment.
+**`Payment TDS Deduction`** — one deduction, one payment or one Non-Project Expense.
 
 | Field | Note |
 |---|---|
-| `project_payment` | Link → Project Payments. **UNIQUE, and that constraint IS the idempotency guarantee** — only the first qualifying approval can write a row, which is also what stops the amount being netted twice. |
+| `project_payment` | Link → Project Payments, on a Work Order row (empty on an expense row). **UNIQUE, and that constraint IS the idempotency guarantee** — only the first qualifying approval can write a row, which is also what stops the amount being netted twice. |
+| `non_project_expense` | Link → Non Project Expenses, on an Office Rent row (empty on a Work Order row). **UNIQUE**, the once-only guarantee for an expense. Exactly one of the two links is set (§ One tax record). |
+| `tds_section` | `194C` (Work Order payment) / `194-I` (Office Rent). Read-only, default `194C`, set once at creation. |
+| `deductee_name`, `deductee_pan` | The landlord on a rent row, snapshotted from the request's answers. Empty on a Work Order row. Read-only. |
 | `gross_amount` | The amount BEFORE tax. ⚠️ The only surviving record of it: `Project Payments.amount` is rewritten to the net. |
 | `tds_percentage` | The rate AS APPLIED, snapshotted. Never re-read from the vendor — 561 of 629 rows differ from their vendor's rate today. |
 | `tds_amount` | `gross × rate / 100`. What `Service Requests.total_tds` sums (Paid payments only). |
@@ -309,9 +343,10 @@ Reports hub → **Payment TDS Deduction** tab (report type "TDS Deduction"), gat
 |---|---|
 | `rename_deducted_on_to_payment_approved_on` | Copies the dates across. **Drops nothing** — the owner drops the old column by hand. |
 | `backfill_payment_tds_deduction_link` | Fills `Project Payments.payment_tds` for the 626 existing rows. |
+| `backfill_payment_tds_section` | Sets `tds_section` = `194C` on every row with none. Touches only blanks, so it is idempotent; on PostgreSQL the column default already fills the old rows, so it usually updates nothing. |
 | `backfill_payment_tds_borne_by` | Sets `borne_by` on every existing row from its payment (kept whole on a company-borne WO → `Company`, else `Vendor`). Recounts nothing. ⚠️ **Run once only** (the patch log is its only guard): a re-run would re-infer rows `record_deduction` wrote since, off payments that may have changed. The reason it cannot be limited to old rows is at the top of the patch. |
 
-The first two are idempotent and fill only what is still empty.
+The first three are idempotent and fill only what is still empty.
 
 ---
 
