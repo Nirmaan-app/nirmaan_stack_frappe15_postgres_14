@@ -15,9 +15,6 @@ payments or "No payment yet":
 A Security Deposit cheque's "Secures" picker (#1486): `securable_records` -- the Vendor's open POs, each
 with its project. Never a Work Order: Work Orders have no cheques (spec #1514).
 
-The Clear dialog's picker (#1484): `bank_lines_for` -- the imported, unmatched ICICI debits carrying a
-cheque's number (leading zeros ignored) and amount, that a hand clear may link.
-
 The same rules are enforced on save (`edit_rules.tracker_payment_cheque_problem`, `lines.lines_problem`);
 these lists only spare the user a refusal.
 """
@@ -25,25 +22,13 @@ these lists only spare the user a refusal.
 import frappe
 from frappe.utils import cint, flt
 
-from nirmaan_stack.services.cheques.clear_rules import (
-    DIRECTION_DEBIT,
-    ICICI_STATEMENT_SOURCE,
-    UNMATCHED_LINE_STATUSES,
-    BankLine,
-    bank_line_problem,
-)
 from nirmaan_stack.services.cheques.edit_rules import PICKABLE_STEPS
 from nirmaan_stack.services.cheques.lines import live_cheques_of
 from nirmaan_stack.services.cheques.rules import (
-    CHEQUE_TYPE_PAYMENT,
-    ICICI_BANK,
-    LINES_TOLERANCE,
     PAYMENT_DOCTYPE,
     PAYMENT_REJECTED,
     PO_DOCTYPE,
-    cheque_no_key,
 )
-from nirmaan_stack.services.cheques.writer import CHEQUES
 
 #: A PO in these statuses holds no payment of its own any more.
 PO_CLOSED_STATUSES = ("Merged", "Cancelled")
@@ -158,45 +143,3 @@ def eligible_payments(
             "moved_on": moved_on,
         },
     }
-
-
-def bank_lines_for(cheque: str) -> list[dict]:
-    """`[{name, added_on, amount, reference_id, remarks, import_batch}]`: the imported bank lines the Clear
-    dialog offers for Payment cheque `cheque` (#1484), oldest first. Each is an ICICI statement debit nobody
-    has matched yet, carrying the cheque's number (leading zeros ignored) and its amount within ₹5
-    (`clear_rules.bank_line_problem`). Empty for a cheque no line can clear: not ICICI Bank, Old-type, a deposit.
-    """
-    doc = frappe.db.get_value(
-        CHEQUES, cheque, ["cheque_no", "bank", "amount", "cheque_type", "old_type"], as_dict=True
-    )
-    if not doc or doc.bank != ICICI_BANK or doc.cheque_type != CHEQUE_TYPE_PAYMENT or cint(doc.old_type):
-        return []
-    key = cheque_no_key(doc.cheque_no)
-    if not key:
-        return []
-    amount = flt(doc.amount)
-    rows = frappe.get_all(
-        "Outflow Import Row",
-        filters=[
-            ["source", "=", ICICI_STATEMENT_SOURCE],
-            ["direction", "=", DIRECTION_DEBIT],
-            ["row_status", "in", UNMATCHED_LINE_STATUSES],
-            # Frappe's `between` reads its bounds as dates: two comparisons instead.
-            ["amount", ">=", amount - LINES_TOLERANCE],
-            ["amount", "<=", amount + LINES_TOLERANCE],
-            # A first cut in SQL; the exact number rule is checked below.
-            ["reference_id", "like", f"%{key}%"],
-        ],
-        fields=["name", "source", "direction", "row_status", "added_on", "amount", "reference_id", "remarks",
-                "import_batch"],
-        order_by="added_on asc, name asc",
-    )
-    return [
-        {k: r[k] for k in ("name", "added_on", "amount", "reference_id", "remarks", "import_batch")}
-        for r in rows
-        if not bank_line_problem(
-            BankLine(name=r.name, source=r.source, direction=r.direction, row_status=r.row_status,
-                     reference_id=r.reference_id, amount=flt(r.amount)),
-            bank=doc.bank, cheque_no=doc.cheque_no, amount=amount,
-        )
-    ]

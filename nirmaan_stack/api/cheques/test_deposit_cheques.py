@@ -4,8 +4,8 @@
 """Security Deposit cheques through the endpoints (#1486, spec #1477, ADR-0035).
 
 Drives what the Add Cheque dialog, the PO page card, the Edit dialog and the Cancel dialog call
-(`save_cheque.save_cheque` with `cheque_type`, `cheque_status.cancel_cheque`, `clear_cheque`,
-`pickers.get_securable_records`, `list_cheques.get_cheques`) and reads back what a user sees: the Cheque's
+(`save_cheque.save_cheque` with `cheque_type`, `cheque_status.cancel_cheque`, the bank import's
+`status.clear`, `pickers.get_securable_records`, `list_cheques.get_cheques`) and reads back what a user sees: the Cheque's
 type, status, issue date, lines and history, the tracker's tabs and the PO card's list, or the refusal.
 
 ⚠️ RUNS AGAINST THE ENV DATABASE (the endpoints commit). Vendors, projects and Work Orders come from
@@ -20,11 +20,12 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, nowdate
 
 from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
-from nirmaan_stack.api.cheques.cheque_status import cancel_cheque, clear_cheque, clear_cheques, get_bank_lines
+from nirmaan_stack.api.cheques.cheque_status import cancel_cheque
 from nirmaan_stack.api.cheques.list_cheques import get_cheques
 from nirmaan_stack.api.cheques.pickers import get_securable_records
 from nirmaan_stack.api.cheques.save_cheque import save_cheque
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
+from nirmaan_stack.services.cheques.status import clear
 
 U = "Administrator"
 PO = "Procurement Orders"
@@ -216,14 +217,7 @@ class TestSecurityDepositCheques(FrappeTestCase):
         self.assertEqual(self._lines(name), [("Secured PO/WO", PO, self.po, self.project, None, 0.0)])
         self._refused("already Cancelled", cancel_cheque, name, "again")
 
-    def test_a_deposit_is_never_cleared_by_hand(self):
-        name = self._save()
-        self._refused("a Security Deposit cheque is never cashed", clear_cheque, name, nowdate())
-        result = clear_cheques([name], nowdate())
-        self.assertEqual([s["reason"] for s in result["skipped"]], ["a Security Deposit cheque is never cashed"])
-        self.assertEqual(frappe.db.get_value("Cheques", name, "status"), "Issued")
-
-    def test_no_bank_line_is_offered_for_a_deposit_even_with_its_number_and_amount(self):
+    def test_a_deposit_is_never_cleared_even_by_a_line_with_its_number_and_amount(self):
         number = f"{self.cheques.number()}0760"
         name = self._save(cheque_no=number)
         batch = frappe.new_doc("Outflow Import Batch")
@@ -241,8 +235,8 @@ class TestSecurityDepositCheques(FrappeTestCase):
             ("Outflow Import Row", {"name": row.name}), ("Outflow Import Batch", {"name": batch.name}),
         ])
 
-        self.assertEqual(get_bank_lines(name), [])
-        self._refused("a Security Deposit cheque is never cashed", clear_cheque, name, nowdate(), bank_line=row.name)
+        self._refused("a Security Deposit cheque is never cashed", clear, name, bank_line=row.name, user=U)
+        self.assertEqual(frappe.db.get_value("Cheques", name, "status"), "Issued")
         self.assertEqual(frappe.db.get_value("Outflow Import Row", row.name, "row_status"), "Mismatched")
 
     def test_procurement_cannot_cancel_a_deposit(self):

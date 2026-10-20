@@ -4,6 +4,9 @@
 """Clearing and cancelling a cheque, and a Security Deposit cheque's moves (#1484, #1486, spec #1477,
 ADR-0035). Pure: no `frappe.db`. `status.py` asks it.
 
+Only a bank-statement line clears a Payment cheque (#1516, ADR-0035 Amendment A): nobody clears one by
+hand, and the import clears Old-type cheques too, each line's record settled for the line's amount.
+
 Each `*_problem` function returns a short reason ("already Cleared"), or None.
 """
 
@@ -17,14 +20,12 @@ from nirmaan_stack.services.cheques.rules import (
     CHEQUE_TYPE_PAYMENT,
     CHEQUE_TYPE_SECURITY_DEPOSIT,
     CLEARED,
-    CLEARED_BY_BANK_IMPORT,
-    CLEARED_BY_HAND,
     ICICI_BANK,
     ISSUED,
     LINES_TOLERANCE,
+    PAYMENT_DOCTYPE,
     PENDING,
     cheque_no_key,
-    day_text,
     rupees,
 )
 from nirmaan_stack.services.settlement import (
@@ -33,20 +34,12 @@ from nirmaan_stack.services.settlement import (
 )
 
 
-#: The statuses each way of clearing may start from. By hand: Issued only (Q34). The bank import (#1485)
-#: clears at any live status, because the bank has already paid: from Pending its payments are approved
-#: by the import first, from Cancelled its Rejected payments are revived (`status.clear` does both).
-CLEARABLE_FROM = {
-    CLEARED_BY_HAND: (ISSUED,),
-    CLEARED_BY_BANK_IMPORT: (ISSUED, PENDING, CANCELLED),
-}
+#: The statuses a bank line clears a Payment cheque from (#1485): any live one, because the bank has
+#: already paid. From Pending its payments are approved by the import first, from Cancelled its Rejected
+#: payments are revived (`status.clear` does both). An Old-type cheque is cleared from Issued only.
+CLEARABLE_FROM = (ISSUED, PENDING, CANCELLED)
 #: The starts the bank import brings to Reconciliation Pending itself before it pays (`status.clear`).
 BANK_BRINGS_FORWARD = (PENDING, CANCELLED)
-#: Why a cheque at a status no clear starts from cannot be cleared.
-_NOT_CLEARABLE = {
-    PENDING: f"it is {PENDING}: its payments are not approved yet",
-    CANCELLED: "it is Cancelled: its payments are Rejected",
-}
 #: The bank-statement source whose lines clear cheques, and the direction that spends money
 #: (`outflow_import/sources.BANK_STATEMENT_SOURCES`, `outflow_import/parser.DIRECTION_DEBIT`).
 ICICI_STATEMENT_SOURCE = "ICICI Bank Statement"
@@ -60,50 +53,76 @@ def clear_problem(
     status: str,
     cheque_type: str,
     old_type: bool,
-    cleared_by: str,
     payments: Sequence[tuple[str, str | None]],
     bank_line: bool,
 ) -> str | None:
     """Why this cheque cannot be cleared, as a short reason ("already Cleared"), or None. Pure.
 
-    `payments` holds `(payment, status)` for every Project Payment its lines name. Clearing pays them,
-    so each must be waiting for the bank (Reconciliation Pending); one already Paid is left as it is,
-    unless a bank line is being linked (that line would then pay it twice). The bank import starting
-    from Pending or Cancelled (`BANK_BRINGS_FORWARD`) takes any unpaid payment: it approves or revives
-    it first. An Old-type cheque is cleared by hand only, and with no bank line: its lines may pay
-    expenses the line cannot be split across.
+    Only a bank-statement line clears a cheque (`bank_line`), never a person (#1516). `payments` holds
+    `(payment, status)` for every Project Payment its lines name. Clearing pays them, so each must be
+    waiting for the bank (Reconciliation Pending); one already Paid refuses, since the line would pay it
+    twice. Starting from Pending or Cancelled (`BANK_BRINGS_FORWARD`) the import takes any unpaid payment:
+    it approves or revives it first. An Old-type cheque is cleared from Issued only: its old status says
+    nothing about its payments (#1478), so the import neither approves nor revives them.
     """
     if cheque_type != CHEQUE_TYPE_PAYMENT:
         return "a Security Deposit cheque is never cashed"
+    if not bank_line:
+        return "only a bank-statement line with its number and amount clears a cheque"
     if status == CLEARED:
         return "already Cleared"
-    if old_type and (bank_line or cleared_by != CLEARED_BY_HAND):
-        return "an Old-type cheque is cleared by hand, without a bank line"
-    if status not in CLEARABLE_FROM.get(cleared_by, ()):
-        return _NOT_CLEARABLE.get(status, f"it is {status}")
+    if old_type and status != ISSUED:
+        return f"it is {status}: an Old-type cheque is cleared only while Issued"
+    if status not in CLEARABLE_FROM:
+        return f"it is {status}"
     for name, payment_status in payments:
         payment_status = (payment_status or "").strip()
         if payment_status == STATUS_PAID:
-            if bank_line:
-                return f"payment {name} is already Paid"
-        elif status in BANK_BRINGS_FORWARD and payment_status:
+            return f"payment {name} is already Paid"
+        if status in BANK_BRINGS_FORWARD and payment_status:
             continue
-        elif payment_status != STATUS_RECONCILIATION_PENDING:
+        if payment_status != STATUS_RECONCILIATION_PENDING:
             return f"payment {name} is {payment_status or 'blank'}"
     return None
 
 
-def clearance_date_problem(clearance_date, *, issue_date, today) -> str | None:
-    """Why `clearance_date` cannot be a cheque's clearance date, or None. Pure. It becomes each payment's
-    payment date, so it is required, never after `today` and never before the cheque was issued."""
-    if not clearance_date:
-        return "Choose the clearance date."
-    day = str(clearance_date)[:10]
-    if day > str(today)[:10]:
-        return "The clearance date cannot be after today."
-    if issue_date and day < str(issue_date)[:10]:
-        return f"The clearance date cannot be before the cheque was issued ({day_text(str(issue_date))})."
+@dataclass(frozen=True)
+class OldTypeLine:
+    """One line of an Old-type cheque as its clear reads it: the record it names (`doctype` + `name`, a
+    Project Payment or an expense), the line's amount and, for a Project Payment, the payment's amount."""
+
+    idx: int
+    doctype: str | None
+    name: str | None
+    amount: float
+    record_amount: float | None = None
+
+
+def old_type_lines_problem(lines: Sequence[OldTypeLine], *, bank_amount) -> str | None:
+    """Why a bank line of `bank_amount` cannot settle this Old-type cheque's lines, or None. Pure.
+
+    The line settles every record the lines name, each for its line's amount, with one bank match per
+    line (#1516). So every line names a record, the lines add up to the bank line within ₹5 (the line
+    then reads Settled, never part allocated), and a payment line pays its whole payment: the import
+    pays a payment in full or not at all.
+    """
+    if not lines:
+        return "it has no lines, so the bank line would settle nothing"
+    for line in lines:
+        if not line.name:
+            return f"line {line.idx} names no payment"
+    total = round(sum(flt(line.amount) for line in lines), 2)
+    if abs(total - round(flt(bank_amount), 2)) > LINES_TOLERANCE:
+        return f"its lines add up to {rupees(total)}, but the bank line is for {rupees(bank_amount)}"
+    for line in lines:
+        if line.doctype == PAYMENT_DOCTYPE and abs(flt(line.amount) - flt(line.record_amount)) > LINES_TOLERANCE:
+            return (
+                f"line {line.idx} pays {rupees(line.amount)} of payment {line.name}, which is for "
+                f"{rupees(line.record_amount)}"
+            )
     return None
+
+
 
 
 def cancel_problem(*, status: str) -> str | None:

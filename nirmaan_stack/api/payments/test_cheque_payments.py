@@ -435,10 +435,12 @@ class TestChequePayments(FrappeTestCase):
 		update_payment_request(json.dumps({"action": "fulfil", "name": name, "utr": utr, "pay_date": nowdate()}))
 		frappe.db.commit()
 
-	def _on_one_cheque(self, number, *payments, bank="ICICI Bank", bank_name=None):
-		"""Put `payments` on one new Cheque (#1419: the guard keys on the Cheque link)."""
+	def _on_one_cheque(self, number, *payments, other_bank=None):
+		"""Put `payments` on one new Cheque (#1419: the guard keys on the Cheque link); on Others bank
+		`other_bank`, as a cheque recorded before #1516 may be, when given."""
 		header = ChequeHeader(
-			bank=bank, bank_name=bank_name, cheque_no=number, cheque_date=nowdate(),
+			bank="ICICI Bank", bank_name=None, cheque_no=ChequeFixture.number() if other_bank else number,
+			cheque_date=nowdate(),
 			amount=sum(flt(frappe.db.get_value(PAYMENT, p, "amount")) for p in payments), vendor=self.vendor,
 			payee_name=None, description=None, attachment="https://storage.example.invalid/private/files/cheque-test.jpg",
 		)
@@ -452,6 +454,12 @@ class TestChequePayments(FrappeTestCase):
 		# payments screen's fulfil -- and the shared-reference rule it checks -- is an Old-type cheque's.
 		frappe.db.set_value("Cheques", doc.name, "old_type", 1, update_modified=False)
 		frappe.db.commit()
+		if other_bank:
+			ChequeFixture.move_to_other_bank(doc.name, other_bank, cheque_no=number)
+			# The payment keeps the cheque's number, as the old link wrote it.
+			for payment in payments:
+				frappe.db.set_value(PAYMENT, payment, "cheque_no", number, update_modified=False)
+			frappe.db.commit()
 
 	def test_payments_on_one_cheque_all_reconcile_against_its_number(self):
 		ChequeFixture.attach(self)
@@ -472,7 +480,7 @@ class TestChequePayments(FrappeTestCase):
 		icici = self._plant(20000, RECON, cheque_no=number)
 		other_bank = self._plant(30000, RECON, cheque_no=number)
 		self._on_one_cheque(number, icici)
-		self._on_one_cheque(number, other_bank, bank="Others", bank_name="HDFC Bank")
+		self._on_one_cheque(number, other_bank, other_bank="HDFC Bank")
 		self._fulfil(icici, number)
 		with self.assertRaisesRegex(frappe.ValidationError, "already recorded"):
 			self._fulfil(other_bank, number)

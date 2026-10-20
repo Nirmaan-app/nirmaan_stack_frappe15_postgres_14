@@ -45,7 +45,7 @@ def bank_cheque_key(*, source: str | None, direction: str | None, reference_id) 
 
 @dataclass(frozen=True)
 class FoundCheque:
-    """A Payment cheque on ICICI Bank (not Old-type) carrying a bank line's number."""
+    """A Payment cheque on ICICI Bank (Old-type ones too, #1516) carrying a bank line's number."""
 
     name: str
     cheque_no: str
@@ -73,7 +73,7 @@ def pick_bank_cheque(found: Sequence[FoundCheque], *, amount) -> tuple[FoundCheq
     if fits:
         return None, (
             f"Cheques {join_words([c.cheque_no for c in fits])} both carry this number and amount. Nothing was "
-            "settled. Clear the right one by hand from the Cheque Tracker."
+            "settled. Cancel the one the bank did not pay, then run the match again."
         )
     if len(found) == 1:
         return None, (

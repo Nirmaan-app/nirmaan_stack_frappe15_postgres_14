@@ -71,14 +71,13 @@ export interface ChequeColumnActions {
     onOpen: (cheque: string) => void;
     /** Opens Edit for one Cheque (#1418). */
     onEdit: (row: ChequeRow) => void;
-    /** Clear and Cancel (#1483); they open today's Change status dialog until #1484 gives them their own. */
-    onClear: (row: ChequeRow) => void;
+    /** Opens the Cancel dialog (#1484). There is no Clear: only a bank-statement line clears a cheque (#1516). */
     onCancel: (row: ChequeRow) => void;
 }
 
 /**
  * The Cheque Tracker's All Cheques columns (spec #1407, #1483): one row per Cheque. The cheque number and View
- * open the detail view; Edit opens the Edit dialog (#1418); Clear and Cancel show by type, status and role
+ * open the detail view; Edit opens the Edit dialog (#1418); Cancel shows by type, status and role
  * (`chequeRowActions`). The chevron beside the number expands the row into its lines (#1417; the page passes
  * `renderExpandedRow` to DataTable).
  *
@@ -86,7 +85,7 @@ export interface ChequeColumnActions {
  * the endpoint's filter fields, and so are the date columns (`cheque_date`, `issue_date`,
  * `clearance_date`). An Old-type cheque carries an "Old type" tag under its type (#1478).
  */
-export const getChequePaymentColumns = ({ actionsOf, onOpen, onEdit, onClear, onCancel }: ChequeColumnActions): ColumnDef<ChequeRow>[] => [
+export const getChequePaymentColumns = ({ actionsOf, onOpen, onEdit, onCancel }: ChequeColumnActions): ColumnDef<ChequeRow>[] => [
     {
         accessorKey: "cheque_no",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Cheque No" className={WRAP_HEADER} />,
@@ -136,7 +135,7 @@ export const getChequePaymentColumns = ({ actionsOf, onOpen, onEdit, onClear, on
                 {row.original.old_type ? (
                     <span
                         className="whitespace-nowrap rounded border border-dashed border-gray-400 bg-gray-50 px-1.5 text-[11px] font-medium text-gray-600"
-                        title="Recorded before cheque types: it pays Expenses, has no lines or names a typed payee. It is cleared or cancelled by hand."
+                        title="Recorded before cheque types: it pays Expenses, has no lines or names a typed payee. Its bank line clears it, every line paid in full; it may be cancelled."
                     >
                         Old type
                     </span>
@@ -337,7 +336,7 @@ export const getChequePaymentColumns = ({ actionsOf, onOpen, onEdit, onClear, on
     {
         id: "actions",
         header: "Actions",
-        cell: ({ row }) => <ChequeRowButtons row={row.original} actions={{ actionsOf, onOpen, onEdit, onClear, onCancel }} />,
+        cell: ({ row }) => <ChequeRowButtons row={row.original} actions={{ actionsOf, onOpen, onEdit, onCancel }} />,
         size: 110,
         enableSorting: false,
         enableHiding: false,
@@ -345,7 +344,7 @@ export const getChequePaymentColumns = ({ actionsOf, onOpen, onEdit, onClear, on
     },
 ];
 
-const ACTION_LABEL: Record<ChequeRowAction, string> = { view: "View", edit: "Edit", clear: "Clear", cancel: "Cancel" };
+const ACTION_LABEL: Record<ChequeRowAction, string> = { view: "View", edit: "Edit", cancel: "Cancel" };
 
 /** A row's button text: a Security Deposit is "marked returned" rather than cancelled (#1486). */
 const actionLabel = (action: ChequeRowAction, row: ChequeRow) =>
@@ -356,7 +355,6 @@ const ChequeRowButtons = ({ row, actions }: { row: ChequeRow; actions: ChequeCol
     const handler: Record<ChequeRowAction, () => void> = {
         view: () => actions.onOpen(row.name),
         edit: () => actions.onEdit(row),
-        clear: () => actions.onClear(row),
         cancel: () => actions.onCancel(row),
     };
     return (
@@ -368,7 +366,6 @@ const ChequeRowButtons = ({ row, actions }: { row: ChequeRow; actions: ChequeCol
                     variant="outline"
                     className={cn(
                         "h-7 px-2",
-                        action === "clear" && "border-green-200 bg-green-50 text-green-800 hover:bg-green-100",
                         action === "cancel" && "text-red-700 hover:text-red-800",
                     )}
                     onClick={handler[action]}

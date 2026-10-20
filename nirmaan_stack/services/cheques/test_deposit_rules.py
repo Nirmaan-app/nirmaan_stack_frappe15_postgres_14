@@ -112,6 +112,31 @@ class TestADepositCheque_sHeader(unittest.TestCase):
         self.assertIsNone(clear_rules.issue_date_problem("2026-01-02", today="2026-10-16"))
 
 
+class TestWhichBankEachTypeIsDrawnOn(unittest.TestCase):
+    """A Payment cheque is drawn on ICICI Bank, the only bank whose statement clears it; a deposit, never
+    cleared, may be on any bank (#1516, ADR-0035 Amendment A)."""
+
+    OTHERS = {"bank": "Others", "bank_name": "HDFC Bank"}
+
+    def test_a_payment_cheque_on_others_is_refused(self):
+        self.assertEqual(
+            rules.header_problem(_header(**self.OTHERS), line_count=1, photo_required=True, cheque_type=PAY),
+            "A Payment cheque is drawn on ICICI Bank, the only bank whose statement clears it.",
+        )
+
+    def test_a_payment_cheque_on_icici_bank_is_accepted(self):
+        self.assertIsNone(rules.header_problem(_header(), line_count=1, photo_required=True, cheque_type=PAY))
+
+    def test_a_deposit_cheque_on_others_is_accepted(self):
+        self.assertIsNone(rules.header_problem(_header(**self.OTHERS), line_count=0, photo_required=True,
+                                               cheque_type=SD))
+
+    def test_an_old_payment_cheque_on_others_still_saves_when_its_bank_and_number_stay(self):
+        # Cancelling it, the only way to close it now, saves it again.
+        self.assertIsNone(rules.header_problem(_header(**self.OTHERS), line_count=1, photo_required=False,
+                                               cheque_type=PAY, drawn_anew=False))
+
+
 class TestEditingADepositCheque(unittest.TestCase):
     def test_procurement_edits_its_own_deposit_while_issued(self):
         own = {"owner": "p@x", "user": "p@x", "any_cheque": False, "cheque_type": SD}
@@ -148,16 +173,16 @@ class TestCancellingADepositCheque(unittest.TestCase):
 
 
 class TestADepositIsNeverCleared(unittest.TestCase):
-    """Story 57: the bank import never matches a deposit; neither does a hand clear."""
+    """Story 57: the bank import never matches a deposit."""
 
-    def test_no_way_of_clearing_starts_from_any_deposit_status(self):
-        for cleared_by in rules.CLEARED_BY:
+    def test_no_clear_starts_from_any_deposit_status(self):
+        for bank_line in (True, False):
             for status in rules.CHEQUE_STATUSES:
                 self.assertEqual(
-                    clear_rules.clear_problem(status=status, cheque_type=SD, old_type=False, cleared_by=cleared_by,
-                                        payments=[], bank_line=cleared_by == rules.CLEARED_BY_BANK_IMPORT),
+                    clear_rules.clear_problem(status=status, cheque_type=SD, old_type=False, payments=[],
+                                              bank_line=bank_line),
                     "a Security Deposit cheque is never cashed",
-                    (cleared_by, status),
+                    (bank_line, status),
                 )
 
     def test_a_bank_line_with_its_number_and_amount_still_clears_nothing(self):
@@ -165,8 +190,7 @@ class TestADepositIsNeverCleared(unittest.TestCase):
                               row_status="Mismatched", reference_id="760", amount=200000)
         self.assertTrue(clear_rules.bank_line_matches(line, cheque_no="000760", amount=200000))
         self.assertEqual(
-            clear_rules.clear_problem(status="Issued", cheque_type=SD, old_type=False,
-                                cleared_by=rules.CLEARED_BY_BANK_IMPORT, payments=[], bank_line=True),
+            clear_rules.clear_problem(status="Issued", cheque_type=SD, old_type=False, payments=[], bank_line=True),
             "a Security Deposit cheque is never cashed",
         )
 

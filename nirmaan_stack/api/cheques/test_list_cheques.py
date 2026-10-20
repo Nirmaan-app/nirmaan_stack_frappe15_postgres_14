@@ -16,7 +16,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, nowdate
 
 from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
-from nirmaan_stack.api.cheques.cheque_status import cancel_cheque, clear_cheque
+from nirmaan_stack.api.cheques.cheque_status import cancel_cheque
 from nirmaan_stack.api.cheques.list_cheques import get_cheque_facets, get_cheques
 from nirmaan_stack.api.cheques.save_cheque import save_cheque
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
@@ -33,6 +33,14 @@ PHOTO = "https://storage.example.invalid/private/files/cheque-test.jpg"
 SR = "Service Requests"
 PO = "Procurement Orders"
 LINE = "PO/WO Payment"
+
+
+def _cleared(cheque):
+    """Mark `cheque` Cleared, as a hand clear left it before #1516. Raw, test setup only: these cheques have
+    no payments for a bank line to pay, and only the list is under test."""
+    frappe.db.set_value("Cheques", cheque, {"status": "Cleared", "clearance_date": nowdate(), "cleared_by": "By hand"},
+                        update_modified=False)
+    frappe.db.commit()
 
 
 class TestListCheques(FrappeTestCase):
@@ -80,7 +88,8 @@ class TestListCheques(FrappeTestCase):
         return get_cheques(search_term=number, current_search_fields='["cheque_no"]', **kwargs)
 
     def test_a_cheque_is_one_row_with_what_the_report_shows(self):
-        name, number = self._save(bank="Others", bank_name="HDFC Bank")
+        name, number = self._save()
+        ChequeFixture.move_to_other_bank(name, "HDFC Bank")  # recorded on Others before #1516
 
         result = self._search(number)
 
@@ -219,7 +228,7 @@ class TestChequeReportFiltersAndSummary(FrappeTestCase):
         issued = self._save(25000)
         cleared = self._save(10000)
         cancelled = self._save(5000)
-        clear_cheque(cleared, nowdate())
+        _cleared(cleared)
         cancel_cheque(cancelled, "Torn up")
 
         summary = self._list()["aggregates"]
@@ -251,7 +260,7 @@ class TestChequeReportFiltersAndSummary(FrappeTestCase):
     def test_facets_name_what_the_filtered_rows_hold(self):
         self._two_project_cheque()
         cleared = self._save(10000, lines=[self._wo_line(self.project_a, self.wo_a, 10000)])
-        clear_cheque(cleared, nowdate())
+        _cleared(cleared)
         vendor_only = json.dumps([["vendor", "=", self.vendor]])
 
         projects = get_cheque_facets("project", filters=vendor_only)["values"]

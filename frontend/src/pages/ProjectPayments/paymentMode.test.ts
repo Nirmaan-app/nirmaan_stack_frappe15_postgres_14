@@ -37,8 +37,6 @@ describe("paymentMode", () => {
 		expect(isPaymentModeComplete({ ...cheque, cheque_date: "" }, "")).toBe(false);
 		expect(isPaymentModeComplete({ ...cheque, amount: "" }, "")).toBe(false);
 		expect(isPaymentModeComplete({ ...cheque, amount: 0 }, "")).toBe(false);
-		expect(isPaymentModeComplete({ ...cheque, bank: "Others", bank_name: " " }, "")).toBe(false);
-		expect(isPaymentModeComplete({ ...cheque, bank: "Others", bank_name: "HDFC Bank" }, "")).toBe(true);
 	});
 
 	it("a cheque cannot be requested while its photo is read, or once its number is already recorded", () => {
@@ -46,7 +44,7 @@ describe("paymentMode", () => {
 		expect(isPaymentModeComplete(cheque, "CHQ-26-00007")).toBe(false);
 	});
 
-	it("sends the cheque trimmed, leading zeros kept, and a bank name only for Others", () => {
+	it("sends the cheque trimmed, leading zeros kept, drawn on ICICI Bank", () => {
 		expect(paymentModeArgs({ ...cheque, bank_name: "stale" })).toEqual({
 			mode_of_payment: "Cheque",
 			bank: "ICICI Bank",
@@ -55,10 +53,13 @@ describe("paymentMode", () => {
 			cheque_amount: 49000,
 			cheque_attachment: "/private/files/cheque.jpg",
 		});
-		expect(paymentModeArgs({ ...cheque, bank: "Others", bank_name: " HDFC Bank " })).toMatchObject({
-			bank: "Others",
-			bank_name: "HDFC Bank",
-		});
+	});
+
+	it("a Payment cheque is always drawn on ICICI Bank, the only bank whose statement clears it (#1516)", () => {
+		const others = { ...cheque, bank: "Others", bank_name: "HDFC Bank" } as PaymentModeValue;
+		expect(paymentModeArgs(others)).toMatchObject({ bank: "ICICI Bank" });
+		expect(paymentModeArgs(others)).not.toHaveProperty("bank_name");
+		expect(EMPTY_PAYMENT_MODE.bank).toBe("ICICI Bank");
 	});
 
 	it("reads a blank mode as Online", () => {

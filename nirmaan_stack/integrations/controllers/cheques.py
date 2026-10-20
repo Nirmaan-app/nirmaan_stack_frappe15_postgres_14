@@ -51,6 +51,7 @@ def validate(doc, method=None):
         photo_required=doc.is_new() and not doc.flags.cheque_without_photo,
         cancelled=doc.status == CANCELLED,
         cheque_type=doc.get("cheque_type") or CHEQUE_TYPE_PAYMENT,
+        drawn_anew=_drawn_anew(doc, header),
     )
     if problem:
         frappe.throw(_(problem))
@@ -63,6 +64,16 @@ def validate(doc, method=None):
     existing = existing_cheque(header.bank, header.bank_name, header.cheque_no, exclude=None if doc.is_new() else doc.name)
     if existing:
         frappe.throw(_(duplicate_problem(header, existing)))
+
+
+def _drawn_anew(doc, header) -> bool:
+    """Is this save a new paper cheque: a new Cheque, or one whose bank or number changes? The ICICI-only
+    rule for a Payment cheque (#1516) asks it, so a status move on an older Cheque on Others still saves."""
+    before = None if doc.is_new() else doc.get_doc_before_save()
+    if before is None:
+        return True
+    was = parse_header(before.as_dict())
+    return (was.bank_key, was.cheque_no) != (header.bank_key, header.cheque_no)
 
 
 def drop_off_cheques_of(doc, why: str, *, old_type_only: bool = False) -> None:

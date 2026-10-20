@@ -13,6 +13,7 @@ USAGE
     no = self.cheques.number()                      # a fresh TESTCHQ cheque number
     self.cheques.track(name)                        # a Cheque the code under test made
     name = self.cheques.plant_cheque(vendor=v, ...) # a Cheque in an old shape, at Issued (#1482)
+    ChequeFixture.move_to_other_bank(name, "HDFC Bank")  # a Payment cheque on Others from before #1516
     pay = self.cheques.plant_payment(self.fx, "Approved", project=p, vendor=v, document=(SR, sr))
     self.addCleanup(ChequeFixture.purge_rows, [("Version", {...}), (doctype, {"name": name})])
 
@@ -25,7 +26,13 @@ import frappe
 from frappe.utils import add_days, flt, nowdate
 
 from nirmaan_stack.services.cheque_payments import commit_move_to_reconciliation
-from nirmaan_stack.services.cheques.rules import MADE_FROM_REPORT, WORK_ORDER_DOCTYPE, parse_header, parse_line
+from nirmaan_stack.services.cheques.rules import (
+    MADE_FROM_REPORT,
+    WORK_ORDER_DOCTYPE,
+    bank_key,
+    parse_header,
+    parse_line,
+)
 from nirmaan_stack.services.cheques.writer import _new_cheque, history_row, line_payments, link_payments
 
 CHEQUES = "Cheques"
@@ -143,6 +150,18 @@ class ChequeFixture:
         for payment in line_payments(doc):
             commit_move_to_reconciliation(payment)
         return doc.name
+
+    @staticmethod
+    def move_to_other_bank(name: str, bank_name: str, *, cheque_no: str | None = None) -> None:
+        """Put Payment cheque `name` (made on ICICI Bank) on the Others bank `bank_name`, numbered `cheque_no`
+        when given: what a Payment cheque recorded before #1516 may hold, now that a new one is refused there
+        (`rules.header_problem`). Raw on purpose, test setup only: it plants history, which no rule re-checks
+        and no hook reads (a Cheque moves no money figure). Commits."""
+        values = {"bank": "Others", "bank_name": bank_name, "bank_key": bank_key("Others", bank_name)}
+        if cheque_no:
+            values["cheque_no"] = cheque_no
+        frappe.db.set_value(CHEQUES, name, values, update_modified=False)
+        frappe.db.commit()
 
     @staticmethod
     def purge_rows(scopes, *, what: str = "Test purge") -> None:

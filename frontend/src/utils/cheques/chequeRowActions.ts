@@ -9,15 +9,14 @@ import { canEditCheque } from "./chequeEdit";
  *
  * - View: always.
  * - Edit: as `canEditCheque` allows (the dialog then opens only what the status permits).
- * - Clear (Admin, Accountant, Accountant Lead): an Issued Payment cheque. A Pending one is cleared only by the
- *   bank import; a Security Deposit is never cashed.
- * - Cancel (the same roles): a Pending or Issued Payment cheque, or an Issued Security Deposit. A Cleared or
- *   Cancelled cheque has no undo by hand.
+ * - Cancel (Admin, Accountant, Accountant Lead): a Pending or Issued Payment cheque, or an Issued Security
+ *   Deposit. A Cleared or Cancelled cheque has no undo by hand.
  *
- * Old-type cheques (#1478) follow the same rule: they are hand-cleared or hand-cancelled only.
+ * There is no Clear (#1516, ADR-0035 Amendment A): a cheque is cleared only when a bank-statement line with its
+ * number and amount is imported, Old-type cheques included.
  */
 
-export type ChequeRowAction = "view" | "edit" | "clear" | "cancel";
+export type ChequeRowAction = "view" | "edit" | "cancel";
 
 /** The fields of a row the rule reads. */
 export interface ChequeActionRow {
@@ -34,8 +33,6 @@ export interface ChequeViewer {
 
 const isPayment = (row: ChequeActionRow) => row.cheque_type !== CHEQUE_TYPE.SECURITY_DEPOSIT;
 
-const canClear = (row: ChequeActionRow) => isPayment(row) && row.status === CHEQUE_STATUS.ISSUED;
-
 const canCancel = (row: ChequeActionRow) =>
     row.status === CHEQUE_STATUS.ISSUED || (isPayment(row) && row.status === CHEQUE_STATUS.PENDING);
 
@@ -43,9 +40,6 @@ const canCancel = (row: ChequeActionRow) =>
 export const chequeRowActions = (row: ChequeActionRow, viewer: ChequeViewer): ChequeRowAction[] => {
     const actions: ChequeRowAction[] = ["view"];
     if (canEditCheque(row, viewer.role, viewer.user)) actions.push("edit");
-    if (CHEQUE_ACCOUNTS_PROFILES.includes(viewer.role)) {
-        if (canClear(row)) actions.push("clear");
-        if (canCancel(row)) actions.push("cancel");
-    }
+    if (CHEQUE_ACCOUNTS_PROFILES.includes(viewer.role) && canCancel(row)) actions.push("cancel");
     return actions;
 };
