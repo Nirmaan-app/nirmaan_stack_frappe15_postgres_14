@@ -20,8 +20,9 @@ Issued ones), the rows and the facets (`get_cheque_facets`) all read the same WH
 
 The tracker's tabs are filters on this list, sent by the page (`frontend/src/utils/cheques/chequeTabs.ts`):
 Cheque Issued - Reconciliation Pending is `status = Issued` and `cheque_type = Payment`; Security Deposits is
-`cheque_type = Security Deposit` (#1486), and the PO / Work Order page's deposit card adds `record_name = <its
-record>`, which matches a deposit's Secured PO/WO lines. The project and PO/WO
+`cheque_type = Security Deposit` (#1486). The PO page's "Cheques issued for this PO" card sends `record_name =
+<its PO>` alone (#1521): the Payment cheques with a line on it and the deposit cheques securing it, each row with
+`record_amount`, what its lines put on that PO. The project and PO/WO
 filters match a Cheque when ANY of its lines matches (EXISTS on `Cheque Line`), and the Cheque is
 still counted once, at its full amount (#1417).
 
@@ -200,15 +201,31 @@ def _build_order(order_by):
     return f'q."{col}" {direction} NULLS LAST, q."name" ASC'
 
 
-def _where(filters, search_term, current_search_fields):
-    """The WHERE the rows, the summary and the facets share."""
+def _filter_list(filters) -> list:
+    """The caller's filters as `[field, op, value]` rows, from JSON, a list or a `{field: value}` dict."""
     filters = _coerce(filters) or []
     if isinstance(filters, dict):
         filters = [[k, "=", v] for k, v in filters.items()]
+    return filters
+
+
+def _where(filters, search_term, current_search_fields):
+    """The WHERE the rows, the summary and the facets share."""
     search_fields = _coerce(current_search_fields) or []
     if isinstance(search_fields, str):
         search_fields = [search_fields]
-    return _build_where(filters, search_term, search_fields)
+    return _build_where(_filter_list(filters), search_term, search_fields)
+
+
+def _asked_records(filters) -> set | None:
+    """The PO/WOs a `record_name` filter asks for, or None when no filter names one. The PO page's card asks
+    for its own PO (#1521)."""
+    asked = None
+    for f in _filter_list(filters):
+        if isinstance(f, (list, tuple)) and len(f) >= 3 and f[0] == "record_name":
+            value = f[2]
+            asked = (asked or set()) | {v for v in (value if isinstance(value, (list, tuple)) else [value]) if v}
+    return asked
 
 
 def _summary(where, params) -> dict:
@@ -251,6 +268,9 @@ def get_cheques(
     `doctype`, `fields` and the hook's other arguments are accepted and ignored: the row shape is
     fixed here. `aggregates` is the summary strip over the whole filtered set: `count`,
     `total_amount`, and `<pending|issued|cleared|cancelled|stale>_count` / `_amount`.
+
+    When `filters` name PO/WOs (`record_name`), each row's `record_amount` is what its lines put on them: a
+    multi-PO Payment cheque's share of one PO, 0 for a deposit (its lines carry no amount). Otherwise it is None.
     """
     assert_cheque_access(frappe.session.user)
 
@@ -269,9 +289,14 @@ def get_cheques(
         tuple(params) + (page_length, max(cint(limit_start), 0)),
         as_dict=True,
     )
+    asked = _asked_records(filters)
     for row in rows:
         row["amount"] = flt(row.get("amount"))
         row["lines"] = [{**line, "amount": flt(line.get("amount"))} for line in (row.get("lines") or [])]
+        row["record_amount"] = (
+            None if asked is None
+            else flt(sum(line["amount"] for line in row["lines"] if line.get("record_name") in asked))
+        )
 
     return {
         "data": rows,

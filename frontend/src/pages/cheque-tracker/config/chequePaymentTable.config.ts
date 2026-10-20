@@ -69,6 +69,8 @@ export interface ChequeRow {
     status_changed_at?: string | null;
     /** Empty for an Ad-hoc cheque. */
     lines: ChequeRowLine[];
+    /** With a `record_name` filter: what the lines put on the PO/WOs asked for (#1521); else null. */
+    record_amount?: number | null;
 }
 
 /** Nominal: the endpoint fixes the row shape. */
