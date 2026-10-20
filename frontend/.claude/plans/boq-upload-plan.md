@@ -48358,3 +48358,46 @@ Start tip `113a32949` (= origin). Live on dev: HVAC v47 (items `793a2b39344242ad
 2. **The calculator's Slots dropdown offers only stocked counts (2, 3)**, so a 4-slot refusal is shown on stored rows only (BOQ-26-00341 / 87).
 3. **A scoped Suggest run needs a completed run to carry from**, so a sheet with no runs (BOQ-26-00087) can be suggested only whole.
 4. **`scripts/residence_check.py` already fails at START** (F5 120 vs 117, F2 221 vs 217); ADP-1 adds 0 to either.
+
+## Slice ADP-2 - ADP retrofit, pricing rules part 2: damper by air stream (H5), plenum fields and three-way rule (H7), neck "Other..." (B3), and HVAC v48 - as built 2026-10-20
+
+**Commits (unpushed at the time of writing):**
+- `aa92dfee9` feat(rate-helper): code + tests (H5 fix (a) folded in by fixup + autosquash; was `7d41750ab`).
+  - `itemListPricing.ts`: the reader key `box_side` and `readBoxSides` (L x W x H, height last, a label winning); a typed-only number filled from the model's reading (a box side, or a non-metre number such as the area band at its largest), shown with its line (`filledReads`); several `name_missing` conversions refuse together ("... needs an area, or length + width + height - ... not stated"); their fields carry one either-or `group` label; a `derive_when_none` default carries the fact that decided it (`DefaultedAttr.when`) and its line names it; H5 fix (a): `airStreamsNamed` and the derive-step guard (a row naming supply and return air leaves the damper as read).
+  - `pricingSheetHelper.ts` (the filled value on its field), `RateHelperPanel.tsx` (the group label, once), `itemListRuleOrder.ts` (the H5, plenum either-or / area, box sides, area fill and B3 lines, fix (a)'s both-streams line; ADP-1's plenum refusal line replaced), `config_validation.py` (`box_side`, approved Q2).
+  - Tests: `adp2.harness.ts` + `adp2.test.ts` (37, then 39 with the v48 pin); `ruleReachability` (+21 cases, the ADP-2 guard); `calculatorPanelParity` P1-P7, P7x, A18 (v33); `test_config_validation_adp2.py` (10); pins inverted by mechanical authority, BEFORE kept: itemListPricing.test (R13's record carries `when`) and the ADP Derivation count 18 -> 19 in ruleReachability, slice12d8 (x2), 12e2, 12e2b, 12e3b, 12e3c, 12e4b (fix (a)'s line generates wherever R13 reads the air stream).
+- `e42189318` feat(rate-master) (was `3f01b6bbe`, then `7858b3359` with the test_extraction_coercion v48 pin by owner go; re-parented by the fix (a) autosquash, patch unchanged): HVAC v48 = v47 + the ADP-2 config on hvac_adp, no item change; `mint_hvac_v48_adp2.py` (export / build / load / verify) + README row; pins by mechanical authority (test_piping_v34 newest-asset x12 + test_47, test_rate_master CURRENT_HVAC_ASSET and ten more via `_without_adp2_adp`), `TestAdp2AssetV48` test_51-53, adp2.test AC8.
+- The docs commit that carries this entry.
+
+Start tip `82b11f9ce` (= origin). Live on dev: HVAC v48 (items `793a2b39344242ad` unchanged, configs `534fe6a2358839e2`; batch `rmbulk-85520d6c104d`, snapshot BRMS-26-01623), Electrical v66 unchanged. Report on the Desktop: `2026-10-20_ADP-2_Report.md` (ledger first), `_Premises.md`, `_Ledger.md`, `_Moved_Rows.xlsx`, `_Field_Table.xlsx`.
+
+### 1. The rulings and how they were built
+
+- **A2 stop (owner 00:11), answered 00:24.** Premises: every stored damper-choice item carries the model's `air` (615 / 615); the question asks only an area BAND; ADP-R0's 86 spigots were "any damper in any ancestor" (9 by the ruling's words); stored necks already ladder; the Derivation tab has no unit. Rulings: F-ADP1 -> ADP-5 (needs the model's judgment), A6 -> ADP-4 (needs a unit selector), H7 fill L x W x H with a new key (approved), Area from the band at its largest.
+- **H5.** Config only: four `derive_when_none` rules on the six damper families (supply -> with; return / exhaust / fresh -> without), replacing R13. Explicit damper wins; no air stated keeps R1. The Air stream field now shows on all six families (it decides the damper).
+- **H7.** Four typed boxes, filled from the model's existing size and area-band answers (the stub proof: the model's question is unchanged); area first (no adder), else ADP-1's formula, else the either-or refusal. Display only: 0 figures moved.
+- **H5 payload audit -> fix (a) (owner 2026-10-20).** 00247 r80 ("Supply / Return air diffuser") and 00103 r41 (heading "Supply & return air diffusers") were answered supply without support in the payload. Ruling: the row's own text naming one stream decides; naming both, or none under a heading naming both, leaves the damper as read (not mentioned -> without), with a line; only words used for the air count. Code only. It reaches R13 too: two R13 linear grilles "for supply & return air" (00234 / 00273 "(CHW BOQ) AHU & Low Side" r571) moved 9,628 / 2,800 -> 4,829 / 880 -- STOP, owner "(i) ACCEPT".
+- **B3.** `neck_mm` -> `dropdown_or_other`; a stored unstocked neck now opens in "Other..." with the BoQ's words (30 rows, wording only).
+
+### 2. The replay and v48
+
+- START: 17,914 rows, `0afdc501...` / `09d2bc0a...` (= ADP-1's post-run). Ladder on scratch copies: code only 0 figures (7 wording, the R13 line); H5 alone 51 figure rows; H7 alone 0; B3 alone 0; all 51.
+- Live v48 replay = the scratch "all" byte for byte (`3a285993...` / `41daf510...`) before fix (a). With fix (a) (scratch `75823633...` / `e21be24e...`): 51 figure rows = 49 H5 (square diffuser 32, slot 12, curved grille 5; e.g. 00087 r54 2,187 -> 2,866) + 2 "H5 both streams" (the R13 linear grilles above); 00247 r80 1,813 / 400 and 00103 r41 1,668 / 400 back at START; 637 wording; 0 unexplained; unchanged-set sha equal; Electrical 0, Piping 0, Insulation 0. Code only on v47: exactly the 2 linear grilles. 4 stored rows carry the both-streams line.
+- v48: export = v47 by content; only hvac_adp changes; stub proof identical; mint gate PASS; live == file 0 / 0.
+- Vacuity: 13 frontend breaks + 1 Python, then 5 for fix (a) (the guard, the row winning, the heading, words-for-the-air, the Derivation line), each red on its own tests, each restored sha-exact.
+
+### 3. Suites, cert
+
+- **Targeted** (after fix (a)): vitest 43 files / 3,237 OK (including every test that reads the latest asset); Python 10 modules 1,158 OK (fix (a) is TS only).
+- **Full, at `e42189318`:** Python `--app nirmaan_stack` Ran 8,560 -- failures 6 / errors 2 = the 8 known (expense requests x5, CEO hold dedup, outflow CREDIT settlement, bulk TDS); the first full run (8,557) had stopped on the test_extraction_coercion v47 pin (inverted by owner go) and the daily-window test (accepted as pre-existing). vitest 189 files / 7,175 -- 1 failure, `writeOffControl` "mirrors the sibling admin predicates" timing out at 5 s on its cold import of `SheetPricingPage` (also failing alone; ADP-1 recorded the same). tsc (`NODE_OPTIONS=--max-old-space-size=5120`) 3,170 errors, line for line identical to ADP-1. Capture log 465 lines, all 6 generations sha-equal to the slice's first backup.
+- `scripts/residence_check.py`: F5 120 / F2 221, = START (pre-existing; ADP-2 adds 0).
+
+- **Cert at :8080** after the full de-stale (ping after 261 s; PROOF 1 code strings; PROOF 2 runtime import of `readBoxSides` / `BOX_SIDE_ORDER`): C1 00087 r54 2,866 / 458 with the supply-air line, r60 2,187 / 458 with the return-air line; C2 00231 r238 stays without, 1,044 / 400; C3 calculator slot per sq.m supply -> 12,992 / 2,864, return -> the without refusal; C4 calculator plenum four fields, area 2.5 -> 4,459 (no adder), 450 / 450 / 350 -> 2,065, length only -> the either-or refusal; C5 00087 r71 four fields, Length 3000, the refusal; C6 00186 r58 2,233 with 900 / 200 / 350; C7 neck "Other..." 225 -> 1,532 / 400 (priced as 300), 600 refuses; C9 the six Derivation lines; C10 Electrical 120 / 24, Piping 836, Insulation 594 unchanged; C11 v48 / v66 by content, capture byte-equal (no model call). Fix (a) re-cert after a second full de-stale (served code carries `airStreamsNamed`, runtime import read it): 00247 r80 1,813 / 400 Damper without, Air stream supply, the both-streams line; 00103 r41 1,668 / 400 the same; 00234 r571 linear grille per sq.m 4,829 / 880 (combined 5,709) the same; C1 r54 2,866 / 458 with, r60 2,187 without, neither with the line. No write in the cert.
+
+### 4. Findings for the next slice
+
+1. **F-ADP1 (ADP-5).** 9 stored spigot items sit under a heading naming a butterfly damper with no damper item on the row (00231 r257-259, 00243 r257-259, 00144 r227-229); a further 57 headings name another damper. The owner wants the warning only where the model judges the damper priced in the spigot row.
+2. **A6 (ADP-4).** The Derivation tab prices a SKU, not a row (VCD 550X300: 7,830 / 1,920 on the tab, 1,292 / 317 on the panel); it needs a row-unit selector.
+3. **The model leaves allow_none attributes out** (ADP-1 audit: `insulated` x20, `variant` x11 on BRSR-26-01103) where the spec says to answer "None"; harmless under F-1, a prompt point for ADP-5.
+4. **`scripts/residence_check.py` still fails at START** (F5 120 vs 117, F2 221 vs 217); ADP-2 adds 0.
+5. **`writeOffControl.test.ts` times out at 5 s** on its dynamic import of `SheetPricingPage` (the pricing module graph); a per-test timeout or a lighter import would end the standing one-failure vitest run.

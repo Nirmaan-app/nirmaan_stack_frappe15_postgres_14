@@ -832,7 +832,9 @@ two-valued attributes are static config lists and were always shown in full. **E
 (torque still narrows under UL). ⚠️ **"UL WINS" ON BOTH PATHS (D2):** a hand-picked UL "yes" beside any variant
 prices the UL 555 SKU through the SAME `override_when` the model path uses (slice 8 M-b) -- it is NOT a refusal; the
 variant field then shows what priced ("UL 555", with the rule) whenever its own list can no longer show the pick.
-⚠️ **D4 (a):** a slot diffuser per sq.m / per number keeps the ruled default "damper not mentioned -> without" and
+⚠️ **D4 (a)** (⚠️ ADP-2 H5, below: where the AIR STREAM is stated, it decides a damper not mentioned -- supply -> with, so a
+per-sq.m slot diffuser on supply air now prices; the default below holds only where no air stream is stated):
+a slot diffuser per sq.m / per number keeps the ruled default "damper not mentioned -> without" and
 REFUSES by name (only "with" is stocked at those units); the calculator and the panel now say the same sentence, so
 the one sweep divergence that was awaiting a ruling is gone. The model's instructions are untouched: the choice lists
 sent to the model are built in Python from the definitions and always carried both values.
@@ -1298,6 +1300,8 @@ rows (Nos / each / no-unit priced per number) convert the per-sq.m SKU by the su
 adder is added to SUPPLY only, before the round-up and the supply markup, exactly where S7 put it (never to install). A missing
 dimension REFUSES naming each one ("per-number row: no width and height stated to convert the per-sq.m rate") -- including a
 slot-diffuser plenum that gives only a length (BOQ-26-00087 rows 72-74). Per-sq.m plenum rows keep per-sq.m pricing.
+⚠️ **The refusal sentence and the W x H x D reading are SUPERSEDED by ADP-2 H7 (below): an area is a second way to price, the
+sides are read L x W x H as their own fields, and the refusal offers both ways. The formula, its + 150 and its position stand.**
 ⚠️ **THE TWO PER-NUMBER PLENUM SKUs ARE RETIRED, NOT DELETED (owner Q1, 2026-10-19 15:50).** rmi-4184735331c3 and
 rmi-a23b43d34447 were deactivated through the product's per-SKU path (`deactivate_rate_master_item`: active = 0, every row and
 its history kept), v47 was exported from the database after that and proved equal to it by content. Reason, as recorded: H4 --
@@ -1313,6 +1317,65 @@ A4-alone replay: 139 ADP rows changed working lines only). The 150 stays BEFORE 
 panel shows 0 SKUs for the 150 and the 2.5 m (they act only when a per-number row converts) and the 6 cross-talk Nos SKUs for
 the 300. A per-number row's supply moves by exactly the edit x (1 + markup) (AC0 (d): 150 -> 200 moved 00186 / 58 2,233 ->
 2,306).
+
+**ADP-2 H5: THE AIR STREAM DECIDES A DAMPER NOT MENTIONED, ON EVERY GRILLE AND DIFFUSER WITH A DAMPER CHOICE (owner 2026-10-19
+14:34 / 14:41; HVAC v48).** Four `derive_when_none` rules on the six families whose SKUs carry a with / without damper (curved,
+floor, linear grille; round, slot, square diffuser): supply air -> with; return, exhaust, fresh air -> without. They fire ONLY
+over a damper "None" or not answered, so a damper the row states (with or without) always wins; no air stream stated keeps R1's
+"without". "Supply and return both" cannot be answered (`air` is one value); where the model answers one stream anyway, fix (a)
+below decides. They
+REPLACE R13 (linear grille, supply -> with), whose effect they include. A default a stated fact decided carries that fact
+(`DefaultedAttr.when`) and its line names it: "supply air, damper not mentioned -> with damper" (U3); the Air stream field now
+shows on all six families because it decides the damper (v47: the linear grille only). Measured on the 17,914 stored rows: 51
+rows change figures -- 49 from H5 (square diffuser 32, slot 12, curved grille 5 -- every one supply air, damper not mentioned),
+e.g. BOQ-26-00087 r54 2,187 -> 2,866, and 2 from fix (a) (below); an explicit "without" under supply air stays (BOQ-26-00231
+r238, 1,044 / 400).
+
+**ADP-2 H5 FIX (a): A ROW NAMING SUPPLY AND RETURN AIR LEAVES THE DAMPER AS READ (owner 2026-10-20, after the H5 payload audit;
+code only, every config).** The model sometimes answers one stream for a row that names both (BOQ-26-00247 r80 "Supply / Return
+air diffuser", answered supply at 0.7). Where a `derive_when_none` rule's fact is an AIR STREAM (its values hold supply and
+return): (1) the row's OWN text (description + own notes) naming exactly one stream -> that stream decides, as built (a row
+saying "supply air diffuser" under a heading naming both stays "with"); (2) else, the own text naming both, or naming none under
+a heading (any ancestor description) naming both -> the stream does NOT decide: the damper is the model's own value, not
+mentioned -> the ruled default "without", with the line "BoQ names supply and return air -> damper as read (not mentioned ->
+without)"; (3) else as built. ⚠️ **Only words used FOR the air count** (`airStreamsNamed`: "supply air", "Supply / Return air",
+"supply & return air"): the BoQ's everyday "Supply and installation of ..." names no stream, nor does "SUPPLY LINEAR SLOT
+DIFFUSER MAKE: AIR MASTER". ⚠️ **It reaches every damper rule reading the air stream, R13 included** (owner "(i) ACCEPT":
+H5 replaces R13), so the Derivation line "A row naming supply and return air leaves the damper as read" generates on v33 / v38
+/ v47 too, and the two R13 linear grilles "for supply & return air" (BOQ-26-00234 and BOQ-26-00273 "(CHW BOQ) AHU & Low Side"
+r571) moved 9,628 / 2,800 -> 4,829 / 880. 00247 r80 (1,813 / 400) and 00103 r41 (1,668 / 400, heading "Supply & return air
+diffusers") stay at their pre-ADP-2 figures. The calculator has no row text; fed the panel's damper it agrees.
+
+**ADP-2 H7: A PER-NUMBER PLENUM / MIXING BOX HAS FOUR FIELDS -- AREA, LENGTH, WIDTH, HEIGHT -- AND PRICES BY AREA, ELSE BY ITS
+THREE SIDES, ELSE REFUSES (owner 23:13 / 23:18 / 23:19, Q2 / Q3 2026-10-20; HVAC v48).** The four are typed-only boxes
+(`numbers.plenum_area_sqm`, `plenum_length_mm`, `plenum_width_mm`, `plenum_height_mm`), shown in the panel and the calculator
+under one plain group label, "Area, or all three of Length, Width, Height" (generated from their labels; ADP-3's marker replaces
+it); there is no combined "Size (as written)" box on a per-number plenum. With nothing typed they are FILLED from the model's
+existing answers -- the model's question is unchanged (stub proof: identical): the sides from the size as written by
+`readBoxSides` (the reader key `box_side`), in the order LENGTH x WIDTH x HEIGHT, height last as the stored BoQs write it ("550
+x 550 x 400 mm Ht"), a written label winning (L / long / length -> length; W / B / width -> width; H / Ht / high / depth ->
+height; "3000 mm Length" -> length 3000); the area from "Area band (as written)" at its LARGEST value ("up to 0.5 sqm -> priced at
+0.5 sq.m (the largest value)"). Each field shows the value used with that line. ⚠️ **This is NOT `splitSizePhrase`**, whose axes
+are a face's (width, height, depth, "Length" -> depth); `box_side` exists because no older key can say "this side of a box".
+(a) An area -> area x the per-sq.m rate, supply and install, NO adder (23:18: "we just use the rate from it"); it wins when the
+sides are stated too. (b) Else length + width + height -> ADP-1's formula, + the adder on supply, unchanged. (c) Else refuse,
+offering both ways and naming what the nearest one lacks: "mixing box / LP plenum needs an area, or length + width + height -
+width and height not stated - price this row by hand" (several conversions that EACH declare `name_missing` refuse together;
+a family with one keeps ADP-1's sentence). DISPLAY ONLY for stored rows: the formula is symmetric, so the fill order moves no
+figure -- 0 of the 17,914 rows changed figures from H7 (185 wording). No stored plenum carries an area band (0 of 204 stored plenum items).
+
+**ADP-2 B3: THE NECK DROPDOWN OFFERS "OTHER..." (owner 2026-10-19 14:24 "ok"; HVAC v48).** ADP's `panel_controls.neck_mm` is
+`dropdown_or_other` (owner FA8's control, already Insulation's and Piping's): the stocked necks (300 / 375 / 450, the square
+diffuser only) plus a typed box; a typed unstocked neck takes the next stocked size up with its line ("225 mm -> priced as 300
+mm"), above the largest (450) it refuses. A stored neck the catalogue does not stock now opens the field in "Other..." showing the
+BoQ's words, at the same laddered price (30 rows, wording only); no figure moved -- the ladder already applied to the model's
+value. The Derivation line is keyed to a `square` size reader, so Insulation's and Piping's tabs are unchanged.
+
+**ADP-2 MOVED OUT (owner 2026-10-20 00:24): F-ADP1 (the butterfly-damper warning on spigots) -> ADP-5**, because only the model
+can tell whether the heading's damper is priced in the spigot row or separately ("if it is seprate then no warning hsould be
+there"); measured: 9 stored spigot items whose heading names a butterfly damper and whose row carries no damper item.
+**A6 (the Derivation tab priced through the panel's entry point) -> ADP-4**: the tab has no row unit, so it cannot price a
+converted row (VCD 550X300: 7,830 / 1,920 per sq.m on the tab vs 1,292 / 317 per number on the panel).
 
 **A DEFAULT IS NAMED AS THE DEFAULT, SAID ONCE, BY ITS FIELD'S LABEL (owner G1 / G2 / G3, 2026-10-12 "yes"; slice
 12e-4b).** G1: a number nobody stated (the ruled default) heads its field note "Default 9 mm -> priced as 13 mm
