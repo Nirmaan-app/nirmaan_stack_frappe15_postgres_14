@@ -587,9 +587,10 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   list is NOT a fixture (Admin edits survive migrate); `Expense Settings.validate` refuses the
   Admin profile and any profile that can raise no type (`access.profile_can_raise`). A listed
   profile that has since lost all its types is off the list (story 28): `records_without_review`
-  and the Expense Packages read ignore it, and a type's roles changed through
-  `masters.update_expense_type` prune it from the stored list
-  (`access.prune_records_without_review`), so giving it a type again does not tick it. Seeded once
+  and the Expense Packages read ignore it, and a type's roles changed by any path (Expense Packages,
+  Desk, REST, a fixture sync; or a type deleted) prune it from the stored list (`Expense Type`
+  `on_update` / `after_delete` -> `access.prune_records_without_review`), so giving it a type again
+  does not tick it. Seeded once
   by `v3_0.seed_records_without_review` (Accountant, Accountant Lead, HR Executive, HR Lead).
   Edited only through the admin-gated `api/expense_requests/expense_settings`.
 - **⚠️ `Expense Type` IS A FIXTURE, so `fixtures/expense_type.json` is AUTHORITATIVE.** Every

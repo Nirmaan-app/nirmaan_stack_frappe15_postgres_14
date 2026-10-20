@@ -158,7 +158,9 @@ def records_without_review(user: str | None = None) -> bool:
 
 def prune_records_without_review() -> None:
 	"""Take off the list every profile that can no longer raise a type (story 28), so one given a
-	type again later does not come back ticked. Called after a type's `allowed_roles` change."""
+	type again later does not come back ticked. Called by the Expense Type controller when a save
+	changes its `allowed_roles` (any path: Expense Packages, Desk, REST, a fixture sync) and when a
+	type is deleted."""
 	listed = listed_records_without_review()
 	keep = [p for p in listed if profile_can_raise(p)]
 	if keep == listed:

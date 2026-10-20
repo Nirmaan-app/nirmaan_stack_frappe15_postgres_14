@@ -18,12 +18,7 @@ import json
 
 import frappe
 
-from nirmaan_stack.api.expense_requests.access import (
-	ADMIN_PROFILE,
-	is_admin,
-	prune_records_without_review,
-)
-from nirmaan_stack.services import expense_request_routing
+from nirmaan_stack.api.expense_requests.access import ADMIN_PROFILE, is_admin
 from nirmaan_stack.services.payees.expense_rules import PAYEE_RULES
 
 
@@ -213,11 +208,9 @@ def update_expense_type(name: str, project=0, non_project=0, expense_category=No
 	if confirmed_as_request is not None:
 		doc.confirmed_as_request = 1 if frappe.utils.cint(confirmed_as_request) else 0
 	_set_roles(doc, profiles)
+	# A profile this takes off its last type leaves Records without review (story 28): the
+	# Expense Type's `on_update` prunes the list.
 	doc.save(ignore_permissions=True)
-	if profiles is not None:
-		# A profile this took off its last type leaves Records without review (story 28).
-		expense_request_routing.clear_cache()
-		prune_records_without_review()
 	frappe.db.commit()
 	return {"name": name, "project": project, "non_project": non_project,
 	        "expense_category": category,

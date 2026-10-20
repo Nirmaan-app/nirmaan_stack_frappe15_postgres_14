@@ -265,6 +265,22 @@ class TestRecordsWithoutReview(FrappeTestCase):
 		self.assertEqual(res["status"], "Pending Approval")
 		self.assertIsNone(res["created_expense"])
 
+	def test_a_desk_save_that_takes_a_profile_off_its_last_type_drops_it_from_the_list(self):
+		"""Story 28 by any path: an Expense Type saved through Desk, REST or a fixture sync prunes
+		the list as Expense Packages does."""
+		original = frappe.get_all("Expense Type Role", pluck="role_profile", order_by="idx asc",
+		                          filters={"parent": SPARE_TYPE, "parenttype": "Expense Type"})
+		self.addCleanup(self._set_type_roles, SPARE_TYPE, original)
+		self._set_type_roles(SPARE_TYPE, original + [IDLE_PROFILE])
+		set_records_without_review(list(SEEDED) + [IDLE_PROFILE])
+
+		doc = frappe.get_doc("Expense Type", SPARE_TYPE)
+		doc.set("allowed_roles", [{"role_profile": r.role_profile} for r in doc.allowed_roles
+		                          if r.role_profile != IDLE_PROFILE])
+		doc.save()
+
+		self.assertEqual(sorted(_listed()), sorted(SEEDED))
+
 	def _set_type_roles(self, expense_type, profiles):
 		"""Change who may raise `expense_type` the way Expense Packages does, keeping its flags."""
 		t = frappe.db.get_value("Expense Type", expense_type,

@@ -4,7 +4,13 @@
 import frappe
 from frappe.model.document import Document
 
-from nirmaan_stack.api.expense_requests.access import is_admin
+from nirmaan_stack.api.expense_requests.access import prune_records_without_review
+from nirmaan_stack.services import expense_request_routing
+from nirmaan_stack.services.expense_decision import is_l1
+
+
+def _role_profiles(doc) -> list[str]:
+	return sorted(row.role_profile for row in doc.get("allowed_roles") or [])
 
 
 class ExpenseType(Document):
@@ -12,6 +18,20 @@ class ExpenseType(Document):
 		self._validate_form_switch()
 		self._validate_allowed_roles()
 		self._validate_confirmed_marker()
+
+	def on_update(self):
+		"""A profile a save takes off its last type leaves Records without review (story 28), by
+		every path: Expense Packages (`masters.update_expense_type`), Desk, REST, a fixture sync."""
+		before = self.get_doc_before_save()
+		if before is not None and _role_profiles(before) != _role_profiles(self):
+			self._prune_records_without_review()
+
+	def after_delete(self):
+		self._prune_records_without_review()
+
+	def _prune_records_without_review(self):
+		expense_request_routing.clear_cache()
+		prune_records_without_review()
 
 	def _validate_form_switch(self):
 		"""`source_format_enabled` needs a format to switch ON -- otherwise the dialog would
@@ -41,7 +61,7 @@ class ExpenseType(Document):
 		save an Expense Type through Desk or REST. A migrate re-imports the fixture as Administrator."""
 		changed = self.confirmed_as_request if self.is_new() else self.has_value_changed(
 			"confirmed_as_request")
-		if changed and not is_admin():
+		if changed and not is_l1(frappe.session.user):
 			frappe.throw(
 				"Only an admin may change \"Confirmed as Expense Request\".",
 				frappe.PermissionError,
