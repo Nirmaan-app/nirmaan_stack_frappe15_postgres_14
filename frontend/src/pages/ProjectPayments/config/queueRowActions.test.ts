@@ -144,7 +144,7 @@ describe("canHoldQueueRow — an Approved PO / WO payment, for the three settle 
 });
 
 describe("canUploadInvoiceRow — a Paid expense, only where the server lets the viewer edit Paid", () => {
-  it("never today: story 50 keeps a Paid expense closed to every edit", () => {
+  it("never where the server withholds Paid (an Accountant's answer)", () => {
     for (const role of [...QUEUE_EDIT_PROFILES, ...OTHER_ROLES]) {
       for (const ledger of LEDGERS) {
         for (const status of STATUSES) expect(canUploadInvoiceRow(row(ledger, status), role, ACCOUNTS_EDITS)).toBe(false);
@@ -152,7 +152,7 @@ describe("canUploadInvoiceRow — a Paid expense, only where the server lets the
     }
   });
 
-  it("follows the server if it ever lets Paid be edited, for the three queue roles and expenses only", () => {
+  it("shows where the server lets the viewer edit Paid (Admin, Accountant Lead), on expenses only", () => {
     const withPaid = [...ACCOUNTS_EDITS, "Paid"];
     for (const role of QUEUE_EDIT_PROFILES) {
       expect(canUploadInvoiceRow(row("Non Project Expenses", " Paid "), role, withPaid)).toBe(true);

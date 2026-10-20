@@ -8,8 +8,10 @@
  *
  *   PO / WO payment        no edit in any status; Reconciliation Pending → "Revert to Approved"
  *   Project / Non-Project  edit where the SERVER says the viewer may (`editableStatuses`, from
- *   expense                `useExpenseEditAccess`): Accounts only, never once Paid or Rejected
- *                          (story 50, owner 2026-10-20; both ledgers' `validate` refuse the rest)
+ *   expense                `useExpenseEditAccess`): Accounts until paid; a Paid one's details for
+ *                          Admin and the Accountant Lead; never Rejected (story 50, owner
+ *                          2026-10-20; both ledgers' `validate` refuse the rest). Which fields the
+ *                          dialog lets them change is the same answer (`mayEditExpenseField`).
  *
  * A PO / WO payment gets no pencil at all, so it cannot be edited from the app in any status.
  */
@@ -25,9 +27,6 @@ export const QUEUE_EDIT_PROFILES: readonly string[] = [
 ];
 
 const EXPENSE_DOCTYPES: readonly string[] = ["Project Expenses", "Non Project Expenses"];
-
-/** Read-only in the expense edit dialogs once the expense is Paid. */
-export const EXPENSE_FIELDS_LOCKED_WHEN_PAID = ["amount", "payment_date", "payment_ref"] as const;
 
 type QueueRowLike = Pick<ApprovalQueueRow, "doctype" | "status">;
 
@@ -77,8 +76,8 @@ export const canHoldQueueRow = (row: QueueRowLike, role?: string | null): boolea
  * Upload / replace the invoice on a Paid expense (either ledger), from "Payment Done / Reconciliation
  * Done" — the same three roles that work the queue. Project Expenses were added 2026-10-07 (owner);
  * a PO / WO payment never: its invoices are Vendor Invoices. The upload saves the expense, so it also
- * needs the server's leave to edit a Paid row (`editableStatuses`), which story 50 (owner 2026-10-20)
- * withholds: "never once Paid". The button stays wired to that answer.
+ * needs the server's leave to edit a Paid row (`editableStatuses`): Admin and the Accountant Lead
+ * have it (story 50, owner 2026-10-20), an Accountant does not.
  */
 export const canUploadInvoiceRow = (
   row: QueueRowLike, role: string | null | undefined, editableStatuses: readonly string[],

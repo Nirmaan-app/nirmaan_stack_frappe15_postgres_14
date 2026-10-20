@@ -205,12 +205,13 @@ class TestExpenseDecisions(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value(PE, name, ["status", "invoice_ref"]), ("Approved", "OLD-1"))
 
 	# -- nobody sets a status by hand (story 42) ------------------------------------------------
-	def _save_as(self, user, doctype, name, **changes):
+	def _save_as(self, user, doctype, name, ignore_links=False, **changes):
 		"""Save the Expense the way Desk, REST and `frappe.client` do: a plain `doc.save()`."""
 		frappe.set_user(user)
 		try:
 			doc = frappe.get_doc(doctype, name)
 			doc.update(changes)
+			doc.flags.ignore_links = ignore_links
 			doc.save()
 		finally:
 			frappe.set_user("Administrator")
@@ -245,29 +246,125 @@ class TestExpenseDecisions(FrappeTestCase):
 						self._save_as(user, doctype, name, description=f"xdec by {user}")
 						self.assertEqual(frappe.db.get_value(doctype, name, "description"), f"xdec by {user}")
 
-	def test_a_paid_expense_is_edited_by_nobody(self):
+	# -- a Paid expense: Admin and Accountant Lead correct its details, never its payment ---------
+	def _raw(self, doctype, **values) -> str:
+		"""A bare row with no hooks, for a Link a Paid expense is moved to."""
+		doc = frappe.new_doc(doctype)
+		doc.update(values)
+		doc.name = f"XDEC-{frappe.generate_hash(length=10)}"
+		doc.db_insert()
+		return doc.name
+
+	def _paid_details(self, doctype) -> dict:
+		"""A new value for every field a Paid expense may still change (owner, 2026-10-20)."""
+		expense_type = frappe.new_doc("Expense Type")
+		expense_type.update({"expense_name": f"xdec type {frappe.generate_hash(length=6)}",
+		                     "project": int(doctype == PE), "non_project": int(doctype == NPE),
+		                     "expense_category": "Uncategorized"})
+		expense_type.insert(ignore_permissions=True)
+		details = {
+			"description": "xdec corrected after paid",
+			"comment": "xdec note",
+			"invoice_attachment": "/private/files/xdec-invoice.pdf",
+			"invoice_ref": "INV-XDEC-1",
+			"invoice_date": "2026-10-01",
+			"type": expense_type.name,
+		}
+		if doctype == PE:
+			details["projects"] = self._raw("Projects", project_name="xdec project")
+			details["vendor"] = self._raw("Vendors", vendor_name="xdec vendor")
+		return details
+
+	def test_admin_and_accountant_lead_correct_each_detail_of_a_paid_expense(self):
+		for doctype in (PE, NPE):
+			details = self._paid_details(doctype)
+			for user in (ADMIN, ACCOUNTANT_LEAD, "Administrator"):
+				name = self._expense(30000, status="Paid", doctype=doctype)
+				for field, value in details.items():
+					with self.subTest(doctype=doctype, user=user, field=field):
+						self._save_as(user, doctype, name, **{field: value})
+						self.assertEqual(str(frappe.db.get_value(doctype, name, field)), value)
+				self.assertEqual(self._status(name, doctype), "Paid")
+
+	def test_nobody_changes_the_payment_of_a_paid_expense(self):
+		payment = {
+			"amount": 31000, "payment_date": "2026-09-01", "payment_ref": "UTR-XDEC-HAND",
+			"payment_attachment": "/private/files/xdec-receipt.pdf",
+			"approval_date": "2026-09-02", "ceo_approval_date": "2026-09-03", "auto_approved": 1,
+			"request_id": "EXR-XDEC-0001", "porter_order": "XDEC-PORTER-1",
+			"pay_to_account_name": "Someone Else", "pay_to_account_number": "000111222333",
+			"pay_to_ifsc": "XDEC0000001", "pay_to_bank_name": "Other Bank", "pay_to_bank_branch": "Elsewhere",
+		}
+		for doctype in (PE, NPE):
+			fields = dict(payment, **({"payment_by": ACCOUNTANT} if doctype == PE else {}))
+			name = self._expense(30000, status="Paid", doctype=doctype)
+			before = frappe.db.get_value(doctype, name, list(fields), as_dict=True)
+			for user in (ADMIN, ACCOUNTANT_LEAD, "Administrator"):
+				for field, value in fields.items():
+					with self.subTest(doctype=doctype, user=user, field=field):
+						with self.assertRaises(frappe.ValidationError) as refused:
+							# Past the Link check, so the refusal is the paid lock's own.
+							self._save_as(user, doctype, name, ignore_links=True, **{field: value})
+						self.assertIn("can no longer be changed", str(refused.exception))
+			self.assertEqual(frappe.db.get_value(doctype, name, list(fields), as_dict=True), before)
+
+	def test_a_paid_expense_changing_its_details_and_its_payment_together_saves_neither(self):
+		name = self._expense(30000, status="Paid", doctype=PE)
+		with self.assertRaises(frappe.ValidationError):
+			self._save_as(ADMIN, PE, name, description="xdec sneaked", amount=1)
+		self.assertEqual(frappe.db.get_value(PE, name, ["description", "amount"]), ("xdec test", 30000))
+
+	def test_an_accountant_and_every_other_role_are_refused_a_paid_expense(self):
 		for doctype in (PE, NPE):
 			name = self._expense(30000, status="Paid", doctype=doctype)
+			for user in (ACCOUNTANT, PM, PMO, HR):
+				with self.subTest(doctype=doctype, user=user):
+					with self.assertRaises(frappe.PermissionError):
+						self._save_as(user, doctype, name, description="xdec after paid")
+			self.assertEqual(frappe.db.get_value(doctype, name, "description"), "xdec test")
+
+	def test_a_rejected_expense_is_edited_by_nobody(self):
+		for doctype in (PE, NPE):
+			name = self._expense(30000, status="Rejected", doctype=doctype)
 			for user in (ACCOUNTANT, ACCOUNTANT_LEAD, ADMIN, "Administrator"):
 				with self.subTest(doctype=doctype, user=user):
 					with self.assertRaises(frappe.ValidationError) as refused:
-						self._save_as(user, doctype, name, description="xdec after paid")
-					self.assertIn("paid", str(refused.exception).lower())
+						self._save_as(user, doctype, name, description="xdec after reject")
+					self.assertIn("rejected", str(refused.exception).lower())
 			self.assertEqual(frappe.db.get_value(doctype, name, "description"), "xdec test")
 
-	def test_the_ledger_pages_are_told_which_statuses_the_caller_may_edit(self):
-		frappe.set_user(ACCOUNTANT)
+	def test_a_system_save_still_changes_a_paid_expenses_payment(self):
+		name = self._expense(30000, status="Paid", doctype=NPE)
+		doc = frappe.get_doc(NPE, name)
+		doc.update({"amount": 29000, "payment_ref": "UTR-XDEC-SETTLE"})
+		doc.flags.ignore_permissions = True
+		doc.save()
+		self.assertEqual(frappe.db.get_value(NPE, name, ["amount", "payment_ref"]), (29000, "UTR-XDEC-SETTLE"))
+
+	def _edit_access_as(self, user) -> dict:
+		frappe.set_user(user)
 		try:
-			self.assertEqual(sorted(get_expense_edit_access()["editable_statuses"]),
-			                 sorted(["Requested", "CEO Pending", "Approved", "Reconciliation Pending"]))
+			return get_expense_edit_access()
 		finally:
 			frappe.set_user("Administrator")
-		for user in (PM, ADMIN):
-			frappe.set_user(user)
-			try:
-				self.assertEqual(get_expense_edit_access()["editable_statuses"], [])
-			finally:
-				frappe.set_user("Administrator")
+
+	def test_the_screens_are_told_which_statuses_and_fields_the_caller_may_edit(self):
+		before_paid = ["Requested", "CEO Pending", "Approved", "Reconciliation Pending"]
+		paid_details = sorted(["description", "comment", "invoice_attachment", "invoice_ref", "invoice_date",
+		                       "projects", "vendor", "type"])
+		expected = {
+			ACCOUNTANT: (before_paid, {}),
+			ACCOUNTANT_LEAD: (before_paid + ["Paid"], {"Paid": paid_details}),
+			ADMIN: (["Paid"], {"Paid": paid_details}),
+			"Administrator": (["Paid"], {"Paid": paid_details}),
+			PM: ([], {}),
+			HR: ([], {}),
+		}
+		for user, (statuses, limits) in expected.items():
+			with self.subTest(user=user):
+				access = self._edit_access_as(user)
+				self.assertEqual(sorted(access["editable_statuses"]), sorted(statuses))
+				self.assertEqual({s: sorted(f) for s, f in access["field_limits"].items()}, limits)
 
 	def test_a_new_expense_carrying_a_status_through_a_document_insert_is_refused(self):
 		doc = frappe.new_doc(NPE)

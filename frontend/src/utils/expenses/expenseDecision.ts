@@ -29,6 +29,31 @@ export const MARK_PAID_PROFILES: readonly string[] = [
 export const canMarkExpensePaid = (role: string | null | undefined): boolean =>
   !!role && MARK_PAID_PROFILES.includes(role);
 
+/**
+ * What the caller may edit by hand on an Expense, as the server answers it
+ * (`expense_actions.get_expense_edit_access`, story 50; read by `hooks/useExpenseDecision`). Both
+ * ledgers' `validate` refuse anything else, so the screens read this instead of restating the rule.
+ */
+export interface ExpenseEditAccess {
+  /** The statuses in which the caller may edit an Expense at all. */
+  editable_statuses: readonly string[];
+  /** Per status, the only fields an edit may change. A listed status with no entry here allows
+   *  every field but the status. */
+  field_limits: Readonly<Record<string, readonly string[]>>;
+}
+
+export const NO_EDIT_ACCESS: ExpenseEditAccess = { editable_statuses: [], field_limits: {} };
+
+/** May the caller change `field` on an Expense that is at `status`? */
+export const mayEditExpenseField = (
+  access: ExpenseEditAccess, status: string | null | undefined, field: string,
+): boolean => {
+  const at = (status || "").trim();
+  if (!access.editable_statuses.includes(at)) return false;
+  const limit = access.field_limits[at];
+  return !limit || limit.includes(field);
+};
+
 /** What Mark as Paid records with the status. A field left out keeps the value stored on the expense. */
 export interface ExpensePayment {
   payment_date?: string | null;

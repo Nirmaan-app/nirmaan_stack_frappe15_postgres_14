@@ -98,7 +98,8 @@ export const getNonProjectExpenseColumns = ({
 
   // Action-level permissions
   // Record Invoice and Edit are edits: the server's answer (`expense_actions.get_expense_edit_access`,
-  // story 50): Accounts only, never once Paid or Rejected. Both ledgers' `validate` refuse any other.
+  // story 50): Accounts until paid; on a Paid row Admin and the Accountant Lead (its details only);
+  // never Rejected. Both ledgers' `validate` refuse any other.
   const canEditRow = (status: string) => editableStatuses.includes(status);
   const canApprove = isAdmin; // Requested -> Approved (Admin only)
   // Approved -> Paid: the server's rule (`expense_decision.can_mark_paid`, #1497), mirrored once.
@@ -106,12 +107,13 @@ export const getNonProjectExpenseColumns = ({
   const canDelete = isAdmin; // Delete is Admin only
 
   // Actions column visibility: shown only to users who can act on the tab's rows.
-  // Requested/Approved show it to everyone (gated per button); Paid -> Admin only.
+  // Requested/Approved show it to everyone (gated per button); Paid -> Admin (Delete), and whoever
+  // the server lets edit a Paid row.
   // In report/embedded mode the Actions column is hidden entirely.
   const canSeeActionsColumn = disableActions
     ? false
     : statusTab === "Paid"
-      ? isAdmin
+      ? isAdmin || canEditRow("Paid")
       : statusTab === "All"
         // The All tab mixes statuses; every button inside the cell is already
         // gated by the ROW's status, so opening the column to Accountants
@@ -460,7 +462,7 @@ export const getNonProjectExpenseColumns = ({
               </Tooltip>
             )}
 
-            {/* Edit past Requested (outside): wherever the server lets the caller edit (never Paid). */}
+            {/* Edit past Requested (outside): wherever the server lets the caller edit. */}
             {status !== "Requested" && canEditRow(status) && (
               <Tooltip>
                 <TooltipTrigger asChild>

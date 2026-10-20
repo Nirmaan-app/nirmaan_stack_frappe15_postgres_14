@@ -39,6 +39,7 @@ from dataclasses import dataclass
 
 import frappe
 from frappe import _
+from frappe.model import no_value_fields
 from frappe.utils import flt, nowdate
 
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
@@ -66,6 +67,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 from nirmaan_stack.services.role_profiles import (
     ACCOUNTANT_LEAD_PROFILE,
     ACCOUNTANT_PROFILE,
+    ADMIN_PROFILE,
     PAYMENT_SETTLE_PROFILES,
     has_role_profile,
 )
@@ -175,18 +177,42 @@ def apply_starting_status(doc) -> None:
 
 # ── What a person may write ─────────────────────────────────────────────────────────────────
 
-# Who edits an Expense by hand, and in which statuses (story 50, owner 2026-10-20): Accounts only,
-# and only until it is paid. A Rejected one is closed too. `Administrator` is not let past.
+# Who edits an Expense by hand, in which statuses, and which fields (story 50, owner 2026-10-20):
+#   * until it is paid, Accounts edit every field but the status; `Administrator` is not let past;
+#   * once Paid, Admin (`Administrator` included) and the Accountant Lead correct its details
+#     (`PAID_EDITABLE_FIELDS`) and nothing else: the payment information stays as it was paid;
+#   * a Rejected one is closed to everyone.
 EDIT_PROFILES = (ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 EDITABLE_STATUSES = (STATUS_REQUESTED, STATUS_CEO_PENDING, STATUS_APPROVED, RECONCILIATION_PENDING)
+PAID_EDIT_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+# `projects` and `vendor` exist on Project Expenses only. A changed `type` still meets the ledger
+# check (`expense_type_ledger.check_expense_type`).
+PAID_EDITABLE_FIELDS = ("description", "comment", "invoice_attachment", "invoice_ref", "invoice_date",
+                        "projects", "vendor", "type")
 
 
-def editable_statuses(user: str | None) -> list[str]:
-    """The statuses in which `user` may edit an Expense by hand: none, or `EDITABLE_STATUSES` for
-    Accounts. Served to the old ledger pages, so their Edit buttons show the server's answer."""
-    if user and has_role_profile(user, EDIT_PROFILES, superuser_passes=False):
-        return list(EDITABLE_STATUSES)
-    return []
+def edit_access(user: str | None) -> dict[str, tuple[str, ...] | None]:
+    """What `user` may edit by hand: `{status: fields}`, where `fields` is None for every field but
+    the status, else the only fields an edit may change. A status left out is not editable."""
+    access: dict[str, tuple[str, ...] | None] = {}
+    if not user:
+        return access
+    if has_role_profile(user, EDIT_PROFILES, superuser_passes=False):
+        access.update(dict.fromkeys(EDITABLE_STATUSES))
+    if has_role_profile(user, PAID_EDIT_PROFILES):
+        access[PAID] = PAID_EDITABLE_FIELDS
+    return access
+
+
+def _changed_fields(doc) -> list[str]:
+    """The fields of `doc` this save changes (a blank and an empty value are the same)."""
+    before = doc.get_doc_before_save()
+    if before is None:
+        return []
+    return [df.fieldname for df in doc.meta.fields
+            if df.fieldtype not in no_value_fields
+            and (before.get(df.fieldname) or doc.get(df.fieldname))
+            and doc.has_value_changed(df.fieldname)]
 
 
 def guard_hand_save(doc) -> None:
@@ -200,8 +226,9 @@ def guard_hand_save(doc) -> None:
 
       * it may not change the status, nor insert a row at any status but `Requested` (story 42):
         statuses move only through `decide`;
-      * it may not edit a Paid or Rejected Expense at all, and only Accounts may edit any other
-        (`editable_statuses`, story 50).
+      * it may edit only what `edit_access` grants the person (story 50): Accounts an Expense not
+        yet paid; Admin and the Accountant Lead a Paid one's details, never its payment; nobody a
+        Rejected one.
 
     The bank-line re-derive runs after this, so an edit that moves a settled amount still moves the
     status it derives.
@@ -220,12 +247,19 @@ def guard_hand_save(doc) -> None:
     if doc.is_new():
         return
     stored = (doc.get_doc_before_save() or doc).status
-    if stored not in EDITABLE_STATUSES:
+    if stored not in (*EDITABLE_STATUSES, PAID):
         frappe.throw(_("{0} is {1}; a {2} expense can no longer be edited.").format(
             doc.name, stored, (stored or "closed").lower()), title=_("Expense is closed"))
-    if not editable_statuses(frappe.session.user):
-        frappe.throw(_("Only Accounts edit an expense once it is raised."), frappe.PermissionError,
-                     title=_("Not yours to edit"))
+    access = edit_access(frappe.session.user)
+    if stored not in access:
+        frappe.throw(_("Only an Admin or the Accountant Lead edits a paid expense.") if stored == PAID
+                     else _("Only Accounts edit an expense once it is raised."),
+                     frappe.PermissionError, title=_("Not yours to edit"))
+    allowed = access[stored]
+    locked = [f for f in _changed_fields(doc) if allowed is not None and f not in allowed]
+    if locked:
+        frappe.throw(_("{0} is paid; its {1} can no longer be changed.").format(
+            doc.name, ", ".join(_(doc.meta.get_label(f)) for f in locked)), title=_("Payment is locked"))
 
 
 # ── A change to an existing row ─────────────────────────────────────────────────────────────

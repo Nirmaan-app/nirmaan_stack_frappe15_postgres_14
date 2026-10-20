@@ -31,7 +31,7 @@ import frappe
 from frappe import _
 
 from nirmaan_stack.api.payments.bulk_actions import MAX_BATCH_SIZE
-from nirmaan_stack.services.expense_decision import ACTIONS, REJECT, decide, editable_statuses
+from nirmaan_stack.services.expense_decision import ACTIONS, REJECT, decide, edit_access
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 
 
@@ -94,13 +94,20 @@ def decide_expenses(expense_ids, action: str, reason: Optional[str] = None, paym
 
 @frappe.whitelist()
 def get_expense_edit_access():
-    """In which statuses the caller may edit an Expense by hand (story 50): `{editable_statuses}`,
-    empty for anyone but Accounts. The old ledger pages show Edit on a row only when its status is
-    listed, so the button and both ledgers' `validate` (`expense_decision.guard_hand_save`) agree.
+    """What the caller may edit on an Expense by hand (story 50), as `expense_decision.edit_access`
+    answers it: `editable_statuses`, the statuses in which they may edit at all, and `field_limits`,
+    per status the only fields an edit may change (a listed status with no limit allows every field
+    but the status). The ledger pages and the Payments queue show Edit, Upload Invoice and each
+    dialog field from this, so they and both ledgers' `validate` (`guard_hand_save`) agree.
 
-    Example: `{"editable_statuses": ["Requested", "CEO Pending", "Approved", "Reconciliation Pending"]}`.
+    Example (an Accountant Lead): `{"editable_statuses": ["Requested", "CEO Pending", "Approved",
+    "Reconciliation Pending", "Paid"], "field_limits": {"Paid": ["description", "comment", ...]}}`.
     """
-    return {"editable_statuses": editable_statuses(frappe.session.user)}
+    access = edit_access(frappe.session.user)
+    return {
+        "editable_statuses": list(access),
+        "field_limits": {status: list(fields) for status, fields in access.items() if fields is not None},
+    }
 
 
 def _parse_dict(value) -> dict | None:
