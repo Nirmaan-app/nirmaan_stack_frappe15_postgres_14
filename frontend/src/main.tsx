@@ -22,7 +22,8 @@ const registerServiceWorker = () => {
 }
 
 if (import.meta.env.DEV) {
-  fetch('http://localhost:8000/api/method/nirmaan_stack.www.nirmaan_stack.get_context_for_dev', {
+  // Relative, so vite's proxy (proxyOptions.ts) sends it to this checkout's own bench and site.
+  fetch('/api/method/nirmaan_stack.www.nirmaan_stack.get_context_for_dev', {
     method: 'POST',
   })
     .then(response => response.json())
