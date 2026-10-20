@@ -1406,6 +1406,16 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       unfillableDerived.size === 0
         ? derived
         : new Set([...derived].filter((id) => !unfillableDerived.has(id)));
+    // ADP-3b (owner 2026-10-20 21:57, fix (3)): a field its controller has declared ABSENT ("circuit wiring included =
+    // No" -> the circuit-wire fields) is not needed to price -- it carries no "*", on the panel and the calculator
+    // alike. Display only: the gate above and below is unchanged ("None" is an answer, and it prices).
+    const absentNow = new Set<string>();
+    for (const d of defs) {
+      const ad = d as { absent_when_value?: unknown; absent_dependents?: unknown };
+      if (typeof ad.absent_when_value !== "string" || !Array.isArray(ad.absent_dependents)) continue;
+      if (String(valueOfDef(d) ?? "") !== ad.absent_when_value) continue;
+      for (const t of ad.absent_dependents) if (typeof t === "string") absentNow.add(t);
+    }
     let missing = false;
     // ADP-3a (U3): every missing field, by its label, so the refusal names them all
     const missingLabels: string[] = [];
@@ -1477,7 +1487,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         allowNone: d.allow_none || undefined,
         // ADP-3a (owner H1, U1): NEEDED TO PRICE -- the gate's own condition (a blank one withholds the price), plus a
         // self-fit bind (needed whenever it is blank). The marker can never disagree with the gate.
-        ...(!disabled && (!derived.has(d.id) || selfFit.has(d.id) || unfillableDerived.has(d.id)) ? { required: true } : {}),
+        ...(!disabled && !absentNow.has(d.id) && (!derived.has(d.id) || selfFit.has(d.id) || unfillableDerived.has(d.id)) ? { required: true } : {}),
         defaulted: isDefaulted || undefined,
         ...(ratingUp ? { notes: [ratingUp] } : {}),
         // F4b: carry the config's group label through untouched. A non-string (or empty) is dropped

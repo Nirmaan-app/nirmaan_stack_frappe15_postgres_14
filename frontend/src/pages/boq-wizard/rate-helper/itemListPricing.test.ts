@@ -453,7 +453,9 @@ describe("slice 5 / R11 -- a per-number row with W x H: sq.m rate x area, supply
     const r = one("Nos", { family: "VCD", variant: "None" });
     expect(r.priced).toBe(false);
     // INVERTED at ADP-3a (owner H2 / U2: several ways are ONE either-or group, the refusal names it) by mechanical authority: BEFORE .toBe("per-number row: no width and height, or area stated to convert the per-sq.m rate")
-    expect(r.reason).toBe("VCD needs both of Face width, Face height, or Area band - neither stated - price this row by hand");
+    // INVERTED at ADP-3b (owner B1, U1: two boxes are one face, "Width + Height") by mechanical authority: BEFORE (ADP-3a)
+    // .toBe("VCD needs both of Face width, Face height, or Area band - neither stated - price this row by hand")
+    expect(r.reason).toBe("VCD needs Face width + Face height, or Area band - neither stated - price this row by hand");
     const sq = one("Nos", { family: "square diffuser", damper: "with", neck_mm: "450x450" });
     expect(sq.items[0].conversion).toBeNull();
     expect(figures(sq)).toEqual([true, 2523, 576]);

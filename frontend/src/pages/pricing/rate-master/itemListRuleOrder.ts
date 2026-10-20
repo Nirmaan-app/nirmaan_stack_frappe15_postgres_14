@@ -299,6 +299,8 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
         add(`The ${sideNames.length > 1 ? `${sideNames.slice(0, -1).join(", ")} and ${sideNames[sideNames.length - 1]}` : sideNames[0]} are typed in their own boxes, else read from the ${name(String(rd.length_from))}`,
             `in the order length x width x height, the height last ('550 x 550 x 400 mm Ht' -> 550 / 550 / 400); a side written with its label -- L / long / length, W / B / width, H / Ht / high / depth -- goes to that side ('3000 mm Length' -> length 3000); the field shows the value used, with a line saying so; a typed value always wins`);
       }
+    } else if (rd?.typed_only && rd?.length_from && rd?.face_side) {
+      // ADP-3b: a face side is said by its own group, LAST (below), so no earlier line moves
     } else if (rd?.typed_only && rd?.length_from && rd?.unit !== "m") {
       // ADP-2 (owner H7 / Q3, "should be priced at max"; U6): ADDED
       add(`An ${name(attr)} is typed in '${String(rd.label ?? name(attr))}', else read from the ${name(String(rd.length_from))}${rd.range === "max" ? ", at its largest value" : ""}`,
@@ -609,6 +611,32 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       // the title names the GROUP, never the kinds (which change between catalogue versions); the kinds are in the detail
       add(`A per-${pr.unit_words?.[v.cls] ?? v.cls} item needs ${ways}; with neither stated it refuses, naming both`,
           `${list(v.fams, 4)}: '<kind> needs ${ways} - neither stated - price this row by hand', every box of the group outlined; a size giving one length ('1500 mm long') is named as such, never read as width x height`);
+    }
+  }
+  // ── 12. ADP-3b (owner B1; D1 / D2, 2026-10-20 22:25): a face size in its own Width / Height boxes -- ADDED as their own
+  // group, LAST, generated from `face_side` (a config without it adds nothing)
+  {
+    const faces = Object.entries<any>(pr.numbers ?? {}).filter(([, x]) => x?.typed_only && x?.length_from && x?.face_side);
+    if (faces.length) {
+      const sideNames = faces.map(([, x]) => String(x.face_side));
+      const from = name(String(faces[0][1].length_from));
+      add(`The ${sideNames.join(" and ")} are typed in their own boxes, else read from the ${from}`,
+          `the face is the size's first two parts, width x height ('550X300' -> width 550, height 300); a label decides between those two -- W / wide / width, H / Ht / high / height ('600 x 400 mm High' -> height 400); a part labelled as a length or a depth ('600(L)') is named and not used; text that is not a size is read whole as the width, as before; the field shows the value used, with a line saying so; a typed value always wins`);
+      add("A third part of a size never displaces the face",
+          "'300 x 300 x 450 mm Height' -> width 300, height 300; the 450 is named on the item as not used as the face");
+      // D2: only where a kind reads the HEIGHT alone (a per-metre grille)
+      const heightOnly: string[] = [];
+      for (const [f, fv] of Object.entries<any>(pr.families ?? {})) {
+        for (const [cls, opts] of Object.entries<any>(fv?.convert ?? {})) {
+          for (const o of (Array.isArray(opts) ? opts : []) as any[]) {
+            const needs = (o?.needs ?? []) as string[];
+            const sides = needs.map((n) => pr.numbers?.[n]?.face_side).filter(Boolean);
+            if (sides.length === 1 && sides[0] === "height" && !heightOnly.includes(`${famWord(f)} per ${pr.unit_words?.[cls] ?? cls}`)) heightOnly.push(`${famWord(f)} per ${pr.unit_words?.[cls] ?? cls}`);
+          }
+        }
+      }
+      if (heightOnly.length) add("A kind that reads only the height, sized by one dimension written as a width, takes it as the height",
+          `${list(heightOnly, 4)}: '150mm width' -> height 150 mm, with a line saying it is the narrow dimension; an unlabelled single number stays the width, as before`);
     }
   }
   return out;

@@ -32,6 +32,7 @@ import {
 import { familyAttr, itemListPricingSpec, priceItemList } from "./itemListPricing";
 import { applyAdp1 } from "./adp1.harness";
 import { applyAdp2 } from "./adp2.harness";
+import { applyAdp3b } from "./adp3b.harness";
 
 const ASSET = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
   new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v38.json", import.meta.url),   // 12e-4b: v37 -> v38 (Insulation, ADP and every item carried; Piping gains its model questions, the as-written rule and the second opinion; Insulation one key). BEFORE: v37. 12e-2: v33 -> v36 (Insulation and ADP carried byte-equal; Piping gains its rules); 12e-3b: v36 -> v37 (Piping gains its insulation section; Insulation and ADP byte-equal)
@@ -65,6 +66,11 @@ const ASSET_ADP2 = applyAdp2(ASSET_ADP1 as any) as typeof ASSET_LIVE;
 const CFG_ADP2: Record<string, RateCategoryConfig> = Object.fromEntries(ASSET_ADP2.category_configs.map((c) => [c.category_id, c]));
 const CONFIGS_ADP2 = new Map<string, RateCategoryConfig>(Object.entries(CFG_ADP2));
 const ITEMS_ADP2: RateMasterItem[] = ASSET_ADP2.items.map((it) => ({ ...it, discipline: ASSET_ADP2.discipline } as RateMasterItem));
+// ADP-3b (owner B1; D1-D4): the ADP-2 config (= v48) + this slice's changes (`applyAdp3b`; the asset commit pins it EQUAL to
+// v49); a case marked `adp3b` runs on it, on the panel's entry point and the pure pricer alike. No item changes.
+const ASSET_ADP3B = applyAdp3b(ASSET_ADP2 as any) as typeof ASSET_LIVE;
+const CFG_ADP3B: Record<string, RateCategoryConfig> = Object.fromEntries(ASSET_ADP3B.category_configs.map((c) => [c.category_id, c]));
+const CONFIGS_ADP3B = new Map<string, RateCategoryConfig>(Object.entries(CFG_ADP3B));
 const CONFIGS = new Map<string, RateCategoryConfig>(Object.entries(CFG));
 const ITEMS: RateMasterItem[] = ASSET.items.map((it) => ({ ...it, discipline: ASSET.discipline } as RateMasterItem));
 const INS = "hvac_insulation";
@@ -105,6 +111,8 @@ interface Case {
   adp1?: boolean;
   /** ADP-2: run on the ADP-2 config (the ADP-1 config + `applyAdp2`, = v48) instead of v38 */
   adp2?: boolean;
+  /** ADP-3b: run on the ADP-2 config + ADP-3b (= v49) */
+  adp3b?: boolean;
 }
 const NR = "Nitrile Rubber Insulation", PUF = "Tubular Puf Insulation", THM = "Thermal Nitrile Insulation",
   ACO = "Acoustic Nitrile Insulation", FGB = " Fiberglass Rigid Board Insulation, Density 48Kg/m3", CLO = "Cladding Only";
@@ -218,6 +226,12 @@ const T = {
   a3Unit: "A kind not stocked in the row's unit refuses, naming the units it is stocked in",
   a3Unstocked: "An unstocked combination names only the facts the kind's products vary on",
   a3Either: "A per-number item needs Size (W x H), or Area band; with neither stated it refuses, naming both",
+  // ── ADP-3b (owner B1; D1 / D2): the lines it adds, LAST on ADP's tab, generated from `face_side` (v49) ──
+  faceBoxes: "The width and height are typed in their own boxes, else read from the size",
+  faceThird: "A third part of a size never displaces the face",
+  faceD2: "A kind that reads only the height, sized by one dimension written as a width, takes it as the height",
+  // ADP-3a's either-or line, worded by the group the v49 boxes form
+  a3EitherFace: "A per-number item needs Width + Height, or Area band; with neither stated it refuses, naming both",
 };
 /** Tab lines that are NOT panel-path rules (a catalogue / rate-master rule the pricer never reads), by name. */
 const NOT_PANEL_RULES: Record<string, string> = {
@@ -589,6 +603,16 @@ const CASES: Case[] = [
   { id: "N3a", rule: T.a3Either, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "VCD" }], re: ["VCD needs Size (W x H), or Area band - neither stated - price this row by hand"], priced: false },
   { id: "N3a-calc", rule: T.a3Either, cat: ADP, path: "calc", kind: "pos", edits: calc("VCD", {}), rowUnit: "nos", re: ["VCD needs Size (W x H), or Area band - neither stated - price this row by hand"], priced: false },
   { id: "N3b-neg", rule: T.a3Either, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "VCD", size_mm: "600x300" }], re: [], not: ["neither stated"], priced: true },
+  // ── ADP-3b (AC4): a positive and a near-miss case for each line it adds, on the v49-shaped config ──
+  { id: "B1a", rule: T.faceBoxes, cat: ADP, path: "panel", kind: "pos", unit: "nos", adp3b: true, model: [{ family: "VCD", variant: "GI rectangular", size_mm: "550X300" }], re: ["face_w_mm:BoQ says 550X300 -> width 550 mm", "face_h_mm:BoQ says 550X300 -> height 300 mm"], not: ["size_mm:"], priced: true },
+  { id: "B1a-calc", rule: T.faceBoxes, cat: ADP, path: "calc", kind: "pos", adp3b: true, edits: calc("VCD", { variant: "GI rectangular", face_w_mm: "600", face_h_mm: "300" }, ["face_w_mm", "face_h_mm"]), rowUnit: "nos", re: ["face_w_mm:You typed 600 -> width 600 mm"], priced: true },
+  { id: "B1b-neg", rule: T.faceBoxes, cat: ADP, path: "panel", kind: "neg", unit: "sqm", adp3b: true, model: [{ family: "VCD", variant: "GI rectangular", size_mm: "550X300" }], re: [], not: ["-> width", "-> height"], priced: true },
+  { id: "B2a", rule: T.faceThird, cat: ADP, path: "panel", kind: "pos", unit: "nos", adp3b: true, model: [{ family: "square diffuser", damper: "with", size_mm: "300 x 300 x 450 mm Height" }], re: ["450 mm Height (the third part) - not used as the face", "face_h_mm:BoQ says 300 x 300 x 450 mm Height -> height 300 mm"], priced: false },
+  { id: "B2b-neg", rule: T.faceThird, cat: ADP, path: "panel", kind: "neg", unit: "nos", adp3b: true, model: [{ family: "square diffuser", damper: "with", size_mm: "595 x 595" }], re: [], not: ["third part"], priced: true },
+  { id: "B3a", rule: T.faceD2, cat: ADP, path: "panel", kind: "pos", unit: "rmt", adp3b: true, model: [{ family: "linear grille", size_mm: "150mm width" }], re: ["face_h_mm:BoQ says 150mm width -> height 150 mm (the grille's narrow dimension)"], priced: true },
+  { id: "B3b-neg", rule: T.faceD2, cat: ADP, path: "panel", kind: "neg", unit: "rmt", adp3b: true, model: [{ family: "linear grille", size_mm: "150 mm" }], re: ["per-metre row: no height stated to convert the per-sq.m rate"], not: ["narrow dimension"], priced: false },
+  { id: "B4a", rule: T.a3EitherFace, cat: ADP, path: "panel", kind: "pos", unit: "nos", adp3b: true, model: [{ family: "VCD", variant: "GI rectangular" }], re: ["VCD needs Width + Height, or Area band - neither stated - price this row by hand"], priced: false },
+  { id: "B4b-neg", rule: T.a3EitherFace, cat: ADP, path: "panel", kind: "neg", unit: "nos", adp3b: true, model: [{ family: "VCD", variant: "GI rectangular", size_mm: "550X300" }], re: [], not: ["neither stated"], priced: true },
   { id: "P8c-neg", rule: T.drainCpvc, cat: PIP, path: "calc", kind: "neg", edits: [{ base: null, family: null, attrs: { size_mm: "25" }, other: ["size_mm"] }], rowUnit: "mts", re: ["no pipe type could be told for this item"], not: ["no material stated", "family:CPVC"], priced: false },
 ];
 
@@ -609,7 +633,7 @@ function run(c: Case) {
   const overrides: Record<string, string> = {};
   if (c.edits) overrides[ITEM_LIST_OVERRIDE_KEY] = JSON.stringify({ items: c.edits });
   if (c.rowUnit !== undefined) overrides[ROW_UNIT_OVERRIDE_KEY] = c.rowUnit;
-  const h = makePricingSheetHelper({ configsByCategory: c.adp2 ? CONFIGS_ADP2 : c.adp1 ? CONFIGS_ADP1 : c.live ? CONFIGS_LIVE : c.v42 ? CONFIGS42 : CONFIGS, items: c.adp2 ? ITEMS_ADP2 : c.adp1 ? ITEMS_ADP1 : c.live ? ITEMS_LIVE : c.v42 ? ITEMS42 : ITEMS, extractionByRow: ext });
+  const h = makePricingSheetHelper({ configsByCategory: c.adp3b ? CONFIGS_ADP3B : c.adp2 ? CONFIGS_ADP2 : c.adp1 ? CONFIGS_ADP1 : c.live ? CONFIGS_LIVE : c.v42 ? CONFIGS42 : CONFIGS, items: c.adp3b ? ITEMS_ADP2 : c.adp2 ? ITEMS_ADP2 : c.adp1 ? ITEMS_ADP1 : c.live ? ITEMS_LIVE : c.v42 ? ITEMS42 : ITEMS, extractionByRow: ext });
   const ctx: RateHelperRowContext & { unit?: string } = {
     excelRow: 1, description: c.path === "calc" ? "" : (c.description ?? ""), nodeType: "Line Item", category: c.cat, discipline: "HVAC",
     rateKinds: ["supply_rate", "install_rate", "combined_rate"], headings: c.path === "calc" ? [] : (c.headings ?? []), ownNotes: c.path === "calc" ? [] : (c.ownNotes ?? []),
@@ -660,13 +684,13 @@ function run(c: Case) {
     if (v.rowPriced) lines.push(`total:${s.values.supply_rate}/${s.values.install_rate}`);
   }
   // the pure pricer over the SAME assembled inputs
-  const spec = itemListPricingSpec((c.adp2 ? CFG_ADP2 : c.adp1 ? CFG_ADP1 : c.live ? CFG_LIVE : c.v42 ? CFG42 : CFG)[c.cat])!;
+  const spec = itemListPricingSpec((c.adp3b ? CFG_ADP3B : c.adp2 ? CFG_ADP2 : c.adp1 ? CFG_ADP1 : c.live ? CFG_LIVE : c.v42 ? CFG42 : CFG)[c.cat])!;
   const edits = decodeItemEdits(overrides[ITEM_LIST_OVERRIDE_KEY], modelItems.length);
   const assembled = assembleItems(edits, modelItems, familyAttr(spec));
   const unitForPure = c.path === "calc" ? v.unit : (c.unit ?? v.unit);
   const rowText = c.path === "calc" ? "" : [c.description ?? "", ...(c.headings ?? [])].join(" | ");
   const ownText = c.path === "calc" ? "" : [c.description ?? "", ...(c.ownNotes ?? [])].join(" | ");
-  const pure = priceItemList(spec, c.adp2 ? ITEMS_ADP2 : c.adp1 ? ITEMS_ADP1 : c.live ? ITEMS_LIVE : c.v42 ? ITEMS42 : ITEMS, unitForPure, assembled, rowText, ownText);
+  const pure = priceItemList(spec, c.adp3b ? ITEMS_ADP2 : c.adp2 ? ITEMS_ADP2 : c.adp1 ? ITEMS_ADP1 : c.live ? ITEMS_LIVE : c.v42 ? ITEMS42 : ITEMS, unitForPure, assembled, rowText, ownText);
   const working = v.items.flatMap((b) => b.working);
   // 12e-3c (AC2): the strings exactly as a pricer reads them -- no test-side lead -- for the field-id sweep
   const raw: string[] = [...(v.reason ? [v.reason] : []), ...(v.unitNote ? [v.unitNote] : []), ...(s.workings.derivation ?? [])];
@@ -703,7 +727,7 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
   it("THE GUARD: the rules this file names EQUAL the rules the config generates (Insulation 25, ADP 18, Piping 21 at 12e-4b / v38 -- Insulation 24 and Piping 19 before it); a new rule without a case, or a case naming a dead rule, fails here", () => {
     for (const cat of [INS, ADP, PIP]) {
       const generated = new Set(titles(cat));
-      const named = new Set([...CASES.filter((c) => c.cat === cat && ((!c.v42 && !c.live && !c.adp1 && !c.adp2) || generated.has(c.rule))).map((c) => c.rule), ...PICKER_CASES.filter(() => cat === ADP).map((p) => p.rule), ...Object.keys(NOT_PANEL_RULES).filter((t) => generated.has(t))]);
+      const named = new Set([...CASES.filter((c) => c.cat === cat && ((!c.v42 && !c.live && !c.adp1 && !c.adp2 && !c.adp3b) || generated.has(c.rule))).map((c) => c.rule), ...PICKER_CASES.filter(() => cat === ADP).map((p) => p.rule), ...Object.keys(NOT_PANEL_RULES).filter((t) => generated.has(t))]);
       const uncovered = [...generated].filter((t) => !named.has(t));
       const dead = [...named].filter((t) => !generated.has(t));
       expect({ cat, uncovered, dead }).toEqual({ cat, uncovered: [], dead: [] });
@@ -833,6 +857,25 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
         expect({ cat, rule: t, pos: mine.some((c) => c.kind === "pos" && c.path !== "calc"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ cat, rule: t, pos: true, neg: true });
       }
     }
+  });
+
+  // ADP-3b (owner B1; D1 / D2; AC4): THE ADP-3b GUARD on the ADP-2 config + ADP-3b (= v49) -- the lines it adds are generated
+  // there, LAST, each with a positive case off the calculator and a negative one; the tab gained exactly them; the one
+  // line that changed words is ADP-3a's either-or line (its group is now "Width + Height"); Insulation and Piping unchanged
+  it("ADP-3b: every new ADP line (on the ADP-2 config + ADP-3b = v49) has a positive and a negative case; Insulation and Piping unchanged", () => {
+    const NEW = [T.faceBoxes, T.faceThird, T.faceD2];
+    const t3 = (cat: string) => itemListRuleOrder(CFG_ADP3B[cat], ITEMS_ADP2).map((l) => l.title);
+    const t2 = (cat: string) => itemListRuleOrder(CFG_ADP2[cat], ITEMS_ADP2).map((l) => l.title);
+    expect(t3(ADP).slice(-NEW.length)).toEqual(NEW);
+    expect(t3(ADP).filter((t) => !t2(ADP).includes(t)).sort()).toEqual([...NEW, T.a3EitherFace].sort());
+    expect(t2(ADP).filter((t) => !t3(ADP).includes(t))).toEqual([T.a3Either]);
+    for (const t of [...NEW, T.a3EitherFace]) {
+      const mine = CASES.filter((c) => c.cat === ADP && c.rule === t && c.adp3b);
+      expect({ rule: t, pos: mine.some((c) => c.kind === "pos" && c.path !== "calc"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
+    }
+    // the named set EQUALS the generated set: every ADP-3b case names a line v49 generates
+    for (const c of CASES.filter((x) => x.adp3b)) expect({ id: c.id, generated: t3(c.cat).includes(c.rule) }).toEqual({ id: c.id, generated: true });
+    for (const cat of [INS, PIP]) expect(t3(cat)).toEqual(t2(cat));
   });
 
   it("12e-6c: every new Insulation line (live v46) has a positive and a negative case; ADP and Piping gain none", () => {

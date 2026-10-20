@@ -231,8 +231,10 @@ describe("ADP-2 H7 -- per-number plenum / mixing box: four fields, area or L + W
     expect(x.field("Length (mm)")?.value).toBe("3000");
     expect(calc("nos", MIX, { insulated: "with", plenum_length_mm: "2200" }).reason)
       .toBe("mixing box / LP plenum needs an area, or length + width + height - width and height not stated - price this row by hand");
+    // INVERTED at ADP-3b (owner 2026-10-20 21:57, fix (2) / U4: nothing stated names neither way and outlines the area too) by
+    // mechanical authority: BEFORE .toBe("... - length and width and height not stated - price this row by hand")
     expect(calc("nos", MIX, { insulated: "with" }).reason)
-      .toBe("mixing box / LP plenum needs an area, or length + width + height - length and width and height not stated - price this row by hand");
+      .toBe("mixing box / LP plenum needs an area, or length + width + height - neither stated - price this row by hand");
     // NEGATIVE (v47): ADP-1's sentence
     expect(panel("EA", { family: MIX, insulated: "with", size_mm: "3000 mm Length" }, { w: W_OLD }).reason).toBe("per-number row: no width and height stated to convert the per-sq.m rate");
   });

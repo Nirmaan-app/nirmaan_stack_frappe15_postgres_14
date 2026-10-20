@@ -116,6 +116,10 @@ export interface NumberReader {
    * plenum formula reads all three sides and is symmetric, so no figure depends on which side is which. ABSENT =>
    * `length_from` reads a piece length (unit "m", ADP-1) or, for any other unit, the attribute as one number. */
   box_side?: "length" | "width" | "height";
+  /** ADP-3b (owner B1; D1 / D2, 2026-10-20 22:25). With `length_from`, the typed box is filled from ONE SIDE of the
+   * FACE the size states (`readFaceSides`: W x H, the first two parts, a label deciding between them) -- not the L x W
+   * x H of a box (`box_side`). ABSENT => `length_from` reads as before. */
+  face_side?: "width" | "height";
   /** ADP-1: the panel label of a `typed_only` box ("Piece length (m)"); a list_spec definition has its own. */
   label?: string;
   /** ADP-1 (owner H3 (c), 2026-10-19: 1- and 4-slot rows "refuse"): where the family's rule for the row's unit NEEDS
@@ -1418,6 +1422,67 @@ export function readBoxSides(
 }
 
 /**
+ * ADP-3b (owner B1; D1, 2026-10-20 22:25 "ok to all") -- THE TWO SIDES OF A FACE, AS WRITTEN. PURE.
+ *
+ * A grille's, damper's or diffuser's size is a FACE, width x height. The FIRST TWO parts are the face; a written label
+ * decides only between those two (W / wide / width -> width; H / Ht / hgt / high / height -> height), unlabelled parts
+ * take the free sides in order, and a THIRD part never displaces them ("300 x 300 x 450 mm Height": the face is
+ * 300 x 300, the 450 is the plenum box behind it). A part labelled as a length or a depth ("600(L)") is NAMED and not
+ * used. Each part not used is returned in `notUsed`, worded for the panel.
+ *
+ * Returns null when the text is not one to three x-joined readable parts, or two parts name the same side -- the
+ * caller then reads the WHOLE text as the width, exactly as the width axis did before (a list keeps its named refusal).
+ */
+const _FACE_LABELS: Array<{ re: RegExp; side: "width" | "height" | "length" | "depth" }> = [
+  { re: /(^|[^a-z])(?:w|wide|width)([^a-z]|$)/i, side: "width" },
+  { re: /(^|[^a-z])(?:h|ht|hgt|high|height)([^a-z]|$)/i, side: "height" },
+  { re: /(^|[^a-z])(?:l|long|length)([^a-z]|$)/i, side: "length" },
+  { re: /(^|[^a-z])(?:d|deep|depth)([^a-z]|$)/i, side: "depth" },
+];
+export type FaceSide = "width" | "height";
+export interface FaceSides {
+  width?: { part: string; how: "as written" | "by position" };
+  height?: { part: string; how: "as written" | "by position" };
+  /** the parts the face does not use, as the panel says them ("600(L) named as a length - not used") */
+  notUsed: string[];
+  /** how many parts the text has */
+  parts: number;
+}
+export function readFaceSides(text: string | number | null | undefined): FaceSides | null {
+  if (text === null || text === undefined) return null;
+  const raw = String(text).trim();
+  if (raw === "" || raw === "None") return null;
+  const parts = raw.split(/\s*[x×*]\s*/i).map((p) => p.trim()).filter((p) => p !== "");
+  if (parts.length < 1 || parts.length > 3) return null;
+  for (const p of parts) if (!partIsReadable(p)) return null;
+  const labelOf = (p: string) => {
+    const tail = p.replace(/[\d.]+/g, " ").replace(/\b(?:mm|cm|m|mtr|mtrs|metre|meter|nos?|no)\b/gi, " ");
+    const hit = _FACE_LABELS.filter((a) => a.re.test(tail));
+    return hit.length === 1 ? hit[0].side : null;
+  };
+  const out: FaceSides = { notUsed: [], parts: parts.length };
+  const free: string[] = [];
+  for (const p of parts.slice(0, 2)) {
+    const side = labelOf(p);
+    if (side === "width" || side === "height") {
+      if (out[side]) return null;   // two parts name the same side: not one face
+      out[side] = { part: p, how: "as written" };
+    } else if (side === "length" || side === "depth") {
+      out.notUsed.push(`${p} named as a ${side} - not used`);
+    } else {
+      free.push(p);
+    }
+  }
+  for (const p of free) {
+    const side: FaceSide | undefined = !out.width ? "width" : !out.height ? "height" : undefined;
+    if (!side) return null;
+    out[side] = { part: p, how: "by position" };
+  }
+  for (const p of parts.slice(2)) out.notUsed.push(`${p} (the third part) - not used as the face`);
+  return out;
+}
+
+/**
  * ADP-2 (owner H5 fix (a), 2026-10-20) -- THE AIR STREAMS A TEXT NAMES. PURE. A stream word counts only where it is
  * used FOR the air -- "supply air", "return air", or a list of them ending in "air" ("Supply / Return air", "supply &
  * return air", "supply and return air") -- so the BoQ's everyday "Supply and installation of ..." names no stream.
@@ -1763,6 +1828,8 @@ export function wayLabel(spec: ItemListPricingSpec, needs: readonly string[], la
       : label;
   }
   const labels = boxes.map((b) => boxLabel(spec, needs.find((n) => boxOf(spec, n) === b)!, labelOf));
+  // ADP-3b (owner B1, U1): two boxes are one face -- "Width + Height" (three keep ADP-2's "all three of ...")
+  if (labels.length === 2) return labels.join(" + ");
   return `${HOW_MANY[labels.length] ?? `all ${labels.length}`} of ${labels.join(", ")}`;
 }
 
@@ -2684,10 +2751,15 @@ function priceOneItem(
   const unitlessLists = new Set<string>();
   let layersFrom: { attr: string; raw: string; layers: number[] } | null = null;
   const notes: string[] = [];
+  // ADP-3b (U3): the parts of a size the face does not use, said ONCE, on the first face box the size fills
+  let faceUnusedSaid = false;
   // ADP-1 (owner H3): what this family's rule for the row's unit READS -- its needs, its unit block's, else its
   // conversions'. A `typed_only` number is read only here, so no other family or unit reads, shows or mentions it.
   const readsHere = new Set<string>([...fam.needs, ...(fam.units[rowUnitClass]?.needs ?? []),
     ...(fam.units[rowUnitClass] ? [] : (fam.convert?.[rowUnitClass] ?? []).flatMap((o) => o.needs))]);
+  // ADP-3b (owner D3): a `second_key` family reads its outer size beside its primary (the square diffuser's neck), so
+  // the outer size's typed face boxes are read wherever the primary is
+  for (const k of spec.second_key ?? []) if (k.families.includes(String(family)) && readsHere.has(k.primary)) for (const a of k.key) readsHere.add(a);
   for (const attr of spec.match_attrs) {
     const reader = spec.numbers[attr];
     if (reader?.typed_only && !readsHere.has(attr)) continue;
@@ -2796,16 +2868,36 @@ function priceOneItem(
       // ADP-2 (owner H7 / Q2 / Q3): nothing typed -- a BOX SIDE read from the size as written (L x W x H, a label
       // winning), or any other unit's number read from the attribute as one number (the area band, its largest value);
       // the field shows the value used with its line. A part stated but unreadable refuses with its own reason.
-      if (got === null && reader.length_from && (reader.box_side || reader.unit !== "m")) {
+      if (got === null && reader.length_from && (reader.box_side || reader.face_side || reader.unit !== "m")) {
         const said = rawValue(item, reader.length_from);
-        const { typed_only: _t, length_from: _l, box_side: _b, label: _lb, ...plain } = reader;
+        const { typed_only: _t, length_from: _l, box_side: _b, face_side: _f, label: _lb, ...plain } = reader;
         let part: string | number | null = null;
         let how = "";
+        let faceUnused: string[] = [];
         if (reader.box_side) {
           const side = readBoxSides(said)?.[reader.box_side];
           if (side) {
             part = side.part;
             how = side.how === "as written" ? `the ${reader.box_side} as written` : `the ${["first", "second", "third"][BOX_SIDE_ORDER.indexOf(reader.box_side)]} of length x width x height`;
+          }
+        } else if (reader.face_side) {
+          // ADP-3b (owner B1, D1): one side of the FACE the size states; a part the face does not use is said once
+          const face = readFaceSides(said);
+          if (face) {
+            faceUnused = face.notUsed;
+            let side = face[reader.face_side];
+            // ADP-3b (owner D2): a family that reads the HEIGHT alone (a per-metre grille), sized by ONE dimension the
+            // BoQ writes as a width ("150mm width"), takes it as the height -- the grille's narrow dimension
+            const widthRead = [...readsHere].some((a) => spec.numbers[a]?.face_side === "width" && spec.numbers[a]?.length_from === reader.length_from);
+            if (!side && reader.face_side === "height" && !widthRead && face.parts === 1 && face.width?.how === "as written") {
+              side = face.width;
+              how = `the ${String(family ?? "").split(" ").pop()}'s narrow dimension`;
+            }
+            if (side) part = side.part;
+          } else if (reader.face_side === "width") {
+            // not a face this reader can split: the WHOLE text is the width, exactly as the width axis read it before
+            // (a lone range takes its top; a list or an inch size keeps its named refusal)
+            part = said;
           }
         } else {
           part = said;
@@ -2817,8 +2909,11 @@ function priceOneItem(
             const u = reader.unit === "sqm" ? "sq.m" : (reader.unit ?? "");
             const line = reader.box_side
               ? `BoQ says ${String(said).trim()} -> ${fmt(r.value)} ${u} (${how})`
-              : several ? `BoQ says ${String(said).trim()} -> priced at ${fmt(r.value)} ${u} (the largest value)` : `BoQ says ${String(said).trim()} -> ${fmt(r.value)} ${u}`;
+              : reader.face_side
+                ? `BoQ says ${String(said).trim()} -> ${reader.face_side} ${fmt(r.value)} ${u}${how ? ` (${how})` : ""}${faceUnused.length && !faceUnusedSaid ? `; ${faceUnused.join("; ")}` : ""}`
+                : several ? `BoQ says ${String(said).trim()} -> priced at ${fmt(r.value)} ${u} (the largest value)` : `BoQ says ${String(said).trim()} -> ${fmt(r.value)} ${u}`;
             got = { value: r.value };
+            if (reader.face_side && faceUnused.length) faceUnusedSaid = true;
             (out.filledReads ??= {})[attr] = { value: r.value, line };
             notes.push(`${reader.name}: ${line}`);
           } else if (r) {
@@ -3049,6 +3144,13 @@ function priceOneItem(
         const ways = options.map((o) => o.needs.length === 1
           ? `${/^[aeiou]/i.test(reasonName(spec, o.needs[0])) ? "an" : "a"} ${reasonName(spec, o.needs[0])}`
           : o.needs.map((n) => reasonName(spec, n)).join(" + ")).join(", or ");
+        // ADP-3b (owner 2026-10-20 21:57, fix (2)): with NOTHING stated for any way, the row names neither and every
+        // box of every way is outlined (the area too); with something stated, the nearest way's gaps as before
+        const noneStated = options.every((o) => missingOf(o).length === o.needs.length);
+        if (noneStated) {
+          return { ...blank(`${family} needs ${ways} - ${options.length === 2 ? "neither" : "none"} stated - price this row by hand`),
+                   missing: [...new Set(options.flatMap((o) => o.needs))], defaulted: readDefaulted.filter((d) => fam.needs.includes(d.attr)) };
+        }
         return { ...blank(`${family} needs ${ways} - ${missingOf(nearest).map((n) => reasonName(spec, n)).join(" and ")} not stated - price this row by hand`),
                  missing: missingOf(nearest), defaulted: readDefaulted.filter((d) => fam.needs.includes(d.attr)) };
       }
@@ -3069,7 +3171,15 @@ function priceOneItem(
           const raw = rawValue(item, box);
           return raw !== null && raw !== "None" && options.every((o) => o.needs.filter((n) => boxOf(spec, n) === box).every((n) => !(n in read)));
         });
-        const what = lengthOnly !== undefined
+        // ADP-3b (owner B1): the face boxes are filled from the size AS WRITTEN; a size that gave none of their sides (a
+        // length, a depth) is named by that size, as before -- never "neither stated" beside a size the BoQ wrote
+        const faceNeeds = options.flatMap((o) => o.needs).filter((n) => !!spec.numbers[n]?.face_side && !!spec.numbers[n]?.length_from);
+        const faceFrom = faceNeeds.length ? spec.numbers[faceNeeds[0]]!.length_from! : undefined;
+        const faceSaid = faceFrom ? rawValue(item, faceFrom) : null;
+        const faceGaveNone = faceSaid !== null && faceSaid !== "None" && faceNeeds.every((n) => !(n in read)) && !anyStated;
+        const what = lengthOnly === undefined && faceGaveNone
+          ? `${boxLabel(spec, faceFrom!)} '${String(faceSaid)}' gives no ${faceNeeds.map((n) => reasonName(spec, n)).join(" or ")}${(() => { const u = readFaceSides(faceSaid)?.notUsed ?? []; return u.length ? ` (${u.join("; ")})` : ""; })()}`
+          : lengthOnly !== undefined
           ? `${boxLabel(spec, options.flatMap((o) => o.needs).find((n) => boxOf(spec, n) === lengthOnly)!)} '${String(rawValue(item, lengthOnly))}' gives one length, not ${options.flatMap((o) => o.needs).filter((n) => boxOf(spec, n) === lengthOnly).map((n) => reasonName(spec, n)).join(" x ")}`
           : anyStated
             ? `${boxesMissing.map((b) => boxLabel(spec, missingOf(nearest).find((n) => boxOf(spec, n) === b)!)).join(" and ")} not stated`
@@ -3198,7 +3308,9 @@ function priceOneItem(
     // an outer size that WAS stated but matched no SKU is said so
     if (skRule && absent.length === 1 && absent[0] === skRule.primary) {
       const outerLabel = skRule.name.charAt(0).toUpperCase() + skRule.name.slice(1);
-      const outerRaw = rawValue(item, boxOf(spec, skRule.key[0]));
+      // ADP-3b (owner D3): a typed outer box left empty is filled from the size as written -- that is what was stated
+      const k0 = spec.numbers[skRule.key[0]];
+      const outerRaw = rawValue(item, boxOf(spec, skRule.key[0])) ?? (k0?.length_from ? rawValue(item, k0.length_from) : null);
       const what = outerRaw !== null && outerRaw !== "None"
         ? `${skRule.name} '${String(outerRaw)}' could not be used and no ${reasonName(spec, skRule.primary)} stated`
         : "neither stated";
@@ -4304,7 +4416,20 @@ export function itemFieldDefs(
   // ADP-3a (owner H2, U2; B6 #5): the OUTER size of a `second_key` family stands in for its neck, so it is SHOWN
   // beside the neck (it was read, and priced, behind a field nobody could see). One box for both of its axes.
   const sk = (spec.second_key ?? []).find((r) => r.families.includes(family));
-  if (sk && ids.includes(sk.primary)) {
+  const outerName = sk ? sk.name.charAt(0).toUpperCase() + sk.name.slice(1) : "";
+  // ADP-3b (owner D3): where the outer size's axes are their OWN typed face boxes (v49), it is two boxes, "Outer width
+  // (mm)" and "Outer height (mm)", each filled from the size as written like every face box
+  const faceKey = !!sk && sk.key.every((k) => !!spec.numbers[k]?.face_side && spec.numbers[k]?.from[0] === k);
+  if (sk && ids.includes(sk.primary) && faceKey) {
+    const lead = sk.name.replace(/\s*size$/i, "");
+    for (const k of sk.key) {
+      if (seenIds.has(k)) continue;
+      seenIds.add(k);
+      const side = spec.numbers[k]!.face_side!;
+      out.push({ id: k, label: `${lead.charAt(0).toUpperCase() + lead.slice(1)} ${side} (mm)`, allowNone: false, skuAttr: k, control: "text", axes: [k], secondKey: true,
+                 typedNote: `Type the ${lead} ${side} the BoQ states, in mm.` });
+    }
+  } else if (sk && ids.includes(sk.primary)) {
     const modelId = spec.numbers[sk.key[0]]?.from[0];
     if (modelId && !seenIds.has(modelId)) {
       seenIds.add(modelId);
@@ -4325,7 +4450,8 @@ export function itemFieldDefs(
   if (sk && ids.includes(sk.primary) && out.some((f) => f.secondKey)) {
     // the neck OR the outer size (owner's words: "Neck size, or Outer size")
     ways.push([sk.primary], [...sk.key]);
-    group = `${boxLabel(spec, sk.primary, labelOfBox)}, or ${out.find((f) => f.secondKey)!.label}`;
+    // ADP-3b (owner D3): the group keeps its name -- "Neck size, or Outer size" -- over the two outer boxes
+    group = `${boxLabel(spec, sk.primary, labelOfBox)}, or ${faceKey ? outerName : out.find((f) => f.secondKey)!.label}`;
   }
   if (group) {
     const inGroup = new Set(ways.flat());

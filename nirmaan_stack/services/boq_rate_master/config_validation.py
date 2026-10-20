@@ -824,8 +824,13 @@ _PRICING_NUMBER_KEYS = {"from", "name", "unit", "square", "ratio", "reject_token
                        # filled from ONE SIDE of the box the size states (L x W x H, height last, a label winning),
                        # not from the W / H / D axes of a face size, which no existing key can express. ABSENT =>
                        # `length_from` reads exactly as in ADP-1.
-                       "box_side"}
+                       "box_side",
+                       # ADP-3b (owner B1; D1 / D2, 2026-10-20 22:25): `face_side` -- with `length_from`, the typed box is
+                       # filled from ONE SIDE of the FACE the size states (W x H, the first two parts, a label deciding
+                       # between them), not from a box's L x W x H. ABSENT => `length_from` reads as before.
+                       "face_side"}
 _PRICING_BOX_SIDES = {"length", "width", "height"}
+_PRICING_FACE_SIDES = {"width", "height"}
 _PRICING_TYPED_ENTRY = {"one_size"}
 # ADP-1: the units a number reader may declare. Closed so a misspelling cannot read silently as mm. "m" is the
 # piece length a pricer types in metres (H3); the other three are the units the reader has always understood.
@@ -1308,6 +1313,9 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
             _vthrow(f"list_spec.pricing.numbers['{nid}'].length_from needs typed_only: true and must name a text item attribute definition.")
         if "box_side" in rd and (rd["box_side"] not in _PRICING_BOX_SIDES or "length_from" not in rd or rd.get("unit") != "mm"):
             _vthrow(f"list_spec.pricing.numbers['{nid}'].box_side must be length / width / height, with length_from and unit mm.")
+        if "face_side" in rd and (rd["face_side"] not in _PRICING_FACE_SIDES or "length_from" not in rd or rd.get("unit") != "mm"
+                                  or "box_side" in rd):
+            _vthrow(f"list_spec.pricing.numbers['{nid}'].face_side must be width / height, with typed_only, length_from and unit mm, and never beside box_side.")
         if "label" in rd and (not isinstance(rd["label"], str) or not rd["label"].strip()):
             _vthrow(f"list_spec.pricing.numbers['{nid}'].label must be a non-empty string.")
         if "not_stocked" in rd and (not isinstance(rd["not_stocked"], str) or not rd["not_stocked"].strip()):

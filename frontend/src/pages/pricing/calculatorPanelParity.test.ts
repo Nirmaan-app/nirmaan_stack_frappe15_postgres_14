@@ -61,6 +61,7 @@ import { calculatorCtx } from "./PricingCalculator";
 import { itemListRuleOrder } from "./rate-master/itemListRuleOrder";
 import { applyAdp1 } from "@/pages/boq-wizard/rate-helper/adp1.harness";
 import { applyAdp2 } from "@/pages/boq-wizard/rate-helper/adp2.harness";
+import { applyAdp3b } from "@/pages/boq-wizard/rate-helper/adp3b.harness";
 
 // ── the fixtures, as snapshotted from the live site on 2026-10-06 ───────────────────────────────
 
@@ -1007,6 +1008,36 @@ describe("ADP-2 parity -- one case per new rule (air stream H5, plenum H7, neck 
     const c: ParityCase = { cat: ADP, unit: "nos", desc: "Aluminium powder coated Supply / Return air diffuser of 450x450 mm neck size", attrs: {}, items: [{ family: SQ, air: "supply", damper: "None", neck_mm: "450 x 450" }] };
     const run = runParity(cfgA, itemsA, c, "full");
     expect({ divergences: run.divergences, bothPriced: hasPrice(run.panel) && hasPrice(run.calculator) }).toEqual({ divergences: [], bothPriced: true });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// ADP-3b (owner B1; D1 / D2; AC4: each new rule keeps one permanent calculator = panel parity case) -- every line the
+// slice adds (and ADP-3a's either-or line, re-worded by the new group), through BOTH surfaces on v46 + ADP-1 + ADP-2 +
+// ADP-3b (= v49; `applyAdp3b`, pinned equal to the asset in its commit)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe("ADP-3b parity -- one case per new rule (face boxes B1, third part D1, width as height D2), on the ADP-2 config + ADP-3b", () => {
+  const v46 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
+    new URL("../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v46.json", import.meta.url),
+  );
+  const a = applyAdp3b(applyAdp2(applyAdp1(v46 as any))) as typeof v46;
+  const cfgB = new Map<string, RateCategoryConfig>(a.category_configs.map((c) => [c.category_id, c]));
+  const itemsB: RateMasterItem[] = a.items.map((it) => ({ ...it, discipline: a.discipline } as RateMasterItem));
+  const ADP = "hvac_adp";
+  const CASES_ADP3B: Array<{ id: string; rule: string; c: ParityCase }> = [
+    { id: "Q1", rule: "The width and height are typed in their own boxes, else read from the size", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: "VCD", variant: "GI rectangular", size_mm: "550X300" }] } },
+    { id: "Q2", rule: "A third part of a size never displaces the face", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: "sound attenuator", size_mm: "600 x 300 x 900 mm long" }] } },
+    { id: "Q3", rule: "A kind that reads only the height, sized by one dimension written as a width, takes it as the height", c: { cat: ADP, unit: "rmt", desc: "", attrs: {}, items: [{ family: "linear grille", size_mm: "150mm width" }] } },
+    { id: "Q4", rule: "A per-number item needs Width + Height, or Area band; with neither stated it refuses, naming both", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: "VCD", variant: "GI rectangular" }] } },
+  ];
+  it("the cases name every new line of the ADP-3b config, and only those", () => {
+    const t = (cat: string) => itemListRuleOrder(cfgB.get(cat)!, itemsB).map((l) => l.title);
+    for (const r of CASES_ADP3B) expect({ id: r.id, onTab: t(r.c.cat).includes(r.rule) }).toEqual({ id: r.id, onTab: true });
+    expect(new Set(CASES_ADP3B.map((r) => r.rule)).size).toBe(CASES_ADP3B.length);
+  });
+  it.each(CASES_ADP3B.map((r) => [r.id, r] as const))("%s: the calculator and the panel agree", (_, r) => {
+    const run = runParity(cfgB, itemsB, r.c, "full");
+    expect({ id: r.id, rule: r.rule, divergences: run.divergences }).toEqual({ id: r.id, rule: r.rule, divergences: [] });
   });
 });
 
