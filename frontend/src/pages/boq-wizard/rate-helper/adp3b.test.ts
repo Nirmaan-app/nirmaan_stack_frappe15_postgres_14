@@ -213,3 +213,17 @@ describe("U6 -- the ADP Derivation lines (generated from face_side), LAST", () =
     expect(t49.map((t) => t.replace("Width + Height", "Size (W x H)"))).toEqual(t48);
   });
 });
+
+// =====================================================================================================================
+describe("ADP-3b AC5 -- the minted HVAC v49 IS v48 + applyAdp3b (the harness every test above runs on cannot drift from the asset)", () => {
+  const V49_FILE = readJsonFixture<Asset>(pathToFileURL(path.join(DATA, "rate_master_hvac_all_v49.json")));
+  it("every config is deep-equal, in the same order; only ADP's differs from v48", () => {
+    expect(V49_FILE.category_configs.map((c) => c.category_id)).toEqual(V49.category_configs.map((c) => c.category_id));
+    for (const c of V49_FILE.category_configs) expect({ id: c.category_id, cfg: c }).toEqual({ id: c.category_id, cfg: V49.category_configs.find((x) => x.category_id === c.category_id) });
+    const changed = V49_FILE.category_configs.filter((c) => JSON.stringify(c) !== JSON.stringify(V48.category_configs.find((x) => x.category_id === c.category_id))).map((c) => c.category_id);
+    expect(changed).toEqual([ADP]);
+  });
+  it("the catalogue is v48's, item for item (ADP-3b changes no item)", () => {
+    expect(V49_FILE.items).toEqual(V48.items);
+  });
+});
