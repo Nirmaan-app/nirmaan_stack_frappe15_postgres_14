@@ -29,6 +29,10 @@
 // "Who gets paid" section picks or adds a Payee -- or, with a vendor picked, shows that vendor's
 // account read-only. The server COPIES the account into the request's own pay-to fields
 // (`services/payees/pay_to`) and refuses nothing: Required is this screen's rule.
+//
+// Office Rent (spec #1522, #1524): the raiser types the full rent, and the line under the Amount
+// shows the 10% TDS and what the landlord gets (`utils/expenses/expenseTds`). A form's PAN answer
+// not shaped like ABCPK1234D blocks submit, and the server refuses it too.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFrappeFileUpload, useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
@@ -75,9 +79,10 @@ import type {
     StayDuplicate,
 } from "@/types/NirmaanStack/ExpenseRequest";
 import {
-    answersFromSourceData, NATIVE_INVOICE_SECTION, parseFormat,
+    answersFromSourceData, invalidPanKeys, NATIVE_INVOICE_SECTION, parseFormat,
     readDetailDescription, readNativeInvoice, seedAnswers,
 } from "@/utils/expenseFormat";
+import { expenseTdsSplit, tdsPreviewLine } from "@/utils/expenses/expenseTds";
 import FormatFieldsRenderer, {
     FormatAnswers, FormatFiles, requiredKeys, toResponses,
 } from "./FormatFieldsRenderer";
@@ -351,6 +356,10 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         () => requiredKeys(parsedFormat).filter((k) => !(answers[k] || "").trim()),
         [parsedFormat, answers]
     );
+    // A PAN not shaped like one is refused here and by the server (`create.guard_pan_answers`, #1524).
+    const badPanAnswers = useMemo(() => invalidPanKeys(parsedFormat, answers), [parsedFormat, answers]);
+    // Office Rent withholds 10% (#1524): the raiser types the full rent and sees the split under it.
+    const tdsLine = tdsPreviewLine(expenseTdsSplit(form.expense_type, amountValue));
     // The standard request's own requirement: the SAME rule the server's `guard_request_form`
     // applies. The vendor is optional (#1501) and the invoice only warns (#1502).
     const standardComplete = !isStandard || !!form.description.trim();
@@ -374,6 +383,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         (!projectRequired || !!form.projects) &&
         !formatPending &&
         missingFormatAnswers.length === 0 &&
+        badPanAnswers.length === 0 &&
         standardComplete &&
         payeeReady &&
         !payeeChoice.adding &&
@@ -622,7 +632,9 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                                 type="number" placeholder="0" value={form.amount}
                                 onChange={(e) => set("amount", e.target.value)}
                             />
-                            {amountValue > 0 && (
+                            {tdsLine ? (
+                                <p className="text-xs text-muted-foreground">{tdsLine}</p>
+                            ) : amountValue > 0 && (
                                 <p className="text-xs text-muted-foreground">
                                     {formatToRoundedIndianRupee(amountValue)}
                                 </p>

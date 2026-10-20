@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
-    answersFromSourceData, isKnownBinding, parseFormat, readDetailDescription,
-    readNativeInvoice, seedAnswers, validateFormat,
+    answersFromSourceData, invalidPanKeys, isKnownBinding, panAnswerProblem, parseFormat,
+    readDetailDescription, readNativeInvoice, seedAnswers, validateFormat,
 } from "./expenseFormat";
 
 const FMT = parseFormat(JSON.stringify({
@@ -132,6 +132,44 @@ describe("validateFormat", () => {
         ] });
         expect(r.ok).toBe(true);
         expect(r.ok && r.warnings.some((w) => w.includes("FIRST one wins"))).toBe(true);
+    });
+});
+
+describe("the PAN field", () => {
+    const RENT = parseFormat(JSON.stringify({
+        templateId: "office-rent", templateVersion: 1,
+        sections: [{ id: "detail", type: "fields", fields: [
+            { key: "landlord_name", label: "Landlord Name", type: "text", required: true },
+            { key: "landlord_pan", label: "Landlord PAN", type: "pan", required: true },
+        ] }],
+    }));
+
+    it("accepts a PAN shaped like ABCPK1234D, in any case", () => {
+        expect(panAnswerProblem("ABCPK1234D")).toBeNull();
+        expect(panAnswerProblem("abcpk1234d")).toBeNull();
+    });
+
+    it("refuses anything else with a message that shows the shape", () => {
+        for (const bad of ["ABC123", "ABCPK1234", "ABCPK12345", "1BCPK1234D", "ABCPKX234D"]) {
+            expect(panAnswerProblem(bad)).toMatch(/ABCPK1234D/);
+        }
+    });
+
+    it("leaves a blank PAN to the required check", () => {
+        expect(panAnswerProblem("")).toBeNull();
+        expect(panAnswerProblem("  ")).toBeNull();
+    });
+
+    it("names the PAN answers that block submit, and never a text field", () => {
+        expect(invalidPanKeys(RENT, { "detail.landlord_name": "abc123", "detail.landlord_pan": "ABC123" }))
+            .toEqual(["detail.landlord_pan"]);
+        expect(invalidPanKeys(RENT, { "detail.landlord_pan": "ABCPK1234D" })).toEqual([]);
+        expect(invalidPanKeys(RENT, {})).toEqual([]);
+        expect(invalidPanKeys(null, { "detail.landlord_pan": "ABC123" })).toEqual([]);
+    });
+
+    it("is a field type the format editor saves", () => {
+        expect(codes(validateFormat(JSON.stringify(RENT)))).toEqual([]);
     });
 });
 

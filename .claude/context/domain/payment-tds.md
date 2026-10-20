@@ -200,6 +200,12 @@ letter decides it (owner, 2026-10-16):
 - Pinned by `services/test_tds_expense_records` (a rent row naming the SAME vendor, project and Work
   Order as a taxed payment, one of them Company-borne, leaves every Work Order and project figure as it
   was) and `services/test_tds_record_shape`.
+- **The frontend's copy of the rent rule is ONE module, `frontend/src/utils/expenses/expenseTds.ts`**
+  (#1524): `OFFICE_RENT_TDS` (Office Rent, 10%, 194-I) and `expenseTdsSplit(type, amount)` → gross /
+  rate / tds / net, rounded like `flt(x, 2)`; zero tax for every other type and for a zero or a refund.
+  A forecast only, never sent. The New Expense preview reads it (`tdsPreviewLine`), and the approval
+  screens and the Expense page must too (#1527). ⚠️ The server's own constant (#1525) is its twin:
+  change both or neither.
 
 ---
 

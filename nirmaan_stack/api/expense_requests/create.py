@@ -22,6 +22,7 @@ from nirmaan_stack.api.expense_requests.flatten import (
 	native_invoice,
 )
 from nirmaan_stack.api.expense_requests.form_snapshot import governing_form, stamp_live_form
+from nirmaan_stack.api.expense_requests.pan_answers import clean_pan_answers
 from nirmaan_stack.services.expense_statuses import REQUEST_PENDING
 from nirmaan_stack.services.payees.pay_to import apply_picked_payee
 
@@ -92,6 +93,7 @@ def create_expense_request(
 	# The form these answers were filled against, frozen, so the request reads against it after
 	# the type's form changes (#1503).
 	source_data = stamp_live_form(expense_type, source_data)
+	source_data = guard_pan_answers(expense_type, source_data)
 
 	# ⚠️ A DUPLICATE IS NEVER REFUSED HERE (owner ruling, 2026-08-20, REVERSING the 2026-08-19
 	# submission block). A duplicate stay is RETURNED as `duplicates` (`duplicates.py`, #1504) and
@@ -186,6 +188,19 @@ def guard_request_form(expense_type: str, source_data) -> None:
 		)
 	if not native_description(source_data):
 		frappe.throw("A description is required.", title="Description required")
+
+
+def guard_pan_answers(expense_type: str, source_data) -> str | None:
+	"""`source_data` with its PAN answers uppercased; refuses one not shaped like a PAN (#1524).
+
+	SHARED with `update`, like `guard_vendor_scope`. Run after `stamp_live_form`, so the form read
+	is the one the request is filled against. The rule is `pan_answers.clean_pan_answers`.
+	"""
+	fmt = governing_form(frappe._dict({"type": expense_type, "source_data": source_data}))
+	cleaned, problems = clean_pan_answers(source_data, fmt)
+	if problems:
+		frappe.throw("<br>".join(problems), title="PAN not valid")
+	return cleaned
 
 
 # The columns a format is allowed to write into. A CLOSED allowlist, deliberately: `maps_to`

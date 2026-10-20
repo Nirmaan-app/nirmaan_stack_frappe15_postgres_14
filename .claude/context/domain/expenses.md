@@ -664,6 +664,20 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   fields kept their keys (`premises` = Location, `billing_month` = Bill Date, `bank_name` = Bank
   Name), so answers already given still fill them. Rent/PG for Staff stays `staff-accommodation` with
   `person_name` and the rent period, which the duplicate staff-stay check reads.
+- **Office Rent's form (spec #1522, #1524) and the `pan` field kind.** Office Rent asks Rent Month
+  (date), Office Location, Landlord Name and Landlord PAN, all required (`templateId` `office-rent`), and
+  its sentence is `Office rent for {rent_month} – {office_location}. Landlord: {landlord_name} (PAN
+  {landlord_pan}). (10% TDS will be deducted)`; pinned by `test_request_forms.TestTheOfficeRentForm`. The
+  landlord is the TAX DEDUCTEE, not who gets paid, so Office Rent stays *Not asked* and is the one
+  exemption to "no form names who gets paid" (`TAX_DEDUCTEE_FIELDS`). A `pan` field is uppercased as
+  typed and checked by the vendor PAN rule: on screen by `utils/expenseFormat.panAnswerProblem` /
+  `invalidPanKeys` (over `pages/vendors/utils/vendorTaxIds.isValidPan`), which block submit; on the
+  server by `create.guard_pan_answers` on create AND edit (rule `pan_answers.clean_pan_answers`, over
+  `services/vendor_tds.is_valid_pan` / `clean_pan`), which stores the answer uppercased and refuses one
+  not shaped like ABCPK1234D. ⚠️ This is the ONE form answer the server checks; a blank PAN is still
+  left to the dialog's required check, like every required answer. The New Expense form shows the
+  10% split under the Amount for Office Rent only (`utils/expenses/expenseTds`; see
+  `payment-tds.md` § One tax record, two sources).
 - **Per-type visibility (`Expense Type.allowed_roles`, 2026-09-16).** Role PROFILES that may pick
   the type in the request dialog; Admin sees every type and is never listed, so **EMPTY = Admin
   only**. Enforced in `access.can_request_type` → `get_request_catalog` filter + `guard_requestable`
@@ -833,6 +847,9 @@ save an invalid template**.
   matters.
 
 - **Empty is normal and valid** — 33 of 40 types have no format and use the plain form.
+- **Field types** (`utils/expenseFormat.FIELD_TYPES`, drawn by `FormatFieldsRenderer`): `text`,
+  `textarea`, `number`, `date`, `select` and `pan` (#1524, an Income Tax PAN; see Office Rent's form
+  above).
   Unlike commissioning, an unauthored format must never block a request.
 - **`Expense Type.source_format` is the ONLY home.** There is deliberately no seed file and
   no reference copy in the repo (owner ruling, 2026-08-18): a second copy drifts the moment

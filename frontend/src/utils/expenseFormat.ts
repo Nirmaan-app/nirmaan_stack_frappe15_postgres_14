@@ -7,6 +7,7 @@
 // this way, which an inline `try { JSON.parse }` never is.
 
 import { formatDate } from "@/utils/FormatDate";
+import { isValidPan } from "@/pages/vendors/utils/vendorTaxIds";
 
 /** Pretty-print raw JSON text. Returns null when it does not parse. */
 export const prettyPrintJson = (raw: string): string | null => {
@@ -44,7 +45,8 @@ export const showAnswer = (value: string): string => (ISO_DATE.test(value) ? for
 export interface FormatField {
     key: string;
     label: string;
-    type?: "text" | "textarea" | "number" | "date" | "select";
+    /** `pan`: an Income Tax PAN, uppercased as typed and checked by the vendor PAN rule (#1524). */
+    type?: "text" | "textarea" | "number" | "date" | "select" | "pan";
     required?: boolean;
     options?: string[];
     unit?: string;
@@ -188,7 +190,7 @@ export type FormatValidationResult =
 /** What FormatFieldsRenderer can actually draw — see its SCOPE note. The validator tracks
  *  the renderer, because a format that saves clean and renders nothing is the worse bug. */
 const SECTION_TYPES = ["fields", "image_attachments"] as const;
-const FIELD_TYPES = ["text", "textarea", "number", "date", "select"] as const;
+const FIELD_TYPES = ["text", "textarea", "number", "date", "select", "pan"] as const;
 
 const vErr = (
     code: FormatValidationError["code"], message: string, path?: string,
@@ -341,6 +343,30 @@ export const validateFormat = (raw: string): FormatValidationResult => {
 
     return errors.length ? { ok: false, errors } : { ok: true, warnings };
 };
+
+
+// --- the PAN field (spec #1522, #1524) ------------------------------------------------
+//
+// A `pan` field (Office Rent's Landlord PAN) is checked by the vendor PAN rule
+// (`pages/vendors/utils/vendorTaxIds`). The server applies the same rule on create and edit
+// (`api/expense_requests/pan_answers`) and stores the answer uppercased.
+
+export const PAN_FIELD_TYPE = "pan";
+
+/** Why a PAN answer is refused, or null. A blank answer is the required check's, not this one's. */
+export const panAnswerProblem = (value: string): string | null =>
+    !value.trim() || isValidPan(value)
+        ? null
+        : "Not a PAN. A PAN is 10 characters: 5 letters, 4 digits and a letter, like ABCPK1234D.";
+
+/** Every `sectionId.fieldKey` of a `pan` field whose answer is refused: these block submit. */
+export const invalidPanKeys = (fmt: ParsedFormat | null, answers: Record<string, string>): string[] =>
+    (fmt?.sections ?? [])
+        .filter((s) => s.type === "fields")
+        .flatMap((s) => (s.fields ?? [])
+            .filter((f) => f.type === PAN_FIELD_TYPE)
+            .map((f) => `${s.id}.${f.key}`))
+        .filter((key) => panAnswerProblem(answers[key] ?? "") !== null);
 
 
 /** The stored answers as the dialog's flat `section.field` map — the inverse of `toResponses`.

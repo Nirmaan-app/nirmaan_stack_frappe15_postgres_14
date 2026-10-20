@@ -2,7 +2,7 @@
 //
 // Renders an Expense Type's `source_format` inside the create dialog.
 //
-// SCOPE: `fields` sections (text / textarea / number / date / select) and
+// SCOPE: `fields` sections (text / textarea / number / date / select / pan) and
 // `image_attachments` slots. Anything else is reported as unrendered rather than silently
 // dropped. The full commissioning renderer handles more section types but drags in wizard
 // steps and print concerns an expense request has no use for.
@@ -25,7 +25,9 @@ import { CustomAttachment, AcceptedFileType } from "@/components/helpers/CustomA
 import {
     Collapsible, CollapsibleContent, CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { panAnswerProblem, PAN_FIELD_TYPE } from "@/utils/expenseFormat";
 import type { FormatSection, ParsedFormat } from "@/utils/expenseFormat";
+import { cleanPan } from "@/pages/vendors/utils/vendorTaxIds";
 
 /** Answers keyed `sectionId.fieldKey` — flat, so React state stays trivial. */
 export type FormatAnswers = Record<string, string>;
@@ -132,6 +134,23 @@ const FieldsSection: React.FC<{
                                     ))}
                                 </SelectContent>
                             </Select>
+                        ) : f.type === PAN_FIELD_TYPE ? (
+                            // Uppercased as typed (#1524); the dialog blocks submit on a refused PAN
+                            // (`invalidPanKeys`) and the server refuses it too.
+                            <>
+                                <Input
+                                    value={value}
+                                    maxLength={10}
+                                    placeholder="ABCPK1234D"
+                                    autoCapitalize="characters"
+                                    disabled={disabled}
+                                    aria-invalid={!!panAnswerProblem(value)}
+                                    onChange={(e) => onChange(key, cleanPan(e.target.value))}
+                                />
+                                {panAnswerProblem(value) && (
+                                    <p className="text-xs text-destructive">{panAnswerProblem(value)}</p>
+                                )}
+                            </>
                         ) : (
                             <Input
                                 type={f.type === "number" ? "number" : f.type === "date" ? "date" : "text"}

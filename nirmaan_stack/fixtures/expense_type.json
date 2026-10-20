@@ -947,13 +947,13 @@
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
   "expense_name": "Office Rent",
-  "modified": "2026-10-20 10:00:00.000000",
+  "modified": "2026-10-20 12:00:00.000000",
   "name": "Office Rent",
   "non_project": 1,
   "payee_rule": "Not asked",
   "project": 0,
-  "source_format": "",
-  "source_format_enabled": 0
+  "source_format": "{\n  \"templateId\": \"office-rent\",\n  \"templateVersion\": 1,\n  \"title\": \"Office Rent\",\n  \"description_template\": \"Office rent for {rent_month} \u2013 {office_location}. Landlord: {landlord_name} (PAN {landlord_pan}). (10% TDS will be deducted)\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Rent\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"rent_month\",\n          \"label\": \"Rent Month\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"office_location\",\n          \"label\": \"Office Location\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"landlord_name\",\n          \"label\": \"Landlord Name\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"landlord_pan\",\n          \"label\": \"Landlord PAN\",\n          \"type\": \"pan\",\n          \"required\": true\n        }\n      ]\n    }\n  ]\n}",
+  "source_format_enabled": 1
  },
  {
   "allowed_roles": [
