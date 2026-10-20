@@ -76,6 +76,10 @@ Both share one approval lifecycle and are entered/managed together in a single u
   someone who can raise at least one type or who reviews: `access.opens_expenses`, served by
   `read.get_expense_access` and read by the sidebar, the Service Procurement dashboard card and the
   route guard `ExpenseRoute` (`frontend/src/hooks/useExpenseAccess`, rule `utils/expenseAccess`).
+  **Project Payment & Expense has the same New Expense button**, under the same gate, opening the same
+  `NewExpenseRequestDialog` (no second dialog). After a submit the dialog says what happens next, the
+  same on both pages, from the server's answer: `utils/newExpenseForm.whatHappensNext` (a request that
+  waits for review links to `/expense/requests/<name>`).
 - **An L1 reviewer's review of an Expense Request is the L1 step** (#1499, ADR-0016 amendment 3).
   `starting_status(amount, raised_by, reviewed_by)` clears L1 when the request's `reviewed_by` is L1
   (`is_l1`), exactly as for an L1 raiser: an Admin-reviewed ₹22,000 request's Expense is born

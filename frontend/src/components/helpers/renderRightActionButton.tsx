@@ -158,13 +158,10 @@ export const RenderRightActionButton = ({
         Add <span className="hidden md:flex pl-1">New Project Invoice</span>
       </Button>
     );
-  } else if (locationPath === "/project-payments") {
-    // No Add Expense here (spec #1494, #1506): every expense is raised through New Expense on the
-    // Expenses page, as an Expense Request. Imports and PO adjustments are the only other writers.
-    return null;
-  } else if (locationPath === "/expense/requests") {
-    // The one door for every expense (spec #1494). Shown with the page: to someone who can raise a
-    // type or reviews (`useExpenseAccess`, the `ExpenseRoute` answer). The server refuses a type the
+  } else if (locationPath === "/expense/requests" || locationPath === "/project-payments") {
+    // The one door for every expense (spec #1494): the same New Expense dialog on the Expenses page
+    // and on Project Payment & Expense, which each mount it. Shown to someone who can raise a type
+    // or reviews (`useExpenseAccess`, the `ExpenseRoute` answer). The server refuses a type the
     // raiser may not raise.
     if (!showsExpenses(expenseAccess)) return null;
     return (

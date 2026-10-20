@@ -17,6 +17,9 @@ import {
 // viewers outside its audience (#1476).
 import { paymentsTabSet, resolvePaymentsTab } from "./config/paymentsTabSet";
 import { ChequeTrackerNote } from "./components/ChequeTrackerNote";
+import NewExpenseRequestDialog from "@/pages/ExpenseRequests/components/NewExpenseRequestDialog";
+import { useExpenseAccess } from "@/hooks/useExpenseAccess";
+import { showsExpenses } from "@/utils/expenseAccess";
 
 const ApprovePayments = React.lazy(() => import("./approve-payments/ApprovePayments"));
 const AccountantTabs = React.lazy(() => import("./update-payment/AccountantTabs"));
@@ -65,6 +68,16 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
     useEffect(() => () => {
         if (countsDebounceRef.current) clearTimeout(countsDebounceRef.current);
     }, []);
+
+    // ── + New Expense (spec #1494): the Expenses page's dialog, opened by the header button under the
+    // same gate (`showsExpenses`). After a submit the open tab is mounted afresh, so its table shows
+    // any Expense the submit created at once, and the badges refetch.
+    const { access: expenseAccess } = useExpenseAccess();
+    const [listsVersion, setListsVersion] = useState(0);
+    const refreshLists = useCallback(() => {
+        setListsVersion((v) => v + 1);
+        mutateQueueCounts();
+    }, [mutateQueueCounts]);
 
     const unionCount = useCallback(
         (status: string, fallback: number | string) => {
@@ -212,6 +225,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
             <Suspense fallback={
                 <LoadingFallback />
             }>
+                <React.Fragment key={listsVersion}>
                 {
                     tab === PP_TABS.APPROVE_PAYMENTS ? (
                         canApprovePayments ? (
@@ -256,7 +270,9 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                                     <ProjectPaymentsList />
                                 )
                 }
+                </React.Fragment>
             </Suspense >
+            {showsExpenses(expenseAccess) && <NewExpenseRequestDialog onSuccess={refreshLists} />}
         </div >
     );
 };
