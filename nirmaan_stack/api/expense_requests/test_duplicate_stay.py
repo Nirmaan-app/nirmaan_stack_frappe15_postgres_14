@@ -17,6 +17,7 @@ Run:
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from nirmaan_stack.api.approvals.expense_detail import get_expense_approval_detail
 from nirmaan_stack.api.expense_requests.create import create_expense_request
 from nirmaan_stack.api.expense_requests.duplicates import check_duplicate_stay
 from nirmaan_stack.api.expense_requests.review import reject_expense_request
@@ -216,6 +217,18 @@ class TestDuplicateStay(FrappeTestCase):
 		second = self._raise(PM_USER, _stay(self.person, "2031-01-15", "2031-02-15"))
 		self.assertEqual(self._names(get_similar(second["name"])["stays"]), {first["name"]})
 		self.assertEqual(self._names(get_similar(first["name"])["stays"]), {second["name"]})
+
+	def test_the_approver_in_approve_payments_sees_the_other_stays_and_never_its_own(self):
+		"""Spec: flagged to WHOEVER approves -- the Admin or CEO approving the Expense too."""
+		other = self._raise(PM_USER, _stay(self.person, "2031-09-01", "2031-09-30"))
+		# Rs 20,000 from HR is approved on submit; its Expense waits for an Admin in Approve Payments.
+		mine = self._raise(HR_USER, _stay(self.person, "2031-09-15", "2031-10-15"), amount=20000)
+		detail = get_expense_approval_detail(mine["created_expense_doctype"], mine["created_expense"])
+		self.assertEqual(self._names(detail["stays"]), {other["name"]})
+
+		alone = self._raise(HR_USER, _stay(f"{self.person} Solo", "2031-09-15", "2031-10-15"), amount=20000)
+		detail = get_expense_approval_detail(alone["created_expense_doctype"], alone["created_expense"])
+		self.assertEqual(detail["stays"], [])
 
 	# --- re-checked only when the stay changes ------------------------------------
 

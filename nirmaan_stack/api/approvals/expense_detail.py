@@ -6,8 +6,10 @@ URL: /api/method/nirmaan_stack.api.approvals.expense_detail.get_expense_approval
 READ-ONLY. The queue row carries only what a table column needs (type, amount, a trimmed
 description), so the Approve / Reject dialog showed an amount and nothing else (owner,
 2026-09-21). This hands it the rest: the row's own fields, who really raised it, the Expense
-Request behind it (labelled answers + attachments, and who approved that request), and the
-same-type-and-amount expenses of the last 60 days.
+Request behind it (labelled answers + attachments, and who approved that request), the
+same-type-and-amount expenses of the last 60 days, and every other stay for the same person on
+overlapping days (`duplicates.find_stay_duplicates`, #1504): the spec flags a duplicate stay to
+WHOEVER approves, so the Admin or CEO approving the Expense sees what the Reviewer saw.
 
 ⚠️ THE RAISER IS THE REQUEST'S OWNER. A request-born row is inserted by the reviewer who approved
 the request, and rows made before 2026-10-20 still name that reviewer as `owner`. One answer for
@@ -21,6 +23,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
+from nirmaan_stack.api.expense_requests.duplicates import find_stay_duplicates
 from nirmaan_stack.api.expense_requests.flatten import NATIVE_INVOICE_SECTION, detail_rows
 from nirmaan_stack.api.expense_requests.form_snapshot import governing_form
 from nirmaan_stack.api.expense_requests.similar import _scan_ledgers
@@ -76,6 +79,9 @@ def get_expense_approval_detail(doctype: str, name: str) -> dict:
 		"approval_date": doc.get("approval_date"),
 		"request": request,
 		"similar": similar,
+		# The request itself is never its own match. Like `similar`, it names other people's
+		# expenses: an approver weighs exactly those.
+		"stays": find_stay_duplicates(request["source_data"], exclude=request["name"]) if request else [],
 		"user_names": _names([raised_by, (request or {}).get("reviewed_by")]),
 	}
 

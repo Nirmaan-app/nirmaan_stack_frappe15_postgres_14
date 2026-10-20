@@ -287,7 +287,9 @@ Owner rulings; commits `0fc6cd146`, `9e73e97ed`, `fc4a3de42` on `develop`. Terms
   `ExpenseApprovalDetails`. It shows: type, amount, project, vendor, raiser + date, description (hidden
   when the request's labelled answers already say it), comment, invoice ref / date / file, the Expense
   Request's answers + reviewer + extra attachments, same-type-and-amount expenses in the last 60 days
-  (`similar._scan_ledgers`, the row itself excluded), and whether this click finishes the approval or
+  (`similar._scan_ledgers`, the row itself excluded), other stays for the same person on overlapping
+  days in bold (`stays`, `duplicates.find_stay_duplicates` via `DuplicateStayNote`, #1504: flagged to
+  whoever approves, never blocking), and whether this click finishes the approval or
   forwards it to the CEO. The CEO's partial-amount box is suppressed on expenses: the CEO expense
   approve is a plain status write and always approved the full amount.
 

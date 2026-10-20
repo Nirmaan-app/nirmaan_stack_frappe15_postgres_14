@@ -5,6 +5,7 @@
 
 import { attachmentsFromSourceData } from "@/utils/expenseFormat";
 import { statusAfterL1, TIER_L2_ABOVE_EXPENSES } from "@/utils/approvalTiers";
+import type { StayDuplicate } from "@/types/NirmaanStack/ExpenseRequest";
 
 export interface ExpenseApprovalDetail {
   doctype: "Project Expenses" | "Non Project Expenses";
@@ -36,6 +37,8 @@ export interface ExpenseApprovalDetail {
     detail: { label: string; value: string }[];
   } | null;
   similar: { doctype: string; name: string; amount: number; status: string; on: string }[];
+  /** Other stays for the same person on overlapping days (#1504); never this Expense's own request. */
+  stays: StayDuplicate[];
   user_names: Record<string, string>;
 }
 

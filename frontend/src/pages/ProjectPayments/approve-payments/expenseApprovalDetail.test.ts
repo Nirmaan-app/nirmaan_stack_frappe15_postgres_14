@@ -28,6 +28,7 @@ const base = (over: Partial<ExpenseApprovalDetail> = {}): ExpenseApprovalDetail 
   raised_on: null,
   request: null,
   similar: [],
+  stays: [],
   user_names: {},
   ...over,
 });
