@@ -184,7 +184,8 @@ describe("slice 12c-U / no unit or rate-only -> the catalogue's unit, or a named
     // spigot is priced by number only; a row written per metre said something, and it was wrong
     const r = one("Rmt", { family: "spigot", dia_mm: "200" });
     expect(r.priced).toBe(false);
-    expect(r.reason).toBe("no SKU per metre for spigot");
+    // INVERTED at ADP-3a (owner 2026-10-20 13:35, U5: a unit the kind is not stocked in names the unit and the stocked ones) by mechanical authority: BEFORE .toBe("no SKU per metre for spigot")
+    expect(r.reason).toBe("spigot is not stocked per metre (stocked per number) - price this row by hand");
     expect(r.unitNote).toBeUndefined();
   });
 
@@ -237,7 +238,8 @@ describe("slice 5 / R12 -- the row's unit decides the unit class; no unit = refu
     expect(r.unitNote).toBe("No unit on the BoQ row -> priced per number, the catalogue's unit for this item");
     expect(r.items.length).toBe(1);
     // NEGATIVE, unchanged: a unit the row STATED that is not a unit of measure keeps refusing
-    expect(one("Lot", { family: "spigot", dia_mm: "100" }).reason).toBe("unit 'Lot' is not a count, area or length unit (R12)");
+    // INVERTED at ADP-3a (owner 2026-10-20 13:35, U5: a unit the kind is not stocked in names the unit and the stocked ones) by mechanical authority: BEFORE .toBe("unit 'Lot' is not a count, area or length unit (R12)")
+    expect(one("Lot", { family: "spigot", dia_mm: "100" }).reason).toBe("spigot is not stocked per 'Lot' (stocked per number) - price this row by hand");
     expect(one("Cum", { family: "spigot", dia_mm: "100" }).reason).toContain("Cum");
     // NEGATIVE: and neither of those carries a unit note -- the note belongs to the resolved case only
     expect(one("Lot", { family: "spigot", dia_mm: "100" }).unitNote).toBeUndefined();
@@ -307,7 +309,8 @@ describe("slice 5 / R4 -- a per-metre grille: sq.m rate x height in metres; no h
     expect(r.priced).toBe(false);
     expect(r.reason).toBe("per-metre row: no height stated to convert the per-sq.m rate");
     const s = one("Rmt", { family: "sound attenuator", face_h_mm: "300" });
-    expect(s.reason).toBe("no SKU per metre for sound attenuator");
+    // INVERTED at ADP-3a (owner 2026-10-20 13:35, U5: a unit the kind is not stocked in names the unit and the stocked ones) by mechanical authority: BEFORE .toBe("no SKU per metre for sound attenuator")
+    expect(s.reason).toBe("sound attenuator is not stocked per metre (stocked per number or per sq.m) - price this row by hand");
   });
 });
 
@@ -449,7 +452,8 @@ describe("slice 5 / R11 -- a per-number row with W x H: sq.m rate x area, supply
   it("NEGATIVE: no size = blank with the reason; a family with its own per-number rows never converts", () => {
     const r = one("Nos", { family: "VCD", variant: "None" });
     expect(r.priced).toBe(false);
-    expect(r.reason).toBe("per-number row: no width and height, or area stated to convert the per-sq.m rate");
+    // INVERTED at ADP-3a (owner H2 / U2: several ways are ONE either-or group, the refusal names it) by mechanical authority: BEFORE .toBe("per-number row: no width and height, or area stated to convert the per-sq.m rate")
+    expect(r.reason).toBe("VCD needs both of Face width, Face height, or Area band - neither stated - price this row by hand");
     const sq = one("Nos", { family: "square diffuser", damper: "with", neck_mm: "450x450" });
     expect(sq.items[0].conversion).toBeNull();
     expect(figures(sq)).toEqual([true, 2523, 576]);
@@ -721,6 +725,11 @@ const asset8 = HVAC_V8 as unknown as Asset;
 const items8: RateMasterItem[] = asset8.items.map((i) => ({ ...i, discipline: "HVAC" }));
 const adp8 = asset8.category_configs.find((c) => c.category_id === "hvac_adp")!;
 const spec8 = itemListPricingSpec(adp8)!;
+// ADP-3a (U1 / U3): the two keys every field may now carry, set aside where a pin compares the slice-6 object whole
+const withoutAdp3a = <T extends { required?: unknown; axes?: unknown }>(fs: T[]) => fs.map(({ required: _r, axes: _a, ...rest }) => rest);
+// ADP-3a (U1): the round diffuser per number on v8 -- the damper is not needed (v8 declares no absent-as-none default, so a
+// blank damper still refuses: needed), the diameter is needed, a number box feeds its own axis
+const ROUND8_ADP3A = [["damper", true, null], ["dia_mm", true, ["dia_mm"]]];
 const price8 = (unit: string, ...its: ExtractedListItem[]) => priceItemList(spec8, items8, unit, its);
 const one8 = (unit: string, attrs: Record<string, string | null>) => price8(unit, ext(attrs));
 
@@ -886,7 +895,9 @@ describe("slice 6 / the panel-facing helpers read the CONFIG -- no family, label
     const defs = listSpecDefs(adp8);
     // slice 6b (V5): every field now names its control -- v8 declares none, so a choice is a dropdown from the
     // definition and a number is text, exactly slice 6's controls
-    expect(itemFieldDefs(spec8, defs, "round diffuser", "count")).toEqual([
+    // INVERTED at ADP-3a (owner H1 / U1, U3: every field carries `required` where needed and a number field its `axes`) by mechanical authority: BEFORE the whole objects; compared without the two new keys, which are asserted below
+    expect(itemFieldDefs(spec8, defs, "round diffuser", "count").map((f) => [f.id, !!f.required, f.axes ?? null])).toEqual(ROUND8_ADP3A);
+    expect(withoutAdp3a(itemFieldDefs(spec8, defs, "round diffuser", "count"))).toEqual([
       // 12d-2 (owner S4, INVERTING the slice-6 "None first" half, NOT deleting it): the damper has a ruled default
       // ("not mentioned" -> without), so "None" is no longer OFFERED -- the field shows the default's value amber
       { id: "damper", label: "Damper", options: ["with", "without"], allowNone: true, skuAttr: "damper", control: "dropdown", optionSource: "definition" },
@@ -955,7 +966,9 @@ describe("slice 6b / v9 = v8 + panel_controls on the ADP config, and NOTHING els
 describe("slice 6b / V1, V4 -- a dropdown's options come from the ACTIVE SKUs, narrowed by the block's other answers (X2)", () => {
   it("POSITIVE: the disc valve's diameters are the sheet's two; a round diffuser's damper choices and diameters are the sheet's; a control panel's ratios; a plenum's thicknesses", () => {
     const dv = itemFieldDefs(spec9, defs9, "disc valve", "count", { items: items9 });
-    expect(dv).toEqual([{ id: "dia_mm", label: "Diameter (as written)", allowNone: false, skuAttr: "dia_mm", control: "dropdown", options: ["100", "150"], optionSource: "catalogue" }]);
+    // INVERTED at ADP-3a (owner H1 / U1, U3: every field carries `required` where needed and a number field its `axes`) by mechanical authority: BEFORE `expect(dv).toEqual(...)` on the whole object
+    expect(dv.map((f) => [f.id, !!f.required, f.axes ?? null])).toEqual([["dia_mm", true, ["dia_mm"]]]);
+    expect(withoutAdp3a(dv)).toEqual([{ id: "dia_mm", label: "Diameter (as written)", allowNone: false, skuAttr: "dia_mm", control: "dropdown", options: ["100", "150"], optionSource: "catalogue" }]);
     expect(dv[0].options).toEqual(stocked("disc valve", "dia_mm"));
     const rd = itemFieldDefs(spec9, defs9, "round diffuser", "count", { items: items9 });
     expect(rd.map((f) => [f.id, f.control, f.options, f.optionSource])).toEqual([
@@ -1021,9 +1034,11 @@ describe("slice 6b / V1, V4 -- a dropdown's options come from the ACTIVE SKUs, n
     // the mixing box's three dimensions are conversion inputs: text
     expect(itemFieldDefs(spec9, defs9, "mixing box / LP plenum", "count", { items: items9 }).map((f) => [f.id, f.control])).toEqual([["insulated", "dropdown"], ["face_w_mm", "text"], ["face_h_mm", "text"], ["depth_mm", "text"]]);
     // v8: a number is a text input, a choice a select from the definition -- exactly slice 6, plus the control key
-    expect(itemFieldDefs(spec8, listSpecDefs(adp8), "disc valve", "count", { items: items8 })).toEqual([{ id: "dia_mm", label: "Diameter (as written)", allowNone: false, skuAttr: "dia_mm", control: "text" }]);
+    // INVERTED at ADP-3a (owner H1 / U1, U3: every field carries `required` where needed and a number field its `axes`) by mechanical authority: BEFORE the whole object; compared without the two new keys
+    expect(withoutAdp3a(itemFieldDefs(spec8, listSpecDefs(adp8), "disc valve", "count", { items: items8 }))).toEqual([{ id: "dia_mm", label: "Diameter (as written)", allowNone: false, skuAttr: "dia_mm", control: "text" }]);
     // without SKUs handed in, a v9 dropdown size has no options to offer (the caller must pass the catalogue)
-    expect(itemFieldDefs(spec9, defs9, "disc valve", "count")[0]).toEqual({ id: "dia_mm", label: "Diameter (as written)", allowNone: false, skuAttr: "dia_mm", control: "dropdown" });
+    // INVERTED at ADP-3a (owner H1 / U1, U3) by mechanical authority: BEFORE the whole object; compared without the two new keys
+    expect(withoutAdp3a(itemFieldDefs(spec9, defs9, "disc valve", "count"))[0]).toEqual({ id: "dia_mm", label: "Diameter (as written)", allowNone: false, skuAttr: "dia_mm", control: "dropdown" });
   });
 });
 
@@ -1338,7 +1353,8 @@ describe("slice 8 / M-c -- a flexible duct is sold per piece of a 2.5 m standard
     // NEGATIVE, the same row on v10: refused -- the defect M-c answers
     const was = priceItemList(spec10, items10, "Nos", [ext({ family: "flexible duct", insulated: "with", dia_mm: "250 mm" })]);
     expect(was.priced).toBe(false);
-    expect(was.reason).toBe("no SKU per number for flexible duct");
+    // INVERTED at ADP-3a (owner 2026-10-20 13:35, U5: a unit the kind is not stocked in names the unit and the stocked ones) by mechanical authority: BEFORE .toBe("no SKU per number for flexible duct")
+    expect(was.reason).toBe("flexible duct is not stocked per number (stocked per metre) - price this row by hand");
   });
 
   it("NEGATIVE: a per-METRE row prices per metre exactly as before -- the conversion is unreachable from it", () => {
@@ -1356,7 +1372,8 @@ describe("slice 8 / M-c -- a flexible duct is sold per piece of a 2.5 m standard
     const r = price11("RMT", ext({ family: "spigot", dia_mm: "150" }));
     const was = priceItemList(spec10, items10, "RMT", [ext({ family: "spigot", dia_mm: "150" })]);
     expect(r.priced).toBe(false);
-    expect(r.reason).toBe("no SKU per metre for spigot");
+    // INVERTED at ADP-3a (owner 2026-10-20 13:35, U5: a unit the kind is not stocked in names the unit and the stocked ones) by mechanical authority: BEFORE .toBe("no SKU per metre for spigot")
+    expect(r.reason).toBe("spigot is not stocked per metre (stocked per number) - price this row by hand");
     expect(r.reason).toBe(was.reason);
   });
 
@@ -1583,7 +1600,8 @@ describe("slice 9 / A-4 -- the OUTER size is a SECOND key, never a replacement",
   it("case 4: NEITHER stated -- refuses for the neck, exactly as before", () => {
     const r = price12("Nos", ext({ ...SQ }));
     expect(r.priced).toBe(false);
-    expect(r.reason).toContain("no neck size stated");
+    // INVERTED at ADP-3a (owner H2 / U2, B6 #5: neck OR outer size is one group, the refusal names it) by mechanical authority: BEFORE .toContain("no neck size stated")
+    expect(r.reason).toContain("square diffuser needs Neck size, or Outer size - neither stated");
     expect(working(r).join(" ")).not.toContain("outer size");
   });
 
@@ -1803,7 +1821,8 @@ describe("slice 11 / F-2 -- four TRUE synonyms, and three strings that are not u
     for (const u of ["Lot", "Cum"]) {
       const r = priceItemList(spec13, items13, u, [ext({ family: "VCD", variant: "None", damper: "None", insulated: "None" })]);
       expect(r.priced, u).toBe(false);
-      expect(r.reason, u).toBe(`unit '${u}' is not a count, area or length unit (R12)`);
+      // INVERTED at ADP-3a (owner 2026-10-20 13:35, U5: a unit the kind is not stocked in names the unit and the stocked ones) by mechanical authority: BEFORE toBe(`unit '${u}' is not a count, area or length unit (R12)`)
+      expect(r.reason, u).toBe(`VCD is not stocked per '${u}' (stocked per number or per sq.m) - price this row by hand`);
       expect(r.unitNote, u).toBeUndefined();
     }
     const ro = priceItemList(spec13, items13, "R/O", [ext({ family: "VCD", variant: "None", damper: "None", insulated: "None" })]);
@@ -1838,7 +1857,8 @@ describe("slice 11 / F-2b -- a square foot is a DIFFERENT unit of the area class
     expect([perSqm.priced, perSqm.supply, perSqm.install]).toEqual([true, 7830, 1920]);
     const perSqft = p13("Sqft", vcd());
     expect([perSqft.priced, perSqft.supply, perSqft.install]).toEqual([true, 728, 179]);
-    expect(perSqft.items[0].working).toContain("per sq.ft: sq.m rate x 0.0929");
+    // INVERTED at ADP-3a (U6: the sq.ft line shows the rate before and after) by mechanical authority: BEFORE expect(perSqft.items[0].working).toContain("per sq.ft: sq.m rate x 0.0929");
+    expect(perSqft.items[0].working.some((w) => w.startsWith("per sq.ft: sq.m rate x 0.0929 (supply "))).toBe(true);
     // the arithmetic, spelled out: the RATE is converted and then rounded, and the quantity is untouched
     expect(Math.ceil(7830 * 0.0929)).toBe(728);
     expect(Math.ceil(1920 * 0.0929)).toBe(179);
@@ -1859,7 +1879,8 @@ describe("slice 11 / F-2b -- a square foot is a DIFFERENT unit of the area class
     expect(unitFactorOf(spec13, "")).toBeNull();
     expect(unitFactorOf(spec13, null)).toBeNull();
     const r = p13("Sqft2", vcd());
-    expect(r.reason).toBe("unit 'Sqft2' is not a count, area or length unit (R12)");
+    // INVERTED at ADP-3a (owner 2026-10-20 13:35, U5: a unit the kind is not stocked in names the unit and the stocked ones) by mechanical authority: BEFORE .toBe("unit 'Sqft2' is not a count, area or length unit (R12)")
+    expect(r.reason).toBe("VCD is not stocked per 'Sqft2' (stocked per number or per sq.m) - price this row by hand");
   });
 
   it("⚠️ NEGATIVE: on v12 nothing declares a factor, so a sq.ft row refused -- that is what changed", () => {
@@ -1867,7 +1888,8 @@ describe("slice 11 / F-2b -- a square foot is a DIFFERENT unit of the area class
     expect(unitClassOf(spec12, "Sqft")).toBeNull();
     const r = priceItemList(spec12, items12, "Sqft", [vcd()]);
     expect(r.priced).toBe(false);
-    expect(r.reason).toBe("unit 'Sqft' is not a count, area or length unit (R12)");
+    // INVERTED at ADP-3a (owner 2026-10-20 13:35, U5: a unit the kind is not stocked in names the unit and the stocked ones) by mechanical authority: BEFORE .toBe("unit 'Sqft' is not a count, area or length unit (R12)")
+    expect(r.reason).toBe("VCD is not stocked per 'Sqft' (stocked per number or per sq.m) - price this row by hand");
   });
 
   it("⚠️ NEGATIVE: a unit_classes spelling ALWAYS wins -- a unit is declared in one place only", () => {
@@ -3689,7 +3711,8 @@ describe("SLICE 12d-4a -- the audit fixes: named cladding, unstocked materials, 
     expect(r.unitNote).toBe("BoQ says QRO - Sqm. (rate only) -> priced per sq.m, the catalogue's unit for this item");
     expect(r.rateUnit).toBe("sq.m");
     // a rate-only prefix before a NON-unit still refuses by name, exactly as before
-    expect(price(plain, "QRO - Lot", { item: TN, cladding: "None", thickness_mm: "19mm" }).reason).toBe("unit 'QRO - Lot' is not a count, area or length unit (R12)");
+    // INVERTED at ADP-3a (owner 2026-10-20 13:35, U5: a unit the kind is not stocked in names the unit and the stocked ones) by mechanical authority: BEFORE .toBe("unit 'QRO - Lot' is not a count, area or length unit (R12)")
+    expect(price(plain, "QRO - Lot", { item: TN, cladding: "None", thickness_mm: "19mm" }).reason).toBe("Thermal Nitrile Insulation is not stocked per 'QRO - Lot' (stocked per sq.m) - price this row by hand");
   });
 
   it("D11: on a row with NO unit, a named-material refusal shows FIRST; a stocked family on a no-unit row still takes the 12c-U path (priced per sq.m)", () => {

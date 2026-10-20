@@ -53,6 +53,10 @@ import {
   readFamilyWord, readNumber, severalSizesPick, typedFamilyLine, withoutTrailingPunctuation,
 } from "./itemListPricing";
 
+// ADP-3a (owner U5 / B6 / H2): the Derivation lines ADP-3a adds -- set aside where a pin counts or positions an earlier tab
+const ADP3A_LINE = /^(A kind not stocked in the row's unit refuses|An unstocked combination names only|A per-.+ needs .+; with neither stated it refuses, naming both$)/;
+const withoutAdp3aLines = <T extends { title: string } | string>(ls: T[]): T[] => ls.filter((l) => !ADP3A_LINE.test(typeof l === "string" ? l : l.title));
+
 type Asset = { discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] };
 const DATA = "../../../../../nirmaan_stack/services/boq_rate_master/data/";
 const V37 = readJsonFixture<Asset>(new URL(`${DATA}rate_master_hvac_all_v37.json`, import.meta.url));
@@ -718,7 +722,10 @@ describe("12e-4b AC11 -- the Derivation tab says the new rules, generated from t
   const NEAR_TITLE = "A pipe size within 0.1 mm of a stocked size counts as that size";
   it("Piping: 21 lines -- the as-written rule after the row-words rule, the no-unit refusal after the size fit; word for word", () => {
     const all = lines(CFG[PIP]);
-    expect(all).toHaveLength(21);
+    // INVERTED at ADP-3a (owner U5 / B6 / H2: the unit-refusal and unstocked-combination lines on every item-list tab, and
+    // ADP's per-number either-or line) by mechanical authority: BEFORE `toHaveLength(21)`; without the ADP-3a lines it is still 21; Piping gains ONE line (the unit refusal): it matches on size alone, so no combination can be unstocked
+    expect(all).toHaveLength(22);
+    expect(withoutAdp3aLines(all)).toHaveLength(21);
     expect(all[5]).toEqual({ n: 6, title: AS_WRITTEN_TITLE,
       detail: "the BoQ's own word, from the row or else its headings, read exactly as the same word typed in the pipe type box; a word naming several kinds prices as the one they all mean and refuses when they differ; an answered pipe type always wins over it; shown read-only, and only where it differs from the kind priced" });
     expect(all[4].title).toBe("A row naming one pipe type prices as it; two different ones with none chosen refuse");
@@ -734,27 +741,40 @@ describe("12e-4b AC11 -- the Derivation tab says the new rules, generated from t
     // line (U2) and the RPUF line (R) generate here too; without them the tab is still 25.
     // INVERTED at ADP-1 (owner F4, 2026-10-19) by mechanical authority: BEFORE `expect(all).toHaveLength(27)`. The F4 line (RPUF on a per-sq.m row)
     // generates wherever the RPUF line does; without it the count below it is unchanged.
-    expect(all).toHaveLength(28);
-    expect(all.filter((l) => ![NO_UNIT_TITLE, "RPUF with no material answered prices as Tubular Puf Insulation", "RPUF on a per-sq.m row refuses by name"].includes(l.title))).toHaveLength(25);
+    // INVERTED at ADP-3a (owner U5 / B6 / H2: the unit-refusal and unstocked-combination lines on every item-list tab, and
+    // ADP's per-number either-or line) by mechanical authority: BEFORE `toHaveLength(28)`; without the ADP-3a lines it is still 28
+    expect(all).toHaveLength(30);
+    expect(withoutAdp3aLines(all)).toHaveLength(28);
+    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE the same filter over the whole tab; the ADP-3a lines are set aside first
+    expect(withoutAdp3aLines(all).filter((l) => ![NO_UNIT_TITLE, "RPUF with no material answered prices as Tubular Puf Insulation", "RPUF on a per-sq.m row refuses by name"].includes(l.title))).toHaveLength(25);
     const at = all.findIndex((l) => l.title === NEAR_TITLE);
     expect(all[at - 1].title).toBe("Fitting the stated pipe size to the catalogue");
     expect(all[at].detail).toBe("with a line saying so: 'pipe size <stated> is <stocked> on the sheet (within 0.1 mm)'; a size further away takes the next size the catalogue stocks, as before");
     expect(all.filter((l) => l.title.includes("within 0.1"))).toHaveLength(1);       // the thickness fit has no such line
     // INVERTED at ADP-2 H5 fix (a) (owner 2026-10-20) by mechanical authority: BEFORE `expect(lines(CFG[ADP])).toHaveLength(18)`. R13 reads the air
     // stream, so the both-streams line generates on this config too; without it the count is unchanged.
-    expect(lines(CFG[ADP])).toHaveLength(19);
-    expect(lines(CFG[ADP]).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(18);
+    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE `toHaveLength(19)`; without the ADP-3a lines it is still 19
+    expect(lines(CFG[ADP])).toHaveLength(22);
+    expect(withoutAdp3aLines(lines(CFG[ADP]))).toHaveLength(19);
+    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE the same filter over the whole tab
+    expect(withoutAdp3aLines(lines(CFG[ADP])).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(18);
     expect(lines(CFG[ADP])).toEqual(lines(CFG37[ADP]));
   });
   it("NEGATIVE: each line follows its key -- v37 (no `from_attr`, no axis `near`) reads Piping 20 and Insulation 24; removing a key from a copy removes exactly its line", () => {
     expect(lines(CFG37[PIP]).map((l) => l.title)).not.toContain(AS_WRITTEN_TITLE);
-    expect(lines(CFG37[PIP])).toHaveLength(20);
+    // INVERTED at ADP-3a (owner U5 / B6 / H2: the unit-refusal and unstocked-combination lines on every item-list tab, and
+    // ADP's per-number either-or line) by mechanical authority: BEFORE `toHaveLength(20)`; without the ADP-3a lines it is still 20; Piping gains ONE line (the unit refusal): it matches on size alone, so no combination can be unstocked
+    expect(lines(CFG37[PIP])).toHaveLength(21);
+    expect(withoutAdp3aLines(lines(CFG37[PIP]))).toHaveLength(20);
     // INVERTED at 12e-6c (owner U2 / R, 2026-10-18) by mechanical authority: BEFORE `expect(lines(CFG37[INS])).toHaveLength(24)`
     // and the no-unit line dropping with `inch_mm_alt` or `below_smallest` from a Piping copy. F-3 now follows `inches`.
     // INVERTED at ADP-1 (owner F4, 2026-10-19) by mechanical authority: BEFORE `expect(lines(CFG37[INS])).toHaveLength(26)`. The F4 line (RPUF on a per-sq.m row)
     // generates wherever the RPUF line does; without it the count below it is unchanged.
-    expect(lines(CFG37[INS])).toHaveLength(27);
-    expect(lines(CFG37[INS]).filter((l) => ![NO_UNIT_TITLE, "RPUF with no material answered prices as Tubular Puf Insulation", "RPUF on a per-sq.m row refuses by name"].includes(l.title))).toHaveLength(24);
+    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE `toHaveLength(27)`; without the ADP-3a lines it is still 27
+    expect(lines(CFG37[INS])).toHaveLength(29);
+    expect(withoutAdp3aLines(lines(CFG37[INS]))).toHaveLength(27);
+    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE the same filter over the whole tab
+    expect(withoutAdp3aLines(lines(CFG37[INS])).filter((l) => ![NO_UNIT_TITLE, "RPUF with no material answered prices as Tubular Puf Insulation", "RPUF on a per-sq.m row refuses by name"].includes(l.title))).toHaveLength(24);
     expect(lines(CFG37[INS]).map((l) => l.title)).not.toContain(NEAR_TITLE);
     const without = (mut: (c: Record<string, any>) => void, cat: string) => { const c = structuredClone(CFG) as Record<string, any>; mut(c); return lines(c[cat] as RateCategoryConfig).map((l) => l.title); };
     expect(without((c) => delete c[PIP].list_spec.pricing.family_text.from_attr, PIP)).toEqual(lines(CFG[PIP]).map((l) => l.title).filter((t) => t !== AS_WRITTEN_TITLE));

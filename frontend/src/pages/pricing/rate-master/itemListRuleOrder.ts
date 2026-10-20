@@ -45,7 +45,7 @@ const quoteList = (xs: readonly string[], max = 6): string => list(xs.map((x) =>
  * 12d-4c caller and pin stands; do not copy either back here.
  */
 import { plainSentence, pricingInputLabel } from "./plainEnglish";
-import { GI_FRAMEWORK_CLADDING, PIECE_LENGTH_MIN_MM } from "../../boq-wizard/rate-helper/itemListPricing";
+import { GI_FRAMEWORK_CLADDING, PIECE_LENGTH_MIN_MM, itemListPricingSpec, stockedUnitsWords, waysLabel } from "../../boq-wizard/rate-helper/itemListPricing";
 export { plainSentence };
 
 /**
@@ -248,6 +248,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       }
     }
   }
+
   for (const [attr, rd] of Object.entries<any>(pr.numbers ?? {})) {
     if (typeof rd?.not_stocked !== "string") continue;
     const stocked = [...new Set(items.filter((it) => it.kind === pr.kind && typeof it.attributes?.[attr] === "number").map((it) => Number(it.attributes![attr])))].sort((a, b) => a - b);
@@ -262,7 +263,8 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   }
   if (needs.size) {
     add("The facts that rule needs before it can price",
-        `${list(Array.from(needs).sort().map(name))} -- the first one missing is what the row reports`);
+        // ADP-3a (U3): CHANGED -- every missing fact is named, not only the first, and each one's box is outlined
+        `${list(Array.from(needs).sort().map(name))} -- every one missing is named, and its box outlined`);
   }
 
   // ── 4. how the facts are read ─────────────────────────────────────────────────────────────────────
@@ -435,7 +437,9 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
         `both stated: the ${String(sk.name)} narrows the products the ${name(String(sk.primary))} then fits; `
         + `${String(sk.name)} only: the one product behind it is used as it stands, else the largest ${name(String(sk.primary))} behind it; `
         + `an ${String(sk.name)} the catalogue does not stock is set aside and the ${name(String(sk.primary))} prices the row`
-        + (Array.isArray(sk.alt_key) && sk.alt_key.length ? `; the catalogue's alternative wording of the same size counts as that size` : ""));
+        + (Array.isArray(sk.alt_key) && sk.alt_key.length ? `; the catalogue's alternative wording of the same size counts as that size` : "")
+        // ADP-3a (owner H2, U2; B6 #5): CHANGED -- the outer size is SHOWN beside the neck, one either-or group
+        + `; the ${String(sk.name)} is shown beside the ${name(String(sk.primary))} as one either-or group, and with neither stated the row refuses naming both`);
   }
 
   // ── 7. fitting the sizes ──────────────────────────────────────────────────────────────────────────
@@ -563,6 +567,49 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   if (delegated.length) {
     add(`The row total adds every ${ownWord} and every section`,
         "each line rounded by its own rules; one line that cannot price stops the row, and the count of lines that need a person is shown");
+  }
+  // ── 11. ADP-3a (owner 2026-10-20): the refusals that name what to change -- ADDED as their own group, LAST, so no
+  //        earlier line moves (every line above keeps its number) ──
+  // ADP-3a (owner 2026-10-20 13:35, U5): ADDED -- a row in a unit its kind is not stocked in (or a unit the catalogue
+  // does not know) refuses NAMING the units the kind IS stocked in; the kind's fields stay, they price it in those units
+  {
+    const spec = itemListPricingSpec(config as any);
+    const blocked: string[] = [];
+    for (const f of Object.keys(pr.families ?? {})) {
+      const missingUnits = classes.filter((c) => !(pr.families[f]?.units ?? {})[c] && !((pr.families[f]?.convert ?? {})[c] ?? []).length);
+      if (missingUnits.length && spec) blocked.push(`${famWord(f)} (stocked ${stockedUnitsWords(spec, f)})`);
+    }
+    add("A kind not stocked in the row's unit refuses, naming the units it is stocked in",
+        `'<kind> is not stocked per <unit> (stocked per <units>) - price this row by hand'; a unit the catalogue does not know ('Lot', 'Nos/Ro') the same way`
+        + (blocked.length ? ` -- e.g. ${list(blocked, 3)}` : ""));
+  }
+  // ADP-3a (owner B6, 2026-10-20 13:32): ADDED -- an unstocked combination names ONLY the facts the kind's products vary on.
+  // Only where a combination CAN be unstocked: a category with a choice attribute (Piping matches on its size alone)
+  if ((pr.choice_attrs ?? []).length) add("An unstocked combination names only the facts the kind's products vary on",
+      // 12e-2b (owner, AC7): a tab never reads a unit its category is not priced in -- this detail names no unit
+      "'No SKU for <kind>: <the facts> - price this row by hand' -- a fact none of the kind's products carries (a size a product is not sold by), or one every product shares with the row, is never the reason and is left out; one every product shares that the row contradicts is the reason and stays");
+  // ADP-3a (owner H2, U2; B6 #3): ADDED -- SEVERAL WAYS that do not each name what is missing (ADP's per-number "Size
+  // (W x H), or Area band") are one either-or group on the panel and one refusal naming it; ONE line per unit and group,
+  // listing the kinds, worded by the same helper the field and the sentence use
+  {
+    const spec = itemListPricingSpec(config as any);
+    const byWays = new Map<string, { cls: string; fams: string[] }>();
+    for (const [f, fv] of Object.entries<any>(pr.families ?? {})) {
+      for (const [cls, opts] of Object.entries<any>(fv?.convert ?? {})) {
+        const optList = (Array.isArray(opts) ? opts : []) as any[];
+        if (!spec || optList.length < 2 || optList.every((o) => o?.name_missing) || (fv?.units ?? {})[cls]) continue;
+        const ways = waysLabel(spec, optList.map((o) => (o.needs ?? []) as string[]));
+        const key = `${cls}|${ways}`;
+        if (!byWays.has(key)) byWays.set(key, { cls, fams: [] });
+        byWays.get(key)!.fams.push(famWord(f));
+      }
+    }
+    for (const [key, v] of byWays) {
+      const ways = key.slice(key.indexOf("|") + 1);
+      // the title names the GROUP, never the kinds (which change between catalogue versions); the kinds are in the detail
+      add(`A per-${pr.unit_words?.[v.cls] ?? v.cls} item needs ${ways}; with neither stated it refuses, naming both`,
+          `${list(v.fams, 4)}: '<kind> needs ${ways} - neither stated - price this row by hand', every box of the group outlined; a size giving one length ('1500 mm long') is named as such, never read as width x height`);
+    }
   }
   return out;
 }

@@ -236,8 +236,10 @@ describe("AC5 Nitrile Rubber per sq.m -> Thermal Nitrile, and the reverse", () =
   });
   it("NEGATIVE BOTH PATHS: a family OUTSIDE the row-kind pair is untouched (Acoustic per metre still has no SKU)", () => {
     const b = both(NIT({ item: ACO }));
-    expect(b.ownB.reason).toBe("no SKU per metre for Acoustic Nitrile Insulation");
-    expect(b.secB.reason).toBe("no SKU per metre for Acoustic Nitrile Insulation");
+    // INVERTED at ADP-3a (owner 13:35, U5: a unit the kind is not stocked in names the unit and the stocked ones) by mechanical authority: BEFORE "no SKU per metre for Acoustic Nitrile Insulation"
+    expect(b.ownB.reason).toBe("Acoustic Nitrile Insulation is not stocked per metre (stocked per sq.m) - price this row by hand");
+    // INVERTED at ADP-3a (owner 13:35, U5) by mechanical authority: BEFORE "no SKU per metre for Acoustic Nitrile Insulation"
+    expect(b.secB.reason).toBe("Acoustic Nitrile Insulation is not stocked per metre (stocked per sq.m) - price this row by hand");
   });
 });
 

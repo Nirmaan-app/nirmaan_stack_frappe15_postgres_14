@@ -41,6 +41,10 @@ export interface WorkingsAttribute {
    * which is what keeps every other derived attribute rendering exactly as it did.
    */
   substituted?: boolean;
+  /** ADP-3a (owner H1, U1): NEEDED TO PRICE -- the attribute gate's own condition (a blank one withholds the price),
+   * plus a `catalog_fit` bind fitted from itself. The panel draws "*" after the label. Absent on an optional,
+   * derived or disabled field. */
+  required?: boolean;
   /** U2: the extraction filled this value from a CONFIG DEFAULT -- the row text gave no positive
    * identification. The panel tints it amber so the pricer can see, and correct, every defaulted value
    * before using the rate. A human override CLEARS this (the helper drops the mark on recompute), so the
@@ -150,7 +154,12 @@ export type AttrNote =
   //               label, `stocked` the list the value was checked against.
   | { kind: "no_match"; stated: string; field: string; stocked: string }
   | { kind: "capped"; stated: number; spare: number }
-  | { kind: "uncovered"; stated: number; spare: number; uncovered: number };
+  | { kind: "uncovered"; stated: number; spare: number; uncovered: number }
+  // ADP-3a (owner standing rule, U6: "every attribute shows the value actually used with a note on how it landed
+  // there"): a derived value NO other note explains -- a tray width as stated, a conduit type from the rule's
+  // default, a circuit length worked out from the points, a face plate fitted to the contents. `how` is the whole
+  // sentence, built by `withLandedNotes` from config + the run's outcomes; it sits LAST (it explains, never corrects).
+  | { kind: "landed"; how: string };
 
 /**
  * F-30 slice A (owner ruling 2, 2026-09-05) -- WE OVERRODE YOU, on the RATING. The server-side
@@ -194,7 +203,7 @@ export const POLE_WORDS: Readonly<Record<string, string>> = { SP: "single pole",
 // upgrade. Six -> seven, registered rather than incidental.
 // TWO WAYS (2026-09-10): `no_match` joins after `fit_up` -- a blank field has nothing "priced instead" to
 // precede, so it sits with the substitutions and ahead of the quantity notes.
-export const ATTR_NOTE_ORDER: readonly AttrNote["kind"][] = ["upgrade", "plate_floor", "rating_up", "assumed", "size_up", "fit_up", "no_match", "capped", "uncovered"];
+export const ATTR_NOTE_ORDER: readonly AttrNote["kind"][] = ["upgrade", "plate_floor", "rating_up", "assumed", "size_up", "fit_up", "no_match", "capped", "uncovered", "landed"];
 
 /** PURE. Notes in `ATTR_NOTE_ORDER`. A STABLE sort, so two notes of one kind keep producer order. */
 export function sortAttrNotes(notes: AttrNote[]): AttrNote[] {
@@ -280,6 +289,9 @@ export function attrNoteText(n: AttrNote): string {
         `${n.uncovered} module${n.uncovered === 1 ? "" : "s"} will be left uncovered ` +
         `(${n.spare} spare, ${n.stated} blanked).`
       );
+    case "landed":
+      // ADP-3a (U6): the producer words the whole line (it alone knows which mechanism landed the value)
+      return n.how;
   }
 }
 

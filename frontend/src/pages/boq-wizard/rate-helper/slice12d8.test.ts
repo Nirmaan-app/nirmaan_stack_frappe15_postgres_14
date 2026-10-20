@@ -42,6 +42,10 @@ import {
   fieldOptionsFromSkus, itemListPricingSpec, matchStatedToOption, matchStatedToOptionDetailed, readNumber, unicodeFractions,
 } from "./itemListPricing";
 
+// ADP-3a (owner U5 / B6 / H2): the Derivation lines ADP-3a adds -- set aside where a pin counts or positions an earlier tab
+const ADP3A_LINE = /^(A kind not stocked in the row's unit refuses|An unstocked combination names only|A per-.+ needs .+; with neither stated it refuses, naming both$)/;
+const withoutAdp3aLines = <T extends { title: string } | string>(ls: T[]): T[] => ls.filter((l) => !ADP3A_LINE.test(typeof l === "string" ? l : l.title));
+
 const ASSET = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
   new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v33.json", import.meta.url),
 );
@@ -377,8 +381,12 @@ describe("SLICE 12d-8 / R5 + R6 -- the Derivation tab, generated from config", (
     // The F-3 line (every inches axis) and the RPUF line generate on this config too; without them it is still 24.
     // INVERTED at ADP-1 (owner F4, 2026-10-19) by mechanical authority: BEFORE `expect(lines).toHaveLength(26)`. The F4 line (RPUF on a per-sq.m row)
     // generates wherever the RPUF line does; without it the count below it is unchanged.
-    expect(lines).toHaveLength(27);
-    expect(lines.filter((l) => !["A pipe size written as a bare number that could be inches refuses", "RPUF with no material answered prices as Tubular Puf Insulation", "RPUF on a per-sq.m row refuses by name"].includes(l.title))).toHaveLength(24);
+    // INVERTED at ADP-3a (owner U5 / B6 / H2: the unit-refusal and unstocked-combination lines on every item-list tab, and
+    // ADP's per-number either-or line) by mechanical authority: BEFORE `toHaveLength(27)`; without the ADP-3a lines it is still 27
+    expect(lines).toHaveLength(29);
+    expect(withoutAdp3aLines(lines)).toHaveLength(27);
+    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE the same filter over the whole tab; the ADP-3a lines are set aside first
+    expect(withoutAdp3aLines(lines).filter((l) => !["A pipe size written as a bare number that could be inches refuses", "RPUF with no material answered prices as Tubular Puf Insulation", "RPUF on a per-sq.m row refuses by name"].includes(l.title))).toHaveLength(24);
     const several = lines.find((l) => /^Several thickness values stated take the highest$/.test(l.title))!;
     // INVERTED at 12e-6c (owner R) by mechanical authority: BEFORE `expect(several.n).toBe(9)`. The RPUF line sits above it;
     // on the tab without the two 12e-6c lines it is still the ninth.
@@ -394,11 +402,16 @@ describe("SLICE 12d-8 / R5 + R6 -- the Derivation tab, generated from config", (
     const lines = itemListRuleOrder(ADP, ITEMS);
     // INVERTED at ADP-2 H5 fix (a) (owner 2026-10-20) by mechanical authority: BEFORE `expect(lines).toHaveLength(18)`. R13 reads the air
     // stream, so the both-streams line generates on this config too; without it the count is unchanged.
-    expect(lines).toHaveLength(19);
-    expect(lines.filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(18);
+    // INVERTED at ADP-3a (owner U5 / B6 / H2: the unit-refusal and unstocked-combination lines on every item-list tab, and
+    // ADP's per-number either-or line) by mechanical authority: BEFORE `toHaveLength(19)`; without the ADP-3a lines it is still 19
+    expect(lines).toHaveLength(22);
+    expect(withoutAdp3aLines(lines)).toHaveLength(19);
+    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE the same filter over the whole tab; the ADP-3a lines are set aside first
+    expect(withoutAdp3aLines(lines).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(18);
     const outer = lines.find((l) => /outer size/.test(l.title))!;
     expect(outer.title).toBe("A stated outer size is matched beside the neck size on square diffuser");
-    expect(outer.detail).toBe("both stated: the outer size narrows the products the neck size then fits; outer size only: the one product behind it is used as it stands, else the largest neck size behind it; an outer size the catalogue does not stock is set aside and the neck size prices the row; the catalogue's alternative wording of the same size counts as that size");
+    // INVERTED at ADP-3a (owner H2 / U2, B6 #5: the outer size is shown beside the neck as one either-or group) by mechanical authority: BEFORE the same detail ending at "... counts as that size"
+    expect(outer.detail).toBe("both stated: the outer size narrows the products the neck size then fits; outer size only: the one product behind it is used as it stands, else the largest neck size behind it; an outer size the catalogue does not stock is set aside and the neck size prices the row; the catalogue's alternative wording of the same size counts as that size; the outer size is shown beside the neck size as one either-or group, and with neither stated the row refuses naming both");
     const ladder = lines.find((l) => /^Fitting the stated diameter/.test(l.title))!;
     expect(outer.n).toBeLessThan(ladder.n);
   });
@@ -408,8 +421,12 @@ describe("SLICE 12d-8 / R5 + R6 -- the Derivation tab, generated from config", (
     const broken = { ...ADP, list_spec: { ...(ADP as any).list_spec, pricing: { ...(ADP as any).list_spec.pricing, second_key: [{ families: ["square diffuser"] }] } } };
     // INVERTED at ADP-2 H5 fix (a) (owner 2026-10-20) by mechanical authority: BEFORE `expect(itemListRuleOrder(broken, ITEMS)).toHaveLength(17)`. R13 reads the air
     // stream, so the both-streams line generates on this config too; without it the count is unchanged.
-    expect(itemListRuleOrder(broken, ITEMS)).toHaveLength(18);
-    expect(itemListRuleOrder(broken, ITEMS).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(17);
+    // INVERTED at ADP-3a (owner U5 / B6 / H2: the unit-refusal and unstocked-combination lines on every item-list tab, and
+    // ADP's per-number either-or line) by mechanical authority: BEFORE `toHaveLength(18)`; without the ADP-3a lines it is still 18
+    expect(itemListRuleOrder(broken, ITEMS)).toHaveLength(21);
+    expect(withoutAdp3aLines(itemListRuleOrder(broken, ITEMS))).toHaveLength(18);
+    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE the same filter over the whole tab; the ADP-3a lines are set aside first
+    expect(withoutAdp3aLines(itemListRuleOrder(broken, ITEMS)).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(17);
   });
 });
 

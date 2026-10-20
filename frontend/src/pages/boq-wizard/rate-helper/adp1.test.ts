@@ -16,6 +16,10 @@ import { ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, makePricingSheetHelper, 
 import { PIECE_LENGTH_MIN_MM, itemFieldDefs, itemListPricingSpec, listSpecDefs, numbersLine, readNumber, readPieceLength } from "./itemListPricing";
 import { ADP1_ALL, ADP1_INPUTS, ADP1_RETIRED_UIDS, applyAdp1, type AssetLike } from "./adp1.harness";
 
+// ADP-3a (owner U5 / B6 / H2): the Derivation lines ADP-3a adds -- set aside where a pin counts or lists an earlier tab
+const ADP3A_LINE = /^(A kind not stocked in the row's unit refuses|An unstocked combination names only|A per-.+ needs .+; with neither stated it refuses, naming both$)/;
+const withoutAdp3aLines = <T extends { title: string } | string>(ls: T[]): T[] => ls.filter((l) => !ADP3A_LINE.test(typeof l === "string" ? l : l.title));
+
 const V46 = readJsonFixture<AssetLike>(new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v46.json", import.meta.url));
 const NEW = applyAdp1(V46);
 const ADP = "hvac_adp", INS = "hvac_insulation", PIP = "hvac_piping";
@@ -344,7 +348,8 @@ describe("ADP-1 F1 / F3 / F4 -- the Insulation riders (owner 09:57 / 10:16, 2026
 describe("ADP-1 U6 -- the Derivation tab: lines ADDED, every earlier line kept", () => {
   const titles = (a: AssetLike, cat: string) => itemListRuleOrder(a.category_configs.find((c) => c.category_id === cat), a.items as any).map((l) => l.title);
   it("ADP gains exactly its new lines, every v46 line kept in order", () => {
-    const before = titles(V46, ADP), after = titles(NEW, ADP);
+    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE the two tabs compared whole -- ADP-3a's either-or line names the per-number kinds, which ADP-1 changed
+    const before = withoutAdp3aLines(titles(V46, ADP)), after = withoutAdp3aLines(titles(NEW, ADP));
     expect(after.filter((t) => before.includes(t))).toEqual(before);
     expect(after.filter((t) => !before.includes(t))).toEqual([
       "A per-number slot diffuser is priced from the per-metre rate",

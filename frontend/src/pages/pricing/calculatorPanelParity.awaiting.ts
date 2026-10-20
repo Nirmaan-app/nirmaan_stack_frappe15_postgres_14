@@ -195,7 +195,9 @@ export const AWAITING_SWEEP_DIVERGENCES: readonly AwaitingSweepDivergence[] = [
    */
   { cat: "hvac_adp", unit: "rmt", item: {"family":"slot diffuser","damper":"with","slot_count":"1003"}, cause: "D_reason_only" },
   { cat: "hvac_adp", unit: "rmt", item: {"family":"slot diffuser","damper":"with","slot_count":"2.5"}, cause: "D_reason_only" },
-  { cat: "hvac_adp", unit: "nos", item: {"family":"square diffuser","damper":"with","neck_mm":"1450"}, cause: "D_reason_only" },
+  // INVERTED at ADP-3a (owner H2 / U2, B6 #5: the outer size is a shown field of the square diffuser's either-or group, so the
+  // sweep fills it from the live options like every other field) by mechanical authority: BEFORE the same entry without "size_mm"
+  { cat: "hvac_adp", unit: "nos", item: {"family":"square diffuser","damper":"with","neck_mm":"1450","size_mm":"595"}, cause: "D_reason_only" },
   { cat: "hvac_adp", unit: "nos", item: {"family":"round diffuser","damper":"with","dia_mm":"1400"}, cause: "D_reason_only" },
   { cat: "hvac_adp", unit: "nos", item: {"family":"jet / eyeball diffuser","dia_mm":"1300"}, cause: "D_reason_only" },
   { cat: "hvac_adp", unit: "nos", item: {"family":"butterfly damper","dia_mm":"1350"}, cause: "D_reason_only" },

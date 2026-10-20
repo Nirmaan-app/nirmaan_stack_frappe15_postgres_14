@@ -47,6 +47,10 @@ import {
   priceItemList, severalSizesMessage, slashSizes, twoWayValues, type ItemListPricingSpec,
 } from "./itemListPricing";
 
+// ADP-3a (owner U5 / B6 / H2): the Derivation lines ADP-3a adds -- set aside where a pin counts or lists an earlier tab
+const ADP3A_LINE = /^(A kind not stocked in the row's unit refuses|An unstocked combination names only|A per-.+ needs .+; with neither stated it refuses, naming both$)/;
+const withoutAdp3aLines = <T extends { title: string } | string>(ls: T[]): T[] => ls.filter((l) => !ADP3A_LINE.test(typeof l === "string" ? l : l.title));
+
 const ASSET = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
   new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v36.json", import.meta.url),
 );
@@ -239,7 +243,8 @@ describe("12e-2b AC3 -- D2 'UL wins' on both paths: a hand-picked UL 'yes' beats
     expect(sqm.v.reason).toBe("No SKU for fire damper: UL listed no, variant UL - price this row by hand");
     const nos = calc(ADP, "fire damper", { variant: "UL", ul: "no", size_mm: "600x600" }, "nos");
     expect(nos.values).toEqual({});
-    expect(nos.v.reason).toBe("No SKU for fire damper: UL listed no, variant UL, width 600, height 600 - price this row by hand");
+    // INVERTED at ADP-3a (owner B6, 13:32: a no-SKU sentence lists only the facts the kind's SKUs vary on) by mechanical authority: BEFORE "... variant UL, width 600, height 600 - ..." (the per-sq.m SKU carries no width or height)
+    expect(nos.v.reason).toBe("No SKU for fire damper: UL listed no, variant UL - price this row by hand");
     // and the model path says the same sentence
     expect(panel(ADP, { family: "fire damper", variant: "UL", ul: "no" }, "sqm").v.reason).toBe(sqm.v.reason);
   });
@@ -295,11 +300,13 @@ describe("12e-2b AC4 -- D3: the unstocked-combination refusal, built in plainEng
     ["fire damper per sq.m, Variant UL + UL no", () => calc(ADP, "fire damper", { variant: "UL", ul: "no" }, "sqm").v.reason,
       "No SKU for fire damper: UL listed no, variant UL - price this row by hand"],
     ["fire damper per number 600x600, Variant UL + UL no", () => calc(ADP, "fire damper", { variant: "UL", ul: "no", size_mm: "600x600" }, "nos").v.reason,
-      "No SKU for fire damper: UL listed no, variant UL, width 600, height 600 - price this row by hand"],
+      // INVERTED at ADP-3a (owner B6, 13:32: a no-SKU sentence lists only the facts the kind's SKUs vary on) by mechanical authority: BEFORE "..., width 600, height 600 - ..."
+      "No SKU for fire damper: UL listed no, variant UL - price this row by hand"],
     ["slot diffuser per sq.m, damper never stated", () => calc(ADP, "slot diffuser", {}, "sqm").v.reason,
       "No SKU for slot diffuser: without damper - price this row by hand"],
     ["slot diffuser per number 600x600, damper never stated", () => calc(ADP, "slot diffuser", { size_mm: "600x600" }, "nos").v.reason,
-      "No SKU for slot diffuser: without damper, width 600, height 600 - price this row by hand"],
+      // INVERTED at ADP-3a (owner B6, 13:32: a no-SKU sentence lists only the facts the kind's SKUs vary on) by mechanical authority: BEFORE "..., width 600, height 600 - ..."
+      "No SKU for slot diffuser: without damper - price this row by hand"],
     ["slot diffuser per metre, without damper, 4 slots (model)", () => panel(ADP, { family: "slot diffuser", damper: "without", slot_count: "4 slot" }, "Rmt").v.reason,
       "No SKU for slot diffuser: without damper, slot count 4 - price this row by hand"],
     ["cross-talk per number 400 x 300 (model; a size the sheet does not derive)", () => panel(ADP, { family: "cross-talk", size_mm: "400x300" }, "Nos").v.reason,
@@ -326,7 +333,8 @@ describe("12e-2b AC4 -- D3: the unstocked-combination refusal, built in plainEng
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 describe("12e-2b AC5 -- D4 (a): slot diffuser per sq.m / per number keeps 'damper not mentioned -> without' and refuses by name", () => {
   it.each([["sqm", {} as Record<string, string>, "No SKU for slot diffuser: without damper - price this row by hand"],
-           ["nos", { size_mm: "600x600" }, "No SKU for slot diffuser: without damper, width 600, height 600 - price this row by hand"]] as const)(
+           // INVERTED at ADP-3a (owner B6, 13:32: a no-SKU sentence lists only the facts the kind's SKUs vary on) by mechanical authority: BEFORE "..., width 600, height 600 - ..."
+           ["nos", { size_mm: "600x600" }, "No SKU for slot diffuser: without damper - price this row by hand"]] as const)(
     "per %s, a fresh block: Damper shows with / without, the value used is 'without' (amber), the row refuses naming the pair", (unit, attrs, want) => {
       const { b, v, values } = calc(ADP, "slot diffuser", { ...attrs }, unit);
       expect(field(b, "damper").options).toEqual(["with", "without"]);
@@ -458,9 +466,13 @@ describe("12e-2b AC7 -- the Derivation tab: the family is named, and Piping neve
     const NEW_12E6C = ["A pipe size written as a bare number that could be inches refuses", "RPUF with no material answered prices as Tubular Puf Insulation", "RPUF on a per-sq.m row refuses by name"];
     // INVERTED at ADP-2 H5 fix (a) (owner 2026-10-20) by mechanical authority: BEFORE `toEqual([27, 18, 15])`. R13 reads the air
     // stream, so the both-streams line generates on this config too; without it the count is unchanged.
-    expect([lines(INS).length, lines(ADP).length, lines(PIP).length]).toEqual([27, 19, 15]);
-    expect(lines(ADP).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(18);
-    expect(lines(INS).filter((l) => !NEW_12E6C.includes(l.title))).toHaveLength(24);
+    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE `toEqual([27, 19, 15])` -- two lines on Insulation, three on ADP, one on Piping (it has no choice attribute, so no unstocked-combination line); without them still [27, 19, 15]
+    expect([lines(INS).length, lines(ADP).length, lines(PIP).length]).toEqual([29, 22, 16]);
+    expect([withoutAdp3aLines(lines(INS)).length, withoutAdp3aLines(lines(ADP)).length, withoutAdp3aLines(lines(PIP)).length]).toEqual([27, 19, 15]);
+    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE the same filter over the whole tab
+    expect(withoutAdp3aLines(lines(ADP)).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(18);
+    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE the same filter over the whole tab
+    expect(withoutAdp3aLines(lines(INS)).filter((l) => !NEW_12E6C.includes(l.title))).toHaveLength(24);
     expect(lines(PIP).map((l) => l.title)).toContain("A pipe size written as a bare number that could be inches refuses");
     expect(lines(INS).map((l) => l.title)).toContain("A pipe size written as a bare number that could be inches refuses");
     expect(lines(ADP).map((l) => l.title)).not.toContain("A pipe size written as a bare number that could be inches refuses");

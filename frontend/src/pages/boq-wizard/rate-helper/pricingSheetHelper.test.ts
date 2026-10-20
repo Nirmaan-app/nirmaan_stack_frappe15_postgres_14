@@ -12,6 +12,10 @@ import LIVE_ASSET_V63 from "../../../../../nirmaan_stack/services/boq_rate_maste
 import PRIOR_ASSET_V62 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v62.json";
 import type { Pipeline, RateCategoryConfig, RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
 import type { ExtractionRow, HelperResult, RateHelperRowContext, WorkingsAttribute } from "./rateHelperTypes";
+
+// ADP-3a (owner U6): a derived field may now carry the `landed` line (how its value landed); every OTHER note is a
+// correction or a warning, and the pins below that said "no note" still say "no correction"
+const correctionsOnly = (notes?: Array<{ kind: string }>) => (notes ?? []).filter((n) => n.kind !== "landed");
 import HVAC_V26 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v26.json";
 import { RATE_MASTER_CONFIG_TARGETS, RATE_MASTER_ITEM_DISCIPLINES, mergeItemsByName } from "./rateHelperPlumbing";
 import { RATE_MASTER_DISCIPLINES } from "@/pages/pricing/rate-master/rateMasterRegistry";
@@ -1228,7 +1232,9 @@ describe("DERIVED DISPLAY -- R1: the computed face plate is SHOWN and is not fla
     expect(plate?.value).toBe("12M");
     expect(attrDisplayValue(plate!)).toBe("12M");       // the entry is never overwritten on screen
     expect(plate?.readOnly).toBeUndefined();            // and it stays editable
-    expect(plate?.notes).toBeUndefined();               // 12M holds the contents -> no warning
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE `expect(plate?.notes).toBeUndefined()`. The field may now carry ONLY the `landed` line;
+    // no correction or warning note -- the negative half is kept.
+    expect(correctionsOnly(plate?.notes)).toEqual([]);               // 12M holds the contents -> no warning
   });
 
   it("POSITIVE: a None plate renders EMPTY, never a fabricated size", () => {
@@ -1270,7 +1276,9 @@ describe("DERIVED DISPLAY -- R2: a too-small entry WARNS, it is never silently l
   });
 
   it("NEGATIVE: an entry that FITS raises no warning", () => {
-    expect(mfCompute({ plate_item: "6M" })("plate_item")?.notes).toBeUndefined();
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE `expect(mfCompute({ plate_item: "6M" })("plate_item")?.notes).toBeUndefined()`. The field may now carry ONLY the `landed` line;
+    // no correction or warning note -- the negative half is kept.
+    expect(correctionsOnly(mfCompute({ plate_item: "6M" })("plate_item")?.notes)).toEqual([]);
   });
 
   // ---- THE NOTES-LIST MIGRATION IS INERT ---------------------------------------------------------
@@ -1309,7 +1317,8 @@ describe("DERIVED DISPLAY -- R2: a too-small entry WARNS, it is never silently l
     // plate-driven raise of the pricer's box pick is the pick's own upgrade. Six -> seven, not silenced.
     // WIDTH DROPDOWN (v60): `fit_up` joins after `size_up`; TWO WAYS (v61, 2026-09-10): `no_match` joins after
     // `fit_up` -- mechanical moves of this pin, the order is otherwise unchanged.
-    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "plate_floor", "rating_up", "assumed", "size_up", "fit_up", "no_match", "capped", "uncovered"]);
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE the same list without "landed" -- the new kind sits LAST (it explains, never corrects)
+    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "plate_floor", "rating_up", "assumed", "size_up", "fit_up", "no_match", "capped", "uncovered", "landed"]);
   });
 
   it("the two quantity notes are worded so neither can be mistaken for the other", () => {
@@ -3304,7 +3313,8 @@ describe("F-30 slice A -- the rating-up note reaches the panel's data contract",
     // plate-driven raise of the pricer's box pick is the pick's own upgrade. Six -> seven, not silenced.
     // WIDTH DROPDOWN (v60): `fit_up` joins after `size_up`; TWO WAYS (v61, 2026-09-10): `no_match` joins after
     // `fit_up` -- mechanical moves of this pin, the order is otherwise unchanged.
-    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "plate_floor", "rating_up", "assumed", "size_up", "fit_up", "no_match", "capped", "uncovered"]);
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE the same list without "landed" -- the new kind sits LAST (it explains, never corrects)
+    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "plate_floor", "rating_up", "assumed", "size_up", "fit_up", "no_match", "capped", "uncovered", "landed"]);
   });
 });
 
@@ -3332,11 +3342,15 @@ describe("F-30 slice B -- a catalog_fit hop reaches the panel as the SAME rating
   it("NEGATIVE: an EXACT fit says nothing -- no rating was raised", () => {
     const mcb = cfCompute({ mcb_amp_a: 25 })("paired_mcb")!;
     expect(mcb.derivedValue).toBe("25A FP MCB C CURVE");
-    expect(mcb.notes).toBeUndefined();
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE `expect(mcb.notes).toBeUndefined()`. The field may now carry ONLY the `landed` line;
+    // no correction or warning note -- the negative half is kept.
+    expect(correctionsOnly(mcb.notes)).toEqual([]);
   });
 
   it("NEGATIVE: a STATED paired MCB says nothing -- the field is the pricer's", () => {
-    expect(cfCompute({ paired_mcb: "63A FP MCB C CURVE" })("paired_mcb")!.notes).toBeUndefined();
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE `expect(cfCompute({ paired_mcb: "63A FP MCB C CURVE" })("paired_mcb")!.notes).toBeUndefined()`. The field may now carry ONLY the `landed` line;
+    // no correction or warning note -- the negative half is kept.
+    expect(correctionsOnly(cfCompute({ paired_mcb: "63A FP MCB C CURVE" })("paired_mcb")!.notes)).toEqual([]);
   });
 
   it("NEGATIVE: a concluded absence (mcb_present No) says nothing", () => {
@@ -3514,7 +3528,9 @@ describe("F-25 slice 1 -- the back box field SHOWS the rung the row is priced on
     const { attr } = boxCompute({ plate_item: "9M" });
     expect(attrDisplayValue(attr("plate_item")!)).toBe("9M");
     expect(attrDisplayValue(attr("box_item")!)).toBe("12M");  // next higher on the BOX ladder
-    expect(attr("box_item")!.notes).toBeUndefined();          // no reconciliation on screen, by ruling
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE `expect(attr("box_item")!.notes).toBeUndefined()`. The field may now carry ONLY the `landed` line;
+    // no correction or warning note -- the negative half is kept.
+    expect(correctionsOnly(attr("box_item")!.notes)).toEqual([]);          // no reconciliation on screen, by ruling
   });
 
   it("POSITIVE: a None plate keeps the box COMPUTED from the contents (on_none: computed)", () => {
@@ -3622,7 +3638,9 @@ describe("F-25 slice 2 -- a bare box prices as its back box, and the panel says 
     const box = attr("box_item")!;
     expect(attrDisplayValue(box)).toBe("3M");
     expect(isShowingDerived(box)).toBe(true);
-    expect(box.notes).toBeUndefined();
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE `expect(box.notes).toBeUndefined()`. The field may now carry ONLY the `landed` line;
+    // no correction or warning note -- the negative half is kept.
+    expect(correctionsOnly(box.notes)).toEqual([]);
     expect(r.values.supply_rate).toBe(178);
   });
 
@@ -3651,8 +3669,11 @@ describe("F-25 slice 2 -- a bare box prices as its back box, and the panel says 
   });
 
   it("NEGATIVE: the assumed note is ABSENT when the size was read, and size_up is absent on an exact rung", () => {
-    expect(bareBoxCompute(8).attr("box_item")!.notes).toBeUndefined();
-    expect(bareBoxCompute(2).attr("box_item")!.notes).toBeUndefined(); // H2's 1/2 module -> 2 -> the live 2M row, exact
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE `expect(bareBoxCompute(8).attr("box_item")!.notes).toBeUndefined()`. The field may now carry ONLY the `landed` line;
+    // no correction or warning note -- the negative half is kept.
+    expect(correctionsOnly(bareBoxCompute(8).attr("box_item")!.notes)).toEqual([]);
+    // INVERTED at ADP-3a (owner U6) by mechanical authority: BEFORE `expect(bareBoxCompute(2).attr("box_item")!.notes).toBeUndefined()`
+    expect(correctionsOnly(bareBoxCompute(2).attr("box_item")!.notes)).toEqual([]); // H2's 1/2 module -> 2 -> the live 2M row, exact
     expect(attrDisplayValue(bareBoxCompute(2).attr("box_item")!)).toBe("2M");
   });
 
@@ -3676,7 +3697,9 @@ describe("F-25 slice 2 -- a bare box prices as its back box, and the panel says 
     expect(a.r.values).toEqual(b.r.values);
     expect(attrDisplayValue(a.attr("box_item")!)).toBe("12M");                  // still the plate-driven rung
     expect(a.attr("box_item")!.notes).toEqual(b.attr("box_item")!.notes);         // both undefined: "that's ok"
-    expect(a.attr("box_item")!.notes).toBeUndefined();
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE `expect(a.attr("box_item")!.notes).toBeUndefined()`. The field may now carry ONLY the `landed` line;
+    // no correction or warning note -- the negative half is kept.
+    expect(correctionsOnly(a.attr("box_item")!.notes)).toEqual([]);
     expect(a.r.workings.attributes.filter((x) => x.id !== "box_modules_stated"))
       .toEqual(b.r.workings.attributes.filter((x) => x.id !== "box_modules_stated"));
   });
@@ -3710,7 +3733,9 @@ describe("F-25 slice 3 -- the floor branch on the panel: the plate is a minimum"
     expect(attrDisplayValue(box)).toBe("8M");
     expect(isShowingDerived(box)).toBe(false);                 // the pricer's own value, unmarked
     expect(box.substituted).toBeUndefined();
-    expect(box.notes).toBeUndefined();
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE `expect(box.notes).toBeUndefined()`. The field may now carry ONLY the `landed` line;
+    // no correction or warning note -- the negative half is kept.
+    expect(correctionsOnly(box.notes)).toEqual([]);
     expect(r.values.supply_rate).toBe(362);
   });
 
@@ -3729,7 +3754,9 @@ describe("F-25 slice 3 -- the floor branch on the panel: the plate is a minimum"
     const { r, attr } = boxCompute({ plate_item: "6M" }, { box_item: "6M" });
     expect(attrDisplayValue(attr("box_item")!)).toBe("6M");
     expect(isShowingDerived(attr("box_item")!)).toBe(false);
-    expect(attr("box_item")!.notes).toBeUndefined();
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE `expect(attr("box_item")!.notes).toBeUndefined()`. The field may now carry ONLY the `landed` line;
+    // no correction or warning note -- the negative half is kept.
+    expect(correctionsOnly(attr("box_item")!.notes)).toEqual([]);
     expect(r.values.supply_rate).toBe(279);
   });
 
@@ -3745,7 +3772,9 @@ describe("F-25 slice 3 -- the floor branch on the panel: the plate is a minimum"
   it("NEGATIVE: the plate field is untouched by a box pick -- its own value, its own notes", () => {
     const { attr } = boxCompute({ plate_item: "6M" }, { box_item: "3M" });
     expect(attrDisplayValue(attr("plate_item")!)).toBe("6M");
-    expect(attr("plate_item")!.notes).toBeUndefined();
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE `expect(attr("plate_item")!.notes).toBeUndefined()`. The field may now carry ONLY the `landed` line;
+    // no correction or warning note -- the negative half is kept.
+    expect(correctionsOnly(attr("plate_item")!.notes)).toEqual([]);
   });
 
   it("NEGATIVE: the raised pick is a session override -- the field stays editable, never readOnly", () => {
@@ -3760,14 +3789,18 @@ describe("F-25 slice 3 -- the zero branch on the panel: a pick wins and the assu
     const box = attr("box_item")!;
     expect(attrDisplayValue(box)).toBe("6M");
     expect(isShowingDerived(box)).toBe(false);
-    expect(box.notes).toBeUndefined();                         // the ASSUMED sentence is GONE
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE `expect(box.notes).toBeUndefined()`. The field may now carry ONLY the `landed` line;
+    // no correction or warning note -- the negative half is kept.
+    expect(correctionsOnly(box.notes)).toEqual([]);                         // the ASSUMED sentence is GONE
     expect(r.values.supply_rate).toBe(279);
   });
 
   it("POSITIVE: a pick beats a STATED count -- stated 8, pick 3M -> 3M, 178, no note", () => {
     const { r, attr } = bareBoxCompute(8, {}, true, { box_item: "3M" });
     expect(attrDisplayValue(attr("box_item")!)).toBe("3M");
-    expect(attr("box_item")!.notes).toBeUndefined();
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE `expect(attr("box_item")!.notes).toBeUndefined()`. The field may now carry ONLY the `landed` line;
+    // no correction or warning note -- the negative half is kept.
+    expect(correctionsOnly(attr("box_item")!.notes)).toEqual([]);
     expect(r.values.supply_rate).toBe(178);
   });
 
@@ -3783,7 +3816,9 @@ describe("F-25 slice 3 -- the zero branch on the panel: a pick wins and the assu
 
   it("REVERT: clearing the pick brings the assumed 3M and its sentence back", () => {
     const picked = bareBoxCompute(null, {}, true, { box_item: "6M" });
-    expect(picked.attr("box_item")!.notes).toBeUndefined();
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE `expect(picked.attr("box_item")!.notes).toBeUndefined()`. The field may now carry ONLY the `landed` line;
+    // no correction or warning note -- the negative half is kept.
+    expect(correctionsOnly(picked.attr("box_item")!.notes)).toEqual([]);
     const cleared = bareBoxCompute(null, {}, true, {});
     expect(attrDisplayValue(cleared.attr("box_item")!)).toBe("3M");
     expect(cleared.attr("box_item")!.notes?.map((n) => n.kind)).toEqual(["assumed"]);
@@ -4293,7 +4328,11 @@ describe("Calculator slice 1 / FOUR -- the rewording reads correctly WITH a row 
     for (const r of [onRow, noRow]) {
       if (!isSuggestion(r)) throw new Error("expected suggestion");
       expect(r.basis).toBe("Fill the attributes to price");
-      expect(r.workings.derivation).toEqual(["No extracted attributes -- fill them to compute a rate."]);
+      // INVERTED at ADP-3a (owner U3: the refusal names every missing field) by mechanical authority: BEFORE
+      // `toEqual(["No extracted attributes -- fill them to compute a rate."])`. Still ONE line, and still the same on both readings.
+      expect(r.workings.derivation).toHaveLength(1);
+      expect(r.workings.derivation[0]).toMatch(/^Fill to price: .+\.$/);
+      expect(r.workings.derivation).toEqual((isSuggestion(onRow) ? onRow : r).workings.derivation);
     }
   });
   it("POSITIVE, both readings: the priced row's basis, section titles and derivation lines use the pricer's words, identically with and without a row", () => {
@@ -4456,7 +4495,9 @@ describe("WIDTH DROPDOWN (v61) -- TWO: an off-list stored width shows the FITTED
   it("NEGATIVE: a direct pick carries NO note -- picking 150 over a stored 80 shows 150, plain", () => {
     const w = widthOf(trayW({ ...BASE, width_mm: 80 }, { width_mm: "150" }));
     expect(attrDisplayValue(w)).toBe("150");
-    expect(w.notes).toBeUndefined();
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE `expect(w.notes).toBeUndefined()`. The field may now carry ONLY the `landed` line;
+    // no correction or warning note -- the negative half is kept.
+    expect(correctionsOnly(w.notes)).toEqual([]);
     expect(isShowingDerived(w)).toBe(false);
   });
   it("NEGATIVE: a direct pick of 100 prices exactly as a typed 100 does today", () => {
@@ -4464,14 +4505,18 @@ describe("WIDTH DROPDOWN (v61) -- TWO: an off-list stored width shows the FITTED
     const typed = trayW({ ...BASE, width_mm: 100 }, undefined, TRAYW_CONFIG_AS_NUMBER);
     if (!isSuggestion(picked) || !isSuggestion(typed)) throw new Error("expected suggestions");
     expect(picked.values).toEqual(typed.values);
-    expect(widthOf(picked).notes).toBeUndefined();
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE `expect(widthOf(picked).notes).toBeUndefined()`. The field may now carry ONLY the `landed` line;
+    // no correction or warning note -- the negative half is kept.
+    expect(correctionsOnly(widthOf(picked).notes)).toEqual([]);
   });
   it("NEGATIVE: an on-list stored width renders exactly as before -- 150 shows 150, plain, no note, same price", () => {
     const now = trayW({ ...BASE, width_mm: 150 });
     const before = trayW({ ...BASE, width_mm: 150 }, undefined, TRAYW_CONFIG_AS_NUMBER);
     const w = widthOf(now);
     expect(attrDisplayValue(w)).toBe("150");
-    expect(w.notes).toBeUndefined();
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE `expect(w.notes).toBeUndefined()`. The field may now carry ONLY the `landed` line;
+    // no correction or warning note -- the negative half is kept.
+    expect(correctionsOnly(w.notes)).toEqual([]);
     expect(isShowingDerived(w)).toBe(false);
     if (!isSuggestion(now) || !isSuggestion(before)) throw new Error("expected suggestions");
     expect(now.values).toEqual(before.values);
@@ -4482,7 +4527,9 @@ describe("WIDTH DROPDOWN (v61) -- TWO: an off-list stored width shows the FITTED
     const w = widthOf(trayW({ ...BASE, width_mm: 80 }, undefined, TRAYW_CONFIG_AS_NUMBER));
     expect(attrDisplayValue(w)).toBe("100");
     expect(isShowingDerived(w)).toBe(true);
-    expect(w.notes).toBeUndefined();
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE `expect(w.notes).toBeUndefined()`. The field may now carry ONLY the `landed` line;
+    // no correction or warning note -- the negative half is kept.
+    expect(correctionsOnly(w.notes)).toEqual([]);
   });
   it("NEGATIVE: a row that refuses BEFORE the ladder runs (a missing where-fact) fits nothing -> no derived value, no note (the 10 rows)", () => {
     const r = trayW({ tray_type: "Solid", material: "GI", width_mm: 80 }); // no thickness at all
@@ -4601,7 +4648,8 @@ describe("TWO WAYS (v61) -- THREE: blank, with a note saying why", () => {
     const r = tray61({ tray_type: "Solid", material: "GI", thickness_swg: 27, width_mm: 100 });
     const t = thickOf(r);
     expect(attrDisplayValue(t)).toBe("");
-    expect(t.notes!.map(attrNoteText)).toEqual(["The row states 27 SWG — nothing stocked matches for gauge (8-16 SWG); left blank for you to decide."]);
+    // INVERTED at ADP-3a (U4: the gauge note is keyed to the VISIBLE field) by mechanical authority: BEFORE "... for gauge (8-16 SWG) ..."
+    expect(t.notes!.map(attrNoteText)).toEqual(["The row states 27 SWG — nothing stocked matches for Thickness (mm) (8-16 SWG); left blank for you to decide."]);
     expect(isAttrBlank(t)).toBe(false); // derived by config (a map target with a stated source): no red border
     if (!isSuggestion(r)) throw new Error("expected suggestion");
     expect(r.values).toEqual({});
@@ -4621,7 +4669,9 @@ describe("TWO WAYS (v61) -- THREE: blank, with a note saying why", () => {
     const t = thickOf(now);
     expect(attrDisplayValue(t)).toBe("2");
     expect(isShowingDerived(t)).toBe(true);
-    expect(t.notes).toBeUndefined();
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE `expect(t.notes).toBeUndefined()`. The field may now carry ONLY the `landed` line;
+    // no correction or warning note -- the negative half is kept.
+    expect(correctionsOnly(t.notes)).toEqual([]);
     if (!isSuggestion(now) || !isSuggestion(before)) throw new Error("expected suggestions");
     expect(now.values).toEqual(before.values);
     expect(now.values).toEqual({ supply_rate: 400 });
@@ -4647,7 +4697,9 @@ describe("TWO WAYS (v61) -- THREE: blank, with a note saying why", () => {
   });
   it("NEGATIVE: an on-list width and a stocked thickness render plain -- no note anywhere", () => {
     const r = tray61({ tray_type: "Solid", material: "GI", thickness_mm: 1.6, width_mm: 150 });
-    expect(widthOf(r).notes).toBeUndefined();
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE `expect(widthOf(r).notes).toBeUndefined()`. The field may now carry ONLY the `landed` line;
+    // no correction or warning note -- the negative half is kept.
+    expect(correctionsOnly(widthOf(r).notes)).toEqual([]);
     expect(thickOf(r).notes).toBeUndefined();
     if (!isSuggestion(r)) throw new Error("expected suggestion");
     expect(r.values).toEqual({ supply_rate: 300 }); // 150 wide on the 1.6 combo: 150 x 2
@@ -4667,7 +4719,8 @@ describe("TWO WAYS (v61) -- THREE: blank, with a note saying why", () => {
     expect(withNoMatchNotes([{ ...base, options: undefined }], TRAY61_CONFIG, TRAYW_ITEMS, {})[0].notes).toBeUndefined();
     // gauge case: the source lives in the selection; without it, no gauge note
     const blank: WorkingsAttribute = { id: "thickness_mm", label: "Thickness (mm)", value: "", options: ["2", "1.6"] } as WorkingsAttribute;
-    expect(withNoMatchNotes([blank], TRAY61_CONFIG, TRAYW_ITEMS, { thickness_swg: 27 })[0].notes!.map(attrNoteText)).toEqual(["The row states 27 SWG — nothing stocked matches for gauge (8-16 SWG); left blank for you to decide."]);
+    // INVERTED at ADP-3a (U4: the gauge note is keyed to the VISIBLE field) by mechanical authority: BEFORE "... for gauge (8-16 SWG) ..."
+    expect(withNoMatchNotes([blank], TRAY61_CONFIG, TRAYW_ITEMS, { thickness_swg: 27 })[0].notes!.map(attrNoteText)).toEqual(["The row states 27 SWG — nothing stocked matches for Thickness (mm) (8-16 SWG); left blank for you to decide."]);
     expect(withNoMatchNotes([blank], TRAY61_CONFIG, TRAYW_ITEMS, undefined)[0].notes).toBeUndefined();
   });
   it("the kind is in the render order after `fit_up` and before the quantity notes, and sorts there", () => {
@@ -4793,7 +4846,9 @@ describe("CONDUIT LADDER (v63) -- the ladder fits exact-else-next-higher, never 
       const s = sizeOf(now);
       expect(attrDisplayValue(s)).toBe(String(size));
       expect(isShowingDerived(s)).toBe(false);
-      expect(s.notes).toBeUndefined();
+      // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE `expect(s.notes).toBeUndefined()`. The field may now carry ONLY the `landed` line;
+      // no correction or warning note -- the negative half is kept.
+      expect(correctionsOnly(s.notes)).toEqual([]);
       if (!isSuggestion(now) || !isSuggestion(before)) throw new Error("expected suggestions");
       expect(now.values).toEqual(values);
       expect(now.values).toEqual(before.values);
@@ -4802,7 +4857,9 @@ describe("CONDUIT LADDER (v63) -- the ladder fits exact-else-next-higher, never 
   it("NEGATIVE: a direct PICK of a stocked size carries no note and prices exactly (the calculator's only path -- owner: 'this is ok')", () => {
     const picked = conduit63({ conduit_type: "PVC", size_mm: 40 }, { size_mm: "32" });
     expect(attrDisplayValue(sizeOf(picked))).toBe("32");
-    expect(sizeOf(picked).notes).toBeUndefined();
+    // INVERTED at ADP-3a (owner U6: every attribute shows the value used with a note on how it landed) by mechanical authority: BEFORE `expect(sizeOf(picked).notes).toBeUndefined()`. The field may now carry ONLY the `landed` line;
+    // no correction or warning note -- the negative half is kept.
+    expect(correctionsOnly(sizeOf(picked).notes)).toEqual([]);
     if (!isSuggestion(picked)) throw new Error("expected suggestion");
     expect(picked.values).toEqual({ supply_rate: 70, install_rate: 20, combined_rate: 90 });
   });
@@ -4811,9 +4868,12 @@ describe("CONDUIT LADDER (v63) -- the ladder fits exact-else-next-higher, never 
     const before = conduit63({ conduit_type: "PVC", size_mm: null }, undefined, V62_CONDUIT_CONFIG);
     if (!isSuggestion(now) || !isSuggestion(before)) throw new Error("expected suggestions");
     expect(now.values).toEqual({}); expect(before.values).toEqual({});
-    expect(now.basis).toBe("no match for these attributes");
+    // INVERTED at ADP-3a (owner H1 / U1: a catalog_fit bind fitted from ITSELF is a needed input when blank -- the
+    // conduit size and tray width are marked and outlined, R2 gap 3) by mechanical authority: BEFORE
+    // `expect(now.basis).toBe("no match for these attributes")` and `expect(isAttrBlank(sizeOf(now))).toBe(false)`. Still no price.
+    expect(now.basis).toBe("Complete the missing attributes to price");
     expect(before.basis).toBe("Complete the missing attributes to price");
-    expect(isAttrBlank(sizeOf(now))).toBe(false);
+    expect(isAttrBlank(sizeOf(now))).toBe(true);
     expect(isAttrBlank(sizeOf(before))).toBe(true);
     expect(sizeOf(now).notes).toBeUndefined();
   });
