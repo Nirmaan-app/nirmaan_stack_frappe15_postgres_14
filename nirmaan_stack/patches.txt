@@ -188,3 +188,4 @@ nirmaan_stack.patches.v3_0.cheque_types_pending_and_dates
 nirmaan_stack.patches.v3_0.seed_records_without_review
 nirmaan_stack.patches.v3_0.freeze_expense_request_forms
 nirmaan_stack.patches.v3_0.backfill_expense_owner_from_request
+nirmaan_stack.patches.v3_0.drop_work_order_deposit_lines

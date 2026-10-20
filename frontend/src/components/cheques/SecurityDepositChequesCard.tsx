@@ -13,22 +13,22 @@ import { useUserData } from "@/hooks/useUserData";
 import { CHEQUES_CHANGED_EVENT } from "@/types/NirmaanStack/Cheques";
 import { CHEQUES_LIST_API, type ChequeRow } from "@/pages/cheque-tracker/config/chequePaymentTable.config";
 import { chequeDateText } from "@/utils/cheques/chequeChip";
-import { alsoSecures, depositCardFilters, WORK_ORDER_DOCTYPE, type DepositPageRecord } from "@/utils/cheques/chequeDeposit";
+import { alsoSecures, depositCardFilters, type DepositPageRecord } from "@/utils/cheques/chequeDeposit";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getFrappeError } from "@/utils/frappeErrors";
 
 interface SecurityDepositChequesCardProps {
-    /** The PO or Work Order the page shows, with its Vendor and project. Nothing renders until it is known. */
+    /** The PO the page shows, with its Vendor and project. Nothing renders until it is known. */
     record: Partial<DepositPageRecord> & Pick<DepositPageRecord, "doctype">;
     className?: string;
 }
 
 /**
- * The PO and Work Order pages' Security Deposit Cheques card (#1486, spec #1477, story 67): the deposit cheques
- * whose lines name this record (the Cheque Tracker's list, filtered by type and record), and "Add Security
- * Deposit Cheque", made out to the record's Vendor and naming it (story 60, 61). Shown to whoever may use the
- * Cheque Tracker (`CHEQUE_ACCESS_PROFILES`, as every `api/cheques/` endpoint checks); the number opens the
- * cheque. A Work Order can have deposit cheques, never a cheque payment.
+ * The PO page's Security Deposit Cheques card (#1486, spec #1477, story 67): the deposit cheques whose lines
+ * name this PO (the Cheque Tracker's list, filtered by type and record), and "Add Security Deposit Cheque",
+ * made out to the PO's Vendor and naming it (story 60, 61). Shown to whoever may use the Cheque Tracker
+ * (`CHEQUE_ACCESS_PROFILES`, as every `api/cheques/` endpoint checks); the number opens the cheque. Work
+ * Orders have no cheques, so the Work Order page has no such card (spec #1514).
  */
 export const SecurityDepositChequesCard = ({ record, className }: SecurityDepositChequesCardProps) => {
     const { role } = useUserData();
@@ -47,7 +47,6 @@ export const SecurityDepositChequesCard = ({ record, className }: SecurityDeposi
 
     if (!ready) return null;
     const rows = data?.message?.data ?? [];
-    const what = record.doctype === WORK_ORDER_DOCTYPE ? "Work Order" : "PO";
 
     return (
         <Card className={className ?? "rounded-sm shadow-m col-span-6 overflow-x-auto"}>
@@ -55,7 +54,7 @@ export const SecurityDepositChequesCard = ({ record, className }: SecurityDeposi
                 <div>
                     <CardTitle className="text-lg">Security Deposit Cheques</CardTitle>
                     <p className="mt-1 text-xs text-muted-foreground">
-                        Cheques handed to this vendor as a guarantee for this {what}. Never cashed, never a payment.
+                        Cheques handed to this vendor as a guarantee for this PO. Never cashed, never a payment.
                     </p>
                 </div>
                 <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
@@ -68,7 +67,7 @@ export const SecurityDepositChequesCard = ({ record, className }: SecurityDeposi
                 ) : error ? (
                     <p className="text-sm text-destructive">{getFrappeError(error)}</p>
                 ) : rows.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No Security Deposit cheque names this {what}.</p>
+                    <p className="text-sm text-muted-foreground">No Security Deposit cheque names this PO.</p>
                 ) : (
                     <Table>
                         <TableHeader>
@@ -103,7 +102,7 @@ export const SecurityDepositChequesCard = ({ record, className }: SecurityDeposi
                                             <ChequeStatusBadge status={row.status} />
                                         </TableCell>
                                         <TableCell className="text-muted-foreground">
-                                            {others.length ? others.join(", ") : `Only this ${what}`}
+                                            {others.length ? others.join(", ") : "Only this PO"}
                                         </TableCell>
                                     </TableRow>
                                 );
