@@ -14,6 +14,7 @@
     "role_profile": "Nirmaan Accountant Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -41,6 +42,7 @@
     "role_profile": "Nirmaan HR Lead Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -68,6 +70,7 @@
     "role_profile": "Nirmaan HR Lead Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -95,6 +98,7 @@
     "role_profile": "Nirmaan HR Executive Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Travel",
@@ -122,6 +126,7 @@
     "role_profile": "Nirmaan HR Lead Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -149,6 +154,7 @@
     "role_profile": "Nirmaan HR Executive Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -176,6 +182,7 @@
     "role_profile": "Nirmaan Accountant Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -203,6 +210,7 @@
     "role_profile": "Nirmaan Accountant Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -230,6 +238,7 @@
     "role_profile": "Nirmaan HR Executive Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -257,6 +266,7 @@
     "role_profile": "Nirmaan HR Executive Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -284,6 +294,7 @@
     "role_profile": "Nirmaan Accountant Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -311,6 +322,7 @@
     "role_profile": "Nirmaan Accountant Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -338,6 +350,7 @@
     "role_profile": "Nirmaan HR Executive Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -365,6 +378,7 @@
     "role_profile": "Nirmaan Accountant Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -392,6 +406,7 @@
     "role_profile": "Nirmaan Accountant Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -406,6 +421,7 @@
  },
  {
   "allowed_roles": [],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -420,6 +436,7 @@
  },
  {
   "allowed_roles": [],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -434,6 +451,7 @@
  },
  {
   "allowed_roles": [],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -448,6 +466,7 @@
  },
  {
   "allowed_roles": [],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -462,6 +481,7 @@
  },
  {
   "allowed_roles": [],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -489,6 +509,7 @@
     "role_profile": "Nirmaan Accountant Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -516,6 +537,7 @@
     "role_profile": "Nirmaan HR Lead Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -543,6 +565,7 @@
     "role_profile": "Nirmaan Accountant Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -557,6 +580,7 @@
  },
  {
   "allowed_roles": [],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -571,6 +595,7 @@
  },
  {
   "allowed_roles": [],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -598,6 +623,7 @@
     "role_profile": "Nirmaan HR Lead Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -637,6 +663,7 @@
     "role_profile": "Nirmaan HR Lead Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Hotel & Accommodation",
@@ -664,6 +691,7 @@
     "role_profile": "Nirmaan HR Lead Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -691,6 +719,7 @@
     "role_profile": "Nirmaan Accountant Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -718,6 +747,7 @@
     "role_profile": "Nirmaan Project Manager Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Hotel & Accommodation",
@@ -745,6 +775,7 @@
     "role_profile": "Nirmaan Project Manager Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Hotel & Accommodation",
@@ -772,6 +803,7 @@
     "role_profile": "Nirmaan Project Manager Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Hotel & Accommodation",
@@ -786,6 +818,7 @@
  },
  {
   "allowed_roles": [],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -813,6 +846,7 @@
     "role_profile": "Nirmaan HR Executive Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Travel",
@@ -840,6 +874,7 @@
     "role_profile": "Nirmaan HR Executive Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Travel",
@@ -879,6 +914,7 @@
     "role_profile": "Nirmaan HR Lead Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -906,6 +942,7 @@
     "role_profile": "Nirmaan HR Lead Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -933,6 +970,7 @@
     "role_profile": "Nirmaan HR Lead Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -960,6 +998,7 @@
     "role_profile": "Nirmaan Accountant Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": null,
@@ -987,6 +1026,7 @@
     "role_profile": "Nirmaan Accountant Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -1014,6 +1054,7 @@
     "role_profile": "Nirmaan Accountant Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": null,
@@ -1041,6 +1082,7 @@
     "role_profile": "Nirmaan Accountant Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -1068,6 +1110,7 @@
     "role_profile": "Nirmaan Accountant Profile"
    }
   ],
+  "confirmed_as_request": 0,
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
