@@ -201,7 +201,7 @@ class TestAnAdminsReviewIsTheFirstApproval(FrappeTestCase):
 	def test_a_failed_approval_leaves_no_reviewer_behind(self):
 		"""The request is saved before its Expense is inserted, so a failed insert must undo both."""
 		name = self._raise(22000)
-		with patch("nirmaan_stack.api.expense_requests.review.create_ledger_row",
+		with patch("nirmaan_stack.api.expense_requests.convert.create_ledger_row",
 		           side_effect=frappe.ValidationError("insert failed")):
 			with self.assertRaises(frappe.ValidationError):
 				self._as(ADMIN_USER, approve_expense_request, name)

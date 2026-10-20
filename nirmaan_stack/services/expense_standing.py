@@ -27,21 +27,22 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from nirmaan_stack.services.approval_tiers import (
-    RAISER_CEO,
-    RAISER_L1,
-    STATUS_APPROVED,
-    STATUS_CEO_PENDING,
-    STATUS_REQUESTED,
     TIER_AUTO,
     TIER_L2_ABOVE_EXPENSES,
     needs_ceo,
     required_tier,
+    steps_cleared_by_raiser,
 )
-
-PENDING_REVIEW = "Pending Approval"
-REJECTED = "Rejected"
-PAID = "Paid"
-RECONCILIATION_PENDING = "Reconciliation Pending"
+from nirmaan_stack.services.expense_statuses import (
+    EXPENSE_APPROVED as STATUS_APPROVED,
+    EXPENSE_CEO_PENDING as STATUS_CEO_PENDING,
+    EXPENSE_PAID as PAID,
+    EXPENSE_RECONCILIATION_PENDING as RECONCILIATION_PENDING,
+    EXPENSE_REJECTED,
+    EXPENSE_REQUESTED as STATUS_REQUESTED,
+    REQUEST_PENDING as PENDING_REVIEW,
+    REQUEST_REJECTED,
+)
 
 DONE, CURRENT, UPCOMING, STEP_REJECTED = "done", "current", "upcoming", "rejected"
 
@@ -53,7 +54,7 @@ LIVE_LABELS = {
     STATUS_APPROVED: "Approved",
     RECONCILIATION_PENDING: "Reconciliation Pending",
     PAID: "Paid",
-    REJECTED: "Rejected",
+    EXPENSE_REJECTED: "Rejected",
 }
 
 
@@ -69,23 +70,23 @@ def _step(key, label, state, by=None, on=None, note=None) -> dict:
     return {"key": key, "label": label, "state": state, "by": by, "on": on, "note": note}
 
 
-def where_it_stands(request: Mapping, expense: Mapping | None, raiser_level: str | None,
-                    reviewer_is_l1: bool = False) -> list[dict]:
+def where_it_stands(request: Mapping, expense: Mapping | None, level: str | None) -> list[dict]:
     """The steps of one request, from raising it to its Expense being paid.
 
-    `raiser_level` is the raiser's own level (`approval_raiser.raiser_level`) and `reviewer_is_l1`
-    whether an L1 reviewed it. A step they already held (Raiser's own step, or an Admin's review
-    being the L1 step) is not shown as a separate approval: it was never asked of anyone.
+    `level` is the approval level the Expense is born under (`expense_decision.approval_level`: the
+    raiser's own, or L1 when an L1 reviewed it). The steps it clears are `approval_tiers`'
+    `steps_cleared_by_raiser` -- the rule `expense_decision.starting_status` applies -- and a step
+    cleared that way is not shown as a separate approval: it was never asked of anyone.
     """
     steps = [_step("raised", "Raised", DONE, by=request.get("owner"), on=request.get("creation"))]
     steps.append(_review_step(request, expense))
     if steps[-1]["state"] == STEP_REJECTED:
         return steps
+    l1_held, ceo_held = steps_cleared_by_raiser(request.get("amount"), TIER_L2_ABOVE_EXPENSES, level)
     if expense:
-        l1_held = raiser_level in (RAISER_L1, RAISER_CEO) or reviewer_is_l1
-        approvals = _approval_steps(expense, l1_held=l1_held, ceo_held=raiser_level == RAISER_CEO)
+        approvals = _approval_steps(expense, l1_held=l1_held, ceo_held=ceo_held)
     else:
-        approvals = _approvals_ahead(request.get("amount"), raiser_level)
+        approvals = _approvals_ahead(request.get("amount"), l1_held=l1_held, ceo_held=ceo_held)
     for step in approvals:
         steps.append(step)
         if step["state"] == STEP_REJECTED:
@@ -102,17 +103,17 @@ def _review_step(request: Mapping, expense: Mapping | None) -> dict:
         return _step("review", "Approved on submit (no review)", DONE, on=request.get("creation"))
     if status == PENDING_REVIEW:
         return _step("review", "Review", CURRENT, note="Waiting for a Reviewer")
-    if status == REJECTED and not expense:
+    if status == REQUEST_REJECTED and not expense:
         return _step("review", "Review", STEP_REJECTED, by=by, on=on, note=request.get("review_comment"))
     return _step("review", "Reviewed", DONE, by=by, on=on)
 
 
-def _approvals_ahead(amount, raiser_level: str | None) -> list[dict]:
-    """Before the Expense exists: the approvals its amount will need, less the raiser's own step."""
+def _approvals_ahead(amount, l1_held: bool, ceo_held: bool) -> list[dict]:
+    """Before the Expense exists: the approvals its amount will need, less the steps already held."""
     ahead = []
-    if required_tier(amount, TIER_L2_ABOVE_EXPENSES) != TIER_AUTO and raiser_level not in (RAISER_L1, RAISER_CEO):
+    if required_tier(amount, TIER_L2_ABOVE_EXPENSES) != TIER_AUTO and not l1_held:
         ahead.append(_step("admin", "Admin approval", UPCOMING, note="Not needed when an Admin reviews it"))
-    if needs_ceo(amount, TIER_L2_ABOVE_EXPENSES) and raiser_level != RAISER_CEO:
+    if needs_ceo(amount, TIER_L2_ABOVE_EXPENSES) and not ceo_held:
         ahead.append(_step("ceo", "CEO approval", UPCOMING))
     return ahead
 
@@ -138,14 +139,14 @@ def _approval_steps(expense: Mapping, l1_held: bool = False, ceo_held: bool = Fa
     if needs_l1:
         if status == STATUS_REQUESTED:
             steps.append(_step("admin", "Admin approval", CURRENT, note="Waiting for an Admin"))
-        elif status == REJECTED and not l1_on:
+        elif status == EXPENSE_REJECTED and not l1_on:
             return [_step("admin", "Admin approval", STEP_REJECTED, note="Rejected by an Admin")]
         elif not l1_held:
             steps.append(_step("admin", "Admin approval", DONE, on=l1_on))
     if needs_l2:
         if status == STATUS_CEO_PENDING:
             steps.append(_step("ceo", "CEO approval", CURRENT, note="Waiting for the CEO"))
-        elif status == REJECTED:
+        elif status == EXPENSE_REJECTED:
             steps.append(_step("ceo", "CEO approval", STEP_REJECTED, note="Rejected by the CEO"))
         elif status == STATUS_REQUESTED:
             steps.append(_step("ceo", "CEO approval", UPCOMING))

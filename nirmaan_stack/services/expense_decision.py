@@ -54,7 +54,9 @@ from nirmaan_stack.services.approval_tiers import (
     status_after_l1,
     steps_cleared_by_raiser,
 )
+from nirmaan_stack.services.caller_transaction import EXPENSE_DECIDING
 from nirmaan_stack.services.ceo_hold.core import CEO_HOLD_STATUS
+from nirmaan_stack.services.expense_statuses import EXPENSE_REJECTED
 from nirmaan_stack.services.outflow_import.ledgers import (
     EXPENSE_DOCTYPES,
     PAID,
@@ -67,8 +69,6 @@ from nirmaan_stack.services.role_profiles import (
     PAYMENT_SETTLE_PROFILES,
     has_role_profile,
 )
-
-REJECTED = "Rejected"
 
 L1_APPROVE = "l1_approve"
 CEO_APPROVE = "ceo_approve"
@@ -92,16 +92,19 @@ PAYMENT_FIELDS = ("payment_date", "payment_ref", "payment_attachment")
 # passed replaces the stored one, a blank one clears it; a field left out keeps it.
 INVOICE_FIELDS = ("invoice_date", "invoice_ref", "invoice_attachment")
 
-# Set while `decide` saves. Hooks that commit (a notification) honour it, because `decide` runs
-# inside its caller's savepoint and a commit there ends the savepoint.
-DECIDING_FLAG = "expense_deciding"
-
-
 # ── Who may act ─────────────────────────────────────────────────────────────────────────────
 
 def is_l1(user: str | None) -> bool:
     """The one answer to "who is L1": `Administrator` or the Admin profile (the CEO included)."""
     return raiser_level(user) is not None
+
+
+def approval_level(raised_by: str | None, reviewed_by: str | None = None) -> str | None:
+    """The level an Expense is born under: the raiser's own (`approval_raiser.raiser_level`), else L1
+    when an L1 reviewed its request -- an Admin's review IS the L1 step (ADR-0016, 2026-10-19
+    amendment 3). A review clears L1 only, even the CEO's. `starting_status` and the request page's
+    "Where it stands" (`expense_standing.where_it_stands`) both read it."""
+    return raiser_level(raised_by) or (RAISER_L1 if is_l1(reviewed_by) else None)
 
 
 def is_ceo(user: str | None) -> bool:
@@ -138,7 +141,7 @@ def starting_status(amount, raised_by: str | None, reviewed_by: str | None = Non
     value = flt(amount)
     if is_auto_approved(value):
         return StartingStatus(STATUS_APPROVED, auto_approved=True, l1_done=True, ceo_done=True)
-    level = raiser_level(raised_by) or (RAISER_L1 if is_l1(reviewed_by) else None)
+    level = approval_level(raised_by, reviewed_by)
     l1_done, ceo_done = steps_cleared_by_raiser(value, TIER_L2_ABOVE_EXPENSES, level)
     return StartingStatus(
         initial_status_for_raiser(value, TIER_L2_ABOVE_EXPENSES, level),
@@ -258,7 +261,7 @@ def decide(doctype: str, name: str, action: str, user: str, reason: str | None =
         doc.status = STATUS_APPROVED
         doc.ceo_approval_date = nowdate()
     elif action == REJECT:
-        doc.status = REJECTED
+        doc.status = EXPENSE_REJECTED
     elif action == MARK_DONE:
         doc.status = RECONCILIATION_PENDING
     else:
@@ -266,11 +269,12 @@ def decide(doctype: str, name: str, action: str, user: str, reason: str | None =
         _record_invoice(doc, invoice or {})
         doc.status = PAID
 
-    frappe.flags[DECIDING_FLAG] = True
+    # Inside the caller's per-row savepoint: hooks leave the commit to it (`caller_transaction`).
+    frappe.flags[EXPENSE_DECIDING] = True
     try:
         doc.save(ignore_permissions=True)
     finally:
-        frappe.flags[DECIDING_FLAG] = False
+        frappe.flags[EXPENSE_DECIDING] = False
     return doc.status
 
 

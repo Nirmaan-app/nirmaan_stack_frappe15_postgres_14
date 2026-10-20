@@ -13,37 +13,33 @@ URLs:
 import frappe
 
 from nirmaan_stack.api.expense_requests.access import (
-	ADMIN_PROFILE,
 	PM_REQUEST_REVIEWERS,
 	REJECTED,
 	caller_role_profile,
 	can_request_type,
+	is_admin,
 	may_review,
 	opens_expenses,
 	records_without_review,
 )
-from nirmaan_stack.api.expense_requests.convert import (
-	applicable_format,
-	target_doctype,
-	target_status,
-)
-from nirmaan_stack.api.expense_requests.delete import can_delete, requests_with_an_expense
-from nirmaan_stack.api.expense_requests.form_snapshot import frozen_form, frozen_forms, snapshot_of
+from nirmaan_stack.api.expense_requests.convert import target_doctype, target_status
+from nirmaan_stack.api.expense_requests.delete import can_delete
 from nirmaan_stack.api.expense_requests.flatten import (
 	NATIVE_INVOICE_SECTION,
-	flatten_pairs,
+	detail_rows,
 	request_invoice,
 )
-from nirmaan_stack.api.expense_requests.invoice import invoice_refusal, linked_expense
+from nirmaan_stack.api.expense_requests.form_snapshot import governing_form, governing_forms
+from nirmaan_stack.api.expense_requests.invoice import invoice_refusal
 from nirmaan_stack.api.expense_requests.standing import expenses_of, standing_of
 from nirmaan_stack.api.expense_requests.update import can_edit
+from nirmaan_stack.services.expense_decision import approval_level
 from nirmaan_stack.services.expense_request_routing import (
 	category_for_type,
 	requestable_types,
 	resolved_categories,
 	reviewer_role_for_type,
 )
-from nirmaan_stack.services.approval_raiser import raiser_level
 from nirmaan_stack.services.payees.expense_rules import NOT_ASKED
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS, pay_to_account
 
@@ -101,18 +97,13 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 			as_list=True,
 		))
 
-	# One read of the formats for the whole page, rather than one per row, and of the forms the
-	# rows were filled against (#1503), which win over today's.
-	frozen = frozen_forms(r.get("source_data") for r in rows)
-	formats = {
-		f["name"]: f
-		for f in frappe.get_all("Expense Type",
-		                        fields=["name", "source_format", "source_format_enabled"],
-		                        filters={"source_format": ["is", "set"]})
-	}
+	# One read of the forms for the whole page, rather than one per row: each row's own snapshot
+	# (#1503) wins over today's form (`form_snapshot.governing_forms`).
+	forms = governing_forms(rows)
 	# Which rejected rows still have an Expense, read once for the page: those are deleted only
 	# through their Expense, so they carry no trash button.
-	with_expense = requests_with_an_expense(r["name"] for r in rows if r["status"] == REJECTED)
+	with_expense = expenses_of(r["name"] for r in rows if r["status"] == REJECTED)
+	admin = is_admin(user)
 
 	# Each type's *Who gets paid* (#1466), so the review dialog words a missing account by it.
 	payee_rules = dict(frappe.get_all("Expense Type", fields=["name", "payee_rule"], as_list=True))
@@ -129,24 +120,14 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 		# Must say what `access.guard_reviewer` says, or the button appears on a row the
 		# endpoint then refuses.
 		r["can_edit"] = can_edit(r, user)
-		r["can_delete"] = can_delete(r, user, admin=profile == ADMIN_PROFILE,
-		                             has_expense=r["name"] in with_expense)
+		r["can_delete"] = can_delete(r, user, admin=admin, has_expense=r["name"] in with_expense)
 		r["can_review"] = may_review(r, user, profile, requester_profiles.get(r["owner"]))
 		# The answers, labelled, for the approval screen. Built by the SAME walk that writes
 		# the ledger description, so what a reviewer approves and what lands on the expense
 		# can never describe the request differently.
 		# EVERY request, formatted or not -- `source_data` is the only home for the detail
 		# now, so this block is the only thing that shows what was asked for.
-		fmt = formats.get(r["type"]) or {}
-		r["detail"] = [
-			{"label": label, "value": value}
-			for label, value in flatten_pairs(
-				r.get("source_data"),
-				applicable_format(fmt.get("source_format"), fmt.get("source_format_enabled"),
-				                  r.get("source_data"),
-				                  frozen=frozen.get(snapshot_of(r.get("source_data")))),
-			)
-		]
+		r["detail"] = detail_rows(r.get("source_data"), forms.get(r["name"]))
 		# Which ledger this becomes, AND what status it will land at -- both resolved
 		# server-side so the dialog states the outcome rather than re-deriving the rule.
 		# The status is amount-dependent since 2026-08-20, and the threshold lives on the
@@ -172,23 +153,17 @@ def get_expense_request(name: str):
 	doc.check_permission("read")
 	row = {f: doc.get(f) for f in FIELDS}
 
-	fmt = frappe.db.get_value("Expense Type", doc.type,
-	                          ["source_format", "source_format_enabled"], as_dict=True) or {}
-	source_format = applicable_format(fmt.get("source_format"), fmt.get("source_format_enabled"),
-	                                  doc.source_data, frozen=frozen_form(doc.source_data))
-	row["detail"] = [
-		{"label": label, "value": value}
-		for label, value in flatten_pairs(
-			doc.source_data, source_format, skip_sections=(NATIVE_INVOICE_SECTION,))
-	]
+	source_format = governing_form(doc)
+	row["detail"] = detail_rows(doc.source_data, source_format, skip_sections=(NATIVE_INVOICE_SECTION,))
 	row["projects_name"] = (
 		frappe.db.get_value("Projects", doc.projects, "project_name") if doc.projects else None
 	)
 	row["owner_name"] = frappe.db.get_value("User", doc.owner, "full_name") or doc.owner
 	row["pay_to"] = pay_to_account(row)
 
-	expense = linked_expense(name)
-	row["expense"] = dict(expense) if expense else None
+	expense = expenses_of([name]).get(name)
+	row["expense"] = ({"doctype": expense.doctype, "name": expense.name, "status": expense.status}
+	                  if expense else None)
 	# What approval carries onto the Expense: a request raised before #1502 has its bill in its
 	# form's slot.
 	row["invoice"] = request_invoice(doc.source_data, source_format)
@@ -196,7 +171,7 @@ def get_expense_request(name: str):
 	row["invoice_refusal"] = invoice_refusal(row, expense)
 	row["can_add_invoice"] = row["invoice_refusal"] is None
 	row["can_edit"] = can_edit(row)
-	row["standing"] = standing_of(row, expenses_of([name]).get(name), raiser_level(doc.owner))
+	row["standing"] = standing_of(row, expense, approval_level(doc.owner, doc.reviewed_by))
 	return row
 
 

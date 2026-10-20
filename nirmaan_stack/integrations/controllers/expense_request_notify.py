@@ -22,11 +22,8 @@ because a bell message could not be written.
 
 import frappe
 
-from nirmaan_stack.api.expense_requests.access import REJECTED
-from nirmaan_stack.services.expense_decision import DECIDING_FLAG
-
-PAID = "Paid"
-EXPENSE_DOCTYPES = ("Project Expenses", "Non Project Expenses")
+from nirmaan_stack.services.caller_transaction import caller_owns_the_commit
+from nirmaan_stack.services.expense_statuses import EXPENSE_PAID, REQUEST_REJECTED
 
 
 def _notify(recipient: str, title: str, description: str, request_name: str,
@@ -68,7 +65,7 @@ def _notify(recipient: str, title: str, description: str, request_name: str,
 	# the requester is told about.
 	# The same holds inside `expense_decision.decide` (Mark as Paid), which runs in its caller's
 	# per-row savepoint.
-	settling = bool(frappe.flags.get("outflow_import_settling") or frappe.flags.get(DECIDING_FLAG))
+	settling = caller_owns_the_commit()
 	if not settling:
 		frappe.db.commit()
 
@@ -94,7 +91,7 @@ def notify_decided(req, decision: str) -> None:
 	call is a documented no-op rather than a crash -- the safe direction, since the rule is
 	"approval says nothing" and a silent fall-through enforces it wherever it is called from.
 	"""
-	if decision == REJECTED:
+	if decision == REQUEST_REJECTED:
 		title = "Expense request rejected"
 		reason = (req.review_comment or "").strip()
 		desc = f"{req.name} ({req.type}) was rejected." + (f" Reason: {reason}" if reason else "")
@@ -117,7 +114,7 @@ def on_expense_update(doc, method=None) -> None:
 	It fires on the TRANSITION into Paid, not on the state: `has_value_changed` keeps a later
 	edit of an already-Paid row from re-notifying.
 	"""
-	if doc.status != PAID:
+	if doc.status != EXPENSE_PAID:
 		return
 	if not doc.has_value_changed("status"):
 		return

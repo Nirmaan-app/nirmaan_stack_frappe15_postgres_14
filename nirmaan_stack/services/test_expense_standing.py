@@ -101,7 +101,7 @@ class TestWhereItStands(unittest.TestCase):
 
     def test_an_admins_review_is_the_admin_step(self):
         expense = _expense("CEO Pending", 80000, approval_date="2026-10-02")
-        steps = where_it_stands(_request(amount=80000), expense, None, reviewer_is_l1=True)
+        steps = where_it_stands(_request(amount=80000), expense, "l1")
         self.assertEqual(_states(steps), [
             ("raised", "done"), ("review", "done"), ("ceo", "current"), ("paid", "upcoming"),
         ])

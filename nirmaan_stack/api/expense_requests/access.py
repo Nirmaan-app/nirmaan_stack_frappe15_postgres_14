@@ -11,12 +11,19 @@ own ask into money. Every gate lives here rather than being restated at each end
 
 import frappe
 
+from nirmaan_stack.services.expense_decision import is_l1
 from nirmaan_stack.services.expense_request_routing import (
 	allowed_roles_for_type,
 	is_requestable,
 	requestable_types,
 	reviewer_role_for_type,
 	types_reviewed_by,
+)
+from nirmaan_stack.services.expense_statuses import (
+	REQUEST_APPROVED,
+	REQUEST_PAID,
+	REQUEST_PENDING,
+	REQUEST_REJECTED,
 )
 
 ADMIN_PROFILE = "Nirmaan Admin Profile"
@@ -33,11 +40,12 @@ PM_REQUEST_REVIEWERS = frozenset({
 	"Nirmaan HR Lead Profile",
 })
 
-PENDING = "Pending Approval"
-APPROVED = "Approved"
-REJECTED = "Rejected"
-# Set by the LEDGER, never by a reviewer -- see `expense_request_status`.
-PAID = "Paid"
+# The request's statuses, named once in `services/expense_statuses`. `PAID` is set by the request
+# mirror of its Expense, never by a reviewer -- see `expense_request_status`.
+PENDING = REQUEST_PENDING
+APPROVED = REQUEST_APPROVED
+REJECTED = REQUEST_REJECTED
+PAID = REQUEST_PAID
 
 
 def caller_role_profile(user: str | None = None) -> str | None:
@@ -58,7 +66,16 @@ def caller_role_profile(user: str | None = None) -> str | None:
 
 
 def is_admin(user: str | None = None) -> bool:
-	return caller_role_profile(user) == ADMIN_PROFILE
+	"""Is the caller an Admin: `expense_decision.is_l1`, the one answer to "who is L1"."""
+	return is_l1(user or frappe.session.user)
+
+
+def is_raiser_or_admin(req, user: str | None = None, admin: bool | None = None) -> bool:
+	"""Is the caller the request's raiser, or an Admin? The one answer behind who may edit a
+	pending request (`update`), delete a rejected one (`delete`) and add its invoice (`invoice`).
+	A list caller passes `admin`, looked up once for the page."""
+	user = user or frappe.session.user
+	return req.get("owner") == user or (is_admin(user) if admin is None else admin)
 
 
 def can_request_type(expense_type: str, user: str | None = None) -> bool:

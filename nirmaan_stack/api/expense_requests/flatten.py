@@ -41,7 +41,7 @@ def mapped_fields(source_format) -> dict:
 	This is the ONE sanctioned exception to "a format never names a native column": a shadow
 	copy is forbidden, an explicit instruction to WRITE the column is not.
 	"""
-	fmt = _as_dict(source_format)
+	fmt = as_dict(source_format)
 	if not fmt:
 		return {}
 	out = {}
@@ -164,6 +164,14 @@ def flatten_pairs(source_data, source_format=None, skip_sections=()) -> list[tup
 	return out
 
 
+def detail_rows(source_data, source_format=None, skip_sections=()) -> list[dict]:
+	"""A request's `detail` for a screen: `flatten_pairs` as `[{label, value}]`. The one builder for
+	the request list, the request page, the duplicate-stay matches and the approval detail; the form
+	to pass is `form_snapshot.governing_form(s)`."""
+	return [{"label": label, "value": value}
+	        for label, value in flatten_pairs(source_data, source_format, skip_sections=skip_sections)]
+
+
 def undeclared_pairs(source_data, source_format) -> list[tuple[str, str]]:
 	"""(label, value) for every answer whose field the format no longer declares.
 
@@ -250,7 +258,7 @@ _OPTIONAL = re.compile(r"\[\[(.*?)\]\]", re.S)
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
-def _as_dict(value):
+def as_dict(value):
 	"""A JSON string or a dict as a dict, or None. Best-effort, like everything here."""
 	if isinstance(value, str):
 		try:
@@ -268,7 +276,7 @@ def flat_responses(source_data) -> dict:
 	ledger line in form order. List-valued sections are SKIPPED: a repeating table has no
 	keys, so there is nothing a `{placeholder}` could name.
 	"""
-	data = _as_dict(source_data)
+	data = as_dict(source_data)
 	if not data:
 		return {}
 
@@ -308,12 +316,12 @@ NATIVE_INVOICE_SLOT = "invoice"
 def filled_against_a_form(source_data) -> bool:
 	"""Were these answers filled against a type's form? The dialog stamps `templateId` on
 	every form-filled request and never on a standard one."""
-	data = _as_dict(source_data)
+	data = as_dict(source_data)
 	return bool(data and data.get("templateId"))
 
 
 def _native_section(source_data, section: str) -> dict:
-	responses = (_as_dict(source_data) or {}).get("responses")
+	responses = (as_dict(source_data) or {}).get("responses")
 	value = responses.get(section) if isinstance(responses, dict) else None
 	return value if isinstance(value, dict) else {}
 
@@ -332,7 +340,7 @@ def native_invoice(source_data) -> dict:
 		if isinstance(value, str) and value.strip():
 			out[key] = value.strip()
 
-	attachments = (_as_dict(source_data) or {}).get("attachments")
+	attachments = (as_dict(source_data) or {}).get("attachments")
 	files = attachments.get(NATIVE_INVOICE_SLOT) if isinstance(attachments, dict) else None
 	if isinstance(files, str):
 		files = [files]
@@ -361,7 +369,7 @@ def with_native_invoice(source_data, invoice: dict) -> str:
 	The whole invoice is replaced, so a number left blank on the new one clears the old number
 	rather than pairing it with another file. Every other answer is kept as it was.
 	"""
-	data = _as_dict(source_data) or {}
+	data = as_dict(source_data) or {}
 	responses = data.get("responses") if isinstance(data.get("responses"), dict) else {}
 	answers = {k: invoice[k] for k in ("invoice_date", "invoice_ref") if invoice.get(k)}
 	responses = {k: v for k, v in responses.items() if k != NATIVE_INVOICE_SECTION}
@@ -444,7 +452,7 @@ def render_description_template(source_data, source_format=None) -> str:
 	Returns "" for an absent or unusable template, so a format that declares none produces
 	EXACTLY the description it produced before templates existed.
 	"""
-	fmt = _as_dict(source_format)
+	fmt = as_dict(source_format)
 	template = ((fmt or {}).get("description_template") or "").strip()
 	if not template:
 		return ""

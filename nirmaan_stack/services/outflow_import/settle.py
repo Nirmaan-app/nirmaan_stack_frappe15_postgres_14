@@ -111,6 +111,7 @@ from typing import Callable
 
 import frappe
 
+from nirmaan_stack.services.caller_transaction import OUTFLOW_IMPORT_SETTLING
 from nirmaan_stack.services.cheques.decide import pay_alone_problem
 from nirmaan_stack.services.expense_type_ledger import expense_type_problem
 from nirmaan_stack.services.non_project_inflows import inflow_type_problem
@@ -341,12 +342,12 @@ def outflow_import_write():
     break a nesting caller. `finally` covers the raise path, which is the one that matters -- a
     settlement that throws is exactly when the caller is about to roll back to its savepoint.
     """
-    previous = frappe.flags.get("outflow_import_settling")
-    frappe.flags.outflow_import_settling = True
+    previous = frappe.flags.get(OUTFLOW_IMPORT_SETTLING)
+    frappe.flags[OUTFLOW_IMPORT_SETTLING] = True
     try:
         yield
     finally:
-        frappe.flags.outflow_import_settling = previous
+        frappe.flags[OUTFLOW_IMPORT_SETTLING] = previous
 
 
 # Every one of the three ledgers happens to spell it the same way. Named once so a fourth ledger
