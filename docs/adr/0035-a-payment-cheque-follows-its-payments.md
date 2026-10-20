@@ -51,3 +51,49 @@ clicked Cleared. Deposit cheques, which nobody cashes, looked the same as paying
   history.
 - Old cheques that pay Expenses, have no lines, or name a typed payee are kept as *Old-type cheques*
   and can only be cleared or cancelled by hand.
+
+## Amendment A — only the bank import clears a cheque, and a new cheque pays one PO payment (2026-10-20)
+
+**Accepted** (owner grilling session, 2026-10-20). Reverses the "by hand" half of Decision 4, the Work Orders
+in Decision 1, and the last Consequence: Old-type cheques are no longer cleared by hand.
+
+### Context
+
+After #1477 a cheque could be made and cleared in two places each. The Cheque Tracker's Add Cheque made
+Payment cheques across several POs and Security Deposit cheques, while the PO page made one cheque per
+payment request. Accounts could clear a cheque by hand, and the bank import also cleared it. So a cheque
+could still be cleared twice, or cleared by hand on a date the bank never paid it. A cheque also carried
+three dates (cheque, issue, clearance), and people read the wrong one. Work Orders are never paid by
+cheque, so a deposit cheque that secures one had no reason to be there.
+
+### Decision
+
+1. **Only a bank-statement line clears a Payment cheque.** The Clear and Clear selected actions are
+   removed. Old-type cheques are cleared by the import too, and every line on one is paid in full.
+2. **A Payment cheque is drawn on ICICI Bank,** the only bank whose statement the import reads. "Others"
+   stays allowed for a Security Deposit cheque, which is never cleared.
+3. **A new Payment cheque pays exactly one PO payment, and is made with it on the PO page.** Add Cheque is
+   removed from the Cheque Tracker, along with its Security Deposit button. The tracker views, cancels and
+   edits a cheque's number, bank, date and photo, but never its PO. Older cheques that pay several POs stay
+   as they are.
+4. **Pending is renamed Approval Pending,** both the stored value and the label.
+5. **The cheque date and the clearance date are one Cheque/Payment date.** It holds the paper date until the
+   import clears the cheque. Then it holds the day the bank paid, and the paper date is not kept. The issue
+   date stays.
+6. **A Security Deposit cheque secures POs only.** Existing Work Order links are dropped and the cheques are
+   kept. The Work Order page shows no cheque card.
+
+### Considered options
+
+- **Keep clearing by hand for Old-type or non-ICICI cheques.** Rejected: the owner wants one way to clear.
+  Non-ICICI Payment cheques are no longer made instead.
+- **Keep the paper date in the cheque's history when it is overwritten.** Rejected by the owner.
+- **Keep a way to put several POs on one cheque.** Rejected: one cheque per PO payment is enough from now on.
+- **Delete deposit cheques that secured Work Orders.** Rejected: the paper cheque is still held until it
+  comes back.
+
+### Consequences
+
+- A cheque that the import never matches stays Issued until it is cancelled.
+- "Cleared by" is no longer shown. It stays on old cheques as history.
+- A Project Payment still keeps its own copy of the cheque's paper date.
