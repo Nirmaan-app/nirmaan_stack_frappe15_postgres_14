@@ -7,7 +7,7 @@
  * Who gets paid has its own rule (`utils/payees/expensePayee`).
  */
 
-import type { RequestCatalogType } from "@/types/NirmaanStack/ExpenseRequest";
+import type { RequestCatalogType, SaveExpenseRequestResponse } from "@/types/NirmaanStack/ExpenseRequest";
 import {
     APPROVAL_TIERS, initialStatusForRaiser, requiredTier, TIER_L2_ABOVE_EXPENSES, type RaiserLevel,
 } from "@/utils/approvalTiers";
@@ -102,6 +102,43 @@ export const whoApprovesNext = (status: string | null | undefined, amount: strin
             : "An Admin approves it next.";
     }
     return "No one else needs to approve it.";
+};
+
+/** What the raiser is told once a new expense is submitted. */
+export interface WhatHappensNext {
+    title: string;
+    next: string;
+    /** The request's own page, for a request that waits for a reviewer; null otherwise. */
+    requestPath: string | null;
+}
+
+/** The post-submit wording for the status an Expense was born at; the server's label is the key. */
+const BORN_AT: Record<string, Pick<WhatHappensNext, "title" | "next">> = {
+    Approved: { title: "Expense created and approved.", next: "Accounts pays it next." },
+    Requested: { title: "Expense recorded.", next: "An Admin approves it next in Approve Payments." },
+    "CEO Pending": { title: "Expense created.", next: "The CEO approves it next." },
+};
+
+/**
+ * The message after a new expense is submitted, built from the server's answer
+ * (`create.create_expense_request`): approved on submit, it says where the Expense now waits;
+ * otherwise the request waits for a reviewer, and the message links to its page. The New Expense
+ * dialog shows it on every page that opens the dialog (Expenses, Project Payment & Expense).
+ */
+export const whatHappensNext = (
+    created: Pick<SaveExpenseRequestResponse, "name" | "status" | "created_expense" | "expense_status">,
+): WhatHappensNext => {
+    if (!created.created_expense) {
+        return {
+            title: "Sent for review.", next: "A reviewer approves it next.",
+            requestPath: `/expense/requests/${created.name}`,
+        };
+    }
+    const status = created.expense_status ?? "";
+    return {
+        ...(BORN_AT[status] ?? { title: "Expense created.", next: `It is ${status}.` }),
+        requestPath: null,
+    };
 };
 
 // --- The invoice ("Do you have the invoice?", #1502) -----------------------------------------

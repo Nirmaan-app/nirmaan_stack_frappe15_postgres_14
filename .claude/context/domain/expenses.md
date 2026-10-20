@@ -85,6 +85,10 @@ Both share one approval lifecycle and are entered/managed together in a single u
   someone who can raise at least one type or who reviews: `access.opens_expenses`, served by
   `read.get_expense_access` and read by the sidebar, the Service Procurement dashboard card and the
   route guard `ExpenseRoute` (`frontend/src/hooks/useExpenseAccess`, rule `utils/expenseAccess`).
+  **Project Payment & Expense has the same New Expense button**, under the same gate, opening the same
+  `NewExpenseRequestDialog` (no second dialog). After a submit the dialog says what happens next, the
+  same on both pages, from the server's answer: `utils/newExpenseForm.whatHappensNext` (a request that
+  waits for review links to `/expense/requests/<name>`).
 - **An L1 reviewer's review of an Expense Request is the L1 step** (#1499, ADR-0016 amendment 3).
   `starting_status(amount, raised_by, reviewed_by)` clears L1 when the request's `reviewed_by` is L1
   (`is_l1`), exactly as for an L1 raiser: an Admin-reviewed ₹22,000 request's Expense is born
@@ -529,7 +533,7 @@ PM raises  ->  Pending Approval  ->  routed reviewer
 | `Expense Request` | NEW — 10 columns: `type` · `type_allows_project` · `projects` · `amount` · `comment` · `source_data` · `status` · `reviewed_by` · `reviewed_on` · `review_comment`. `status` is `Pending Approval` / `Approved` / `Rejected` / **`Paid`** |
 | `Expense Request Template Snapshot` | NEW — freezes the format a request was filled against |
 | `Expense Category` | NEW — `category_name` · `description` (`reviewer_role` REMOVED 2026-09-16) |
-| `Expense Type` | `+source_format` (Long Text, JSON) · `+expense_category` (Link) · `+source_format_enabled` (Check, "Enable Source", 2026-09-16) · `+allowed_roles` (Table → `Expense Type Role`, 2026-09-16) |
+| `Expense Type` | `+source_format` (Long Text, JSON) · `+expense_category` (Link) · `+source_format_enabled` (Check, "Enable Source", 2026-09-16) · `+allowed_roles` (Table → `Expense Type Role`, 2026-09-16) · `+confirmed_as_request` (Check, "Confirmed as Expense Request", 2026-10-20) |
 | `Expense Type Role` | NEW child table (2026-09-16) — `role_profile` (Link → Role Profile) |
 | `Project Expenses` / `Non Project Expenses` | `+request_id` (Link → Expense Request, read-only, indexed). Otherwise unchanged — approval writes a row through the existing schema |
 
@@ -655,6 +659,18 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   To make that mapping usable, `create` on Expense Request was granted to Nirmaan Accountant,
   Accountant Lead, HR Executive and HR Lead (they held read + write only). The test suite grants
   the PM profile on the real types it uses for its run and removes exactly those rows after.
+- **"Confirmed as Expense Request" (`Expense Type.confirmed_as_request`, spec #1494, owner
+  2026-10-20) is a LABEL ONLY.** It gates nothing: raising, intake, the catalog and routing never
+  read it. Only Admin may change it, refused for anyone else by `ExpenseType.validate` on every path
+  (Desk, REST, `masters.update_expense_type`), also on a new type created with it ticked. Shown in
+  Expense Packages' Confirmed column and ticked in its Edit dialog (Admin only). ⚠️ Like
+  `allowed_roles`, the fixture wins on migrate: it ships 0 on every row, so a mark set in the app
+  survives the next migrate only once `fixtures/expense_type.json` is re-exported and committed.
+  Pinned by `api/expense_requests/test_confirmed_marker` and `test_fixture_completeness`.
+- **Expense Packages filters (2026-10-20).** The table's Scope, Payee, Role Access (role profiles,
+  plus "Admin only (empty list)") and Confirmed filters sit in their column headers and narrow the
+  loaded rows with AND, together with the search; Clear filters resets both. The rule is
+  `frontend/src/utils/expenses/expensePackagesFilter.ts`.
 - **Remove an Expense Type: delete it on the site AND drop it from `fixtures/expense_type.json`.**
   The fixture ships every type, so a type deleted only on the site comes back on the next
   `bench migrate`. Fixture sync only inserts and updates; it never deletes, so dropping a type from

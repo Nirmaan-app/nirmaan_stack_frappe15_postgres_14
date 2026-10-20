@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { invoiceNotes, newExpenseFields, newExpenseSubmit, whoApprovesNext } from "./newExpenseForm";
+import { invoiceNotes, newExpenseFields, newExpenseSubmit, whatHappensNext, whoApprovesNext } from "./newExpenseForm";
 
 const PROJECT_ONLY = { project_allowed: true, project_required: true, has_format: false };
 const NON_PROJECT = { project_allowed: false, project_required: false, has_format: false };
@@ -82,7 +82,7 @@ describe("newExpenseSubmit", () => {
             .toBe("An Admin approves it next, then the CEO.");
     });
 
-    it("after submit, words the server's status the same way the preview did", () => {
+    it("words who approves an Expense at each status", () => {
         expect(whoApprovesNext("Requested", 60000)).toBe("An Admin approves it next, then the CEO.");
         expect(whoApprovesNext("CEO Pending", 60000)).toBe("The CEO approves it next.");
         expect(whoApprovesNext("Approved", 10000)).toBe("No one else needs to approve it.");
@@ -91,6 +91,45 @@ describe("newExpenseSubmit", () => {
     it("says nothing about the next approver before an amount is typed", () => {
         expect(newExpenseSubmit({ recordsWithoutReview: true, amount: 0, level: null }))
             .toEqual({ label: "Record expense", nextApprover: null });
+    });
+});
+
+// What `create.create_expense_request` returns, trimmed to what the message reads.
+const approvedOnSubmit = (expense_status: string) => ({
+    name: "EXR-0042", status: "Approved" as const,
+    created_expense: "PE-0099", expense_status,
+});
+
+describe("whatHappensNext: the message after a new expense is submitted", () => {
+    it("an Expense approved on submit is paid by Accounts next", () => {
+        expect(whatHappensNext(approvedOnSubmit("Approved"))).toEqual({
+            title: "Expense created and approved.", next: "Accounts pays it next.", requestPath: null,
+        });
+    });
+
+    it("an Expense that lands at Requested waits for an Admin in Approve Payments", () => {
+        expect(whatHappensNext(approvedOnSubmit("Requested"))).toEqual({
+            title: "Expense recorded.", next: "An Admin approves it next in Approve Payments.", requestPath: null,
+        });
+    });
+
+    it("an Expense that lands at CEO Pending waits for the CEO", () => {
+        expect(whatHappensNext(approvedOnSubmit("CEO Pending"))).toEqual({
+            title: "Expense created.", next: "The CEO approves it next.", requestPath: null,
+        });
+    });
+
+    it("a request that needs review links to its own page", () => {
+        expect(whatHappensNext({
+            name: "EXR-0043", status: "Pending Approval", created_expense: null, expense_status: null,
+        })).toEqual({
+            title: "Sent for review.", next: "A reviewer approves it next.",
+            requestPath: "/expense/requests/EXR-0043",
+        });
+    });
+
+    it("names any other status the server reports, as the server labels it", () => {
+        expect(whatHappensNext(approvedOnSubmit("Paid")).next).toBe("It is Paid.");
     });
 });
 
