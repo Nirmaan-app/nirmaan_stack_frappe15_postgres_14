@@ -418,6 +418,9 @@ doc_events = {
         ],
         "on_trash": [
             "nirmaan_stack.integrations.controllers.expense_bank_links.on_trash",
+            # Its Office Rent tax record goes with it, or the delete is refused while that tax is on a
+            # challan (#1526). Before Frappe's link check, which would refuse it outright.
+            "nirmaan_stack.integrations.controllers.expense_tds.on_trash",
             # Drops the expense off its Cheque (#1413) before Frappe's link check refuses the delete.
             "nirmaan_stack.integrations.controllers.cheques.on_expense_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",

@@ -21,12 +21,21 @@ was born from (`request_id`), under the keys the rule names. A row with no reque
 raised before the form asked for the landlord, withholds the tax all the same, with no deductee.
 
 Neither hook swallows a failure: see `expense_tds.withhold_expense_tds`.
+
+`on_trash` (#1526): the tax record goes with its Expense while the tax is on no challan, and the delete
+is refused once it is (`expense_tds.delete_with_expense`). The amount lock is the doctype's own
+`validate` (`expense_tds.guard_withheld_amount`).
 """
 
 import frappe
 
 from nirmaan_stack.api.expense_requests.flatten import flat_responses
-from nirmaan_stack.services.expense_tds import tds_rule_for, withhold_expense_tds, withholds_now
+from nirmaan_stack.services.expense_tds import (
+	delete_with_expense,
+	tds_rule_for,
+	withhold_expense_tds,
+	withholds_now,
+)
 
 
 def after_insert(doc, method=None):
@@ -42,6 +51,11 @@ def on_update(doc, method=None):
 		return  # an insert: `after_insert` has decided it
 	if withholds_now(doc.doctype, doc.get("type"), before.get("status"), doc.get("status"), inserted=False):
 		_withhold(doc)
+
+
+def on_trash(doc, method=None):
+	"""The tax record goes with its Expense, or the delete is refused while the tax is on a challan."""
+	delete_with_expense(doc.name)
 
 
 def _withhold(doc) -> None:

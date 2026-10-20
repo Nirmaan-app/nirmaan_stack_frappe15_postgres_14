@@ -62,7 +62,9 @@ def _rent_answers(**overrides):
 	        "responses": {"detail": detail}}
 
 
-class TestOfficeRentTds(FrappeTestCase):
+class OfficeRentCase(FrappeTestCase):
+	"""The fixture and helpers of the Office Rent tax suites; holds no test of its own."""
+
 	def setUp(self):
 		self._commit = frappe.db.commit
 		self._publish = frappe.publish_realtime
@@ -115,6 +117,19 @@ class TestOfficeRentTds(FrappeTestCase):
 	def _records(self, name):
 		return frappe.get_all(TDS, filters={"non_project_expense": name}, fields=RECORD_FIELDS)
 
+	def _bank_line(self, amount) -> str:
+		"""One open money-out line of a freshly staged statement, carrying `amount`."""
+		batch = _stage_batch(_fresh_parse(), file_url="/private/files/test-statement.csv",
+		                     filename="test-statement.csv", user="Administrator")
+		rows = frappe.get_all(ROW_DOCTYPE, fields=["name", "direction"], order_by="creation asc",
+		                      filters={"import_batch": batch.name, "row_status": ["in", list(OPEN_ROW_STATUSES)]})
+		line = next(r.name for r in rows if (r.direction or "") != "Credit")
+		# A fixture write: the staged statement's own figures are not the rent's.
+		frappe.db.set_value(ROW_DOCTYPE, line, "amount", amount, update_modified=False)
+		return line
+
+
+class TestOfficeRentTds(OfficeRentCase):
 	# -- withholding at approval ----------------------------------------------------------------
 	def test_full_rent_approved_by_admin_then_the_ceo_is_paid_net_with_one_record(self):
 		request, name = self._raise(100000)
@@ -179,17 +194,6 @@ class TestOfficeRentTds(FrappeTestCase):
 		self.assertEqual(self._expense(name), {"status": "Reconciliation Pending", "amount": 90000})
 		[record] = self._records(name)
 		self.assertEqual((record.gross_amount, record.tds_amount), (100000, 10000))
-
-	def _bank_line(self, amount) -> str:
-		"""One open money-out line of a freshly staged statement, carrying `amount`."""
-		batch = _stage_batch(_fresh_parse(), file_url="/private/files/test-statement.csv",
-		                     filename="test-statement.csv", user="Administrator")
-		rows = frappe.get_all(ROW_DOCTYPE, fields=["name", "direction"], order_by="creation asc",
-		                      filters={"import_batch": batch.name, "row_status": ["in", list(OPEN_ROW_STATUSES)]})
-		line = next(r.name for r in rows if (r.direction or "") != "Credit")
-		# A fixture write: the staged statement's own figures are not the rent's.
-		frappe.db.set_value(ROW_DOCTYPE, line, "amount", amount, update_modified=False)
-		return line
 
 	# -- what never withholds -------------------------------------------------------------------
 	def test_any_other_type_withholds_nothing(self):

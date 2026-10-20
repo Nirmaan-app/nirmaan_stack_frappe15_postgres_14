@@ -258,6 +258,30 @@ letter decides it (owner, 2026-10-16):
 - Pinned by `api/expense_requests/test_office_rent_tds` (through the request, decision, bank-line and
   unreconcile endpoints) and `services/test_expense_tds_rule` (pure).
 
+### Load-bearing invariants: a withheld Office Rent expense (#1526)
+
+- **ITS AMOUNT IS LOCKED, NEVER RESTATED.** `expense_tds.guard_withheld_amount`, the FIRST line of
+  `Non Project Expenses.validate`, refuses any save that changes the amount of an Expense with a tax
+  record ("The tax has been withheld from …"): every person (Accountant, Accountant Lead, Admin,
+  `Administrator`) and every system writer, `ignore_permissions` included, in the app and in Desk. It
+  runs before `expense_decision.guard_hand_save`, so the refusal says why whoever saves. Other fields
+  stay under the Expense edit rules. ⚠️ Unlike a Work Order payment (§ Editing a payment that already
+  carries a deduction), an Office Rent amount is never re-derived as gross = net ÷ 0.9.
+- **THE ONE EXEMPTION: Bulk Import's single-line correction.** `settle.link_lines_to_expense`, on a 1:1
+  fill, sets `doc.flags[expense_tds.BANK_AMOUNT_CORRECTION]` beside the `rewrite_amount` write; the guard
+  passes it only within the settle window (`amounts_match`, ₹5). The record stays as withheld (a ₹89,998
+  line on a ₹90,000 Expense: amount ₹89,998, record still gross ₹1,00,000, tax ₹10,000). The flag is set
+  nowhere else. `withhold_expense_tds`'s own net is a `db_set`, which runs no `validate`.
+- **DELETE: the record goes with its Expense while its tax is on no challan; on a challan the delete is
+  refused, naming the challan.** `expense_tds.delete_with_expense`, from `controllers/expense_tds.on_trash`
+  (after `expense_bank_links.on_trash`, before Frappe's link check, which would otherwise refuse the
+  delete naming the record). It reads the record `for_update` and deletes it through `frappe.delete_doc`
+  (a Deleted Document copy stays); the record's own `on_trash` runs `recompute_challan_reconciled`, the
+  one rule, should it name a challan. Every delete door reaches it: the app's `deleteDoc` (Non-Project
+  Expenses page, payments queue), Desk, REST. The Expense Request goes with the Expense as before.
+- Pinned by `api/expense_requests/test_office_rent_tds_lock` (the edit through `frappe.client.set_value`,
+  the bank line through `link_rows_to_expense`, Pay TDS, the delete through `frappe.client.delete`).
+
 ---
 
 ## The two doctypes
@@ -314,7 +338,7 @@ Three callers, and none is redundant:
 |---|---|
 | `api/tds_challan/pay_tds` | Paying. Adds its own over-application guard before writing. |
 | `controllers/project_payments.on_trash` | The payment cascade, which deletes the deduction with **raw SQL that fires no hooks**. |
-| `controllers/payment_tds_deduction.on_trash` | A doc-layer delete (Desk, REST) — the route the raw delete bypasses. |
+| `controllers/payment_tds_deduction.on_trash` | A doc-layer delete (Desk, REST, and an Office Rent expense's delete, `expense_tds.delete_with_expense`) — the route the raw delete bypasses. |
 
 ⚠️ **MEASURED BUG (2026-09-15), fixed:** deleting a payment deleted its deduction, but nothing
 recomputed — a challan sat at ₹150 used with **zero** deductions behind it, permanently ₹150 short
@@ -422,10 +446,6 @@ by `api/payments/test_taxed_work_order_fixture.py`.
 ---
 
 ## Known gaps
-
-- **Deleting an Office Rent expense that carries a tax record is refused by Frappe's own link check**
-  (the record's `non_project_expense` points at it) until #1526 adds the delete rule and the amount lock;
-  until then an Accounts edit can also change a withheld expense's amount without restating its record.
 
 - **No reversal or unlink path.** A deduction is deleted with its payment; nothing detaches one from
   a challan. Any future unlink must reuse `recompute_challan_reconciled`, never subtract.

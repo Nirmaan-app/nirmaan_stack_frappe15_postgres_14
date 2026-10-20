@@ -125,6 +125,10 @@ Both share one approval lifecycle and are entered/managed together in a single u
   status machine is unchanged and the tiers read the gross, because the cut comes after the approval;
   the Expense Request keeps the gross. No other type withholds, and nothing backfills. Full rule:
   `payment-tds.md` § Load-bearing invariants: withholding from an Office Rent expense.
+  **Once withheld, its amount is locked** for every role and every system save, except Bulk Import's
+  single-line correction within ₹5, which leaves the tax record as it was; deleting it deletes its tax
+  record, and is refused once that tax is on a challan (#1526, `expense_tds.guard_withheld_amount` /
+  `delete_with_expense`; `payment-tds.md` § a withheld Office Rent expense).
 - **An expense's bank lines decide Paid, not a person** (ADR-0027, 2026-09-18). An expense can be
   settled by MANY imported bank lines — a salary or reimbursement run leaves the bank as one transfer
   per employee but is recorded as one expense. The **linked total** is the sum of the expense's live
