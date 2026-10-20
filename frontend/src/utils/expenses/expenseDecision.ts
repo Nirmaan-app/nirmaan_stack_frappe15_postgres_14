@@ -40,9 +40,12 @@ export interface ExpenseEditAccess {
   /** Per status, the only fields an edit may change. A listed status with no entry here allows
    *  every field but the status. */
   field_limits: Readonly<Record<string, readonly string[]>>;
+  /** Per status, the fields no edit may change, whoever makes it (`expense_decision.LOCKED_FIELDS`:
+   *  the pay-to account from Reconciliation Pending). */
+  locked_fields: Readonly<Record<string, readonly string[]>>;
 }
 
-export const NO_EDIT_ACCESS: ExpenseEditAccess = { editable_statuses: [], field_limits: {} };
+export const NO_EDIT_ACCESS: ExpenseEditAccess = { editable_statuses: [], field_limits: {}, locked_fields: {} };
 
 /** May the caller change `field` on an Expense that is at `status`? */
 export const mayEditExpenseField = (
@@ -50,6 +53,7 @@ export const mayEditExpenseField = (
 ): boolean => {
   const at = (status || "").trim();
   if (!access.editable_statuses.includes(at)) return false;
+  if (access.locked_fields[at]?.includes(field)) return false;
   const limit = access.field_limits[at];
   return !limit || limit.includes(field);
 };

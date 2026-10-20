@@ -13,6 +13,7 @@ and deleted after the test.
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from nirmaan_stack.api.payees.payee_fixture import delete_each
 from nirmaan_stack.patches.v3_0.backfill_expense_owner_from_request import backfill_expense_owners
 
 REQUESTER = "testeob_pm@example.com"
@@ -26,9 +27,9 @@ class TestBackfillExpenseOwnerFromRequest(FrappeTestCase):
         self.addCleanup(self._delete_rows)
 
     def _delete_rows(self):
-        for doctype, name in self.rows:
-            frappe.db.sql(f'DELETE FROM "tab{doctype}" WHERE name = %s', (name,))
-        frappe.db.commit()
+        # Rolls back first, then deletes each row in its own scope and names any that failed
+        # (CODING_STANDARDS § Writing tests), so a failed test never strands a TESTEOB row.
+        delete_each(reversed(self.rows), raw={doctype for doctype, _ in self.rows})
 
     def _insert(self, doctype: str, owner: str, **values) -> str:
         name = f"TESTEOB-{frappe.generate_hash(length=8)}"

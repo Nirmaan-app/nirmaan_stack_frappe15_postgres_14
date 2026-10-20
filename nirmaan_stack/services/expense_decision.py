@@ -63,6 +63,7 @@ from nirmaan_stack.services.expense_statuses import (
     EXPENSE_REQUESTED,
 )
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES, PROJECT_EXPENSE_DOCTYPE
+from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.role_profiles import (
     ACCOUNTANT_LEAD_PROFILE,
     ACCOUNTANT_PROFILE,
@@ -178,6 +179,8 @@ def apply_starting_status(doc) -> None:
 
 # Who edits an Expense by hand, in which statuses, and which fields (story 50, owner 2026-10-20):
 #   * until it is paid, Accounts edit every field but the status; `Administrator` is not let past;
+#   * from Reconciliation Pending, the pay-to account is locked for everyone (`LOCKED_FIELDS`):
+#     it says where the money went (ADR-0033, Amendment A);
 #   * once Paid, Admin (`Administrator` included) and the Accountant Lead correct its details
 #     (`PAID_EDITABLE_FIELDS`) and nothing else: the payment information stays as it was paid;
 #   * a Rejected one is closed to everyone.
@@ -188,11 +191,14 @@ PAID_EDIT_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 # check (`expense_type_ledger.check_expense_type`).
 PAID_EDITABLE_FIELDS = ("description", "comment", "invoice_attachment", "invoice_ref", "invoice_date",
                         "projects", "vendor", "type")
+# Per status, the fields no hand edit changes, whoever makes it. Paid's limit already leaves them out.
+LOCKED_FIELDS: dict[str, tuple[str, ...]] = {EXPENSE_RECONCILIATION_PENDING: PAY_TO_FIELDS}
 
 
 def edit_access(user: str | None) -> dict[str, tuple[str, ...] | None]:
     """What `user` may edit by hand: `{status: fields}`, where `fields` is None for every field but
-    the status, else the only fields an edit may change. A status left out is not editable."""
+    the status, else the only fields an edit may change. A status left out is not editable.
+    `LOCKED_FIELDS` narrows any status further, for every user."""
     access: dict[str, tuple[str, ...] | None] = {}
     if not user:
         return access
@@ -223,8 +229,9 @@ def guard_hand_save(doc) -> None:
       * it may not change the status, nor insert a row at any status but `Requested` (story 42):
         statuses move only through `decide`;
       * it may edit only what `edit_access` grants the person (story 50): Accounts an Expense not
-        yet paid; Admin and the Accountant Lead a Paid one's details, never its payment; nobody a
-        Rejected one (`assert_may_edit`).
+        yet paid, but not its pay-to account from Reconciliation Pending (`LOCKED_FIELDS`); Admin
+        and the Accountant Lead a Paid one's details, never its payment; nobody a Rejected one
+        (`assert_may_edit`).
 
     A save with `ignore_permissions=True` is trusted, and only these make one:
       * system writers, which move no field a person chose: `decide`, the request intake, the
@@ -258,7 +265,8 @@ def guard_hand_save(doc) -> None:
 def assert_may_edit(doc, stored: str | None, user: str | None, fields) -> None:
     """Refuse `user` changing `fields` of Expense `doc`, stored at status `stored`, unless
     `edit_access` grants it: `frappe.PermissionError` when the row is not theirs to edit at that
-    status, `frappe.ValidationError` when it is closed or a field is locked (a Paid row's payment)."""
+    status, `frappe.ValidationError` when it is closed or a field is locked (a Paid row's payment, a
+    Reconciliation Pending row's pay-to account: `LOCKED_FIELDS`)."""
     if stored not in (*EDITABLE_STATUSES, EXPENSE_PAID):
         frappe.throw(_("{0} is {1}; a {2} expense can no longer be edited.").format(
             doc.name, stored, (stored or "closed").lower()), title=_("Expense is closed"))
@@ -268,10 +276,11 @@ def assert_may_edit(doc, stored: str | None, user: str | None, fields) -> None:
                      else _("Only Accounts edit an expense once it is raised."),
                      frappe.PermissionError, title=_("Not yours to edit"))
     allowed = access[stored]
-    locked = [f for f in fields if allowed is not None and f not in allowed]
+    always_locked = LOCKED_FIELDS.get(stored, ())
+    locked = [f for f in fields if (allowed is not None and f not in allowed) or f in always_locked]
     if locked:
-        frappe.throw(_("{0} is paid; its {1} can no longer be changed.").format(
-            doc.name, ", ".join(_(doc.meta.get_label(f)) for f in locked)), title=_("Payment is locked"))
+        frappe.throw(_("{0} is {1}; its {2} can no longer be changed.").format(
+            doc.name, stored, ", ".join(_(doc.meta.get_label(f)) for f in locked)), title=_("Payment is locked"))
 
 
 def save_raiser_invoice(doctype: str, name: str, invoice: dict) -> None:

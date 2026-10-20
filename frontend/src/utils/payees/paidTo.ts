@@ -382,8 +382,9 @@ export const PAY_TO_FIELDS = [
 /**
  * May the viewer change the account of an expense at `status`? The server's edit answer says
  * (`expense_actions.get_expense_edit_access`, read by `hooks/useExpenseDecision.useExpenseFieldAccess`):
- * the pay-to account is payment information, so Accounts change it until the expense is paid and
- * nobody once it is Paid. `change_expense_account` asks the same rule before it saves.
+ * the pay-to account is payment information, so Accounts change it until the expense is Reconciliation
+ * Pending and nobody from then on (ADR-0033 Amendment A). `change_expense_account` asks the same rule
+ * before it saves.
  */
 export const mayChangeExpenseAccount = (access: ExpenseEditAccess, status: string | null | undefined): boolean =>
     PAY_TO_FIELDS.every((field) => mayEditExpenseField(access, status, field));

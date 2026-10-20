@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -12,6 +14,7 @@ import {
     namedByText,
     paidToCell,
     paidToExportText,
+    PAY_TO_FIELDS,
     payToBoxView,
     rowEligibility,
     switchLine,
@@ -337,17 +340,41 @@ describe("namedByText", () => {
     });
 });
 
+// The Python modules are the authority; these read them so the mirror cannot drift (rule F1).
+const readPy = (path: string) => readFileSync(resolve(__dirname, "../../../../nirmaan_stack", path), "utf-8");
+
+/** The string items of `NAME = (...)` in a Python module, with `*OTHER` spread from the same module. */
+const pyFields = (source: string, name: string): string[] => {
+    const m = source.match(new RegExp(`^${name}\\s*=\\s*\\(([^)]*)\\)`, "m"));
+    expect(m, `${name} not found`).toBeTruthy();
+    return m![1].split(",").map((s) => s.trim()).filter(Boolean)
+        .flatMap((item) => (item.startsWith("*") ? pyFields(source, item.slice(1)) : [item.replace(/^"|"$/g, "")]));
+};
+
+describe("PAY_TO_FIELDS: parity with services/payees/pay_to.PAY_TO_FIELDS", () => {
+    it("is pay_to_ + each of rules.ACCOUNT_FIELDS, in order", () => {
+        const payTo = readPy("services/payees/pay_to.py");
+        expect(payTo).toMatch(/^PAY_TO_FIELDS = tuple\(pay_to_field\(field\) for field in ACCOUNT_FIELDS\)$/m);
+        expect(payTo).toMatch(/^ {4}return f"pay_to_\{field\}"$/m);
+        const accountFields = pyFields(readPy("services/payees/rules.py"), "ACCOUNT_FIELDS");
+        expect([...PAY_TO_FIELDS]).toEqual(accountFields.map((field) => `pay_to_${field}`));
+    });
+});
+
 /** The server's edit answers (`expense_actions.get_expense_edit_access`), as `expense_decision.edit_access`
- *  gives them: Accounts edit every field until paid; Admin a Paid expense's details only. */
+ *  gives them: Accounts edit every field until paid, but not the pay-to account from Reconciliation
+ *  Pending (`LOCKED_FIELDS`); Admin a Paid expense's details only. */
 const ACCOUNTANT_ACCESS = {
     editable_statuses: ["Requested", "CEO Pending", "Approved", "Reconciliation Pending"],
     field_limits: {},
+    locked_fields: { "Reconciliation Pending": [...PAY_TO_FIELDS] },
 };
 const ADMIN_ACCESS = {
     editable_statuses: ["Paid"],
     field_limits: { Paid: ["description", "comment", "invoice_attachment", "invoice_ref", "invoice_date", "projects", "vendor", "type"] },
+    locked_fields: {},
 };
-const NO_ACCESS = { editable_statuses: [], field_limits: {} };
+const NO_ACCESS = { editable_statuses: [], field_limits: {}, locked_fields: {} };
 
 describe("canChangeExpenseAccount: Record Payment's Change account follows the server's edit answer", () => {
     const unpaid = { status: "Approved", paid: false, vendor_fixed: false };
@@ -366,6 +393,11 @@ describe("canChangeExpenseAccount: Record Payment's Change account follows the s
         expect(canChangeExpenseAccount("Project Expenses", unpaid, NO_ACCESS)).toBe(false);
     });
 
+    it("never offers it where the server locks the account, even before the box says paid", () => {
+        const pending = { status: "Reconciliation Pending", paid: false, vendor_fixed: false };
+        expect(canChangeExpenseAccount("Non Project Expenses", pending, ACCOUNTANT_ACCESS)).toBe(false);
+    });
+
     it("keeps the account read-only once paid, with a vendor named, and on a PO payment", () => {
         expect(canChangeExpenseAccount("Project Expenses", { ...unpaid, status: "Paid", paid: true }, ACCOUNTANT_ACCESS)).toBe(false);
         expect(canChangeExpenseAccount("Project Expenses", { ...unpaid, vendor_fixed: true }, ACCOUNTANT_ACCESS)).toBe(false);
@@ -375,9 +407,14 @@ describe("canChangeExpenseAccount: Record Payment's Change account follows the s
 
 describe("editDialogPayTo: Who gets paid in the expense Edit dialog follows the server's edit answer", () => {
     it("offers Change account's picker wherever the server lets the viewer change the account", () => {
-        for (const status of ["Requested", "CEO Pending", "Approved", " Approved ", "Reconciliation Pending"]) {
+        for (const status of ["Requested", "CEO Pending", "Approved", " Approved "]) {
             expect(editDialogPayTo(status, ACCOUNTANT_ACCESS, false)).toBe("change");
         }
+    });
+
+    it("shows nothing on a Reconciliation Pending expense: the server locks its account for everyone", () => {
+        expect(editDialogPayTo("Reconciliation Pending", ACCOUNTANT_ACCESS, false)).toBe("none");
+        expect(editDialogPayTo("Reconciliation Pending", ACCOUNTANT_ACCESS, true)).toBe("none");
     });
 
     it("shows the vendor's account read-only while a vendor is named", () => {

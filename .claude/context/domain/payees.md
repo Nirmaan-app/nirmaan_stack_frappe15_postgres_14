@@ -133,7 +133,9 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     request carried none.
   - **Not refused on the server** (#1436, owner 2026-10-15): a *Required* type with no account, a
     vendor and an account that disagree, a change after payment, a change by someone outside
-    Accounts. Who may change a copy, and until when, are screen rules (ADR-0033 decision 9).
+    Accounts. Who may change a copy, and until when, are screen rules (ADR-0033 decision 9), except on
+    an Expense: `expense_decision.assert_may_edit` refuses a change to its `pay_to_*` fields except by
+    Accounts before Reconciliation Pending (ADR-0033 Amendment A).
 - **A PO / Work Order payment's pay-to account** (#1437): `Project Payments` holds the same five
   `pay_to_*` fields. Its `validate` (`integrations/controllers/project_payments`) copies the vendor's
   Payee when a payment is INSERTED with no copy (`pay_to.fill_payment_from_vendor`), so every creator

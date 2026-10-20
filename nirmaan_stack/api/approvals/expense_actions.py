@@ -31,7 +31,7 @@ import frappe
 from frappe import _
 
 from nirmaan_stack.api.payments.bulk_actions import MAX_BATCH_SIZE
-from nirmaan_stack.services.expense_decision import ACTIONS, REJECT, decide, edit_access
+from nirmaan_stack.services.expense_decision import ACTIONS, LOCKED_FIELDS, REJECT, decide, edit_access
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 
 
@@ -95,18 +95,21 @@ def decide_expenses(expense_ids, action: str, reason: Optional[str] = None, paym
 @frappe.whitelist()
 def get_expense_edit_access():
     """What the caller may edit on an Expense by hand (story 50), as `expense_decision.edit_access`
-    answers it: `editable_statuses`, the statuses in which they may edit at all, and `field_limits`,
+    answers it: `editable_statuses`, the statuses in which they may edit at all; `field_limits`,
     per status the only fields an edit may change (a listed status with no limit allows every field
-    but the status). The ledger pages and the Payments queue show Edit, Upload Invoice and each
+    but the status); and `locked_fields`, per status the fields nobody's edit may change
+    (`expense_decision.LOCKED_FIELDS`: the pay-to account from Reconciliation Pending). The ledger pages and the Payments queue show Edit, Upload Invoice and each
     dialog field from this, so they and both ledgers' `validate` (`guard_hand_save`) agree.
 
     Example (an Accountant Lead): `{"editable_statuses": ["Requested", "CEO Pending", "Approved",
-    "Reconciliation Pending", "Paid"], "field_limits": {"Paid": ["description", "comment", ...]}}`.
+    "Reconciliation Pending", "Paid"], "field_limits": {"Paid": ["description", "comment", ...]},
+    "locked_fields": {"Reconciliation Pending": ["pay_to_account_name", ...]}}`.
     """
     access = edit_access(frappe.session.user)
     return {
         "editable_statuses": list(access),
         "field_limits": {status: list(fields) for status, fields in access.items() if fields is not None},
+        "locked_fields": {status: list(fields) for status, fields in LOCKED_FIELDS.items() if status in access},
     }
 
 

@@ -125,3 +125,16 @@ Options considered for later:
 
 Cash and cheque payees with no bank account are not Payees, so expenses paid to them carry the
 payee only as text. That text cannot be searched for or matched.
+
+## Amendment A (2026-10-20) — who changes an Expense's pay-to account, enforced on the server
+
+Owner ruling for spec #1494 story 50. It narrows decision 9 for an Expense (a Project Expense or a
+Non-Project Expense); an Expense Request and a PO / WO payment keep decision 9 as written.
+
+- Before *Paid*, only an Accountant or the Accountant Lead changes an Expense's pay-to account. Admin
+  does not.
+- At *Reconciliation Pending* and *Paid*, nobody changes it: it says where the money went.
+- The server enforces this, which replaces "a screen rule only" in decision 9 for an Expense.
+  `services/expense_decision.assert_may_edit` refuses the change through Change account and through a
+  document save (`LOCKED_FIELDS` at Reconciliation Pending). The edit dialog and Record Payment read
+  the same answer from `get_expense_edit_access`. The row's other fields keep the story-50 edit rule.

@@ -352,19 +352,23 @@ class TestExpenseDecisions(FrappeTestCase):
 		before_paid = ["Requested", "CEO Pending", "Approved", "Reconciliation Pending"]
 		paid_details = sorted(["description", "comment", "invoice_attachment", "invoice_ref", "invoice_date",
 		                       "projects", "vendor", "type"])
+		# From Reconciliation Pending the pay-to account is locked for everyone (ADR-0033 Amendment A).
+		pay_to_locked = {"Reconciliation Pending": sorted(["pay_to_account_name", "pay_to_account_number",
+		                                                   "pay_to_ifsc", "pay_to_bank_name", "pay_to_bank_branch"])}
 		expected = {
-			ACCOUNTANT: (before_paid, {}),
-			ACCOUNTANT_LEAD: (before_paid + ["Paid"], {"Paid": paid_details}),
-			ADMIN: (["Paid"], {"Paid": paid_details}),
-			"Administrator": (["Paid"], {"Paid": paid_details}),
-			PM: ([], {}),
-			HR: ([], {}),
+			ACCOUNTANT: (before_paid, {}, pay_to_locked),
+			ACCOUNTANT_LEAD: (before_paid + ["Paid"], {"Paid": paid_details}, pay_to_locked),
+			ADMIN: (["Paid"], {"Paid": paid_details}, {}),
+			"Administrator": (["Paid"], {"Paid": paid_details}, {}),
+			PM: ([], {}, {}),
+			HR: ([], {}, {}),
 		}
-		for user, (statuses, limits) in expected.items():
+		for user, (statuses, limits, locked) in expected.items():
 			with self.subTest(user=user):
 				access = self._edit_access_as(user)
 				self.assertEqual(sorted(access["editable_statuses"]), sorted(statuses))
 				self.assertEqual({s: sorted(f) for s, f in access["field_limits"].items()}, limits)
+				self.assertEqual({s: sorted(f) for s, f in access["locked_fields"].items()}, locked)
 
 	def test_a_new_expense_carrying_a_status_through_a_document_insert_is_refused(self):
 		doc = frappe.new_doc(NPE)

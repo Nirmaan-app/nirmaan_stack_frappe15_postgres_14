@@ -22,8 +22,9 @@ copy as it was.
   Payee, copied on insert only (`integrations/controllers/project_payments.validate`).
 * `pay_to_account(row)` -- the copy in a Payee's field names, for a screen; None when blank.
 
-The server enforces no edit rule on a copy (owner, 2026-10-15): who may change it, and when, are screen
-rules.
+The server enforces no edit rule on a copy here (owner, 2026-10-15), with one exception: an Expense's
+copy is payment information, so who may change it and when is `expense_decision.assert_may_edit`
+(Accounts until Reconciliation Pending, then nobody; ADR-0033 Amendment A).
 """
 
 from __future__ import annotations

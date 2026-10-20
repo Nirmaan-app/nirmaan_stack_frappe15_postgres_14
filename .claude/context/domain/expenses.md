@@ -53,8 +53,8 @@ Both share one approval lifecycle and are entered/managed together in a single u
   `ignore_permissions=True`, so it needs no flag. ⚠️ A new system writer must save with
   `ignore_permissions=True` too, or its status change is refused. Two person-facing endpoints also save
   elevated, and each asks its own rule first: **Change account** (`expense_payee.change_expense_account`
-  asks `expense_decision.assert_may_edit` for the `pay_to_*` fields: Accounts before Paid, nobody once
-  Paid) and the raiser's **Add invoice** (`expense_decision.save_raiser_invoice`, story 15's carve-out:
+  asks `expense_decision.assert_may_edit` for the `pay_to_*` fields: Accounts before Reconciliation
+  Pending, nobody at Reconciliation Pending or Paid) and the raiser's **Add invoice** (`expense_decision.save_raiser_invoice`, story 15's carve-out:
   the invoice fields only, until Paid). ⚠️ A new person-facing endpoint that saves an Expense elevated
   must call `assert_may_edit`. Pinned by `api/approvals/test_expense_decisions`, `api/payees/test_paid_to`
   and `api/expense_requests/test_request_invoice`.
@@ -62,6 +62,8 @@ Both share one approval lifecycle and are entered/managed together in a single u
   by the same `guard_hand_save`:
   - before Paid (Requested, CEO Pending, Approved, Reconciliation Pending): an Accountant or Accountant
     Lead, every field but the status; nobody else (`Administrator` and Admin included);
+  - **Reconciliation Pending** also locks every `pay_to_*` field, for everyone (`LOCKED_FIELDS`;
+    ADR-0033 Amendment A): the account says where the money went;
   - **Paid**: Admin (`Administrator` included) and the Accountant Lead, and only its details
     (`PAID_EDITABLE_FIELDS`: description, comment, invoice attachment / ref / date, project, vendor,
     type, which still meets the ledger type check). Its payment information -- amount, payment date /
@@ -69,7 +71,8 @@ Both share one approval lifecycle and are entered/managed together in a single u
     request, Porter order -- is locked for everyone; an Accountant cannot edit a Paid one at all;
   - **Rejected**: nobody.
   System paths are unaffected; Change account asks this same rule (above). `expense_actions.get_expense_edit_access` serves the same answer as
-  `editable_statuses` plus `field_limits` (per status, the only fields an edit may change). Every Edit /
+  `editable_statuses` plus `field_limits` (per status, the only fields an edit may change) and
+  `locked_fields` (per status, the fields no edit may change). Every Edit /
   Record Invoice button on the old ledger pages and the Payments queue (pencil, raiser pencil, Upload
   Invoice on a Paid expense) shows only where the row's status is listed
   (`hooks/useExpenseDecision.useExpenseEditAccess`), and both edit dialogs disable and never send a

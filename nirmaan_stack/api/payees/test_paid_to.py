@@ -680,6 +680,48 @@ class TestPaidTo(FrappeTestCase):
                 box = self._as(user, change_expense_account, doctype=NPE, name=expense, payee=second)
                 self.assertEqual(box["account"], self._account(second))
 
+    def test_nobody_changes_a_reconciliation_pending_expenses_account_but_accounts_still_edit_the_rest(self):
+        # From Reconciliation Pending the pay-to account says where the money went (ADR-0033
+        # Amendment A, owner 2026-10-20): locked for everyone, through Change account and through a
+        # document save alike. The row's other fields keep today's rule: Accounts edit them.
+        first, second = self.payees.payee(), self.payees.payee()
+        for doctype in (PE, NPE):
+            for user in (ACCOUNTANT_USER, ACCOUNTANT_LEAD_USER):
+                with self.subTest(doctype=doctype, user=user, door="Change account"):
+                    expense = self._expense(doctype, copy_of=first, status="Reconciliation Pending")
+                    with self.assertRaises(frappe.ValidationError) as refusal:
+                        self._as(user, change_expense_account, doctype=doctype, name=expense, payee=second)
+                    self.assertIs(type(refusal.exception), frappe.ValidationError)
+                    self.assertEqual(frappe.db.get_value(doctype, expense, list(PAY_TO_FIELDS), as_dict=True),
+                                     self._copy_of(first))
+
+                with self.subTest(doctype=doctype, user=user, door="document save"):
+                    expense = self._expense(doctype, copy_of=first, status="Reconciliation Pending")
+
+                    def save_the_account():
+                        doc = frappe.get_doc(doctype, expense)
+                        doc.update(self._copy_of(second))
+                        doc.save()
+
+                    with self.assertRaises(frappe.ValidationError) as refusal:
+                        self._as(user, save_the_account)
+                    self.assertIs(type(refusal.exception), frappe.ValidationError)
+                    self.assertIn("can no longer be changed", str(refusal.exception))
+                    self.assertEqual(frappe.db.get_value(doctype, expense, list(PAY_TO_FIELDS), as_dict=True),
+                                     self._copy_of(first))
+
+                with self.subTest(doctype=doctype, user=user, door="document save, other field"):
+                    expense = self._expense(doctype, copy_of=first, status="Reconciliation Pending")
+
+                    def save_the_description():
+                        doc = frappe.get_doc(doctype, expense)
+                        doc.description = "Shuttering labour, settled"
+                        doc.save()
+
+                    self._as(user, save_the_description)
+                    self.assertEqual(frappe.db.get_value(doctype, expense, "description"),
+                                     "Shuttering labour, settled")
+
     def test_accounts_save_the_edit_dialog_and_its_picked_payee_onto_an_approved_expense(self):
         # The expense Edit dialog (the pencil on "Payment need to paid", #1465) saves its fields the
         # way the SDK's updateDoc does, then copies the picked Payee through Change account's endpoint.

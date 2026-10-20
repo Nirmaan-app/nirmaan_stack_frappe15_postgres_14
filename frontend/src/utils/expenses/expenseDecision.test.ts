@@ -88,8 +88,9 @@ describe("splitMarkPaid", () => {
 describe("mayEditExpenseField — the server's edit answer, read per field (story 50)", () => {
   // An Accountant Lead's answer, as `get_expense_edit_access` serves it.
   const lead = {
-    editable_statuses: ["Requested", "Approved", "Paid"],
+    editable_statuses: ["Requested", "Approved", "Reconciliation Pending", "Paid"],
     field_limits: { Paid: ["description", "invoice_ref"] },
+    locked_fields: { "Reconciliation Pending": ["pay_to_ifsc"] },
   };
 
   it("allows every field of a status the answer leaves unlimited", () => {
@@ -102,6 +103,12 @@ describe("mayEditExpenseField — the server's edit answer, read per field (stor
     expect(mayEditExpenseField(lead, " Paid ", "invoice_ref")).toBe(true);
     expect(mayEditExpenseField(lead, "Paid", "amount")).toBe(false);
     expect(mayEditExpenseField(lead, "Paid", "payment_attachment")).toBe(false);
+  });
+
+  it("refuses a field the answer locks at that status, and allows the rest", () => {
+    expect(mayEditExpenseField(lead, "Reconciliation Pending", "pay_to_ifsc")).toBe(false);
+    expect(mayEditExpenseField(lead, "Reconciliation Pending", "description")).toBe(true);
+    expect(mayEditExpenseField(lead, "Approved", "pay_to_ifsc")).toBe(true);
   });
 
   it("allows nothing on a status the answer does not list", () => {

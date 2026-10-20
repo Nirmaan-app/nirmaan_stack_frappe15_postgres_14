@@ -18,7 +18,8 @@ payment that switches to its vendor's current account.
 
 Who: reading follows the ledger (whoever may read the payment or expense sees who it pays, as the
 queue shows it). Changing is payment information: Frappe's write permission on the expense, then
-`expense_decision.assert_may_edit` (before Paid, an Accountant or the Accountant Lead; once Paid, nobody).
+`expense_decision.assert_may_edit` (before Reconciliation Pending, an Accountant or the Accountant Lead;
+at Reconciliation Pending or Paid, nobody).
 Searching Payees is Accounts only (`PAYEE_MANAGE_PROFILES`); new bank details in Change account go
 through the Payees page's `add_payee` / `check_payee`, Accounts only too. That the screen offers Change
 account only on an approved, unpaid expense with no vendor is a screen rule (`canChangeExpenseAccount`).

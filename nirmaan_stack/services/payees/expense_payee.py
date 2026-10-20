@@ -5,8 +5,8 @@
 
 * `change_expense_account` -- Record Payment's Change account: copies a Payee's account onto the
   expense's own pay-to account and saves. The pay-to account is payment information, so the change
-  asks `expense_decision.assert_may_edit` first (spec #1494 story 50): before Paid, an Accountant or
-  the Accountant Lead; once Paid, nobody.
+  asks `expense_decision.assert_may_edit` first (spec #1494 story 50): before Reconciliation Pending,
+  an Accountant or the Accountant Lead; at Reconciliation Pending or Paid, nobody (ADR-0033 Amendment A).
 
 Approval copies the request's pay-to account onto the Expense as it is (`api/expense_requests/convert`,
 `pay_to.copy_pay_to`).
