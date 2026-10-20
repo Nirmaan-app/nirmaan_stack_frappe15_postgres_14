@@ -18,6 +18,7 @@ from frappe.utils import add_days, nowdate
 from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
 from nirmaan_stack.api.cheques.cheque_status import cancel_cheque, clear_cheque
 from nirmaan_stack.api.cheques.list_cheques import get_cheque_facets, get_cheques
+from nirmaan_stack.api.cheques.save_cheque import save_cheque
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 
 U = "Administrator"
@@ -30,6 +31,7 @@ PROCUREMENT = (
 )
 PHOTO = "https://storage.example.invalid/private/files/cheque-test.jpg"
 SR = "Service Requests"
+PO = "Procurement Orders"
 LINE = "PO/WO Payment"
 
 
@@ -416,3 +418,63 @@ class TestTheChequeTrackerTabs(FrappeTestCase):
         frappe.set_user(pm)
         with self.assertRaises(frappe.PermissionError):
             self._issued_tab()
+
+
+class TestTheChequesOfOnePo(FrappeTestCase):
+    """#1521 (spec #1514, stories 21 and 23): the PO page's "Cheques issued for this PO" card asks the list
+    for `record_name = <its PO>`. That lists the Payment cheques with a line on the PO and the deposit cheques
+    securing it, and each row carries `record_amount`: what its lines put on that PO."""
+
+    def setUp(self):
+        frappe.set_user(U)
+        self.fx = TaxedWorkOrderFixture.attach(self)
+        self.cheques = ChequeFixture.attach(self)
+        self.vendor = self.fx.vendor()
+        self.project = self.fx.project()
+        self.po = ChequeFixture.plant_po(self, self.fx, project=self.project, vendor=self.vendor)
+        self.other_po = ChequeFixture.plant_po(self, self.fx, project=self.project, vendor=self.vendor)
+        frappe.db.commit()
+
+    def tearDown(self):
+        frappe.set_user(U)
+
+    def _payment_cheque(self, *lines):
+        """A Payment cheque with one PO/WO Payment line per `(po, amount)`, for their total."""
+        return self.cheques.plant_cheque(
+            bank="ICICI Bank", cheque_no=self.cheques.number(), cheque_date=nowdate(),
+            amount=sum(amount for _, amount in lines), vendor=self.vendor, attachment=PHOTO,
+            lines=[{"line_type": LINE, "project": self.project, "record_doctype": PO, "record_name": po,
+                    "amount": amount} for po, amount in lines],
+        )
+
+    def _deposit_cheque(self, *pos):
+        return self.cheques.track(save_cheque(
+            cheque_type="Security Deposit", bank="Others", bank_name="HDFC Bank", cheque_no=self.cheques.number(),
+            cheque_date=nowdate(), issue_date=nowdate(), amount=200000, vendor=self.vendor, attachment=PHOTO,
+            lines=[{"line_type": "Secured PO/WO", "record_doctype": PO, "record_name": po} for po in pos],
+        )["cheque"])
+
+    def _of_po(self, po):
+        rows = get_cheques(filters=json.dumps([["record_name", "=", po]]), limit_page_length=500)["data"]
+        return {r["name"]: (r["cheque_type"], r["amount"], r["record_amount"]) for r in rows}
+
+    def test_it_lists_the_po_s_payment_and_deposit_cheques_with_what_each_puts_on_the_po(self):
+        one_line = self._payment_cheque((self.po, 30000))
+        shared = self._payment_cheque((self.po, 20000), (self.other_po, 15000))
+        deposit = self._deposit_cheque(self.po, self.other_po)
+        self._payment_cheque((self.other_po, 40000))  # another PO's cheques are not listed
+        self._deposit_cheque(self.other_po)
+
+        self.assertEqual(self._of_po(self.po), {
+            one_line: ("Payment", 30000, 30000),
+            shared: ("Payment", 35000, 20000),
+            # A deposit secures the PO and pays nothing on it: no line amount.
+            deposit: ("Security Deposit", 200000, 0),
+        })
+
+    def test_a_row_carries_no_po_amount_when_no_po_is_asked_for(self):
+        name = self._payment_cheque((self.po, 30000))
+
+        row = get_cheques(filters=json.dumps([["name", "=", name]]))["data"][0]
+
+        self.assertIsNone(row["record_amount"])

@@ -166,7 +166,7 @@ export const securableOptions = (records: SecurableRecord[], secured: SecuredRec
 };
 
 /** A line as the list and the detail view return it. */
-interface LineOfRecord {
+export interface LineOfRecord {
     line_type: string;
     record_doctype?: string | null;
     record_name?: string | null;
@@ -175,16 +175,6 @@ interface LineOfRecord {
 /** The records a deposit secures, by label, in line order. */
 export const securedRecords = (lines: LineOfRecord[]): string[] =>
     lines.filter((l) => l.line_type === LINE_TYPE.SECURED && l.record_name).map((l) => securedLabel(l.record_doctype, l.record_name));
-
-/** The PO card's "Also secures": the deposit's other records, beside the page's own `record`. */
-export const alsoSecures = (lines: LineOfRecord[], record: string): string[] =>
-    securedRecords(lines.filter((l) => l.record_name !== record));
-
-/** The list filters for a PO page's card: the deposit cheques whose lines name `record`. */
-export const depositCardFilters = (record: string): [string, "=", string][] => [
-    ["cheque_type", "=", CHEQUE_TYPE.SECURITY_DEPOSIT],
-    ["record_name", "=", record],
-];
 
 const num = (v: unknown) => {
     const n = Number(v);
