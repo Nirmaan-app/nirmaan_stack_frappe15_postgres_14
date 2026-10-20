@@ -3,12 +3,14 @@
 
 from frappe.model.document import Document
 
-from nirmaan_stack.services.expense_decision import apply_starting_status
+from nirmaan_stack.services.expense_decision import apply_starting_status, guard_hand_save
 from nirmaan_stack.services.expense_type_ledger import check_expense_type
 
 
 class NonProjectExpenses(Document):
 	def validate(self):
+		# What a person may write by hand: no status (story 42), and only Accounts edit (story 50).
+		guard_hand_save(self)
 		# The type must belong in this ledger (#1496). On every save; it asks only when the row is
 		# new or its type changed.
 		check_expense_type(self)

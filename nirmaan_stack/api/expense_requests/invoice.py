@@ -11,30 +11,22 @@ page, until its Expense is Paid. The invoice is written to BOTH records: the req
 columns once one exists, so Accounts sees it where they pay. Before approval only the request
 holds it, and approval carries it over (`convert.create_ledger_row`).
 
-WHO: the raiser, or an Admin. A missing invoice date or number warns and is never refused.
+WHO: the raiser, or an Admin (`access.is_raiser_or_admin`). A missing invoice date or number warns
+and is never refused.
 """
 
 import frappe
 
-from nirmaan_stack.api.expense_requests.access import PAID, REJECTED, is_admin
+from nirmaan_stack.api.expense_requests.access import PAID, REJECTED, is_raiser_or_admin
 from nirmaan_stack.api.expense_requests.flatten import (
 	invoice_warnings,
 	native_invoice,
 	with_native_invoice,
 )
-from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
-from nirmaan_stack.services.outflow_import.ledgers import PAID as PAID_LEDGER_STATUS
+from nirmaan_stack.api.expense_requests.standing import expenses_of
+from nirmaan_stack.services.expense_statuses import EXPENSE_PAID
 
 INVOICE_FIELDS = ("invoice_attachment", "invoice_date", "invoice_ref")
-
-
-def linked_expense(request: str):
-	"""`{doctype, name, status}` of the Expense created from `request`, or None."""
-	for doctype in EXPENSE_DOCTYPES:
-		row = frappe.db.get_value(doctype, {"request_id": request}, ["name", "status"], as_dict=True)
-		if row:
-			return frappe._dict(doctype=doctype, name=row.name, status=row.status)
-	return None
 
 
 def invoice_refusal(req, expense, user: str | None = None) -> str | None:
@@ -42,12 +34,11 @@ def invoice_refusal(req, expense, user: str | None = None) -> str | None:
 
 	The one rule, read by the request page (`can_add_invoice`) and enforced by the call below.
 	"""
-	user = user or frappe.session.user
-	if not (req.get("owner") == user or is_admin(user)):
+	if not is_raiser_or_admin(req, user):
 		return "Only the person who raised this expense, or an Admin, can add its invoice."
 	if req.get("status") == REJECTED:
 		return "This expense was rejected, so it takes no invoice."
-	if req.get("status") == PAID or (expense and expense.status == PAID_LEDGER_STATUS):
+	if req.get("status") == PAID or (expense and expense.status == EXPENSE_PAID):
 		return "This expense is already paid. Its invoice can no longer be added here."
 	return None
 
@@ -56,11 +47,10 @@ def invoice_refusal(req, expense, user: str | None = None) -> str | None:
 def add_request_invoice(name: str, invoice_attachment=None, invoice_date=None, invoice_ref=None):
 	"""Set the invoice of request `name`, replacing any it had, on it and on its Expense."""
 	req = frappe.get_doc("Expense Request", name)
-	expense = linked_expense(name)
+	expense = expenses_of([name]).get(name)
 	refusal = invoice_refusal(req, expense)
 	if refusal:
-		is_theirs = req.owner == frappe.session.user or is_admin()
-		frappe.throw(refusal, frappe.ValidationError if is_theirs else frappe.PermissionError,
+		frappe.throw(refusal, frappe.ValidationError if is_raiser_or_admin(req) else frappe.PermissionError,
 		             title="Cannot add the invoice")
 
 	invoice = {

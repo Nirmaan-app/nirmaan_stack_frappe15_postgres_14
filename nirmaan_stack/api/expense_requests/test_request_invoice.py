@@ -22,6 +22,7 @@ from nirmaan_stack.api.expense_requests.read import get_expense_request
 from nirmaan_stack.api.expense_requests.review import approve_expense_request, reject_expense_request
 from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
 from nirmaan_stack.services import expense_request_routing as routing
+from nirmaan_stack.services.expense_decision import decide
 
 PM_USER = "exr_inv_test_pm@example.com"
 PM2_USER = "exr_inv_test_pm2@example.com"
@@ -47,6 +48,12 @@ def _answers(invoice=None, files=None):
 	if files is not None:
 		data["attachments"] = {"invoice": files}
 	return data
+
+
+def _pay(expense):
+	"""Mark the Expense Paid the way Accounts does, so its request follows (the mirror)."""
+	decide("Non Project Expenses", expense, "mark_paid", "Administrator", payment={
+		"payment_date": "2026-10-19", "payment_ref": "UTR-exr-inv", "payment_attachment": FILE})
 
 
 def _make_type(fmt):
@@ -173,8 +180,7 @@ class TestRequestInvoice(FrappeTestCase):
 	def test_adding_an_invoice_to_a_paid_expense_is_refused(self):
 		res = self._raise(_answers())
 		out = approve_expense_request(res["name"])
-		# Arranged by hand: how an Expense reaches Paid is not what this test is about.
-		frappe.db.set_value("Non Project Expenses", out["created_expense"], "status", "Paid")
+		_pay(out["created_expense"])
 
 		with self.assertRaises(frappe.ValidationError):
 			self._add_later(res["name"], invoice_attachment=LATER_FILE, invoice_ref="X-1",
@@ -223,10 +229,11 @@ class TestRequestInvoice(FrappeTestCase):
 
 		out = approve_expense_request(res["name"])
 		self._add_later(res["name"], invoice_attachment=LATER_FILE, invoice_ref="R-9")
-		frappe.db.set_value("Non Project Expenses", out["created_expense"], "status", "Paid")
+		_pay(out["created_expense"])
 
 		page = self._page(res["name"])
 		self.assertEqual(page["invoice"], {"invoice_attachment": LATER_FILE, "invoice_ref": "R-9"})
 		self.assertFalse(page["can_add_invoice"])
+		self.assertIn("already paid", page["invoice_refusal"])
 		self.assertEqual(page["expense"], {"doctype": "Non Project Expenses",
 		                                   "name": out["created_expense"], "status": "Paid"})

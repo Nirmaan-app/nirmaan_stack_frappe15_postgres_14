@@ -42,7 +42,7 @@ import {
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { useUserData } from "@/hooks/useUserData";
-import { useExpenseDecision } from "@/hooks/useExpenseDecision";
+import { useExpenseDecision, useExpenseEditAccess } from "@/hooks/useExpenseDecision";
 import { parse, formatISO, startOfDay, endOfDay } from "date-fns";
 
 // --- Types ---
@@ -355,11 +355,13 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
 
   // Columns live in ./config/nonProjectExpensesColumns (tab-aware + role-gated).
   // In report mode (DisableAction) show the full "All" column set with no actions.
+  const editableStatuses = useExpenseEditAccess();
   const columnsDefinition = useMemo(
     () =>
       getNonProjectExpenseColumns({
         statusTab: DisableAction ? "All" : statusTab,
         role,
+        editableStatuses,
         getUserName,
         disableActions: DisableAction,
         onEdit: handleOpenEditDialog,
@@ -372,6 +374,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
       statusTab,
       DisableAction,
       role,
+      editableStatuses,
       getUserName,
       handleOpenEditDialog,
       handleOpenApprove,

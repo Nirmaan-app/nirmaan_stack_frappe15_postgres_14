@@ -18,14 +18,11 @@ import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import type { ExpenseRequestDetail } from "@/types/NirmaanStack/ExpenseRequest";
 import type { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
+import { showAnswer } from "@/utils/expenseFormat";
 
 import AddInvoiceDialog from "./components/AddInvoiceDialog";
 import LiveStatusBadge from "./components/LiveStatusBadge";
 import WhereItStands from "./components/WhereItStands";
-
-// Answers are stored as ISO dates; the screen reads dd-MMM-yyyy.
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const show = (v: string) => (ISO_DATE.test(v) ? formatDate(v) : v);
 
 const Card: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
     <section className="flex flex-col gap-3 rounded-lg border bg-card p-4">
@@ -58,7 +55,6 @@ export const ExpenseRequestPage: React.FC = () => {
 
     const invoice = req.invoice ?? {};
     const hasInvoice = !!invoice.invoice_attachment;
-    const paid = req.status === "Paid" || req.expense?.status === "Paid";
 
     return (
         <div className="flex flex-col gap-5 p-4">
@@ -101,7 +97,7 @@ export const ExpenseRequestPage: React.FC = () => {
                                 {req.detail.map((d, i) => (
                                     <div key={i}>
                                         <dt className="text-xs text-muted-foreground">{d.label}</dt>
-                                        <dd className="break-words text-sm">{show(String(d.value ?? ""))}</dd>
+                                        <dd className="break-words text-sm">{showAnswer(String(d.value ?? ""))}</dd>
                                     </div>
                                 ))}
                             </dl>
@@ -137,9 +133,10 @@ export const ExpenseRequestPage: React.FC = () => {
                             </div>
                         ) : (
                             <p className="text-sm text-muted-foreground">
-                                {paid
-                                    ? "No invoice was added before it was paid."
-                                    : "No invoice yet. You can add it until the expense is paid."}
+                                {/* Why it cannot be added is the server's (`invoice.invoice_refusal`). */}
+                                {req.can_add_invoice
+                                    ? "No invoice yet. You can add it until the expense is paid."
+                                    : `No invoice. ${req.invoice_refusal ?? ""}`.trim()}
                             </p>
                         )}
                         {req.can_add_invoice && (

@@ -172,6 +172,25 @@ class TestAnAdminsReviewIsTheFirstApproval(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value("Expense Request", name, "status"), "Pending Approval")
 		self.assertFalse(frappe.db.exists("Non Project Expenses", {"request_id": name}))
 
+	def test_an_admin_does_not_review_their_own_request_either(self):
+		"""Story 35: nobody reviews their own request, an Admin included. An Admin's new request is
+		approved on submit, so this is one that waits from before (raised, then its raiser made Admin)."""
+		name = self._raise(22000)
+		frappe.db.set_value("Expense Request", name, "owner", ADMIN_USER, update_modified=False)
+		row = next(r for r in self._as(ADMIN_USER, get_my_expense_requests)["requests"] if r["name"] == name)
+		self.assertFalse(row["can_review"])
+		with self.assertRaises(frappe.PermissionError):
+			self._as(ADMIN_USER, approve_expense_request, name)
+		with self.assertRaises(frappe.PermissionError):
+			self._as(ADMIN_USER, reject_expense_request, name, comment="mine")
+		self.assertEqual(frappe.db.get_value("Expense Request", name, "status"), "Pending Approval")
+		self.assertFalse(frappe.db.exists("Non Project Expenses", {"request_id": name}))
+		# Another Admin still reviews it.
+		other = next(r for r in self._as("Administrator", get_my_expense_requests)["requests"]
+		             if r["name"] == name)
+		self.assertTrue(other["can_review"])
+		self.assertEqual(self._as("Administrator", approve_expense_request, name)["status"], "Approved")
+
 	def test_a_reject_without_a_reason_is_refused(self):
 		name = self._raise(22000)
 		for reviewer in (ADMIN_USER, HRL_USER):
@@ -182,7 +201,7 @@ class TestAnAdminsReviewIsTheFirstApproval(FrappeTestCase):
 	def test_a_failed_approval_leaves_no_reviewer_behind(self):
 		"""The request is saved before its Expense is inserted, so a failed insert must undo both."""
 		name = self._raise(22000)
-		with patch("nirmaan_stack.api.expense_requests.review.create_ledger_row",
+		with patch("nirmaan_stack.api.expense_requests.convert.create_ledger_row",
 		           side_effect=frappe.ValidationError("insert failed")):
 			with self.assertRaises(frappe.ValidationError):
 				self._as(ADMIN_USER, approve_expense_request, name)

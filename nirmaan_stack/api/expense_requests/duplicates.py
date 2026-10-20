@@ -44,10 +44,14 @@ from frappe.utils import getdate
 from nirmaan_stack.api.expense_requests.access import REJECTED
 from nirmaan_stack.api.expense_requests.flatten import (
 	NATIVE_INVOICE_SECTION,
-	_as_dict,
+	as_dict,
+	detail_rows,
 	flat_responses,
-	flatten_pairs,
 )
+from nirmaan_stack.api.expense_requests.form_snapshot import governing_forms
+from nirmaan_stack.api.expense_requests.standing import expenses_of
+from nirmaan_stack.services.expense_standing import live_status
+from nirmaan_stack.services.expense_statuses import EXPENSE_REJECTED
 
 # templateId -> which answer names the person, and which two name the stay's first and last day.
 STAY_FORMS: dict[str, dict] = {
@@ -64,7 +68,7 @@ ONE_DAY = datetime.timedelta(days=1)
 
 
 def template_of(source_data) -> str:
-	return (_as_dict(source_data) or {}).get("templateId") or ""
+	return (as_dict(source_data) or {}).get("templateId") or ""
 
 
 def normalise(value) -> str:
@@ -117,11 +121,6 @@ def find_stay_duplicates(source_data, exclude: str | None = None) -> list[dict]:
 	is one), `expense` is `{doctype, name, status}` or None, and `detail` is that request's answers,
 	labelled by the form it was filled against (its snapshot), for the hover card.
 	"""
-	from nirmaan_stack.api.expense_requests.convert import applicable_format
-	from nirmaan_stack.api.expense_requests.form_snapshot import frozen_forms, snapshot_of
-	from nirmaan_stack.api.expense_requests.standing import expenses_of
-	from nirmaan_stack.services.expense_standing import live_status
-
 	stay = stay_of(source_data)
 	if not stay:
 		return []
@@ -147,13 +146,7 @@ def find_stay_duplicates(source_data, exclude: str | None = None) -> list[dict]:
 		return []
 
 	expenses = expenses_of([r.name for r, _ in candidates])
-	frozen = frozen_forms(r.source_data for r, _ in candidates)
-	formats = {
-		f.name: f for f in frappe.get_all(
-			"Expense Type", filters={"name": ["in", list({r.type for r, _ in candidates})]},
-			fields=["name", "source_format", "source_format_enabled"],
-		)
-	}
+	forms = governing_forms(r for r, _ in candidates)
 	project_names = dict(frappe.get_all(
 		"Projects", filters={"name": ["in", list({r.projects for r, _ in candidates if r.projects})]},
 		fields=["name", "project_name"], as_list=True,
@@ -162,9 +155,8 @@ def find_stay_duplicates(source_data, exclude: str | None = None) -> list[dict]:
 	matches = []
 	for r, other in candidates:
 		expense = expenses.get(r.name)
-		if expense and expense["status"] == REJECTED:
+		if expense and expense["status"] == EXPENSE_REJECTED:
 			continue
-		fmt = formats.get(r.type) or {}
 		matches.append({
 			"request": r.name,
 			"status": live_status(r.status, expense and expense["status"]),
@@ -179,15 +171,7 @@ def find_stay_duplicates(source_data, exclude: str | None = None) -> list[dict]:
 			"period_to": str(other[3]),
 			"owner_name": frappe.utils.get_fullname(r.owner),
 			"creation": str(r.creation),
-			"detail": [
-				{"label": label, "value": value}
-				for label, value in flatten_pairs(
-					r.source_data,
-					applicable_format(fmt.get("source_format"), fmt.get("source_format_enabled"),
-					                  r.source_data, frozen=frozen.get(snapshot_of(r.source_data))),
-					skip_sections=(NATIVE_INVOICE_SECTION,),
-				)
-			],
+			"detail": detail_rows(r.source_data, forms.get(r.name), skip_sections=(NATIVE_INVOICE_SECTION,)),
 		})
 	return matches
 

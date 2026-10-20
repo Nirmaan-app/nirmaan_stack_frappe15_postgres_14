@@ -15,26 +15,28 @@ column and are deliberately not being changed.
 from decimal import Decimal
 
 import frappe
-from frappe.utils import flt
+from frappe.utils import flt, now_datetime
 
-from nirmaan_stack.services.outflow_import.ledgers import (
-	NON_PROJECT_EXPENSE_DOCTYPE,
-	PROJECT_EXPENSE_DOCTYPE,
-)
 from nirmaan_stack.api.expense_requests.flatten import (
 	NATIVE_INVOICE_SECTION,
 	SEP,
-	filled_against_a_form,
 	flatten_pairs,
 	flatten_source_data,
 	render_description_template,
 	request_invoice,
 	undeclared_pairs,
 )
-from nirmaan_stack.api.expense_requests.form_snapshot import frozen_form
+# `applicable_format` lives in `form_snapshot`; imported here too because the append-only patch
+# `v3_0.freeze_expense_request_forms` reads it from this module.
+from nirmaan_stack.api.expense_requests.form_snapshot import applicable_format, governing_form  # noqa: F401
+from nirmaan_stack.services.expense_decision import starting_status
+from nirmaan_stack.services.expense_statuses import REQUEST_APPROVED
+from nirmaan_stack.services.outflow_import.ledgers import (
+	NON_PROJECT_EXPENSE_DOCTYPE,
+	PROJECT_EXPENSE_DOCTYPE,
+)
 from nirmaan_stack.services.outflow_import.settle import format_amount_for
 from nirmaan_stack.services.payees.pay_to import copy_pay_to
-from nirmaan_stack.services.expense_decision import starting_status
 
 
 def target_doctype(req) -> str:
@@ -45,40 +47,6 @@ def target_doctype(req) -> str:
 	the time we get here the answer cannot contradict the master.
 	"""
 	return PROJECT_EXPENSE_DOCTYPE if req.projects else NON_PROJECT_EXPENSE_DOCTYPE
-
-
-def applicable_format(source_format, form_enabled, source_data, frozen=None) -> str | None:
-	"""The format that governs a request, or None when it is a STANDARD request.
-
-	`frozen` is the form the request was filled against (`form_snapshot.frozen_form`), and it
-	WINS (#1503): a request in flight reads against its own form after the type's form is trimmed
-	or switched off, so its answers keep the labels they were asked with, its sentence, and the
-	bill in the slot it was uploaded to. A request with no snapshot falls back to the type's live
-	form: the type's `source_format_enabled` switch decides -- EXCEPT for a request already filled
-	against the form (`templateId` in its answers): that one keeps its form even if the switch
-	was turned off after it was raised, or its answers would convert unlabelled.
-
-	ONE rule, shared by the conversion, the promotion at create, the reviewer's detail list, the
-	request page and the approval detail, so the approval screen and the ledger row cannot
-	disagree about which form applies.
-	"""
-	if (frozen or "").strip():
-		return frozen
-	if not (source_format or "").strip():
-		return None
-	if form_enabled or filled_against_a_form(source_data):
-		return source_format
-	return None
-
-
-def _source_format_for(req) -> str | None:
-	"""The form that governs `req` (`applicable_format`): its snapshot, else the type's form."""
-	source_data = req.get("source_data")
-	row = frappe.db.get_value(
-		"Expense Type", req.type, ["source_format", "source_format_enabled"], as_dict=True
-	) or frappe._dict()
-	return applicable_format(row.source_format, row.source_format_enabled, source_data,
-	                         frozen=frozen_form(source_data))
 
 
 def compose_description(req, source_format=None) -> str:
@@ -163,7 +131,7 @@ def create_ledger_row(req):
 	"admin-only"; the threshold moved (10,000 -> 15,000) and L1 is the Admin profile (`expense_decision.is_l1`, #1497).
 	"""
 	doctype = target_doctype(req)
-	source_format = _source_format_for(req)
+	source_format = governing_form(req)
 
 	values = {
 		"type": req.type,
@@ -202,3 +170,23 @@ def create_ledger_row(req):
 	copy_pay_to(req, row)
 	row.insert(ignore_permissions=True)
 	return row
+
+
+def approve_request(req, reviewer: str | None = None):
+	"""Approve `req` and create its Expense; return the Expense. The ONE approve path, for a
+	Reviewer's approval (`review.approve_expense_request`, `reviewer` = the caller) and for approval
+	on submit (`create`, Records without review: no `reviewer`, `approved_on_submit` says why).
+
+	The request is saved FIRST, then the Expense inserted: the ledger's `validate` reads the
+	request's `reviewed_by` (`approval_raiser.expense_reviewer`), because an L1 review is the L1
+	step (`expense_decision.starting_status`, #1499). Never commits: the caller owns the
+	transaction, and a failure in the insert must take the request's approval back with it.
+	"""
+	req.status = REQUEST_APPROVED
+	if reviewer:
+		req.reviewed_by = reviewer
+		req.reviewed_on = now_datetime()
+	else:
+		req.approved_on_submit = 1
+	req.save(ignore_permissions=True)
+	return create_ledger_row(req)

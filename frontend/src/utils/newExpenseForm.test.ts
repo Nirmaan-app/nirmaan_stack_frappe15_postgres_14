@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { invoiceNotes, newExpenseFields, newExpenseSubmit } from "./newExpenseForm";
+import { invoiceNotes, newExpenseFields, newExpenseSubmit, whoApprovesNext } from "./newExpenseForm";
 
 const PROJECT_ONLY = { project_allowed: true, project_required: true, has_format: false };
 const NON_PROJECT = { project_allowed: false, project_required: false, has_format: false };
@@ -59,7 +59,7 @@ describe("newExpenseSubmit", () => {
 
     it("an Admin's Rs 40,000 expense is approved once recorded", () => {
         expect(newExpenseSubmit({ recordsWithoutReview: true, amount: 40000, level: "l1" }))
-            .toEqual({ label: "Record expense", nextApprover: "Approved as soon as you record it." });
+            .toEqual({ label: "Record expense", nextApprover: "No one else needs to approve it." });
     });
 
     it("an Admin's Rs 60,000 expense goes to the CEO next", () => {
@@ -69,7 +69,7 @@ describe("newExpenseSubmit", () => {
 
     it("an HR raiser's Rs 10,000 expense is approved once recorded", () => {
         expect(newExpenseSubmit({ recordsWithoutReview: true, amount: 10000, level: null }).nextApprover)
-            .toBe("Approved as soon as you record it.");
+            .toBe("No one else needs to approve it.");
     });
 
     it("an HR raiser's Rs 40,000 expense waits for an Admin", () => {
@@ -80,6 +80,12 @@ describe("newExpenseSubmit", () => {
     it("an HR raiser's Rs 60,000 expense waits for an Admin, then the CEO", () => {
         expect(newExpenseSubmit({ recordsWithoutReview: true, amount: 60000, level: null }).nextApprover)
             .toBe("An Admin approves it next, then the CEO.");
+    });
+
+    it("after submit, words the server's status the same way the preview did", () => {
+        expect(whoApprovesNext("Requested", 60000)).toBe("An Admin approves it next, then the CEO.");
+        expect(whoApprovesNext("CEO Pending", 60000)).toBe("The CEO approves it next.");
+        expect(whoApprovesNext("Approved", 10000)).toBe("No one else needs to approve it.");
     });
 
     it("says nothing about the next approver before an amount is typed", () => {

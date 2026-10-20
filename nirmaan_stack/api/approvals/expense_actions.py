@@ -1,7 +1,7 @@
 """
 The one call that changes an Expense's status (spec #1494 seam 2, ticket #1497).
 
-    decide_expenses(expense_ids, action, reason=None, payment=None)
+    decide_expenses(expense_ids, action, reason=None, payment=None, invoice=None)
 
 `action` is one of `services/expense_decision.ACTIONS`: `l1_approve`, `ceo_approve`, `reject`,
 `mark_done`, `mark_paid`. One row and a hundred go through the same code, so approving one expense
@@ -31,20 +31,24 @@ import frappe
 from frappe import _
 
 from nirmaan_stack.api.payments.bulk_actions import MAX_BATCH_SIZE
-from nirmaan_stack.services.expense_decision import ACTIONS, REJECT, decide
+from nirmaan_stack.services.expense_decision import ACTIONS, REJECT, decide, editable_statuses
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 
 
 @frappe.whitelist(methods=["POST"])
-def decide_expenses(expense_ids, action: str, reason: Optional[str] = None, payment=None):
-    """Apply one `action` to each named Expense, as the caller. Partial failure is normal."""
+def decide_expenses(expense_ids, action: str, reason: Optional[str] = None, payment=None, invoice=None):
+    """Apply one `action` to each named Expense, as the caller. Partial failure is normal.
+
+    `payment` and `invoice` are Mark as Paid's details (`expense_decision.PAYMENT_FIELDS`,
+    `INVOICE_FIELDS`), dicts or their JSON. They are saved in the same write as the status, so a
+    refused Mark as Paid saves neither.
+    """
     names = _parse_list(expense_ids)
     if action not in ACTIONS:
         frappe.throw(_("action must be one of {0}.").format(", ".join(ACTIONS)))
     if action == REJECT and not (reason or "").strip():
         frappe.throw(_("A rejection needs a reason."))
-    if isinstance(payment, str):
-        payment = json.loads(payment) if payment.strip() else None
+    payment, invoice = _parse_dict(payment), _parse_dict(invoice)
 
     user = frappe.session.user
     found = _resolve_ledgers(names)
@@ -63,7 +67,7 @@ def decide_expenses(expense_ids, action: str, reason: Optional[str] = None, paym
         savepoint = f"exp_decide_{frappe.generate_hash(length=12)}"
         frappe.db.savepoint(savepoint)
         try:
-            statuses[name] = decide(doctype, name, action, user, reason=reason, payment=payment)
+            statuses[name] = decide(doctype, name, action, user, reason=reason, payment=payment, invoice=invoice)
         except Exception as exc:
             frappe.db.rollback(save_point=savepoint)
             frappe.clear_messages()
@@ -86,6 +90,23 @@ def decide_expenses(expense_ids, action: str, reason: Optional[str] = None, paym
         ),
         "data": {"succeeded": succeeded, "failed": failed, "statuses": statuses, "total": len(names)},
     }
+
+
+@frappe.whitelist()
+def get_expense_edit_access():
+    """In which statuses the caller may edit an Expense by hand (story 50): `{editable_statuses}`,
+    empty for anyone but Accounts. The old ledger pages show Edit on a row only when its status is
+    listed, so the button and both ledgers' `validate` (`expense_decision.guard_hand_save`) agree.
+
+    Example: `{"editable_statuses": ["Requested", "CEO Pending", "Approved", "Reconciliation Pending"]}`.
+    """
+    return {"editable_statuses": editable_statuses(frappe.session.user)}
+
+
+def _parse_dict(value) -> dict | None:
+    if isinstance(value, str):
+        return json.loads(value) if value.strip() else None
+    return value
 
 
 def _parse_list(expense_ids) -> list[str]:

@@ -84,15 +84,24 @@ export const newExpenseSubmit = ({
 }: NewExpenseSubmitInput): NewExpenseSubmit => {
     if (!recordsWithoutReview) return { label: "Send for review", nextApprover: null };
     if (parseNumber(amount) <= 0) return { label: "Record expense", nextApprover: null };
-    const status = initialStatusForRaiser(amount, TIER_L2_ABOVE_EXPENSES, level);
-    const nextApprover = status === "Approved"
-        ? "Approved as soon as you record it."
-        : status === "CEO Pending"
-            ? "The CEO approves it next."
-            : requiredTier(amount, TIER_L2_ABOVE_EXPENSES) === APPROVAL_TIERS.l1l2
-                ? "An Admin approves it next, then the CEO."
-                : "An Admin approves it next.";
-    return { label: "Record expense", nextApprover };
+    return {
+        label: "Record expense",
+        nextApprover: whoApprovesNext(initialStatusForRaiser(amount, TIER_L2_ABOVE_EXPENSES, level), amount),
+    };
+};
+
+/**
+ * Who approves an Expense at `status` next, in words. The one wording, used before submit (from the
+ * status the Expense will be born at) and after it (from the status the server says it was born at).
+ */
+export const whoApprovesNext = (status: string | null | undefined, amount: string | number | null | undefined): string => {
+    if (status === "CEO Pending") return "The CEO approves it next.";
+    if (status === "Requested") {
+        return requiredTier(amount, TIER_L2_ABOVE_EXPENSES) === APPROVAL_TIERS.l1l2
+            ? "An Admin approves it next, then the CEO."
+            : "An Admin approves it next.";
+    }
+    return "No one else needs to approve it.";
 };
 
 // --- The invoice ("Do you have the invoice?", #1502) -----------------------------------------

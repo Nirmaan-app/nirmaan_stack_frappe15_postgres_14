@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { invoiceNotes } from "@/utils/newExpenseForm";
-import type { ExpenseRequestInvoice } from "@/types/NirmaanStack/ExpenseRequest";
+import type { AddRequestInvoiceResponse, ExpenseRequestInvoice } from "@/types/NirmaanStack/ExpenseRequest";
 
 import { checksLine, EMPTY_INVOICE, InvoiceFields, InvoiceValue } from "./InvoiceSection";
 
@@ -42,7 +42,7 @@ export const AddInvoiceDialog: React.FC<Props> = ({
     const [value, setValue] = useState<InvoiceValue>(() => seed(current));
     const [saving, setSaving] = useState(false);
     const patch = useCallback((p: Partial<InvoiceValue>) => setValue((v) => ({ ...v, ...p })), []);
-    const { call: addInvoice } = useFrappePostCall(
+    const { call: addInvoice } = useFrappePostCall<{ message?: AddRequestInvoiceResponse }>(
         "nirmaan_stack.api.expense_requests.invoice.add_request_invoice"
     );
 
@@ -66,8 +66,8 @@ export const AddInvoiceDialog: React.FC<Props> = ({
                 invoice_date: value.invoice_date || undefined,
                 invoice_ref: value.invoice_ref.trim() || undefined,
             });
-            const warnings: string[] = (res as any)?.message?.warnings ?? [];
-            const onExpense = (res as any)?.message?.expense;
+            const warnings = res?.message?.warnings ?? [];
+            const onExpense = res?.message?.expense;
             toast({
                 title: "Invoice added",
                 description: [

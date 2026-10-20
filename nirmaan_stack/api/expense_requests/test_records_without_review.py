@@ -23,6 +23,7 @@ from nirmaan_stack.api.expense_requests.expense_settings import (
 	get_records_without_review,
 	set_records_without_review,
 )
+from nirmaan_stack.api.expense_requests.masters import update_expense_type
 from nirmaan_stack.api.expense_requests.read import get_my_expense_requests, get_request_catalog
 from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
 from nirmaan_stack.patches.v3_0 import seed_records_without_review as seed_patch
@@ -30,7 +31,8 @@ from nirmaan_stack.services import expense_request_routing as routing
 
 PM_USER = "exr_rwr_pm@example.com"
 HR_USER = "exr_rwr_hr@example.com"
-USERS = (PM_USER, HR_USER)
+IDLE_USER = "exr_rwr_idle@example.com"
+USERS = (PM_USER, HR_USER, IDLE_USER)
 
 PM_PROFILE = "Nirmaan Project Manager Profile"
 HR_PROFILE = "Nirmaan HR Executive Profile"
@@ -42,6 +44,8 @@ SEEDED = (
 	"Nirmaan HR Lead Profile",
 )
 NON_PROJECT_TYPE = "Travel Expenses (Bus)"     # project=0, non_project=1
+# Admin only in the fixture; a test lends it to IDLE_PROFILE and puts its roles back.
+SPARE_TYPE = "Postage & Courier"
 # A profile made for these tests, allowed to raise no type at all.
 IDLE_PROFILE = "exr_rwr Idle Profile"
 
@@ -89,6 +93,7 @@ class TestRecordsWithoutReview(FrappeTestCase):
 		if not frappe.db.exists("Role Profile", IDLE_PROFILE):
 			frappe.get_doc({"doctype": "Role Profile", "role_profile": IDLE_PROFILE}).insert(
 				ignore_permissions=True)
+		_make_user(IDLE_USER, IDLE_PROFILE, ())
 		frappe.db.commit()
 
 	@classmethod
@@ -228,6 +233,45 @@ class TestRecordsWithoutReview(FrappeTestCase):
 	def test_a_listed_profile_that_loses_its_types_drops_off_the_list(self):
 		_write_list([HR_PROFILE, IDLE_PROFILE])
 		self.assertEqual(get_records_without_review()["records_without_review"], [HR_PROFILE])
+
+	def test_a_stored_profile_that_raises_no_type_does_not_record_without_review(self):
+		"""Story 28: a row left on the list for a profile that can raise nothing is never honoured."""
+		_write_list([HR_PROFILE, IDLE_PROFILE])
+		self.assertFalse(records_without_review(IDLE_USER))
+		self.assertTrue(records_without_review(HR_USER))
+
+	def test_a_profile_that_loses_every_type_leaves_the_list_and_does_not_come_back_ticked(self):
+		"""Story 28: taking a listed profile off its last type drops it from the stored list, so
+		giving it a type again later neither ticks it nor approves its requests on submit."""
+		original = frappe.get_all("Expense Type Role", pluck="role_profile", order_by="idx asc",
+		                          filters={"parent": SPARE_TYPE, "parenttype": "Expense Type"})
+		self.addCleanup(self._set_type_roles, SPARE_TYPE, original)
+		self._set_type_roles(SPARE_TYPE, original + [IDLE_PROFILE])
+		set_records_without_review(list(SEEDED) + [IDLE_PROFILE])
+
+		self._set_type_roles(SPARE_TYPE, original)
+		self.assertNotIn(IDLE_PROFILE, _listed())
+		self.assertEqual(sorted(_listed()), sorted(SEEDED))
+
+		self._set_type_roles(SPARE_TYPE, original + [IDLE_PROFILE])
+		self.assertNotIn(IDLE_PROFILE, get_records_without_review()["records_without_review"])
+		frappe.set_user(IDLE_USER)
+		try:
+			res = create_expense_request(
+				expense_type=SPARE_TYPE, amount=1000, comment="exr_rwr",
+				source_data={"responses": {"detail": {"description": "exr_rwr courier"}}})
+		finally:
+			frappe.set_user("Administrator")
+		self.assertEqual(res["status"], "Pending Approval")
+		self.assertIsNone(res["created_expense"])
+
+	def _set_type_roles(self, expense_type, profiles):
+		"""Change who may raise `expense_type` the way Expense Packages does, keeping its flags."""
+		t = frappe.db.get_value("Expense Type", expense_type,
+		                        ["project", "non_project", "expense_category"], as_dict=True)
+		update_expense_type(expense_type, project=t.project, non_project=t.non_project,
+		                    expense_category=t.expense_category, allowed_roles=list(profiles))
+		routing.clear_cache()
 
 	def test_only_an_admin_may_change_the_list(self):
 		frappe.set_user(HR_USER)

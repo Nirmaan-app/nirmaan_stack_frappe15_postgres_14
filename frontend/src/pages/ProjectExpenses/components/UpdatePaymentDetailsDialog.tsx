@@ -7,7 +7,7 @@
 // upload is docname-linked so the File shows under the doc's attachments.
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useFrappeUpdateDoc, useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 import { formatDate as formatDateFns } from "date-fns";
 import { X, Download, AlertTriangle, Loader2, Sparkles } from "lucide-react";
@@ -29,8 +29,7 @@ import { parseNumber } from "@/utils/parseNumber";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { cn } from "@/lib/utils";
 import { PayToBox } from "@/components/payees/PayToBox";
-import { useExpenseDecision } from "@/hooks/useExpenseDecision";
-import { splitMarkPaid } from "@/utils/expenses/expenseDecision";
+import { useSavePaymentDetails } from "@/hooks/useExpenseDecision";
 import { getFrappeError } from "@/utils/frappeErrors";
 
 interface UpdatePaymentDetailsDialogProps {
@@ -64,8 +63,7 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
     isOpen, setIsOpen, expense, onSuccess, markAsPaid = false, getProjectName, getVendorName
 }) => {
     const { toast } = useToast();
-    const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
-    const { decideOne, loading: decideLoading } = useExpenseDecision();
+    const { save: savePaymentDetails, loading: saveLoading } = useSavePaymentDetails(DOCTYPE);
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
     const { isCEOHold, showBlockedToast } = useCEOHoldGuard(expense?.projects);
 
@@ -230,9 +228,9 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
             return;
         }
 
-        // Record<string, any>: null is used to CLEAR a field (undefined would be
-        // omitted from the payload and Frappe would retain the current value).
-        const dataToUpdate: Record<string, any> = {
+        // null is used to CLEAR a field (undefined would be omitted from the payload and Frappe
+        // would retain the current value).
+        const dataToUpdate: Record<string, unknown> = {
             payment_date: formState.payment_date,
             payment_ref: formState.payment_ref.trim() || null,
             invoice_date: formState.invoice_date || null,
@@ -265,24 +263,17 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
                 dataToUpdate.invoice_attachment = uploadedInvoice.file_url;
             }
 
-            if (markAsPaid) {
-                // The status, and the payment it records, are the server's to write (#1497): the
-                // invoice details are an ordinary save, then Mark as Paid goes through the decision call.
-                const { payment, details } = splitMarkPaid(dataToUpdate);
-                await updateDoc(DOCTYPE, expense.name, details);
-                await decideOne(expense.name, "mark_paid", { payment });
-            } else {
-                await updateDoc(DOCTYPE, expense.name, dataToUpdate);
-            }
+            // Mark as Paid is one server call with the invoice details (#1497): refused, it saves nothing.
+            await savePaymentDetails(expense.name, dataToUpdate, markAsPaid);
             toast({ title: "Success", description: markAsPaid ? "Expense marked Paid." : "Payment details updated.", variant: "success" });
             onSuccess?.();
             setIsOpen(false);
-        } catch (error: any) {
+        } catch (error) {
             toast({ title: "Error", description: getFrappeError(error) || "Failed to update payment details.", variant: "destructive" });
         }
     };
 
-    const isLoadingOverall = updateLoading || decideLoading || uploadLoading || isAutofilling;
+    const isLoadingOverall = saveLoading || uploadLoading || isAutofilling;
 
     // Existing saved attachment (shown unless a new file is staged or it's marked for removal).
     const effectiveExistingUrl = (attachmentAction === "keep" || attachmentAction === "replace") ? existingAttachmentUrl : undefined;

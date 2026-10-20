@@ -12,8 +12,22 @@ export const EXPENSE_DOCTYPES: readonly string[] = ["Project Expenses", "Non Pro
 export const isExpenseDoctype = (doctype: string | null | undefined): boolean =>
   !!doctype && EXPENSE_DOCTYPES.includes(doctype);
 
-/** Mirrors `expense_decision.ACTIONS`. */
-export type ExpenseAction = "l1_approve" | "ceo_approve" | "reject" | "mark_done" | "mark_paid";
+/** Mirrors `expense_decision.ACTIONS`, pinned by `expenseDecision.test.ts`. */
+export const EXPENSE_ACTIONS = ["l1_approve", "ceo_approve", "reject", "mark_done", "mark_paid"] as const;
+export type ExpenseAction = (typeof EXPENSE_ACTIONS)[number];
+
+/** Who may Mark as Done and Mark as Paid: mirrors `expense_decision.can_mark_paid`
+ *  (`role_profiles.PAYMENT_SETTLE_PROFILES`), pinned by `expenseDecision.test.ts`. The server refuses
+ *  anyone else; this only decides whether the button shows. */
+export const MARK_PAID_PROFILES: readonly string[] = [
+  "Nirmaan Admin Profile",
+  "Nirmaan Accountant Profile",
+  "Nirmaan Accountant Lead Profile",
+];
+
+/** Does this role profile get Mark as Paid? `Administrator` arrives as the Admin profile (`useUserData`). */
+export const canMarkExpensePaid = (role: string | null | undefined): boolean =>
+  !!role && MARK_PAID_PROFILES.includes(role);
 
 /** What Mark as Paid records with the status. A field left out keeps the value stored on the expense. */
 export interface ExpensePayment {
@@ -35,26 +49,34 @@ export interface ExpenseDecisionResult {
   total: number;
 }
 
+/** The invoice details Mark as Paid saves with the payment. A field sent as null is cleared; a field
+ *  left out keeps the stored value. Mirrors `expense_decision.INVOICE_FIELDS`. */
+export interface ExpenseInvoice {
+  invoice_date?: string | null;
+  invoice_ref?: string | null;
+  invoice_attachment?: string | null;
+}
+
 const PAYMENT_FIELDS = ["payment_date", "payment_ref", "payment_attachment"] as const;
-// Written only by the decision call.
-const DECIDED_FIELDS = new Set<string>(["status", "payment_by"]);
+const INVOICE_FIELDS = ["invoice_date", "invoice_ref", "invoice_attachment"] as const;
 
 /**
- * A pay dialog's form, split for Mark as Paid: the payment goes to the decision call with the
- * status; the rest (the invoice details) is an ordinary save. A receipt the dialog did not replace
- * is left out, so the one already stored on the expense stands.
+ * A pay dialog's form, split for Mark as Paid. Both halves go to the ONE decision call, so a refused
+ * Mark as Paid saves nothing. A receipt the dialog did not replace is left out of `payment`, so the
+ * one already stored on the expense stands. Any other field (a `status`, `payment_by`) is dropped:
+ * the server writes those.
  */
 export const splitMarkPaid = (
   form: Record<string, unknown>,
-): { payment: ExpensePayment; details: Record<string, unknown> } => {
+): { payment: ExpensePayment; invoice: ExpenseInvoice } => {
   const payment: ExpensePayment = {};
-  const details: Record<string, unknown> = {};
+  const invoice: ExpenseInvoice = {};
   for (const [field, value] of Object.entries(form)) {
     if ((PAYMENT_FIELDS as readonly string[]).includes(field)) {
-      if (value) payment[field as keyof ExpensePayment] = value as string;
-    } else if (!DECIDED_FIELDS.has(field)) {
-      details[field] = value;
+      if (typeof value === "string" && value) payment[field as keyof ExpensePayment] = value;
+    } else if ((INVOICE_FIELDS as readonly string[]).includes(field)) {
+      invoice[field as keyof ExpenseInvoice] = typeof value === "string" && value ? value : null;
     }
   }
-  return { payment, details };
+  return { payment, invoice };
 };

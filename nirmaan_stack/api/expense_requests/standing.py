@@ -20,8 +20,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
-from nirmaan_stack.services.approval_raiser import raiser_level
-from nirmaan_stack.services.expense_decision import is_l1
+from nirmaan_stack.services.expense_decision import approval_level
 from nirmaan_stack.services.expense_standing import live_status, where_it_stands
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 
@@ -34,18 +33,23 @@ EXPENSE_FIELDS = ["name", "request_id", "status", "amount", "auto_approved", "ap
                   "payment_date"]
 
 
-def expenses_of(requests: list[str]) -> dict[str, dict]:
+def expenses_of(requests) -> dict[str, frappe._dict]:
 	"""request name -> its Expense (`doctype` plus `EXPENSE_FIELDS`), from either ledger.
+
+	THE ONE ANSWER to "which Expense points at this request" (the ledger carries `request_id`): the
+	list, the request page, the delete and Add invoice rules and the duplicate-stay check all read it.
+	A request with no Expense is absent.
 
 	Read without the ledger's own permission: the caller may read the request, and its Expense's
 	status and amount are the request's live state, not a separate record they are browsing.
 	"""
-	found: dict[str, dict] = {}
+	found: dict[str, frappe._dict] = {}
+	requests = [r for r in requests if r]
 	if not requests:
 		return found
 	for doctype in EXPENSE_DOCTYPES:
 		for row in frappe.get_all(doctype, filters={"request_id": ["in", requests]}, fields=EXPENSE_FIELDS):
-			expense = {"doctype": doctype, **row, "amount": flt(row.amount)}
+			expense = frappe._dict({"doctype": doctype, **row, "amount": flt(row.amount)})
 			found[expense.pop("request_id")] = expense
 	return found
 
@@ -73,19 +77,20 @@ def get_request_standing(names) -> dict[str, dict]:
 	requests = frappe.get_list("Expense Request", filters={"name": ["in", wanted]}, fields=REQUEST_FIELDS,
 	                           limit_page_length=len(wanted))
 	expenses = expenses_of([r.name for r in requests])
-	levels = {owner: raiser_level(owner) for owner in {r.owner for r in requests}}
+	levels = {key: approval_level(*key) for key in {(r.owner, r.reviewed_by) for r in requests}}
 	return {
-		r.name: {**standing_of(r, expenses.get(r.name), levels[r.owner]), "expense": expenses.get(r.name)}
+		r.name: {**standing_of(r, expenses.get(r.name), levels[(r.owner, r.reviewed_by)]),
+		         "expense": expenses.get(r.name)}
 		for r in requests
 	}
 
 
 def standing_of(request, expense: dict | None, level: str | None) -> dict:
 	"""`{status, amount, steps}` of one request (`REQUEST_FIELDS`), given its Expense from
-	`expenses_of` and its raiser's level (`approval_raiser.raiser_level`). The request page's
-	`read.get_expense_request` serves the same through this."""
+	`expenses_of` and the level it is born under (`expense_decision.approval_level`). The request
+	page's `read.get_expense_request` serves the same through this."""
 	return {
 		"status": live_status(request["status"], expense and expense["status"]),
 		"amount": expense["amount"] if expense else flt(request["amount"]),
-		"steps": where_it_stands(request, expense, level, reviewer_is_l1=is_l1(request.get("reviewed_by"))),
+		"steps": where_it_stands(request, expense, level),
 	}

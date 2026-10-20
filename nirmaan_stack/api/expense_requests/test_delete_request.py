@@ -21,6 +21,7 @@ from nirmaan_stack.api.expense_requests.review import (
 )
 from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
 from nirmaan_stack.services import expense_request_routing as routing
+from nirmaan_stack.services.expense_decision import decide
 
 PM_USER = "exr_del_pm@example.com"
 PM2_USER = "exr_del_pm2@example.com"
@@ -109,15 +110,14 @@ class TestDeleteExpenseRequest(FrappeTestCase):
 		                      filters={"document": "Expense Request", "docname": name})
 
 	def _rejected_with_an_expense(self):
-		"""A rejected request whose Expense still exists.
-
-		Today rejection happens before any Expense exists; once the request mirrors an L1 or
-		CEO rejection of its Expense, it reads Rejected with the Expense still linked. Set
-		the status directly to stand in for that mirror.
-		"""
-		name = self._raise()
-		approve_expense_request(name)
-		frappe.db.set_value("Expense Request", name, "status", "Rejected")
+		"""A rejected request whose Expense still exists: an HR review of Rs 20,000 leaves its
+		Expense waiting for an Admin, whose reject the request mirrors (`expense_request_status`)."""
+		name = self._as(PM_USER, create_expense_request, expense_type=NON_PROJECT_TYPE, amount=20000,
+		                source_data={"responses": {"detail": {"description": "exr_del bus"}}})["name"]
+		out = self._as(HR_USER, approve_expense_request, name)
+		decide(out["created_expense_doctype"], out["created_expense"], "reject", "Administrator",
+		       reason="exr_del not needed")
+		self.assertEqual(frappe.db.get_value("Expense Request", name, "status"), "Rejected")
 		return name
 
 	# --- the delete call -----------------------------------------------------

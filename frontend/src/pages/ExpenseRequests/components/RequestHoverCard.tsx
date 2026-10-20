@@ -11,6 +11,7 @@ import { Portal as HoverCardPortal } from "@radix-ui/react-hover-card";
 
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { formatDate } from "@/utils/FormatDate";
+import { showAnswer } from "@/utils/expenseFormat";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 export interface RequestHoverInfo {
@@ -23,10 +24,6 @@ export interface RequestHoverInfo {
     creation?: string;
     detail?: { label: string; value: string }[];
 }
-
-// Answers are stored as ISO dates; the screen reads dd-MMM-yyyy.
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const show = (v: string) => (ISO_DATE.test(v) ? formatDate(v) : v);
 
 export const RequestHoverCard: React.FC<{ info: RequestHoverInfo; children: React.ReactNode }> = ({
     info, children,
@@ -60,7 +57,7 @@ export const RequestHoverCard: React.FC<{ info: RequestHoverInfo; children: Reac
                             {info.detail.map((d, i) => (
                                 <React.Fragment key={i}>
                                     <dt className="text-muted-foreground">{d.label}</dt>
-                                    <dd className="break-words">{show(String(d.value ?? ""))}</dd>
+                                    <dd className="break-words">{showAnswer(String(d.value ?? ""))}</dd>
                                 </React.Fragment>
                             ))}
                         </dl>

@@ -6,7 +6,7 @@ import { useFrappeDeleteDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useUserData } from "@/hooks/useUserData";
-import { useExpenseDecision } from "@/hooks/useExpenseDecision";
+import { useExpenseDecision, useExpenseEditAccess } from "@/hooks/useExpenseDecision";
 import { useCounts } from "@/hooks/useCounts";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import {
@@ -284,12 +284,14 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
     }
   };
 
+  const editableStatuses = useExpenseEditAccess();
   const columns = useMemo<ColumnDef<ProjectExpenses>[]>(
     () =>
       getProjectExpenseColumns({
         statusTab: effectiveStatusTab,
         projectId,
         role,
+        editableStatuses,
         disableActions: isEmbedded,
         getProjectName,
         getVendorName,
@@ -304,6 +306,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
       projectId,
       isEmbedded,
       role,
+      editableStatuses,
       getProjectName,
       getVendorName,
       getUserName,

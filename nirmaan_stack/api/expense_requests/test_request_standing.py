@@ -29,6 +29,7 @@ from nirmaan_stack.api.outflow_import.unreconcile import unreconcile_row
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 
 NPE = "Non Project Expenses"
+NON_PROJECT_TYPE = "Travel Expenses (Bus)"     # project=0, non_project=1, in the fixture
 ADMIN = "xstand_test_admin@example.com"
 ACCOUNTANT = "xstand_test_accountant@example.com"
 PM = "xstand_test_pm@example.com"
@@ -38,7 +39,7 @@ def _request(status="Approved", amount=30000, owner=PM) -> str:
 	"""A request already reviewed, as the review step leaves it before its Expense moves on."""
 	doc = frappe.new_doc("Expense Request")
 	doc.update({
-		"type": frappe.db.get_value("Expense Type", {"non_project": 1, "project": 0}, "name"),
+		"type": NON_PROJECT_TYPE,
 		"amount": amount, "status": status,
 		"source_data": frappe.as_json({"responses": {"detail": {"description": "xstand test"}}}),
 	})
