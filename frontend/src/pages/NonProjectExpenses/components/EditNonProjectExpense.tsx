@@ -24,6 +24,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { CustomAttachment, AcceptedFileType } from "@/components/helpers/CustomAttachment";
 import { Checkbox } from "@/components/ui/checkbox";
 import { isPaidExpense } from "@/pages/ProjectPayments/config/queueRowActions";
+import { useExpenseFieldAccess } from "@/hooks/useExpenseDecision";
+import { mayEditExpenseField } from "@/utils/expenses/expenseDecision";
 import { useToast } from "@/components/ui/use-toast";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { Separator } from "@/components/ui/separator";
@@ -77,10 +79,15 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
     });
     const [formErrors, setFormErrors] = useState<Partial<Record<keyof EditExpenseFormState, string>>>({});
 
-    // A Paid expense keeps its Amount, Payment Date and Payment Ref (owner, 2026-09-21): they are
-    // read-only here and never sent. This screen is the ONLY lock -- the server leaves Paid
-    // expenses editable so they can still be corrected in Desk.
+    // Which fields this caller may change is the server's answer (`get_expense_edit_access`, story
+    // 50): on a Paid expense Admin and the Accountant Lead correct its details, and its amount and
+    // payment stay read-only for everyone. A field the answer withholds is shown disabled and never sent.
     const isPaid = isPaidExpense(expenseToEdit?.status);
+    const fieldAccess = useExpenseFieldAccess();
+    const mayEdit = useCallback(
+        (field: string) => mayEditExpenseField(fieldAccess, expenseToEdit?.status, field),
+        [fieldAccess, expenseToEdit?.status],
+    );
 
     // A Porter Expense (#1450): it shows a locked Project row -- moving it onto a project is Rectify in
     // Bulk Import, which keeps the import's record in step -- and its Porter facts, read-only. Any other
@@ -259,12 +266,12 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
             type: formState.type,
             description: formState.description.trim(),
             comment: formState.comment.trim() || undefined, // Send null to clear if empty
+            amount: parseNumber(formState.amount),
         };
-        if (!isPaid) dataToUpdate.amount = parseNumber(formState.amount);
 
-        // Payment proof only (Paid rows). The payment date / ref are never written from here, and a
-        // row that is not Paid has its payment fields left exactly as they are.
-        if (isPaid) {
+        // Payment proof only (Paid rows), where the server allows it. The payment date / ref are never
+        // written from here, and a row that is not Paid has its payment fields left exactly as they are.
+        if (isPaid && mayEdit("payment_attachment")) {
             if (paymentAttachmentAction === "replace" && newPaymentAttachmentFile) {
                 const uploaded = await upload(newPaymentAttachmentFile, { doctype: "Non Project Expenses", docname: expenseToEdit.name, fieldname: "payment_attachment", isPrivate: true });
                 dataToUpdate.payment_attachment = uploaded.file_url;
@@ -291,7 +298,9 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
         }
 
         try {
-            await updateDoc("Non Project Expenses", expenseToEdit.name, dataToUpdate);
+            // Only what the server lets this caller change.
+            const allowed = Object.fromEntries(Object.entries(dataToUpdate).filter(([field]) => mayEdit(field)));
+            await updateDoc("Non Project Expenses", expenseToEdit.name, allowed);
             await payTo.apply(payee);
             toast({ title: "Success!", description: "Non-project expense updated successfully!", variant: "success" });
             closeDialog();
@@ -301,7 +310,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
             toast({ title: "Failed!", description: getFrappeError(error) || "Failed to update expense.", variant: "destructive" });
         }
     }, [
-        updateDoc, expenseToEdit.name, formState, validateForm, toast, onSuccess, upload, isPaid, payTo, closeDialog,
+        updateDoc, expenseToEdit.name, formState, validateForm, toast, onSuccess, upload, isPaid, mayEdit, payTo, closeDialog,
         recordPaymentDetails, paymentAttachmentAction, newPaymentAttachmentFile,
         recordInvoiceDetails, invoiceAttachmentAction, newInvoiceAttachmentFile
     ]);
@@ -322,7 +331,8 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
         action: AttachmentUpdateAction,
         onNewFileSelected: (file: File | null) => void,
         onRemoveExisting: () => void,
-        labelPrefix: string
+        labelPrefix: string,
+        editable = true,
     ) => {
         const effectiveExistingUrl = (action === "keep" || action === "replace") && existingUrl;
 
@@ -337,7 +347,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                                 <DownloadIcon className="h-4 w-4 text-primary flex-shrink-0" />
                                 <a href={SITEURL + effectiveExistingUrl} target="_blank" rel="noopener noreferrer" className="truncate hover:underline" title={`View ${effectiveExistingUrl.split('/').pop()}`}>{effectiveExistingUrl.split('/').pop()}</a>
                             </div>
-                            <Button variant="ghost" size="icon" onClick={onRemoveExisting} className="h-7 w-7 text-destructive hover:bg-destructive/10" disabled={isLoadingOverall}><XIcon className="h-4 w-4" /><span className="sr-only">Remove existing</span></Button>
+                            {editable && <Button variant="ghost" size="icon" onClick={onRemoveExisting} className="h-7 w-7 text-destructive hover:bg-destructive/10" disabled={isLoadingOverall}><XIcon className="h-4 w-4" /><span className="sr-only">Remove existing</span></Button>}
                         </div>
                     )}
                     {action === "remove" && existingUrl && !newFile && (
@@ -347,7 +357,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                     )}
                     {/* Same uploader format as the create dialog — CustomAttachment shows the
                         staged file (with its own remove) exactly like creation. */}
-                    <CustomAttachment
+                    {editable ? <CustomAttachment
                         label={effectiveExistingUrl ? `Replace ${labelPrefix} Attachment` : `Upload ${labelPrefix} Attachment`}
                         selectedFile={newFile}
                         onFileSelect={onNewFileSelected}
@@ -355,7 +365,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                         maxFileSize={5 * 1024 * 1024}
                         acceptedTypes={ATTACHMENT_ACCEPTED_TYPES}
                         disabled={isLoadingOverall}
-                    />
+                    /> : !existingUrl && <p className="text-sm text-muted-foreground pt-2">--</p>}
                 </div>
             </div>
         );
@@ -417,8 +427,8 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                     </div>
                     <div className="grid grid-cols-4 items-center gap-3">
                         <Label htmlFor="amount_edit_npe" className="text-right col-span-1">Amount <sup className="text-destructive">*</sup></Label>
-                        <Input id="amount_edit_npe" name="amount" type="number" value={formState.amount} onChange={handleInputChange} className="col-span-3" disabled={isLoadingOverall || isPaid} />
-                        {isPaid && <p className="col-span-3 col-start-2 text-xs text-muted-foreground mt-0.5">Paid — the amount can no longer be changed.</p>}
+                        <Input id="amount_edit_npe" name="amount" type="number" value={formState.amount} onChange={handleInputChange} className="col-span-3" disabled={isLoadingOverall || !mayEdit("amount")} />
+                        {isPaid && !mayEdit("amount") && <p className="col-span-3 col-start-2 text-xs text-muted-foreground mt-0.5">Paid — the amount can no longer be changed.</p>}
                         {formErrors.amount && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.amount}</p>}
                         <p className="col-span-3 col-start-2 text-xs text-muted-foreground mt-0.5">
                             Use negative amount for refunds.
@@ -430,8 +440,8 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                         disabled={isLoadingOverall}
                     />
 
-                    {/* Payment Details are recorded via "Mark as Paid"; only expose this
-                        section when editing an already-Paid expense (e.g. Admin corrections). */}
+                    {/* Payment Details are recorded via "Mark as Paid"; shown, read-only unless the
+                        server allows otherwise, only on an already-Paid expense. */}
                     {expenseToEdit.status === "Paid" && (
                     <>
                     <Separator className="my-4" />
@@ -449,7 +459,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                                 <Label htmlFor="payment_ref_edit_npe" className="text-right col-span-1">Payment Ref</Label>
                                 <Input id="payment_ref_edit_npe" name="payment_ref" value={formState.payment_ref} className="col-span-3" disabled readOnly />
                             </div>
-                            {renderAttachmentSection("payment", existingPaymentAttachmentUrl, newPaymentAttachmentFile, paymentAttachmentAction, handleNewPaymentFileSelected, handleRemoveExistingPaymentAttachment, "Payment")}
+                            {renderAttachmentSection("payment", existingPaymentAttachmentUrl, newPaymentAttachmentFile, paymentAttachmentAction, handleNewPaymentFileSelected, handleRemoveExistingPaymentAttachment, "Payment", mayEdit("payment_attachment"))}
                         </div>
                     )}
                     </>

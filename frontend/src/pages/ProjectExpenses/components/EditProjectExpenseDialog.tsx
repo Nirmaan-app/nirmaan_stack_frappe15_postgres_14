@@ -27,12 +27,15 @@ import { cn } from "@/lib/utils";
 import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
+import { Projects } from "@/types/NirmaanStack/Projects";
 
 // --- Utils & State ---
 import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { queryKeys, getProjectExpenseTypeListOptions } from "@/config/queryKeys";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
+import { useExpenseFieldAccess } from "@/hooks/useExpenseDecision";
+import { mayEditExpenseField } from "@/utils/expenses/expenseDecision";
 import { isPaidExpense } from "@/pages/ProjectPayments/config/queueRowActions";
 import SITEURL from "@/constants/siteURL";
 import { invoiceAttachmentUrl, projectField } from "@/utils/porterExpense";
@@ -46,6 +49,7 @@ interface EditProjectExpenseDialogProps {
 }
 
 interface FormState {
+    projects: string;
     type: string;
     vendor: string;
     description: string;
@@ -73,7 +77,7 @@ const DOCTYPE = "Project Expenses";
 const ATTACHMENT_ACCEPTED_TYPES: AcceptedFileType[] = ["image/*", "application/pdf", "text/csv", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"];
 
 const INITIAL_STATE: FormState = {
-    type: "", vendor: "", description: "", comment: "", amount: "",
+    projects: "", type: "", vendor: "", description: "", comment: "", amount: "",
     payment_date: "", payment_ref: "", invoice_date: "", invoice_ref: "",
 };
 
@@ -88,12 +92,16 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
     // CEO Hold guard - get project from the expense being edited
     const { isCEOHold, showBlockedToast } = useCEOHoldGuard(expenseToEdit?.projects);
 
-    // Payment details exist only once the expense is PAID -- "Mark as Paid" moves Approved ->
-    // Reconciliation Pending by status alone, and the date / ref / proof arrive at Mark Reconciled.
-    // On a Paid expense the Amount, Payment Date and Payment Ref are read-only here and never sent
-    // (owner, 2026-09-21); the proof stays replaceable. This screen is the ONLY lock -- the server
-    // leaves Paid expenses editable so they can still be corrected in Desk.
+    // Payment details exist only once the expense is PAID, and are shown then. Which fields this
+    // caller may change is the server's answer (`get_expense_edit_access`, story 50): on a Paid
+    // expense Admin and the Accountant Lead correct its details, and its amount and payment stay
+    // read-only for everyone. A field the answer withholds is shown disabled and never sent.
     const isPaid = isPaidExpense(expenseToEdit?.status);
+    const fieldAccess = useExpenseFieldAccess();
+    const mayEdit = useCallback(
+        (field: string) => mayEditExpenseField(fieldAccess, expenseToEdit?.status, field),
+        [fieldAccess, expenseToEdit?.status],
+    );
 
     // A Porter Expense (#1450): its project is shown locked -- it moves only through Rectify in Bulk
     // Import, which keeps the import's record in step -- and its Porter facts are shown read-only. The
@@ -107,6 +115,9 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
     const { updateDoc, loading } = useFrappeUpdateDoc();
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
     const { data: vendorsData, isLoading: vendorsLoading } = useFrappeGetDocList<Vendors>("Vendors", { fields: ["name", "vendor_name"], limit: 0 });
+    const { data: projectsData, isLoading: projectsLoading } = useFrappeGetDocList<Projects>("Projects", {
+        fields: ["name", "project_name"], orderBy: { field: "project_name", order: "asc" }, limit: 0,
+    });
     const expenseTypeFetchOptions = useMemo(() => getProjectExpenseTypeListOptions(), []);
     const { data: expenseTypesData, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>("Expense Type", expenseTypeFetchOptions as any, queryKeys.expenseTypes.list(expenseTypeFetchOptions));
 
@@ -133,6 +144,7 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
     useEffect(() => {
         if (editProjectExpenseDialog && expenseToEdit) {
             setFormState({
+                projects: expenseToEdit.projects || "",
                 type: expenseToEdit.type || "",
                 vendor: expenseToEdit.vendor || OTHERS_VENDOR_VALUE,
                 description: expenseToEdit.description || "",
@@ -206,7 +218,10 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
             const finalVendor = formState.vendor === OTHERS_VENDOR_VALUE ? "" : formState.vendor;
             // Record<string, any>: null is used to CLEAR a field (undefined would be
             // omitted from the payload and Frappe would retain the current value).
-            const dataToUpdate: Record<string, any> = {
+            const changes: Record<string, any> = {
+                // A Porter Expense's project moves only through Rectify, so it is never sent.
+                ...(project.locked ? {} : { projects: formState.projects }),
+                amount: parseNumber(formState.amount),
                 type: formState.type,
                 vendor: finalVendor,
                 description: formState.description.trim(),
@@ -214,20 +229,18 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                 invoice_date: formState.invoice_date || null,
                 invoice_ref: formState.invoice_ref.trim() || null,
             };
-            // Amount only while not Paid; the payment date / ref are never written from here.
-            if (!isPaid) {
-                dataToUpdate.amount = parseNumber(formState.amount);
-            }
 
             // Upload replacement attachments (doc exists → docname-linked to the doctype).
-            if (newInvoiceFile) {
+            if (newInvoiceFile && mayEdit("invoice_attachment")) {
                 const uploaded = await upload(newInvoiceFile, { doctype: DOCTYPE, docname: expenseToEdit.name, fieldname: "invoice_attachment", isPrivate: true });
-                dataToUpdate.invoice_attachment = uploaded.file_url;
+                changes.invoice_attachment = uploaded.file_url;
             }
-            if (isPaid && newPaymentFile) {
+            if (isPaid && newPaymentFile && mayEdit("payment_attachment")) {
                 const uploaded = await upload(newPaymentFile, { doctype: DOCTYPE, docname: expenseToEdit.name, fieldname: "payment_attachment", isPrivate: true });
-                dataToUpdate.payment_attachment = uploaded.file_url;
+                changes.payment_attachment = uploaded.file_url;
             }
+            // Only what the server lets this caller change (the payment date / ref are never sent).
+            const dataToUpdate = Object.fromEntries(Object.entries(changes).filter(([field]) => mayEdit(field)));
 
             await updateDoc(DOCTYPE, expenseToEdit.name, dataToUpdate);
             await payTo.apply(payee);
@@ -246,7 +259,7 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
         }
     }, [formErrors]);
 
-    const isLoadingOverall = loading || uploadLoading || vendorsLoading || expenseTypesLoading || payTo.busy;
+    const isLoadingOverall = loading || uploadLoading || vendorsLoading || projectsLoading || expenseTypesLoading || payTo.busy;
     const isSubmitDisabled = isLoadingOverall || Object.values(formErrors).some(Boolean) || !!payTo.problem;
     const selectedExpenseTypeLabel = expenseTypeOptions.find(option => option.value === formState.type)?.label || "Select an expense type...";
 
@@ -258,12 +271,22 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                     <AlertDialogDescription>ID: {expenseToEdit.name}</AlertDialogDescription>
                 </AlertDialogHeader>
                 <div className="space-y-4 py-2 max-h-[70vh] overflow-y-auto pr-2">
-                    {project.locked && (
+                    {project.locked ? (
                         <div className="grid grid-cols-4 items-center gap-4">
                             <Label htmlFor="project_edit" className="text-right">Project</Label>
                             <div className="col-span-3">
                                 <Input id="project_edit" value={porter.section?.project_name || expenseToEdit.projects || ""} disabled readOnly />
                                 <p className="text-xs text-muted-foreground mt-1">{project.hint}</p>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="project_edit" className="text-right">Project</Label>
+                            <div className="col-span-3">
+                                <Select value={formState.projects} onValueChange={(val) => handleInputChange('projects', val)} disabled={isLoadingOverall || !mayEdit("projects")}>
+                                    <SelectTrigger id="project_edit"><SelectValue placeholder="Select a project..." /></SelectTrigger>
+                                    <SelectContent>{(projectsData || []).map(p => <SelectItem key={p.name} value={p.name}>{p.project_name || p.name}</SelectItem>)}</SelectContent>
+                                </Select>
                             </div>
                         </div>
                     )}
@@ -293,9 +316,9 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="amount_edit" className="text-right">Amount <sup className="text-destructive">*</sup></Label>
                         <div className="col-span-3">
-                            <Input id="amount_edit" type="number" value={formState.amount} onChange={(e) => handleInputChange('amount', e.target.value)} className={formErrors.amount ? "border-destructive" : ""} disabled={isLoadingOverall || isPaid} />
+                            <Input id="amount_edit" type="number" value={formState.amount} onChange={(e) => handleInputChange('amount', e.target.value)} className={formErrors.amount ? "border-destructive" : ""} disabled={isLoadingOverall || !mayEdit("amount")} />
                             {formErrors.amount && <p className="text-xs text-destructive mt-1">{formErrors.amount}</p>}
-                            {isPaid && <p className="text-xs text-muted-foreground mt-1">Paid — the amount can no longer be changed.</p>}
+                            {isPaid && !mayEdit("amount") && <p className="text-xs text-muted-foreground mt-1">Paid — the amount can no longer be changed.</p>}
                         </div>
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
@@ -355,7 +378,7 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                         </div>
                     </div>
 
-                    {/* Payment Details — Paid only. Date and ref are read-only; the proof can be replaced. */}
+                    {/* Payment Details — Paid only, read-only unless the server lets this caller change them. */}
                     {isPaid && (
                         <>
                             <Separator className="my-1" />
@@ -377,7 +400,7 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                                             <a href={SITEURL + expenseToEdit.payment_attachment} target="_blank" rel="noreferrer" className="truncate hover:underline" title={`View ${expenseToEdit.payment_attachment.split('/').pop()}`}>{expenseToEdit.payment_attachment.split('/').pop()}</a>
                                         </div>
                                     )}
-                                    <CustomAttachment
+                                    {mayEdit("payment_attachment") && <CustomAttachment
                                         label={expenseToEdit.payment_attachment ? "Replace Payment Attachment" : "Upload Payment Attachment"}
                                         selectedFile={newPaymentFile}
                                         onFileSelect={setNewPaymentFile}
@@ -385,7 +408,8 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                                         maxFileSize={5 * 1024 * 1024}
                                         acceptedTypes={ATTACHMENT_ACCEPTED_TYPES}
                                         disabled={isLoadingOverall}
-                                    />
+                                    />}
+                                    {!expenseToEdit.payment_attachment && !mayEdit("payment_attachment") && <p className="text-sm text-muted-foreground pt-2">--</p>}
                                 </div>
                             </div>
                         </>

@@ -53,15 +53,24 @@ Both share one approval lifecycle and are entered/managed together in a single u
   `ignore_permissions=True`, so it needs no flag. ⚠️ A new system writer must save with
   `ignore_permissions=True` too, or its status change is refused. Pinned by
   `api/approvals/test_expense_decisions`.
-  **Only Accounts edit an Expense, and never once it is Paid** (story 50, owner 2026-10-20): the same
-  `guard_hand_save` refuses a person's save of a Paid or Rejected Expense (everyone, `Administrator`
-  included) and of any other Expense by anyone but an Accountant or Accountant Lead
-  (`expense_decision.EDIT_PROFILES` / `EDITABLE_STATUSES`). System paths are unaffected. Every Edit /
+  **Who edits an Expense by hand** (story 50, owner 2026-10-20), `expense_decision.edit_access`, enforced
+  by the same `guard_hand_save`:
+  - before Paid (Requested, CEO Pending, Approved, Reconciliation Pending): an Accountant or Accountant
+    Lead, every field but the status; nobody else (`Administrator` and Admin included);
+  - **Paid**: Admin (`Administrator` included) and the Accountant Lead, and only its details
+    (`PAID_EDITABLE_FIELDS`: description, comment, invoice attachment / ref / date, project, vendor,
+    type, which still meets the ledger type check). Its payment information -- amount, payment date /
+    by / ref / attachment, every `pay_to_*`, status, approval and CEO approval dates, auto-approved,
+    request, Porter order -- is locked for everyone; an Accountant cannot edit a Paid one at all;
+  - **Rejected**: nobody.
+  System paths are unaffected. `expense_actions.get_expense_edit_access` serves the same answer as
+  `editable_statuses` plus `field_limits` (per status, the only fields an edit may change). Every Edit /
   Record Invoice button on the old ledger pages and the Payments queue (pencil, raiser pencil, Upload
-  Invoice) shows only where `expense_actions.get_expense_edit_access` lists the row's status
-  (`hooks/useExpenseDecision.useExpenseEditAccess`); no screen restates the rule. ⚠️ This retires the
-  Payments-queue Upload Invoice on a Paid expense (2026-10-05/07 below) and the Admin's Paid-row
-  Edit: the button stays wired to the server answer, so allowing it again is a server change.
+  Invoice on a Paid expense) shows only where the row's status is listed
+  (`hooks/useExpenseDecision.useExpenseEditAccess`), and both edit dialogs disable and never send a
+  field the answer withholds (`useExpenseFieldAccess` + `utils/expenses/expenseDecision.mayEditExpenseField`);
+  no screen restates the rule. The Project Expense edit dialog has a Project picker (a Porter
+  Expense's project stays locked: it moves through Rectify).
 - **No person creates a ledger row; every expense a person raises starts as an Expense Request**
   (spec #1494, #1506, ADR-0016 amendment 5). `create` is off every role on both ledgers, System
   Manager included (`Administrator` bypasses permissions). The writers insert with `ignore_permissions`:

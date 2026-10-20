@@ -17,7 +17,7 @@
 // tab renders correct actions per row):
 //   - Requested -> Edit, Approve, Delete
 //   - Approved  -> Mark as Paid, Delete
-//   - Paid      -> Delete
+//   - Paid      -> Edit (where the server allows: Admin, Accountant Lead), Delete
 
 import { ColumnDef } from "@tanstack/react-table";
 import { Pencil, CheckCircle2, IndianRupee, Trash2, FileText, Download } from "lucide-react";
@@ -96,8 +96,9 @@ export const getProjectExpenseColumns = ({
   const isHR = role === "Nirmaan HR Executive Profile";
 
   // Action-level permissions
-  // Edit: the server's answer (`expense_actions.get_expense_edit_access`, story 50): Accounts only,
-  // never once Paid or Rejected. Both ledgers' `validate` refuse any other edit.
+  // Edit: the server's answer (`expense_actions.get_expense_edit_access`, story 50): Accounts until
+  // paid; on a Paid row Admin and the Accountant Lead (its details only); never Rejected. Both
+  // ledgers' `validate` refuse any other edit.
   const canEditRow = (status: string) => editableStatuses.includes(status);
   const canApprove = isAdmin; // Requested -> Approved (Admin only)
   // Approved -> Paid: the server's rule (`expense_decision.can_mark_paid`, #1497), mirrored once.
@@ -106,13 +107,13 @@ export const getProjectExpenseColumns = ({
 
   // --- Actions column visibility (scoped to the Paid and All tabs) ---
   // The column shows only for users who can actually act on the tab's rows:
-  //   - Paid tab: Edit/Delete are Admin-only, so only Admin sees it.
+  //   - Paid tab: Admin (Delete), and whoever the server lets edit a Paid row.
   //   - All tab:  Admin, plus Accountants (who can Mark as Paid the Approved rows).
   // Requested/Approved tabs are left unchanged (column always present).
   const canSeeActionsColumn = disableActions
     ? false
     : statusTab === "Paid"
-      ? isAdmin
+      ? isAdmin || canEditRow("Paid")
       : statusTab === "All"
         // The All tab mixes statuses; every button inside the cell is already
         // gated by the ROW's status, so opening the column to Accountants
@@ -509,7 +510,7 @@ export const getProjectExpenseColumns = ({
               </Tooltip>
             )}
 
-            {/* Edit past Requested: wherever the server lets the caller edit (never Paid). */}
+            {/* Edit past Requested: wherever the server lets the caller edit. */}
             {status !== "Requested" && canEditRow(status) && (
               <Tooltip>
                 <TooltipTrigger asChild>

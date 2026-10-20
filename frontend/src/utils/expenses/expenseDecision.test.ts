@@ -2,7 +2,14 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { canMarkExpensePaid, EXPENSE_ACTIONS, MARK_PAID_PROFILES, splitMarkPaid } from "./expenseDecision";
+import {
+  canMarkExpensePaid,
+  EXPENSE_ACTIONS,
+  MARK_PAID_PROFILES,
+  mayEditExpenseField,
+  NO_EDIT_ACCESS,
+  splitMarkPaid,
+} from "./expenseDecision";
 
 // The Python modules are the authority; these read them so the mirrors cannot drift (rule F1).
 const read = (path: string) => readFileSync(resolve(__dirname, "../../../../nirmaan_stack", path), "utf-8");
@@ -75,5 +82,31 @@ describe("splitMarkPaid", () => {
     const { payment, invoice } = splitMarkPaid({ payment_date: "2026-10-19", status: "Paid", payment_by: "x" });
     expect(payment).toEqual({ payment_date: "2026-10-19" });
     expect(invoice).toEqual({});
+  });
+});
+
+describe("mayEditExpenseField — the server's edit answer, read per field (story 50)", () => {
+  // An Accountant Lead's answer, as `get_expense_edit_access` serves it.
+  const lead = {
+    editable_statuses: ["Requested", "Approved", "Paid"],
+    field_limits: { Paid: ["description", "invoice_ref"] },
+  };
+
+  it("allows every field of a status the answer leaves unlimited", () => {
+    expect(mayEditExpenseField(lead, "Approved", "amount")).toBe(true);
+    expect(mayEditExpenseField(lead, "Approved", "description")).toBe(true);
+  });
+
+  it("allows on a limited status only the fields listed", () => {
+    expect(mayEditExpenseField(lead, "Paid", "description")).toBe(true);
+    expect(mayEditExpenseField(lead, " Paid ", "invoice_ref")).toBe(true);
+    expect(mayEditExpenseField(lead, "Paid", "amount")).toBe(false);
+    expect(mayEditExpenseField(lead, "Paid", "payment_attachment")).toBe(false);
+  });
+
+  it("allows nothing on a status the answer does not list", () => {
+    expect(mayEditExpenseField(lead, "Rejected", "description")).toBe(false);
+    expect(mayEditExpenseField(NO_EDIT_ACCESS, "Approved", "description")).toBe(false);
+    expect(mayEditExpenseField(lead, undefined, "description")).toBe(false);
   });
 });
