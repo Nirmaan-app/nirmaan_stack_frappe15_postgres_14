@@ -851,5 +851,233 @@
   "project": 0,
   "source_format": null,
   "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "parent": "Misc. Expenses",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "parent": "Misc. Expenses",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Profile"
+   },
+   {
+    "parent": "Misc. Expenses",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Executive Profile"
+   },
+   {
+    "parent": "Misc. Expenses",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Lead Profile"
+   }
+  ],
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_category": "Uncategorized",
+  "expense_name": "Misc. Expenses",
+  "modified": "2026-10-20 10:00:00.000000",
+  "name": "Misc. Expenses",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": "",
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "parent": "Office Rent",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Executive Profile"
+   },
+   {
+    "parent": "Office Rent",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Lead Profile"
+   }
+  ],
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_category": "Uncategorized",
+  "expense_name": "Office Rent",
+  "modified": "2026-10-20 10:00:00.000000",
+  "name": "Office Rent",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": "",
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "parent": "Reimbursments",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Executive Profile"
+   },
+   {
+    "parent": "Reimbursments",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Lead Profile"
+   }
+  ],
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_category": "Uncategorized",
+  "expense_name": "Reimbursments",
+  "modified": "2026-09-19 12:50:54.590036",
+  "name": "Reimbursments",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "parent": "Salary - EPFO Payment",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "parent": "Salary - EPFO Payment",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_category": null,
+  "expense_name": "Salary - EPFO Payment",
+  "modified": "2026-09-08 17:52:40.536931",
+  "name": "Salary - EPFO Payment",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "parent": "Salary - Employee Payout",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "parent": "Salary - Employee Payout",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_category": "Uncategorized",
+  "expense_name": "Salary - Employee Payout",
+  "modified": "2026-10-20 10:00:00.000000",
+  "name": "Salary - Employee Payout",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": "",
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "parent": "Salary - Professional Tax",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "parent": "Salary - Professional Tax",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_category": null,
+  "expense_name": "Salary - Professional Tax",
+  "modified": "2026-09-08 17:52:27.169861",
+  "name": "Salary - Professional Tax",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "parent": "Salary - TDS Payment",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "parent": "Salary - TDS Payment",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_category": "Uncategorized",
+  "expense_name": "Salary - TDS Payment",
+  "modified": "2026-09-19 12:49:11.693486",
+  "name": "Salary - TDS Payment",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "parent": "Vendor TDS Payment",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "parent": "Vendor TDS Payment",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_category": "Uncategorized",
+  "expense_name": "Vendor TDS Payment",
+  "modified": "2026-10-20 10:00:00.000000",
+  "name": "Vendor TDS Payment",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": "",
+  "source_format_enabled": 0
  }
 ]

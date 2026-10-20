@@ -134,7 +134,8 @@ class TestTheFormsAreTheOwnersReview(unittest.TestCase):
 
 	def test_every_other_type_has_no_form_and_asks_description_and_comment(self):
 		others = [r for r in _types() if r["name"] not in EXPECTED_FORMS]
-		self.assertEqual(len(others), 25)
+		# 25 from the owner's review, plus the 8 database-only types #1507 brought into the fixture.
+		self.assertEqual(len(others), 33)
 		for row in others:
 			with self.subTest(type=row["name"]):
 				self.assertFalse((row.get("source_format") or "").strip())
