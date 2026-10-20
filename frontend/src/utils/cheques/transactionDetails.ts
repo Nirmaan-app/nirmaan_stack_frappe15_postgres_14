@@ -1,4 +1,5 @@
 import { PAYMENT_STATUS } from "@/constants/paymentStatus";
+import { PAYMENT_MODE_CHEQUE } from "@/pages/ProjectPayments/paymentMode";
 
 /**
  * Does a PO's Transaction Details list this payment (#1519, spec #1514)? A cheque payment only once it is
@@ -7,4 +8,4 @@ import { PAYMENT_STATUS } from "@/constants/paymentStatus";
  * the PO's paid and due totals come from the PO itself and do not change.
  */
 export const listedInTransactionDetails = (p: { mode_of_payment?: string | null; status?: string | null }): boolean =>
-    p.mode_of_payment !== "Cheque" || p.status === PAYMENT_STATUS.PAID;
+    p.mode_of_payment !== PAYMENT_MODE_CHEQUE || p.status === PAYMENT_STATUS.PAID;
