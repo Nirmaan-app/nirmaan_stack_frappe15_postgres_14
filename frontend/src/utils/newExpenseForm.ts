@@ -7,6 +7,7 @@
  * Who gets paid has its own rule (`utils/payees/expensePayee`).
  */
 
+import { PAYMENT_STATUS } from "@/constants/paymentStatus";
 import type { RequestCatalogType, SaveExpenseRequestResponse } from "@/types/NirmaanStack/ExpenseRequest";
 import {
     APPROVAL_TIERS, initialStatusForRaiser, requiredTier, TIER_L2_ABOVE_EXPENSES, type RaiserLevel,
@@ -95,8 +96,8 @@ export const newExpenseSubmit = ({
  * status the Expense will be born at) and after it (from the status the server says it was born at).
  */
 export const whoApprovesNext = (status: string | null | undefined, amount: string | number | null | undefined): string => {
-    if (status === "CEO Pending") return "The CEO approves it next.";
-    if (status === "Requested") {
+    if (status === PAYMENT_STATUS.CEO_PENDING) return "The CEO approves it next.";
+    if (status === PAYMENT_STATUS.REQUESTED) {
         return requiredTier(amount, TIER_L2_ABOVE_EXPENSES) === APPROVAL_TIERS.l1l2
             ? "An Admin approves it next, then the CEO."
             : "An Admin approves it next.";

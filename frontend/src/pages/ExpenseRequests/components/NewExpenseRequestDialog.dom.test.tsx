@@ -64,8 +64,17 @@ afterEach(() => {
     document.body.innerHTML = "";
 });
 
-const amountInput = () => document.querySelector<HTMLInputElement>('input[type="number"]')!;
-const typePicker = () => document.querySelector<HTMLInputElement>('input[role="combobox"]')!;
+/** The field a visible label names (its `htmlFor`), as a user finds it. */
+const fieldLabelled = (text: string): HTMLInputElement => {
+    const label = Array.from(document.querySelectorAll("label"))
+        .find((el) => el.textContent?.replace("*", "").trim() === text);
+    expect(label?.htmlFor).toBeTruthy();
+    const field = document.getElementById(label!.htmlFor);
+    expect(field).toBeInstanceOf(HTMLInputElement);
+    return field as HTMLInputElement;
+};
+const amountInput = () => fieldLabelled("Amount");
+const typePicker = () => fieldLabelled("Expense Type");
 
 describe("New Expense: picking a type", () => {
     it("hands focus to Amount within the pick itself, so the next key typed lands there", () => {

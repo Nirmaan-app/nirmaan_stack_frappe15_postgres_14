@@ -101,15 +101,12 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
     const [recordInvoiceDetails, setRecordInvoiceDetails] = useState(false);
 
     // New files staged for upload
-    const [newPaymentAttachmentFile, setNewPaymentAttachmentFile] = useState<File | null>(null);
     const [newInvoiceAttachmentFile, setNewInvoiceAttachmentFile] = useState<File | null>(null);
 
     // Existing attachment URLs from expenseToEdit
-    const [existingPaymentAttachmentUrl, setExistingPaymentAttachmentUrl] = useState<string | undefined>(undefined);
     const [existingInvoiceAttachmentUrl, setExistingInvoiceAttachmentUrl] = useState<string | undefined>(undefined);
 
     // Actions for attachments
-    const [paymentAttachmentAction, setPaymentAttachmentAction] = useState<AttachmentUpdateAction>("keep");
     const [invoiceAttachmentAction, setInvoiceAttachmentAction] = useState<AttachmentUpdateAction>("keep");
 
     const [expenseTypePopoverOpen, setExpenseTypePopoverOpen] = useState(false);
@@ -158,13 +155,10 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
             // A Paid expense also requires its invoice, so keep both open.
             setRecordInvoiceDetails(hasInvoice || paid);
 
-            setExistingPaymentAttachmentUrl(expenseToEdit.payment_attachment);
             setExistingInvoiceAttachmentUrl(expenseToEdit.invoice_attachment);
 
-            setPaymentAttachmentAction(expenseToEdit.payment_attachment ? "keep" : "remove");
             setInvoiceAttachmentAction(expenseToEdit.invoice_attachment ? "keep" : "remove");
 
-            setNewPaymentAttachmentFile(null);
             setNewInvoiceAttachmentFile(null);
             setFormErrors({});
             setExpenseTypePopoverOpen(false);
@@ -210,14 +204,6 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
     }, [formState, recordPaymentDetails, recordInvoiceDetails, newInvoiceAttachmentFile, invoiceAttachmentAction, existingInvoiceAttachmentUrl]);
 
     // Attachment Handlers (similar to UpdatePayment/InvoiceDetailsDialog)
-    const handleNewPaymentFileSelected = (file: File | null) => {
-        setNewPaymentAttachmentFile(file);
-        setPaymentAttachmentAction(file ? "replace" : (existingPaymentAttachmentUrl ? "keep" : "remove"));
-    };
-    const handleRemoveExistingPaymentAttachment = () => {
-        setNewPaymentAttachmentFile(null);
-        setPaymentAttachmentAction("remove");
-    };
     const handleNewInvoiceFileSelected = (file: File | null) => {
         setNewInvoiceAttachmentFile(file);
         setInvoiceAttachmentAction(file ? "replace" : (existingInvoiceAttachmentUrl ? "keep" : "remove"));
@@ -236,11 +222,8 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
         setFormErrors({});
         setRecordPaymentDetails(false);
         setRecordInvoiceDetails(false);
-        setNewPaymentAttachmentFile(null);
         setNewInvoiceAttachmentFile(null);
-        setExistingPaymentAttachmentUrl(undefined);
         setExistingInvoiceAttachmentUrl(undefined);
-        setPaymentAttachmentAction("keep");
         setInvoiceAttachmentAction("keep");
         setExpenseTypePopoverOpen(false);
         resetPayTo();
@@ -315,14 +298,12 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
 
     // --- Attachment Display Logic (similar to UpdatePaymentDetailsDialog) ---
     const renderAttachmentSection = (
-        type: "payment" | "invoice",
         existingUrl: string | undefined,
         newFile: File | null,
         action: AttachmentUpdateAction,
         onNewFileSelected: (file: File | null) => void,
         onRemoveExisting: () => void,
         labelPrefix: string,
-        editable = true,
     ) => {
         const effectiveExistingUrl = (action === "keep" || action === "replace") && existingUrl;
 
@@ -337,7 +318,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                                 <DownloadIcon className="h-4 w-4 text-primary flex-shrink-0" />
                                 <a href={SITEURL + effectiveExistingUrl} target="_blank" rel="noopener noreferrer" className="truncate hover:underline" title={`View ${effectiveExistingUrl.split('/').pop()}`}>{effectiveExistingUrl.split('/').pop()}</a>
                             </div>
-                            {editable && <Button variant="ghost" size="icon" onClick={onRemoveExisting} className="h-7 w-7 text-destructive hover:bg-destructive/10" disabled={isLoadingOverall}><XIcon className="h-4 w-4" /><span className="sr-only">Remove existing</span></Button>}
+                            <Button variant="ghost" size="icon" onClick={onRemoveExisting} className="h-7 w-7 text-destructive hover:bg-destructive/10" disabled={isLoadingOverall}><XIcon className="h-4 w-4" /><span className="sr-only">Remove existing</span></Button>
                         </div>
                     )}
                     {action === "remove" && existingUrl && !newFile && (
@@ -347,7 +328,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                     )}
                     {/* Same uploader format as the create dialog — CustomAttachment shows the
                         staged file (with its own remove) exactly like creation. */}
-                    {editable ? <CustomAttachment
+                    <CustomAttachment
                         label={effectiveExistingUrl ? `Replace ${labelPrefix} Attachment` : `Upload ${labelPrefix} Attachment`}
                         selectedFile={newFile}
                         onFileSelect={onNewFileSelected}
@@ -355,7 +336,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                         maxFileSize={5 * 1024 * 1024}
                         acceptedTypes={ATTACHMENT_ACCEPTED_TYPES}
                         disabled={isLoadingOverall}
-                    /> : !existingUrl && <p className="text-sm text-muted-foreground pt-2">--</p>}
+                    />
                 </div>
             </div>
         );
@@ -449,7 +430,17 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                                 <Label htmlFor="payment_ref_edit_npe" className="text-right col-span-1">Payment Ref</Label>
                                 <Input id="payment_ref_edit_npe" name="payment_ref" value={formState.payment_ref} className="col-span-3" disabled readOnly />
                             </div>
-                            {renderAttachmentSection("payment", existingPaymentAttachmentUrl, newPaymentAttachmentFile, paymentAttachmentAction, handleNewPaymentFileSelected, handleRemoveExistingPaymentAttachment, "Payment", false)}
+                            <div className="grid grid-cols-4 items-start gap-3"> {/* Proof, read-only */}
+                                <Label className="text-right col-span-1 pt-2">Payment Attachment</Label>
+                                <div className="col-span-3">
+                                    {expenseToEdit.payment_attachment ? (
+                                        <div className="flex items-center gap-2 min-w-0 p-2 bg-muted/60 rounded-md text-sm">
+                                            <DownloadIcon className="h-4 w-4 text-primary flex-shrink-0" />
+                                            <a href={SITEURL + expenseToEdit.payment_attachment} target="_blank" rel="noopener noreferrer" className="truncate hover:underline">{expenseToEdit.payment_attachment.split('/').pop()}</a>
+                                        </div>
+                                    ) : <p className="text-sm text-muted-foreground pt-2">--</p>}
+                                </div>
+                            </div>
                         </div>
                     )}
                     </>
@@ -473,7 +464,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                                 <Input id="invoice_ref_edit_npe" name="invoice_ref" value={formState.invoice_ref} onChange={handleInputChange} className={cn("col-span-3", ((editHasInvoiceAttachment && !formState.invoice_ref.trim()) || formErrors.invoice_ref) && "border-destructive")} disabled={isLoadingOverall} />
                                 {((editHasInvoiceAttachment && !formState.invoice_ref.trim()) || formErrors.invoice_ref) && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.invoice_ref || "Invoice Ref is required because an invoice is attached."}</p>}
                             </div>
-                            {renderAttachmentSection("invoice", existingInvoiceAttachmentUrl, newInvoiceAttachmentFile, invoiceAttachmentAction, handleNewInvoiceFileSelected, handleRemoveExistingInvoiceAttachment, "Invoice")}
+                            {renderAttachmentSection(existingInvoiceAttachmentUrl, newInvoiceAttachmentFile, invoiceAttachmentAction, handleNewInvoiceFileSelected, handleRemoveExistingInvoiceAttachment, "Invoice")}
                         </div>
                     )}
 

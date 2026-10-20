@@ -85,7 +85,7 @@ import InvoiceQuestion, {
     checksLine, EMPTY_INVOICE, invoiceSourceData, InvoiceValue,
 } from "./InvoiceSection";
 import WhoGetsPaidSection from "./WhoGetsPaidSection";
-import DuplicateStayNote from "./DuplicateStayNote";
+import DuplicateStayNote from "@/components/common/DuplicateStayNote";
 
 /** One option per expense type.
  *
@@ -575,8 +575,9 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                 <div className="space-y-4 py-2">
                     <div className="grid gap-4 sm:grid-cols-2">
                         <div className="space-y-1.5">
-                            <Label>Expense Type <span className="text-destructive">*</span></Label>
+                            <Label htmlFor="new_expense_type">Expense Type <span className="text-destructive">*</span></Label>
                             <FuzzySearchSelect<ExpenseTypeOption, false>
+                                inputId="new_expense_type"
                                 allOptions={typeOptions}
                                 tokenSearchConfig={EXPENSE_TYPE_SEARCH}
                                 isLoading={catalogLoading}
@@ -614,8 +615,9 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                         </div>
 
                         <div className="space-y-1.5">
-                            <Label>Amount <span className="text-destructive">*</span></Label>
+                            <Label htmlFor="new_expense_amount">Amount <span className="text-destructive">*</span></Label>
                             <Input
+                                id="new_expense_amount"
                                 ref={amountRef}
                                 type="number" placeholder="0" value={form.amount}
                                 onChange={(e) => set("amount", e.target.value)}

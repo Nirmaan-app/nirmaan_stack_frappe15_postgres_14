@@ -32,7 +32,7 @@ import { getFrappeError } from "@/utils/frappeErrors";
 import { PAYEE_RULE, asPayeeRule, noAccountReviewLine, payeeAccountLine } from "@/utils/payees/expensePayee";
 import { bankLine } from "@/utils/payees/payeeForm";
 import type { ExpenseRequest, StayDuplicate } from "@/types/NirmaanStack/ExpenseRequest";
-import DuplicateStayNote from "./DuplicateStayNote";
+import DuplicateStayNote from "@/components/common/DuplicateStayNote";
 
 export type ReviewAction = "approve" | "reject";
 

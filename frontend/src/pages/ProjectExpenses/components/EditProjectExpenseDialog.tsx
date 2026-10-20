@@ -20,7 +20,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { CustomAttachment, AcceptedFileType } from "@/components/helpers/CustomAttachment";
-import { FuzzySearchSelect, type FuzzyOptionType, type TokenSearchConfig } from "@/components/ui/fuzzy-search-select";
+import { projectSearchConfig } from "@/components/custom-select/project-select";
+import { FuzzySearchSelect, type FuzzyOptionType } from "@/components/ui/fuzzy-search-select";
 import { useToast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -44,16 +45,8 @@ import { PorterSectionBlock, usePorterExpense } from "@/components/common/Porter
 import { ExpenseEditPayToSection, useExpenseEditPayTo } from "@/components/payees/ExpenseEditPayTo";
 import { expenseAccountSaveError } from "@/components/payees/useChangeExpenseAccount";
 
-// The Project picker searches name and code, as `ProjectSelect` does. `ProjectSelect` itself takes no
-// `value`, so it cannot show the project this expense already has; this picker is controlled.
-const PROJECT_SEARCH: TokenSearchConfig = {
-    searchFields: ["label", "value"],
-    minSearchLength: 1,
-    partialMatch: true,
-    minTokenLength: 1,
-    fieldWeights: { label: 2.0, value: 1.5 },
-    minTokenMatches: 1,
-};
+// The Project picker searches name and code with `ProjectSelect`'s config. `ProjectSelect` itself
+// takes no `value`, so it cannot show the project this expense already has; this picker is controlled.
 
 interface ProjectOption extends FuzzyOptionType {
     value: string;
@@ -302,7 +295,7 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                                 <FuzzySearchSelect<ProjectOption, false>
                                     inputId="project_edit"
                                     allOptions={projectOptions}
-                                    tokenSearchConfig={PROJECT_SEARCH}
+                                    tokenSearchConfig={projectSearchConfig}
                                     isLoading={projectsLoading}
                                     isDisabled={isLoadingOverall || !mayEdit("projects")}
                                     value={selectedProjectOption}

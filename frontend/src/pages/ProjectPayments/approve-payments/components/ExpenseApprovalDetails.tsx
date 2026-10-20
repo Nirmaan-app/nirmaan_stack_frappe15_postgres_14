@@ -14,7 +14,7 @@ import { PorterSection } from "@/components/common/PorterExpense";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { invoiceAttachmentUrl } from "@/utils/porterExpense";
-import DuplicateStayNote from "@/pages/ExpenseRequests/components/DuplicateStayNote";
+import DuplicateStayNote from "@/components/common/DuplicateStayNote";
 import {
   ApprovalStage,
   ExpenseApprovalDetail,

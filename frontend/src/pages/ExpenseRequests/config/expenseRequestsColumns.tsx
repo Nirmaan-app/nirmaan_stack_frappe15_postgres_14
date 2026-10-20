@@ -31,7 +31,7 @@ import { EXR_RAISED_BY_ME } from "./expenseRequestsTable.config";
 import { Check, Pencil, Trash2, X } from "lucide-react";
 
 import LiveStatusBadge from "../components/LiveStatusBadge";
-import RequestHoverCard from "../components/RequestHoverCard";
+import RequestHoverCard from "@/components/common/RequestHoverCard";
 
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { facetMeta } from "@/components/data-table/facetConfig";
