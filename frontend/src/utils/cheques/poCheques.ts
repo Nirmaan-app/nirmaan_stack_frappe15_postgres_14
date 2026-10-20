@@ -1,6 +1,6 @@
 import { CHEQUE_TYPE, type ChequeType } from "@/types/NirmaanStack/Cheques";
 
-import { securedLabel, type LineOfRecord } from "./chequeDeposit";
+import type { LineOfRecord } from "./chequeDeposit";
 
 /**
  * The PO page's "Cheques issued for this PO" card (#1521, spec #1514, stories 20-23), pure so vitest covers it
@@ -31,7 +31,7 @@ export const poChequeAmount = (row: PoChequeAmountRow): { forPo: number; whole: 
     return { forPo: row.record_amount, whole: paise(row.record_amount) === paise(row.amount) ? null : row.amount };
 };
 
-/** The other POs the cheque's lines name beside `po`, by label, once each, in line order. */
+/** The other POs the cheque's lines name beside `po`, once each, in line order. */
 export const alsoFor = (lines: LineOfRecord[], po: string): string[] => [
-    ...new Set(lines.filter((l) => l.record_name && l.record_name !== po).map((l) => securedLabel(l.record_doctype, l.record_name))),
+    ...new Set(lines.flatMap((l) => (l.record_name && l.record_name !== po ? [l.record_name] : []))),
 ];

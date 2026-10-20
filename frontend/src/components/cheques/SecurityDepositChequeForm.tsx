@@ -26,7 +26,6 @@ import {
     makeDepositFormSchema,
     saveDepositArgs,
     securableOptions,
-    securedLabel,
     type DepositFormInput,
     type DepositFormValues,
     type DepositPageRecord,
@@ -213,7 +212,7 @@ export const SecurityDepositChequeForm = ({ edit, from, onDone, onCancel }: Secu
                                         key={`${s.record_doctype}|${s.record_name}`}
                                         className="inline-flex items-center gap-1 rounded-full border bg-muted px-2.5 py-0.5 text-xs"
                                     >
-                                        {securedLabel(s.record_doctype, s.record_name)}
+                                        {s.record_name}
                                         {!locked("lines") && !isFixed(s.record_name) && (
                                             <button
                                                 type="button"

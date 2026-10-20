@@ -20,7 +20,6 @@ import { LINE_TYPE } from "./chequeLines";
  */
 
 export const PO_DOCTYPE = "Procurement Orders";
-export const WORK_ORDER_DOCTYPE = "Service Requests";
 /** What a deposit may secure: a PO only (spec #1514). */
 export type SecurableDoctype = typeof PO_DOCTYPE;
 
@@ -149,17 +148,13 @@ export const saveDepositArgs = (v: DepositFormValues): SaveChequeArgs => ({
     })),
 });
 
-/** "SR/301/00004/26-27 (Work Order)", or a PO's name as it is. */
-export const securedLabel = (doctype: string | null | undefined, name: string | null | undefined): string =>
-    doctype === WORK_ORDER_DOCTYPE ? `${name ?? ""} (Work Order)` : name ?? "";
-
 /** The Vendor's records the "Secures" picker still offers: those not already on the deposit. */
 export const securableOptions = (records: SecurableRecord[], secured: SecuredRecordDraft[]) => {
     const taken = new Set(secured.map((s) => `${s.record_doctype}|${s.record_name}`));
     return records
         .map((r) => ({
             value: `${r.doctype}|${r.name}`,
-            label: `${securedLabel(r.doctype, r.name)} · ${r.project_name || r.project}`,
+            label: `${r.name} · ${r.project_name || r.project}`,
             record: r,
         }))
         .filter((o) => !taken.has(o.value));
@@ -172,9 +167,9 @@ export interface LineOfRecord {
     record_name?: string | null;
 }
 
-/** The records a deposit secures, by label, in line order. */
+/** The records a deposit secures, in line order. */
 export const securedRecords = (lines: LineOfRecord[]): string[] =>
-    lines.filter((l) => l.line_type === LINE_TYPE.SECURED && l.record_name).map((l) => securedLabel(l.record_doctype, l.record_name));
+    lines.flatMap((l) => (l.line_type === LINE_TYPE.SECURED && l.record_name ? [l.record_name] : []));
 
 const num = (v: unknown) => {
     const n = Number(v);

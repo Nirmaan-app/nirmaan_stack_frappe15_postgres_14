@@ -10,7 +10,6 @@ import {
     makeDepositFormSchema,
     saveDepositArgs,
     securableOptions,
-    securedLabel,
     type DepositFormInput,
 } from "./chequeDeposit";
 
@@ -131,11 +130,6 @@ describe("depositFormFromDetail", () => {
 });
 
 describe("what a deposit secures, as the tab and the PO card show it", () => {
-    it("names a Work Order as one", () => {
-        expect(securedLabel("Service Requests", "SR/301/00004/26-27")).toBe("SR/301/00004/26-27 (Work Order)");
-        expect(securedLabel("Procurement Orders", "PO/301/00012/26-27")).toBe("PO/301/00012/26-27");
-    });
-
     it("offers in the picker only the records not already secured", () => {
         const records = [
             { doctype: "Procurement Orders" as const, name: PO.record_name, project: "PROJ-1", project_name: "Sarjapur", status: "Delivered" },

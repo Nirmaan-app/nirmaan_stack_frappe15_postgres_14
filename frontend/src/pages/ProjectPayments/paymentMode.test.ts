@@ -17,7 +17,6 @@ import { forecastTds } from "./tdsForecast";
 const cheque: PaymentModeValue = {
 	...EMPTY_PAYMENT_MODE,
 	mode: "Cheque",
-	bank: "ICICI Bank",
 	cheque_no: " 004512 ",
 	cheque_date: "2026-09-19",
 	amount: "49000",
@@ -30,7 +29,7 @@ describe("paymentMode", () => {
 		expect(paymentModeArgs(EMPTY_PAYMENT_MODE)).toEqual({ mode_of_payment: "Online" });
 	});
 
-	it("a cheque needs its photo, bank, number, date and amount", () => {
+	it("a cheque needs its photo, number, date and amount", () => {
 		expect(isPaymentModeComplete(cheque, "")).toBe(true);
 		expect(isPaymentModeComplete({ ...cheque, attachment: "" }, "")).toBe(false);
 		expect(isPaymentModeComplete({ ...cheque, cheque_no: "  " }, "")).toBe(false);
@@ -45,7 +44,7 @@ describe("paymentMode", () => {
 	});
 
 	it("sends the cheque trimmed, leading zeros kept, drawn on ICICI Bank", () => {
-		expect(paymentModeArgs({ ...cheque, bank_name: "stale" })).toEqual({
+		expect(paymentModeArgs(cheque)).toEqual({
 			mode_of_payment: "Cheque",
 			bank: "ICICI Bank",
 			cheque_no: "004512",
@@ -56,10 +55,8 @@ describe("paymentMode", () => {
 	});
 
 	it("a Payment cheque is always drawn on ICICI Bank, the only bank whose statement clears it (#1516)", () => {
-		const others = { ...cheque, bank: "Others", bank_name: "HDFC Bank" } as PaymentModeValue;
-		expect(paymentModeArgs(others)).toMatchObject({ bank: "ICICI Bank" });
-		expect(paymentModeArgs(others)).not.toHaveProperty("bank_name");
-		expect(EMPTY_PAYMENT_MODE.bank).toBe("ICICI Bank");
+		expect(paymentModeArgs(cheque)).toMatchObject({ bank: "ICICI Bank" });
+		expect(paymentModeArgs(cheque)).not.toHaveProperty("bank_name");
 	});
 
 	it("reads a blank mode as Online", () => {

@@ -35,4 +35,4 @@ export const useExistingCheque = (bank: string, bankName: string, chequeNo: stri
  * Cheque, through the same cached call.
  */
 export const useDuplicateChequeOf = (v: PaymentModeValue): string =>
-    useExistingCheque(v.bank, v.bank_name, v.mode === PAYMENT_MODE_CHEQUE ? v.cheque_no : "")?.cheque ?? "";
+    useExistingCheque(CHEQUE_BANK.ICICI, "", v.mode === PAYMENT_MODE_CHEQUE ? v.cheque_no : "")?.cheque ?? "";

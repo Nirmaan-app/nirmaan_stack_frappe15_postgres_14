@@ -97,7 +97,7 @@ export const PaymentModeFields = ({
 	const payeeMismatch = usePayeeVendorMismatch(photoPayee, vendor);
 	const amountHint = isCheque && amount !== undefined ? chequeAmountHint(value.amount, amount, tds) : null;
 
-	const existing = useExistingCheque(value.bank, value.bank_name, isCheque ? value.cheque_no : "");
+	const existing = useExistingCheque(CHEQUE_BANK.ICICI, "", isCheque ? value.cheque_no : "");
 
 	const set = (patch: Partial<PaymentModeValue>) => onChange((prev) => ({ ...prev, ...patch }));
 

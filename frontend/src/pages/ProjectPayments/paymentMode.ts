@@ -21,15 +21,12 @@ export type PaymentMode = typeof PAYMENT_MODE_ONLINE | typeof PAYMENT_MODE_CHEQU
 
 /**
  * The dialog's own state. The cheque fields carry the cheque form's names (`chequePhoto.ts`), so
- * the photo reader fills them. `cheque_date` is the `<input type="date">` value, `YYYY-MM-DD`;
- * `amount` is what the cheque is written for, as its input holds it.
+ * the photo reader fills them. There is no bank: a Payment cheque is drawn on ICICI Bank (#1516).
+ * `cheque_date` is the `<input type="date">` value, `YYYY-MM-DD`; `amount` is what the cheque is
+ * written for, as its input holds it.
  */
 export interface PaymentModeValue {
 	mode: PaymentMode;
-	/** Always ICICI Bank: the form shows it fixed and `paymentModeArgs` sends it (#1516). */
-	bank: ChequeBank;
-	/** Kept blank: an ICICI Bank cheque has no typed bank name. */
-	bank_name: string;
 	cheque_no: string;
 	cheque_date: string;
 	amount: number | string;
@@ -41,8 +38,6 @@ export interface PaymentModeValue {
 
 export const EMPTY_PAYMENT_MODE: PaymentModeValue = {
 	mode: PAYMENT_MODE_ONLINE,
-	bank: CHEQUE_BANK.ICICI,
-	bank_name: "",
 	cheque_no: "",
 	cheque_date: "",
 	amount: "",
