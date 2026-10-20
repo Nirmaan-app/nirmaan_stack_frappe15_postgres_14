@@ -38,7 +38,7 @@ LINE = "PO/WO Payment"
 def _cleared(cheque):
     """Mark `cheque` Cleared, as a hand clear left it before #1516. Raw, test setup only: these cheques have
     no payments for a bank line to pay, and only the list is under test."""
-    frappe.db.set_value("Cheques", cheque, {"status": "Cleared", "clearance_date": nowdate(), "cleared_by": "By hand"},
+    frappe.db.set_value("Cheques", cheque, {"status": "Cleared", "cleared_by": "By hand"},
                         update_modified=False)
     frappe.db.commit()
 
@@ -286,8 +286,9 @@ class TestChequeReportFiltersAndSummary(FrappeTestCase):
 
 
 class TestChequeTypeAndDates(FrappeTestCase):
-    """#1478: each row carries its cheque type, issue and clearance dates, how it cleared and the Old-type
-    flag; the list filters on type and both dates, and the strip counts Pending."""
+    """#1478: each row carries its cheque type, its Cheque/Payment Date and issue date (#1520: no clearance date,
+    and how it cleared is not shown) and the Old-type flag; the list filters on type and both dates, and the strip
+    counts Approval Pending."""
 
     def setUp(self):
         frappe.set_user(U)
@@ -317,16 +318,18 @@ class TestChequeTypeAndDates(FrappeTestCase):
         name = self._save()
         self.assertEqual(frappe.db.get_value("Cheques", name, "cheque_type"), "Payment")
 
-    def test_a_row_carries_type_dates_how_it_cleared_and_old_type(self):
+    def test_a_row_carries_type_its_two_dates_and_old_type(self):
         name = self._save(cheque_type="Payment", status="Cleared", issue_date="2026-09-02",
-                          clearance_date="2026-09-10", cleared_by="Bank import", old_type=1)
+                          cheque_date="2026-09-10", cleared_by="Bank import", old_type=1)
 
         row = get_cheques(filters=json.dumps([["name", "=", name]]))["data"][0]
 
         self.assertEqual(
-            (row["cheque_type"], str(row["issue_date"]), str(row["clearance_date"]), row["cleared_by"], row["old_type"]),
-            ("Payment", "2026-09-02", "2026-09-10", "Bank import", 1),
+            (row["cheque_type"], str(row["issue_date"]), str(row["cheque_date"]), row["old_type"]),
+            ("Payment", "2026-09-02", "2026-09-10", 1),
         )
+        self.assertNotIn("clearance_date", row)
+        self.assertNotIn("cleared_by", row)  # history only, no longer shown
 
     def test_the_list_filters_on_cheque_type(self):
         payment = self._save()
@@ -337,14 +340,16 @@ class TestChequeTypeAndDates(FrappeTestCase):
         types = get_cheque_facets("cheque_type", filters=json.dumps([["vendor", "=", self.vendor]]))["values"]
         self.assertEqual(sorted((v["value"], v["count"]) for v in types), [("Payment", 1), ("Security Deposit", 1)])
 
-    def test_the_list_filters_on_issue_and_clearance_dates(self):
-        early = self._save(issue_date="2026-09-02", clearance_date="2026-09-20")
+    def test_the_list_filters_on_issue_and_cheque_payment_dates(self):
+        early = self._save(issue_date="2026-09-02", cheque_date="2026-09-20")
         late = self._save(issue_date="2026-09-15")
         self._save()  # never issued
 
         self.assertEqual(self._names(["issue_date", "between", ["2026-09-01", "2026-09-05"]]), [early])
         self.assertEqual(self._names(["issue_date", ">=", "2026-09-01"]), sorted([early, late]))
-        self.assertEqual(self._names(["clearance_date", "between", ["2026-09-19", "2026-09-21"]]), [early])
+        self.assertEqual(self._names(["cheque_date", "between", ["2026-09-19", "2026-09-21"]]), [early])
+        with self.assertRaisesRegex(frappe.ValidationError, "Unsupported filter field: clearance_date"):
+            self._names(["clearance_date", "between", ["2026-09-19", "2026-09-21"]])
 
     def test_the_summary_counts_pending_cheques(self):
         self._save(10000, status="Approval Pending")
@@ -390,7 +395,7 @@ class TestTheChequeTrackerTabs(FrappeTestCase):
     def test_the_issued_tab_lists_only_issued_payment_cheques(self):
         issued = self._cheque(issue_date=nowdate())
         self._cheque(status="Approval Pending")
-        self._cheque(status="Cleared", clearance_date=nowdate())
+        self._cheque(status="Cleared")
         self._cheque(status="Cancelled")
         self._cheque(cheque_type="Security Deposit", issue_date=nowdate())
 

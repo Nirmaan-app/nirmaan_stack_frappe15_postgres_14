@@ -131,7 +131,7 @@ class TestSecurityDepositCheques(FrappeTestCase):
         self.assertEqual(result["status"], "Issued")
         cheque = frappe.get_doc("Cheques", name)
         self.assertEqual((cheque.cheque_type, cheque.status, str(cheque.issue_date)), (SD, "Issued", issued_on))
-        self.assertFalse(cheque.clearance_date)
+        self.assertEqual(str(cheque.cheque_date), nowdate())  # its Cheque/Payment Date is the paper date
         self.assertEqual(self._history(name), [(None, "Issued", U, None)])
         self.assertEqual(self._lines(name), [])
 

@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
-import { CHEQUE_BANK, CHEQUE_STATUS } from "@/types/NirmaanStack/Cheques";
+import { CHEQUE_BANK, CHEQUE_PAYMENT_DATE_LABEL, CHEQUE_STATUS } from "@/types/NirmaanStack/Cheques";
 import { isFromPhoto, type ChequePhotoField } from "@/utils/cheques/chequePhoto";
 import { chequeReportPath } from "@/utils/cheques/chequeReportLink";
 import formatToIndianRupee from "@/utils/FormatPrice";
@@ -204,7 +204,7 @@ export const PaymentModeFields = ({
 						</div>
 						<div className="space-y-1">
 							<Label htmlFor="cheque-date" className="text-xs">
-								Cheque Date<Required />{fromPhoto("cheque_date") && <FromPhotoTag />}
+								{CHEQUE_PAYMENT_DATE_LABEL}<Required />{fromPhoto("cheque_date") && <FromPhotoTag />}
 							</Label>
 							<Input
 								id="cheque-date"
