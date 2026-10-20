@@ -6,7 +6,7 @@
 An HR Executive raises Office Rent against the form the fixture ships: Rent Month, Office Location,
 Landlord Name and Landlord PAN. The PAN is stored uppercased, a PAN not shaped like ABCPK1234D is
 refused on create and on edit, and the approved Expense's description reads the form's sentence.
-Nothing is withheld yet (#1525).
+The tax itself is `test_office_rent_tds` (#1525).
 
 ⚠️ Runs against the site's real Office Rent type, so the site must have synced the fixture
 (`bench migrate`). The Records without review list is emptied for the run, so HR's request waits for
@@ -148,5 +148,6 @@ class TestOfficeRentForm(FrappeTestCase):
 			row.description,
 			"Office rent for 1 Oct 2026 – Bengaluru HQ. Landlord: Asha Rao (PAN ABCPK1234D). "
 			f"(10% TDS will be deducted) · [{name}]")
-		# Nothing is withheld by this ticket (#1525 does it).
+		# An Admin's review is the L1 step, so Rs 1,00,000 waits at CEO Pending: nothing is withheld
+		# before the CEO approves (`test_office_rent_tds`).
 		self.assertEqual(row.amount, 100000)

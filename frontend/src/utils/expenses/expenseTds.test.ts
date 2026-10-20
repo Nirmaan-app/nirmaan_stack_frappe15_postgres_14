@@ -1,6 +1,28 @@
+import { readFileSync } from "fs";
+import { resolve } from "path";
 import { describe, expect, it } from "vitest";
 
 import { expenseTdsSplit, OFFICE_RENT_TDS, tdsPreviewLine } from "./expenseTds";
+
+// The server's rule is the authority (#1525); this forecast reads it so the two cannot drift.
+const SERVICES = resolve(__dirname, "../../../../nirmaan_stack/services");
+const EXPENSE_TDS_PY = readFileSync(resolve(SERVICES, "expense_tds.py"), "utf-8");
+const PAYMENT_TDS_PY = readFileSync(resolve(SERVICES, "payment_tds.py"), "utf-8");
+
+describe("parity with services/expense_tds.py", () => {
+    const rule = EXPENSE_TDS_PY.match(/^OFFICE_RENT_TDS = ExpenseTdsRule\(([\s\S]*?)^\)/m)?.[1] ?? "";
+
+    it("reads the server's Office Rent rule", () => {
+        expect(rule, "OFFICE_RENT_TDS not found in expense_tds.py").not.toBe("");
+    });
+
+    it("names the same type, rate and section", () => {
+        expect(rule).toMatch(new RegExp(`expense_type="${OFFICE_RENT_TDS.expenseType}"`));
+        expect(Number(rule.match(/rate=([\d.]+)/)?.[1])).toBe(OFFICE_RENT_TDS.ratePct);
+        expect(rule).toMatch(/section=TDS_SECTION_RENT/);
+        expect(PAYMENT_TDS_PY).toMatch(new RegExp(`^TDS_SECTION_RENT = "${OFFICE_RENT_TDS.section}"`, "m"));
+    });
+});
 
 describe("expenseTdsSplit", () => {
     it("takes 10% from an Office Rent", () => {

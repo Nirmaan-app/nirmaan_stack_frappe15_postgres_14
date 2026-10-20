@@ -8,8 +8,8 @@
 
 Fixtures are raw-inserted (prefix `TEST-TDSX-`), as in `services/test_payment_tds`: the Work Order
 deduction comes from the real `record_deduction`, and the expense records are inserted through the
-document layer, so the doctype's `validate` and its unique index are what refuse a bad one. No app
-code writes an expense record yet (#1525 will), so the test inserts them itself.
+document layer, so the doctype's `validate` and its unique index are what refuse a bad one. The
+app's own writer (`services/expense_tds`, #1525) is tested in `api/expense_requests/test_office_rent_tds`.
 """
 
 import frappe

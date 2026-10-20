@@ -9,8 +9,9 @@
  * show it too (#1527), so they all read this one module.
  *
  * ⚠️ A FORECAST, NEVER AN INSTRUCTION. The server withholds the real figure when the Expense is
- * approved (#1525, `services/payment_tds`), from its own copy of this rule. Change both or neither.
- * Nothing here is sent to the server.
+ * approved (#1525), from its own copy of this rule, `services/expense_tds.OFFICE_RENT_TDS`; the
+ * parity test in `expenseTds.test.ts` reads that file. Change both or neither. Nothing here is sent
+ * to the server.
  */
 
 import { parseNumber } from "@/utils/parseNumber";

@@ -405,10 +405,14 @@ doc_events = {
         # Carry the match records to the new name (ADR-0022 Amendment G).
         "after_rename": "nirmaan_stack.integrations.controllers.settled_targets.after_rename",
         "validate": "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
-        # Both exit immediately unless the row is transitioning INTO Paid, so the ~700
+        # Office Rent withholds 10% TDS when approved (#1525): a row born Approved here, an
+        # approval from an earlier step in `on_update`.
+        "after_insert": "nirmaan_stack.integrations.controllers.expense_tds.after_insert",
+        # The request hooks exit immediately unless the row is transitioning INTO Paid, so the ~700
         # ordinary saves cost one field comparison each. STATE FIRST, then the telling:
         # the request must already read Paid by the time the requester is notified.
         "on_update": [
+            "nirmaan_stack.integrations.controllers.expense_tds.on_update",
             "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_status_changed",
             "nirmaan_stack.integrations.controllers.expense_request_notify.on_expense_update",
         ],

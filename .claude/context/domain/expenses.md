@@ -118,6 +118,13 @@ Both share one approval lifecycle and are entered/managed together in a single u
   when the row is new or its type changed, so an old row whose type was re-flagged stays editable.
   Paths that refuse before building anything (`settle._assert_type_scope`, `execute_adjustment`)
   ask the same `expense_type_problem`.
+- **An Office Rent expense withholds 10% TDS (194-I) when it is approved** (spec #1522, #1525). Approved
+  from an earlier step (`decide`'s `l1_approve` / `ceo_approve` landing on Approved) or born Approved,
+  it gets one `Payment TDS Deduction` (the full rent, the tax, the landlord from its request's answers)
+  and its `amount` becomes the net, once (`services/expense_tds`, hooks `controllers/expense_tds`). The
+  status machine is unchanged and the tiers read the gross, because the cut comes after the approval;
+  the Expense Request keeps the gross. No other type withholds, and nothing backfills. Full rule:
+  `payment-tds.md` § Load-bearing invariants: withholding from an Office Rent expense.
 - **An expense's bank lines decide Paid, not a person** (ADR-0027, 2026-09-18). An expense can be
   settled by MANY imported bank lines — a salary or reimbursement run leaves the bank as one transfer
   per employee but is recorded as one expense. The **linked total** is the sum of the expense's live
