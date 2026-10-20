@@ -28,7 +28,7 @@ def _assert_accounts(user: str) -> None:
 
 @frappe.whitelist(methods=["POST"])
 def cancel_cheque(cheque: str, note: str) -> dict:
-    """Cancel one Pending or Issued Payment cheque: every payment on it is Rejected with `note` as the
+    """Cancel one Approval Pending or Issued Payment cheque: every payment on it is Rejected with `note` as the
     reason. An Issued Security Deposit cheque (it came back) just becomes Cancelled, with `note` in its
     history (`status.cancel_deposit`). Returns `{cheque, cheque_no, payments, rejected, status}`; refused
     without a note or once Cleared or Cancelled."""

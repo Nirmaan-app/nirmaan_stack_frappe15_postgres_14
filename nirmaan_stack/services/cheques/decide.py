@@ -4,7 +4,7 @@
 """One cheque, one decision: a Payment cheque's payments are approved or rejected together (#1480,
 #1481, spec #1477, ADR-0035). Part of THE cheques service; never commits.
 
-`approve` takes any one payment on a Pending Payment cheque and approves EVERY payment on it, in one
+`approve` takes any one payment on an Approval Pending Payment cheque and approves EVERY payment on it, in one
 savepoint, so a failure on any of them leaves all of them, and the cheque, as they were:
 
 * every line must name a payment and the lines must add up to the cheque amount within ₹5
@@ -23,7 +23,7 @@ The payment's own `validate` refuses an approval of a cheque payment made any ot
 (`refuse_lone_approval`, `approval_rules.lone_approval_problem`): every save `approve` makes carries
 `DECIDING_FLAG`, which a REST write cannot set.
 
-`reject` (#1481) takes any one payment on a Pending Payment cheque and, in one savepoint, runs THE reject
+`reject` (#1481) takes any one payment on an Approval Pending Payment cheque and, in one savepoint, runs THE reject
 cascade `reject_cheque`: every payment Rejected with the reason as a comment, the PO terms written once
 per PO, the cheque Cancelled with the reason in its history (it keeps its lines). Same locks, same flags.
 A payment saved to Rejected any other way needs no refusal in `validate`: its own hook runs the same
@@ -84,24 +84,24 @@ LIVE_STATUSES = (PENDING, ISSUED)
 
 
 def cheque_of(payment_name: str) -> str | None:
-    """The Payment cheque a decision on `payment_name` covers: the Pending, not Old-type Payment cheque
+    """The Payment cheque a decision on `payment_name` covers: the Approval Pending, not Old-type Payment cheque
     whose lines name it. Keyed on the lines, not on the payment's `cheque` link. None for an Online
-    payment, an Old-type cheque's payment, a payment whose line has come off, and a cheque past Pending.
+    payment, an Old-type cheque's payment, a payment whose line has come off, and a cheque past Approval Pending.
 
-    ⚠️ PENDING ONLY. A Payment cheque's payments wait for approval only while it is Pending (every new
-    cheque starts Pending since #1482)."""
+    ⚠️ PENDING ONLY. A Payment cheque's payments wait for approval only while it is Approval Pending (every new
+    cheque starts Approval Pending since #1482)."""
     return _payment_cheque_of(payment_name, (PENDING,))
 
 
 def live_cheque_of(payment_name: str) -> str | None:
-    """The Payment cheque a rejection of `payment_name` cascades over: the Pending or Issued, not
+    """The Payment cheque a rejection of `payment_name` cascades over: the Approval Pending or Issued, not
     Old-type Payment cheque whose lines name it, else None. Its payments are still live, so rejecting
     one rejects them all (`reject_cheque`)."""
     return _payment_cheque_of(payment_name, LIVE_STATUSES)
 
 
 def pay_alone_problem(payment_name: str) -> str | None:
-    """Why `payment_name` may not be paid on its own, or None (story 45): it is on a live (Pending or
+    """Why `payment_name` may not be paid on its own, or None (story 45): it is on a live (Approval Pending or
     Issued), not Old-type Payment cheque, whose clear pays every payment on it (`status.clear`). Asked by
     the user-facing ways to pay one payment: the import's hand settle and the payments screen's fulfil."""
     cheque = live_cheque_of(payment_name)
@@ -143,7 +143,7 @@ def approve(payment_name: str, *, stage: str, user: str) -> dict:
     landed (CEO Pending, or Reconciliation Pending once approved), and whether the cheque was Issued.
 
     Refuses with a validation error naming the reason (and changes nothing) when the payment is on no
-    Pending Payment cheque, a line has no payment, the lines do not add up, a payment is at another step
+    Approval Pending Payment cheque, a line has no payment, the lines do not add up, a payment is at another step
     or on a CEO Hold project. Any failure rolls back every payment and the cheque. Never commits.
     """
     if stage not in _STAGES:
@@ -204,11 +204,11 @@ def _approve(cheque: str, *, stage: str, user: str) -> dict:
 
 
 def reject(payment_name: str, *, stage: str, reason: str, user: str) -> dict:
-    """Reject every payment on the Pending Payment cheque `payment_name` is on, at `stage` (STAGE_L1 or
+    """Reject every payment on the Approval Pending Payment cheque `payment_name` is on, at `stage` (STAGE_L1 or
     STAGE_CEO), and cancel the cheque, with `reason` on each payment and in the cheque's history.
     Returns what `reject_cheque` returns.
 
-    Refuses (and changes nothing) without a reason, when the payment is on no Pending Payment cheque, or
+    Refuses (and changes nothing) without a reason, when the payment is on no Approval Pending Payment cheque, or
     when it no longer waits at `stage` (the screen was stale). The other payments may wait at either
     step: rejecting is never unsafe. One savepoint; never commits.
     """
@@ -242,7 +242,7 @@ def rejected_alone_note(payment_name: str) -> str:
 
 
 def reject_cheque(cheque: str, *, reason: str, user: str) -> dict:
-    """THE reject cascade: every payment on the Pending or Issued Payment cheque `cheque` becomes
+    """THE reject cascade: every payment on the Approval Pending or Issued Payment cheque `cheque` becomes
     Rejected, with `reason` on each (a "Rejected: ..." comment), and the cheque becomes Cancelled, with
     `reason` on its history row. The cheque keeps its lines: it stays the record of what it would have
     paid. Payments already Rejected are left as they are. Returns `{cheque, cheque_no, payments,

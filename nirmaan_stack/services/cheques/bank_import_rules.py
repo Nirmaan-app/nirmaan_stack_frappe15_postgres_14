@@ -26,7 +26,7 @@ from nirmaan_stack.services.cheques.rules import (
 )
 
 
-#: The note on the history row when the bank import approves a Pending cheque's payments.
+#: The note on the history row when the bank import approves an Approval Pending cheque's payments.
 BANK_APPROVAL_NOTE = "approved by bank import"
 #: The note on the history row when the bank import clears a Cancelled cheque.
 BANK_REVIVAL_NOTE = "cancelled, but the bank paid it"
@@ -152,7 +152,7 @@ def bank_start(*, cleared_by: str | None, history: Sequence[tuple[str | None, st
     """Where a Cleared cheque that records a bank line stood before that line, for the import review. Pure.
 
     `history` holds `(from, to, note)` per history row, oldest first. Cleared (by hand, the line only
-    linked) unless the bank import cleared it; then the status its clear started from, Pending when the
+    linked) unless the bank import cleared it; then the status its clear started from, Approval Pending when the
     import approved it on the way (`BANK_APPROVAL_NOTE`)."""
     if cleared_by != CLEARED_BY_BANK_IMPORT:
         return CLEARED

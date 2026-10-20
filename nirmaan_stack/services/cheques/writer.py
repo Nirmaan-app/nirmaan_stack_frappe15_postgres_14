@@ -9,7 +9,7 @@ Request Payment endpoints and the backfill patch do).
 
 Built so far:
 
-* `create_cheque` -- a new Payment cheque with its "created" history row. It starts Pending and is
+* `create_cheque` -- a new Payment cheque with its "created" history row. It starts Approval Pending and is
   Issued by its payments' approval (#1479, spec #1477; at once when they have already moved on).
 * `add_deposit_cheque` -- THE "create deposit cheque" operation (#1486): a Security Deposit cheque,
   Issued at once on its typed issue date, made out to a Vendor or a typed name, its lines naming the
@@ -114,7 +114,7 @@ def existing_cheque(bank: str, bank_name: str | None, cheque_no: str, *, exclude
 
 
 def create_cheque(header: ChequeHeader, *, user: str, made_from: str, lines: list[ChequeLineInput] = ()):
-    """Insert a new Payment cheque from `header` and `lines`, at Pending, with one "created" history row,
+    """Insert a new Payment cheque from `header` and `lines`, at Approval Pending, with one "created" history row,
     and put each line's payment on it (`link_payments`). Returns it.
 
     It is issued at once (`status.issue`) when its payments have already moved on to Reconciliation

@@ -2,7 +2,7 @@
  * One tab of the Cheque Tracker (spec #1407, #1477, #1483): a server-side list over Cheques
  * (`api/cheques/list_cheques.get_cheques`), narrowed by the tab's own filters (`utils/cheques/chequeTabs`).
  *
- * - All Cheques: every Cheque, the summary strip (All / Pending / Issued / Cleared / Cancelled over the
+ * - All Cheques: every Cheque, the summary strip (All / Approval Pending / Issued / Cleared / Cancelled over the
  *   table's filters and search).
  * - Cheque Issued – Reconciliation Pending: the Issued Payment cheques waiting for the bank, oldest issue first,
  *   with days since issue, the Stale flag and the payment count.

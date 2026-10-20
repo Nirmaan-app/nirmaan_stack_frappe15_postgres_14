@@ -5,7 +5,7 @@
 
 A deposit cheque is held as a guarantee: it pays nothing, may name the Vendor's POs it secures (a
 "Secured PO/WO" line, record only; never a Work Order, spec #1514), is Issued when recorded on a typed issue date and is
-Cancelled only by hand with a note. It is never cleared, by hand or by the bank import.
+Cancelled only by hand with a note. It is never cleared.
 
 No database. Run with `devenv.sh unit nirmaan_stack.services.cheques.test_deposit_rules`.
 """

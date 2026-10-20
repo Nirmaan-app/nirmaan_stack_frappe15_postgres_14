@@ -6,7 +6,7 @@ review says about it (#1485, spec #1477, ADR-0035).
 
 An ICICI statement DEBIT whose cheque column is filled is a cheque line; a credit never is. It clears the
 one Payment cheque carrying its number (leading zeros ignored) and amount (within ₹5); the bank import may
-start from Issued, Pending (it approves the payments first) or Cancelled (it revives them).
+start from Issued, Approval Pending (it approves the payments first) or Cancelled (it revives them).
 
 No database. Run with `devenv.sh unit nirmaan_stack.services.cheques.test_bank_import_rules`.
 """

@@ -12,7 +12,7 @@ one within ₹5 of the line's amount (`bank_import_rules.pick_bank_cheque`) is c
 * Issued: cleared, every payment Paid and linked to the line (one bank-match row each);
 * Old-type and Issued: every line paid in full, each record (payment or expense) not yet Paid settled
   for the line's amount, one bank-match row per line; a record already Paid is left as it is;
-* Pending: the import approves the payments first (approval date = the line's date, history
+* Approval Pending: the import approves the payments first (approval date = the line's date, history
   `bank_import_rules.BANK_APPROVAL_NOTE`), then as Issued;
 * Cancelled: Rejected -> Paid, history `bank_import_rules.BANK_REVIVAL_NOTE`, and the review names any payment on its
   POs raised after the cancel (`double_payment_suspects`);
@@ -168,9 +168,9 @@ def double_payment_suspects(cheque: str) -> list[DoublePayment]:
 
 def cheque_outcomes(row_names) -> dict[str, dict]:
     """For the import review: per bank line that a Payment cheque records (`Cheques.bank_line`), the
-    cheque, where it started (`bank_import_rules.bank_start`: Issued, Pending, Cancelled, or Cleared when it was
-    cleared by hand and the line only linked) and, for a Cancelled one, the possible double payments.
-    Reads only."""
+    cheque, where it started (`bank_import_rules.bank_start`: Issued, Approval Pending, Cancelled, or Cleared
+    when it was cleared by hand and the line only linked) and, for a Cancelled one, the possible double
+    payments. Reads only."""
     names = [n for n in row_names or [] if n]
     if not names:
         return {}

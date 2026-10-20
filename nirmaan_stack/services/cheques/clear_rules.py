@@ -36,7 +36,7 @@ from nirmaan_stack.services.settlement import (
 
 
 #: The statuses a bank line clears a Payment cheque from (#1485): any live one, because the bank has
-#: already paid. From Pending its payments are approved by the import first, from Cancelled its Rejected
+#: already paid. From Approval Pending its payments are approved by the import first, from Cancelled its Rejected
 #: payments are revived (`status.clear` does both). An Old-type cheque is cleared from Issued only.
 CLEARABLE_FROM = (ISSUED, PENDING, CANCELLED)
 #: The starts the bank import brings to Reconciliation Pending itself before it pays (`status.clear`).
@@ -65,7 +65,7 @@ def clear_problem(
     Only a bank-statement line clears a cheque (`bank_line`), never a person (#1516). `payments` holds
     `(payment, status)` for every Project Payment its lines name. Clearing pays them, so each must be
     waiting for the bank (Reconciliation Pending); one already Paid refuses, since the line would pay it
-    twice. Starting from Pending or Cancelled (`BANK_BRINGS_FORWARD`) the import takes any unpaid payment:
+    twice. Starting from Approval Pending or Cancelled (`BANK_BRINGS_FORWARD`) the import takes any unpaid payment:
     it approves or revives it first.
 
     An Old-type cheque is cleared from Issued only, with every line paid in full (ADR-0035 Amendment A):
@@ -141,8 +141,8 @@ def old_type_lines_problem(lines: Sequence[OldTypeLine], *, bank_amount) -> str 
 
 
 def cancel_problem(*, status: str) -> str | None:
-    """Why a cheque at `status` cannot be cancelled by hand, as a short reason, or None. Pure. Pending and
-    Issued cheques may be (their payments are Rejected); a Cleared one has no undo (ADR-0035 §5)."""
+    """Why a cheque at `status` cannot be cancelled by hand, as a short reason, or None. Pure. Approval
+    Pending and Issued cheques may be (their payments are Rejected); a Cleared one has no undo (ADR-0035 §5)."""
     if status == CLEARED:
         return "it is Cleared: a cleared cheque cannot be cancelled"
     if status == CANCELLED:

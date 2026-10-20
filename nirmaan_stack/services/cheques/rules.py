@@ -431,10 +431,10 @@ def status_from_payments(payment_statuses: Sequence[str | None]) -> str | None:
 
 
 def ready_to_issue(payment_statuses: Sequence[str | None]) -> bool:
-    """May a Pending Payment cheque be Issued now? Pure. One entry per line, as `status_from_payments`.
+    """May an Approval Pending Payment cheque be Issued now? Pure. One entry per line, as `status_from_payments`.
 
     Only once EVERY line's payment has been approved and moved on to Reconciliation Pending (#1479): a
-    payment still at Approved holds the cheque at Pending, because the move that follows the approval
+    payment still at Approved holds the cheque at Approval Pending, because the move that follows the approval
     can still fail, and the cheque and its payments must never disagree. A line with no payment yet, a
     payment waiting for approval or a Rejected one holds it too.
     """

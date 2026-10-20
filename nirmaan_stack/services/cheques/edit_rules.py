@@ -48,7 +48,7 @@ def edit_access_problem(
 ) -> str | None:
     """Why `user` may not edit this Cheque, or None. `any_cheque` is True for Admin, Accountant and
     Accountant Lead; anyone else who may use cheques (Procurement) edits only the Cheques they created,
-    a Payment cheque while Pending (C6), a Security Deposit cheque while Issued (`editable_statuses`)."""
+    a Payment cheque while Approval Pending (C6), a Security Deposit cheque while Issued (`editable_statuses`)."""
     if any_cheque or (status in editable_statuses(cheque_type) and owner == user):
         return None
     if cheque_type == CHEQUE_TYPE_SECURITY_DEPOSIT:

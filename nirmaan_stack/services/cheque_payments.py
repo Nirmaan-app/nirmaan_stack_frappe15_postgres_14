@@ -24,10 +24,10 @@ only for rows still at `Approved` (`bulk_actions._record_bulk_deductions`); movi
 would leave a Work Order cheque with no deduction and its amount gross. That is why this is an
 explicit call at the end of each approval route, never a hook inside the save.
 
-THE MOVE ISSUES THE CHEQUE (#1479, spec #1477, ADR-0035). A Payment cheque starts Pending; the save
+THE MOVE ISSUES THE CHEQUE (#1479, spec #1477, ADR-0035). A Payment cheque starts Approval Pending; the save
 that moves its last payment on to Reconciliation Pending also makes it Issued, dated the day of the
 last approval (`services/cheques/status.issue`). One transaction, so a failed move leaves both the
-payment at Approved and its cheque at Pending: the two never disagree.
+payment at Approved and its cheque at Approval Pending: the two never disagree.
 """
 
 import frappe

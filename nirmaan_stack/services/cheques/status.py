@@ -6,8 +6,8 @@ approved, cleared when they are paid, cancelled when they are rejected. Part of 
 never commits. There is no free status change: every move is one of the named operations below, and
 none goes back (Cleared -> Issued and Cancelled -> Issued are gone, #1484).
 
-**Issue** (#1479). `issue` is THE ONLY CODE THAT TAKES A PAYMENT CHEQUE FROM PENDING TO ISSUED. A Payment
-cheque starts Pending and is Issued in the same write that moves its last payment on to Reconciliation
+**Issue** (#1479). `issue` is THE ONLY CODE THAT TAKES A PAYMENT CHEQUE FROM APPROVAL PENDING TO ISSUED. A Payment
+cheque starts Approval Pending and is Issued in the same write that moves its last payment on to Reconciliation
 Pending (`cheque_payments.move_to_reconciliation` calls it), with its issue date set to the day of its
 payments' last approval. Every approval route ends in that move (single L1, CEO, bulk, auto-approve and
 the raiser's own step at creation), so they all issue through here; a cheque made for payments already
@@ -20,8 +20,8 @@ cheque Cleared, with that date as its Cheque/Payment Date (`cheque_date`, #1520:
 kept on the Cheque), `CLEARED_BY_BANK_IMPORT`, and the line. The line gets
 one match record (`Outflow Row Match`) per payment, written as the import's own settle writes them, so it
 reads Settled and no longer shows as unmatched. Its caller is the bank import (`bank_import.clear_from_line`).
-It may start from Pending or Cancelled too (`clear_rules.CLEARABLE_FROM`): the bank has already paid, so
-`_bring_forward` first approves a Pending cheque's payments (approval date = the line's date, the cheque
+It may start from Approval Pending or Cancelled too (`clear_rules.CLEARABLE_FROM`): the bank has already paid, so
+`_bring_forward` first approves an Approval Pending cheque's payments (approval date = the line's date, the cheque
 Issued with history "approved by bank import") or revives a Cancelled one's Rejected payments (history
 "cancelled, but the bank paid it"), all inside the same savepoint, before the pay loop. A cheque Cleared by
 hand before #1516 gets a later bank line through `link_bank_line` (spec story 48): match records only,
@@ -129,7 +129,7 @@ def clear(cheque: str, *, bank_line: str | None, user: str) -> dict:
     the payments it paid, the statement the line came from (the caller links that file to each payment
     after its commit), and the status the cheque was at.
 
-    THERE IS NO OTHER WAY TO CLEAR A CHEQUE (#1516): without a line it is refused. Starting from Pending or
+    THERE IS NO OTHER WAY TO CLEAR A CHEQUE (#1516): without a line it is refused. Starting from Approval Pending or
     Cancelled, `_bring_forward` approves or revives the payments first, in the same savepoint. Each payment
     takes the line's reference as its UTR (when it has none) and the statement as its attachment, and gets
     one match record, as the import's settle writes them; the line becomes Settled. An Old-type cheque
@@ -165,7 +165,7 @@ def clear(cheque: str, *, bank_line: str | None, user: str) -> dict:
     day = str(line.added_on)[:10]
 
     if started in BANK_BRINGS_FORWARD:
-        # Pending: the import approves the payments; Cancelled: it revives them. Either way they reach
+        # Approval Pending: the import approves the payments; Cancelled: it revives them. Either way they reach
         # Reconciliation Pending here, in this savepoint, and are paid below like an Issued cheque's.
         _bring_forward(doc, [p for p in payments if rows[p].status != STATUS_RECONCILIATION_PENDING],
                        day=day, user=user, bank_line=bank_line)
@@ -270,7 +270,7 @@ def _leg(pay) -> SettleResult:
 
 
 def _bring_forward(doc, payments: list[str], *, day: str, user: str, bank_line: str | None) -> None:
-    """Bring each of `payments` (on bank-cleared cheque `doc`: Pending, Cancelled, or an Old-type cheque's
+    """Bring each of `payments` (on bank-cleared cheque `doc`: Approval Pending, Cancelled, or an Old-type cheque's
     Approved payments) to Reconciliation Pending, as an approval followed by the move would
     (`cheque_payments.move_to_reconciliation`): each is saved Approved, its TDS recorded if it owes any (for
     one already Approved, the move's retry), then saved Reconciliation Pending. A Pending cheque's
@@ -464,9 +464,9 @@ def cancel_deposit(cheque: str, *, note: str, user: str) -> dict:
 
 
 def issue(name: str, *, user: str, note: str | None = None):
-    """Issue Payment cheque `name` if its payments allow it: the only way out of Pending to Issued.
+    """Issue Payment cheque `name` if its payments allow it: the only way out of Approval Pending to Issued.
 
-    Re-reads the Cheque under its row lock. A Pending Payment cheque (not Old-type) whose every line's
+    Re-reads the Cheque under its row lock. An Approval Pending Payment cheque (not Old-type) whose every line's
     payment is at Reconciliation Pending (`rules.ready_to_issue`) becomes Issued, refused when its lines
     fail the approval conditions (`approval_rules.approval_problem`), with its issue date
     set to the day of its payments' last approval (`rules.issue_date_from`; today when none is dated)
@@ -474,7 +474,7 @@ def issue(name: str, *, user: str, note: str | None = None):
     stays as it is, so calling it again, or for a cheque that still waits on a payment, is harmless.
 
     ⚠️ CALL IT IN THE SAME TRANSACTION (OR SAVEPOINT) AS THE PAYMENT MOVE, never after its commit:
-    should either fail, both roll back, and the cheque stays Pending beside its Approved payment. It
+    should either fail, both roll back, and the cheque stays Approval Pending beside its Approved payment. It
     commits nothing, and no hook of the Cheque save commits.
     """
     doc = frappe.get_doc(CHEQUES, name, for_update=True)
@@ -483,7 +483,7 @@ def issue(name: str, *, user: str, note: str | None = None):
     lines = doc.get("lines") or []
     payments = [row.payment_name for row in lines if row.payment_doctype == PAYMENT_DOCTYPE and row.payment_name]
     if not payments or len(payments) != len(lines):
-        return None  # a line with no payment yet (or an expense line) keeps it Pending
+        return None  # a line with no payment yet (or an expense line) keeps it Approval Pending
     rows = {
         r.name: r
         for r in frappe.get_all(

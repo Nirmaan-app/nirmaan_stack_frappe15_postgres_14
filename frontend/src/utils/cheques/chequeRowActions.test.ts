@@ -33,7 +33,7 @@ describe("chequeRowActions for accounts", () => {
         }
     });
 
-    it("offers Cancel on a Pending Payment cheque", () => {
+    it("offers Cancel on an Approval Pending Payment cheque", () => {
         expect(chequeRowActions(cheque("Approval Pending"), ACCOUNTANT)).toEqual(["view", "edit", "cancel"]);
     });
 
@@ -55,7 +55,7 @@ describe("chequeRowActions for Procurement", () => {
         }
     });
 
-    it("offers Edit on a Pending cheque it made, as the edit rule allows (#1482)", () => {
+    it("offers Edit on an Approval Pending cheque it made, as the edit rule allows (#1482)", () => {
         expect(chequeRowActions(cheque("Approval Pending"), PROCUREMENT)).toContain("edit");
         expect(chequeRowActions(cheque("Issued"), PROCUREMENT)).not.toContain("edit");
         expect(chequeRowActions(cheque("Approval Pending", "Payment", "someone@else"), PROCUREMENT)).not.toContain("edit");

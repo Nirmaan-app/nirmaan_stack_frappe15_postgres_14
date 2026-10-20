@@ -7,7 +7,7 @@
 The Cheque Tracker makes no cheque since spec #1514, so a new Payment cheque comes only from a PO's
 Request Payment, with one line. Cheques recorded before may pay several POs and hold a line with no
 payment yet. Every save of a Cheque still runs the `validate` controller's line rules (`lines.py`), so
-this suite plants Pending cheques through the Cheque document (`ChequeFixture.plant_cheque`) and reads
+this suite plants Approval Pending cheques through the Cheque document (`ChequeFixture.plant_cheque`) and reads
 back what a user sees: the Cheque, its status, issue date and lines, each payment's link, mode, cheque
 number, date and status, or the refusal. Approvals after the save go through their real routes (the L1
 approve of a cheque's payments, the CEO endpoint).

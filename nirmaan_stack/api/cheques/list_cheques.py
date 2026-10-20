@@ -16,7 +16,7 @@ from the Cheque's history).
 Each row also carries its `lines` (kind, project and its name, PO/WO, payment, amount), oldest first,
 so the table can expand a row and show "+N" without a second read.
 
-The summary strip (`aggregates`: count and amount for All, Pending, Issued, Cleared, Cancelled, and the stale
+The summary strip (`aggregates`: count and amount for All, Approval Pending, Issued, Cleared, Cancelled, and the stale
 Issued ones), the rows and the facets (`get_cheque_facets`) all read the same WHERE, so they always agree.
 
 The tracker's tabs are filters on this list, sent by the page (`frontend/src/utils/cheques/chequeTabs.ts`):

@@ -80,7 +80,7 @@ describe("canEditCheque", () => {
         expect(canEditCheque({ status: "Cancelled", owner: "someone@else" }, "Nirmaan Admin Profile", "Administrator")).toBe(true);
     });
 
-    it("lets Procurement edit only the Pending Cheques they created (C6, #1482)", () => {
+    it("lets Procurement edit only the Approval Pending Cheques they created (C6, #1482)", () => {
         const user = "buyer@nirmaan.app";
         expect(canEditCheque({ status: "Approval Pending", owner: user }, PROCUREMENT, user)).toBe(true);
         expect(canEditCheque({ status: "Issued", owner: user }, PROCUREMENT, user)).toBe(false);
@@ -108,7 +108,7 @@ describe("chequeEditMode and its locks", () => {
         expect(chequeEditMode({ ...deposit, status: "Cancelled" })).toBe("photo_only");
     });
 
-    it("opens only what is written on a Pending Payment cheque: its number, bank, date and photo (spec #1514)", () => {
+    it("opens only what is written on an Approval Pending Payment cheque: its number, bank, date and photo (spec #1514)", () => {
         for (const made_from of ["Report", "PO/WO Page"] as const) {
             const edit = detail({ made_from });
             const mode = chequeEditMode(edit);
@@ -133,7 +133,7 @@ describe("chequeEditMode and its locks", () => {
         }
     });
 
-    it("leaves only the photo open on an Old-type cheque, even while Pending", () => {
+    it("leaves only the photo open on an Old-type cheque, even while Approval Pending", () => {
         const edit = detail({ old_type: 1, vendor: null, payee_name: "Tata Power" });
         const mode = chequeEditMode(edit);
         expect(mode).toBe("photo_only");

@@ -9,7 +9,7 @@ import { canEditCheque } from "./chequeEdit";
  *
  * - View: always.
  * - Edit: as `canEditCheque` allows (the dialog then opens only what the status permits).
- * - Cancel (Admin, Accountant, Accountant Lead): a Pending or Issued Payment cheque, or an Issued Security
+ * - Cancel (Admin, Accountant, Accountant Lead): an Approval Pending or Issued Payment cheque, or an Issued Security
  *   Deposit. A Cleared or Cancelled cheque has no undo by hand.
  *
  * There is no Clear (#1516, ADR-0035 Amendment A): a cheque is cleared only when a bank-statement line with its

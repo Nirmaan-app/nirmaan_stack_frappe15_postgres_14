@@ -102,7 +102,7 @@ class TestStatusFromPayments(unittest.TestCase):
 
 
 class TestReadyToIssue(unittest.TestCase):
-    """A Pending Payment cheque is Issued in the step that moves its last payment on to Reconciliation
+    """An Approval Pending Payment cheque is Issued in the step that moves its last payment on to Reconciliation
     Pending (#1479): Approved alone is not enough, since that move can still fail."""
 
     def test_every_payment_moved_on_issues_it(self):
@@ -248,7 +248,7 @@ class TestModeChange(unittest.TestCase):
 
 
 class TestPaymentChequeEdit(unittest.TestCase):
-    """Editing a Payment cheque (spec #1514, ADR-0035 Amendment A): while Pending only what was written
+    """Editing a Payment cheque (spec #1514, ADR-0035 Amendment A): while Approval Pending only what was written
     wrongly on the paper changes (its number, bank, date and photo), never what it pays; once Issued,
     only its photo."""
 

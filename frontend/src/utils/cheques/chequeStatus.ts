@@ -5,7 +5,7 @@ import { PAYMENT_STATUS } from "@/constants/paymentStatus";
  * Cancel a cheque from the Cheque Tracker (#1484, spec #1477, ADR-0035). Pure, so vitest covers the dialog's
  * logic. The server enforces the same rules (`services/cheques/clear_rules.py`, `services/cheques/status.py`):
  *
- * - Cancel (Pending or Issued): every payment becomes Rejected, with the note as their reason.
+ * - Cancel (Approval Pending or Issued): every payment becomes Rejected, with the note as their reason.
  * - There is no Clear (#1516, ADR-0035 Amendment A): only an imported bank-statement line clears a cheque.
  */
 

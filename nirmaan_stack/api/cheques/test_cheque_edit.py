@@ -9,7 +9,7 @@ Cheque through the detail endpoint, changes what the user changed, and sends the
 lines. It reads back what a user sees: the Cheque, its lines, each payment's cheque number and date, or
 the refusal and that nothing changed.
 
-A Pending Payment cheque changes only its number, bank, date and photo, never what it pays: its amount,
+An Approval Pending Payment cheque changes only its number, bank, date and photo, never what it pays: its amount,
 payee, note and lines stay as made (ADR-0035 Amendment A). Issued, Cleared and Cancelled cheques change
 only their photo. Procurement edits only the Approval Pending cheques it created. Payment cheques are planted the
 way they are made now, by Request Payment on the PO page (`writer.create_payment_cheque`), or as an older
@@ -105,7 +105,7 @@ class TestChequeEdit(FrappeTestCase):
         return name
 
     def _older(self, lines, amount):
-        """A Pending Payment cheque the Tracker's Add Cheque made before spec #1514: several POs, a line
+        """An Approval Pending Payment cheque the Tracker's Add Cheque made before spec #1514: several POs, a line
         with no payment yet."""
         return self.cheques.plant_cheque(
             status=PENDING, bank="ICICI Bank", cheque_no=self.cheques.number(), cheque_date=nowdate(),
@@ -166,7 +166,7 @@ class TestChequeEdit(FrappeTestCase):
         finally:
             frappe.set_user(previous)
 
-    # -- a Pending cheque: its header ------------------------------------------------------------
+    # -- an Approval Pending cheque: its header -----------------------------------------------------
     def test_a_pending_cheque_s_number_date_and_photo_change_and_its_payment_follows(self):
         pay = self._plant("Requested")
         name = self._from_po_page(pay)
@@ -196,7 +196,7 @@ class TestChequeEdit(FrappeTestCase):
         self._refused("A Payment cheque is drawn on ICICI Bank", name, bank="Others", bank_name="HDFC Bank")
         self.assertEqual(self._cheque(name).bank, "ICICI Bank")
 
-    # -- a Pending cheque: its lines -------------------------------------------------------------
+    # -- an Approval Pending cheque: its lines ------------------------------------------------------
     def test_a_pending_cheque_s_lines_cannot_change(self):
         pay = self._plant("Requested")
         other = self._plant("Requested", po=self.other_po)

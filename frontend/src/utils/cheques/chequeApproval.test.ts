@@ -36,7 +36,7 @@ const approval = (lines: ChequeApproval["lines"], over: Partial<ChequeApproval> 
 });
 
 describe("approvesThroughCheque", () => {
-    it("sends a payment on a Pending cheque through its cheque", () => {
+    it("sends a payment on an Approval Pending cheque through its cheque", () => {
         expect(approvesThroughCheque({ doctype: "Project Payments", cheque: "CHQ-1", cheque_status: "Approval Pending" })).toBe(true);
     });
 

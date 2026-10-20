@@ -112,7 +112,7 @@ const num = (v: unknown) => {
 };
 
 /**
- * The summary strip: count and amount for All, Pending, Issued, Cleared and Cancelled, from `get_cheques`'s
+ * The summary strip: count and amount for All, Approval Pending, Issued, Cleared and Cancelled, from `get_cheques`'s
  * `aggregates` (`count`, `total_amount`, `<status>_count`, `<status>_amount`). Each matching Cheque
  * counts once, at its full amount.
  */

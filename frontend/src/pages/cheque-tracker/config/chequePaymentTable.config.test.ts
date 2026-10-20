@@ -145,7 +145,7 @@ describe("daysSinceIssue and isStale", () => {
         expect(daysSinceIssue({ status: "Issued", issue_date: null, cheque_date: "2026-10-04" }, today)).toBe(10);
     });
 
-    it("is nothing while Pending and once the cheque is Cleared or Cancelled", () => {
+    it("is nothing while Approval Pending and once the cheque is Cleared or Cancelled", () => {
         expect(daysSinceIssue({ status: "Approval Pending", cheque_date: "2026-01-01" }, today)).toBeNull();
         expect(daysSinceIssue({ status: "Cleared", issue_date: "2026-01-01", cheque_date: "2026-01-01" }, today)).toBeNull();
         expect(daysSinceIssue({ status: "Cancelled", issue_date: "2026-01-01", cheque_date: "2026-01-01" }, today)).toBeNull();
