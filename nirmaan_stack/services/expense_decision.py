@@ -46,9 +46,6 @@ from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.services.approval_raiser import expense_raiser, expense_reviewer, raiser_level
 from nirmaan_stack.services.approval_tiers import (
     RAISER_L1,
-    STATUS_APPROVED,
-    STATUS_CEO_PENDING,
-    STATUS_REQUESTED,
     TIER_L2_ABOVE_EXPENSES,
     initial_status_for_raiser,
     is_auto_approved,
@@ -57,13 +54,15 @@ from nirmaan_stack.services.approval_tiers import (
 )
 from nirmaan_stack.services.caller_transaction import EXPENSE_DECIDING
 from nirmaan_stack.services.ceo_hold.core import CEO_HOLD_STATUS
-from nirmaan_stack.services.expense_statuses import EXPENSE_REJECTED
-from nirmaan_stack.services.outflow_import.ledgers import (
-    EXPENSE_DOCTYPES,
-    PAID,
-    PROJECT_EXPENSE_DOCTYPE,
-    RECONCILIATION_PENDING,
+from nirmaan_stack.services.expense_statuses import (
+    EXPENSE_APPROVED,
+    EXPENSE_CEO_PENDING,
+    EXPENSE_PAID,
+    EXPENSE_RECONCILIATION_PENDING,
+    EXPENSE_REJECTED,
+    EXPENSE_REQUESTED,
 )
+from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES, PROJECT_EXPENSE_DOCTYPE
 from nirmaan_stack.services.role_profiles import (
     ACCOUNTANT_LEAD_PROFILE,
     ACCOUNTANT_PROFILE,
@@ -81,11 +80,11 @@ ACTIONS = (L1_APPROVE, CEO_APPROVE, REJECT, MARK_DONE, MARK_PAID)
 
 # The statuses each action may start from. Anything else is refused, naming what was found.
 FROM_STATUSES = {
-    L1_APPROVE: (STATUS_REQUESTED,),
-    CEO_APPROVE: (STATUS_CEO_PENDING,),
-    REJECT: (STATUS_REQUESTED, STATUS_CEO_PENDING),
-    MARK_DONE: (STATUS_APPROVED,),
-    MARK_PAID: (STATUS_APPROVED, RECONCILIATION_PENDING),
+    L1_APPROVE: (EXPENSE_REQUESTED,),
+    CEO_APPROVE: (EXPENSE_CEO_PENDING,),
+    REJECT: (EXPENSE_REQUESTED, EXPENSE_CEO_PENDING),
+    MARK_DONE: (EXPENSE_APPROVED,),
+    MARK_PAID: (EXPENSE_APPROVED, EXPENSE_RECONCILIATION_PENDING),
 }
 
 # What Mark as Paid must end up holding. A value passed in `payment` replaces the stored one.
@@ -142,7 +141,7 @@ def starting_status(amount, raised_by: str | None, reviewed_by: str | None = Non
     """
     value = flt(amount)
     if is_auto_approved(value):
-        return StartingStatus(STATUS_APPROVED, auto_approved=True, l1_done=True, ceo_done=True)
+        return StartingStatus(EXPENSE_APPROVED, auto_approved=True, l1_done=True, ceo_done=True)
     level = approval_level(raised_by, reviewed_by)
     l1_done, ceo_done = steps_cleared_by_raiser(value, TIER_L2_ABOVE_EXPENSES, level)
     return StartingStatus(
@@ -163,7 +162,7 @@ def apply_starting_status(doc) -> None:
     """
     if not doc.is_new():
         return
-    if doc.status and doc.status != STATUS_REQUESTED:
+    if doc.status and doc.status != EXPENSE_REQUESTED:
         return
     start = starting_status(doc.amount, expense_raiser(doc), expense_reviewer(doc))
     doc.status = start.status
@@ -183,7 +182,7 @@ def apply_starting_status(doc) -> None:
 #     (`PAID_EDITABLE_FIELDS`) and nothing else: the payment information stays as it was paid;
 #   * a Rejected one is closed to everyone.
 EDIT_PROFILES = (ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
-EDITABLE_STATUSES = (STATUS_REQUESTED, STATUS_CEO_PENDING, STATUS_APPROVED, RECONCILIATION_PENDING)
+EDITABLE_STATUSES = (EXPENSE_REQUESTED, EXPENSE_CEO_PENDING, EXPENSE_APPROVED, EXPENSE_RECONCILIATION_PENDING)
 PAID_EDIT_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 # `projects` and `vendor` exist on Project Expenses only. A changed `type` still meets the ledger
 # check (`expense_type_ledger.check_expense_type`).
@@ -200,7 +199,7 @@ def edit_access(user: str | None) -> dict[str, tuple[str, ...] | None]:
     if has_role_profile(user, EDIT_PROFILES, superuser_passes=False):
         access.update(dict.fromkeys(EDITABLE_STATUSES))
     if has_role_profile(user, PAID_EDIT_PROFILES):
-        access[PAID] = PAID_EDITABLE_FIELDS
+        access[EXPENSE_PAID] = PAID_EDITABLE_FIELDS
     return access
 
 
@@ -242,7 +241,7 @@ def guard_hand_save(doc) -> None:
     if doc.flags.ignore_permissions:
         return
     if doc.is_new():
-        hand_set = (doc.status or STATUS_REQUESTED) != STATUS_REQUESTED
+        hand_set = (doc.status or EXPENSE_REQUESTED) != EXPENSE_REQUESTED
     else:
         hand_set = doc.has_value_changed("status")
     if hand_set:
@@ -260,12 +259,12 @@ def assert_may_edit(doc, stored: str | None, user: str | None, fields) -> None:
     """Refuse `user` changing `fields` of Expense `doc`, stored at status `stored`, unless
     `edit_access` grants it: `frappe.PermissionError` when the row is not theirs to edit at that
     status, `frappe.ValidationError` when it is closed or a field is locked (a Paid row's payment)."""
-    if stored not in (*EDITABLE_STATUSES, PAID):
+    if stored not in (*EDITABLE_STATUSES, EXPENSE_PAID):
         frappe.throw(_("{0} is {1}; a {2} expense can no longer be edited.").format(
             doc.name, stored, (stored or "closed").lower()), title=_("Expense is closed"))
     access = edit_access(user)
     if stored not in access:
-        frappe.throw(_("Only an Admin or the Accountant Lead edits a paid expense.") if stored == PAID
+        frappe.throw(_("Only an Admin or the Accountant Lead edits a paid expense.") if stored == EXPENSE_PAID
                      else _("Only Accounts edit an expense once it is raised."),
                      frappe.PermissionError, title=_("Not yours to edit"))
     allowed = access[stored]
@@ -280,7 +279,7 @@ def save_raiser_invoice(doctype: str, name: str, invoice: dict) -> None:
     its invoice later, until the Expense is Paid (`api/expense_requests/invoice.add_request_invoice`
     checks who). Writes `INVOICE_FIELDS` and nothing else, so it saves elevated. Never commits."""
     doc = frappe.get_doc(doctype, name, for_update=True)
-    if doc.status in (PAID, EXPENSE_REJECTED):
+    if doc.status in (EXPENSE_PAID, EXPENSE_REJECTED):
         frappe.throw(_("{0} is {1}; its invoice can no longer be added here.").format(name, doc.status))
     doc.update({field: invoice.get(field) for field in INVOICE_FIELDS})
     doc.save(ignore_permissions=True)
@@ -316,16 +315,16 @@ def decide(doctype: str, name: str, action: str, user: str, reason: str | None =
         doc.status = status_after_l1(flt(doc.amount), TIER_L2_ABOVE_EXPENSES)
         doc.approval_date = nowdate()
     elif action == CEO_APPROVE:
-        doc.status = STATUS_APPROVED
+        doc.status = EXPENSE_APPROVED
         doc.ceo_approval_date = nowdate()
     elif action == REJECT:
         doc.status = EXPENSE_REJECTED
     elif action == MARK_DONE:
-        doc.status = RECONCILIATION_PENDING
+        doc.status = EXPENSE_RECONCILIATION_PENDING
     else:
         _record_payment(doc, payment or {}, user)
         _record_invoice(doc, invoice or {})
-        doc.status = PAID
+        doc.status = EXPENSE_PAID
 
     # Inside the caller's per-row savepoint: hooks leave the commit to it (`caller_transaction`).
     frappe.flags[EXPENSE_DECIDING] = True
@@ -339,7 +338,7 @@ def decide(doctype: str, name: str, action: str, user: str, reason: str | None =
 def _check_user(action: str, status: str, user: str) -> None:
     if action in (MARK_DONE, MARK_PAID):
         allowed, who = can_mark_paid(user), _("Admin or Accounts")
-    elif status == STATUS_CEO_PENDING:
+    elif status == EXPENSE_CEO_PENDING:
         allowed, who = is_ceo(user), _("the CEO")
     else:
         allowed, who = is_l1(user), _("an Admin (Accountants are not first-level approvers)")

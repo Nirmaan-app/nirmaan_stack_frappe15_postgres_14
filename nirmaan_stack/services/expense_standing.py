@@ -34,13 +34,13 @@ from nirmaan_stack.services.approval_tiers import (
     steps_cleared_by_raiser,
 )
 from nirmaan_stack.services.expense_statuses import (
-    EXPENSE_APPROVED as STATUS_APPROVED,
-    EXPENSE_CEO_PENDING as STATUS_CEO_PENDING,
-    EXPENSE_PAID as PAID,
-    EXPENSE_RECONCILIATION_PENDING as RECONCILIATION_PENDING,
+    EXPENSE_APPROVED,
+    EXPENSE_CEO_PENDING,
+    EXPENSE_PAID,
+    EXPENSE_RECONCILIATION_PENDING,
     EXPENSE_REJECTED,
-    EXPENSE_REQUESTED as STATUS_REQUESTED,
-    REQUEST_PENDING as PENDING_REVIEW,
+    EXPENSE_REQUESTED,
+    REQUEST_PENDING,
     REQUEST_REJECTED,
 )
 
@@ -49,11 +49,11 @@ DONE, CURRENT, UPCOMING, STEP_REJECTED = "done", "current", "upcoming", "rejecte
 # The Expense's statuses, as the raiser reads them. "Requested" on an Expense means it waits for
 # an Admin; the other names read plainly as they are.
 LIVE_LABELS = {
-    STATUS_REQUESTED: "Waiting for Admin",
-    STATUS_CEO_PENDING: "CEO Pending",
-    STATUS_APPROVED: "Approved",
-    RECONCILIATION_PENDING: "Reconciliation Pending",
-    PAID: "Paid",
+    EXPENSE_REQUESTED: "Waiting for Admin",
+    EXPENSE_CEO_PENDING: "CEO Pending",
+    EXPENSE_APPROVED: "Approved",
+    EXPENSE_RECONCILIATION_PENDING: "Reconciliation Pending",
+    EXPENSE_PAID: "Paid",
     EXPENSE_REJECTED: "Rejected",
 }
 
@@ -101,7 +101,7 @@ def _review_step(request: Mapping, expense: Mapping | None) -> dict:
     if request.get("approved_on_submit"):
         # The raiser records without review (#1498): no Reviewer, approved the moment it was raised.
         return _step("review", "Approved on submit (no review)", DONE, on=request.get("creation"))
-    if status == PENDING_REVIEW:
+    if status == REQUEST_PENDING:
         return _step("review", "Review", CURRENT, note="Waiting for a Reviewer")
     if status == REQUEST_REJECTED and not expense:
         return _step("review", "Review", STEP_REJECTED, by=by, on=on, note=request.get("review_comment"))
@@ -131,24 +131,24 @@ def _approval_steps(expense: Mapping, l1_held: bool = False, ceo_held: bool = Fa
     status = expense.get("status")
     amount = expense.get("amount")
     l1_on, ceo_on = expense.get("approval_date"), expense.get("ceo_approval_date")
-    needs_l1 = (status == STATUS_REQUESTED or bool(l1_on)
+    needs_l1 = (status == EXPENSE_REQUESTED or bool(l1_on)
                 or required_tier(amount, TIER_L2_ABOVE_EXPENSES) != TIER_AUTO)
-    needs_l2 = status == STATUS_CEO_PENDING or bool(ceo_on) or needs_ceo(amount, TIER_L2_ABOVE_EXPENSES)
+    needs_l2 = status == EXPENSE_CEO_PENDING or bool(ceo_on) or needs_ceo(amount, TIER_L2_ABOVE_EXPENSES)
 
     steps = []
     if needs_l1:
-        if status == STATUS_REQUESTED:
+        if status == EXPENSE_REQUESTED:
             steps.append(_step("admin", "Admin approval", CURRENT, note="Waiting for an Admin"))
         elif status == EXPENSE_REJECTED and not l1_on:
             return [_step("admin", "Admin approval", STEP_REJECTED, note="Rejected by an Admin")]
         elif not l1_held:
             steps.append(_step("admin", "Admin approval", DONE, on=l1_on))
     if needs_l2:
-        if status == STATUS_CEO_PENDING:
+        if status == EXPENSE_CEO_PENDING:
             steps.append(_step("ceo", "CEO approval", CURRENT, note="Waiting for the CEO"))
         elif status == EXPENSE_REJECTED:
             steps.append(_step("ceo", "CEO approval", STEP_REJECTED, note="Rejected by the CEO"))
-        elif status == STATUS_REQUESTED:
+        elif status == EXPENSE_REQUESTED:
             steps.append(_step("ceo", "CEO approval", UPCOMING))
         elif not ceo_held:
             steps.append(_step("ceo", "CEO approval", DONE, on=ceo_on))
@@ -157,10 +157,10 @@ def _approval_steps(expense: Mapping, l1_held: bool = False, ceo_held: bool = Fa
 
 def _paid_step(expense: Mapping | None) -> dict:
     status = expense.get("status") if expense else None
-    if status == PAID:
+    if status == EXPENSE_PAID:
         return _step("paid", "Paid", DONE, on=expense.get("payment_date"))
-    if status == STATUS_APPROVED:
+    if status == EXPENSE_APPROVED:
         return _step("paid", "Payment", CURRENT, note="Waiting for Accounts to pay")
-    if status == RECONCILIATION_PENDING:
+    if status == EXPENSE_RECONCILIATION_PENDING:
         return _step("paid", "Payment", CURRENT, note="Paid out; waiting for the bank statement to confirm it")
     return _step("paid", "Payment", UPCOMING)

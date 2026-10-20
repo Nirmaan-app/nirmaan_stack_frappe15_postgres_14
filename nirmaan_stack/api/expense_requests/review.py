@@ -11,13 +11,10 @@ URLs:
 import frappe
 from frappe.utils import now_datetime
 
-from nirmaan_stack.api.expense_requests.access import (
-	PENDING,
-	REJECTED,
-	guard_reviewer,
-)
+from nirmaan_stack.api.expense_requests.access import guard_reviewer
 from nirmaan_stack.api.expense_requests.convert import approve_request
 from nirmaan_stack.integrations.controllers.expense_request_notify import notify_decided
+from nirmaan_stack.services.expense_statuses import REQUEST_PENDING, REQUEST_REJECTED
 
 
 def _load_pending(name: str):
@@ -28,7 +25,7 @@ def _load_pending(name: str):
 	(CODING_STANDARDS § Status transitions).
 	"""
 	req = frappe.get_doc("Expense Request", name, for_update=True)
-	if req.status != PENDING:
+	if req.status != REQUEST_PENDING:
 		frappe.throw(f"This request is already {req.status.lower()}.", title="Already decided")
 	return req
 
@@ -79,12 +76,12 @@ def reject_expense_request(name: str, comment: str):
 	req = _load_pending(name)
 	guard_reviewer(req)
 
-	req.status = REJECTED
+	req.status = REQUEST_REJECTED
 	req.review_comment = comment.strip()
 	req.reviewed_by = frappe.session.user
 	req.reviewed_on = now_datetime()
 	req.save(ignore_permissions=True)
 	frappe.db.commit()
-	notify_decided(req, REJECTED)
+	notify_decided(req, REQUEST_REJECTED)
 
 	return {"name": req.name, "status": req.status}

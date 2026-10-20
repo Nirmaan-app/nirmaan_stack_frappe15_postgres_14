@@ -32,8 +32,8 @@ class TestExpenseApprovalDetail(FrappeTestCase):
 		self._commit = frappe.db.commit
 		frappe.db.commit = lambda *a, **k: None
 		frappe.set_user("Administrator")
-		# Both ledgers take this type, so it must be flagged for both (#1496): Petty Cash is the one
-		# both-flag type in the fixture.
+		# Both ledgers take this type, so it must be flagged for both (#1496): Petty Cash is one of the
+		# fixture's two both-flag types (Material Transportation Charges is the other).
 		self.type = BOTH_LEDGERS_TYPE
 		_make_user(RAISER, "Nirmaan Procurement Executive Profile", ("Nirmaan Procurement Executive",))
 		self.raiser = RAISER

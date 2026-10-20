@@ -41,7 +41,6 @@ import datetime
 import frappe
 from frappe.utils import getdate
 
-from nirmaan_stack.api.expense_requests.access import REJECTED
 from nirmaan_stack.api.expense_requests.flatten import (
 	NATIVE_INVOICE_SECTION,
 	as_dict,
@@ -51,7 +50,7 @@ from nirmaan_stack.api.expense_requests.flatten import (
 from nirmaan_stack.api.expense_requests.form_snapshot import governing_forms
 from nirmaan_stack.api.expense_requests.standing import expenses_of
 from nirmaan_stack.services.expense_standing import live_status
-from nirmaan_stack.services.expense_statuses import EXPENSE_REJECTED
+from nirmaan_stack.services.expense_statuses import EXPENSE_REJECTED, REQUEST_REJECTED
 
 # templateId -> which answer names the person, and which two name the stay's first and last day.
 STAY_FORMS: dict[str, dict] = {
@@ -127,7 +126,7 @@ def find_stay_duplicates(source_data, exclude: str | None = None) -> list[dict]:
 	template, person = stay[0], stay[1]
 
 	filters = {
-		"status": ["!=", REJECTED],
+		"status": ["!=", REQUEST_REJECTED],
 		# A coarse pre-filter on the stored JSON; the template is compared exactly below.
 		"source_data": ["like", f"%{template}%"],
 	}

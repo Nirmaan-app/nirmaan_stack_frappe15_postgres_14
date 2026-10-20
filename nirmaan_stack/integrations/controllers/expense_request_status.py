@@ -29,20 +29,26 @@ never roll back a payment.
 
 import frappe
 
-from nirmaan_stack.api.expense_requests.access import APPROVED, PAID, REJECTED
+from nirmaan_stack.services.expense_statuses import (
+	EXPENSE_PAID,
+	EXPENSE_REJECTED,
+	REQUEST_APPROVED,
+	REQUEST_PAID,
+	REQUEST_REJECTED,
+)
 
 # The request statuses an Expense can move. `Pending Approval` is the review's, never this hook's:
 # the Expense is inserted while the request still waits, and the review sets Approved itself.
-MIRRORED = (APPROVED, PAID, REJECTED)
+MIRRORED = (REQUEST_APPROVED, REQUEST_PAID, REQUEST_REJECTED)
 
 
 def request_status_for(expense_status: str | None) -> str:
 	"""The request status that mirrors an Expense at `expense_status`."""
-	if expense_status == PAID:
-		return PAID
-	if expense_status == REJECTED:
-		return REJECTED
-	return APPROVED
+	if expense_status == EXPENSE_PAID:
+		return REQUEST_PAID
+	if expense_status == EXPENSE_REJECTED:
+		return REQUEST_REJECTED
+	return REQUEST_APPROVED
 
 
 def on_expense_status_changed(doc, method=None) -> None:

@@ -44,7 +44,7 @@ SEEDED = (
 	"Nirmaan HR Lead Profile",
 )
 NON_PROJECT_TYPE = "Travel Expenses (Bus)"     # project=0, non_project=1
-# Admin only in the fixture; a test lends it to IDLE_PROFILE and puts its roles back.
+# Raised by HR in the fixture, never by IDLE_PROFILE; a test lends it to IDLE_PROFILE and puts its roles back.
 SPARE_TYPE = "Postage & Courier"
 # A profile made for these tests, allowed to raise no type at all.
 IDLE_PROFILE = "exr_rwr Idle Profile"

@@ -34,7 +34,7 @@ import json
 import frappe
 from frappe.utils import sbool
 
-from nirmaan_stack.api.expense_requests.access import PENDING, guard_requestable, is_raiser_or_admin
+from nirmaan_stack.api.expense_requests.access import guard_requestable, is_raiser_or_admin
 from nirmaan_stack.api.expense_requests.create import (
 	guard_request_form,
 	guard_vendor_scope,
@@ -43,6 +43,7 @@ from nirmaan_stack.api.expense_requests.create import (
 from nirmaan_stack.api.expense_requests.duplicates import find_stay_duplicates, stay_changed
 from nirmaan_stack.api.expense_requests.flatten import invoice_warnings, native_invoice
 from nirmaan_stack.api.expense_requests.form_snapshot import stamp_live_form
+from nirmaan_stack.services.expense_statuses import REQUEST_PENDING
 from nirmaan_stack.services.payees.pay_to import apply_picked_payee
 
 
@@ -52,7 +53,7 @@ def can_edit(req, user: str | None = None) -> bool:
 	Read by `get_my_expense_requests` so the row carries the answer, exactly as `can_review`
 	does -- the table must never re-derive a permission the server owns.
 	"""
-	if req.get("status") != PENDING:
+	if req.get("status") != REQUEST_PENDING:
 		return False
 	return is_raiser_or_admin(req, user)
 
@@ -82,7 +83,7 @@ def update_expense_request(
 	# Locked, so an edit and a review racing cannot both land (CODING_STANDARDS § Status transitions).
 	req = frappe.get_doc("Expense Request", name, for_update=True)
 
-	if req.status != PENDING:
+	if req.status != REQUEST_PENDING:
 		frappe.throw(
 			f"This request is already {req.status.lower()} and can no longer be edited.",
 			title="Already decided",

@@ -176,6 +176,8 @@ class TestAnAdminsReviewIsTheFirstApproval(FrappeTestCase):
 		"""Story 35: nobody reviews their own request, an Admin included. An Admin's new request is
 		approved on submit, so this is one that waits from before (raised, then its raiser made Admin)."""
 		name = self._raise(22000)
+		# `set_value` skips the request's hooks, which is safe here: `owner` is no field a hook derives
+		# anything from, and the request is still Pending Approval with no Expense to mirror.
 		frappe.db.set_value("Expense Request", name, "owner", ADMIN_USER, update_modified=False)
 		row = next(r for r in self._as(ADMIN_USER, get_my_expense_requests)["requests"] if r["name"] == name)
 		self.assertFalse(row["can_review"])

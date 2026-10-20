@@ -14,7 +14,6 @@ import frappe
 
 from nirmaan_stack.api.expense_requests.access import (
 	PM_REQUEST_REVIEWERS,
-	REJECTED,
 	caller_role_profile,
 	can_raise_requests,
 	can_request_type,
@@ -41,6 +40,7 @@ from nirmaan_stack.services.expense_request_routing import (
 	resolved_categories,
 	reviewer_role_for_type,
 )
+from nirmaan_stack.services.expense_statuses import REQUEST_REJECTED
 from nirmaan_stack.services.payees.expense_rules import NOT_ASKED
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS, pay_to_account
 
@@ -103,7 +103,7 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 	forms = governing_forms(rows)
 	# Which rejected rows still have an Expense, read once for the page: those are deleted only
 	# through their Expense, so they carry no trash button.
-	with_expense = expenses_of(r["name"] for r in rows if r["status"] == REJECTED)
+	with_expense = expenses_of(r["name"] for r in rows if r["status"] == REQUEST_REJECTED)
 	admin = is_admin(user)
 
 	# Each type's *Who gets paid* (#1466), so the review dialog words a missing account by it.

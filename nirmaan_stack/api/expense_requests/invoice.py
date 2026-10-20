@@ -18,7 +18,7 @@ and is never refused.
 
 import frappe
 
-from nirmaan_stack.api.expense_requests.access import PAID, REJECTED, is_raiser_or_admin
+from nirmaan_stack.api.expense_requests.access import is_raiser_or_admin
 from nirmaan_stack.api.expense_requests.flatten import (
 	invoice_warnings,
 	native_invoice,
@@ -26,7 +26,7 @@ from nirmaan_stack.api.expense_requests.flatten import (
 )
 from nirmaan_stack.api.expense_requests.standing import expenses_of
 from nirmaan_stack.services.expense_decision import save_raiser_invoice
-from nirmaan_stack.services.expense_statuses import EXPENSE_PAID
+from nirmaan_stack.services.expense_statuses import EXPENSE_PAID, REQUEST_PAID, REQUEST_REJECTED
 
 
 def invoice_refusal(req, expense, user: str | None = None) -> str | None:
@@ -36,9 +36,9 @@ def invoice_refusal(req, expense, user: str | None = None) -> str | None:
 	"""
 	if not is_raiser_or_admin(req, user):
 		return "Only the person who raised this expense, or an Admin, can add its invoice."
-	if req.get("status") == REJECTED:
+	if req.get("status") == REQUEST_REJECTED:
 		return "This expense was rejected, so it takes no invoice."
-	if req.get("status") == PAID or (expense and expense.status == EXPENSE_PAID):
+	if req.get("status") == REQUEST_PAID or (expense and expense.status == EXPENSE_PAID):
 		return "This expense is already paid. Its invoice can no longer be added here."
 	return None
 

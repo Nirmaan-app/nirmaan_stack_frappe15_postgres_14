@@ -19,12 +19,6 @@ from nirmaan_stack.services.expense_request_routing import (
 	reviewer_role_for_type,
 	types_reviewed_by,
 )
-from nirmaan_stack.services.expense_statuses import (
-	REQUEST_APPROVED,
-	REQUEST_PAID,
-	REQUEST_PENDING,
-	REQUEST_REJECTED,
-)
 
 ADMIN_PROFILE = "Nirmaan Admin Profile"
 PM_PROFILE = "Nirmaan Project Manager Profile"
@@ -39,13 +33,6 @@ PM_REQUEST_REVIEWERS = frozenset({
 	"Nirmaan HR Executive Profile",
 	"Nirmaan HR Lead Profile",
 })
-
-# The request's statuses, named once in `services/expense_statuses`. `PAID` is set by the request
-# mirror of its Expense, never by a reviewer -- see `expense_request_status`.
-PENDING = REQUEST_PENDING
-APPROVED = REQUEST_APPROVED
-REJECTED = REQUEST_REJECTED
-PAID = REQUEST_PAID
 
 
 def caller_role_profile(user: str | None = None) -> str | None:

@@ -15,11 +15,12 @@ WHO: the raiser, or an Admin (`access.is_raiser_or_admin`). Frappe keeps a `Dele
 
 import frappe
 
-from nirmaan_stack.api.expense_requests.access import REJECTED, is_raiser_or_admin
+from nirmaan_stack.api.expense_requests.access import is_raiser_or_admin
 from nirmaan_stack.api.expense_requests.standing import expenses_of
 from nirmaan_stack.integrations.controllers.expense_request_status import (
 	delete_request_notifications,
 )
+from nirmaan_stack.services.expense_statuses import REQUEST_REJECTED
 
 
 def can_delete(req, user: str | None = None, *, admin: bool | None = None,
@@ -30,7 +31,7 @@ def can_delete(req, user: str | None = None, *, admin: bool | None = None,
 	table never re-derives it. A list caller passes `admin` and `has_expense` it already
 	looked up for the whole page, instead of one lookup per row.
 	"""
-	if req.get("status") != REJECTED:
+	if req.get("status") != REQUEST_REJECTED:
 		return False
 	if not is_raiser_or_admin(req, user, admin=admin):
 		return False
@@ -43,7 +44,7 @@ def can_delete(req, user: str | None = None, *, admin: bool | None = None,
 def delete_expense_request(name: str):
 	req = frappe.get_doc("Expense Request", name)
 
-	if req.status != REJECTED:
+	if req.status != REQUEST_REJECTED:
 		frappe.throw(
 			f"Only a rejected request can be deleted. This one is {req.status}.",
 			title="Cannot delete",

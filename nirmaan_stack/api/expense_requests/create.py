@@ -10,11 +10,7 @@ import json
 
 import frappe
 
-from nirmaan_stack.api.expense_requests.access import (
-	PENDING,
-	guard_requestable,
-	records_without_review,
-)
+from nirmaan_stack.api.expense_requests.access import guard_requestable, records_without_review
 from nirmaan_stack.api.expense_requests.convert import approve_request
 from nirmaan_stack.api.expense_requests.duplicates import find_stay_duplicates
 from nirmaan_stack.api.expense_requests.flatten import (
@@ -26,6 +22,7 @@ from nirmaan_stack.api.expense_requests.flatten import (
 	native_invoice,
 )
 from nirmaan_stack.api.expense_requests.form_snapshot import governing_form, stamp_live_form
+from nirmaan_stack.services.expense_statuses import REQUEST_PENDING
 from nirmaan_stack.services.payees.pay_to import apply_picked_payee
 
 
@@ -116,7 +113,7 @@ def create_expense_request(
 			"amount": amount,
 			"comment": comment,
 			"source_data": source_data or None,
-			"status": PENDING,
+			"status": REQUEST_PENDING,
 			**promoted,
 			# AFTER the promoted spread, deliberately: an explicit argument is the vendor the
 			# requester picked on screen, so it outranks one a format inferred. `None` would
