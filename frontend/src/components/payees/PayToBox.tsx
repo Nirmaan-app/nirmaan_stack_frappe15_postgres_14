@@ -78,9 +78,9 @@ export function PayToBox({ doctype, name, expenseType = "" }: PayToBoxProps) {
     // A switching payment is paid into its vendor's current account; the one it holds is only "Was".
     const account = box.switch_to ?? box.account;
     const was = box.switch_to ? box.account : null;
-    const view = payToBoxView(doctype, box, expenseType);
-    const switching = view.tone === "vendor_account";
     const canChange = canChangeExpenseAccount(doctype, box, editAccess);
+    const view = payToBoxView(doctype, box, expenseType, canChange);
+    const switching = view.tone === "vendor_account";
     const bank = account ? bankLine(account) : "";
     // Each open starts from a fresh pick: the copy is not a Payee, so there is nothing to seed it with.
     const openChange = () => {

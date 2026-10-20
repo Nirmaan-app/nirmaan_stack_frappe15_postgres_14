@@ -302,6 +302,17 @@ describe("payToBoxView", () => {
             "Labour Advance requires an account. Use Change account to set one before paying.",
         );
     });
+
+    it("never points a viewer who has no Change account at it", () => {
+        const box = (payee_rule: string, type: string) =>
+            payToBoxView("Non Project Expenses", { ...none, missing: "expense_has_no_account", payee_rule }, type, false);
+        expect(box("Optional", "Travel").noAccount?.detail).toBe(
+            "No account given; optional for Travel. Pay by card or cash.",
+        );
+        expect(box("Required", "Labour Advance").noAccount?.detail).toBe(
+            "Labour Advance requires an account. Accounts set one before it is paid.",
+        );
+    });
 });
 
 describe("namedByText", () => {

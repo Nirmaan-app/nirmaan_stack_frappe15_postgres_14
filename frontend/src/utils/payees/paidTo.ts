@@ -287,11 +287,18 @@ export const paidToExportText = (paidTo: PaidTo | undefined, expenseType: string
 export const switchLine = (paidTo: PaidTo | undefined): string | null =>
     paidTo?.switch_to ? `${VENDOR_ACCOUNT_TITLE}: ${vendorAccountDetail(paidTo.switch_to, paidTo.account)}` : null;
 
-/** Record Payment's "Pay ₹X to" box for an expense with no account and no vendor. */
-const noAccountBoxText = (rule: string | null | undefined, expenseType: string): string =>
-    asPayeeRule(rule) === PAYEE_RULE.REQUIRED
-        ? `${expenseType || "Its type"} requires an account. Use Change account to set one before paying.`
-        : `${expenseNoAccountReason(rule, expenseType)} Pay by card or cash, or use Change account to set one.`;
+/** Record Payment's "Pay ₹X to" box for an expense with no account and no vendor. It points at Change
+ *  account only when the box offers it (`canChange`). */
+const noAccountBoxText = (rule: string | null | undefined, expenseType: string, canChange: boolean): string => {
+    if (asPayeeRule(rule) === PAYEE_RULE.REQUIRED) {
+        const type = expenseType || "Its type";
+        return canChange
+            ? `${type} requires an account. Use Change account to set one before paying.`
+            : `${type} requires an account. Accounts set one before it is paid.`;
+    }
+    const reason = expenseNoAccountReason(rule, expenseType);
+    return canChange ? `${reason} Pay by card or cash, or use Change account to set one.` : `${reason} Pay by card or cash.`;
+};
 
 /** What the "Pay ₹X to" box reads of `paid_to.pay_to_box` to decide what it shows. */
 export interface PayToBoxFacts extends PaidTo {
@@ -312,7 +319,9 @@ export interface PayToBoxView {
     note: string | null;
 }
 
-export const payToBoxView = (doctype: PayToBoxDoctype, box: PayToBoxFacts, expenseType: string): PayToBoxView => {
+export const payToBoxView = (
+    doctype: PayToBoxDoctype, box: PayToBoxFacts, expenseType: string, canChange = true,
+): PayToBoxView => {
     const vendor = box.vendor_name || "the vendor";
     switch (classifyPaidTo(box).tone) {
         case "vendor_account":
@@ -354,7 +363,7 @@ export const payToBoxView = (doctype: PayToBoxDoctype, box: PayToBoxFacts, expen
                     title: "No account.",
                     detail: box.vendor_fixed
                         ? `${box.vendor_name || "The vendor"} had no bank account on record when this was raised.`
-                        : noAccountBoxText(box.payee_rule, expenseType),
+                        : noAccountBoxText(box.payee_rule, expenseType, canChange),
                 },
                 note: null,
             };
