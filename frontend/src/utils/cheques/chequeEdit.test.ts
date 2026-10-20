@@ -4,6 +4,7 @@ import type { ChequeDetail } from "@/components/cheques/useChequeDetail";
 
 import {
     canEditCheque,
+    chequeBankOptions,
     chequeEditMode,
     chequeFormRules,
     chequeFormFromDetail,
@@ -193,5 +194,16 @@ describe("editChequeArgs", () => {
         const old = detail({ old_type: 1, vendor: null, payee_name: "Tata Power", description: "Rent", lines: [] });
         const args = editChequeArgs("CHQ-26-00001", makeChequeFormSchema(chequeFormRules(old)).parse(chequeFormFromDetail(old)));
         expect([args.payee_name, args.vendor]).toEqual(["Tata Power", undefined]);
+    });
+});
+
+describe("chequeBankOptions (#1516)", () => {
+    it("offers a Payment cheque ICICI Bank only: only its statement clears a cheque", () => {
+        expect(chequeBankOptions({ cheque_type: "Payment" })).toEqual(["ICICI Bank"]);
+        expect(chequeBankOptions({ cheque_type: null })).toEqual(["ICICI Bank"]);
+    });
+
+    it("offers a Security Deposit cheque Others too: it is never cleared", () => {
+        expect(chequeBankOptions({ cheque_type: "Security Deposit" })).toEqual(["ICICI Bank", "Others"]);
     });
 });

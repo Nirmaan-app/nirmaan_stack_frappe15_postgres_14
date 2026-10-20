@@ -1,6 +1,13 @@
 import type { ChequeDetail } from "@/components/cheques/useChequeDetail";
 import { CHEQUE_ACCESS_PROFILES, CHEQUE_ACCOUNTS_PROFILES } from "@/constants/roles";
-import { CHEQUE_STATUS, CHEQUE_TYPE, type ChequeStatus, type ChequeType } from "@/types/NirmaanStack/Cheques";
+import {
+    CHEQUE_BANK,
+    CHEQUE_STATUS,
+    CHEQUE_TYPE,
+    type ChequeBank,
+    type ChequeStatus,
+    type ChequeType,
+} from "@/types/NirmaanStack/Cheques";
 
 import { saveChequeArgs, type ChequeFormInput, type ChequeFormValues, type SaveChequeArgs } from "./chequeForm";
 
@@ -34,7 +41,7 @@ interface EditFacts {
     cheque_type?: ChequeType | string | null;
 }
 
-const isDeposit = ({ cheque_type }: EditFacts): boolean => cheque_type === CHEQUE_TYPE.SECURITY_DEPOSIT;
+const isDeposit = ({ cheque_type }: Pick<EditFacts, "cheque_type">): boolean => cheque_type === CHEQUE_TYPE.SECURITY_DEPOSIT;
 
 const isEditableStatus = (cheque: EditFacts): boolean =>
     (isDeposit(cheque) ? DEPOSIT_EDITABLE_STATUSES : EDITABLE_STATUSES).includes(cheque.status);
@@ -53,6 +60,13 @@ export const chequeEditMode = (cheque: Pick<ChequeDetail, "status" | "old_type">
     if (cheque.old_type || !isEditableStatus(cheque)) return "photo_only";
     return isDeposit(cheque) ? "all" : "header";
 };
+
+/**
+ * The banks a Cheque's Edit offers. A Payment cheque is drawn on ICICI Bank, the only bank whose statement
+ * clears it (#1516, `rules.header_problem`); a Security Deposit cheque is never cleared, so it may be on Others.
+ */
+export const chequeBankOptions = (cheque: Pick<EditFacts, "cheque_type">): readonly ChequeBank[] =>
+    isDeposit(cheque) ? [CHEQUE_BANK.ICICI, CHEQUE_BANK.OTHERS] : [CHEQUE_BANK.ICICI];
 
 /** The form rules for editing `cheque`. A backfilled Cheque has no photo; editing it does not force one. */
 export const chequeFormRules = (cheque: Pick<ChequeDetail, "attachment">) => ({

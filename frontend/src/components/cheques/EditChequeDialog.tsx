@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { CHEQUE_TYPE } from "@/types/NirmaanStack/Cheques";
-import { chequeEditMode, chequeFormFromDetail, chequeFormRules, editChequeArgs, editLockHint, isHeaderLocked } from "@/utils/cheques/chequeEdit";
+import { chequeBankOptions, chequeEditMode, chequeFormFromDetail, chequeFormRules, editChequeArgs, editLockHint, isHeaderLocked } from "@/utils/cheques/chequeEdit";
 import { makeChequeFormSchema, SAVE_CHEQUE_API, type ChequeFormInput, type ChequeFormValues } from "@/utils/cheques/chequeForm";
 import { getFrappeError } from "@/utils/frappeErrors";
 
@@ -38,7 +38,7 @@ interface EditChequeDialogProps {
  *
  * - A **Payment cheque**: its header, with only what its status opens (`utils/cheques/chequeEdit`). While
  *   Approval Pending that is its number, bank, date and photo; its Vendor, amount, note and lines are shown as made,
- *   and the lines are never sent, so the server keeps them.
+ *   and the lines are never sent, so the server keeps them. Its bank is fixed to ICICI Bank (#1516).
  * - A **Security Deposit cheque**: `SecurityDepositChequeForm`, in full while Issued.
  *
  * A replaced photo is not read: the Cheque's fields are already recorded. The server re-checks every rule.
@@ -115,7 +115,14 @@ const PaymentChequeEditForm = ({ edit, onDone, onCancel }: PaymentChequeEditForm
         <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="min-w-0 space-y-4">
                 {lockHint && <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">{lockHint}</p>}
-                <ChequeHeaderFields form={form} edit={edit} upload={photoUpload} locked={locked} saving={saving} />
+                <ChequeHeaderFields
+                    form={form}
+                    edit={edit}
+                    upload={photoUpload}
+                    locked={locked}
+                    saving={saving}
+                    banks={chequeBankOptions(edit)}
+                />
                 <FormItem>
                     <FormLabel>Made out to</FormLabel>
                     <Input value={edit.vendor_name || edit.vendor || edit.payee_name || ""} disabled readOnly />
