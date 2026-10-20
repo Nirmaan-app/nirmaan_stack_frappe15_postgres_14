@@ -192,7 +192,7 @@ export const FormatFieldsRenderer: React.FC<Props> = ({
         () => (format.sections ?? [])
             .map((s) => s.type !== ATTACHMENTS ? s : {
                 ...s,
-                slots: (s.slots ?? []).filter((slot) => (slot as any).maps_to !== "invoice_attachment"),
+                slots: (s.slots ?? []).filter((slot) => slot.maps_to !== "invoice_attachment"),
             })
             .filter((s) => s.type !== ATTACHMENTS || (s.slots ?? []).length > 0),
         [format]
@@ -228,8 +228,8 @@ export const FormatFieldsRenderer: React.FC<Props> = ({
                                 selectedFile={files[slot.key] ?? null}
                                 onFileSelect={(f: File | null) => onFileChange(slot.key, f)}
                                 onError={(e) => onFileError(e.message)}
-                                maxFileSize={((slot as any).maxSizeMb ?? 5) * 1024 * 1024}
-                                acceptedTypes={parseAccept((slot as any).accept)}
+                                maxFileSize={(slot.maxSizeMb ?? 5) * 1024 * 1024}
+                                acceptedTypes={parseAccept(slot.accept)}
                                 disabled={disabled}
                             />
                         </div>

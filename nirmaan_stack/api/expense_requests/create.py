@@ -11,22 +11,21 @@ import json
 import frappe
 
 from nirmaan_stack.api.expense_requests.access import (
-	APPROVED,
 	PENDING,
 	guard_requestable,
 	records_without_review,
 )
-from nirmaan_stack.api.expense_requests.convert import create_ledger_row
+from nirmaan_stack.api.expense_requests.convert import approve_request
 from nirmaan_stack.api.expense_requests.duplicates import find_stay_duplicates
-from nirmaan_stack.api.expense_requests.form_snapshot import stamp_live_form
 from nirmaan_stack.api.expense_requests.flatten import (
 	filled_against_a_form,
 	flat_responses,
-	mapped_fields,
 	invoice_warnings,
+	mapped_fields,
 	native_description,
 	native_invoice,
 )
+from nirmaan_stack.api.expense_requests.form_snapshot import governing_form, stamp_live_form
 from nirmaan_stack.services.payees.pay_to import apply_picked_payee
 
 
@@ -64,7 +63,7 @@ def create_expense_request(
 	honest half of that: the requester is told, rather than discovering it downstream.
 
 	It is the NATIVE field, not the format's. A format may still promote one through
-	`maps_to` (see `_promote_mapped`), which is how a type can ask for a vendor its own way;
+	`maps_to` (see `promote_mapped`), which is how a type can ask for a vendor its own way;
 	an explicit argument WINS over a promoted answer, because it is the one the requester
 	chose on screen.
 
@@ -107,7 +106,7 @@ def create_expense_request(
 	# promoted rather than left only in `source_data`, so it is queryable, referentially
 	# checked by the Link, and copied to the ledger as a plain field rather than parsed out of
 	# prose. Which types ask for it is the FORMAT's decision, so nothing is named here.
-	promoted = _promote_mapped(expense_type, source_data)
+	promoted = promote_mapped(expense_type, source_data)
 
 	doc = frappe.new_doc("Expense Request")
 	doc.update(
@@ -132,7 +131,9 @@ def create_expense_request(
 	# PMO or Procurement raiser needs no create right of their own.
 	doc.insert(ignore_permissions=True)
 	# One transaction: the request and its Expense land together or not at all.
-	expense = _approve_on_submit(doc) if records_without_review() else None
+	# Approved on submit, with no Reviewer (`approved_on_submit` says why): the same approve path a
+	# Reviewer's approval takes, so the Expense's raiser is the request's owner for the Raiser's own step.
+	expense = approve_request(doc) if records_without_review() else None
 	frappe.db.commit()
 
 	return {
@@ -145,20 +146,6 @@ def create_expense_request(
 		"warnings": invoice_warnings(native_invoice(doc.source_data)),
 		"duplicates": find_stay_duplicates(doc.source_data, exclude=doc.name),
 	}
-
-
-def _approve_on_submit(req):
-	"""Approve a just-raised request with no Reviewer and create its Expense; return the Expense.
-
-	`reviewed_by` stays blank: nobody reviewed it, and `approved_on_submit` says why. The Expense's
-	raiser is the request's owner (`approval_raiser.expense_raiser`), so the Raiser's own step
-	is the raiser's, as for a reviewed request.
-	"""
-	expense = create_ledger_row(req)
-	req.status = APPROVED
-	req.approved_on_submit = 1
-	req.save(ignore_permissions=True)
-	return expense
 
 
 def guard_vendor_scope(vendor, projects) -> str | None:
@@ -210,15 +197,13 @@ def guard_request_form(expense_type: str, source_data) -> None:
 PROMOTABLE = {"vendor"}
 
 
-def _promote_mapped(expense_type: str, source_data) -> dict:
+def promote_mapped(expense_type: str, source_data) -> dict:
 	"""`{column: value}` for every format field declaring a promotable `maps_to`.
 
 	Silently ignores a `maps_to` naming anything outside `PROMOTABLE`, and a blank answer --
 	an unfilled optional field must not write an empty Link.
 	"""
-	from nirmaan_stack.api.expense_requests.convert import _source_format_for
-
-	fmt = _source_format_for(frappe._dict({"type": expense_type, "source_data": source_data}))
+	fmt = governing_form(frappe._dict({"type": expense_type, "source_data": source_data}))
 	mapping = mapped_fields(fmt)
 	if not mapping:
 		return {}

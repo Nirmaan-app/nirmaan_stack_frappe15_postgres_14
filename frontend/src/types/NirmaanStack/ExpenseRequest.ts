@@ -122,6 +122,27 @@ export interface ExpenseRequestInvoice {
   invoice_ref?: string;
 }
 
+/** `invoice.add_request_invoice`'s reply: the invoice now held, the Expense it was copied to. */
+export interface AddRequestInvoiceResponse {
+  name: string;
+  invoice: ExpenseRequestInvoice;
+  expense: string | null;
+  warnings: string[];
+}
+
+/** `create.create_expense_request` and `update.update_expense_request`'s reply. The three expense
+ *  fields come from create only, and are null while the request waits for review. */
+export interface SaveExpenseRequestResponse {
+  name: string;
+  status: ExpenseRequestStatus;
+  projects: string | null;
+  created_expense?: string | null;
+  created_expense_doctype?: string | null;
+  expense_status?: string | null;
+  warnings: string[];
+  duplicates: StayDuplicate[];
+}
+
 /** One request, for its page (`read.get_expense_request`). */
 export interface ExpenseRequestDetail {
   name: string;
@@ -145,6 +166,8 @@ export interface ExpenseRequestDetail {
   invoice: ExpenseRequestInvoice;
   /** Server-computed (`invoice.invoice_refusal`): the raiser or an Admin, until the Expense is Paid. */
   can_add_invoice: boolean;
+  /** Why the caller may not add it now, or null when they may (`invoice.invoice_refusal`). */
+  invoice_refusal: string | null;
   can_edit: boolean;
   /** Live from the Expense (#1500): the status label and amount to show, and "Where it stands". */
   standing: Omit<RequestStanding, "expense">;

@@ -6,6 +6,8 @@
 // gives: a page should not parse a JSON shape inline. It is also trivially unit-testable
 // this way, which an inline `try { JSON.parse }` never is.
 
+import { formatDate } from "@/utils/FormatDate";
+
 /** Pretty-print raw JSON text. Returns null when it does not parse. */
 export const prettyPrintJson = (raw: string): string | null => {
     try {
@@ -30,6 +32,11 @@ export const jsonParseError = (raw: string): string | null => {
 /** True when the type ships a format. Whitespace-only counts as absent, deliberately. */
 export const hasFormat = (source_format?: string | null): boolean =>
     !!(source_format || "").trim();
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** One answer of a request's `detail`, for the screen: an ISO date reads dd-MMM-yyyy. */
+export const showAnswer = (value: string): string => (ISO_DATE.test(value) ? formatDate(value) : value);
 
 
 // --- the shipped format shape, parsed HERE rather than inline in a page (ADR-0010 F2) ---
@@ -57,7 +64,18 @@ export interface FormatSection {
      *  overrides it when the section holds an answer or declares a required field. */
     collapsed?: boolean;
     fields?: FormatField[];
-    slots?: { key: string; label: string }[];
+    slots?: FormatSlot[];
+}
+
+/** One upload slot of an `attachments` section. */
+export interface FormatSlot {
+    key: string;
+    label: string;
+    /** A column the uploaded file is carried to; only `invoice_attachment` is read. */
+    maps_to?: string;
+    maxSizeMb?: number;
+    /** Comma-separated MIME types, e.g. "image/*,application/pdf". */
+    accept?: string;
 }
 
 export interface ParsedFormat {

@@ -45,6 +45,23 @@ Both share one approval lifecycle and are entered/managed together in a single u
   Paid = Admin, Accountant, Accountant Lead** (`can_mark_paid` = `PAYMENT_SETTLE_PROFILES`); HR Executive
   lost Mark as Paid on the old pages with #1497. A reject needs a reason; Mark as Paid needs payment
   date, reference and receipt. The bank-line rules (`expense_bank_links.validate`) still have the last word.
+  **The server refuses a status a person writes** (story 42): both ledgers' `validate` call
+  `expense_decision.guard_hand_save` first, which refuses a permission-checked save (Desk, REST,
+  `frappe.client`, bulk edit, data import; `Administrator` included) that changes `status`, or inserts a
+  row at any status but `Requested`. Every system writer (`decide`, the intake, the bank-statement settle
+  and unreconcile, the cashbook and Porter creates, the PO adjustment) saves with
+  `ignore_permissions=True`, so it needs no flag. ⚠️ A new system writer must save with
+  `ignore_permissions=True` too, or its status change is refused. Pinned by
+  `api/approvals/test_expense_decisions`.
+  **Only Accounts edit an Expense, and never once it is Paid** (story 50, owner 2026-10-20): the same
+  `guard_hand_save` refuses a person's save of a Paid or Rejected Expense (everyone, `Administrator`
+  included) and of any other Expense by anyone but an Accountant or Accountant Lead
+  (`expense_decision.EDIT_PROFILES` / `EDITABLE_STATUSES`). System paths are unaffected. Every Edit /
+  Record Invoice button on the old ledger pages and the Payments queue (pencil, raiser pencil, Upload
+  Invoice) shows only where `expense_actions.get_expense_edit_access` lists the row's status
+  (`hooks/useExpenseDecision.useExpenseEditAccess`); no screen restates the rule. ⚠️ This retires the
+  Payments-queue Upload Invoice on a Paid expense (2026-10-05/07 below) and the Admin's Paid-row
+  Edit: the button stays wired to the server answer, so allowing it again is a server change.
 - **No person creates a ledger row; every expense a person raises starts as an Expense Request**
   (spec #1494, #1506, ADR-0016 amendment 5). `create` is off every role on both ledgers, System
   Manager included (`Administrator` bypasses permissions). The writers insert with `ignore_permissions`:
@@ -64,7 +81,7 @@ Both share one approval lifecycle and are entered/managed together in a single u
   (`is_l1`), exactly as for an L1 raiser: an Admin-reviewed ₹22,000 request's Expense is born
   `Approved`, ₹60,000 `CEO Pending` with `approval_date` stamped. An HR or Accounts review clears
   nothing, so ₹15,000 and above still waits for an Admin. The review clears L1 only, even when the
-  CEO reviews. ⚠️ `review.approve_expense_request` saves the request's `reviewed_by` BEFORE it
+  CEO reviews. ⚠️ `convert.approve_request` (the one approve path, for a review and for approval on submit) saves the request's `reviewed_by` BEFORE it
   inserts the ledger row, because the ledger's `validate` reads the reviewer from the request
   (`approval_raiser.expense_reviewer`). The dialog's preview passes the caller as the reviewer
   (`convert.target_status(req, reviewer)`).
@@ -532,8 +549,10 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   never gets paid.
 - **The reviewer gate is SERVER-SIDE** (`api/expense_requests/access.guard_reviewer`), unlike
   the rest of this module. It refuses two distinct ways — wrong role, and own request — and
-  runs before any write, so a refusal mutates nothing. Admin passes both (they are the
-  fallback reviewer for every unrouted category).
+  runs before any write, so a refusal mutates nothing. **Nobody reviews their own request, an
+  Admin included** (story 35): an Admin passes the role check only. An Admin's own new request is
+  approved on submit, so the one that waits (raised before, or before its raiser became Admin) is
+  reviewed by another Admin. The list's `can_review` asks the same rule (`access.may_review`).
 - **Records without review (spec #1494, #1498).** A raiser whose profile is on the single
   `Expense Settings` list (`records_without_review`, `Expense Type Role` rows), or any Admin, has
   the request approved on submit: `create.create_expense_request` creates the Expense in the
@@ -543,8 +562,11 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   HR ₹40,000 lands at Requested for an Admin. The one question "is this raiser on it" is
   `access.records_without_review(user)`; the dialog reads it from `get_request_catalog`. The
   list is NOT a fixture (Admin edits survive migrate); `Expense Settings.validate` refuses the
-  Admin profile and any profile that can raise no type (`access.profile_can_raise`); the
-  Expense Packages read drops a listed profile that has since lost all its types. Seeded once
+  Admin profile and any profile that can raise no type (`access.profile_can_raise`). A listed
+  profile that has since lost all its types is off the list (story 28): `records_without_review`
+  and the Expense Packages read ignore it, and a type's roles changed through
+  `masters.update_expense_type` prune it from the stored list
+  (`access.prune_records_without_review`), so giving it a type again does not tick it. Seeded once
   by `v3_0.seed_records_without_review` (Accountant, Accountant Lead, HR Executive, HR Lead).
   Edited only through the admin-gated `api/expense_requests/expense_settings`.
 - **⚠️ `Expense Type` IS A FIXTURE, so `fixtures/expense_type.json` is AUTHORITATIVE.** Every
@@ -573,7 +595,7 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   `responses.invoice.{invoice_date, invoice_ref}`, `attachments.invoice`) and approval copies them
   to the ledger's invoice columns (`flatten.native_invoice`). **Cannot be ON without a format**
   (doctype `validate`); clearing a format switches it OFF (`save_expense_format`). ONE rule picks
-  the governing form — `convert.applicable_format`: the switch, EXCEPT a request already filled
+  the governing form — `form_snapshot.applicable_format`: the switch, EXCEPT a request already filled
   against the form (`templateId` in its answers) keeps it after the switch goes off. **Only the
   OFF side is server-enforced** (`create.guard_request_form`: description, refuses form answers);
   a form's own required answers are still dialog-only, as before.
@@ -595,7 +617,7 @@ PM raises  ->  Pending Approval  ->  routed reviewer
 - **A request reads against the form it was filled with (#1503, ADR-0016 decision 1).** Create and
   edit store the type's live form in `Expense Request Template Snapshot` (named by its hash, shared
   helper `services/template_snapshots`) and stamp `source_data.snapshotHash`
-  (`api/expense_requests/form_snapshot`). `convert.applicable_format(..., frozen=)` prefers that
+  (`api/expense_requests/form_snapshot`). `form_snapshot.applicable_format(..., frozen=)` (read through `governing_form(s)`) prefers that
   form to the live one, in every reader: the ledger row (description, the slot bill), the request
   list `detail`, the request page (`detail`, and `invoice` = `flatten.request_invoice`: native
   first, else the form slot's bill) and the approval detail. So trimming or switching off a form

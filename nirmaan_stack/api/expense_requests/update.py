@@ -13,8 +13,8 @@ routed reviewer is still refused: seeing a request in your queue never grants a 
 ⚠️ AMENDED (owner ruling): AN ADMIN MAY EDIT ANY PENDING REQUEST, including one they did not
 raise. Admin was previously refused for exactly the reason above -- they are the fallback
 reviewer for every unrouted category -- so this deliberately relaxes that control, and the
-residual risk is worth stating plainly: an Admin can now correct a request and then approve
-it themselves, because `guard_reviewer` lets an Admin past both of its gates. The mitigation
+residual risk is worth stating plainly: an Admin can now correct someone else's request and then
+approve it themselves (`guard_reviewer` refuses an Admin only their own request). The mitigation
 is evidence, not prevention -- `track_changes` records every edit with its author, and the
 requester is not an Admin. If that becomes unacceptable, the fix is to bar an Admin from
 REVIEWING a request they edited, not to take the pencil away again.
@@ -34,11 +34,11 @@ import json
 import frappe
 from frappe.utils import sbool
 
-from nirmaan_stack.api.expense_requests.access import PENDING, guard_requestable, is_admin
+from nirmaan_stack.api.expense_requests.access import PENDING, guard_requestable, is_raiser_or_admin
 from nirmaan_stack.api.expense_requests.create import (
-	_promote_mapped,
 	guard_request_form,
 	guard_vendor_scope,
+	promote_mapped,
 )
 from nirmaan_stack.api.expense_requests.duplicates import find_stay_duplicates, stay_changed
 from nirmaan_stack.api.expense_requests.flatten import invoice_warnings, native_invoice
@@ -52,10 +52,9 @@ def can_edit(req, user: str | None = None) -> bool:
 	Read by `get_my_expense_requests` so the row carries the answer, exactly as `can_review`
 	does -- the table must never re-derive a permission the server owns.
 	"""
-	user = user or frappe.session.user
 	if req.get("status") != PENDING:
 		return False
-	return req.get("owner") == user or is_admin(user)
+	return is_raiser_or_admin(req, user)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -80,17 +79,17 @@ def update_expense_request(
 	row, no notification -- so there is nothing for a new id to keep consistent, and a fresh
 	one would burn a naming-series number per correction. `track_changes` records what moved.
 	"""
-	req = frappe.get_doc("Expense Request", name)
+	# Locked, so an edit and a review racing cannot both land (CODING_STANDARDS § Status transitions).
+	req = frappe.get_doc("Expense Request", name, for_update=True)
 
 	if req.status != PENDING:
 		frappe.throw(
 			f"This request is already {req.status.lower()} and can no longer be edited.",
 			title="Already decided",
 		)
-	# An Admin edits anything pending; everyone else edits only what they raised. The two
-	# answers live here and in `can_edit`, which the read surface hands to the table -- keep
-	# them saying the same thing or the pencil appears on a row the save then refuses.
-	if req.owner != frappe.session.user and not is_admin():
+	# An Admin edits anything pending; everyone else edits only what they raised: the one rule,
+	# `access.is_raiser_or_admin`, which `can_edit` (the table's pencil) asks too.
+	if not is_raiser_or_admin(req):
 		frappe.throw(
 			"Only the person who raised a request, or an admin, may edit it.",
 			frappe.PermissionError,
@@ -111,7 +110,7 @@ def update_expense_request(
 	# An edit is filled against the type's form as it is now, so that is the form it keeps.
 	source_data = stamp_live_form(expense_type, source_data)
 
-	promoted = _promote_mapped(expense_type, source_data)
+	promoted = promote_mapped(expense_type, source_data)
 
 	stored_source_data = req.source_data
 	req.update(

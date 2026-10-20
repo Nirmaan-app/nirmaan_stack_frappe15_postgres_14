@@ -21,9 +21,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
-from nirmaan_stack.api.expense_requests.convert import applicable_format
-from nirmaan_stack.api.expense_requests.flatten import NATIVE_INVOICE_SECTION, flatten_pairs
-from nirmaan_stack.api.expense_requests.form_snapshot import frozen_form
+from nirmaan_stack.api.expense_requests.flatten import NATIVE_INVOICE_SECTION, detail_rows
+from nirmaan_stack.api.expense_requests.form_snapshot import governing_form
 from nirmaan_stack.api.expense_requests.similar import _scan_ledgers
 from nirmaan_stack.services.approval_raiser import expense_raiser
 from nirmaan_stack.services.outflow_import.ledgers import (
@@ -85,13 +84,7 @@ def _request_detail(request_id: str | None) -> dict | None:
 	if not request_id or not frappe.db.exists("Expense Request", request_id):
 		return None
 	req = frappe.get_doc("Expense Request", request_id)
-	fmt = frappe.db.get_value(
-		"Expense Type", req.type, ["source_format", "source_format_enabled"], as_dict=True
-	) or {}
-	source_format = applicable_format(
-		fmt.get("source_format"), fmt.get("source_format_enabled"), req.source_data,
-		frozen=frozen_form(req.source_data),
-	)
+	source_format = governing_form(req)
 	return {
 		"name": req.name,
 		"creation": req.creation,
@@ -100,13 +93,8 @@ def _request_detail(request_id: str | None) -> dict | None:
 		"source_data": req.source_data,
 		# A standard request's invoice answers landed in the row's own invoice columns, which
 		# the dialog already shows -- left out here exactly as `compose_description` leaves them.
-		"detail": [
-			{"label": label, "value": value}
-			for label, value in flatten_pairs(
-				req.source_data, source_format,
-				skip_sections=() if source_format else (NATIVE_INVOICE_SECTION,),
-			)
-		],
+		"detail": detail_rows(req.source_data, source_format,
+		                      skip_sections=() if source_format else (NATIVE_INVOICE_SECTION,)),
 	}
 
 

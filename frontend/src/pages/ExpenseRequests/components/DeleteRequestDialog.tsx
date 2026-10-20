@@ -36,7 +36,7 @@ const DeleteRequestDialog: React.FC<Props> = ({ request, onClose, onDone }) => {
             toast({ title: "Deleted", description: request.name, variant: "success" });
             onClose();
             onDone();
-        } catch (e: any) {
+        } catch (e) {
             toast({ title: "Could not delete", description: getFrappeError(e), variant: "destructive" });
         } finally {
             setBusy(false);

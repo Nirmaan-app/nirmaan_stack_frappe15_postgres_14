@@ -86,12 +86,19 @@ interface FieldsProps {
     disabled?: boolean;
 }
 
+/** What `invoice_autofill.extract_invoice_fields` returns; a field it could not read is empty. */
+interface ExtractedInvoice {
+    invoice_no?: string | null;
+    invoice_date?: string | null;
+    amount?: number | string | null;
+}
+
 /** The upload, the date and number, and the notes. Also the body of Add invoice. */
 export const InvoiceFields: React.FC<FieldsProps> = ({
     value, onChange, notes, docname, onError, disabled,
 }) => {
     const { upload } = useFrappeFileUpload();
-    const { call: extractInvoiceFields } = useFrappePostCall(
+    const { call: extractInvoiceFields } = useFrappePostCall<{ message?: ExtractedInvoice }>(
         "nirmaan_stack.api.invoice_autofill.extract_invoice_fields"
     );
     // A newer pick, or Remove, outdates a read still in flight; its answer is then dropped.
@@ -119,7 +126,7 @@ export const InvoiceFields: React.FC<FieldsProps> = ({
             if (!isReadable(file.name)) return;
             const res = await extractInvoiceFields({ file_url: fileUrl });
             if (mine !== session.current) return;
-            const data = (res as any)?.message ?? res;
+            const data = res?.message;
             const read: InvoiceRead = {
                 invoice_no: data?.invoice_no || "",
                 invoice_date: data?.invoice_date || "",

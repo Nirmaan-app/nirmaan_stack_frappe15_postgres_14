@@ -94,11 +94,11 @@ def on_expense_deleted(doc, method=None) -> None:
 	if not frappe.db.exists("Expense Request", request):
 		return  # already gone -- idempotent, and the other ledger may have got there first
 
-	_delete_request_notifications(request)
+	delete_request_notifications(request)
 	frappe.delete_doc("Expense Request", request, ignore_permissions=True)
 
 
-def _delete_request_notifications(request: str) -> None:
+def delete_request_notifications(request: str) -> None:
 	"""Clear the bell messages pointing at a request, so the request itself can be deleted.
 
 	⚠️ THIS IS NOT TIDINESS -- IT IS WHAT MAKES THE DELETE POSSIBLE. `Nirmaan Notifications`

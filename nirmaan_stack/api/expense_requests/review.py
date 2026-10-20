@@ -12,12 +12,11 @@ import frappe
 from frappe.utils import now_datetime
 
 from nirmaan_stack.api.expense_requests.access import (
-	APPROVED,
 	PENDING,
 	REJECTED,
 	guard_reviewer,
 )
-from nirmaan_stack.api.expense_requests.convert import create_ledger_row
+from nirmaan_stack.api.expense_requests.convert import approve_request
 from nirmaan_stack.integrations.controllers.expense_request_notify import notify_decided
 
 
@@ -25,9 +24,10 @@ def _load_pending(name: str):
 	"""Fetch the request and refuse anything already decided.
 
 	A second approval would mint a SECOND ledger row for one ask, so this is a money guard,
-	not tidiness.
+	not tidiness. Read inside a row lock, so two reviewers racing cannot both pass it
+	(CODING_STANDARDS § Status transitions).
 	"""
-	req = frappe.get_doc("Expense Request", name)
+	req = frappe.get_doc("Expense Request", name, for_update=True)
 	if req.status != PENDING:
 		frappe.throw(f"This request is already {req.status.lower()}.", title="Already decided")
 	return req
@@ -47,13 +47,8 @@ def approve_expense_request(name: str):
 	savepoint = f"exr_approve_{frappe.generate_hash(length=10)}"
 	frappe.db.savepoint(savepoint)
 	try:
-		# The request is saved FIRST: the ledger's `validate` reads `reviewed_by` from it, because an
-		# Admin's review is the L1 step (`expense_decision.starting_status`, #1499).
-		req.status = APPROVED
-		req.reviewed_by = frappe.session.user
-		req.reviewed_on = now_datetime()
-		req.save(ignore_permissions=True)
-		row = create_ledger_row(req)
+		# The one approve path (`convert.approve_request`), shared with approval on submit.
+		row = approve_request(req, reviewer=frappe.session.user)
 	except Exception:
 		frappe.db.rollback(save_point=savepoint)
 		raise
