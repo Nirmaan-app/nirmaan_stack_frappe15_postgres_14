@@ -20,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { CustomAttachment, AcceptedFileType } from "@/components/helpers/CustomAttachment";
+import { FuzzySearchSelect, type FuzzyOptionType, type TokenSearchConfig } from "@/components/ui/fuzzy-search-select";
 import { useToast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +43,22 @@ import { invoiceAttachmentUrl, projectField } from "@/utils/porterExpense";
 import { PorterSectionBlock, usePorterExpense } from "@/components/common/PorterExpense";
 import { ExpenseEditPayToSection, useExpenseEditPayTo } from "@/components/payees/ExpenseEditPayTo";
 import { expenseAccountSaveError } from "@/components/payees/useChangeExpenseAccount";
+
+// The Project picker searches name and code, as `ProjectSelect` does. `ProjectSelect` itself takes no
+// `value`, so it cannot show the project this expense already has; this picker is controlled.
+const PROJECT_SEARCH: TokenSearchConfig = {
+    searchFields: ["label", "value"],
+    minSearchLength: 1,
+    partialMatch: true,
+    minTokenLength: 1,
+    fieldWeights: { label: 2.0, value: 1.5 },
+    minTokenMatches: 1,
+};
+
+interface ProjectOption extends FuzzyOptionType {
+    value: string;
+    label: string;
+}
 
 interface EditProjectExpenseDialogProps {
     expenseToEdit: ProjectExpenses;
@@ -87,7 +104,6 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
     const [formState, setFormState] = useState<FormState>(INITIAL_STATE);
     const [formErrors, setFormErrors] = useState<Partial<FormState>>({});
     const [newInvoiceFile, setNewInvoiceFile] = useState<File | null>(null);
-    const [newPaymentFile, setNewPaymentFile] = useState<File | null>(null);
 
     // CEO Hold guard - get project from the expense being edited
     const { isCEOHold, showBlockedToast } = useCEOHoldGuard(expenseToEdit?.projects);
@@ -156,7 +172,6 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                 invoice_ref: expenseToEdit.invoice_ref || "",
             });
             setNewInvoiceFile(null);
-            setNewPaymentFile(null);
             setFormErrors({});
             setExpenseTypePopoverOpen(false);
         }
@@ -216,9 +231,9 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
             // before anything is written. It is copied onto the expense after the update below.
             const payee = await payTo.resolve();
             const finalVendor = formState.vendor === OTHERS_VENDOR_VALUE ? "" : formState.vendor;
-            // Record<string, any>: null is used to CLEAR a field (undefined would be
-            // omitted from the payload and Frappe would retain the current value).
-            const changes: Record<string, any> = {
+            // null CLEARS a field (undefined would be omitted from the payload and Frappe would
+            // retain the current value).
+            const changes: Record<string, string | number | null> = {
                 // A Porter Expense's project moves only through Rectify, so it is never sent.
                 ...(project.locked ? {} : { projects: formState.projects }),
                 amount: parseNumber(formState.amount),
@@ -234,10 +249,6 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
             if (newInvoiceFile && mayEdit("invoice_attachment")) {
                 const uploaded = await upload(newInvoiceFile, { doctype: DOCTYPE, docname: expenseToEdit.name, fieldname: "invoice_attachment", isPrivate: true });
                 changes.invoice_attachment = uploaded.file_url;
-            }
-            if (isPaid && newPaymentFile && mayEdit("payment_attachment")) {
-                const uploaded = await upload(newPaymentFile, { doctype: DOCTYPE, docname: expenseToEdit.name, fieldname: "payment_attachment", isPrivate: true });
-                changes.payment_attachment = uploaded.file_url;
             }
             // Only what the server lets this caller change (the payment date / ref are never sent).
             const dataToUpdate = Object.fromEntries(Object.entries(changes).filter(([field]) => mayEdit(field)));
@@ -261,6 +272,11 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
 
     const isLoadingOverall = loading || uploadLoading || vendorsLoading || projectsLoading || expenseTypesLoading || payTo.busy;
     const isSubmitDisabled = isLoadingOverall || Object.values(formErrors).some(Boolean) || !!payTo.problem;
+    const projectOptions: ProjectOption[] = useMemo(
+        () => (projectsData || []).map(p => ({ value: p.name, label: p.project_name || p.name })),
+        [projectsData],
+    );
+    const selectedProjectOption = projectOptions.find(o => o.value === formState.projects) ?? null;
     const selectedExpenseTypeLabel = expenseTypeOptions.find(option => option.value === formState.type)?.label || "Select an expense type...";
 
     return (
@@ -283,10 +299,19 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                         <div className="grid grid-cols-4 items-center gap-4">
                             <Label htmlFor="project_edit" className="text-right">Project</Label>
                             <div className="col-span-3">
-                                <Select value={formState.projects} onValueChange={(val) => handleInputChange('projects', val)} disabled={isLoadingOverall || !mayEdit("projects")}>
-                                    <SelectTrigger id="project_edit"><SelectValue placeholder="Select a project..." /></SelectTrigger>
-                                    <SelectContent>{(projectsData || []).map(p => <SelectItem key={p.name} value={p.name}>{p.project_name || p.name}</SelectItem>)}</SelectContent>
-                                </Select>
+                                <FuzzySearchSelect<ProjectOption, false>
+                                    inputId="project_edit"
+                                    allOptions={projectOptions}
+                                    tokenSearchConfig={PROJECT_SEARCH}
+                                    isLoading={projectsLoading}
+                                    isDisabled={isLoadingOverall || !mayEdit("projects")}
+                                    value={selectedProjectOption}
+                                    onChange={(o) => handleInputChange('projects', o?.value ?? "")}
+                                    placeholder="Select a project..."
+                                    // In the dialog's scroll box the menu would be clipped: render it on the body.
+                                    menuPortalTarget={document.body}
+                                    menuPosition="fixed"
+                                />
                             </div>
                         </div>
                     )}
@@ -378,7 +403,7 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                         </div>
                     </div>
 
-                    {/* Payment Details — Paid only, read-only unless the server lets this caller change them. */}
+                    {/* Payment Details — Paid only, and read-only: the server locks a Paid expense's payment for everyone. */}
                     {isPaid && (
                         <>
                             <Separator className="my-1" />
@@ -394,22 +419,12 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                             <div className="grid grid-cols-4 items-start gap-3">
                                 <Label className="text-right col-span-1 pt-2">Payment Attachment</Label>
                                 <div className="col-span-3 space-y-2">
-                                    {expenseToEdit.payment_attachment && !newPaymentFile && (
+                                    {expenseToEdit.payment_attachment ? (
                                         <div className="flex items-center gap-2 p-2 bg-muted/60 rounded-md text-sm">
                                             <Download className="h-4 w-4 text-primary flex-shrink-0" />
                                             <a href={SITEURL + expenseToEdit.payment_attachment} target="_blank" rel="noreferrer" className="truncate hover:underline" title={`View ${expenseToEdit.payment_attachment.split('/').pop()}`}>{expenseToEdit.payment_attachment.split('/').pop()}</a>
                                         </div>
-                                    )}
-                                    {mayEdit("payment_attachment") && <CustomAttachment
-                                        label={expenseToEdit.payment_attachment ? "Replace Payment Attachment" : "Upload Payment Attachment"}
-                                        selectedFile={newPaymentFile}
-                                        onFileSelect={setNewPaymentFile}
-                                        onError={handleAttachmentError}
-                                        maxFileSize={5 * 1024 * 1024}
-                                        acceptedTypes={ATTACHMENT_ACCEPTED_TYPES}
-                                        disabled={isLoadingOverall}
-                                    />}
-                                    {!expenseToEdit.payment_attachment && !mayEdit("payment_attachment") && <p className="text-sm text-muted-foreground pt-2">--</p>}
+                                    ) : <p className="text-sm text-muted-foreground pt-2">--</p>}
                                 </div>
                             </div>
                         </>

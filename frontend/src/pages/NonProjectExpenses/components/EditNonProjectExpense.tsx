@@ -269,17 +269,8 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
             amount: parseNumber(formState.amount),
         };
 
-        // Payment proof only (Paid rows), where the server allows it. The payment date / ref are never
-        // written from here, and a row that is not Paid has its payment fields left exactly as they are.
-        if (isPaid && mayEdit("payment_attachment")) {
-            if (paymentAttachmentAction === "replace" && newPaymentAttachmentFile) {
-                const uploaded = await upload(newPaymentAttachmentFile, { doctype: "Non Project Expenses", docname: expenseToEdit.name, fieldname: "payment_attachment", isPrivate: true });
-                dataToUpdate.payment_attachment = uploaded.file_url;
-            } else if (paymentAttachmentAction === "remove") {
-                dataToUpdate.payment_attachment = null;
-            }
-            // "keep" sends nothing, so the stored proof stays.
-        }
+        // The payment date, ref and proof are never written from here: Mark as Paid records them, and
+        // once Paid the server locks them for everyone (`expense_decision.PAID_EDITABLE_FIELDS`).
 
         // Handle Invoice Details
         if (recordInvoiceDetails) {
@@ -310,8 +301,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
             toast({ title: "Failed!", description: getFrappeError(error) || "Failed to update expense.", variant: "destructive" });
         }
     }, [
-        updateDoc, expenseToEdit.name, formState, validateForm, toast, onSuccess, upload, isPaid, mayEdit, payTo, closeDialog,
-        recordPaymentDetails, paymentAttachmentAction, newPaymentAttachmentFile,
+        updateDoc, expenseToEdit.name, formState, validateForm, toast, onSuccess, upload, mayEdit, payTo, closeDialog,
         recordInvoiceDetails, invoiceAttachmentAction, newInvoiceAttachmentFile
     ]);
 
@@ -459,7 +449,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                                 <Label htmlFor="payment_ref_edit_npe" className="text-right col-span-1">Payment Ref</Label>
                                 <Input id="payment_ref_edit_npe" name="payment_ref" value={formState.payment_ref} className="col-span-3" disabled readOnly />
                             </div>
-                            {renderAttachmentSection("payment", existingPaymentAttachmentUrl, newPaymentAttachmentFile, paymentAttachmentAction, handleNewPaymentFileSelected, handleRemoveExistingPaymentAttachment, "Payment", mayEdit("payment_attachment"))}
+                            {renderAttachmentSection("payment", existingPaymentAttachmentUrl, newPaymentAttachmentFile, paymentAttachmentAction, handleNewPaymentFileSelected, handleRemoveExistingPaymentAttachment, "Payment", false)}
                         </div>
                     )}
                     </>
