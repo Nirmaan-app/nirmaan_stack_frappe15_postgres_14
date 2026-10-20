@@ -48444,3 +48444,75 @@ Start tip `da840a9ce` (= origin). Report on the Desktop: `2026-10-20_ADP-3a_Repo
 3. **The panel's stored rows that refuse on a blank plate quantity remain** (the plate is computed, never named; U7's default is calculator-only by the ruling's words).
 4. **A circuit-wire thickness forced to None still carries the "*"** (an allow-None field is answered by None and the gate still asks for it) -- consistent with every allow-None field; flagged for the owner.
 5. **The Field_Table's "OPTIONAL" for Insulation's cladding and cabletray thickness, and "REQUIRED (default ...)" for the fire damper variant**, were field-level summaries the marker now measures per row.
+
+## Slice ADP-3b - the ADP face size in its own Width / Height boxes, the plenum Area outline, the circuit-wire marker, and HVAC v49 - as built 2026-10-20 / 21
+
+**Owner rulings built (quoted):** B1 (2026-10-11; restated 2026-10-19 23:19) "wherever we are capturing multiuple dimesions we
+need to capture each in it sown attribuyte and not combined. that is easier for th euser to understand" -- the model keeps
+reporting as today, the panel fills the separate fields. 2026-10-20 21:57 ("ok"): (2) a plenum with nothing stated outlines
+Area too; (3) circuit-wire thickness fields lose the "*" while circuit wiring = No. 2026-10-20 22:25 ("ok to all") on ADP-R3b:
+D1 a three-part size on a face -- the first two parts are the face, labels decide only between two parts, a third part never
+displaces them; D2 a per-metre grille whose one dimension is written as a width is read as the grille's height (its narrow
+dimension); D3 the square diffuser's outer size is "Outer width (mm)" and "Outer height (mm)" in the "Neck size, or Outer
+size" group; D4 the depth axis is retired.
+
+**Commits (unpushed at the time of writing):**
+- `05e88252a` feat(rate-helper): code + tests.
+  - `itemListPricing.ts`: `readFaceSides` (beside `readBoxSides`); the typed-number fill takes `face_side` (value-used line
+    "BoQ says 550X300 -> width 550 mm"; the parts not used said once, on the first face box's line); D2; D3 (two outer
+    boxes, read wherever the neck is); two boxes as one way read "Width + Height"; a face that gave no side is named by the
+    size; fix (2) ("neither stated", every box of every way outlined).
+  - `pricingSheetHelper.ts`: fix (3) (a field its controller declares absent carries no "*"). `itemListRuleOrder.ts`: an
+    ADP-3b group, LAST, from `face_side`. `config_validation.py`: `face_side`.
+  - Tests: `adp3b.harness.ts` + `adp3b.test.ts` (37, then 39 with the v49 pin); `ruleReachability` (+9 cases, the ADP-3b
+    guard); `calculatorPanelParity` Q1-Q4; `test_config_validation_adp3b` (9); pins inverted by mechanical authority,
+    BEFORE kept: adp2.test (fix (2) sentence), itemListPricing.test ("Face width + Face height").
+- `2cfa5ee6b` feat(rate-master): HVAC v49 = v48 + ADP's config only (B1 typed face boxes, ids unchanged; D4 depth retired;
+  per-box notes); `mint_hvac_v49_adp3b.py` + README row; pins by mechanical authority (test_piping_v34 newest-asset x13 +
+  series x2 + "v49 absent" x2, test_extraction_coercion CURRENT, test_rate_master CURRENT + v28..v33 "moved past" x6 + the
+  ADP note pins x6 + two tests whose sample attribute was `depth_mm`); record tests `TestAdp3bAssetV49` test_54-56,
+  adp3b.test AC5.
+- The docs commit that carries this entry.
+
+Start tip `5405d2542` (= origin). Live on dev: HVAC v49 (items `793a2b39344242ad` unchanged, configs `bd12afff78ba6dd8`;
+batch `rmbulk-b20016df0729`, snapshot BRMS-26-01865), Electrical v66 unchanged. Report on the Desktop:
+`2026-10-20_ADP-3b_Report.md` (ledger first), `_Ledger.md`, `_Moved_Rows.xlsx`, `_Field_Table.xlsx`, `_Cert\`, the three
+test logs.
+
+### 1. How it was built
+
+- **The boxes are the SKU attributes themselves.** `face_w_mm` / `face_h_mm` keep their ids and become `typed_only` readers
+  with `length_from: size_mm` and `face_side`; every need, conversion, SKU match and pipeline that reads them is v48's, and
+  the model's question is unchanged (the stub proof: identical requests for ADP, Insulation, Piping).
+- **The reader** reads exactly as the width axis did where it cannot split a face (the whole text is the width: a range
+  takes its top, a list keeps its named refusal), so the 205 face-read sizes the recon measured read the same.
+- **A typed-only reader is read only where the family's rule needs it** (ADP-1), so the square diffuser's `second_key`
+  axes are added where the neck is read; on every other family the face boxes appear only where they price.
+
+### 2. The replay (every stored row, 17,914; START `2ed9361d...` / `0bdd6fa1...`)
+
+- Ladder: code only on v48 -> 0 figure rows (848 wording: U4 34, U5 814); code + v49 (scratch) -> figure rows EXACTLY
+  BOQ-26-00247 "BOQ" r102 (refused -> 725 / 132 / 857, D2), 0 undeclared, unchanged-set hash identical; live v49 -> the
+  same (the rich record on the live dump == the scratch run byte for byte; tracked replay `a0fbe8b7...` / `f15205af...`,
+  FIGURES CHANGED 1).
+- Wording rows: U1 320, U2 219, U3 21, U4 34, U5 814, D2 3 (r102 + the two '6" wide' grilles, refused either way, now
+  "height stated in inches"). Electrical, Piping, Insulation: 0 figure rows.
+
+### 3. Suites, cert
+
+- Targeted before each commit (sets in the report); vacuity V1-V9 (D1, D2, the face fill, fix (2), fix (3), the "+" label,
+  D3, the Derivation group, the validator), each red on its own tests, restored sha-exact.
+- **Full, at `2cfa5ee6b`:** Python `--app nirmaan_stack` Ran 8,572 (= 8,560 + 9 validator + 3 record tests) -- failures 7 /
+  errors 2 = ADP-3a's same 8, test for test, plus `test_daily_window_picks_a_wo_touched_since` (the known time-of-day
+  failure: 19:46 UTC = 01:16 IST, `today()` past midnight; fails alone too; nothing under `nirmaan_stack/tasks/` changed);
+  vitest 192 files / 7,281 -- 1 failure, the known `writeOffControl` 5 s timeout; tsc 3,170 (= ADP-3a). Capture unchanged
+  through every run (465 lines).
+- **Cert at :8080** after the full de-stale: C1-C11 all PASS -- the one move seen at C3 (00247 r102 725 / 132 / 857).
+
+### 4. Findings for the next slice
+
+1. **A row with an unrecognised unit still shows its fields** (e.g. NRD / VCD with a unit the catalogue does not know) beside
+   the unit refusal -- unchanged from ADP-3a; the boxes are simply the new ones.
+2. **The catalogue-column definition `depth_mm`** (category `attribute_definitions`) stays: D4 names the reader, the match
+   attribute, the control and the note; 0 items carry it.
+3. **`writeOffControl.test.ts`** still times out at 5 s on its dynamic import (standing).

@@ -1420,6 +1420,41 @@ its whole option list). Proved in jsdom (`adp3a.dom.test.tsx`: every category's 
 the category has a choice attribute -- not Piping); ADP's per-number either-or, titled by the GROUP, never the kinds (they
 change between catalogue versions). Old pins read a tab with these set aside (`withoutAdp3aLines`).
 
+**ADP-3b B1: A FACE SIZE IS TWO BOXES, WIDTH AND HEIGHT (owner B1, 2026-10-11 / 2026-10-19; HVAC v49).** `face_w_mm` /
+`face_h_mm` are `typed_only` readers with `length_from: size_mm` and `face_side` (width / height) -- their ids are the SKU
+attributes, so needs, conversions, the SKU match and pipelines are untouched, and the model is still asked for the size as
+written (`size_mm`, unchanged). An empty box is filled from that size by `readFaceSides` with its value-used line ("BoQ says
+550X300 -> width 550 mm"); a typed value always wins ("You typed 600 -> width 600 mm"). Text the reader cannot split is read
+WHOLE as the width, exactly as the width axis read it before. Two boxes as one way read "Width + Height" (the group and the
+refusal: "<kind> needs Width + Height, or Area band - ... - price this row by hand"). A face that gave no side is named by the
+size ("Size '1500 mm long' gives no width or height (1500 mm long named as a length - not used)").
+
+**ADP-3b D1: THE FACE IS THE FIRST TWO PARTS (owner 2026-10-20 22:25).** A label (W / wide / width; H / Ht / hgt / high /
+height) decides only between the first two parts; a third part never displaces them and is said on the width's line ("450 mm
+Height (the third part) - not used as the face"); a part labelled as a length or a depth is named and not used ("600(L) named
+as a length - not used").
+
+**ADP-3b D2: A HEIGHT-ONLY KIND SIZED BY ONE WIDTH (owner 2026-10-20 22:25).** Where a family's rule reads the HEIGHT alone (the
+per-metre grilles) and the size is ONE part written as a width ("150mm width"), it is the height: "BoQ says 150mm width ->
+height 150 mm (the grille's narrow dimension)". An unlabelled single number stays the width (refuses, as before). This moved one
+stored row: BOQ-26-00247 "BOQ" r102, refused -> 725 / 132 / 857.
+
+**ADP-3b D3: THE SQUARE DIFFUSER'S OUTER SIZE IS TWO BOXES (owner 2026-10-20 22:25).** "Outer width (mm)" / "Outer height (mm)"
+in the "Neck size, or Outer size" group, read wherever the neck is (a `typed_only` reader is otherwise read only where the
+family's rule needs it); the refusal names the size as written when the boxes are empty.
+
+**ADP-3b D4: NO DEPTH AXIS (owner 2026-10-20 22:25; HVAC v49).** `numbers.depth_mm`, `match_attrs` depth_mm,
+`panel_controls.depth_mm` and its "Add the depth ..." note are retired (read by nothing; cross-talk's depth is the Pricing Input
+`crosstalk_assumed_depth_mm`). The catalogue-column definition stays (0 items carry it).
+
+**ADP-3b FIX (2): A PLENUM WITH NOTHING STATED NAMES NEITHER WAY AND OUTLINES EVERY BOX (owner 2026-10-20 21:57).** "mixing box /
+LP plenum needs an area, or length + width + height - neither stated - price this row by hand", Area outlined with Length /
+Width / Height; with something stated, the nearest way's gaps as before.
+
+**ADP-3b FIX (3): A FIELD ITS CONTROLLER DECLARES ABSENT CARRIES NO "*" (owner 2026-10-20 21:57).** While `circuit_wire_included`
+= No (its `absent_when_value`), the six circuit-wire fields (`absent_dependents`) are not marked needed -- on the panel and the
+calculator alike. Display only: the gate is unchanged.
+
 **A DEFAULT IS NAMED AS THE DEFAULT, SAID ONCE, BY ITS FIELD'S LABEL (owner G1 / G2 / G3, 2026-10-12 "yes"; slice
 12e-4b).** G1: a number nobody stated (the ruled default) heads its field note "Default 9 mm -> priced as 13 mm
 (the smallest size)" (12e-4d AC3: below the smallest stocked size the field's line and the working both say "(the
