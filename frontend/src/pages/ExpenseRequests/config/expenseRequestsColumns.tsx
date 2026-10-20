@@ -41,6 +41,8 @@ import {
 } from "@/components/ui/tooltip";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { ExpenseTdsBreakdown } from "@/components/common/ExpenseTdsBreakdown";
+import { shownExpenseTds } from "@/utils/expenses/expenseTds";
 import type { ExpenseRequest, RequestStanding } from "@/types/NirmaanStack/ExpenseRequest";
 
 /** The mark on a request whose raiser records without review (GLOSSARY, #1498). */
@@ -167,9 +169,23 @@ export const getExpenseRequestColumns = ({
             accessorKey: "amount",
             size: 130,
             header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" />,
-            cell: ({ row }) => (
-                <span className="tabular-nums">{formatToRoundedIndianRupee(liveAmount(row.original))}</span>
-            ),
+            cell: ({ row }) => {
+                const standing = getStanding(row.original.name);
+                // Office Rent: Rent / TDS / Net (#1527), from the Expense's status, or the request's
+                // while it has none.
+                const tds = shownExpenseTds({
+                    type: row.original.type,
+                    amount: liveAmount(row.original),
+                    status: standing?.expense?.status ?? row.original.status,
+                    withheld: standing?.withheld_tds,
+                });
+                return (
+                    <div className="tabular-nums">
+                        <span>{formatToRoundedIndianRupee(liveAmount(row.original))}</span>
+                        <ExpenseTdsBreakdown shown={tds} />
+                    </div>
+                );
+            },
             meta: { exportHeaderName: "Amount", exportValue: liveAmount },
         },
         {

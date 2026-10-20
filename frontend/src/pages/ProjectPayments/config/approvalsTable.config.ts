@@ -10,6 +10,7 @@ import { SearchFieldOption } from "@/components/data-table/new-data-table";
 import type { ChequeStatus } from "@/types/NirmaanStack/Cheques";
 import { RECONCILIATION_PENDING_LEAVES_OUT } from "@/utils/cheques/chequeTabs";
 import type { PaidTo } from "@/utils/payees/paidTo";
+import type { WithheldTds } from "@/utils/expenses/expenseTds";
 import { PP_TABS, PPTabValue } from "./ppTabs.constants";
 
 export const APPROVAL_QUEUE_API =
@@ -150,6 +151,9 @@ export interface ApprovalQueueRow {
   /** Who the row is paid to: its own pay-to account, copied when it was raised (ADR-0033, #1438).
    *  Read by the server's Payee module (`services/payees/paid_to`). */
   paid_to?: PaidTo;
+  /** An Office Rent expense's tax record once approved (#1527), served past the record's own permission
+   *  (`services/expense_tds.withheld_tds_of`); null before approval and on every other row. */
+  withheld_tds: WithheldTds | null;
 }
 
 /**

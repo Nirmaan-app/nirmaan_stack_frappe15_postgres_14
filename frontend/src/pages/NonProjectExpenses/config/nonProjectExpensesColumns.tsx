@@ -15,6 +15,7 @@
 // Row actions are derived from each row's own status (so the mixed-status "All"
 // tab renders correct actions per row).
 
+import { useContext } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import {
   FileText,
@@ -53,6 +54,9 @@ import { isProcurementProfile } from "@/constants/roles";
 import { PorterBadge } from "@/components/common/PorterExpense";
 import { invoiceAttachmentUrl } from "@/utils/porterExpense";
 import { canMarkExpensePaid } from "@/utils/expenses/expenseDecision";
+import { shownExpenseTds } from "@/utils/expenses/expenseTds";
+import { ExpenseTdsBreakdown } from "@/components/common/ExpenseTdsBreakdown";
+import { WithheldTdsContext } from "@/hooks/useWithheldTds";
 
 export interface GetNonProjectExpenseColumnsOptions {
   statusTab: string;
@@ -68,6 +72,16 @@ export interface GetNonProjectExpenseColumnsOptions {
   onMarkPaid: (expense: NonProjectExpenses) => void;
   onDelete: (expense: NonProjectExpenses) => void;
 }
+
+/** An Office Rent expense's Rent / TDS / Net (#1527); the page provides its tax records by context. */
+const AmountTds = ({ row }: { row: NonProjectExpenses }) => {
+  const withheld = useContext(WithheldTdsContext)[row.name];
+  return (
+    <ExpenseTdsBreakdown
+      shown={shownExpenseTds({ type: row.type, amount: row.amount, status: row.status, withheld })}
+    />
+  );
+};
 
 const STATUS_BADGE_STYLES: Record<string, string> = {
   Requested: "bg-amber-100 text-amber-700",
@@ -228,6 +242,7 @@ export const getNonProjectExpenseColumns = ({
           )}
         >
           {formatToRoundedIndianRupee(amount)}
+          <AmountTds row={row.original} />
         </div>
       );
     },

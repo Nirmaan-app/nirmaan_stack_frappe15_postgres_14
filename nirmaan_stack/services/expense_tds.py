@@ -118,6 +118,43 @@ def existing_expense_deduction(expense: str | None) -> str | None:
 	return frappe.db.get_value(TDS_DOCTYPE, {"non_project_expense": expense}, "name")
 
 
+#: What a screen is served of a withheld record (`withheld_tds_of`): the full rent, the rate, the tax and
+#: the section. The net is the screen's `gross_amount - tds_amount`, never the Expense's amount, which
+#: Bulk Import's few-rupee correction may have moved (#1526).
+WITHHELD_TDS_FIELDS = ("gross_amount", "tds_percentage", "tds_amount", "tds_section")
+
+
+def withheld_tds_of(expenses) -> dict[str, dict]:
+	"""Non-Project Expense name -> the tax withheld from it, `{gross_amount, tds_percentage, tds_amount,
+	tds_section}`, for each of these that has a record. One query; an expense with none is absent.
+
+	THE ONE READER of a record for the expense screens (#1527): the approval queue, the approve dialog's
+	detail, the request page and the Expenses list's standing, and the edit dialog's lookup
+	(`api/approvals/expense_tds`). Nothing is served before approval: the amount is still the full rent
+	then, and the screens forecast from it (`frontend/src/utils/expenses/expenseTds.shownExpenseTds`).
+
+	⚠️ READ WITHOUT THE RECORD'S PERMISSION, ON PURPOSE. `Payment TDS Deduction` is read by the
+	Accountant roles (and System Manager) only, while an HR approver, Admin and the CEO see the Expense. Every caller is an
+	endpoint that has already checked its caller may read the Expense (or its request), and these four
+	figures are what its approver is shown of it. Do not widen the doctype's permissions instead: that
+	would open the whole register, Work Order rows included.
+	"""
+	names = list({e for e in expenses if e})
+	if not names:
+		return {}
+	rows = frappe.get_all(TDS_DOCTYPE, filters={"non_project_expense": ["in", names]},
+	                      fields=["non_project_expense", *WITHHELD_TDS_FIELDS])
+	return {
+		r.non_project_expense: {
+			"gross_amount": flt(r.gross_amount, 2),
+			"tds_percentage": flt(r.tds_percentage),
+			"tds_amount": flt(r.tds_amount, 2),
+			"tds_section": r.tds_section,
+		}
+		for r in rows
+	}
+
+
 def withhold_expense_tds(doc, *, deductee_name: str | None = None, deductee_pan: str | None = None) -> str | None:
 	"""Withhold the tax of one approved Non-Project Expense: write its record, then net its amount.
 

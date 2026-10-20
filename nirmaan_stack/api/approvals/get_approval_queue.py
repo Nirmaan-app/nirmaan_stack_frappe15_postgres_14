@@ -37,6 +37,7 @@ from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.payment_split import load_part_reconciled_split_families
 
 from nirmaan_stack.services.cheque_payments import in_cheque_tracker_sql
+from nirmaan_stack.services.expense_tds import tds_rule_for, withheld_tds_of
 from nirmaan_stack.services.approval_tiers import (
     TIER_L2_ABOVE,
     TIER_L2_ABOVE_EXPENSES,
@@ -516,6 +517,17 @@ def get_approval_queue(
         for r in rows
     ])):
         r["paid_to"] = paid_to
+
+    # The tax withheld from an Office Rent expense (#1527): its record's gross, rate, tax and section, so
+    # the Amount cell shows Rent / TDS / Net to an approver who cannot read `Payment TDS Deduction`. One
+    # query per page, for the rows of a type with a rule only. None before approval: the amount is still
+    # the full rent then, and the screen forecasts from it (`expenseTds.shownExpenseTds`).
+    non_project = SOURCE_TO_DOCTYPE[SOURCE_NON_PROJECT]
+    withheld = withheld_tds_of(
+        r["name"] for r in rows if r.get("doctype") == non_project and tds_rule_for(r.get("expense_type"))
+    )
+    for r in rows:
+        r["withheld_tds"] = withheld.get(r["name"]) if r.get("doctype") == non_project else None
 
     for r in rows:
         # Derived SERVER-side, from the same cast amount the routing will use, so

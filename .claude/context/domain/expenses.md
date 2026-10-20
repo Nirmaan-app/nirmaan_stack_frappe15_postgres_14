@@ -129,6 +129,10 @@ Both share one approval lifecycle and are entered/managed together in a single u
   single-line correction within ₹5, which leaves the tax record as it was; deleting it deletes its tax
   record, and is refused once that tax is on a challan (#1526, `expense_tds.guard_withheld_amount` /
   `delete_with_expense`; `payment-tds.md` § a withheld Office Rent expense).
+  **Every screen that shows its amount shows Rent / TDS / Net** (the payments queue, the approve
+  dialog, the request page, the Expenses and Non-Project Expenses lists): a forecast before approval,
+  the stored record after, served by the expense APIs because the record itself stays Accountant-only
+  (#1527; `payment-tds.md` § what the expense screens show).
 - **An expense's bank lines decide Paid, not a person** (ADR-0027, 2026-09-18). An expense can be
   settled by MANY imported bank lines — a salary or reimbursement run leaves the bank as one transfer
   per employee but is recorded as one expense. The **linked total** is the sum of the expense's live

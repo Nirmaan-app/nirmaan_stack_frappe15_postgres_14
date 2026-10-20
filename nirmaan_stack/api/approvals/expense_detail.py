@@ -28,8 +28,10 @@ from nirmaan_stack.api.expense_requests.flatten import NATIVE_INVOICE_SECTION, d
 from nirmaan_stack.api.expense_requests.form_snapshot import governing_form
 from nirmaan_stack.api.expense_requests.similar import _scan_ledgers
 from nirmaan_stack.services.approval_raiser import expense_raiser
+from nirmaan_stack.services.expense_tds import withheld_tds_of
 from nirmaan_stack.services.outflow_import.ledgers import (
     EXPENSE_DOCTYPES,
+    NON_PROJECT_EXPENSE_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
 )
 
@@ -77,6 +79,9 @@ def get_expense_approval_detail(doctype: str, name: str) -> dict:
 		"raised_by": raised_by,
 		"raised_on": (request or {}).get("creation") or doc.creation,
 		"approval_date": doc.get("approval_date"),
+		# The tax withheld from an Office Rent expense, read past the record's own permission (#1527,
+		# `expense_tds.withheld_tds_of`); None before approval, when the dialog forecasts from `amount`.
+		"withheld_tds": (withheld_tds_of([name]).get(name) if doctype == NON_PROJECT_EXPENSE_DOCTYPE else None),
 		"request": request,
 		"similar": similar,
 		# The request itself is never its own match. Like `similar`, it names other people's

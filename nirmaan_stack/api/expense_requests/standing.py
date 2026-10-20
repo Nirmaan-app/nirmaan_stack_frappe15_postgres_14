@@ -22,7 +22,8 @@ from frappe.utils import flt
 
 from nirmaan_stack.services.expense_decision import approval_level
 from nirmaan_stack.services.expense_standing import live_status, where_it_stands
-from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
+from nirmaan_stack.services.expense_tds import withheld_tds_of
+from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES, NON_PROJECT_EXPENSE_DOCTYPE
 
 # One page of the Expenses list is at most a few hundred rows.
 MAX_NAMES = 500
@@ -78,19 +79,31 @@ def get_request_standing(names) -> dict[str, dict]:
 	                           limit_page_length=len(wanted))
 	expenses = expenses_of([r.name for r in requests])
 	levels = {key: approval_level(*key) for key in {(r.owner, r.reviewed_by) for r in requests}}
+	withheld = withheld_tds_of_expenses(expenses.values())
 	return {
-		r.name: {**standing_of(r, expenses.get(r.name), levels[(r.owner, r.reviewed_by)]),
+		r.name: {**standing_of(r, expenses.get(r.name), levels[(r.owner, r.reviewed_by)], withheld),
 		         "expense": expenses.get(r.name)}
 		for r in requests
 	}
 
 
-def standing_of(request, expense: dict | None, level: str | None) -> dict:
-	"""`{status, amount, steps}` of one request (`REQUEST_FIELDS`), given its Expense from
-	`expenses_of` and the level it is born under (`expense_decision.approval_level`). The request
-	page's `read.get_expense_request` serves the same through this."""
+def withheld_tds_of_expenses(expenses) -> dict[str, dict]:
+	"""The tax withheld from those of these Expenses (`expenses_of` rows) that are Non-Project, by name:
+	`expense_tds.withheld_tds_of`, read past the record's own permission as the Expense is (#1527)."""
+	return withheld_tds_of(e["name"] for e in expenses if e and e["doctype"] == NON_PROJECT_EXPENSE_DOCTYPE)
+
+
+def standing_of(request, expense: dict | None, level: str | None, withheld: dict[str, dict]) -> dict:
+	"""`{status, amount, steps, withheld_tds}` of one request (`REQUEST_FIELDS`), given its Expense from
+	`expenses_of`, the level it is born under (`expense_decision.approval_level`) and the tax withheld
+	from the page's Expenses (`withheld_tds_of_expenses`). The request page's `read.get_expense_request`
+	serves the same through this.
+
+	`withheld_tds` is the Expense's tax record's figures once an Office Rent expense is approved (#1527),
+	else None: before approval `amount` is still the full rent, and the screen forecasts from it."""
 	return {
 		"status": live_status(request["status"], expense and expense["status"]),
 		"amount": expense["amount"] if expense else flt(request["amount"]),
 		"steps": where_it_stands(request, expense, level),
+		"withheld_tds": withheld.get(expense["name"]) if expense else None,
 	}

@@ -6,6 +6,7 @@
 import { attachmentsFromSourceData } from "@/utils/expenseFormat";
 import { statusAfterL1, TIER_L2_ABOVE_EXPENSES } from "@/utils/approvalTiers";
 import type { StayDuplicate } from "@/types/NirmaanStack/ExpenseRequest";
+import type { WithheldTds } from "@/utils/expenses/expenseTds";
 
 export interface ExpenseApprovalDetail {
   doctype: "Project Expenses" | "Non Project Expenses";
@@ -40,6 +41,9 @@ export interface ExpenseApprovalDetail {
   /** Other stays for the same person on overlapping days (#1504); never this Expense's own request. */
   stays: StayDuplicate[];
   user_names: Record<string, string>;
+  /** An Office Rent expense's tax record once approved (#1527); null before approval, when the dialog
+   *  forecasts from `amount`. */
+  withheld_tds: WithheldTds | null;
 }
 
 export type ApprovalStage = "lead" | "ceo";

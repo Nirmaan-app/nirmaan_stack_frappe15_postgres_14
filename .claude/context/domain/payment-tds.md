@@ -206,7 +206,7 @@ letter decides it (owner, 2026-10-16):
   (#1524): `OFFICE_RENT_TDS` (Office Rent, 10%, 194-I) and `expenseTdsSplit(type, amount)` → gross /
   rate / tds / net, rounded like `flt(x, 2)`; zero tax for every other type and for a zero or a refund.
   A forecast only, never sent. The New Expense preview reads it (`tdsPreviewLine`), and the approval
-  screens and the Expense page must too (#1527). ⚠️ The server's own constant,
+  screens and the Expense page read it through `shownExpenseTds` (#1527, below). ⚠️ The server's own constant,
   `services/expense_tds.OFFICE_RENT_TDS` (#1525), is its twin, pinned by the parity block in
   `expenseTds.test.ts`: change both or neither.
 
@@ -281,6 +281,39 @@ letter decides it (owner, 2026-10-16):
   Expenses page, payments queue), Desk, REST. The Expense Request goes with the Expense as before.
 - Pinned by `api/expense_requests/test_office_rent_tds_lock` (the edit through `frappe.client.set_value`,
   the bank line through `link_rows_to_expense`, Pay TDS, the delete through `frappe.client.delete`).
+
+### Load-bearing invariants: what the expense screens show (#1527)
+
+- **Rent / TDS / Net, under an Office Rent expense's amount**, to whoever sees the expense: the payments
+  queue's Amount cell on every tab (Approve Payments, CEO Pending, Payment need to paid, the Paid and
+  All tabs), the expense Approve / Reject dialog, the request page (`/expense/requests/<name>`), the
+  Expenses list and the Non-Project Expenses page. ONE rule decides what each shows,
+  `frontend/src/utils/expenses/expenseTds.shownExpenseTds({type, amount, status, withheld})`, drawn by
+  `components/common/ExpenseTdsBreakdown`; any other expense draws nothing.
+  - **A stored record wins:** its `gross_amount`, rate and `tds_amount`, and Net = gross − tax. Never
+    the Expense's amount, so Bulk Import's few-rupee correction leaves the three figures as withheld.
+  - **No record, before approval** (`BEFORE_APPROVAL_STATUSES`: an Expense at Requested or CEO Pending,
+    or a request Pending Approval with no Expense): a forecast from the amount, which is still the full
+    rent. ⚠️ Never at any later status: the amount is the net by then, and a forecast would take the tax
+    off twice. An Office Rent approved before #1525 (no record) shows nothing.
+- ⚠️ **THE FIGURES REACH THE SCREENS THROUGH THE EXPENSE APIs, NEVER THE DOCTYPE.** `Payment TDS
+  Deduction` is read by the Accountant roles and System Manager only (an HR approver cannot read it),
+  and its permissions stay so. ONE reader, `services/expense_tds.withheld_tds_of(expenses)` (one query,
+  read past the record's permission), serves `withheld_tds` = `{gross_amount, tds_percentage,
+  tds_amount, tds_section}` or None in: `get_approval_queue` (rows of a type with a rule only),
+  `expense_detail.get_expense_approval_detail`, `standing.get_request_standing` and
+  `read.get_expense_request` (`standing.withheld_tds`), and `api/approvals/expense_tds.get_withheld_tds`
+  (the Non-Project Expenses page and edit dialog, which hold only the Expense; refused without read on
+  Non Project Expenses, and answers only the rows the caller may read). Each endpoint has already
+  checked its caller may read the Expense or its request.
+- **Before approval every API serves `withheld_tds` None, by decision:** nothing was withheld, and the
+  screen forecasts from the type, amount and status the same answer carries.
+- **The edit dialog locks the amount of an Expense with a record** (`EditNonProjectExpense`, from
+  `get_withheld_tds`): disabled, "10% TDS has been withheld; the amount is locked", and never sent, so
+  nobody meets #1526's server refusal from the app.
+- Pinned by `api/expense_requests/test_office_rent_tds_shown` (an HR Lead, who cannot read the record,
+  through each endpoint: before approval, after it, after a bank line's correction, another type) and
+  the `shownExpenseTds` block of `expenseTds.test.ts`.
 
 ---
 

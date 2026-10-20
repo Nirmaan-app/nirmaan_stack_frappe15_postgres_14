@@ -59,3 +59,72 @@ export const tdsPreviewLine = (split: ExpenseTdsSplit): string | null =>
     split.tds > 0
         ? `Rent ${rupees(split.gross)} − TDS ${split.ratePct}% ${rupees(split.tds)} = Landlord gets ${rupees(split.net)}`
         : null;
+
+// ── What an expense screen shows (#1527) ────────────────────────────────────────────────────────
+
+/** A tax record as the expense APIs serve it, `withheld_tds` (`services/expense_tds.withheld_tds_of`):
+ *  read past the record's own permission, so Admin, the CEO and HR see it. Null before approval. */
+export interface WithheldTds {
+    /** The full rent, as approved. */
+    gross_amount: number;
+    tds_percentage: number;
+    tds_amount: number;
+    tds_section: string;
+}
+
+/**
+ * The statuses before approval, when an Expense's amount is still the full rent: an Expense at
+ * Requested or CEO Pending, or a request still Pending Approval that has no Expense yet. Only these
+ * are forecast; at any later status the amount is the net (or nothing was withheld), so a forecast on
+ * it would take the tax off twice.
+ */
+export const BEFORE_APPROVAL_STATUSES: ReadonlySet<string> = new Set(["Requested", "CEO Pending", "Pending Approval"]);
+
+export interface ShownExpenseTds extends ExpenseTdsSplit {
+    /** True: the stored record's figures (the tax WAS withheld). False: a forecast (it WILL be). */
+    withheld: boolean;
+}
+
+/**
+ * Rent / TDS / Net for one expense, or null when it shows its amount as today.
+ *
+ * - A stored record wins: its gross, rate and tax, and the net they leave. Never the Expense's
+ *   amount, which Bulk Import's few-rupee correction may have moved (#1526).
+ * - With none, an expense before approval is forecast from its amount, which is still the full rent.
+ * - Anything else shows nothing: any type but Office Rent, a zero or a refund, and an Office Rent
+ *   approved before the tax existed (no record, so nothing was withheld).
+ */
+export const shownExpenseTds = ({
+    type,
+    amount,
+    status,
+    withheld,
+}: {
+    type: string | null | undefined;
+    amount: number | string | null | undefined;
+    /** The Expense's status, or the request's while it has no Expense. */
+    status: string | null | undefined;
+    withheld: WithheldTds | null | undefined;
+}): ShownExpenseTds | null => {
+    if (withheld) {
+        const gross = parseNumber(withheld.gross_amount);
+        const tds = parseNumber(withheld.tds_amount);
+        return { gross, ratePct: parseNumber(withheld.tds_percentage), tds, net: round2(gross - tds), withheld: true };
+    }
+    if (!BEFORE_APPROVAL_STATUSES.has(status ?? "")) return null;
+    const split = expenseTdsSplit(type, amount);
+    return split.tds > 0 ? { ...split, withheld: false } : null;
+};
+
+/** The three lines a screen draws: Rent, TDS at its rate, Net. */
+export const tdsSplitLines = (shown: ShownExpenseTds): { label: string; value: string }[] => [
+    { label: "Rent", value: rupees(shown.gross) },
+    { label: `TDS ${shown.ratePct}%`, value: rupees(shown.tds) },
+    { label: "Net", value: rupees(shown.net) },
+];
+
+/** Whether the tax will be or was withheld, in one line. */
+export const tdsSplitCaption = (shown: ShownExpenseTds): string =>
+    shown.withheld
+        ? `${shown.ratePct}% TDS (${OFFICE_RENT_TDS.section}) withheld; the landlord is paid the net`
+        : `${shown.ratePct}% TDS (${OFFICE_RENT_TDS.section}) will be withheld on approval`;

@@ -15,6 +15,8 @@ import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { invoiceAttachmentUrl } from "@/utils/porterExpense";
 import DuplicateStayNote from "@/components/common/DuplicateStayNote";
+import { ExpenseTdsBreakdown } from "@/components/common/ExpenseTdsBreakdown";
+import { shownExpenseTds } from "@/utils/expenses/expenseTds";
 import {
   ApprovalStage,
   ExpenseApprovalDetail,
@@ -91,6 +93,12 @@ export const ExpenseApprovalDetails: React.FC<Props> = ({ doctype, name, isOpen,
         <Row label="Type">{d.type || "--"}</Row>
         <Row label="Amount">
           <span className="font-semibold tabular-nums">{formatToIndianRupee(d.amount)}</span>
+          {/* Office Rent: Rent / TDS / Net, what this approval will withhold or did (#1527). */}
+          <ExpenseTdsBreakdown
+            shown={shownExpenseTds({ type: d.type, amount: d.amount, status: d.status, withheld: d.withheld_tds })}
+            variant="block"
+            className="mt-1"
+          />
         </Row>
         <Row label="Project">
           {d.project ? (

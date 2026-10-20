@@ -2,7 +2,16 @@ import { readFileSync } from "fs";
 import { resolve } from "path";
 import { describe, expect, it } from "vitest";
 
-import { expenseTdsSplit, OFFICE_RENT_TDS, tdsPreviewLine } from "./expenseTds";
+import {
+    BEFORE_APPROVAL_STATUSES,
+    expenseTdsSplit,
+    OFFICE_RENT_TDS,
+    shownExpenseTds,
+    tdsPreviewLine,
+    tdsSplitCaption,
+    tdsSplitLines,
+    type WithheldTds,
+} from "./expenseTds";
 
 // The server's rule is the authority (#1525); this forecast reads it so the two cannot drift.
 const SERVICES = resolve(__dirname, "../../../../nirmaan_stack/services");
@@ -68,5 +77,61 @@ describe("tdsPreviewLine", () => {
     it("has no tax line for any other type, or for no amount", () => {
         expect(tdsPreviewLine(expenseTdsSplit("Electricity Expenses", 100000))).toBeNull();
         expect(tdsPreviewLine(expenseTdsSplit("Office Rent", 0))).toBeNull();
+    });
+});
+
+// What the approval queue, the approve dialog, the request page and the Expenses list show (#1527).
+describe("shownExpenseTds", () => {
+    const withheld: WithheldTds = { gross_amount: 100000, tds_percentage: 10, tds_amount: 10000, tds_section: "194-I" };
+
+    it("forecasts on the full rent while the Expense waits for approval", () => {
+        for (const status of ["Requested", "CEO Pending", "Pending Approval"]) {
+            expect(shownExpenseTds({ type: "Office Rent", amount: 100000, status, withheld: null }), status)
+                .toEqual({ gross: 100000, ratePct: 10, tds: 10000, net: 90000, withheld: false });
+        }
+    });
+
+    it("shows the stored record once approved, never a forecast on the net", () => {
+        expect(shownExpenseTds({ type: "Office Rent", amount: 90000, status: "Approved", withheld }))
+            .toEqual({ gross: 100000, ratePct: 10, tds: 10000, net: 90000, withheld: true });
+    });
+
+    it("keeps the stored figures after a bank line corrects the amount by a few rupees", () => {
+        expect(shownExpenseTds({ type: "Office Rent", amount: 89998, status: "Paid", withheld }))
+            .toEqual({ gross: 100000, ratePct: 10, tds: 10000, net: 90000, withheld: true });
+    });
+
+    it("shows nothing for an approved Office Rent with no record (approved before the tax existed)", () => {
+        for (const status of ["Approved", "Reconciliation Pending", "Paid", "Rejected"]) {
+            expect(shownExpenseTds({ type: "Office Rent", amount: 100000, status, withheld: null }), status).toBeNull();
+        }
+    });
+
+    it("shows nothing for any other type, or for a zero or a refund", () => {
+        expect(shownExpenseTds({ type: "Electricity Expenses", amount: 100000, status: "Requested", withheld: null })).toBeNull();
+        expect(shownExpenseTds({ type: "Office Rent", amount: 0, status: "Requested", withheld: null })).toBeNull();
+        expect(shownExpenseTds({ type: "Office Rent", amount: -500, status: "Requested", withheld: undefined })).toBeNull();
+    });
+
+    it("names the statuses before approval", () => {
+        expect([...BEFORE_APPROVAL_STATUSES].sort()).toEqual(["CEO Pending", "Pending Approval", "Requested"]);
+    });
+});
+
+describe("tdsSplitLines and tdsSplitCaption", () => {
+    it("read Rent / TDS / Net", () => {
+        const shown = shownExpenseTds({ type: "Office Rent", amount: 100000, status: "Requested", withheld: null })!;
+        expect(tdsSplitLines(shown)).toEqual([
+            { label: "Rent", value: "₹1,00,000" },
+            { label: "TDS 10%", value: "₹10,000" },
+            { label: "Net", value: "₹90,000" },
+        ]);
+    });
+
+    it("say whether the tax will be or was withheld", () => {
+        expect(tdsSplitCaption({ gross: 100000, ratePct: 10, tds: 10000, net: 90000, withheld: false }))
+            .toBe("10% TDS (194-I) will be withheld on approval");
+        expect(tdsSplitCaption({ gross: 100000, ratePct: 10, tds: 10000, net: 90000, withheld: true }))
+            .toBe("10% TDS (194-I) withheld; the landlord is paid the net");
     });
 });

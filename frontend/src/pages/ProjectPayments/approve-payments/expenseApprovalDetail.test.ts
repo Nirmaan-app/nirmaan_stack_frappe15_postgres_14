@@ -30,6 +30,7 @@ const base = (over: Partial<ExpenseApprovalDetail> = {}): ExpenseApprovalDetail 
   similar: [],
   stays: [],
   user_names: {},
+  withheld_tds: null,
   ...over,
 });
 
