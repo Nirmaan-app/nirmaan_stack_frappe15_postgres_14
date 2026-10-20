@@ -25,6 +25,7 @@ from nirmaan_stack.api.cheques.list_cheques import get_cheques
 from nirmaan_stack.api.cheques.pickers import get_securable_records
 from nirmaan_stack.api.cheques.save_cheque import save_cheque
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
+from nirmaan_stack.services.cheques.rules import PENDING
 from nirmaan_stack.services.cheques.status import clear
 
 U = "Administrator"
@@ -174,8 +175,10 @@ class TestSecurityDepositCheques(FrappeTestCase):
         self._refused("is on two lines", lines=self._secures((PO, self.po), (PO, self.po)))
 
     def test_a_payment_cheque_cannot_name_a_secured_record(self):
-        # The Tracker's Payment cheque rule refuses it first; the `validate` controller would too.
-        self._refused("a Payment cheque pays PO payments only", cheque_type=None, issue_date=None, lines=self._secures((PO, self.po)))
+        # The `validate` controller refuses it on every writer; the Tracker makes no Payment cheque (spec #1514).
+        values = self._values(lines=self._secures((PO, self.po)), cheque_type=None, issue_date=None)
+        self._refused("only a Security Deposit cheque names a PO it secures", self.cheques.plant_cheque,
+                      status=PENDING, **values)
 
     def test_the_same_bank_and_number_as_any_cheque_is_refused(self):
         number = self.cheques.number()

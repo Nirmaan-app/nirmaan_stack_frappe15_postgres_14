@@ -2,11 +2,12 @@ import { useState } from "react";
 import { useFrappeEventListener, useFrappeGetCall } from "frappe-react-sdk";
 import { Loader2, Plus } from "lucide-react";
 
-import { AddChequeDialog } from "@/components/cheques/AddChequeDialog";
 import { ChequeDetailDialog } from "@/components/cheques/ChequeDetailDialog";
 import { ChequeStatusBadge } from "@/components/cheques/ChequeStatusBadge";
+import { SecurityDepositChequeForm } from "@/components/cheques/SecurityDepositChequeForm";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { CHEQUE_ACCESS_PROFILES } from "@/constants/roles";
 import { useUserData } from "@/hooks/useUserData";
@@ -141,11 +142,11 @@ export const PoChequesCard = ({ record, className }: PoChequesCardProps) => {
                     </Table>
                 )}
             </CardContent>
-            <AddChequeDialog
+            <AddDepositChequeDialog
                 open={adding}
                 onOpenChange={setAdding}
                 onSaved={() => mutate()}
-                depositFrom={{
+                from={{
                     doctype: record.doctype,
                     name: record.name ?? "",
                     project: record.project ?? "",
@@ -156,3 +157,34 @@ export const PoChequesCard = ({ record, className }: PoChequesCardProps) => {
         </Card>
     );
 };
+
+interface AddDepositChequeDialogProps {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    onSaved: () => void;
+    /** The PO the deposit secures, with its Vendor (#1486). */
+    from: DepositPageRecord;
+}
+
+/** "Add Security Deposit Cheque": the one place a cheque is added by hand (spec #1514). */
+const AddDepositChequeDialog = ({ open, onOpenChange, onSaved, from }: AddDepositChequeDialogProps) => (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
+            <DialogHeader>
+                <DialogTitle>Add Security Deposit Cheque</DialogTitle>
+                <DialogDescription>
+                    Made out to this Vendor, naming {from.name}. Upload its photo, then add anything else it secures.
+                </DialogDescription>
+            </DialogHeader>
+            {/* The content mounts with each opening, so the form starts fresh. */}
+            <SecurityDepositChequeForm
+                from={from}
+                onDone={() => {
+                    onOpenChange(false);
+                    onSaved();
+                }}
+                onCancel={() => onOpenChange(false)}
+            />
+        </DialogContent>
+    </Dialog>
+);

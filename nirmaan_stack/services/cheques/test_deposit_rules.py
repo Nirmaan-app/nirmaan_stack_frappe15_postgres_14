@@ -152,15 +152,15 @@ class TestEditingADepositCheque(unittest.TestCase):
     def test_an_issued_deposit_changes_in_full_and_a_cancelled_one_only_its_photo(self):
         before, after = _header(), _header(amount=150000, attachment="/private/files/new.jpg")
         lines = [_secured()]
-        self.assertIsNone(edit_rules.edit_problem(before, after, status="Issued", made_from="Report", lines_before=[],
+        self.assertIsNone(edit_rules.edit_problem(before, after, status="Issued", lines_before=[],
                                              lines_after=lines, cheque_type=SD))
         self.assertEqual(
-            edit_rules.edit_problem(before, after, status="Cancelled", made_from="Report", lines_before=[],
+            edit_rules.edit_problem(before, after, status="Cancelled", lines_before=[],
                                lines_after=[], cheque_type=SD),
             "Cheque 000760 is Cancelled: only its photo can change.",
         )
         photo_only = _header(attachment="/private/files/new.jpg")
-        self.assertIsNone(edit_rules.edit_problem(before, photo_only, status="Cancelled", made_from="Report",
+        self.assertIsNone(edit_rules.edit_problem(before, photo_only, status="Cancelled",
                                              lines_before=lines, lines_after=lines, cheque_type=SD))
 
 

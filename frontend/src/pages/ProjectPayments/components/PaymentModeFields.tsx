@@ -108,7 +108,7 @@ export const PaymentModeFields = ({
 		set({ attachment: "", photoBusy: !!file });
 		if (!file) return;
 		try {
-			// Uploaded unattached, as Add Cheque does: saving the Cheque attaches it.
+			// Uploaded unattached, as the Security Deposit cheque form does: saving the Cheque attaches it.
 			const uploaded = await upload(file, { isPrivate: true });
 			if (session !== uploadSession.current) return;
 			set({ attachment: uploaded.file_url });

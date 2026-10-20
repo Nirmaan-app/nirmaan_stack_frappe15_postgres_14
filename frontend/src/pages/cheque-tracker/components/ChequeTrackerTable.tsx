@@ -3,11 +3,15 @@
  * (`api/cheques/list_cheques.get_cheques`), narrowed by the tab's own filters (`utils/cheques/chequeTabs`).
  *
  * - All Cheques: every Cheque, the summary strip (All / Pending / Issued / Cleared / Cancelled over the
- *   table's filters and search), Add Cheque.
+ *   table's filters and search).
  * - Cheque Issued – Reconciliation Pending: the Issued Payment cheques waiting for the bank, oldest issue first,
  *   with days since issue, the Stale flag and the payment count.
  * - Security Deposits (#1486): every deposit cheque, newest issue first, with what it secures; what is held now
- *   and what came back; Add Security Deposit Cheque. A deposit is only ever marked returned (Cancelled).
+ *   and what came back. A deposit is only ever marked returned (Cancelled).
+ *
+ * No tab adds a cheque (spec #1514): a Payment cheque is made with its payment by a PO's Request Payment in
+ * Cheque mode, a Security Deposit cheque from the PO page's cheques card. Edit corrects a cheque's number, bank,
+ * date and photo, never what it pays.
  *
  * Each row expands into its lines. Its buttons come from `chequeRowActions`: Cancel opens the Cancel dialog (every
  * payment becomes Rejected), #1484. Nothing here clears a cheque (#1516): only an imported bank-statement line
@@ -17,19 +21,18 @@
 
 import { useMemo, useState } from "react";
 import { useFrappeEventListener } from "frappe-react-sdk";
-import { Info, Plus, ShieldCheck } from "lucide-react";
+import { Info, ShieldCheck } from "lucide-react";
 
-import { AddChequeDialog } from "@/components/cheques/AddChequeDialog";
 import { useChequeEdit } from "@/components/cheques/useChequeEdit";
 import { CancelChequeDialog } from "@/components/cheques/CancelChequeDialog";
 import { ChequeDetailDialog, type ChequeDetailActions } from "@/components/cheques/ChequeDetailDialog";
 import { ChequeLinesView } from "@/components/cheques/ChequeLinesView";
+import { EditChequeDialog } from "@/components/cheques/EditChequeDialog";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
-import { Button } from "@/components/ui/button";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { useUserData } from "@/hooks/useUserData";
-import { CHEQUE_TYPE, CHEQUES_CHANGED_EVENT } from "@/types/NirmaanStack/Cheques";
+import { CHEQUES_CHANGED_EVENT } from "@/types/NirmaanStack/Cheques";
 import { chequeRowActions } from "@/utils/cheques/chequeRowActions";
 import { canCancelCheques } from "@/utils/cheques/chequeStatus";
 import { CHEQUE_TRACKER_TAB, chequeTabFilters, type ChequeTrackerTab } from "@/utils/cheques/chequeTabs";
@@ -79,7 +82,6 @@ export function ChequeTrackerTable({ tab, onChanged }: ChequeTrackerTableProps) 
     const isIssuedTab = tab === CHEQUE_TRACKER_TAB.ISSUED;
     const isDepositsTab = tab === CHEQUE_TRACKER_TAB.DEPOSITS;
     const tabFilters = useMemo(() => chequeTabFilters(tab), [tab]);
-    const [adding, setAdding] = useState(false);
     const { target: editing, openEdit, closeEdit } = useChequeEdit();
     const [detail, setDetail] = useState<string | null>(null);
     const [cancelling, setCancelling] = useState<string | null>(null);
@@ -205,28 +207,8 @@ export function ChequeTrackerTable({ tab, onChanged }: ChequeTrackerTableProps) 
                 onExportAll={exportAllRows}
                 isExporting={isExporting}
                 exportFileName={URL_KEY[tab]}
-                toolbarActions={
-                    <div className="flex items-center gap-2">
-                        {!isIssuedTab && (
-                            <Button size="sm" onClick={() => setAdding(true)}>
-                                <Plus className="mr-1 h-4 w-4" /> {isDepositsTab ? "Add Security Deposit Cheque" : "Add Cheque"}
-                            </Button>
-                        )}
-                    </div>
-                }
             />
-            <AddChequeDialog
-                open={adding}
-                onOpenChange={setAdding}
-                onSaved={refresh}
-                initialType={isDepositsTab ? CHEQUE_TYPE.SECURITY_DEPOSIT : undefined}
-            />
-            <AddChequeDialog
-                open={Boolean(editing)}
-                edit={editing}
-                onOpenChange={(open) => !open && closeEdit()}
-                onSaved={refresh}
-            />
+            <EditChequeDialog edit={editing} onClose={closeEdit} onSaved={refresh} />
             <ChequeDetailDialog
                 cheque={detail}
                 onClose={() => setDetail(null)}
