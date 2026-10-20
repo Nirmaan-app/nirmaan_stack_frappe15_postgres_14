@@ -154,10 +154,18 @@ describe("AC2 -- D1 to D4", () => {
 // ── U3: a part named but not used, said on the box ─────────────────────────────────────────────────────────────────
 describe("U3 -- a part the face does not use is said so", () => {
   it("POSITIVE: a length is named on the width's line and the refusal names the missing Height", () => {
+    // INVERTED at ADP-3c (owner 2026-10-21 01:31 / 01:55: on a Width + Height item a two-part size is the face whatever
+    // its parts are called) by mechanical authority -- this is the declared row 00302 Sheet1 r67. BEFORE: the width note
+    // "BoQ says 600(L)X150mm width -> width 150 mm; 600(L) named as a length - not used", the reason "curved grille needs
+    // Width + Height, or Area band - Height not stated - price this row by hand", and face_h_mm blank. The length is
+    // still named and not used where the item reads the height alone (a per-metre grille), below.
     const s = panel(CFG49, "nos", { family: "curved grille", size_mm: "600(L)X150mm width" });
-    expect(field(s, "face_w_mm")!.note).toBe("BoQ says 600(L)X150mm width -> width 150 mm; 600(L) named as a length - not used");
-    expect(s.itemList!.reason).toBe("curved grille needs Width + Height, or Area band - Height not stated - price this row by hand");
-    expect(field(s, "face_h_mm")!.blank).toBe(true);
+    expect(field(s, "face_w_mm")!.note).toBe("BoQ says 600(L)X150mm width -> width 150 mm");
+    expect(field(s, "face_h_mm")!.note).toBe("BoQ says 600(L)X150mm width -> height 600 mm (the other part of a two-part size)");
+    expect(s.itemList!.reason ?? null).toBeNull();
+    expect(field(s, "face_h_mm")!.blank).toBe(false);
+    const g = panel(CFG49, "rmt", { family: "linear grille", size_mm: "600(L) x 150 mm (H)" });
+    expect(field(g, "face_h_mm")!.note).toBe("BoQ says 600(L) x 150 mm (H) -> height 150 mm; 600(L) named as a length - not used");
   });
   it("POSITIVE: a size that gives no face side at all is named by that size; NEGATIVE: a clean size names nothing", () => {
     expect(panel(CFG49, "nos", { family: "VCD", variant: "GI rectangular", size_mm: "1500 mm long" }).itemList!.reason)
@@ -206,9 +214,11 @@ describe("U6 -- the ADP Derivation lines (generated from face_side), LAST", () =
   const NEW = ["The width and height are typed in their own boxes, else read from the size", "A third part of a size never displaces the face",
     "A kind that reads only the height, sized by one dimension written as a width, takes it as the height"];
   it("POSITIVE: v49 ends with the three lines; NEGATIVE: v48 carries none of them, and its lines are v49's first ones", () => {
-    expect(titles(CFG49).slice(-3)).toEqual(NEW);
+    // INVERTED at ADP-3c (U2: its one line is added LAST, after these three) by mechanical authority. BEFORE:
+    // `titles(CFG49).slice(-3)` and `titles(CFG49).slice(0, -3)`.
+    expect(titles(CFG49).slice(-4, -1)).toEqual(NEW);
     for (const t of NEW) expect(titles(CFG48)).not.toContain(t);
-    const t48 = titles(CFG48), t49 = titles(CFG49).slice(0, -3);
+    const t48 = titles(CFG48), t49 = titles(CFG49).slice(0, -4);
     // the one line whose words follow the group label (ADP-3a's either-or line) reads "Width + Height" on v49
     expect(t49.map((t) => t.replace("Width + Height", "Size (W x H)"))).toEqual(t48);
   });

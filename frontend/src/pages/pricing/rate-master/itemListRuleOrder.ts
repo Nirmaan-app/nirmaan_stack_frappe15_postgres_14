@@ -639,5 +639,14 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
           `${list(heightOnly, 4)}: '150mm width' -> height 150 mm, with a line saying it is the narrow dimension; an unlabelled single number stays the width, as before`);
     }
   }
+  // ── 13. ADP-3c (owner 2026-10-21 01:31 / 01:55 "ok to both"): a two-part size on a Width + Height item is the face
+  // whatever its parts are called -- ADDED LAST, generated where the config has BOTH face sides (a config without adds nothing)
+  {
+    const sides = new Set(Object.values<any>(pr.numbers ?? {}).filter((x) => x?.typed_only && x?.length_from && x?.face_side).map((x) => String(x.face_side)));
+    if (sides.has("width") && sides.has("height")) {
+      add("A two-part size on a Width + Height item is the face, whatever its parts are called",
+          "a width or height label decides that side, else first = width, second = height");
+    }
+  }
   return out;
 }

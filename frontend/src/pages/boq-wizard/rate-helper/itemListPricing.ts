@@ -1432,6 +1432,12 @@ export function readBoxSides(
  *
  * Returns null when the text is not one to three x-joined readable parts, or two parts name the same side -- the
  * caller then reads the WHOLE text as the width, exactly as the width axis did before (a list keeps its named refusal).
+ *
+ * ADP-3c (owner 2026-10-21 01:31 / 01:55 "ok to both") -- `pair`: on an item that reads BOTH sides, a size of EXACTLY
+ * TWO parts is the face whatever its parts are called. A width or height label decides that side and the other part
+ * takes the other side ("600(L)X150mm width" -> width 150, height 600); with no width / height label, or both parts
+ * naming the same side ("600 W x 300 W"), the first is the width and the second the height. One part, three parts
+ * (D1), and the height-only grille (D2, not a pair) read exactly as above.
  */
 const _FACE_LABELS: Array<{ re: RegExp; side: "width" | "height" | "length" | "depth" }> = [
   { re: /(^|[^a-z])(?:w|wide|width)([^a-z]|$)/i, side: "width" },
@@ -1441,14 +1447,14 @@ const _FACE_LABELS: Array<{ re: RegExp; side: "width" | "height" | "length" | "d
 ];
 export type FaceSide = "width" | "height";
 export interface FaceSides {
-  width?: { part: string; how: "as written" | "by position" };
-  height?: { part: string; how: "as written" | "by position" };
+  width?: { part: string; how: "as written" | "by position"; line?: string };
+  height?: { part: string; how: "as written" | "by position"; line?: string };
   /** the parts the face does not use, as the panel says them ("600(L) named as a length - not used") */
   notUsed: string[];
   /** how many parts the text has */
   parts: number;
 }
-export function readFaceSides(text: string | number | null | undefined): FaceSides | null {
+export function readFaceSides(text: string | number | null | undefined, opts: { pair?: boolean } = {}): FaceSides | null {
   if (text === null || text === undefined) return null;
   const raw = String(text).trim();
   if (raw === "" || raw === "None") return null;
@@ -1460,6 +1466,24 @@ export function readFaceSides(text: string | number | null | undefined): FaceSid
     const hit = _FACE_LABELS.filter((a) => a.re.test(tail));
     return hit.length === 1 ? hit[0].side : null;
   };
+  // ADP-3c: a two-part size on a W + H item -- the face whatever its parts are called
+  if (opts.pair && parts.length === 2) {
+    const [a, b] = parts;
+    const la = labelOf(a), lb = labelOf(b);
+    const face = (l: string | null): FaceSide | null => (l === "width" || l === "height" ? l : null);
+    const fa = face(la), fb = face(lb);
+    const flip = (s: FaceSide): FaceSide => (s === "width" ? "height" : "width");
+    // a width / height label decides its side (the other part takes the other); else by position
+    const [sa, sb]: [FaceSide, FaceSide] = fa && fa !== fb ? [fa, flip(fa)] : fb && fb !== fa ? [flip(fb), fb] : ["width", "height"];
+    const decided = (fa && fa !== fb) || (fb && fb !== fa);
+    // a part whose own label is not the side it takes (a length, a depth, a repeated side) says how it landed; a part
+    // read exactly as today says nothing new
+    const entry = (p: string, l: string | null, s: FaceSide, nth: string) => ({
+      part: p, how: l === s ? "as written" as const : "by position" as const,
+      ...(l !== null && l !== s ? { line: decided ? "the other part of a two-part size" : `the ${nth} part of a two-part size` } : {}),
+    });
+    return { [sa]: entry(a, la, sa, "first"), [sb]: entry(b, lb, sb, "second"), notUsed: [], parts: 2 };
+  }
   const out: FaceSides = { notUsed: [], parts: parts.length };
   const free: string[] = [];
   for (const p of parts.slice(0, 2)) {
@@ -2882,18 +2906,22 @@ function priceOneItem(
           }
         } else if (reader.face_side) {
           // ADP-3b (owner B1, D1): one side of the FACE the size states; a part the face does not use is said once
-          const face = readFaceSides(said);
+          const readsSide = (s: FaceSide) => [...readsHere].some((a) => spec.numbers[a]?.face_side === s && spec.numbers[a]?.length_from === reader.length_from);
+          const widthRead = readsSide("width");
+          // ADP-3c: an item that reads BOTH sides of the face is a W + H pair -- a two-part size is its face whatever
+          // its parts are called
+          const face = readFaceSides(said, { pair: widthRead && readsSide("height") });
           if (face) {
             faceUnused = face.notUsed;
             let side = face[reader.face_side];
             // ADP-3b (owner D2): a family that reads the HEIGHT alone (a per-metre grille), sized by ONE dimension the
             // BoQ writes as a width ("150mm width"), takes it as the height -- the grille's narrow dimension
-            const widthRead = [...readsHere].some((a) => spec.numbers[a]?.face_side === "width" && spec.numbers[a]?.length_from === reader.length_from);
             if (!side && reader.face_side === "height" && !widthRead && face.parts === 1 && face.width?.how === "as written") {
               side = face.width;
               how = `the ${String(family ?? "").split(" ").pop()}'s narrow dimension`;
             }
             if (side) part = side.part;
+            if (side?.line) how = side.line;
           } else if (reader.face_side === "width") {
             // not a face this reader can split: the WHOLE text is the width, exactly as the width axis read it before
             // (a lone range takes its top; a list or an inch size keeps its named refusal)

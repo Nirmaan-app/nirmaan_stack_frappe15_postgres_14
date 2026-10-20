@@ -232,6 +232,9 @@ const T = {
   faceD2: "A kind that reads only the height, sized by one dimension written as a width, takes it as the height",
   // ADP-3a's either-or line, worded by the group the v49 boxes form
   a3EitherFace: "A per-number item needs Width + Height, or Area band; with neither stated it refuses, naming both",
+  // ── ADP-3c (owner 2026-10-21 01:31 / 01:55): the one line it adds, LAST on ADP's tab, generated where a config has BOTH
+  // face sides (v49 -- no config change; its cases run on the ADP-3b config, = v49) ──
+  faceAny: "A two-part size on a Width + Height item is the face, whatever its parts are called",
 };
 /** Tab lines that are NOT panel-path rules (a catalogue / rate-master rule the pricer never reads), by name. */
 const NOT_PANEL_RULES: Record<string, string> = {
@@ -613,6 +616,13 @@ const CASES: Case[] = [
   { id: "B3b-neg", rule: T.faceD2, cat: ADP, path: "panel", kind: "neg", unit: "rmt", adp3b: true, model: [{ family: "linear grille", size_mm: "150 mm" }], re: ["per-metre row: no height stated to convert the per-sq.m rate"], not: ["narrow dimension"], priced: false },
   { id: "B4a", rule: T.a3EitherFace, cat: ADP, path: "panel", kind: "pos", unit: "nos", adp3b: true, model: [{ family: "VCD", variant: "GI rectangular" }], re: ["VCD needs Width + Height, or Area band - neither stated - price this row by hand"], priced: false },
   { id: "B4b-neg", rule: T.a3EitherFace, cat: ADP, path: "panel", kind: "neg", unit: "nos", adp3b: true, model: [{ family: "VCD", variant: "GI rectangular", size_mm: "550X300" }], re: [], not: ["neither stated"], priced: true },
+  // ── ADP-3c (owner 2026-10-21): a two-part size on a W + H item is the face whatever its parts are called (v49) ──
+  { id: "C1a", rule: T.faceAny, cat: ADP, path: "panel", kind: "pos", unit: "nos", adp3b: true, model: [{ family: "curved grille", size_mm: "600(L)X150mm width" }], re: ["face_w_mm:BoQ says 600(L)X150mm width -> width 150 mm", "face_h_mm:BoQ says 600(L)X150mm width -> height 600 mm (the other part of a two-part size)"], not: ["not used"], working: ["height: BoQ says 600(L)X150mm width -> height 600 mm (the other part of a two-part size)"], priced: true },
+  { id: "C1b", rule: T.faceAny, cat: ADP, path: "panel", kind: "pos", unit: "nos", adp3b: true, model: [{ family: "door grille", size_mm: "900mm(L)x150mm (H)" }], re: ["face_w_mm:BoQ says 900mm(L)x150mm (H) -> width 900 mm (the other part of a two-part size)", "face_h_mm:BoQ says 900mm(L)x150mm (H) -> height 150 mm"], priced: true },
+  { id: "C1c", rule: T.faceAny, cat: ADP, path: "panel", kind: "pos", unit: "nos", adp3b: true, model: [{ family: "VCD", variant: "GI rectangular", size_mm: "600 W x 300 W" }], re: ["face_h_mm:BoQ says 600 W x 300 W -> height 300 mm (the second part of a two-part size)"], priced: true },
+  { id: "C1a-calc", rule: T.faceAny, cat: ADP, path: "calc", kind: "pos", adp3b: true, edits: calc("cross-talk", { size_mm: "250(L) x 500(W)" }, ["size_mm"]), rowUnit: "nos", re: ["face_h_mm:BoQ says 250(L) x 500(W) -> height 250 mm (the other part of a two-part size)"], priced: true },
+  { id: "C1b-neg", rule: T.faceAny, cat: ADP, path: "panel", kind: "neg", unit: "rmt", adp3b: true, model: [{ family: "linear grille", size_mm: "600(L) x 150 mm (H)" }], re: ["face_h_mm:BoQ says 600(L) x 150 mm (H) -> height 150 mm; 600(L) named as a length - not used"], not: ["two-part size"], priced: true },
+  { id: "C1c-neg", rule: T.faceAny, cat: ADP, path: "panel", kind: "neg", unit: "nos", adp3b: true, model: [{ family: "VCD", variant: "GI rectangular", size_mm: "550X300" }], re: ["face_w_mm:BoQ says 550X300 -> width 550 mm"], not: ["two-part size"], priced: true },
   { id: "P8c-neg", rule: T.drainCpvc, cat: PIP, path: "calc", kind: "neg", edits: [{ base: null, family: null, attrs: { size_mm: "25" }, other: ["size_mm"] }], rowUnit: "mts", re: ["no pipe type could be told for this item"], not: ["no material stated", "family:CPVC"], priced: false },
 ];
 
@@ -866,8 +876,10 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
     const NEW = [T.faceBoxes, T.faceThird, T.faceD2];
     const t3 = (cat: string) => itemListRuleOrder(CFG_ADP3B[cat], ITEMS_ADP2).map((l) => l.title);
     const t2 = (cat: string) => itemListRuleOrder(CFG_ADP2[cat], ITEMS_ADP2).map((l) => l.title);
-    expect(t3(ADP).slice(-NEW.length)).toEqual(NEW);
-    expect(t3(ADP).filter((t) => !t2(ADP).includes(t)).sort()).toEqual([...NEW, T.a3EitherFace].sort());
+    // INVERTED at ADP-3c (U2: its one line, generated from the same v49 keys, is added LAST) by mechanical authority.
+    // BEFORE: `t3(ADP).slice(-NEW.length)` and the gained set `[...NEW, T.a3EitherFace]`.
+    expect(t3(ADP).slice(-NEW.length - 1, -1)).toEqual(NEW);
+    expect(t3(ADP).filter((t) => !t2(ADP).includes(t)).sort()).toEqual([...NEW, T.a3EitherFace, T.faceAny].sort());
     expect(t2(ADP).filter((t) => !t3(ADP).includes(t))).toEqual([T.a3Either]);
     for (const t of [...NEW, T.a3EitherFace]) {
       const mine = CASES.filter((c) => c.cat === ADP && c.rule === t && c.adp3b);
@@ -876,6 +888,22 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
     // the named set EQUALS the generated set: every ADP-3b case names a line v49 generates
     for (const c of CASES.filter((x) => x.adp3b)) expect({ id: c.id, generated: t3(c.cat).includes(c.rule) }).toEqual({ id: c.id, generated: true });
     for (const cat of [INS, PIP]) expect(t3(cat)).toEqual(t2(cat));
+  });
+
+  // ADP-3c (owner 2026-10-21 01:31 / 01:55; AC3): THE ADP-3c GUARD on v49 (the ADP-3b config; no config change) -- its one
+  // line is generated there, LAST, named by EXACTLY the C cases (C1a, C1b, C1c, C1a-calc, C1b-neg, C1c-neg), with a
+  // positive case off the calculator, one on it, and a negative; v48 (no face sides) and Insulation / Piping never carry it
+  it("ADP-3c: the new ADP line (v49) is LAST, named by exactly its cases (pos panel, pos calc, neg); v48, Insulation and Piping lack it", () => {
+    const t3 = (cat: string) => itemListRuleOrder(CFG_ADP3B[cat], ITEMS_ADP2).map((l) => l.title);
+    const t2 = (cat: string) => itemListRuleOrder(CFG_ADP2[cat], ITEMS_ADP2).map((l) => l.title);
+    expect(t3(ADP).at(-1)).toBe(T.faceAny);
+    const mine = CASES.filter((c) => c.rule === T.faceAny);
+    expect(mine.map((c) => c.id)).toEqual(["C1a", "C1b", "C1c", "C1a-calc", "C1b-neg", "C1c-neg"]);
+    expect(mine.every((c) => c.cat === ADP && c.adp3b)).toBe(true);
+    expect({ panelPos: mine.some((c) => c.kind === "pos" && c.path === "panel"), calcPos: mine.some((c) => c.kind === "pos" && c.path === "calc"), neg: mine.some((c) => c.kind === "neg") })
+      .toEqual({ panelPos: true, calcPos: true, neg: true });
+    expect(t2(ADP)).not.toContain(T.faceAny);
+    for (const cat of [INS, PIP]) expect(t3(cat)).not.toContain(T.faceAny);
   });
 
   it("12e-6c: every new Insulation line (live v46) has a positive and a negative case; ADP and Piping gain none", () => {

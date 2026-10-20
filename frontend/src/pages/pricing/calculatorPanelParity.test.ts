@@ -1039,6 +1039,22 @@ describe("ADP-3b parity -- one case per new rule (face boxes B1, third part D1, 
     const run = runParity(cfgB, itemsB, r.c, "full");
     expect({ id: r.id, rule: r.rule, divergences: run.divergences }).toEqual({ id: r.id, rule: r.rule, divergences: [] });
   });
+
+  // ADP-3c (owner 2026-10-21 01:31 / 01:55; AC3): its one line keeps permanent parity cases on the same config (= v49; no
+  // config change) -- a length beside a labelled width (the 00302 r67 shape), and the face-matched cross-talk whose SKU
+  // is found only when the label, not the position, decides
+  const CASES_ADP3C: Array<{ id: string; rule: string; c: ParityCase }> = [
+    { id: "R1", rule: "A two-part size on a Width + Height item is the face, whatever its parts are called", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: "curved grille", size_mm: "600(L)X150mm width" }] } },
+    { id: "R2", rule: "A two-part size on a Width + Height item is the face, whatever its parts are called", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: "cross-talk", size_mm: "250(L) x 500(W)" }] } },
+  ];
+  it("ADP-3c: the cases name the new line, and it is on the tab", () => {
+    const t = itemListRuleOrder(cfgB.get(ADP)!, itemsB).map((l) => l.title);
+    for (const r of CASES_ADP3C) expect({ id: r.id, onTab: t.includes(r.rule), last: t.at(-1) === r.rule }).toEqual({ id: r.id, onTab: true, last: true });
+  });
+  it.each(CASES_ADP3C.map((r) => [r.id, r] as const))("ADP-3c %s: the calculator and the panel agree, and both price", (_, r) => {
+    const run = runParity(cfgB, itemsB, r.c, "full");
+    expect({ id: r.id, divergences: run.divergences, bothPriced: hasPrice(run.panel) && hasPrice(run.calculator) }).toEqual({ id: r.id, divergences: [], bothPriced: true });
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════
