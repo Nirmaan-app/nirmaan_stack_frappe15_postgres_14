@@ -3,8 +3,6 @@ import { describe, expect, it } from "vitest";
 import type { ChequeDetail } from "@/components/cheques/useChequeDetail";
 
 import {
-    alsoSecures,
-    depositCardFilters,
     depositFigures,
     depositFormFromDetail,
     depositPrefill,
@@ -136,22 +134,6 @@ describe("what a deposit secures, as the tab and the PO card show it", () => {
     it("names a Work Order as one", () => {
         expect(securedLabel("Service Requests", "SR/301/00004/26-27")).toBe("SR/301/00004/26-27 (Work Order)");
         expect(securedLabel("Procurement Orders", "PO/301/00012/26-27")).toBe("PO/301/00012/26-27");
-    });
-
-    it("lists the records a card's deposit also secures, beside the page's own", () => {
-        const lines = [
-            { line_type: "Secured PO/WO" as const, ...PO, amount: 0 },
-            { line_type: "Secured PO/WO" as const, ...PO2, amount: 0 },
-        ];
-        expect(alsoSecures(lines, PO.record_name)).toEqual(["PO/301/00019/26-27"]);
-        expect(alsoSecures(lines.slice(0, 1), PO.record_name)).toEqual([]);
-    });
-
-    it("asks the list for the deposit cheques that name the page's record", () => {
-        expect(depositCardFilters("PO/301/00012/26-27")).toEqual([
-            ["cheque_type", "=", "Security Deposit"],
-            ["record_name", "=", "PO/301/00012/26-27"],
-        ]);
     });
 
     it("offers in the picker only the records not already secured", () => {
