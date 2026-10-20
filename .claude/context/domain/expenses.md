@@ -592,9 +592,11 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   Admin profile and any profile that can raise no type (`access.profile_can_raise`). A listed
   profile that has since lost all its types is off the list (story 28): `records_without_review`
   and the Expense Packages read ignore it, and a type's roles changed by any path (Expense Packages,
-  Desk, REST, a fixture sync; or a type deleted) prune it from the stored list (`Expense Type`
+  Desk, REST; or a type deleted) prune it from the stored list (`integrations/controllers/expense_type`
   `on_update` / `after_delete` -> `access.prune_records_without_review`), so giving it a type again
-  does not tick it. Seeded once
+  does not tick it. A fixture sync deletes and re-inserts each type, so `after_delete` stands down
+  while Frappe imports (`frappe.flags.in_import`), the re-insert has no previous version for
+  `on_update` to compare, and the controller's `after_migrate` prunes once against the synced types: a reload never drops a profile whose only type it reloads. Seeded once
   by `v3_0.seed_records_without_review` (Accountant, Accountant Lead, HR Executive, HR Lead).
   Edited only through the admin-gated `api/expense_requests/expense_settings`.
 - **⚠️ `Expense Type` IS A FIXTURE, so `fixtures/expense_type.json` is AUTHORITATIVE.** Every

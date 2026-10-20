@@ -89,7 +89,12 @@ pdf_generator = ["nirmaan_stack.api.pdf_helper.keep_links.keep_links_pdf"]
 # CU-A: after every migrate, create any missing index of the index manifest under its own
 # table-unique name. Frappe's model sync can drop a bare-name index of ANOTHER table; this puts the
 # named one back in the same migrate. It never drops anything.
-after_migrate = ["nirmaan_stack.services.index_manifest.ensure_indexes"]
+after_migrate = [
+    "nirmaan_stack.services.index_manifest.ensure_indexes",
+    # Records without review drops a profile that raises no type, judged on the types the fixture
+    # sync ends with (the sync deletes and re-inserts each type, so its own hooks stand down).
+    "nirmaan_stack.integrations.controllers.expense_type.after_migrate",
+]
 
 # Uninstallation
 # ------------
@@ -211,6 +216,11 @@ doc_events = {
         # Asset History rows: the asset added, and its department set/fixed in Edit.
         "after_insert": "nirmaan_stack.integrations.controllers.asset_master.after_insert",
         "on_update": "nirmaan_stack.integrations.controllers.asset_master.on_update",
+    },
+    "Expense Type": {
+        # A profile a change takes off its last type leaves Records without review (story 28).
+        "on_update": "nirmaan_stack.integrations.controllers.expense_type.on_update",
+        "after_delete": "nirmaan_stack.integrations.controllers.expense_type.after_delete",
     },
     "Asset Category": {
         # Monthly asset audit: ticking "Monthly audit required" opens the cycle month's audits of its assets.

@@ -15,6 +15,7 @@ Run:
 """
 
 import frappe
+from frappe.modules.import_file import import_doc
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.expense_requests.access import records_without_review
@@ -55,6 +56,25 @@ FIELD = "records_without_review"
 
 def _listed() -> list[str]:
 	return [r.role_profile for r in frappe.get_single(SETTINGS).get(FIELD)]
+
+
+AFTER_MIGRATE_PRUNE = "nirmaan_stack.integrations.controllers.expense_type.after_migrate"
+
+
+def _reload_like_a_fixture_sync(expense_type, roles=None) -> None:
+	"""Re-import one Expense Type the way a migrate's fixture sync does: the exported row (no
+	owner / creation / child names, as `export_json` writes it) goes through Frappe's `import_doc`,
+	which deletes the stored type for reload and inserts it again. `roles` replaces its profiles."""
+	row = frappe.get_doc("Expense Type", expense_type).as_dict()
+	for key in ("modified_by", "creation", "owner", "idx"):
+		row.pop(key, None)
+	row["allowed_roles"] = [{"role_profile": p} for p in
+	                        (roles if roles is not None else
+	                         [r.role_profile for r in row["allowed_roles"]])]
+	try:
+		import_doc(row, data_import=True, reset_permissions=True)
+	finally:
+		frappe.flags.in_import = False
 
 
 def _write_list(profiles) -> None:
@@ -278,6 +298,35 @@ class TestRecordsWithoutReview(FrappeTestCase):
 		doc.set("allowed_roles", [{"role_profile": r.role_profile} for r in doc.allowed_roles
 		                          if r.role_profile != IDLE_PROFILE])
 		doc.save()
+
+		self.assertEqual(sorted(_listed()), sorted(SEEDED))
+
+	def test_a_fixture_reload_keeps_a_profile_whose_only_type_it_reloads(self):
+		"""A migrate re-imports every Expense Type by deleting it and inserting it again. Between
+		the two the profile raises nothing, but after the sync it raises the type as before, so it
+		stays on the list."""
+		original = frappe.get_all("Expense Type Role", pluck="role_profile", order_by="idx asc",
+		                          filters={"parent": SPARE_TYPE, "parenttype": "Expense Type"})
+		self.addCleanup(self._set_type_roles, SPARE_TYPE, original)
+		self._set_type_roles(SPARE_TYPE, original + [IDLE_PROFILE])
+		set_records_without_review(list(SEEDED) + [IDLE_PROFILE])
+
+		_reload_like_a_fixture_sync(SPARE_TYPE)
+
+		self.assertEqual(sorted(_listed()), sorted(list(SEEDED) + [IDLE_PROFILE]))
+
+	def test_after_a_migrate_a_profile_the_fixture_took_off_its_last_type_is_dropped(self):
+		"""The prune judges the state the sync ends in: a fixture that no longer lists the profile on
+		its one type drops it from the list once the migrate is done."""
+		original = frappe.get_all("Expense Type Role", pluck="role_profile", order_by="idx asc",
+		                          filters={"parent": SPARE_TYPE, "parenttype": "Expense Type"})
+		self.addCleanup(self._set_type_roles, SPARE_TYPE, original)
+		self._set_type_roles(SPARE_TYPE, original + [IDLE_PROFILE])
+		set_records_without_review(list(SEEDED) + [IDLE_PROFILE])
+
+		_reload_like_a_fixture_sync(SPARE_TYPE, roles=original)
+		self.assertIn(AFTER_MIGRATE_PRUNE, frappe.get_hooks("after_migrate"))
+		frappe.get_attr(AFTER_MIGRATE_PRUNE)()
 
 		self.assertEqual(sorted(_listed()), sorted(SEEDED))
 
