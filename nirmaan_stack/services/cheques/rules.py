@@ -175,7 +175,7 @@ def header_problem(
     if not header.cheque_no:
         return "Enter the cheque number."
     if not header.cheque_date:
-        return "Enter the cheque date."
+        return "Enter the Cheque/Payment Date."
     if header.amount <= 0:
         return "Enter a cheque amount greater than 0."
     if header.vendor and header.payee_name:

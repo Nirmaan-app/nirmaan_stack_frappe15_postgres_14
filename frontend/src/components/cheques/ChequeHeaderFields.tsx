@@ -11,7 +11,7 @@ import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/comp
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { CHEQUE_BANK, type ChequeBank } from "@/types/NirmaanStack/Cheques";
+import { CHEQUE_BANK, CHEQUE_PAYMENT_DATE_LABEL, type ChequeBank } from "@/types/NirmaanStack/Cheques";
 import { isFromPhoto, type ChequePhotoField } from "@/utils/cheques/chequePhoto";
 
 /** The red asterisk on a required field's label. */
@@ -172,7 +172,7 @@ export const ChequeHeaderFields = <T extends ChequeHeaderInput, V extends FieldV
                     name="cheque_date"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>Cheque date<Required />{fromPhoto("cheque_date") && <FromPhotoTag />}</FormLabel>
+                            <FormLabel>{CHEQUE_PAYMENT_DATE_LABEL}<Required />{fromPhoto("cheque_date") && <FromPhotoTag />}</FormLabel>
                             <FormControl>
                                 <Input
                                     type="date"

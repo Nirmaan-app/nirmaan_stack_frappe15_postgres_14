@@ -17,7 +17,7 @@ export const CHEQUE_CHIPS_API = "nirmaan_stack.api.cheques.cheque_chips.get_cheq
 export const chequeChipText = (chequeNo: string, status?: string | null): string =>
     status ? `Cheque ${chequeNo} · ${status}` : `Cheque ${chequeNo}`;
 
-/** A Cheque's date (its cheque date, when it was made, a status change) as shown and exported; blank when unset. */
+/** A Cheque's date (its Cheque/Payment Date, when it was made, a status change) as shown and exported; blank when unset. */
 export const chequeDateText = (v?: string | null): string => (v ? formatDate(v) : "");
 
 const STATUS_TONE: Record<ChequeStatus, string> = {

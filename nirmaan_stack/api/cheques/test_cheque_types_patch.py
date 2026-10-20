@@ -5,7 +5,8 @@
 
 Drives the patch's entry function (`migrate_cheques`) on planted Cheques only, the way `execute` runs it
 over every Cheque, and reads back what a user then sees: each Cheque's type, status, Old-type flag, issue
-and clearance dates and history, and what the patch reports.
+and Cheque/Payment Dates and history, and what the patch reports. Since #1520 the clearance date the patch
+works out for a Cleared cheque is written into its Cheque/Payment Date (`writer.reshape_old_cheque`).
 
 Each planted Cheque is made through the cheques service, then put back into its pre-#1478 state with raw
 writes (no type, a status the old rules allowed): that is the old data the patch meets.
@@ -100,7 +101,7 @@ class TestChequeTypesPatch(FrappeTestCase):
             "status": doc.status,
             "old_type": doc.old_type,
             "issue_date": str(doc.issue_date) if doc.issue_date else None,
-            "clearance_date": str(doc.clearance_date) if doc.clearance_date else None,
+            "cheque_date": str(doc.cheque_date),
         }
 
     def _history(self, name):
@@ -113,7 +114,7 @@ class TestChequeTypesPatch(FrappeTestCase):
         result = self._migrate()
 
         self.assertEqual(self._read(name), {"type": "Payment", "status": "Approval Pending", "old_type": 0,
-                                            "issue_date": None, "clearance_date": None})
+                                            "issue_date": None, "cheque_date": "2026-09-01"})
         self.assertEqual(self._history(name)[-1][:2], ("Issued", "Approval Pending"))
         self.assertEqual([(c["cheque"], c["from_status"], c["status"]) for c in result["changed"]],
                          [(name, "Issued", "Approval Pending")])
@@ -126,7 +127,7 @@ class TestChequeTypesPatch(FrappeTestCase):
         )
         self._migrate()
         self.assertEqual(self._read(name), {"type": "Payment", "status": "Issued", "old_type": 0,
-                                            "issue_date": "2026-09-05", "clearance_date": None})
+                                            "issue_date": "2026-09-05", "cheque_date": "2026-09-01"})
         self.assertEqual(len(self._history(name)), 1)  # the status did not move
 
     def test_a_cheque_whose_payments_are_all_paid_is_cleared_on_their_last_payment_date(self):
@@ -137,7 +138,7 @@ class TestChequeTypesPatch(FrappeTestCase):
         )
         self._migrate()
         self.assertEqual(self._read(name), {"type": "Payment", "status": "Cleared", "old_type": 0,
-                                            "issue_date": "2026-09-03", "clearance_date": "2026-09-12"})
+                                            "issue_date": "2026-09-03", "cheque_date": "2026-09-12"})
         self.assertEqual(self._history(name)[-1][:2], ("Issued", "Cleared"))
 
     def test_a_cleared_cheque_whose_payments_are_not_paid_goes_back_to_issued_with_a_note(self):
@@ -183,7 +184,7 @@ class TestChequeTypesPatch(FrappeTestCase):
         result = self._migrate()
 
         self.assertEqual(self._read(name), {"type": "Payment", "status": "Cleared", "old_type": 1,
-                                            "issue_date": None, "clearance_date": None})
+                                            "issue_date": None, "cheque_date": "2026-09-01"})
         self.assertEqual(len(self._history(name)), 1)
         self.assertEqual([(o["cheque"], o["reason"]) for o in result["old_type"]], [(name, "has no lines")])
 

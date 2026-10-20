@@ -34,7 +34,7 @@ describe("makeChequeFormSchema: a Payment cheque's Edit (spec #1514)", () => {
 
     it("asks for the number and the date", () => {
         expect(problemAt(valid({ cheque_no: "  " }), "cheque_no")).toBe("Enter the cheque number.");
-        expect(problemAt(valid({ cheque_date: "" }), "cheque_date")).toBe("Enter the cheque date.");
+        expect(problemAt(valid({ cheque_date: "" }), "cheque_date")).toBe("Enter the Cheque/Payment Date.");
     });
 
     it("needs the bank's name for Others only", () => {

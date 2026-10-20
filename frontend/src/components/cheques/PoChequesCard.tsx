@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { CHEQUE_ACCESS_PROFILES } from "@/constants/roles";
 import { useUserData } from "@/hooks/useUserData";
 import { cn } from "@/lib/utils";
-import { CHEQUE_TYPE, CHEQUES_CHANGED_EVENT } from "@/types/NirmaanStack/Cheques";
+import { CHEQUE_PAYMENT_DATE_LABEL, CHEQUE_TYPE, CHEQUES_CHANGED_EVENT } from "@/types/NirmaanStack/Cheques";
 import { CHEQUES_LIST_API, chequeTypeLabel, type ChequeRow } from "@/pages/cheque-tracker/config/chequePaymentTable.config";
 import { chequeDateText } from "@/utils/cheques/chequeChip";
 import type { DepositPageRecord } from "@/utils/cheques/chequeDeposit";
@@ -82,7 +82,7 @@ export const PoChequesCard = ({ record, className }: PoChequesCardProps) => {
                                 <TableHead>Bank</TableHead>
                                 <TableHead className="text-right">Amount</TableHead>
                                 <TableHead>Status</TableHead>
-                                <TableHead>Cheque Date</TableHead>
+                                <TableHead>{CHEQUE_PAYMENT_DATE_LABEL}</TableHead>
                                 <TableHead>Issue Date</TableHead>
                                 <TableHead>Also for</TableHead>
                             </TableRow>

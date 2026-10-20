@@ -295,6 +295,10 @@ def reshape_old_cheque(
     `old_type` or not, at `status` with its issue and clearance dates. A status move writes one history
     row by `user`, saying why (`note`). Returns the saved Cheque.
 
+    The clearance date has no field of its own since #1520: a Cleared cheque's Cheque/Payment Date
+    (`cheque_date`) is the day the bank paid it, so `clearance_date`, when given, is written there. The
+    keyword keeps its name because the patch `v3_0.cheque_types_pending_and_dates` passes it.
+
     Only the cheque-types patch calls this; it works the values out from the Cheque's payments
     (`rules.status_from_payments`, `rules.old_type_reason`). Saved through the document, so the `validate`
     controller runs every header and line rule. No payment is written: the status follows the payments,
@@ -308,8 +312,9 @@ def reshape_old_cheque(
         "cheque_type": CHEQUE_TYPE_PAYMENT,
         "old_type": 1 if old_type else 0,
         "issue_date": issue_date,
-        "clearance_date": clearance_date,
     })
+    if clearance_date:
+        doc.cheque_date = clearance_date
     doc.save(ignore_permissions=True)
     return doc
 

@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
     chequeSummary,
     chequeTypeLabel,
-    clearanceText,
     daysSinceIssue,
     firstWithMore,
     hasNoPhoto,
@@ -206,15 +205,3 @@ describe("chequeTypeLabel", () => {
     });
 });
 
-describe("clearanceText", () => {
-    it("shows the clearance date and how the cheque was cleared", () => {
-        expect(clearanceText({ clearance_date: "2026-09-10", cleared_by: "Bank import" })).toBe(
-            "10-Sep-2026 (Bank import)",
-        );
-        expect(clearanceText({ clearance_date: "2026-09-10", cleared_by: null })).toBe("10-Sep-2026");
-    });
-
-    it("is blank while the bank has not paid it", () => {
-        expect(clearanceText({ clearance_date: null, cleared_by: null })).toBe("");
-    });
-});

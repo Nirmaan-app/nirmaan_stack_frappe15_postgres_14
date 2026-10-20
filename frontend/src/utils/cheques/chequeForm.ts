@@ -29,7 +29,7 @@ export const makeChequeFormSchema = ({ photoRequired }: ChequeFormRules) => z
         }),
         bank_name: z.string().optional(),
         cheque_no: z.string().trim().min(1, "Enter the cheque number."),
-        cheque_date: z.string().min(1, "Enter the cheque date."),
+        cheque_date: z.string().min(1, "Enter the Cheque/Payment Date."),
         amount: z.coerce.number({ invalid_type_error: "Enter a cheque amount greater than 0." })
             .gt(0, "Enter a cheque amount greater than 0."),
         payee_kind: z.enum(["vendor", "typed"]),

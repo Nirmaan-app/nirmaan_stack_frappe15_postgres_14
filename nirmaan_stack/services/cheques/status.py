@@ -16,7 +16,8 @@ moved on is issued as it is made (`writer.create_cheque`).
 **Clear** (#1484, #1516). ONLY A BANK-STATEMENT LINE CLEARS A CHEQUE (ADR-0035 Amendment A): nobody clears
 one by hand. `clear` takes an imported line (`Outflow Import Row`) carrying the cheque's number and amount
 and makes every payment on the cheque Paid, with the line's date as each one's payment date, and the
-cheque Cleared, with that date as its clearance date, `CLEARED_BY_BANK_IMPORT`, and the line. The line gets
+cheque Cleared, with that date as its Cheque/Payment Date (`cheque_date`, #1520: the paper date is not
+kept on the Cheque), `CLEARED_BY_BANK_IMPORT`, and the line. The line gets
 one match record (`Outflow Row Match`) per payment, written as the import's own settle writes them, so it
 reads Settled and no longer shows as unmatched. Its caller is the bank import (`bank_import.clear_from_line`).
 It may start from Pending or Cancelled too (`clear_rules.CLEARABLE_FROM`): the bank has already paid, so
@@ -119,8 +120,8 @@ def _refuse(doc, what: str, reason: str):
 
 def clear(cheque: str, *, bank_line: str | None, user: str) -> dict:
     """Clear Payment cheque `cheque` with imported bank line `bank_line`: every payment on it becomes Paid,
-    dated the line's day, and the cheque becomes Cleared on that day, by bank import, with the line
-    recorded on it. Returns `{cheque, cheque_no, status, payments, bank_line, statement_file_url, started}`:
+    dated the line's day, and the cheque becomes Cleared on that day (its Cheque/Payment Date), by bank
+    import, with the line recorded on it. Returns `{cheque, cheque_no, status, payments, bank_line, statement_file_url, started}`:
     the payments it paid, the statement the line came from (the caller links that file to each payment
     after its commit), and the status the cheque was at.
 
@@ -185,7 +186,9 @@ def clear(cheque: str, *, bank_line: str | None, user: str) -> dict:
         note = f"{note.rstrip('.')}: {BANK_REVIVAL_NOTE}."
     doc.append("status_history", history_row(doc.status, CLEARED, user, note))
     doc.status = CLEARED
-    doc.clearance_date = day
+    # The Cheque/Payment Date becomes the day the bank paid (#1520); the paper date is not kept on the
+    # Cheque. Each payment's own `cheque_date` still holds it.
+    doc.cheque_date = day
     doc.cleared_by = CLEARED_BY_BANK_IMPORT
     doc.bank_line = line.name
     doc.save(ignore_permissions=True)

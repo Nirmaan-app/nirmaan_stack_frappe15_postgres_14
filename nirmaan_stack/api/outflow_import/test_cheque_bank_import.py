@@ -87,7 +87,7 @@ class ChequeImportCase(ChequeStatusCase):
 
     def _state(self, cheque):
         return frappe.db.get_value(
-            "Cheques", cheque, ["status", "cleared_by", "bank_line", "clearance_date", "issue_date"], as_dict=True
+            "Cheques", cheque, ["status", "cleared_by", "bank_line", "cheque_date", "issue_date"], as_dict=True
         )
 
     def _old_type(self, number, amount, payments, expenses=()):
@@ -99,7 +99,7 @@ class ChequeImportCase(ChequeStatusCase):
             for p, a in payments
         ] + [{"line_type": "Non-project Expense", "payment_name": e, "amount": a} for e, a in expenses]
         cheque = self.cheques.plant_cheque(
-            status="Issued", bank="ICICI Bank", cheque_no=number, cheque_date=self.day, amount=amount,
+            status="Issued", bank="ICICI Bank", cheque_no=number, cheque_date=add_days(self.day, 3), amount=amount,
             vendor=self.vendor, attachment=PHOTO, lines=lines,
         )
         frappe.db.set_value("Cheques", cheque, "old_type", 1, update_modified=False)  # what the #1478 patch flags
@@ -139,6 +139,10 @@ class TestALineClearsItsCheque(ChequeImportCase):
     def test_an_issued_cheque_is_cleared_and_every_payment_paid_and_linked_to_the_line(self):
         number = self._number()
         cheque, (a, b) = self._issued(30000, 12000, cheque_no=number)
+        paper = add_days(self.day, 5)  # post-dated, so the line's day is told apart from it
+        # Raw on purpose: test setup, a paper date only.
+        frappe.db.set_value("Cheques", cheque, "cheque_date", paper, update_modified=False)
+        frappe.db.commit()
 
         (row,) = self._import((number.lstrip("0"), 42000))
 
@@ -147,7 +151,7 @@ class TestALineClearsItsCheque(ChequeImportCase):
         self.assertEqual(self._legs(row), sorted([(a, "cheque number"), (b, "cheque number")]))
         state = self._state(cheque)
         self.assertEqual(
-            (state.status, state.cleared_by, state.bank_line, str(state.clearance_date)),
+            (state.status, state.cleared_by, state.bank_line, str(state.cheque_date)),
             ("Cleared", "Bank import", row, self.day),
         )
         self.assertEqual(self._history(cheque)[-1][:2], ("Issued", "Cleared"))
@@ -227,6 +231,7 @@ class TestALineClearsItsCheque(ChequeImportCase):
         self.assertEqual(self._legs(row), sorted([(a, "cheque number"), (b, "cheque number")]))
         state = self._state(cheque)
         self.assertEqual((state.status, state.cleared_by, state.bank_line), ("Cleared", "By hand", row))
+        self.assertEqual(str(state.cheque_date), earlier)  # linking moves no date
         self.assertEqual(self._history(cheque), history_before)
         self.assertEqual(self._line(row).row_status, "Settled")
         self.assertIn("already cleared by hand: this line is linked", self._line(row).outcome_note)
@@ -258,7 +263,7 @@ class TestALineClearsAnOldTypeCheque(ChequeImportCase):
         self.assertEqual(self._line(row).row_status, "Settled")
         state = self._state(cheque)
         self.assertEqual(
-            (state.status, state.cleared_by, state.bank_line, str(state.clearance_date)),
+            (state.status, state.cleared_by, state.bank_line, str(state.cheque_date)),
             ("Cleared", "Bank import", row, self.day),
         )
         self.assertEqual(self._history(cheque)[-1][:2], ("Issued", "Cleared"))

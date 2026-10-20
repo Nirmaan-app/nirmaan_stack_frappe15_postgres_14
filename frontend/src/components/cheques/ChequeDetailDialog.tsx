@@ -7,7 +7,7 @@ import { ChequeStatusBadge } from "@/components/cheques/ChequeStatusBadge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { chequeTypeLabel } from "@/pages/cheque-tracker/config/chequePaymentTable.config";
-import { CHEQUE_TYPE } from "@/types/NirmaanStack/Cheques";
+import { CHEQUE_PAYMENT_DATE_LABEL, CHEQUE_TYPE } from "@/types/NirmaanStack/Cheques";
 import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 import { chequeDateText } from "@/utils/cheques/chequeChip";
 import type { ChequeRowAction } from "@/utils/cheques/chequeRowActions";
@@ -36,15 +36,9 @@ const Field = ({ label, children }: { label: string; children: ReactNode }) => (
     </div>
 );
 
-/** "12-10-2026 · By hand", or just the date. */
-const clearedText = (cheque: ChequeDetail) =>
-    cheque.clearance_date
-        ? [chequeDateText(cheque.clearance_date), cheque.cleared_by].filter(Boolean).join(" · ")
-        : "";
-
 /**
- * The Cheque detail view (#1412, spec #1407; #1484): photo, header (type, the cheque, issue and clearance dates,
- * how it was cleared and the bank line), lines and the full status history, with Cancel when the viewer may.
+ * The Cheque detail view (#1412, spec #1407; #1484): photo, header (type, the cheque, its Cheque/Payment Date and
+ * issue date (#1520), and the bank line that cleared it), lines and the full status history, with Cancel when the viewer may.
  * Nothing here clears a cheque (#1516): only an imported bank-statement line does. Holds the Cheque's name and refetches on every Cheque change, so it stays live after a move.
  */
 export const ChequeDetailDialog = ({ cheque: name, onClose, actions }: ChequeDetailDialogProps) => {
@@ -99,9 +93,8 @@ export const ChequeDetailDialog = ({ cheque: name, onClose, actions }: ChequeDet
                                     {cheque.old_type ? " · Old-type" : ""}
                                 </Field>
                                 <Field label="Bank">{cheque.bank_label}</Field>
-                                <Field label="Cheque date">{chequeDateText(cheque.cheque_date)}</Field>
+                                <Field label={CHEQUE_PAYMENT_DATE_LABEL}>{chequeDateText(cheque.cheque_date)}</Field>
                                 <Field label="Issue date">{chequeDateText(cheque.issue_date)}</Field>
-                                <Field label="Clearance date">{clearedText(cheque)}</Field>
                                 <Field label="Bank line">
                                     {line
                                         ? `${chequeDateText(line.added_on)} · ${formatToIndianRupeeOrZero(line.amount)} · No. ${line.reference_id ?? ""} (${line.name})`

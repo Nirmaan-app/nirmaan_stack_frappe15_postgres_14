@@ -166,9 +166,12 @@ class TestOnlyABankLineClears(ChequeStatusCase):
         self.assertEqual(self._statuses(a, b), ["Paid", "Paid"])
         self.assertEqual(self._payment_dates(a, b), [day, day])
         self.assertEqual(self._terms(a, b), ["Paid", "Paid"])
+        # The cheque's Cheque/Payment Date becomes the line's day (#1520); the paper date stays only on each
+        # payment's own cheque date.
         doc = frappe.get_doc("Cheques", cheque)
-        self.assertEqual((doc.status, str(doc.clearance_date), doc.cleared_by, doc.bank_line),
+        self.assertEqual((doc.status, str(doc.cheque_date), doc.cleared_by, doc.bank_line),
                          ("Cleared", day, "Bank import", line))
+        self.assertEqual([str(frappe.db.get_value(PAYMENT, p, "cheque_date")) for p in (a, b)], [nowdate()] * 2)
         self.assertEqual(self._history(cheque)[-1], ("Issued", "Cleared", U, f"Cleared by bank import, bank line {line}."))
         matches = frappe.get_all("Outflow Row Match", filters={"import_row": line},
                                  fields=["target_doctype", "target_name", "target_amount", "match_kind"])
@@ -257,9 +260,8 @@ class TestDetailView(ChequeStatusCase):
         detail = get_cheque(cheque)
 
         self.assertEqual(
-            (detail["cheque_type"], str(detail["issue_date"]), str(detail["clearance_date"]), detail["cleared_by"],
-             detail["bank_line"]),
-            ("Payment", nowdate(), nowdate(), "Bank import", line),
+            (detail["cheque_type"], str(detail["issue_date"]), str(detail["cheque_date"]), detail["bank_line"]),
+            ("Payment", nowdate(), nowdate(), line),
         )
         self.assertEqual((detail["bank_line_detail"]["name"], flt(detail["bank_line_detail"]["amount"])), (line, 20000))
         self.assertEqual([(l["payment_name"], l["payment_status"]) for l in detail["lines"]], [(a, "Paid")])

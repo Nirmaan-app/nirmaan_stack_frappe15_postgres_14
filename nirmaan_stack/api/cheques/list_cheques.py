@@ -8,7 +8,8 @@ Matches the data-table contract (`useServerDataTable`'s `apiEndpoint`): it takes
 `{data, total_count, aggregates, group_by_result}`. Prior art: `api/approvals/get_approval_queue.py`.
 
 Each row is a Cheque with what the table shows: number, cheque type, bank (`bank_label`: the typed name
-for Others), date, issue and clearance dates, how it was cleared, status, amount, description, Vendor or
+for Others), its Cheque/Payment Date (`cheque_date`: the paper date until the bank import clears it, then
+the day the bank paid, #1520), issue date, status, amount, description, Vendor or
 typed payee, who made it, the photo, the Old-type flag, and the last status change ("by <user> . <date>",
 from the Cheque's history).
 
@@ -47,7 +48,7 @@ _BASE = """
     SELECT c.name, c.creation, c.owner, owner_user.full_name AS owner_name,
            c.cheque_no, c.cheque_type, c.bank, c.bank_name,
            CASE WHEN c.bank = 'Others' THEN c.bank_name ELSE c.bank END AS bank_label,
-           c.cheque_date, c.issue_date, c.clearance_date, c.cleared_by, c.bank_line, c.old_type,
+           c.cheque_date, c.issue_date, c.bank_line, c.old_type,
            c.status, c.amount, c.description,
            c.vendor, v.vendor_name, c.payee_name, c.attachment, c.made_from,
            last.changed_by AS status_changed_by, changer.full_name AS status_changed_by_name,
@@ -83,7 +84,8 @@ _LINES = """
 SUMMARY_STATUSES = {"pending": PENDING, "issued": ISSUED, "cleared": CLEARED, "cancelled": CANCELLED}
 
 #: An Issued cheque issued longer ago than this is stale (`stale_count` / `stale_amount`): a cheque is good for
-#: 3 months. A cheque from before issue dates counts from its cheque date. The frontend's `CHEQUE_STALE_DAYS`
+#: 3 months. A cheque from before issue dates counts from its Cheque/Payment Date (an Issued cheque's is still
+#: the paper date). The frontend's `CHEQUE_STALE_DAYS`
 #: (`pages/cheque-tracker/config/chequePaymentTable.config.ts`) flags rows on the same line.
 STALE_AFTER_DAYS = 90
 
@@ -91,11 +93,11 @@ STALE_AFTER_DAYS = 90
 LINE_FILTERS = {"project", "record_name"}
 
 FILTERABLE = {"name", "status", "cheque_type", "bank", "bank_label", "vendor", "payee_name", "made_from", "owner",
-              "cheque_date", "issue_date", "clearance_date", "creation"} | LINE_FILTERS
-DATE_FIELDS = {"cheque_date", "issue_date", "clearance_date", "creation"}
+              "cheque_date", "issue_date", "creation"} | LINE_FILTERS
+DATE_FIELDS = {"cheque_date", "issue_date", "creation"}
 SEARCHABLE = {"cheque_no", "name", "bank_label", "vendor_name", "payee_name", "description"}
 SORTABLE = {"name", "creation", "cheque_no", "cheque_type", "bank_label", "cheque_date", "issue_date",
-            "clearance_date", "status", "amount", "vendor_name",
+            "status", "amount", "vendor_name",
             "payee_name", "owner_name", "status_changed_at"}
 
 _OPERATORS = {"=": "=", "!=": "!=", "like": "ILIKE", "not like": "NOT ILIKE", ">": ">", "<": "<", ">=": ">=",

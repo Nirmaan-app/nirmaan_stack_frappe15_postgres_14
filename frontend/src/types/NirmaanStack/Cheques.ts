@@ -26,8 +26,15 @@ export const CHEQUE_TYPE = {
 
 export type ChequeType = (typeof CHEQUE_TYPE)[keyof typeof CHEQUE_TYPE];
 
-/** How a Payment cheque was cleared (`rules.CLEARED_BY`). */
+/** How a Payment cheque was cleared (`rules.CLEARED_BY`). History only, never shown (#1520). */
 export type ChequeClearedBy = "By hand" | "Bank import";
+
+/**
+ * The one date a Cheque carries besides its issue date (`cheque_date`, #1520, ADR-0035 Amendment A): the date
+ * written on the paper until the bank import clears a Payment cheque, then the day the bank paid it. Every
+ * screen labels it this way.
+ */
+export const CHEQUE_PAYMENT_DATE_LABEL = "Cheque/Payment Date";
 
 export const CHEQUE_BANK = {
     ICICI: "ICICI Bank",
@@ -78,6 +85,7 @@ export interface Cheques {
     bank_key: string;
     /** The first six-digit group of the magnetic strip; leading zeros kept. */
     cheque_no: string;
+    /** The Cheque/Payment Date (`CHEQUE_PAYMENT_DATE_LABEL`): the paper date, then the day the bank paid it. */
     cheque_date: string;
     amount: number;
     /** Exactly one of vendor or payee_name is set. */
@@ -87,8 +95,7 @@ export interface Cheques {
     made_from: ChequeMadeFrom;
     /** The day it became Issued: a Payment cheque's payments were approved, a deposit cheque handed over. */
     issue_date?: string | null;
-    /** The day the bank paid a Payment cheque; each payment's payment date. */
-    clearance_date?: string | null;
+    /** History only, never shown (#1520). */
     cleared_by?: ChequeClearedBy | null;
     /** The imported bank-statement line (`Outflow Import Row`) that cleared it. */
     bank_line?: string | null;
