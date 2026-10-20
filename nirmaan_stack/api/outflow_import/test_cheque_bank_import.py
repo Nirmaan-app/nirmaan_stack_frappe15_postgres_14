@@ -136,13 +136,13 @@ class TestALineClearsItsCheque(ChequeImportCase):
         self.assertEqual(str(frappe.db.get_value(PAYMENT, b, "ceo_approval_date")), self.day)
         self.assertEqual(self._terms(a, b), ["Paid", "Paid"])
         history = self._history(cheque)
-        self.assertEqual(history[-2], ("Pending", "Issued", U, BANK_APPROVAL_NOTE))
+        self.assertEqual(history[-2], ("Approval Pending", "Issued", U, BANK_APPROVAL_NOTE))
         self.assertEqual(history[-1][:2], ("Issued", "Cleared"))
         state = self._state(cheque)
         self.assertEqual((state.status, str(state.issue_date)), ("Cleared", self.day))
         self.assertEqual(self._line(row).row_status, "Settled")
         self.assertIn("approved by bank import", self._line(row).outcome_note)
-        self.assertEqual(self._shown(row)["cheque_outcome"]["started"], "Pending")
+        self.assertEqual(self._shown(row)["cheque_outcome"]["started"], "Approval Pending")
 
     def test_a_cancelled_cheque_is_cleared_and_a_later_payment_on_its_po_is_flagged(self):
         number = self._number()
@@ -270,7 +270,7 @@ class TestALineThatClearsNothing(ChequeImportCase):
         (row,) = self._import((number, 15000))
 
         self.assertEqual(self._statuses(a), ["Requested"])
-        self.assertEqual(self._state(cheque).status, "Pending")
+        self.assertEqual(self._state(cheque).status, "Approval Pending")
         self.assertEqual(self._line(row).row_status, "Mismatched")
         self.assertIn(f"Cheque {number} matches this line but could not be cleared: Line 2", self._line(row).outcome_note)
 

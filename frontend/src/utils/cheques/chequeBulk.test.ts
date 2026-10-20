@@ -13,7 +13,7 @@ const onCheque = (name: string, cheque: string, amount = 10000) => ({
     name,
     doctype: "Project Payments",
     cheque,
-    cheque_status: "Pending",
+    cheque_status: "Approval Pending",
     amount,
 });
 const online = (name: string, amount = 10000) => ({ name, doctype: "Project Payments", cheque: "", cheque_status: "", amount });
@@ -58,7 +58,7 @@ const approval = (cheque: string, lines: ChequeApproval["lines"], over: Partial<
     cheque,
     cheque_no: "000751",
     bank: "ICICI Bank",
-    status: "Pending",
+    status: "Approval Pending",
     amount: lines.reduce((s, l) => s + l.amount, 0),
     vendor: "VEN-1",
     vendor_name: "Suman Electric",

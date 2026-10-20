@@ -35,7 +35,7 @@ from nirmaan_stack.services.settlement import (
 
 # -- statuses ------------------------------------------------------------------------------------
 #: A Payment cheque whose payments still wait for approval (spec #1477).
-PENDING = "Pending"
+PENDING = "Approval Pending"
 ISSUED = "Issued"
 CLEARED = "Cleared"
 CANCELLED = "Cancelled"

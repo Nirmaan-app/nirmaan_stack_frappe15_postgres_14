@@ -10,7 +10,7 @@ export const CHEQUES_CHANGED_EVENT = "cheques:changed";
 
 export const CHEQUE_STATUS = {
     /** A Payment cheque whose payments still wait for approval (spec #1477). */
-    PENDING: "Pending",
+    PENDING: "Approval Pending",
     ISSUED: "Issued",
     CLEARED: "Cleared",
     CANCELLED: "Cancelled",

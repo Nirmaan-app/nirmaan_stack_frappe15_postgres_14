@@ -295,7 +295,7 @@ class TestChequePayments(FrappeTestCase):
 
 	def test_a_requested_payment_puts_its_cheque_at_pending(self):
 		cheque = self._on_new_cheque(self._plant(20000, "Requested", po=self._po()))
-		self.assertEqual(self._cheque_state(cheque), ("Pending", None, [(None, "Pending")]))
+		self.assertEqual(self._cheque_state(cheque), ("Approval Pending", None, [(None, "Approval Pending")]))
 
 	def test_l1_approve_issues_the_cheque_on_the_approval_date(self):
 		name = self._plant(20000, "Requested", po=self._po())
@@ -303,11 +303,11 @@ class TestChequePayments(FrappeTestCase):
 		two_days_ago = add_days(nowdate(), -2)
 		self._approved_by_l1(name, two_days_ago)
 		# Approved but not yet moved on: the cheque waits with it.
-		self.assertEqual(self._cheque_state(cheque)[0], "Pending")
+		self.assertEqual(self._cheque_state(cheque)[0], "Approval Pending")
 
 		self.assertEqual(move_cheque_payment_to_reconciliation(name), {"moved": True})
 		self.assertEqual(self._state(name)[0], RECON)
-		self.assertEqual(self._cheque_state(cheque), ("Issued", two_days_ago, [(None, "Pending"), ("Pending", "Issued")]))
+		self.assertEqual(self._cheque_state(cheque), ("Issued", two_days_ago, [(None, "Approval Pending"), ("Approval Pending", "Issued")]))
 		# A repeated call issues nothing twice.
 		move_cheque_payment_to_reconciliation(name)
 		self.assertEqual(len(self._cheque_state(cheque)[2]), 2)
@@ -317,11 +317,11 @@ class TestChequePayments(FrappeTestCase):
 		cheque = self._on_new_cheque(name)
 		self._approved_by_l1(name, add_days(nowdate(), -3), to="CEO Pending")
 		self.assertEqual(self._state(name)[0], "CEO Pending")
-		self.assertEqual(self._cheque_state(cheque)[0], "Pending")
+		self.assertEqual(self._cheque_state(cheque)[0], "Approval Pending")
 
 		self._as_ceo(ceo_approve_payment, name)
 		self.assertEqual(self._state(name)[0], RECON)
-		self.assertEqual(self._cheque_state(cheque), ("Issued", nowdate(), [(None, "Pending"), ("Pending", "Issued")]))
+		self.assertEqual(self._cheque_state(cheque), ("Issued", nowdate(), [(None, "Approval Pending"), ("Approval Pending", "Issued")]))
 
 	def test_bulk_approve_issues_po_and_wo_cheques(self):
 		po_payment = self._plant(20000, "Requested", po=self._po())
@@ -332,7 +332,7 @@ class TestChequePayments(FrappeTestCase):
 		self.assertEqual(sorted(res["succeeded"]), sorted([po_payment, wo_payment]))
 		for payment, cheque in ((po_payment, po_cheque), (wo_payment, wo_cheque)):
 			self.assertEqual(self._state(payment)[0], RECON)
-			self.assertEqual(self._cheque_state(cheque), ("Issued", nowdate(), [(None, "Pending"), ("Pending", "Issued")]))
+			self.assertEqual(self._cheque_state(cheque), ("Issued", nowdate(), [(None, "Approval Pending"), ("Approval Pending", "Issued")]))
 
 	def test_a_cheque_that_cannot_be_issued_holds_its_payment_where_it_was(self):
 		"""The approval, the move and the issue are one decision (#1480): none lands without the others."""
@@ -343,7 +343,7 @@ class TestChequePayments(FrappeTestCase):
 				self._as_ceo(ceo_approve_payment, name)
 		frappe.db.rollback()
 		self.assertEqual(self._state(name)[0], "CEO Pending")
-		self.assertEqual(self._cheque_state(cheque), ("Pending", None, [(None, "Pending")]))
+		self.assertEqual(self._cheque_state(cheque), ("Approval Pending", None, [(None, "Approval Pending")]))
 
 	def test_a_payment_already_moved_on_makes_its_new_cheque_issued_at_once(self):
 		name = self._plant(20000, RECON, po=self._po())
@@ -351,7 +351,7 @@ class TestChequePayments(FrappeTestCase):
 		frappe.db.commit()
 		cheque = self._on_new_cheque(name)
 		self.assertEqual(
-			self._cheque_state(cheque), ("Issued", add_days(nowdate(), -5), [(None, "Pending"), ("Pending", "Issued")])
+			self._cheque_state(cheque), ("Issued", add_days(nowdate(), -5), [(None, "Approval Pending"), ("Approval Pending", "Issued")])
 		)
 
 	# -- what may not change on a cheque ----------------------------------------------------------

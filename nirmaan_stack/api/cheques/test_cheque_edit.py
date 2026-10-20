@@ -10,7 +10,7 @@ It reads back what a user sees: the Cheque, its lines, each payment's mode, Cheq
 refusal and that nothing changed.
 
 A Payment cheque's lines change only while it is Pending; Issued, Cleared and Cancelled cheques change
-only their photo. Procurement edits only the Pending cheques it created.
+only their photo. Procurement edits only the Approval Pending cheques it created.
 
 ⚠️ RUNS AGAINST THE ENV DATABASE (the endpoints commit). Projects, vendors and payments come from
 `TaxedWorkOrderFixture`, POs from `ChequeFixture.plant_po`; every Cheque carries a TESTCHQ number and is
@@ -189,7 +189,7 @@ class TestChequeEdit(FrappeTestCase):
             attachment=NEW_PHOTO,
             lines=[self._line(pay), self._line(amount=3000)],
         )
-        self.assertEqual((out["cheque"], out["status"]), (name, "Pending"))
+        self.assertEqual((out["cheque"], out["status"]), (name, "Approval Pending"))
         cheque = self._cheque(name)
         self.assertEqual(
             (cheque.bank, cheque.bank_name, cheque.cheque_no, str(cheque.cheque_date), flt(cheque.amount)),
@@ -197,7 +197,7 @@ class TestChequeEdit(FrappeTestCase):
         )
         self.assertEqual((cheque.description, cheque.attachment), ("Two PO payments", NEW_PHOTO))
         self.assertEqual([(l.payment_name, flt(l.amount)) for l in cheque.lines], [(pay, 20000.0), (None, 3000.0)])
-        self.assertEqual((cheque.status, cheque.made_from), ("Pending", "Report"))
+        self.assertEqual((cheque.status, cheque.made_from), ("Approval Pending", "Report"))
         self.assertEqual((self._payment(pay).mode_of_payment, self._payment(pay).cheque), ("Cheque", name))
 
     def test_a_new_number_and_date_are_copied_onto_its_payments(self):
@@ -235,7 +235,7 @@ class TestChequeEdit(FrappeTestCase):
         for pay in (first, second):
             state = self._payment(pay)
             self.assertEqual((state.mode_of_payment, state.cheque, state.status), ("Cheque", name, "Requested"))
-        self.assertEqual(self._cheque(name).status, "Pending")
+        self.assertEqual(self._cheque(name).status, "Approval Pending")
 
     def test_a_payment_at_another_step_than_the_cheques_is_refused(self):
         requested = self._plant("Requested")
@@ -248,7 +248,7 @@ class TestChequeEdit(FrappeTestCase):
     def test_an_approved_payment_picked_for_the_last_open_line_issues_the_cheque(self):
         pay = self._plant("Approved")
         name = self._add([self._line(amount=20000)], amount=20000)
-        self.assertEqual(self._cheque(name).status, "Pending")
+        self.assertEqual(self._cheque(name).status, "Approval Pending")
 
         out = self._edit(name, lines=[self._line(pay, amount=20000)])
         self.assertEqual([l.payment_name for l in self._cheque(name).lines], [pay])
@@ -267,7 +267,7 @@ class TestChequeEdit(FrappeTestCase):
         )
         notes = [row.note for row in self._cheque(name).status_history]
         self.assertIn(f"Payment {payments[0]} was taken off the cheque, so it switched back to Online.", notes)
-        self.assertEqual(self._cheque(name).status, "Pending")
+        self.assertEqual(self._cheque(name).status, "Approval Pending")
 
     def test_swapping_a_line_s_payment_takes_the_old_one_off(self):
         pay = self._plant("Requested")
@@ -338,7 +338,7 @@ class TestChequeEdit(FrappeTestCase):
     def test_an_old_type_cheque_can_change_only_its_photo(self):
         """Spec #1477 (#1487): an Old-type cheque is only cleared or cancelled by hand; its photo may be replaced."""
         name = self.cheques.plant_cheque(  # an Ad-hoc cheque to a typed payee, as the report made one
-            status="Pending", bank="ICICI Bank", cheque_no=self.cheques.number(), cheque_date=nowdate(),
+            status="Approval Pending", bank="ICICI Bank", cheque_no=self.cheques.number(), cheque_date=nowdate(),
             amount=5000, payee_name="Ravi Kumar", description="Rent", attachment=PHOTO,
         )
         frappe.db.set_value("Cheques", name, "old_type", 1)  # what the cheque-types patch flags
@@ -376,13 +376,13 @@ class TestChequeEdit(FrappeTestCase):
         self.assertEqual(self._cheque(own).description, "Fixed my typo")
 
         someone_elses = self._add()
-        with self.assertRaisesRegex(frappe.PermissionError, "only the Pending cheques you created"):
+        with self.assertRaisesRegex(frappe.PermissionError, "only the Approval Pending cheques you created"):
             self._as(buyer, self._edit, someone_elses, description="not mine")
         frappe.db.rollback()
 
         issued = self._as(buyer, self._add, [self._line(self._plant("Approved"))], amount=20000)
         self.assertEqual(self._cheque(issued).status, "Issued")
-        with self.assertRaisesRegex(frappe.PermissionError, "only the Pending cheques you created"):
+        with self.assertRaisesRegex(frappe.PermissionError, "only the Approval Pending cheques you created"):
             self._as(buyer, self._edit, issued, attachment=NEW_PHOTO)
         frappe.db.rollback()
 

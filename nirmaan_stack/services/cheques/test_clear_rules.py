@@ -47,7 +47,7 @@ class TestClearByHand(unittest.TestCase):
         self.assertIsNone(self.problem(payments=[("PAY-1", RP), ("PAY-2", RP)]))
 
     def test_pending_and_cancelled_cheques_are_refused_by_hand(self):
-        self.assertEqual(self.problem("Pending"), "it is Pending: its payments are not approved yet")
+        self.assertEqual(self.problem("Approval Pending"), "it is Approval Pending: its payments are not approved yet")
         self.assertEqual(self.problem("Cancelled"), "it is Cancelled: its payments are Rejected")
 
     def test_a_cleared_cheque_is_already_cleared(self):
@@ -107,7 +107,7 @@ class TestClearanceDate(unittest.TestCase):
 
 class TestCancel(unittest.TestCase):
     def test_pending_and_issued_cheques_may_be_cancelled(self):
-        self.assertIsNone(clear_rules.cancel_problem(status="Pending"))
+        self.assertIsNone(clear_rules.cancel_problem(status="Approval Pending"))
         self.assertIsNone(clear_rules.cancel_problem(status="Issued"))
 
     def test_a_cleared_cheque_has_no_undo(self):

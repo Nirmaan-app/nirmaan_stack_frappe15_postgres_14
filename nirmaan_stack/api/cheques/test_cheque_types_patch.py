@@ -112,11 +112,11 @@ class TestChequeTypesPatch(FrappeTestCase):
 
         result = self._migrate()
 
-        self.assertEqual(self._read(name), {"type": "Payment", "status": "Pending", "old_type": 0,
+        self.assertEqual(self._read(name), {"type": "Payment", "status": "Approval Pending", "old_type": 0,
                                             "issue_date": None, "clearance_date": None})
-        self.assertEqual(self._history(name)[-1][:2], ("Issued", "Pending"))
+        self.assertEqual(self._history(name)[-1][:2], ("Issued", "Approval Pending"))
         self.assertEqual([(c["cheque"], c["from_status"], c["status"]) for c in result["changed"]],
-                         [(name, "Issued", "Pending")])
+                         [(name, "Issued", "Approval Pending")])
 
     def test_an_issued_cheque_of_approved_payments_stays_issued_dated_by_the_last_approval(self):
         name = self._cheque(
@@ -234,5 +234,5 @@ class TestChequeTypesPatch(FrappeTestCase):
 
         for name in (moved, old, left):
             self.assertIn(name, text)
-        self.assertIn("Issued -> Pending", text)
+        self.assertIn("Issued -> Approval Pending", text)
         self.assertIn("has no lines", text)

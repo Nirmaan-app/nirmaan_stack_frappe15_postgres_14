@@ -215,7 +215,7 @@ class TestChequeRequest(FrappeTestCase):
         out = self._request_po(term, 60000, **self._cheque_fields(60000))
         [payment] = self._payments_of(PO, self.po)
         self.assertEqual(frappe.db.get_value(PAYMENT, payment, "status"), "CEO Pending")
-        self.assertEqual(self._issued(out["cheque"]), ("Pending", None, [(None, "Pending")]))
+        self.assertEqual(self._issued(out["cheque"]), ("Approval Pending", None, [(None, "Approval Pending")]))
 
     def test_a_payment_born_approved_makes_an_issued_cheque_dated_its_approval(self):
         term = self._term(20000)
@@ -223,7 +223,7 @@ class TestChequeRequest(FrappeTestCase):
         [payment] = self._payments_of(PO, self.po)
         approved_on = str(frappe.db.get_value(PAYMENT, payment, "approval_date"))
         self.assertEqual(approved_on, nowdate())
-        self.assertEqual(self._issued(out["cheque"]), ("Issued", approved_on, [(None, "Pending"), ("Pending", "Issued")]))
+        self.assertEqual(self._issued(out["cheque"]), ("Issued", approved_on, [(None, "Approval Pending"), ("Approval Pending", "Issued")]))
 
     def test_a_born_approved_payment_whose_move_fails_leaves_its_cheque_pending(self):
         term = self._term(20000)
@@ -233,7 +233,7 @@ class TestChequeRequest(FrappeTestCase):
             out = self._request_po(term, 20000, **self._cheque_fields(20000))
         [payment] = self._payments_of(PO, self.po)
         self.assertEqual(frappe.db.get_value(PAYMENT, payment, "status"), "Approved")
-        self.assertEqual(self._issued(out["cheque"]), ("Pending", None, [(None, "Pending")]))
+        self.assertEqual(self._issued(out["cheque"]), ("Approval Pending", None, [(None, "Approval Pending")]))
 
     def test_an_online_wo_request_makes_no_cheque(self):
         out = self._request_wo(10000)
@@ -262,7 +262,7 @@ class TestChequeRequest(FrappeTestCase):
         out = self._request_po(term, 20000, **self._cheque_fields(60000))
         [payment] = self._payments_of(PO, self.po)
         self.assertEqual(self._payment(payment).status, "CEO Pending")
-        self.assertEqual(self._issued(out["cheque"])[0], "Pending")
+        self.assertEqual(self._issued(out["cheque"])[0], "Approval Pending")
 
     # -- refusals: nothing is created -----------------------------------------------------------
     def test_cheque_mode_without_a_photo_is_refused(self):

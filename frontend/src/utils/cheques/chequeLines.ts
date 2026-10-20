@@ -2,7 +2,7 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { needsCEO, TIER_L2_ABOVE } from "@/utils/approvalTiers";
 import { PAYMENT_STATUS } from "@/constants/paymentStatus";
-import type { ChequeLineType } from "@/types/NirmaanStack/Cheques";
+import { CHEQUE_STATUS, type ChequeLineType } from "@/types/NirmaanStack/Cheques";
 
 /**
  * The Add Cheque dialog's lines (spec #1407; #1482, spec #1477), pure so vitest covers them without React (F4).
@@ -149,7 +149,7 @@ const onChequeText = (onCheque: HiddenPayments["on_cheque"]): string => {
 };
 
 /**
- * The payment picker's footer: "Not shown: 1 already on cheque 004530 (Pending), 1 Rejected, 2 Paid, 1 on
+ * The payment picker's footer: "Not shown: 1 already on cheque 004530 (Approval Pending), 1 Rejected, 2 Paid, 1 on
  * hold, 2 at another step (...)." `step` is the cheque's other payments' step, named in the last reason.
  */
 export const hiddenPaymentsText = (hidden: HiddenPayments | undefined, step?: string | null): string => {
@@ -183,7 +183,7 @@ const AWAITS_RECONCILIATION = "Once approved it becomes Issued and waits in Cheq
 export const chequeSaveNote = (chequeAmount: number | string, lines: ChequeLineDraft[]): string | undefined => {
     if (lines.length === 0) return undefined;
     if (lines.some((l) => !l.payment_name)) {
-        return "This cheque stays Pending until every line names its payment.";
+        return `This cheque stays ${CHEQUE_STATUS.PENDING} until every line names its payment.`;
     }
     const n = lines.length;
     const payments = `${n} payment${n > 1 ? "s" : ""}`;
@@ -194,7 +194,7 @@ export const chequeSaveNote = (chequeAmount: number | string, lines: ChequeLineD
     const ceo = needsCEO(chequeAmount)
         ? ` The cheque total ${formatToIndianRupee(parseNumber(chequeAmount))} is over ₹${TIER_L2_ABOVE.toLocaleString("en-IN")}, so the CEO approves them too.`
         : "";
-    return `This cheque is Pending. ${together}${ceo} ${AWAITS_RECONCILIATION}`;
+    return `This cheque is ${CHEQUE_STATUS.PENDING}. ${together}${ceo} ${AWAITS_RECONCILIATION}`;
 };
 
 /** The projects the Vendor has POs in, once each, by name. */

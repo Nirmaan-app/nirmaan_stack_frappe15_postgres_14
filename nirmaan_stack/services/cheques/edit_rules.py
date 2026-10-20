@@ -62,7 +62,7 @@ def edit_access_problem(
         return None
     if cheque_type == CHEQUE_TYPE_SECURITY_DEPOSIT:
         return "You can edit only the Issued Security Deposit cheques you created."
-    return "You can edit only the Pending cheques you created."
+    return f"You can edit only the {PENDING} cheques you created."
 
 
 def edit_problem(

@@ -55,12 +55,12 @@ describe("hiddenPaymentsText", () => {
         expect(
             hiddenPaymentsText({
                 ...nothingHidden,
-                on_cheque: [{ payment: "PAY-1", cheque: "CHQ-26-00001", cheque_no: "004530", status: "Pending" }],
+                on_cheque: [{ payment: "PAY-1", cheque: "CHQ-26-00001", cheque_no: "004530", status: "Approval Pending" }],
                 rejected: 1,
                 moved_on: { "Reconciliation Pending": 1, Paid: 2 },
                 on_hold: 1,
             })
-        ).toBe("Not shown: 1 already on cheque 004530 (Pending), 1 Rejected, 1 Reconciliation Pending, 2 Paid, 1 on hold.");
+        ).toBe("Not shown: 1 already on cheque 004530 (Approval Pending), 1 Rejected, 1 Reconciliation Pending, 2 Paid, 1 on hold.");
     });
 
     it("names every cheque and counts payments", () => {
@@ -114,10 +114,10 @@ describe("chequeSaveNote", () => {
 
     it("says a cheque waiting for approval starts Pending, and who approves it by the cheque amount", () => {
         expect(chequeSaveNote(68400, [paid("P1", "Requested"), paid("P2", "Requested"), paid("P3", "Requested")])).toBe(
-            "This cheque is Pending. Its 3 payments switch to Cheque and are approved together. The cheque total ₹68,400.00 is over ₹50,000, so the CEO approves them too. Once approved it becomes Issued and waits in Cheque Issued – Reconciliation Pending."
+            "This cheque is Approval Pending. Its 3 payments switch to Cheque and are approved together. The cheque total ₹68,400.00 is over ₹50,000, so the CEO approves them too. Once approved it becomes Issued and waits in Cheque Issued – Reconciliation Pending."
         );
         expect(chequeSaveNote(20000, [paid("P1", "CEO Pending")])).toBe(
-            "This cheque is Pending. Its 1 payment switches to Cheque. Once approved it becomes Issued and waits in Cheque Issued – Reconciliation Pending."
+            "This cheque is Approval Pending. Its 1 payment switches to Cheque. Once approved it becomes Issued and waits in Cheque Issued – Reconciliation Pending."
         );
     });
 
@@ -129,10 +129,10 @@ describe("chequeSaveNote", () => {
 
     it("says a line with no payment yet keeps it Pending", () => {
         expect(chequeSaveNote(20000, [line({ amount: 20000 })])).toBe(
-            "This cheque stays Pending until every line names its payment."
+            "This cheque stays Approval Pending until every line names its payment."
         );
         expect(chequeSaveNote(40000, [paid("P1", "Approved"), line({ amount: 1 })])).toBe(
-            "This cheque stays Pending until every line names its payment."
+            "This cheque stays Approval Pending until every line names its payment."
         );
     });
 

@@ -13,7 +13,7 @@ const row = (status: string, cheque_type: string) => ({ status, cheque_type }) a
 
 describe("isInChequeTab", () => {
     it("lists every cheque under All Cheques", () => {
-        for (const status of ["Pending", "Issued", "Cleared", "Cancelled"]) {
+        for (const status of ["Approval Pending", "Issued", "Cleared", "Cancelled"]) {
             for (const type of ["Payment", "Security Deposit"]) {
                 expect(isInChequeTab(row(status, type), CHEQUE_TRACKER_TAB.ALL)).toBe(true);
             }
@@ -22,7 +22,7 @@ describe("isInChequeTab", () => {
 
     it("lists only Issued Payment cheques under Cheque Issued – Reconciliation Pending", () => {
         expect(isInChequeTab(row("Issued", "Payment"), CHEQUE_TRACKER_TAB.ISSUED)).toBe(true);
-        expect(isInChequeTab(row("Pending", "Payment"), CHEQUE_TRACKER_TAB.ISSUED)).toBe(false);
+        expect(isInChequeTab(row("Approval Pending", "Payment"), CHEQUE_TRACKER_TAB.ISSUED)).toBe(false);
         expect(isInChequeTab(row("Cleared", "Payment"), CHEQUE_TRACKER_TAB.ISSUED)).toBe(false);
         expect(isInChequeTab(row("Cancelled", "Payment"), CHEQUE_TRACKER_TAB.ISSUED)).toBe(false);
         // A Security Deposit is Issued from the day it is written, but the bank never pays it.
@@ -33,7 +33,7 @@ describe("isInChequeTab", () => {
         for (const status of ["Issued", "Cancelled"]) {
             expect(isInChequeTab(row(status, "Security Deposit"), CHEQUE_TRACKER_TAB.DEPOSITS)).toBe(true);
         }
-        for (const status of ["Pending", "Issued", "Cleared", "Cancelled"]) {
+        for (const status of ["Approval Pending", "Issued", "Cleared", "Cancelled"]) {
             expect(isInChequeTab(row(status, "Payment"), CHEQUE_TRACKER_TAB.DEPOSITS)).toBe(false);
         }
     });
@@ -69,7 +69,7 @@ describe("waitsInChequeTracker", () => {
         expect(waitsInChequeTracker({ cheque_status: "" })).toBe(false);
         expect(waitsInChequeTracker({ cheque_status: null })).toBe(false);
         expect(waitsInChequeTracker({})).toBe(false);
-        for (const status of ["Pending", "Cleared", "Cancelled"]) {
+        for (const status of ["Approval Pending", "Cleared", "Cancelled"]) {
             expect(waitsInChequeTracker({ cheque_status: status })).toBe(false);
         }
     });
