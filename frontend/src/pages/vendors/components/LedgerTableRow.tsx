@@ -42,45 +42,50 @@ export const LedgerTableRow: React.FC<LedgerTableRowProps> = ({ item }) => {
   // **NEW FUNCTION TO RENDER DETAILS WITH CLICKABLE PO**
 
   
+  const renderPart = (part: string) => {
+    if (part.startsWith('For PO: ')) {
+      const poId = part.substring('For PO: '.length);
+      return (
+        <>
+          For PO: <Link className="text-blue-600 hover:underline font-medium" to={`${poId.replace(/\//g, "&=")}`}>
+            {poId}
+          </Link>
+        </>
+      );
+    }
+    if (part.startsWith('PO: ')) {
+      const poId = part.substring('PO: '.length);
+      return (
+        <>
+          PO: <Link className="text-blue-600 hover:underline font-medium" to={`${poId.replace(/\//g, "&=")}`}>
+            {poId}
+          </Link>
+        </>
+      );
+    }
+    if (part.startsWith('SR: ') || part.startsWith('For SR: ')) {
+      const id = part.substring(part.indexOf(': ') + 2);
+      const prefix = part.substring(0, part.indexOf(': ') + 2);
+      return (
+        <>
+          {prefix}<Link className="text-blue-600 hover:underline font-medium" to={`/service-requests-list/${id}`}>
+            {id}
+          </Link>
+        </>
+      );
+    }
+    return part;
+  };
+
+  // Each line of the details, then one break between lines (none after the last).
   const renderDetails = () => {
     const parts = item.details.split('\n');
-    return parts.map((part, index) => {
-        if (part.startsWith('For PO: ')) {
-            const poId = part.substring('For PO: '.length);
-            return (
-                <React.Fragment key={index}>
-                    For PO: <Link className="text-blue-600 hover:underline font-medium" to={`${poId.replace(/\//g, "&=")}`}>
-                              {poId}
-                          </Link>
-                    {index < parts.length - 1 && <br />}
-                </React.Fragment>
-            );
-        }
-        if (part.startsWith('PO: ')) {
-            const poId = part.substring('PO: '.length);
-            return (
-                <React.Fragment key={index}>
-                   PO: <Link className="text-blue-600 hover:underline font-medium" to={`${poId.replace(/\//g, "&=")}`}>
-                              {poId}
-                          </Link>
-                   {index < parts.length - 1 && <br />}
-                </React.Fragment>
-            );
-        }
-        if (part.startsWith('SR: ') || part.startsWith('For SR: ')) {
-        const id = part.substring(part.indexOf(': ') + 2);
-        const prefix = part.substring(0, part.indexOf(': ') + 2);
-        return (
-            <React.Fragment key={index}>
-                {prefix}<Link className="text-blue-600 hover:underline font-medium" to={`/service-requests-list/${id}`}>
-                    {id}
-                </Link>
-                {index < parts.length - 1 && <br />}
-            </React.Fragment>
-        );
-    }
-        return <React.Fragment key={index}>{part}{index < parts.length - 1 && <br />}</React.Fragment>;
-    });
+    return parts.map((part, index) => (
+      <React.Fragment key={index}>
+        {renderPart(part)}
+        {index < parts.length - 1 && <br />}
+      </React.Fragment>
+    ));
   };
 
   return (

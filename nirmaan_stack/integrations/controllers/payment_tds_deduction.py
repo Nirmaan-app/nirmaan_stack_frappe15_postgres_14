@@ -61,6 +61,9 @@ def after_delete(doc, method=None):
 	Amount Due, and in its project's outflow. Then re-check that project's CEO Hold, after the recount
 	(`recheck_after_recount`). Any other status moves nothing.
 
+	This runs on a forced delete of the deduction (`frappe.delete_doc(..., force=True)`): a plain delete
+	from Desk or REST is refused, because the payment's `Project Payments.payment_tds` links to it.
+
 	`after_delete`, never `on_trash`: the writer reads the deduction rows, and this one must be gone. The
 	payment's own delete removes its deduction by raw SQL, so this never runs for it; that path recounts
 	in `controllers/project_payments.on_trash`. Logged, not raised, like the payment's own recount, so a

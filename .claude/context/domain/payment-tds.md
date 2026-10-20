@@ -121,7 +121,8 @@ figure — the company pays the tax on top:
     (`write_deduction`) or restated by an amount edit (`restate_deduction_on_amount_change`), both via
     `payment_tds._recount_parent`, which does nothing for a payment not Paid (its tax counts nowhere
     yet); a delete through the payment's `on_trash` recount (`exclude_payment`); a deduction deleted
-    on its own (Desk, REST) through `controllers/payment_tds_deduction.after_delete`. The tax on a Paid
+    on its own through `controllers/payment_tds_deduction.after_delete`, which takes a forced delete
+    (a plain one is refused by the link from `Project Payments.payment_tds`). The tax on a Paid
     payment moves project outflow (#1510), so the CEO Hold check runs after each: the payment's own
     `on_project_payment` hook after its `on_update` (restate), `recheck_after_recount` (deduction
     delete). The cashflow hold rule itself is pure, `services/ceo_hold/rules.over_cashflow_limit`.
@@ -251,7 +252,7 @@ Three callers, and none is redundant:
 |---|---|
 | `api/tds_challan/pay_tds` | Paying. Adds its own over-application guard before writing. |
 | `controllers/project_payments.on_trash` | The payment cascade, which deletes the deduction with **raw SQL that fires no hooks**. |
-| `controllers/payment_tds_deduction.on_trash` | A doc-layer delete (Desk, REST) — the route the raw delete bypasses. Its `after_delete` also recounts the WO of a Paid payment and re-checks CEO Hold. |
+| `controllers/payment_tds_deduction.on_trash` | A doc-layer delete, which must be forced (a plain one is refused by the link from `Project Payments.payment_tds`) — the route the raw delete bypasses. Its `after_delete` also recounts the WO of a Paid payment and re-checks CEO Hold. |
 
 ⚠️ **MEASURED BUG (2026-09-15), fixed:** deleting a payment deleted its deduction, but nothing
 recomputed — a challan sat at ₹150 used with **zero** deductions behind it, permanently ₹150 short

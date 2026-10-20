@@ -187,5 +187,8 @@ def _drift(m: Mismatch) -> Drift:
 def recount_work_orders(names=None) -> list[Mismatch]:
     """`recount` for many Work Orders at once, every one when `names` is None: each the judge finds
     wrong is written through the one writer. Returns them as found before; throws if any still differs
-    after. Commits nothing."""
+    after. Commits nothing.
+
+    Public so the patch need not import the private `_recount`, and so it need not pass a credit-entry
+    type: only a PO recount writes vendor credit, so a Work Order recount never reads one."""
     return _recount(SERVICE_REQUESTS, names, RECOUNT_CREDIT_ENTRY)

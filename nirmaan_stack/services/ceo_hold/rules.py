@@ -14,12 +14,12 @@ COMPLETED_STATUS = "Completed"
 
 
 def watches_cashflow_gap(status, limit) -> bool:
-	"""Whether a project's cashflow gap can hold it at all: it is not Completed and has a positive
-	`cashflow_gap_limit`."""
-	return status != COMPLETED_STATUS and flt(limit) > 0
+    """Whether a project's cashflow gap can hold it at all: it is not Completed and has a positive
+    `cashflow_gap_limit`."""
+    return status != COMPLETED_STATUS and flt(limit) > 0
 
 
 def over_cashflow_limit(status, limit, gap) -> bool:
-	"""THE cashflow hold rule: a watched project (`watches_cashflow_gap`) whose gap is over its limit
-	carries the `cashflow` CEO Hold reason."""
-	return watches_cashflow_gap(status, limit) and flt(gap) > flt(limit)
+    """THE cashflow hold rule: a watched project (`watches_cashflow_gap`) whose gap is over its limit
+    carries the `cashflow` CEO Hold reason."""
+    return watches_cashflow_gap(status, limit) and flt(gap) > flt(limit)

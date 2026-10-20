@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { VendorRefundRow } from "@/components/vendor-refunds/useVendorRefunds";
+import { TDS_BORNE_BY } from "@/types/NirmaanStack/PaymentTDSDeduction";
 import { paymentsDialogRows } from "./paymentsDialogRows";
 
 const payment = (name: string, amount: number, payment_date: string) => ({ name, amount, payment_date });
@@ -46,8 +47,8 @@ describe("paymentsDialogRows on a Work Order with TDS (#1512, ADR-0034 Amendment
   const payments = [payment("PAY-V", 9800, "2026-05-10"), payment("PAY-C", 800, "2026-06-10")];
   const refunds = [refund("VRF-1", 1000, "Received", "2026-07-01")];
   const deductions = {
-    "PAY-V": { tds_amount: 200, borne_by: "Vendor" as const },
-    "PAY-C": { tds_amount: 16, borne_by: "Company" as const },
+    "PAY-V": { tds_amount: 200, borne_by: TDS_BORNE_BY.VENDOR },
+    "PAY-C": { tds_amount: 16, borne_by: TDS_BORNE_BY.COMPANY },
   };
 
   it("shows each payment's tax withheld from the vendor, and none for the company's", () => {

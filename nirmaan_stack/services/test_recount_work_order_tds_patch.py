@@ -23,7 +23,6 @@ import io
 import frappe
 from frappe.utils import flt
 
-from nirmaan_stack.api.vendor_refunds import po_refund_fixture
 from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import sync_cashflow_reason
 from nirmaan_stack.patches.v3_0 import recount_work_order_amount_paid_with_tds as patch
 from nirmaan_stack.services.amount_paid_drift import mismatches
@@ -41,13 +40,12 @@ class RecountFixture(OrdersFixture):
         super().setUp()
         self.projects = []
 
-    def tearDown(self):
-        super().tearDown()
+    def purge_scopes(self):
         names = self.projects or ["-"]
-        po_refund_fixture.purge([
+        return super().purge_scopes() + [
             ("CEO Hold Reason", lambda: frappe.db.delete("CEO Hold Reason", {"project": ["in", names]})),
             ("Projects", lambda: frappe.db.delete("Projects", {"name": ["in", names]})),
-        ])
+        ]
 
     def _project(self, limit, status="WIP", recheck_scheduled=0):
         doc = frappe.new_doc("Projects")

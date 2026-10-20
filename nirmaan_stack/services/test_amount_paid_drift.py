@@ -55,23 +55,26 @@ class OrdersFixture(unittest.TestCase):
     def tearDown(self):
         frappe.set_user("Administrator")
         frappe.db.rollback()
+        po_refund_fixture.purge(self.purge_scopes())
+
+    def purge_scopes(self):
+        """The `(label, purge)` scopes `tearDown` hands to its one `purge` call. A subclass that adds
+        rows extends this list, so a failing scope can never strand the ones after it."""
         names = self.orders[PO] + self.orders[WO]
         refunds = frappe.get_all(REFUNDS, {"document_name": ["in", names or ["-"]]}, pluck="name")
         payments = frappe.get_all(PAYMENT, {"document_name": ["in", names or ["-"]]}, pluck="name")
-        po_refund_fixture.purge(
-            [
-                ("Version", lambda: frappe.db.delete(
-                    "Version", {"docname": ["in", refunds + payments + names or ["-"]]})),
-                (REFUNDS, lambda: refunds and frappe.db.delete(REFUNDS, {"name": ["in", refunds]})),
-                (DEDUCTIONS, lambda: frappe.db.delete(DEDUCTIONS, {"document_name": ["in", names or ["-"]]})),
-                (PAYMENT, lambda: payments and frappe.db.delete(PAYMENT, {"name": ["in", payments]})),
-                ("PO Payment Terms", lambda: self.orders[PO] and frappe.db.delete(
-                    "PO Payment Terms", {"parent": ["in", self.orders[PO]]})),
-                (PO, lambda: self.orders[PO] and frappe.db.delete(PO, {"name": ["in", self.orders[PO]]})),
-                (WO, lambda: self.orders[WO] and frappe.db.delete(WO, {"name": ["in", self.orders[WO]]})),
-                ("vendor credit", lambda: credit_fixture.restore(self.credit)),
-            ]
-        )
+        return [
+            ("Version", lambda: frappe.db.delete(
+                "Version", {"docname": ["in", refunds + payments + names or ["-"]]})),
+            (REFUNDS, lambda: refunds and frappe.db.delete(REFUNDS, {"name": ["in", refunds]})),
+            (DEDUCTIONS, lambda: frappe.db.delete(DEDUCTIONS, {"document_name": ["in", names or ["-"]]})),
+            (PAYMENT, lambda: payments and frappe.db.delete(PAYMENT, {"name": ["in", payments]})),
+            ("PO Payment Terms", lambda: self.orders[PO] and frappe.db.delete(
+                "PO Payment Terms", {"parent": ["in", self.orders[PO]]})),
+            (PO, lambda: self.orders[PO] and frappe.db.delete(PO, {"name": ["in", self.orders[PO]]})),
+            (WO, lambda: self.orders[WO] and frappe.db.delete(WO, {"name": ["in", self.orders[WO]]})),
+            ("vendor credit", lambda: credit_fixture.restore(self.credit)),
+        ]
 
     # ── fixture ─────────────────────────────────────────────────────────────────
 
