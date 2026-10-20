@@ -12,6 +12,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { useRefetchOnChange } from '@/hooks/useRefetchOnChange';
 import {
     APPROVAL_QUEUE_API,
     APPROVAL_FETCH_FIELDS,
@@ -76,6 +77,8 @@ interface AllPaymentsProps {
     // Additional prop to distinguish URL state contexts if this component is used multiple times
     // on the same page with different projectId/customerId props.
     contextKey?: string;
+    /** Changes when the page's lists changed (a New Expense submit): refetch the rows, keep the filters. */
+    refreshKey?: number;
 }
 
 // --- Constants ---
@@ -141,6 +144,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     tab = "Payments Pending", // Default tab
     projectId,
     customerId,
+    refreshKey,
     contextKey = "all" // Default context for URL key
 }) => {
     const { db } = useContext(FrappeContext) as FrappeConfig;
@@ -464,6 +468,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     // and every mutate() in the hook is commented out.)
     useFrappeDocTypeEventListener("Project Expenses", () => refetch());
     useFrappeDocTypeEventListener("Non Project Expenses", () => refetch());
+    useRefetchOnChange(refreshKey, refetch);
 
     const handleConfirmDelete = useCallback(async () => {
         if (!deleteRow) return;

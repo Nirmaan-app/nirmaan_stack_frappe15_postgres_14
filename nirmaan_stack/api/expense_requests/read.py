@@ -16,6 +16,7 @@ from nirmaan_stack.api.expense_requests.access import (
 	PM_REQUEST_REVIEWERS,
 	REJECTED,
 	caller_role_profile,
+	can_raise_requests,
 	can_request_type,
 	is_admin,
 	may_review,
@@ -244,13 +245,16 @@ def get_request_catalog(include_type: str | None = None):
 
 @frappe.whitelist()
 def get_expense_access():
-	"""Whether the caller gets the Expenses page: `{opens_expenses}` (`access.opens_expenses`: can
-	raise at least one type, or reviews). Read by the sidebar item and the `/expense` route guard,
-	so both answer from the same `Expense Type.allowed_roles` the request-creating call enforces.
+	"""Whether the caller gets the Expenses page, and whether they get its New Expense button:
+	`{opens_expenses, can_raise}`. `opens_expenses` (`access.opens_expenses`: can raise at least one
+	type, or reviews) is read by the sidebar item and the `/expense` route guard; `can_raise`
+	(`access.can_raise_requests`: can raise at least one type) by the New Expense button on the
+	Expenses page and on Project Payment & Expense, so a reviewer who raises nothing sees no button.
+	Both answer from the same `Expense Type.allowed_roles` the request-creating call enforces.
 
-	Example: `{"opens_expenses": true}`.
+	Example: `{"opens_expenses": true, "can_raise": false}`.
 	"""
-	return {"opens_expenses": opens_expenses()}
+	return {"opens_expenses": opens_expenses(), "can_raise": can_raise_requests()}
 
 
 @frappe.whitelist()

@@ -90,10 +90,15 @@ Both share one approval lifecycle and are entered/managed together in a single u
   someone who can raise at least one type or who reviews: `access.opens_expenses`, served by
   `read.get_expense_access` and read by the sidebar, the Service Procurement dashboard card and the
   route guard `ExpenseRoute` (`frontend/src/hooks/useExpenseAccess`, rule `utils/expenseAccess`).
+  The **New Expense button** shows only to someone who can raise at least one type (`can_raise` in the
+  same answer, `access.can_raise_requests`; `utils/expenseAccess.offersNewExpense`): a reviewer who
+  raises nothing gets the page, not the button (story 22).
   **Project Payment & Expense has the same New Expense button**, under the same gate, opening the same
-  `NewExpenseRequestDialog` (no second dialog). After a submit the dialog says what happens next, the
-  same on both pages, from the server's answer: `utils/newExpenseForm.whatHappensNext` (a request that
-  waits for review links to `/expense/requests/<name>`).
+  `NewExpenseRequestDialog` (no second dialog); after a submit its open tab refetches its rows in place
+  (`hooks/useRefetchOnChange`), keeping its filters and page. After a submit the dialog says what
+  happens next, the same on both pages: `utils/newExpenseForm.whatHappensNext`, from the server's
+  answer and the submitted amount, in the submit button's own words (`whoApprovesNext`: the CEO is
+  named above ₹50,000 either way; a request that waits for review links to `/expense/requests/<name>`).
 - **An L1 reviewer's review of an Expense Request is the L1 step** (#1499, ADR-0016 amendment 3).
   `starting_status(amount, raised_by, reviewed_by)` clears L1 when the request's `reviewed_by` is L1
   (`is_l1`), exactly as for an L1 raiser: an Admin-reviewed ₹22,000 request's Expense is born

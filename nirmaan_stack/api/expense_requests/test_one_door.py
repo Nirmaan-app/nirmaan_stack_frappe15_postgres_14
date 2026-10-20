@@ -248,13 +248,25 @@ class TestOneDoor(FrappeTestCase):
 
 	# -- who opens the Expenses page ---------------------------------------------------------------
 	def test_the_expenses_page_opens_for_a_raiser_or_a_reviewer_only(self):
-		cases = (
-			(U, True),            # Admin: raises every type, reviews every request
-			(ACCOUNTANT, True),   # raises a type
-			(PROCUREMENT, True),  # raises a type, reviews nothing
-			(HR_LEAD, True),      # reviews a Project Manager's requests
-			(IDLE, False),        # raises nothing, reviews nothing
+		# The page opens for a raiser or a reviewer; its New Expense button only for a raiser.
+		# The types the site ships may list the HR Lead: take it off every one, so it reviews and
+		# raises nothing. Raw, inside this test's transaction and rolled back after: a read needs no
+		# Expense Type hook, and the rollback puts every row back.
+		frappe.db.sql(
+			"""DELETE FROM "tabExpense Type Role"
+			   WHERE parenttype = 'Expense Type' AND parentfield = 'allowed_roles' AND role_profile = %s""",
+			HR_LEAD_PROFILE,
 		)
-		for user, opens in cases:
+		self.addCleanup(routing.clear_cache)
+		self.addCleanup(frappe.db.rollback)
+		routing.clear_cache()
+		cases = (
+			(U, True, True),              # Admin: raises every type, reviews every request
+			(ACCOUNTANT, True, True),     # raises a type
+			(PROCUREMENT, True, True),    # raises a type, reviews nothing
+			(HR_LEAD, True, False),       # reviews a Project Manager's requests, raises nothing
+			(IDLE, False, False),         # raises nothing, reviews nothing
+		)
+		for user, opens, raises in cases:
 			with self.subTest(user=user):
-				self.assertEqual(self._access(user)["opens_expenses"], opens)
+				self.assertEqual(self._access(user), {"opens_expenses": opens, "can_raise": raises})

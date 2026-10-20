@@ -12,6 +12,8 @@ export const EXPENSE_ACCESS_API = "nirmaan_stack.api.expense_requests.read.get_e
 /** The server's answer. */
 export interface ExpenseAccess {
     opens_expenses: boolean;
+    /** Can raise at least one expense type (`access.can_raise_requests`). */
+    can_raise: boolean;
 }
 
 /** What the `/expense` route shows: the page once the server says yes, a loading state while it has
@@ -24,3 +26,8 @@ export function expenseRouteState(access: ExpenseAccess | undefined, failed: boo
 
 /** Whether the sidebar shows the Expenses item: only once the server has said yes. */
 export const showsExpenses = (access: ExpenseAccess | undefined): boolean => !!access?.opens_expenses;
+
+/** Whether the New Expense button shows (Expenses, Project Payment & Expense): only once the server
+ *  says the viewer can raise at least one type. A reviewer who raises nothing gets the page, not the
+ *  button (spec #1494 story 22). */
+export const offersNewExpense = (access: ExpenseAccess | undefined): boolean => !!access?.can_raise;

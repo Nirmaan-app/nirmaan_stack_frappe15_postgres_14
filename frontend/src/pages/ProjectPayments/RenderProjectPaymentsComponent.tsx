@@ -19,7 +19,7 @@ import { paymentsTabSet, resolvePaymentsTab } from "./config/paymentsTabSet";
 import { ChequeTrackerNote } from "./components/ChequeTrackerNote";
 import NewExpenseRequestDialog from "@/pages/ExpenseRequests/components/NewExpenseRequestDialog";
 import { useExpenseAccess } from "@/hooks/useExpenseAccess";
-import { showsExpenses } from "@/utils/expenseAccess";
+import { offersNewExpense } from "@/utils/expenseAccess";
 
 const ApprovePayments = React.lazy(() => import("./approve-payments/ApprovePayments"));
 const AccountantTabs = React.lazy(() => import("./update-payment/AccountantTabs"));
@@ -70,8 +70,9 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
     }, []);
 
     // ── + New Expense (spec #1494): the Expenses page's dialog, opened by the header button under the
-    // same gate (`showsExpenses`). After a submit the open tab is mounted afresh, so its table shows
-    // any Expense the submit created at once, and the badges refetch.
+    // same gate (`offersNewExpense`, the server's `can_raise`). After a submit the open tab's table
+    // refetches its rows (`refreshKey`, kept mounted so its filters and page stay), so any Expense the
+    // submit created shows at once, and the badges refetch.
     const { access: expenseAccess } = useExpenseAccess();
     const [listsVersion, setListsVersion] = useState(0);
     const refreshLists = useCallback(() => {
@@ -225,11 +226,10 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
             <Suspense fallback={
                 <LoadingFallback />
             }>
-                <React.Fragment key={listsVersion}>
                 {
                     tab === PP_TABS.APPROVE_PAYMENTS ? (
                         canApprovePayments ? (
-                            <ApprovePayments />
+                            <ApprovePayments refreshKey={listsVersion} />
                         ) : (
                             // Reachable only via a hand-edited / bookmarked `?tab=Approve Payments`
                             // URL -- the tab button is not rendered for these roles.
@@ -241,7 +241,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                             </Alert>
                         )
                     ) : tab === PP_TABS.CEO_PENDING ? (
-                        <ApprovePayments mode="ceo" readOnly={!isCEO} />
+                        <ApprovePayments mode="ceo" readOnly={!isCEO} refreshKey={listsVersion} />
                     ) : ((tab === PP_TABS.NEW_PAYMENTS && !canSettlePayments) || (tab === PP_TABS.RECONCILIATION_PENDING && !canViewReconciliation)) ? (
                         // Reachable only via a hand-edited / bookmarked `?tab=` URL -- the tab
                         // buttons are not rendered for these roles (PMO removed 2026-09-17).
@@ -257,22 +257,21 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
 
                         [PP_TABS.NEW_PAYMENTS].includes(tab as any) ?
                             (
-                                <AccountantTabs />
+                                <AccountantTabs refreshKey={listsVersion} />
                             ) : [PP_TABS.PAYMENTS_PENDING, PP_TABS.PAYMENTS_DONE, PP_TABS.ALL_PAYMENTS, PP_TABS.RECONCILIATION_PENDING, PP_TABS.PAYMENT_BY_ME].includes(tab as any) ? (
                                 <>
                                     {tab === PP_TABS.RECONCILIATION_PENDING && (
                                         <ChequeTrackerNote role={role} waiting={queueCounts?.message?.cheque_tracker} />
                                     )}
-                                    <AllPayments tab={tab} />
+                                    <AllPayments tab={tab} refreshKey={listsVersion} />
                                 </>
                             )
                                 : (
                                     <ProjectPaymentsList />
                                 )
                 }
-                </React.Fragment>
             </Suspense >
-            {showsExpenses(expenseAccess) && <NewExpenseRequestDialog onSuccess={refreshLists} />}
+            {offersNewExpense(expenseAccess) && <NewExpenseRequestDialog onSuccess={refreshLists} />}
         </div >
     );
 };

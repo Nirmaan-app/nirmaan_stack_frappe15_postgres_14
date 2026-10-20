@@ -16,7 +16,7 @@ import { canManageTendering } from "@/pages/projects/tendering/tenderingAuth";
 import { PROCUREMENT_PROFILES, canManagePayees } from "@/constants/roles";
 import { canCreateNonProjectInflow } from "@/pages/non-project-inflows/nonProjectInflowModel";
 import { useExpenseAccess } from "@/hooks/useExpenseAccess";
-import { showsExpenses } from "@/utils/expenseAccess";
+import { offersNewExpense } from "@/utils/expenseAccess";
 
 interface RenderActionButtonProps {
   locationPath: string;
@@ -160,10 +160,10 @@ export const RenderRightActionButton = ({
     );
   } else if (locationPath === "/expense/requests" || locationPath === "/project-payments") {
     // The one door for every expense (spec #1494): the same New Expense dialog on the Expenses page
-    // and on Project Payment & Expense, which each mount it. Shown to someone who can raise a type
-    // or reviews (`useExpenseAccess`, the `ExpenseRoute` answer). The server refuses a type the
-    // raiser may not raise.
-    if (!showsExpenses(expenseAccess)) return null;
+    // and on Project Payment & Expense, which each mount it. Shown to someone who can raise at least
+    // one type (`useExpenseAccess`, the server's `can_raise`); a reviewer who raises nothing gets the
+    // page, not the button. The server refuses a type the raiser may not raise.
+    if (!offersNewExpense(expenseAccess)) return null;
     return (
       <Button onClick={toggleNewExpenseRequestDialog} className="sm:mr-4 mr-2">
         <CirclePlus className="w-5 h-5 pr-1" />
