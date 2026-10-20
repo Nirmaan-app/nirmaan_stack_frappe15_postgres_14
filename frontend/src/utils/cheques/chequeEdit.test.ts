@@ -27,7 +27,7 @@ const detail = (overrides: Partial<ChequeDetail> = {}): ChequeDetail => ({
     bank_label: "ICICI Bank",
     cheque_date: "2026-10-14",
     amount: 30000,
-    status: "Pending",
+    status: "Approval Pending",
     cheque_type: "Payment",
     old_type: 0,
     vendor: "VEN-0042",
@@ -81,9 +81,9 @@ describe("canEditCheque", () => {
 
     it("lets Procurement edit only the Pending Cheques they created (C6, #1482)", () => {
         const user = "buyer@nirmaan.app";
-        expect(canEditCheque({ status: "Pending", owner: user }, PROCUREMENT, user)).toBe(true);
+        expect(canEditCheque({ status: "Approval Pending", owner: user }, PROCUREMENT, user)).toBe(true);
         expect(canEditCheque({ status: "Issued", owner: user }, PROCUREMENT, user)).toBe(false);
-        expect(canEditCheque({ status: "Pending", owner: "other@nirmaan.app" }, PROCUREMENT, user)).toBe(false);
+        expect(canEditCheque({ status: "Approval Pending", owner: "other@nirmaan.app" }, PROCUREMENT, user)).toBe(false);
         expect(canEditCheque({ status: "Cleared", owner: user }, PROCUREMENT, user)).toBe(false);
     });
 

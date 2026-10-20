@@ -79,9 +79,9 @@ describe("utrOrChequeText (the UTR / Ref export)", () => {
 
 describe("chequeChipTone", () => {
     it("gives each cheque status its own colour, Pending included", () => {
-        const tones = ["Pending", "Issued", "Cleared", "Cancelled"].map(chequeChipTone);
+        const tones = ["Approval Pending", "Issued", "Cleared", "Cancelled"].map(chequeChipTone);
         expect(new Set(tones).size).toBe(4);
-        expect(chequeChipTone("Pending")).toContain("indigo");
+        expect(chequeChipTone("Approval Pending")).toContain("indigo");
     });
 
     it("leaves a payment with no Cheque plain", () => {

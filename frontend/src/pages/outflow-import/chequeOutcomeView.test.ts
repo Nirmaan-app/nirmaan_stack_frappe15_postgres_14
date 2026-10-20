@@ -28,8 +28,8 @@ describe("chequeOutcomeChip", () => {
     });
 
     it("tones each start apart", () => {
-        expect(chequeOutcomeChip(outcome({ started: "Pending" }))?.label).toBe("Cheque 000747 · Pending → Cleared");
-        expect(chequeOutcomeChip(outcome({ started: "Pending" }))?.tone).toBe("approved");
+        expect(chequeOutcomeChip(outcome({ started: "Approval Pending" }))?.label).toBe("Cheque 000747 · Approval Pending → Cleared");
+        expect(chequeOutcomeChip(outcome({ started: "Approval Pending" }))?.tone).toBe("approved");
         expect(chequeOutcomeChip(outcome({ started: "Cancelled" }))?.tone).toBe("revived");
     });
 

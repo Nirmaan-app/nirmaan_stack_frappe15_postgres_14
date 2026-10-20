@@ -26,7 +26,7 @@ Built so far:
   from the PO/WO page (#1414 Request Payment). Ask the first BEFORE the
   payment is inserted: a Project Payment's `after_insert` commits, so a refusal after it is too late.
 
-* `edit_cheque` -- the Tracker's Edit (#1418): a Pending Payment cheque's number, bank, date and photo,
+* `edit_cheque` -- the Tracker's Edit (#1418): an Approval Pending Payment cheque's number, bank, date and photo,
   never its lines (spec #1514); a Security Deposit cheque's fields, lines and issue date while Issued
   (#1486); who may is `edit_rules.edit_access_problem`, what may change `edit_rules.edit_problem`.
 * `reshape_old_cheque` -- the cheque-types patch's write (#1478, spec #1477): an existing Cheque made a
@@ -212,14 +212,14 @@ def edit_cheque(
     them). Returns it.
 
     Re-reads the Cheque under its row lock, then refuses with `frappe.PermissionError` a user who may
-    not edit it (`any_cheque` is False for Procurement: only their own Pending Payment cheques and Issued
+    not edit it (`any_cheque` is False for Procurement: only their own Approval Pending Payment cheques and Issued
     Security Deposit cheques), and with a validation error an edit the rules forbid (`edit_rules.edit_problem`:
-    a Pending Payment cheque changes only its number, bank, date and photo, never its lines; a deposit
+    an Approval Pending Payment cheque changes only its number, bank, date and photo, never its lines; a deposit
     changes while Issued; an Old-type cheque changes only its photo). A Security Deposit cheque's
     `issue_date` (None keeps it) changes with the rest while Issued (#1486). The `validate` controller still
     runs every header and line rule.
 
-    A new number or date on a Pending Payment cheque is copied onto its payments (`link_payments`). No
+    A new number or date on an Approval Pending Payment cheque is copied onto its payments (`link_payments`). No
     payment comes on or off a Cheque here, so none moves on. ⚠️ THE CALLER COMMITS.
     """
     doc = frappe.get_doc(CHEQUES, name, for_update=True)

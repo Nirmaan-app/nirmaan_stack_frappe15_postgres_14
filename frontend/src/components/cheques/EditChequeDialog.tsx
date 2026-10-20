@@ -37,7 +37,7 @@ interface EditChequeDialogProps {
  * payment on the PO page, a Security Deposit cheque on the PO page's card.
  *
  * - A **Payment cheque**: its header, with only what its status opens (`utils/cheques/chequeEdit`). While
- *   Pending that is its number, bank, date and photo; its Vendor, amount, note and lines are shown as made,
+ *   Approval Pending that is its number, bank, date and photo; its Vendor, amount, note and lines are shown as made,
  *   and the lines are never sent, so the server keeps them.
  * - A **Security Deposit cheque**: `SecurityDepositChequeForm`, in full while Issued.
  *

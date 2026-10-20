@@ -72,7 +72,7 @@ describe("chequeSummary", () => {
             }),
         ).toEqual([
             { key: "all", label: "All", status: undefined, count: 6, amount: 98000 },
-            { key: "pending", label: "Pending", status: "Pending", count: 1, amount: 8000 },
+            { key: "pending", label: "Approval Pending", status: "Approval Pending", count: 1, amount: 8000 },
             { key: "issued", label: "Issued", status: "Issued", count: 2, amount: 50000 },
             { key: "cleared", label: "Cleared", status: "Cleared", count: 2, amount: 35000 },
             { key: "cancelled", label: "Cancelled", status: "Cancelled", count: 1, amount: 5000 },
@@ -147,7 +147,7 @@ describe("daysSinceIssue and isStale", () => {
     });
 
     it("is nothing while Pending and once the cheque is Cleared or Cancelled", () => {
-        expect(daysSinceIssue({ status: "Pending", cheque_date: "2026-01-01" }, today)).toBeNull();
+        expect(daysSinceIssue({ status: "Approval Pending", cheque_date: "2026-01-01" }, today)).toBeNull();
         expect(daysSinceIssue({ status: "Cleared", issue_date: "2026-01-01", cheque_date: "2026-01-01" }, today)).toBeNull();
         expect(daysSinceIssue({ status: "Cancelled", issue_date: "2026-01-01", cheque_date: "2026-01-01" }, today)).toBeNull();
     });

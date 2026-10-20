@@ -17,8 +17,8 @@ typed `issue_date` and is Issued as it is saved; its lines only name the Vendor'
 fine).
 
 With `name` it saves the Edit of that Cheque (#1418). Admin, Accountant and Accountant Lead
-(`CHEQUE_ACCOUNTS_PROFILES`) edit any Cheque; Procurement only the Pending Payment cheques and Issued
-deposit cheques they created. A Pending Payment cheque changes only its number, bank, date and photo, a
+(`CHEQUE_ACCOUNTS_PROFILES`) edit any Cheque; Procurement only the Approval Pending Payment cheques and Issued
+deposit cheques they created. An Approval Pending Payment cheque changes only its number, bank, date and photo, a
 deposit changes while Issued; otherwise only the photo changes (`services/cheques/edit_rules.edit_problem`).
 """
 

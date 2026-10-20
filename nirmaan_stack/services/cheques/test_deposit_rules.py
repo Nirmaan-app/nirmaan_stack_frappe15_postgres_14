@@ -121,7 +121,7 @@ class TestEditingADepositCheque(unittest.TestCase):
 
     def test_procurement_edits_its_own_payment_cheque_only_while_pending(self):
         own = {"owner": "p@x", "user": "p@x", "any_cheque": False, "cheque_type": PAY}
-        self.assertIsNone(edit_rules.edit_access_problem(status="Pending", **own))
+        self.assertIsNone(edit_rules.edit_access_problem(status="Approval Pending", **own))
         self.assertIsNotNone(edit_rules.edit_access_problem(status="Issued", **own))
 
     def test_an_issued_deposit_changes_in_full_and_a_cancelled_one_only_its_photo(self):

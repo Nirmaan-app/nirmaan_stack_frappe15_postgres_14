@@ -149,7 +149,7 @@ class TestApproveAChequeTogether(PendingChequeCase):
         self.assertEqual(sorted(out["payments"]), sorted([a, b, c]))
         self.assertEqual(self._statuses(a, b, c), [RECON] * 3)
         self.assertEqual(self._terms(a, b, c), [RECON] * 3)
-        self.assertEqual(self._cheque_state(cheque), ("Issued", nowdate(), [(None, "Pending"), ("Pending", "Issued")]))
+        self.assertEqual(self._cheque_state(cheque), ("Issued", nowdate(), [(None, "Approval Pending"), ("Approval Pending", "Issued")]))
         for p in (a, b, c):
             self.assertEqual(str(frappe.db.get_value(PAYMENT, p, "approval_date")), nowdate())
         self.ceo_note.assert_not_called()
@@ -161,13 +161,13 @@ class TestApproveAChequeTogether(PendingChequeCase):
         approve_cheque_payments(a)
         self.assertEqual(self._statuses(a, b), ["CEO Pending"] * 2)
         self.assertEqual(self._terms(a, b), ["CEO Pending"] * 2)
-        self.assertEqual(self._cheque_state(cheque)[0], "Pending")
+        self.assertEqual(self._cheque_state(cheque)[0], "Approval Pending")
         self.ceo_note.assert_called_once()  # one note for the cheque, not one per payment
 
         res = self._as_ceo(ceo_approve_payment, b)
         self.assertIn("Reconciliation Pending", res["message"])
         self.assertEqual(self._statuses(a, b), [RECON] * 2)
-        self.assertEqual(self._cheque_state(cheque), ("Issued", nowdate(), [(None, "Pending"), ("Pending", "Issued")]))
+        self.assertEqual(self._cheque_state(cheque), ("Issued", nowdate(), [(None, "Approval Pending"), ("Approval Pending", "Issued")]))
         for p in (a, b):
             self.assertEqual(str(frappe.db.get_value(PAYMENT, p, "ceo_approval_date")), nowdate())
 
@@ -179,7 +179,7 @@ class TestApproveAChequeTogether(PendingChequeCase):
         with self.assertRaisesRegex(frappe.ValidationError, f"Line 2 of cheque .* has no payment yet \\({po}"):
             approve_cheque_payments(a)
         self.assertEqual(self._statuses(a), ["Requested"])
-        self.assertEqual(self._cheque_state(cheque)[0], "Pending")
+        self.assertEqual(self._cheque_state(cheque)[0], "Approval Pending")
 
     def test_lines_that_do_not_add_up_to_the_cheque_refuse(self):
         a, b = self._payment(20000), self._payment(25000)
@@ -253,7 +253,7 @@ class TestApproveAChequeTogether(PendingChequeCase):
         self.assertEqual(len(moves), 3)
         self.assertEqual(self._statuses(a, b, c), ["Requested"] * 3)
         self.assertEqual(self._terms(a, b, c), ["Requested"] * 3)
-        self.assertEqual(self._cheque_state(cheque), ("Pending", None, [(None, "Pending")]))
+        self.assertEqual(self._cheque_state(cheque), ("Approval Pending", None, [(None, "Approval Pending")]))
 
     # -- what the dialog reads -----------------------------------------------------------------------
     def test_the_dialog_lists_every_payment_the_total_and_the_approval_it_needs(self):
@@ -297,7 +297,7 @@ class TestNoIssuedChequeIsShort(PendingChequeCase):
         self.assertFalse(commit_move_to_reconciliation(a))
 
         self.assertEqual(self._statuses(a), ["Approved"])
-        self.assertEqual(self._cheque_state(cheque)[0], "Pending")
+        self.assertEqual(self._cheque_state(cheque)[0], "Approval Pending")
 
     def test_issue_refuses_a_cheque_its_lines_do_not_cover(self):
         a = self._payment(20000, "Approved")
@@ -307,4 +307,4 @@ class TestNoIssuedChequeIsShort(PendingChequeCase):
 
         with self.assertRaisesRegex(frappe.ValidationError, "add up to ₹20,000, but the cheque is for ₹30,000"):
             issue(cheque, user=U)
-        self.assertEqual(self._cheque_state(cheque)[0], "Pending")
+        self.assertEqual(self._cheque_state(cheque)[0], "Approval Pending")

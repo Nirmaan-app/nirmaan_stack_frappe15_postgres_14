@@ -150,9 +150,9 @@ class TestClearByHand(ChequeStatusCase):
     def test_a_pending_cheque_is_refused_and_nothing_changes(self):
         a = self._payment(20000)
         cheque = self._cheque((a, 20000))
-        self._refused("cannot be cleared: it is Pending: its payments are not approved yet", clear_cheque, cheque,
+        self._refused("cannot be cleared: it is Approval Pending: its payments are not approved yet", clear_cheque, cheque,
                       nowdate())
-        self.assertEqual((self._status(cheque), self._statuses(a)), ("Pending", ["Requested"]))
+        self.assertEqual((self._status(cheque), self._statuses(a)), ("Approval Pending", ["Requested"]))
 
     def test_a_cancelled_cheque_is_refused_and_never_goes_back(self):
         cheque, (a,) = self._issued(20000)
@@ -264,9 +264,9 @@ class TestBulkClear(ChequeStatusCase):
         self.assertEqual(result["skipped"], [
             {"cheque": done, "cheque_no": numbers[done], "reason": "already Cleared"},
             {"cheque": pending, "cheque_no": numbers[pending],
-             "reason": "it is Pending: its payments are not approved yet"},
+             "reason": "it is Approval Pending: its payments are not approved yet"},
         ])
-        self.assertEqual([self._status(c) for c in (a, b, pending)], ["Cleared", "Cleared", "Pending"])
+        self.assertEqual([self._status(c) for c in (a, b, pending)], ["Cleared", "Cleared", "Approval Pending"])
 
     def test_the_preview_writes_nothing(self):
         cheque, (p,) = self._issued(10000)
@@ -328,7 +328,7 @@ class TestDetailView(ChequeStatusCase):
         self.assertEqual((detail["bank_line_detail"]["name"], flt(detail["bank_line_detail"]["amount"])), (line, 20000))
         self.assertEqual([(l["payment_name"], l["payment_status"]) for l in detail["lines"]], [(a, "Paid")])
         self.assertEqual([(h["from_status"], h["to_status"]) for h in detail["history"]],
-                         [(None, "Pending"), ("Pending", "Issued"), ("Issued", "Cleared")])
+                         [(None, "Approval Pending"), ("Approval Pending", "Issued"), ("Issued", "Cleared")])
 
     def test_a_project_manager_cannot_open_the_detail_view(self):
         cheque, _ = self._issued(20000)

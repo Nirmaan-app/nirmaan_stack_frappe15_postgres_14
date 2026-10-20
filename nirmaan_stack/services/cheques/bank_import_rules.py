@@ -112,7 +112,7 @@ def bank_cleared_note(*, cheque_no: str, started: str, payments: int, day, suspe
     if started == PENDING:
         verb = "was" if payments == 1 else "were"
         return (
-            f"Cheque {cheque_no} was Pending: the bank paid it before approval. Its {_payments(payments)} {verb} "
+            f"Cheque {cheque_no} was {PENDING}: the bank paid it before approval. Its {_payments(payments)} {verb} "
             f"approved by bank import (approval date {when}), then Paid."
         )
     if started == CANCELLED:

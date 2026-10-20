@@ -44,7 +44,7 @@ CLEARABLE_FROM = {
 BANK_BRINGS_FORWARD = (PENDING, CANCELLED)
 #: Why a cheque at a status no clear starts from cannot be cleared.
 _NOT_CLEARABLE = {
-    PENDING: "it is Pending: its payments are not approved yet",
+    PENDING: f"it is {PENDING}: its payments are not approved yet",
     CANCELLED: "it is Cancelled: its payments are Rejected",
 }
 #: The bank-statement source whose lines clear cheques, and the direction that spends money

@@ -36,12 +36,12 @@ class TestChequeNamesMatchTheDoctype(unittest.TestCase):
         # A payment a cheque line of the bank import settled (#1485).
         self.assertIn(bank_import_rules.BANK_MATCH_BASIS, _options("outflow_row_match", "match_basis"))
 
-    def test_a_cheque_saved_with_no_status_starts_pending(self):
+    def test_a_cheque_saved_with_no_status_starts_approval_pending(self):
         # A new Payment cheque waits for its payments' approval (spec #1477); a deposit sets Issued itself.
-        self.assertEqual(_field("cheques", "status").get("default"), rules.PENDING)
+        self.assertEqual(_field("cheques", "status").get("default"), "Approval Pending")
 
     def test_the_statuses_and_types_are_the_glossary_s(self):
-        self.assertEqual(rules.CHEQUE_STATUSES, ("Pending", "Issued", "Cleared", "Cancelled"))
+        self.assertEqual(rules.CHEQUE_STATUSES, ("Approval Pending", "Issued", "Cleared", "Cancelled"))
         self.assertEqual(rules.CHEQUE_TYPES, ("Payment", "Security Deposit"))
         self.assertEqual(rules.CLEARED_BY, ("By hand", "Bank import"))
 
@@ -54,13 +54,13 @@ class TestStatusFromPayments(unittest.TestCase):
         self.assertEqual(rules.status_from_payments(statuses), expected, statuses)
 
     def test_payments_waiting_for_approval_make_it_pending(self):
-        self.assertStatus(["Requested"], "Pending")
-        self.assertStatus(["CEO Pending"], "Pending")
-        self.assertStatus(["Requested", "CEO Pending"], "Pending")
+        self.assertStatus(["Requested"], "Approval Pending")
+        self.assertStatus(["CEO Pending"], "Approval Pending")
+        self.assertStatus(["Requested", "CEO Pending"], "Approval Pending")
 
     def test_a_line_with_no_payment_yet_keeps_it_pending(self):
-        self.assertStatus([None], "Pending")
-        self.assertStatus(["Approved", None], "Pending")
+        self.assertStatus([None], "Approval Pending")
+        self.assertStatus(["Approved", None], "Approval Pending")
 
     def test_approved_payments_make_it_issued(self):
         self.assertStatus(["Approved"], "Issued")
@@ -75,8 +75,8 @@ class TestStatusFromPayments(unittest.TestCase):
         self.assertStatus(["Paid", "Reconciliation Pending"], "Issued")
 
     def test_one_waiting_payment_holds_the_whole_cheque_at_pending(self):
-        self.assertStatus(["Approved", "Requested"], "Pending")
-        self.assertStatus(["Paid", "CEO Pending"], "Pending")
+        self.assertStatus(["Approved", "Requested"], "Approval Pending")
+        self.assertStatus(["Paid", "CEO Pending"], "Approval Pending")
 
     def test_all_rejected_makes_it_cancelled(self):
         self.assertStatus(["Rejected"], "Cancelled")
@@ -305,7 +305,7 @@ class TestPaymentChequeEdit(unittest.TestCase):
     def test_procurement_edits_only_its_own_pending_cheques(self):
         self.assertIsNone(edit_rules.edit_access_problem(status=rules.PENDING, owner="u", user="u", any_cheque=False))
         for status in (rules.ISSUED, rules.CLEARED):
-            self.assertIn("only the Pending cheques you created",
+            self.assertIn("only the Approval Pending cheques you created",
                           edit_rules.edit_access_problem(status=status, owner="u", user="u", any_cheque=False))
         self.assertIsNotNone(edit_rules.edit_access_problem(status=rules.PENDING, owner="v", user="u", any_cheque=False))
         self.assertIsNone(edit_rules.edit_access_problem(status=rules.ISSUED, owner="v", user="u", any_cheque=True))

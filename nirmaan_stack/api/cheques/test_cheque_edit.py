@@ -11,7 +11,7 @@ the refusal and that nothing changed.
 
 A Pending Payment cheque changes only its number, bank, date and photo, never what it pays: its amount,
 payee, note and lines stay as made (ADR-0035 Amendment A). Issued, Cleared and Cancelled cheques change
-only their photo. Procurement edits only the Pending cheques it created. Payment cheques are planted the
+only their photo. Procurement edits only the Approval Pending cheques it created. Payment cheques are planted the
 way they are made now, by Request Payment on the PO page (`writer.create_payment_cheque`), or as an older
 cheque paying several POs (`ChequeFixture.plant_cheque`).
 
@@ -284,13 +284,13 @@ class TestChequeEdit(FrappeTestCase):
         self.assertEqual(self._cheque(own).cheque_no, number)
 
         someone_elses = self._from_po_page(self._plant("Requested"))
-        with self.assertRaisesRegex(frappe.PermissionError, "only the Pending cheques you created"):
+        with self.assertRaisesRegex(frappe.PermissionError, "only the Approval Pending cheques you created"):
             self._as(buyer, self._edit, someone_elses, cheque_no=self.cheques.number())
         frappe.db.rollback()
 
         issued = self._as(buyer, self._from_po_page, self._plant("Approved"))
         self.assertEqual(self._cheque(issued).status, "Issued")
-        with self.assertRaisesRegex(frappe.PermissionError, "only the Pending cheques you created"):
+        with self.assertRaisesRegex(frappe.PermissionError, "only the Approval Pending cheques you created"):
             self._as(buyer, self._edit, issued, attachment=NEW_PHOTO)
         frappe.db.rollback()
 

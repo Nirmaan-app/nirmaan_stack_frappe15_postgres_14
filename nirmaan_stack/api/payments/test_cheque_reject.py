@@ -59,7 +59,7 @@ class TestRejectAChequeTogether(PendingChequeCase):
         self.assertEqual(self._statuses(a, b, c), ["Rejected"] * 3)
         self.assertEqual(self._terms(a, b, c), ["Rejected"] * 3)
         self.assertEqual(frappe.db.get_value("Cheques", cheque, "status"), "Cancelled")
-        self.assertEqual(self._history(cheque)[-1], ("Pending", "Cancelled", REASON))
+        self.assertEqual(self._history(cheque)[-1], ("Approval Pending", "Cancelled", REASON))
         # A Cancelled cheque keeps its lines: it stays the record of what it would have paid.
         self.assertEqual(self._lines(cheque), [a, b, c])
         for p in (a, b, c):
@@ -74,7 +74,7 @@ class TestRejectAChequeTogether(PendingChequeCase):
         self.assertIn("All 2 payments", out["message"])
         self.assertEqual(self._statuses(a, b), ["Rejected"] * 2)
         self.assertEqual(self._terms(a, b), ["Rejected"] * 2)
-        self.assertEqual(self._history(cheque)[-1], ("Pending", "Cancelled", REASON))
+        self.assertEqual(self._history(cheque)[-1], ("Approval Pending", "Cancelled", REASON))
 
     def test_a_reason_is_required(self):
         a = self._payment(20000)
@@ -82,7 +82,7 @@ class TestRejectAChequeTogether(PendingChequeCase):
         with self.assertRaisesRegex(frappe.ValidationError, "reason is required"):
             reject_cheque_payments(a, "   ")
         self.assertEqual(self._statuses(a), ["Requested"])
-        self.assertEqual(frappe.db.get_value("Cheques", cheque, "status"), "Pending")
+        self.assertEqual(frappe.db.get_value("Cheques", cheque, "status"), "Approval Pending")
 
     def test_a_payment_no_longer_at_the_step_is_refused(self):
         a = self._payment(30000, "CEO Pending")
@@ -116,7 +116,7 @@ class TestRejectAChequeTogether(PendingChequeCase):
         self.assertEqual(self._statuses(a, b), ["Rejected"] * 2)
         self.assertEqual(self._terms(a, b), ["Rejected"] * 2)
         self.assertEqual(frappe.db.get_value("Cheques", cheque, "status"), "Cancelled")
-        self.assertEqual(self._history(cheque)[-1], ("Pending", "Cancelled", note))
+        self.assertEqual(self._history(cheque)[-1], ("Approval Pending", "Cancelled", note))
         self.assertEqual(self._lines(cheque), [a, b])
         self.assertEqual(self._reasons(b), [f"Rejected: {note}"])
 
@@ -131,7 +131,7 @@ class TestRejectAChequeTogether(PendingChequeCase):
 
         # Nothing in the cascade committed, so rolling the caller back undoes all of it.
         self.assertEqual(self._statuses(a, b), ["Requested"] * 2)
-        self.assertEqual(frappe.db.get_value("Cheques", cheque, "status"), "Pending")
+        self.assertEqual(frappe.db.get_value("Cheques", cheque, "status"), "Approval Pending")
 
     def test_rejecting_a_payment_of_an_issued_cheque_cancels_it_too(self):
         a, b = self._payment(20000), self._payment(25000)

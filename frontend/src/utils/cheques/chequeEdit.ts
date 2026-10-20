@@ -11,21 +11,21 @@ import { saveChequeArgs, type ChequeFormInput, type ChequeFormValues, type SaveC
  * Mirrors `services/cheques/edit_rules.edit_access_problem` and `edit_problem`, which are the enforcement:
  * this only shapes the Edit dialog (which boxes are open, the hint) and who sees the Edit button.
  *
- * - A Pending Payment cheque: only what is written on the paper changes, its number, bank, date and photo
+ * - An Approval Pending Payment cheque: only what is written on the paper changes, its number, bank, date and photo
  *   (`PAYMENT_CHEQUE_FIELDS`, mirroring `edit_rules.PAYMENT_CHEQUE_EDITABLE_FIELDS`). Its amount, payee, note
  *   and lines are what it pays, and stay as made: the dialog shows its lines and never sends them.
  * - Issued, Cleared and Cancelled: only its photo. An Old-type cheque (spec #1477): only its photo, whatever
  *   its status.
  * - A Security Deposit cheque (#1486): everything while Issued, only its photo once Cancelled.
  * - Admin, Accountant and Accountant Lead edit any Cheque; Procurement only the ones they made, a Payment
- *   cheque while Pending (C6), a deposit while Issued.
+ *   cheque while Approval Pending (C6), a deposit while Issued.
  */
 
 /** The statuses at which a Cheque may change more than its photo (`edit_rules.editable_statuses`). */
 const EDITABLE_STATUSES: readonly ChequeStatus[] = [CHEQUE_STATUS.PENDING];
 const DEPOSIT_EDITABLE_STATUSES: readonly ChequeStatus[] = [CHEQUE_STATUS.ISSUED];
 
-/** What a Pending Payment cheque's Edit opens: what is written on the paper, and its photo. */
+/** What an Approval Pending Payment cheque's Edit opens: what is written on the paper, and its photo. */
 const PAYMENT_CHEQUE_FIELDS = ["bank", "bank_name", "cheque_no", "cheque_date", "attachment"];
 
 /** What the edit rules read of a Cheque. A missing type is a Payment cheque. */
@@ -40,7 +40,7 @@ const isEditableStatus = (cheque: EditFacts): boolean =>
     (isDeposit(cheque) ? DEPOSIT_EDITABLE_STATUSES : EDITABLE_STATUSES).includes(cheque.status);
 
 /**
- * Which of a Cheque's boxes the Edit dialog opens: all of an Issued deposit's, a Pending Payment cheque's
+ * Which of a Cheque's boxes the Edit dialog opens: all of an Issued deposit's, an Approval Pending Payment cheque's
  * header (`PAYMENT_CHEQUE_FIELDS`), or only the photo.
  */
 export type ChequeEditMode = "all" | "header" | "photo_only";
