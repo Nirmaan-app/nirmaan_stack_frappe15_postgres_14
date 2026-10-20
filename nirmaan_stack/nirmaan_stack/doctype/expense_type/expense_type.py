@@ -4,11 +4,14 @@
 import frappe
 from frappe.model.document import Document
 
+from nirmaan_stack.api.expense_requests.access import is_admin
+
 
 class ExpenseType(Document):
 	def validate(self):
 		self._validate_form_switch()
 		self._validate_allowed_roles()
+		self._validate_confirmed_marker()
 
 	def _validate_form_switch(self):
 		"""`source_format_enabled` needs a format to switch ON -- otherwise the dialog would
@@ -31,3 +34,16 @@ class ExpenseType(Document):
 					f"{row.role_profile} is listed twice.", title="Duplicate role profile"
 				)
 			seen.add(row.role_profile)
+
+	def _validate_confirmed_marker(self):
+		"""The "Confirmed as Expense Request" mark is a label only, and only Admin may change it (owner,
+		2026-10-20). Checked here, not only in `masters.update_expense_type`, because ~15 roles may
+		save an Expense Type through Desk or REST. A migrate re-imports the fixture as Administrator."""
+		changed = self.confirmed_as_request if self.is_new() else self.has_value_changed(
+			"confirmed_as_request")
+		if changed and not is_admin():
+			frappe.throw(
+				"Only an admin may change \"Confirmed as Expense Request\".",
+				frappe.PermissionError,
+				title="Admin only",
+			)
