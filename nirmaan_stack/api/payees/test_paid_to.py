@@ -660,15 +660,18 @@ class TestPaidTo(FrappeTestCase):
         # Paid only an Accountant or the Accountant Lead changes it, and once Paid nobody does, whoever
         # may write the row. Change account saves with permissions ignored, so it asks this itself.
         first, second = self.payees.payee(), self.payees.payee()
-        refused = [(user, "Approved") for user in (PM_USER, PMO_USER, HR_LEAD_USER, U)]
-        refused += [(user, "Paid") for user in (PM_USER, PMO_USER, HR_LEAD_USER, U, ACCOUNTANT_USER,
-                                                 ACCOUNTANT_LEAD_USER)]
-        for user, status in refused:
+        # Not theirs to edit at that status: PermissionError. Admin and the Accountant Lead may edit a
+        # Paid row's details, but its payment is locked: ValidationError, and not the subclass.
+        refused = [(user, "Approved", frappe.PermissionError) for user in (PM_USER, PMO_USER, HR_LEAD_USER, U)]
+        refused += [(user, "Paid", frappe.PermissionError)
+                    for user in (PM_USER, PMO_USER, HR_LEAD_USER, ACCOUNTANT_USER)]
+        refused += [(user, "Paid", frappe.ValidationError) for user in (U, ACCOUNTANT_LEAD_USER)]
+        for user, status, error in refused:
             with self.subTest(user=user, status=status):
                 expense = self._expense(copy_of=first, status=status)
-                # Not theirs to edit (PermissionError), or a Paid row's payment is locked (ValidationError).
-                with self.assertRaises((frappe.PermissionError, frappe.ValidationError)):
+                with self.assertRaises(error) as refusal:
                     self._as(user, change_expense_account, doctype=NPE, name=expense, payee=second)
+                self.assertIs(type(refusal.exception), error)
                 self.assertEqual(frappe.db.get_value(NPE, expense, "pay_to_account_number"),
                                  self._copy_of(first)["pay_to_account_number"])
         for user in (ACCOUNTANT_USER, ACCOUNTANT_LEAD_USER):

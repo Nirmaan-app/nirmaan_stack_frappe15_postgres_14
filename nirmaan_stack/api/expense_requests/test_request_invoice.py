@@ -187,6 +187,26 @@ class TestRequestInvoice(FrappeTestCase):
 			                invoice_date="2026-10-05")
 		self.assertIsNone(self._expense(out["created_expense"]).invoice_attachment)
 
+	def test_the_raiser_adds_the_invoice_until_paid_reconciliation_pending_included(self):
+		"""Story 15's cut-off is Paid, not money leaving the bank: an Expense marked done (Reconciliation
+		Pending) still takes the raiser's invoice; once Paid it is refused."""
+		res = self._raise(_answers())
+		out = approve_expense_request(res["name"])
+		expense = out["created_expense"]
+		decide("Non Project Expenses", expense, "mark_done", "Administrator")
+		self.assertEqual(frappe.db.get_value("Non Project Expenses", expense, "status"),
+		                 "Reconciliation Pending")
+
+		self._add_later(res["name"], invoice_attachment=LATER_FILE, invoice_date="2026-10-05",
+		                invoice_ref="GN/24/121")
+		self.assertEqual(self._expense(expense).invoice_ref, "GN/24/121")
+
+		_pay(expense)
+		with self.assertRaises(frappe.ValidationError):
+			self._add_later(res["name"], invoice_attachment=FILE, invoice_ref="GN/24/122",
+			                invoice_date="2026-10-06")
+		self.assertEqual(self._expense(expense).invoice_ref, "GN/24/121")
+
 	def test_an_invoice_added_before_approval_is_carried_onto_the_expense(self):
 		res = self._raise(_answers())
 		later = self._add_later(res["name"], invoice_attachment=LATER_FILE)
