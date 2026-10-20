@@ -1,6 +1,19 @@
 [
  {
-  "allowed_roles": [],
+  "allowed_roles": [
+   {
+    "parent": "Bank Interest",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "parent": "Bank Interest",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -14,7 +27,20 @@
   "source_format_enabled": 1
  },
  {
-  "allowed_roles": [],
+  "allowed_roles": [
+   {
+    "parent": "Office Maintenance",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Executive Profile"
+   },
+   {
+    "parent": "Office Maintenance",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Lead Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -28,7 +54,20 @@
   "source_format_enabled": 0
  },
  {
-  "allowed_roles": [],
+  "allowed_roles": [
+   {
+    "parent": "Postage & Courier",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Executive Profile"
+   },
+   {
+    "parent": "Postage & Courier",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Lead Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -42,7 +81,20 @@
   "source_format_enabled": 0
  },
  {
-  "allowed_roles": [],
+  "allowed_roles": [
+   {
+    "parent": "Travel Expenses (Flight)",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Lead Profile"
+   },
+   {
+    "parent": "Travel Expenses (Flight)",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Executive Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Travel",
@@ -83,7 +135,20 @@
   "source_format_enabled": 1
  },
  {
-  "allowed_roles": [],
+  "allowed_roles": [
+   {
+    "parent": "Repair & Maintenance",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Lead Profile"
+   },
+   {
+    "parent": "Repair & Maintenance",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Executive Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -151,7 +216,20 @@
   "source_format_enabled": 0
  },
  {
-  "allowed_roles": [],
+  "allowed_roles": [
+   {
+    "parent": "Printing & Stationery",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Lead Profile"
+   },
+   {
+    "parent": "Printing & Stationery",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Executive Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -165,7 +243,20 @@
   "source_format_enabled": 0
  },
  {
-  "allowed_roles": [],
+  "allowed_roles": [
+   {
+    "parent": "Pooja Expenses",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Lead Profile"
+   },
+   {
+    "parent": "Pooja Expenses",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Executive Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -179,7 +270,20 @@
   "source_format_enabled": 0
  },
  {
-  "allowed_roles": [],
+  "allowed_roles": [
+   {
+    "parent": "Bank Fees & Charges",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "parent": "Bank Fees & Charges",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -193,7 +297,20 @@
   "source_format_enabled": 1
  },
  {
-  "allowed_roles": [],
+  "allowed_roles": [
+   {
+    "parent": "Fixed Deposit",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "parent": "Fixed Deposit",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -207,7 +324,20 @@
   "source_format_enabled": 0
  },
  {
-  "allowed_roles": [],
+  "allowed_roles": [
+   {
+    "parent": "Staff Welfare Expenses",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Lead Profile"
+   },
+   {
+    "parent": "Staff Welfare Expenses",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Executive Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -221,7 +351,20 @@
   "source_format_enabled": 0
  },
  {
-  "allowed_roles": [],
+  "allowed_roles": [
+   {
+    "parent": "Loan Repayment",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "parent": "Loan Repayment",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -468,7 +611,32 @@
   "source_format_enabled": 0
  },
  {
-  "allowed_roles": [],
+  "allowed_roles": [
+   {
+    "parent": "Hotel Expenses",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "parent": "Hotel Expenses",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Profile"
+   },
+   {
+    "parent": "Hotel Expenses",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Executive Profile"
+   },
+   {
+    "parent": "Hotel Expenses",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Lead Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Hotel & Accommodation",
@@ -509,7 +677,20 @@
   "source_format_enabled": 1
  },
  {
-  "allowed_roles": [],
+  "allowed_roles": [
+   {
+    "parent": "Loan",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "parent": "Loan",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Uncategorized",
@@ -618,7 +799,20 @@
   "source_format_enabled": 0
  },
  {
-  "allowed_roles": [],
+  "allowed_roles": [
+   {
+    "parent": "Travel Expenses (Bus)",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Lead Profile"
+   },
+   {
+    "parent": "Travel Expenses (Bus)",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Executive Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Travel",
@@ -632,7 +826,20 @@
   "source_format_enabled": 0
  },
  {
-  "allowed_roles": [],
+  "allowed_roles": [
+   {
+    "parent": "Travel Expenses (Train)",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Lead Profile"
+   },
+   {
+    "parent": "Travel Expenses (Train)",
+    "parentfield": "allowed_roles",
+    "parenttype": "Expense Type",
+    "role_profile": "Nirmaan HR Executive Profile"
+   }
+  ],
   "docstatus": 0,
   "doctype": "Expense Type",
   "expense_category": "Travel",
