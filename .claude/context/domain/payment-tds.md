@@ -134,6 +134,18 @@ figure — the company pays the tax on top:
   CEO Hold, as `after_delete` does. A correction leaves the payment's amount alone.
 - So no path removes a deduction from a challan, and `reconciled_amount` moves only when Pay TDS pays.
 
+### Load-bearing invariants: bulk approve's tax failures (#1536)
+
+- **Bulk approve names every approved payment whose tax it could not withhold** (`tds_failed` from
+  `bulk_actions._record_bulk_deductions`, after the approvals' commit). Such a payment is Approved at its
+  GROSS amount. The Approve Payments bar shows them (`BulkActionBar`, "TDS failed on N", opening by itself)
+  until dismissed.
+- **Retry TDS** (`bulk_actions.retry_bulk_deductions`, L1 as bulk approve) runs the same phase over those
+  names: only a payment still at `Approved` can take its tax (`is_deductible`); one that has moved on comes
+  back in `not_approved`, untouched. A retried Work Order cheque then moves on to Reconciliation Pending,
+  as after a bulk approve (`_move_on_approved_cheques`). Idempotent: a payment with a deduction counts as
+  recorded and is not cut twice.
+
 ### Load-bearing invariants: who bore the tax
 
 - **`Payment TDS Deduction.borne_by` IS THE SOURCE (#1451).** A stored field by owner ruling 2026-10-16,

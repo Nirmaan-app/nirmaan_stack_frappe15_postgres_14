@@ -273,6 +273,8 @@ def validate(doc, method):
     refuse_reject_if_deposited(doc)
     refuse_amount_change_if_deposited(doc)
     refuse_raise_after_tax_cut(doc)
+    if not doc.is_new():
+        _validate_work_order_limit_on_edit(doc)
 
 
 def _is_restating_save(doc) -> bool:
@@ -350,6 +352,44 @@ def _validate_work_order_limit(doc):
         return
     sr = frappe.get_doc("Service Requests", doc.document_name)
     assert_within_work_order_limit(sr, doc.amount, bool(cint(doc.get("is_gst_payment"))), action="pay")
+
+
+def _validate_work_order_limit_on_edit(doc):
+    """An edit that takes more of a Work Order's payment limit is held to it, as a new request is
+    (#1536, story 43): a raised amount, a move to another Work Order, or a switch between base and GST.
+    Measured with this payment left out of the order and its new GROSS figure asked for, so the most it
+    may be raised to is what a request in its place could ask, with the same ₹10 tolerance and the same
+    invoice check for the session user. Lowering is never refused: it takes nothing more, and an order
+    already paid past its limit can still be corrected.
+
+    Skipped where the insert check is (split parts, PO Revision) and on the machine paths that move an
+    amount without a person editing it (`_is_restating_save`). A raise of a payment whose tax was cut is
+    refused before this, by `refuse_raise_after_tax_cut`.
+    """
+    if doc.document_type != "Service Requests" or not doc.document_name:
+        return
+    if doc.flags.get("split_child") or not _is_restating_save(doc):
+        return
+    before = doc.get_doc_before_save()
+    if not before:
+        return
+    gst_payment = bool(cint(doc.get("is_gst_payment")))
+    takes_more = (
+        flt(doc.amount, 2) > flt(before.amount, 2)
+        or (before.document_type, before.document_name) != (doc.document_type, doc.document_name)
+        or gst_payment != bool(cint(before.get("is_gst_payment")))
+    )
+    if not takes_more:
+        return
+    withheld = frappe.db.get_value(
+        payment_tds.TDS_DOCTYPE,
+        {"project_payment": doc.name, "borne_by": ["!=", payment_tds.BORNE_BY_COMPANY]},
+        "tds_amount",
+    )
+    sr = frappe.get_doc("Service Requests", doc.document_name)
+    assert_within_work_order_limit(
+        sr, flt(doc.amount) + flt(withheld), gst_payment, action="edit", exclude_payment=doc.name
+    )
 
 
 def after_insert(doc, method):
