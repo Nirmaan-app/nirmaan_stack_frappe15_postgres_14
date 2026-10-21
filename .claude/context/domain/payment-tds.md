@@ -143,7 +143,22 @@ figure — the company pays the tax on top:
   approval route shares: single approve, a split's approved half, auto-approve at insert, bulk approve
   post-commit) asks `is_company_borne` and passes `write_deduction(borne_by=...)`, which stores it and
   cuts the payment only for `Vendor`. `write_deduction` defaults to `Vendor`, so the historical
-  backfills are unchanged. Nothing rewrites `borne_by` after that.
+  backfills are unchanged. Nothing rewrites `borne_by` after that, except the Admin action below.
+- **_TDS paid by company_ (#1537) is the one way `borne_by` moves, Vendor → Company only.**
+  `api/payments/tds_paid_by_company.mark_tds_paid_by_company` (Admin, `is_nirmaan_admin`) →
+  `payment_tds.mark_tds_paid_by_company`: a Work Order payment's deduction, before *Paid* or after *Paid*
+  while its tax is not in a challan (`refuse_if_deposited`). It changes no figure (payment amount,
+  `gross_amount`, `tds_amount` stay), so the tax leaves Amount Paid and stays in `total_tds` and project
+  outflow: ₹10,000 paid with ₹204 "withheld" → Amount Paid 10,204, Due −204 → 10,000 and 0. It saves the
+  deduction through the doc layer, so `controllers/payment_tds_deduction.on_update` recounts through
+  `write_amount_paid` and re-checks CEO Hold, and its Version (`ignore_version=False`, written even in a
+  test run) records who and when. Any other change of `borne_by` (Desk, REST) is refused
+  (`refuse_hand_written_borne_by`; the action sets `flags.tds_paid_by_company`).
+- **A payment whose tax was cut (`Vendor`) can't be raised (#1537)**, `payment_tds.refuse_raise_after_cut`
+  from the payment's `validate`, on the saves the restate runs on (not `NO_RESTATE_FLAGS` /
+  `from_adjustment`). A raised net was grossed up again (9,800 → 10,000 read as 10,204 gross, 204
+  withheld), which is how the negative-Due Work Orders arose. The message names *TDS paid by company*.
+  Lowering still restates; a `Company` payment (never cut) may be raised and is taxed on the new gross.
 - **Every reader reads the field, never the categories or the amounts:**
   - **Amount Paid includes the vendor's tax (ADR-0034 Amendment A, #1509).** A WO's stored
     `amount_paid` = its Paid payments + the `Vendor` deductions on them − its Received refunds;
@@ -179,8 +194,8 @@ figure — the company pays the tax on top:
     paid by company (on top)" outside the Total. The parts come from the server,
     `api/payments/work_order_tds.get_work_order_tds` → `payment_tds.work_order_tds_borne`: the
     deductions on the WO's **Paid** payments only, split withheld / company off `borne_tds_by_order`
-    (the writer's own source), kind `withheld` / `company` / `part`; nothing paid yet → the category
-    rule. There is no separate TDS tile. The same answer carries `payments`
+    (the writer's own source), kind `withheld` / `company` / `part`; nothing paid yet → the deductions
+    recorded on its other payments (any status), and only with none → the category rule (#1537). There is no separate TDS tile. The same answer carries `payments`
     (`payment_tds.work_order_deductions`: each payment's `tds_amount` and `borne_by`, any status) for
     the WO page's transactions table TDS column.
   - **The vendor-level figures read the same split per payment (#1512)**, off
@@ -335,7 +350,8 @@ challans**.
 ## Editing a payment that already carries a deduction
 
 ⚠️ **THE EDITED AMOUNT IS THE NET.** Once a deduction exists, `Project Payments.amount` IS what left
-the bank, so an edit to it is an edit to the net. `restate_deduction_on_amount_change` re-derives:
+the bank, so an edit to it is an edit to the net. A raise of a cut payment is refused (§ who bore the tax, #1537), so on a `Vendor`
+row only a lowering gets here. `restate_deduction_on_amount_change` re-derives:
 
 ```
 gross = net / (1 - rate/100)        tds = gross - net

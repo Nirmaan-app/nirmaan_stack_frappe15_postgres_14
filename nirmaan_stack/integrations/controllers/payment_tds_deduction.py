@@ -14,7 +14,9 @@ own amount is left as it is: it says what went to the vendor.
 `status` and `tds_challan` are never set by hand: only Pay TDS writes them (`api/tds_challan/pay_tds`,
 by `set_value`, which fires none of these hooks), because it alone checks the challan's balance and that
 the payment is Paid. A correction therefore never moves a challan's figures: before a challan there is
-none to move, and after one the row is locked.
+none to move, and after one the row is locked. `borne_by` is moved only by the Admin action *TDS paid by
+company* (`payment_tds.mark_tds_paid_by_company`, #1537), which saves through here so its correction
+recounts the order like any other.
 
 A deduction on a PAID payment is part of its order's Amount Paid, `total_tds` and Amount Due (ADR-0034
 Amendments A and B) and of its project's outflow (#1510), so a correction or a delete recounts the order
@@ -30,7 +32,7 @@ from frappe.utils import cstr, flt
 
 from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import recheck_after_recount
 from nirmaan_stack.services.amount_paid import write_amount_paid
-from nirmaan_stack.services.payment_tds import PAID, PAYMENT_DOCTYPE, challan_label
+from nirmaan_stack.services.payment_tds import PAID, PAYMENT_DOCTYPE, TDS_PAID_BY_COMPANY, challan_label
 
 #: The deduction's own status before Pay TDS (not the payment's).
 PENDING = "Pending"
@@ -53,6 +55,7 @@ def validate(doc, method=None):
 		return
 	refuse_change_if_deposited(doc, before)
 	refuse_hand_written_challan(doc, before)
+	refuse_hand_written_borne_by(doc, before)
 
 
 def _changed(doc, before, field) -> bool:
@@ -80,6 +83,16 @@ def refuse_hand_written_challan(doc, before):
 	"""Only Pay TDS links a challan and marks tax Paid: it checks the balance and that the payment is Paid."""
 	if any(_changed(doc, before, field) for field in PAY_TDS_FIELDS):
 		frappe.throw(f"{doc.name}: the challan and status are set by Pay TDS, not by hand.")
+
+
+def refuse_hand_written_borne_by(doc, before):
+	"""Who bore the tax is set when the deduction is taken, and moved only by the Admin action *TDS paid
+	by company* (`payment_tds.mark_tds_paid_by_company`, #1537), which checks the role and the challan."""
+	if _changed(doc, before, "borne_by") and not doc.flags.get("tds_paid_by_company"):
+		frappe.throw(
+			f"{doc.name}: who bore the tax is not changed by hand. An Admin uses "
+			f"\"{TDS_PAID_BY_COMPANY}\" on the payment instead."
+		)
 
 
 def on_update(doc, method=None):
