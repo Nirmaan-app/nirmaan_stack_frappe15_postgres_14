@@ -4,7 +4,7 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 ## Project lifecycle & tendering
 
-- **Tendering status** — A Project's bid outcome: *Tendering* (still being bid for), *Won* (awarded) or *Lost*. It is one of a project's two status fields; the other is its execution **Status**. A project entered directly as a real job starts at *Won*. *Won* is permanent and never changes back, whatever happens to the project's execution afterwards. *Lost* is reached only from *Tendering*. (ADR-0001 v3.)
+- **Tendering status** — A Project's bid outcome: *Tendering* (still being bid for), *Won* (awarded), *Lost* or *Merged*. It is one of a project's two status fields; the other is its execution **Status**. A project entered directly as a real job starts at *Won*. *Won* is permanent and never changes back, whatever happens to the project's execution afterwards. *Lost* is reached only from *Tendering*. (ADR-0001 v3.)
 
 - **Status (execution)** — The execution stage of a Won project: *Won*, *WIP*, *Completed*, *Halted*, *Handover*, *CEO Hold*. It is blank while the project is Tendering or Lost. *Won* replaces the former *Created* as the first stage; *Created* is retired. *Avoid*: "Status" for the bid outcome, which is the **Tendering status**.
 
@@ -15,6 +15,8 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 - **Convert to Won** — The one-way action that turns a *Tendering* project into a *Won* project by completing all the information a real project requires. Its Tendering status moves *Tendering* → *Won*, and its execution Status starts at *Won*. It updates the existing project in place — its identity is preserved — and does not create a new project. There is no reverse action.
 
 - **Selected BoQ** — a BoQ of a Won project that belongs to the job's live scope: one picked at **Convert to Won**, one an Admin added after the project was Won, or one an Admin later marked Selected. Once a project is Won, only its Selected BoQs can be edited by anyone other than an Admin. A BoQ stays Selected however much it is edited; only an Admin moves it back to Draft. More than one BoQ, and more than one version of the same BoQ, can be Selected at once. *Avoid*: approved BoQ, awarded BoQ, active BoQ, current version; and "selected" for a ticked box in a list, which is *checked*. (Owner, 2026-10-21.)
+
+- **Merge BoQs / Merged (project)** — moving every BoQ of a *Tendering* project into an existing *Won* project, because the tender was won as part of that job. The BoQs become **Selected BoQs** there, and the Tendering project becomes *Merged*: closed, pointing at the Won project it went into. **Undo merge** moves exactly those BoQs back as Draft and returns the project to *Tendering*. A project is merged into one Won project at a time; a Won project can receive many merges. Admin only. *Avoid*: combine, attach, transfer BoQs. (Owner, 2026-10-21; ADR-0038.)
 
 - **Other BoQs** — every BoQ of a Won project that is not a **Selected BoQ**. Everyone can see and open them, but only an Admin can edit them or mark them Selected. *Avoid*: superseded, rejected, archived BoQs. (Owner, 2026-10-21.)
 

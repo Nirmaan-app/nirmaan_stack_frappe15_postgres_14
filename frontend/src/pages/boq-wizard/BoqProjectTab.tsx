@@ -160,13 +160,40 @@ const BoqProjectTab = ({ projectId, surface }: BoqProjectTabProps) => {
   const { data, isLoading, error, mutate } = useFrappeGetDocList<BoqListRow>(
     "BOQs",
     {
-      fields: ["name", "boq_name", "version", "wizard_state", "status", "uploaded_at", "creation", "origin"],
+      fields: [
+        "name",
+        "boq_name",
+        "version",
+        "wizard_state",
+        "status",
+        "uploaded_at",
+        "creation",
+        "origin",
+        "merged_from",
+      ],
       // Project-less template seeds (ADR-0013 A1) are already excluded by the project filter.
       filters: [["project", "=", projectId]],
       orderBy: { field: "uploaded_at", order: "desc" },
       limit: 50,
     },
     projectId ? `boq-list-${projectId}` : null
+  );
+
+  // Names of the Tendering projects merged BoQs came from, for the "from …" note (ADR-0038 D7).
+  const mergedFromIds = [
+    ...new Set((data ?? []).map((row) => row.merged_from).filter((id): id is string => !!id)),
+  ].sort();
+  const { data: mergedFromProjects } = useFrappeGetDocList<{ name: string; project_name: string }>(
+    "Projects",
+    {
+      fields: ["name", "project_name"],
+      filters: [["name", "in", mergedFromIds]],
+      limit: mergedFromIds.length || 1,
+    },
+    isWon && mergedFromIds.length > 0 ? `boq-merged-from-${mergedFromIds.join(",")}` : null
+  );
+  const mergedFromNames = Object.fromEntries(
+    (mergedFromProjects ?? []).map((p) => [p.name, p.project_name || p.name])
   );
 
   if (isLoading) {
@@ -292,6 +319,7 @@ const BoqProjectTab = ({ projectId, surface }: BoqProjectTabProps) => {
           openingBoq={openingBoq}
           onOpenView={handleOpenView}
           onEdit={openHub}
+          mergedFromNames={mergedFromNames}
           emptyMessage={
             <>
               No BoQ selected.
@@ -321,6 +349,7 @@ const BoqProjectTab = ({ projectId, surface }: BoqProjectTabProps) => {
             openingBoq={openingBoq}
             onOpenView={handleOpenView}
             onEdit={openHub}
+            mergedFromNames={mergedFromNames}
             tinted
           />
           {canManage && (

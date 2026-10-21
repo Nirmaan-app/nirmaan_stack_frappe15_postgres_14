@@ -4,7 +4,13 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from nirmaan_stack.integrations.controllers.boqs import change_boq_selection, select_project_boqs
+from nirmaan_stack.integrations.controllers.boqs import (
+    boqs_blocking_unmerge,
+    change_boq_selection,
+    move_boqs_into_project,
+    return_merged_boqs,
+    select_project_boqs,
+)
 
 _TEST_PROJECT = "_TEST_BOQ_PROJECT_BOQS"
 
@@ -430,3 +436,148 @@ class TestBOQs(FrappeTestCase):
         finally:
             frappe.set_user("Administrator")
         self.assertEqual(self._status(boq), "Draft")
+
+    # ------------------------------------------------------------------ #
+    # Group G — merge a Tendering project's BoQs into a Won project and   #
+    # undo it (ADR-0038). Made-up project names; nothing commits.         #
+    # ------------------------------------------------------------------ #
+
+    def _row(self, name):
+        return frappe.db.get_value(
+            "BOQs", name, ["project", "merged_from", "status"], as_dict=True
+        )
+
+    def test_merge_moves_every_boq_as_selected_and_stamps_where_it_came_from(self):
+        stub, won = self._award_project(), self._award_project()
+        own = self._make_boq("Won Own", won).name
+        x = self._make_boq("Merge X", stub).name
+        y = self._make_boq("Merge Y", stub).name
+
+        moved = move_boqs_into_project(stub, won)
+
+        self.assertEqual(sorted(moved), sorted([x, y]))
+        for name in (x, y):
+            self.assertEqual(self._row(name), {"project": won, "merged_from": stub, "status": "Selected"})
+        self.assertEqual(self._row(own), {"project": won, "merged_from": None, "status": "Draft"})
+
+    def test_undo_returns_exactly_the_merged_boqs_as_draft(self):
+        """Q3: the Won project's own BoQs, later uploads and another merge's BoQs stay put."""
+        stub, other_stub, won = self._award_project(), self._award_project(), self._award_project()
+        own = self._make_boq("Won Own", won).name
+        x = self._make_boq("Merge X", stub).name
+        y = self._make_boq("Merge Y", stub).name
+        z = self._make_boq("Merge Z", other_stub).name
+        move_boqs_into_project(stub, won)
+        move_boqs_into_project(other_stub, won)
+        later = self._make_boq("Uploaded After Merge", won).name
+
+        returned = return_merged_boqs(stub)
+
+        self.assertEqual(sorted(returned), sorted([x, y]))
+        for name in (x, y):
+            self.assertEqual(self._row(name), {"project": stub, "merged_from": None, "status": "Draft"})
+        self.assertEqual(self._row(z), {"project": won, "merged_from": other_stub, "status": "Selected"})
+        self.assertEqual(self._row(own)["project"], won)
+        self.assertEqual(self._row(later)["project"], won)
+
+    def test_undo_keeps_version_numbers_as_they_were(self):
+        """Q4: a merged v1 beside the Won project's own v1 keeps its number both ways."""
+        stub, won = self._award_project(), self._award_project()
+        self._make_boq("Electrical BOQ", won)
+        incoming = self._make_boq("Electrical BOQ", stub)
+        move_boqs_into_project(stub, won)
+        self.assertEqual(frappe.db.get_value("BOQs", incoming.name, "version"), 1)
+        return_merged_boqs(stub)
+        self.assertEqual(frappe.db.get_value("BOQs", incoming.name, "version"), 1)
+
+    def test_a_revision_of_a_merged_boq_blocks_undo(self):
+        """D4: a BoQ outside the merged set that revises one inside it is named."""
+        stub, won = self._award_project(), self._award_project()
+        x = self._make_boq("Merge X", stub).name
+        move_boqs_into_project(stub, won)
+        revision = self._make_boq("Merge X", won).name
+        frappe.db.set_value("BOQs", revision, {"origin": "revision", "source_boq": x})
+
+        self.assertEqual(boqs_blocking_unmerge(stub), [revision])
+
+    def test_a_merged_boq_revising_a_won_project_boq_blocks_undo(self):
+        """Review finding 5: the other direction -- a merged BoQ re-pointed at a BoQ that stays."""
+        stub, won = self._award_project(), self._award_project()
+        own = self._make_boq("Won Own", won).name
+        x = self._make_boq("Merge X", stub).name
+        move_boqs_into_project(stub, won)
+        frappe.db.set_value("BOQs", x, {"origin": "revision", "source_boq": own})
+
+        self.assertEqual(boqs_blocking_unmerge(stub), [x])
+
+    def test_a_deleted_revision_source_does_not_block_undo(self):
+        stub, won = self._award_project(), self._award_project()
+        x = self._make_boq("Merge X", stub).name
+        frappe.db.set_value("BOQs", x, {"origin": "revision", "source_boq": "BOQ-DOES-NOT-EXIST"})
+        move_boqs_into_project(stub, won)
+
+        self.assertEqual(boqs_blocking_unmerge(stub), [])
+
+    def test_attachment_rows_move_with_their_boqs_both_ways(self):
+        """Review finding 3: the uploaded workbook's attachment row stores the project too."""
+        stub, won = self._award_project(), self._award_project()
+        x = self._make_boq("Merge X", stub).name
+        other = self._make_boq("Not Merged", self._award_project()).name
+
+        def attach(boq, project):
+            row = frappe.get_doc({
+                "doctype": "Nirmaan Attachments",
+                "project": project,
+                "associated_doctype": "BOQs",
+                "associated_docname": boq,
+                "attachment_type": "boq_source_file",
+            })
+            row.flags.ignore_links = True
+            row.insert(ignore_permissions=True)
+            return row.name
+
+        x_file = attach(x, stub)
+        other_file = attach(other, "_TEST_ELSEWHERE")
+
+        move_boqs_into_project(stub, won)
+        self.assertEqual(frappe.db.get_value("Nirmaan Attachments", x_file, "project"), won)
+
+        return_merged_boqs(stub)
+        self.assertEqual(frappe.db.get_value("Nirmaan Attachments", x_file, "project"), stub)
+        self.assertEqual(frappe.db.get_value("Nirmaan Attachments", other_file, "project"), "_TEST_ELSEWHERE")
+
+    def test_only_fresh_editing_locks_count_as_busy(self):
+        """D9: someone editing right now blocks a merge; a lock left behind (stale) does not."""
+        from frappe.utils import add_to_date, now_datetime
+
+        from nirmaan_stack.api.boq.wizard.pricing_lock import LOCK_STALE_SECONDS, fresh_locks_for_boqs
+
+        stub = self._award_project()
+        x = self._make_boq("Merge X", stub).name
+        y = self._make_boq("Merge Y", stub).name
+        now = now_datetime()
+
+        def lock(boq, sheet, version, seconds_ago):
+            row = frappe.new_doc("BoQ Sheet Pricing Lock")
+            row.boq, row.sheet_name, row.committed_version = boq, sheet, version
+            row.locked_by = "Administrator"
+            row.last_edit_at = add_to_date(now, seconds=-seconds_ago)
+            row.flags.ignore_links = True
+            row.insert(ignore_permissions=True)
+
+        lock(x, "Electrical ", 0, 30)  # editing in Review, 30 s ago (trailing space kept, #152)
+        lock(y, "HVAC", 2, LOCK_STALE_SECONDS + 60)  # left Pricing long ago -> stale
+
+        fresh = fresh_locks_for_boqs([x, y], now=now)
+        self.assertEqual([(r["boq"], r["sheet_name"], r["committed_version"]) for r in fresh], [(x, "Electrical ", 0)])
+        self.assertEqual(fresh[0]["seconds_ago"], 30)
+        self.assertEqual(fresh_locks_for_boqs([], now=now), [])
+
+    def test_a_revision_inside_the_merged_set_does_not_block_undo(self):
+        stub, won = self._award_project(), self._award_project()
+        v1 = self._make_boq("Merge X", stub).name
+        v2 = self._make_boq("Merge X", stub).name
+        frappe.db.set_value("BOQs", v2, {"origin": "revision", "source_boq": v1})
+        move_boqs_into_project(stub, won)
+
+        self.assertEqual(boqs_blocking_unmerge(stub), [])

@@ -9,6 +9,7 @@
  "field_order": [
   "details_section",
   "project",
+  "merged_from",
   "boq_name",
   "version",
   "status",
@@ -211,12 +212,20 @@
    "label": "Source BoQ",
    "options": "BOQs",
    "read_only": 1
+  },
+  {
+   "fieldname": "merged_from",
+   "fieldtype": "Link",
+   "label": "Merged From",
+   "no_copy": 1,
+   "options": "Projects",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-21 15:30:32.527022",
+ "modified": "2026-10-21 16:28:14.230192",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "BOQs",

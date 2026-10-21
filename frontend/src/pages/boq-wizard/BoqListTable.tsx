@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { Loader2, Pencil } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,8 @@ export interface BoqListRow {
   // Deliberately widened to a plain string, NOT the "upload" | "template" union in boqTypes.ts:
   // live data already violates that union (see boqOriginBadge.ts).
   origin?: string | null;
+  /** The Tendering project this BoQ was merged from, if any (ADR-0038). */
+  merged_from?: string | null;
 }
 
 const WIZARD_STATE_LABELS: Record<string, string> = {
@@ -53,6 +56,8 @@ interface BoqListTableProps {
   emptyMessage?: ReactNode;
   /** Tint the whole table light yellow -- the Won page's Other BoQs (owner 2026-10-21). */
   tinted?: boolean;
+  /** Project names by docname, for the "from …" note under a merged BoQ (ADR-0038 D7). */
+  mergedFromNames?: Record<string, string>;
 }
 
 /**
@@ -71,6 +76,7 @@ export function BoqListTable({
   onEdit,
   emptyMessage,
   tinted = false,
+  mergedFromNames,
 }: BoqListTableProps) {
   const checkedCount = rows.filter((row) => checked.has(row.name)).length;
   const allChecked = rows.length > 0 && checkedCount === rows.length;
@@ -161,6 +167,18 @@ export function BoqListTable({
                       <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
                     )}
                   </span>
+                  {row.merged_from && (
+                    <span className="block text-xs font-normal text-muted-foreground">
+                      from{" "}
+                      <Link
+                        to={`/projects/${row.merged_from}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-violet-700 underline-offset-2 hover:underline"
+                      >
+                        {mergedFromNames?.[row.merged_from] || row.merged_from}
+                      </Link>
+                    </span>
+                  )}
                 </TableCell>
                 <TableCell className="py-2 px-3">
                   <Badge variant={origin.variant} className="whitespace-nowrap font-medium">

@@ -58,7 +58,9 @@ owner-locked invariants. The full as-built detail (component contracts, per-slic
   per-table bar ("Mark as Selected" / "Move to Draft" → `api/projects/boq_selection.set_boq_selection`); a
   move that empties the Selected table confirms with the warning copy. No BoQ-status badge or column: the
   Status column stays wizard progress. A ticked box is "checked", never "selected". The pre-Won surface keeps
-  ONE table with no checkboxes.
+  ONE table with no checkboxes. A BoQ merged in from a Tendering project (ADR-0038) shows "from <project>"
+  under its name (`BoqListRow.merged_from`, names via `mergedFromNames`); a Merged project's own BoQs tab is a
+  pointer to the Won project, not `BoqProjectTab` (`TenderingProjectView`).
 - **Commit dialog is one step:** all eligible sheets pre-ticked; a hard error routes to a slim errors-only notice
   (no per-warning "Looks OK" acks, no supersede-ack). Server gate re-check + `{committed, failed}` results modal +
   `BOQ_DOWNSTREAM_ORPHAN` confirm are the safety boundary. See the revised-boq surface.

@@ -1,6 +1,16 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Award, Building2, FilePenLine, FileSearch, Hourglass, Trash2 } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { useFrappeGetDocList } from "frappe-react-sdk";
+import {
+  Award,
+  Building2,
+  FilePenLine,
+  FileSearch,
+  GitMerge,
+  Hourglass,
+  Trash2,
+  Undo2,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,12 +39,14 @@ import { formatDate } from "@/utils/FormatDate";
 import { PROJECT_STATUS_BADGE_CLASSES } from "@/components/common/projectStatus";
 import { Projects } from "@/types/NirmaanStack/Projects";
 
+import { canAddBoqToWonProject } from "@/pages/boq-wizard/boqAccess";
 import { canManageTendering } from "./tenderingAuth";
 import {
   useDeleteTenderingProject,
   useMarkTenderingProjectLost,
 } from "./hooks/useTenderingMutations";
 import { TenderingProjectForm } from "./TenderingProjectForm";
+import { MergeBoqsDialog, UndoMergeDialog, type MergeBoqRow } from "./TenderingMergeDialogs";
 import { CopyProjectLinkButton } from "@/components/common/CopyProjectLink";
 
 interface TenderingOverviewTabProps {
@@ -56,7 +68,8 @@ interface TenderingOverviewTabProps {
  *
  * Width is capped (`max-w-4xl`) so the sparse field set reads as a composed
  * card rather than a thin row stretched across a wide viewport. Tendering →
- * editable + convertible; Lost → read-only, Delete only.
+ * editable + convertible + mergeable (Admin); Lost → read-only, Delete only;
+ * Merged → closed, Undo merge only (Admin; ADR-0038).
  */
 const TenderingOverviewTab = ({ data, onRefresh }: TenderingOverviewTabProps) => {
   const navigate = useNavigate();
@@ -64,12 +77,46 @@ const TenderingOverviewTab = ({ data, onRefresh }: TenderingOverviewTabProps) =>
   const { role, user_id } = useUserData();
 
   const canManage = canManageTendering(role, user_id);
+  // Merge / Undo (ADR-0038 Q1): Admin only -- a merge adds BoQs to a Won project, which is
+  // exactly what canAddBoqToWonProject answers.
+  const canMerge = canAddBoqToWonProject(role, user_id);
   const isLost = data.tendering_status === "Lost";
+  const isMerged = data.tendering_status === "Merged";
+  const isOpen = !isLost && !isMerged;
   const tenderingStatus = data.tendering_status || "Tendering";
 
   const [isEditing, setIsEditing] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [confirmLostOpen, setConfirmLostOpen] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [undoOpen, setUndoOpen] = useState(false);
+
+  // The BoQs a merge would move -- all of them (Q2). Read only when the button can show.
+  const { data: projectBoqs, mutate: refreshProjectBoqs } = useFrappeGetDocList<MergeBoqRow>(
+    "BOQs",
+    {
+      fields: ["name", "boq_name", "version"],
+      filters: [["project", "=", data.name]],
+      orderBy: { field: "boq_name", order: "asc" },
+      // Far above any real tender's BoQ count; the server moves every BoQ either way, and the
+      // success toast counts what the server moved.
+      limit: 1000,
+    },
+    canMerge && isOpen ? `tendering-merge-boqs-${data.name}` : null
+  );
+  const boqsToMerge = projectBoqs ?? [];
+
+  // The Won project a Merged project went into, for the banner.
+  const { data: mergedIntoRows } = useFrappeGetDocList<Projects>(
+    "Projects",
+    {
+      fields: ["name", "project_name"],
+      filters: [["name", "=", data.merged_into ?? ""]],
+      limit: 1,
+    },
+    isMerged && data.merged_into ? `tendering-merged-into-${data.merged_into}` : null
+  );
+  const mergedIntoTitle = mergedIntoRows?.[0]?.project_name || data.merged_into || "";
 
   const { deleteTenderingProject, loading: deleting } =
     useDeleteTenderingProject();
@@ -165,6 +212,44 @@ const TenderingOverviewTab = ({ data, onRefresh }: TenderingOverviewTabProps) =>
   return (
     <div className="max-w-4xl mx-auto space-y-4">
       {/* Banner — sets expectations for the current state */}
+      {isMerged ? (
+        <div
+          className="relative overflow-hidden rounded-lg shadow-sm bg-gradient-to-r from-violet-50 to-violet-100 border-l-4 border-violet-400"
+          role="note"
+        >
+          <div className="relative flex flex-wrap items-start gap-4 p-4">
+            <GitMerge className="h-5 w-5 flex-shrink-0 mt-0.5 text-violet-500" />
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-semibold tracking-tight text-violet-800">Merged</h3>
+              <p className="mt-1 text-sm leading-relaxed text-violet-700">
+                This project's BoQs were merged into{" "}
+                {data.merged_into ? (
+                  <Link
+                    to={`/projects/${data.merged_into}`}
+                    className="font-semibold underline underline-offset-2 hover:text-violet-900"
+                  >
+                    {mergedIntoTitle} ({data.merged_into})
+                  </Link>
+                ) : (
+                  "a Won project"
+                )}
+                . It stays closed until the merge is undone.
+              </p>
+            </div>
+            {canMerge && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setUndoOpen(true)}
+                className="flex items-center gap-1 border-violet-300 text-violet-800 hover:bg-violet-50"
+              >
+                <Undo2 className="h-4 w-4" />
+                Undo merge
+              </Button>
+            )}
+          </div>
+        </div>
+      ) : (
       <div
         className={cn(
           "relative overflow-hidden rounded-lg shadow-sm",
@@ -206,6 +291,7 @@ const TenderingOverviewTab = ({ data, onRefresh }: TenderingOverviewTabProps) =>
           </div>
         </div>
       </div>
+      )}
 
       {isEditing ? (
         <Card>
@@ -252,7 +338,7 @@ const TenderingOverviewTab = ({ data, onRefresh }: TenderingOverviewTabProps) =>
               </Badge>
               <div className="flex items-center gap-2">
                 <CopyProjectLinkButton projectId={data.name} />
-                {canManage && !isLost && (
+                {canManage && isOpen && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -263,7 +349,8 @@ const TenderingOverviewTab = ({ data, onRefresh }: TenderingOverviewTabProps) =>
                     Edit
                   </Button>
                 )}
-                {canManage && (
+                {/* A Merged project is closed until undone (ADR-0038 D6): no Delete. */}
+                {canManage && !isMerged && (
                   <Button
                     variant="destructive"
                     size="sm"
@@ -290,24 +377,45 @@ const TenderingOverviewTab = ({ data, onRefresh }: TenderingOverviewTabProps) =>
               ))}
             </div>
 
-            {/* Tendering-only actions: Convert + Mark as Lost. */}
-            {canManage && !isLost && (
+            {/* Tendering-only actions: Convert + Merge BoQs + Mark as Lost. */}
+            {canManage && isOpen && (
               <div className="border-t pt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <Button
-                    size="lg"
-                    onClick={handleConvert}
-                    className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700"
-                  >
-                    <Award className="h-4 w-4" />
-                    Convert to Won
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      size="lg"
+                      onClick={handleConvert}
+                      className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700"
+                    >
+                      <Award className="h-4 w-4" />
+                      Convert to Won
+                    </Button>
+                    {canMerge && (
+                      <Button
+                        size="lg"
+                        variant="outline"
+                        onClick={() => setMergeOpen(true)}
+                        disabled={boqsToMerge.length === 0}
+                        title={boqsToMerge.length === 0 ? "No BoQ to merge" : undefined}
+                        className="flex items-center gap-2 border-violet-300 text-violet-800 hover:bg-violet-50"
+                      >
+                        <GitMerge className="h-4 w-4" />
+                        Merge BoQs
+                      </Button>
+                    )}
+                  </div>
                   <p className="mt-2 text-xs text-muted-foreground">
                     Awarded the bid? This opens the full 7-step wizard pre-filled
                     with this stub and completes the project in place — its ID is
                     preserved. You tick the BoQs it was won on; they become Selected
                     and the others stay Draft. Conversion is one-way.
                   </p>
+                  {canMerge && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Won as part of a job that already exists? Merge BoQs moves
+                      this project's BoQs into that Won project. You can undo it.
+                    </p>
+                  )}
                 </div>
                 <div className="sm:text-right">
                   <Button
@@ -387,6 +495,30 @@ const TenderingOverviewTab = ({ data, onRefresh }: TenderingOverviewTabProps) =>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {canMerge && isOpen && (
+        <MergeBoqsDialog
+          open={mergeOpen}
+          onOpenChange={setMergeOpen}
+          projectName={data.name}
+          projectTitle={data.project_name || data.name}
+          boqs={boqsToMerge}
+          onMerged={() => {
+            void refreshProjectBoqs();
+            onRefresh?.();
+          }}
+        />
+      )}
+      {canMerge && isMerged && (
+        <UndoMergeDialog
+          open={undoOpen}
+          onOpenChange={setUndoOpen}
+          projectName={data.name}
+          projectTitle={data.project_name || data.name}
+          targetTitle={mergedIntoTitle || "the Won project"}
+          onUndone={() => onRefresh?.()}
+        />
+      )}
     </div>
   );
 };

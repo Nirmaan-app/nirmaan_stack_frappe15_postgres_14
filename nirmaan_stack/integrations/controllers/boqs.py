@@ -51,14 +51,20 @@ def is_won_project(project):
 
 
 def assert_can_add_boq(project, user=None):
-    """Once a project is Won, only an Admin may add a BoQ to it (owner ruling 2026-09-18).
+    """Once a project is Won, only an Admin may add a BoQ to it (owner ruling 2026-09-18), and
+    nobody may add one to a Merged project (ADR-0038 D6: its BoQs live in the Won project now).
 
     THE one owner of the rule. The upload and create-from-template endpoints call it first so
     the user gets the refusal at once, not as a failed background job; `before_insert` calls it
     again as the backstop for every other path (Desk, REST). A project-less template seed and a
-    pre-Won project are never restricted here.
+    Tendering project are never restricted here.
     """
-    if not is_won_project(project) or is_nirmaan_admin(user or frappe.session.user):
+    tendering_status = frappe.db.get_value("Projects", project, "tendering_status") if project else None
+    if tendering_status == "Merged":
+        frappe.throw(_(
+            "This project's BoQs were merged into a Won project. Undo the merge to add a BoQ here."
+        ))
+    if tendering_status != "Won" or is_nirmaan_admin(user or frappe.session.user):
         return
     frappe.throw(_("Only an Admin can add a BoQ to a Won project."), frappe.PermissionError)
 
@@ -85,16 +91,94 @@ def before_insert(doc, method):
     doc.uploaded_at = frappe.utils.now()
 
 
-def _set_boq_status(name, status):
-    """Save one BoQ with a new status. Through `doc.save()`, not `set_value`, so validate() runs
-    and -- BOQs has `track_changes` -- the change leaves a Version row naming who made it. Link
-    re-validation is skipped: only `status` changes, and a stale link elsewhere on the BoQ (a
-    removed uploader, a deleted template) must not block it.
+def _save_boq(name, **values):
+    """Save one BoQ with new field values, its row locked. Through `doc.save()`, not `set_value`,
+    so validate() runs and -- BOQs has `track_changes` -- the change leaves a Version row naming
+    who made it. Link re-validation is skipped: only the given fields change, and a stale link
+    elsewhere on the BoQ (a removed uploader, a deleted template) must not block it.
     """
-    doc = frappe.get_doc("BOQs", name)
-    doc.status = status
+    doc = frappe.get_doc("BOQs", name, for_update=True)
+    doc.update(values)
     doc.flags.ignore_links = True
     doc.save(ignore_permissions=True)
+
+
+def _set_boq_status(name, status):
+    _save_boq(name, status=status)
+
+
+def _move_boq_attachments(boq_names, project):
+    """Point the BoQs' `Nirmaan Attachments` rows (the uploaded workbook, `upload_file` step 1) at
+    `project`. Those rows are the one other place a BoQ's project is stored: every BoQ table links
+    by `boq`, and no other Dynamic-Link doctype holds a BoQ row (checked 2026-10-21).
+
+    Raw UPDATE: `Nirmaan Attachments` has no doc_events in hooks.py, so nothing is skipped, and only
+    `project` changes (no derived field depends on it).
+    """
+    if not boq_names:
+        return
+    frappe.db.sql(
+        """
+        UPDATE "tabNirmaan Attachments"
+        SET project = %(project)s
+        WHERE (associated_doctype = 'BOQs' AND associated_docname IN %(boqs)s)
+           OR (attachment_link_doctype = 'BOQs' AND attachment_link_docname IN %(boqs)s)
+        """,
+        {"project": project, "boqs": tuple(boq_names)},
+    )
+
+
+def move_boqs_into_project(from_project, to_project):
+    """Merge (ADR-0038 D2): every BoQ of the Tendering project `from_project` moves to the Won
+    project `to_project` as Selected, stamped `merged_from` so Undo can find exactly this set; the
+    BoQs' attachment rows move with them. The caller (`api/projects/tendering_merge`) checks the
+    rule -- including that every BoQ is Draft -- and commits.
+    """
+    names = frappe.get_all("BOQs", filters={"project": from_project}, pluck="name", order_by="name asc")
+    for name in names:
+        _save_boq(name, project=to_project, merged_from=from_project, status="Selected")
+    _move_boq_attachments(names, to_project)
+    return names
+
+
+def boqs_blocking_unmerge(from_project):
+    """BoQs whose revision link (`source_boq`) crosses the line Undo would draw (ADR-0038 D4):
+    a BoQ that stays in the Won project revising a merged BoQ, or a merged BoQ revising a BoQ that
+    stays. Undoing would split each pair across two projects, so Undo refuses them by name. A
+    deleted source does not block.
+    """
+    return frappe.db.sql(
+        """
+        SELECT r.name
+        FROM "tabBOQs" r
+        JOIN "tabBOQs" m ON m.name = r.source_boq
+        WHERE m.merged_from = %(project)s
+          AND COALESCE(r.merged_from, '') != %(project)s
+        UNION
+        SELECT m.name
+        FROM "tabBOQs" m
+        JOIN "tabBOQs" s ON s.name = m.source_boq
+        WHERE m.merged_from = %(project)s
+          AND COALESCE(s.merged_from, '') != %(project)s
+        ORDER BY 1
+        """,
+        {"project": from_project},
+        pluck=True,
+    )
+
+
+def return_merged_boqs(from_project):
+    """Undo a merge (ADR-0038 D3): the BoQs stamped `merged_from = from_project` -- exactly the
+    set the merge moved, whatever else the Won project holds -- go back to `from_project` as
+    Draft (a merge only takes Draft BoQs) and lose the stamp; their attachment rows go back too.
+    """
+    names = frappe.get_all(
+        "BOQs", filters={"merged_from": from_project}, pluck="name", order_by="name asc"
+    )
+    for name in names:
+        _save_boq(name, project=from_project, merged_from=None, status="Draft")
+    _move_boq_attachments(names, from_project)
+    return names
 
 
 def select_project_boqs(project, selected_boqs):
