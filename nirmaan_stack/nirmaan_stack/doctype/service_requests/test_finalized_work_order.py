@@ -21,6 +21,7 @@ from frappe.utils import flt, nowdate
 
 from nirmaan_stack.api.delivery_notes.update_invoice_data import update_invoice_data
 from nirmaan_stack.api.payments.project_payments import create_payment_request_for_service
+from nirmaan_stack.api.service_requests.generated_invoices import generate_invoice
 from nirmaan_stack.api.sr_finalize import finalize_sr, revert_finalize_sr
 from nirmaan_stack.api.sr_remarks import add_sr_remark
 from nirmaan_stack.nirmaan_stack.doctype.service_requests.test_work_order_lifecycle import (
@@ -49,6 +50,10 @@ class _FinalizedCase(_AsRoleCase):
         frappe.db.delete("Nirmaan Notifications", {"docname": ("in", self.fx.srs + payments)})
         frappe.db.delete("Project Payments", {"document_name": ("in", self.fx.srs)})
         frappe.db.delete("Vendor Invoices", {"document_name": ("in", self.fx.srs)})
+        generated = frappe.get_all("WO Generated Invoice", {"work_order": ("in", self.fx.srs)}, pluck="name")
+        if generated:
+            frappe.db.delete("Version", {"ref_doctype": "WO Generated Invoice", "docname": ("in", generated)})
+            frappe.db.delete("WO Generated Invoice", {"name": ("in", generated)})
         frappe.db.commit()
 
     def _finalized_wo(self):
@@ -150,6 +155,16 @@ class TestWhatStaysOpen(_FinalizedCase):
             "amount": 1000, "base_amount": 1000, "gst_amount": 0,
         }))
         self.assertEqual(frappe.db.count("Vendor Invoices", {"document_name": self.wo}), 1)
+
+    def test_generate_invoice(self):
+        """The fixture WO is GST-off; a paid part of it may be billed."""
+        frappe.db.set_value(SR, self.wo, "amount_paid", 50_000)
+        frappe.db.commit()
+        row = self._as(self.admin, generate_invoice, self.wo, "RA", amount=10_000)
+        self.assertEqual(
+            frappe.db.get_value("WO Generated Invoice", row["name"], ["work_order", "amount"], as_dict=True),
+            {"work_order": self.wo, "amount": 10_000},
+        )
 
     def test_remarks(self):
         self._as(USERS[ACCOUNTANT], add_sr_remark, self.wo, "still open")
