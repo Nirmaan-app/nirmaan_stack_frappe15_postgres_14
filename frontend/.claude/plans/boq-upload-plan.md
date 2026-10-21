@@ -48659,3 +48659,60 @@ only, 0 outside). Electrical 0. The field table (873 rows) is identical to v49 b
 3. The cert re-saved the admin `fcm_token` after the mandated site-data clear (Version `fplnan0925`), as at every cert.
 4. The mixing box's rule line writes (L x B + B x H + L x H) and its working (W x H + H x D + W x D) - wording, pre-existing.
 5. The Derivation reasons are keyed by item kind, so an older config (v48) shows the face rulings on its sizes line too.
+
+## Slice ADP-4b - the Derivation tab is the rules listing, the Pipelines tab is removed (every category), the ADP data viewer shows what downloads, and four ADP fixes - as built 2026-10-21 / 22
+
+**Owner rulings built:** D8 (2026-10-21 14:41 / 14:49, every discipline and category: "the derivation tab just becomes the rules
+listing"); D9 option A (13:26: "remove the pipeline tab entirely"; `update_rate_config` kept one more slice, uncalled); D7 (14:41: "a
+toggle, off by default, so the screen equals the file, plus drop the empty Depth column"); fixes (a) and (b); cause E; the mixing-box
+wording; two reasons for lines 6 and 19. Rulings taken in the slice: PA1-R (the extraction Rules card stays where the config carries
+rules, its empty state goes; the Pricing Inputs line), AC3 (the admin actions column stays first), AC5 "same rule everywhere", AC7
+"Both quote the read sides", RULING-CAT (Category cells show the display name, N-7), FIXB-1 (fix (b) knowingly reverses the 12c-S S10
+reading for the double-skin plenum only; S10 stands for every other family), U5-R (the Damper "*" on every per-sq.m slot diffuser,
+15 stored items), AMEND-1 (the test split folded into commit 1).
+
+**Commits (unpushed at the time of writing):**
+- `e64af7335` feat(rate-master): code + tests (21 files; amended from `8edefb71e` to move the rendered Derivation tests into
+  `adp4b.dom.test.ts` -- a jsdom docblock in a `*.test.ts` file loses the full run's worker-start race and is DROPPED, never run).
+  - `RateMasterDerivation.tsx`: the rules list, the extraction Rules card where rules exist, otherwise `derivationNoticeLine`
+    ("This category's rules are not listed yet. To see how a row is priced, open <page> -> Calculator." / the Pricing Inputs
+    line); the boxes, step cards, figures and `InlineParamEdit` gone; `derivedQtyValue` kept (the panel imports it, so the file
+    never imports the calculator -- the page passes `CALCULATOR_WORKBOOKS`). `RateMasterPage.tsx`: two tabs; the param and
+    structure saves gone. `RateMasterPipelines.tsx` + test deleted (22 tests); `rateMasterStructure.ts` loses `cloneConfig`,
+    `evaluateGoldens`, `goldenDeltas`, `referencedAttrIds`, `blankAttributeDefinition`, `blankPipeline` (9 tests).
+  - `rateMasterGridColumns.ts` / `RateMasterDataViewer.tsx`: a spec-driven grid is the download's 13 columns in its order, a plain
+    label with the file id beneath (`fileColumnId`, `plainFileColumnLabel`); "Show spec details" adds spec, the filled
+    read-from-spec columns, source sheet and row; an all-empty read-from-spec column (Depth) is not shown.
+  - `itemListPricing.ts`: `units_not_offered` honoured by `priceOneItem` and `stockedUnitsWords`; the "*" when a ruled default is
+    the refused value (`refusedHere`); `outerSetAside` (the outer size quoted as read); `plainBoxSurface` in `plainWorking`.
+    `itemListRuleOrder.ts`: `convertsOf` (lines 10 / 11 / 36 / 34), `plainBoxSurface`, reasons `n` and `oBox`.
+  - Parity: the 7 cause-E rows left the awaiting list (83 -> 76); 0 ADP divergences beside the 3 accepted C rows (count
+    asserted). Pins inverted, BEFORE kept: S4, S10 (+ "S10 kept"), parity x4, adp4a x2, the grid-columns spec branch.
+- The docs commit that carries this entry.
+
+Start tip `ea37926da` (= origin). Report on the Desktop: `2026-10-21_ADP-4b_Report.md` (ledger first), `_Ledger.md`,
+`_Findings.xlsx`, the two full-suite logs.
+
+### 1. The replay (17,914 rows, start vs end on live v50)
+
+0 figure moves. 143 rows changed, all ADP: the mixing-box formula wording 117, the outer size quoted as read 32 (6 carry both);
+Electrical, Piping and Insulation 0. The field table (873 rows, HEAD vs slice) differs only in the slot diffuser's Damper "*"
+(per sq.m / sq.ft, panel / calculator / stored) and the double-skin plenum's per-number refusal and stocked words.
+
+### 2. Suites, cert
+
+- vitest full (on `e64af7335`): 196 files / 7,409, 1 failed = `writeOffControl` (known). The plainEnglish 12d-5 ADP sweep and
+  ruleReachability F7 timed out in earlier full runs and passed alone (2,708 / 2,257 ms) and on the re-runs: standing load timeouts.
+- tsc: 3,170 = ADP-4a's by message (0 new, 0 gone).
+- No Python file changed; the six Python tests that read the changed frontend files ran OK.
+- Cert at :8080 after the full de-stale: C1-C10 PASS (Derivation rules-only on all 17 categories, counted; the viewer equals the
+  download cell for cell except the Category display name and number formatting; r49 1972 / 576 / 2548 on panel and calculator;
+  the slot diffuser's "*"; the plenum not offered per number; the 450 x 450 sentence the same on both surfaces).
+
+### 3. Findings (open)
+
+1. The download writes rates as `str(float)` ("1200.0") where the viewer shows "1200" -- 174 ADP cells, number format only,
+   pre-existing.
+2. `update_rate_config` and `update_rate_config_param` have no caller (D9 option A); `rateMasterEdit.matchedConditionIndex` /
+   `isEditableParam` lost their only product caller (outside this slice's file scope; kept with their test).
+3. The cert re-saved the admin `fcm_token` after the mandated site-data clear (Version `951ifpifsu`), as at every cert.

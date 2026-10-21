@@ -1375,7 +1375,8 @@ value. The Derivation line is keyed to a `square` size reader, so Insulation's a
 can tell whether the heading's damper is priced in the spigot row or separately ("if it is seprate then no warning hsould be
 there"); measured: 9 stored spigot items whose heading names a butterfly damper and whose row carries no damper item.
 **A6 (the Derivation tab priced through the panel's entry point) -> ADP-4**: the tab has no row unit, so it cannot price a
-converted row (VCD 550X300: 7,830 / 1,920 per sq.m on the tab vs 1,292 / 317 per number on the panel).
+converted row (VCD 550X300: 7,830 / 1,920 per sq.m on the tab vs 1,292 / 317 per number on the panel). SUPERSEDED by ADP-4b D8:
+the tab prices nothing; the calculator is where a row is priced.
 
 **ADP-3a H1: THE "*" IS THE GATE'S OWN CONDITION, BUILT ONCE (owner 2026-10-20; every discipline).** A field carries `required`
 (the "*" after its label, `aria-required`, one "* needed to price" note per panel / calculator) exactly when a blank in it
@@ -1501,6 +1502,57 @@ field's note for a reader's words (F-2 holds through the note, built from the sa
 v49 and v50: ADP dcbe3a2e..., Insulation c335f2b8..., Piping 757f2ba4...). The parity fixture's ADP part is v50: 0 ADP
 sweep divergences (asserted with its count); the corpus keeps the 3 accepted C rows and 7 rows of cause E
 (`E_outer_size_quote`, the quoted outer size, pre-existing since v49) awaiting a fix (owner 2026-10-21 "List the 7, fix later").
+Fixed in ADP-4b (below): the corpus keeps the 3 accepted C rows only.
+
+**ADP-4b D8: THE DERIVATION TAB IS THE RULES LISTING -- NO SECOND PRICING PATH ON IT (owner 2026-10-21 14:41 / 14:49; every
+discipline and category).** "the calculator already serves the same function. so the derivation tab just becomes the rules
+listing." The tab shows `itemListRuleOrder`'s "How a row is priced" where the category has one; otherwise ONE line
+(`derivationNoticeLine`): "This category's rules are not listed yet. To see how a row is priced, open <pricing page> ->
+Calculator." (the page from `CALCULATOR_WORKBOOKS` + `PRICING_WORKBOOKS`, passed in by the page -- the panel imports
+`RateMasterDerivation.tsx` for `derivedQtyValue`, so that file must never import the calculator), and on a Pricing Inputs
+category the owner's line about shared numbers (PA1-R). The extraction "Rules" card (`config.rules`, the AI's guidance) stays
+where the config carries rules; its "No rules configured" empty state is not drawn beside the line. ⚠️ **No attribute
+box, figure, pipeline step card or inline parameter edit may return to this tab**: the retired grid ran `runAllPipelines`
+with no row unit and showed figures the panel did not (ADP-R4 R4: 7685 / 1600 for a per-number square diffuser the panel
+prices 1972 / 576) -- a figure is seen in the calculator, which prices through the panel's own entry point. A category's
+retrofit builds its rules list; until then it shows the line.
+
+**ADP-4b D9: THE PIPELINES TAB IS REMOVED; A CONFIG'S STRUCTURE CHANGES ONLY BY A NEW ASSET VERSION (owner 2026-10-21 13:26,
+option A; every category).** "whatever needs to be edited from there becomes a part of the pricing input sheet or individual
+category catalogs." Business numbers live in Pricing Inputs, dropdown values in the catalogue, and attribute definitions,
+steps, conditions, bands and goldens change only through a minted asset (developer-only). The editor-only helpers went with it
+(`cloneConfig`, `evaluateGoldens`, `goldenDeltas`, `referencedAttrIds`, `blankAttributeDefinition`, `blankPipeline`); the
+goldens stay config DATA for the mint gate, the loader and the exporter. `update_rate_config` stays server-side, uncalled,
+ONE more slice (its tests also guard the validator), then goes; `update_rate_config_param` (the retired inline edit) is
+likewise uncalled.
+
+**ADP-4b D7: THE ADP DATA VIEWER SHOWS WHAT DOWNLOADS (owner 2026-10-21 14:41).** On a spec-driven grid (`attributes_from_spec`)
+the default columns are the download's (`csv_exporter.build_category_rows`): item id, discipline, category, [kind], brand,
+unit, the text pair, the rates, the two formula columns -- in that order, each header a plain label with the file's column
+id beneath (`rateMasterGridColumns.gridColumnKeys` / `fileColumnId`); the admin actions column stays first. "Show spec
+details" (off by default) adds the spec verdict and the "read from spec" columns after the text pair and the source sheet /
+row before the formulas. A "read from spec" column no item fills is not shown (display only; the definition stays -- it is
+part of the model's question). The Category cells show the display name (owner 2026-10-21, N-7), the file the id. This
+supersedes the slice-1c U3 order (the text pair first) on that grid; Insulation and Piping are unchanged.
+
+**ADP-4b FIXB-1: A UNIT A FAMILY IS NOT OFFERED IN IS NEITHER PRICED NOR STOCKED (owner 2026-10-21; fix (b) + AC5 "same rule
+everywhere").** Where a family declares `units_not_offered` for a class it reaches only by a CONVERSION, the conversion does
+not run and the row refuses "<family> is not stocked per <unit> (stocked per <units>)" -- `priceOneItem`, `stockedUnitsWords`
+and every Derivation line that lists conversions read the same rule. This knowingly reverses the 12c-S S10 reading ("a row
+that arrives in a hidden unit still prices") FOR THE DOUBLE-SKIN PLENUM ONLY -- its per-number price ignored depth (1723 / 231
+at every depth); 0 stored rows. S10 stands for every other family: a unit a family prices ITSELF (`units`) and hides from the
+picker still prices (pinned "S10 kept").
+
+**ADP-4b fix (a): A RULED DEFAULT THE ROW'S UNIT REFUSES FILLS NOTHING, SO ITS FIELD CARRIES THE "*" (owner 2026-10-21).**
+`itemFieldDefs` exempts a default-filled need from the "*" unless `refuse_on_unit_class` refuses that very default on the
+family and unit -- the per-sq.m slot diffuser's Damper (blank -> "without" -> refused). The "*" stays a per-family-and-unit
+marker: it shows on every per-sq.m slot diffuser, whatever its value (owner U5-R, 15 stored items).
+
+**ADP-4b AC6 / AC7: ONE WORDING FOR THE BOX FORMULA; A SET-ASIDE OUTER SIZE IS QUOTED AS READ.** The box surface reads
+"2 x (L x W + W x H + L x H)" on the Derivation line, its reason and the working (`plainBoxSurface`, display only -- the
+config's rule and step text are unchanged; the fields are Length / Width / Height, owner 2026-10-19 23:19). A square
+diffuser's outer size that matched no SKU is quoted by the sides read ("outer size 450 x 450 could not be used ..."), the
+same from the BoQ's words and the typed boxes (owner "Both quote the read sides"); a size that gave no sides keeps its words.
 
 **A DEFAULT IS NAMED AS THE DEFAULT, SAID ONCE, BY ITS FIELD'S LABEL (owner G1 / G2 / G3, 2026-10-12 "yes"; slice
 12e-4b).** G1: a number nobody stated (the ruled default) heads its field note "Default 9 mm -> priced as 13 mm
@@ -2064,8 +2116,8 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   rejects removing a definition any pipeline condition/`band_on` references, naming every referencing
   location**; no unknown top-level keys; an identity guard forbids repointing discipline/category_id.
   **GOLDENS-AS-CONFIG-DATA:** the config carries a `goldens` array (attrs + expected finals per pipeline)
-  seeded via ONE audited endpoint call; the vitest golden files stay INDEPENDENT pins. The frontend Pipelines
-  tab's PREVIEW GATE computes the goldens against a draft before save (confirm-not-block). Interpreter
+  seeded via ONE audited endpoint call; the vitest golden files stay INDEPENDENT pins. (The frontend Pipelines
+  tab's preview gate is REMOVED with the tab, ADP-4b D9; the goldens stay data for the mint gate / loader / exporter.) Interpreter
   EXECUTION semantics untouched. **The `test_rate_master` count is NOT recorded here — read it from
   `nirmaan_stack/api/boq/test_rate_master.py` itself.**
 - **Multi-category import + scoped supersede (owner-locked; full detail in the plan doc's "Build slice
@@ -2213,8 +2265,8 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   first, to be authored in-system later (the loader + all four surfaces + the preview gate tolerate empty
   pipelines honestly — no derivation output, no crash). **EA-2 SHIPPED the in-system authoring path:**
   `_validate_config` now ACCEPTS empty `pipelines: {}` (a non-empty pipelines object is still fully
-  validated), and the RM-4b Pipelines tab has an **Add-pipeline affordance** (id + output keys -> a
-  validator-minimal `{output, [match_master_row]}` via `blankPipeline`, then edited via AddStep).
+  validated), and the RM-4b Pipelines tab had an **Add-pipeline affordance** (REMOVED with the tab in ADP-4b D9 --
+  structure now changes only by a new asset version).
   `_KNOWN_CONFIG_KEYS` also gained FOUR pass-through keys (`identity_attribute_id`, `matching_mode`,
   `notes`, `pipeline_labels`) stored VERBATIM and NOT structurally validated (like `item_kinds`) —
   REQUIRED because RM-4b resubmits the whole config, so an item-identity config (or the wiring
