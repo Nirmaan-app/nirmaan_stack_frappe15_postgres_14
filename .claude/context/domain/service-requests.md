@@ -24,6 +24,15 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   (`order_payments.skips_invoice_check`, via `approval_raiser.raiser_level`); split leftovers and adjustments
   skip it with the limit. The same check refuses a negative WO payment for everyone (refunds are Vendor
   Refunds). `get_payment_summary` returns it as `limit.invoice_check` with `skipped` for the viewer.
+- **Who may decide or edit a WO invoice is checked on the server (#1531, ADR-0014 Amendment A).** Approve or
+  reject: the invoice-approval roles; edit number, date or amounts: Accountants and Admin; once *Approved*, only
+  Admin may change them, and anyone else rejects it (an Approved WO invoice may be rejected) and uploads it
+  again. Uploading is not narrowed. The role sets are `role_profiles.WO_INVOICE_DECIDE_PROFILES` /
+  `WO_INVOICE_EDIT_PROFILES` / `WO_APPROVED_INVOICE_EDIT_PROFILES`; the rule is the pure
+  `services/work_order_invoice_access.change_problem`, applied by the Vendor Invoices `validate` hook
+  (`controllers/vendor_invoices.guard_work_order_invoice`), so Desk and REST obey it. Any new path that writes
+  a WO Vendor Invoice (the generated-invoice upload, #1547) runs as the session user and passes through it.
+  PO invoices keep their old rules.
 
 - **The GST flag (`gst`) follows the vendor and is never written by hand (ADR-0028 Amendment A, #1538).**
   Its writers: `ServiceRequests.set_gst_from_vendor` (first approval; an accepted amendment whose vendor differs
