@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { gstForVendor, gstMatchesVendor, isGstOn } from "./workOrderGst";
+import { gstForVendor, gstMatchesVendor, isGstExplicitlyOff, isGstOn } from "./workOrderGst";
 
 const PY_SOURCE = readFileSync(
   resolve(__dirname, "../../../nirmaan_stack/services/work_order_gst.py"),
@@ -22,6 +22,18 @@ describe("isGstOn", () => {
 
   it("uses the same spellings as the server's gst_is_on", () => {
     expect(PY_SOURCE).toMatch(/\.strip\(\)\.lower\(\) in \("true", "1", "yes"\)/);
+  });
+});
+
+describe("isGstExplicitlyOff", () => {
+  it("is true only for a flag that says off", () => {
+    for (const gst of ["false", " False ", "0", "no"]) expect(isGstExplicitlyOff({ gst })).toBe(true);
+    for (const gst of ["true", "1", "", null, undefined]) expect(isGstExplicitlyOff({ gst })).toBe(false);
+    expect(isGstExplicitlyOff(null)).toBe(false);
+  });
+
+  it("uses the same spellings as the server's gst_is_explicitly_off", () => {
+    expect(PY_SOURCE).toMatch(/\.strip\(\)\.lower\(\) in \("false", "0", "no"\)/);
   });
 });
 

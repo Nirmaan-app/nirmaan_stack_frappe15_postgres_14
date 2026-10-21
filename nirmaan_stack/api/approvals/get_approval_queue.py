@@ -35,6 +35,7 @@ from nirmaan_stack.services.outflow_import.expense_links import (
 from nirmaan_stack.services.payees.paid_to import paid_to_rows
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.payment_split import load_part_reconciled_split_families
+from nirmaan_stack.services.tds_forecast import withheld_by_payment
 
 from nirmaan_stack.services.cheque_payments import in_cheque_tracker_sql
 from nirmaan_stack.services.approval_tiers import (
@@ -517,6 +518,11 @@ def get_approval_queue(
     ])):
         r["paid_to"] = paid_to
 
+    # "Req. Amount" is the full bill whatever the status (owner ruling X4-A, #1541): an approved
+    # payment's stored amount is already cut by the tax withheld from it, so that tax is added back.
+    # `amount` stays the stored figure -- what is paid, what the actions and the bank file read.
+    withheld = withheld_by_payment([r["name"] for r in rows if r.get("doctype") == "Project Payments"])
+
     for r in rows:
         # Derived SERVER-side, from the same cast amount the routing will use, so
         # the chip on screen and the gate that runs can never disagree.
@@ -529,6 +535,7 @@ def get_approval_queue(
         # per-source lookup means a future split cannot reopen that gap.
         r["tier"] = required_tier(flt(r.get("amount")), _l2_line_for(r.get("source")))
         r["amount"] = flt(r.get("amount"))
+        r["requested_amount"] = flt(r["amount"] + withheld.get(r["name"], 0), 2) if r.get("doctype") == "Project Payments" else r["amount"]
         r["has_proof"] = bool(r.get("proof"))
         r["has_invoice"] = bool(r.get("invoice"))
         r["bank_line_count"] = cint(r.get("bank_line_count"))

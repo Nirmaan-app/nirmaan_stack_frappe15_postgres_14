@@ -32,6 +32,7 @@ import { toast } from "@/components/ui/use-toast";
 import { InvoiceDialog } from "@/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog";
 import { useWorkOrderTds } from "@/pages/ProjectPayments/hooks/useWorkOrderTds";
+import { paymentTableFigures } from "@/pages/ProjectPayments/tdsPreview";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
@@ -265,6 +266,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     // the accountants only, and a Procurement user's list read was refused with a 403 (#1451).
     const { workOrderTds, mutate: workOrderTdsMutate } = useWorkOrderTds(id);
     const tdsByPayment = workOrderTds?.payments ?? {};
+    const tdsForecasts = workOrderTds?.forecasts ?? {};
 
     // A new request can be auto-approved with TDS withheld at insert, so the lists must refresh
     // together -- otherwise the new row shows its net amount with no TDS and the label lags.
@@ -741,8 +743,9 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead className="text-black font-bold">Amount</TableHead>
+                                    <TableHead className="text-black font-bold">Req. Amount</TableHead>
                                     <TableHead className="text-black font-bold">TDS</TableHead>
+                                    <TableHead className="text-black font-bold">To be paid</TableHead>
                                     <TableHead className="text-black font-bold">UTR / Cheque</TableHead>
                                     <TableHead className="text-black font-bold">Payment Date</TableHead>
                                     <TableHead className="text-black font-bold w-[5%]">Status</TableHead>
@@ -759,15 +762,24 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                             return <VendorRefundTableRow key={row.name} refund={row.refund} tdsColumn className="font-semibold" />;
                                         }
                                         const payment = row.payment;
-                                        const tds = tdsByPayment[payment?.name];
+                                        // Req. Amount is the full bill, To be paid what the vendor gets: a waiting
+                                        // payment's tax is the server's forecast, an approved one's its deduction (#1541).
+                                        const figures = paymentTableFigures(
+                                            payment?.amount, tdsByPayment[payment?.name], tdsForecasts[payment?.name]
+                                        );
+                                        const forecastTone = figures.forecast ? "font-semibold text-muted-foreground" : "font-semibold";
                                         return (
                                             <TableRow key={payment?.name}>
                                                 <TableCell className="font-semibold">
-                                                    {formatToRoundedIndianRupee(payment?.amount)}
+                                                    {formatToRoundedIndianRupee(figures.requested)}
                                                     <GstPaymentTag payment={payment} />
                                                 </TableCell>
-                                                <TableCell className="font-semibold">
-                                                    {tds ? formatToRoundedIndianRupee(tds.tds_amount) : "--"}
+                                                <TableCell className={forecastTone}
+                                                    title={figures.forecast ? "Cut at approval, at the vendor's rate then" : undefined}>
+                                                    {figures.tds !== undefined ? formatToRoundedIndianRupee(figures.tds) : "--"}
+                                                </TableCell>
+                                                <TableCell className={forecastTone}>
+                                                    {formatToRoundedIndianRupee(figures.toBePaid)}
                                                 </TableCell>
                                                 <TableCell className="font-semibold">
                                                     <PaymentUtrOrCheque

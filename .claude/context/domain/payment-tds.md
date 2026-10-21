@@ -112,6 +112,28 @@ figure — the company pays the tax on top:
   ≤ ₹5) keep the box and read as before. Never clear that box by hand on a PO payment with a deduction
   without cutting the amount: the tax would count twice (the mismatch report shows the PO).
 
+### Load-bearing invariants: deposited tax stays safe (#1535)
+
+- **A payment whose deduction is in a challan can't be deleted, rejected or have its amount changed**,
+  by any route (Desk, REST, `update_payment_request`, bulk reject, a PO delete's forced payment delete).
+  One check, `payment_tds.refuse_if_deposited`, names the challan (`TDC-… (challan no. …)`). Called
+  from the payment controller's `validate` (`refuse_reject_if_deposited`,
+  `refuse_amount_change_if_deposited`) and FIRST in its `on_trash`, so a refused delete runs no
+  clean-up. ⚠️ The amount guard must stay in `validate`: `on_update`'s recount commits, so a refusal
+  raised there would leave the new amount saved. It is skipped on exactly the saves the restate skips
+  (`NO_RESTATE_FLAGS`, `from_adjustment`): those move the amount, never the tax.
+- **Rejecting a payment gives its tax back:** `payment_tds.give_back_tax_on_reject` (from
+  `on_update` on entering `Rejected`) deletes the deduction and sets the amount to its `gross_amount`
+  and `payment_tds` blank. Approving it again takes the tax afresh from the gross.
+- **Pay TDS takes tax only from Paid payments** (`pay_tds._refuse_unpaid_payments`, inside the lock).
+  The register still lists an Approved payment's deduction as Pending, and selecting it is refused.
+- **A deduction is locked once in a challan, correctable before** (`controllers/payment_tds_deduction`):
+  `validate` refuses any change to a row with `tds_challan` and any hand-written `status` /
+  `tds_challan` (only Pay TDS writes those, by `set_value`); `on_trash` refuses deleting a deposited
+  row; `on_update` (a correction, never an insert) recounts the order of a Paid payment and re-checks
+  CEO Hold, as `after_delete` does. A correction leaves the payment's amount alone.
+- So no path removes a deduction from a challan, and `reconciled_amount` moves only when Pay TDS pays.
+
 ### Load-bearing invariants: who bore the tax
 
 - **`Payment TDS Deduction.borne_by` IS THE SOURCE (#1451).** A stored field by owner ruling 2026-10-16,
@@ -188,8 +210,29 @@ figure — the company pays the tax on top:
   are company-borne → `Company`; all else `Vendor`). It recounts nothing; drift is left to the Amount
   Paid Mismatch report. On the env clone (2026-10-16): 16 `Company`, 767 `Vendor`; Service Requests
   mismatches stay 7, as after `e8e7ef3ce`.
-- The forecasts for a NEW approval (approve + bulk-confirm previews, request dialogs: `useVendorTdsRates`
+- The forecasts for a NEW approval (approve + bulk-confirm previews: `useVendorTdsRates`
   `companyBorneFor`) still use the category rule, as `record_deduction` will.
+
+### Load-bearing invariants: the TDS preview before approval (#1541)
+
+- **The server works the preview out, from approval's own pieces.** `services/tds_forecast.py`:
+  `forecast` / `figures` use `payment_tds.vendor_rate` (the vendor's rate TODAY, owner ruling X3-A),
+  `is_company_borne`, `tds_on` (the formula `record_deduction` uses) and `is_withholdable` (the guard
+  `write_deduction` uses), and a typed amount is first rounded as the request stores it
+  (`request_amount_as_stored`, which `create_payment_request_for_service` itself calls). Change those
+  pieces, never a copy. Readers: the Request Payment dialog (`api/payments/tds_forecast.forecast_work_order_tds`,
+  via `useTdsForecast`; read checked on the Work Order) and the WO page's payment table
+  (`get_work_order_tds` `forecasts`: each Requested / CEO Pending, non-GST payment without a deduction).
+- **Nothing is written before approval.** A request left at Requested has no deduction
+  (`test_tds_forecast`). A request below ₹15,000, or raised by someone holding the approval, is born
+  Approved and is taxed at insert, so the dialog says "Tax is cut now" (`cut_now`, from the endpoint's
+  own routing `_tier_new_payment`).
+- **"Req. Amount" is the full bill whatever the status (owner ruling X4-A).** The WO page table:
+  Req. Amount / TDS / To be paid (`tdsPreview.paymentTableFigures`: a recorded `Vendor` deduction is
+  added back onto the cut amount). The approval queue (All Payments, accountant tabs, CSV): the row's
+  `requested_amount` (`tds_forecast.withheld_by_payment`, the counted `Vendor` tax) with a "To be paid"
+  line under it when they differ. `amount` stays the stored figure: every action, total, sort and the
+  bank file read it.
 
 ---
 
@@ -263,17 +306,14 @@ The rule lives in **`services/payment_tds.recompute_challan_reconciled`** — in
 `api/`, because a CONTROLLER must be able to call it and a controller may not import from `api/`.
 It is the **only writer** of that field.
 
-Three callers, and none is redundant:
+One caller since #1535: `api/tds_challan/pay_tds`, which adds its own over-application guard before
+writing. The payment's delete and both deduction delete paths used to recompute too; they no longer
+need to, because a deduction in a challan can't be deleted, rejected, restated or edited (§ deposited
+tax stays safe), so nothing else moves the sum.
 
-| Caller | Covers |
-|---|---|
-| `api/tds_challan/pay_tds` | Paying. Adds its own over-application guard before writing. |
-| `controllers/project_payments.on_trash` | The payment cascade, which deletes the deduction with **raw SQL that fires no hooks**. |
-| `controllers/payment_tds_deduction.on_trash` | A doc-layer delete, which must be forced (a plain one is refused by the link from `Project Payments.payment_tds`) — the route the raw delete bypasses. Its `after_delete` also recounts the WO of a Paid payment and re-checks CEO Hold. |
-
-⚠️ **MEASURED BUG (2026-09-15), fixed:** deleting a payment deleted its deduction, but nothing
-recomputed — a challan sat at ₹150 used with **zero** deductions behind it, permanently ₹150 short
-of usable balance. That is what the second and third callers exist for.
+⚠️ **MEASURED BUG (2026-09-15):** deleting a payment deleted its deduction, but nothing recomputed —
+a challan sat at ₹150 used with **zero** deductions behind it. A recompute on delete fixed the number;
+#1535 removed the cause (deposited tax could be deleted at all).
 
 ---
 
@@ -284,7 +324,7 @@ of usable balance. That is what the second and third callers exist for.
   transaction**, so a challan is never left created-but-unused.
 
 Both take a `SELECT ... FOR UPDATE` lock on the challan **before reading anything**, then re-check
-every selected deduction inside that lock (still Pending, still unlinked). ⚠️ **The client's total
+every selected deduction inside that lock (still Pending, still unlinked, its payment Paid). ⚠️ **The client's total
 is never trusted** — the amount is summed from the database rows, because the browser's figure was
 computed before the lock existed. A selection exceeding the challan's remaining balance is refused,
 naming the shortfall; there is **no partial payment and no splitting one deduction across two
@@ -301,8 +341,7 @@ the bank, so an edit to it is an edit to the net. `restate_deduction_on_amount_c
 gross = net / (1 - rate/100)        tds = gross - net
 ```
 
-at the deduction's **own snapshotted rate**, then recomputes the challan and, on a Paid payment,
-recounts the parent through `amount_paid.write_amount_paid` (Amount Paid holds the vendor's tax, so
+at the deduction's **own snapshotted rate**, then, on a Paid payment, recounts the parent through `amount_paid.write_amount_paid` (Amount Paid holds the vendor's tax, so
 the restated tax moves it, not only `total_tds`).
 
 - ⚠️ **It must NOT re-net the payment.** `write_deduction` rewrites `amount` once, at creation;
@@ -310,8 +349,9 @@ the restated tax moves it, not only `total_tds`).
 - ⚠️ **It sits ABOVE the status early-return in `on_update`**, which returns when the status has not
   changed — an amount edit changes no status, so everything below that line is unreachable for it.
   Same placement reason as the `after_insert` call.
-- A **raise** that would over-apply a challan already paid is **refused**, aborting the edit. A
-  reduction always fits.
+- An edit of a payment whose tax is in a challan is **refused** in `validate`, before anything is
+  written (#1535). The old over-application check ran in `on_update`, after the recount had committed
+  the new amount.
 
 ---
 
@@ -380,8 +420,11 @@ by `api/payments/test_taxed_work_order_fixture.py`.
 
 ## Known gaps
 
-- **No reversal or unlink path.** A deduction is deleted with its payment; nothing detaches one from
-  a challan. Any future unlink must reuse `recompute_challan_reconciled`, never subtract.
+- **No reversal or unlink path.** A deduction is deleted with its payment or on its reject, only
+  before a challan; nothing detaches one from a challan. Any future unlink must reuse
+  `recompute_challan_reconciled`, never subtract.
+- The register does not show the payment's status, so an Approved payment's deduction can be ticked
+  and is then refused by Pay TDS (#1535).
 - The mirror self-heal fills a blank, not a wrong value.
 - A challan that drifted before the fix stays wrong until something is paid against it (the pay path
   recomputes). One such row exists on localhost by owner decision.

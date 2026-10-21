@@ -668,9 +668,17 @@ const REGISTRY: Record<
         line_count: r.bank_line_count,
         remaining: r.remaining_amount,
       });
+      // The full bill, whatever the status (#1541): an approved payment's stored amount is already cut
+      // by its TDS, so what is paid is said under it.
+      const requested = r.requested_amount ?? r.amount;
       const figure = (
         <div className="pr-2 text-right tabular-nums">
-          <div className="font-medium">{formatToRoundedIndianRupee(r.amount)}</div>
+          <div className="font-medium">{formatToRoundedIndianRupee(requested)}</div>
+          {requested !== r.amount && (
+            <div className="text-[10px] leading-tight text-muted-foreground">
+              To be paid {formatToRoundedIndianRupee(r.amount)}
+            </div>
+          )}
           {part && (
             <div className="text-[10px] leading-tight">
               <div className="text-green-700">{part.reconciled} reconciled</div>
@@ -705,7 +713,7 @@ const REGISTRY: Record<
         </HoverCard>
       );
     },
-    meta: { exportHeaderName: "Req. Amount", exportValue: (r: ApprovalQueueRow) => r.amount },
+    meta: { exportHeaderName: "Req. Amount", exportValue: (r: ApprovalQueueRow) => r.requested_amount ?? r.amount },
   }),
 
   // What your click DOES: finish the approval, or forward it to the CEO. Without
