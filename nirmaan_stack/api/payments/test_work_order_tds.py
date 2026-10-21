@@ -18,12 +18,13 @@ user is created and deleted here.
 import frappe
 from frappe.permissions import add_user_permission
 
-from nirmaan_stack.api.payments.work_order_tds import get_work_order_tds
+from nirmaan_stack.api.payments.work_order_tds import get_paid_work_order_payment_tds, get_work_order_tds
 from nirmaan_stack.services.test_tds_borne_by import MISC, MISC_AND_ELECTRICAL, BorneByFixture
 
 PTD = "Payment TDS Deduction"
 SR = "Service Requests"
 PROCUREMENT = "Nirmaan Procurement Executive"
+PROJECT_LEAD = "Nirmaan Project Lead"
 
 
 class TestTheWorkOrderTdsAsProcurement(BorneByFixture):
@@ -146,5 +147,81 @@ class TestTheWorkOrderTdsAsProcurement(BorneByFixture):
 		try:
 			with self.assertRaises(frappe.PermissionError):
 				get_work_order_tds(wo)
+		finally:
+			frappe.set_user("Administrator")
+
+
+class TestTheVoucherReportTdsAsProjectLead(BorneByFixture):
+	"""Reports > WO > Payment Voucher Uploads, as a Project Lead (#1543, owner ruling Q31-A): its TDS column
+	read `Payment TDS Deduction` itself, which only the accountants may read, so it was blank for anyone
+	else. It now asks `get_paid_work_order_payment_tds`, which answers for every Paid Work Order payment
+	whose Work Order the caller may read (User Permissions included)."""
+
+	def setUp(self):
+		super().setUp()
+		self.email = f"test-1543-voucher-{frappe.generate_hash(length=6)}@example.com"
+		frappe.get_doc({
+			"doctype": "User", "email": self.email, "first_name": "Voucher TDS", "send_welcome_email": 0,
+			"roles": [{"role": PROJECT_LEAD}],
+		}).insert(ignore_permissions=True)
+		frappe.db.commit()
+		self.addCleanup(self._drop_user)
+
+	_drop_user = TestTheWorkOrderTdsAsProcurement._drop_user
+
+	def _as_project_lead(self):
+		frappe.set_user(self.email)
+		try:
+			return get_paid_work_order_payment_tds()
+		finally:
+			frappe.set_user("Administrator")
+
+	def _limit_to(self, project):
+		add_user_permission("Projects", project, self.email, ignore_permissions=True)
+		frappe.db.commit()
+
+	def test_the_project_lead_cannot_read_the_deductions_themselves(self):
+		"""The premise: the report's own read of the doctype is refused."""
+		frappe.set_user(self.email)
+		try:
+			self.assertFalse(frappe.has_permission(PTD, "read"))
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_each_paid_payment_on_a_readable_work_order_carries_its_tax_and_who_bore_it(self):
+		wo = self._wo(MISC_AND_ELECTRICAL, total=20120)
+		withheld = self._approve(wo, 6000)
+		self._set_categories(wo, MISC)
+		kept_whole = self._approve(wo, 14120)
+		self._pay(withheld.name)
+		self._pay(kept_whole.name)
+		self._limit_to(self.project)
+
+		answer = self._as_project_lead()
+
+		self.assertEqual(answer.get(withheld.name), {"tds_amount": 120.0, "borne_by": "Vendor"})
+		self.assertEqual(answer.get(kept_whole.name), {"tds_amount": 282.4, "borne_by": "Company"})
+
+	def test_a_payment_not_yet_paid_is_not_on_the_report_and_not_in_the_answer(self):
+		wo = self._wo(MISC_AND_ELECTRICAL)
+		approved = self._approve(wo, 10000)
+		self._limit_to(self.project)
+
+		self.assertNotIn(approved.name, self._as_project_lead())
+
+	def test_a_work_order_on_another_project_is_left_out(self):
+		"""Read is checked on the Work Order: a Project Lead limited to another project learns nothing of its tax."""
+		wo = self._wo(MISC_AND_ELECTRICAL)
+		made = self._approve(wo, 10000)
+		self._pay(made.name)
+		self._limit_to(self.fx.project())
+
+		self.assertNotIn(made.name, self._as_project_lead())
+
+	def test_a_user_who_cannot_read_work_orders_is_refused(self):
+		frappe.set_user("Guest")
+		try:
+			with self.assertRaises(frappe.PermissionError):
+				get_paid_work_order_payment_tds()
 		finally:
 			frappe.set_user("Administrator")

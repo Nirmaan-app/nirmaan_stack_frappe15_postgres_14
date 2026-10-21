@@ -8,6 +8,7 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { Skeleton } from "@/components/ui/skeleton";
 import { ProjectCalculatedFields } from "../../hooks/useProjectReportCalculations";
 import { Info } from "lucide-react";
+import { CASHFLOW_GAP_TOOLTIP, PROJECT_OUTFLOW_TOOLTIP } from "@/constants/projectOutflow";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 // Wraps a column header with a small info icon that reveals a definition tooltip on hover.
@@ -229,8 +230,8 @@ export const getClientProjectColumns = (): ColumnDef<ProjectWithCalculations>[] 
   {
     accessorKey: "totalOutflow",
     header: ({ column }) => (
-      <HeaderWithInfo tooltip="Total cash paid out: vendor payments + project expenses (settled only — excludes scheduled credit terms).">
-        <DataTableColumnHeader column={column} title="Outflow" />
+      <HeaderWithInfo tooltip={PROJECT_OUTFLOW_TOOLTIP}>
+        <DataTableColumnHeader column={column} title="Project Outflow" />
       </HeaderWithInfo>
     ),
     cell: ({ row, getValue, table }) => {
@@ -260,7 +261,7 @@ export const getClientProjectColumns = (): ColumnDef<ProjectWithCalculations>[] 
         return <div className="tabular-nums ">{formatDisplayValueToLakhs(value)}</div>
     },
     size: 100,
-    meta: { exportHeaderName: "Outflow (in Lakhs)", exportValue: (row: any) => formatValueToLakhsNumber(row.totalOutflow), isNumeric: true }
+    meta: { exportHeaderName: "Project Outflow (in Lakhs)", exportValue: (row: any) => formatValueToLakhsNumber(row.totalOutflow), isNumeric: true }
   },
   {
     accessorKey: "totalLiabilities",
@@ -276,7 +277,7 @@ export const getClientProjectColumns = (): ColumnDef<ProjectWithCalculations>[] 
   {
     accessorKey: "cashflowGap",
     header: ({ column }) => (
-      <HeaderWithInfo tooltip="Outflow + Current Liabilities − Inflow. Positive (red) means committed spend exceeds funds received; negative (green) means inflows are ahead.">
+      <HeaderWithInfo tooltip={CASHFLOW_GAP_TOOLTIP}>
         <DataTableColumnHeader column={column} title="Cashflow Gap" />
       </HeaderWithInfo>
     ),

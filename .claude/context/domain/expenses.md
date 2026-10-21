@@ -809,6 +809,8 @@ silently wiped the shipped Travel (Bus) format once. Use the suite's `_set_forma
 - Decision: `docs/adr/0027-many-lines-one-expense.md` — many bank lines settle one expense.
 - Plan / as-built: `.claude/plans/expense-request-plan.md`.
 - Bank-line settlement as-built: `.claude/context/domain/outflow-import.md`.
+- A *TDS Payment* expense is linked by hand to the TDS challan it records (one each; a linked expense
+  can't be deleted): `.claude/context/domain/payment-tds.md` § a challan and its TDS Payment expense.
 
 ## Porter expenses (designed 2026-10-15; created since #1445; expense screens since #1450)
 

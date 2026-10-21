@@ -7,6 +7,7 @@ import { ProjectExpenses } from '@/types/NirmaanStack/ProjectExpenses';
 import { parseNumber } from '@/utils/parseNumber';
 import { useOrderTotals } from '@/hooks/useOrderTotals';
 import { formatISO, parseISO, isWithinInterval } from 'date-fns';
+import { paymentExpenseType } from '../utils/outflowReportSummary';
 
 /**
  * Helper function to check if a date string is within the period
@@ -118,18 +119,11 @@ export const useOutflowReportData = ({ startDate, endDate }: UseOutflowReportDat
 
         // Map Project Payments to the standard OutflowRowData format
         const mappedPayments: OutflowRowData[] = filteredPayments.map(p => {
-            let expenseType = 'Unknown Payment';
-            let effectiveGst;
-            if (p.document_type === 'Procurement Orders') {
-                expenseType = 'Payment Against PO';
-             effectiveGst = getEffectiveGST(p.document_name, p.document_type);
+            const expenseType = paymentExpenseType(p.document_type);
+            const effectiveGst = p.document_type === 'Procurement Orders' || p.document_type === 'Service Requests'
+                ? getEffectiveGST(p.document_name, p.document_type)
+                : 0;
 
-            } else if (p.document_type === 'Service Requests') {
-                expenseType = 'Payment Against SR';
-             effectiveGst = getEffectiveGST(p.document_name, p.document_type);
-
-            }
-            
             const amountPaid = parseNumber(p.amount);
 
 

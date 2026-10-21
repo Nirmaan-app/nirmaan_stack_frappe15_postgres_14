@@ -188,7 +188,7 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
 
   const { inflowsResponse, invoicesResponse } = useProjectFinancialsTabData(projectData?.name);
 
-  // Total OutFlow and Current Liabilities: the server's project money, the figures CEO Hold and the
+  // Project Outflow and Current Liabilities: the server's project money, the figures CEO Hold and the
   // Projects list read (ADR-0034). Never worked out again in the browser.
   const { data: projectMoneyResponse } = useProjectMoney(projectData?.name);
   const projectMoney = projectMoneyResponse?.message;
@@ -251,10 +251,10 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
 
 
     {
-      label: "Total Credit Amount Paid",
+      label: "Credit Terms Marked Paid",
       value: relatedTotalCreditPaid,
       style: "",
-      info: "Total value of credit POs that are paid."
+      info: "Credit payment terms on this project's POs that are marked paid. A term's status, not cash: see Project Outflow for the money paid out."
     },
     {
       label: "Project Value (Excl. GST)",
@@ -269,11 +269,9 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       info: "Total project value including GST."
     },
     {
-      // label: "Total Amount Paid",
-      label: "Total OutFlow Amount",
-
+      label: "Project Outflow",
       value: projectMoney?.outflow ?? 0,
-      info: "Money paid out for the project: Paid payments less Received vendor refunds, plus Paid expenses, plus the TDS on Paid WO payments. (Hover for breakdown)",
+      info: "Money paid out for the project: Paid payments less Received vendor refunds, plus Paid expenses, plus the TDS on Paid PO and WO payments. (Hover for breakdown)",
       style: "text-red-600",
       breakdown: projectMoney && {
         poAmount: projectMoney.po_outflow,
@@ -288,16 +286,16 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       info: "Total amount for delivered POs that are now payable."
     },
     {
-      label: "Amount Paid Against Delivered Items in PO",
+      label: "PO Paid, Covered by Delivery",
       value: poPaymentAgainstDelivery,
       style: "",
-      info: "Amount paid against delivered items in this project’s POs."
+      info: "What this project's POs have paid, up to the value delivered on each."
     },
     {
-      label: "Advance Against PO",
+      label: "PO Paid Ahead of Delivery",
       value: advanceAgainstPO,
       style: "",
-      info: "Advance amount paid before delivery for this project’s POs."
+      info: "What this project's POs have paid beyond the value delivered on each."
     },
     {
       label: "Current Liabilities",

@@ -27,6 +27,7 @@ from nirmaan_stack.api.payments.payment_cheque import (
 # api -> service is the one legal direction (ADR-0010). See `reference_guard.py`'s module
 # docstring: this call site and `settle._assert_reference_is_free` must move together.
 from nirmaan_stack.services.outflow_import.reference_guard import assert_reference_is_free
+from nirmaan_stack.services.outflow_import.settle import recompute_latest_payment_date
 
 # This constant is a good security practice
 ALLOWED_DOCS = {"Procurement Orders", "Service Requests"}
@@ -602,9 +603,12 @@ def _fulfil_payment(pay, args):
     if file_url:
         _attach_file(pay, file_url)
 
-    po_doc = frappe.get_doc(pay.document_type, pay.document_name)
-    po_doc.latest_payment_date = args.get("pay_date") or nowdate()
-    po_doc.save()
+    # The order is recounted, never saved (#1536, story 44): the payment's own `on_update` has just
+    # recounted its Amount Paid, Total TDS and Amount Due (`recount_orders`), and its latest payment date is
+    # re-read from its Paid payments here. Saving the whole PO / Work Order ran every one of its own checks,
+    # so an unrelated problem on it (a broken link, a lifecycle lock) failed the payment. No `doc_events`
+    # handler watches `latest_payment_date` (`settle.recompute_latest_payment_date`).
+    recompute_latest_payment_date(pay.document_type, pay.document_name)
 
 
 def _attach_file(pay, file_url: str):

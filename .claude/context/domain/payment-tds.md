@@ -134,6 +134,32 @@ figure — the company pays the tax on top:
   CEO Hold, as `after_delete` does. A correction leaves the payment's amount alone.
 - So no path removes a deduction from a challan, and `reconciled_amount` moves only when Pay TDS pays.
 
+### Load-bearing invariants: a challan and its TDS Payment expense (#1544)
+
+- **A deposit is booked twice, by hand:** as a challan (what Pay TDS spends) and as a non-project
+  expense of type *TDS Payment* (the money in the expense books). `TDS Challan Attachment.tds_payment_expense`
+  (Link → Non Project Expenses, **unique**) says which expense is the challan's. Nothing creates or links
+  either side automatically.
+- **What may be linked is the challan's own `validate`** (`_validate_tds_payment_expense`): type *TDS
+  Payment*, not *Rejected*, on no other challan (the refusal names that challan; the unique index holds
+  under two simultaneous saves). Desk and the challan list's Link (`api/tds_challan/challan_expense.set_challan_expense`,
+  a document save) refuse the same things. Clearing the link is allowed.
+- **Every challan is a deposit already made**, so every challan without an expense carries the warning
+  (View Challans button count, the dialog header, the row). A linked expense can't be deleted: Frappe's
+  link check refuses it while the challan points at it.
+
+### Load-bearing invariants: bulk approve's tax failures (#1536)
+
+- **Bulk approve names every approved payment whose tax it could not withhold** (`tds_failed` from
+  `bulk_actions._record_bulk_deductions`, after the approvals' commit). Such a payment is Approved at its
+  GROSS amount. The Approve Payments bar shows them (`BulkActionBar`, "TDS failed on N", opening by itself)
+  until dismissed.
+- **Retry TDS** (`bulk_actions.retry_bulk_deductions`, L1 as bulk approve) runs the same phase over those
+  names: only a payment still at `Approved` can take its tax (`is_deductible`); one that has moved on comes
+  back in `not_approved`, untouched. A retried Work Order cheque then moves on to Reconciliation Pending,
+  as after a bulk approve (`_move_on_approved_cheques`). Idempotent: a payment with a deduction counts as
+  recorded and is not cut twice.
+
 ### Load-bearing invariants: who bore the tax
 
 - **`Payment TDS Deduction.borne_by` IS THE SOURCE (#1451).** A stored field by owner ruling 2026-10-16,
@@ -207,15 +233,22 @@ figure — the company pays the tax on top:
     payment row is payment + its `Vendor` tax, details "incl. TDS ₹x". The Vendor report's dated paid
     figure (`services/vendor_paid`): the `Vendor` tax on the payment's date. The payments pop-up
     (`PaymentsDataDialog`, `paymentsDialogRows`): a TDS column from `get_work_order_tds` `payments`,
-    `Vendor` rows only, total = payments + TDS − Received refunds = Amount Paid; read through the one
-    accessor `useWorkOrderTds` (SWR key `WorkOrderTds-<id>`, shared with the WO page), and the column
-    and total show a loading state until it answers. `Company` tax adds
-    nothing to any of them.
+    `Vendor` rows only; its **Total is the order's saved Amount Paid** (#1543), never the rows' sum.
+    The rows (payments + TDS − Received refunds) are checked against it once all have loaded, and a
+    drift of ₹1 or more (the mismatch report's `THRESHOLD`) shows a warning (`amountPaidLine`). Read
+    through the one accessor `useWorkOrderTds` (SWR key `WorkOrderTds-<id>`, shared with the WO page);
+    the TDS column shows a loading state until it answers. `Company` tax adds nothing to any of them.
+  - **Company tax is labelled wherever a tax column lists it** (#1543): the WO payment table's TDS cell
+    (`tdsPreview.tdsColumnNote`) and the Payment Voucher Uploads report say "TDS paid by company". The
+    TDS register's Net Paid is what the vendor got: gross − tax for `Vendor`, the whole gross for
+    `Company` (`deductionNetPaid`).
 - **`Payment TDS Deduction` is readable only by Accountant, Accountant Lead and System Manager**, and
   its permissions stay so. Anything a non-accountant screen needs from it goes through a whitelisted
-  read that checks read on the parent order (`get_work_order_tds`, `get_payment_summary`). A page's
-  own list read of the doctype is refused to Procurement with a 403 (walk story 27, #1451), so the WO
-  page no longer reads it at all.
+  read that checks read on the parent order (`get_work_order_tds`, `get_order_payment_tds`,
+  `get_payment_summary`, and for Reports > WO > Payment Voucher Uploads
+  `get_paid_work_order_payment_tds`, which keeps only the Work Orders `frappe.get_list` lets the caller
+  read, #1543). A page's own list read of the doctype is refused to Procurement with a 403 (walk story
+  27, #1451), so no non-accountant screen reads it at all.
 - **Why stored, not inferred:** the Misc/Transport Work Orders paid before 2026-09-17 had their tax
   netted out of the vendor's payment (SR-00041-000138: ₹24,800 → ₹24,552 + ₹248 TDS, due 0) and stay
   `Vendor`; SR-00107-001055 has both kinds. Inferring from payment ≈ gross broke on a part settlement
@@ -295,7 +328,7 @@ letter decides it (owner, 2026-10-16):
 **`TDS Challan Attachment`** — one ITNS 281 receipt.
 
 Carries financial year, amount, mode of payment, bank + bank reference, date of deposit, BSR code,
-challan no, tender date and the attachment.
+challan no, tender date and the attachment, and `tds_payment_expense` (#1544, see the invariants above).
 
 - **Duplicate key: Amount + Bank Reference Number + BSR Code + Challan No.** All four matching means
   the same receipt uploaded twice. The site is Postgres (case-sensitive), so the text parts are
@@ -400,7 +433,9 @@ Reports hub → **Payment TDS Deduction** tab (report type "TDS Deduction"), gat
   **upload** keeps the form hidden (no receipt, no challan), a failed **read** opens it blank with
   the reason.
 - **View Challans** lists every challan *including fully-used ones* — the picker answers "what can I
-  pay from?", this answers "what have we deposited?".
+  pay from?", this answers "what have we deposited?". Its Expense column links or unlinks the
+  challan's TDS Payment expense (§ a challan and its TDS Payment expense); the picker leaves out
+  expenses already on another challan (`challanExpense.linkableExpenses`).
 - Project / Payment / Gross / Net columns are **hidden by default**, not deleted (⚠️ hiding `project`
   also removes its facet dropdown).
 
@@ -446,5 +481,3 @@ by `api/payments/test_taxed_work_order_fixture.py`.
   recomputes). One such row exists on localhost by owner decision.
 - Gemini challan extraction has never run against a real challan file; none of the UI has been
   verified in a browser.
-- The TDS register's **Net Paid** column is still `gross − tds`, so a company-borne row reads 784 where
-  the vendor received 800.

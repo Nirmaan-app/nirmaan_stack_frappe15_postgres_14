@@ -109,7 +109,8 @@ class TestProjectMoney(FrappeTestCase):
         self.assertEqual(
             _rounded(get_project_money(self.P)),
             {"po_outflow": 600.0, "wo_outflow": 0.0, "expense_outflow": 70.0,
-             "outflow": 670.0, "liabilities": 700.0, "inflow": 800.0, "cashflow_gap": 570.0},
+             "outflow": 670.0, "liabilities": 700.0, "inflow": 800.0, "cashflow_gap": 570.0,
+             "refunds": 100.0, "tds": 0.0},
         )
 
     def test_a_refund_counts_on_its_own_date(self):
@@ -117,7 +118,8 @@ class TestProjectMoney(FrappeTestCase):
         self.assertEqual(
             _rounded(get_project_money(self.P, from_date="2026-05-01", to_date="2026-06-30")),
             {"po_outflow": 200.0, "wo_outflow": 0.0, "expense_outflow": 0.0,
-             "outflow": 200.0, "liabilities": 700.0, "inflow": 800.0, "cashflow_gap": 100.0},
+             "outflow": 200.0, "liabilities": 700.0, "inflow": 800.0, "cashflow_gap": 100.0,
+             "refunds": 100.0, "tds": 0.0},
         )
         # April-May: both payments and the expense, but not the 15-Jun refund on the same PO.
         self.assertEqual(
@@ -131,7 +133,8 @@ class TestProjectMoney(FrappeTestCase):
         self.assertEqual(
             _rounded(money["TEST-1456-NO-SUCH-PROJECT"]),
             {"po_outflow": 0.0, "wo_outflow": 0.0, "expense_outflow": 0.0,
-             "outflow": 0.0, "liabilities": 0.0, "inflow": 0.0, "cashflow_gap": 0.0},
+             "outflow": 0.0, "liabilities": 0.0, "inflow": 0.0, "cashflow_gap": 0.0,
+             "refunds": 0.0, "tds": 0.0},
         )
 
     def test_ceo_hold_and_the_projects_list_agree(self):
@@ -223,7 +226,8 @@ class TestProjectOutflowCountsWorkOrderTds(FrappeTestCase):
         self.assertEqual(
             _rounded(get_project_money(self.P)),
             {"po_outflow": 0.0, "wo_outflow": 10816.0, "expense_outflow": 0.0,
-             "outflow": 10816.0, "liabilities": 0.0, "inflow": 0.0, "cashflow_gap": 10816.0},
+             "outflow": 10816.0, "liabilities": 0.0, "inflow": 0.0, "cashflow_gap": 10816.0,
+             "refunds": 0.0, "tds": 216.0},
         )
 
     def test_the_tax_counts_on_its_payments_date(self):
