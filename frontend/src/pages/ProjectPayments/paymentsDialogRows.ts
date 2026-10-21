@@ -18,7 +18,11 @@ import type { WorkOrderTds } from "./tdsForecast";
  * stored gross has no counted deduction, so it reads 0 too.
  *
  * `tdsPending`: an order whose answer has not arrived. Its rows' `tds` and the `total` are undefined
- * then, never a total without the tax that the Amount Paid clicked holds.
+ * then, never a total without the tax that the Amount Paid clicked holds. Likewise while the refunds
+ * have not loaded (`refunds` undefined): a sum without them is not what the rows add up to.
+ *
+ * `total` is only what the rows add up to. The pop-up's Total shows the order's SAVED Amount Paid and
+ * checks this sum against it (`amountPaidLine`, #1543).
  */
 export const paymentsDialogRows = <P extends { name: string; amount?: number | string | null; payment_date?: string | null }>(
   payments: P[] | undefined,
@@ -32,7 +36,7 @@ export const paymentsDialogRows = <P extends { name: string; amount?: number | s
     const tds = deduction?.borne_by === TDS_BORNE_BY.VENDOR ? parseNumber(deduction.tds_amount) : 0;
     return { ...row, tds: tdsPending ? undefined : tds };
   });
-  const total = tdsPending
+  const total = tdsPending || refunds === undefined
     ? undefined
     : rows.reduce(
         (sum, row) =>
@@ -42,4 +46,23 @@ export const paymentsDialogRows = <P extends { name: string; amount?: number | s
         0
       );
   return { rows, total };
+};
+
+/** A drift under a rupee is rounding, not a wrong figure: the mismatch report's `THRESHOLD`
+ *  (`services/amount_paid_drift.py`). */
+export const AMOUNT_PAID_DRIFT_THRESHOLD = 1;
+
+/**
+ * The pop-up's Total line (#1543, owner ruling Q29-C): the order's SAVED Amount Paid, the one figure
+ * every screen shows (ADR-0034), and `mismatch` when its rows (`paymentsDialogRows` `total`) do not add
+ * up to it, so a wrong saved figure is noticed where people look. With the rows still loading
+ * (`rowsTotal` undefined) the saved figure shows at once and is not judged.
+ */
+export const amountPaidLine = (amountPaid: number | string | null | undefined, rowsTotal: number | undefined) => {
+  const saved = parseNumber(amountPaid);
+  return {
+    amountPaid: saved,
+    rowsTotal,
+    mismatch: rowsTotal !== undefined && Math.abs(saved - rowsTotal) >= AMOUNT_PAID_DRIFT_THRESHOLD,
+  };
 };

@@ -205,6 +205,13 @@ Before writing an effect: if it calls `setState` on something in its own depende
 page-specific `formatDeadlineShort()` where one exists, or the date-fns pattern `dd-MMM-yyyy`. That one format
 covers every user-facing date, including ones that might read naturally as `MM/dd/yyyy`, `yyyy-MM-dd` or "15th Jan".
 
+## Displaying money
+
+**A whole-rupee figure rounds to the nearest rupee:** `formatToRoundedIndianRupee()` (export: `formatForReport()`)
+from `src/utils/FormatPrice.ts`, never `Math.ceil` or `Math.floor` on money for display (owner ruling, #1543): a
+ceiling turned a ₹0.30 Due into "₹1 due". **Show an order's stored figures** (`total_amount`, `amount_paid`,
+`amount_due`), never a total worked out again in the browser (`items × 1.18`).
+
 ---
 
 ## Writing TypeScript and styling

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { paymentTableFigures, requestPreviewLines, toTdsForecast } from "./tdsPreview";
+import { paymentTableFigures, requestPreviewLines, tdsColumnNote, toTdsForecast } from "./tdsPreview";
 
 const VENDOR_BORNE = { rate: 2, tds: 200, vendor_gets: 9800, borne_by: "Vendor" } as const;
 const COMPANY_BORNE = { rate: 2, tds: 200, vendor_gets: 10000, borne_by: "Company" } as const;
@@ -59,5 +59,21 @@ describe("paymentTableFigures", () => {
 		expect(paymentTableFigures(1800, undefined, undefined)).toEqual({
 			requested: 1800, tds: undefined, toBePaid: 1800, companyOnTop: false, forecast: false,
 		});
+	});
+});
+
+describe("tdsColumnNote (the Work Order payment table labels company tax, #1543)", () => {
+	it("labels tax the company paid on top, so it doesn't read as a deduction from the vendor", () => {
+		const recorded = paymentTableFigures(10000, { tds_amount: 200, borne_by: "Company" }, undefined);
+		expect(tdsColumnNote(recorded)).toBe("TDS paid by company");
+	});
+
+	it("labels a waiting payment's company-borne forecast the same way", () => {
+		expect(tdsColumnNote(paymentTableFigures(10000, undefined, COMPANY_BORNE))).toBe("TDS paid by company");
+	});
+
+	it("has no label for tax withheld from the vendor, nor for a payment without tax", () => {
+		expect(tdsColumnNote(paymentTableFigures(9800, { tds_amount: 200, borne_by: "Vendor" }, undefined))).toBeUndefined();
+		expect(tdsColumnNote(paymentTableFigures(1800, undefined, undefined))).toBeUndefined();
 	});
 });
