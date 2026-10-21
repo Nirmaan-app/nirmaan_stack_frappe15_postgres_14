@@ -128,7 +128,9 @@ describe("ADP-1 H3 -- slot diffusers by unit (owner 14:15 / 14:24, 2026-10-19)",
       const x = panel(ADP, "Nos", { family: SLOT, damper: "with", slot_count: "2", ...(size ? { size_mm: size } : {}) });
       expect({ size, f: [x.supply, x.install] }).toEqual({ size, f: [1465, 352] });
       expect(x.field("Piece length (m)")).toMatchObject({ value: "1", defaulted: true, rule: "no piece length stated - priced at 1 m" });
-      expect(x.working).toContain("piece length not mentioned -> 1 (no piece length stated - priced at 1 m)");
+      // INVERTED at ADP-4a (owner D5 / AC3: the default stated ONCE, on its field -- the rule above) by mechanical authority.
+      // BEFORE: `expect(x.working).toContain("piece length not mentioned -> 1 (no piece length stated - priced at 1 m)")`.
+      expect(x.working).not.toContain("piece length not mentioned -> 1 (no piece length stated - priced at 1 m)");
     }
   });
   it("per number: no slot count refuses naming it; a 4-slot refuses by name", () => {
@@ -153,7 +155,9 @@ describe("ADP-1 H3 -- slot diffusers by unit (owner 14:15 / 14:24, 2026-10-19)",
     expect(calc(ADP, "nos", SLOT, { damper: "with", slot_count: "3", piece_length_m: "long" }).reason).toBe("no number in 'long' for piece length");
   });
   it("THE FIELDS (owner 15:56): per sq.m Damper; per metre Damper + Slots; per number Damper + Slots + Piece length -- panel and calculator", () => {
-    const want: Record<string, string[]> = { sqm: ["Damper"], RMT: ["Damper", "Slots (as written)"], Nos: ["Damper", "Slots (as written)", "Piece length (m)"] };
+    // INVERTED at ADP-4a (owner AC2: "(as written)" removed from field labels) by mechanical authority. BEFORE: RMT
+    // ["Damper", "Slots (as written)"], Nos ["Damper", "Slots (as written)", "Piece length (m)"].
+    const want: Record<string, string[]> = { sqm: ["Damper"], RMT: ["Damper", "Slots"], Nos: ["Damper", "Slots", "Piece length (m)"] };
     for (const [unit, labels] of Object.entries(want)) {
       expect({ unit, panel: panel(ADP, unit, { family: SLOT, damper: "with", slot_count: "3", size_mm: "1000x150", area_band: "up to 0.5 sqm" }).fields }).toEqual({ unit, panel: labels });
       const cu = unit === "sqm" ? "sqm" : unit === "RMT" ? "rmt" : "nos";
@@ -162,8 +166,10 @@ describe("ADP-1 H3 -- slot diffusers by unit (owner 14:15 / 14:24, 2026-10-19)",
     // REMOVED, measured against v46 (the report lists them): per number "Size (as written)" and "Area band (as written)"
     const spec46 = itemListPricingSpec(W_OLD.configs.get(ADP))!, spec47 = itemListPricingSpec(W_NEW.configs.get(ADP))!;
     const labels = (spec: any, cfg: any, cls: string) => itemFieldDefs(spec, listSpecDefs(cfg), SLOT, cls).map((f) => f.label);
-    expect(labels(spec46, W_OLD.configs.get(ADP), "count")).toEqual(["Damper", "Size (as written)", "Area band (as written)"]);
-    expect(labels(spec47, W_NEW.configs.get(ADP), "count")).toEqual(["Damper", "Slots (as written)", "Piece length (m)"]);
+    // INVERTED at ADP-4a (owner AC2: "(as written)" removed from field labels) by mechanical authority. BEFORE:
+    // v46 ["Damper", "Size (as written)", "Area band (as written)"], v47 ["Damper", "Slots (as written)", "Piece length (m)"].
+    expect(labels(spec46, W_OLD.configs.get(ADP), "count")).toEqual(["Damper", "Size", "Area band"]);
+    expect(labels(spec47, W_NEW.configs.get(ADP), "count")).toEqual(["Damper", "Slots", "Piece length (m)"]);
     for (const cls of ["area", "length"]) expect(labels(spec47, W_NEW.configs.get(ADP), cls)).toEqual(labels(spec46, W_OLD.configs.get(ADP), cls));
   });
   it("NEGATIVE: no other family reads, shows or mentions the piece length", () => {
@@ -184,8 +190,12 @@ describe("ADP-1 H4 -- the per-number mixing box / LP plenum (owner 14:34 / 14:41
   it("L, B, H stated: 1230 x 2 x (LB + BH + LH) / 10^6 + 150 = 1423.05 -> 1424 -> x 1.45 = 2065 supply; install has no 150", () => {
     const x = panel(ADP, "Nos", { family: MIX, insulated: "None", size_mm: "450x450x350" });
     expect([x.priced, x.supply, x.install]).toEqual([true, 2065, 0]);
-    expect(x.working).toContain("supply: 1230 x 2 x (450 x 450 + 450 x 350 + 450 x 350) / 10^6 + 150 = 1423.05");
-    expect(x.working).toContain("supply: pricing input: Mixing box supply adder (amount) = 150");
+    // INVERTED at ADP-4a (owner AC2 / D4: "10^6" and the input's kind tag in words, the rounding said once on its line) by
+    // mechanical authority. BEFORE: `toContain("supply: 1230 x 2 x (450 x 450 + 450 x 350 + 450 x 350) / 10^6 + 150 = 1423.05")`
+    // and `toContain("supply: pricing input: Mixing box supply adder (amount) = 150")`. The figures are the same.
+    expect(x.working).toContain("supply: 1230 x 2 x (450 x 450 + 450 x 350 + 450 x 350) / 1,000,000 + 150 = 1423.05, rounded up to the rupee: 1424");
+    expect(x.working).toContain("supply: pricing input: Mixing box supply adder = 150");
+    expect(x.working.join(" | ")).not.toMatch(/10\^6|\(amount\)|ROUNDUP/);
     expect(x.working.filter((w) => w.startsWith("install:") && /\+ 150/.test(w))).toEqual([]);
     // the same figure v46 gave (S7 is unchanged: the 150 stays on the cost, before the round-up and the markup)
     const old = panel(ADP, "Nos", { family: MIX, insulated: "None", size_mm: "450x450x350" }, { w: W_OLD });
@@ -234,7 +244,9 @@ describe("ADP-1 A4 -- the three literals are HVAC Pricing Inputs, and ZERO price
     const bumped = applyAdp1(V46);
     (bumped.items.find((it) => (it.attributes as any).item === "mixing_box_supply_adder")!.rates as any).amount = 200;
     const x = panel(ADP, "Nos", { family: MIX, insulated: "None", size_mm: "450x450x350" }, { w: world(bumped) });
-    expect(x.working).toContain("supply: 1230 x 2 x (450 x 450 + 450 x 350 + 450 x 350) / 10^6 + 200 = 1473.05");
+    // INVERTED at ADP-4a (owner AC2 / D4) by mechanical authority. BEFORE: `toContain("supply: 1230 x 2 x (450 x 450 + 450 x
+    // 350 + 450 x 350) / 10^6 + 200 = 1473.05")`. The figure is the same.
+    expect(x.working).toContain("supply: 1230 x 2 x (450 x 450 + 450 x 350 + 450 x 350) / 1,000,000 + 200 = 1473.05, rounded up to the rupee: 1474");
     expect([x.supply, x.install]).toEqual([Math.ceil(1474 * 1.45), 0]);
   });
   it("the reach (owner Q2): all three are read by ADP; the 150 and the 2.5 m move 0 SKUs (they act only on per-number conversion), the 300 the cross-talk SKUs", () => {
@@ -349,7 +361,13 @@ describe("ADP-1 U6 -- the Derivation tab: lines ADDED, every earlier line kept",
   const titles = (a: AssetLike, cat: string) => itemListRuleOrder(a.category_configs.find((c) => c.category_id === cat), a.items as any).map((l) => l.title);
   it("ADP gains exactly its new lines, every v46 line kept in order", () => {
     // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE the two tabs compared whole -- ADP-3a's either-or line names the per-number kinds, which ADP-1 changed
-    const before = withoutAdp3aLines(titles(V46, ADP)), after = withoutAdp3aLines(titles(NEW, ADP));
+    // INVERTED at ADP-4a (owner AC1 c: a conversion that ran with no line gets one, TITLED BY ITS OWN RULE TEXT -- which
+    // ADP-1 rewrote for the flexible duct and the mixing box) and (AC1 b, R1 line 21: a title opens with a capital) by
+    // mechanical authority. Those conversion lines are set aside like ADP-3a's, so the comparison stays "ADP-1 only adds".
+    // BEFORE: no `withoutAdp4aRuleLines`, and the last expected title "without as the damper on a per-sq.m row of slot
+    // diffuser refuses".
+    const withoutAdp4aRuleLines = (ts: string[]) => ts.filter((t) => !/^(Per[- ][^:]*|Area band): /.test(t));
+    const before = withoutAdp4aRuleLines(withoutAdp3aLines(titles(V46, ADP))), after = withoutAdp4aRuleLines(withoutAdp3aLines(titles(NEW, ADP)));
     expect(after.filter((t) => before.includes(t))).toEqual(before);
     expect(after.filter((t) => !before.includes(t))).toEqual([
       "A per-number slot diffuser is priced from the per-metre rate",
@@ -358,7 +376,13 @@ describe("ADP-1 U6 -- the Derivation tab: lines ADDED, every earlier line kept",
       "A per-number mixing box / LP plenum without width, height, depth refuses, naming what is missing",
       "A slot count the catalogue does not stock refuses",
       "A piece length is typed in 'Piece length (m)', else read from the size",
-      "without as the damper on a per-sq.m row of slot diffuser refuses",
+      "Without as the damper on a per-sq.m row of slot diffuser refuses",
+    ]);
+    // the conversion lines set aside: ADP-1's rule text replaced v46's for exactly the two literals it moved to Pricing Inputs
+    const rules = (ts: string[]) => ts.filter((t) => !withoutAdp4aRuleLines([t]).length);
+    expect(rules(titles(V46, ADP)).filter((t) => !rules(titles(NEW, ADP)).includes(t))).toEqual([
+      "Per piece: per-metre rate x 2.5 m standard length",
+      "Per-number mixing box at any size: per-sq.m cost x 2(WH + HD + WD) + 150, rounded up, then the markup",
     ]);
   });
   it("Insulation: v47's key adds the F1 line; the F3 and F4 lines come from the code over keys v46 already carries; Piping gains none", () => {

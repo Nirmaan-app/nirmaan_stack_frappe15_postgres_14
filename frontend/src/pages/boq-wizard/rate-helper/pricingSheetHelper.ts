@@ -63,6 +63,9 @@ import {
   delegatedSections,
   familyAttr,
   familyChoices,
+  familyDisplayName,
+  plainItemListWording,
+  plainWorking,
   familyUnitClasses,
   fieldOptionsFromSkus,
   inchWithMmEcho,
@@ -73,6 +76,7 @@ import {
   plainFactOf,
   readLayers,
   readNumber,
+  ruledDefaultValue,
   sizeIsOutsideDiameter,
   severalSizesTaken,
   listSpecDefs,
@@ -2048,6 +2052,9 @@ export interface ItemFieldView extends ItemFieldDef {
   /** SLICE 12e-3a (owner D3a): the pricer chose a value here that differs from the mirrored one --
    * "you chose 19.05 (pipe is 15.875)" (the config's `mirror.line`). */
   mirrorLine?: string;
+  /** ADP-4a (owner B5 / U5): the words the select's empty choice shows -- "not stated" where the model's stored
+   *  answer is "None" and "None" is not offered. Absent everywhere else (the panel shows "- select -"). */
+  placeholder?: string;
 }
 
 /**
@@ -2093,6 +2100,10 @@ export interface ItemBlockView {
   family: string | null;
   /** The family the model returned when it differs from the family that prices (the R3 alias note). */
   familyRaw: string | null;
+  /** ADP-4a (owner AC2, display only): the family and the model's family as a pricer reads them ("Not in the
+   *  catalogue", "Grille (type not stated)"). Present ONLY on the plain item wording where they differ. */
+  familyLabel?: string;
+  familyRawLabel?: string;
   /** SLICE 12d-1a (owner R2): the family came from the config's `family_when_none` -- the row named
    * no material and its kind (unit, or a heading word) decided. Present ONLY on such a block, so every
    * other block is byte-identical; the panel shows it amber with the rule, like every other default. */
@@ -2781,10 +2792,20 @@ function itemBlockView(
     // ... and on a plain dropdown (no "Other...") the ruled value is listed, so the select can show the value
     // the row is using: "Cladding Only" per sq.m with cladding not mentioned -> No, where "No" is not stocked
     const defaultAsOption = defaulted && !f.allowOther && value !== "" && !!f.options && !f.options.includes(value);
+    /**
+     * ADP-4a (owner register B5, U5): "None" is not offered on the plain item wording (`itemFieldDefs`), so a STORED
+     * "None" -- the model's "not mentioned" -- would match no option. The select shows its empty choice, worded "not
+     * stated"; the stored answer is unchanged (the pricing reads the assembled item, never this display value).
+     * ONLY where that "None" was an option before -- no ruled default maps it (U5 names the air stream); a field whose
+     * "None" a default already turned into a catalogue value never offered it (12d-2) and keeps its display as it was.
+     */
+    const noneShown = plainItemListWording(spec) && f.allowNone && stated === "None" && !defaulted && !!f.options && !f.options.includes("None")
+      && family !== null && ruledDefaultValue(spec, f.skuAttr, family) === undefined;
     return {
       ...f,
       ...(defaultAsOption ? { options: [...f.options!, value] } : {}),
-      value,
+      ...(noneShown ? { placeholder: "not stated" } : {}),
+      value: noneShown ? "" : value,
       typedValue: defaultInBox ? value : stated,
       defaulted,
       ...(defaulted ? { rule: d!.rule } : tm ? { rule: tm.line } : {}),
@@ -2855,11 +2876,76 @@ function itemBlockView(
     ...(res.sku ? { skuLine: res.sku.item_name === undefined && !res.sku.item_detail && res.family
       ? `${res.family} (${res.sku.unit ?? ""})`
       : `${res.sku.item_name ?? ""} / ${res.sku.item_detail ?? ""} (${res.sku.unit ?? ""})` } : {}),
-    working: ladRewrites.length
+    working: withoutRestatements(spec, res, family, edit, fields, ladRewrites.length
       ? blockWorking.map((w) => { const r = ladRewrites.find((x) => w.startsWith(`${x.from} -> `)); return r ? `${r.to}${w.slice(r.from.length)}` : w; })
-      : blockWorking,
+      : blockWorking),
     figures,
   };
+}
+
+/**
+ * ADP-4a (owner D5, 2026-10-21 "Show each default once, on the field (where it can be changed), not again in the
+ * working" - "Yes"; AC3; scope ruled the same day: ADP and Insulation, an Insulation block the same wherever it sits).
+ *
+ * A fact the panel states ON A FIELD -- a ruled default (the amber line), the family a row's kind decided (the heading),
+ * a ladder's move, a size read from the size as written, an override, the alias a family priced as -- is said there
+ * ONCE; its copy in the working goes. The working keeps the arithmetic. Each copy is rebuilt EXACTLY from the record the
+ * pricer wrote it from (the same template, the same record), and it is removed ONLY when the field (or the heading) that
+ * states it is on screen -- a fact with no field to stand on stays in the working, so nothing is ever said nowhere.
+ *
+ * Scope: a category that rules defaults (`pricing.defaults` / `number_defaults`) -- ADP and Insulation. Piping rules
+ * none and its working is untouched, byte for byte. PURE.
+ */
+export function withoutRestatements(
+  spec: ItemListPricingSpec,
+  res: ItemPriceResult,
+  family: string | null,
+  edit: ItemEdit,
+  fields: ItemFieldView[],
+  working: string[],
+): string[] {
+  if (!spec.defaults && !spec.number_defaults) return working;
+  const exact = new Set<string>();
+  const fieldOf = (attr: string) => fields.find((f) => f.skuAttr === attr || (f.axes ?? []).includes(attr));
+  for (const d of res.defaulted) {
+    const f = fieldOf(d.attr);
+    if (f && f.defaulted && f.rule !== undefined) exact.add(`${d.when ? `${d.when.equals} ${d.when.attr}, ` : ""}${d.attr} not mentioned -> ${d.value} (${d.rule})`);
+  }
+  if (res.familyDefaulted && edit.family === null) exact.add(`${familyAttr(spec)} not mentioned -> ${res.familyDefaulted.value} (${res.familyDefaulted.rule})`);
+  for (const o of res.overrides ?? []) if (fieldOf(o.attr)?.note === o.rule) exact.add(o.rule);
+  if (res.familyRaw !== null && res.familyRaw !== family && !res.familyLine && family !== null && spec.family_alias?.[res.familyRaw]) {
+    exact.add(`'${res.familyRaw}' prices as ${family} (R3)`);
+  }
+  // a reading or a ladder move restated: the field that shows it carries a note
+  const said: Array<{ name: string; note: string; attr: string }> = [];
+  for (const f of fields) {
+    if (!f.note) continue;
+    for (const attr of f.axes ?? [f.skuAttr]) {
+      const name = spec.numbers[attr]?.name;
+      if (!name) continue;
+      said.push({ name, note: f.note, attr });
+      const filled = res.filledReads?.[attr];
+      if (filled) exact.add(`${name}: ${filled.line}`);
+      if (res.lengthRead?.attr === attr) exact.add(`${name}: ${res.lengthRead.line}`);
+    }
+  }
+  const hopNames = new Set(res.ladderHops.filter((h) => said.some((s) => s.attr === h.attr)).map((h) => h.name));
+  const restated = (line: string): boolean => {
+    const w = line.trim();
+    if (exact.has(w)) return true;
+    for (const n of hopNames) if (w.startsWith(`${n} `) && w.includes(" is not on the sheet -> ")) return true;
+    for (const s of said) {
+      // a reader's own line ("torque: range '10-12' -> its top value 12") whose words the field's note carries
+      if (w.startsWith(`${s.name}: `)) {
+        const body = w.slice(s.name.length + 2).replace(/^'[^']*'\s*/, "");
+        if (body !== "" && s.note.includes(body)) return true;
+      }
+      // several sizes stated ("pipe size states two sizes (19 / 25) - the higher, 25, is taken")
+      if (w.startsWith(`${s.name} `) && s.note.includes(w.slice(s.name.length + 1))) return true;
+    }
+    return false;
+  };
+  return working.filter((w) => !restated(w));
 }
 
 /**
@@ -3197,7 +3283,7 @@ function computeItemListOwn(
     ...(inRun ? { producibleKinds: PRODUCIBLE_KINDS } : {}),
     basis,
     workings: { attributes: [], matchedRows: [], derivation: derivation.map(say), finalValues: { ...values } },
-    itemList: plainItemListView(view, say),
+    itemList: plainItemListView(view, say, spec),
   };
   return out;
 }
@@ -3556,13 +3642,23 @@ function computeItemList(
  * matching its option (the controlled-select trap). `label` is a definition label, already plain.
  * ⚠️ The non-item-list path (Electrical) never reaches this function; its lines are the Electrical retrofit.
  */
-function plainItemListView(view: ItemListView, p: (s: string) => string): ItemListView {
+function plainItemListView(view: ItemListView, p: (s: string) => string, spec?: ItemListPricingSpec): ItemListView {
+  // ADP-4a (owner AC2): on the plain item wording the working reads in words and the family's sentinel answers by
+  // their display names; every other category's view is mapped exactly as before
+  const plainWords = !!spec && plainItemListWording(spec);
+  const shown = (f: string | null): string | undefined => {
+    if (!plainWords || f === null) return undefined;
+    const d = familyDisplayName(spec!, f);
+    return d !== f ? d : undefined;
+  };
   return {
     ...view,
     ...(view.reason !== undefined ? { reason: p(view.reason) } : {}),
     ...(view.unitNote !== undefined ? { unitNote: p(view.unitNote) } : {}),
     items: view.items.map((b) => ({
       ...b,
+      ...(shown(b.family) ? { familyLabel: shown(b.family)! } : {}),
+      ...(shown(b.familyRaw) ? { familyRawLabel: shown(b.familyRaw)! } : {}),
       ...(b.reason !== undefined ? { reason: p(b.reason) } : {}),
       ...(b.skuLine !== undefined ? { skuLine: p(b.skuLine) } : {}),
       ...(b.familyDefaulted ? { familyDefaulted: { ...b.familyDefaulted, rule: p(b.familyDefaulted.rule) } } : {}),
@@ -3570,7 +3666,7 @@ function plainItemListView(view: ItemListView, p: (s: string) => string): ItemLi
       // options are what the control matches on and are never touched
       ...(b.familyLine !== undefined ? { familyLine: p(b.familyLine) } : {}),
       ...(b.familyControl ? { familyControl: { ...b.familyControl, ...(b.familyControl.note !== undefined ? { note: p(b.familyControl.note) } : {}) } } : {}),
-      working: b.working.map(p),
+      working: plainWords ? plainWorking(b.working.map(p)) : b.working.map(p),
       fields: b.fields.map((f) => ({
         ...f,
         ...(f.rule !== undefined ? { rule: p(f.rule) } : {}),

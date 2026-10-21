@@ -163,8 +163,13 @@ describe("U2 -- the ADP Derivation line, LAST", () => {
   const LINE = "A two-part size on a Width + Height item is the face, whatever its parts are called";
   it("POSITIVE: v49 ends with it, worded as ruled", () => {
     const tab = itemListRuleOrder(CFG.get(ADP)!, ITEMS);
-    expect(tab.at(-1)!.title).toBe(LINE);
-    expect(JSON.stringify(tab.at(-1))).toContain("a width or height label decides that side, else first = width, second = height");
+    // INVERTED at ADP-4a (owner D3, 2026-10-21 "Lines 35 and 38 become one line" - "Yes"; wording from ADP-R4 R10) by
+    // mechanical authority. BEFORE: `expect(tab.at(-1)!.title).toBe(LINE)` and its detail containing "a width or height label
+    // decides that side, else first = width, second = height". The ruling is now said in THE size line, in full.
+    expect(tab.map((l) => l.title)).not.toContain(LINE);
+    const sizes = tab.find((l) => l.title === "The sizes are typed in their own boxes, else read from the size as written")!;
+    expect(sizes.detail).toContain("a two-part size fills both sides whatever its parts are called ('600(L)X150mm width' -> width 150, height 600; with no width or height label, first = width, second = height)");
+    expect(sizes.reason).toContain("a two-part size on a Width + Height item is the face, whatever its parts are called (owner, 2026-10-21)");
   });
   it("NEGATIVE: a config without both face sides (v48, Insulation, Piping) does not carry it", () => {
     const v48 = readJsonFixture<Asset>(pathToFileURL(path.join(DATA, "rate_master_hvac_all_v48.json")));

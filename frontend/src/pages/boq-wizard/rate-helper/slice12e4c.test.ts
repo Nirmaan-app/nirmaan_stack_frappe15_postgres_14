@@ -189,7 +189,9 @@ describe("12e-4c AC2 -- Insulation's pipe size written as two sizes takes the hi
       expect(x.v.rowPriced).toBe(true);
       expect(fig(x.values)).toEqual(want("25"));
       expect(field(x.v.items[0], "pipe_size_mm").value).toBe("28.58");
-      expect(x.v.items[0].working).toContain("pipe size states two sizes (19 / 25) - the higher, 25, is taken");
+      // INVERTED at ADP-4a (owner D5 / AC3: the reading stated ONCE, on its field -- the notes below) by mechanical authority.
+      // BEFORE: `expect(x.v.items[0].working).toContain("pipe size states two sizes (19 / 25) - the higher, 25, is taken")`.
+      expect(x.v.items[0].working).not.toContain("pipe size states two sizes (19 / 25) - the higher, 25, is taken");
     }
     expect(field(typed("19/25").v.items[0], "pipe_size_mm").note).toBe("You typed 19/25: states two sizes (19 / 25) - the higher, 25, is taken -> priced as 28.58 mm (next size up)");
     expect(field(model("19/25").v.items[0], "pipe_size_mm").note).toBe("BoQ says 19/25: states two sizes (19 / 25) - the higher, 25, is taken -> priced as 28.58 mm (next size up)");
@@ -198,7 +200,10 @@ describe("12e-4c AC2 -- Insulation's pipe size written as two sizes takes the hi
     const CASES: Array<[string, string]> = [["19/25", "25"], ["19/25 mm", "25"], ["19/25 mm.", "25"], ["25/32", "32"], ["40/50", "50"], ["32/40mm.", "40"], ["19/ 25 / 32 mm", "32"], ["15/20", "20"]];
     for (const [text, taken] of CASES) {
       for (const x of [typed(text), model(text)]) expect({ text, values: fig(x.values) }).toEqual({ text, values: want(taken) });
-      expect(shown(model(text).v).join("\n")).toMatch(new RegExp(`pipe size states (two|several) sizes .* - the high(er|est), ${taken}, is taken`));
+      // INVERTED at ADP-4a (owner D5 / AC3) by mechanical authority. BEFORE: the working's line
+      //   `toMatch(new RegExp(\`pipe size states (two|several) sizes .* - the high(er|est), ${taken}, is taken\`))`
+      expect(String(field(model(text).v.items[0], "pipe_size_mm").note)).toMatch(new RegExp(`states (two|several) sizes .* - the high(er|est), ${taken}, is taken`));
+      expect(shown(model(text).v).join("\n")).not.toMatch(/pipe size states (two|several) sizes/);
     }
   });
   it("NEGATIVE: a real inch fraction is ONE size and reads as inches as before -- 3/4, 7/8, 1-1/4, 1 1/4, with or without the inch mark", () => {
@@ -237,7 +242,10 @@ describe("12e-4c AC2 -- Insulation's pipe size written as two sizes takes the hi
     const sec = (text: string) => compute(PIP, { items: [pipe("MS", "50", { insulated: "Yes" }, { [SEC]: ins({ cladding: "No", thickness_mm: "19", pipe_size_mm: text }, ["pipe_size_mm"]) })] });
     const a = sec("19/25"), b = sec("25");
     expect(attached(a.v).view.totals).toEqual(attached(b.v).view.totals);
-    expect(secBlock(attached(a.v)).working).toContain("pipe size states two sizes (19 / 25) - the higher, 25, is taken");
+    // INVERTED at ADP-4a (owner D5 / AC3; an Insulation block reads the same in a Piping section) by mechanical authority.
+    // BEFORE: `expect(secBlock(attached(a.v)).working).toContain("pipe size states two sizes (19 / 25) - the higher, 25, is taken")`.
+    expect(String(field(secBlock(attached(a.v)), "pipe_size_mm").note)).toContain("states two sizes (19 / 25) - the higher, 25, is taken");
+    expect(secBlock(attached(a.v)).working).not.toContain("pipe size states two sizes (19 / 25) - the higher, 25, is taken");
     expect(fig(a.values)).toEqual(fig(b.values));
     const m = panel(PIP, [{ pipe_type: "MS", size_mm: "50 mm", insulated: "Yes" }, { section: SEC, item: NITRILE, cladding: "None", thickness_mm: "19", pipe_size_mm: "19/25" }]);
     const mPlain = panel(PIP, [{ pipe_type: "MS", size_mm: "50 mm", insulated: "Yes" }, { section: SEC, item: NITRILE, cladding: "None", thickness_mm: "19", pipe_size_mm: "25" }]);

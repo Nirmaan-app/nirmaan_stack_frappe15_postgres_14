@@ -138,7 +138,8 @@ describe("AC2 -- D1 to D4", () => {
   });
   it("D3 POSITIVE: the square diffuser's outer size is two boxes in the 'Neck size, or Outer size' group; NEGATIVE: per sq.m it shows neither", () => {
     const s = panel(CFG49, "nos", { family: "square diffuser", damper: "with", size_mm: "595x595" });
-    expect(fields(s).filter((f) => f.group === "Neck size, or Outer size").map((f) => f.label)).toEqual(["Neck size (as written)", "Outer width (mm)", "Outer height (mm)"]);
+    // INVERTED at ADP-4a (owner AC2: "(as written)" off the label) by mechanical authority. BEFORE: "Neck size (as written)".
+    expect(fields(s).filter((f) => f.group === "Neck size, or Outer size").map((f) => f.label)).toEqual(["Neck size", "Outer width (mm)", "Outer height (mm)"]);
     expect(figures(s)).toEqual(figures(panel(CFG48, "nos", { family: "square diffuser", damper: "with", size_mm: "595x595" })));
     expect(fields(panel(CFG49, "sqm", { family: "square diffuser", damper: "with", size_mm: "595x595" })).map((f) => f.id)).not.toContain("face_w_mm");
   });
@@ -216,9 +217,15 @@ describe("U6 -- the ADP Derivation lines (generated from face_side), LAST", () =
   it("POSITIVE: v49 ends with the three lines; NEGATIVE: v48 carries none of them, and its lines are v49's first ones", () => {
     // INVERTED at ADP-3c (U2: its one line is added LAST, after these three) by mechanical authority. BEFORE:
     // `titles(CFG49).slice(-3)` and `titles(CFG49).slice(0, -3)`.
-    expect(titles(CFG49).slice(-4, -1)).toEqual(NEW);
+    // INVERTED AGAIN at ADP-4a (owner D2 "16 + 35", D3 "35 + 38": the face boxes are said in THE one size line; ADP-3c's line
+    // is in it too) by mechanical authority. BEFORE: `titles(CFG49).slice(-4, -1)` equal to NEW and `slice(0, -4)` below.
+    // Now the two lines that stand alone are LAST, and the face boxes' rule is the face clause of the size line -- on v49 only.
+    expect(titles(CFG49).slice(-2)).toEqual(NEW.slice(1));
     for (const t of NEW) expect(titles(CFG48)).not.toContain(t);
-    const t48 = titles(CFG48), t49 = titles(CFG49).slice(0, -4);
+    expect(titles(CFG49)).not.toContain(NEW[0]);
+    const sizes = (cfg: Map<string, RateCategoryConfig>) => itemListRuleOrder(cfg.get(ADP)!, ITEMS).find((l) => l.title === "The sizes are typed in their own boxes, else read from the size as written")?.detail ?? "";
+    expect({ v49: sizes(CFG49).includes("a face (width x height)"), v48: sizes(CFG48).includes("a face (width x height)") }).toEqual({ v49: true, v48: false });
+    const t48 = titles(CFG48), t49 = titles(CFG49).slice(0, -2);
     // the one line whose words follow the group label (ADP-3a's either-or line) reads "Width + Height" on v49
     expect(t49.map((t) => t.replace("Width + Height", "Size (W x H)"))).toEqual(t48);
   });

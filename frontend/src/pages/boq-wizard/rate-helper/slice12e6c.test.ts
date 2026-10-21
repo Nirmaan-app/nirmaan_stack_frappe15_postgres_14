@@ -195,7 +195,10 @@ describe("12e-6c O3 -- a fixing is not a cladding, before R2's GI map reads the 
     const sec = { item: NR, cladding: "None", thickness_mm: "19", cladding_as_written: "GI strip at 1 m grid" };
     const a = p1({ ...NIT, ...sec }), b = p2({ size_mm: "50" }, sec);
     for (const x of [a, b]) {
-      expect(x.lines.join("\n")).toContain("cladding not mentioned -> No (without cladding)");
+      // INVERTED at ADP-4a (owner D5 / AC3: the default stated ONCE, on the cladding field -- its amber rule) by mechanical
+      // authority. BEFORE: `expect(x.lines.join("\n")).toContain("cladding not mentioned -> No (without cladding)")`.
+      expect(x.priced).toBe(true);
+      expect(x.lines.join("\n")).not.toContain("cladding not mentioned -> No (without cladding)");
       expect(x.lines.join("\n")).not.toContain("priced as 26G Aluminium");
     }
     expect(a.figures).toEqual(b.figures);
@@ -260,7 +263,10 @@ describe("12e-6c R -- RPUF with no material answered prices as Tubular PUF, at t
   });
   it("the ladder: 40 mm on a 100 mm pipe takes the next stocked thickness up; 30 mm on a 40 mm pipe still refuses (owner 2026-10-15)", () => {
     const up = p1({ item: "None", cladding: "No", thickness_mm: "40", pipe_size_mm: "100", material_as_written: "RPUF" });
-    expect(up.lines.some((l) => /thickness 40 is not on the sheet -> \d+/.test(l))).toBe(true);
+    // INVERTED at ADP-4a (owner D5 / AC3: the ladder's move stated ONCE, on the thickness field's note) by mechanical
+    // authority. BEFORE: `expect(up.lines.some((l) => /thickness 40 is not on the sheet -> \d+/.test(l))).toBe(true)`.
+    expect(up.lines.some((l) => /^thickness_mm:.*\b40\b.*-> priced as \d+ mm/.test(l))).toBe(true);
+    expect(up.lines.some((l) => /thickness 40 is not on the sheet -> \d+/.test(l))).toBe(false);
     const small = p1({ item: "none of these", cladding: "No", thickness_mm: "30", pipe_size_mm: "40", material_as_written: "RPUF" });
     expect({ priced: small.priced, family: small.family }).toEqual({ priced: false, family: PUF });
     expect(small.reason).toMatch(/^thickness 30 is above the largest size on the sheet/);

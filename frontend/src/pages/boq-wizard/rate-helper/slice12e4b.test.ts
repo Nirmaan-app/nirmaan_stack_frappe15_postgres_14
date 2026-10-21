@@ -633,9 +633,14 @@ describe("12e-4b AC8 (G1 / G2 / G3) -- a default is named as the default, no lin
   });
   it("G2: the default's working line says its rule ONCE", () => {
     const { v } = compute(INS, { items: [ins(NITRILE, { cladding: "26G Aluminium", pipe_size_mm: "50" }, ["pipe_size_mm"])] });
-    expect(v.items[0].working.filter((w) => w.includes("not mentioned"))).toEqual(["thickness not mentioned -> 9 mm, then the ladder"]);
+    // INVERTED at ADP-4a (owner D5 / AC3: a default is stated ONCE, on its field -- the working no longer carries it at all)
+    // by mechanical authority. BEFORE: `toEqual(["thickness not mentioned -> 9 mm, then the ladder"])` and, on ADP,
+    // `toEqual(["damper not mentioned -> without"])`. G2's point stands: nothing says its rule twice.
+    expect(v.items[0].working.filter((w) => w.includes("not mentioned"))).toEqual([]);
+    expect(v.items[0].fields.find((f) => f.id === "thickness_mm")).toMatchObject({ defaulted: true });
     const adp = compute(ADP, { items: [{ base: null, family: "round diffuser", attrs: { dia_mm: "200" } }] }, "nos");
-    expect(adp.v.items[0].working.filter((w) => w.includes("not mentioned"))).toEqual(["damper not mentioned -> without"]);
+    expect(adp.v.items[0].working.filter((w) => w.includes("not mentioned"))).toEqual([]);
+    expect(adp.v.items[0].fields.find((f) => f.id === "damper")).toMatchObject({ defaulted: true, value: "without" });
   });
   it("G2, the function: only what the rule ADDS is kept; a rule that is no such statement, and every other line, is untouched; idempotent", () => {
     const cases: Array<[string, string]> = [
@@ -655,10 +660,16 @@ describe("12e-4b AC8 (G1 / G2 / G3) -- a default is named as the default, no lin
   });
   it("G3: 'item not mentioned -> ...' reads by the field's label; on ADP 'ul' reads 'UL listed'; the pure pricer still writes the id (the label is applied where the view is built)", () => {
     const row = panel(INS, [{ item: "None", cladding: "26G Aluminium", thickness_mm: "13", pipe_size_mm: "50" }]);
-    const line = row.v.items[0].working.find((w) => w.includes("not mentioned"))!;
-    expect(line).toBe("insulation material not mentioned -> Nitrile Rubber Insulation (Nitrile by row kind: per metre = pipe, per sq.m = sheet, acoustic / lining in the row or its headings = acoustic)");
+    // INVERTED at ADP-4a (owner D5 / AC3: the family default is stated ONCE, on the heading; the UL default on its field) by
+    // mechanical authority. BEFORE: the working's line `toBe("insulation material not mentioned -> Nitrile Rubber Insulation
+    // (Nitrile by row kind: ...)")` and `expect(act.v.items[0].working).toContain("UL listed not mentioned -> no (non-UL)")`.
+    // G3's point stands: no line opens with a field id ("item" / "ul") -- below, and in the function's own pins.
+    expect(row.v.items[0].working.find((w) => w.includes("not mentioned"))).toBeUndefined();
+    expect(row.v.items[0].familyDefaulted?.value).toBe("Nitrile Rubber Insulation");
+    expect(row.v.items[0].working.some((w) => /^(item|ul) not mentioned/.test(w))).toBe(false);
     const act = panel(ADP, [{ family: "actuator", torque: "10" }], undefined, "nos");
-    expect(act.v.items[0].working).toContain("UL listed not mentioned -> no (non-UL)");
+    expect(act.v.items[0].working).not.toContain("UL listed not mentioned -> no (non-UL)");
+    expect(act.v.items[0].fields.find((f) => f.id === "ul")).toMatchObject({ defaulted: true, value: "no" });
     const spec = itemListPricingSpec(CFG[INS])!;
     const raw = priceItemList(spec, ITEMS, "Rmt", [{ attributes: { item: { value: "None" }, cladding: { value: "26G Aluminium" }, thickness_mm: { value: "13" }, pipe_size_mm: { value: "50" } } }], "", "");
     expect(raw.items[0].working.join(" | ")).toContain("item not mentioned -> Nitrile Rubber Insulation (R2 material not mentioned");
@@ -754,10 +765,10 @@ describe("12e-4b AC11 -- the Derivation tab says the new rules, generated from t
     // INVERTED at ADP-2 H5 fix (a) (owner 2026-10-20) by mechanical authority: BEFORE `expect(lines(CFG[ADP])).toHaveLength(18)`. R13 reads the air
     // stream, so the both-streams line generates on this config too; without it the count is unchanged.
     // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE `toHaveLength(19)`; without the ADP-3a lines it is still 19
-    expect(lines(CFG[ADP])).toHaveLength(22);
-    expect(withoutAdp3aLines(lines(CFG[ADP]))).toHaveLength(19);
-    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE the same filter over the whole tab
-    expect(withoutAdp3aLines(lines(CFG[ADP])).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(18);
+    // INVERTED at ADP-4a (owner D2 merges and AC1 c, measured) by mechanical authority: BEFORE `toHaveLength(22)`, 19, 18.
+    expect(lines(CFG[ADP])).toHaveLength(27);
+    expect(withoutAdp3aLines(lines(CFG[ADP]))).toHaveLength(24);
+    expect(withoutAdp3aLines(lines(CFG[ADP])).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(23);
     expect(lines(CFG[ADP])).toEqual(lines(CFG37[ADP]));
   });
   it("NEGATIVE: each line follows its key -- v37 (no `from_attr`, no axis `near`) reads Piping 20 and Insulation 24; removing a key from a copy removes exactly its line", () => {

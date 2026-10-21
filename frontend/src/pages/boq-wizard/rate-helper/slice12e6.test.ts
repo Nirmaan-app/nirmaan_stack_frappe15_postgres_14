@@ -174,7 +174,9 @@ describe("AC3 the defaulted section (owner D1b / D5b)", () => {
     expect(sb.familyDefaulted?.value).toBe(NR);
     expect(field(sb, "cladding")).toMatchObject({ value: "No", defaulted: true });
     expect(field(sb, "thickness_mm").defaulted).toBe(true);
-    expect(working(sb)).toContain("cladding not mentioned -> No (without cladding)");
+    // INVERTED at ADP-4a (owner D5 / AC3: the default stated ONCE, on its field -- amber, above) by mechanical authority.
+    // BEFORE: `expect(working(sb)).toContain("cladding not mentioned -> No (without cladding)")`.
+    expect(working(sb)).not.toContain("cladding not mentioned -> No (without cladding)");
     expect(JSON.stringify(r.v)).not.toContain("could not tell cladding");
     expect(fig(r.values)).toEqual([1332, 294]);
   });
@@ -376,8 +378,12 @@ describe("AC8 a thickness range", () => {
     expect(readNumber("25-50mm", THK)).toEqual({ value: 50, note: "'25-50mm' states a range - the higher, 50, is taken" });
     expect(readNumber("13–19 mm", THK)).toEqual({ value: 19, note: "'13–19 mm' states a range - the higher, 19, is taken" });
     const b = both(NIT({ thickness_mm: "13-19 mm" }));
-    expect(working(b.ownB)).toContain("thickness: '13-19 mm' states a range - the higher, 19, is taken");
-    expect(working(b.secB)).toContain("thickness: '13-19 mm' states a range - the higher, 19, is taken");
+    // INVERTED at ADP-4a (owner D5 / AC3: a reading stated ONCE, on its field; the same in a Piping section) by mechanical
+    // authority. BEFORE: `expect(working(b.ownB / b.secB)).toContain("thickness: '13-19 mm' states a range - the higher, 19, is taken")`.
+    for (const blk of [b.ownB, b.secB]) {
+      expect(String(field(blk, "thickness_mm").note)).toContain("states a range - the higher, 19, is taken");
+      expect(working(blk)).not.toContain("thickness: '13-19 mm' states a range - the higher, 19, is taken");
+    }
     // BOQ-26-00093 / Option 1 row 172, AS STORED: the value was already the top one -- 941 / 154 unchanged
     const r = panel(INS, [{ item: FGB, cladding: "None", thickness_mm: "25-50mm", material_as_written: "fiberglass wool" }], "SQM");
     expect(fig(r.values)).toEqual([941, 154]);

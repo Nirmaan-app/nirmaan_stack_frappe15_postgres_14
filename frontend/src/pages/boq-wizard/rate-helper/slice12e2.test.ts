@@ -463,7 +463,9 @@ describe("12e-2 AC6 -- the Derivation tab lists P1-P5 from the config, no intern
       "The facts that rule needs before it can price",
       "A pipe size written in inches is converted to millimetres",
       "A typed pipe size is one size, in mm or inches",
-      "A Copper, MS and 2 more row stating its own figure in the class / wall thickness carries a line saying what was priced",
+      // INVERTED at ADP-4a (owner U6, 2026-10-21: every list in full, "and N more" gone -- Piping line 13) by mechanical
+      // authority. BEFORE: "A Copper, MS and 2 more row stating its own figure in the class / wall thickness ...".
+      "A Copper, MS, PVC, CPVC row stating its own figure in the class / wall thickness carries a line saying what was priced",
       "Fitting the stated pipe size to the catalogue",
       // INVERTED at 12e-4b (owner F-3, 2026-10-13): one line more, generated from keys this config already
       // carries (the second inch conversion + the below-the-smallest ruling). BEFORE: 14 titles, without it.
@@ -479,7 +481,10 @@ describe("12e-2 AC6 -- the Derivation tab lists P1-P5 from the config, no intern
     expect(t).toContain("converted at 25.4 mm to the inch, then at 25 where the first lands on no stocked size");
     expect(t).toContain("a size within 0.1 mm of a stocked size counts as that size; below the smallest stocked size takes the smallest; above the largest stocked size refuses, naming the size");
     expect(t).toContain("the pricing inputs are read first (Piping accessories - CPVC, Piping accessories - Copper, Piping accessories - MS, Piping accessories - PVC)");
-    expect(t).toContain("4 cells on 2 rows (the grey 'derived' cells)");
+    // INVERTED at ADP-4a (owner U6: the viewer paints a derived cell AMBER -- Piping line 17) by mechanical authority.
+    // BEFORE: `expect(t).toContain("4 cells on 2 rows (the grey 'derived' cells)")`.
+    expect(t).toContain("4 cells on 2 rows (the amber 'derived' cells)");
+    expect(t).not.toContain("the grey 'derived' cells");
     expect(t).not.toMatch(/\b[a-z0-9]+_[a-z0-9_]+\b/i);
     expect(t).not.toMatch(/\(owner/i);
     expect(t).not.toMatch(/\b[RDTSQ]-?\d{1,2}[a-z]?\b/);
@@ -518,10 +523,10 @@ describe("12e-2 AC6 -- the Derivation tab lists P1-P5 from the config, no intern
     // INVERTED at ADP-2 H5 fix (a) (owner 2026-10-20) by mechanical authority: BEFORE `expect(itemListRuleOrder(CFG.hvac_adp, ITEMS)).toHaveLength(18)`. R13 reads the air
     // stream, so the both-streams line generates on this config too; without it the count is unchanged.
     // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE `toHaveLength(19)`; without the ADP-3a lines it is still 19
-    expect(itemListRuleOrder(CFG.hvac_adp, ITEMS)).toHaveLength(22);
-    expect(withoutAdp3aLines(itemListRuleOrder(CFG.hvac_adp, ITEMS))).toHaveLength(19);
-    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE the same filter over the whole tab
-    expect(withoutAdp3aLines(itemListRuleOrder(CFG.hvac_adp, ITEMS)).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(18);
+    // INVERTED at ADP-4a (owner D2 merges and AC1 c, measured) by mechanical authority: BEFORE `toHaveLength(22)`, 19, 18.
+    expect(itemListRuleOrder(CFG.hvac_adp, ITEMS)).toHaveLength(27);
+    expect(withoutAdp3aLines(itemListRuleOrder(CFG.hvac_adp, ITEMS))).toHaveLength(24);
+    expect(withoutAdp3aLines(itemListRuleOrder(CFG.hvac_adp, ITEMS)).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(23);
     for (const cid of ["hvac_insulation", "hvac_adp"]) {
       const t = itemListRuleOrder(CFG[cid], ITEMS).filter((l) => !NEW_12E6C.includes(l.title)).map((l) => `${l.title} -- ${l.detail ?? ""}`).join("\n");
       if (cid === "hvac_adp") expect(t).toBe(text(CFG[cid]));

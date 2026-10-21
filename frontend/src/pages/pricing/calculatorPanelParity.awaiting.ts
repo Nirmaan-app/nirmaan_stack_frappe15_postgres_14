@@ -53,6 +53,8 @@
  *   STILL AWAITING THE OWNER:
  *     nothing in this corpus. The double-skin-plenum Nos case is a FAMILY-level observation (that
  *     family declares the count class not offered) and has no row here; it is left for 12d.
+ *     ADP-4a (2026-10-21): 7 rows of cause E (the quoted outer size), exposed when the fixture's ADP part moved
+ *     to v50; listed by the owner, to be fixed later. The 8 ADP D rows and all 13 ADP sweep entries closed.
  *
  * ⚠️ NOTHING HERE IS A FIX. `STATUS_BY_CAUSE` records the owner's ruling; it changes no behaviour.
  */
@@ -67,6 +69,7 @@ export const STATUS_BY_CAUSE: Readonly<Record<DivergenceCause, DivergenceStatus>
   B_stale_pick: "awaiting owner review",   // fixed in 12c-F; no row carries it any more
   C_unit_not_offered: "accepted by owner",  // owner U1, 2026-10-07
   D_reason_only: "accepted by owner",      // owner R-D, 2026-10-06
+  E_outer_size_quote: "awaiting owner review",  // ADP-4a, owner 2026-10-21: listed, fix later (ADP-4b)
   Z_UNCLASSIFIED: "awaiting owner review",
 };
 
@@ -161,22 +164,43 @@ export const AWAITING_CORPUS_DIVERGENCES: readonly AwaitingCorpusDivergence[] = 
   { id: "BRSR-26-00520#597", cat: "wiring_cabling", cause: "A_wiring_primary", rows: 1 },
   { id: "BRSR-26-00520#598", cat: "wiring_cabling", cause: "A_wiring_primary", rows: 1 },
   { id: "BRSR-26-00520#599", cat: "wiring_cabling", cause: "A_wiring_primary", rows: 1 },
-  { id: "BRSR-26-01307#152", cat: "hvac_adp", cause: "D_reason_only", rows: 1 },
-  { id: "BRSR-26-01307#170", cat: "hvac_adp", cause: "D_reason_only", rows: 1 },
-  { id: "BRSR-26-01307#171", cat: "hvac_adp", cause: "D_reason_only", rows: 1 },
   { id: "BRSR-26-01311#25", cat: "hvac_adp", cause: "C_unit_not_offered", rows: 1 },
   { id: "BRSR-26-01311#27", cat: "hvac_adp", cause: "C_unit_not_offered", rows: 1 },
-  { id: "BRSR-26-01311#42", cat: "hvac_adp", cause: "D_reason_only", rows: 1 },
   { id: "BRSR-26-01311#52", cat: "hvac_adp", cause: "C_unit_not_offered", rows: 1 },
-  { id: "BRSR-26-01315#89", cat: "hvac_adp", cause: "D_reason_only", rows: 1 },
-  { id: "BRSR-26-01315#94", cat: "hvac_adp", cause: "D_reason_only", rows: 1 },
-  { id: "BRSR-26-01315#160", cat: "hvac_adp", cause: "D_reason_only", rows: 1 },
-  { id: "BRSR-26-01370#59", cat: "hvac_adp", cause: "D_reason_only", rows: 1 },
+  /**
+   * ADP-4a (owner AC4, 2026-10-21): the parity fixture's ADP part moved to v50, and the 8 D_reason_only rows the ADP-4a
+   * "Other..." fields closed LEFT the list -- BEFORE, each `{ id, cat: "hvac_adp", cause: "D_reason_only", rows: 1 }`:
+   * BRSR-26-01307#152, #170, #171; BRSR-26-01311#42; BRSR-26-01315#89, #94, #160; BRSR-26-01370#59.
+   * The move also EXPOSED the 7 below (cause E): present since ADP-3b's face boxes (v49), hidden by the frozen snapshot
+   * config. Both surfaces refuse; only the quoted outer size differs. Owner 2026-10-21: "list the 7, fix later".
+   */
+  { id: "BRSR-26-01369#32", cat: "hvac_adp", cause: "E_outer_size_quote", rows: 1 },
+  { id: "BRSR-26-01370#46", cat: "hvac_adp", cause: "E_outer_size_quote", rows: 1 },
+  { id: "BRSR-26-01370#47", cat: "hvac_adp", cause: "E_outer_size_quote", rows: 1 },
+  { id: "BRSR-26-01370#48", cat: "hvac_adp", cause: "E_outer_size_quote", rows: 1 },
+  { id: "BRSR-26-01370#50", cat: "hvac_adp", cause: "E_outer_size_quote", rows: 1 },
+  { id: "BRSR-26-01370#51", cat: "hvac_adp", cause: "E_outer_size_quote", rows: 1 },
+  { id: "BRSR-26-01370#52", cat: "hvac_adp", cause: "E_outer_size_quote", rows: 1 },
 ];
 
 export const AWAITING_SWEEP_DIVERGENCES: readonly AwaitingSweepDivergence[] = [
-  { cat: "hvac_adp", unit: "nos", item: {"family":"actuator","ul":"no","torque":"1020"}, cause: "D_reason_only" },
-  { cat: "hvac_adp", unit: "nos", item: {"family":"control panel","panel_ratio":"1012"}, cause: "D_reason_only" },
+  /**
+   * ADP-4a (owner AC4, 2026-10-21): ALL 13 ADP sweep entries LEFT -- on v50 every ADP sweep case agrees (the five
+   * "Other..." fields give a typed value a box, so no refusal quotes text with none). BEFORE, these lines:
+   *   { cat: "hvac_adp", unit: "nos", item: {"family":"actuator","ul":"no","torque":"1020"}, cause: "D_reason_only" },
+   *   { cat: "hvac_adp", unit: "nos", item: {"family":"control panel","panel_ratio":"1012"}, cause: "D_reason_only" },
+   *   { cat: "hvac_adp", unit: "rmt", item: {"family":"slot diffuser","damper":"with","slot_count":"1003"}, cause: "D_reason_only" },
+   *   { cat: "hvac_adp", unit: "rmt", item: {"family":"slot diffuser","damper":"with","slot_count":"2.5"}, cause: "D_reason_only" },
+   *   { cat: "hvac_adp", unit: "nos", item: {"family":"square diffuser","damper":"with","neck_mm":"1450","size_mm":"595"}, cause: "D_reason_only" },
+   *   { cat: "hvac_adp", unit: "nos", item: {"family":"round diffuser","damper":"with","dia_mm":"1400"}, cause: "D_reason_only" },
+   *   { cat: "hvac_adp", unit: "nos", item: {"family":"jet / eyeball diffuser","dia_mm":"1300"}, cause: "D_reason_only" },
+   *   { cat: "hvac_adp", unit: "nos", item: {"family":"butterfly damper","dia_mm":"1350"}, cause: "D_reason_only" },
+   *   { cat: "hvac_adp", unit: "nos", item: {"family":"spigot","dia_mm":"1350"}, cause: "D_reason_only" },
+   *   { cat: "hvac_adp", unit: "rmt", item: {"family":"flexible duct","insulated":"with","dia_mm":"1350"}, cause: "D_reason_only" },
+   *   { cat: "hvac_adp", unit: "nos", item: {"family":"flexible duct","insulated":"with","dia_mm":"1350"}, cause: "D_reason_only" },
+   *   { cat: "hvac_adp", unit: "nos", item: {"family":"disc valve","dia_mm":"1150"}, cause: "D_reason_only" },
+   *   { cat: "hvac_adp", unit: "sqm", item: {"family":"double-skin plenum","insulation_thickness_mm":"1050"}, cause: "D_reason_only" },
+   */
   /**
    * SLICE 12d-8 (owner R1, 2026-10-09). The sweep feeds the panel's RESOLVED values to the calculator as
    * PICKS; here the panel's damper is the ruled default "without" (never stated), and the per-sq.m slot
@@ -193,17 +217,6 @@ export const AWAITING_SWEEP_DIVERGENCES: readonly AwaitingSweepDivergence[] = [
    * picked "without" is no longer cleared: both surfaces refuse with the SAME sentence ("No SKU for slot diffuser:
    * without damper - price this row by hand"), and `calculatorPanelParity.test.ts` asserts that parity by name.
    */
-  { cat: "hvac_adp", unit: "rmt", item: {"family":"slot diffuser","damper":"with","slot_count":"1003"}, cause: "D_reason_only" },
-  { cat: "hvac_adp", unit: "rmt", item: {"family":"slot diffuser","damper":"with","slot_count":"2.5"}, cause: "D_reason_only" },
   // INVERTED at ADP-3a (owner H2 / U2, B6 #5: the outer size is a shown field of the square diffuser's either-or group, so the
   // sweep fills it from the live options like every other field) by mechanical authority: BEFORE the same entry without "size_mm"
-  { cat: "hvac_adp", unit: "nos", item: {"family":"square diffuser","damper":"with","neck_mm":"1450","size_mm":"595"}, cause: "D_reason_only" },
-  { cat: "hvac_adp", unit: "nos", item: {"family":"round diffuser","damper":"with","dia_mm":"1400"}, cause: "D_reason_only" },
-  { cat: "hvac_adp", unit: "nos", item: {"family":"jet / eyeball diffuser","dia_mm":"1300"}, cause: "D_reason_only" },
-  { cat: "hvac_adp", unit: "nos", item: {"family":"butterfly damper","dia_mm":"1350"}, cause: "D_reason_only" },
-  { cat: "hvac_adp", unit: "nos", item: {"family":"spigot","dia_mm":"1350"}, cause: "D_reason_only" },
-  { cat: "hvac_adp", unit: "rmt", item: {"family":"flexible duct","insulated":"with","dia_mm":"1350"}, cause: "D_reason_only" },
-  { cat: "hvac_adp", unit: "nos", item: {"family":"flexible duct","insulated":"with","dia_mm":"1350"}, cause: "D_reason_only" },
-  { cat: "hvac_adp", unit: "nos", item: {"family":"disc valve","dia_mm":"1150"}, cause: "D_reason_only" },
-  { cat: "hvac_adp", unit: "sqm", item: {"family":"double-skin plenum","insulation_thickness_mm":"1050"}, cause: "D_reason_only" },
 ];

@@ -5754,7 +5754,9 @@ describe("SLICE 9 / the item-list view under v12 -- one size box, the outer-size
     const ids = v.items[0].fields.map((f) => f.id);
     expect(ids.filter((i) => i === "size_mm")).toEqual(["size_mm"]);
     for (const gone of ["face_w_mm", "face_h_mm", "depth_mm"]) expect(ids).not.toContain(gone);
-    expect(field(v, 0, "size_mm")).toMatchObject({ label: "Size (as written)", value: "600 x 600 x 350", control: "text", blank: false });
+    // INVERTED at ADP-4a (owner AC2: "(as written)" off the field label, display only) by mechanical authority.
+    // BEFORE: `label: "Size (as written)"`.
+    expect(field(v, 0, "size_mm")).toMatchObject({ label: "Size", value: "600 x 600 x 350", control: "text", blank: false });
     expect(v.rowPriced).toBe(true);
     expect(r.values.supply_rate).toBeGreaterThan(0);
   });

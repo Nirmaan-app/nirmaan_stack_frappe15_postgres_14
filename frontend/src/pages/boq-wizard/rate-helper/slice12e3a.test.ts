@@ -136,7 +136,10 @@ describe("12e-3a AC1 -- the end-to-end proof: Copper 5/8\", Insulated = Yes, 26G
     // Insulation's OWN behaviour is unchanged: an Insulation item whose material is not picked still carries its
     // default line (BEFORE 12e-3b the calculator section read exactly as this item; it now reads as the picked one)
     const unpicked = compute(INS, { items: [{ base: null, family: null, attrs: { cladding: "26G Aluminium", thickness_mm: "13", pipe_size_mm: "15.875" }, other: ["pipe_size_mm"] }] });
-    expect(unpicked.v.items[0].working).toContain(DEFAULT_LINE);
+    // INVERTED at ADP-4a (owner D5 / AC3: the family default stated ONCE, on the heading -- amber, with its rule) by mechanical
+    // authority. BEFORE: `expect(unpicked.v.items[0].working).toContain(DEFAULT_LINE)`. The working is otherwise the same.
+    expect(unpicked.v.items[0].familyDefaulted?.value).toBe("Nitrile Rubber Insulation");
+    expect(unpicked.v.items[0].working).not.toContain(DEFAULT_LINE);
     expect(unpicked.v.items[0].working.filter((w) => w !== DEFAULT_LINE)).toEqual(secBlock(sv).working);
   });
   it("the row total is the sum of the two lines: 1622 / 444 / 2066, and the row is usable", () => {
@@ -324,7 +327,10 @@ describe("12e-3a AC5 -- the section is priced by the delegated category's OWN co
     expect(field(secBlock(sv), "thickness_mm").value).toBe("19");
     // and with the live config the same section reads Insulation's 9 mm default, laddered by Insulation's own rule
     const live = attached(compute(PIP, state).v);
-    expect(secBlock(live).working.join(" | ")).toContain("9");
+    // INVERTED at ADP-4a (owner D5 / AC3: the 9 mm default is stated ONCE, on the thickness field) by mechanical authority.
+    // BEFORE: `expect(secBlock(live).working.join(" | ")).toContain("9")`.
+    expect(field(secBlock(live), "thickness_mm").defaulted).toBe(true);
+    expect(String(field(secBlock(live), "thickness_mm").note ?? "")).toContain("9");
     expect(live.view.totals).not.toEqual(sv.view.totals);
   });
   it("NEGATIVE: a helper that cannot resolve the Insulation category refuses the section and never prices it by other rules", () => {

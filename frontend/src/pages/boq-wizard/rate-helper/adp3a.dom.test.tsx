@@ -108,7 +108,10 @@ describe("U8 -- every control on the panel has a screen-reader name (live v48 / 
     const a = audit(boqPanel("hvac_adp", "nos", { model: [{ family: "VCD", variant: "GI rectangular", size_mm: "550X300" }] }));
     expect(a.unnamed).toEqual([]);
     expect(a.groupHeads).toEqual(["Size (W x H), or Area band *"]);
-    expect(a.names).toEqual(expect.arrayContaining(["Size (as written)", "Area band (as written)", "How many in one nos of this row"]));
+    // INVERTED at ADP-4a (owner AC2: "(as written)" removed from field labels, display only) by mechanical authority.
+    // BEFORE: `expect.arrayContaining(["Size (as written)", "Area band (as written)", "How many in one nos of this row"])`.
+    expect(a.names).toEqual(expect.arrayContaining(["Size", "Area band", "How many in one nos of this row"]));
+    expect(a.names.some((n) => /\(as written\)/.test(n))).toBe(false);
     expect(a.required).toEqual([]);
     expect(a.markers).toBe(0);
     expect(a.notes).toBe(1);

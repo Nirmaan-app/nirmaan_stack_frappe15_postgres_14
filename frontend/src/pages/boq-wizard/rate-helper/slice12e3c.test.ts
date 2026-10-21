@@ -296,7 +296,10 @@ describe("12e-3c AC2 (F7) -- no field id written with an underscore reaches a li
     expect(fig(v.totals)).toEqual([556, 224]);
     // INVERTED at 12e-4b (owner G2: no working line repeats itself). BEFORE:
     //   expect(v.items[0].working).toContain("thickness not mentioned -> 9 (thickness not mentioned -> 9 mm, then the ladder)");
-    expect(v.items[0].working).toContain("thickness not mentioned -> 9 mm, then the ladder");
+    // INVERTED AGAIN at ADP-4a (owner D5 / AC3: the default stated ONCE, on its field) by mechanical authority. BEFORE:
+    //   expect(v.items[0].working).toContain("thickness not mentioned -> 9 mm, then the ladder");
+    expect(v.items[0].fields.find((f) => f.id === "thickness_mm")).toMatchObject({ defaulted: true });
+    expect(v.items[0].working).not.toContain("thickness not mentioned -> 9 mm, then the ladder");
     expect(v.items[0].working.filter((w) => w.split("not mentioned").length > 2)).toEqual([]);
     expect(v.items[0].working.join("\n")).not.toContain("thickness_mm");
   });
@@ -345,7 +348,10 @@ describe("12e-3c AC2 (F7) -- no field id written with an underscore reaches a li
     const { v } = compute(PIP, { items: [pipe("MS", "32", { insulated: "Yes" }, { [SEC]: ins(NITRILE, { cladding: "26G Aluminium" }) })] });
     const w = secBlock(attached(v)).working;
     // INVERTED at 12e-4b (owner G2). BEFORE: expect(w).toContain("thickness not mentioned -> 9 (thickness not mentioned -> 9 mm, then the ladder)");
-    expect(w).toContain("thickness not mentioned -> 9 mm, then the ladder");
+    // INVERTED AGAIN at ADP-4a (owner D5 / AC3; an Insulation block reads the same in a Piping section, owner 2026-10-21) by
+    // mechanical authority. BEFORE: `expect(w).toContain("thickness not mentioned -> 9 mm, then the ladder")`.
+    expect(secBlock(attached(v)).fields.find((f) => f.id === "thickness_mm")).toMatchObject({ defaulted: true });
+    expect(w).not.toContain("thickness not mentioned -> 9 mm, then the ladder");
     expect(shown(v).filter((l) => SNAKE.test(l))).toEqual([]);
   });
   it("NEGATIVE: the PURE pricer still writes the id (the label is applied where the view is built, by the one function)", () => {
@@ -502,10 +508,10 @@ describe("12e-3c AC6 -- the Derivation tab says the quantity rule, generated fro
     // INVERTED at ADP-2 H5 fix (a) (owner 2026-10-20) by mechanical authority: BEFORE `expect(lines(CFG[ADP])).toHaveLength(18)`. R13 reads the air
     // stream, so the both-streams line generates on this config too; without it the count is unchanged.
     // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE `toHaveLength(19)`; without the ADP-3a lines it is still 19
-    expect(lines(CFG[ADP])).toHaveLength(22);
-    expect(withoutAdp3aLines(lines(CFG[ADP]))).toHaveLength(19);
-    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE the same filter over the whole tab
-    expect(withoutAdp3aLines(lines(CFG[ADP])).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(18);
+    // INVERTED at ADP-4a (owner D2 merges and AC1 c, measured) by mechanical authority: BEFORE `toHaveLength(22)`, 19, 18.
+    expect(lines(CFG[ADP])).toHaveLength(27);
+    expect(withoutAdp3aLines(lines(CFG[ADP]))).toHaveLength(24);
+    expect(withoutAdp3aLines(lines(CFG[ADP])).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(23);
     for (const cat of [INS, ADP]) expect(lines(CFG[cat]).map((l) => l.title).join("\n")).not.toMatch(/section/i);
   });
 });

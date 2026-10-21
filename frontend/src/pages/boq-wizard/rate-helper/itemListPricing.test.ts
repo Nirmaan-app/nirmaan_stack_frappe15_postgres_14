@@ -903,7 +903,9 @@ describe("slice 6 / the panel-facing helpers read the CONFIG -- no family, label
       // 12d-2 (owner S4, INVERTING the slice-6 "None first" half, NOT deleting it): the damper has a ruled default
       // ("not mentioned" -> without), so "None" is no longer OFFERED -- the field shows the default's value amber
       { id: "damper", label: "Damper", options: ["with", "without"], allowNone: true, skuAttr: "damper", control: "dropdown", optionSource: "definition" },
-      { id: "dia_mm", label: "Diameter (as written)", allowNone: false, skuAttr: "dia_mm", control: "text" },
+      // INVERTED at ADP-4a (owner AC2: "(as written)" off the field label, display only) by mechanical authority.
+      // BEFORE: `label: "Diameter (as written)"`.
+      { id: "dia_mm", label: "Diameter", allowNone: false, skuAttr: "dia_mm", control: "text" },
     ]);
     // the R13 source (air) rides along on a linear grille; a per-number VCD shows the conversion needs
     expect(itemFieldDefs(spec8, defs, "linear grille", "area").map((f) => f.id)).toEqual(["damper", "air"]);
@@ -970,7 +972,8 @@ describe("slice 6b / V1, V4 -- a dropdown's options come from the ACTIVE SKUs, n
     const dv = itemFieldDefs(spec9, defs9, "disc valve", "count", { items: items9 });
     // INVERTED at ADP-3a (owner H1 / U1, U3: every field carries `required` where needed and a number field its `axes`) by mechanical authority: BEFORE `expect(dv).toEqual(...)` on the whole object
     expect(dv.map((f) => [f.id, !!f.required, f.axes ?? null])).toEqual([["dia_mm", true, ["dia_mm"]]]);
-    expect(withoutAdp3a(dv)).toEqual([{ id: "dia_mm", label: "Diameter (as written)", allowNone: false, skuAttr: "dia_mm", control: "dropdown", options: ["100", "150"], optionSource: "catalogue" }]);
+    // INVERTED at ADP-4a (owner AC2) by mechanical authority. BEFORE: `label: "Diameter (as written)"`.
+    expect(withoutAdp3a(dv)).toEqual([{ id: "dia_mm", label: "Diameter", allowNone: false, skuAttr: "dia_mm", control: "dropdown", options: ["100", "150"], optionSource: "catalogue" }]);
     expect(dv[0].options).toEqual(stocked("disc valve", "dia_mm"));
     const rd = itemFieldDefs(spec9, defs9, "round diffuser", "count", { items: items9 });
     expect(rd.map((f) => [f.id, f.control, f.options, f.optionSource])).toEqual([
@@ -1032,15 +1035,19 @@ describe("slice 6b / V1, V4 -- a dropdown's options come from the ACTIVE SKUs, n
     expect(new Set(vcd[0].options!)).toEqual(new Set(stocked("VCD", "variant")));
     // the air stream (a derive source): a closed BoQ vocabulary, no SKU carries it -> the definition's list
     const lg = itemFieldDefs(spec9, defs9, "linear grille", "area", { items: items9 });
-    expect(lg.find((f) => f.id === "air")).toMatchObject({ control: "dropdown", optionSource: "definition", options: ["None", "supply", "return", "exhaust", "fresh"] });
+    // INVERTED at ADP-4a (owner register B5 / U5: "the 'None' option is no longer shown") by mechanical authority.
+    // BEFORE: `options: ["None", "supply", "return", "exhaust", "fresh"]`. A stored None reads "not stated" (adp4a.test.ts).
+    expect(lg.find((f) => f.id === "air")).toMatchObject({ control: "dropdown", optionSource: "definition", options: ["supply", "return", "exhaust", "fresh"] });
+    expect(lg.find((f) => f.id === "air")?.options).not.toContain("None");
     // the mixing box's three dimensions are conversion inputs: text
     expect(itemFieldDefs(spec9, defs9, "mixing box / LP plenum", "count", { items: items9 }).map((f) => [f.id, f.control])).toEqual([["insulated", "dropdown"], ["face_w_mm", "text"], ["face_h_mm", "text"], ["depth_mm", "text"]]);
     // v8: a number is a text input, a choice a select from the definition -- exactly slice 6, plus the control key
     // INVERTED at ADP-3a (owner H1 / U1, U3: every field carries `required` where needed and a number field its `axes`) by mechanical authority: BEFORE the whole object; compared without the two new keys
-    expect(withoutAdp3a(itemFieldDefs(spec8, listSpecDefs(adp8), "disc valve", "count", { items: items8 }))).toEqual([{ id: "dia_mm", label: "Diameter (as written)", allowNone: false, skuAttr: "dia_mm", control: "text" }]);
+    // INVERTED at ADP-4a (owner AC2) by mechanical authority. BEFORE: `label: "Diameter (as written)"` here and below.
+    expect(withoutAdp3a(itemFieldDefs(spec8, listSpecDefs(adp8), "disc valve", "count", { items: items8 }))).toEqual([{ id: "dia_mm", label: "Diameter", allowNone: false, skuAttr: "dia_mm", control: "text" }]);
     // without SKUs handed in, a v9 dropdown size has no options to offer (the caller must pass the catalogue)
     // INVERTED at ADP-3a (owner H1 / U1, U3) by mechanical authority: BEFORE the whole object; compared without the two new keys
-    expect(withoutAdp3a(itemFieldDefs(spec9, defs9, "disc valve", "count"))[0]).toEqual({ id: "dia_mm", label: "Diameter (as written)", allowNone: false, skuAttr: "dia_mm", control: "dropdown" });
+    expect(withoutAdp3a(itemFieldDefs(spec9, defs9, "disc valve", "count"))[0]).toEqual({ id: "dia_mm", label: "Diameter", allowNone: false, skuAttr: "dia_mm", control: "dropdown" });
   });
 });
 
@@ -1439,7 +1446,8 @@ describe("slice 9 / v12 = v11 + the declared edits, and NOTHING else", () => {
     const fields = itemFieldDefs(spec12, listSpecDefs(adp12), "mixing box / LP plenum", "count");
     const sizeFields = fields.filter((f) => f.id === "size_mm");
     expect(sizeFields.length).toBe(1);
-    expect(sizeFields[0].label).toBe("Size (as written)");
+    // INVERTED at ADP-4a (owner AC2) by mechanical authority. BEFORE: `toBe("Size (as written)")`.
+    expect(sizeFields[0].label).toBe("Size");
     // NEGATIVE, on v11: the same family offered THREE boxes
     expect(itemFieldDefs(spec11, listSpecDefs(adp11), "mixing box / LP plenum", "count")
       .filter((f) => ["face_w_mm", "face_h_mm", "depth_mm"].includes(f.id)).length).toBe(3);

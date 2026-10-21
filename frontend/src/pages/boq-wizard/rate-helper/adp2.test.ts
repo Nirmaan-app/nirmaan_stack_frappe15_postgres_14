@@ -79,11 +79,17 @@ describe("ADP-2 H5 -- the air stream decides a damper not mentioned, on every da
         const got = typeof want === "string" ? x.reason : [x.supply, x.install];
         expect({ air, damper, got, field: x.field("Damper")?.value }).toEqual({ air, damper, got: want, field: used });
         // a priced item says it in its working; a refused one (per sq.m without) carries it on the Damper field, amber
+        // INVERTED at ADP-4a (owner D5 / AC3: a default stated ONCE, on its field) by mechanical authority. BEFORE: a priced
+        // item `expect(x.working).toContain(\`${air} air, damper not mentioned -> ${used} damper\`)`, and with no air stream
+        // `expect(x.working).toContain("damper not mentioned -> without")`. Now every case carries it on the Damper field.
         if (damper === "None" && air !== "None") {
-          if (typeof want === "string") expect(x.field("Damper")?.rule).toBe(`${air} air, damper not mentioned -> ${used} damper`);
-          else expect(x.working).toContain(`${air} air, damper not mentioned -> ${used} damper`);
+          expect(x.field("Damper")?.rule).toBe(`${air} air, damper not mentioned -> ${used} damper`);
+          expect(x.working).not.toContain(`${air} air, damper not mentioned -> ${used} damper`);
         }
-        if (damper === "None" && air === "None" && typeof want !== "string") expect(x.working).toContain("damper not mentioned -> without");
+        if (damper === "None" && air === "None" && typeof want !== "string") {
+          expect(x.field("Damper")?.defaulted).toBe(true);
+          expect(x.working).not.toContain("damper not mentioned -> without");
+        }
         // NEGATIVE: an explicit damper never carries an air-stream line
         if (damper !== "None") expect(x.working.some((l) => l.includes("damper not mentioned"))).toBe(false);
       }
@@ -98,10 +104,16 @@ describe("ADP-2 H5 -- the air stream decides a damper not mentioned, on every da
   it("AC0 (a): BOQ-26-00087 r54 (supply heading, 3-slot, 1300 mm, EA) -> with, 1520 x 1.3 = 1976 -> 2866 / 458; r60 (return) -> 2187 / 458", () => {
     const r54 = panel("EA", { family: "slot diffuser", air: "supply", damper: "None", slot_count: "3 Slot", size_mm: "1300 mm Length" });
     expect([r54.supply, r54.install]).toEqual([2866, 458]);
-    expect(r54.working).toEqual(expect.arrayContaining(["supply air, damper not mentioned -> with damper", "supply: 1520 x 1.3 = 1976"]));
+    // INVERTED at ADP-4a (owner D5 / AC3: the default on the Damper field, the working keeps the arithmetic) by mechanical
+    // authority. BEFORE: `arrayContaining(["supply air, damper not mentioned -> with damper", "supply: 1520 x 1.3 = 1976"])`
+    // and r60 `toContain("return air, damper not mentioned -> without damper")`.
+    expect(r54.working).toContain("supply: 1520 x 1.3 = 1976");
+    expect(r54.field("Damper")?.rule).toBe("supply air, damper not mentioned -> with damper");
+    expect(r54.working).not.toContain("supply air, damper not mentioned -> with damper");
     const r60 = panel("EA", { family: "slot diffuser", air: "return", damper: "None", slot_count: "3 Slot", size_mm: "1300 mm Length" });
     expect([r60.supply, r60.install]).toEqual([2187, 458]);
-    expect(r60.working).toContain("return air, damper not mentioned -> without damper");
+    expect(r60.field("Damper")?.rule).toBe("return air, damper not mentioned -> without damper");
+    expect(r60.working).not.toContain("return air, damper not mentioned -> without damper");
   });
   it("AC0 (b): an explicit 'without' under supply air stays without (BOQ-26-00231 r238 shape: round diffuser 300, 1044 / 400)", () => {
     const x = panel("No", { family: "round diffuser", air: "supply", damper: "without", dia_mm: "300mm" });
@@ -155,7 +167,10 @@ describe("ADP-2 H5 fix (a) -- a row naming supply AND return air leaves the damp
   it("(1) the row names ONE stream under a heading naming both -> the row wins (00247 r75 shape stays with)", () => {
     const x = panel("Nos", SQ, { desc: "Aluminium powder coated supply air diffuser 450x450", headings: ["Supply & return air diffusers"] });
     expect([x.supply, x.install, x.field("Damper")?.value]).toEqual([2523, 576, "with"]);
-    expect(x.working).toContain("supply air, damper not mentioned -> with damper");
+    // INVERTED at ADP-4a (owner D5 / AC3) by mechanical authority. BEFORE: `expect(x.working).toContain("supply air, damper
+    // not mentioned -> with damper")`.
+    expect(x.field("Damper")?.rule).toBe("supply air, damper not mentioned -> with damper");
+    expect(x.working).not.toContain("supply air, damper not mentioned -> with damper");
     expect(x.working).not.toContain(LINE);
   });
   it("(3) NEGATIVE: no stream named anywhere -> as built; an explicit damper still wins; the calculator is unchanged", () => {
@@ -197,7 +212,8 @@ describe("ADP-2 H7 -- per-number plenum / mixing box: four fields, area or L + W
     }
     // NEGATIVE (v47): one combined size box, no group
     const old = panel("Nos", { family: MIX, insulated: "with", size_mm: "900x200x350mm Ht." }, { w: W_OLD });
-    expect(old.fields).toEqual(["Insulated", "Size (as written)"]);
+    // INVERTED at ADP-4a (owner AC2: "(as written)" off the label) by mechanical authority. BEFORE: ["Insulated", "Size (as written)"].
+    expect(old.fields).toEqual(["Insulated", "Size"]);
     expect(old.b!.fields.some((f) => f.group)).toBe(false);
   });
   it("(b) L / W / H filled from the size as written, the value used shown with its line -- 00186 r58 stays 2233", () => {
@@ -206,12 +222,16 @@ describe("ADP-2 H7 -- per-number plenum / mixing box: four fields, area or L + W
     expect([x.field("Length (mm)")?.value, x.field("Width (mm)")?.value, x.field("Height (mm)")?.value]).toEqual(["900", "200", "350"]);
     expect(x.field("Height (mm)")?.note).toBe("BoQ says 900x200x350mm Ht. -> 350 mm (the height as written)");
     expect(x.field("Length (mm)")?.note).toBe("BoQ says 900x200x350mm Ht. -> 900 mm (the first of length x width x height)");
-    expect(x.working).toContain("supply: 1230 x 2 x (900 x 200 + 200 x 350 + 900 x 350) / 10^6 + 150 = 1539.9");
+    // INVERTED at ADP-4a (owner AC2 / D4: "10^6" in words, the rounding once on its line) by mechanical authority. BEFORE:
+    // `toContain("supply: 1230 x 2 x (900 x 200 + 200 x 350 + 900 x 350) / 10^6 + 150 = 1539.9")`. The figures are the same.
+    expect(x.working).toContain("supply: 1230 x 2 x (900 x 200 + 200 x 350 + 900 x 350) / 1,000,000 + 150 = 1539.9, rounded up to the rupee: 1540");
   });
   it("(b) calculator L / W / H 450 / 450 / 350 -> 2065 with + 150 on supply (= ADP-1); install has no adder", () => {
     const x = calc("nos", MIX, { insulated: "with", plenum_length_mm: "450", plenum_width_mm: "450", plenum_height_mm: "350" });
     expect([x.supply, x.install]).toEqual([2065, 0]);   // 1230 x 2 x (450x450 + 450x350 + 450x350)/10^6 + 150 = 1423.05 -> 1424 x 1.45
-    expect(x.working).toContain("supply: 1230 x 2 x (450 x 450 + 450 x 350 + 450 x 350) / 10^6 + 150 = 1423.05");
+    // INVERTED at ADP-4a (owner AC2 / D4) by mechanical authority. BEFORE: `toContain("supply: 1230 x 2 x (450 x 450 + 450 x
+    // 350 + 450 x 350) / 10^6 + 150 = 1423.05")`. The figures are the same.
+    expect(x.working).toContain("supply: 1230 x 2 x (450 x 450 + 450 x 350 + 450 x 350) / 1,000,000 + 150 = 1423.05, rounded up to the rupee: 1424");
   });
   it("(a) an area: area x the per-sq.m rate, supply and install, NO + 150 -- typed 2.5 and the model's band 'up to 0.5 sqm'", () => {
     const t = calc("nos", MIX, { insulated: "with", plenum_area_sqm: "2.5" });
@@ -267,7 +287,8 @@ describe("ADP-2 B3 -- the neck dropdown offers 'Other...' (owner 14:24 'ok')", (
   it("a typed unstocked neck ladders up with its line; above the largest (450) refuses", () => {
     const x = calc("nos", "square diffuser", { damper: "without", neck_mm: "225" }, { other: ["neck_mm"] });
     expect([x.supply, x.install]).toEqual([1532, 400]);   // the 300 neck without damper: 1056 x 1.45 = 1531.2
-    expect(x.field("Neck size (as written)")?.note).toMatch(/225 mm -> priced as 300 mm/);
+    // INVERTED at ADP-4a (owner AC2) by mechanical authority. BEFORE: `x.field("Neck size (as written)")`.
+    expect(x.field("Neck size")?.note).toMatch(/225 mm -> priced as 300 mm/);
     expect(calc("nos", "square diffuser", { damper: "without", neck_mm: "600" }, { other: ["neck_mm"] }).reason).toBe("neck size 600 is above the largest size on the sheet (450)");
   });
   it("NEGATIVE: a model-read neck prices exactly as v47 (the ladder already applied to it)", () => {
@@ -292,7 +313,17 @@ describe("ADP-2 U6 -- the Derivation tab", () => {
   const BOTH = "A row naming supply and return air leaves the damper as read";
   it("the new lines are on v48's tab and not on v47's", () => {
     const n = titles(NEW), o = titles(V47);
-    for (const t of ADDED) expect({ t, n: n.includes(t), o: o.includes(t) }).toEqual({ t, n: true, o: false });
+    // INVERTED at ADP-4a (owner D2 "17 + 19", "16 + 35", "13 + 24": three of ADP-2's six lines are now said INSIDE a merged
+    // line) by mechanical authority. BEFORE: all six of ADDED `{ n: true, o: false }` as titles. Now the three that stand
+    // alone are titles of v48 only, and the other three are said in the merged line that carries them on v48 and not v47.
+    const ALONE = ADDED.filter((t) => !["A damper not mentioned is decided by the air stream", "The length, width and height are typed in their own boxes, else read from the size", "A neck size the catalogue does not stock can be typed in 'Other...'"].includes(t));
+    for (const t of ALONE) expect({ t, n: n.includes(t), o: o.includes(t) }).toEqual({ t, n: true, o: false });
+    const detailOf = (a: AssetLike, re: RegExp) => itemListRuleOrder(a.category_configs.find((c) => c.category_id === ADP)!, world(a).items as any).find((l) => re.test(l.title))?.detail ?? "";
+    for (const [title, said] of [[/^A fact the row does not mention/, "damper not mentioned is decided by the air stream"], [/^Fitting the stated/, "neck size the list does not offer is typed in 'Other...'"]] as const) {
+      expect({ said, n: detailOf(NEW, title).includes(said), o: detailOf(V47, title).includes(said) }).toEqual({ said, n: true, o: false });
+    }
+    expect({ n: n.includes("The sizes are typed in their own boxes, else read from the size as written"), o: o.includes("The sizes are typed in their own boxes, else read from the size as written") }).toEqual({ n: true, o: false });
+    for (const t of ["A damper not mentioned is decided by the air stream", "The length, width and height are typed in their own boxes, else read from the size", "A neck size the catalogue does not stock can be typed in 'Other...'"]) expect(n).not.toContain(t);
   });
   it("H5 fix (a): the both-streams line is on every tab whose rules read an air stream -- v48's four and v47's R13 alike", () => {
     expect(titles(NEW)).toContain(BOTH);

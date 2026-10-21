@@ -1827,6 +1827,68 @@ export function boxOf(spec: ItemListPricingSpec, need: string): string {
   return spec.numbers[need]?.from[0] ?? need;
 }
 
+/**
+ * ADP-4a (owner AC2 / D1-D5, 2026-10-21; scope ruled the same day: "Insulation and Piping PRICES, PANEL and CALCULATOR
+ * text stay byte-identical") -- WHICH CATEGORY READS THE PLAIN ITEM WORDING. The category that prices its items through
+ * the config's SHARED per-item pipelines (`config.pipelines`, carried here as `default_pipelines`): ADP today, and no
+ * other category declares them. On it the working names the rate it builds, never a pipeline id, says the rounding
+ * once in words, and the family's sentinel answers read as words. Every other category's text is untouched. PURE.
+ */
+export function plainItemListWording(spec: ItemListPricingSpec): boolean {
+  return Object.keys(spec.default_pipelines ?? {}).length > 0;
+}
+
+/**
+ * ADP-4a (owner AC2 / D4, 2026-10-21) -- THE WORKING IN WORDS, on the plain item wording. PURE, display only: the lines
+ * arrive already through `plainPricerText` and leave with --
+ *   - the rate each line builds named, never the pipeline that builds it ("item supply: supply: cost x ..." ->
+ *     "supply: cost x ...");
+ *   - the rounding said ONCE, in words, on the line it rounds: a "ROUNDUP(x, 0) = v" line folds into the line before it
+ *     as "..., rounded up to the rupee" (": v" where it moved the figure);
+ *   - a Pricing Input's kind tag dropped ("Mixing box supply adder (amount) = 150" -> "... = 150");
+ *   - "sum components", "SQM row", "sheet formula:" and "10^6" in plain words.
+ * Figures are never touched: every number on a line is the line's own. A line of any other shape is unchanged.
+ */
+export function plainWorking(lines: readonly string[]): string[] {
+  const out: string[] = [];
+  const roundedTo = (digits: number) => (digits === 0 ? "the rupee" : digits < 0 ? `the next ${10 ** -digits} rupees` : `${digits} decimal place${digits === 1 ? "" : "s"}`);
+  for (const raw of lines) {
+    let s = raw
+      .replace(/^item (supply|install): /, "$1: ")
+      .replace(/^([a-z]+): \1: /, "$1: ")
+      .replace(/(pricing input: .+?) \((?:amount|factor|rate)\)(?= = )/, "$1")
+      .replace(/\bsum components\b/, "the parts added together")
+      .replace(/\bthe family's SQM row\b/, "the family's per-sq.m catalogue row")
+      .replace(/\bSQM row\b/, "per-sq.m catalogue row")
+      .replace(/^([a-z]+): sheet formula: /, "$1: ")
+      .replace(/\/ 10\^6 sq\.m/g, "/ 1,000,000 (sq.mm to sq.m)")
+      .replace(/10\^6/g, "1,000,000");
+    const ru = s.match(/^([a-z]+): ROUNDUP\([^,]*,\s*(-?\d+)\) = (.+)$/);
+    if (ru) {
+      const [, lead, digits, value] = ru;
+      const at = out.map((l) => l.startsWith(`${lead}: `)).lastIndexOf(true);
+      if (at >= 0 && / = [^=]+$/.test(out[at])) {
+        const before = out[at].slice(out[at].lastIndexOf(" = ") + 3);
+        out[at] = `${out[at]}, rounded up to ${roundedTo(Number(digits))}${before.trim() === value.trim() ? "" : `: ${value}`}`;
+        continue;
+      }
+      s = `${lead}: rounded up to ${roundedTo(Number(digits))} = ${value}`;
+    }
+    out.push(s);
+  }
+  return out;
+}
+
+/** ADP-4a (owner AC2, display only): the model's two sentinel family answers as a pricer reads them. The VALUE is
+ *  unchanged everywhere it is matched or stored; only a heading, a picker entry or a rule line shows these words. */
+export const FAMILY_DISPLAY: Readonly<Record<string, string>> = {
+  "none of these": "Not in the catalogue",
+  "grille, type not stated": "Grille (type not stated)",
+};
+export function familyDisplayName(spec: ItemListPricingSpec, family: string): string {
+  return plainItemListWording(spec) ? (FAMILY_DISPLAY[family] ?? family) : family;
+}
+
 /** ADP-3a (U2 / U3; B6 #7). PURE. A box's label as a person reads it, without the model's "(as written)" or a unit
  * in brackets ("Size (as written)" -> "Size", "Area (sq.m)" -> "Area"). `labelOf` lets a caller holding the rendered
  * field labels pass them in, so the field and the sentence can never word one box two ways. */
@@ -4323,6 +4385,21 @@ export function itemFieldDefs(
 ): ItemFieldDef[] {
   if (!family || !spec.families[family]) return [];
   const controlOf = (skuAttr: string, fallback: PanelControl): PanelControl => spec.panel_controls?.[skuAttr] ?? fallback;
+  /**
+   * ADP-4a (owner AC2, 2026-10-21; "display-side only"): A FIELD'S LABEL AS A PRICER READS IT. The definition's label
+   * is also the MODEL's question (`extraction.build_items_spec` sends it), so it is never changed in the config; here
+   * the model's " (as written)" is dropped, and a box whose reader takes SEVERAL model fields (ADP's plenum thickness
+   * reads the insulation thickness first, then the sheet thickness) is named by the reader itself -- "Plenum thickness
+   * (mm)", owner 2026-10-21 -- never by whichever model field happens to come first. Measured: no Insulation or Piping
+   * label carries " (as written)" and no other reader reads two fields, so their labels are byte-identical.
+   */
+  const shownLabel = (label: string | undefined, reader?: NumberReader): string | undefined => {
+    if (reader && reader.from.length > 1) {
+      const n = reader.name.charAt(0).toUpperCase() + reader.name.slice(1);
+      return reader.unit ? `${n} (${reader.unit})` : n;
+    }
+    return label === undefined ? undefined : label.replace(/\s*\(as written\)\s*$/i, "");
+  };
   const fam = spec.families[family];
   const ids: string[] = [...fam.needs];
   const cls = rowUnitClass ?? "";
@@ -4362,14 +4439,14 @@ export function itemFieldDefs(
         // BoQ states -- the ladder then resolves it and says which stocked size it used.
         const options = fieldOptionsFromSkus(spec, skus.items, family, rowUnitClass, attr, skus.answers ?? {});
         const typedNote = typedFieldNote(spec, attr, reads, options);
-        out.push({ id: modelId, label: d?.label ?? reader.name, allowNone: false, skuAttr: attr, control, options,
+        out.push({ id: modelId, label: shownLabel(d?.label, reader) ?? reader.name, allowNone: false, skuAttr: attr, control, options,
                    optionSource: "catalogue", axes,
                    ...(control === "dropdown_or_other" ? { allowOther: true, typedNote } : {}) });
       } else {
         // ADP-3a (B6 #1): a size box of which this row reads only SOME parts (a per-metre grille reads the height of
         // "W x H") says which part, where the config's note does not -- "1200x150" is otherwise a puzzle
         const typedNote = typedFieldNote(spec, attr, reads, []) ?? partOfSizeNote(spec, modelId, axes);
-        out.push({ id: modelId, label: d?.label ?? reader.name, allowNone: false, skuAttr: attr, control, axes,
+        out.push({ id: modelId, label: shownLabel(d?.label, reader) ?? reader.name, allowNone: false, skuAttr: attr, control, axes,
                    ...(TYPED_CONTROLS.has(control) ? { typedNote } : {}) });
       }
       continue;
@@ -4383,7 +4460,7 @@ export function itemFieldDefs(
     const control = controlOf(attr, d.type === "choice" ? "dropdown" : "text");
     if (control !== "dropdown" && control !== "dropdown_or_other") {
       const typedNoteC = typedFieldNote(spec, attr, reads, []);
-      out.push({ id: attr, label: d.label, allowNone: d.allow_none === true, skuAttr: attr, control,
+      out.push({ id: attr, label: shownLabel(d.label) ?? d.label, allowNone: d.allow_none === true, skuAttr: attr, control,
                  ...(TYPED_CONTROLS.has(control) ? { typedNote: typedNoteC } : {}) });
       continue;
     }
@@ -4428,10 +4505,17 @@ export function itemFieldDefs(
      * function) the sentinel stays a real choice and is offered exactly as before.
      */
     const noneMapsToCatalogue = ruledDefaultValue(spec, attr, family) !== undefined;
+    /**
+     * ADP-4a (owner register B5, 2026-10-19 14:34 / 14:41: "the 'None' option is no longer shown"; U5). On the plain
+     * item wording "None" is not OFFERED either where no default maps it (the air stream): it is the model's word for
+     * "not mentioned", and the field's own placeholder already means that. A STORED "None" is not changed -- the view
+     * shows it as "not stated" (`pricingSheetHelper.itemBlockView`); what the model answers is ADP-5's.
+     */
+    const offerNone = d.allow_none && !noneMapsToCatalogue && !plainItemListWording(spec);
     out.push({
       id: attr,
-      label: d.label,
-      options: d.allow_none && !noneMapsToCatalogue ? ["None", ...base] : base,
+      label: shownLabel(d.label) ?? d.label,
+      options: offerNone ? ["None", ...base] : base,
       allowNone: d.allow_none === true,
       skuAttr: attr,
       control,

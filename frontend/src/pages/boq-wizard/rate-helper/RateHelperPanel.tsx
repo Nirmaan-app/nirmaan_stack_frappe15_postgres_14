@@ -1268,7 +1268,8 @@ function ItemListBlocks({
                 className={cn("text-xs font-semibold", b.familyDefaulted && "rounded bg-amber-50 px-1 dark:bg-amber-950/30")}
                 data-testid={b.familyDefaulted ? "item-family-defaulted" : undefined}
               >
-                {b.family ?? "(no family)"}
+                {/* ADP-4a (owner AC2): the family as a pricer reads it ("Not in the catalogue"); the value is unchanged */}
+                {b.familyLabel ?? b.family ?? "(no family)"}
                 {b.familyDefaulted && (
                   <span className="ml-1 text-[10px] font-normal text-amber-700 dark:text-amber-400">default</span>
                 )}
@@ -1296,7 +1297,7 @@ function ItemListBlocks({
           </div>
           {b.familyRaw && !b.familyLine && (
             <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400">
-              BoQ says &ldquo;{b.familyRaw}&rdquo;: priced as {b.family} (your rule).
+              BoQ says &ldquo;{b.familyRawLabel ?? b.familyRaw}&rdquo;: priced as {b.family} (your rule).
             </p>
           )}
           {/* SLICE 12e-2 (owner Q16 / Q15, amendment 2026-10-10): the config's own line for a family read as
@@ -1456,7 +1457,8 @@ function ItemListBlocks({
                           onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value });
                         }}
                       >
-                        <option value="">&mdash; select &mdash;</option>
+                        {/* ADP-4a (owner B5, U5): a stored "None" no longer offered reads "not stated" */}
+                        <option value="">{f.placeholder ?? "— select —"}</option>
                         {f.options.map((o) => (
                           // SLICE 9 (A-6): the VALUE is what prices; the TEXT may be the catalogue's own word
                           // for it. Keeping the value real is what stops a controlled select falling back to
