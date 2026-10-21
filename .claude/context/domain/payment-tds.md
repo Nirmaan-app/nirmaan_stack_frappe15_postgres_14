@@ -134,6 +134,20 @@ figure — the company pays the tax on top:
   CEO Hold, as `after_delete` does. A correction leaves the payment's amount alone.
 - So no path removes a deduction from a challan, and `reconciled_amount` moves only when Pay TDS pays.
 
+### Load-bearing invariants: a challan and its TDS Payment expense (#1544)
+
+- **A deposit is booked twice, by hand:** as a challan (what Pay TDS spends) and as a non-project
+  expense of type *TDS Payment* (the money in the expense books). `TDS Challan Attachment.tds_payment_expense`
+  (Link → Non Project Expenses, **unique**) says which expense is the challan's. Nothing creates or links
+  either side automatically.
+- **What may be linked is the challan's own `validate`** (`_validate_tds_payment_expense`): type *TDS
+  Payment*, not *Rejected*, on no other challan (the refusal names that challan; the unique index holds
+  under two simultaneous saves). Desk and the challan list's Link (`api/tds_challan/challan_expense.set_challan_expense`,
+  a document save) refuse the same things. Clearing the link is allowed.
+- **Every challan is a deposit already made**, so every challan without an expense carries the warning
+  (View Challans button count, the dialog header, the row). A linked expense can't be deleted: Frappe's
+  link check refuses it while the challan points at it.
+
 ### Load-bearing invariants: bulk approve's tax failures (#1536)
 
 - **Bulk approve names every approved payment whose tax it could not withhold** (`tds_failed` from
@@ -307,7 +321,7 @@ letter decides it (owner, 2026-10-16):
 **`TDS Challan Attachment`** — one ITNS 281 receipt.
 
 Carries financial year, amount, mode of payment, bank + bank reference, date of deposit, BSR code,
-challan no, tender date and the attachment.
+challan no, tender date and the attachment, and `tds_payment_expense` (#1544, see the invariants above).
 
 - **Duplicate key: Amount + Bank Reference Number + BSR Code + Challan No.** All four matching means
   the same receipt uploaded twice. The site is Postgres (case-sensitive), so the text parts are
@@ -412,7 +426,9 @@ Reports hub → **Payment TDS Deduction** tab (report type "TDS Deduction"), gat
   **upload** keeps the form hidden (no receipt, no challan), a failed **read** opens it blank with
   the reason.
 - **View Challans** lists every challan *including fully-used ones* — the picker answers "what can I
-  pay from?", this answers "what have we deposited?".
+  pay from?", this answers "what have we deposited?". Its Expense column links or unlinks the
+  challan's TDS Payment expense (§ a challan and its TDS Payment expense); the picker leaves out
+  expenses already on another challan (`challanExpense.linkableExpenses`).
 - Project / Payment / Gross / Net columns are **hidden by default**, not deleted (⚠️ hiding `project`
   also removes its facet dropdown).
 
