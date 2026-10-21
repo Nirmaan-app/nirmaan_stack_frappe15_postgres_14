@@ -5,12 +5,14 @@ import { describe, expect, it } from "vitest";
 import {
     BEFORE_APPROVAL_STATUSES,
     expenseTdsSplit,
+    LANDLORD_MISSING,
     OFFICE_RENT_TDS,
     raisedForAmount,
     shownExpenseTds,
     tdsPreviewLine,
     tdsSplitCaption,
     tdsSplitLines,
+    tdsTypeLock,
     type WithheldTds,
 } from "./expenseTds";
 
@@ -142,6 +144,15 @@ describe("tdsSplitLines and tdsSplitCaption", () => {
         expect(tdsSplitCaption({ gross: 100000, ratePct: 10, tds: 10000, net: 90000, withheld: true, section: "194-I" }))
             .toBe("10% TDS (194-I) withheld; the landlord is paid the net");
     });
+
+    it("warn instead of forecasting when the landlord's name or PAN is missing", () => {
+        const forecast = { gross: 100000, ratePct: 10, tds: 10000, net: 90000, withheld: false, section: "194-I" };
+        expect(tdsSplitCaption(forecast, true)).toBe(LANDLORD_MISSING);
+        expect(LANDLORD_MISSING).toBe("Landlord's name and PAN are missing — this can't be approved");
+        // A withheld record already names its landlord: nothing to warn about.
+        expect(tdsSplitCaption({ ...forecast, withheld: true }, true))
+            .toBe("10% TDS (194-I) withheld; the landlord is paid the net");
+    });
 });
 
 // The request page's "Raised for ₹…" line (spec #1522 story 27).
@@ -158,5 +169,41 @@ describe("raisedForAmount", () => {
     it("says nothing when the Expense carries what was asked for", () => {
         expect(raisedForAmount(42000, 42000)).toBeNull();
         expect(raisedForAmount(42000, "42000")).toBeNull();
+    });
+
+    it("says nothing, never ₹0, when the request's amount is absent", () => {
+        for (const absent of [null, undefined, "", "  "]) {
+            expect(raisedForAmount(90000, absent), String(absent)).toBeNull();
+        }
+    });
+});
+
+// The edit dialog's type select once an expense is approved (spec #1522 review batch 2), the screen
+// half of the server's `expense_tds.guard_tds_type_change`.
+describe("tdsTypeLock", () => {
+    it("leaves the type free before approval", () => {
+        for (const status of ["Requested", "CEO Pending"]) {
+            for (const type of ["Office Rent", "Electricity Expenses"]) {
+                expect(tdsTypeLock(status, type), `${status} ${type}`)
+                    .toEqual({ selectLocked: false, blockedType: null, reason: null });
+            }
+        }
+    });
+
+    it("locks an Office Rent expense's type from Approved on, saying why", () => {
+        for (const status of ["Approved", "Reconciliation Pending", "Paid", "Rejected"]) {
+            const lock = tdsTypeLock(status, "Office Rent");
+            expect(lock.selectLocked, status).toBe(true);
+            expect(lock.blockedType).toBeNull();
+            expect(lock.reason).toBe(`${status}: the type stays Office Rent, because its 10% TDS is decided at approval.`);
+        }
+    });
+
+    it("keeps any other approved expense from becoming Office Rent", () => {
+        expect(tdsTypeLock("Approved", "Electricity Expenses")).toEqual({
+            selectLocked: false,
+            blockedType: "Office Rent",
+            reason: "Approved: it can't become Office Rent, because its 10% TDS is decided at approval.",
+        });
     });
 });

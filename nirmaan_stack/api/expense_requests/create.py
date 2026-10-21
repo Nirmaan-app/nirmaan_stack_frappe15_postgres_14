@@ -9,6 +9,7 @@ URL: /api/method/nirmaan_stack.api.expense_requests.create.create_expense_reques
 import json
 
 import frappe
+from frappe import _
 
 from nirmaan_stack.api.expense_requests.access import guard_requestable, records_without_review
 from nirmaan_stack.api.expense_requests.convert import approve_request
@@ -22,6 +23,7 @@ from nirmaan_stack.api.expense_requests.flatten import (
 	native_invoice,
 )
 from nirmaan_stack.api.expense_requests.form_snapshot import governing_form, stamp_live_form
+from nirmaan_stack.api.expense_requests.month_answers import month_problems
 from nirmaan_stack.api.expense_requests.pan_answers import clean_pan_answers
 from nirmaan_stack.services.expense_statuses import REQUEST_PENDING
 from nirmaan_stack.services.expense_tds import deductee_gaps, tds_rule_for
@@ -95,6 +97,7 @@ def create_expense_request(
 	# the type's form changes (#1503).
 	source_data = stamp_live_form(expense_type, source_data)
 	source_data = guard_pan_answers(expense_type, source_data)
+	guard_month_answers(expense_type, source_data)
 	guard_deductee_answers(expense_type, source_data)
 
 	# ⚠️ A DUPLICATE IS NEVER REFUSED HERE (owner ruling, 2026-08-20, REVERSING the 2026-08-19
@@ -205,25 +208,40 @@ def guard_pan_answers(expense_type: str, source_data) -> str | None:
 	return cleaned
 
 
+def guard_month_answers(expense_type: str, source_data) -> None:
+	"""Refuses a `month` answer that is not a month and year, `YYYY-MM` (spec #1522 review batch 2).
+
+	SHARED with `update`, like `guard_pan_answers`, and run after `stamp_live_form` for the same
+	reason. The rule is `month_answers.month_problems`.
+	"""
+	fmt = governing_form(frappe._dict({"type": expense_type, "source_data": source_data}))
+	problems = month_problems(source_data, fmt)
+	if problems:
+		frappe.throw("<br>".join(problems), title=_("Month not valid"))
+
+
 def guard_deductee_answers(expense_type: str, source_data) -> None:
 	"""An Office Rent request must name the landlord and give a valid PAN (spec #1522 review, owner
 	2026-10-21): the tax withheld at approval is filed against them, and an approval without them is
 	refused (`services/expense_tds.refuse_without_deductee`), so the request is refused first.
 
-	SHARED with `update`, like `guard_vendor_scope`. Run after `guard_pan_answers`. ⚠️ The ONE pair of
-	form answers the server requires: every other required answer is still the dialog's to check
-	(`guard_request_form`). Read under the keys the type's tax rule names (`ExpenseTdsRule`), whatever
-	the form calls its fields; the rule is `expense_tds.deductee_gaps`.
+	SHARED with `update`, like `guard_vendor_scope`, and with `review.approve_expense_request`, so a
+	Reviewer cannot approve a request without them into an Expense no later step could approve (review
+	batch 2): the request stays Pending Approval, and its raiser can edit it. Run after
+	`guard_pan_answers`. ⚠️ The ONE pair of form answers the server requires: every other required
+	answer is still the dialog's to check (`guard_request_form`). Read under the keys the type's tax rule
+	names (`ExpenseTdsRule.deductee_in`), whatever the form calls its fields; the rule is
+	`expense_tds.deductee_gaps`.
 	"""
 	rule = tds_rule_for(expense_type)
 	if rule is None:
 		return
-	answers = flat_responses(source_data)
-	gaps = deductee_gaps(answers.get(rule.deductee_name_key), answers.get(rule.deductee_pan_key))
+	gaps = deductee_gaps(*rule.deductee_in(flat_responses(source_data)))
 	if gaps:
 		frappe.throw(
-			f"{rule.expense_type} needs {' and '.join(gaps)}: its {rule.rate:g}% TDS is filed against the landlord.",
-			title="Landlord missing",
+			_("{0} needs {1}: its {2}% TDS is filed against the landlord.").format(
+				rule.expense_type, " and ".join(gaps), f"{rule.rate:g}"),
+			title=_("Landlord missing"),
 		)
 
 

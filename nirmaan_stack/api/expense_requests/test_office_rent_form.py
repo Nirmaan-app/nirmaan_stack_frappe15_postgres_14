@@ -3,9 +3,10 @@
 
 """The Office Rent request form (spec #1522, #1524), through the request endpoints.
 
-An HR Executive raises Office Rent against the form the fixture ships: Rent Month, Office Location,
-Landlord Name and Landlord PAN. The PAN is stored uppercased, a PAN not shaped like ABCPK1234D is
-refused on create and on edit, and the approved Expense's description reads the form's sentence.
+An HR Executive raises Office Rent against the form the fixture ships: Rent Month (a month and year,
+`YYYY-MM`), Office Location, Landlord Name and Landlord PAN. The PAN is stored uppercased, a PAN not
+shaped like ABCPK1234D and a Rent Month that is not a month are refused on create and on edit, and the
+approved Expense's description reads the form's sentence, the month as "Oct 2026".
 The tax itself is `test_office_rent_tds` (#1525).
 
 ⚠️ Runs against the site's real Office Rent type, so the site must have synced the fixture
@@ -40,7 +41,7 @@ def _answers(**detail):
 
 
 def _rent(**overrides):
-    detail = {"rent_month": "2026-10-01", "office_location": "Bengaluru HQ",
+    detail = {"rent_month": "2026-10", "office_location": "Bengaluru HQ",
               "landlord_name": "Asha Rao", "landlord_pan": "ABCPK1234D", **overrides}
     return _answers(**detail)
 
@@ -129,6 +130,28 @@ class TestOfficeRentForm(FrappeTestCase):
         frappe.db.rollback()
         self.assertEqual(self._stored_pan(name), "ABCPK1234D")
 
+    def test_a_rent_month_that_is_not_a_month_and_year_is_refused_on_create(self):
+        before = frappe.db.count("Expense Request", {"owner": HR_USER})
+        for bad in ("2026-10-01", "Oct 2026", "2026-13", "10-2026", "2026-1"):
+            with self.subTest(rent_month=bad):
+                with self.assertRaisesRegex(frappe.ValidationError, f'Rent Month "{bad}" is not a month'):
+                    self._raise(_rent(rent_month=bad))
+                frappe.db.rollback()
+                self.assertEqual(frappe.db.count("Expense Request", {"owner": HR_USER}), before)
+
+    def test_a_rent_month_that_is_not_a_month_and_year_is_refused_on_edit(self):
+        name = self._raise(_rent())["name"]
+        frappe.set_user(HR_USER)
+        try:
+            with self.assertRaisesRegex(frappe.ValidationError, 'Rent Month "2026-10-01" is not a month'):
+                update_expense_request(name, expense_type=OFFICE_RENT, amount=100000,
+                                       source_data=_rent(rent_month="2026-10-01"))
+        finally:
+            frappe.set_user("Administrator")
+        frappe.db.rollback()
+        detail = json.loads(frappe.db.get_value("Expense Request", name, "source_data"))["responses"]["detail"]
+        self.assertEqual(detail["rent_month"], "2026-10")
+
     def test_an_edit_stores_a_lowercase_pan_uppercased(self):
         name = self._raise(_rent())["name"]
         frappe.set_user(HR_USER)
@@ -146,7 +169,7 @@ class TestOfficeRentForm(FrappeTestCase):
         row = frappe.db.get_value("Non Project Expenses", created, ["description", "amount"], as_dict=True)
         self.assertEqual(
             row.description,
-            "Office rent for 1 Oct 2026 – Bengaluru HQ. Landlord: Asha Rao (PAN ABCPK1234D). "
+            "Office rent for Oct 2026 – Bengaluru HQ. Landlord: Asha Rao (PAN ABCPK1234D). "
             f"(10% TDS will be deducted) · [{name}]")
         # An Admin's review is the L1 step, so Rs 1,00,000 waits at CEO Pending: nothing is withheld
         # before the CEO approves (`test_office_rent_tds`).

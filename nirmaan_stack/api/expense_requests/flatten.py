@@ -54,6 +54,19 @@ def mapped_fields(source_format) -> dict:
 	return out
 
 
+def fields_of_type(source_format, field_type: str) -> list[tuple[str, str, str]]:
+	"""`(section id, field key, label)` for every field of a format whose `type` is `field_type`:
+	the `pan` and `month` answers the request endpoints check (`pan_answers`, `month_answers`)."""
+	out = []
+	for section in (as_dict(source_format) or {}).get("sections") or []:
+		if not isinstance(section, dict):
+			continue
+		for f in section.get("fields") or []:
+			if isinstance(f, dict) and f.get("key") and f.get("type") == field_type:
+				out.append((section.get("id"), f["key"], f.get("label") or f["key"]))
+	return out
+
+
 def build_label_map(source_format: str | dict | None) -> dict:
 	"""`{field_key: label}` harvested from a format, so the flatten reads like the form did.
 
@@ -252,6 +265,8 @@ def first_mapped_attachment(source_data, source_format=None) -> str | None:
 # --- Prose descriptions -------------------------------------------------------------
 
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+# A `month` field's answer (`month_answers`): a month and year.
+ISO_MONTH = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
 _PLACEHOLDER = re.compile(r"\{([A-Za-z0-9_]+)\}")
 # `[[ ... ]]` marks a span that survives only if every answer inside it was given.
 _OPTIONAL = re.compile(r"\[\[(.*?)\]\]", re.S)
@@ -412,12 +427,15 @@ def invoice_warnings(invoice: dict) -> list[str]:
 def _prose_value(value) -> str | None:
 	"""One answer as it should read INSIDE A SENTENCE.
 
-	Exactly one thing differs from `_render`: an ISO date becomes `1 Aug 2026`. A
-	template exists to stop the ledger reading like a form dump, and `2026-08-01` reads
-	like a form dump.
+	Exactly one thing differs from `_render`: an ISO date becomes `1 Aug 2026`, and a month
+	(`YYYY-MM`, a `month` field's answer) `Aug 2026`. A template exists to stop the ledger
+	reading like a form dump, and `2026-08-01` reads like a form dump.
 	"""
 	if isinstance(value, str):
 		v = value.strip()
+		if ISO_MONTH.fullmatch(v):
+			year, month = v.split("-")
+			return f"{_MONTHS[int(month) - 1]} {year}"
 		if _ISO_DATE.fullmatch(v):
 			try:
 				d = date.fromisoformat(v)

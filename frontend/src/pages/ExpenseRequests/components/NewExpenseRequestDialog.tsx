@@ -32,7 +32,8 @@
 //
 // Office Rent (spec #1522, #1524): the raiser types the full rent, and the line under the Amount
 // shows the 10% TDS and what the landlord gets (`utils/expenses/expenseTds`). A form's PAN answer
-// not shaped like ABCPK1234D blocks submit, and the server refuses it too.
+// not shaped like ABCPK1234D, or month answer not a month and year, blocks submit, and the server
+// refuses it too. Office Rent's Who gets paid is Required: the landlord's account.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFrappeFileUpload, useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
@@ -79,7 +80,7 @@ import type {
     StayDuplicate,
 } from "@/types/NirmaanStack/ExpenseRequest";
 import {
-    answersFromSourceData, invalidPanKeys, NATIVE_INVOICE_SECTION, parseFormat,
+    answersFromSourceData, invalidMonthKeys, invalidPanKeys, NATIVE_INVOICE_SECTION, parseFormat,
     readDetailDescription, readNativeInvoice, seedAnswers,
 } from "@/utils/expenseFormat";
 import { expenseTdsSplit, tdsPreviewLine } from "@/utils/expenses/expenseTds";
@@ -358,6 +359,8 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     );
     // A PAN not shaped like one is refused here and by the server (`create.guard_pan_answers`, #1524).
     const badPanAnswers = useMemo(() => invalidPanKeys(parsedFormat, answers), [parsedFormat, answers]);
+    // A month not given as month and year (`YYYY-MM`) likewise (`create.guard_month_answers`).
+    const badMonthAnswers = useMemo(() => invalidMonthKeys(parsedFormat, answers), [parsedFormat, answers]);
     // Office Rent withholds 10% (#1524): the raiser types the full rent and sees the split under it.
     const tdsLine = tdsPreviewLine(expenseTdsSplit(form.expense_type, amountValue));
     // The standard request's own requirement: the SAME rule the server's `guard_request_form`
@@ -384,6 +387,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         !formatPending &&
         missingFormatAnswers.length === 0 &&
         badPanAnswers.length === 0 &&
+        badMonthAnswers.length === 0 &&
         standardComplete &&
         payeeReady &&
         !payeeChoice.adding &&

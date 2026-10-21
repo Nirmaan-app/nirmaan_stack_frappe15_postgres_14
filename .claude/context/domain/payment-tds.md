@@ -234,19 +234,26 @@ letter decides it (owner, 2026-10-16):
   no save hook re-fires, so nothing withholds twice, and the approving save's Version row records gross
   → net. The call site names every other reader of `amount` and why none needs a recompute (Raw SQL
   rule 1); no new Cheque can carry an expense line, so no cheque line follows it.
-- **NEVER WITHOUT THE LANDLORD (owner, 2026-10-21).** An approval that would withhold (`decide`'s
-  `l1_approve` / `ceo_approve` landing on Approved, a Reviewer's approval creating the Expense already
-  Approved, any insert born Approved) is REFUSED while the landlord's name is blank or the PAN is not a
-  valid one: "Add the landlord's name and PAN before approving this Office Rent expense."
+- **NEVER WITHOUT THE LANDLORD (owner, 2026-10-21).** The request endpoints require the landlord's
+  name and a valid PAN on create, on edit AND at a Reviewer's approval, at any amount
+  (`create.guard_deductee_answers`, read under the rule's keys by `ExpenseTdsRule.deductee_in`; shared by
+  `update` and `review.approve_expense_request`, review batch 2): a Reviewer cannot turn a request without
+  them into an Expense no later step could approve, so the request stays Pending Approval and its raiser
+  edits it ("Office Rent needs the landlord's name and …: its 10% TDS is filed against the landlord.").
+  On the Expense, an approval that would withhold (`decide`'s `l1_approve` / `ceo_approve` landing on
+  Approved, any insert born Approved) is REFUSED while the name is blank or the PAN is not a valid one:
   `expense_tds.refuse_without_deductee` (rule `deductee_gaps`), run by `controllers/expense_tds.validate`
   BEFORE the row is written, so nothing of the approval lands (`decide_expenses` rolls back its row's
-  savepoint; `review.approve_expense_request` rolls back its savepoint, so the request stays Pending
-  Approval); `withhold_expense_tds` asks it again as the backstop. An L1 step that only forwards to CEO
-  Pending withholds nothing and is not refused. A zero or a refund needs no landlord. The request
-  endpoints require both answers on create and edit (`create.guard_deductee_answers`, read under the
-  rule's keys), so only an Expense raised before that, one re-typed to Office Rent before approval, or
-  one with no request meets the refusal; it can be rejected, not edited into shape (its request is no
-  longer pending). No record is ever written with a blank deductee.
+  savepoint); `withhold_expense_tds` asks it again as the backstop. Only an Expense whose request was
+  raised before the requirement, one re-typed to Office Rent before approval, or one with no request
+  meets it, and none can be edited into shape (its request is decided), so its message names the way
+  out: "… Reject it and raise it again with the landlord's name and PAN." The approve dialog says so
+  before the click: `api/approvals/expense_detail` serves `deductee_missing` (the same reading, at
+  Requested and CEO Pending), the Rent / TDS / Net caption becomes "Landlord's name and PAN are missing —
+  this can't be approved" and Confirm is disabled (`expenseApprovalDetail.approvalBlocked`; the bulk
+  dialog does not check, the server refuses that row). An L1 step that only forwards to CEO Pending
+  withholds nothing and is not refused by the server. A zero or a refund needs no landlord. Both refusals
+  are literals inside `_()`. No record is ever written with a blank deductee.
 - **ONCE.** `non_project_expense` is UNIQUE and `existing_expense_deduction` returns the stored row, so
   a re-save, a retry or a second call changes nothing and never re-nets.
 - ⚠️ **IT RAISES, unlike the Work Order route** (`record_deduction_if_eligible` logs and swallows). Each
@@ -302,7 +309,9 @@ letter decides it (owner, 2026-10-16):
   Admin and the Accountant Lead at Paid (whose `PAID_EDITABLE_FIELDS` otherwise include `type`), Desk and
   system saves alike. Before approval the type changes freely: the tax follows the type the approval
   finds, and a re-typed rent with no landlord is refused there (above). A change between two other types
-  is not this rule's.
+  is not this rule's. The edit dialog (`EditNonProjectExpense`, helper `expenseTds.tdsTypeLock`) shows
+  the same lock: an Office Rent expense's type select is disabled with a one-line reason, and another
+  type's expense does not offer Office Rent ("not after approval"); the server stays the authority.
 - Pinned by `api/expense_requests/test_office_rent_tds_lock` (the edit through `frappe.client.set_value`,
   the bank line through `link_rows_to_expense`, Pay TDS, the delete through `frappe.client.delete`) and
   `test_office_rent_type_lock` (the type, per status and editor).

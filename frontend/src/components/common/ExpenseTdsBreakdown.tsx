@@ -8,6 +8,7 @@
 // Expenses and Non-Project Expenses lists.
 
 import React from "react";
+import { AlertTriangle } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { ShownExpenseTds, tdsSplitCaption, tdsSplitLines } from "@/utils/expenses/expenseTds";
@@ -17,13 +18,19 @@ interface ExpenseTdsBreakdownProps {
     /** "cell": three small lines under a table's amount, the caption on hover. "block": the caption
      *  and the three lines, for a dialog or a page. */
     variant?: "cell" | "block";
+    /** The approve dialog: the request does not name the landlord with a valid PAN, so the caption is a
+     *  warning that it can't be approved (`tdsSplitCaption`, spec #1522 review batch 2). */
+    deducteeMissing?: boolean;
     className?: string;
 }
 
-export const ExpenseTdsBreakdown: React.FC<ExpenseTdsBreakdownProps> = ({ shown, variant = "cell", className }) => {
+export const ExpenseTdsBreakdown: React.FC<ExpenseTdsBreakdownProps> = ({
+    shown, variant = "cell", deducteeMissing = false, className,
+}) => {
     if (!shown) return null;
     const lines = tdsSplitLines(shown);
-    const caption = tdsSplitCaption(shown);
+    const caption = tdsSplitCaption(shown, deducteeMissing);
+    const warns = deducteeMissing && !shown.withheld;
 
     if (variant === "cell") {
         return (
@@ -47,7 +54,14 @@ export const ExpenseTdsBreakdown: React.FC<ExpenseTdsBreakdownProps> = ({ shown,
                     </React.Fragment>
                 ))}
             </dl>
-            <p className="mt-1 text-muted-foreground">{caption}</p>
+            {warns ? (
+                <p role="alert" className="mt-1 flex items-start gap-1 font-medium text-destructive">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    {caption}
+                </p>
+            ) : (
+                <p className="mt-1 text-muted-foreground">{caption}</p>
+            )}
         </div>
     );
 };

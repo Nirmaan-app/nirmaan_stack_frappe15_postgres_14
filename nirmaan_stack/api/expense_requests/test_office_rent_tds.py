@@ -56,7 +56,7 @@ RECORD_FIELDS = ["name", "non_project_expense", "project_payment", "gross_amount
 
 def _rent_answers(**overrides):
     fmt = json.loads(frappe.db.get_value("Expense Type", OFFICE_RENT, "source_format"))
-    detail = {"rent_month": "2026-10-01", "office_location": "Bengaluru HQ",
+    detail = {"rent_month": "2026-10", "office_location": "Bengaluru HQ",
               "landlord_name": "Asha Rao", "landlord_pan": "abcpk1234d", **overrides}
     return {"templateId": fmt["templateId"], "templateVersion": fmt["templateVersion"],
             "responses": {"detail": detail}}

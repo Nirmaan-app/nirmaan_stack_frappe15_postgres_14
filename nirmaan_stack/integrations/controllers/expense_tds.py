@@ -108,5 +108,4 @@ def _deductee(doc) -> tuple[str | None, str | None]:
     request = doc.get("request_id")
     if rule is None or not request:
         return None, None
-    answers = flat_responses(frappe.db.get_value("Expense Request", request, "source_data"))
-    return answers.get(rule.deductee_name_key), answers.get(rule.deductee_pan_key)
+    return rule.deductee_in(flat_responses(frappe.db.get_value("Expense Request", request, "source_data")))

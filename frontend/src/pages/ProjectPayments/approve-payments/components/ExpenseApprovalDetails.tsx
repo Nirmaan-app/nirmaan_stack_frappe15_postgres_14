@@ -12,6 +12,7 @@ import { TailSpin } from "react-loader-spinner";
 import SITEURL from "@/constants/siteURL";
 import { PorterSection } from "@/components/common/PorterExpense";
 import { formatDate } from "@/utils/FormatDate";
+import { showAnswer } from "@/utils/expenseFormat";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { invoiceAttachmentUrl } from "@/utils/porterExpense";
 import DuplicateStayNote from "@/components/common/DuplicateStayNote";
@@ -19,6 +20,7 @@ import { ExpenseTdsBreakdown } from "@/components/common/ExpenseTdsBreakdown";
 import { shownExpenseTds } from "@/utils/expenses/expenseTds";
 import {
   ApprovalStage,
+  approvalBlocked,
   ExpenseApprovalDetail,
   expenseApprovalOutcome,
   requestAttachments,
@@ -53,12 +55,17 @@ interface Props {
   approving: boolean;
 }
 
-export const ExpenseApprovalDetails: React.FC<Props> = ({ doctype, name, isOpen, stage, approving }) => {
-  const { data, error, isLoading } = useFrappeGetCall<{ message: ExpenseApprovalDetail }>(
+/** The detail, fetched only while the dialog is open. Shared with `PaymentActionDialog`, which reads
+ *  `approvalBlocked` from it to disable Confirm; one SWR key, so one request. */
+export const useExpenseApprovalDetail = (doctype: string | null | undefined, name: string | null | undefined, isOpen: boolean) =>
+  useFrappeGetCall<{ message: ExpenseApprovalDetail }>(
     "nirmaan_stack.api.approvals.expense_detail.get_expense_approval_detail",
     { doctype, name },
-    isOpen && name ? `expense_approval_detail_${doctype}_${name}` : null
+    isOpen && doctype && name ? `expense_approval_detail_${doctype}_${name}` : null
   );
+
+export const ExpenseApprovalDetails: React.FC<Props> = ({ doctype, name, isOpen, stage, approving }) => {
+  const { data, error, isLoading } = useExpenseApprovalDetail(doctype, name, isOpen);
   const d = data?.message;
 
   if (isLoading) {
@@ -79,6 +86,10 @@ export const ExpenseApprovalDetails: React.FC<Props> = ({ doctype, name, isOpen,
   const nameOf = (u?: string | null) => (u && d.user_names[u]) || u || "--";
   const extraFiles = requestAttachments(d);
   const outcome = expenseApprovalOutcome(stage, d.amount);
+  // An Office Rent expense whose request does not name the landlord: the server refuses the approve, so
+  // the Rent / TDS / Net caption warns instead, no outcome is promised, and Confirm is disabled (spec
+  // #1522 review batch 2).
+  const blocked = approvalBlocked(d, approving);
   const invoiceBits = [d.invoice_ref, d.invoice_date ? formatDate(d.invoice_date) : ""].filter(Boolean);
 
   return (
@@ -97,6 +108,7 @@ export const ExpenseApprovalDetails: React.FC<Props> = ({ doctype, name, isOpen,
           <ExpenseTdsBreakdown
             shown={shownExpenseTds({ type: d.type, amount: d.amount, status: d.status, withheld: d.withheld_tds })}
             variant="block"
+            deducteeMissing={d.deductee_missing}
             className="mt-1"
           />
         </Row>
@@ -153,7 +165,8 @@ export const ExpenseApprovalDetails: React.FC<Props> = ({ doctype, name, isOpen,
           </div>
           {d.request.detail.map((row, i) => (
             <Row key={i} label={row.label || "--"}>
-              <span className="whitespace-pre-wrap">{row.value}</span>
+              {/* A month reads `Oct 2026` and a date dd-MMM-yyyy, as on the request page. */}
+              <span className="whitespace-pre-wrap">{showAnswer(String(row.value ?? ""))}</span>
             </Row>
           ))}
           {extraFiles.length > 0 && (
@@ -187,7 +200,7 @@ export const ExpenseApprovalDetails: React.FC<Props> = ({ doctype, name, isOpen,
         </div>
       )}
 
-      {approving && (
+      {approving && !blocked && (
         <p
           className={`flex items-start gap-1.5 text-sm ${
             outcome.finishes ? "text-emerald-700 dark:text-emerald-400" : "text-sky-700 dark:text-sky-400"

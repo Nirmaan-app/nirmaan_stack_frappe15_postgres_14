@@ -18,22 +18,10 @@ PURE: no `frappe`, no DB.
 
 import json
 
-from nirmaan_stack.api.expense_requests.flatten import as_dict
+from nirmaan_stack.api.expense_requests.flatten import as_dict, fields_of_type
 from nirmaan_stack.services.vendor_tds import clean_pan, is_valid_pan
 
 PAN_FIELD_TYPE = "pan"
-
-
-def pan_fields(source_format) -> list[tuple[str, str, str]]:
-    """`(section id, field key, label)` for every `pan` field of a format."""
-    out = []
-    for section in (as_dict(source_format) or {}).get("sections") or []:
-        if not isinstance(section, dict):
-            continue
-        for f in section.get("fields") or []:
-            if isinstance(f, dict) and f.get("key") and f.get("type") == PAN_FIELD_TYPE:
-                out.append((section.get("id"), f["key"], f.get("label") or f["key"]))
-    return out
 
 
 def pan_problem(label: str, value) -> str:
@@ -46,7 +34,7 @@ def clean_pan_answers(source_data, source_format) -> tuple[str | None, list[str]
 
     `source_data` comes back unchanged when the form asks no PAN or none was answered.
     """
-    fields = pan_fields(source_format)
+    fields = fields_of_type(source_format, PAN_FIELD_TYPE)
     data = as_dict(source_data)
     responses = (data or {}).get("responses")
     if not fields or not isinstance(responses, dict):

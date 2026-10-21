@@ -31,9 +31,13 @@ finds it and changes nothing.
 ⚠️ NEVER WITHOUT THE LANDLORD (owner, 2026-10-21). A tax that cannot be filed against a name and a
 PAN is not withheld, so the approval that would withhold it is refused instead: `refuse_without_deductee`,
 run by `controllers/expense_tds.validate` BEFORE the approving save writes anything (and again by
-`withhold_expense_tds` itself, as the backstop). The request endpoints require both answers on create
-and edit (`api/expense_requests/create.guard_deductee_answers`), so only an Expense raised before that,
-re-typed to Office Rent before approval, or with no request meets the refusal.
+`withhold_expense_tds` itself, as the backstop). The request endpoints require both answers on create,
+on edit and at a Reviewer's approval, at any amount (`api/expense_requests/create.guard_deductee_answers`,
+review batch 2), so a request without them stays Pending Approval for its raiser to edit, and only an
+Expense whose request was raised before that, one re-typed to Office Rent before approval, or one with
+no request meets this refusal. None of those can be edited into shape (its request is decided), so the
+refusal says to reject it and raise it again. The approve dialog says so before the click
+(`api/approvals/expense_detail`'s `deductee_missing`).
 
 ⚠️ THE APPROVAL TIERS READ THE GROSS. The amount is cut only AFTER the approval that withholds, so
 `expense_decision` decides every step on the full rent: Rs 55,000 still waits at CEO Pending.
@@ -88,6 +92,10 @@ class ExpenseTdsRule:
     deductee_name_key: str
     deductee_pan_key: str
 
+    def deductee_in(self, answers: dict) -> tuple:
+        """`(name, PAN)` from a request's flat answers (`flatten.flat_responses`), under this rule's keys."""
+        return answers.get(self.deductee_name_key), answers.get(self.deductee_pan_key)
+
 
 #: THE rule (spec #1522): Office Rent, 10%, 194-I; the landlord, named by Office Rent's form
 #: (`fixtures/expense_type.json`, pinned by `services/test_expense_tds_rule`).
@@ -139,16 +147,14 @@ def withholds_now(doctype: str | None, expense_type: str | None, previous_status
 
 # ── Who it is withheld from: the landlord, named and with a valid PAN (owner, 2026-10-21) ─────
 
-#: The refusal of an approval that would withhold an Office Rent tax with no landlord to file it against.
-NO_DEDUCTEE_REFUSAL = "Add the landlord's name and PAN before approving this Office Rent expense."
-
-
 def deductee_gaps(name, pan) -> list[str]:
     """What the tax cannot be filed without: `[]` when the landlord is named and the PAN is a valid
-    one (`vendor_tds.is_valid_pan`), else one phrase per gap, for a refusal. Pure.
+    one (`vendor_tds.is_valid_pan`), else one phrase per gap, for a refusal. Pure, so the phrases are
+    not passed through `_()` (which needs a site); the sentence they fill is.
 
-    Read by the request endpoints (`create.guard_deductee_answers`, on create and edit) and by
-    `refuse_without_deductee` (the approval)."""
+    Read by the request endpoints (`create.guard_deductee_answers`, on create, edit and review), by the
+    approve dialog's detail (`api/approvals/expense_detail`) and by `refuse_without_deductee` (the
+    approval)."""
     gaps = []
     if not str(name or "").strip():
         gaps.append("the landlord's name")
@@ -161,9 +167,17 @@ def deductee_gaps(name, pan) -> list[str]:
 
 def refuse_without_deductee(name, pan) -> None:
     """Refuse an approval that would withhold an Office Rent tax while the landlord's name or PAN is
-    missing (`NO_DEDUCTEE_REFUSAL`). Raises before anything is written when called from `validate`."""
+    missing. Raises before anything is written when called from `validate`.
+
+    Only an Expense whose request is decided, or that has none, reaches this (the request endpoints
+    refuse first, see the module note), so the message names the one way out: reject it and raise it
+    again. The text is a literal inside `_()` so the translation extractor finds it."""
     if deductee_gaps(name, pan):
-        frappe.throw(_(NO_DEDUCTEE_REFUSAL), title=_("Landlord missing"))
+        frappe.throw(
+            _("This Office Rent expense has no landlord's name and PAN, so its TDS cannot be filed and it "
+              "cannot be approved. Reject it and raise it again with the landlord's name and PAN."),
+            title=_("Landlord missing"),
+        )
 
 
 def existing_expense_deduction(expense: str | None) -> str | None:

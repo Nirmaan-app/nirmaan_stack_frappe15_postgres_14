@@ -35,9 +35,17 @@ export const hasFormat = (source_format?: string | null): boolean =>
     !!(source_format || "").trim();
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+/** A `month` field's answer, as `<input type="month">` gives it: `YYYY-MM`. */
+const ISO_MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-/** One answer of a request's `detail`, for the screen: an ISO date reads dd-MMM-yyyy. */
-export const showAnswer = (value: string): string => (ISO_DATE.test(value) ? formatDate(value) : value);
+/** One answer of a request's `detail`, for the screen: an ISO date reads dd-MMM-yyyy, and a month
+ *  `Oct 2026`, as the server's sentence reads it (`flatten._prose_value`). */
+export const showAnswer = (value: string): string => {
+    if (ISO_DATE.test(value)) return formatDate(value);
+    if (ISO_MONTH.test(value)) return `${MONTHS[Number(value.slice(5, 7)) - 1]} ${value.slice(0, 4)}`;
+    return value;
+};
 
 
 // --- the shipped format shape, parsed HERE rather than inline in a page (ADR-0010 F2) ---
@@ -45,8 +53,9 @@ export const showAnswer = (value: string): string => (ISO_DATE.test(value) ? for
 export interface FormatField {
     key: string;
     label: string;
-    /** `pan`: an Income Tax PAN, uppercased as typed and checked by the vendor PAN rule (#1524). */
-    type?: "text" | "textarea" | "number" | "date" | "select" | "pan";
+    /** `pan`: an Income Tax PAN, uppercased as typed and checked by the vendor PAN rule (#1524).
+     *  `month`: a month and year, `YYYY-MM`, drawn as a month picker (spec #1522 review batch 2). */
+    type?: "text" | "textarea" | "number" | "date" | "select" | "pan" | "month";
     required?: boolean;
     options?: string[];
     unit?: string;
@@ -190,7 +199,7 @@ export type FormatValidationResult =
 /** What FormatFieldsRenderer can actually draw — see its SCOPE note. The validator tracks
  *  the renderer, because a format that saves clean and renders nothing is the worse bug. */
 const SECTION_TYPES = ["fields", "image_attachments"] as const;
-const FIELD_TYPES = ["text", "textarea", "number", "date", "select", "pan"] as const;
+const FIELD_TYPES = ["text", "textarea", "number", "date", "select", "pan", "month"] as const;
 
 const vErr = (
     code: FormatValidationError["code"], message: string, path?: string,
@@ -358,14 +367,43 @@ export const panAnswerProblem = (value: string): string | null =>
         ? null
         : "Not a PAN. A PAN is 10 characters: 5 letters, 4 digits and a letter, like ABCPK1234D.";
 
-/** Every `sectionId.fieldKey` of a `pan` field whose answer is refused: these block submit. */
-export const invalidPanKeys = (fmt: ParsedFormat | null, answers: Record<string, string>): string[] =>
+/** Every `sectionId.fieldKey` of a field of this type whose answer `problem` refuses. */
+const refusedKeys = (
+    fmt: ParsedFormat | null,
+    answers: Record<string, string>,
+    fieldType: FormatField["type"],
+    problem: (value: string) => string | null,
+): string[] =>
     (fmt?.sections ?? [])
         .filter((s) => s.type === "fields")
         .flatMap((s) => (s.fields ?? [])
-            .filter((f) => f.type === PAN_FIELD_TYPE)
+            .filter((f) => f.type === fieldType)
             .map((f) => `${s.id}.${f.key}`))
-        .filter((key) => panAnswerProblem(answers[key] ?? "") !== null);
+        .filter((key) => problem(answers[key] ?? "") !== null);
+
+/** Every `sectionId.fieldKey` of a `pan` field whose answer is refused: these block submit. */
+export const invalidPanKeys = (fmt: ParsedFormat | null, answers: Record<string, string>): string[] =>
+    refusedKeys(fmt, answers, PAN_FIELD_TYPE, panAnswerProblem);
+
+
+// --- the month field (spec #1522 review batch 2) --------------------------------------
+//
+// A `month` field (Office Rent's Rent Month) asks a month and its year, never a day. The renderer draws
+// `<input type="month">`, whose value is `YYYY-MM`; a browser without one shows a text box, so the
+// answer is checked here too. The server applies the same rule on create and edit
+// (`api/expense_requests/month_answers`).
+
+export const MONTH_FIELD_TYPE = "month";
+
+/** Why a month answer is refused, or null. A blank answer is the required check's, not this one's. */
+export const monthAnswerProblem = (value: string): string | null =>
+    !value.trim() || ISO_MONTH.test(value.trim())
+        ? null
+        : "Not a month. Pick the month and year, like 2026-10.";
+
+/** Every `sectionId.fieldKey` of a `month` field whose answer is refused: these block submit. */
+export const invalidMonthKeys = (fmt: ParsedFormat | null, answers: Record<string, string>): string[] =>
+    refusedKeys(fmt, answers, MONTH_FIELD_TYPE, monthAnswerProblem);
 
 
 /** The stored answers as the dialog's flat `section.field` map — the inverse of `toResponses`.

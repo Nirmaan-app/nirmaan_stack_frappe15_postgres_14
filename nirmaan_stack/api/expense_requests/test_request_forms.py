@@ -28,6 +28,8 @@ FIXTURE = os.path.join(
 EXPECTED_RULES = {
 	# The landlord's account: a deposit is transferred to, and recovered from, whoever holds it.
 	"Accommodation Deposit": REQUIRED,
+	# The rent is paid into the landlord's account (owner, 2026-10-21, spec #1522 review batch 2).
+	"Office Rent": REQUIRED,
 	# Sometimes paid by card or cash, or a batch with no single payee.
 	"Rent/PG for Staff": OPTIONAL,
 	"Office Maintenance": OPTIONAL,
@@ -38,8 +40,9 @@ EXPECTED_RULES = {
 # Fields that only said who gets paid, now asked through the Payee picker.
 PAYEE_NAME_KEYS = {"landlord_name", "landlord_or_pg_name", "employee_name"}
 PAYEE_NAME_LABELS = re.compile(r"paid to|landlord|holder", re.I)
-# Office Rent names its landlord as the TAX DEDUCTEE, not as who gets paid (spec #1522, #1524): the
-# 10% TDS is filed against the landlord's name and PAN. Who gets paid stays Not asked.
+# Office Rent names its landlord as the TAX DEDUCTEE (spec #1522, #1524): the 10% TDS is filed against
+# the landlord's name and PAN, so these two stay form fields. Who gets paid is the landlord's account,
+# asked through the Payee picker like every other type (Required, owner 2026-10-21).
 TAX_DEDUCTEE_FIELDS = {("Office Rent", "landlord_name"), ("Office Rent", "landlord_pan")}
 
 # Bank details of the account the money goes to.
@@ -185,10 +188,14 @@ class TestTheOfficeRentForm(unittest.TestCase):
 		self.row = next(r for r in _types() if r["name"] == "Office Rent")
 		self.fmt = _format(self.row)
 
-	def test_it_asks_the_month_as_a_date_and_the_landlord_pan_as_a_pan(self):
+	def test_it_asks_the_month_as_a_month_and_the_landlord_pan_as_a_pan(self):
+		"""Month and year only (owner, 2026-10-21): the form asked a full date before."""
 		types = {f["key"]: f.get("type") for _s, f in _fields(self.row)}
-		self.assertEqual(types, {"rent_month": "date", "office_location": "text",
+		self.assertEqual(types, {"rent_month": "month", "office_location": "text",
 		                         "landlord_name": "text", "landlord_pan": "pan"})
+
+	def test_its_version_moved_with_the_month(self):
+		self.assertEqual(self.fmt["templateVersion"], 2)
 
 	def test_its_description_states_the_rent_the_landlord_and_the_tax(self):
 		self.assertEqual(
@@ -196,5 +203,5 @@ class TestTheOfficeRentForm(unittest.TestCase):
 			"Office rent for {rent_month} – {office_location}. Landlord: {landlord_name} "
 			"(PAN {landlord_pan}). (10% TDS will be deducted)")
 
-	def test_who_gets_paid_stays_not_asked(self):
-		self.assertEqual(self.row["payee_rule"], NOT_ASKED)
+	def test_who_gets_paid_is_required(self):
+		self.assertEqual(self.row["payee_rule"], REQUIRED)

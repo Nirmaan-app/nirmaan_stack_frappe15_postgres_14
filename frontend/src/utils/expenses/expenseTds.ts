@@ -139,10 +139,19 @@ export const tdsSplitLines = (shown: ShownExpenseTds): { label: string; value: s
     { label: "Net", value: rupees(shown.net) },
 ];
 
-/** Whether the tax will be or was withheld, in one line, under the section it is (or will be) filed in. */
-export const tdsSplitCaption = (shown: ShownExpenseTds): string =>
+/** The approve dialog's warning on an Office Rent expense whose request does not name the landlord with a
+ *  valid PAN (`api/approvals/expense_detail`'s `deductee_missing`): the server refuses its approval
+ *  (`services/expense_tds.refuse_without_deductee`), so Confirm is disabled (spec #1522 review batch 2). */
+export const LANDLORD_MISSING = "Landlord's name and PAN are missing — this can't be approved";
+
+/** Whether the tax will be or was withheld, in one line, under the section it is (or will be) filed in.
+ *  A forecast whose landlord is missing says so instead (`LANDLORD_MISSING`): nothing will be withheld,
+ *  because it can't be approved. */
+export const tdsSplitCaption = (shown: ShownExpenseTds, deducteeMissing = false): string =>
     shown.withheld
         ? `${shown.ratePct}% TDS (${shown.section}) withheld; the landlord is paid the net`
+        : deducteeMissing
+        ? LANDLORD_MISSING
         : `${shown.ratePct}% TDS (${shown.section}) will be withheld on approval`;
 
 /**
@@ -151,6 +160,46 @@ export const tdsSplitCaption = (shown: ShownExpenseTds): string =>
  * says what was asked for, the full rent (spec #1522 story 27), beside the Rent / TDS / Net breakdown.
  */
 export const raisedForAmount = (expenseAmount: number, requestAmount: number | string | null | undefined): number | null => {
+    // An absent amount says nothing: `parseNumber` would read it as 0, and "Raised for ₹0" is false.
+    if (requestAmount === null || requestAmount === undefined || `${requestAmount}`.trim() === "") return null;
     const asked = parseNumber(requestAmount);
     return asked !== expenseAmount ? asked : null;
+};
+
+// ── The type, once approved (spec #1522 review batch 2) ─────────────────────────────────────────
+
+/** The statuses in which an Expense's type may still change to or from Office Rent: the server's
+ *  `services/expense_tds.TYPE_CHANGE_STATUSES`, before the approval that decides the tax. */
+const TYPE_CHANGE_STATUSES: ReadonlySet<string> = new Set([PAYMENT_STATUS.REQUESTED, PAYMENT_STATUS.CEO_PENDING]);
+
+export interface TdsTypeLock {
+    /** The type select is disabled: an Office Rent expense past CEO Pending. */
+    selectLocked: boolean;
+    /** The one option disabled for another type's expense past CEO Pending: Office Rent. */
+    blockedType: string | null;
+    /** One line saying why, under the select (or beside the disabled option); null when nothing is locked. */
+    reason: string | null;
+}
+
+/**
+ * What the edit dialog's type select may offer an Expense at its stored `status`: the screen half of
+ * `services/expense_tds.guard_tds_type_change`, which refuses the save anyway. Before approval the type
+ * changes freely, because the approval reads the type it finds.
+ */
+export const tdsTypeLock = (status: string | null | undefined, type: string | null | undefined): TdsTypeLock => {
+    const stored = status ?? "";
+    if (!stored || TYPE_CHANGE_STATUSES.has(stored)) return { selectLocked: false, blockedType: null, reason: null };
+    const rule = OFFICE_RENT_TDS;
+    if (type === rule.expenseType) {
+        return {
+            selectLocked: true,
+            blockedType: null,
+            reason: `${stored}: the type stays ${rule.expenseType}, because its ${rule.ratePct}% TDS is decided at approval.`,
+        };
+    }
+    return {
+        selectLocked: false,
+        blockedType: rule.expenseType,
+        reason: `${stored}: it can't become ${rule.expenseType}, because its ${rule.ratePct}% TDS is decided at approval.`,
+    };
 };

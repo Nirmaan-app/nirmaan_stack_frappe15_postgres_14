@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
-    answersFromSourceData, invalidPanKeys, isKnownBinding, panAnswerProblem, parseFormat,
-    readDetailDescription, readNativeInvoice, seedAnswers, validateFormat,
+    answersFromSourceData, invalidMonthKeys, invalidPanKeys, isKnownBinding, monthAnswerProblem, panAnswerProblem,
+    parseFormat, readDetailDescription, readNativeInvoice, seedAnswers, showAnswer, validateFormat,
 } from "./expenseFormat";
 
 const FMT = parseFormat(JSON.stringify({
@@ -170,6 +170,50 @@ describe("the PAN field", () => {
 
     it("is a field type the format editor saves", () => {
         expect(codes(validateFormat(JSON.stringify(RENT)))).toEqual([]);
+    });
+});
+
+describe("the month field", () => {
+    const RENT = parseFormat(JSON.stringify({
+        templateId: "office-rent", templateVersion: 2,
+        sections: [{ id: "detail", type: "fields", fields: [
+            { key: "rent_month", label: "Rent Month", type: "month", required: true },
+            { key: "office_location", label: "Office Location", type: "text", required: true },
+        ] }],
+    }));
+
+    it("accepts a month and year, as the month picker gives it", () => {
+        for (const good of ["2026-10", "2026-01", "1999-12"]) expect(monthAnswerProblem(good)).toBeNull();
+    });
+
+    it("refuses a full date, a word or a month out of range", () => {
+        for (const bad of ["2026-10-01", "Oct 2026", "2026-13", "2026-00", "10-2026", "2026-1"]) {
+            expect(monthAnswerProblem(bad)).toMatch(/2026-10/);
+        }
+    });
+
+    it("leaves a blank month to the required check", () => {
+        expect(monthAnswerProblem("")).toBeNull();
+        expect(monthAnswerProblem("  ")).toBeNull();
+    });
+
+    it("names the month answers that block submit, and never a text field", () => {
+        expect(invalidMonthKeys(RENT, { "detail.rent_month": "2026-10-01", "detail.office_location": "2026-10-01" }))
+            .toEqual(["detail.rent_month"]);
+        expect(invalidMonthKeys(RENT, { "detail.rent_month": "2026-10" })).toEqual([]);
+        expect(invalidMonthKeys(RENT, {})).toEqual([]);
+        expect(invalidMonthKeys(null, { "detail.rent_month": "nope" })).toEqual([]);
+    });
+
+    it("is a field type the format editor saves", () => {
+        expect(codes(validateFormat(JSON.stringify(RENT)))).toEqual([]);
+    });
+
+    it("reads as month and year on the request page, as the sentence does", () => {
+        expect(showAnswer("2026-10")).toBe("Oct 2026");
+        expect(showAnswer("2026-01")).toBe("Jan 2026");
+        expect(showAnswer("2026-13")).toBe("2026-13");
+        expect(showAnswer("Bengaluru HQ")).toBe("Bengaluru HQ");
     });
 });
 

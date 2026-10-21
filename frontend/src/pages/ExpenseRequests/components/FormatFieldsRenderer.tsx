@@ -2,7 +2,7 @@
 //
 // Renders an Expense Type's `source_format` inside the create dialog.
 //
-// SCOPE: `fields` sections (text / textarea / number / date / select / pan) and
+// SCOPE: `fields` sections (text / textarea / number / date / select / pan / month) and
 // `image_attachments` slots. Anything else is reported as unrendered rather than silently
 // dropped. The full commissioning renderer handles more section types but drags in wizard
 // steps and print concerns an expense request has no use for.
@@ -25,7 +25,7 @@ import { CustomAttachment, AcceptedFileType } from "@/components/helpers/CustomA
 import {
     Collapsible, CollapsibleContent, CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { panAnswerProblem, PAN_FIELD_TYPE } from "@/utils/expenseFormat";
+import { MONTH_FIELD_TYPE, monthAnswerProblem, panAnswerProblem, PAN_FIELD_TYPE } from "@/utils/expenseFormat";
 import type { FormatSection, ParsedFormat } from "@/utils/expenseFormat";
 import { cleanPan } from "@/utils/pan";
 
@@ -149,6 +149,23 @@ const FieldsSection: React.FC<{
                                 />
                                 {panAnswerProblem(value) && (
                                     <p className="text-xs text-destructive">{panAnswerProblem(value)}</p>
+                                )}
+                            </>
+                        ) : f.type === MONTH_FIELD_TYPE ? (
+                            // A month and year only (spec #1522 review batch 2): the picker's value is
+                            // `YYYY-MM`. A browser without one shows a text box, hence the placeholder and
+                            // the check (`invalidMonthKeys` blocks submit; the server refuses it too).
+                            <>
+                                <Input
+                                    type="month"
+                                    value={value}
+                                    placeholder="YYYY-MM"
+                                    disabled={disabled}
+                                    aria-invalid={!!monthAnswerProblem(value)}
+                                    onChange={(e) => onChange(key, e.target.value)}
+                                />
+                                {monthAnswerProblem(value) && (
+                                    <p className="text-xs text-destructive">{monthAnswerProblem(value)}</p>
                                 )}
                             </>
                         ) : (
