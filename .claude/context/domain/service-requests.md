@@ -56,6 +56,19 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   payment guard runs. The rule is the pure `work_order_gst.gst_flag_for_vendor` (frontend twin
   `utils/workOrderGst.gstForVendor`). Remove GST Hold writes no WO. First approval also fills a blank
   `project_gst` from the project (`ServiceRequests.fill_project_gst_on_approval`).
+- **A Finalized WO's scope is locked on the server, for everyone, Admin included (#1539).** The same
+  `work_order_lifecycle.change_problem` refuses a save of a Finalized WO that changes `LOCKED_FIELDS`
+  (status, so Amend; vendor, project, `gst`, `notes` (terms), `work_order_items`, `service_order_list`,
+  `service_category_list`, `total_amount`), and `delete_problem`, run first in `on_trash`
+  (`controllers/service_requests.guard_delete`), refuses its delete before anything is cleared. Both refuse with
+  `FINALIZED_REFUSAL`, the text the WO page's banner shows word for word
+  (`frontend/src/pages/ServiceRequests/config/finalizedLock.ts`, pinned by `services/test_work_order_lifecycle`).
+  Everything else stays open: payments and the figures they recount, invoices, remarks, `project_gst`, the PDF,
+  Generate invoice. The one `gst` change let through is `flags.gst_set_from_vendor` (Match GST to vendor).
+  `is_finalized` moves only in a save carrying `flags.finalize_action`, set by `api/sr_finalize` (Finalize and
+  Revert Finalization, which write the audit remark); `is_finalized` and `total_amount` are read-only in Desk.
+  The comparison ignores how Desk sends a value (JSON as text, int vs float, a row's own name and timestamps),
+  so a Desk save that leaves the scope alone passes.
 
 ## Doctype: Service Requests
 
@@ -74,10 +87,9 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
 
 Approved SRs can be "finalized" to lock them from further modifications.
 
-**Finalize locks:**
-- Amend action
-- Delete action
-- Edit Terms & Notes
+**Finalize locks** (on the server, see Load-bearing invariants; the page hides the buttons and shows a banner):
+- Amend, Delete, Edit Terms
+- The GST flag (except Match GST to vendor), items, categories, vendor and total, Desk included
 
 **Permission Model:**
 ```

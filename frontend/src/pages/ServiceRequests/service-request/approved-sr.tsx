@@ -11,6 +11,7 @@ import { Pencil2Icon } from "@radix-ui/react-icons";
 import logo from "@/assets/logo-svg.svg";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { SRDetailsCard } from "./components/SRDetailsCard";
+import { FinalizedLockBanner } from "./components/FinalizedLockBanner";
 import { SRComments } from "./components/SRComments";
 import {
     AlertDialog,
@@ -515,6 +516,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
     return (
         <div className="flex-1 space-y-4">
+            {isFinalized && <FinalizedLockBanner />}
             {/* WO Details Card - using new SRDetailsCard component */}
             <SRDetailsCard
                 orderData={orderData}

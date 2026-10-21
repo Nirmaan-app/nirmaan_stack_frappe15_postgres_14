@@ -120,7 +120,8 @@
   {
    "fieldname": "total_amount",
    "fieldtype": "Currency",
-   "label": "Total Amount"
+   "label": "Total Amount",
+   "read_only": 1
   },
   {
    "fieldname": "amount_paid",
@@ -146,7 +147,8 @@
    "default": "0",
    "fieldname": "is_finalized",
    "fieldtype": "Check",
-   "label": "Is Finalized"
+   "label": "Is Finalized",
+   "read_only": 1
   },
   {
    "fieldname": "finalized_by",
@@ -191,7 +193,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-20 00:27:47.157492",
+ "modified": "2026-10-22 00:34:36.217064",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Service Requests",

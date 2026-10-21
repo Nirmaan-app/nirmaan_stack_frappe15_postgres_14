@@ -333,6 +333,8 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.service_requests.validate",
         ],
         "on_trash": [
+            # A Finalized Work Order is not deleted (#1539); first, so nothing is cleared before it refuses.
+            "nirmaan_stack.integrations.controllers.service_requests.guard_delete",
             "nirmaan_stack.integrations.controllers.service_requests.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions"
         ],

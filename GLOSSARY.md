@@ -205,6 +205,10 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Admin (Nirmaan)** — the elevated actor these financial-mutation rules gate on: the *Administrator* user or a holder of the *Nirmaan Admin Profile*. Deliberately narrower than the broader "privileged" role sets (e.g. PMO Executive, Accountant Lead) used on read/visibility surfaces.
 
+## Work Order lifecycle
+
+- **Finalized (Work Order)** — an *Approved* Work Order whose scope is closed: a flag on it, not a status. While finalized it cannot be amended or deleted, and its items, total, vendor, *GST flag* and terms cannot change, on the screen, in Desk or through the API, for anyone, Admin included. The one GST change allowed is *Match GST to vendor*. Payments, invoices, remarks, the Nirmaan GST, the PDF and *Generate invoice* stay open. It is set by **Finalize** and cleared only by **Revert Finalization**, each recorded as an undeletable remark; the flag cannot be ticked or unticked by hand. The Work Order page shows a banner naming what is locked, and the server refuses a locked change with the same words. *Avoid*: closed, locked, completed. (Spec #1528, #1539.)
+
 ## Work-order GST
 
 - **GST flag (of a Work Order)** — whether a Work Order (Service Request) was raised with GST *on* or *off*. With GST on, the Work Order's total already includes 18% GST; with GST off, its total is the bare value with no GST in it. The UI labels it "Incl. GST" (Yes / No). **It follows the vendor:** on exactly when the vendor has a GST number. The server sets it at approval and when an accepted amendment changes the vendor; no one can switch it by hand, on the screen or in Desk. An existing Work Order never changes by itself: the one other way it moves is *Match GST to vendor*. It cannot be turned **off** while the Work Order has a *GST payment* that is not deleted. ([ADR-0028 Amendment A](docs/adr/0028-gst-hold.md).)
