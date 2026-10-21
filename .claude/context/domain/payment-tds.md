@@ -188,8 +188,29 @@ figure — the company pays the tax on top:
   are company-borne → `Company`; all else `Vendor`). It recounts nothing; drift is left to the Amount
   Paid Mismatch report. On the env clone (2026-10-16): 16 `Company`, 767 `Vendor`; Service Requests
   mismatches stay 7, as after `e8e7ef3ce`.
-- The forecasts for a NEW approval (approve + bulk-confirm previews, request dialogs: `useVendorTdsRates`
+- The forecasts for a NEW approval (approve + bulk-confirm previews: `useVendorTdsRates`
   `companyBorneFor`) still use the category rule, as `record_deduction` will.
+
+### Load-bearing invariants: the TDS preview before approval (#1541)
+
+- **The server works the preview out, from approval's own pieces.** `services/tds_forecast.py`:
+  `forecast` / `figures` use `payment_tds.vendor_rate` (the vendor's rate TODAY, owner ruling X3-A),
+  `is_company_borne`, `tds_on` (the formula `record_deduction` uses) and `is_withholdable` (the guard
+  `write_deduction` uses), and a typed amount is first rounded as the request stores it
+  (`request_amount_as_stored`, which `create_payment_request_for_service` itself calls). Change those
+  pieces, never a copy. Readers: the Request Payment dialog (`api/payments/tds_forecast.forecast_work_order_tds`,
+  via `useTdsForecast`; read checked on the Work Order) and the WO page's payment table
+  (`get_work_order_tds` `forecasts`: each Requested / CEO Pending, non-GST payment without a deduction).
+- **Nothing is written before approval.** A request left at Requested has no deduction
+  (`test_tds_forecast`). A request below ₹15,000, or raised by someone holding the approval, is born
+  Approved and is taxed at insert, so the dialog says "Tax is cut now" (`cut_now`, from the endpoint's
+  own routing `_tier_new_payment`).
+- **"Req. Amount" is the full bill whatever the status (owner ruling X4-A).** The WO page table:
+  Req. Amount / TDS / To be paid (`tdsPreview.paymentTableFigures`: a recorded `Vendor` deduction is
+  added back onto the cut amount). The approval queue (All Payments, accountant tabs, CSV): the row's
+  `requested_amount` (`tds_forecast.withheld_by_payment`, the counted `Vendor` tax) with a "To be paid"
+  line under it when they differ. `amount` stays the stored figure: every action, total, sort and the
+  bank file read it.
 
 ---
 

@@ -23,6 +23,7 @@ from nirmaan_stack.services.payment_tds import (
 	order_deductions,
 	work_order_tds_borne,
 )
+from nirmaan_stack.services.tds_forecast import waiting_payment_forecasts
 
 
 @frappe.whitelist()
@@ -40,6 +41,8 @@ def get_work_order_tds(work_order: str) -> dict:
 			would bear the next deduction by the category rule.
 		payments: `{payment name: {tds_amount, borne_by}}` for every payment of the Work Order that
 			carries a deduction, whatever its status; a payment without one is absent.
+		forecasts: `{payment name: {rate, tds, vendor_gets, borne_by}}` for each payment still waiting
+			for approval, as its approval will tax it (`services/tds_forecast`, #1541); no row is written.
 
 	Example (SR-00107-001055, both payments Paid):
 		{"withheld": 120.0, "company": 282.4, "kind": "part",
@@ -47,7 +50,11 @@ def get_work_order_tds(work_order: str) -> dict:
 		              "PAY-2": {"tds_amount": 282.4, "borne_by": "Company"}}}
 	"""
 	frappe.has_permission(SERVICE_REQUEST_DOCTYPE, "read", doc=work_order, throw=True)
-	return {**work_order_tds_borne(work_order), "payments": order_deductions(SERVICE_REQUEST_DOCTYPE, work_order)}
+	return {
+		**work_order_tds_borne(work_order),
+		"payments": order_deductions(SERVICE_REQUEST_DOCTYPE, work_order),
+		"forecasts": waiting_payment_forecasts(work_order),
+	}
 
 
 @frappe.whitelist()
