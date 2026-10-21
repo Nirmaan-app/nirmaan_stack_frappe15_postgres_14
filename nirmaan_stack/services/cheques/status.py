@@ -384,20 +384,32 @@ def cancel(cheque: str, *, note: str, user: str) -> dict:
     """Cancel cheque `cheque` by hand: THE reject cascade (`decide.reject_cheque`), with `note` as every
     payment's rejection reason and on the cheque's history row. Returns what `reject_cheque` returns.
 
-    Refuses without a note, and once the cheque is Cleared (no undo) or already Cancelled; a Paid payment
-    refuses too (`reject_cheque`). A Security Deposit cheque is `cancel_deposit`'s. Runs inside the
-    caller's transaction and NEVER COMMITS.
+    Refuses without a note, and once the cheque is Cleared (no undo) or already Cancelled; a line already
+    Paid (an Old-type cheque's payment or expense) refuses too, named. A Security Deposit cheque is
+    `cancel_deposit`'s. Runs inside the caller's transaction and NEVER COMMITS.
     """
     reason = cancel_note_problem(note)
     if reason:
         frappe.throw(_(reason))
     doc = frappe.get_doc(CHEQUES, cheque, for_update=True)
-    reason = cancel_problem(status=doc.status)
+    reason = cancel_problem(status=doc.status, paid=_paid_lines(doc))
     if not reason and doc.cheque_type == CHEQUE_TYPE_SECURITY_DEPOSIT:
         reason = "it is a Security Deposit cheque: mark it returned instead"
     if reason:
         _refuse(doc, "cancelled", reason)
     return reject_cheque(cheque, reason=note.strip(), user=user)
+
+
+def _paid_lines(doc) -> list[tuple[str, str]]:
+    """`(kind, name)` of each record cheque `doc`'s lines name that is already Paid: its payments, and an
+    Old-type cheque's expenses (`clear_rules.cancel_problem` reads them)."""
+    payments = _line_payments(doc)
+    paid = frappe.get_all(PAYMENT_DOCTYPE, filters={"name": ["in", payments or [""]], "status": STATUS_PAID},
+                          pluck="name", order_by="name asc")
+    expenses = old_type_clear.expense_statuses(doc) if doc.old_type else {}
+    return [(PAYMENT_KIND, p) for p in paid] + [
+        (EXPENSE_KIND, name) for (_doctype, name), status in expenses.items() if status == STATUS_PAID
+    ]
 
 
 def cancel_deposit(cheque: str, *, note: str, user: str) -> dict:

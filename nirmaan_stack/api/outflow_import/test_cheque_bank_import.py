@@ -452,6 +452,31 @@ class TestCancellingAnOldTypeCheque(ChequeImportCase):
         self.assertEqual(self._state(cheque).status, "Cancelled")
         self.assertEqual(self._history(cheque)[-1], ("Issued", "Cancelled", U, "Stopped at the bank"))
 
+    def test_a_cheque_with_a_paid_line_is_not_cancelled_and_the_refusal_names_the_line(self):
+        number = self._number()
+        waiting, paid = self._payment(30000, RP), self._payment(15000, "Paid")
+        expense = self._waiting_expense(5000)
+        frappe.db.set_value(NPE, expense, "status", "Paid", update_modified=False)
+        frappe.db.commit()
+        cheque = self._old_type(number, 50000, [(waiting, 30000), (paid, 15000)], [(expense, 5000)])
+
+        self._refused(f"Cheque {number} cannot be cancelled: payment {paid} on it is already Paid, so the money "
+                      "has left the bank", cancel, cheque, note="Torn up", user=U)
+
+        self.assertEqual(self._statuses(waiting, paid), [RP, "Paid"])
+        self.assertEqual((self._state(cheque).status, self._lines(cheque)), ("Issued", [waiting, paid, expense]))
+
+    def test_a_paid_expense_line_refuses_the_cancel_too(self):
+        number = self._number()
+        waiting, expense = self._payment(30000, RP), self._waiting_expense(5000)
+        frappe.db.set_value(NPE, expense, "status", "Paid", update_modified=False)
+        frappe.db.commit()
+        cheque = self._old_type(number, 35000, [(waiting, 30000)], [(expense, 5000)])
+
+        self._refused(f"expense {expense} on it is already Paid", cancel, cheque, note="Torn up", user=U)
+
+        self.assertEqual((self._statuses(waiting), self._state(cheque).status), ([RP], "Issued"))
+
     def test_a_payment_rejected_on_its_own_still_drops_off_the_old_type_cheque(self):
         # #1413: outside the cheque's own cancel, a Rejected payment comes off an Old-type cheque.
         number = self._number()

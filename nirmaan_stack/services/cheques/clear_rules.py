@@ -163,15 +163,20 @@ def old_type_lines_problem(lines: Sequence[OldTypeLine], *, bank_amount) -> str 
     return None
 
 
-
-
-def cancel_problem(*, status: str) -> str | None:
+def cancel_problem(*, status: str, paid: Sequence[tuple[str, str]] = ()) -> str | None:
     """Why a cheque at `status` cannot be cancelled by hand, as a short reason, or None. Pure. Approval
-    Pending and Issued cheques may be (their payments are Rejected); a Cleared one has no undo (ADR-0035 §5)."""
+    Pending and Issued cheques may be (their payments are Rejected); a Cleared one has no undo (ADR-0035 §5).
+
+    `paid` holds `(kind, name)` ("payment" or "expense") of each record on its lines already Paid, which only
+    an Old-type cheque may have: that money has left the bank, and a cancel cannot take it back, so the
+    first is named."""
     if status == CLEARED:
         return "it is Cleared: a cleared cheque cannot be cancelled"
     if status == CANCELLED:
         return "already Cancelled"
+    if paid:
+        kind, name = paid[0]
+        return f"{kind} {name} on it is already Paid, so the money has left the bank"
     return None
 
 

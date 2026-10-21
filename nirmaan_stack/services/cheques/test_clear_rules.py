@@ -162,6 +162,17 @@ class TestCancel(unittest.TestCase):
     def test_a_cleared_cheque_has_no_undo(self):
         self.assertEqual(clear_rules.cancel_problem(status="Cleared"), "it is Cleared: a cleared cheque cannot be cancelled")
 
+    def test_a_cheque_with_a_paid_line_cannot_be_cancelled_and_names_it(self):
+        # An Old-type cheque may have a line already Paid: that money has left, so a cancel cannot undo it.
+        self.assertEqual(
+            clear_rules.cancel_problem(status="Issued", paid=[("payment", "PAY-1"), ("expense", "NPE-1")]),
+            "payment PAY-1 on it is already Paid, so the money has left the bank",
+        )
+        self.assertEqual(
+            clear_rules.cancel_problem(status="Issued", paid=[("expense", "NPE-1")]),
+            "expense NPE-1 on it is already Paid, so the money has left the bank",
+        )
+
     def test_a_cancelled_cheque_is_already_cancelled(self):
         self.assertEqual(clear_rules.cancel_problem(status="Cancelled"), "already Cancelled")
 
