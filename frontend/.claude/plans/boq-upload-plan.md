@@ -48516,3 +48516,76 @@ test logs.
 2. **The catalogue-column definition `depth_mm`** (category `attribute_definitions`) stays: D4 names the reader, the match
    attribute, the control and the note; 0 items carry it.
 3. **`writeOffControl.test.ts`** still times out at 5 s on its dynamic import (standing).
+
+## Slice ADP-3c - a two-part size on a Width + Height item is the face, whatever its parts are called - as built 2026-10-21
+
+**Owner rulings built (quoted):** 2026-10-21 00:47 "when for som eSKU, 2 measurements are required like width aND HEIGHT and
+the boq descripton mentions 2 dimesnions but with different names, it does not get captured and price refuses. ... we will
+need to decide if we nee dto fix such cases to use the dimensions irrespective of the exact name"; 01:31 "proceed"; 01:55 "ok
+to both" on ADP-R3c. RULE: on an item whose panel shows BOTH Width and Height boxes, a size with EXACTLY TWO readable parts
+is the face whatever its parts are called -- a width or height label decides that side, the other part takes the other side;
+with no width / height label, first = width, second = height. (2) both parts labelled the same side ("600 W x 300 W") read by
+position. UNCHANGED: D1 (three parts), D2 (the per-metre grille), the plenum's L / W / H boxes, a one-part size, inches /
+lists / ranges. **Ruling (1)** ("the four BOQ-26-00245 'HVAC ' door grilles with no unit price") was **WITHDRAWN by the owner
+on 2026-10-21**: its premise ("the panel already treats an empty unit as per number") is false on the live page (finding 1).
+
+**Commits (unpushed at the time of writing):**
+- `efdb7b77f` feat(rate-helper): code + tests.
+  - `itemListPricing.ts`: `readFaceSides(text, { pair })` -- with `pair` and exactly two parts, the two-part branch above;
+    a part whose own label is not the side it fills carries a `line` ("the other part of a two-part size"; "the first /
+    second part of a two-part size" where no width / height label decided). `priceOneItem` passes `pair` when the block's
+    `readsHere` holds both `face_side` readers of the same `length_from`; a side's `line` becomes its value-used line.
+  - `itemListRuleOrder.ts`: one Derivation line, LAST, generated where a config has both face sides -- "A two-part size on a
+    Width + Height item is the face, whatever its parts are called -- a width or height label decides that side, else
+    first = width, second = height" (ADP tab line 38).
+  - Tests: `adp3c.test.ts` (new, 23: the reader with / without the pair; AC1 every ruled case pos + neg; AC2 order on the
+    face-matched SKUs -- cross-talk, access door, square diffuser outer -- calculator = panel; the Derivation line);
+    `ruleReachability` C1a / C1b / C1c / C1a-calc / C1b-neg / C1c-neg + the ADP-3c guard; `calculatorPanelParity` R1 / R2.
+    Pins inverted by mechanical authority, BEFORE kept: `adp3b.test.ts` U3 (00302 r67 refused -> width 150 / height 600;
+    the "not used" pin moves to the per-metre grille), U6 `slice(-3)` -> `slice(-4, -1)`; the ruleReachability ADP-3b guard
+    (`slice(-NEW.length - 1, -1)`, gained set + `T.faceAny`).
+- The docs commit that carries this entry.
+
+Start tip `dcb824d5b` (= origin). No asset: live HVAC v49 (`793a2b39344242ad` / `bd12afff78ba6dd8`) and Electrical v66
+(`784d1dbe8024d5f8` / `aa8d0a49ef645120`) unchanged by content at START and END. Report on the Desktop:
+`2026-10-21_ADP-3c_Report.md` (ledger first), `_Ledger.md`, `_Moved_Rows.xlsx`, `_Field_Table.xlsx`, the two test logs.
+
+### 1. The live effect: ONE row
+
+- **Live (the page's unit, `row.unit ?? ""`): exactly 1 row moves** -- BOQ-26-00302 Sheet1 r67, curved grille "600(L)X150mm
+  width": refused -> width 150 / height 600 -> **496 / 80 / 576** (cert C1). 0 wording-only rows; unchanged-set hash
+  `4fa32105ecc2a4d0` before and after.
+- **Harness (the stored unit passed as null, as every replay passes it): 5 rows** -- r67 plus the four 00245 "HVAC " door
+  grilles r126-129 (1204 / 378, 313 / 98, 625 / 196, 1873 / 588); 0 wording rows; unchanged-set hash `2d8b894c96d56375`;
+  tracked replay after `85030279...` / `9e49ca93...`.
+- **Live, the four 00245 rows do not move at all**: their stored `BOQ Nodes.unit` is empty, the page passes `""`, and a
+  door grille (stocked per sq.m and per number) refuses "No unit on the BoQ row - this item is priced per sq.m or per number
+  or per metre; set the unit" before the size is read -- byte-identical before and after (cert C2, the panel shows no
+  boxes). Electrical, Piping, Insulation: 0 rows in both modes.
+
+### 2. Suites, cert
+
+- Targeted before commit 1: `src/pages/boq-wizard` + `src/pages/pricing` 121 files / 5,430 OK. Vacuity V1-V5 (the pair
+  branch 19 red, the flag 17, the label deciding 11, the U1 line 8, the U2 line 5), each restored sha-exact.
+- **Full, at `efdb7b77f`:** vitest 193 files / 7,314 (ADP-3b 192 / 7,281; +1 file, +33) -- 1 failure, the known
+  `writeOffControl` 5 s timeout (also times out alone with the slice's two sources at their `dcb824d5b` text); tsc 3,170,
+  the log byte-identical to ADP-3b's. Python not run (no Python file changed).
+- **Cert at :8080** after the full de-stale: C1 PASS; C2 (as written: 00245 r126 / r129 priced) FAILS -- the finding below;
+  C3-C7 PASS (00087 r36 1292 / 317, 00175 r170 D1 line, 00247 r102 725 / 132; calculator VCD 600 / 300 1410 / 346,
+  cross-talk 500 / 250 1044 / 360 and access door 450 / 450 8700 / 1280 = the panel's entry point on "500(W) x 250(L)" /
+  "450(L) x 450(H)"; the Derivation line LAST; Electrical 00256 r624 1775, Piping 00064 r68 4728, Insulation 00064 r141
+  1371; v49 / v66 unchanged, capture 465 lines unchanged).
+
+### 3. Findings (open)
+
+1. **The replay harnesses and the page pass an empty unit differently** -- for a separate READ-ONLY check. The page
+   (`SheetPricingPage.tsx`, `helperPanelCtx`) passes `unit: row.unit ?? ""`; `ac5_dump` -> `ac7` / `ac7v2` and the rich
+   replays pass the stored `None` as null. The pricer reads null as "unit not given" (prices per number) and `""` as "no
+   unit" (refuses on a kind stocked in more than one unit). Any stored row with an empty unit can therefore price in a
+   replay and refuse live; earlier replay baselines carry the same gap. ADP-R3c's "5 rows move" was harness-only. The
+   tracked harnesses were NOT changed in this slice (owner).
+2. **The grid's Unit column shows "Nos" on 00245 "HVAC " r126-129 while the panel reads no unit** (seen at C2) -- not
+   investigated here; part of finding 1's check.
+3. **ADP-3b's Derivation line 35 still says a part labelled as a length or depth is "named and not used"**; on a Width +
+   Height item line 38 now governs a two-part size (U2 is the only line this slice adds).
+4. **`writeOffControl.test.ts`** still times out at 5 s (standing; owner 2026-10-21: the listed known governs).

@@ -1455,6 +1455,17 @@ Width / Height; with something stated, the nearest way's gaps as before.
 = No (its `absent_when_value`), the six circuit-wire fields (`absent_dependents`) are not marked needed -- on the panel and the
 calculator alike. Display only: the gate is unchanged.
 
+**ADP-3c: A TWO-PART SIZE ON A WIDTH + HEIGHT ITEM IS THE FACE, WHATEVER ITS PARTS ARE CALLED (owner 2026-10-21 01:31 /
+01:55; no asset).** Where a block reads BOTH `face_side` readers (width and height) of the same size, a size of EXACTLY two
+readable parts fills both boxes: a width or height label decides that side and the other part takes the other side (L /
+length / long / D / deep / depth no longer mean "not used" there -- "BoQ says 600(L)X150mm width -> height 600 mm (the other
+part of a two-part size)"); with no width / height label, or both parts labelled the same side (owner (2)), first = width,
+second = height ("the first / second part of a two-part size"). D1's "named and not used" still holds for three-part sizes
+and for single-side readers; D2, the plenum, one-part sizes and inches / lists / ranges are unchanged. Order matters on the
+face-matched kinds (cross-talk, access door, square diffuser outer); calculator = panel. ADP Derivation line LAST. An EMPTY
+row unit is NOT priced per number on the page (`row.unit ?? ""` -> "set the unit" on a multi-unit kind); the replay
+harnesses pass null -- an open finding (ADP-3c plan entry), not a rule.
+
 **A DEFAULT IS NAMED AS THE DEFAULT, SAID ONCE, BY ITS FIELD'S LABEL (owner G1 / G2 / G3, 2026-10-12 "yes"; slice
 12e-4b).** G1: a number nobody stated (the ruled default) heads its field note "Default 9 mm -> priced as 13 mm
 (the smallest size)" (12e-4d AC3: below the smallest stocked size the field's line and the working both say "(the
