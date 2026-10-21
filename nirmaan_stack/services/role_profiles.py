@@ -268,6 +268,37 @@ def can_action_invoice_approvals(user: str) -> bool:
     return has_role_profile(user, INVOICE_APPROVAL_PROFILES)
 
 
+# A Vendor Invoice on a WORK ORDER (#1531, ADR-0014 Amendment A). Purchase Order invoices keep
+# their old rules. The ENFORCEMENT boundary is the Vendor Invoices `validate` hook
+# (`integrations/controllers/vendor_invoices.guard_work_order_invoice`, rule in
+# `services/work_order_invoice_access.py`), so Desk and the API obey it as the screens do.
+#
+# * Approve or reject: the invoice-approval roles, the same people who work the Pending queue.
+# * Edit (number, date, amount, base, GST): Accountants and Admin, the WO page's Edit gate
+#   (`isAccountant` in `DocumentAttachments.tsx`).
+# * Change an APPROVED invoice's number, date or amount: Admin only. Everyone else rejects it and
+#   uploads it again.
+# Uploading a new invoice is NOT narrowed: PMO and Procurement upload WO invoices today.
+WO_INVOICE_DECIDE_PROFILES = INVOICE_APPROVAL_PROFILES
+WO_INVOICE_EDIT_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+WO_APPROVED_INVOICE_EDIT_PROFILES = (ADMIN_PROFILE,)
+
+
+def can_decide_wo_invoice(user: str) -> bool:
+    """True when `user` may approve or reject a Work Order invoice. Administrator passes."""
+    return has_role_profile(user, WO_INVOICE_DECIDE_PROFILES)
+
+
+def can_edit_wo_invoice(user: str) -> bool:
+    """True when `user` may edit a Pending or Rejected Work Order invoice. Administrator passes."""
+    return has_role_profile(user, WO_INVOICE_EDIT_PROFILES)
+
+
+def can_edit_approved_wo_invoice(user: str) -> bool:
+    """True when `user` may change an Approved Work Order invoice's number, date or amount."""
+    return has_role_profile(user, WO_APPROVED_INVOICE_EDIT_PROFILES)
+
+
 PROJECT_MANAGER_PROFILE = "Nirmaan Project Manager Profile"
 PROJECT_LEAD_PROFILE = "Nirmaan Project Lead Profile"
 
