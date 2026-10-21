@@ -1,13 +1,15 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Generated invoices on a GST-off Work Order: generate, void, and what the WO page shows (#1546,
-spec #1528; GLOSSARY *Generated invoice*, *RA number*). The rules are in
+"""Generated invoices on a GST-off Work Order: generate, void, the signed upload, and what the WO page
+shows (#1546, #1547, spec #1528; GLOSSARY *Generated invoice*, *RA number*). The rules are in
 `services/wo_generated_invoices.py`.
 
     get_generated_invoices(work_order)                          -> dict  the records, next RA, the limit
     generate_invoice(work_order, invoice_type, invoice_date, amount) -> dict  a new record
     void_invoice(name, reason)                                  -> dict  the record, Voided
+    upload_signed_copy(name, file_url)                          -> dict  the record, Signed, with its
+                                                                         Pending Vendor Invoice
 
 Admin, PMO, service procurement and Project Lead only (`role_profiles.WO_GENERATED_INVOICE_PROFILES`),
 on a Work Order the user may read. The doctype grants read only, so every write is here, with
@@ -17,7 +19,8 @@ The print is the "WO Generated Invoice" print format (`PRINT_FORMAT`): it reads 
 from the link, so editing the link changes nothing. The doctype grants no `print`, so Desk offers no
 print; the WO page fetches the PDF through `frappe.utils.print_format.download_pdf`, which needs read.
 
-#1547 adds the signed upload here: it moves a record Generated -> Signed through `MOVES`.
+The upload's Vendor Invoice is decided through the normal invoice approval; its approval or rejection
+moves the record (`controllers/vendor_invoices.follow_generated_invoice`).
 """
 
 from contextlib import contextmanager
@@ -26,6 +29,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, cstr, flt, getdate, today
 
+from nirmaan_stack.api.delivery_notes.update_invoice_data import create_attachment_doc, create_vendor_invoice
 from nirmaan_stack.api.sr_remarks import assert_can_read_work_order
 from nirmaan_stack.services import wo_generated_invoices as gi
 from nirmaan_stack.services.outflow_import.amounts import rupees
@@ -134,6 +138,95 @@ def void_invoice(name: str, reason: str) -> dict:
 		doc.save(ignore_permissions=True)
 		frappe.db.commit()
 	return _row(doc)
+
+
+@frappe.whitelist(methods=["POST"])
+def upload_signed_copy(name: str, file_url: str) -> dict:
+	"""Book the vendor's signed copy of a generated invoice: one save attaches the scan, creates its
+	Pending Vendor Invoice (the record's number, date and amount; base = amount, GST = 0) and moves the
+	record to Signed. Accountants on the project are told. A record is uploaded once."""
+	assert_generate_wo_invoice_access(frappe.session.user)
+	work_order = frappe.db.get_value(gi.DOCTYPE, name, "work_order")
+	if not work_order:
+		raise frappe.DoesNotExistError(_("Generated invoice {0} not found.").format(name))
+	_readable(work_order)
+	if not cstr(file_url).strip():
+		frappe.throw(_("Attach the vendor's signed copy."))
+	with _billing_lock(work_order):
+		doc = frappe.get_doc(gi.DOCTYPE, name)
+		if doc.status == gi.SIGNED or doc.status == gi.APPROVED:
+			frappe.throw(_("This invoice is already uploaded: it is {0}, as Vendor Invoice {1}.").format(
+				doc.status, doc.vendor_invoice))
+		if doc.status != gi.GENERATED:
+			frappe.throw(_("A {0} invoice can't be uploaded. Generate a new one.").format(doc.status))
+		sr = frappe.get_doc(SR, work_order)
+		attachment = create_attachment_doc(sr, cstr(file_url).strip(), "sr invoice")
+		invoice = create_vendor_invoice(
+			parent_doc=sr,
+			invoice_data={"invoice_no": doc.invoice_no, "date": doc.invoice_date, "amount": doc.amount},
+			attachment_id=attachment.name,
+			split={"invoice_base_amount": flt(doc.amount), "invoice_gst_amount": 0},
+		)
+		frappe.db.set_value("Nirmaan Attachments", attachment.name,
+							{"associated_doctype": "Vendor Invoices", "associated_docname": invoice.name},
+							update_modified=False)
+		doc.status = gi.SIGNED
+		doc.vendor_invoice = invoice.name
+		doc.signed_attachment = attachment.name
+		doc.save(ignore_permissions=True)
+		frappe.db.commit()
+	_notify_accountants(sr, doc)
+	return _row(doc)
+
+
+ACCOUNTANT_PROFILES = ("Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile")
+SIGNED_UPLOAD_EVENT = "wo_invoice:signed_uploaded"
+
+
+def _accountants_of(project) -> list:
+	"""The Accountants who can see `project`: put on it, or on no project at all (Frappe's User
+	Permission rule: none means every project, which is how most Accountants are set up)."""
+	accountants = frappe.get_all("Nirmaan Users", fields=["name", "role_profile"],
+								 filters={"role_profile": ("in", ACCOUNTANT_PROFILES)})
+	scoped = {}
+	for perm in frappe.get_all("User Permission", fields=["user", "for_value"], filters={
+			"allow": "Projects", "user": ("in", [a.name for a in accountants] or [""])}):
+		scoped.setdefault(perm.user, set()).add(perm.for_value)
+	return [a for a in accountants if a.name not in scoped or project in scoped[a.name]]
+
+
+def _notify_accountants(sr, doc):
+	"""Tell the Accountants who can see the project that a signed copy waits for approval. Runs after
+	the upload's commit, and a failure is logged, never raised: the upload stands."""
+	try:
+		accountants = _accountants_of(sr.project)
+		title = _("Signed invoice uploaded")
+		description = _("{0} ({1}) on {2} is waiting for approval.").format(
+			doc.invoice_no, rupees(doc.amount), sr.name)
+		for user in accountants:
+			frappe.get_doc({
+				"doctype": "Nirmaan Notifications",
+				"recipient": user.name,
+				"recipient_role": user.role_profile,
+				"sender": frappe.session.user if frappe.session.user != "Administrator" else None,
+				"title": title,
+				"description": description,
+				"document": SR,
+				"docname": sr.name,
+				"project": sr.project,
+				"work_package": "Services",
+				"seen": "false",
+				"type": "info",
+				"event_id": SIGNED_UPLOAD_EVENT,
+				"action_url": "invoice-reconciliation?tab=pending",
+			}).insert(ignore_permissions=True)
+		frappe.db.commit()
+		for user in accountants:
+			frappe.publish_realtime(SIGNED_UPLOAD_EVENT, {"title": title, "description": description,
+														  "docname": sr.name}, user=user.name)
+	except Exception:
+		frappe.db.rollback()
+		frappe.log_error(frappe.get_traceback(), "Generated invoice upload notification failed")
 
 
 @contextmanager

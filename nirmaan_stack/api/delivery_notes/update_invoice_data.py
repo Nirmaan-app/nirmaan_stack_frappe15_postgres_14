@@ -21,6 +21,7 @@ from nirmaan_stack.api.invoices._auto_approve import (
 )
 from nirmaan_stack.api.invoices._item_billing_sync import recompute_po_invoice_qty
 from nirmaan_stack.api.invoices._validation import ORDER_TOTAL_LABEL, existing_invoiced_sum
+from nirmaan_stack.integrations.controllers.vendor_invoices import DELETE_GENERATED_REFUSAL, generated_invoice_of
 from nirmaan_stack.services import invoice_amounts
 from nirmaan_stack.services.role_profiles import can_edit_wo_invoice, is_nirmaan_admin as _is_nirmaan_admin
 from nirmaan_stack.services.work_order_gst import gst_is_on
@@ -593,6 +594,12 @@ def delete_invoice_entry(docname: str, date_key: str = None, isSR: bool = False,
                 "status": 403,
                 "message": "Only an admin can delete an approved invoice.",
             }
+
+    # A generated invoice's Vendor Invoice is rejected, never deleted (#1547). The Vendor Invoices
+    # on_trash hook refuses it on every path; answered here so the toast shows why.
+    generated_invoice = generated_invoice_of(vendor_invoice_name)
+    if generated_invoice:
+        return {"status": 403, "message": DELETE_GENERATED_REFUSAL.format(generated_invoice)}
 
     try:
         # --- Start Transaction ---

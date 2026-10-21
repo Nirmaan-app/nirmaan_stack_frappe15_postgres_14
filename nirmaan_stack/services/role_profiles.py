@@ -364,7 +364,7 @@ def assert_generate_wo_invoice_access(user: str) -> None:
     """Refuse a user outside `WO_GENERATED_INVOICE_PROFILES`."""
     if not can_generate_wo_invoice(user):
         raise frappe.PermissionError(
-            _("Only Admin, PMO, Procurement and Project Leads can generate or void a Work Order's invoice.")
+            _("Only Admin, PMO, Procurement and Project Leads can generate, void or upload a Work Order's generated invoice.")
         )
 
 

@@ -264,7 +264,7 @@ export const WO_GENERATED_INVOICE_PROFILES: readonly string[] = [
   ...SERVICE_PROCUREMENT_PROFILES,
 ];
 
-/** True when `role` (a role PROFILE) may generate or void a Work Order's generated invoice. */
+/** True when `role` (a role PROFILE) may generate, void or upload a Work Order's generated invoice. */
 export const canGenerateWoInvoice = (role?: string | null, userId?: string | null): boolean =>
   userId === "Administrator" || (!!role && WO_GENERATED_INVOICE_PROFILES.includes(role));
 

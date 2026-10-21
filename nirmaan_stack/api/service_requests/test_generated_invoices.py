@@ -18,10 +18,13 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt, getdate, set_request, today
 
+from nirmaan_stack.api.delivery_notes.update_invoice_data import delete_invoice_entry
+from nirmaan_stack.api.invoices.approve_vendor_invoice import approve_vendor_invoice
 from nirmaan_stack.api.service_requests import generated_invoices as api
 from nirmaan_stack.api.service_requests.generated_invoices import (
 	generate_invoice,
 	get_generated_invoices,
+	upload_signed_copy,
 	void_invoice,
 )
 from nirmaan_stack.api.vendor.test_gst_hold import U, _Fixture
@@ -46,11 +49,17 @@ class GeneratedInvoiceTestCase(FrappeTestCase):
 		self.vendor = self.fx.vendor()
 
 	def _purge_invoices(self):
-		names = frappe.get_all(GI, filters={"work_order": ("in", self.fx.srs or [""])}, pluck="name")
+		frappe.db.rollback()  # a failed test may leave a poisoned transaction
+		srs = self.fx.srs or [""]
+		names = frappe.get_all(GI, filters={"work_order": ("in", srs)}, pluck="name")
 		if names:
 			frappe.db.delete("Version", {"ref_doctype": GI, "docname": ("in", names)})
 			frappe.db.delete(GI, {"name": ("in", names)})
-		frappe.db.delete("Vendor Invoices", {"document_name": ("in", self.fx.srs or [""])})
+		invoices = frappe.get_all("Vendor Invoices", filters={"document_name": ("in", srs)}, pluck="name") or [""]
+		frappe.db.delete("Nirmaan Attachments", {"associated_docname": ("in", srs + invoices)})
+		frappe.db.delete("Version", {"ref_doctype": "Vendor Invoices", "docname": ("in", invoices)})
+		frappe.db.delete("Vendor Invoices", {"name": ("in", invoices)})
+		frappe.db.delete("Nirmaan Notifications", {"docname": ("in", srs)})
 
 	def _wo(self, *, amount=100_000, paid=0, gst="false", **fields):
 		"""An Approved WO of `amount` with `paid` of Amount Paid (incl. TDS) and a Nirmaan GST."""
@@ -75,10 +84,10 @@ class GeneratedInvoiceTestCase(FrappeTestCase):
 			self.skipTest(f"no {profile} user on this site")
 		return user
 
-	def _on_project(self, user):
-		"""A real user only sees projects they are on: put them on the fixture's for this test."""
+	def _on_project(self, user, project=None):
+		"""A real user only sees projects they are on: put them on the fixture's (or `project`) for this test."""
 		perm = frappe.get_doc({"doctype": "User Permission", "user": user, "allow": "Projects",
-							   "for_value": self.project}).insert(ignore_permissions=True)
+							   "for_value": project or self.project}).insert(ignore_permissions=True)
 		frappe.db.commit()
 		self.addCleanup(self._remove_permission, perm.name)
 		return user
@@ -388,3 +397,151 @@ class TestPrint(GeneratedInvoiceTestCase):
 	def test_printing_from_desk_is_off(self):
 		self.assertFalse([p.role for p in frappe.get_meta(GI).permissions if p.get("print")])
 		self.assertTrue(frappe.db.get_value("Print Format", "SR Invoice", "disabled"))
+
+
+SCAN = "/private/files/signed-copy.pdf"
+
+
+class SignedUploadTestCase(GeneratedInvoiceTestCase):
+	def _vi(self, name):
+		return frappe.db.get_value(GI, name, "vendor_invoice")
+
+	def _invoice(self, vi):
+		return frappe.db.get_value("Vendor Invoices", vi, ["document_type", "document_name", "invoice_no",
+														   "invoice_date", "invoice_amount", "invoice_base_amount",
+														   "invoice_gst_amount", "invoice_attachment", "status"],
+								   as_dict=True)
+
+	def _uploaded(self, wo, amount=10_000):
+		record = self._ra(wo, amount)
+		upload_signed_copy(record["name"], SCAN)
+		return record["name"]
+
+
+class TestSignedUpload(SignedUploadTestCase):
+	def test_the_upload_marks_it_signed_and_creates_one_pending_vendor_invoice_for_its_figures(self):
+		wo = self._wo(paid=60_000)
+		record = self._ra(wo, 12_345.5, invoice_date="2026-10-21")
+
+		row = upload_signed_copy(record["name"], SCAN)
+
+		self.assertEqual(row["status"], "Signed")
+		invoices = frappe.get_all("Vendor Invoices", filters={"document_name": wo}, pluck="name")
+		self.assertEqual(invoices, [self._vi(record["name"])])
+		vi = self._invoice(invoices[0])
+		self.assertEqual(
+			(vi.document_type, vi.document_name, vi.invoice_no, getdate(vi.invoice_date), flt(vi.invoice_amount),
+			 flt(vi.invoice_base_amount), flt(vi.invoice_gst_amount), vi.status),
+			(SR, wo, record["invoice_no"], getdate("2026-10-21"), 12_345.5, 12_345.5, 0, "Pending"),
+		)
+		self.assertEqual(frappe.db.get_value("Nirmaan Attachments", vi.invoice_attachment, "attachment"), SCAN)
+		self.assertEqual(frappe.db.get_value(GI, record["name"], "signed_attachment"), vi.invoice_attachment)
+
+	def test_a_signed_invoice_still_counts_once_against_the_limit(self):
+		wo = self._wo(paid=60_000)
+		self._uploaded(wo, 10_000)
+		self.assertEqual(get_generated_invoices(wo)["left"], 50_000)
+
+	def test_it_cannot_be_uploaded_twice(self):
+		wo = self._wo(paid=60_000)
+		name = self._uploaded(wo)
+		with self.assertRaisesRegex(frappe.ValidationError, "already uploaded"):
+			upload_signed_copy(name, "/private/files/another.pdf")
+		self.assertEqual(frappe.db.count("Vendor Invoices", {"document_name": wo}), 1)
+
+	def test_a_voided_invoice_cannot_be_uploaded(self):
+		name = self._ra(self._wo(paid=60_000), 1_000)["name"]
+		void_invoice(name, "Typo")
+		with self.assertRaisesRegex(frappe.ValidationError, "Voided"):
+			upload_signed_copy(name, SCAN)
+
+	def test_the_upload_needs_the_signed_copy(self):
+		name = self._ra(self._wo(paid=60_000), 1_000)["name"]
+		with self.assertRaisesRegex(frappe.ValidationError, "signed copy"):
+			upload_signed_copy(name, "  ")
+		self.assertEqual(self._stored(name).status, "Generated")
+
+	def test_accountants_on_the_project_are_told(self):
+		wo = self._wo(paid=60_000)
+		accountant = self._on_project(self._user(ACCOUNTANT))
+		self._uploaded(wo)
+		notes = frappe.get_all("Nirmaan Notifications", filters={"docname": wo, "recipient": accountant},
+							   fields=["event_id"])
+		self.assertEqual([n.event_id for n in notes], ["wo_invoice:signed_uploaded"])
+
+	def test_an_accountant_on_no_project_sees_every_project_and_is_told(self):
+		restricted = frappe.get_all("User Permission", filters={"allow": "Projects"}, pluck="user", distinct=True)
+		accountant = frappe.db.get_value("Nirmaan Users", {"role_profile": ACCOUNTANT, "name": ("not in", restricted or [""])})
+		if not accountant:
+			self.skipTest("every Accountant on this site is put on projects")
+		wo = self._wo(paid=60_000)
+		self._uploaded(wo)
+		self.assertTrue(frappe.db.exists("Nirmaan Notifications", {"docname": wo, "recipient": accountant}))
+
+	def test_an_accountant_put_only_on_other_projects_is_not_told(self):
+		accountant = self._user(ACCOUNTANT)
+		other = self.fx.project()
+		frappe.db.commit()
+		self._on_project(accountant, other)
+		wo = self._wo(paid=60_000)
+		self._uploaded(wo)
+		self.assertFalse(frappe.db.exists("Nirmaan Notifications", {"docname": wo, "recipient": accountant}))
+
+	def test_a_procurement_executive_uploads_and_an_accountant_may_not(self):
+		wo = self._wo(paid=60_000)
+		first, second = self._ra(wo, 1_000)["name"], self._ra(wo, 1_000)["name"]
+		accountant = self._on_project(self._user(ACCOUNTANT))
+		with self.assertRaises(frappe.PermissionError):
+			self._as(accountant, upload_signed_copy, first, SCAN)
+		self.assertEqual(self._stored(first).status, "Generated")
+
+		procurement = self._on_project(self._user(PROCUREMENT))
+		self.assertEqual(self._as(procurement, upload_signed_copy, second, SCAN)["status"], "Signed")
+
+
+class TestApprovalMovesIt(SignedUploadTestCase):
+	def _decide(self, name, action, reason=None):
+		"""Decide its Vendor Invoice the normal way, as an Accountant on the project."""
+		if not getattr(self, "_accountant", None):
+			self._accountant = self._on_project(self._user(ACCOUNTANT))
+		result = self._as(self._accountant, approve_vendor_invoice, self._vi(name), action, reason)
+		self.assertEqual(result["status"], 200, result)
+		return result
+
+	def test_approving_its_vendor_invoice_marks_it_approved_and_it_is_invoiced(self):
+		wo = self._wo(paid=60_000)
+		name = self._uploaded(wo, 10_000)
+		self._decide(name, "Approved")
+		self.assertEqual(self._stored(name).status, "Approved")
+		self.assertEqual(flt(frappe.db.get_value(SR, wo, "amount_invoiced")), 10_000)
+		self.assertEqual(get_generated_invoices(wo)["left"], 50_000)
+
+	def test_rejecting_its_vendor_invoice_voids_it_frees_its_amount_and_the_next_gets_a_new_ra(self):
+		wo = self._wo(paid=60_000)
+		name = self._uploaded(wo, 10_000)
+		self._decide(name, "Rejected", "Signature missing")
+		stored = self._stored(name)
+		self.assertEqual(stored.status, "Voided")
+		self.assertIn("Signature missing", stored.void_reason)
+		self.assertEqual(get_generated_invoices(wo)["left"], 60_000)
+		self.assertEqual(self._ra(wo, 1_000)["ra_number"], 2)
+
+	def test_rejecting_it_after_approval_voids_it_too(self):
+		wo = self._wo(paid=60_000)
+		name = self._uploaded(wo, 10_000)
+		self._decide(name, "Approved")
+		self._decide(name, "Rejected", "Wrong period")
+		self.assertEqual(self._stored(name).status, "Voided")
+		self.assertEqual(flt(frappe.db.get_value(SR, wo, "amount_invoiced")), 0)
+
+	def test_its_vendor_invoice_cannot_be_deleted(self):
+		wo = self._wo(paid=60_000)
+		name = self._uploaded(wo)
+		vi = self._vi(name)
+		result = delete_invoice_entry(wo, isSR=True, invoice_id=vi)
+		self.assertNotEqual(result["status"], 200)
+		self.assertIn("Reject", result["message"])
+		self.assertTrue(frappe.db.exists("Vendor Invoices", vi))
+		with self.assertRaisesRegex(frappe.ValidationError, "Reject"):
+			frappe.delete_doc("Vendor Invoices", vi, force=True)
+		self.assertEqual(self._stored(name).status, "Signed")

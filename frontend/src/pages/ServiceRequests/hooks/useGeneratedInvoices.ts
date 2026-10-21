@@ -75,7 +75,7 @@ export interface GenerateArgs {
   amount?: number;
 }
 
-/** Generate and void. Each reply is the record after the action. */
+/** Generate, void and upload the signed copy. Each reply is the record after the action. */
 export const useGeneratedInvoiceActions = () => {
   const { call: callGenerate, loading: generating } = useFrappePostCall<{ message: GeneratedInvoice }>(
     `${API}.generate_invoice`
@@ -83,7 +83,13 @@ export const useGeneratedInvoiceActions = () => {
   const { call: callVoid, loading: voiding } = useFrappePostCall<{ message: GeneratedInvoice }>(
     `${API}.void_invoice`
   );
+  const { call: callUpload, loading: uploading } = useFrappePostCall<{ message: GeneratedInvoice }>(
+    `${API}.upload_signed_copy`
+  );
   const generate = async (args: GenerateArgs) => (await callGenerate(args)).message;
   const voidInvoice = async (name: string, reason: string) => (await callVoid({ name, reason })).message;
-  return { generate, voidInvoice, generating, voiding };
+  /** `fileUrl` is the already-uploaded scan; the server makes its Pending Vendor Invoice (#1547). */
+  const uploadSignedCopy = async (name: string, fileUrl: string) =>
+    (await callUpload({ name, file_url: fileUrl })).message;
+  return { generate, voidInvoice, uploadSignedCopy, generating, voiding, uploading };
 };

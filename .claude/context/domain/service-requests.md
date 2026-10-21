@@ -48,6 +48,16 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   "SR Invoice" format, which read the amount from the link, is disabled (patch
   `v3_0.disable_sr_invoice_print_format`, because a Print Format fixture re-import keeps the site's `disabled`).
   Roles: `role_profiles.WO_GENERATED_INVOICE_PROFILES`.
+- **A generated invoice's signed upload is its one Vendor Invoice, and that invoice's decision moves it (#1547).**
+  `generated_invoices.upload_signed_copy`, under `_billing_lock`, makes the scan's Nirmaan Attachments row and a
+  *Pending* Vendor Invoice (the record's number, date and amount; base = amount, GST = 0; no auto-approval) and
+  moves the record to *Signed* in one commit; only a *Generated* record is uploaded. Accountants who can see the
+  project (a Projects User Permission on it, or none at all, as most have) get a `wo_invoice:signed_uploaded`
+  notification after the commit; `pr_notifications.get_allowed_accountants` would miss the unrestricted ones. The Vendor Invoices `on_update` hook
+  `controllers/vendor_invoices.follow_generated_invoice` moves the record (approved: *Approved*; rejected, even
+  after approval: *Voided*, the rejection as its reason; `wo_generated_invoices.vendor_invoice_move`), so the
+  single, bulk and Desk approvals all move it. That Vendor Invoice is never deleted (`on_trash`
+  `refuse_deleting_generated_invoice`; `delete_invoice_entry` answers it first): reject it instead.
 - **WO status-move rules live in one place, `services/work_order_lifecycle.change_problem` (#1529).** The
   Service Requests `validate` hook `controllers/service_requests.guard_lifecycle` applies it on every save,
   so the SPA, Desk and REST obey it. A save that moves the status INTO *Approved* or *Rejected* (approve,

@@ -355,7 +355,12 @@ doc_events = {
         # TWICE per saved invoice. on_update alone covers insert.
         # Who may approve, reject or edit a Work Order invoice (#1531, ADR-0014 Amendment A).
         "validate": "nirmaan_stack.integrations.controllers.vendor_invoices.guard_work_order_invoice",
-        "on_update": "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
+        # A generated invoice's Vendor Invoice moves its record, and is never deleted (#1547).
+        "on_update": [
+            "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
+            "nirmaan_stack.integrations.controllers.vendor_invoices.follow_generated_invoice",
+        ],
+        "on_trash": "nirmaan_stack.integrations.controllers.vendor_invoices.refuse_deleting_generated_invoice",
         "after_delete": "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
     },
     # A refund lowers its PO's / WO's `amount_paid` (Paid payments LESS refunds). `on_update` covers
