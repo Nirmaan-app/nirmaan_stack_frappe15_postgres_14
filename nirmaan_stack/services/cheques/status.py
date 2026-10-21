@@ -49,7 +49,7 @@ from frappe import _
 from frappe.utils import flt, nowdate
 
 from nirmaan_stack.api.outflow_import.vendor_credit_refresh import SETTLED_ENTRY_TYPE, recompute_vendor_credit
-from nirmaan_stack.services import payment_tds
+from nirmaan_stack.services.cheque_payments import to_reconciliation
 from nirmaan_stack.services.cheques.approval_rules import approval_problem
 from nirmaan_stack.services.cheques.bank_import_rules import BANK_APPROVAL_NOTE, BANK_REVIVAL_NOTE
 from nirmaan_stack.services.cheques.clear_rules import (
@@ -147,10 +147,16 @@ def clear(cheque: str, *, bank_line: str | None, user: str) -> dict:
     old_type = bool(doc.old_type)
     payments = _line_payments(doc)
     rows = lock_payments(payments) if payments else {}
+    expenses = {(row.payment_doctype, row.payment_name): _status_of(row)
+                for row in (_expense_lines(doc) if old_type else [])}
+    # Records Paid before this clear (an Old-type cheque's only): left as they are.
+    paid_before = {(PAYMENT_DOCTYPE, p) for p in payments if (rows[p].status or "").strip() == STATUS_PAID}
+    paid_before |= {record for record, status in expenses.items() if status == STATUS_PAID}
     reason = clear_problem(
         status=doc.status, cheque_type=doc.cheque_type, old_type=old_type,
         payments=[(p, rows[p].status) for p in payments], bank_line=bool(bank_line),
-        expenses=[(row.payment_name, _status_of(row)) for row in _expense_lines(doc)] if old_type else (),
+        expenses=[(name, status) for (_doctype, name), status in expenses.items()],
+        held=[p for p in payments if rows[p].on_hold],
     )
     if not reason and started in BANK_BRINGS_FORWARD and not old_type:
         # An Old-type cheque may pay expenses, which the approval rule refuses: its lines are checked
@@ -169,7 +175,8 @@ def clear(cheque: str, *, bank_line: str | None, user: str) -> dict:
     # The bank's date is a fact: a cheque approved in the system after the bank paid it still clears.
     day = str(line.added_on)[:10]
 
-    waiting = [p for p in payments if rows[p].status not in (STATUS_RECONCILIATION_PENDING, STATUS_PAID)]
+    waiting = [p for p in payments
+               if rows[p].status != STATUS_RECONCILIATION_PENDING and (PAYMENT_DOCTYPE, p) not in paid_before]
     if started in BANK_BRINGS_FORWARD or waiting:
         # Approval Pending: the import approves the payments; Cancelled: it revives them; an Old-type cheque's
         # waiting ones are approved whatever its status. Either way they reach Reconciliation Pending here, in
@@ -187,7 +194,7 @@ def clear(cheque: str, *, bank_line: str | None, user: str) -> dict:
     # watches Approved -> Paid; recomputed from source once per vendor, as the import's settle does.
     recompute_vendor_credit([r.document_name for r in paid if r.document_type == PO_DOCTYPE], SETTLED_ENTRY_TYPE)
     if old_type:
-        _settle_old_type(doc, line, paid=set(to_pay), statement_file_url=statement_file_url, user=user)
+        _settle_old_type(doc, line, paid_before=paid_before, statement_file_url=statement_file_url, user=user)
     else:
         _record_bank_line(line, [_leg(pay) for pay in paid], user)
 
@@ -222,26 +229,25 @@ def _old_type_lines(doc, rows) -> list[OldTypeLine]:
     ]
 
 
-def _settle_old_type(doc, line, *, paid: set[str], statement_file_url: str | None, user: str) -> None:
+def _settle_old_type(doc, line, *, paid_before: set[tuple[str, str]], statement_file_url: str | None,
+                     user: str) -> None:
     """Settle every record Old-type cheque `doc`'s lines name for its line's amount, one match record per
-    line (#1516). The payments in `paid` were just paid (`clear`'s pay loop); an expense is linked to the
+    line (#1516). A payment not Paid before was just paid (`clear`'s pay loop); an expense is linked to the
     bank line through the import's own expense settle (`settle.link_lines_to_expense`), as if the line's
     amount were the bank line's, so it is checked, dated and made Paid exactly as a linked expense is.
 
-    A record Paid before the clear is left as it is. It gets the line's match record only when no bank line
-    matches it yet: a second would count the same money twice, and the bank line then shows the gap."""
+    A record in `paid_before` (`(doctype, name)`, Paid before the clear) is left as it is. It gets the
+    line's match record only when no bank line matches it yet: a second would count the same money twice,
+    and the bank line then shows the gap."""
     legs = []
     for row in doc.get("lines") or []:
-        leg = SettleResult(doctype=row.payment_doctype, name=row.payment_name, amount=normalize_amount(row.amount),
-                           created=False, original_amount=normalize_amount(row.amount))
-        if row.payment_doctype == PAYMENT_DOCTYPE:
-            # Every payment is Paid by now: by the pay loop (`paid`), or before the clear.
-            if row.payment_name in paid or not _bank_matched(PAYMENT_DOCTYPE, row.payment_name):
-                legs.append(leg)
+        record = (row.payment_doctype, row.payment_name)
+        if record in paid_before:
+            if not _bank_matched(*record):
+                legs.append(_line_leg(row))
             continue
-        if _status_of(row) == STATUS_PAID:
-            if not _bank_matched(row.payment_doctype, row.payment_name):
-                legs.append(leg)
+        if row.payment_doctype == PAYMENT_DOCTYPE:
+            legs.append(_line_leg(row))
             continue
         # The line's share of the bank line; every other field is the bank line's.
         share = frappe._dict({**line, "amount": flt(row.amount)})
@@ -250,6 +256,13 @@ def _settle_old_type(doc, line, *, paid: set[str], statement_file_url: str | Non
             record_link=lambda _row, result: record_settlement(line, line, result, user),
         )
     _record_bank_line(line, legs, user)
+
+
+def _line_leg(row) -> SettleResult:
+    """The match record of an Old-type cheque line: its record, for the line's amount."""
+    amount = normalize_amount(row.amount)
+    return SettleResult(doctype=row.payment_doctype, name=row.payment_name, amount=amount, created=False,
+                        original_amount=amount)
 
 
 def _expense_lines(doc) -> list:
@@ -276,8 +289,8 @@ def _leg(pay) -> SettleResult:
 def _bring_forward(doc, payments: list[str], *, day: str, user: str, bank_line: str | None) -> None:
     """Bring each of `payments` (on bank-cleared cheque `doc`: Approval Pending, Cancelled, or an Old-type
     cheque's waiting payments) to Reconciliation Pending, as an approval followed by the move would
-    (`cheque_payments.move_to_reconciliation`): each is saved Approved, its TDS recorded if it owes any (for
-    one already Approved, the move's retry), then saved Reconciliation Pending. A payment still waiting is
+    (`cheque_payments.move_to_reconciliation`): each is saved Approved, then taken on by THE step both
+    share (`cheque_payments.to_reconciliation`: the TDS retry, then the save at Reconciliation Pending). A payment still waiting is
     approved by the bank import, dated `day` (the line's date: L1 for one at Requested, CEO for one at CEO
     Pending); a Cancelled cheque's Rejected payments are revived, each with a comment. An Approval Pending
     cheque is then Issued with the history note `BANK_APPROVAL_NOTE`.
@@ -296,11 +309,8 @@ def _bring_forward(doc, payments: list[str], *, day: str, user: str, bank_line: 
         if was != STATUS_APPROVED:
             pay.status = STATUS_APPROVED
             _save_for_the_bank(pay, doc.name)
-        if payment_tds.is_deductible(pay):
-            payment_tds.record_deduction(pay)
-            pay.reload()
-        pay.status = STATUS_RECONCILIATION_PENDING
-        _save_for_the_bank(pay, doc.name)
+        if not to_reconciliation(pay, save=lambda p: _save_for_the_bank(p, doc.name)):
+            _refuse(doc, "cleared", f"payment {name} is on hold")  # `clear_problem` refuses it first
         if was == PAYMENT_REJECTED:
             line = f", bank line {bank_line}" if bank_line else ""
             pay.add_comment("Comment", text=_("Revived by the bank import: cheque {0} was cancelled, but the bank "

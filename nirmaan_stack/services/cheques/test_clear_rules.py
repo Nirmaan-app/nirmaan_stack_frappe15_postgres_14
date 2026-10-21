@@ -97,6 +97,17 @@ class TestClear(unittest.TestCase):
         )
         self.assertEqual(self.problem(payments=[("PAY-1", "")], old_type=True), "payment PAY-1 is blank")
 
+    def test_a_payment_on_hold_is_refused_by_name(self):
+        # A cheque payment is never put on hold (ADR-0035 §5), but one on an Old-type cheque may predate that.
+        for status, old_type in (("Issued", True), ("Cancelled", True), ("Approval Pending", False)):
+            self.assertEqual(
+                self.problem(status, [("PAY-1", RP), ("PAY-2", "Approved")], old_type=old_type, held=["PAY-2"]),
+                "payment PAY-2 is on hold, so it cannot be paid until the hold is released",
+                status,
+            )
+        # A Paid one is left as it is, so its hold stops nothing.
+        self.assertIsNone(self.problem(payments=[("PAY-1", "Paid")], old_type=True, held=["PAY-1"]))
+
     def test_an_old_type_cheque_s_expense_is_settled_only_once_it_waits_for_the_bank(self):
         for status in (RP, "Paid"):
             self.assertIsNone(self.problem(old_type=True, expenses=[("NPE-1", status)]), status)

@@ -294,7 +294,7 @@ def lock_payments(payments: list[str]) -> dict:
     return {
         r.name: r
         for r in frappe.db.sql(
-            f"""SELECT name, status, project, document_type, document_name FROM "tab{PAYMENT_DOCTYPE}"
+            f"""SELECT name, status, project, document_type, document_name, on_hold FROM "tab{PAYMENT_DOCTYPE}"
                 WHERE name IN %(names)s ORDER BY name FOR UPDATE""",
             {"names": tuple(payments)},
             as_dict=True,

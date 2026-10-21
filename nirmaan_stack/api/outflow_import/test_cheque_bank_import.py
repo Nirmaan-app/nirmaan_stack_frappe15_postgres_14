@@ -386,6 +386,25 @@ class TestALineClearsAnOldTypeCheque(ChequeImportCase):
         self.assertEqual(self._state(cheque).status, "Cleared")
         self.assertEqual(self._line(row).row_status, "Settled")
 
+    def test_a_payment_on_hold_refuses_the_clear_with_its_reason_and_nothing_is_settled(self):
+        number = self._number()
+        moved, held = self._payment(30000, RP), self._payment(20000, RP)
+        cheque = self._old_type(number, 50000, [(moved, 30000), (held, 20000)])
+        self._left_at_approved(held)
+        # Held before cheque payments could not be (raw: test setup).
+        frappe.db.set_value(PAYMENT, held, "on_hold", 1, update_modified=False)
+        frappe.db.commit()
+
+        (row,) = self._import((number, 50000))
+
+        self.assertEqual(self._statuses(moved, held), [RP, "Approved"])
+        self.assertEqual((self._state(cheque).status, self._legs(row)), ("Issued", []))
+        self.assertEqual(
+            self._line(row).outcome_note,
+            f"Cheque {number} matches this line but could not be cleared: payment {held} is on hold, so it cannot "
+            "be paid until the hold is released. Nothing was settled.",
+        )
+
     def test_an_approval_pending_old_type_cheque_is_issued_by_the_import_then_cleared(self):
         number = self._number()
         requested = self._payment(25000)

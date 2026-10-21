@@ -30,6 +30,8 @@ last approval (`services/cheques/status.issue`). One transaction, so a failed mo
 payment at Approved and its cheque at Approval Pending: the two never disagree.
 """
 
+from collections.abc import Callable
+
 import frappe
 
 from nirmaan_stack.services import payment_tds, settlement
@@ -69,26 +71,19 @@ def move_to_reconciliation(payment_name: str, *, sync_po_term: bool = True) -> b
 	group in one PO save (`bulk_actions._process_group`): the payment's own hook then leaves the
 	PO alone, exactly as it does for the bulk approval itself.
 
-	⚠️ THE TDS CALL IS A RETRY, NOT A SECOND DEDUCTION. `record_deduction` returns the existing row
-	when there is one. It is here for the payment whose deduction FAILED during its approval
-	(`record_deduction_if_eligible` swallows the error): once it leaves `Approved` nothing can record
-	it any more (`is_deductible` needs `Approved`), so it is recorded now or the move is refused.
+	The step itself, TDS retry included, is `to_reconciliation`.
 	"""
 	pay = frappe.get_doc("Project Payments", payment_name)
 	if not is_cheque(pay) or (pay.status or "").strip() != settlement.STATUS_APPROVED:
 		return False
-	# A held payment stays at Approved (`services/payment_hold.py`, whose `validate_hold` would
-	# refuse the save anyway) -- returning here keeps a stray call from logging an error.
-	if pay.get("on_hold"):
+
+	def save(doc) -> None:
+		if not sync_po_term:
+			doc.flags.bulk_approval = True  # `_find_and_update_po_term` stays out; the caller writes the term
+		doc.save(ignore_permissions=True)
+
+	if not to_reconciliation(pay, save=save):
 		return False
-
-	if payment_tds.is_deductible(pay):
-		payment_tds.record_deduction(pay)
-
-	pay.status = settlement.STATUS_RECONCILIATION_PENDING
-	if not sync_po_term:
-		pay.flags.bulk_approval = True  # `_find_and_update_po_term` stays out; the caller writes the term
-	pay.save(ignore_permissions=True)
 	if pay.get("cheque"):
 		# Local: the cheques service imports this module.
 		from nirmaan_stack.services.cheques.status import issue
@@ -96,6 +91,30 @@ def move_to_reconciliation(payment_name: str, *, sync_po_term: bool = True) -> b
 
 		if issue(pay.cheque, user=frappe.session.user):
 			frappe.publish_realtime(CHEQUES_CHANGED_EVENT, {"cheque": pay.cheque}, after_commit=True)
+	return True
+
+
+def to_reconciliation(pay, *, save: Callable[[object], None]) -> bool:
+	"""THE STEP FROM `Approved` TO `Reconciliation Pending` FOR A CHEQUE PAYMENT: `pay` (a loaded
+	payment at Approved) has its TDS deduction retried, then is saved at Reconciliation Pending through
+	`save(pay)`, which puts the caller's flags on it. False, and nothing written, for a payment on hold:
+	it stays at Approved (`services/payment_hold.validate_hold` would refuse the save). Its callers are the
+	move after an approval (`move_to_reconciliation`) and the bank import, which brings a cheque's payments
+	forward before it pays them (`services/cheques/status._bring_forward`).
+
+	⚠️ THE TDS CALL IS A RETRY, NOT A SECOND DEDUCTION. `record_deduction` returns the existing row
+	when there is one. It is here for the payment whose deduction FAILED during its approval
+	(`record_deduction_if_eligible` swallows the error): once it leaves `Approved` nothing can record
+	it any more (`is_deductible` needs `Approved`), so it is recorded now or the move is refused. The
+	deduction writes the payment's net amount, so `pay` is read again before its save.
+	"""
+	if pay.get("on_hold"):
+		return False
+	if payment_tds.is_deductible(pay):
+		payment_tds.record_deduction(pay)
+		pay.reload()
+	pay.status = settlement.STATUS_RECONCILIATION_PENDING
+	save(pay)
 	return True
 
 

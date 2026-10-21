@@ -10,7 +10,7 @@ hand, and the import clears Old-type cheques too, each line's record settled for
 Each `*_problem` function returns a short reason ("already Cleared"), or None.
 """
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 
 from frappe.utils import flt
@@ -63,6 +63,7 @@ def clear_problem(
     payments: Sequence[tuple[str, str | None]],
     bank_line: bool,
     expenses: Sequence[tuple[str, str | None]] = (),
+    held: Collection[str] = (),
 ) -> str | None:
     """Why this cheque cannot be cleared, as a short reason ("already Cleared"), or None. Pure.
 
@@ -79,6 +80,10 @@ def clear_problem(
     Reconciliation Pending, as any bank line does (`ledgers.SETTLEABLE_STATUSES`), and leaves a Paid one
     as it is. A payment Rejected while its cheque stayed Issued is refused: only a cancel's history lets
     the import warn that the money may have been paid twice.
+
+    A payment in `held` (on hold) refuses too unless it is Paid: a held payment cannot leave Approved
+    (`payment_hold.validate_hold`). No cheque payment is put on hold (ADR-0035 §5), but one on an Old-type
+    cheque may have been before that rule.
     """
     if cheque_type != CHEQUE_TYPE_PAYMENT:
         return "a Security Deposit cheque is never cashed"
@@ -94,6 +99,8 @@ def clear_problem(
             if old_type:
                 continue
             return f"payment {name} is already Paid"
+        if name in held:
+            return f"payment {name} is on hold, so it cannot be paid until the hold is released"
         if not payment_status:
             return f"payment {name} is blank"
         if payment_status == STATUS_REJECTED and status != CANCELLED:
