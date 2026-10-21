@@ -11,6 +11,7 @@ from nirmaan_stack.services import payment_tds
 from nirmaan_stack.services.cheque_payments import is_cheque
 from nirmaan_stack.services.order_payments import assert_within_work_order_limit
 from nirmaan_stack.services.payment_hold import validate_hold
+from nirmaan_stack.services.payment_steps import refuse_step_out_of_tier
 from nirmaan_stack.services.amount_paid import orders_moved_by, write_amount_paid
 from nirmaan_stack.services.payees.pay_to import fill_payment_from_vendor
 from nirmaan_stack.integrations.controllers.cheques import drop_off_cheques_of, on_payment_rejected
@@ -255,7 +256,11 @@ def validate(doc, method):
     And the cheque rules (spec #1477): only a PO payment becomes a Cheque payment
     (`payment_mode.validate_cheque_mode`), and a cheque payment is approved only with
     its cheque, one cheque one decision (`decide.refuse_lone_approval`).
+
+    And the payment steps (#1530): each status move, and a new payment's status, needs the tier the
+    Payments screens use (`services/payment_steps.py`).
     """
+    refuse_step_out_of_tier(doc, frappe.session.user)
     if doc.is_new():
         validate_won(doc.project, "Project Payment")
         _validate_work_order_limit(doc)
