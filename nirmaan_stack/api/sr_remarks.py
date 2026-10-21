@@ -34,6 +34,13 @@ def get_user_role_profile(user: str) -> str:
     return role_profile or ""
 
 
+def assert_can_read_work_order(sr_id: str) -> None:
+    """Refuse a user who may not read this Work Order (#1529): its remarks are its details. The read
+    check includes the user's project User Permissions, so a user on other projects gets nothing."""
+    if not frappe.has_permission("Service Requests", "read", doc=sr_id):
+        frappe.throw(_("You are not allowed to see Work Order {0}.").format(sr_id), frappe.PermissionError)
+
+
 def get_remark_subject_for_user(user: str) -> str:
     """Determine the remark subject based on user's role profile."""
     role_profile = get_user_role_profile(user)
@@ -62,6 +69,7 @@ def add_sr_remark(sr_id: str, content: str) -> dict:
     # Validate SR exists
     if not frappe.db.exists("Service Requests", sr_id):
         frappe.throw(_("Service Request {0} not found").format(sr_id))
+    assert_can_read_work_order(sr_id)
 
     user = frappe.session.user
     subject = get_remark_subject_for_user(user)
@@ -111,6 +119,7 @@ def get_sr_remarks(sr_id: str, subject_filter: str = None) -> dict:
     """
     if not sr_id:
         frappe.throw(_("SR ID is required"))
+    assert_can_read_work_order(sr_id)
 
     # Build filters
     filters = {
@@ -204,6 +213,7 @@ def get_sr_remarks_count(sr_id: str) -> dict:
     """
     if not sr_id:
         return {"count": 0}
+    assert_can_read_work_order(sr_id)
 
     count = frappe.db.count(
         "Nirmaan Comments",
@@ -279,6 +289,7 @@ def get_sr_recent_remarks(sr_id: str, limit: int = 3) -> dict:
     """
     if not sr_id:
         return {"remarks": [], "total": 0}
+    assert_can_read_work_order(sr_id)
 
     # Get total count
     total = frappe.db.count(

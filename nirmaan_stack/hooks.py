@@ -330,7 +330,11 @@ doc_events = {
             ]
     },
     "Service Requests": {
-        "validate": "nirmaan_stack.integrations.controllers.service_requests.validate",
+        "validate": [
+            # Who may move a Work Order (#1529); the one home of the WO status-move rules.
+            "nirmaan_stack.integrations.controllers.service_requests.guard_lifecycle",
+            "nirmaan_stack.integrations.controllers.service_requests.validate",
+        ],
         "on_trash": [
             "nirmaan_stack.integrations.controllers.service_requests.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions"
