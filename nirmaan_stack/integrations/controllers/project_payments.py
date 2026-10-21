@@ -263,6 +263,31 @@ def validate(doc, method):
     validate_hold(doc)
     validate_cheque_mode(doc)
     refuse_lone_approval(doc)
+    refuse_reject_if_deposited(doc)
+    refuse_amount_change_if_deposited(doc)
+
+
+def refuse_reject_if_deposited(doc):
+    """A payment whose tax is in a challan can't be rejected (#1535): rejecting gives its tax back
+    (`payment_tds.give_back_tax_on_reject`), and deposited tax can't disappear."""
+    before = doc.get_doc_before_save()
+    if before and before.status != PAYMENT_REJECTED and doc.status == PAYMENT_REJECTED:
+        payment_tds.refuse_if_deposited(doc.name, "can't be rejected")
+
+
+def refuse_amount_change_if_deposited(doc):
+    """A payment whose tax is in a challan can't have its amount changed (#1535): the edit would
+    restate the deposited tax (`payment_tds.restate_deduction_on_amount_change`).
+
+    Skipped exactly where the restate is skipped (`NO_RESTATE_FLAGS`, and `from_adjustment`, on which
+    `on_update` returns first): those saves move the amount but never the tax, so the deposit is safe.
+    """
+    before = doc.get_doc_before_save()
+    if not before or flt(before.amount) == flt(doc.amount):
+        return
+    if doc.flags.get("from_adjustment") or any(doc.flags.get(flag) for flag in payment_tds.NO_RESTATE_FLAGS):
+        return
+    payment_tds.refuse_if_deposited(doc.name, "can't have its amount changed")
 
 
 def _validate_work_order_limit(doc):
@@ -414,8 +439,9 @@ def on_update(doc, method):
     # as `after_insert`, where the deduction call sits above its own returning branch.
     #
     # Once a deduction exists, `amount` IS the net figure, so an edit to it is an edit to the net:
-    # the service re-derives gross and tax from it at the deduction's OWN snapshotted rate, and
-    # recomputes any challan the tax was paid under. A payment with no deduction is untouched.
+    # the service re-derives gross and tax from it at the deduction's OWN snapshotted rate. A payment
+    # with no deduction is untouched, and one whose tax is in a challan never gets here: `validate`
+    # refuses its amount edit (`refuse_amount_change_if_deposited`, #1535).
     #
     # ⚠️ ONLY WHEN A HUMAN EDITED THE AMOUNT. `on_update` cannot tell who moved the number, so the
     # machine paths -- which flag themselves on the way in -- are excluded by name. The edit dialog
@@ -444,6 +470,9 @@ def on_update(doc, method):
     # on an Old-type cheque its line drops off (#1481, #1413). Commit-free: bulk reject saves inside a
     # savepoint. Above the notification branches, several of which return.
     if doc.status == PAYMENT_REJECTED:
+        # No tax is held for money that didn't go out (#1535). `validate` refused the reject if the
+        # tax was already in a challan.
+        payment_tds.give_back_tax_on_reject(doc)
         on_payment_rejected(doc)
 
     # Call the search-based helper function to sync the status.
@@ -570,6 +599,10 @@ def on_trash(doc, method):
     On deletion, find the related PO term by searching and revert its status to Created.
     Also handles cleanup of notifications and comments.
     """
+    # FIRST, so a refused delete runs no clean-up (`settled_targets.on_trash` runs before this hook).
+    # `force=True` skips Frappe's link check, not this.
+    payment_tds.refuse_if_deposited(doc.name, "can't be deleted")
+
     # A Paid payment leaving recounts its order first, without itself (still in the table here), so
     # the vendor credit below reads the recounted figure.
     if doc.status == "Paid":
@@ -591,25 +624,9 @@ def on_trash(doc, method):
     # outright — the payment would simply become undeletable, with the error naming a doctype
     # most people have never opened.
     #
-    # ⚠️ CAPTURE THE CHALLAN(S) BEFORE THE ROWS GO. A challan's `reconciled_amount` is the SUM of
-    # the deductions pointing at it, and this raw delete fires no hooks -- so without the recompute
-    # below the challan keeps counting tax paid against a row that no longer exists. Measured on
-    # localhost: a challan still reading Rs 150 used with ZERO deductions behind it, and therefore
-    # Rs 150 short of usable balance forever.
-    challans = frappe.db.sql_list(
-        """
-        SELECT DISTINCT tds_challan FROM "tabPayment TDS Deduction"
-        WHERE project_payment = %s AND tds_challan IS NOT NULL
-        """,
-        (doc.name,),
-    )
-
+    # No challan to recompute: a deduction in one refused this delete at the top (#1535). Before that
+    # rule, deleting took deposited tax off its challan and freed the balance to be spent twice.
     frappe.db.delete("Payment TDS Deduction", {"project_payment": doc.name})
-
-    for challan in challans:
-        # RE-DERIVED FROM WHAT REMAINS, never decremented by the deleted figure: a `-=` would be a
-        # second arithmetic path that has to agree with the pay path forever.
-        payment_tds.recompute_challan_reconciled(challan)
 
     # Vendor credit recalculation on payment deletion
     if doc.document_type == "Procurement Orders":

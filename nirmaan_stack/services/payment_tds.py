@@ -66,13 +66,17 @@ NOT here, and each absence is deliberate:
     payments approved after this shipped.
   * No REVERSAL STATUS, by owner ruling 2026-09-10. An earlier draft carried a `Deducted/Reversed`
     Select; there is no reversal, so a deduction is simply DELETED with the payment it belongs to
-    (`controllers/project_payments.on_trash`). A status whose second option nothing ever writes is
-    a field that only invites the question.
+    (`controllers/project_payments.on_trash`), or when the payment is rejected
+    (`give_back_tax_on_reject`). A status whose second option nothing ever writes is a field that
+    only invites the question. ⚠️ NEITHER ONCE ITS TAX IS IN A CHALLAN (#1535): deposited tax can't
+    disappear, so such a payment can't be deleted, rejected or have its amount changed
+    (`refuse_if_deposited`), and the deduction itself is locked
+    (`controllers/payment_tds_deduction`).
   * No NET AMOUNT FIELD, same ruling. Once this module rewrites `Project Payments.amount` to the
     net figure, that column IS the net -- storing a second copy here could only drift from it.
     `gross_amount` is kept because the rewrite destroys the original and nothing else remembers it.
-  * A payment moving Approved -> Rejected leaves its deduction standing; it drops out of
-    `total_tds` on its own, because that total counts Paid payments only.
+  * No tax on a REJECTED payment (#1535): rejecting one deletes its deduction and puts its amount
+    back to the gross (`give_back_tax_on_reject`), so no tax is held for money that didn't go out.
   * No tax on a GST PAYMENT, ever (ADR-0030, `is_gst_payment`): TDS is taken on base value only, so
     a Work Order's GST is paid as its own payment and `is_deductible` refuses it.
 """
@@ -224,6 +228,10 @@ __all__ = [
 	"is_deductible",
 	"is_gst_payment",
 	"existing_deduction",
+	"deposited_challan",
+	"challan_label",
+	"refuse_if_deposited",
+	"give_back_tax_on_reject",
 	"write_deduction",
 	"record_deduction",
 	"record_deduction_if_eligible",
@@ -550,25 +558,72 @@ def vendor_rate(vendor: str):
 	return rate if rate > 0 else None
 
 
+def deposited_challan(payment_name: str | None) -> str | None:
+	"""The TDS challan this payment's deduction is in, or None: its tax has gone to the government."""
+	if not payment_name:
+		return None
+	return frappe.db.get_value(
+		TDS_DOCTYPE, {"project_payment": payment_name, "tds_challan": ["is", "set"]}, "tds_challan"
+	)
+
+
+def challan_label(challan: str) -> str:
+	"""`TDC-26-00001 (challan no. 00069)`: the record name and the number printed on the receipt."""
+	number = frappe.db.get_value(CHALLAN_DOCTYPE, challan, "challan_no")
+	return f"{challan} (challan no. {number})" if number else challan
+
+
+def refuse_if_deposited(payment_name: str | None, refused: str) -> None:
+	"""Refuse a change to a payment whose tax is in a challan (#1535). `refused` completes the message
+	after the payment's name: "can't be deleted", "can't have its amount changed".
+
+	Deposited tax can't disappear from the books: deleting the payment would delete its deduction,
+	rejecting it gives the tax back, and an amount edit restates it -- each would leave the challan
+	claiming tax that no longer exists, and free that balance to be spent twice.
+	"""
+	challan = deposited_challan(payment_name)
+	if challan:
+		frappe.throw(
+			f"{payment_name} {refused}: its TDS is already deposited under TDS challan "
+			f"{challan_label(challan)}.",
+			title="TDS already deposited",
+		)
+
+
+def give_back_tax_on_reject(doc) -> str | None:
+	"""A rejected payment holds no tax (#1535): delete its deduction and put its amount back to the full
+	bill (`gross_amount`). Returns the deduction removed, or None when it carried none.
+
+	Only for tax not yet in a challan: the payment's `validate` refuses the reject otherwise
+	(`refuse_if_deposited`), so this never takes deposited tax. `db_set`, as `write_deduction`'s cut:
+	it runs inside the payment's own save. Commits nothing (bulk reject saves in savepoints) and recounts
+	nothing: a Rejected payment's tax counts nowhere. Approving it again takes the tax afresh from the
+	gross (`APPROVAL_SOURCE_STATUSES` holds `Rejected`).
+	"""
+	row = frappe.db.get_value(TDS_DOCTYPE, {"project_payment": doc.name}, ["name", "gross_amount"], as_dict=True)
+	if not row:
+		return None
+	frappe.db.delete(TDS_DOCTYPE, {"name": row.name})
+	gross = flt(row.gross_amount, 2)
+	doc.db_set({"amount": gross if gross > 0 else doc.amount, "payment_tds": None})
+	return row.name
+
+
 def recompute_challan_reconciled(challan: str | None) -> float | None:
 	"""A challan's `reconciled_amount` IS the sum of the deductions pointing at it. Re-derive it.
 
-	⚠️ THIS EXISTS BECAUSE PAYING IS NOT THE ONLY THING THAT MOVES THE NUMBER. Deleting a payment
-	deletes its deduction (`controllers/project_payments.on_trash`), and that delete is RAW SQL, so
-	no hook fires and nothing would otherwise notice that a challan just stopped being spent. The
-	measured symptom: a challan still reading Rs 150 used, with zero deductions behind it.
+	Called by Pay TDS (`api/tds_challan/pay_tds`) after it links deductions. Since #1535 nothing else
+	moves the sum: a deduction in a challan can't be deleted, rejected, restated or edited
+	(`refuse_if_deposited`, `controllers/payment_tds_deduction`). Before that, deleting a payment took
+	its deposited deduction with it by raw SQL, and a challan read Rs 150 used with zero deductions
+	behind it.
 
 	⚠️ ALWAYS RECOMPUTED FROM SOURCE, NEVER ADJUSTED BY A DELTA (the repo's standing rule for a
-	derived field). A `-= tds_amount` on delete would be a second arithmetic path that has to agree
-	with the first forever; re-deriving means any caller, in any order, lands on the same number.
+	derived field): any caller, in any order, lands on the same number.
 
-	⚠️ IT MUST NOT RAISE. Every caller is a side-effect of something the user actually asked for --
-	a delete, a payment -- and a bookkeeping total must never be the reason a delete fails. The
-	over-application guard belongs to the PAY path, which checks capacity before it writes.
-
-	Lives here, not in `api/tds_challan/pay_tds.py`, so a CONTROLLER can call it: api may import
-	service, service may not import api, and a controller reaching into `api/` is the wrong
-	direction. `pay_tds` imports this one definition rather than keeping its own.
+	It does not raise; the over-application guard belongs to the PAY path, which checks capacity
+	before it writes. It lives in this service so that a future unlink path in a controller can reuse
+	it rather than subtract.
 
 	Returns the recomputed total, or None when there is nothing to recompute.
 	"""
@@ -615,9 +670,9 @@ def restate_deduction_on_amount_change(doc) -> str | None:
 	Subtracting the tax again here would shrink the payment on every edit -- silently, and
 	compounding with each save.
 
-	⚠️ IT REFUSES RATHER THAN OVER-APPLY A CHALLAN. Where the tax was already paid under one, a
-	RAISE can exceed what that challan holds; the edit is rejected loudly instead of leaving a
-	challan claiming to have paid out more than its face value. A reduction always fits.
+	⚠️ NEVER REACHED FOR DEPOSITED TAX (#1535). The payment's `validate` refuses any amount edit
+	(`refuse_amount_change_if_deposited`) while its deduction is in a challan, on the same flags this is
+	skipped on, so a restate never moves a challan's figures.
 
 	⚠️ A GST PAYMENT IS NEVER RESTATED. It never carries a deduction through the app
 	(`is_deductible`); if one was planted by hand, an edit must not re-derive a tax that should not
@@ -634,7 +689,7 @@ def restate_deduction_on_amount_change(doc) -> str | None:
 	row = frappe.db.get_value(
 		TDS_DOCTYPE,
 		name,
-		["gross_amount", "tds_amount", "tds_percentage", "tds_challan", "borne_by"],
+		["gross_amount", "tds_amount", "tds_percentage", "borne_by"],
 		as_dict=True,
 	)
 	rate = flt(row.get("tds_percentage"))
@@ -653,31 +708,12 @@ def restate_deduction_on_amount_change(doc) -> str | None:
 	else:
 		gross = flt(amount / (1 - rate / 100.0), 2)
 		tds = flt(gross - amount, 2)
-	old_tds = flt(row.get("tds_amount"), 2)
-
-	if gross == flt(row.get("gross_amount"), 2) and tds == old_tds:
+	if gross == flt(row.get("gross_amount"), 2) and tds == flt(row.get("tds_amount"), 2):
 		return name
-
-	challan = row.get("tds_challan")
-	if challan and tds > old_tds:
-		# Checked BEFORE anything is written, so a refusal leaves the deduction untouched.
-		capacity = flt(frappe.db.get_value(CHALLAN_DOCTYPE, challan, "amount"), 2)
-		current = flt(frappe.db.get_value(CHALLAN_DOCTYPE, challan, "reconciled_amount"), 2)
-		would_be = flt(current - old_tds + tds, 2)
-		if would_be > capacity + 0.01:
-			frappe.throw(
-				f"This edit raises the tax withheld on {doc.name} from {old_tds} to {tds}, "
-				f"which challan {challan} cannot cover ({current} of {capacity} already used). "
-				f"Reduce the change, or pay the difference under another challan first."
-			)
 
 	frappe.db.set_value(TDS_DOCTYPE, name, {"gross_amount": gross, "tds_amount": tds})
 
-	# The challan's total is the SUM of its deductions, so a changed figure moves it.
-	if challan:
-		recompute_challan_reconciled(challan)
-
-	# And the parent's Amount Paid, `total_tds` and Amount Due: the payment save recounted them BEFORE
+	# The parent's Amount Paid, `total_tds` and Amount Due: the payment save recounted them BEFORE
 	# this restate ran, and a vendor-borne tax is part of the Amount Paid (#1509).
 	_recount_parent(doc)
 	return name
