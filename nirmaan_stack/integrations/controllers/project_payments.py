@@ -14,6 +14,7 @@ from nirmaan_stack.services.payment_hold import validate_hold
 from nirmaan_stack.services.payment_steps import refuse_step_out_of_tier
 from nirmaan_stack.services.amount_paid import orders_moved_by, write_amount_paid
 from nirmaan_stack.services.payees.pay_to import fill_payment_from_vendor
+from nirmaan_stack.services.work_order_lifecycle import WorkOrderChangeRefused, payment_request_problem
 from nirmaan_stack.integrations.controllers.cheques import drop_off_cheques_of, on_payment_rejected
 from nirmaan_stack.services.cheques.decide import refuse_lone_approval
 from nirmaan_stack.services.cheques.detach import DELETED
@@ -263,6 +264,7 @@ def validate(doc, method):
     refuse_step_out_of_tier(doc, frappe.session.user)
     if doc.is_new():
         validate_won(doc.project, "Project Payment")
+        refuse_while_work_order_under_amendment(doc)
         _validate_work_order_limit(doc)
         fill_payment_from_vendor(doc)
     validate_hold(doc)
@@ -285,6 +287,19 @@ def refuse_raise_after_tax_cut(doc):
     The message points to *TDS paid by company* (`payment_tds.refuse_raise_after_cut`)."""
     if _is_restating_save(doc):
         payment_tds.refuse_raise_after_cut(doc, doc.get_doc_before_save())
+
+
+def refuse_while_work_order_under_amendment(doc):
+    """A new payment on a Work Order under amendment is refused (#1540): no money moves against a total
+    that may change. On insert, so the request dialog, the Accountant's paid entry, Desk and REST all meet
+    it (rule: `work_order_lifecycle.payment_request_problem`)."""
+    if doc.document_type != "Service Requests" or not doc.document_name:
+        return
+    problem = payment_request_problem(
+        doc.document_name, frappe.db.get_value("Service Requests", doc.document_name, "status")
+    )
+    if problem:
+        frappe.throw(_(problem), WorkOrderChangeRefused, title=_("Work Order under amendment"))
 
 
 def refuse_reject_if_deposited(doc):

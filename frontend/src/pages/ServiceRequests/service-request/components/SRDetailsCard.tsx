@@ -11,6 +11,7 @@ import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { Eye, FileText, Lock, PencilRuler, Trash2, Unlock } from "lucide-react";
+import { UNDER_AMENDMENT_PAYMENT_NOTE } from "../../config/workOrderAmendment";
 
 interface SRDetailsCardProps {
   orderData: ServiceRequests | undefined;
@@ -49,6 +50,8 @@ interface SRDetailsCardProps {
   onRevertFinalize?: () => void;
   isProcessingFinalize?: boolean;
   isOwner?: boolean;
+  /** Why Amend can't start (payments in flight, #1540), or null when it may. */
+  amendBlockedReason?: string | null;
 }
 
 /**
@@ -93,7 +96,14 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
   onRevertFinalize,
   isProcessingFinalize = false,
   isOwner = false,
+  amendBlockedReason = null,
 }) => {
+  const underAmendment = orderData?.status === "Amendment";
+  const showsAmend = !hideActions && !hideAmounts && !!onAmend && !summaryPage && !accountsPage && !isFinalized;
+  const showsRequestPayment = !hideActions && !hideAmounts && !!onRequestPayment && !summaryPage && !accountsPage;
+  const actionNote = underAmendment
+    ? showsRequestPayment ? UNDER_AMENDMENT_PAYMENT_NOTE : null
+    : showsAmend ? amendBlockedReason : null;
   // Get status badge variant
   const getStatusVariant = (status: string | undefined): "green" | "red" | "orange" | "outline" => {
     switch (status) {
@@ -393,12 +403,14 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
             )}
 
             {/* Request Payment Button */}
-            {!hideActions && !hideAmounts && onRequestPayment && !summaryPage && !accountsPage && (
+            {showsRequestPayment && (
               <Button
                 variant="outline"
                 size="sm"
+                disabled={underAmendment}
                 onClick={onRequestPayment}
                 className="flex items-center gap-1 border-primary text-primary shrink-0"
+                title={underAmendment ? UNDER_AMENDMENT_PAYMENT_NOTE : undefined}
               >
                 Request Payment
               </Button>
@@ -406,14 +418,14 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
 
             {/* ─── Edit Actions (Hidden when finalized) ─── */}
             {/* Amend Button */}
-            {!hideActions && !hideAmounts && onAmend && !summaryPage && !accountsPage && !isFinalized && (
+            {showsAmend && (
               <Button
                 variant="outline"
                 size="sm"
-                disabled={orderData?.status === "Amendment"}
+                disabled={underAmendment || !!amendBlockedReason}
                 onClick={onAmend}
                 className="flex items-center gap-1 border-primary text-primary shrink-0 transition-opacity"
-                title={orderData?.status === "Amendment" ? "An amendment is already in progress" : undefined}
+                title={underAmendment ? "An amendment is already in progress" : amendBlockedReason || undefined}
               >
                 <PencilRuler className="h-3.5 w-3.5" />
                 Amend
@@ -448,6 +460,11 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
               </Button>
             )}
           </div>
+        )}
+        {actionNote && (
+          <p className="text-xs text-amber-700 sm:text-right" data-testid="sr-amendment-note">
+            {actionNote}
+          </p>
         )}
       </CardContent>
     </Card>

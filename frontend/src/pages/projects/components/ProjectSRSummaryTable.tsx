@@ -28,6 +28,11 @@ import {
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
+import {
+  LISTED_WORK_ORDER_STATUSES,
+  workOrderBadge,
+  workOrderBadgeVariant,
+} from "@/pages/ServiceRequests/config/workOrderAmendment";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList"; // Adjust path
 import { TailSpin } from "react-loader-spinner";
 import {
@@ -163,8 +168,8 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
     if (projectId) {
       filters.push(["project", "=", projectId]);
     }
-    // // Could add other default static filters here, e.g., status "Approved" for this summary
-    filters.push(["status", "=", "Approved"]);
+    // A Work Order under amendment stays listed, with its badge (#1540).
+    filters.push(["status", "in", LISTED_WORK_ORDER_STATUSES]);
     return filters;
   }, [projectId]);
 
@@ -270,14 +275,8 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
           <DataTableColumnHeader column={column} title="Status" />
         ),
         cell: ({ row }) => {
-          const isFinalized = row.getValue("is_finalized");
-          return (
-            <Badge
-              variant={isFinalized ? "green" : "outline"}
-            >
-              {isFinalized ? "Finalized" : "Approved"}
-            </Badge>
-          );
+          const badge = workOrderBadge(row.original);
+          return <Badge variant={workOrderBadgeVariant(badge)}>{badge}</Badge>;
         },
         enableColumnFilter: true,
         size: 120,
