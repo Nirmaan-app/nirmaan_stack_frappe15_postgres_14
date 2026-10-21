@@ -92,3 +92,14 @@ export const paymentTableFigures = (
 	}
 	return { requested: stored, tds: undefined, toBePaid: stored, companyOnTop: false, forecast: false };
 };
+
+/** The label under a company-borne tax in the Work Order payment table: the name of the #1537 action. */
+export const TDS_PAID_BY_COMPANY_LABEL = "TDS paid by company";
+
+/**
+ * The note under a row's TDS in the Work Order payment table (#1543, owner ruling Q31-A): tax the company
+ * pays on top, recorded or forecast, is labelled, so it doesn't read as a deduction from the vendor.
+ * Tax withheld from the vendor, and a payment without tax, carry none.
+ */
+export const tdsColumnNote = (figures: PaymentTableFigures): string | undefined =>
+	figures.tds !== undefined && figures.companyOnTop ? TDS_PAID_BY_COMPANY_LABEL : undefined;

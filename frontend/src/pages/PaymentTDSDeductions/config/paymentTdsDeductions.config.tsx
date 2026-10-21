@@ -24,6 +24,7 @@ import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { paymentHref } from "@/pages/ProjectPayments/config/projectPaymentsTable.config";
 import { PaymentTDSDeduction } from "@/types/NirmaanStack/PaymentTDSDeduction";
+import { deductionNetPaid } from "../deductionNetPaid";
 
 export const DOCTYPE = "Payment TDS Deduction";
 
@@ -63,6 +64,8 @@ export const PAYMENT_TDS_FIELDS_TO_FETCH: string[] = [
     "gross_amount",
     "tds_percentage",
     "tds_amount",
+    // Net Paid reads it: a company-paid row's vendor got the whole gross (#1543).
+    "borne_by",
     "payment_approved_on",
     // Drives the Status column AND the Pay-TDS selection gate (only `Pending` rows are selectable),
     // so a missing fetch here would silently make every row unselectable.
@@ -343,24 +346,24 @@ export const getPaymentTdsColumns = ({
     },
     {
         id: "net_paid",
-        accessorFn: (row) => (row.gross_amount || 0) - (row.tds_amount || 0),
+        accessorFn: (row) => deductionNetPaid(row),
         header: ({ column }) => (
             <DataTableColumnHeader column={column} title="Net Paid" className={UNSORTABLE_NUMERIC_HEADER_CLASS} />
         ),
         // DERIVED, NOT STORED -- and deliberately so. Once the deduction row exists,
         // `Project Payments.amount` IS this figure; a stored second copy could only drift from it.
+        // What the vendor got: the whole gross on a company-paid row (#1543), see `deductionNetPaid`.
         // `enableSorting: false` because the backend sorts on real columns and there is no
         // `net_paid` column to sort on.
         enableSorting: false,
         cell: ({ row }) => (
             <div className="text-right tabular-nums text-muted-foreground">
-                {formatToIndianRupee((row.original.gross_amount || 0) - (row.original.tds_amount || 0))}
+                {formatToIndianRupee(deductionNetPaid(row.original))}
             </div>
         ),
         meta: {
             exportHeaderName: "Net Paid",
-            exportValue: (row: PaymentTDSDeductionRow) =>
-                (row.gross_amount || 0) - (row.tds_amount || 0),
+            exportValue: (row: PaymentTDSDeductionRow) => deductionNetPaid(row),
             isNumeric: true,
         },
     },

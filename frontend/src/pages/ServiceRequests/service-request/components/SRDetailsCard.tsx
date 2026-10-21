@@ -8,7 +8,7 @@ import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { amountPaidParts, type WorkOrderTds } from "@/pages/ProjectPayments/tdsForecast";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee, { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { Eye, FileText, Lock, PencilRuler, Trash2, Unlock } from "lucide-react";
 import { UNDER_AMENDMENT_PAYMENT_NOTE } from "../../config/workOrderAmendment";
@@ -20,7 +20,6 @@ interface SRDetailsCardProps {
   project: Projects | undefined;
   vendor: Vendors | undefined;
   gstEnabled: boolean;
-  getTotal: number;
   hideActions?: boolean;
   hideAmounts?: boolean;
   // Action callbacks
@@ -70,7 +69,6 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
   project,
   vendor,
   gstEnabled,
-  getTotal,
   hideActions = false,
   hideAmounts = false,
   onDelete,
@@ -209,7 +207,9 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
                   Total Value {gstEnabled ? "(Incl. GST)" : "(Excl. GST)"}
                 </p>
                 <p className="text-sm font-semibold text-blue-600">
-                  {formatToIndianRupee(Math.floor(getTotal * (gstEnabled ? 1.18 : 1)))}
+                  {/* The server's stored total (#1543), never items x 1.18 worked out here: the payment
+                      limit and Amount Due measure against it. Every figure here rounds to the nearest rupee. */}
+                  {formatToRoundedIndianRupee(orderData?.total_amount)}
                 </p>
               </div>
 
@@ -217,14 +217,14 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
               <div className="space-y-0.5">
                 <p className="text-xs text-gray-500">Total Amount Invoiced</p>
                 <p className="text-sm font-medium text-blue-600">
-                  {formatToIndianRupee(orderData?.amount_invoiced || 0)}
+                  {formatToRoundedIndianRupee(orderData?.amount_invoiced || 0)}
                 </p>
                 {/* GST Invoiced (ADR-0030): GST on the approved invoices, not GST paid. */}
                 {(gstEnabled || !!orderData?.gst_invoiced) && (
                   <p className="text-[11px] text-gray-500">
                     GST Invoiced{" "}
                     <span className="font-medium text-gray-700 tabular-nums">
-                      {formatToIndianRupee(orderData?.gst_invoiced || 0)}
+                      {formatToRoundedIndianRupee(orderData?.gst_invoiced || 0)}
                     </span>
                   </p>
                 )}
@@ -237,7 +237,7 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
                   <HoverCard openDelay={100}>
                     <HoverCardTrigger asChild>
                       <p className="text-sm font-medium text-green-600 tabular-nums underline decoration-dotted underline-offset-4 cursor-help">
-                        {formatToIndianRupeeOrZero(amountPaid)}
+                        {formatToRoundedIndianRupee(amountPaid)}
                       </p>
                     </HoverCardTrigger>
                     <HoverCardContent className="w-72" align="start">
@@ -245,20 +245,20 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
                       <div className="space-y-1 text-xs">
                         <div className="flex justify-between gap-4">
                           <span className="text-gray-500">Paid to vendor</span>
-                          <span className="font-medium tabular-nums">{formatToIndianRupeeOrZero(paidParts.paidToVendor)}</span>
+                          <span className="font-medium tabular-nums">{formatToRoundedIndianRupee(paidParts.paidToVendor)}</span>
                         </div>
                         <div className="flex justify-between gap-4">
                           <span className="text-gray-500">TDS withheld</span>
-                          <span className="font-medium tabular-nums">{formatToIndianRupeeOrZero(paidParts.tdsWithheld)}</span>
+                          <span className="font-medium tabular-nums">{formatToRoundedIndianRupee(paidParts.tdsWithheld)}</span>
                         </div>
                         <div className="flex justify-between gap-4 border-t pt-1">
                           <span className="font-semibold">Total</span>
-                          <span className="font-semibold tabular-nums">{formatToIndianRupeeOrZero(paidParts.total)}</span>
+                          <span className="font-semibold tabular-nums">{formatToRoundedIndianRupee(paidParts.total)}</span>
                         </div>
                         {paidParts.companyOnTop > 0 && (
                           <div className="flex justify-between gap-4 pt-2 text-gray-500">
                             <span>TDS paid by company (on top)</span>
-                            <span className="tabular-nums">{formatToIndianRupeeOrZero(paidParts.companyOnTop)}</span>
+                            <span className="tabular-nums">{formatToRoundedIndianRupee(paidParts.companyOnTop)}</span>
                           </div>
                         )}
                       </div>
@@ -266,7 +266,7 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
                   </HoverCard>
                 ) : (
                   <p className="text-sm font-medium text-green-600 tabular-nums">
-                    {formatToIndianRupeeOrZero(amountPaid)}
+                    {formatToRoundedIndianRupee(amountPaid)}
                   </p>
                 )}
               </div>
@@ -275,7 +275,7 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
               <div className="space-y-0.5">
                 <p className="text-xs text-gray-500">Amount Due</p>
                 <p className={`text-sm font-medium tabular-nums ${amountDue < 0 ? "text-red-600" : "text-yellow-600"}`}>
-                  {formatToIndianRupeeOrZero(amountDue)}
+                  {formatToRoundedIndianRupee(amountDue)}
                 </p>
               </div>
 

@@ -10,6 +10,7 @@ import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useFrappeGetDocList } from "frappe-react-sdk";
+import { TriangleAlert } from "lucide-react";
 import { useMemo } from "react";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { NoBankProofBadge } from "@/components/vendor-refunds/NoBankProofBadge";
@@ -17,7 +18,7 @@ import { useVendorRefunds } from "@/components/vendor-refunds/useVendorRefunds";
 import { GstPaymentTag } from "./components/GstPaymentTag";
 import { usePurchaseOrderTds } from "./hooks/usePurchaseOrderTds";
 import { useWorkOrderTds } from "./hooks/useWorkOrderTds";
-import { paymentsDialogRows } from "./paymentsDialogRows";
+import { amountPaidLine, paymentsDialogRows } from "./paymentsDialogRows";
 
 interface PaymentsDataDialogProps {
   open: boolean;
@@ -86,10 +87,13 @@ export const PaymentsDataDialog = ({
   // Until it answers, the TDS column and the total wait: a total without the tax is not the Amount Paid.
   const tdsPending = !deductions;
 
-  const { rows, total } = useMemo(
+  const { rows, total: rowsTotal } = useMemo(
     () => paymentsDialogRows(fetchedPayments, refunds, deductions, tdsPending),
     [fetchedPayments, refunds, deductions, tdsPending]
   )
+  // The Total is the order's SAVED Amount Paid, the figure that was clicked (#1543); the rows are only
+  // checked against it, once all of them have loaded.
+  const totalLine = amountPaidLine(data?.amount_paid, fetchedPayments ? rowsTotal : undefined);
 
   const tdsPendingCell = tdsError
     ? <span className="text-xs text-muted-foreground">Unavailable</span>
@@ -187,9 +191,23 @@ export const PaymentsDataDialog = ({
                   <TableRow>
                     <TableCell className="font-semibold">Total</TableCell>
                     <TableCell className="font-semibold" colSpan={3}>
-                      {total === undefined ? tdsPendingCell : formatToRoundedIndianRupee(total)}
+                      {formatToRoundedIndianRupee(totalLine.amountPaid)}
                     </TableCell>
                   </TableRow>
+                  {totalLine.mismatch && totalLine.rowsTotal !== undefined && (
+                    <TableRow>
+                      <TableCell colSpan={4} className="bg-amber-50 text-amber-800 text-xs font-normal">
+                        <span className="flex items-start gap-1.5" role="alert">
+                          <TriangleAlert className="h-4 w-4 shrink-0" />
+                          <span>
+                            The rows above add up to {formatToRoundedIndianRupee(totalLine.rowsTotal)}, not the saved
+                            Amount Paid of {formatToRoundedIndianRupee(totalLine.amountPaid)}. The saved figure may be
+                            wrong: see Reports → Amount Paid Mismatch.
+                          </span>
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableFooter>
               )}
             </Table>
