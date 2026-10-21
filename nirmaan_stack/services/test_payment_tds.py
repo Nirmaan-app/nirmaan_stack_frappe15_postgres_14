@@ -636,18 +636,20 @@ class TestPaymentTDS(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value(PAYMENT, doc.name, "amount"), 4000)
 
 	def test_editing_a_gst_payments_amount_creates_no_deduction(self):
-		doc = self._pay(4000, status="CEO Pending", gst=True)
+		# Lowered, not raised: the fixture's Work Order has no GST released, so a raise is refused by the
+		# Work Order payment limit (#1536) before the tax code is reached.
+		doc = self._pay(5000, status="CEO Pending", gst=True)
 		doc.status = "Approved"
 		doc.save(ignore_permissions=True)
 		frappe.db.commit()
 
 		doc = frappe.get_doc(PAYMENT, doc.name)
-		doc.amount = 5000
+		doc.amount = 4000
 		doc.save(ignore_permissions=True)
 		frappe.db.commit()
 
 		self.assertEqual(frappe.db.count(TDS_DOCTYPE, {"project_payment": doc.name}), 0)
-		self.assertEqual(frappe.db.get_value(PAYMENT, doc.name, "amount"), 5000)
+		self.assertEqual(frappe.db.get_value(PAYMENT, doc.name, "amount"), 4000)
 
 	def test_a_gst_payment_is_never_restated(self):
 		"""A GST payment carrying a deduction cannot arise through the app; if one ever does (a

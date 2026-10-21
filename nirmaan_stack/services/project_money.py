@@ -10,7 +10,10 @@ The terms are `GLOSSARY.md` *Project outflow* and *Current Liabilities*:
     TDS recorded on its Paid PO and Work Order payments, both the tax withheld from the vendor and the tax
     the company paid on top (ADR-0034 Amendments A and B). It is kept as its three parts (PO payments and
     their TDS, Work Order payments and their TDS, expenses; each refund comes off its own order kind), which
-    the project's Financials shows as the outflow breakdown; `outflow` is their sum.
+    the project's Financials shows as the outflow breakdown; `outflow` is their sum. Two amounts inside
+    those parts are also kept on their own, `refunds` (taken off) and `tds` (added on), for the Outflow
+    Report's note: that report lists payments and expenses only, so its total less `refunds` plus `tds`
+    is this outflow.
 
     The tax is read off the deduction rows of the Paid payments, keyed and dated by the PAYMENT (its
     project, its date), never by the challan: a challan covers many projects and a whole year. The
@@ -65,6 +68,10 @@ class ProjectMoney:
     expense_outflow: float = 0.0
     liabilities: float = 0.0
     inflow: float = 0.0
+    #: Already inside `po_outflow` / `wo_outflow`, never added again: the Received refunds they take off
+    #: (a positive figure) and the recorded TDS they add on.
+    refunds: float = 0.0
+    tds: float = 0.0
 
     @property
     def outflow(self) -> float:
@@ -139,30 +146,33 @@ def project_money(projects=None, from_date=None, to_date=None) -> dict[str, Proj
     rows = frappe.db.sql(
         f"""
         SELECT project, SUM(po_outflow) AS po_outflow, SUM(wo_outflow) AS wo_outflow,
-            SUM(expense_outflow) AS expense_outflow, SUM(liabilities) AS liabilities, SUM(inflow) AS inflow
+            SUM(expense_outflow) AS expense_outflow, SUM(liabilities) AS liabilities, SUM(inflow) AS inflow,
+            SUM(refunds) AS refunds, SUM(tds) AS tds
         FROM (
-            SELECT project, {order_cash("amount")}, 0 AS expense_outflow, 0 AS liabilities, 0 AS inflow
+            SELECT project, {order_cash("amount")}, 0 AS expense_outflow, 0 AS liabilities, 0 AS inflow,
+                0 AS refunds, 0 AS tds
             FROM "tabProject Payments"
             WHERE status = 'Paid' AND {scope("project", ON_PAYMENT_DATE)}
             UNION ALL
-            SELECT project, {order_cash("-amount")}, 0, 0, 0
+            SELECT project, {order_cash("-amount")}, 0, 0, 0, amount, 0
             FROM "tabVendor Refunds"
             WHERE status IN %(refund_statuses)s AND document_type IN %(refund_doctypes)s
               AND {scope("project", ON_PAYMENT_DATE)}
             UNION ALL
-            SELECT project, {order_cash("tds_amount")}, 0, 0, 0
+            SELECT project, {order_cash("tds_amount")}, 0, 0, 0, 0, tds_amount
             FROM ({_ORDER_TDS_ROWS}) AS order_tds
             WHERE {scope("project", ON_PAYMENT_DATE)}
             UNION ALL
-            SELECT projects, 0, 0, amount, 0, 0
+            SELECT projects, 0, 0, amount, 0, 0, 0, 0
             FROM "tabProject Expenses"
             WHERE status = 'Paid' AND {scope("projects", ON_PAYMENT_DATE)}
             UNION ALL
-            SELECT project, 0, 0, 0, 0, amount
+            SELECT project, 0, 0, 0, 0, amount, 0, 0
             FROM "tabProject Inflows"
             WHERE {scope("project", ON_PAYMENT_DATE)}
             UNION ALL
-            SELECT project, 0, 0, 0, GREATEST(0, COALESCE(po_amount_delivered, 0) - COALESCE(amount_paid, 0)), 0
+            SELECT project, 0, 0, 0, GREATEST(0, COALESCE(po_amount_delivered, 0) - COALESCE(amount_paid, 0)), 0,
+                0, 0
             FROM "tabProcurement Orders"
             WHERE status NOT IN %(excluded_po_statuses)s AND {scope("project", "creation::date")}
         ) AS money
@@ -178,6 +188,8 @@ def project_money(projects=None, from_date=None, to_date=None) -> dict[str, Proj
             expense_outflow=flt(row.expense_outflow),
             liabilities=flt(row.liabilities),
             inflow=flt(row.inflow),
+            refunds=flt(row.refunds),
+            tds=flt(row.tds),
         )
         for row in rows
     }

@@ -504,6 +504,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
             groupByResult={groupByResult}
             getExpenseTypeName={getExpenseTypeName}
             projectName={projectId ? getProjectName(projectId) : undefined}
+            statusTab={effectiveStatusTab}
           />
         }
       />
