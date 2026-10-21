@@ -356,7 +356,8 @@ def _validate_work_order_limit(doc):
 
 def _validate_work_order_limit_on_edit(doc):
     """An edit that takes more of a Work Order's payment limit is held to it, as a new request is
-    (#1536, story 43): a raised amount, a move to another Work Order, or a switch between base and GST.
+    (#1536, story 43): a raised amount, or a move to another Work Order. (A switch between base and GST is
+    refused by the field itself, `is_gst_payment` being set-only-once.)
     Measured with this payment left out of the order and its new GROSS figure asked for, so the most it
     may be raised to is what a request in its place could ask, with the same ₹10 tolerance and the same
     invoice check for the session user. Lowering is never refused: it takes nothing more, and an order
@@ -373,11 +374,8 @@ def _validate_work_order_limit_on_edit(doc):
     before = doc.get_doc_before_save()
     if not before:
         return
-    gst_payment = bool(cint(doc.get("is_gst_payment")))
-    takes_more = (
-        flt(doc.amount, 2) > flt(before.amount, 2)
-        or (before.document_type, before.document_name) != (doc.document_type, doc.document_name)
-        or gst_payment != bool(cint(before.get("is_gst_payment")))
+    takes_more = flt(doc.amount, 2) > flt(before.amount, 2) or (
+        (before.document_type, before.document_name) != (doc.document_type, doc.document_name)
     )
     if not takes_more:
         return
@@ -388,7 +386,8 @@ def _validate_work_order_limit_on_edit(doc):
     )
     sr = frappe.get_doc("Service Requests", doc.document_name)
     assert_within_work_order_limit(
-        sr, flt(doc.amount) + flt(withheld), gst_payment, action="edit", exclude_payment=doc.name
+        sr, flt(doc.amount) + flt(withheld), bool(cint(doc.get("is_gst_payment"))), action="edit",
+        exclude_payment=doc.name,
     )
 
 
