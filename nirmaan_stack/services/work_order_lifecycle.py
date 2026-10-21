@@ -26,16 +26,27 @@ The approval record (#1532): the save that approves a Work Order (`is_approval`)
 doctype's own `validate`). The backfill patch `v3_0.backfill_work_order_approval` reads old history by
 the same `is_approval` rule.
 
-The amendment rules (#1540) add their checks to `change_problem`.
+The amendment rules (#1540, GLOSSARY *Amendment (of a Work Order)*): an amendment save is one that
+starts an amendment (Approved -> Amendment), changes a Work Order under amendment, or decides it
+(Amendment -> Approved: accept, or revert). Amend waits while any payment is neither Paid nor Rejected.
+No amendment save may lower the total below Amount Paid or the approved invoices, nor leave a vendor
+other than the one before the amendment once a payment (not Rejected) or an invoice exists, nor swap in
+a vendor on GST Hold. A Work Order under amendment takes no new payment (`payment_request_problem`).
 
-Pure: the caller resolves who the user is (`services/role_profiles.can_decide_work_order`) and which
-server action is saving, and passes the answers in.
+Pure: the caller resolves who the user is (`services/role_profiles.can_decide_work_order`), which
+server action is saving, and, for an amendment save, the payments, invoices and vendor facts
+(`AmendmentFacts`), and passes the answers in.
 """
 
 import json
+from dataclasses import dataclass
 from decimal import Decimal
 
 import frappe
+from frappe.utils import flt
+
+from nirmaan_stack.services.outflow_import.amounts import rupees
+from nirmaan_stack.services.work_order_gst import work_order_total
 
 APPROVED = "Approved"
 REJECTED = "Rejected"
@@ -61,6 +72,43 @@ FINALIZED_REFUSAL = (
 FINALIZE_FLAG_REFUSAL = (
     "A Work Order is finalized only with Finalize, and unlocked only with Revert Finalization."
 )
+
+AMEND_PAYMENTS_REFUSAL = (
+    "This Work Order can't be amended while a payment on it is neither Paid nor Rejected."
+)
+
+TOTAL_BELOW_REFUSAL = "An amendment can't bring a Work Order's total below what was paid or billed."
+
+VENDOR_CHANGE_REFUSAL = (
+    "An amendment can't change the vendor once the Work Order has a payment (not Rejected) or an invoice: "
+    "paid money stays with the vendor who got it."
+)
+
+GST_HOLD_AMEND_REFUSAL = "An amendment can't make a vendor on GST Hold this Work Order's vendor."
+
+UNDER_AMENDMENT_PAYMENT_REFUSAL = "A payment can't be requested on a Work Order under amendment."
+
+#: A payment at one of these statuses is settled; any other is money in flight.
+SETTLED_PAYMENT_STATUSES = ("Paid", "Rejected")
+
+
+@dataclass(frozen=True)
+class AmendmentFacts:
+    """What an amendment save is checked against, read by the caller.
+
+    `open_payments`: (name, status) of the payments neither Paid nor Rejected. `has_live_payment`: a
+    payment that is not Rejected exists. `invoices`: how many Vendor Invoices (not Rejected) and
+    generated invoices (not Voided) it has. `vendor_before`: the vendor it had when the amendment
+    started (`work_order_amendment.vendor_before_amendment`), None when unknown. `vendor_on_gst_hold`:
+    the vendor the save leaves is on GST Hold.
+    """
+
+    open_payments: tuple = ()
+    has_live_payment: bool = False
+    invoices: int = 0
+    vendor_before: str | None = None
+    vendor_on_gst_hold: bool = False
+
 
 #: What a Finalized Work Order's save may not change. `gst` gives way to Match GST to vendor.
 LOCKED_FIELDS = (
@@ -117,14 +165,30 @@ def approval_record(before, after, *, user: str, now) -> dict:
     return {field: before.get(field) if before else None for field in APPROVAL_FIELDS}
 
 
+def is_amendment_save(before, after) -> bool:
+    """True when a save starts, changes or decides an amendment: Approved -> Amendment,
+    Amendment -> Amendment, or Amendment -> Approved."""
+    if not before:
+        return False
+    moves = (before.get("status"), after.get("status"))
+    return moves in ((APPROVED, AMENDMENT), (AMENDMENT, AMENDMENT), (AMENDMENT, APPROVED))
+
+
 def change_problem(
-    before, after, *, may_decide: bool, gst_from_vendor: bool = False, finalize_action: bool = False
+    before,
+    after,
+    *,
+    may_decide: bool,
+    gst_from_vendor: bool = False,
+    finalize_action: bool = False,
+    amendment: AmendmentFacts | None = None,
 ) -> str | None:
     """Why this save of `after` over `before` (None for a new Work Order) is refused, or None when it may go.
 
     `may_decide`: the user's answer to `role_profiles.WO_DECIDE_PROFILES`. `gst_from_vendor`: the server set
     the GST flag from the vendor (`flags.gst_set_from_vendor`). `finalize_action`: Finalize or Revert
-    Finalization is saving (`flags.finalize_action`).
+    Finalization is saving (`flags.finalize_action`). `amendment`: the facts an amendment save is checked
+    against; the caller reads them when `is_amendment_save`.
     """
     before_status = before.get("status") if before else None
     if is_decision(before_status, after.get("status")) and not may_decide:
@@ -133,7 +197,55 @@ def change_problem(
         return FINALIZE_FLAG_REFUSAL
     if is_finalized(before) and _locked_changes(before, after, gst_from_vendor=gst_from_vendor):
         return FINALIZED_REFUSAL
+    if is_amendment_save(before, after):
+        return _amendment_problem(before, after, amendment or AmendmentFacts())
     return None
+
+
+def payment_request_problem(work_order: str, work_order_status: str | None) -> str | None:
+    """Why a new payment on `work_order` is refused, or None: no money moves against a total that may change."""
+    if work_order_status == AMENDMENT:
+        return (
+            f"{UNDER_AMENDMENT_PAYMENT_REFUSAL} {work_order} is waiting for its amendment to be accepted "
+            "or reverted; request the payment after that."
+        )
+    return None
+
+
+def _amendment_problem(before, after, facts: AmendmentFacts) -> str | None:
+    starting = before.get("status") == APPROVED
+    if starting and facts.open_payments:
+        listed = ", ".join(f"{name} ({status})" for name, status in facts.open_payments)
+        return f"{AMEND_PAYMENTS_REFUSAL} Pay or reject these first: {listed}."
+
+    vendor_before = before.get("vendor") if starting else (facts.vendor_before or before.get("vendor"))
+    if (after.get("vendor") or None) != (vendor_before or None):
+        if facts.has_live_payment or facts.invoices:
+            return VENDOR_CHANGE_REFUSAL
+        if facts.vendor_on_gst_hold:
+            return (
+                f"{GST_HOLD_AMEND_REFUSAL} {after.get('vendor')} is on GST Hold; pick another vendor, "
+                "or ask Admin to remove the GST Hold."
+            )
+
+    # The stored total moves only when an amendment is decided (`ServiceRequests.on_update`), so while
+    # one is open it is still the total from before it. A save that doesn't lower it is never refused here.
+    new_total = round(work_order_total(_items_value(after), after.get("gst")), 2)
+    if new_total >= round(flt(before.get("total_amount")), 2):
+        return None
+    for floor, what in ((flt(before.get("amount_paid")), "Amount Paid"),
+                        (flt(before.get("amount_invoiced")), "approved invoices")):
+        if new_total < round(floor, 2):
+            return (
+                f"{TOTAL_BELOW_REFUSAL} It would make the total {rupees(new_total)}, below its "
+                f"{what} of {rupees(floor)}."
+            )
+    return None
+
+
+def _items_value(doc) -> float:
+    """The Work Order's items' value before GST, as `ServiceRequests.calculate_total_amount` sums it."""
+    return sum(flt(row.get("quantity")) * flt(row.get("rate")) for row in doc.get("work_order_items") or [])
 
 
 def delete_problem(doc) -> str | None:

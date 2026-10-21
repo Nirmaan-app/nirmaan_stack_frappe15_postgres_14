@@ -112,6 +112,13 @@ INVOICE_APPROVAL_PROFILES = (
 # keep the two lists in sync.
 PAYMENT_SETTLE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
+# The L1 step of a payment's approval: approve or reject a Requested payment, alone or in bulk
+# (#1530). The Admin profile, plus `Administrator` and the CEO. Mirrored client-side by `canApprove`
+# in `frontend/src/pages/ProjectPayments/config/paymentsTabSet.ts` (the Approve Payments tab) and
+# matching `services/approval_raiser.raiser_level`. ENFORCEMENT boundary: the Project Payments
+# `validate` hook (`services/payment_steps.py`) and `api/payments/bulk_actions._authorize_lead`.
+PAYMENT_L1_PROFILES = (ADMIN_PROFILE,)
+
 # `Non Project Inflows` (#1265, ADR-0016 Amendment A) -- company treasury money. Read + create:
 # Admin / Accountant / Accountant Lead; edit: Admin + Accountant Lead; delete: Admin only.
 #

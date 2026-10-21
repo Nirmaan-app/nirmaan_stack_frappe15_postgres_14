@@ -6,7 +6,7 @@ from frappe.utils import flt, now_datetime
 from frappe.model.document import Document
 from frappe.model.naming import getseries
 
-from nirmaan_stack.services.work_order_amendment import vendor_before_amendment
+from nirmaan_stack.services.work_order_amendment import ACCEPTED, mark_snapshots, vendor_before_amendment
 from nirmaan_stack.services.work_order_lifecycle import approval_record
 from nirmaan_stack.services.work_order_gst import gst_flag_for_vendor, work_order_total
 
@@ -21,6 +21,16 @@ class ServiceRequests(Document):
 		self.set_gst_from_vendor()
 		self.fill_project_gst_on_approval()
 		self.stamp_approval()
+		self.name_amendment_outcome()
+
+	def name_amendment_outcome(self):
+		"""The save that decides an amendment (Amendment -> Approved) carries its outcome in
+		`flags.amendment_outcome`: Reverted when `api/service_requests/amendment.revert_amendment` set it,
+		Accepted otherwise (the approve screen, Desk, REST). `on_update` marks the snapshot with it, and the
+		notification hooks may read it (#1540)."""
+		old_doc = self.get_doc_before_save()
+		if old_doc and old_doc.status == "Amendment" and self.status == "Approved":
+			self.flags.amendment_outcome = self.flags.amendment_outcome or ACCEPTED
 
 	def stamp_approval(self):
 		"""The approving save stores who approved and when; every other save keeps what is stored,
@@ -60,6 +70,8 @@ class ServiceRequests(Document):
 		self.project_gst = frappe.db.get_value("Projects", self.project, "project_gst") or self.project_gst
 
 	def on_update(self):
+		if self.flags.amendment_outcome:
+			mark_snapshots(self.name, self.flags.amendment_outcome)
 		old_doc = self.get_doc_before_save()
 		if not old_doc:
 			# Initial create — seed total_amount from `work_order_items` so

@@ -38,6 +38,10 @@ from nirmaan_stack.services.cheques.rules import ISSUED
 MODE_ONLINE = "Online"
 MODE_CHEQUE = "Cheque"
 
+#: The flag `move_to_reconciliation` saves with: the move is the cheque rule's, not a person's
+#: Mark as Paid, so the payment-step guard lets it through whoever set it going (`services/payment_steps`).
+CHEQUE_MOVES_ON = "cheque_moves_on"
+
 
 def is_cheque(doc) -> bool:
 	"""Was this payment requested as a cheque? Blank (never set) reads as Online."""
@@ -86,6 +90,7 @@ def move_to_reconciliation(payment_name: str, *, sync_po_term: bool = True) -> b
 		payment_tds.record_deduction(pay)
 
 	pay.status = settlement.STATUS_RECONCILIATION_PENDING
+	pay.flags[CHEQUE_MOVES_ON] = True
 	if not sync_po_term:
 		pay.flags.bulk_approval = True  # `_find_and_update_po_term` stays out; the caller writes the term
 	pay.save(ignore_permissions=True)

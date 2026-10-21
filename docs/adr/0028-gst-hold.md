@@ -1,6 +1,6 @@
 # ADR-0028 — GST Hold replaces the Work Order ₹15 lakh block
 
-- **Status:** Accepted, built (owner grilling 2026-09-19, Q1–Q16; Q3 revised twice the same day — final: the job never releases a hold). Amended 2026-10-21: see *Amendment A* (GST follows the vendor; Remove GST Hold changes no Work Order)
+- **Status:** Accepted, built (owner grilling 2026-09-19, Q1–Q16; Q3 revised twice the same day — final: the job never releases a hold). Amended 2026-10-21: see *Amendment A* (GST follows the vendor; Remove GST Hold changes no Work Order). Amended 2026-10-22: see *Amendment B* (an amendment can't swap in a held vendor)
 - **Date:** 2026-09-19
 - **Feature:** Vendors / Work Orders (Service Requests)
 - **Replaces:** the new-WO amount check added 2026-09-16 (`validate_vendor_fy_limit`)
@@ -147,3 +147,12 @@ The daily GST Hold job is unchanged.
   number") no longer applies: removing the hold is no longer how Work Orders are switched.
 - A Work Order put in Amendment without the document layer (raw SQL) has no Version row for the move,
   so accepting it leaves the flag alone; Match GST to vendor fixes it afterwards.
+
+## Amendment B — an amendment can't swap in a vendor on GST Hold (2026-10-22)
+
+**Accepted** (spec #1528 story 20, built in #1540). Narrows *What GST Hold blocks* above, which let
+amending carry on. A held vendor still keeps its existing Work Orders, and they may still be amended.
+What is refused is an amendment that makes a held vendor the Work Order's vendor (a vendor other than the
+one before the amendment), on every amendment save, Desk and REST included
+(`services/work_order_lifecycle.change_problem`, `GST_HOLD_AMEND_REFUSAL`). Otherwise an amendment would
+be a way round the block on creating a Work Order for that vendor.

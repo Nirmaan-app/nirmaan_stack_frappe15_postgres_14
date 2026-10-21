@@ -1,12 +1,34 @@
+from dataclasses import dataclass
+
 import frappe
-from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_users, get_admin_users, get_allowed_procurement_users, get_allowed_accountants
+from ..Notifications.pr_notifications import (
+    NOTIFIED_USER_FIELDS,
+    PrNotification,
+    get_admin_users,
+    get_allowed_accountants,
+    get_allowed_lead_users,
+    get_allowed_procurement_users,
+    get_users_who_see_project,
+)
 from frappe import _
 from .procurement_requests import get_user_name
 from nirmaan_stack.api.projects._tendering_guard import validate_won
 from nirmaan_stack.api.service_requests.vendor_fy_limit import validate_vendor_gst_hold
-from nirmaan_stack.services.role_profiles import can_decide_work_order
+from nirmaan_stack.services.role_profiles import SERVICE_PROCUREMENT_PROFILES, can_decide_work_order
+from nirmaan_stack.services.work_order_amendment import REVERTED, vendor_before_amendment
 from nirmaan_stack.services.work_order_gst import gst_is_on
-from nirmaan_stack.services.work_order_lifecycle import WorkOrderChangeRefused, change_problem, delete_problem
+from nirmaan_stack.services.work_order_lifecycle import (
+    AMENDMENT,
+    APPROVED,
+    SETTLED_PAYMENT_STATUSES,
+    AmendmentFacts,
+    WorkOrderChangeRefused,
+    change_problem,
+    delete_problem,
+    is_amendment_save,
+    is_approval,
+    is_decision,
+)
 
 
 def guard_lifecycle(doc, method=None):
@@ -14,17 +36,44 @@ def guard_lifecycle(doc, method=None):
 
     Bound to validate on its own, so the SPA, Desk and the REST API all meet it: only Admin and Project
     Lead may approve, reject, or accept or revert an amendment (#1529); a Finalized Work Order's scope is
-    locked (#1539). It runs after the doctype's own `validate`, so `flags.gst_set_from_vendor` is set by then.
+    locked (#1539); an amendment is held to the amendment rules (#1540), read here from the database. It runs
+    after the doctype's own `validate`, so `flags.gst_set_from_vendor` is set by then.
     """
+    before = doc.get_doc_before_save()
     problem = change_problem(
-        doc.get_doc_before_save(),
+        before,
         doc,
         may_decide=can_decide_work_order(frappe.session.user),
         gst_from_vendor=bool(doc.flags.gst_set_from_vendor),
         finalize_action=bool(doc.flags.finalize_action),
+        amendment=amendment_facts(before, doc) if is_amendment_save(before, doc) else None,
     )
     if problem:
         frappe.throw(_(problem), WorkOrderChangeRefused, title=_("Not allowed"))
+
+
+def amendment_facts(before, doc) -> AmendmentFacts:
+    """The payments, invoices and vendor facts an amendment save of `doc` is checked against."""
+    payments = frappe.get_all(
+        "Project Payments",
+        filters={"document_type": "Service Requests", "document_name": doc.name},
+        fields=["name", "status"],
+        order_by="creation asc",
+    )
+    invoices = frappe.db.count(
+        "Vendor Invoices",
+        {"document_type": "Service Requests", "document_name": doc.name, "status": ("!=", "Rejected")},
+    ) + frappe.db.count("WO Generated Invoice", {"work_order": doc.name, "status": ("!=", "Voided")})
+    starting = before.status == "Approved"
+    return AmendmentFacts(
+        open_payments=tuple(
+            (p.name, p.status) for p in payments if p.status not in SETTLED_PAYMENT_STATUSES
+        ),
+        has_live_payment=any(p.status != "Rejected" for p in payments),
+        invoices=invoices,
+        vendor_before=before.vendor if starting else vendor_before_amendment(doc.name, before.vendor),
+        vendor_on_gst_hold=bool(doc.vendor and frappe.db.get_value("Vendors", doc.vendor, "gst_hold")),
+    )
 
 
 def guard_delete(doc, method=None):
@@ -125,183 +174,199 @@ def on_trash(doc, method):
         "docname": ("=", doc.name)
     })
 
-def on_update(doc, method):
+# --- Notifications (#1533) ---------------------------------------------------------------------------
 
-    previous_doc = doc.get_doc_before_save()
+VENDOR_SELECTED = "Vendor Selected"
 
-    if doc.status == "Vendor Selected":
-        lead_admin_users = get_allowed_lead_users(doc) + get_admin_users()
-        if lead_admin_users:
-            for user in lead_admin_users:
-                if user["push_notification"] == "true":
-                    # Dynamically generate notification title/body for each lead
-                    notification_title = f"Vendors Selected for SR: {doc.name}"
-                    notification_body = (
-                            f"Hi {user['full_name']}, Vendors have been selected for the {doc.name} Service Request. "
-                            "Please review the selection and proceed with approval or rejection."
-                        )
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/service-requests?tab=approve-service-order"
-                    # Send notification for each lead
-                    PrNotification(user, notification_title, notification_body, click_action_url)
-                else:
-                    print(f"push notifications were not enabled for user: {user['full_name']}")
-        else:
-            print("No project leads or admins found with push notifications enabled.")
+VENDOR_SELECTED_EVENT = "sr:vendorSelected"
+AMENDED_EVENT = "sr:amended"
+APPROVED_EVENT = "sr:approved"
+REJECTED_EVENT = "sr:rejected"
+AMENDMENT_ACCEPTED_EVENT = "sr:amendmentAccepted"
+AMENDMENT_REVERTED_EVENT = "sr:amendmentReverted"
+FINALIZED_EVENT = "sr:finalized"
 
-        message = {
-            "title": _("SR Status Updated"),
-            "description": _(f"Vendors have been selected for the SR: {doc.name}!"),
-            "project": doc.project,
-            "work_package": "Services",
-            "sender": frappe.session.user,
-            "docname": doc.name
-        }
-        # Emit the event to the allowed users
-        for user in lead_admin_users:
-            new_notification_doc = frappe.new_doc('Nirmaan Notifications')
-            new_notification_doc.recipient = user['name']
-            new_notification_doc.recipient_role = user['role_profile']
-            if frappe.session.user != 'Administrator':
-                new_notification_doc.sender = frappe.session.user
-            new_notification_doc.title = message["title"]
-            new_notification_doc.description = message["description"]
-            new_notification_doc.document = 'Service Requests'
-            new_notification_doc.docname = doc.name
-            new_notification_doc.project = doc.project
-            new_notification_doc.work_package = "Services"
-            new_notification_doc.seen = "false"
-            new_notification_doc.type = "info"
-            new_notification_doc.event_id = "sr:vendorSelected"
-            new_notification_doc.action_url = f"service-requests/{doc.name}?tab=approve-service-order"
-            new_notification_doc.insert()
-            frappe.db.commit()
-
-            message["notificationId"] = new_notification_doc.name
-            print(f"running publish realtime for: {user}")
-
-            frappe.publish_realtime(
-                event="sr:vendorSelected",  # Custom event name
-                message=message,
-                user=user['name']  # Notify only specific users
-            )
-    
-    if doc.status == "Amendment":
-        lead_admin_users = get_allowed_lead_users(doc) + get_admin_users()
-        if lead_admin_users:
-            for user in lead_admin_users:
-                if user["push_notification"] == "true":
-                    # Dynamically generate notification title/body for each lead
-                    notification_title = f"SO: {doc.name} has been Amended"
-                    notification_body = (
-                        f"Hi {user['full_name']}, SO: {doc.name} for the {doc.project} "
-                        f"project has been amended by {get_user_name(frappe.session.user)} and is awaiting your review."
-                        )
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/service-requests?tab=approve-amended-so"
-                    # Send notification for each lead
-                    PrNotification(user, notification_title, notification_body, click_action_url)
-                else:
-                    print(f"push notifications were not enabled for user: {user['full_name']}")
-        else:
-            print("No project leads or admins found with push notifications enabled.")
-
-        message = {
-            "title": _("SR Status Updated!"),
-            "description": _(f"SO: {doc.name} has been amended!"),
-            "project": doc.project,
-            "work_package": "Services",
-            "sender": frappe.session.user,
-            "docname": doc.name
-        }
-        # Emit the event to the allowed users
-        for user in lead_admin_users:
-            new_notification_doc = frappe.new_doc('Nirmaan Notifications')
-            new_notification_doc.recipient = user['name']
-            new_notification_doc.recipient_role = user['role_profile']
-            if frappe.session.user != 'Administrator':
-                new_notification_doc.sender = frappe.session.user
-            new_notification_doc.title = message["title"]
-            new_notification_doc.description = message["description"]
-            new_notification_doc.document = 'Service Requests'
-            new_notification_doc.docname = doc.name
-            new_notification_doc.project = doc.project
-            new_notification_doc.work_package = "Services"
-            new_notification_doc.seen = "false"
-            new_notification_doc.type = "info"
-            new_notification_doc.event_id = "sr:amended"
-            new_notification_doc.action_url = f"service-requests/{doc.name}?tab=approve-amended-so"
-            new_notification_doc.insert()
-            frappe.db.commit()
-
-            message["notificationId"] = new_notification_doc.name
-            print(f"running publish realtime for: {user}")
-
-            frappe.publish_realtime(
-                event="sr:amended",  # Custom event name
-                message=message,
-                user=user['name']  # Notify only specific users
-            )
+ACCOUNTANT_PROFILES = ("Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile")
+_NOTICE_SAVEPOINT = "work_order_notice"
 
 
-    if previous_doc and previous_doc.status == "Vendor Selected" and doc.status == "Approved":
-        proc_admin_users = get_allowed_procurement_users(doc) + get_admin_users()
-        accountant_users = get_allowed_accountants(doc)
-        proc_admin_accountant_users = proc_admin_users + accountant_users
-        if proc_admin_accountant_users:
-            for user in proc_admin_accountant_users:
-                if user["push_notification"] == "true":
+@dataclass(frozen=True)
+class Notice:
+    """One Work Order notice: the bell row, the realtime event of the same name, and the push."""
 
-                    notification_title = f"Vendors Approved for SR: {doc.name}"
-                    notification_body = (
-                            f"Hi {user['full_name']}, Vendors have been approved for the {doc.name} Service Request. "
-                            "click here to take action."
-                        )
-                    if user['role_profile'] not in ("Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"):
-                        click_action_url = f"{frappe.utils.get_url()}/frontend/service-requests?tab=approved-sr"
-                    else:
-                        click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments?tab=PO%20Wise"
+    event: str
+    title: str
+    description: str
+    push_title: str
+    push_text: str   # the push body after "Hi <name>, "
+    tab: str         # the Work Order page tab the bell links to
 
-                    PrNotification(user, notification_title, notification_body, click_action_url)
-                else:
-                    print(f"push notifications were not enabled for user: {user['full_name']}")
-        else:
-            print("No Proc Execs, Accountants or Admins found with push notifications enabled.")
 
-        message = {
-            "title": _("SR Approved"),
-            "description": _(f"Vendors have been approved for the SR: {doc.name}!"),
-            "project": doc.project,
-            "work_package": "Services",
-            "sender": frappe.session.user,
-            "docname": doc.name
-        }
-        # Emit the event to the allowed users
-        for user in proc_admin_accountant_users:
-            new_notification_doc = frappe.new_doc('Nirmaan Notifications')
-            new_notification_doc.recipient = user['name']
-            new_notification_doc.recipient_role = user['role_profile']
-            if frappe.session.user != 'Administrator':
-                new_notification_doc.sender = frappe.session.user
-            new_notification_doc.title = message["title"]
-            new_notification_doc.description = message["description"]
-            new_notification_doc.document = 'Service Requests'
-            new_notification_doc.docname = doc.name
-            new_notification_doc.project = doc.project
-            new_notification_doc.work_package = "Services"
-            new_notification_doc.seen = "false"
-            new_notification_doc.type = "info"
-            new_notification_doc.event_id = "sr:approved"
-            if user['role_profile'] not in ("Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"):
-                new_notification_doc.action_url = f"service-requests/{doc.name}?tab=approved-sr"
-            else:
-                new_notification_doc.action_url = f"project-payments/{doc.name}"
-            new_notification_doc.insert()
-            frappe.db.commit()
+def on_update(doc, method=None):
+    """Tell people about the status move this save made: once, and only after the save commits (#1533).
 
-            message["notificationId"] = new_notification_doc.name
-            print(f"running publish realtime for: {user}")
+    A save that keeps the status (notes, the GST flag, an invoice number) tells nobody. The bell rows ride
+    the save's own transaction, so a save that rolls back leaves none, and the realtime events and pushes
+    wait for its commit. The rows are the system's, inserted past the saver's permissions: a PMO Executive
+    amends a Work Order but may not create Nirmaan Notifications.
+    """
+    before = doc.get_doc_before_save()
+    event = status_event(before.status if before else None, doc.status, doc.flags.amendment_outcome)
+    if event:
+        notify(doc, event)
 
-            frappe.publish_realtime(
-                event="sr:approved",  # Custom event name
-                message=message,
-                user=user['name']  # Notify only specific users
-            )
+
+def notify_finalized(doc):
+    """Tell the approval audience a Work Order was finalized, so the Work Order lists show it (story 77).
+    Called by `api/sr_finalize.finalize_sr` before its commit."""
+    notify(doc, FINALIZED_EVENT)
+
+
+def status_event(before_status, after_status, amendment_outcome=None) -> str | None:
+    """The notice a save moving the status from `before_status` (None for a new Work Order) to
+    `after_status` sends, or None. `amendment_outcome`: `flags.amendment_outcome`, set on the save that
+    decides an amendment (#1540)."""
+    if before_status == after_status:
+        return None
+    if after_status == VENDOR_SELECTED:
+        return VENDOR_SELECTED_EVENT
+    if after_status == AMENDMENT:
+        return AMENDED_EVENT
+    if is_approval(before_status, after_status):
+        return APPROVED_EVENT
+    if before_status == AMENDMENT and after_status == APPROVED:
+        return AMENDMENT_REVERTED_EVENT if amendment_outcome == REVERTED else AMENDMENT_ACCEPTED_EVENT
+    if is_decision(before_status, after_status):
+        return REJECTED_EVENT
+    return None
+
+
+def notify(doc, event):
+    """Write `event`'s bell row for each of its recipients, and send its realtime event and push after the
+    commit. A failure is logged and undone, never raised: the save it reports stands."""
+    recipients = _recipients(doc, event)
+    if not recipients:
+        return
+    notice = _notice(doc, event)
+    frappe.db.savepoint(_NOTICE_SAVEPOINT)
+    try:
+        rows = [(user, _bell_row(doc, notice, user)) for user in recipients]
+    except Exception:
+        frappe.db.rollback(save_point=_NOTICE_SAVEPOINT)
+        frappe.log_error(frappe.get_traceback(), f"Work Order {event} notification failed")
+        return
+    message = {"title": notice.title, "description": notice.description, "project": doc.project,
+               "work_package": "Services", "sender": frappe.session.user, "docname": doc.name}
+    for user, row in rows:
+        frappe.publish_realtime(event=notice.event, message={**message, "notificationId": row},
+                                user=user["name"], after_commit=True)
+    frappe.db.after_commit.add(lambda: _push(notice, recipients))
+
+
+def _recipients(doc, event) -> list:
+    """Who `event` tells, each once."""
+    if event in (VENDOR_SELECTED_EVENT, AMENDED_EVENT):
+        users = get_allowed_lead_users(doc) + get_admin_users()
+    elif event in (APPROVED_EVENT, FINALIZED_EVENT):
+        users = (get_allowed_procurement_users(doc)
+                 + get_users_who_see_project(doc.project, SERVICE_PROCUREMENT_PROFILES)
+                 + get_admin_users()
+                 + get_allowed_accountants(doc))
+    else:
+        users = _creator(doc)
+    unique = {}
+    for user in users:
+        unique.setdefault(user["name"], user)
+    return list(unique.values())
+
+
+def _creator(doc) -> list:
+    """The Work Order's creator, unless they made this move themselves or have no Nirmaan Users row."""
+    if doc.owner == frappe.session.user:
+        return []
+    return frappe.get_all("Nirmaan Users", filters={"name": doc.owner}, fields=NOTIFIED_USER_FIELDS)
+
+
+def _notice(doc, event) -> Notice:
+    name, actor = doc.name, get_user_name(frappe.session.user)
+    texts = {
+        VENDOR_SELECTED_EVENT: (
+            _("SR Status Updated"), _("Vendors have been selected for the SR: {0}!").format(name),
+            _("Vendors Selected for SR: {0}").format(name),
+            _("Vendors have been selected for the {0} Service Request. Please review the selection and "
+              "proceed with approval or rejection.").format(name),
+            "approve-service-order"),
+        AMENDED_EVENT: (
+            _("SR Status Updated!"), _("SO: {0} has been amended!").format(name),
+            _("SO: {0} has been Amended").format(name),
+            _("SO: {0} for the {1} project has been amended by {2} and is awaiting your review.").format(
+                name, doc.project, actor),
+            "approve-amended-so"),
+        APPROVED_EVENT: (
+            _("SR Approved"), _("Vendors have been approved for the SR: {0}!").format(name),
+            _("Vendors Approved for SR: {0}").format(name),
+            _("Vendors have been approved for the {0} Service Request. Click here to take action.").format(name),
+            "approved-sr"),
+        REJECTED_EVENT: (
+            _("Work Order Rejected"), _("{0} was rejected by {1}.").format(name, actor),
+            _("Work Order {0} Rejected").format(name),
+            _("your Work Order {0} was rejected by {1}.").format(name, actor),
+            "choose-vendor"),
+        AMENDMENT_ACCEPTED_EVENT: (
+            _("Amendment Accepted"), _("The amendment to {0} was accepted by {1}.").format(name, actor),
+            _("Amendment to {0} Accepted").format(name),
+            _("the amendment to your Work Order {0} was accepted by {1}.").format(name, actor),
+            "approved-sr"),
+        AMENDMENT_REVERTED_EVENT: (
+            _("Amendment Reverted"),
+            _("The amendment to {0} was reverted by {1}; it is back as it was before.").format(name, actor),
+            _("Amendment to {0} Reverted").format(name),
+            _("the amendment to your Work Order {0} was reverted by {1}.").format(name, actor),
+            "approved-sr"),
+        FINALIZED_EVENT: (
+            _("Work Order Finalized"), _("{0} was finalized by {1}.").format(name, actor),
+            _("Work Order {0} Finalized").format(name),
+            _("Work Order {0} was finalized by {1}.").format(name, actor),
+            "finalized-sr"),
+    }
+    return Notice(event, *texts[event])
+
+
+def _link(doc, notice, user) -> str:
+    """Where the bell sends `user`: Accountants to the Work Order's payments, everyone else to its page."""
+    if notice.event in (APPROVED_EVENT, FINALIZED_EVENT) and user["role_profile"] in ACCOUNTANT_PROFILES:
+        return f"project-payments/{doc.name}"
+    return f"service-requests/{doc.name}?tab={notice.tab}"
+
+
+def _bell_row(doc, notice, user) -> str:
+    row = frappe.get_doc({
+        "doctype": "Nirmaan Notifications",
+        "recipient": user["name"],
+        "recipient_role": user["role_profile"],
+        "sender": frappe.session.user if frappe.session.user != "Administrator" else None,
+        "title": notice.title,
+        "description": notice.description,
+        "document": "Service Requests",
+        "docname": doc.name,
+        "project": doc.project,
+        "work_package": "Services",
+        "seen": "false",
+        "type": "info",
+        "event_id": notice.event,
+        "action_url": _link(doc, notice, user),
+    })
+    row.insert(ignore_permissions=True)
+    return row.name
+
+
+def _push(notice, recipients):
+    """Send the push to each recipient who takes them. Runs after the commit; a failure is logged."""
+    for user in recipients:
+        if user.get("push_notification") != "true":
+            continue
+        try:
+            PrNotification(user, notice.push_title, _("Hi {0}, {1}").format(user["full_name"], notice.push_text),
+                           f"{frappe.utils.get_url()}/frontend/service-requests?tab={notice.tab}")
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), f"Work Order {notice.event} push failed")

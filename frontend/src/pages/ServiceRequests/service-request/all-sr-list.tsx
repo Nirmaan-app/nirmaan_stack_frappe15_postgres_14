@@ -38,6 +38,11 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
+import {
+  LISTED_WORK_ORDER_STATUSES,
+  workOrderBadge,
+  workOrderBadgeVariant,
+} from "../config/workOrderAmendment";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 import { SRRemarksPopover } from "@/pages/ServiceRequests/approved-sr/components/SRRemarksPopover";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
@@ -132,8 +137,9 @@ export const AllSRList: React.FC<AllSRListProps> = ({
   );
 
   const staticFilters = useMemo(() => {
+    // A Work Order under amendment stays listed, with its badge (#1540).
     const filters: Array<[string, string, any]> = [
-      ["status", "=", "Approved"],
+      ["status", "in", LISTED_WORK_ORDER_STATUSES],
     ];
 
     if (for_vendor) {
@@ -319,11 +325,10 @@ export const AllSRList: React.FC<AllSRListProps> = ({
         header: ({ column }: { column: any }) => (
           <DataTableColumnHeader column={column} title="Status" />
         ),
-        cell: ({ row }: { row: any }) => (
-          <Badge variant={row.getValue("is_finalized") ? "green" : "outline"}>
-            {row.getValue("is_finalized") ? "Finalized" : "Approved"}
-          </Badge>
-        ),
+        cell: ({ row }: { row: any }) => {
+          const badge = workOrderBadge(row.original);
+          return <Badge variant={workOrderBadgeVariant(badge)}>{badge}</Badge>;
+        },
         enableColumnFilter: true,
         size: 120,
       },

@@ -101,6 +101,37 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   Revert Finalization, which write the audit remark); `is_finalized` and `total_amount` are read-only in Desk.
   The comparison ignores how Desk sends a value (JSON as text, int vs float, a row's own name and timestamps),
   so a Desk save that leaves the scope alone passes.
+- **An amendment is held to its rules on the server (#1540, GLOSSARY *Amendment (of a Work Order)*).** The
+  same `work_order_lifecycle.change_problem` checks every amendment save (`is_amendment_save`: Approved ->
+  Amendment, Amendment -> Amendment, Amendment -> Approved) against `AmendmentFacts`, which
+  `controllers/service_requests.amendment_facts` reads from the database: Amend waits while a payment is
+  neither Paid nor Rejected (listed); no amendment save lowers the total below the stored `amount_paid` or
+  `amount_invoiced` (the stored `total_amount` is recomputed only at the decision, so until then it is the
+  total from before the amendment; a save that does not lower it is never refused, so a revert passes); the
+  vendor stays the one before the amendment (`work_order_amendment.vendor_before_amendment`) once a payment
+  not Rejected, a Vendor Invoice not Rejected or a WO Generated Invoice not Voided exists; a vendor on GST Hold
+  is not swapped in. A new payment on a WO in Amendment is refused on insert
+  (`controllers/project_payments.refuse_while_work_order_under_amendment`, rule `payment_request_problem`).
+  The snapshot (Nirmaan Versions, `new_state` Amendment, copied from the amend save's Version by
+  `controllers/nirmaan_versions`) is never deleted: the deciding save marks every undecided one with
+  `outcome` Accepted or Reverted (`ServiceRequests.name_amendment_outcome` -> `flags.amendment_outcome`, then
+  `work_order_amendment.mark_snapshots` in `on_update`). Revert is `api/service_requests/amendment.revert_amendment`
+  (the user's own save, so the decide rule applies), which writes back items, vendor, categories and
+  `project_gst` from the snapshot (`pre_amendment_values`); a plain Amendment -> Approved save is an accept.
+  Snapshots exist only for saves that leave a Version: in tests pass `ignore_version=False` on the amend save.
+  The amend reason is the Nirmaan Comments row with subject "amending approved work order".
+- **WO notifications fire on the move into a status, never on a save that keeps it (#1533).** The Service
+  Requests `on_update` hook (`controllers/service_requests.on_update`) maps the move to one event
+  (`status_event`, on the `work_order_lifecycle` helpers): into *Vendor Selected* (a new WO included) or
+  *Amendment* -> the project's leads and admins; an approval (`is_approval`) -> material procurement on the
+  project, Service Procurement profiles who can see it (`pr_notifications.get_users_who_see_project`: on it, or
+  on no project, which is how Service Procurement Executives are set up), admins and the project's accountants;
+  a reject, or an amendment accepted / reverted (`flags.amendment_outcome`) -> the WO's creator (`owner`), unless
+  the creator made the move. `api/sr_finalize.finalize_sr` sends `sr:finalized` to the approval audience
+  (`notify_finalized`). The bell rows are inserted with `ignore_permissions` (a PMO Executive amends but may not
+  create Nirmaan Notifications) in the save's own transaction, inside a savepoint: never `frappe.db.commit()` in
+  a WO hook. The realtime event (`after_commit=True`) and the push (`frappe.db.after_commit`) wait for the
+  commit; a failed notice is logged and undone, never raised.
 
 ## Doctype: Service Requests
 

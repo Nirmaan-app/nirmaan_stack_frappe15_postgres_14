@@ -33,15 +33,11 @@ from nirmaan_stack.integrations.Notifications.pr_notifications import (
 from nirmaan_stack.services import cheque_payments, payment_tds, settlement
 from nirmaan_stack.services.approval_tiers import STATUS_CEO_PENDING, status_after_l1
 from nirmaan_stack.services.cheques import decide
+from nirmaan_stack.services.payment_steps import STEP_L1, holds
 from nirmaan_stack.services.cheques.writer import CHEQUES
 from nirmaan_stack.services.po_terms import TERM_NOOP, TERM_ORPHAN, TERM_UPDATED, sync_term_in_memory
 
 MAX_BATCH_SIZE = 100
-LEAD_ALLOWED_ROLE_PROFILES = (
-    "Nirmaan Admin Profile",
-    "Nirmaan Accountant Profile",
-    "Nirmaan Accountant Lead Profile",
-)
 REJECTED_STATUS = "Rejected"
 
 
@@ -217,14 +213,12 @@ def _authorize_ceo():
 
 
 def _authorize_lead():
-    user = frappe.session.user
-    if user == "Administrator":
-        return
-    role_profile = frappe.db.get_value("Nirmaan Users", user, "role_profile")
-    if role_profile in LEAD_ALLOWED_ROLE_PROFILES:
+    """The L1 step, as on the Approve Payments tab: an Admin (#1530). Accountants were admitted here
+    until #1530, though the screen never offered them the tab."""
+    if holds(frappe.session.user, STEP_L1):
         return
     frappe.throw(
-        _("You are not authorised to approve payments in bulk."),
+        _("Only an Admin can approve or reject payments in bulk."),
         frappe.PermissionError,
     )
 
