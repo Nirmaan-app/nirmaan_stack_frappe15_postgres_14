@@ -20,9 +20,14 @@ from nirmaan_stack.services import payment_tds
 from nirmaan_stack.services.approval_raiser import raiser_level
 from nirmaan_stack.services.work_order_payment_limit import request_refusal, work_order_limit
 
-#: How a refusal names the action: the request endpoint asks for money, every other path pays it.
-PaymentAction = Literal["request", "pay"]
-_VERBS: dict[str, tuple[str, str]] = {"request": ("request", "requested"), "pay": ("pay", "made")}
+#: How a refusal names the action: the request endpoint asks for money, an insert anywhere else pays it,
+#: and an edit of a saved payment raises it (#1536).
+PaymentAction = Literal["request", "pay", "edit"]
+_VERBS: dict[str, tuple[str, str]] = {
+	"request": ("request", "requested"),
+	"pay": ("pay", "made"),
+	"edit": ("raise this payment to", "made"),
+}
 
 
 def load_payments(document_type: str, document_name: str):
@@ -66,16 +71,21 @@ def skips_invoice_check(user: str | None) -> bool:
 	return raiser_level(user) is not None
 
 
-def assert_within_work_order_limit(sr, amount, gst_payment: bool, action: PaymentAction = "request") -> None:
+def assert_within_work_order_limit(
+	sr, amount, gst_payment: bool, action: PaymentAction = "request", exclude_payment: str | None = None
+) -> None:
 	"""Refuse `amount` on Work Order `sr` when it breaks the Work Order payment limit (ADR-0030), when
 	the Work Order fails the invoice check and the session user does not skip it, or when it is
 	negative (#1488).
 
-	Payments count GROSS of TDS, as the dialogs and the payment summary count them. Two callers:
-	`create_payment_request_for_service` (`action="request"`) and the `Project Payments` insert
-	validation (`action="pay"`), which covers the Accountant's paid entry and any Desk / REST insert.
+	Payments count GROSS of TDS, as the dialogs and the payment summary count them. Three callers:
+	`create_payment_request_for_service` (`action="request"`), the `Project Payments` insert
+	validation (`action="pay"`), which covers the Accountant's paid entry and any Desk / REST insert,
+	and the same validation on an edit that raises a saved payment (`action="edit"`, #1536), which
+	passes that payment as `exclude_payment` and its new gross as `amount`: the edit is measured as
+	if the payment were requested anew at its new figure.
 	"""
-	limit = work_order_summary(sr)["limit"]
+	limit = work_order_summary(sr, exclude_payment)["limit"]
 	refusal = request_refusal(limit, amount, gst_payment, not skips_invoice_check(frappe.session.user))
 	if not refusal:
 		return
