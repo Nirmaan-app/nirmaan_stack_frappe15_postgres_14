@@ -19,7 +19,7 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import type { ExpenseRequestDetail } from "@/types/NirmaanStack/ExpenseRequest";
 import type { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { showAnswer } from "@/utils/expenseFormat";
-import { shownExpenseTds } from "@/utils/expenses/expenseTds";
+import { raisedForAmount, shownExpenseTds } from "@/utils/expenses/expenseTds";
 import { ExpenseTdsBreakdown } from "@/components/common/ExpenseTdsBreakdown";
 
 import AddInvoiceDialog from "./components/AddInvoiceDialog";
@@ -64,6 +64,7 @@ export const ExpenseRequestPage: React.FC = () => {
         status: req.expense?.status ?? req.status,
         withheld: req.standing.withheld_tds,
     });
+    const raisedFor = raisedForAmount(req.standing.amount, req.amount);
 
     return (
         <div className="flex flex-col gap-5 p-4">
@@ -85,11 +86,11 @@ export const ExpenseRequestPage: React.FC = () => {
                             {formatToRoundedIndianRupee(req.standing.amount)}
                         </span>
                         <ExpenseTdsBreakdown shown={tds} variant="block" className="mt-1 [&_dl]:ml-auto" />
-                        {/* Accounts may have corrected the Expense's amount since it was raised. The
-                            withheld tax explains an Office Rent's own difference above. */}
-                        {!tds?.withheld && req.standing.amount !== Number(req.amount) && (
+                        {/* What was asked for, when the Expense's amount differs: Accounts corrected it, or
+                            an Office Rent's tax was withheld (story 27: the full rent stays shown). */}
+                        {raisedFor !== null && (
                             <div className="text-xs text-muted-foreground">
-                                Raised for {formatToRoundedIndianRupee(Number(req.amount))}
+                                Raised for {formatToRoundedIndianRupee(raisedFor)}
                             </div>
                         )}
                     </div>

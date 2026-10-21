@@ -20,7 +20,7 @@ from nirmaan_stack.services.payment_tds import TDS_DOCTYPE, TDS_SECTION_WORK_ORD
 
 
 def execute():
-	frappe.db.sql(
-		f"""UPDATE "tab{TDS_DOCTYPE}" SET tds_section = %s WHERE COALESCE(tds_section, '') = ''""",
-		(TDS_SECTION_WORK_ORDER,),
-	)
+    frappe.db.sql(
+        f"""UPDATE "tab{TDS_DOCTYPE}" SET tds_section = %s WHERE COALESCE(tds_section, '') = ''""",
+        (TDS_SECTION_WORK_ORDER,),
+    )

@@ -129,6 +129,13 @@ Both share one approval lifecycle and are entered/managed together in a single u
   single-line correction within ₹5, which leaves the tax record as it was; deleting it deletes its tax
   record, and is refused once that tax is on a challan (#1526, `expense_tds.guard_withheld_amount` /
   `delete_with_expense`; `payment-tds.md` § a withheld Office Rent expense).
+  **No approval withholds without the landlord** (owner, 2026-10-21): an approval that would withhold is
+  refused, before anything is written, while the landlord's name or a valid PAN is missing
+  (`expense_tds.refuse_without_deductee`, hook `controllers/expense_tds.validate`); the request endpoints
+  require both on create and edit (`create.guard_deductee_answers`). **Once approved, its type cannot
+  change to or from Office Rent** (Approved, Reconciliation Pending, Paid; every role, Desk, system
+  saves), while before approval it changes freely (`expense_tds.guard_tds_type_change`). Both locks run
+  in the `before_validate` hook `controllers/expense_tds.before_validate`, ahead of `guard_hand_save`.
   **Every screen that shows its amount shows Rent / TDS / Net** (the payments queue, the approve
   dialog, the request page, the Expenses and Non-Project Expenses lists): a forecast before approval,
   the stored record after, served by the expense APIs because the record itself stays Accountant-only
@@ -686,11 +693,12 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   landlord is the TAX DEDUCTEE, not who gets paid, so Office Rent stays *Not asked* and is the one
   exemption to "no form names who gets paid" (`TAX_DEDUCTEE_FIELDS`). A `pan` field is uppercased as
   typed and checked by the vendor PAN rule: on screen by `utils/expenseFormat.panAnswerProblem` /
-  `invalidPanKeys` (over `pages/vendors/utils/vendorTaxIds.isValidPan`), which block submit; on the
+  `invalidPanKeys` (over `utils/pan.isValidPan`, shared with the vendor forms), which block submit; on the
   server by `create.guard_pan_answers` on create AND edit (rule `pan_answers.clean_pan_answers`, over
   `services/vendor_tds.is_valid_pan` / `clean_pan`), which stores the answer uppercased and refuses one
-  not shaped like ABCPK1234D. ⚠️ This is the ONE form answer the server checks; a blank PAN is still
-  left to the dialog's required check, like every required answer. The New Expense form shows the
+  not shaped like ABCPK1234D. ⚠️ Office Rent's landlord name and PAN are the ONE pair of form answers
+  the server REQUIRES (`create.guard_deductee_answers`, on create and edit, read under the tax rule's
+  keys; spec #1522 review): every other required answer is still the dialog's. The New Expense form shows the
   10% split under the Amount for Office Rent only (`utils/expenses/expenseTds`; see
   `payment-tds.md` § One tax record, two sources).
 - **Per-type visibility (`Expense Type.allowed_roles`, 2026-09-16).** Role PROFILES that may pick

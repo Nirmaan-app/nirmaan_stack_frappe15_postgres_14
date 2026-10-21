@@ -6,6 +6,7 @@ import {
     BEFORE_APPROVAL_STATUSES,
     expenseTdsSplit,
     OFFICE_RENT_TDS,
+    raisedForAmount,
     shownExpenseTds,
     tdsPreviewLine,
     tdsSplitCaption,
@@ -87,18 +88,25 @@ describe("shownExpenseTds", () => {
     it("forecasts on the full rent while the Expense waits for approval", () => {
         for (const status of ["Requested", "CEO Pending", "Pending Approval"]) {
             expect(shownExpenseTds({ type: "Office Rent", amount: 100000, status, withheld: null }), status)
-                .toEqual({ gross: 100000, ratePct: 10, tds: 10000, net: 90000, withheld: false });
+                .toEqual({ gross: 100000, ratePct: 10, tds: 10000, net: 90000, withheld: false, section: "194-I" });
         }
     });
 
     it("shows the stored record once approved, never a forecast on the net", () => {
         expect(shownExpenseTds({ type: "Office Rent", amount: 90000, status: "Approved", withheld }))
-            .toEqual({ gross: 100000, ratePct: 10, tds: 10000, net: 90000, withheld: true });
+            .toEqual({ gross: 100000, ratePct: 10, tds: 10000, net: 90000, withheld: true, section: "194-I" });
     });
 
     it("keeps the stored figures after a bank line corrects the amount by a few rupees", () => {
         expect(shownExpenseTds({ type: "Office Rent", amount: 89998, status: "Paid", withheld }))
-            .toEqual({ gross: 100000, ratePct: 10, tds: 10000, net: 90000, withheld: true });
+            .toEqual({ gross: 100000, ratePct: 10, tds: 10000, net: 90000, withheld: true, section: "194-I" });
+    });
+
+    it("carries the stored record's own section, not the rule's", () => {
+        const record = { ...withheld, tds_section: "194C" };
+        const shown = shownExpenseTds({ type: "Office Rent", amount: 90000, status: "Approved", withheld: record })!;
+        expect(shown.section).toBe("194C");
+        expect(tdsSplitCaption(shown)).toBe("10% TDS (194C) withheld; the landlord is paid the net");
     });
 
     it("shows nothing for an approved Office Rent with no record (approved before the tax existed)", () => {
@@ -129,9 +137,26 @@ describe("tdsSplitLines and tdsSplitCaption", () => {
     });
 
     it("say whether the tax will be or was withheld", () => {
-        expect(tdsSplitCaption({ gross: 100000, ratePct: 10, tds: 10000, net: 90000, withheld: false }))
+        expect(tdsSplitCaption({ gross: 100000, ratePct: 10, tds: 10000, net: 90000, withheld: false, section: "194-I" }))
             .toBe("10% TDS (194-I) will be withheld on approval");
-        expect(tdsSplitCaption({ gross: 100000, ratePct: 10, tds: 10000, net: 90000, withheld: true }))
+        expect(tdsSplitCaption({ gross: 100000, ratePct: 10, tds: 10000, net: 90000, withheld: true, section: "194-I" }))
             .toBe("10% TDS (194-I) withheld; the landlord is paid the net");
+    });
+});
+
+// The request page's "Raised for ₹…" line (spec #1522 story 27).
+describe("raisedForAmount", () => {
+    it("still says the full rent asked for once the tax is withheld and the Expense carries the net", () => {
+        expect(raisedForAmount(90000, 100000)).toBe(100000);
+        expect(raisedForAmount(90000, "100000")).toBe(100000);
+    });
+
+    it("says what was asked for when Accounts corrected the amount", () => {
+        expect(raisedForAmount(41000, 42000)).toBe(42000);
+    });
+
+    it("says nothing when the Expense carries what was asked for", () => {
+        expect(raisedForAmount(42000, 42000)).toBeNull();
+        expect(raisedForAmount(42000, "42000")).toBeNull();
     });
 });

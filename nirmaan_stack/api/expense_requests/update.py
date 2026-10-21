@@ -36,6 +36,7 @@ from frappe.utils import sbool
 
 from nirmaan_stack.api.expense_requests.access import guard_requestable, is_raiser_or_admin
 from nirmaan_stack.api.expense_requests.create import (
+	guard_deductee_answers,
 	guard_pan_answers,
 	guard_request_form,
 	guard_vendor_scope,
@@ -112,6 +113,7 @@ def update_expense_request(
 	# An edit is filled against the type's form as it is now, so that is the form it keeps.
 	source_data = stamp_live_form(expense_type, source_data)
 	source_data = guard_pan_answers(expense_type, source_data)
+	guard_deductee_answers(expense_type, source_data)
 
 	promoted = promote_mapped(expense_type, source_data)
 

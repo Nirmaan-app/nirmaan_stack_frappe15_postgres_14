@@ -229,10 +229,24 @@ letter decides it (owner, 2026-10-16):
 - **WHAT: `expense_tds.withhold_expense_tds` writes the record FIRST, then nets the amount** — record:
   `non_project_expense`, `gross_amount` = the amount as approved, `tds_percentage` 10, `tds_amount` =
   `flt(gross × 10 / 100, 2)`, `tds_section` 194-I, `borne_by` Vendor (the landlord's money), the
-  landlord's name and PAN (read from the originating Expense Request's `source_data`; blank when the
-  row has no request or the request predates the form), `payment_approved_on` today, status Pending.
-  Then `doc.db_set("amount", net, update_modified=False)`: no save hook re-fires, so nothing withholds
-  twice, and the approving save's Version row records gross → net.
+  landlord's name and PAN (read from the originating Expense Request's `source_data`),
+  `payment_approved_on` today, status Pending. Then `doc.db_set("amount", net, update_modified=False)`:
+  no save hook re-fires, so nothing withholds twice, and the approving save's Version row records gross
+  → net. The call site names every other reader of `amount` and why none needs a recompute (Raw SQL
+  rule 1); no new Cheque can carry an expense line, so no cheque line follows it.
+- **NEVER WITHOUT THE LANDLORD (owner, 2026-10-21).** An approval that would withhold (`decide`'s
+  `l1_approve` / `ceo_approve` landing on Approved, a Reviewer's approval creating the Expense already
+  Approved, any insert born Approved) is REFUSED while the landlord's name is blank or the PAN is not a
+  valid one: "Add the landlord's name and PAN before approving this Office Rent expense."
+  `expense_tds.refuse_without_deductee` (rule `deductee_gaps`), run by `controllers/expense_tds.validate`
+  BEFORE the row is written, so nothing of the approval lands (`decide_expenses` rolls back its row's
+  savepoint; `review.approve_expense_request` rolls back its savepoint, so the request stays Pending
+  Approval); `withhold_expense_tds` asks it again as the backstop. An L1 step that only forwards to CEO
+  Pending withholds nothing and is not refused. A zero or a refund needs no landlord. The request
+  endpoints require both answers on create and edit (`create.guard_deductee_answers`, read under the
+  rule's keys), so only an Expense raised before that, one re-typed to Office Rent before approval, or
+  one with no request meets the refusal; it can be rejected, not edited into shape (its request is no
+  longer pending). No record is ever written with a blank deductee.
 - **ONCE.** `non_project_expense` is UNIQUE and `existing_expense_deduction` returns the stored row, so
   a re-save, a retry or a second call changes nothing and never re-nets.
 - ⚠️ **IT RAISES, unlike the Work Order route** (`record_deduction_if_eligible` logs and swallows). Each
@@ -256,15 +270,17 @@ letter decides it (owner, 2026-10-16):
   Request column too. The link lands on the payments queue's All Payments tab searched by name, which
   lists expenses as well as payments. Search: Expense ID, Landlord, Landlord PAN.
 - Pinned by `api/expense_requests/test_office_rent_tds` (through the request, decision, bank-line and
-  unreconcile endpoints) and `services/test_expense_tds_rule` (pure).
+  unreconcile endpoints), `api/expense_requests/test_office_rent_landlord` (the landlord required, on
+  every approval path) and `services/test_expense_tds_rule` (pure).
 
 ### Load-bearing invariants: a withheld Office Rent expense (#1526)
 
-- **ITS AMOUNT IS LOCKED, NEVER RESTATED.** `expense_tds.guard_withheld_amount`, the FIRST line of
-  `Non Project Expenses.validate`, refuses any save that changes the amount of an Expense with a tax
-  record ("The tax has been withheld from …"): every person (Accountant, Accountant Lead, Admin,
-  `Administrator`) and every system writer, `ignore_permissions` included, in the app and in Desk. It
-  runs before `expense_decision.guard_hand_save`, so the refusal says why whoever saves. Other fields
+- **ITS AMOUNT IS LOCKED, NEVER RESTATED.** `expense_tds.guard_withheld_amount`, run by the
+  `before_validate` hook `controllers/expense_tds.before_validate`, refuses any save that changes the
+  amount of an Expense with a tax record ("The tax has been withheld from …"): every person (Accountant,
+  Accountant Lead, Admin, `Administrator`) and every system writer, `ignore_permissions` included, in the
+  app and in Desk. `before_validate`, because a `doc_events` `validate` runs AFTER the doctype's own
+  `validate`, where `expense_decision.guard_hand_save` would refuse first without saying why. Other fields
   stay under the Expense edit rules. ⚠️ Unlike a Work Order payment (§ Editing a payment that already
   carries a deduction), an Office Rent amount is never re-derived as gross = net ÷ 0.9.
 - **THE ONE EXEMPTION: Bulk Import's single-line correction.** `settle.link_lines_to_expense`, on a 1:1
@@ -279,8 +295,17 @@ letter decides it (owner, 2026-10-16):
   (a Deleted Document copy stays); the record's own `on_trash` runs `recompute_challan_reconciled`, the
   one rule, should it name a challan. Every delete door reaches it: the app's `deleteDoc` (Non-Project
   Expenses page, payments queue), Desk, REST. The Expense Request goes with the Expense as before.
+- **ITS TYPE IS LOCKED TO OR FROM OFFICE RENT ONCE APPROVED (owner, 2026-10-21).**
+  `expense_tds.guard_tds_type_change`, beside the amount lock in the same `before_validate`, refuses a
+  type change to or from a type with a rule once the stored status is past CEO Pending
+  (`TYPE_CHANGE_STATUSES` = Requested, CEO Pending): the Accountant at Approved / Reconciliation Pending,
+  Admin and the Accountant Lead at Paid (whose `PAID_EDITABLE_FIELDS` otherwise include `type`), Desk and
+  system saves alike. Before approval the type changes freely: the tax follows the type the approval
+  finds, and a re-typed rent with no landlord is refused there (above). A change between two other types
+  is not this rule's.
 - Pinned by `api/expense_requests/test_office_rent_tds_lock` (the edit through `frappe.client.set_value`,
-  the bank line through `link_rows_to_expense`, Pay TDS, the delete through `frappe.client.delete`).
+  the bank line through `link_rows_to_expense`, Pay TDS, the delete through `frappe.client.delete`) and
+  `test_office_rent_type_lock` (the type, per status and editor).
 
 ### Load-bearing invariants: what the expense screens show (#1527)
 
@@ -296,12 +321,19 @@ letter decides it (owner, 2026-10-16):
     or a request Pending Approval with no Expense): a forecast from the amount, which is still the full
     rent. ⚠️ Never at any later status: the amount is the net by then, and a forecast would take the tax
     off twice. An Office Rent approved before #1525 (no record) shows nothing.
+  - **The section printed is the record's own `tds_section`** (`ShownExpenseTds.section`); a forecast
+    prints the rule's (`OFFICE_RENT_TDS.section`).
+  - **The request page keeps "Raised for ₹<the request's amount>"** under the Expense's amount whenever
+    they differ, a withheld rent included (story 27): the Expense carries the net, the request the full
+    rent asked for (`expenseTds.raisedForAmount`).
 - ⚠️ **THE FIGURES REACH THE SCREENS THROUGH THE EXPENSE APIs, NEVER THE DOCTYPE.** `Payment TDS
   Deduction` is read by the Accountant roles and System Manager only (an HR approver cannot read it),
-  and its permissions stay so. ONE reader, `services/expense_tds.withheld_tds_of(expenses)` (one query,
+  and its permissions stay so. ONE reader, `services/expense_tds.withheld_tds_of(names)` (one query,
   read past the record's permission), serves `withheld_tds` = `{gross_amount, tds_percentage,
-  tds_amount, tds_section}` or None in: `get_approval_queue` (rows of a type with a rule only),
-  `expense_detail.get_expense_approval_detail`, `standing.get_request_standing` and
+  tds_amount, tds_section}` or None; the endpoints that hold rows of either ledger ask it through
+  `withheld_tds_by_expense((doctype, name) pairs)`, keyed `(doctype, name)`, so none of them branches on
+  the ledger: `get_approval_queue`, `expense_detail.get_expense_approval_detail`,
+  `standing.get_request_standing` and
   `read.get_expense_request` (`standing.withheld_tds`), and `api/approvals/expense_tds.get_withheld_tds`
   (the Non-Project Expenses page and edit dialog, which hold only the Expense; refused without read on
   Non Project Expenses, and answers only the rows the caller may read). Each endpoint has already

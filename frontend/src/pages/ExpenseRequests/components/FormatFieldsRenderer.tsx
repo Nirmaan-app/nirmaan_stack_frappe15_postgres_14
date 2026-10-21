@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/collapsible";
 import { panAnswerProblem, PAN_FIELD_TYPE } from "@/utils/expenseFormat";
 import type { FormatSection, ParsedFormat } from "@/utils/expenseFormat";
-import { cleanPan } from "@/pages/vendors/utils/vendorTaxIds";
+import { cleanPan } from "@/utils/pan";
 
 /** Answers keyed `sectionId.fieldKey` — flat, so React state stays trivial. */
 export type FormatAnswers = Record<string, string>;

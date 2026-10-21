@@ -404,7 +404,17 @@ doc_events = {
     "Non Project Expenses": {
         # Carry the match records to the new name (ADR-0022 Amendment G).
         "after_rename": "nirmaan_stack.integrations.controllers.settled_targets.after_rename",
-        "validate": "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
+        # Office Rent's locks (#1526, spec #1522 review): a withheld amount, and the type to or from
+        # Office Rent once approved. `before_validate`, so they refuse BEFORE the doctype's own
+        # `validate` (the edit rules, `expense_decision.guard_hand_save`) says something vaguer;
+        # a `validate` hook here would run after it.
+        "before_validate": "nirmaan_stack.integrations.controllers.expense_tds.before_validate",
+        "validate": [
+            "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
+            # An approval that would withhold Office Rent's tax is refused without the landlord,
+            # before the row is written. After the doctype's `validate`, which sets a new row's status.
+            "nirmaan_stack.integrations.controllers.expense_tds.validate",
+        ],
         # Office Rent withholds 10% TDS when approved (#1525): a row born Approved here, an
         # approval from an earlier step in `on_update`.
         "after_insert": "nirmaan_stack.integrations.controllers.expense_tds.after_insert",

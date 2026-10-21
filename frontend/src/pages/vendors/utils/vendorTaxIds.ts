@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { GST_REGEX, PAN_REGEX } from "@/constants/vendorFormRegex";
+import { cleanPan, isValidPan } from "@/utils/pan";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { findVendorByGst } from "./vendorDuplicates";
 
@@ -52,12 +53,6 @@ export const DEFAULT_TDS_RATE = 2;
 const INDIVIDUAL_HUF_HOLDERS: Record<string, string> = { P: "Individual", H: "HUF" };
 // A rate as typed: a plain decimal. Hex, exponents, "%" and words are not rates (as on the server).
 const DECIMAL_REGEX = /^\s*-?(\d+(\.\d*)?|\.\d+)\s*$/;
-
-/** A PAN as stored: trimmed and uppercased (`vendor_tds.clean_pan`). Also a request form's PAN answer. */
-export const cleanPan = (pan: unknown) => String(pan ?? "").trim().toUpperCase();
-
-/** True for a PAN shaped like ABCPK1234D, in any case (`vendor_tds.is_valid_pan`). */
-export const isValidPan = (pan: unknown): boolean => PAN_REGEX.test(cleanPan(pan));
 
 /** True for a valid PAN whose 4th letter is P (Individual) or H (HUF): its rate is always 1%. */
 export const isIndividualHufPan = (pan: unknown): boolean => {

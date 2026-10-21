@@ -7,7 +7,7 @@
 // this way, which an inline `try { JSON.parse }` never is.
 
 import { formatDate } from "@/utils/FormatDate";
-import { isValidPan } from "@/pages/vendors/utils/vendorTaxIds";
+import { isValidPan } from "@/utils/pan";
 
 /** Pretty-print raw JSON text. Returns null when it does not parse. */
 export const prettyPrintJson = (raw: string): string | null => {
@@ -347,8 +347,7 @@ export const validateFormat = (raw: string): FormatValidationResult => {
 
 // --- the PAN field (spec #1522, #1524) ------------------------------------------------
 //
-// A `pan` field (Office Rent's Landlord PAN) is checked by the vendor PAN rule
-// (`pages/vendors/utils/vendorTaxIds`). The server applies the same rule on create and edit
+// A `pan` field (Office Rent's Landlord PAN) is checked by the vendor PAN rule (`utils/pan`). The server applies the same rule on create and edit
 // (`api/expense_requests/pan_answers`) and stores the answer uppercased.
 
 export const PAN_FIELD_TYPE = "pan";

@@ -14,6 +14,8 @@
  * to the server.
  */
 
+import { PAYMENT_STATUS } from "@/constants/paymentStatus";
+import type { ExpenseRequestStatus } from "@/types/NirmaanStack/ExpenseRequest";
 import { parseNumber } from "@/utils/parseNumber";
 
 /** The one expense type that withholds tax, its rate and its section. */
@@ -78,11 +80,18 @@ export interface WithheldTds {
  * are forecast; at any later status the amount is the net (or nothing was withheld), so a forecast on
  * it would take the tax off twice.
  */
-export const BEFORE_APPROVAL_STATUSES: ReadonlySet<string> = new Set(["Requested", "CEO Pending", "Pending Approval"]);
+const REQUEST_PENDING: ExpenseRequestStatus = "Pending Approval";
+export const BEFORE_APPROVAL_STATUSES: ReadonlySet<string> = new Set([
+    PAYMENT_STATUS.REQUESTED,
+    PAYMENT_STATUS.CEO_PENDING,
+    REQUEST_PENDING,
+]);
 
 export interface ShownExpenseTds extends ExpenseTdsSplit {
     /** True: the stored record's figures (the tax WAS withheld). False: a forecast (it WILL be). */
     withheld: boolean;
+    /** The tax section: the stored record's `tds_section`, or the rule's (`OFFICE_RENT_TDS`) for a forecast. */
+    section: string;
 }
 
 /**
@@ -109,11 +118,18 @@ export const shownExpenseTds = ({
     if (withheld) {
         const gross = parseNumber(withheld.gross_amount);
         const tds = parseNumber(withheld.tds_amount);
-        return { gross, ratePct: parseNumber(withheld.tds_percentage), tds, net: round2(gross - tds), withheld: true };
+        return {
+            gross,
+            ratePct: parseNumber(withheld.tds_percentage),
+            tds,
+            net: round2(gross - tds),
+            withheld: true,
+            section: withheld.tds_section,
+        };
     }
     if (!BEFORE_APPROVAL_STATUSES.has(status ?? "")) return null;
     const split = expenseTdsSplit(type, amount);
-    return split.tds > 0 ? { ...split, withheld: false } : null;
+    return split.tds > 0 ? { ...split, withheld: false, section: OFFICE_RENT_TDS.section } : null;
 };
 
 /** The three lines a screen draws: Rent, TDS at its rate, Net. */
@@ -123,8 +139,18 @@ export const tdsSplitLines = (shown: ShownExpenseTds): { label: string; value: s
     { label: "Net", value: rupees(shown.net) },
 ];
 
-/** Whether the tax will be or was withheld, in one line. */
+/** Whether the tax will be or was withheld, in one line, under the section it is (or will be) filed in. */
 export const tdsSplitCaption = (shown: ShownExpenseTds): string =>
     shown.withheld
-        ? `${shown.ratePct}% TDS (${OFFICE_RENT_TDS.section}) withheld; the landlord is paid the net`
-        : `${shown.ratePct}% TDS (${OFFICE_RENT_TDS.section}) will be withheld on approval`;
+        ? `${shown.ratePct}% TDS (${shown.section}) withheld; the landlord is paid the net`
+        : `${shown.ratePct}% TDS (${shown.section}) will be withheld on approval`;
+
+/**
+ * The request's own amount, shown as "Raised for ₹…" under its Expense's amount when the two differ,
+ * else null. A withheld Office Rent included: the Expense carries the net, and the request page still
+ * says what was asked for, the full rent (spec #1522 story 27), beside the Rent / TDS / Net breakdown.
+ */
+export const raisedForAmount = (expenseAmount: number, requestAmount: number | string | null | undefined): number | null => {
+    const asked = parseNumber(requestAmount);
+    return asked !== expenseAmount ? asked : null;
+};
