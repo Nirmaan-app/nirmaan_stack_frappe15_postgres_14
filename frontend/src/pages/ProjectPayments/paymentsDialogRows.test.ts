@@ -68,3 +68,16 @@ describe("paymentsDialogRows on a Work Order with TDS (#1512, ADR-0034 Amendment
     expect(rows.filter((r) => r.kind === "payment").map((r) => r.tds)).toEqual([undefined, undefined]);
   });
 });
+
+describe("paymentsDialogRows on a PO with recorded tax (#1534, ADR-0034 Amendment B)", () => {
+  // PAY-N: cut to 99,900 with 100 recorded for the vendor. PAY-G: still stored gross at 4,720 (its 4.72 is
+  // inside the amount, so the server sends no deduction for it). Amount Paid 99,900 + 100 + 4,720 = 1,04,720.
+  const payments = [payment("PAY-N", 99900, "2026-05-10"), payment("PAY-G", 4720, "2026-06-10")];
+  const deductions = { "PAY-N": { tds_amount: 100, borne_by: TDS_BORNE_BY.VENDOR } };
+
+  it("counts the netted payment's tax and nothing on top of the gross one", () => {
+    const { rows, total } = paymentsDialogRows(payments, [], deductions);
+    expect(rows.map((r) => [r.name, r.tds])).toEqual([["PAY-G", 0], ["PAY-N", 100]]);
+    expect(total).toBe(104720);
+  });
+});
