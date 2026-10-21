@@ -267,6 +267,21 @@ def validate(doc, method):
     refuse_lone_approval(doc)
     refuse_reject_if_deposited(doc)
     refuse_amount_change_if_deposited(doc)
+    refuse_raise_after_tax_cut(doc)
+
+
+def _is_restating_save(doc) -> bool:
+    """Would this save restate the payment's tax if its amount moved? Not on the machine paths that move
+    the amount without a person editing it (`NO_RESTATE_FLAGS`, and `from_adjustment`, on which
+    `on_update` returns first)."""
+    return not (doc.flags.get("from_adjustment") or any(doc.flags.get(flag) for flag in payment_tds.NO_RESTATE_FLAGS))
+
+
+def refuse_raise_after_tax_cut(doc):
+    """A payment whose tax was cut can't be raised (#1537): the raise would gross the tax up again.
+    The message points to *TDS paid by company* (`payment_tds.refuse_raise_after_cut`)."""
+    if _is_restating_save(doc):
+        payment_tds.refuse_raise_after_cut(doc, doc.get_doc_before_save())
 
 
 def refuse_while_work_order_under_amendment(doc):
@@ -298,9 +313,7 @@ def refuse_amount_change_if_deposited(doc):
     `on_update` returns first): those saves move the amount but never the tax, so the deposit is safe.
     """
     before = doc.get_doc_before_save()
-    if not before or flt(before.amount) == flt(doc.amount):
-        return
-    if doc.flags.get("from_adjustment") or any(doc.flags.get(flag) for flag in payment_tds.NO_RESTATE_FLAGS):
+    if not before or flt(before.amount) == flt(doc.amount) or not _is_restating_save(doc):
         return
     payment_tds.refuse_if_deposited(doc.name, "can't have its amount changed")
 
