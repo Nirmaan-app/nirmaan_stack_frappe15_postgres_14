@@ -36,7 +36,11 @@ export interface PartiallyReconciledItem {
     line_count: number;
     project: string | null;
     project_name: string | null;
+    /** Project Payments and Project Expenses only: what the report's Vendor filter reads. */
+    vendor: string | null;
     type: string | null;
+    /** Project Expenses only: the expense type by the name the report's Expense Type filter shows. */
+    expense_type_name: string | null;
     description: string | null;
 }
 

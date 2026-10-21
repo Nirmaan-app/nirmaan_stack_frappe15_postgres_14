@@ -450,7 +450,7 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
                     </span>
                   </p>
                   <p className="text-gray-700">
-                    <span className="font-medium">Total Amt Paid:</span>{" "}
+                    <span className="font-medium">Paid on Approved WOs (incl. TDS):</span>{" "}
                     <span className="text-green-600 font-semibold">
                       {formatToRoundedIndianRupee(
                         srAggregates.total_amount_paid_for_srs

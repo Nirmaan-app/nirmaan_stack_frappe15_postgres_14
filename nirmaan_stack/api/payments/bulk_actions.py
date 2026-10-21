@@ -58,6 +58,31 @@ def bulk_lead_approve_payments(payment_ids, action: str, rejection_reason: Optio
 
 
 @frappe.whitelist()
+def retry_bulk_deductions(payment_ids):
+    """Retry TDS (#1536, story 42): record the tax a bulk approve failed to withhold (`tds_failed`).
+
+    For an Admin (the L1 step, as bulk approve). Only a payment still at `Approved` can take its tax
+    (`payment_tds.is_deductible`); one that has moved on is listed in `not_approved` and left alone. A
+    retried Work Order cheque then moves on to Reconciliation Pending, as after a bulk approve. Returns
+    `{tds_recorded, tds_failed, not_approved}`, read as bulk approve's.
+    """
+    if not holds(frappe.session.user, STEP_L1):
+        frappe.throw(_("Only an Admin can retry TDS on approved payments."), frappe.PermissionError)
+    payment_ids = _parse_ids(payment_ids)
+    approved = set(frappe.get_all(
+        "Project Payments", filters={"name": ["in", payment_ids], "status": payment_tds.APPROVED}, pluck="name"
+    ))
+    retried = [pid for pid in payment_ids if pid in approved]
+    recorded, failed = _record_bulk_deductions(retried) if retried else (0, [])
+    _move_on_approved_cheques(retried)
+    return {
+        "tds_recorded": recorded,
+        "tds_failed": failed,
+        "not_approved": [pid for pid in payment_ids if pid not in approved],
+    }
+
+
+@frappe.whitelist()
 def bulk_ceo_approve_payments(payment_ids, action: str, rejection_reason: Optional[str] = None):
     """CEO bulk action on payments currently in 'CEO Pending'."""
     _authorize_ceo()
@@ -227,7 +252,8 @@ def _authorize_lead():
 # Core engine
 # ---------------------------------------------------------------------------
 
-def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config: _ModeConfig):
+def _parse_ids(payment_ids) -> list[str]:
+    """The endpoint's `payment_ids`, a list or its JSON, checked and de-duplicated in order."""
     if isinstance(payment_ids, str):
         try:
             payment_ids = json.loads(payment_ids)
@@ -239,14 +265,35 @@ def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config:
 
     if len(payment_ids) > MAX_BATCH_SIZE:
         frappe.throw(_("Bulk action limited to {0} payments per call.").format(MAX_BATCH_SIZE))
+    return list(dict.fromkeys(payment_ids))
+
+
+def _move_on_approved_cheques(payment_ids: list[str]) -> None:
+    """Move each Approved cheque payment of `payment_ids` on to Reconciliation Pending, each in its own
+    transaction (`cheque_payments.commit_move_to_reconciliation`). Call it only after the deduction phase:
+    a Work Order cheque moved earlier would keep its gross amount with no deduction."""
+    if not payment_ids:
+        return
+    for pid in frappe.get_all(
+        "Project Payments",
+        filters={
+            "name": ["in", payment_ids],
+            "status": payment_tds.APPROVED,
+            "mode_of_payment": cheque_payments.MODE_CHEQUE,
+        },
+        pluck="name",
+    ):
+        cheque_payments.commit_move_to_reconciliation(pid)
+
+
+def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config: _ModeConfig):
+    deduped_ids = _parse_ids(payment_ids)
 
     if action not in ("approve", "reject"):
         frappe.throw(_("action must be 'approve' or 'reject'."))
 
     if action == "reject" and not (rejection_reason or "").strip():
         frappe.throw(_("Rejection reason is required."))
-
-    deduped_ids = list(dict.fromkeys(payment_ids))
 
     payment_rows = frappe.get_all(
         "Project Payments",
@@ -368,12 +415,7 @@ def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config:
             # group; one whose in-group move failed is still `Approved` and is retried here.)
             # Each move is its own transaction; one that fails stays at `Approved`, where "Mark
             # as Paid" finishes it.
-            for pid in frappe.get_all(
-                "Project Payments",
-                filters={"name": ["in", settled_now], "mode_of_payment": cheque_payments.MODE_CHEQUE},
-                pluck="name",
-            ):
-                cheque_payments.commit_move_to_reconciliation(pid)
+            _move_on_approved_cheques(settled_now)
 
     # Best-effort: rejection-reason comments. A failure here does not unwind the
     # approvals — the comment is purely auditing.

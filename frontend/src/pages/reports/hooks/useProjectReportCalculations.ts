@@ -57,6 +57,7 @@ export interface UseProjectReportCalculationsResult {
 
 const NO_MONEY: ProjectMoney = {
     po_outflow: 0, wo_outflow: 0, expense_outflow: 0, outflow: 0, liabilities: 0, inflow: 0, cashflow_gap: 0,
+    refunds: 0, tds: 0,
 };
 
 

@@ -298,7 +298,7 @@ function CashSheetReport() {
       { header: "Value incl. GST (in Lakhs)", accessorKey: "project_value" },
       { header: "Client Invoiced incl. GST (in Lakhs)", accessorKey: "client_invoiced" },
       { header: "Inflow (in Lakhs)", accessorKey: "inflow" },
-      { header: "Outflow (in Lakhs)", accessorKey: "outflow" },
+      { header: "Project Outflow (in Lakhs)", accessorKey: "outflow" },
       { header: "Current Liability (in Lakhs)", accessorKey: "liability" },
       { header: "Cashflow Gap (in Lakhs)", accessorKey: "gap" },
       { header: "Total PO+SR Value incl. GST (in Lakhs)", accessorKey: "po_sr_value" },
@@ -429,7 +429,7 @@ function CashSheetReport() {
                   <div className="bg-red-50 dark:bg-red-950/40 rounded px-2 py-1.5">
                     <div className="flex items-center gap-1 text-[9px] text-red-600 dark:text-red-400 uppercase font-medium">
                       <ArrowUpRight className="h-2.5 w-2.5" />
-                      Outflow
+                      Project Outflow
                     </div>
                     <div className="text-sm font-bold text-red-700 dark:text-red-400 tabular-nums">
                       {formatValueToLakhsString(financialSummary.totalOutflow)}
@@ -513,10 +513,10 @@ function CashSheetReport() {
                     </dd>
                   </div>
 
-                  {/* 5. Total Project Outflow */}
+                  {/* 5. Project Outflow */}
                   <div className="bg-gradient-to-br from-red-50 to-rose-50/50 dark:from-red-950/40 dark:to-rose-950/30 rounded-lg p-3 border border-red-100 dark:border-red-900/50">
                     <dt className="text-[10px] font-medium text-red-600/80 dark:text-red-400/80 uppercase tracking-wide mb-1">
-                      Total Project Outflow
+                      Project Outflow
                     </dt>
                     <dd className="text-lg font-bold text-red-700 dark:text-red-400 tabular-nums">
                       {formatValueToLakhsString(financialSummary.totalOutflow)}
