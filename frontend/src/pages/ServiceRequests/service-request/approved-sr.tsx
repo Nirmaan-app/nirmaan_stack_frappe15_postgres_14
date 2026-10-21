@@ -64,7 +64,9 @@ import { usePaymentSummary } from "@/pages/ProjectPayments/components/PaymentSum
 import { PayForChoice } from "@/pages/ProjectPayments/components/PayForChoice";
 import { PayFor, workOrderPaymentCap } from "@/pages/ProjectPayments/components/paymentSummaryView";
 import { getFrappeError } from "@/utils/frappeErrors";
-import { isGstOn } from "@/utils/workOrderGst";
+import { gstMatchesVendor, isGstOn } from "@/utils/workOrderGst";
+import { canMatchGstToVendor } from "@/constants/roles";
+import { MatchGstToVendorDialog } from "../components/MatchGstToVendorDialog";
 
 // Everything requested but not yet `Paid` -- INCLUDING `Reconciliation Pending`, which counts as
 // neither paid (money figures count `Paid` alone) nor pending anywhere else. Left out, its amount
@@ -381,27 +383,11 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         }
     }
 
-    const handleGstToggle = async (enabled: boolean) => {
-        setGstEnabled(enabled);
-        try {
-            await updateDoc("Service Requests", orderData!.name, { gst: String(enabled) });
-            await service_request_mutate();
-            toast({
-                title: "Success!",
-                description: "GST status updated successfully!",
-                variant: "success"
-            });
-        } catch (error) {
-            setGstEnabled(!enabled); // revert on failure
-            console.log("error while toggling GST", error);
-            toast({
-                title: "Failed!",
-                // The server says why, e.g. GST cannot be switched off while GST payments exist.
-                description: getFrappeError(error),
-                variant: "destructive"
-            });
-        }
-    };
+    // GST follows the vendor (ADR-0028 Amendment A, #1538): the switch is locked; the server refuses a
+    // hand change too. Admin and Accountants bring a mismatched Approved WO into line with Match GST to vendor.
+    const [matchGstOpen, setMatchGstOpen] = useState(false);
+    const gstMismatched = !!service_vendor && !gstMatchesVendor(orderData, service_vendor.vendor_gst);
+    const canOfferMatchGst = gstMismatched && orderData?.status === "Approved" && canMatchGstToVendor(role, user_id);
 
     const AddPayment = async () => {
         try {
@@ -1015,14 +1001,31 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                         <Separator className="my-4" />
 
                         {!isEstimatesExecutive && (
-                            <div className="flex items-center justify-between">
-                                <Label className="font-bold">GST Applicable?</Label>
-                                <Switch
-                                    checked={gstEnabled}
-                                    onCheckedChange={handleGstToggle}
-                                />
+                            <div className="space-y-2" data-testid="gst-applicable">
+                                <div className="flex items-center justify-between">
+                                    <Label className="font-bold">GST Applicable?</Label>
+                                    <Switch checked={gstEnabled} disabled aria-readonly="true" />
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                    Set from the vendor: on when it has a GST number.
+                                    {gstMismatched && (
+                                        <span className="text-amber-700 dark:text-amber-400">
+                                            {" "}This Work Order doesn't match its vendor ({service_vendor?.vendor_gst?.trim() ? "it has a GST number" : "it has no GST number"}).
+                                        </span>
+                                    )}
+                                </p>
+                                {canOfferMatchGst && (
+                                    <Button size="sm" variant="outline" onClick={() => setMatchGstOpen(true)}>
+                                        Match GST to vendor
+                                    </Button>
+                                )}
                             </div>
                         )}
+                        <MatchGstToVendorDialog
+                            workOrder={matchGstOpen ? orderData?.name ?? null : null}
+                            onClose={() => setMatchGstOpen(false)}
+                            onMatched={service_request_mutate}
+                        />
                     </CardContent>
                 </Card>
                 {/* Security Deposit cheques that name this Work Order (#1486); renders only for cheque users. */}

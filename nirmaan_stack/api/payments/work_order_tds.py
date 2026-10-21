@@ -2,21 +2,25 @@
 # For license information, please see license.txt
 
 """Read-only: a Work Order's TDS for its page: who bore the paid tax (the details card's label) and each
-payment's own deduction (the transactions table's TDS column) (#1451).
+payment's own deduction (the transactions table's TDS column) (#1451); and, for any PO or Work Order,
+each payment's counted deduction for the payments pop-up (#1534).
 
 URL: /api/method/nirmaan_stack.api.payments.work_order_tds.get_work_order_tds
+URL: /api/method/nirmaan_stack.api.payments.work_order_tds.get_order_payment_tds
 
-⚠️ READ IS CHECKED ON THE WORK ORDER, NOT ON `Payment TDS Deduction`. That doctype is readable only by
+⚠️ READ IS CHECKED ON THE ORDER, NOT ON `Payment TDS Deduction`. That doctype is readable only by
 the accountants, and its permissions stay so; anyone who may read the Work Order (User Permissions
 included) may know its tax. The page reads the doctype nowhere. The figures come from
-`services/payment_tds.work_order_tds_borne` and `work_order_deductions`.
+`services/payment_tds.work_order_tds_borne` and `order_deductions`.
 """
 
 import frappe
+from frappe import _
 
 from nirmaan_stack.services.payment_tds import (
 	SERVICE_REQUEST_DOCTYPE,
-	work_order_deductions,
+	TAX_COUNTED_PARENTS,
+	order_deductions,
 	work_order_tds_borne,
 )
 
@@ -43,4 +47,23 @@ def get_work_order_tds(work_order: str) -> dict:
 		              "PAY-2": {"tds_amount": 282.4, "borne_by": "Company"}}}
 	"""
 	frappe.has_permission(SERVICE_REQUEST_DOCTYPE, "read", doc=work_order, throw=True)
-	return {**work_order_tds_borne(work_order), "payments": work_order_deductions(work_order)}
+	return {**work_order_tds_borne(work_order), "payments": order_deductions(SERVICE_REQUEST_DOCTYPE, work_order)}
+
+
+@frappe.whitelist()
+def get_order_payment_tds(document_type: str, document_name: str) -> dict:
+	"""Each payment's counted deduction on one PO or Work Order, for the payments pop-up opened from its
+	Amount Paid (ADR-0034 Amendment B: a PO's recorded tax counts there too). One query.
+
+	Args:
+		document_type: "Procurement Orders" or "Service Requests"; any other is refused.
+		document_name: the order. Raises `frappe.PermissionError` unless the caller may read it.
+
+	Returns:
+		payments: `{payment name: {tds_amount, borne_by}}`, as `get_work_order_tds` answers it; a payment
+			without a counted deduction is absent.
+	"""
+	if document_type not in TAX_COUNTED_PARENTS:
+		frappe.throw(_("Not allowed for doctype {0}").format(document_type))
+	frappe.has_permission(document_type, "read", doc=document_name, throw=True)
+	return {"payments": order_deductions(document_type, document_name)}

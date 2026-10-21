@@ -10,6 +10,8 @@ export const SR_TABS = {
   APPROVED: 'approved-sr',
   FINALIZED: 'finalized-sr',
   ALL: 'all-sr',
+  // A sub-tab of "All WO", like approved-sr / finalized-sr: Admin and Accountants only (#1538).
+  GST_MISMATCH: 'gst-mismatch',
 } as const;
 
 export type SRTabValue = typeof SR_TABS[keyof typeof SR_TABS];

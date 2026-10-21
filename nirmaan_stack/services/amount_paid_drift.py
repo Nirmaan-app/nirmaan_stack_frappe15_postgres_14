@@ -4,8 +4,8 @@
 """THE JUDGE of "is this order's stored Amount Paid right" (ADR-0034), and its recount.
 
 An order is a PO or a Work Order. Its source is THE rule every writer shares: Paid Project Payments, plus
-(a Work Order's) the TDS withheld from the vendor on them, less Received Vendor Refunds
-(`services/amount_paid.amount_paid_of`, ADR-0034 Amendment A); its Amount Due is built from that with the
+the TDS withheld from the vendor on them, less Received Vendor Refunds
+(`services/amount_paid.amount_paid_of`, ADR-0034 Amendments A and B); its Amount Due is built from that with the
 order's own formula (`services/amount_paid.amount_due_from`: PO invoiced - paid, WO total - paid). An
 order is a MISMATCH when its stored `amount_paid`, `amount_due` or (a Work Order's) `total_tds` is ₹1 or
 more off (paisa rounding is not a mismatch). A mismatch means some path skipped the recount; it is
@@ -32,7 +32,7 @@ from frappe.utils import flt
 
 from nirmaan_stack.api.po_adjustments.refund_links import sync_po_refund_links
 from nirmaan_stack.services.amount_paid import amount_due_columns, amount_due_from, write_amount_paid
-from nirmaan_stack.services.payment_tds import DEDUCTIBLE_PARENTS, borne_tds_by_order_sql
+from nirmaan_stack.services.payment_tds import DEDUCTIBLE_PARENTS, TAX_COUNTED_PARENTS, borne_tds_by_order_sql
 from nirmaan_stack.services.vendor_refunds import LOWERS_PAID_STATUSES, PROCUREMENT_ORDERS, SERVICE_REQUESTS
 
 #: The orders that store an Amount Paid.
@@ -67,7 +67,7 @@ class Mismatch(NamedTuple):
 def mismatches(doctype: str, names=None) -> list[Mismatch]:
     """Every order of `doctype` (only those in `names` when given) whose stored Amount Paid or Amount
     Due -- or a Work Order's stored `total_tds` -- is ₹1 or more off its source, sorted by name. One
-    query, which joins a Work Order's tax by who bore it from the writer's own source
+    query, which joins the order's recorded tax by who bore it from the writer's own source
     (`payment_tds.borne_tds_by_order_sql`): the deduction rows, never the stored `total_tds`, so a
     drifted `total_tds` is reported rather than trusted. Writes nothing."""
     _assert_order_doctype(doctype)
@@ -75,12 +75,14 @@ def mismatches(doctype: str, names=None) -> list[Mismatch]:
     if names == []:
         return []
     due_columns = ", ".join(f'o."{col}"' for col in amount_due_columns(doctype))
-    # A PO takes no deductions: nothing to join and no `total_tds` to read.
-    taxed = doctype in DEDUCTIBLE_PARENTS
-    tds_join = f"LEFT JOIN ({borne_tds_by_order_sql()}) t ON t.document_name = o.name" if taxed else ""
-    vendor_borne_tds = "COALESCE(t.vendor_borne_tds, 0)" if taxed else "0"
-    correct_tds = "COALESCE(t.vendor_borne_tds, 0) + COALESCE(t.company_borne_tds, 0)" if taxed else "0"
-    stored_tds = "COALESCE(o.total_tds, 0)" if taxed else "0"
+    # The recorded tax counts in a PO's paid figure as in a Work Order's (ADR-0034 Amendment B), but only
+    # a Work Order takes deductions and stores a `total_tds` to check.
+    counted = doctype in TAX_COUNTED_PARENTS
+    stores_tds = doctype in DEDUCTIBLE_PARENTS
+    tds_join = f"LEFT JOIN ({borne_tds_by_order_sql()}) t ON t.document_name = o.name" if counted else ""
+    vendor_borne_tds = "COALESCE(t.vendor_borne_tds, 0)" if counted else "0"
+    correct_tds = "COALESCE(t.vendor_borne_tds, 0) + COALESCE(t.company_borne_tds, 0)" if stores_tds else "0"
+    stored_tds = "COALESCE(o.total_tds, 0)" if stores_tds else "0"
     # Table and column names come from the constants above, never from a caller.
     rows = frappe.db.sql(
         f"""

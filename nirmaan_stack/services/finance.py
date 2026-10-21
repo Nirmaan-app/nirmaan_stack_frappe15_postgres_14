@@ -4,6 +4,13 @@ import frappe.model.document
 from frappe.utils import flt
 from frappe import _
 
+from nirmaan_stack.services.payment_tds import vendor_borne_tds_on
+
+#: The three request-cap figures count each payment GROSS: its amount plus the tax withheld from the
+#: vendor on it (`payment_tds.vendor_borne_tds_on`), a PO's recorded tax too (ADR-0034 Amendment B). A
+#: netted payment's tax was part of what was requested, so leaving it out would free it to be requested
+#: again.
+
 def get_source_document_financials(source_doc: frappe.model.document.Document) -> dict:
     """
     Calculates relevant financial totals from a PO or SR document.
@@ -69,7 +76,7 @@ def get_source_document_financials(source_doc: frappe.model.document.Document) -
 
 def get_total_paid(src):
     """
-    Calculates the total 'Paid' amount for a given source document.
+    Calculates the total 'Paid' amount for a given source document, gross of the tax withheld.
     """
     sum_field = "sum(CAST(amount as numeric)) as total_paid"
 
@@ -82,9 +89,10 @@ def get_total_paid(src):
         ],
         fields=[sum_field]
     )
+    tax = vendor_borne_tds_on(src.doctype, src.name, ("Paid",))
     if paid_payments and paid_payments[0] and paid_payments[0].total_paid is not None:
-        return flt(paid_payments[0].total_paid)
-    return 0.0
+        return flt(paid_payments[0].total_paid) + tax
+    return tax
     # return frappe.db.get_value(
     #     "Project Payments",
     #     {"document_type":src.doctype, "document_name":src.name,
@@ -121,18 +129,20 @@ def get_total_pending(src):
     """
     sum_field = "sum(CAST(amount as numeric)) as total_pending"
 
+    pending_statuses = ("Requested", "CEO Pending", "Approved", "Rejected")
     pending_payments = frappe.get_all(
         "Project Payments",
         filters=[
-            ["status", "in", ("Requested", "CEO Pending", "Approved", "Rejected")],
+            ["status", "in", pending_statuses],
             ["document_type", "=", src.doctype],
             ["document_name", "=", src.name]
         ],
         fields=[sum_field]
     )
+    tax = vendor_borne_tds_on(src.doctype, src.name, pending_statuses)
     if pending_payments and pending_payments[0] and pending_payments[0].total_pending is not None:
-        return flt(pending_payments[0].total_pending)
-    return 0.0
+        return flt(pending_payments[0].total_pending) + tax
+    return tax
     # return frappe.db.get_value(
     #     "Project Payments",
     #     {"document_type":src.doctype, "document_name":src.name,
@@ -182,6 +192,7 @@ def get_total_reconciliation_pending(src):
         ],
         fields=["sum(CAST(amount as numeric)) as total"]
     )
+    tax = vendor_borne_tds_on(src.doctype, src.name, ("Reconciliation Pending",))
     if total and total[0] and total[0].total is not None:
-        return flt(total[0].total)
-    return 0.0
+        return flt(total[0].total) + tax
+    return tax

@@ -251,13 +251,14 @@ class TestPmoUsesAWorkOrder(_PmoPatchCase):
         super().setUp()
         pmo_patch.execute()
 
-    def test_gst_switch_edit_terms_and_amend_work(self):
+    def test_edit_terms_and_amend_work(self):
+        """The GST flag is no longer typed by anyone (#1538: it follows the vendor), so PMO's write is
+        Edit terms and Amend."""
         wo = self._wo("Approved")
-        self._save(PMO_ONLY_USER, wo, gst="true")
         self._save(PMO_ONLY_USER, wo, notes={"list": ["Revised terms"]}, project_gst="29ABFCS9095N1Z9")
         self._save(PMO_ONLY_USER, wo, status="Amendment")
-        row = frappe.db.get_value(SR, wo, ["gst", "project_gst", "status"], as_dict=True)
-        self.assertEqual((row.gst, row.project_gst, row.status), ("true", "29ABFCS9095N1Z9", "Amendment"))
+        row = frappe.db.get_value(SR, wo, ["project_gst", "status"], as_dict=True)
+        self.assertEqual((row.project_gst, row.status), ("29ABFCS9095N1Z9", "Amendment"))
 
     def test_delete_works(self):
         wo = self._wo("Approved")
