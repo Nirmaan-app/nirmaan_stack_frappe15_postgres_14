@@ -6,6 +6,9 @@ from frappe.utils import flt
 from frappe.model.document import Document
 from frappe.model.naming import getseries
 
+from nirmaan_stack.services.work_order_amendment import vendor_before_amendment
+from nirmaan_stack.services.work_order_gst import gst_flag_for_vendor, work_order_total
+
 
 class ServiceRequests(Document):
 	def autoname(self):
@@ -14,18 +17,38 @@ class ServiceRequests(Document):
 		self.name = f"{prefix}{project_id}-{getseries(prefix, 6)}"
 
 	def validate(self):
-		self.set_gst_from_vendor_on_approval()
+		self.set_gst_from_vendor()
+		self.fill_project_gst_on_approval()
 
-	def set_gst_from_vendor_on_approval(self):
-		"""First approval (Vendor Selected -> Approved) sets GST Applicable from the vendor: ON when
-		the vendor has a GST number, OFF when it doesn't (owner, 19/09/2026). Amendment approval
-		leaves it alone, and the "GST Applicable?" switch on the approved WO can still change it.
-		`on_update` recomputes `total_amount` on this same transition, so the 18% follows."""
+	def set_gst_from_vendor(self):
+		"""GST follows the vendor (ADR-0028 Amendment A): ON when the vendor has a GST number, OFF when
+		it doesn't. Set at first approval (Vendor Selected -> Approved) and when an amendment that
+		changed the vendor is accepted (Amendment -> Approved with a vendor other than the one before
+		the amendment). An amendment that kept the vendor, or a revert back to it, leaves the flag
+		alone: an old WO never changes by itself, only through Match GST to vendor.
+
+		`flags.gst_set_from_vendor` tells the lock in `integrations/controllers/service_requests` that
+		this change is the server's. `on_update` recomputes `total_amount`, so the 18% follows."""
+		old_doc = self.get_doc_before_save()
+		if not (old_doc and self.status == "Approved" and old_doc.status in ("Vendor Selected", "Amendment")):
+			return
+		if old_doc.status == "Amendment":
+			before = vendor_before_amendment(self.name, old_doc.vendor)
+			if before is None or before == self.vendor:
+				return
+		vendor_gst = frappe.db.get_value("Vendors", self.vendor, "vendor_gst") if self.vendor else None
+		self.gst = gst_flag_for_vendor(vendor_gst)
+		self.flags.gst_set_from_vendor = True
+
+	def fill_project_gst_on_approval(self):
+		"""First approval fills a blank Nirmaan GST from the project, whoever approves (SPA, Desk, API),
+		so Finalize and the PDF are never blocked by it. A Nirmaan GST already chosen is kept."""
 		old_doc = self.get_doc_before_save()
 		if not (old_doc and old_doc.status == "Vendor Selected" and self.status == "Approved"):
 			return
-		vendor_gst = frappe.db.get_value("Vendors", self.vendor, "vendor_gst") if self.vendor else None
-		self.gst = "true" if (vendor_gst or "").strip() else "false"
+		if (self.project_gst or "").strip() or not self.project:
+			return
+		self.project_gst = frappe.db.get_value("Projects", self.project, "project_gst") or self.project_gst
 
 	def on_update(self):
 		old_doc = self.get_doc_before_save()
@@ -49,9 +72,7 @@ class ServiceRequests(Document):
 		for row in self.work_order_items or []:
 			sub_total += flt(row.quantity) * flt(row.rate)
 
-		total_amount = sub_total
-		if self.gst and str(self.gst).lower() in ["true", "1", "yes"]:
-			total_amount += sub_total * 0.18
+		total_amount = work_order_total(sub_total, self.gst)
 
 		frappe.db.set_value("Service Requests", self.name, "total_amount", total_amount)
 

@@ -243,31 +243,34 @@ class TestRemoveGstHold(GstHoldTestCase):
             frappe.set_user(U)
         self.assertEqual(_hold(v), 1)
 
-    def test_a_vendor_without_a_gst_number_is_refused_and_nothing_changes(self):
-        v = self.fx.vendor(held=1)
-        wo = self.fx.work_order(self.project, v, 100_000)
-        with self.assertRaises(frappe.ValidationError):
-            remove_gst_hold(v)
-        self.assertEqual(_hold(v), 1)
-        self.assertEqual(frappe.db.get_value(SR, wo, "gst"), "false")
-
     def test_a_vendor_not_on_hold_is_refused(self):
         v = self.fx.vendor(gst_number="29ABCDE1234F1Z5")
         with self.assertRaises(frappe.ValidationError):
             remove_gst_hold(v)
 
-    def test_switches_this_years_approved_wos_skips_the_rest_and_clears_the_hold(self):
+    def test_clears_the_hold_and_changes_no_work_order(self):
+        """ADR-0028 Amendment A (#1538): no WO total moves; mismatched ones go to Match GST to vendor."""
         v = self.fx.vendor(gst_number="29ABCDE1234F1Z5", held=1)
         approved = self.fx.work_order(self.project, v, 100_000)
+        finalized = self.fx.work_order(self.project, v, 80_000)
+        frappe.db.set_value(SR, finalized, "is_finalized", 1)
         in_amendment = self.fx.work_order(self.project, v, 50_000, status="Amendment")
-        last_year = self.fx.work_order(self.project, v, 70_000, created=_last_fy())
+        before = {wo: frappe.db.get_value(SR, wo, ["gst", "total_amount", "modified"])
+                  for wo in (approved, finalized, in_amendment)}
 
-        result = remove_gst_hold(v)
+        remove_gst_hold(v)
 
-        self.assertEqual(result, {"switched": [approved], "skipped": [in_amendment]})
-        self.assertEqual(frappe.db.get_value(SR, approved, "gst"), "true")
-        self.assertEqual(flt(frappe.db.get_value(SR, approved, "total_amount")), 118_000)
-        self.assertEqual(frappe.db.get_value(SR, in_amendment, "gst"), "false")
-        self.assertEqual(frappe.db.get_value(SR, last_year, "gst"), "false")
         self.assertEqual(_hold(v), 0)
+        for wo, row in before.items():
+            self.assertEqual(frappe.db.get_value(SR, wo, ["gst", "total_amount", "modified"]), row, wo)
         self.assertTrue(frappe.db.exists("Comment", {"reference_doctype": "Vendors", "reference_name": v}))
+
+    def test_a_vendor_without_a_gst_number_can_be_released_too(self):
+        v = self.fx.vendor(held=1)
+        wo = self.fx.work_order(self.project, v, 100_000)
+        remove_gst_hold(v)
+        self.assertEqual(_hold(v), 0)
+        self.assertEqual(
+            (frappe.db.get_value(SR, wo, "gst"), flt(frappe.db.get_value(SR, wo, "total_amount"))),
+            ("false", 100_000),
+        )

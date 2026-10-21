@@ -19,17 +19,37 @@ def validate(doc, method):
         validate_won(doc.project, "Service Request")
         validate_vendor_gst_hold(doc)
     else:
+        validate_gst_flag_not_changed_by_hand(doc)
         validate_gst_not_switched_off_with_gst_payments(doc)
+
+
+def validate_gst_flag_not_changed_by_hand(doc):
+    """Refuse a GST flag change that the server did not make (ADR-0028 Amendment A, #1538).
+
+    GST follows the vendor. Its only writers set `doc.flags.gst_set_from_vendor`: approval and an
+    accepted vendor-changing amendment (`ServiceRequests.set_gst_from_vendor`, the doctype's own
+    `validate`, which runs before this hook) and Match GST to vendor
+    (`api/service_requests/match_gst_to_vendor`). Flags never travel over REST, so the page switch,
+    Desk and the API all meet this, Admin included.
+    """
+    old_doc = doc.get_doc_before_save()
+    if not old_doc or gst_is_on(old_doc.gst) == gst_is_on(doc.gst) or doc.flags.gst_set_from_vendor:
+        return
+    frappe.throw(
+        _("GST Applicable on {0} follows its vendor and can't be changed by hand. "
+          "Admin or an Accountant can use Match GST to vendor.").format(doc.name),
+        title=_("GST follows the vendor"),
+    )
 
 
 def validate_gst_not_switched_off_with_gst_payments(doc):
     """Refuse turning the GST flag OFF while the Work Order has a GST payment (ADR-0030, decision 6).
 
     A GST payment counts at every status, Rejected included, until it is deleted. Turning GST ON is
-    never refused (Remove GST Hold relies on that). This runs in the lifecycle, after the doctype's
-    own `validate`, so the page switch, an amendment, Desk and the first-approval flip in
-    `ServiceRequests.set_gst_from_vendor_on_approval` all meet it. A raw `set_value` of `gst` would
-    not -- nothing writes `gst` that way.
+    never refused. This runs in the lifecycle, after the doctype's own `validate`, so the two ways the
+    flag can still move meet it: `ServiceRequests.set_gst_from_vendor` (approval, an accepted
+    vendor-changing amendment) and Match GST to vendor. A raw `set_value` of `gst` would not --
+    nothing writes `gst` that way.
     """
     old_doc = doc.get_doc_before_save()
     if not (old_doc and gst_is_on(old_doc.gst) and not gst_is_on(doc.gst)):
