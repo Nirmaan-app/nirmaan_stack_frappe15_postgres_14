@@ -6,18 +6,30 @@ from nirmaan_stack.api.projects._tendering_guard import validate_won
 from nirmaan_stack.api.service_requests.vendor_fy_limit import validate_vendor_gst_hold
 from nirmaan_stack.services.role_profiles import can_decide_work_order
 from nirmaan_stack.services.work_order_gst import gst_is_on
-from nirmaan_stack.services.work_order_lifecycle import WorkOrderChangeRefused, change_problem
+from nirmaan_stack.services.work_order_lifecycle import WorkOrderChangeRefused, change_problem, delete_problem
 
 
 def guard_lifecycle(doc, method=None):
     """Refuse a Work Order save the lifecycle rules forbid for this user (`services/work_order_lifecycle`).
 
-    Bound to validate on its own, so the SPA, Desk and the REST API all meet it: today, only Admin and
-    Project Lead may approve, reject, or accept or revert an amendment (#1529).
+    Bound to validate on its own, so the SPA, Desk and the REST API all meet it: only Admin and Project
+    Lead may approve, reject, or accept or revert an amendment (#1529); a Finalized Work Order's scope is
+    locked (#1539). It runs after the doctype's own `validate`, so `flags.gst_set_from_vendor` is set by then.
     """
     problem = change_problem(
-        doc.get_doc_before_save(), doc, may_decide=can_decide_work_order(frappe.session.user)
+        doc.get_doc_before_save(),
+        doc,
+        may_decide=can_decide_work_order(frappe.session.user),
+        gst_from_vendor=bool(doc.flags.gst_set_from_vendor),
+        finalize_action=bool(doc.flags.finalize_action),
     )
+    if problem:
+        frappe.throw(_(problem), WorkOrderChangeRefused, title=_("Not allowed"))
+
+
+def guard_delete(doc, method=None):
+    """Refuse deleting a Finalized Work Order (#1539). First in `on_trash`, so nothing is cleared before it."""
+    problem = delete_problem(doc)
     if problem:
         frappe.throw(_(problem), WorkOrderChangeRefused, title=_("Not allowed"))
 
