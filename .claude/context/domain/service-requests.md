@@ -33,6 +33,18 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   (`controllers/vendor_invoices.guard_work_order_invoice`), so Desk and REST obey it. Any new path that writes
   a WO Vendor Invoice (the generated-invoice upload, #1547) runs as the session user and passes through it.
   PO invoices keep their old rules.
+- **WO status-move rules live in one place, `services/work_order_lifecycle.change_problem` (#1529).** The
+  Service Requests `validate` hook `controllers/service_requests.guard_lifecycle` applies it on every save,
+  so the SPA, Desk and REST obey it. A save that moves the status INTO *Approved* or *Rejected* (approve,
+  reject, accept or revert an amendment, or a new WO saved straight as Approved) takes
+  `role_profiles.WO_DECIDE_PROFILES` (Admin, Project Lead; mirrored by `SR_ADMIN_ROLES` in
+  `frontend/src/pages/ServiceRequests/config/srTabs.constants.ts`). Amend itself (Approved -> Amendment) is open
+  to every WO writer. A new status-move or lock rule (Finalize #1539, amendments #1540) goes into the same
+  function, never into a screen or an endpoint alone. PMO Executive writes and deletes WOs through the patch
+  `v3_0.pmo_write_on_work_orders` (Custom DocPerm, so it survives a JSON re-import), but never approves.
+- **A WO's remarks and items are read only by someone who may read that WO (#1529).** Every `api/sr_remarks`
+  read/add call starts with `assert_can_read_work_order` (doc read permission, project User Permissions
+  included); `api/sr_items.get_sr_items_for_parents` returns only readable WOs, with or without names.
 
 - **The GST flag (`gst`) follows the vendor and is never written by hand (ADR-0028 Amendment A, #1538).**
   Its writers: `ServiceRequests.set_gst_from_vendor` (first approval; an accepted amendment whose vendor differs
