@@ -81,4 +81,9 @@ export interface ServiceRequests {
 	finalized_by?: string
 	/** Finalized On : Datetime */
 	finalized_on?: string
+	/** Approved On : Datetime — the first approval, stamped by that save and never moved after (#1532).
+	 * Blank on an old WO whose history holds no approval. */
+	approved_on?: string | null
+	/** Approved By : Data — the user id (email) of whoever first approved it */
+	approved_by?: string | null
 }

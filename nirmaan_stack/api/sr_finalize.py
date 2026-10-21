@@ -117,6 +117,7 @@ def finalize_sr(sr_id: str) -> dict:
     sr_doc.is_finalized = 1
     sr_doc.finalized_by = full_name
     sr_doc.finalized_on = timestamp
+    sr_doc.flags.finalize_action = True  # the flag moves only here and in revert (`services/work_order_lifecycle`)
     sr_doc.save(ignore_permissions=True)
 
     frappe.db.commit()
@@ -179,6 +180,7 @@ def revert_finalize_sr(sr_id: str) -> dict:
     sr_doc.is_finalized = 0
     sr_doc.finalized_by = None
     sr_doc.finalized_on = None
+    sr_doc.flags.finalize_action = True
     sr_doc.save(ignore_permissions=True)
 
     frappe.db.commit()

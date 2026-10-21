@@ -67,6 +67,13 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   to every WO writer. A new status-move or lock rule (Finalize #1539, amendments #1540) goes into the same
   function, never into a screen or an endpoint alone. PMO Executive writes and deletes WOs through the patch
   `v3_0.pmo_write_on_work_orders` (Custom DocPerm, so it survives a JSON re-import), but never approves.
+- **A WO's approval date is `approved_on` / `approved_by`, never `modified` (#1532).** The save that approves
+  it (`work_order_lifecycle.is_approval`: into Approved from anything but Amendment) stamps them; every other
+  save carries the stored values over, whatever it sends (`approval_record`, from `ServiceRequests.validate`).
+  Accepting or reverting an amendment keeps the first approval. `approved_by` is the user id as Data, not a
+  Link, so it never blocks deleting that user. Old WOs were filled from Version rows by the patch
+  `v3_0.backfill_work_order_approval` (blanks only); one created straight as Approved has no history and
+  stays blank, and the WO page then shows "--".
 - **A WO's remarks and items are read only by someone who may read that WO (#1529).** Every `api/sr_remarks`
   read/add call starts with `assert_can_read_work_order` (doc read permission, project User Permissions
   included); `api/sr_items.get_sr_items_for_parents` returns only readable WOs, with or without names.
@@ -81,6 +88,19 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   payment guard runs. The rule is the pure `work_order_gst.gst_flag_for_vendor` (frontend twin
   `utils/workOrderGst.gstForVendor`). Remove GST Hold writes no WO. First approval also fills a blank
   `project_gst` from the project (`ServiceRequests.fill_project_gst_on_approval`).
+- **A Finalized WO's scope is locked on the server, for everyone, Admin included (#1539).** The same
+  `work_order_lifecycle.change_problem` refuses a save of a Finalized WO that changes `LOCKED_FIELDS`
+  (status, so Amend; vendor, project, `gst`, `notes` (terms), `work_order_items`, `service_order_list`,
+  `service_category_list`, `total_amount`), and `delete_problem`, run first in `on_trash`
+  (`controllers/service_requests.guard_delete`), refuses its delete before anything is cleared. Both refuse with
+  `FINALIZED_REFUSAL`, the text the WO page's banner shows word for word
+  (`frontend/src/pages/ServiceRequests/config/finalizedLock.ts`, pinned by `services/test_work_order_lifecycle`).
+  Everything else stays open: payments and the figures they recount, invoices, remarks, `project_gst`, the PDF,
+  Generate invoice. The one `gst` change let through is `flags.gst_set_from_vendor` (Match GST to vendor).
+  `is_finalized` moves only in a save carrying `flags.finalize_action`, set by `api/sr_finalize` (Finalize and
+  Revert Finalization, which write the audit remark); `is_finalized` and `total_amount` are read-only in Desk.
+  The comparison ignores how Desk sends a value (JSON as text, int vs float, a row's own name and timestamps),
+  so a Desk save that leaves the scope alone passes.
 
 ## Doctype: Service Requests
 
@@ -92,6 +112,8 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
 | `is_finalized` | Check | Locks the SR from editing/deletion |
 | `finalized_by` | Data | Full name (not email) of who finalized |
 | `finalized_on` | Datetime | When finalized |
+| `approved_on` | Datetime | First approval (read-only; never moved after, #1532) |
+| `approved_by` | Data | User id (email) of the first approver (read-only) |
 | `total_amount` | Currency | Total service amount |
 | `amount_paid` | Currency | Paid payments less Received refunds (system-recounted, see above) |
 
@@ -99,10 +121,9 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
 
 Approved SRs can be "finalized" to lock them from further modifications.
 
-**Finalize locks:**
-- Amend action
-- Delete action
-- Edit Terms & Notes
+**Finalize locks** (on the server, see Load-bearing invariants; the page hides the buttons and shows a banner):
+- Amend, Delete, Edit Terms
+- The GST flag (except Match GST to vendor), items, categories, vendor and total, Desk included
 
 **Permission Model:**
 ```

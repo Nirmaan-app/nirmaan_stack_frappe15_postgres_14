@@ -2,11 +2,12 @@
 # For license information, please see license.txt
 
 import frappe
-from frappe.utils import flt
+from frappe.utils import flt, now_datetime
 from frappe.model.document import Document
 from frappe.model.naming import getseries
 
 from nirmaan_stack.services.work_order_amendment import vendor_before_amendment
+from nirmaan_stack.services.work_order_lifecycle import approval_record
 from nirmaan_stack.services.work_order_gst import gst_flag_for_vendor, work_order_total
 
 
@@ -19,6 +20,14 @@ class ServiceRequests(Document):
 	def validate(self):
 		self.set_gst_from_vendor()
 		self.fill_project_gst_on_approval()
+		self.stamp_approval()
+
+	def stamp_approval(self):
+		"""The approving save stores who approved and when; every other save keeps what is stored,
+		whatever it sends (#1532, `work_order_lifecycle.approval_record`)."""
+		self.update(approval_record(
+			self.get_doc_before_save(), self, user=frappe.session.user, now=now_datetime()
+		))
 
 	def set_gst_from_vendor(self):
 		"""GST follows the vendor (ADR-0028 Amendment A): ON when the vendor has a GST number, OFF when

@@ -11,6 +11,7 @@ import { Pencil2Icon } from "@radix-ui/react-icons";
 import logo from "@/assets/logo-svg.svg";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { SRDetailsCard } from "./components/SRDetailsCard";
+import { FinalizedLockBanner } from "./components/FinalizedLockBanner";
 import { SRComments } from "./components/SRComments";
 import {
     AlertDialog,
@@ -32,6 +33,7 @@ import { InvoiceDialog } from "@/pages/ProcurementOrders/invoices-and-dcs/compon
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog";
 import { useWorkOrderTds } from "@/pages/ProjectPayments/hooks/useWorkOrderTds";
 import { paymentTableFigures } from "@/pages/ProjectPayments/tdsPreview";
+import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
@@ -240,6 +242,10 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     const { data: service_vendor, isLoading: service_vendor_loading } = useFrappeGetDoc<Vendors>("Vendors", service_request?.vendor, service_request?.vendor ? `Vendors ${service_request?.vendor}` : null)
 
     const { data: project, isLoading: project_loading } = useFrappeGetDoc<Projects>("Projects", service_request?.project, service_request?.project ? `Projects ${service_request?.project}` : null)
+
+    // The approver's name for the card's Approved date; the stored user id shows if it can't be read.
+    const approvedBy: string | undefined = service_request?.approved_by || undefined
+    const { data: approver } = useFrappeGetDoc<NirmaanUsers>("Nirmaan Users", approvedBy, approvedBy ? undefined : null)
 
     const { data: projectPayments, isLoading: projectPaymentsLoading, mutate: projectPaymentsMutate } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
         fields: ["*"],
@@ -518,6 +524,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
     return (
         <div className="flex-1 space-y-4">
+            {isFinalized && <FinalizedLockBanner />}
             {/* WO Details Card - using new SRDetailsCard component */}
             <SRDetailsCard
                 orderData={orderData}
@@ -550,6 +557,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 isProcessingFinalize={isFinalizingLoading || isRevertingLoading}
                 missingGst={!orderData?.project_gst}
                 isOwner={orderData?.owner === user_id}
+                approvedBy={approver?.full_name || orderData?.approved_by}
             />
 
             {/* Delete Confirmation Dialog */}
