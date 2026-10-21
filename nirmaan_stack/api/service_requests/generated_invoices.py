@@ -31,6 +31,7 @@ from frappe.utils import cint, cstr, flt, getdate, today
 
 from nirmaan_stack.api.delivery_notes.update_invoice_data import create_attachment_doc, create_vendor_invoice
 from nirmaan_stack.api.sr_remarks import assert_can_read_work_order
+from nirmaan_stack.integrations.Notifications.pr_notifications import get_users_who_see_project
 from nirmaan_stack.services import wo_generated_invoices as gi
 from nirmaan_stack.services.outflow_import.amounts import rupees
 from nirmaan_stack.services.role_profiles import assert_generate_wo_invoice_access, can_generate_wo_invoice
@@ -184,15 +185,8 @@ SIGNED_UPLOAD_EVENT = "wo_invoice:signed_uploaded"
 
 
 def _accountants_of(project) -> list:
-	"""The Accountants who can see `project`: put on it, or on no project at all (Frappe's User
-	Permission rule: none means every project, which is how most Accountants are set up)."""
-	accountants = frappe.get_all("Nirmaan Users", fields=["name", "role_profile"],
-								 filters={"role_profile": ("in", ACCOUNTANT_PROFILES)})
-	scoped = {}
-	for perm in frappe.get_all("User Permission", fields=["user", "for_value"], filters={
-			"allow": "Projects", "user": ("in", [a.name for a in accountants] or [""])}):
-		scoped.setdefault(perm.user, set()).add(perm.for_value)
-	return [a for a in accountants if a.name not in scoped or project in scoped[a.name]]
+	"""The Accountants who can see `project`: put on it, or on no project at all."""
+	return get_users_who_see_project(project, ACCOUNTANT_PROFILES)
 
 
 def _notify_accountants(sr, doc):
