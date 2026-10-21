@@ -12,6 +12,15 @@ const ON_SPELLINGS = ["true", "1", "yes"];
 export const isGstOn = (workOrder: { gst?: string | null } | null | undefined): boolean =>
   ON_SPELLINGS.includes(String(workOrder?.gst ?? "").trim().toLowerCase());
 
+const OFF_SPELLINGS = ["false", "0", "no"];
+
+/**
+ * Does the Work Order's GST flag say off in so many words? A blank flag is neither, so a generated
+ * invoice (#1546) waits until it is set. Server twin: `work_order_gst.gst_is_explicitly_off`.
+ */
+export const isGstExplicitlyOff = (workOrder: { gst?: string | null } | null | undefined): boolean =>
+  OFF_SPELLINGS.includes(String(workOrder?.gst ?? "").trim().toLowerCase());
+
 /**
  * The GST flag a Work Order should carry for its vendor: on exactly when the vendor has a GST number
  * (ADR-0028 Amendment A). Server twin: `work_order_gst.gst_flag_for_vendor`.

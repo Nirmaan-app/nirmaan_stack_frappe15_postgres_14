@@ -347,6 +347,27 @@ def can_manage_mtc(user: str) -> bool:
     return has_role_profile(user, MTC_MANAGE_PROFILES)
 
 
+# Generate and void a generated invoice on a GST-off Work Order, and upload its signed copy (#1546 /
+# #1547, spec #1528 story 89): Admin, PMO, service procurement and Project Lead. Approving the Vendor
+# Invoice the upload creates stays with WO_INVOICE_DECIDE_PROFILES. ENFORCEMENT boundary for
+# `api/service_requests/generated_invoices`, which writes with `ignore_permissions` (the doctype grants
+# read only). Mirrored client-side by `frontend/src/constants/roles.ts::WO_GENERATED_INVOICE_PROFILES`.
+WO_GENERATED_INVOICE_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, PROJECT_LEAD_PROFILE) + SERVICE_PROCUREMENT_PROFILES
+
+
+def can_generate_wo_invoice(user: str) -> bool:
+    """True when `user` may generate, void or upload a Work Order's generated invoice."""
+    return has_role_profile(user, WO_GENERATED_INVOICE_PROFILES)
+
+
+def assert_generate_wo_invoice_access(user: str) -> None:
+    """Refuse a user outside `WO_GENERATED_INVOICE_PROFILES`."""
+    if not can_generate_wo_invoice(user):
+        raise frappe.PermissionError(
+            _("Only Admin, PMO, Procurement and Project Leads can generate or void a Work Order's invoice.")
+        )
+
+
 # May open "Adjust Payments" on a PO and record a waiting Vendor Refund from it (#1400, ADR-0032:
 # "anyone who may use Adjust Payments may record one"). Waiting refunds are PO-only, so the material
 # procurement profiles, exactly as the PO page's button gate (`PODetails.tsx`).
