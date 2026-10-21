@@ -2852,23 +2852,49 @@ describe("SLICE 12c-S -- options, units and notes", () => {
    * in the picker, but a BoQ row that ARRIVES in Nos must price exactly as it always did -- the
    * owner's "lets leave the pricing as it is for now". Depth is still read by nothing, by design.
    */
-  it("S4: a double-skin plenum still prices 1723 / 231, at every depth and with none", () => {
+  /**
+   * ADP-4b (owner FIXB-1, 2026-10-21: "fix (b) stands, knowingly reversing the 2026-10-06 S10 ruling FOR THE
+   * DOUBLE-SKIN PLENUM ONLY (its per-number price ignores depth: 1723 / 231 at every depth)", INVERTING): per number it
+   * now REFUSES, naming the unit it is stocked in; per sq.m is unchanged. BEFORE, the four per-number lines were:
+   *   expect(at("600 x 600")).toEqual([true, 1723, 231]);
+   *   expect(at("600 x 600 x 50")).toEqual([true, 1723, 231]);
+   *   expect(at("600 x 600 x 300")).toEqual([true, 1723, 231]);
+   *   expect(at("600 x 600 x 1000")).toEqual([true, 1723, 231]);
+   */
+  it("S4 (ADP-4b, inverted): a double-skin plenum per number refuses naming 'stocked per sq.m', at every depth and with none; per sq.m unchanged", () => {
     const at = (size: string) => {
       const attributes: Record<string, { value: string }> = {
         family: { value: "double-skin plenum" }, insulation_thickness_mm: { value: "25" },
       };
       if (size) attributes.size_mm = { value: size };
       const r = priceItemList(adpSpec, itemsS, "Nos", [{ attributes }]);
-      return [r.priced, r.supply, r.install] as const;
+      return [r.priced, r.supply, r.install, r.reason] as const;
     };
-    expect(at("600 x 600")).toEqual([true, 1723, 231]);
-    expect(at("600 x 600 x 50")).toEqual([true, 1723, 231]);
-    expect(at("600 x 600 x 300")).toEqual([true, 1723, 231]);
-    expect(at("600 x 600 x 1000")).toEqual([true, 1723, 231]);
+    const refusal = "double-skin plenum is not stocked per number (stocked per sq.m) - price this row by hand";
+    for (const size of ["600 x 600", "600 x 600 x 50", "600 x 600 x 300", "600 x 600 x 1000", ""]) {
+      expect(at(size)).toEqual([false, undefined, undefined, refusal]);
+    }
     // and per sq.m, where it is always meant to be bought
     const sq = priceItemList(adpSpec, itemsS, "SQM", [{ attributes: {
       family: { value: "double-skin plenum" }, insulation_thickness_mm: { value: "25" } } }]);
     expect([sq.priced, sq.supply, sq.install]).toEqual([true, 4785, 640]);
+  });
+
+  /**
+   * ADP-4b (owner FIXB-1: "S10 stays for every other family") -- POSITIVE for S10 kept. A unit a family PRICES ITSELF
+   * (its own `units`) and hides from the picker still prices a row that arrives in it: the picker is not the pricing.
+   * Only a hidden unit the family reaches by CONVERSION refuses -- the double-skin plenum's per number, the one hidden
+   * unit in any config (it and VCD differ only by the key, S10 NEGATIVE above). Spoofed in memory on VCD per sq.m.
+   */
+  it("S10 kept (ADP-4b): VCD hiding sq.m from the picker still prices a per-sq.m row exactly as before", () => {
+    const vcdHidden = { ...adpSpec.families["VCD"], units_not_offered: ["area"] };
+    const spoofed = { ...adpSpec, families: { ...adpSpec.families, VCD: vcdHidden } };
+    const item = [{ attributes: { family: { value: "VCD" }, size_mm: { value: "600 x 300" } } }];
+    const before = priceItemList(adpSpec, itemsS, "SQM", item);
+    const hidden = priceItemList(spoofed, itemsS, "SQM", item);
+    expect(familyUnitClasses(spoofed, "VCD")).toEqual(["count"]);   // hidden from the picker
+    expect(before.priced).toBe(true);
+    expect([hidden.priced, hidden.supply, hidden.install]).toEqual([before.priced, before.supply, before.install]);
   });
 
   // -- item 1 / OWNER RULING S1 -- dependent dropdowns --------------------------------------

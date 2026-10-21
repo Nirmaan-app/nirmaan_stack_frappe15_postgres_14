@@ -1849,6 +1849,16 @@ export function plainItemListWording(spec: ItemListPricingSpec): boolean {
  *   - "sum components", "SQM row", "sheet formula:" and "10^6" in plain words.
  * Figures are never touched: every number on a line is the line's own. A line of any other shape is unchanged.
  */
+/**
+ * ADP-4b (owner AC6, 2026-10-21; the fields are Length / Width / Height, owner 2026-10-19 23:19): the box's surface
+ * formula is written ONE way wherever a person reads it -- the config's rule says (L x B + B x H + L x H) and its
+ * step (W x H + H x D + W x D); both are the same sum of the three face products. Wording only: the arithmetic is the
+ * config's, untouched. PURE.
+ */
+export function plainBoxSurface(s: string): string {
+  return s.replace(/\(L x B \+ B x H \+ L x H\)|\(W x H \+ H x D \+ W x D\)/g, "(L x W + W x H + L x H)");
+}
+
 export function plainWorking(lines: readonly string[]): string[] {
   const out: string[] = [];
   const roundedTo = (digits: number) => (digits === 0 ? "the rupee" : digits < 0 ? `the next ${10 ** -digits} rupees` : `${digits} decimal place${digits === 1 ? "" : "s"}`);
@@ -1863,6 +1873,7 @@ export function plainWorking(lines: readonly string[]): string[] {
       .replace(/^([a-z]+): sheet formula: /, "$1: ")
       .replace(/\/ 10\^6 sq\.m/g, "/ 1,000,000 (sq.mm to sq.m)")
       .replace(/10\^6/g, "1,000,000");
+    s = plainBoxSurface(s);
     const ru = s.match(/^([a-z]+): ROUNDUP\([^,]*,\s*(-?\d+)\) = (.+)$/);
     if (ru) {
       const [, lead, digits, value] = ru;
@@ -1929,7 +1940,9 @@ export function waysLabel(spec: ItemListPricingSpec, ways: ReadonlyArray<readonl
 export function stockedUnitsWords(spec: ItemListPricingSpec, family: string): string {
   const fam = spec.families[family];
   if (!fam) return "";
-  const classes = Object.keys(spec.unit_classes).filter((c) => !!fam.units[c] || (fam.convert?.[c] ?? []).length > 0);
+  // ADP-4b (owner AC5): a unit the family is not offered in is not a unit it is stocked in
+  const hidden = new Set(fam.units_not_offered ?? []);
+  const classes = Object.keys(spec.unit_classes).filter((c) => !hidden.has(c) && (!!fam.units[c] || (fam.convert?.[c] ?? []).length > 0));
   return classes.map((c) => `per ${unitWord(spec, c)}`).join(" or ");
 }
 
@@ -3202,7 +3215,10 @@ function priceOneItem(
     // SLICE 6 (T7): a block without pipelines of its own runs the config's shared per-item default
     if (!unit.pipelines) unit = { ...unit, pipelines: spec.default_pipelines };
   } else {
-    const options = fam.convert?.[rowUnitClass] ?? [];
+    // ADP-4b (owner fix (b), 2026-10-21; AC5 "same rule everywhere"): a unit the family declares `units_not_offered`
+    // is neither priced nor stocked -- its conversions do not run, so the row refuses below naming the stocked units
+    // (the double-skin plenum per number, as its Derivation line says; 0 stored rows)
+    const options = (fam.units_not_offered ?? []).includes(rowUnitClass) ? [] : (fam.convert?.[rowUnitClass] ?? []);
     // ADP-1 (owner H3 (d)): a need the config gives a ruled number default for THIS family (the 1 m piece length) does
     // not stop its option being chosen -- the needs loop below fills it, marked. A need read but unreadable still does
     // (its refusal names it). No shipped option before ADP-1 needs such a number, so every other choice is unchanged.
@@ -3310,6 +3326,10 @@ function priceOneItem(
   //      The resolution CANONICALISES the stated pair onto the SKU's OWN stored values, which is what keeps
   //      every mechanism below it -- the ladder narrowing, `match_master_row`, the panel -- byte-unchanged.
   const skRule = (spec.second_key ?? []).find((r) => r.families.includes(family));
+  // ADP-4b (owner AC7, 2026-10-21: "Both quote the read sides"): the outer size's sides as READ, kept when the pair is
+  // set aside, so the refusal below quotes them -- the same words whether the sides came from the BoQ's size or from
+  // the typed boxes (the calculator has no size as written, so quoting the BoQ's words made the two disagree)
+  let outerSetAside: number[] | null = null;
   if (skRule && skRule.key.every((k) => k in read)) {
     const famRows = projected.filter(
       (it) => it.kind === spec.kind && it.attributes[familyAttr(spec)] === family && it.attributes[spec.unit_class_attr] === target,
@@ -3324,6 +3344,7 @@ function priceOneItem(
     const viaAlt = direct.length ? [] : famRows.filter((it) => skRule.alt_key !== undefined && on(it, skRule.alt_key));
     let matches = direct.length ? direct : viaAlt;
     if (!matches.length) {
+      outerSetAside = stated;
       for (const k of skRule.key) delete read[k];
       out.working.push(`the ${skRule.name} ${statedText} did not match the catalogue -- matched on the ${reasonName(spec, skRule.primary)} instead (A-4)`);
     } else {
@@ -3401,7 +3422,11 @@ function priceOneItem(
       // ADP-3b (owner D3): a typed outer box left empty is filled from the size as written -- that is what was stated
       const k0 = spec.numbers[skRule.key[0]];
       const outerRaw = rawValue(item, boxOf(spec, skRule.key[0])) ?? (k0?.length_from ? rawValue(item, k0.length_from) : null);
-      const what = outerRaw !== null && outerRaw !== "None"
+      // ADP-4b (owner AC7): sides that were read are quoted as read ("outer size 450 x 450"); a size that gave no sides
+      // keeps its words as written
+      const what = outerSetAside
+        ? `${skRule.name} ${outerSetAside.map(fmt).join(" x ")} could not be used and no ${reasonName(spec, skRule.primary)} stated`
+        : outerRaw !== null && outerRaw !== "None"
         ? `${skRule.name} '${String(outerRaw)}' could not be used and no ${reasonName(spec, skRule.primary)} stated`
         : "neither stated";
       return { ...blank(`${family} needs ${boxLabel(spec, skRule.primary)}, or ${outerLabel} - ${what} - price this row by hand`),
@@ -4581,8 +4606,17 @@ export function itemFieldDefs(
   // fires only on a "not mentioned" answer (Insulation's cladding) still refuses a blank, so its field is needed; a
   // field in an either-or group is asked for by its group.
   const needed = new Set<string>([...fam.needs, ...(fam.units[cls]?.needs ?? []), ...(eitherOr.length === 1 ? eitherOr[0].needs : [])]);
+  /**
+   * ADP-4b (owner fix (a), 2026-10-21): a ruled default that THIS unit refuses fills nothing -- a slot diffuser per sq.m
+   * whose blank damper defaults to "without" refuses (only the with-damper SKU is stocked), so its Damper is needed
+   * and carries the "*". Read from the same `refuse_on_unit_class` rule `priceOneItem` refuses by.
+   */
+  const refusedHere = (a: string, v: string): boolean => (spec.refuse_on_unit_class ?? []).some((r) =>
+    r.unit_class === cls && (r.families ?? []).includes(family) && r.attr === a
+    && v.toLowerCase().includes(String(r.value_contains ?? "").toLowerCase()) && String(r.value_contains ?? "") !== "");
   const ruled = (a: string): boolean => {
-    if (ruledDefaultValue(spec, a, family) !== undefined && spec.defaults?.[a]?.absent_as_none) return true;
+    const dv = ruledDefaultValue(spec, a, family);
+    if (dv !== undefined && spec.defaults?.[a]?.absent_as_none) return !refusedHere(a, dv);
     const nd = spec.number_defaults?.[a];
     return !!nd && Number.isFinite(nd.value) && (!nd.families || nd.families.includes(family));
   };

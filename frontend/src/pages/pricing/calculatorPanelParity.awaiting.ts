@@ -69,7 +69,7 @@ export const STATUS_BY_CAUSE: Readonly<Record<DivergenceCause, DivergenceStatus>
   B_stale_pick: "awaiting owner review",   // fixed in 12c-F; no row carries it any more
   C_unit_not_offered: "accepted by owner",  // owner U1, 2026-10-07
   D_reason_only: "accepted by owner",      // owner R-D, 2026-10-06
-  E_outer_size_quote: "awaiting owner review",  // ADP-4a, owner 2026-10-21: listed, fix later (ADP-4b)
+  E_outer_size_quote: "awaiting owner review",  // ADP-4a listed; FIXED in ADP-4b (owner AC7): no row carries it any more
   Z_UNCLASSIFIED: "awaiting owner review",
 };
 
@@ -173,14 +173,10 @@ export const AWAITING_CORPUS_DIVERGENCES: readonly AwaitingCorpusDivergence[] = 
    * BRSR-26-01307#152, #170, #171; BRSR-26-01311#42; BRSR-26-01315#89, #94, #160; BRSR-26-01370#59.
    * The move also EXPOSED the 7 below (cause E): present since ADP-3b's face boxes (v49), hidden by the frozen snapshot
    * config. Both surfaces refuse; only the quoted outer size differs. Owner 2026-10-21: "list the 7, fix later".
+   * ADP-4b (owner AC7, 2026-10-21: "Both quote the read sides"): the 7 LEFT the list -- panel and calculator both say
+   * "outer size 450 x 450 could not be used ...". BEFORE, each `{ id, cat: "hvac_adp", cause: "E_outer_size_quote", rows: 1 }`:
+   * BRSR-26-01369#32; BRSR-26-01370#46, #47, #48, #50, #51, #52.
    */
-  { id: "BRSR-26-01369#32", cat: "hvac_adp", cause: "E_outer_size_quote", rows: 1 },
-  { id: "BRSR-26-01370#46", cat: "hvac_adp", cause: "E_outer_size_quote", rows: 1 },
-  { id: "BRSR-26-01370#47", cat: "hvac_adp", cause: "E_outer_size_quote", rows: 1 },
-  { id: "BRSR-26-01370#48", cat: "hvac_adp", cause: "E_outer_size_quote", rows: 1 },
-  { id: "BRSR-26-01370#50", cat: "hvac_adp", cause: "E_outer_size_quote", rows: 1 },
-  { id: "BRSR-26-01370#51", cat: "hvac_adp", cause: "E_outer_size_quote", rows: 1 },
-  { id: "BRSR-26-01370#52", cat: "hvac_adp", cause: "E_outer_size_quote", rows: 1 },
 ];
 
 export const AWAITING_SWEEP_DIVERGENCES: readonly AwaitingSweepDivergence[] = [

@@ -229,8 +229,10 @@ describe("every stored extracted row -- the panel's figures and the calculator's
     // INVERTED at ADP-4a (owner AC4 + 2026-10-21 "list the 7, fix later") by mechanical authority: BEFORE
     // `D_reason_only` { classes: 8, rows: 8 } and keys [A, C, D]. On v50 the 8 D rows agree; cause E's 7 are listed.
     expect(tally.get("D_reason_only")).toBeUndefined();
-    expect(tally.get("E_outer_size_quote")).toEqual({ classes: 7, rows: 7 });
-    expect([...tally.keys()].sort()).toEqual(["A_wiring_primary", "C_unit_not_offered", "E_outer_size_quote"]);
+    // INVERTED at ADP-4b (owner AC7 "Both quote the read sides") by mechanical authority: BEFORE
+    // `E_outer_size_quote` { classes: 7, rows: 7 } and keys [A, C, E]. Both surfaces now quote the outer size as read.
+    expect(tally.get("E_outer_size_quote")).toBeUndefined();
+    expect([...tally.keys()].sort()).toEqual(["A_wiring_primary", "C_unit_not_offered"]);
   });
 
   it("the thirteen Electrical categories and the two HVAC alias categories agree on EVERY row except wiring's offered figure", () => {
@@ -244,7 +246,10 @@ describe("every stored extracted row -- the panel's figures and the calculator's
     expect(perCat.get("wiring_cabling")).toBe(188);
     // 12c-F: 24 -> 13; 12c-U: the no-unit and R/O rows closed, 13 -> 11; INVERTED at ADP-4a by mechanical authority:
     // BEFORE toBe(11) -- 3 C + 8 D; AFTER 3 C + 7 E (the 8 D closed on v50, the 7 E exposed by the fixture move)
-    expect(perCat.get("hvac_adp")).toBe(10);
+    // INVERTED at ADP-4b (owner AC7) by mechanical authority: BEFORE toBe(10) -- 3 C + 7 E. AFTER 0 ADP divergences
+    // beside the 3 accepted C rows, count asserted
+    expect(perCat.get("hvac_adp")).toBe(3);
+    expect(CORPUS_RESULTS.filter((x) => x.cause !== null && x.k.case.cat === "hvac_adp" && x.cause !== "C_unit_not_offered")).toEqual([]);
   });
 
   it("THE HEADLINE: no ITEM-LIST row ever produces a figure on both surfaces that disagree", () => {
@@ -360,7 +365,8 @@ describe("the owner's ruling on each cause (12c-F)", () => {
     expect(STATUS_BY_CAUSE.C_unit_not_offered).toBe("accepted by owner");   // owner U1
     // INVERTED at ADP-4a (owner 2026-10-21 "list the 7, fix later") by mechanical authority: BEFORE toEqual([]).
     expect(STATUS_BY_CAUSE.E_outer_size_quote).toBe("awaiting owner review");
-    expect([...awaiting]).toEqual(["E_outer_size_quote"]);
+    // INVERTED back at ADP-4b (owner AC7, the 7 fixed): BEFORE toEqual(["E_outer_size_quote"])
+    expect([...awaiting]).toEqual([]);
   });
 
   it("no listed divergence carries cause B any more -- fix B closed every one; INVERTED at 12d-8 (owner R1): exactly ONE sweep entry carries it, by name", () => {
@@ -417,10 +423,8 @@ describe("the owner's ruling on each cause (12c-F)", () => {
   it("nothing is awaiting a ruling; the three that remain are the owner's accepted refusals", () => {
     const awaiting = AWAITING_CORPUS_DIVERGENCES.filter((d) => STATUS_BY_CAUSE[d.cause] === "awaiting owner review");
     // INVERTED at ADP-4a (owner 2026-10-21 "list the 7, fix later") by mechanical authority: BEFORE toEqual([]).
-    expect(awaiting.map((d) => d.id).sort()).toEqual([
-      "BRSR-26-01369#32", "BRSR-26-01370#46", "BRSR-26-01370#47", "BRSR-26-01370#48",
-      "BRSR-26-01370#50", "BRSR-26-01370#51", "BRSR-26-01370#52",
-    ]);
+    // INVERTED back at ADP-4b (owner AC7): BEFORE the 7 ids BRSR-26-01369#32, BRSR-26-01370#46 / 47 / 48 / 50 / 51 / 52
+    expect(awaiting.map((d) => d.id).sort()).toEqual([]);
     // owner U1: the BoQ SAID a unit and it was wrong for the item -- the panel refusing is correct
     const unitShaped = AWAITING_CORPUS_DIVERGENCES.filter((d) => d.cause === "C_unit_not_offered");
     expect(unitShaped.map((d) => d.id).sort()).toEqual([

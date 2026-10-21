@@ -645,7 +645,8 @@ export function itemListCasesForCategory(
 //   E  item-list (ADP-4a, owner 2026-10-21 "list the 7, fix later"): BOTH refuse with the same sentence except the
 //      quoted outer size -- the panel quotes the BoQ's words ('450 mm x 450 mm'), the calculator its width box
 //      ('450'). Present since ADP-3b's face boxes (v49); the frozen snapshot config hid it until the fixture moved
-//      to v50. Awaiting a fix (ADP-4b); no price moves.
+//      to v50. FIXED in ADP-4b (owner AC7, "Both quote the read sides"): both now say "outer size 450 x 450"; no row
+//      carries it any more, and the classifier stays so a return would be named.
 export type DivergenceCause =
   | "A_wiring_primary"
   | "B_stale_pick"

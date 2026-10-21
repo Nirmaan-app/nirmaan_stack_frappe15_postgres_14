@@ -47,7 +47,8 @@ const list = (xs: readonly string[], _max = 6): string => xs.join(", ");
 const quoteList = (xs: readonly string[], max = 6): string => list(xs.map((x) => `'${x}'`), max);
 
 /** ADP-4a (owner D4 / AC2): "10^6" in plain words wherever a rule is quoted on a category under the plain wording. */
-const plainNumbers = (s: string): string => s.replace(/\/ 10\^6 sq\.m/g, "/ 1,000,000 (sq.mm to sq.m)").replace(/10\^6/g, "1,000,000");
+// ADP-4b (owner AC6): and the box's surface formula in the one wording the working uses (`plainBoxSurface`)
+const plainNumbers = (s: string): string => plainBoxSurface(s.replace(/\/ 10\^6 sq\.m/g, "/ 1,000,000 (sq.mm to sq.m)").replace(/10\^6/g, "1,000,000"));
 
 /**
  * ADP-4a (owner D1, 2026-10-21 14:41: "many do have a reason in your rulings ... 'Reason not recorded' goes only where
@@ -62,7 +63,8 @@ const R = {
   bSqm: "per sq.m the slots do not matter and the damper does, and only the with-damper SKU is stocked, so without refuses (owner, 2026-10-19)",
   bSlots: "a 1- or 4-slot diffuser refuses (owner, 2026-10-19)",
   bLength: "a piece length not stated uses a default of 1 m, disclosed (owner, 2026-10-19)",
-  c: "a low-pressure plenum or mixing box is 2 x (LB + BH + LH) / 1,000,000 x the per-sq.m rate + 150, the 150 on supply only and before the markup (owner, 2026-10-19)",
+  // ADP-4b (owner AC6): the formula in the one wording the line and the working use, (L x W + W x H + L x H)
+  c: "a low-pressure plenum or mixing box is 2 x (L x W + W x H + L x H) / 1,000,000 x the per-sq.m rate + 150, the 150 on supply only and before the markup (owner, 2026-10-19)",
   cAdder: "the 150 is added on supply only, before the markup (owner, 2026-10-19)",
   dArea: "with an area read, the per-sq.m SKU's rate is used as it stands (owner, 2026-10-19)",
   dRefuse: "with neither an area nor a length, width and height, the row refuses (owner, 2026-10-19)",
@@ -78,6 +80,9 @@ const R = {
   k: "a two-part size on a Width + Height item is the face, whatever its parts are called (owner, 2026-10-21)",
   l: "a piece length is the longest side of 'a x b (x c)', and a lone number of 300 mm or more is the length, below it a slot width (owner, 2026-10-19)",
   m: "a derived catalogue cell is a live link to its base row: editing the base row moves it (owner ruling on row links)",
+  // ADP-4b (owner AC6, 2026-10-21): two lines that said "reason not recorded" have a ruling
+  n: "when priced in numbers, the SKU is matched on its slots and damper (owner, 2026-10-19)",
+  oBox: "either the area is read, or the length, width and height, and the formula is applied; with neither the row refuses (owner, 2026-10-19)",
 } as const;
 const each = (parts: Array<[string, string]>): string => parts.map(([what, why]) => `${what} -- ${why}`).join("; ");
 export const DERIVATION_RULINGS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
@@ -92,7 +97,8 @@ export const DERIVATION_RULINGS: Readonly<Record<string, Readonly<Record<string,
     piece_length: R.l,
     area_band: R.dBand,
     conv_band: R.dBand,
-    sizes: each([["the face", `${R.jThree}; ${R.k}`], ["the box sides", NOT_RECORDED]]),
+    slot_missing: R.n,
+    sizes: each([["the face", `${R.jThree}; ${R.k}`], ["the box sides", R.oBox]]),
     defaults: each([["damper", R.e], ["piece length", R.bLength], ["insulated, UL listed, variant", NOT_RECORDED]]),
     air_both: R.eBoth,
     slot_sqm: R.bSqm,
@@ -111,7 +117,7 @@ export const DERIVATION_RULINGS: Readonly<Record<string, Readonly<Record<string,
  * 12d-4c caller and pin stands; do not copy either back here.
  */
 import { plainSentence, pricingInputLabel } from "./plainEnglish";
-import { GI_FRAMEWORK_CLADDING, PIECE_LENGTH_MIN_MM, familyDisplayName, itemListPricingSpec, plainItemListWording, stockedUnitsWords, waysLabel } from "../../boq-wizard/rate-helper/itemListPricing";
+import { GI_FRAMEWORK_CLADDING, PIECE_LENGTH_MIN_MM, familyDisplayName, itemListPricingSpec, plainBoxSurface, plainItemListWording, stockedUnitsWords, waysLabel } from "../../boq-wizard/rate-helper/itemListPricing";
 export { plainSentence };
 
 /**
@@ -180,6 +186,11 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     return /^[A-Z][a-z]/.test(bare) ? bare.charAt(0).toLowerCase() + bare.slice(1) : bare;
   };
   const famWord = famWordRaw;
+  /** ADP-4b (owner AC5, 2026-10-21: "same rule everywhere"): a unit the family is not offered in (`units_not_offered`)
+   *  counts as neither priced nor stocked -- its conversions into that unit are not listed as a way to price it, exactly
+   *  as `priceOneItem` no longer runs them. */
+  const convertsOf = (fv: any): Array<[string, any]> =>
+    Object.entries<any>(fv?.convert ?? {}).filter(([cls]) => !((fv?.units_not_offered ?? []) as string[]).includes(cls));
   /**
    * ADP-4a (owner D2 "16 + 35", D3 "35 + 38"; wording from ADP-R4 R10): THE ONE SIZE LINE on the plain wording. The
    * face (Width + Height) and the box (Length x Width x Height) are typed in their own boxes or read from the size as
@@ -331,7 +342,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   // ADP-1 (owner H3 / H4, 2026-10-19; U6): ADDED -- a conversion that shows its numbers, a refusal that names the missing
   // facts, a number the catalogue does not stock. Each keyed on its own config key; the lines above keep their words.
   for (const [f, fv] of Object.entries<any>(pr.families ?? {})) {
-    for (const [cls, opts] of Object.entries<any>(fv?.convert ?? {})) {
+    for (const [cls, opts] of convertsOf(fv)) {
       // ADP-2 (owner H7; U6): several conversions that each name what is missing are ONE either-or rule -- the
       // single-fact option says which fact it takes, and one refusal line offers every way (the lines above keep their words)
       const optList = (Array.isArray(opts) ? opts : []) as any[];
@@ -375,7 +386,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   if (plain) {
     const byRule = new Map<string, { from: string; to: string; fams: string[]; needs: string[] }>();
     for (const [f, fv] of Object.entries<any>(pr.families ?? {})) {
-      for (const [cls, opts] of Object.entries<any>(fv?.convert ?? {})) {
+      for (const [cls, opts] of convertsOf(fv)) {
         for (const o of (Array.isArray(opts) ? opts : []) as any[]) {
           if (o?.show_numbers || o?.name_missing || typeof o?.rule !== "string") continue;
           const k = `${cls}|${o.to}|${o.rule}`;
@@ -824,7 +835,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     const spec = itemListPricingSpec(config as any);
     const blocked: string[] = [];
     for (const f of Object.keys(pr.families ?? {})) {
-      const missingUnits = classes.filter((c) => !(pr.families[f]?.units ?? {})[c] && !((pr.families[f]?.convert ?? {})[c] ?? []).length);
+      const missingUnits = classes.filter((c) => !(pr.families[f]?.units ?? {})[c] && !convertsOf(pr.families[f]).some(([k, o]) => k === c && (o ?? []).length));
       if (missingUnits.length && spec) blocked.push(`${famWord(f)} (stocked ${stockedUnitsWords(spec, f)})`);
     }
     add("A kind not stocked in the row's unit refuses, naming the units it is stocked in",
@@ -845,7 +856,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     const spec = itemListPricingSpec(config as any);
     const byWays = new Map<string, { cls: string; fams: string[] }>();
     for (const [f, fv] of Object.entries<any>(pr.families ?? {})) {
-      for (const [cls, opts] of Object.entries<any>(fv?.convert ?? {})) {
+      for (const [cls, opts] of convertsOf(fv)) {
         const optList = (Array.isArray(opts) ? opts : []) as any[];
         if (!spec || optList.length < 2 || optList.every((o) => o?.name_missing) || (fv?.units ?? {})[cls]) continue;
         const ways = waysLabel(spec, optList.map((o) => (o.needs ?? []) as string[]));

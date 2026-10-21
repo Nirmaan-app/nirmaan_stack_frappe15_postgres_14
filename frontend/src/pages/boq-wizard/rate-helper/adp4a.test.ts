@@ -90,7 +90,8 @@ describe("AC1 -- ADP's Derivation tab: each rule once, in plain English, with it
       expect({ n: l.n, dated: l.reason === "reason not recorded" || /\(owner, (20\d\d-\d\d-\d\d|standing ADP ruling)\)|\(owner ruling on row links\)|reason not recorded/.test(l.reason!) }).toEqual({ n: l.n, dated: true });
     }
     // 20 of 38 lines carry a ruling (the D1 mapping table in the ADP-4a report); 18 say so where none exists
-    expect(lines.filter((l) => l.reason === "reason not recorded").length).toBe(18);
+    // INVERTED at ADP-4b (owner AC6: line 6 now carries its 2026-10-19 ruling) by mechanical authority: BEFORE toBe(18)
+    expect(lines.filter((l) => l.reason === "reason not recorded").length).toBe(17);
     expect(byTitle("A per-number slot diffuser is priced from the per-metre rate")!.reason).toMatch(/\(owner, 2026-10-19\)$/);
   });
   it("POSITIVE: every reason is one the rulings table holds, keyed by the catalogue's item kind -- never written from the code", () => {
@@ -185,7 +186,9 @@ describe("AC2 -- no internal text on ADP's panel or calculator", () => {
     const s = panel(ADP, "nos", [{ family: "mixing box / LP plenum", size_mm: "900x200x350mm Ht." }]);
     expect(s.values).toEqual({ supply_rate: 2233, install_rate: 0, combined_rate: 2233 });
     const w = block(s).working;
-    expect(w[0]).toBe("per-number mixing box / LP plenum: per-sq.m cost x 2 x (L x B + B x H + L x H) / 1,000,000 (sq.mm to sq.m), + the mixing-box supply adder on supply only, rounded up, then the markup");
+    // INVERTED at ADP-4b (owner AC6: the fields are Length / Width / Height) by mechanical authority: BEFORE
+    // "... 2 x (L x B + B x H + L x H) / 1,000,000 ..."
+    expect(w[0]).toBe("per-number mixing box / LP plenum: per-sq.m cost x 2 x (L x W + W x H + L x H) / 1,000,000 (sq.mm to sq.m), + the mixing-box supply adder on supply only, rounded up, then the markup");
     expect(w).toContain("supply: pricing input: Mixing box supply adder = 150");
     expect(w).toContain("supply: 1230 x 2 x (900 x 200 + 200 x 350 + 900 x 350) / 1,000,000 + 150 = 1539.9, rounded up to the rupee: 1540");
     expect(JSON.stringify(w)).not.toMatch(/\bH\d\b|\(S7|10\^6|\(amount\)|ROUNDUP/);

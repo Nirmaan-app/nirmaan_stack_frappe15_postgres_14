@@ -6042,14 +6042,26 @@ describe("SLICE 12c-S -- units, Other... state and per-field lines", () => {
     expect(view({ category: "hvac_adp", family: "VCD" }).v.unitChoices).toEqual(["nos", "sqm", "sqft"]);
   });
 
-  it("S10: a BoQ row that ARRIVES in a hidden unit still prices -- the picker is not the pricing", () => {
+  /**
+   * ADP-4b (owner FIXB-1, 2026-10-21, INVERTING for the double-skin plenum ONLY): its per-number row now refuses on the
+   * panel, naming the unit it is stocked in. S10 stays for every other family (itemListPricing.test.ts "S10 kept").
+   * BEFORE:
+   *   it("S10: a BoQ row that ARRIVES in a hidden unit still prices -- the picker is not the pricing", ...
+   *   expect(block.state).toBe("priced");
+   *   expect(block.figures).toEqual({ supply_rate: 1723, install_rate: 231, combined_rate: 1954 });
+   */
+  it("S10 (ADP-4b, inverted for the double-skin plenum): a per-number row refuses naming 'stocked per sq.m'", () => {
     const { v, block } = view({
       category: "hvac_adp", fixedUnit: "Nos", family: "double-skin plenum",
       attrs: { insulation_thickness_mm: "25", size_mm: "600 x 600 x 300" },
     });
     expect(v.unitPickable).toBe(false);
-    expect(block.state).toBe("priced");
-    expect(block.figures).toEqual({ supply_rate: 1723, install_rate: 231, combined_rate: 1954 });
+    expect(block.state).toBe("blank");
+    expect(block.reason).toBe("double-skin plenum is not stocked per number (stocked per sq.m) - price this row by hand");
+    // NEGATIVE: the same item per sq.m still prices, figures unchanged (4785 / 640)
+    const sq = view({ category: "hvac_adp", fixedUnit: "SQM", family: "double-skin plenum", attrs: { insulation_thickness_mm: "25" } });
+    expect(sq.block.state).toBe("priced");
+    expect([sq.block.figures?.supply_rate, sq.block.figures?.install_rate]).toEqual([4785, 640]);
   });
 
   it("S2: a stored unit pick the chosen family cannot be priced in is not honoured", () => {

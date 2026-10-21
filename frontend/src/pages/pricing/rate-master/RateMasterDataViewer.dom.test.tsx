@@ -342,6 +342,96 @@ describe("RateMasterDataViewer -- every cell sits under its correct header", () 
   });
 });
 
+// ─── ADP-4b (owner D7 / AC3, 2026-10-21): the ADP viewer shows exactly what downloads ──────────────────────────────
+//
+// "A toggle, off by default, so the screen equals the file, plus drop the empty Depth column. Same column order both
+// sides." The file's 13 columns are the backend's own pin (`test_spec_reader.py` HVAC_FILE_COLUMNS; the real export
+// measured at ADP-4b PA3). Rendered with ALL the ADP items, so an all-empty column is really all-empty.
+describe("RateMasterDataViewer -- ADP: the default grid is the download's columns; 'Show spec details' adds the rest (ADP-4b)", () => {
+  const FILE = ["item_uid", "discipline", "category", "brand", "unit", "item_name", "item_detail",
+    "cost_install", "cost_supply", "install_markup", "supply_markup", "supply_formula", "install_formula"];
+
+  function adpSubject() {
+    const asset = readAsset(latestAsset("rate_master_hvac_all_v"));
+    const config = asset.category_configs.find((c) => c.category_id === "hvac_adp")!;
+    return { asset, config, items: toItems(asset, categoryItemKinds(config), 10_000) };
+  }
+  const fileIdsShown = (host: HTMLElement) =>
+    Array.from(host.querySelectorAll("thead tr th")).map((th) => th.querySelector('[data-testid="file-column-id"]')?.textContent ?? null);
+  const toggle = (host: HTMLElement) => {
+    const box = host.querySelector('[data-testid="spec-details-toggle"]') as HTMLInputElement;
+    act(() => { box.click(); });
+  };
+
+  it("POSITIVE: default -- every header is a file column, in the file's order, its id beneath a plain label", () => {
+    const { config, items } = adpSubject();
+    const { host, cleanup } = render(items, config, "HVAC", { categoryLabel: "ADP (Air Distribution Products)" });
+    try {
+      expect(fileIdsShown(host)).toEqual(FILE);
+      const heads = headerTexts(host);
+      expect(heads[0]).toBe("Item IDitem_uid");
+      expect(heads[7]).toBe("Install costcost_install");
+      // NEGATIVE: no spec verdict, no "read from spec" column, no source sheet / row, no Depth
+      for (const h of heads) for (const bad of ["read from spec", "source sheet", "Depth"]) expect({ h, bad, hit: h.includes(bad) }).toEqual({ h, bad, hit: false });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("POSITIVE: the identity cells -- the item id as the file writes it; discipline; the category by its display name (owner N-7)", () => {
+    const { config, items } = adpSubject();
+    const { host, cleanup } = render(items, config, "HVAC", { categoryLabel: "ADP (Air Distribution Products)" });
+    try {
+      const ordered = sourceOrder(items);
+      const rows = itemRowCells(host);
+      expect(rows.length).toBe(ordered.length);
+      ordered.forEach((it, r) => {
+        expect([rows[r][0], rows[r][1], rows[r][2], rows[r][3], rows[r][4]])
+          .toEqual([it.item_uid, "HVAC", "ADP (Air Distribution Products)", String(it.brand ?? ""), String(it.unit ?? "")]);
+        expect([rows[r][5], rows[r][6]]).toEqual([String(it.attributes.item_name ?? ""), String(it.attributes.item_detail ?? "")]);
+      });
+      // derived cells read the file's word: the 12 silencer cells (no stored cost) say "derived" alone, as the file does
+      const derivedAlone = rows.flat().filter((c) => c.trim() === DERIVED_COPY.cellTag);
+      expect(derivedAlone.length).toBe(12);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("POSITIVE + NEGATIVE: the toggle adds spec, the filled 'read from spec' columns, source sheet and row -- and takes them away", () => {
+    const { config, items } = adpSubject();
+    const { host, cleanup } = render(items, config, "HVAC", { categoryLabel: "ADP (Air Distribution Products)" });
+    try {
+      const before = headerTexts(host);
+      toggle(host);
+      const on = headerTexts(host);
+      expect(on.length).toBeGreaterThan(before.length);
+      expect(on.some((h) => h.includes("source sheet"))).toBe(true);
+      expect(on.filter((h) => h.includes("read from spec")).length).toBeGreaterThan(5);
+      // the empty Depth column stays off even with the details on: no ADP item fills it
+      expect(items.every((it) => it.attributes.depth_mm === undefined || it.attributes.depth_mm === null || it.attributes.depth_mm === "")).toBe(true);
+      expect(on.some((h) => h.startsWith("Depth"))).toBe(false);
+      // the file columns keep their order inside the wider grid
+      expect(fileIdsShown(host).filter((x) => x !== null)).toEqual(FILE);
+      toggle(host);
+      expect(headerTexts(host)).toEqual(before);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("NEGATIVE: Insulation (not spec-driven) has no toggle and no id beneath its headers -- unchanged", () => {
+    const s = SUBJECTS.find((x) => x.categoryId === "hvac_insulation")!;
+    const { host, cleanup } = render(s.items, s.config, s.discipline);
+    try {
+      expect(host.querySelector('[data-testid="spec-details-toggle"]')).toBeNull();
+      expect(host.querySelectorAll('[data-testid="file-column-id"]').length).toBe(0);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 // ─── SLICE 12d-2F (owner F1, 2026-10-07): the greyed cell shows the LIVE figure; `rates` holds the STORED one ──
 //
 // The FG + GI framework double count: `get_rate_master_items` used to write the live cladding figure INTO
