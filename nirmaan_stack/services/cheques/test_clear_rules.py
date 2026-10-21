@@ -109,6 +109,14 @@ class TestClear(unittest.TestCase):
         # A Paid one is left as it is, so its hold stops nothing.
         self.assertIsNone(self.problem(payments=[("PAY-1", "Paid", True)], old_type=True))
 
+    def test_a_rejected_payment_on_an_approval_pending_cheque_is_refused(self):
+        # Owner, 2026-10-22: accepted although unreachable (a rejection cancels a new cheque): only a
+        # Cancelled cheque's Rejected payments are revived.
+        self.assertEqual(
+            self.problem("Approval Pending", [("PAY-1", "Requested"), ("PAY-2", "Rejected")]),
+            "payment PAY-2 was Rejected while its cheque stayed Approval Pending",
+        )
+
     def test_an_old_type_cheque_s_expense_is_settled_only_once_it_waits_for_the_bank(self):
         for status in (RP, "Paid"):
             self.assertIsNone(self.problem(old_type=True, expenses=[("NPE-1", status)]), status)
