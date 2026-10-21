@@ -231,6 +231,9 @@ __all__ = [
 	"deposited_challan",
 	"challan_label",
 	"refuse_if_deposited",
+	"TDS_PAID_BY_COMPANY",
+	"refuse_raise_after_cut",
+	"mark_tds_paid_by_company",
 	"give_back_tax_on_reject",
 	"write_deduction",
 	"record_deduction",
@@ -481,12 +484,20 @@ def work_order_tds_borne(work_order: str) -> dict:
 	THE WRITER'S OWN SOURCE, `borne_tds_by_order`, so the hover cannot disagree with the stored
 	Amount Paid it splits.
 
-	⚠️ `Paid` ONLY, LIKE `amount_paid` AND `total_tds`. With none paid yet, the category rule
-	(`is_company_borne`) says who would bear the next one. No permission check: the endpoint checks
-	read on the Work Order.
+	⚠️ `Paid` ONLY, LIKE `amount_paid` AND `total_tds`. With none paid yet, `kind` reads the deductions
+	recorded on its other payments (#1537): a record says who bore the tax, whatever the Work Order's
+	categories are now (*TDS paid by company* may have marked it). Only with no deduction at all does the
+	category rule (`is_company_borne`) say who would bear the next one. No permission check: the
+	endpoint checks read on the Work Order.
 	"""
 	withheld, company = borne_tds_by_order(SERVICE_REQUEST_DOCTYPE, [work_order]).get(work_order, BorneTds())
 	kind = borne_kind(withheld, company)
+	if kind is None:
+		recorded = order_deductions(SERVICE_REQUEST_DOCTYPE, work_order).values()
+		kind = borne_kind(
+			sum(d["tds_amount"] for d in recorded if d["borne_by"] != BORNE_BY_COMPANY),
+			sum(d["tds_amount"] for d in recorded if d["borne_by"] == BORNE_BY_COMPANY),
+		)
 	if kind is None:
 		kind = (
 			BORNE_KIND_COMPANY
@@ -590,6 +601,72 @@ def refuse_if_deposited(payment_name: str | None, refused: str) -> None:
 		)
 
 
+#: The Admin action that marks a payment's tax as the company's (`mark_tds_paid_by_company`, #1537). The
+#: raise refusal names it, so the two read the same.
+TDS_PAID_BY_COMPANY = "TDS paid by company"
+
+
+def refuse_raise_after_cut(doc, before) -> None:
+	"""A payment whose tax was cut from it (`borne_by` Vendor) can't be raised (#1537, story 45).
+
+	Once cut, the stored amount is the net, so a raised figure is read as a new net and the tax is
+	grossed up on it again (`restate_deduction_on_amount_change`): Rs 9,800 raised back to Rs 10,000
+	reads as 10,204 gross, 204 withheld, and the vendor looks overpaid by the tax. When the vendor was in
+	fact paid the full bill, the company bore the tax: that is `TDS paid by company`, which moves no
+	figure. Lowering stays allowed and restates the tax. A payment kept whole (`borne_by` Company) was
+	never cut, so its raise is a new full bill and is taxed on top as before.
+
+	The caller skips the saves that move the amount without a person editing it (the restate's flags).
+	"""
+	if not before or flt(doc.get("amount"), 2) <= flt(before.get("amount"), 2) or is_gst_payment(doc):
+		return
+	row = frappe.db.get_value(TDS_DOCTYPE, {"project_payment": doc.name}, ["tds_amount", "borne_by"], as_dict=True)
+	if not row or row.borne_by == BORNE_BY_COMPANY:
+		return
+	frappe.throw(
+		f"{doc.name} can't be raised from ₹{flt(before.amount, 2):,.2f} to ₹{flt(doc.amount, 2):,.2f}: its TDS "
+		f"of ₹{flt(row.tds_amount, 2):,.2f} was already cut from it, and a higher amount would be read as a "
+		f"new net with the tax added again. If the vendor was paid the full amount and the company bears "
+		f"the tax, ask an Admin to use \"{TDS_PAID_BY_COMPANY}\" on this payment instead.",
+		title="TDS already cut",
+	)
+
+
+def mark_tds_paid_by_company(payment_name: str) -> str:
+	"""Mark a Work Order payment's tax as paid by the company on top (#1537, story 46). Changes no
+	figure: the payment keeps what the vendor got, the deduction its gross and tax. Only `borne_by` moves,
+	Vendor to Company, so the tax leaves the order's Amount Paid (ADR-0034 Amendment A) and stays in its
+	`total_tds` and its project's outflow. The Rs 204 case: Rs 10,000 paid, Rs 204 "withheld", Amount Paid
+	10,204 and Due -204 -> Amount Paid 10,000, Due 0.
+
+	Allowed before the payment is Paid, and after while its tax is not in a challan (`refuse_if_deposited`:
+	deposited tax never changes). A deduction saved through the doc layer, so its `on_update` recounts the
+	order through the one writer and re-checks CEO Hold when the payment is Paid, and its Version
+	(`track_changes`) records who and when. Commits nothing. The caller checks the role (Admin).
+
+	Returns the deduction's name.
+	"""
+	payment = frappe.db.get_value(PAYMENT_DOCTYPE, payment_name, ["name", "document_type"], as_dict=True)
+	if not payment:
+		frappe.throw(f"Payment {payment_name} not found.")
+	if (payment.document_type or "").strip() not in DEDUCTIBLE_PARENTS:
+		frappe.throw(f"{payment_name}: {TDS_PAID_BY_COMPANY} is for Work Order payments only.")
+	name = existing_deduction(payment_name)
+	if not name:
+		frappe.throw(f"{payment_name} carries no TDS.")
+	refuse_if_deposited(payment_name, f"can't be marked {TDS_PAID_BY_COMPANY}")
+
+	row = frappe.get_doc(TDS_DOCTYPE, name)
+	if row.borne_by == BORNE_BY_COMPANY:
+		frappe.throw(f"{payment_name}: its TDS is already paid by the company.")
+	row.borne_by = BORNE_BY_COMPANY
+	row.flags.tds_paid_by_company = True
+	# `ignore_version=False`: the Version IS the record of who and when, so it is written even where
+	# Frappe skips versions by default (a test run).
+	row.save(ignore_permissions=True, ignore_version=False)
+	return name
+
+
 def give_back_tax_on_reject(doc) -> str | None:
 	"""A rejected payment holds no tax (#1535): delete its deduction and put its amount back to the full
 	bill (`gross_amount`). Returns the deduction removed, or None when it carried none.
@@ -677,6 +754,9 @@ def restate_deduction_on_amount_change(doc) -> str | None:
 	reduced: there the edited figure IS the gross, and `tds = amount * rate/100`. Read off the row,
 	never the Work Order's categories, which may have changed since (#1451); `borne_by` itself is
 	never restated.
+
+	⚠️ ON A `Vendor` ROW ONLY A LOWERING GETS HERE (#1537): a raise is refused in the payment's
+	`validate` (`refuse_raise_after_cut`), because a raised net grossed the tax up again.
 
 	⚠️ AT THE DEDUCTION'S OWN SNAPSHOTTED RATE, NEVER THE VENDOR'S CURRENT ONE. 561 of 629 rows
 	already carry a rate that differs from their vendor's today, so re-reading the master would
