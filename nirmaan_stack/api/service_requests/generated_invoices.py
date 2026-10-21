@@ -26,6 +26,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, cstr, flt, getdate, today
 
+from nirmaan_stack.api.sr_remarks import assert_can_read_work_order
 from nirmaan_stack.services import wo_generated_invoices as gi
 from nirmaan_stack.services.outflow_import.amounts import rupees
 from nirmaan_stack.services.role_profiles import assert_generate_wo_invoice_access, can_generate_wo_invoice
@@ -168,10 +169,8 @@ def _new_record(fields):
 
 
 def _readable(work_order):
-	sr = frappe.get_doc(SR, work_order)
-	if not frappe.has_permission(SR, "read", doc=sr, user=frappe.session.user):
-		raise frappe.PermissionError(_("You can't see Work Order {0}.").format(work_order))
-	return sr
+	assert_can_read_work_order(work_order)
+	return frappe.get_doc(SR, work_order)
 
 
 def _work_order_problem(sr) -> str | None:
