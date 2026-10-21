@@ -48589,3 +48589,73 @@ Start tip `dcb824d5b` (= origin). No asset: live HVAC v49 (`793a2b39344242ad` / 
 3. **ADP-3b's Derivation line 35 still says a part labelled as a length or depth is "named and not used"**; on a Width +
    Height item line 38 now governs a two-part size (U2 is the only line this slice adds).
 4. **`writeOffControl.test.ts`** still times out at 5 s (standing; owner 2026-10-21: the listed known governs).
+
+## Slice ADP-4a - the ADP wording clean-up: Derivation reasons and merges, plain panel text, each default once, "Other..." on five fields, HVAC v50 - as built 2026-10-21
+
+**Owner rulings built (quoted from the ADP-R4 decision table, 2026-10-21 14:41, "ok with the rest"):** D1 reasons on every
+Derivation line ("'Reason not recorded' goes only where none exists"); D2 / D3 one line per rule (merges 17+19, 23-27,
+5+32, 13+24, 16+35, 35+38); D4 no H-codes; D5 "Show each default once, on the field (where it can be changed), not again in
+the working"; D6 "Add 'Other...' to diameter, torque, panel ratio, thickness and slot count" - "Same as the neck size you
+approved"; D10 the ten family cases + a family guard; D11 the harness source pin. Scope rulings the same day: labels
+display-side only ("Plenum thickness (mm)"); AC1 generic fixes on all three tabs, reasons and merges ADP only, U6 = the 7
+Insulation / Piping lines; AC3 "Insulation everywhere" (its sections in Piping rows too); SCOPE-1 (13 test files, wording
+inversions only); parity "List the 7, fix later"; PY-1 (latest-asset pins, mechanical only).
+
+**Commits (unpushed at the time of writing):**
+- `08fb63a97` feat(rate-helper): code + tests (31 files).
+  - `itemListRuleOrder.ts`: `DERIVATION_RULINGS` (keyed by item kind `hvac_adp_item` and line key) and " -- why: " on every
+    ADP line; the merges; ten generated lines (per-number W x H, area band, per-metre grille, per piece, the v38 mixing box,
+    cross-talk's own formula, '1:N', the gauge refusal, square feet, m / cm); full lists, "amber", line 30's units.
+  - `plainEnglish.ts`: H-codes and tag brackets stripped. `itemListPricing.ts`: `plainItemListWording`, `plainWorking`,
+    `FAMILY_DISPLAY`, `shownLabel` (labels without "(as written)"; a multi-source reader named by the reader), no "None" offered
+    on the air stream. `pricingSheetHelper.ts`: `withoutRestatements` (AC3), the family display labels, "not stated" for a
+    stored None ONLY where no ruled default maps it (U5 = the air stream; UL / damper / insulated keep their display - a
+    replay-found scope correction). `RateHelperPanel.tsx`: the display labels and placeholder.
+  - Parity (`calculatorPanelParity.*`): the fixture's ADP part is v50; the 21 awaiting ADP entries (8 corpus D + 13 sweep)
+    CLOSED and removed; the sweep asserts 0 ADP divergences with its count; a new cause `E_outer_size_quote` lists 7
+    pre-existing rows (BRSR-26-01369#32, 01370#46/47/48/50/51/52: the panel quotes the outer size as written, the calculator
+    its width box; both refuse; since ADP-3b / v49), status awaiting - fix in ADP-4b. 01311#42 closed on v50.
+  - `ruleReachability`: G1a..G10b-neg + G4c / G4d-neg (each new line pos + neg), F1a..F10b-neg (the ten families, on v50,
+    figures pinned) + FG1-neg / FG2-neg (curved / door grille had no negative), the family guard (25 families) + its
+    vacuity proof, merged rules retargeted. New `adp4a.test.ts`, `harnessUnitPin.test.ts`. 22 files' wording pins inverted
+    by mechanical authority, BEFORE kept; no price, figure, SKU or family assertion changed.
+- `b2ad0736f` HVAC v50 (= v49 + the five `panel_controls` "dropdown_or_other" and five `panel_notes`; `build_items_spec`
+  byte-identical on v49 / v50: ADP dcbe3a2e..., Insulation c335f2b8..., Piping 757f2ba4...) + the latest-asset pins in
+  `test_piping_v34.py`, `test_rate_master.py`, `test_extraction_coercion.py`. Loaded: batch `rmbulk-0aaaf84fc3c1`, HVAC
+  items `793a2b39344242ad`, configs `304920f9894e4f52`; Electrical `784d1dbe8024d5f8` / `aa8d0a49ef645120` unchanged.
+- The docs commit that carries this entry.
+
+Start tip `30b6e5b24` (= origin). Report on the Desktop: `2026-10-21_ADP-4a_Report.md` (ledger first), `_Ledger.md`,
+`_Wording.xlsx`, the three full-suite logs.
+
+### 1. The Derivation tab (ADP, v50): 38 lines
+
+20 carry a dated ruling, 18 "reason not recorded". One sizes line (line 19) carries the face, the box, the two-part rule and
+"not used only where it cannot be the face" (old 35 + 38). The fitting line (29) names every stocked value and "Other...".
+Line 30 carries the inputs' current values. Insulation (43) and Piping (25) changed only the 7 U6 lines.
+
+### 2. The replay (17,914 rows, start vs end on live v50)
+
+0 figure moves. Changed 2,989 rows: ADP 1,956 (working reworded 1,809, options 740, "Other..." 155, air None -> "not stated"
+204, a restated working line removed 11), Insulation 195 (restated lines removed only), Piping 838 (inside Insulation sections
+only, 0 outside). Electrical 0. The field table (873 rows) is identical to v49 but for the labels and the five controls.
+
+### 3. Suites, cert
+
+- vitest full (third run): 195 files / 7,409, 1 failed = `writeOffControl` (known). Two load timeouts seen in earlier full
+  runs - the plainEnglish 12d-5 ADP sweep (alone: HEAD 2,188 ms vs slice 2,491 ms medians, +13.8%) and ruleReachability F7
+  (alone: 2,021 vs 2,059 ms) - each passed alone and on the re-run: standing load timeouts.
+- tsc: 3,170 = ADP-3c's (two unused declarations this slice left were removed, TSC-1).
+- Python full: the standing run (8,572) shows the 8 known non-BoQ failures + 46 environmental (their 5 modules pass alone;
+  test_submit's cause is TEST WP residue colliding with its random suffix).
+- Cert at :8080 after the full de-stale: C1-C9 PASS (r49 1972 / 576 / 2548 on panel and calculator; the diameter-450 refusal
+  the same on both; air None reads "not stated"; the H4 plenum working clean; Insulation's thickness default once;
+  Electrical and Piping unchanged vs the start replay).
+
+### 4. Findings (open)
+
+1. The 7 cause-E outer-size rows (ADP-4b).
+2. 24 `TEST WP` Procurement Packages rows built up since 2026-10-18 - `tds.test_submit` leaves 2 per run; not deleted.
+3. The cert re-saved the admin `fcm_token` after the mandated site-data clear (Version `fplnan0925`), as at every cert.
+4. The mixing box's rule line writes (L x B + B x H + L x H) and its working (W x H + H x D + W x D) - wording, pre-existing.
+5. The Derivation reasons are keyed by item kind, so an older config (v48) shows the face rulings on its sizes line too.

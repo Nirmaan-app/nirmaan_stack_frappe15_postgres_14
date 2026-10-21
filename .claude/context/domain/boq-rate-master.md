@@ -1466,6 +1466,42 @@ face-matched kinds (cross-talk, access door, square diffuser outer); calculator 
 row unit is NOT priced per number on the page (`row.unit ?? ""` -> "set the unit" on a multi-unit kind); the replay
 harnesses pass null -- an open finding (ADP-3c plan entry), not a rule.
 
+**ADP-4a D1: EVERY ADP DERIVATION LINE ENDS WITH ITS REASON (owner 2026-10-21 14:41; HVAC v50).** Each line's detail ends
+" -- why: <reason>": a ruling the owner gave, quoted as one sentence with its date, from `DERIVATION_RULINGS` in
+`itemListRuleOrder.ts`, keyed by the catalogue's ITEM KIND (`hvac_adp_item`) and the line key -- never written from what the
+code does; a line (or a fact inside a merged line) with no ruling says "reason not recorded". Insulation and Piping carry
+no reasons. A new ADP line must get a key and either a ruling or "reason not recorded".
+
+**ADP-4a D2 / D3: ONE LINE PER RULE ON ADP's TAB (owner 2026-10-21).** Merged: the damper / defaults lines into one (the
+air stream's rule inside it); the five fitting lines and the neck "Other..." line into "Fitting the stated diameter, neck
+size, torque, panel ratio or plenum thickness to the catalogue" (each value's stocked list named); the boxes / face /
+two-part lines into "The sizes are typed in their own boxes, else read from the size as written"; line 5 (unit not
+offered) into the unit-refusal line. Lines for rules the config always ran are generated (the conversions, cross-talk,
+'1:N', gauge, square feet, m / cm), each with a positive and a negative reachability case. Generic fixes on all three
+tabs: full lists (never "and N more"), "amber" derived cells, line 30's units / factor / rounding. Insulation and Piping
+change ONLY those lines (U6: Insulation 23 / 24 / 39 / 40 / 42, Piping 13 / 17).
+
+**ADP-4a AC2: NO INTERNAL TEXT ON ADP's PANEL OR CALCULATOR (plain item wording = a category declaring shared
+`default_pipelines`, i.e. ADP).** The working drops "item supply:" leads, ROUNDUP (folded into its line as "rounded up to
+the rupee"), H-codes / R-tags, "(amount) / (factor) / (rate)", "10^6" (written 1,000,000), "sum components", "SQM row";
+labels drop "(as written)" (a multi-source reader is named by its reader: "Plenum thickness (mm)"); "none of these" /
+"grille, type not stated" show as "Not in the catalogue" / "Grille (type not stated)" -- display only, the value is
+unchanged. The air stream offers no "None"; a stored "None" shows the empty choice worded "not stated" (U5) -- ONLY on a
+field whose None no ruled default maps (the air stream); UL / damper / insulated keep their display.
+
+**ADP-4a AC3: A FACT STATED ON A FIELD IS NOT REPEATED IN THE WORKING (owner D5, 2026-10-21; ADP and Insulation, an
+Insulation block the same wherever it sits).** `withoutRestatements` rebuilds each restating working line EXACTLY from the
+record it was written from (a default, the family's decider, an override, an alias, a reader's line, a ladder hop) and
+drops it ONLY when the field (or heading) stating it is on screen; a fact with no field stays in the working. Scope: a
+category with `defaults` / `number_defaults`; Piping's own working is untouched byte for byte. Reachability pins read the
+field's note for a reader's words (F-2 holds through the note, built from the same pricer result).
+
+**ADP-4a AC4: DIAMETER, TORQUE, PANEL RATIO, PLENUM THICKNESS AND SLOT COUNT ARE "DROPDOWN OR OTHER..." (owner D6; HVAC v50).**
+`panel_controls` + one `panel_notes` entry each -- nothing `build_items_spec` reads (the model's request is byte-identical on
+v49 and v50: ADP dcbe3a2e..., Insulation c335f2b8..., Piping 757f2ba4...). The parity fixture's ADP part is v50: 0 ADP
+sweep divergences (asserted with its count); the corpus keeps the 3 accepted C rows and 7 rows of cause E
+(`E_outer_size_quote`, the quoted outer size, pre-existing since v49) awaiting a fix (owner 2026-10-21 "List the 7, fix later").
+
 **A DEFAULT IS NAMED AS THE DEFAULT, SAID ONCE, BY ITS FIELD'S LABEL (owner G1 / G2 / G3, 2026-10-12 "yes"; slice
 12e-4b).** G1: a number nobody stated (the ruled default) heads its field note "Default 9 mm -> priced as 13 mm
 (the smallest size)" (12e-4d AC3: below the smallest stocked size the field's line and the working both say "(the
