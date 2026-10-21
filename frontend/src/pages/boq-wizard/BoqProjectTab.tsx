@@ -1,23 +1,26 @@
 import { useContext, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FrappeConfig, FrappeContext, useFrappeGetDocList } from "frappe-react-sdk";
-import { FileSpreadsheet, Loader2, Pencil } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { formatDate } from "@/utils/FormatDate";
+  FrappeConfig,
+  FrappeContext,
+  useFrappeGetDocList,
+  useFrappePostCall,
+} from "frappe-react-sdk";
+import { FileSpreadsheet } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/use-toast";
-import { originBadge } from "./boqOriginBadge";
 import { useUserData } from "@/hooks/useUserData";
-import { canOpenBoqHub, canOpenBoqWizard } from "./boqAccess";
+import { getFrappeErrorText } from "@/utils/frappeErrors";
+import {
+  canAddBoqToWonProject,
+  canManageWonProjectBoqs,
+  canOpenBoqHub,
+  canOpenBoqWizard,
+} from "./boqAccess";
+import { BoqListTable, BoqSelectionBar, type BoqListRow } from "./BoqListTable";
+import { BoqSelectionConfirmDialog } from "./BoqSelectionConfirmDialog";
+import { leavesNoSelectedBoq, splitWonProjectBoqs, type BoqSelectionTarget } from "./boqSelection";
 import type { CommittedSheetState, GetCommittedStateResponse } from "./boqTypes";
 
 /**
@@ -38,18 +41,6 @@ export type BoqProjectTabSurface = "won" | "pre-won";
 interface BoqProjectTabProps {
   projectId: string;
   surface: BoqProjectTabSurface;
-}
-
-interface BoqListRow {
-  name: string;
-  boq_name: string;
-  version: number;
-  wizard_state: string;
-  uploaded_at: string;
-  creation: string;
-  // Deliberately widened to a plain string, NOT the "upload" | "template" union in boqTypes.ts:
-  // live data already violates that union (see boqOriginBadge.ts).
-  origin?: string | null;
 }
 
 /**
@@ -77,13 +68,6 @@ const NOTICE_TOAST = {
   },
 };
 
-const WIZARD_STATE_LABELS: Record<string, string> = {
-  "": "Not started",
-  "In progress": "In progress",
-  "Configured": "Configured",
-  "Parsed": "Parsed",
-};
-
 const BoqProjectTab = ({ projectId, surface }: BoqProjectTabProps) => {
   const navigate = useNavigate();
   const { call } = useContext(FrappeContext) as FrappeConfig;
@@ -95,6 +79,19 @@ const BoqProjectTab = ({ projectId, surface }: BoqProjectTabProps) => {
   const rowClickOpensHub = surface === "pre-won" && canOpenBoqHub(role, user_id);
   // Which row is resolving its landing sheet (one at a time).
   const [openingBoq, setOpeningBoq] = useState<string | null>(null);
+  const isWon = surface === "won";
+  // After Won only an Admin adds a BoQ (server: controllers/boqs.assert_can_add_boq).
+  const canUpload = !isWon || canAddBoqToWonProject(role, user_id);
+  // Won page (ADR-0037 D6/D7): only an Admin edits an Other BoQ and moves BoQs between the tables.
+  const canManage = isWon && canManageWonProjectBoqs(role, user_id);
+  // Checked boxes per table -- "checked", never "selected" (that word is the status).
+  const [checkedSelected, setCheckedSelected] = useState<Set<string>>(new Set());
+  const [checkedOther, setCheckedOther] = useState<Set<string>>(new Set());
+  const [pendingTarget, setPendingTarget] = useState<BoqSelectionTarget | null>(null);
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const { call: setBoqSelection, loading: moving } = useFrappePostCall(
+    "nirmaan_stack.api.projects.boq_selection.set_boq_selection"
+  );
 
   // Two destinations off one row (owner ruling):
   //   Edit icon  -> the wizard hub (the editing surface).
@@ -160,10 +157,10 @@ const BoqProjectTab = ({ projectId, surface }: BoqProjectTabProps) => {
     }
   };
 
-  const { data, isLoading, error } = useFrappeGetDocList<BoqListRow>(
+  const { data, isLoading, error, mutate } = useFrappeGetDocList<BoqListRow>(
     "BOQs",
     {
-      fields: ["name", "boq_name", "version", "wizard_state", "uploaded_at", "creation", "origin"],
+      fields: ["name", "boq_name", "version", "wizard_state", "status", "uploaded_at", "creation", "origin"],
       // Project-less template seeds (ADR-0013 A1) are already excluded by the project filter.
       filters: [["project", "=", projectId]],
       orderBy: { field: "uploaded_at", order: "desc" },
@@ -197,119 +194,155 @@ const BoqProjectTab = ({ projectId, surface }: BoqProjectTabProps) => {
     );
   }
 
-  if (!data || data.length === 0) {
+  const allRows = data ?? [];
+  const openHub = (boqName: string) => navigate(`/upload-boq/hub/${boqName}`);
+
+  const uploadButton = canUpload ? (
+    <Button onClick={() => navigate(`/upload-boq?project=${projectId}`)}>
+      <FileSpreadsheet className="mr-2 h-4 w-4" />
+      Upload BoQ
+    </Button>
+  ) : null;
+
+  if (allRows.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
         <FileSpreadsheet className="h-12 w-12 text-muted-foreground opacity-40" />
         <div>
           <p className="text-sm font-medium text-foreground">No BoQs uploaded yet</p>
           <p className="text-xs text-muted-foreground mt-1">
-            Upload an Excel Bill of Quantities to get started.
+            {canUpload
+              ? "Upload an Excel Bill of Quantities to get started."
+              : "Only an Admin can add a BoQ once the project is Won."}
           </p>
         </div>
-        <Button
-          className="mt-2"
-          onClick={() => navigate(`/upload-boq?project=${projectId}`)}
-        >
-          <FileSpreadsheet className="mr-2 h-4 w-4" />
-          Upload BoQ
-        </Button>
+        {uploadButton && <div className="mt-2">{uploadButton}</div>}
       </div>
     );
   }
 
+  // Pre-Won stub: one table, as before. The Selected / Other split is the Won page's only.
+  if (!isWon) {
+    return (
+      <div className="space-y-3">
+        {uploadButton && <div className="flex justify-end">{uploadButton}</div>}
+        <BoqListTable
+          rows={allRows}
+          canEdit={showAction}
+          checkable={false}
+          checked={new Set()}
+          onCheckedChange={() => {}}
+          openingBoq={openingBoq}
+          onOpenView={handleOpenView}
+          onEdit={openHub}
+        />
+      </div>
+    );
+  }
+
+  // Won page (ADR-0037 D5): Selected BoQs, then Other BoQs (only when it has rows). Checks are
+  // read through the current rows, so a BoQ that moved table since it was checked drops out.
+  const { selected, other } = splitWonProjectBoqs(allRows);
+  const checkedSelectedRows = selected.filter((row) => checkedSelected.has(row.name));
+  const checkedOtherRows = other.filter((row) => checkedOther.has(row.name));
+  const pendingRows = pendingTarget === "Draft" ? checkedSelectedRows : checkedOtherRows;
+  const emptiesSelected =
+    pendingTarget !== null &&
+    leavesNoSelectedBoq(pendingTarget, checkedSelectedRows.length, selected.length);
+
+  const closeConfirm = () => {
+    setPendingTarget(null);
+    setMoveError(null);
+  };
+
+  const confirmMove = async () => {
+    if (!pendingTarget || pendingRows.length === 0) return;
+    setMoveError(null);
+    try {
+      await setBoqSelection({
+        project: projectId,
+        boqs: pendingRows.map((row) => row.name),
+        status: pendingTarget,
+      });
+      setCheckedSelected(new Set());
+      setCheckedOther(new Set());
+      setPendingTarget(null);
+      await mutate();
+    } catch (err) {
+      // The server refuses the whole batch by name (e.g. a BoQ someone else already moved), so
+      // the reason stays in the open dialog rather than a toast that would vanish.
+      setMoveError(getFrappeErrorText(err));
+    }
+  };
+
   return (
-    <div className="space-y-3">
-      <div className="flex justify-end">
-        <Button
-          onClick={() => navigate(`/upload-boq?project=${projectId}`)}
-        >
-          <FileSpreadsheet className="mr-2 h-4 w-4" />
-          Upload BoQ
-        </Button>
-      </div>
-      <div className="rounded-md border overflow-x-auto">
-        <Table>
-          <TableHeader className="bg-background">
-            <TableRow>
-              <TableHead>BoQ Name</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Version</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Uploaded</TableHead>
-              {showAction && <TableHead className="text-right">Action</TableHead>}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.map((row) => {
-              const origin = originBadge(row.origin);
-              return (
-              /* The row IS the primary action (open pricing), so it needs its own keyboard
-                 path -- the pencil beside it is a <Button> and therefore focusable, and a design
-                 where only the SECONDARY destination is reachable by keyboard is worse than one
-                 where neither is.
-                 ⚠️ tabIndex + onKeyDown ONLY -- NO role override. A `role="link"`/`"button"` on a
-                 <tr> replaces its implicit `row` role, which detaches the <td>s from the table
-                 structure for assistive tech: it would trade a keyboard gap for a semantics bug.
-                 The row keeps its row role and its cells keep their headers; Enter/Space activate
-                 it, and the focus ring says it is reachable. */
-              <TableRow
-                key={row.name}
-                tabIndex={0}
-                className="cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-                onClick={() => handleOpenView(row.name)}
-                onKeyDown={(e) => {
-                  if (e.key !== "Enter" && e.key !== " ") return;
-                  e.preventDefault(); // Space would scroll the page
-                  handleOpenView(row.name);
-                }}
-              >
-                <TableCell className="py-2 px-3 font-medium">
-                  <span className="inline-flex items-center gap-2">
-                    {row.boq_name || row.name}
-                    {openingBoq === row.name && (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                    )}
-                  </span>
-                </TableCell>
-                <TableCell className="py-2 px-3">
-                  <Badge variant={origin.variant} className="whitespace-nowrap font-medium">
-                    {origin.label}
-                  </Badge>
-                </TableCell>
-                <TableCell className="py-2 px-3 text-sm text-muted-foreground">
-                  v{row.version}
-                </TableCell>
-                <TableCell className="py-2 px-3">
-                  <Badge variant="outline">
-                    {WIZARD_STATE_LABELS[row.wizard_state ?? ""] ?? row.wizard_state}
-                  </Badge>
-                </TableCell>
-                <TableCell className="py-2 px-3 text-sm text-muted-foreground">
-                  {formatDate(row.uploaded_at || row.creation)}
-                </TableCell>
-                {showAction && (
-                  <TableCell className="py-2 px-3 text-right">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      aria-label="Edit BoQ"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/upload-boq/hub/${row.name}`);
-                      }}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                )}
-              </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </div>
+    <div className="space-y-6">
+      {/* Selected BoQs, headed plain "BoQs" (owner 2026-10-21) -- it is the project's main list. */}
+      <section className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-foreground">BoQs</h3>
+          {uploadButton}
+        </div>
+        <BoqListTable
+          rows={selected}
+          canEdit={showAction}
+          checkable={canManage}
+          checked={checkedSelected}
+          onCheckedChange={setCheckedSelected}
+          openingBoq={openingBoq}
+          onOpenView={handleOpenView}
+          onEdit={openHub}
+          emptyMessage={
+            <>
+              No BoQ selected.
+              {canManage && other.length > 0 && " Check BoQs in Other BoQs and choose Mark as Selected."}
+            </>
+          }
+        />
+        {canManage && (
+          <BoqSelectionBar
+            target="Draft"
+            checkedCount={checkedSelectedRows.length}
+            onAction={() => setPendingTarget("Draft")}
+            onClear={() => setCheckedSelected(new Set())}
+          />
+        )}
+      </section>
+
+      {other.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="text-sm font-semibold text-foreground">Other BoQs ({other.length})</h3>
+          <BoqListTable
+            rows={other}
+            canEdit={canManage}
+            checkable={canManage}
+            checked={checkedOther}
+            onCheckedChange={setCheckedOther}
+            openingBoq={openingBoq}
+            onOpenView={handleOpenView}
+            onEdit={openHub}
+            tinted
+          />
+          {canManage && (
+            <BoqSelectionBar
+              target="Selected"
+              checkedCount={checkedOtherRows.length}
+              onAction={() => setPendingTarget("Selected")}
+              onClear={() => setCheckedOther(new Set())}
+            />
+          )}
+        </section>
+      )}
+
+      <BoqSelectionConfirmDialog
+        target={pendingTarget}
+        boqs={pendingRows}
+        emptiesSelected={emptiesSelected}
+        saving={moving}
+        error={moveError}
+        onConfirm={() => void confirmMove()}
+        onClose={closeConfirm}
+      />
     </div>
   );
 };

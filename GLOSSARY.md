@@ -4,13 +4,19 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 ## Project lifecycle & tendering
 
-- **Status (lifecycle)** — The single field describing a Project's stage. Values: *Tendering*, *Won*, *WIP*, *Completed*, *Halted*, *Handover*, *CEO Hold*. A project holds exactly one Status at a time. *Won* replaces the former *Created* as the initial stage of a real/awarded project; *Created* is retired.
+- **Tendering status** — A Project's bid outcome: *Tendering* (still being bid for), *Won* (awarded) or *Lost*. It is one of a project's two status fields; the other is its execution **Status**. A project entered directly as a real job starts at *Won*. *Won* is permanent and never changes back, whatever happens to the project's execution afterwards. *Lost* is reached only from *Tendering*. (ADR-0001 v3.)
 
-- **Tendering (project)** — A project at Status *Tendering*: a stub entered while the job is still being bid for. It carries only minimal information (Project Name, City, State, optional Customer); it has no Address, work packages, team, or timeline, and is excluded from all operational work (procurement, payment, invoices, design, etc.). It is not selectable in any operational project picker.
+- **Status (execution)** — The execution stage of a Won project: *Won*, *WIP*, *Completed*, *Halted*, *Handover*, *CEO Hold*. It is blank while the project is Tendering or Lost. *Won* replaces the former *Created* as the first stage; *Created* is retired. *Avoid*: "Status" for the bid outcome, which is the **Tendering status**.
 
-- **Won (project)** — A project at Status *Won*: the initial stage of a real/awarded job, carrying the full set of project information. It is reached either by entering a real project directly or by converting a Tendering project. *Won* is transient — once execution begins the Status advances to *WIP* and beyond, and the project is no longer marked *Won*. Every project that existed before this feature (formerly *Created*) becomes *Won*.
+- **Tendering (project)** — A project whose Tendering status is *Tendering*: a stub entered while the job is still being bid for. It carries only minimal information (Project Name, City, State, optional Customer); it has no Address, work packages, team, or timeline, and is excluded from all operational work (procurement, payment, invoices, design, etc.). It is not selectable in any operational project picker.
 
-- **Convert to Won** — The one-way action that turns a *Tendering* project into a *Won* project by completing all the information a real project requires (Status moves *Tendering* → *Won*). It updates the existing project in place — its identity is preserved — and does not create a new project. There is no reverse action.
+- **Won (project)** — A project whose Tendering status is *Won*: a real/awarded job carrying the full set of project information. It is reached either by entering a real project directly or by converting a Tendering project. Its execution Status starts at *Won* and moves on to *WIP* and beyond, but the project stays Won as a bid throughout. Every project that existed before tendering was introduced (formerly *Created*) is Won.
+
+- **Convert to Won** — The one-way action that turns a *Tendering* project into a *Won* project by completing all the information a real project requires. Its Tendering status moves *Tendering* → *Won*, and its execution Status starts at *Won*. It updates the existing project in place — its identity is preserved — and does not create a new project. There is no reverse action.
+
+- **Selected BoQ** — a BoQ of a Won project that belongs to the job's live scope: one picked at **Convert to Won**, one an Admin added after the project was Won, or one an Admin later marked Selected. Once a project is Won, only its Selected BoQs can be edited by anyone other than an Admin. A BoQ stays Selected however much it is edited; only an Admin moves it back to Draft. More than one BoQ, and more than one version of the same BoQ, can be Selected at once. *Avoid*: approved BoQ, awarded BoQ, active BoQ, current version; and "selected" for a ticked box in a list, which is *checked*. (Owner, 2026-10-21.)
+
+- **Other BoQs** — every BoQ of a Won project that is not a **Selected BoQ**. Everyone can see and open them, but only an Admin can edit them or mark them Selected. *Avoid*: superseded, rejected, archived BoQs. (Owner, 2026-10-21.)
 
 ## Procurement pricing & loss
 

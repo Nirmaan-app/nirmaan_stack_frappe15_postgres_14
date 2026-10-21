@@ -1,5 +1,5 @@
 import { UseFormReturn } from "react-hook-form";
-import { Building2, MapPin, Calendar, Users, Package, ListChecks, ClipboardList, PenTool, AlertCircle } from "lucide-react";
+import { Building2, MapPin, Calendar, Users, Package, ListChecks, ClipboardList, PenTool, AlertCircle, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ButtonLoading } from "@/components/ui/button-loading";
 import {
@@ -11,6 +11,7 @@ import { PackagesReviewGrid } from "@/components/ui/package-review-card";
 import { ProjectFormValues } from "../schema";
 import { ProjectFormData } from "../hooks/useProjectFormData";
 import { SectionKey } from "../constants";
+import { ConvertBoqOption } from "@/pages/projects/data/project-form/useProjectFormQueries";
 import { useGstOptions } from "@/hooks/useGstOptions";
 
 interface ReviewStepProps {
@@ -21,6 +22,8 @@ interface ReviewStepProps {
     onPrevious: () => void;
     onSubmit: () => void;
     onNavigateToSection: (section: SectionKey) => void;
+    /** Convert mode, stub with a BoQ: the picks and how many BoQs stay Draft. */
+    boqAward?: { selected: ConvertBoqOption[]; draftCount: number };
 }
 
 export const ReviewStep: React.FC<ReviewStepProps> = ({
@@ -31,6 +34,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
     onPrevious,
     onSubmit,
     onNavigateToSection,
+    boqAward,
 }) => {
     const { customers } = formData;
     const { gstOptions } = useGstOptions();
@@ -199,6 +203,35 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
                         </div>
                     </div>
                 </ReviewSection>
+
+                {/* BOQ Section (convert mode, stub has a BoQ) */}
+                {boqAward && (
+                    <ReviewSection
+                        title="BOQ"
+                        icon={FileSpreadsheet}
+                        onEdit={() => onNavigateToSection("boqSelection")}
+                        iconColorClass="bg-sky-500/10 text-sky-600 dark:text-sky-400"
+                    >
+                        <ReviewDetail
+                            label="Won on"
+                            value={
+                                boqAward.selected.length > 0
+                                    ? boqAward.selected
+                                          .map((boq) => `${boq.name} · ${boq.boq_name} (v${boq.version})`)
+                                          .join("; ")
+                                    : undefined
+                            }
+                        />
+                        <ReviewDetail
+                            label="On create"
+                            value={
+                                boqAward.draftCount > 0
+                                    ? `${boqAward.selected.length} Selected · ${boqAward.draftCount} other BoQ${boqAward.draftCount === 1 ? "" : "s"} stay${boqAward.draftCount === 1 ? "s" : ""} Draft`
+                                    : `${boqAward.selected.length} Selected`
+                            }
+                        />
+                    </ReviewSection>
+                )}
 
                 {/* Packages Section */}
                 <ReviewSection

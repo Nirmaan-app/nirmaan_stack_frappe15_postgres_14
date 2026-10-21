@@ -49,17 +49,41 @@ class TestConvertTenderingToWon(FrappeTestCase):
 		cls.make = _pick_existing("Makelist")
 
 	def tearDown(self):
-		# Clean up projects created by these tests (stubs + converted Won).
-		for name in frappe.get_all(
-			"Projects", filters={"project_city": CONVERT_TEST_CITY}, pluck="name"
-		):
-			frappe.delete_doc("Projects", name, ignore_permissions=True, force=True)
+		# Clean up projects created by these tests (stubs + converted Won). Roll back first: a
+		# poisoned transaction would make every delete raise. Then each scope in its own try,
+		# committed on its own, so one failure never strands the rest -- and failures are
+		# reported, not swallowed (CODING_STANDARDS, Writing tests).
+		frappe.db.rollback()
+		problems = []
+
+		def scope(label, purge):
+			try:
+				purge()
+				frappe.db.commit()
+			except Exception as exc:  # report every failed scope, keep purging the others
+				frappe.db.rollback()
+				problems.append(f"{label}: {exc}")
+
+		projects = frappe.get_all(
+			"Projects", filters={"project_city": ["like", f"{CONVERT_TEST_CITY}%"]}, pluck="name"
+		)
+		# BoQs first, with a raw delete: delete_doc on BOQs writes a Nirmaan Versions
+		# snapshot that would outlive the test.
+		if projects:
+			scope("BoQs", lambda: frappe.db.delete("BOQs", {"project": ["in", projects]}))
+		for name in projects:
+			scope(f"project {name}", lambda name=name: frappe.delete_doc(
+				"Projects", name, ignore_permissions=True, force=True
+			))
 		# Clean up Address docs created via the conversion (titled by project_name).
 		for name in frappe.get_all(
 			"Address", filters={"address_title": ["like", "ConvTest%"]}, pluck="name"
 		):
-			frappe.delete_doc("Address", name, ignore_permissions=True, force=True)
-		frappe.db.commit()
+			scope(f"address {name}", lambda name=name: frappe.delete_doc(
+				"Address", name, ignore_permissions=True, force=True
+			))
+		if problems:
+			self.fail("test_convert_tendering clean-up failed: " + "; ".join(problems))
 
 	def _create_stub(self, name_suffix):
 		"""Create a real Tendering stub via the public create API; return docname."""
@@ -192,6 +216,60 @@ class TestConvertTenderingToWon(FrappeTestCase):
 			frappe.db.get_value("Projects", stub_name, "status"),
 			"Won",
 		)
+
+	def _add_boq(self, project, boq_name):
+		boq = frappe.new_doc("BOQs")
+		boq.project = project
+		boq.boq_name = boq_name
+		boq.insert(ignore_permissions=True)
+		frappe.db.commit()
+		return boq.name
+
+	def test_convert_selects_the_picked_boqs_and_leaves_the_rest_draft(self):
+		stub_name = self._create_stub("award")
+		elec = self._add_boq(stub_name, "ConvTest Electrical")
+		hvac = self._add_boq(stub_name, "ConvTest HVAC")
+		other = self._add_boq(stub_name, "ConvTest ELV")
+
+		payload = self._full_payload("award")
+		payload["selected_boqs"] = [elec, hvac]
+		res = convert_tendering_to_won(project_id=stub_name, values=payload)
+
+		self.assertEqual(res["status"], 200, msg=res)
+		self.assertEqual(frappe.db.get_value("BOQs", elec, "status"), "Selected")
+		self.assertEqual(frappe.db.get_value("BOQs", hvac, "status"), "Selected")
+		self.assertEqual(frappe.db.get_value("BOQs", other, "status"), "Draft")
+
+	def test_convert_requires_a_boq_when_the_project_has_one(self):
+		"""No selection on a project with a BoQ: rejected, and nothing is converted."""
+		stub_name = self._create_stub("noboq")
+		boq = self._add_boq(stub_name, "ConvTest Electrical")
+
+		res = convert_tendering_to_won(project_id=stub_name, values=self._full_payload("noboq"))
+
+		self.assertEqual(res["status"], 400)
+		self.assertIn("Select at least one BoQ", res["error"])
+		self.assertEqual(frappe.db.get_value("Projects", stub_name, "tendering_status"), "Tendering")
+		self.assertEqual(frappe.db.get_value("BOQs", boq, "status"), "Draft")
+
+	def test_convert_rejects_a_boq_of_another_project_and_rolls_back(self):
+		"""The selection runs after the project save, so a bad pick must undo the whole conversion."""
+		stub_name = self._create_stub("foreign")
+		mine = self._add_boq(stub_name, "ConvTest Electrical")
+		other_stub = self._create_stub("foreign-other")
+		foreign = self._add_boq(other_stub, "ConvTest Electrical")
+
+		payload = self._full_payload("foreign")
+		payload["selected_boqs"] = [mine, foreign]
+		res = convert_tendering_to_won(project_id=stub_name, values=payload)
+
+		self.assertEqual(res["status"], 400)
+		self.assertIn("does not belong", res["error"])
+		stub = frappe.get_doc("Projects", stub_name)
+		self.assertEqual(stub.tendering_status, "Tendering")
+		self.assertFalse(stub.project_address)
+		self.assertEqual(frappe.db.get_value("BOQs", mine, "status"), "Draft")
+		self.assertEqual(frappe.db.get_value("BOQs", foreign, "status"), "Draft")
 
 	def test_convert_rejects_missing_project(self):
 		"""Converting a non-existent project is rejected with a 400."""

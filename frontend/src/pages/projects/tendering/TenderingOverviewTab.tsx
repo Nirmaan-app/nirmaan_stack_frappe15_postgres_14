@@ -77,7 +77,7 @@ const TenderingOverviewTab = ({ data, onRefresh }: TenderingOverviewTabProps) =>
     useMarkTenderingProjectLost();
 
   const handleConvert = () => {
-    // Open the existing 6-step wizard in convert mode against this stub.
+    // Open the project wizard in convert mode against this stub (7 steps: it adds BOQ).
     navigate(`/projects/new-project/convert/${data.name}`);
   };
 
@@ -303,9 +303,10 @@ const TenderingOverviewTab = ({ data, onRefresh }: TenderingOverviewTabProps) =>
                     Convert to Won
                   </Button>
                   <p className="mt-2 text-xs text-muted-foreground">
-                    Awarded the bid? This opens the full 6-step wizard pre-filled
+                    Awarded the bid? This opens the full 7-step wizard pre-filled
                     with this stub and completes the project in place — its ID is
-                    preserved. Conversion is one-way.
+                    preserved. You tick the BoQs it was won on; they become Selected
+                    and the others stay Draft. Conversion is one-way.
                   </p>
                 </div>
                 <div className="sm:text-right">

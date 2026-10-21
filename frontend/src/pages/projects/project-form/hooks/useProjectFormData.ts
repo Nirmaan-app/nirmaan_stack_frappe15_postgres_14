@@ -92,6 +92,7 @@ export const useProjectFormData = () => {
             .filter(cat => Array.isArray(cat.tasks) && cat.tasks.length > 0)
             .map(cat => ({
                 category_name: cat.category_name,
+                work_package: cat.work_package ?? null,
                 tasks: cat.tasks.map(t => ({
                     task_name: t.task_name,
                     deadline_offset: t.deadline_offset

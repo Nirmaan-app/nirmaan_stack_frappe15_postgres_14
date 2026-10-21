@@ -51,6 +51,14 @@ owner-locked invariants. The full as-built detail (component contracts, per-slic
   NOT block — `ParseRunDialog` shows them read-only and only ticks Config-Done sheets.
 - **Tendering is direct-nav:** the footer button navigates straight to `/pricing/{first committed sheet by
   sheet_order}`; the pricing editor's in-editor sheet-tab strip is the sheet picker (no picker dialog).
+- **Won project BoQs tab = two tables (ADR-0037).** `BoqProjectTab` (surface `won`) splits the rows with
+  `boqSelection.splitWonProjectBoqs`: **Selected BoQs** (status `Selected`; headed plain "BoQs"; pencil =
+  `canOpenBoqWizard`) and **Other BoQs** (every other status, shown only when non-empty, headed "Other BoQs (N)",
+  table tinted light yellow via `BoqListTable tinted`; pencil = `canManageWonProjectBoqs`, Admin only). A row click opens the read-only viewer in both. Only an Admin gets the checkbox column and the
+  per-table bar ("Mark as Selected" / "Move to Draft" → `api/projects/boq_selection.set_boq_selection`); a
+  move that empties the Selected table confirms with the warning copy. No BoQ-status badge or column: the
+  Status column stays wizard progress. A ticked box is "checked", never "selected". The pre-Won surface keeps
+  ONE table with no checkboxes.
 - **Commit dialog is one step:** all eligible sheets pre-ticked; a hard error routes to a slim errors-only notice
   (no per-warning "Looks OK" acks, no supersede-ack). Server gate re-check + `{committed, failed}` results modal +
   `BOQ_DOWNSTREAM_ORPHAN` confirm are the safety boundary. See the revised-boq surface.

@@ -3,6 +3,7 @@ from datetime import datetime
 import frappe
 
 from nirmaan_stack.api.projects._project_population import apply_full_project_details
+from nirmaan_stack.integrations.controllers.boqs import select_project_boqs
 
 
 # --- Authorization ---------------------------------------------------------
@@ -373,10 +374,15 @@ def convert_tendering_to_won(project_id, values):
     `tendering_status = "Tendering"` (status 400). A Won project can never be
     re-converted; a Lost project can never be revived this way.
 
+    In the same transaction it records the BoQs the project was won on
+    (``values["selected_boqs"]``, a list) via :func:`select_project_boqs`: those
+    become Selected and every other BoQ of the project stays Draft (ADR-0037). At
+    least one is required whenever the project has a BoQ.
+
     Args:
         project_id (str): The existing stub's docname.
         values (dict): The full wizard payload — the same shape that
-            ``create_project_with_address`` receives.
+            ``create_project_with_address`` receives, plus ``selected_boqs``.
 
     Returns:
         dict: {"status": 200, "message": str, "project_name": str} on success
@@ -443,6 +449,11 @@ def convert_tendering_to_won(project_id, values):
         project_doc.status = "Won"
 
         project_doc.save(ignore_permissions=True)
+
+        # Mark the won-on BoQs Selected — same transaction, so a failure here rolls
+        # the whole conversion back.
+        select_project_boqs(project_doc.name, values.get("selected_boqs"))
+
         frappe.db.commit()
 
         # project_doc.name is unchanged — the docname stays frozen.
