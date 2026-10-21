@@ -13,6 +13,7 @@ from nirmaan_stack.services.order_payments import assert_within_work_order_limit
 from nirmaan_stack.services.payment_hold import validate_hold
 from nirmaan_stack.services.amount_paid import orders_moved_by, write_amount_paid
 from nirmaan_stack.services.payees.pay_to import fill_payment_from_vendor
+from nirmaan_stack.services.work_order_lifecycle import WorkOrderChangeRefused, payment_request_problem
 from nirmaan_stack.integrations.controllers.cheques import drop_off_cheques_of, on_payment_rejected
 from nirmaan_stack.services.cheques.decide import refuse_lone_approval
 from nirmaan_stack.services.cheques.detach import DELETED
@@ -258,6 +259,7 @@ def validate(doc, method):
     """
     if doc.is_new():
         validate_won(doc.project, "Project Payment")
+        refuse_while_work_order_under_amendment(doc)
         _validate_work_order_limit(doc)
         fill_payment_from_vendor(doc)
     validate_hold(doc)
@@ -265,6 +267,19 @@ def validate(doc, method):
     refuse_lone_approval(doc)
     refuse_reject_if_deposited(doc)
     refuse_amount_change_if_deposited(doc)
+
+
+def refuse_while_work_order_under_amendment(doc):
+    """A new payment on a Work Order under amendment is refused (#1540): no money moves against a total
+    that may change. On insert, so the request dialog, the Accountant's paid entry, Desk and REST all meet
+    it (rule: `work_order_lifecycle.payment_request_problem`)."""
+    if doc.document_type != "Service Requests" or not doc.document_name:
+        return
+    problem = payment_request_problem(
+        doc.document_name, frappe.db.get_value("Service Requests", doc.document_name, "status")
+    )
+    if problem:
+        frappe.throw(_(problem), WorkOrderChangeRefused, title=_("Work Order under amendment"))
 
 
 def refuse_reject_if_deposited(doc):

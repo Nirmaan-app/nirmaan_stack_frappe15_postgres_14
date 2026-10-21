@@ -5,8 +5,16 @@ from .procurement_requests import get_user_name
 from nirmaan_stack.api.projects._tendering_guard import validate_won
 from nirmaan_stack.api.service_requests.vendor_fy_limit import validate_vendor_gst_hold
 from nirmaan_stack.services.role_profiles import can_decide_work_order
+from nirmaan_stack.services.work_order_amendment import vendor_before_amendment
 from nirmaan_stack.services.work_order_gst import gst_is_on
-from nirmaan_stack.services.work_order_lifecycle import WorkOrderChangeRefused, change_problem, delete_problem
+from nirmaan_stack.services.work_order_lifecycle import (
+    SETTLED_PAYMENT_STATUSES,
+    AmendmentFacts,
+    WorkOrderChangeRefused,
+    change_problem,
+    delete_problem,
+    is_amendment_save,
+)
 
 
 def guard_lifecycle(doc, method=None):
@@ -14,17 +22,44 @@ def guard_lifecycle(doc, method=None):
 
     Bound to validate on its own, so the SPA, Desk and the REST API all meet it: only Admin and Project
     Lead may approve, reject, or accept or revert an amendment (#1529); a Finalized Work Order's scope is
-    locked (#1539). It runs after the doctype's own `validate`, so `flags.gst_set_from_vendor` is set by then.
+    locked (#1539); an amendment is held to the amendment rules (#1540), read here from the database. It runs
+    after the doctype's own `validate`, so `flags.gst_set_from_vendor` is set by then.
     """
+    before = doc.get_doc_before_save()
     problem = change_problem(
-        doc.get_doc_before_save(),
+        before,
         doc,
         may_decide=can_decide_work_order(frappe.session.user),
         gst_from_vendor=bool(doc.flags.gst_set_from_vendor),
         finalize_action=bool(doc.flags.finalize_action),
+        amendment=amendment_facts(before, doc) if is_amendment_save(before, doc) else None,
     )
     if problem:
         frappe.throw(_(problem), WorkOrderChangeRefused, title=_("Not allowed"))
+
+
+def amendment_facts(before, doc) -> AmendmentFacts:
+    """The payments, invoices and vendor facts an amendment save of `doc` is checked against."""
+    payments = frappe.get_all(
+        "Project Payments",
+        filters={"document_type": "Service Requests", "document_name": doc.name},
+        fields=["name", "status"],
+        order_by="creation asc",
+    )
+    invoices = frappe.db.count(
+        "Vendor Invoices",
+        {"document_type": "Service Requests", "document_name": doc.name, "status": ("!=", "Rejected")},
+    ) + frappe.db.count("WO Generated Invoice", {"work_order": doc.name, "status": ("!=", "Voided")})
+    starting = before.status == "Approved"
+    return AmendmentFacts(
+        open_payments=tuple(
+            (p.name, p.status) for p in payments if p.status not in SETTLED_PAYMENT_STATUSES
+        ),
+        has_live_payment=any(p.status != "Rejected" for p in payments),
+        invoices=invoices,
+        vendor_before=before.vendor if starting else vendor_before_amendment(doc.name, before.vendor),
+        vendor_on_gst_hold=bool(doc.vendor and frappe.db.get_value("Vendors", doc.vendor, "gst_hold")),
+    )
 
 
 def guard_delete(doc, method=None):

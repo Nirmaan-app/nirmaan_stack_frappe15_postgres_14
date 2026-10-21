@@ -46,6 +46,7 @@ import { useDialogStore } from "@/zustand/useDialogStore";
 import { TailSpin } from "react-loader-spinner";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 import { SRAmendSheet } from "../sr-form/amend";
+import { amendBlockedReason, UNDER_AMENDMENT_PAYMENT_NOTE } from "../config/workOrderAmendment";
 import { useUserData } from "@/hooks/useUserData";
 import { useVendorRefunds } from "@/components/vendor-refunds/useVendorRefunds";
 import { mergePaymentsAndRefunds, VendorRefundTableRow } from "@/components/vendor-refunds/VendorRefundTableRow";
@@ -557,6 +558,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 missingGst={!orderData?.project_gst}
                 isOwner={orderData?.owner === user_id}
                 approvedBy={approver?.full_name || orderData?.approved_by}
+                amendBlockedReason={amendBlockedReason(projectPayments)}
             />
 
             {/* Delete Confirmation Dialog */}
@@ -609,7 +611,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                             variant="outline"
                                             className="text-primary border-primary text-xs px-2"
                                             onClick={toggleRequestPaymentDialog}
-                                            disabled={isPMUser || isEstimatesExecutive}
+                                            disabled={isPMUser || isEstimatesExecutive || orderData?.status === "Amendment"}
+                                            title={orderData?.status === "Amendment" ? UNDER_AMENDMENT_PAYMENT_NOTE : undefined}
 
                                         >
                                             Request Payment
