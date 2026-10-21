@@ -29,7 +29,7 @@ for (const line of lines) {
   const helper = makePricingSheetHelper({ configsByCategory, items, extractionByRow: ext });
   let res: any;
   try {
-    res = helper.compute({ excelRow: r.excel_row, description: r.description, nodeType: "Line Item", category: cat, discipline: r.discipline, rateKinds: ["supply_rate", "install_rate", "combined_rate"] as any, headings: r.headings ?? [], ownNotes: r.ownNotes ?? [], unit: r.unit } as any, {});
+    res = helper.compute({ excelRow: r.excel_row, description: r.description, nodeType: "Line Item", category: cat, discipline: r.discipline, rateKinds: ["supply_rate", "install_rate", "combined_rate"] as any, headings: r.headings ?? [], ownNotes: r.ownNotes ?? [], unit: r.unit ?? "" } as any, {});
   } catch (e: any) {
     res = { kind: "error", error: String(e?.message ?? e) };
   }

@@ -72,6 +72,16 @@ pricing change can be proven over real rows **without spending another AI call**
 first proves the BEFORE replay reproduces the captured run exactly (refusal text and figures) — the
 anti-vacuity step — and `diff` then reports newly priced, changed-while-priced, and priced → blank.
 
+### `replay.sh` + `ac5_dump.py` + the two `ac7` harnesses — the unit as the page passes it
+
+The harness passes the unit as the page passes it (`unit: r.unit ?? ""`, the same as
+`SheetPricingPage.tsx`'s `unit: row.unit ?? ""`); the dump keeps the stored value (NULL stays null in
+`ac5_rows.jsonl`). The pricer reads null as "not given" (priced in the item's unit, or per number) and `""`
+as "no unit" (refuses on a kind stocked in more than one unit), so passing the raw null made the replay
+price rows the page refuses. Changed in ADP-R4 P0 (2026-10-21, owner "agree" on UNIT-R0's fix (a)); the
+re-baseline moved exactly UNIT-R0's 37 rows (9 outcome, 28 wording, all HVAC, all with an empty stored
+unit). Baselines before that commit were recorded with the raw null.
+
 ### `capture_tools.py` — capture surgery
 
 `reconstruct` builds a capture in which every item carries a new answer mechanically derived from older
