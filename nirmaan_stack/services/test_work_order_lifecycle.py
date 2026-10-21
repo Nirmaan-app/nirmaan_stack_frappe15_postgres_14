@@ -11,6 +11,7 @@ from nirmaan_stack.services.work_order_lifecycle import (
     DECIDE_REFUSAL,
     FINALIZE_FLAG_REFUSAL,
     FINALIZED_REFUSAL,
+    approval_record,
     change_problem,
     delete_problem,
 )
@@ -157,6 +158,41 @@ class TestDelete(unittest.TestCase):
 class TestTheBannerSaysWhatTheServerSays(unittest.TestCase):
     def test_the_banner_text_is_the_refusal(self):
         self.assertIn(FINALIZED_REFUSAL, BANNER_SOURCE.read_text())
+
+
+APPROVER, NOW = "approver@example.com", "2026-10-22 11:30:00"
+STAMPED = {"approved_on": "2026-01-05 10:00:00", "approved_by": "first@example.com"}
+
+
+class TestApprovalRecord(unittest.TestCase):
+    """What a save stores as the Work Order's approved-on and approved-by (#1532)."""
+
+    def _record(self, before, after):
+        return approval_record(before, after, user=APPROVER, now=NOW)
+
+    def test_approving_stamps_who_and_when(self):
+        for before in (_wo("Vendor Selected"), None):
+            with self.subTest(before=before):
+                self.assertEqual(
+                    self._record(before, _wo("Approved")), {"approved_on": NOW, "approved_by": APPROVER}
+                )
+
+    def test_later_saves_keep_the_stamp_whatever_they_send(self):
+        """A payment, invoice, GST or notes save of an Approved WO, an amend, and the accept or revert of
+        an amendment (which moves it back into Approved) all keep the first approval."""
+        sent = {"approved_on": NOW, "approved_by": "someone-else@example.com"}
+        for before, after in (("Approved", "Approved"), ("Approved", "Amendment"), ("Amendment", "Approved")):
+            with self.subTest(before=before, after=after):
+                self.assertEqual(self._record({**_wo(before), **STAMPED}, {**_wo(after), **sent}), STAMPED)
+
+    def test_an_unapproved_work_order_has_no_stamp(self):
+        sent = {"approved_on": NOW, "approved_by": APPROVER}
+        for before, after in ((None, "Vendor Selected"), ("Vendor Selected", "Rejected")):
+            with self.subTest(before=before, after=after):
+                self.assertEqual(
+                    self._record(_wo(before) if before else None, {**_wo(after), **sent}),
+                    {"approved_on": None, "approved_by": None},
+                )
 
 
 if __name__ == "__main__":

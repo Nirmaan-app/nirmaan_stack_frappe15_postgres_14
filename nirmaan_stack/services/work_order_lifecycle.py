@@ -21,6 +21,11 @@ recount, invoices, remarks, the Nirmaan GST and the PDF. The one GST change let 
 vendor (`gst_from_vendor`). The finalize flag itself moves only through Finalize and Revert Finalization
 (`api/sr_finalize`, `finalize_action`), which write the audit remark.
 
+The approval record (#1532): the save that approves a Work Order (`is_approval`) stamps its
+`approved_on` / `approved_by`, and every other save keeps them (`approval_record`, applied by the
+doctype's own `validate`). The backfill patch `v3_0.backfill_work_order_approval` reads old history by
+the same `is_approval` rule.
+
 The amendment rules (#1540) add their checks to `change_problem`.
 
 Pure: the caller resolves who the user is (`services/role_profiles.can_decide_work_order`) and which
@@ -34,6 +39,10 @@ import frappe
 
 APPROVED = "Approved"
 REJECTED = "Rejected"
+AMENDMENT = "Amendment"
+
+#: Stamped by the save that approves a Work Order and never moved after (`approval_record`).
+APPROVAL_FIELDS = ("approved_on", "approved_by")
 
 #: A save that moves a Work Order into one of these from any other status is an approver's decision.
 DECISION_STATUSES = (APPROVED, REJECTED)
@@ -89,6 +98,23 @@ def is_decision(before_status: str | None, after_status: str | None) -> bool:
 
 def is_finalized(doc) -> bool:
     return bool(doc) and str(doc.get("is_finalized") or 0) not in ("0", "False", "")
+
+
+def is_approval(before_status: str | None, after_status: str | None) -> bool:
+    """True when a save approves a Work Order: a decision into Approved from anything but Amendment.
+    Accepting or reverting an amendment also moves it into Approved, but it was approved already."""
+    return after_status == APPROVED and is_decision(before_status, after_status) and before_status != AMENDMENT
+
+
+def approval_record(before, after, *, user: str, now) -> dict:
+    """The `approved_on` / `approved_by` a save of `after` over `before` stores (#1532).
+
+    The save that approves stamps `now` and `user`. Every other save carries `before`'s values over,
+    whatever it sends, so a later payment, invoice, GST, notes or amendment save never moves them.
+    """
+    if is_approval(before.get("status") if before else None, after.get("status")):
+        return {"approved_on": now, "approved_by": user}
+    return {field: before.get(field) if before else None for field in APPROVAL_FIELDS}
 
 
 def change_problem(

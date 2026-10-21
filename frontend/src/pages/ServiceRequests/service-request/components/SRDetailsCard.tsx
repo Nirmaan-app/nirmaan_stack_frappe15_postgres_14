@@ -37,6 +37,8 @@ interface SRDetailsCardProps {
   isDeleting?: boolean;
   // GST validation
   missingGst?: boolean;
+  /** Who first approved it, as a name to show (falls back to the user id) */
+  approvedBy?: string | null;
   // Finalization props
   isFinalized?: boolean;
   finalizedBy?: string | null;
@@ -56,7 +58,7 @@ interface SRDetailsCardProps {
  * 1. Header - Title with Status badge
  * 2. Info - Project, Package, Vendor (with separators)
  * 3. Amounts - Total, Invoiced, Paid (hover: paid to vendor / TDS withheld), Due, GST status (color-coded)
- * 4. Timeline - Created, Modified, Approved dates
+ * 4. Timeline - Created, Modified, Approved (the stored approval date and approver) dates
  * 5. Actions - Role-conditional action buttons
  */
 export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
@@ -80,6 +82,7 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
   isDeleting = false,
   // GST validation
   missingGst = false,
+  approvedBy,
   // Finalization props
   isFinalized = false,
   finalizedBy,
@@ -297,11 +300,14 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
               <p className="text-sm">{orderData?.modified ? formatDate(orderData.modified) : "--"}</p>
             </div>
 
-            {/* Approved Date (if applicable) */}
+            {/* Approved: the stored first approval (#1532), not the last edit */}
             {orderData?.status === "Approved"  && (
               <div className="space-y-0.5">
                 <p className="text-xs text-gray-500">Approved</p>
-                <p className="text-sm">{orderData?.modified ? formatDate(orderData.modified) : "--"}</p>
+                <p className="text-sm">{orderData?.approved_on ? formatDate(orderData.approved_on) : "--"}</p>
+                {approvedBy && (
+                  <p className="text-xs text-gray-400">by {approvedBy}</p>
+                )}
               </div>
             )}
 
