@@ -22,7 +22,7 @@ import { useProjectDraftManager } from "@/hooks/useProjectDraftManager";
 import { projectFormSchema, ProjectFormValues, defaultFormValues, sectionFields } from "./schema";
 import { getSections, getWizardStepsConfig, SectionKey, getNextSection, getPreviousSection } from "./constants";
 import { useProjectFormData } from "./hooks/useProjectFormData";
-import { combineBoqScope, seedWorkPackagesFromBoq } from "./boqPackageSeed";
+import { applyBoqPickChange, combineBoqScope } from "./boqPackageSeed";
 import { OptionalSections, readOptionalSections, sectionSetupProblems, syncSectionsWithPackages } from "./packageSectionSync";
 import {
     ProjectDetailsStep,
@@ -224,23 +224,31 @@ export const ProjectForm = () => {
                 selectedBoqs.length !== seededBoqNames.length ||
                 selectedBoqs.some((name) => !seededBoqNames.includes(name));
             if (selectedBoqs.length > 0 && picksChanged) {
-                const { packages, unmappedHeaders } = combineBoqScope(
-                    boqOptions.filter((b) => selectedBoqs.includes(b.name))
+                // Only the DIFFERENCE between the old and new picks moves (owner 2026-10-21,
+                // option a): packages ticked or unticked by hand stay as the user left them.
+                const newScope = combineBoqScope(boqOptions.filter((b) => selectedBoqs.includes(b.name)));
+                const oldScope = combineBoqScope(seededBoqs);
+                const { workPackages, added, removed } = applyBoqPickChange(
+                    form.getValues("project_work_packages.work_packages"),
+                    oldScope.packages,
+                    newScope.packages,
+                    formData.workPackages,
+                    formData.categories ?? []
                 );
-                const oldPackages = form.getValues("project_work_packages.work_packages").map((wp) => wp.work_package_name);
-                const seeded = seedWorkPackagesFromBoq(packages, formData.workPackages, formData.categories ?? []);
-                const newPackages = seeded.map((wp) => wp.work_package_name);
-                form.setValue("project_work_packages.work_packages", seeded);
+                form.setValue("project_work_packages.work_packages", workPackages);
                 // The packages' headers and categories follow into Daily Progress, Design and
-                // Critical PO; the BoQs' package-less headers (ELV System) go to Daily Progress too.
+                // Critical PO; the BoQs' package-less headers (ELV System) go to Daily Progress too,
+                // and also move only by the difference.
                 writeSections(
                     syncSectionsWithPackages(readOptionalSections(form.getValues()), sectionMasters, {
-                        added: newPackages.filter((name) => !oldPackages.includes(name)),
-                        removed: oldPackages.filter((name) => !newPackages.includes(name)),
-                        ticked: newPackages,
-                        addHeaders: unmappedHeaders,
-                        removeHeaders: combineBoqScope(seededBoqs).unmappedHeaders.filter(
-                            (header) => !unmappedHeaders.includes(header)
+                        added,
+                        removed,
+                        ticked: workPackages.map((wp) => wp.work_package_name),
+                        addHeaders: newScope.unmappedHeaders.filter(
+                            (header) => !oldScope.unmappedHeaders.includes(header)
+                        ),
+                        removeHeaders: oldScope.unmappedHeaders.filter(
+                            (header) => !newScope.unmappedHeaders.includes(header)
                         ),
                     })
                 );

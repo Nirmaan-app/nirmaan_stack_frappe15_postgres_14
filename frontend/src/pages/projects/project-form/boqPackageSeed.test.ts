@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildWorkPackageEntry, combineBoqScope, seedWorkPackagesFromBoq } from "./boqPackageSeed";
+import {
+    applyBoqPickChange,
+    buildWorkPackageEntry,
+    combineBoqScope,
+    seedWorkPackagesFromBoq,
+} from "./boqPackageSeed";
 
 const categories = [
     { category_name: "Cables", work_package: "Electrical Work" },
@@ -67,5 +72,67 @@ describe("seedWorkPackagesFromBoq", () => {
 
     it("ticks nothing for a BoQ with no packages", () => {
         expect(seedWorkPackagesFromBoq([], offered, categories)).toEqual([]);
+    });
+});
+
+describe("applyBoqPickChange", () => {
+    const entry = (name: string) => buildWorkPackageEntry(name, categories);
+    const names = (result: { workPackages: { work_package_name: string }[] }) =>
+        result.workPackages.map((p) => p.work_package_name);
+
+    it("first pick: ticks every package of the picked BoQs", () => {
+        const result = applyBoqPickChange([], [], ["Electrical Work", "HVAC System"], offered, categories);
+        expect(names(result)).toEqual(["HVAC System", "Electrical Work"]);
+        expect(result.added).toEqual(["HVAC System", "Electrical Work"]);
+        expect(result.removed).toEqual([]);
+    });
+
+    it("keeps a package ticked by hand when another BoQ is added (the Fire Fighting case)", () => {
+        const current = [entry("Electrical Work"), entry("Fire Fighting System")];
+        const result = applyBoqPickChange(
+            current,
+            ["Electrical Work"],
+            ["Electrical Work", "HVAC System"],
+            offered,
+            categories
+        );
+        expect(names(result)).toEqual(["HVAC System", "Electrical Work", "Fire Fighting System"]);
+        expect(result.added).toEqual(["HVAC System"]);
+        expect(result.removed).toEqual([]);
+    });
+
+    it("keeps a package unticked by hand unticked when the new picks still include it", () => {
+        const current = [entry("Fire Fighting System")]; // Electrical unticked by hand
+        const result = applyBoqPickChange(
+            current,
+            ["Electrical Work"],
+            ["Electrical Work", "HVAC System"],
+            offered,
+            categories
+        );
+        expect(names(result)).toEqual(["HVAC System", "Fire Fighting System"]);
+    });
+
+    it("unticks only the packages of a BoQ that was unpicked", () => {
+        const current = [entry("HVAC System"), entry("Electrical Work"), entry("Fire Fighting System")];
+        const result = applyBoqPickChange(
+            current,
+            ["Electrical Work", "HVAC System"],
+            ["Electrical Work"],
+            offered,
+            categories
+        );
+        expect(names(result)).toEqual(["Electrical Work", "Fire Fighting System"]);
+        expect(result.removed).toEqual(["HVAC System"]);
+        expect(result.added).toEqual([]);
+    });
+
+    it("keeps the makes on an entry it does not touch", () => {
+        const withMakes = {
+            work_package_name: "Electrical Work",
+            category_list: { list: [{ name: "Cables", makes: [{ label: "Polycab", value: "Polycab" }] }] },
+        };
+        const result = applyBoqPickChange([withMakes], ["Electrical Work"], ["Electrical Work", "HVAC System"], offered, categories);
+        expect(result.workPackages.find((p) => p.work_package_name === "Electrical Work")).toBe(withMakes);
     });
 });

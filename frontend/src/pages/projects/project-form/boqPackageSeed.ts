@@ -66,3 +66,44 @@ export const seedWorkPackagesFromBoq = (
         .filter((pkg) => wanted.has(pkg.work_package_name))
         .map((pkg) => buildWorkPackageEntry(pkg.work_package_name, categories));
 };
+
+/**
+ * The Packages step after the BoQ picks change (owner 2026-10-21, option a): only the
+ * DIFFERENCE between the old picks' packages and the new picks' packages moves.
+ *
+ * - A package the new picks bring and the old picks did not is ticked (unless already ticked).
+ * - A package the old picks brought and the new picks do not is unticked.
+ * - Everything else stays as the user left it: a package ticked by hand stays ticked, one
+ *   unticked by hand stays unticked, and a kept entry keeps its makes.
+ *
+ * The first pick is the same rule with no old picks, so it ticks every package of the BoQs.
+ * Returns the new selection in the wizard's display order, plus what was added and removed
+ * (for `syncSectionsWithPackages`).
+ */
+export const applyBoqPickChange = (
+    current: readonly FormWorkPackage[],
+    oldBoqPackages: readonly string[],
+    newBoqPackages: readonly string[],
+    offeredPackages: readonly OfferedPackage[],
+    categories: readonly CategoryLike[]
+): { workPackages: FormWorkPackage[]; added: string[]; removed: string[] } => {
+    const oldSet = new Set(oldBoqPackages);
+    const newSet = new Set(newBoqPackages);
+    const ticked = new Set(current.map((pkg) => pkg.work_package_name));
+
+    const removed = [...oldSet].filter((name) => !newSet.has(name) && ticked.has(name)).sort();
+    const addedEntries = seedWorkPackagesFromBoq(
+        [...newSet].filter((name) => !oldSet.has(name) && !ticked.has(name)),
+        offeredPackages,
+        categories
+    );
+
+    const rank = new Map(offeredPackages.map((pkg, index) => [pkg.work_package_name, index]));
+    const position = (name: string) => rank.get(name) ?? Number.MAX_SAFE_INTEGER;
+    const workPackages = [
+        ...current.filter((pkg) => !removed.includes(pkg.work_package_name)),
+        ...addedEntries,
+    ].sort((a, b) => position(a.work_package_name) - position(b.work_package_name));
+
+    return { workPackages, added: addedEntries.map((pkg) => pkg.work_package_name), removed };
+};
