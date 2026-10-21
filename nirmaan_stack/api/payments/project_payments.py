@@ -16,6 +16,7 @@ from nirmaan_stack.services.approval_tiers import (
 )
 from nirmaan_stack.services.order_payments import assert_within_work_order_limit
 from nirmaan_stack.services import cheque_payments
+from nirmaan_stack.services.tds_forecast import request_amount_as_stored
 from nirmaan_stack.services.cheques import decide as cheque_decision
 from nirmaan_stack.api.payments.payment_cheque import (
     cheque_header,
@@ -155,7 +156,7 @@ def create_payment_request_for_service(data: str) -> str:
         "document_name" : docname,
         "project"       : src.project,
         "vendor"        : src.vendor,
-        "amount"        : round(amount),
+        "amount"        : request_amount_as_stored(amount),
         "status"        : status,
         "is_gst_payment": 1 if gst_payment else 0,
         **_mode_fields(payload),

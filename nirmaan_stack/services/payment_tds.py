@@ -609,6 +609,22 @@ def give_back_tax_on_reject(doc) -> str | None:
 	return row.name
 
 
+def tds_on(gross, rate) -> float:
+	"""The tax a new deduction takes on `gross` at `rate` %, rounded as it is stored. Pure. The one
+	formula approval (`record_deduction`) and the request preview (`services/tds_forecast`) share."""
+	return flt(flt(gross) * flt(rate) / 100.0, 2)
+
+
+def is_withholdable(gross, tds_amount) -> bool:
+	"""Would a deduction of `tds_amount` on `gross` be written at all (`write_deduction`)? Pure.
+
+	A refund or zero-value payment has nothing to withhold from; a deduction that swallows the whole
+	payment is bad data rather than a deduction, and netting it would produce a zero or negative amount
+	that every downstream sum would then carry."""
+	gross, tds_amount = flt(gross), flt(tds_amount, 2)
+	return gross > 0 and 0 < tds_amount < gross
+
+
 def recompute_challan_reconciled(challan: str | None) -> float | None:
 	"""A challan's `reconciled_amount` IS the sum of the deductions pointing at it. Re-derive it.
 
@@ -784,10 +800,7 @@ def write_deduction(
 	gross = flt(doc.get("amount"))
 	tds_amount = flt(tds_amount, 2)
 
-	# A refund or zero-value payment has nothing to withhold from; a deduction that swallows the
-	# whole payment is bad data rather than a deduction, and netting it would produce a zero or
-	# negative amount that every downstream sum would then carry.
-	if gross <= 0 or tds_amount <= 0 or tds_amount >= gross:
+	if not is_withholdable(gross, tds_amount):
 		return None
 
 	net = flt(gross - tds_amount, 2)
@@ -872,7 +885,7 @@ def record_deduction(doc, *, payment_approved_on: str | None = None, update_modi
 
 	return write_deduction(
 		doc,
-		tds_amount=flt(gross * rate / 100.0, 2),
+		tds_amount=tds_on(gross, rate),
 		tds_percentage=rate,
 		# `None` on the hook path -> today, which IS the approval day there. The backfill passes the
 		# historical approval date instead, so a record always carries the day it was decided.

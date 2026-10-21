@@ -13,11 +13,14 @@
  * Kept OUT of the components for the reason `paymentSplit.ts` states beside it: this repo has no
  * DOM test environment, so anything living inside a React component is structurally untestable.
  * Two surfaces read this — the single-approve dialog and the bulk confirm — and two inline copies
- * of the arithmetic would drift. It is deliberately NOT shown in the table columns (owner ruling
- * 2026-09-10): the figure matters at the moment of deciding, not while scanning a list.
+ * of the arithmetic would drift. It is not shown in the approval lists' columns (owner ruling
+ * 2026-09-10, kept by X2-A): the figure matters at the moment of deciding, not while scanning a list.
+ * The REQUESTER's preview (the Request Payment dialog and the Work Order payment table, #1541) does
+ * not use this mirror: the server works it out (`tdsPreview.ts`, `services/tds_forecast.py`).
  */
 
 import type { TdsBorneBy } from "@/types/NirmaanStack/PaymentTDSDeduction";
+import type { ServerTdsForecast } from "./tdsPreview";
 import { statusAfterL1 } from "@/utils/approvalTiers";
 import { isGstPayment } from "./paymentKind";
 import { parseNumber } from "@/utils/parseNumber";
@@ -80,6 +83,8 @@ export interface WorkOrderTds {
 	kind: TdsBorneKind;
 	/** Each payment's own deduction, whatever its status, keyed by payment name; a payment with none is absent. */
 	payments: Record<string, { tds_amount: number; borne_by: TdsBorneBy }>;
+	/** Each payment still waiting for approval, as its approval will tax it (#1541); one with no tax to come is absent. */
+	forecasts?: Record<string, ServerTdsForecast>;
 }
 
 /** The Work Order page's Amount Paid hover (#1509). `total` + `companyOnTop` is what the WO cost in all. */
