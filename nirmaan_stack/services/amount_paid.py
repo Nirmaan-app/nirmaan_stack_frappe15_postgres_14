@@ -3,9 +3,9 @@
 
 """THE AMOUNT PAID RULE of a PO / Work Order, and the Amount Due built on it (ADR-0034).
 
-The stored `amount_paid` is the order's *Paid* Project Payments, PLUS (a Work Order's) the TDS withheld
-from the vendor on them, LESS its *Received* Vendor Refunds (`amount_paid_of`; a waiting or cancelled
-refund lowers nothing, ADR-0032; the tax, ADR-0034 Amendment A) -- recomputed from source, never
+The stored `amount_paid` is the order's *Paid* Project Payments, PLUS the TDS withheld from the vendor
+on them, LESS its *Received* Vendor Refunds (`amount_paid_of`; a waiting or cancelled refund lowers
+nothing, ADR-0032; the tax, ADR-0034 Amendment A for a Work Order, Amendment B for a PO's recorded tax) -- recomputed from source, never
 decremented. ONE writer stores it (`write_amount_paid`), with a Work Order's `total_tds` and the
 order's Amount Due (`recompute_document_amount_due`, from `amount_due_from`). The callers: the payment save
 (`integrations/controllers/project_payments.recount_orders`), the PO Adjustment recompute
@@ -89,7 +89,7 @@ def amount_due_from(document_type: str, values) -> float:
 
 def amount_paid_of(document_type: str, document_name: str, exclude_payment: str | None = None) -> float:
     """THE stored `amount_paid` of a PO / Work Order: its `Paid` Project Payments, PLUS the TDS withheld
-    from the vendor on them (a Work Order's `Vendor`-borne deductions, ADR-0034 Amendment A), LESS its
+    from the vendor on them (their `Vendor`-borne deductions, ADR-0034 Amendments A and B), LESS its
     RECEIVED Vendor Refunds (a waiting or cancelled refund lowers nothing, ADR-0032).
 
     A vendor-borne payment is stored net of its tax (`services/payment_tds.write_deduction`), and that
@@ -97,7 +97,8 @@ def amount_paid_of(document_type: str, document_name: str, exclude_payment: str 
     transfer is: Rs 10,000 gross, Rs 9,800 paid, Rs 200 withheld -> Rs 10,000. Tax the company paid ON
     TOP (`borne_by` Company, the payment kept whole) is not the vendor's and is left out. The tax comes
     from the one source the mismatch judge also reads (`payment_tds.borne_tds_by_order`). A PO takes no
-    deductions.
+    deductions, but the tax recorded on its old payments counts the same way once each is netted
+    (Amendment B, `patches/v3_0/net_po_payments_with_tds`); one still stored gross holds it already.
 
     `exclude_payment` is a payment being trashed -- still in the table while its `on_trash` runs; its
     tax leaves with it.

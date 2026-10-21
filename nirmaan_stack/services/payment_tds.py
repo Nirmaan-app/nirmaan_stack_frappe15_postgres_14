@@ -52,10 +52,12 @@ a reversal path that does not exist yet.
 
 SCOPE, AND WHAT IS DELIBERATELY NOT HERE
 ----------------------------------------
-`Service Requests` ONLY (owner scope, 2026-09-10). `Procurement Orders` payments are untouched by
-this module even though 3,695 Paid PO payments carry a figure in the legacy `Project Payments.tds`
-column -- widening to POs is a scope decision, not a refactor, and `Procurement Orders` has no
-`total_tds` field to receive the total.
+TAKING a deduction is `Service Requests` ONLY (owner scope, 2026-09-10; `DEDUCTIBLE_PARENTS`). A
+`Procurement Orders` payment is never taxed even though 3,695 Paid PO payments carry a figure in the
+legacy `Project Payments.tds` column -- widening to POs is a scope decision, not a refactor, and
+`Procurement Orders` has no `total_tds` field to receive the total. The tax RECORDED on 86 old PO
+payments (`backfill_po_payment_tds_deductions`) does COUNT, as a Work Order's does, once its payment
+is netted (`TAX_COUNTED_PARENTS`, ADR-0034 Amendment B, #1534).
 
 NOT here, and each absence is deliberate:
   * No BACKFILL. 1,331 Paid SR payments carry legacy `tds` totalling Rs 6,34,002 across 623 SRs and
@@ -85,6 +87,7 @@ from nirmaan_stack.services import settlement
 TDS_DOCTYPE = "Payment TDS Deduction"
 PAYMENT_DOCTYPE = "Project Payments"
 SERVICE_REQUEST_DOCTYPE = "Service Requests"
+PROCUREMENT_ORDER_DOCTYPE = "Procurement Orders"
 CHALLAN_DOCTYPE = "TDS Challan Attachment"
 
 # Saves that are NOT a human editing the amount, and must therefore never restate a deduction.
@@ -139,10 +142,27 @@ APPROVAL_SOURCE_STATUSES = frozenset(
 	{settlement.STATUS_REQUESTED, settlement.STATUS_CEO_PENDING, settlement.STATUS_REJECTED}
 )
 
-#: The ledgers a deduction may be taken from. A frozenset rather than an `==` at each call site so
-#: widening to `Procurement Orders` is one edit here plus a `total_tds` field on that doctype --
-#: and so `total_tds` can never be summed for a ledger that has nowhere to store it.
+#: TWO QUESTIONS, TWO SETS (#1534, ADR-0034 Amendment B). Never answer one with the other.
+#:
+#: `DEDUCTIBLE_PARENTS` -- the orders that TAKE a deduction: approving a payment on one withholds tax
+#: (`is_deductible`), and only these store a `total_tds`. Work Orders only (owner scope 2026-09-10); a PO
+#: payment is never taxed. A frozenset rather than an `==` at each call site so widening to `Procurement
+#: Orders` is one edit here plus a `total_tds` field on that doctype -- and so `total_tds` can never be
+#: summed for a ledger that has nowhere to store it.
 DEDUCTIBLE_PARENTS = frozenset({SERVICE_REQUEST_DOCTYPE})
+#: `TAX_COUNTED_PARENTS` -- the orders whose RECORDED tax counts: the tax on their Paid payments'
+#: deductions is part of their Amount Paid (vendor-borne), the Vendor Ledger and report, the payment
+#: summary and request limits, and project outflow (both kinds). Work Orders and POs: a PO's deductions
+#: were all recorded by `patches/v3_0/backfill_po_payment_tds_deductions` (86 payments, 2026-09) and none
+#: is ever taken again. Every reader of recorded tax keys on this set (`counted_deductions_sql`).
+#:
+#: ⚠️ EXCEPT A PAYMENT STILL STORED GROSS (`counted_deductions_sql`): a PO payment of that backfill still
+#: carrying its legacy `tds` box holds its tax INSIDE its amount, so the tax counts nowhere on top.
+#: `patches/v3_0/net_po_payments_with_tds` cuts each one to net and clears the box, which is what makes
+#: its tax count; the ones it skips (bank-matched, tax of Rs 5 or less) keep the box and read as before.
+TAX_COUNTED_PARENTS = frozenset({SERVICE_REQUEST_DOCTYPE, PROCUREMENT_ORDER_DOCTYPE})
+# An order that takes a deduction must also count it, or its withheld tax would vanish from Amount Paid.
+assert DEDUCTIBLE_PARENTS <= TAX_COUNTED_PARENTS
 
 #: Work Order service categories whose TDS the COMPANY pays on top (owner ruling 2026-09-17).
 #:
@@ -175,7 +195,7 @@ BORNE_BY_COMPANY = "Company"
 
 class BorneTds(NamedTuple):
 	"""Paid tax split by who bore it (`borne_by`). `vendor` was withheld from the vendor and is part of
-	its order's Amount Paid (ADR-0034 Amendment A); `company` the company paid on top and is not."""
+	its order's Amount Paid (ADR-0034 Amendments A and B); `company` the company paid on top and is not."""
 
 	vendor: float = 0.0
 	company: float = 0.0
@@ -188,17 +208,19 @@ __all__ = [
 	"BORNE_BY_COMPANY",
 	"BorneTds",
 	"DEDUCTIBLE_PARENTS",
+	"TAX_COUNTED_PARENTS",
 	"is_approval_from_an_earlier_step",
 	"is_company_borne",
 	"categories_are_company_borne",
-	"borne_tds_by_payment_sql",
+	"counted_deductions_sql",
 	"paid_borne_tds_sql",
 	"borne_tds_by_payment",
 	"borne_tds_by_order_sql",
 	"borne_tds_by_order",
 	"borne_kind",
 	"work_order_tds_borne",
-	"work_order_deductions",
+	"order_deductions",
+	"vendor_borne_tds_on",
 	"is_deductible",
 	"is_gst_payment",
 	"existing_deduction",
@@ -303,44 +325,58 @@ def categories_are_company_borne(raw) -> bool:
 	return bool(categories) and categories <= COMPANY_BORNE_CATEGORIES
 
 
-def borne_tds_by_payment_sql() -> str:
-	"""A derived table `(project_payment, vendor_borne_tds, company_borne_tds)`: each deduction's tax,
-	split by who bore it (`borne_by`), one row per payment that carries one (`project_payment` is
-	unique), WHATEVER THE PAYMENT'S STATUS: the reader joins the payment and keeps the Paid ones.
-	`vendor_borne_tds` was withheld from the vendor and is part of its order's Amount Paid (ADR-0034
-	Amendment A); `company_borne_tds` the company paid on top and is not.
+def _sql_names(doctypes) -> str:
+	"""A SQL list of doctype names for an `IN (...)`. Only ever given this module's own constants."""
+	return ", ".join(f"'{name}'" for name in sorted(doctypes))
 
-	THE ONE SPLIT, read through `paid_borne_tds_sql` (its Paid payments) by every reader:
-	`borne_tds_by_order_sql` adds it up per order (the Amount Paid writer and the mismatch judge), the
-	Vendor Ledger's WO payment rows read it per payment (`borne_tds_by_payment`), and so do the Vendor
-	report's dated paid figure (`services/vendor_paid`) and project outflow (`services/project_money`).
-	Read off each row's stored `borne_by` (#1451), never off the categories or the amounts: a part
-	settlement cuts a kept-whole payment below its gross, an amount edit moves both figures, and a Work
-	Order's categories can change after the fact. A row with no `borne_by` (a raw insert) reads as
-	`Vendor`, the column default.
+
+def counted_deductions_sql() -> str:
+	"""A derived table: one row per payment whose deduction COUNTS (`project_payment` is unique),
+	WHATEVER THE PAYMENT'S STATUS, with the payment's own `project_payment` (its name), `status`,
+	`vendor`, `project`, `document_type`, `document_name`, `payment_date` and `creation`, the
+	deduction's `tds_amount` and `borne_by` (blank reads `Vendor`, the column default), and its tax
+	split by who bore it: `vendor_borne_tds` was withheld from the vendor and is part of its order's
+	Amount Paid (ADR-0034 Amendments A and B); `company_borne_tds` the company paid on top and is not.
+
+	THE ONE SOURCE of recorded tax. A deduction counts when its payment's order is in
+	`TAX_COUNTED_PARENTS` and the payment is not STILL STORED GROSS: an order that takes no deductions
+	(a PO) whose payment still carries the legacy `Project Payments.tds` box holds the tax inside its
+	amount (`patches/v3_0/backfill_po_payment_tds_deductions` wrote the record beside a gross payment),
+	so counting it on top would count it twice. `patches/v3_0/net_po_payments_with_tds` cuts such a
+	payment to net and clears the box. A Work Order payment is always cut when its deduction is written
+	(`write_deduction`; the SR backfill netted and left the box filled), so the box means nothing there.
+
+	Read through `paid_borne_tds_sql` (its Paid payments) by the Amount Paid writer and the mismatch
+	judge (`borne_tds_by_order_sql`), the Vendor Ledger (`borne_tds_by_payment`), the Vendor report
+	(`services/vendor_paid`) and project outflow (`services/project_money`); whole by the payment
+	summary (`services/order_payments`), the request limits (`services/finance`) and the payments
+	pop-up (`order_deductions`). Read off each row's stored `borne_by` (#1451), never off the
+	categories or the amounts: a part settlement cuts a kept-whole payment below its gross, an amount
+	edit moves both figures, and a Work Order's categories can change after the fact.
 	"""
 	return f"""
-		SELECT d.project_payment,
+		SELECT p.name AS project_payment, p.status, p.vendor, p.project, p.document_type,
+		       p.document_name, p.payment_date, p.creation, d.tds_amount,
+		       COALESCE(NULLIF(d.borne_by, ''), '{BORNE_BY_VENDOR}') AS borne_by,
 		       CASE WHEN d.borne_by = '{BORNE_BY_COMPANY}' THEN 0 ELSE d.tds_amount END AS vendor_borne_tds,
 		       CASE WHEN d.borne_by = '{BORNE_BY_COMPANY}' THEN d.tds_amount ELSE 0 END AS company_borne_tds
 		FROM "tab{TDS_DOCTYPE}" d
+		INNER JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = d.project_payment
+		WHERE p.document_type IN ({_sql_names(TAX_COUNTED_PARENTS)})
+		  AND NOT (p.document_type NOT IN ({_sql_names(DEDUCTIBLE_PARENTS)})
+		           AND COALESCE(TRIM(p.tds), '') <> '')
 	"""
 
 
 def paid_borne_tds_sql() -> str:
-	"""A derived table: one row per PAID payment that carries a deduction, with the payment's own
-	`project_payment` (its name), `vendor`, `project`, `document_type`, `document_name`, `payment_date`
-	and `creation`, and its tax split by who bore it, `vendor_borne_tds` and `company_borne_tds`
-	(`borne_tds_by_payment_sql`). Only a Paid payment's tax is paid money: in its order's Amount Paid
-	and `total_tds`, the vendor's paid figures and project outflow. Keyed by the PAYMENT's order,
-	project and date, never the deduction's: a Paid payment moved to another order takes its tax along.
+	"""`counted_deductions_sql` for PAID payments only. Only a Paid payment's tax is paid money: in its
+	order's Amount Paid and `total_tds`, the vendor's paid figures and project outflow. Keyed by the
+	PAYMENT's order, project and date, never the deduction's: a Paid payment moved to another order
+	takes its tax along.
 	"""
 	return f"""
-		SELECT p.name AS project_payment, p.vendor, p.project, p.document_type, p.document_name,
-		       p.payment_date, p.creation, t.vendor_borne_tds, t.company_borne_tds
-		FROM ({borne_tds_by_payment_sql()}) t
-		INNER JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = t.project_payment
-		WHERE p.status = '{PAID}'
+		SELECT c.* FROM ({counted_deductions_sql()}) c
+		WHERE c.status = '{PAID}'
 	"""
 
 
@@ -370,8 +406,8 @@ def borne_tds_by_payment(vendor: str) -> dict[str, BorneTds]:
 def borne_tds_by_order_sql(exclude_payment: bool = False) -> str:
 	"""A derived table `(document_name, vendor_borne_tds, company_borne_tds)`: per order of
 	`%(doctype)s`, the tax on its Paid payments' deductions, split by who bore it
-	(`paid_borne_tds_sql`). Together the two are its `total_tds`. With `exclude_payment`, the
-	payment `%(exclude)s` is left out.
+	(`paid_borne_tds_sql`). Together the two are a Work Order's `total_tds` (a PO stores none). With
+	`exclude_payment`, the payment `%(exclude)s` is left out.
 
 	THE ONE SOURCE of "tax by order": the Amount Paid writer (`amount_paid.amount_paid_of`, through
 	`borne_tds_by_order`) selects from it and the mismatch judge (`services/amount_paid_drift.mismatches`)
@@ -389,14 +425,14 @@ def borne_tds_by_order_sql(exclude_payment: bool = False) -> str:
 
 
 def borne_tds_by_order(document_type: str, names, exclude_payment: str | None = None) -> dict[str, BorneTds]:
-	"""`{name: BorneTds}` for the given Work Orders (`borne_tds_by_order_sql`); an order with no paid
-	tax is absent. Empty for an order type that takes no deductions.
+	"""`{name: BorneTds}` for the given POs or Work Orders (`borne_tds_by_order_sql`); an order with no
+	paid tax is absent. Empty for an order type whose recorded tax does not count (`TAX_COUNTED_PARENTS`).
 
 	`exclude_payment` as in `total_tds_of`: a payment being trashed is still in the table, and its tax
 	must leave these figures as it leaves `total_tds`.
 	"""
 	names = sorted({n for n in names or () if n})
-	if document_type not in DEDUCTIBLE_PARENTS or not names:
+	if document_type not in TAX_COUNTED_PARENTS or not names:
 		return {}
 	rows = frappe.db.sql(
 		f"""
@@ -452,28 +488,42 @@ def work_order_tds_borne(work_order: str) -> dict:
 	return {"withheld": withheld, "company": company, "kind": kind}
 
 
-def work_order_deductions(work_order: str) -> dict:
-	"""`{payment name: {tds_amount, borne_by}}`: the deduction on each of one Work Order's payments,
-	WHATEVER THE PAYMENT'S STATUS, for the Work Order page's transactions table (one row per payment,
-	Approved ones included). A payment with no deduction is absent. One query.
+def order_deductions(document_type: str, document_name: str) -> dict:
+	"""`{payment name: {tds_amount, borne_by}}`: the counted deduction on each of one PO's or Work
+	Order's payments (`counted_deductions_sql`), WHATEVER THE PAYMENT'S STATUS, for the Work Order
+	page's transactions table (one row per payment, Approved ones included) and the payments pop-up. A
+	payment with none -- or still stored gross -- is absent. One query.
 
-	A row with no `borne_by` reads `Vendor`, the column default. No permission check: the endpoint
-	checks read on the Work Order.
+	No permission check: the endpoints check read on the order.
 	"""
 	rows = frappe.db.sql(
 		f"""
-		SELECT d.project_payment, d.tds_amount, d.borne_by
-		FROM "tab{TDS_DOCTYPE}" d
-		INNER JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = d.project_payment
-		WHERE p.document_type = %(doctype)s AND p.document_name = %(name)s
+		SELECT c.project_payment, c.tds_amount, c.borne_by
+		FROM ({counted_deductions_sql()}) c
+		WHERE c.document_type = %(doctype)s AND c.document_name = %(name)s
 		""",
-		{"doctype": SERVICE_REQUEST_DOCTYPE, "name": work_order},
+		{"doctype": document_type, "name": document_name},
 		as_dict=True,
 	)
-	return {
-		row.project_payment: {"tds_amount": flt(row.tds_amount, 2), "borne_by": row.borne_by or BORNE_BY_VENDOR}
-		for row in rows
-	}
+	return {row.project_payment: {"tds_amount": flt(row.tds_amount, 2), "borne_by": row.borne_by} for row in rows}
+
+
+def vendor_borne_tds_on(document_type: str, document_name: str, statuses) -> float:
+	"""The tax withheld from the vendor (`borne_by` Vendor) on one order's payments at `statuses`
+	(`counted_deductions_sql`): what its payments' stored amounts lack of what was requested. The PO
+	request limit counts each payment gross with it (`services/finance`). 0 for an order type whose
+	recorded tax does not count."""
+	if document_type not in TAX_COUNTED_PARENTS or not document_name or not statuses:
+		return 0.0
+	total = frappe.db.sql(
+		f"""
+		SELECT COALESCE(SUM(c.vendor_borne_tds), 0)
+		FROM ({counted_deductions_sql()}) c
+		WHERE c.document_type = %(doctype)s AND c.document_name = %(name)s AND c.status IN %(statuses)s
+		""",
+		{"doctype": document_type, "name": document_name, "statuses": tuple(statuses)},
+	)[0][0]
+	return flt(total, 2)
 
 
 def existing_deduction(payment_name: str) -> str | None:

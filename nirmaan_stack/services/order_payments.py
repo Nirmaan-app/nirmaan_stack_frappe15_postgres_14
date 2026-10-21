@@ -31,7 +31,8 @@ def load_payments(document_type: str, document_name: str):
 	`tds_by_payment` holds only the tax WITHHELD FROM THE VENDOR (`borne_by` = Vendor): that tax was cut
 	out of the payment's `amount`, so the summary adds it back to count what was requested. A
 	deduction the company bore left its payment whole and is not added (#1451). Read off each row, so
-	a Work Order with both kinds counts each payment right.
+	a Work Order with both kinds counts each payment right. A PO's recorded tax is added the same way
+	once its payment is netted (ADR-0034 Amendment B); one still stored gross has none to add.
 	"""
 	payments = frappe.get_all(
 		"Project Payments",
@@ -41,22 +42,13 @@ def load_payments(document_type: str, document_name: str):
 		limit_page_length=0,
 	)
 
-	tds_by_payment = {}
-	if document_type in payment_tds.DEDUCTIBLE_PARENTS:
-		# One query for every deduction on this order, joined through the payment rather than an
-		# `["in", names]` filter.
-		for row in frappe.db.sql(
-			"""
-			SELECT t.project_payment, t.tds_amount
-			FROM "tabPayment TDS Deduction" t
-			JOIN "tabProject Payments" p ON p.name = t.project_payment
-			WHERE p.document_type = %s AND p.document_name = %s
-			  AND t.borne_by IS DISTINCT FROM %s
-			""",
-			(document_type, document_name, payment_tds.BORNE_BY_COMPANY),
-			as_dict=True,
-		):
-			tds_by_payment[row.project_payment] = row.tds_amount
+	# The order's counted deductions (`payment_tds.order_deductions`, a PO's too, ADR-0034 Amendment B), in
+	# one query joined through the payment rather than an `["in", names]` filter.
+	tds_by_payment = {
+		payment: row["tds_amount"]
+		for payment, row in payment_tds.order_deductions(document_type, document_name).items()
+		if row["borne_by"] != payment_tds.BORNE_BY_COMPANY
+	}
 	return payments, tds_by_payment
 
 

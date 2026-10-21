@@ -109,3 +109,55 @@ still owed it.
 - **Add the tax on each screen and keep the stored figure net.** Rejected: it puts back the scattered sums
   this ADR removed, and the ratchet cannot see tax arithmetic.
 - **Date the tax by its challan.** Rejected: a challan has no single project.
+
+## Amendment B — a PO's recorded tax counts in its Amount Paid; the old PO payments are cut to net (2026-10-21)
+
+**Accepted** (owner decision rounds for spec #1528, 2026-10-20/21: Q28-B, V1-A, V2-A, V3-A). Extends
+Amendment A from Work Orders to POs.
+
+### Context
+
+A 2026-09 backfill wrote a tax record (a vendor-borne *Payment TDS Deduction*) beside 86 Paid PO payments,
+₹1,39,503 of tax on the 2026-10-08 copy. It left each payment at the full bill, with the legacy `tds` box
+filled in, because PO Amount Paid did not count tax. Spec #1508 then added every payment's recorded tax on
+top of it in the Vendor Ledger and the Vendor report, so those 86 counted their tax twice. The owner wants
+POs and Work Orders to mean the same thing by Amount Paid.
+
+### Decision
+
+1. **Recorded tax counts on a PO as on a Work Order.** A PO's stored Amount Paid is its Paid payments plus
+   the vendor's tax recorded on them, less its Received refunds. The same holds for every figure that reads
+   recorded tax: the mismatch judge's paid figure, the payment summary, the PO request limit, project outflow
+   (PO part) and the payments pop-up, which asks an endpoint that checks read on the PO. *Total TDS* stays a
+   Work Order figure: a PO stores none.
+2. **Taking a deduction stays Work-Order-only.** No PO payment ever has tax withheld. The orders that take a
+   deduction (`payment_tds.DEDUCTIBLE_PARENTS`) are kept apart from the orders whose recorded tax counts
+   (`TAX_COUNTED_PARENTS`), and every reader of recorded tax uses the second set.
+3. **The 86 payments are cut to what the vendor got,** gross − tax, and their legacy `tds` box is cleared,
+   by a one-time patch with a dry run (`patches/v3_0/net_po_payments_with_tds`). It skips and lists any
+   payment matched to a bank line, or carrying tax of ₹5 or less, since either may already be net. It
+   recounts each touched PO and its vendor's credit and re-checks CEO Hold. It aborts, writing nothing,
+   unless every touched PO's Amount Paid, Amount Due and vendor credit and every touched project's outflow
+   are unchanged.
+4. **A PO payment still stored gross counts its tax nowhere on top.** Until it is cut, a PO payment that
+   still carries the legacy `tds` box holds its tax inside its amount. So its figures read as before the
+   cut, the skipped payments keep reading right, and there is no window where the 86 count their tax twice.
+
+### Consequences
+
+- The Vendor Ledger and Vendor report count the 86 payments' tax once, with no code of their own.
+- The Outflow report and the WO Payment Voucher list bank cash-outs (Amendment A, Decision 5), so the cut
+  payments now show what the vendor got.
+- The legacy `tds` box on a PO payment that carries a tax record now means something: it marks the payment
+  as stored gross. Clearing it by hand without cutting the payment makes the tax count twice, and the
+  mismatch report shows that PO.
+- On the 2026-10-08 copy the dry run cuts 58 payments (₹1,39,439 of tax, 51 POs) and skips 28, all for tax
+  of ₹5 or less (₹64 in all); none is matched to a bank line.
+
+### Considered options
+
+- **Q28-A: stop adding tax on top of PO payments in the Vendor Ledger and report, and leave the 86 as they
+  are.** The smallest change. Rejected by the owner: POs and Work Orders would mean different things by
+  Amount Paid.
+- **Count PO tax with no gross marker.** Rejected: until the patch runs, and for ever on the skipped
+  payments, the tax would count twice, and the mismatch report would flag 28 POs for ₹1 to ₹5 each.

@@ -3,8 +3,9 @@
 
 """What was paid to each vendor in a date range: the Amount Paid rule, dated (#1461, ADR-0034).
 
-An order's Amount Paid is its Paid Project Payments, plus (a Work Order's) the TDS withheld from the
-vendor on them, less its Received Vendor Refunds (`GLOSSARY.md` *Amount Paid*, ADR-0034 Amendment A).
+An order's Amount Paid is its Paid Project Payments, plus the TDS withheld from the vendor on them, less
+its Received Vendor Refunds (`GLOSSARY.md` *Amount Paid*, ADR-0034 Amendments A and B: a PO's recorded tax
+counts once its payment is netted; one still stored gross holds it in its amount).
 Amount Paid carries no date, so a figure for a period (the Vendor report's Total Paid in a range, its
 Current FY Paid, and the cash behind its Balance Payable since the ledger start) applies the same rule to
 the rows themselves: a payment and the tax withheld on it on the payment's `payment_date`, a refund on

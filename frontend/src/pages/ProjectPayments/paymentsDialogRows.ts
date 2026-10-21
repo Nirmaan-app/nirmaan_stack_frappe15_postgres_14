@@ -10,13 +10,14 @@ import type { WorkOrderTds } from "./tdsForecast";
  * payments and its Received refunds as one list, newest first, and their net -- the order's Amount Paid.
  * Waiting and Cancelled refunds moved no money, so they are not listed.
  *
- * A Work Order's Amount Paid also holds the TDS withheld from the vendor on each payment (ADR-0034
- * Amendment A, #1512), so each payment row carries it as `tds` and the total counts it: payments + TDS
- * withheld - Received refunds. `deductions` is the server's per-payment answer (`get_work_order_tds`
- * `payments`); tax the company paid on top (`borne_by` Company) was never the vendor's and reads 0. A PO
- * has none.
+ * An order's Amount Paid also holds the TDS withheld from the vendor on each payment (ADR-0034
+ * Amendment A for a Work Order, #1512; Amendment B for a PO's recorded tax, #1534), so each payment row
+ * carries it as `tds` and the total counts it: payments + TDS withheld - Received refunds. `deductions`
+ * is the server's per-payment answer (`get_work_order_tds` / `get_order_payment_tds` `payments`); tax
+ * the company paid on top (`borne_by` Company) was never the vendor's and reads 0. A PO payment still
+ * stored gross has no counted deduction, so it reads 0 too.
  *
- * `tdsPending`: a Work Order whose answer has not arrived. Its rows' `tds` and the `total` are undefined
+ * `tdsPending`: an order whose answer has not arrived. Its rows' `tds` and the `total` are undefined
  * then, never a total without the tax that the Amount Paid clicked holds.
  */
 export const paymentsDialogRows = <P extends { name: string; amount?: number | string | null; payment_date?: string | null }>(
