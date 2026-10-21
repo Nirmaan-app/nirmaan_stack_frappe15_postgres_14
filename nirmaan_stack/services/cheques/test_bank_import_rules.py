@@ -75,7 +75,7 @@ class TestWhichChequeALineClears(unittest.TestCase):
 class TestTheBankImportStartsFromMoreStatuses(unittest.TestCase):
     def problem(self, status, payments, *, bank_line=True):
         return clear_rules.clear_problem(status=status, cheque_type="Payment", old_type=False,
-                                         payments=list(payments), bank_line=bank_line)
+                                         payments=[clear_rules.ClearPayment(*p) for p in payments], bank_line=bank_line)
 
     def test_a_pending_cheque_whose_payments_wait_for_approval_may_be_cleared_by_the_bank(self):
         self.assertIsNone(self.problem("Approval Pending", [("PAY-1", "Requested"), ("PAY-2", "CEO Pending")]))

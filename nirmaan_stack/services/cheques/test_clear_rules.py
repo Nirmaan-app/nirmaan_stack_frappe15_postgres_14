@@ -43,7 +43,8 @@ class TestClear(unittest.TestCase):
     def problem(self, status="Issued", payments=(("PAY-1", RP),), **kw):
         values = {"cheque_type": "Payment", "old_type": False, "bank_line": True}
         values.update(kw)
-        return clear_rules.clear_problem(status=status, payments=list(payments), **values)
+        return clear_rules.clear_problem(status=status, payments=[clear_rules.ClearPayment(*p) for p in payments],
+                                         **values)
 
     def test_an_issued_cheque_whose_payments_wait_for_the_bank_is_cleared_by_its_line(self):
         self.assertIsNone(self.problem(payments=[("PAY-1", RP), ("PAY-2", RP)]))
@@ -101,12 +102,12 @@ class TestClear(unittest.TestCase):
         # A cheque payment is never put on hold (ADR-0035 §5), but one on an Old-type cheque may predate that.
         for status, old_type in (("Issued", True), ("Cancelled", True), ("Approval Pending", False)):
             self.assertEqual(
-                self.problem(status, [("PAY-1", RP), ("PAY-2", "Approved")], old_type=old_type, held=["PAY-2"]),
+                self.problem(status, [("PAY-1", RP), ("PAY-2", "Approved", True)], old_type=old_type),
                 "payment PAY-2 is on hold, so it cannot be paid until the hold is released",
                 status,
             )
         # A Paid one is left as it is, so its hold stops nothing.
-        self.assertIsNone(self.problem(payments=[("PAY-1", "Paid")], old_type=True, held=["PAY-1"]))
+        self.assertIsNone(self.problem(payments=[("PAY-1", "Paid", True)], old_type=True))
 
     def test_an_old_type_cheque_s_expense_is_settled_only_once_it_waits_for_the_bank(self):
         for status in (RP, "Paid"):

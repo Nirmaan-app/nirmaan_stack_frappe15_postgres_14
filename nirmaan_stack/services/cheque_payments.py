@@ -30,8 +30,6 @@ last approval (`services/cheques/status.issue`). One transaction, so a failed mo
 payment at Approved and its cheque at Approval Pending: the two never disagree.
 """
 
-from collections.abc import Callable
-
 import frappe
 
 from nirmaan_stack.services import payment_tds, settlement
@@ -77,12 +75,9 @@ def move_to_reconciliation(payment_name: str, *, sync_po_term: bool = True) -> b
 	if not is_cheque(pay) or (pay.status or "").strip() != settlement.STATUS_APPROVED:
 		return False
 
-	def save(doc) -> None:
-		if not sync_po_term:
-			doc.flags.bulk_approval = True  # `_find_and_update_po_term` stays out; the caller writes the term
-		doc.save(ignore_permissions=True)
-
-	if not to_reconciliation(pay, save=save):
+	if not sync_po_term:
+		pay.flags.bulk_approval = True  # `_find_and_update_po_term` stays out; the caller writes the term
+	if not to_reconciliation(pay):
 		return False
 	if pay.get("cheque"):
 		# Local: the cheques service imports this module.
@@ -94,10 +89,10 @@ def move_to_reconciliation(payment_name: str, *, sync_po_term: bool = True) -> b
 	return True
 
 
-def to_reconciliation(pay, *, save: Callable[[object], None]) -> bool:
+def to_reconciliation(pay) -> bool:
 	"""THE STEP FROM `Approved` TO `Reconciliation Pending` FOR A CHEQUE PAYMENT: `pay` (a loaded
-	payment at Approved) has its TDS deduction retried, then is saved at Reconciliation Pending through
-	`save(pay)`, which puts the caller's flags on it. False, and nothing written, for a payment on hold:
+	payment at Approved, carrying the caller's flags) has its TDS deduction retried, then is saved at
+	Reconciliation Pending. The reload after a deduction keeps `pay.flags`. False, and nothing written, for a payment on hold:
 	it stays at Approved (`services/payment_hold.validate_hold` would refuse the save). Its callers are the
 	move after an approval (`move_to_reconciliation`) and the bank import, which brings a cheque's payments
 	forward before it pays them (`services/cheques/status._bring_forward`).
@@ -114,7 +109,7 @@ def to_reconciliation(pay, *, save: Callable[[object], None]) -> bool:
 		payment_tds.record_deduction(pay)
 		pay.reload()
 	pay.status = settlement.STATUS_RECONCILIATION_PENDING
-	save(pay)
+	pay.save(ignore_permissions=True)
 	return True
 
 

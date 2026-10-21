@@ -38,7 +38,8 @@ comes off in `detach.py`. The deposit picker is `pickers.py`; the line rules tha
 `lines.py`.
 
 A Cheque moves no money figure: amounts paid, amounts owed, TDS and vendor credit come from payments.
-Becoming Issued is `services/cheques/status.issue`, the only code that issues a Payment cheque.
+Becoming Issued is `services/cheques/status.issue`, the only code that issues a Payment cheque, or, for an
+Old-type cheque its bank line clears, `old_type_clear.issue`; both write it through `mark_issued`.
 """
 
 from dataclasses import asdict
@@ -100,6 +101,16 @@ def history_row(from_status: str | None, to_status: str, user: str, note: str | 
         "changed_at": now_datetime(),
         "note": (note or "").strip() or None,
     }
+
+
+def mark_issued(doc, *, user: str, note: str | None, issue_date) -> None:
+    """THE Approval Pending -> Issued write on Payment cheque `doc`, read under its row lock by the caller,
+    which has checked it may move (`status.issue`, `old_type_clear.issue`): one history row by `user`
+    saying `note`, the status, and its issue date. Never commits."""
+    doc.append("status_history", history_row(PENDING, ISSUED, user, note))
+    doc.status = ISSUED
+    doc.issue_date = issue_date
+    doc.save(ignore_permissions=True)
 
 
 def existing_cheque(bank: str, bank_name: str | None, cheque_no: str, *, exclude: str | None = None) -> str | None:

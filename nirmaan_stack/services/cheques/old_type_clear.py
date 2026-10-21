@@ -13,12 +13,13 @@ another bank line already matches. The lines must add up to the line (`clear_rul
 """
 
 import frappe
+from frappe import _
 from frappe.utils import flt
 
 from nirmaan_stack.services.cheques.bank_import_rules import BANK_APPROVAL_NOTE
 from nirmaan_stack.services.cheques.clear_rules import OldTypeLine, old_type_lines_problem
-from nirmaan_stack.services.cheques.rules import ISSUED, PAYMENT_DOCTYPE, PENDING
-from nirmaan_stack.services.cheques.writer import CHEQUES, history_row
+from nirmaan_stack.services.cheques.rules import PAYMENT_DOCTYPE, PENDING
+from nirmaan_stack.services.cheques.writer import CHEQUES, mark_issued
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.row_settlement import MATCH_DOCTYPE, record_settlement
@@ -55,19 +56,19 @@ def issue(cheque: str, *, day: str, user: str) -> None:
     """Approval Pending -> Issued for an Old-type cheque its bank line clears, with `BANK_APPROVAL_NOTE`, as
     `status.issue` writes it for any other (the import review reads that row, `bank_import_rules.bank_start`).
     `status.issue` takes no Old-type cheque: its lines may pay expenses. Issued on `day`, when the import
-    approved its payments. Never commits."""
+    approved its payments, through the same write (`writer.mark_issued`). Re-read under its row lock and
+    refused unless still Approval Pending. Never commits."""
     doc = frappe.get_doc(CHEQUES, cheque, for_update=True)
-    doc.append("status_history", history_row(PENDING, ISSUED, user, BANK_APPROVAL_NOTE))
-    doc.status = ISSUED
-    doc.issue_date = day
-    doc.save(ignore_permissions=True)
+    if doc.status != PENDING:
+        frappe.throw(_("Cheque {0} cannot be cleared: it is {1}, not {2}.").format(doc.cheque_no, doc.status, PENDING))
+    mark_issued(doc, user=user, note=BANK_APPROVAL_NOTE, issue_date=day)
 
 
-def settle_lines(doc, line, *, paid_before: set[tuple[str, str]], statement_file_url: str | None,
+def settle_lines(doc, line, *, paid: set[str], paid_before: set[tuple[str, str]], statement_file_url: str | None,
                  user: str) -> list[SettleResult]:
     """Settle every record Old-type cheque `doc`'s lines name for its line's amount, one match record per
     line (#1516), and return the match records still to write on bank line `line` (`status._record_bank_line`).
-    A payment not Paid before was just paid (`status.clear`'s pay loop); an expense is linked to the bank line
+    A payment in `paid` was just paid (`status.clear`'s pay loop); an expense is linked to the bank line
     here, through the import's own expense settle (`settle.link_lines_to_expense`), as if the line's amount
     were the bank line's, so it is checked, dated and made Paid exactly as a linked expense is.
 
@@ -82,7 +83,8 @@ def settle_lines(doc, line, *, paid_before: set[tuple[str, str]], statement_file
                 legs.append(_line_leg(row))
             continue
         if row.payment_doctype == PAYMENT_DOCTYPE:
-            legs.append(_line_leg(row))
+            if row.payment_name in paid:
+                legs.append(_line_leg(row))
             continue
         # The line's share of the bank line; every other field is the bank line's.
         share = frappe._dict({**line, "amount": flt(row.amount)})

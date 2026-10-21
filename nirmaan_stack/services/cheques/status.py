@@ -6,7 +6,8 @@ approved, cleared when they are paid, cancelled when they are rejected. Part of 
 never commits. There is no free status change: every move is one of the named operations below, and
 none goes back (Cleared -> Issued and Cancelled -> Issued are gone, #1484).
 
-**Issue** (#1479). `issue` is THE ONLY CODE THAT TAKES A PAYMENT CHEQUE FROM APPROVAL PENDING TO ISSUED. A Payment
+**Issue** (#1479). `issue` is THE ONLY CODE THAT TAKES A PAYMENT CHEQUE FROM APPROVAL PENDING TO ISSUED, but for an
+Old-type cheque its bank line clears (`old_type_clear.issue`); both write it through `writer.mark_issued`. A Payment
 cheque starts Approval Pending and is Issued in the same write that moves its last payment on to Reconciliation
 Pending (`cheque_payments.move_to_reconciliation` calls it), with its issue date set to the day of its
 payments' last approval. Every approval route ends in that move (single L1, CEO, bulk, auto-approve and
@@ -51,6 +52,7 @@ from nirmaan_stack.services.cheques.bank_import_rules import BANK_APPROVAL_NOTE,
 from nirmaan_stack.services.cheques.clear_rules import (
     BANK_BRINGS_FORWARD,
     BankLine,
+    ClearPayment,
     bank_line_problem,
     cancel_note_problem,
     cancel_problem,
@@ -70,7 +72,6 @@ from nirmaan_stack.services.cheques.rules import (
     CHEQUE_TYPE_SECURITY_DEPOSIT,
     CLEARED,
     CLEARED_BY_BANK_IMPORT,
-    ISSUED,
     PAYMENT_DOCTYPE,
     PAYMENT_REJECTED,
     PENDING,
@@ -79,7 +80,7 @@ from nirmaan_stack.services.cheques.rules import (
     ready_to_issue,
     rupees,
 )
-from nirmaan_stack.services.cheques.writer import CHEQUES, CHEQUES_CHANGED_EVENT, history_row
+from nirmaan_stack.services.cheques.writer import CHEQUES, CHEQUES_CHANGED_EVENT, history_row, mark_issued
 from nirmaan_stack.services.outflow_import.amounts import amounts_match
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.row_settlement import (
@@ -144,9 +145,8 @@ def clear(cheque: str, *, bank_line: str | None, user: str) -> dict:
     paid_before |= {record for record, status in expenses.items() if status == STATUS_PAID}
     reason = clear_problem(
         status=doc.status, cheque_type=doc.cheque_type, old_type=old_type,
-        payments=[(p, rows[p].status) for p in payments], bank_line=bool(bank_line),
-        expenses=[(name, status) for (_doctype, name), status in expenses.items()],
-        held=[p for p in payments if rows[p].on_hold],
+        payments=[ClearPayment(p, rows[p].status, bool(rows[p].on_hold)) for p in payments],
+        bank_line=bool(bank_line), expenses=[(name, status) for (_doctype, name), status in expenses.items()],
     )
     if not reason and started in BANK_BRINGS_FORWARD and not old_type:
         # An Old-type cheque may pay expenses, which the approval rule refuses: its lines are checked
@@ -184,7 +184,7 @@ def clear(cheque: str, *, bank_line: str | None, user: str) -> dict:
     # watches Approved -> Paid; recomputed from source once per vendor, as the import's settle does.
     recompute_vendor_credit([r.document_name for r in paid if r.document_type == PO_DOCTYPE], SETTLED_ENTRY_TYPE)
     if old_type:
-        legs = old_type_clear.settle_lines(doc, line, paid_before=paid_before,
+        legs = old_type_clear.settle_lines(doc, line, paid=set(to_pay), paid_before=paid_before,
                                            statement_file_url=statement_file_url, user=user)
     else:
         legs = [_leg(pay) for pay in paid]
@@ -234,11 +234,12 @@ def _bring_forward(doc, payments: list[str], *, day: str, user: str, bank_line: 
             pay.approval_date = day
         elif was == STATUS_CEO_PENDING:
             pay.ceo_approval_date = day
-        if was != STATUS_APPROVED:
-            pay.status = STATUS_APPROVED
-            _save_for_the_bank(pay, doc.name)
-        if not to_reconciliation(pay, save=lambda p: _save_for_the_bank(p, doc.name)):
-            _refuse(doc, "cleared", f"payment {name} is on hold")  # `clear_problem` refuses it first
+        _for_the_bank(pay, doc.name)
+        with outflow_import_write():
+            if was != STATUS_APPROVED:
+                pay.status = STATUS_APPROVED
+                pay.save(ignore_permissions=True)
+            to_reconciliation(pay)  # a held payment never gets here: `clear_problem` refuses it
         if was == PAYMENT_REJECTED:
             line = f", bank line {bank_line}" if bank_line else ""
             pay.add_comment("Comment", text=_("Revived by the bank import: cheque {0} was cancelled, but the bank "
@@ -251,12 +252,11 @@ def _bring_forward(doc, payments: list[str], *, day: str, user: str, bank_line: 
         _refuse(doc, "cleared", "its payments could not all be approved")
 
 
-def _save_for_the_bank(pay, cheque: str) -> None:
+def _for_the_bank(pay, cheque: str) -> None:
+    """The flags every bring-forward save carries (`_bring_forward`)."""
     pay.flags.from_outflow_import = True
     pay.flags.bulk_approval = True
     pay.flags[DECIDING_FLAG] = cheque
-    with outflow_import_write():
-        pay.save(ignore_permissions=True)
 
 
 def link_bank_line(cheque: str, *, bank_line: str, user: str) -> dict:
@@ -444,8 +444,5 @@ def issue(name: str, *, user: str, note: str | None = None):
     if problem:
         frappe.throw(_(problem))
     approvals = [r.approval_date for r in rows.values()] + [r.ceo_approval_date for r in rows.values()]
-    doc.append("status_history", history_row(PENDING, ISSUED, user, note))
-    doc.status = ISSUED
-    doc.issue_date = issue_date_from(approvals) or nowdate()
-    doc.save(ignore_permissions=True)
+    mark_issued(doc, user=user, note=note, issue_date=issue_date_from(approvals) or nowdate())
     return doc

@@ -10,7 +10,7 @@ hand, and the import clears Old-type cheques too, each line's record settled for
 Each `*_problem` function returns a short reason ("already Cleared"), or None.
 """
 
-from collections.abc import Collection, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from frappe.utils import flt
@@ -55,20 +55,28 @@ DIRECTION_DEBIT = "Debit"
 UNMATCHED_LINE_STATUSES = ("Pending match run", "Mismatched", "Error")
 
 
+@dataclass(frozen=True)
+class ClearPayment:
+    """A Project Payment a cheque's lines name, as the clear reads it: its status and its hold flag."""
+
+    name: str
+    status: str | None
+    on_hold: bool = False
+
+
 def clear_problem(
     *,
     status: str,
     cheque_type: str,
     old_type: bool,
-    payments: Sequence[tuple[str, str | None]],
+    payments: Sequence[ClearPayment],
     bank_line: bool,
     expenses: Sequence[tuple[str, str | None]] = (),
-    held: Collection[str] = (),
 ) -> str | None:
     """Why this cheque cannot be cleared, as a short reason ("already Cleared"), or None. Pure.
 
     Only a bank-statement line clears a cheque (`bank_line`), never a person (#1516). `payments` holds
-    `(payment, status)` for every Project Payment its lines name. Clearing pays them, so from Issued each
+    a `ClearPayment` for every Project Payment its lines name. Clearing pays them, so from Issued each
     must be waiting for the bank (Reconciliation Pending); one already Paid refuses, since the line would
     pay it twice. Starting from Approval Pending or Cancelled (`BANK_BRINGS_FORWARD`) the import takes any
     unpaid payment: it approves it first, or revives it when it was Rejected with its Cancelled cheque.
@@ -81,7 +89,7 @@ def clear_problem(
     as it is. A payment Rejected while its cheque stayed Issued is refused: only a cancel's history lets
     the import warn that the money may have been paid twice.
 
-    A payment in `held` (on hold) refuses too unless it is Paid: a held payment cannot leave Approved
+    A payment on hold refuses too unless it is Paid: a held payment cannot leave Approved
     (`payment_hold.validate_hold`). No cheque payment is put on hold (ADR-0035 §5), but one on an Old-type
     cheque may have been before that rule.
     """
@@ -93,13 +101,13 @@ def clear_problem(
         return "already Cleared"
     if status not in CLEARABLE_FROM:
         return f"it is {status}"
-    for name, payment_status in payments:
-        payment_status = (payment_status or "").strip()
+    for payment in payments:
+        name, payment_status = payment.name, (payment.status or "").strip()
         if payment_status == STATUS_PAID:
             if old_type:
                 continue
             return f"payment {name} is already Paid"
-        if name in held:
+        if payment.on_hold:
             return f"payment {name} is on hold, so it cannot be paid until the hold is released"
         if not payment_status:
             return f"payment {name} is blank"
