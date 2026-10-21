@@ -30,20 +30,23 @@ from nirmaan_stack.services.cheques.rules import (
 )
 from nirmaan_stack.services.settlement import (
     STATUS_APPROVED,
+    STATUS_CEO_PENDING,
     STATUS_PAID,
     STATUS_RECONCILIATION_PENDING,
+    STATUS_REJECTED,
+    STATUS_REQUESTED,
 )
 
 
-#: The statuses a bank line clears a Payment cheque from (#1485): any live one, because the bank has
-#: already paid. From Approval Pending its payments are approved by the import first, from Cancelled its Rejected
-#: payments are revived (`status.clear` does both). An Old-type cheque is cleared from Issued only.
+#: The statuses a bank line clears a Payment cheque from (#1485), Old-type ones too: any live one, because
+#: the bank has already paid. From Approval Pending its payments are approved by the import first, from
+#: Cancelled its Rejected payments are revived (`status.clear` does both).
 CLEARABLE_FROM = (ISSUED, PENDING, CANCELLED)
 #: The starts the bank import brings to Reconciliation Pending itself before it pays (`status.clear`).
 BANK_BRINGS_FORWARD = (PENDING, CANCELLED)
-#: The payment statuses an Old-type cheque's clear takes: Approved and Reconciliation Pending ones are paid,
-#: a Paid one is left as it is (`status.clear`).
-OLD_TYPE_PAYMENT_STATUSES = (STATUS_APPROVED, STATUS_RECONCILIATION_PENDING, STATUS_PAID)
+#: The payment statuses an Issued Old-type cheque's clear brings on to Reconciliation Pending before it
+#: pays: its old status says nothing about its payments (#1478), so one may still wait for approval.
+OLD_TYPE_BRINGS_FORWARD = (STATUS_REQUESTED, STATUS_CEO_PENDING, STATUS_APPROVED)
 #: The bank-statement source whose lines clear cheques, and the direction that spends money
 #: (`outflow_import/sources.BANK_STATEMENT_SOURCES`, `outflow_import/parser.DIRECTION_DEBIT`).
 ICICI_STATEMENT_SOURCE = "ICICI Bank Statement"
@@ -59,20 +62,23 @@ def clear_problem(
     old_type: bool,
     payments: Sequence[tuple[str, str | None]],
     bank_line: bool,
+    expenses: Sequence[tuple[str, str | None]] = (),
 ) -> str | None:
     """Why this cheque cannot be cleared, as a short reason ("already Cleared"), or None. Pure.
 
     Only a bank-statement line clears a cheque (`bank_line`), never a person (#1516). `payments` holds
-    `(payment, status)` for every Project Payment its lines name. Clearing pays them, so each must be
-    waiting for the bank (Reconciliation Pending); one already Paid refuses, since the line would pay it
-    twice. Starting from Approval Pending or Cancelled (`BANK_BRINGS_FORWARD`) the import takes any unpaid payment:
-    it approves or revives it first.
+    `(payment, status)` for every Project Payment its lines name. Clearing pays them, so from Issued each
+    must be waiting for the bank (Reconciliation Pending); one already Paid refuses, since the line would
+    pay it twice. Starting from Approval Pending or Cancelled (`BANK_BRINGS_FORWARD`) the import takes any
+    unpaid payment: it approves it first, or revives it when it was Rejected with its Cancelled cheque.
 
-    An Old-type cheque is cleared from Issued only, with every line paid in full (ADR-0035 Amendment A):
-    its payments may be Approved or Reconciliation Pending (paid by the clear) or already Paid (left as
-    they are), never waiting for approval or Rejected. Its old status says nothing about its payments
-    (#1478), so the import neither approves nor revives them; it is never Approval Pending, and a
-    Cancelled one was torn up under rules that left its payments as they were.
+    An Old-type cheque is cleared like any other, every line paid in full (owner, 2026-10-21; ADR-0035
+    Amendment A), with three differences. A payment already Paid is left as it is. From Issued, a payment
+    still waiting for approval or at Approved is brought forward too (`OLD_TYPE_BRINGS_FORWARD`). And
+    `expenses` holds `(expense, status)` for each expense line: the import settles an expense only from
+    Reconciliation Pending, as any bank line does (`ledgers.SETTLEABLE_STATUSES`), and leaves a Paid one
+    as it is. A payment Rejected while its cheque stayed Issued is refused: only a cancel's history lets
+    the import warn that the money may have been paid twice.
     """
     if cheque_type != CHEQUE_TYPE_PAYMENT:
         return "a Security Deposit cheque is never cashed"
@@ -80,24 +86,28 @@ def clear_problem(
         return "only a bank-statement line with its number and amount clears a cheque"
     if status == CLEARED:
         return "already Cleared"
-    if old_type:
-        if status != ISSUED:
-            return f"it is {status}: an Old-type cheque is cleared only while Issued"
-        for name, payment_status in payments:
-            payment_status = (payment_status or "").strip()
-            if payment_status not in OLD_TYPE_PAYMENT_STATUSES:
-                return f"payment {name} is {payment_status or 'blank'}"
-        return None
     if status not in CLEARABLE_FROM:
         return f"it is {status}"
     for name, payment_status in payments:
         payment_status = (payment_status or "").strip()
         if payment_status == STATUS_PAID:
+            if old_type:
+                continue
             return f"payment {name} is already Paid"
-        if status in BANK_BRINGS_FORWARD and payment_status:
+        if not payment_status:
+            return f"payment {name} is blank"
+        if payment_status == STATUS_REJECTED and status != CANCELLED:
+            return f"payment {name} was Rejected while its cheque stayed {status}"
+        if status in BANK_BRINGS_FORWARD or payment_status == STATUS_RECONCILIATION_PENDING:
             continue
-        if payment_status != STATUS_RECONCILIATION_PENDING:
-            return f"payment {name} is {payment_status or 'blank'}"
+        if old_type and payment_status in OLD_TYPE_BRINGS_FORWARD:
+            continue
+        return f"payment {name} is {payment_status}"
+    for name, expense_status in expenses:
+        expense_status = (expense_status or "").strip()
+        if expense_status not in (STATUS_RECONCILIATION_PENDING, STATUS_PAID):
+            return (f"expense {name} is {expense_status or 'blank'}: the import settles an expense only at "
+                    "Reconciliation Pending")
     return None
 
 

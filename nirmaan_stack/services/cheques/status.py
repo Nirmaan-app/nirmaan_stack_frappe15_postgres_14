@@ -28,11 +28,13 @@ hand before #1516 gets a later bank line through `link_bank_line` (spec story 48
 nothing paid again. A Cleared cheque has no undo: the import's Unreconcile refuses its payments
 (`cleared_cheque_of`).
 
-**Old-type cheques** (#1478) are cleared by their bank line too, from Issued only (#1516): every line is
-paid in full. Each record a line names (a Project Payment or an expense) that is not yet Paid is settled
-for that line's amount, an Approved payment first moved on to Reconciliation Pending; one already Paid is
-left as it is. Each line gets one match record, except a Paid record another bank line already matches.
-The lines must add up to the line (`clear_rules.old_type_lines_problem`).
+**Old-type cheques** (#1478) are cleared by their bank line like any other (#1516; owner, 2026-10-21):
+from Issued, Approval Pending or Cancelled, every line paid in full. Each record a line names (a Project
+Payment or an expense) that is not yet Paid is settled for that line's amount, a payment still waiting
+first brought on to Reconciliation Pending by `_bring_forward`; one already Paid is left as it is. An
+expense is settled only from Reconciliation Pending (`clear_rules.clear_problem`). Each line gets one
+match record, except a Paid record another bank line already matches. The lines must add up to the line
+(`clear_rules.old_type_lines_problem`).
 
 **Cancel** (#1484). `cancel` is THE reject cascade (`decide.reject_cheque`) behind a note: every payment
 on the cheque Rejected with the note as their reason, the cheque Cancelled. Refused once Cleared.
@@ -148,8 +150,11 @@ def clear(cheque: str, *, bank_line: str | None, user: str) -> dict:
     reason = clear_problem(
         status=doc.status, cheque_type=doc.cheque_type, old_type=old_type,
         payments=[(p, rows[p].status) for p in payments], bank_line=bool(bank_line),
+        expenses=[(row.payment_name, _status_of(row)) for row in _expense_lines(doc)] if old_type else (),
     )
-    if not reason and started in BANK_BRINGS_FORWARD:
+    if not reason and started in BANK_BRINGS_FORWARD and not old_type:
+        # An Old-type cheque may pay expenses, which the approval rule refuses: its lines are checked
+        # against the bank line below instead (`old_type_lines_problem`).
         reason = approval_problem(cheque_no=doc.cheque_no, amount=doc.amount, lines=approval_lines(doc))
     if reason:
         _refuse(doc, "cleared", reason.rstrip("."))
@@ -164,20 +169,14 @@ def clear(cheque: str, *, bank_line: str | None, user: str) -> dict:
     # The bank's date is a fact: a cheque approved in the system after the bank paid it still clears.
     day = str(line.added_on)[:10]
 
-    if started in BANK_BRINGS_FORWARD:
-        # Approval Pending: the import approves the payments; Cancelled: it revives them. Either way they reach
-        # Reconciliation Pending here, in this savepoint, and are paid below like an Issued cheque's.
-        _bring_forward(doc, [p for p in payments if rows[p].status != STATUS_RECONCILIATION_PENDING],
-                       day=day, user=user, bank_line=bank_line)
+    waiting = [p for p in payments if rows[p].status not in (STATUS_RECONCILIATION_PENDING, STATUS_PAID)]
+    if started in BANK_BRINGS_FORWARD or waiting:
+        # Approval Pending: the import approves the payments; Cancelled: it revives them; an Old-type cheque's
+        # waiting ones are approved whatever its status. Either way they reach Reconciliation Pending here, in
+        # this savepoint, and are paid below like an Issued cheque's. A Paid one is left as it is.
+        _bring_forward(doc, waiting, day=day, user=user, bank_line=bank_line)
         doc = frappe.get_doc(CHEQUES, cheque, for_update=True)
         rows = lock_payments(payments)
-    elif old_type:
-        # Every line is paid in full: an Approved payment moves on to Reconciliation Pending, as its approval
-        # would have taken it, and is paid below. A Paid one is left as it is.
-        approved = [p for p in payments if rows[p].status == STATUS_APPROVED]
-        if approved:
-            _bring_forward(doc, approved, day=day, user=user, bank_line=bank_line)
-            rows = lock_payments(payments)
 
     to_pay = [p for p in payments if rows[p].status == STATUS_RECONCILIATION_PENDING]
     statement_file_url = frappe.db.get_value(BANK_BATCH_DOCTYPE, line.import_batch, "source_file") or None
@@ -253,6 +252,11 @@ def _settle_old_type(doc, line, *, paid: set[str], statement_file_url: str | Non
     _record_bank_line(line, legs, user)
 
 
+def _expense_lines(doc) -> list:
+    """The Old-type cheque's lines that name an expense (any record but a Project Payment)."""
+    return [row for row in doc.get("lines") or [] if row.payment_name and row.payment_doctype != PAYMENT_DOCTYPE]
+
+
 def _status_of(row) -> str:
     return (frappe.db.get_value(row.payment_doctype, row.payment_name, "status") or "").strip()
 
@@ -270,27 +274,25 @@ def _leg(pay) -> SettleResult:
 
 
 def _bring_forward(doc, payments: list[str], *, day: str, user: str, bank_line: str | None) -> None:
-    """Bring each of `payments` (on bank-cleared cheque `doc`: Approval Pending, Cancelled, or an Old-type cheque's
-    Approved payments) to Reconciliation Pending, as an approval followed by the move would
+    """Bring each of `payments` (on bank-cleared cheque `doc`: Approval Pending, Cancelled, or an Old-type
+    cheque's waiting payments) to Reconciliation Pending, as an approval followed by the move would
     (`cheque_payments.move_to_reconciliation`): each is saved Approved, its TDS recorded if it owes any (for
-    one already Approved, the move's retry), then saved Reconciliation Pending. A Pending cheque's
-    payments are approved by the bank import, dated `day` (the line's date: L1 for one waiting at
-    Requested, CEO for one at CEO Pending), and the cheque is then Issued with the history note
-    `BANK_APPROVAL_NOTE`; a Cancelled cheque's Rejected payments are revived, each with a comment.
+    one already Approved, the move's retry), then saved Reconciliation Pending. A payment still waiting is
+    approved by the bank import, dated `day` (the line's date: L1 for one at Requested, CEO for one at CEO
+    Pending); a Cancelled cheque's Rejected payments are revived, each with a comment. An Approval Pending
+    cheque is then Issued with the history note `BANK_APPROVAL_NOTE`.
 
     Every save carries the import's flags (`from_outflow_import` and the request flag keep each hook from
     committing; `bulk_approval` leaves the PO terms to the caller) and `DECIDING_FLAG`, so the payment's
     own guard sees the cheque's decision, not a lone approval. Never commits.
     """
-    pending = doc.status == PENDING
     for name in payments:
         pay = frappe.get_doc(PAYMENT_DOCTYPE, name)
         was = (pay.status or "").strip()
-        if pending:
-            if was == STATUS_REQUESTED:
-                pay.approval_date = day
-            elif was == STATUS_CEO_PENDING:
-                pay.ceo_approval_date = day
+        if was == STATUS_REQUESTED:
+            pay.approval_date = day
+        elif was == STATUS_CEO_PENDING:
+            pay.ceo_approval_date = day
         if was != STATUS_APPROVED:
             pay.status = STATUS_APPROVED
             _save_for_the_bank(pay, doc.name)
@@ -303,8 +305,24 @@ def _bring_forward(doc, payments: list[str], *, day: str, user: str, bank_line: 
             line = f", bank line {bank_line}" if bank_line else ""
             pay.add_comment("Comment", text=_("Revived by the bank import: cheque {0} was cancelled, but the bank "
                                               "paid it{1}.").format(doc.cheque_no, line))
-    if pending and not issue(doc.name, user=user, note=BANK_APPROVAL_NOTE):
+    if doc.status != PENDING:
+        return
+    if doc.old_type:
+        _issue_old_type(doc.name, day=day, user=user)
+    elif not issue(doc.name, user=user, note=BANK_APPROVAL_NOTE):
         _refuse(doc, "cleared", "its payments could not all be approved")
+
+
+def _issue_old_type(cheque: str, *, day: str, user: str) -> None:
+    """Approval Pending -> Issued for an Old-type cheque its bank line clears, with `BANK_APPROVAL_NOTE`, as
+    `issue` writes it for any other (the import review reads that row, `bank_import_rules.bank_start`).
+    `issue` takes no Old-type cheque: its lines may pay expenses. Issued on `day`, when the import approved
+    its payments. Never commits."""
+    doc = frappe.get_doc(CHEQUES, cheque, for_update=True)
+    doc.append("status_history", history_row(PENDING, ISSUED, user, BANK_APPROVAL_NOTE))
+    doc.status = ISSUED
+    doc.issue_date = day
+    doc.save(ignore_permissions=True)
 
 
 def _save_for_the_bank(pay, cheque: str) -> None:

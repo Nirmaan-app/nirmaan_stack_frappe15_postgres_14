@@ -6,9 +6,9 @@
 
 Clearing pays, and only a bank-statement line clears: an ICICI debit nobody has matched yet, carrying the
 cheque's number (leading zeros ignored) and its amount within ₹5. Every payment must be waiting for the
-bank (Reconciliation Pending) unless the import starts from Pending or Cancelled. An Old-type cheque is
-cleared from Issued only, each line's record settled for the line's amount. Cancelling is refused once
-the cheque is Cleared.
+bank (Reconciliation Pending) unless the import starts from Approval Pending or Cancelled. An Old-type
+cheque is cleared like any other, each line's record settled for the line's amount. Cancelling is
+refused once the cheque is Cleared.
 
 No database. Run with `devenv.sh unit nirmaan_stack.services.cheques.test_clear_rules`.
 """
@@ -74,22 +74,36 @@ class TestClear(unittest.TestCase):
         self.assertIsNone(self.problem(old_type=True))
         self.assertIsNone(self.problem(old_type=True, payments=[]))  # it pays only expenses
 
-    def test_an_old_type_cheque_is_cleared_from_issued_only(self):
+    def test_an_old_type_cheque_is_cleared_from_any_live_status_like_any_other(self):
+        # Owner, 2026-10-21: the import approves its waiting payments and revives a Cancelled one's.
+        self.assertIsNone(self.problem("Approval Pending", [("PAY-1", "Requested")], old_type=True))
+        self.assertIsNone(self.problem("Cancelled", [("PAY-1", "Rejected"), ("PAY-2", "Paid")], old_type=True))
+        self.assertEqual(self.problem("Cleared", old_type=True), "already Cleared")
+
+    def test_an_issued_old_type_cheque_takes_waiting_approved_and_paid_payments(self):
+        # Every line is paid in full: a waiting one is approved by the import, an Approved one moves on and
+        # is paid, a Paid one is left as it is.
+        self.assertIsNone(self.problem(
+            payments=[("PAY-1", "Requested"), ("PAY-2", "CEO Pending"), ("PAY-3", "Approved"), ("PAY-4", "Paid"),
+                      ("PAY-5", RP)],
+            old_type=True,
+        ))
+
+    def test_a_payment_rejected_while_its_cheque_stayed_issued_is_refused(self):
+        # Only a cancel's history says the bank may have paid it twice, so no revival without one.
         self.assertEqual(
-            self.problem("Cancelled", [("PAY-1", "Rejected")], old_type=True),
-            "it is Cancelled: an Old-type cheque is cleared only while Issued",
+            self.problem(payments=[("PAY-1", RP), ("PAY-2", "Rejected")], old_type=True),
+            "payment PAY-2 was Rejected while its cheque stayed Issued",
         )
+        self.assertEqual(self.problem(payments=[("PAY-1", "")], old_type=True), "payment PAY-1 is blank")
 
-    def test_an_old_type_cheque_s_approved_and_paid_payments_do_not_hold_it(self):
-        # Every line is paid in full: an Approved one is paid, a Paid one is left as it is.
-        self.assertIsNone(self.problem(payments=[("PAY-1", "Approved"), ("PAY-2", "Paid"), ("PAY-3", RP)],
-                                       old_type=True))
-
-    def test_an_old_type_cheque_with_a_payment_waiting_for_approval_or_rejected_is_refused(self):
-        for status in ("Requested", "CEO Pending", "Rejected", ""):
+    def test_an_old_type_cheque_s_expense_is_settled_only_once_it_waits_for_the_bank(self):
+        for status in (RP, "Paid"):
+            self.assertIsNone(self.problem(old_type=True, expenses=[("NPE-1", status)]), status)
+        for status in ("Requested", "CEO Pending", "Approved", "Rejected", ""):
             self.assertEqual(
-                self.problem(payments=[("PAY-1", RP), ("PAY-2", status)], old_type=True),
-                f"payment PAY-2 is {status or 'blank'}",
+                self.problem(old_type=True, expenses=[("NPE-1", status)]),
+                f"expense NPE-1 is {status or 'blank'}: the import settles an expense only at Reconciliation Pending",
                 status,
             )
 

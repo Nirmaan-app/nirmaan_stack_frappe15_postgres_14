@@ -29,6 +29,7 @@ from nirmaan_stack.api.outflow_import.unreconcile import plan_of_line, unreconci
 from nirmaan_stack.api.payments.project_payments import update_payment_request
 from nirmaan_stack.services.cheques.bank_import_rules import BANK_APPROVAL_NOTE, BANK_REVIVAL_NOTE
 from nirmaan_stack.services.cheques.status import cancel
+from nirmaan_stack.services.cheques.writer import history_row
 
 PAYMENT = "Project Payments"
 NPE = "Non Project Expenses"
@@ -343,6 +344,64 @@ class TestALineClearsAnOldTypeCheque(ChequeImportCase):
         # 20,000 of the line stays unexplained: the bank paid that payment twice.
         self.assertEqual(self._line(row).row_status, "Partially Allocated")
         self.assertEqual(self._state(cheque).status, "Cleared")
+
+    def test_a_cancelled_old_type_cheque_s_rejected_payments_are_paid_and_its_history_says_so(self):
+        number = self._number()
+        a, b = self._payment(30000, RP), self._payment(20000, RP)
+        cheque = self._old_type(number, 50000, [(a, 30000), (b, 20000)])
+        # What a cancel under the old rules could leave (raw: test setup). Today a payment Rejected on an
+        # Old-type cheque drops off it (#1413), so its lines would be gone.
+        for payment in (a, b):
+            frappe.db.set_value(PAYMENT, payment, "status", "Rejected", update_modified=False)
+        doc = frappe.get_doc("Cheques", cheque)
+        doc.append("status_history", history_row("Issued", "Cancelled", U, "Vendor lost the cheque"))
+        doc.status = "Cancelled"
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        (row,) = self._import((number, 50000))
+
+        self.assertEqual(self._statuses(a, b), ["Paid", "Paid"])
+        self.assertEqual(self._payment_dates(a, b), [self.day, self.day])
+        self.assertEqual(self._legs(row), sorted([(a, "cheque number"), (b, "cheque number")]))
+        last = self._history(cheque)[-1]
+        self.assertEqual(last[:2], ("Cancelled", "Cleared"))
+        self.assertIn(BANK_REVIVAL_NOTE, last[3])
+        self.assertEqual(self._state(cheque).status, "Cleared")
+        self.assertEqual(self._line(row).row_status, "Settled")
+        self.assertIn("was cancelled, but the bank paid it", self._line(row).outcome_note)
+
+    def test_an_issued_old_type_cheque_s_requested_payment_is_approved_by_the_import_then_paid(self):
+        number = self._number()
+        moved, requested = self._payment(30000, RP), self._payment(15000)
+        cheque = self._old_type(number, 45000, [(moved, 30000), (requested, 15000)])
+        self.assertEqual(self._statuses(requested), ["Requested"])
+
+        (row,) = self._import((number, 45000))
+
+        self.assertEqual(self._statuses(moved, requested), ["Paid", "Paid"])
+        self.assertEqual(str(frappe.db.get_value(PAYMENT, requested, "approval_date")), self.day)
+        self.assertEqual(self._legs(row), sorted([(moved, "cheque number"), (requested, "cheque number")]))
+        self.assertEqual(self._history(cheque)[-1][:2], ("Issued", "Cleared"))
+        self.assertEqual(self._state(cheque).status, "Cleared")
+        self.assertEqual(self._line(row).row_status, "Settled")
+
+    def test_an_approval_pending_old_type_cheque_is_issued_by_the_import_then_cleared(self):
+        number = self._number()
+        requested = self._payment(25000)
+        cheque = self._old_type(number, 25000, [(requested, 25000)])
+        frappe.db.set_value("Cheques", cheque, "status", "Approval Pending", update_modified=False)  # test setup
+        frappe.db.commit()
+
+        (row,) = self._import((number, 25000))
+
+        self.assertEqual(self._statuses(requested), ["Paid"])
+        history = self._history(cheque)
+        self.assertEqual(history[-2], ("Approval Pending", "Issued", U, BANK_APPROVAL_NOTE))
+        self.assertEqual(history[-1][:2], ("Issued", "Cleared"))
+        state = self._state(cheque)
+        self.assertEqual((state.status, str(state.issue_date)), ("Cleared", self.day))
+        self.assertEqual(self._shown(row)["cheque_outcome"]["started"], "Approval Pending")
 
 
 class TestALineThatClearsNothing(ChequeImportCase):
