@@ -120,6 +120,18 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   `project_gst` from the snapshot (`pre_amendment_values`); a plain Amendment -> Approved save is an accept.
   Snapshots exist only for saves that leave a Version: in tests pass `ignore_version=False` on the amend save.
   The amend reason is the Nirmaan Comments row with subject "amending approved work order".
+- **WO notifications fire on the move into a status, never on a save that keeps it (#1533).** The Service
+  Requests `on_update` hook (`controllers/service_requests.on_update`) maps the move to one event
+  (`status_event`, on the `work_order_lifecycle` helpers): into *Vendor Selected* (a new WO included) or
+  *Amendment* -> the project's leads and admins; an approval (`is_approval`) -> material procurement on the
+  project, Service Procurement profiles who can see it (`pr_notifications.get_users_who_see_project`: on it, or
+  on no project, which is how Service Procurement Executives are set up), admins and the project's accountants;
+  a reject, or an amendment accepted / reverted (`flags.amendment_outcome`) -> the WO's creator (`owner`), unless
+  the creator made the move. `api/sr_finalize.finalize_sr` sends `sr:finalized` to the approval audience
+  (`notify_finalized`). The bell rows are inserted with `ignore_permissions` (a PMO Executive amends but may not
+  create Nirmaan Notifications) in the save's own transaction, inside a savepoint: never `frappe.db.commit()` in
+  a WO hook. The realtime event (`after_commit=True`) and the push (`frappe.db.after_commit`) wait for the
+  commit; a failed notice is logged and undone, never raised.
 
 ## Doctype: Service Requests
 
