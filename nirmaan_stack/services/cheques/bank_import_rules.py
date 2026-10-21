@@ -103,35 +103,60 @@ class DoublePayment:
     status: str
 
 
+#: The kinds of record a cleared cheque's line settles, as `bank_cleared_note` counts them.
+PAYMENT_KIND = "payment"
+EXPENSE_KIND = "expense"
+
+
+def _count(n: int, kind: str) -> str:
+    return f"{n} {kind}" if n == 1 else f"{n} {kind}s"
+
+
 def _payments(n: int) -> str:
-    return f"{n} payment" if n == 1 else f"{n} payments"
+    return _count(n, PAYMENT_KIND)
 
 
-def bank_cleared_note(*, cheque_no: str, started: str, payments: int, day, suspects: Sequence[DoublePayment] = ()) -> str:
+def _moves(moved: Sequence[tuple[str, str]]) -> str:
+    """"1 payment Requested → Paid and 2 expenses Reconciliation Pending → Paid": `moved` grouped by kind and
+    the status each record was at, in the order met."""
+    groups: dict[tuple[str, str], int] = {}
+    for kind, was in moved:
+        groups[(kind, was)] = groups.get((kind, was), 0) + 1
+    return join_words([f"{_count(n, kind)} {was} → Paid" for (kind, was), n in groups.items()])
+
+
+def bank_cleared_note(
+    *, cheque_no: str, started: str, moved: Sequence[tuple[str, str]], day, suspects: Sequence[DoublePayment] = ()
+) -> str:
     """What the import review says about a line that cleared cheque `cheque_no`, by the status the cheque
-    was at (`started`; Cleared means it was cleared by hand and the line is only linked). Pure."""
+    was at (`started`; Cleared means it was cleared by hand and the line is only linked). Pure.
+
+    `moved` holds `(kind, status it was at)` for each record the clear paid (`PAYMENT_KIND` or
+    `EXPENSE_KIND`: an Old-type cheque's lines may pay expenses); a record already Paid is not in it. A linked
+    hand-cleared cheque's Paid payments are."""
     when = day_text(str(day))
+    payments = sum(1 for kind, _was in moved if kind == PAYMENT_KIND)
+    expenses = [(kind, was) for kind, was in moved if kind != PAYMENT_KIND]
     if started == CLEARED:
         return (
             f"Cheque {cheque_no} was already cleared by hand: this line is linked to it and its "
             f"{_payments(payments)}; nothing was paid again."
         )
+    nothing = "every line was already Paid, so nothing was paid again."
     if started == PENDING:
         verb = "was" if payments == 1 else "were"
-        return (
-            f"Cheque {cheque_no} was {PENDING}: the bank paid it before approval. Its {_payments(payments)} {verb} "
-            f"approved by bank import (approval date {when}), then Paid."
-        )
+        approved = (f" Its {_payments(payments)} {verb} approved by bank import (approval date {when}), then Paid."
+                    if payments else "")
+        return (f"Cheque {cheque_no} was {PENDING}: the bank paid it before approval.{approved}"
+                + (f" {_moves(expenses)}." if expenses else ""))
     if started == CANCELLED:
-        note = (
-            f"Cheque {cheque_no} was cancelled, but the bank paid it: {_payments(payments)} Rejected → Paid, "
-            f"payment date {when}."
-        )
+        what = f"{_moves(moved)}, payment date {when}." if moved else nothing
+        note = f"Cheque {cheque_no} was cancelled, but the bank paid it: {what}"
         if suspects:
             named = join_words([f"{s.record} has {s.payment} ({rupees(s.amount)}, {s.status})" for s in suspects])
             note += f" Check for double payment: {named}, raised after the cheque was cancelled."
         return note
-    return f"Cheque {cheque_no} cleared: {_payments(payments)} Reconciliation Pending → Paid, payment date {when}."
+    return f"Cheque {cheque_no} cleared: {f'{_moves(moved)}, payment date {when}.' if moved else nothing}"
 
 
 def already_linked_note(*, cheque_no: str, bank_line: str) -> str:

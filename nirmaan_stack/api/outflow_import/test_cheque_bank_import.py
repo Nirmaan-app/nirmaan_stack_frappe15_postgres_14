@@ -261,6 +261,11 @@ class TestALineClearsAnOldTypeCheque(ChequeImportCase):
             sorted([(PAYMENT, a, 30000.0), (PAYMENT, b, 15000.0), (NPE, expense, 5000.0)]),
         )
         self.assertEqual(self._line(row).row_status, "Settled")
+        self.assertEqual(
+            self._line(row).outcome_note,
+            f"Cheque {number} cleared: 2 payments Reconciliation Pending → Paid and 1 expense Reconciliation "
+            f"Pending → Paid, payment date {datetime.strptime(self.day, '%Y-%m-%d').strftime('%d-%m-%Y')}.",
+        )
         state = self._state(cheque)
         self.assertEqual(
             (state.status, state.cleared_by, state.bank_line, str(state.cheque_date)),
@@ -382,6 +387,9 @@ class TestALineClearsAnOldTypeCheque(ChequeImportCase):
         self.assertEqual(history[-1][:2], ("Issued", "Cleared"))
         self.assertEqual(self._state(cheque).status, "Cleared")
         self.assertEqual(self._line(row).row_status, "Settled")
+        note = self._line(row).outcome_note
+        self.assertIn("1 payment Requested → Paid", note)
+        self.assertIn("1 payment Reconciliation Pending → Paid", note)
 
     def test_a_payment_on_hold_refuses_the_clear_with_its_reason_and_nothing_is_settled(self):
         number = self._number()

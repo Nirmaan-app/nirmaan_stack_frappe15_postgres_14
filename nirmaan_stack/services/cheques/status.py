@@ -48,7 +48,13 @@ from nirmaan_stack.api.outflow_import.vendor_credit_refresh import SETTLED_ENTRY
 from nirmaan_stack.services.cheque_payments import to_reconciliation
 from nirmaan_stack.services.cheques import old_type_clear
 from nirmaan_stack.services.cheques.approval_rules import approval_problem
-from nirmaan_stack.services.cheques.bank_import_rules import BANK_APPROVAL_NOTE, BANK_REVIVAL_NOTE, bank_approval_note
+from nirmaan_stack.services.cheques.bank_import_rules import (
+    BANK_APPROVAL_NOTE,
+    BANK_REVIVAL_NOTE,
+    EXPENSE_KIND,
+    PAYMENT_KIND,
+    bank_approval_note,
+)
 from nirmaan_stack.services.cheques.clear_rules import (
     BANK_BRINGS_FORWARD,
     BankLine,
@@ -119,9 +125,10 @@ def _refuse(doc, what: str, reason: str):
 def clear(cheque: str, *, bank_line: str | None, user: str) -> dict:
     """Clear Payment cheque `cheque` with imported bank line `bank_line`: every payment on it becomes Paid,
     dated the line's day, and the cheque becomes Cleared on that day (its Cheque/Payment Date), by bank
-    import, with the line recorded on it. Returns `{cheque, cheque_no, status, payments, bank_line, statement_file_url, started}`:
-    the payments it paid, the statement the line came from (the caller links that file to each payment
-    after its commit), and the status the cheque was at.
+    import, with the line recorded on it. Returns `{cheque, cheque_no, status, payments, moved, bank_line,
+    statement_file_url, started}`: the payments it paid, every record it paid as `(kind, status it was at)`
+    for the import review (`bank_import_rules.bank_cleared_note`), the statement the line came from (the
+    caller links that file to each payment after its commit), and the status the cheque was at.
 
     THERE IS NO OTHER WAY TO CLEAR A CHEQUE (#1516): without a line it is refused. Starting from Approval Pending or
     Cancelled, `_bring_forward` approves or revives the payments first, in the same savepoint. Each payment
@@ -208,8 +215,10 @@ def clear(cheque: str, *, bank_line: str | None, user: str) -> dict:
     doc.bank_line = line.name
     doc.save(ignore_permissions=True)
     frappe.publish_realtime(CHEQUES_CHANGED_EVENT, {"cheques": [cheque]}, after_commit=True)
+    moved = [(PAYMENT_KIND, was[p]) for p in to_pay]
+    moved += [(EXPENSE_KIND, status) for record, status in expenses.items() if record not in paid_before]
     return {
-        "cheque": cheque, "cheque_no": doc.cheque_no, "status": CLEARED, "payments": to_pay,
+        "cheque": cheque, "cheque_no": doc.cheque_no, "status": CLEARED, "payments": to_pay, "moved": moved,
         "bank_line": line.name, "statement_file_url": statement_file_url, "started": started,
     }
 
@@ -298,6 +307,7 @@ def link_bank_line(cheque: str, *, bank_line: str, user: str) -> dict:
     frappe.publish_realtime(CHEQUES_CHANGED_EVENT, {"cheques": [cheque]}, after_commit=True)
     return {
         "cheque": cheque, "cheque_no": doc.cheque_no, "status": CLEARED, "payments": paid,
+        "moved": [(PAYMENT_KIND, STATUS_PAID)] * len(paid),
         "bank_line": line.name, "statement_file_url": None, "started": CLEARED,
     }
 

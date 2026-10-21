@@ -105,9 +105,11 @@ class TestTheImportsApprovalIsInTheHistory(unittest.TestCase):
 
 
 class TestWhatTheReviewSays(unittest.TestCase):
-    def note(self, started, payments=2, suspects=()):
-        return bank_import_rules.bank_cleared_note(cheque_no="000747", started=started, payments=payments, day="2026-10-14",
-                                       suspects=suspects)
+    def note(self, started, payments=2, suspects=(), *, was=None, moved=None):
+        was = was or {"Approval Pending": "Requested", "Cancelled": "Rejected", "Cleared": "Paid"}.get(started, RP)
+        moved = [("payment", was)] * payments if moved is None else moved
+        return bank_import_rules.bank_cleared_note(cheque_no="000747", started=started, moved=moved, day="2026-10-14",
+                                                   suspects=suspects)
 
     def test_an_issued_cheque(self):
         self.assertEqual(
@@ -129,6 +131,25 @@ class TestWhatTheReviewSays(unittest.TestCase):
             "Cheque 000747 was cancelled, but the bank paid it: 3 payments Rejected → Paid, payment date "
             "14-10-2026. Check for double payment: PO/077/00071/26-27 has PAY-00071-019 (₹40,273, Approved), "
             "raised after the cheque was cancelled.",
+        )
+
+    def test_an_old_type_cheque_says_where_each_record_started_and_counts_its_expenses(self):
+        self.assertEqual(
+            self.note("Issued", moved=[("payment", "Requested"), ("payment", RP), ("expense", RP), ("payment", RP)]),
+            "Cheque 000747 cleared: 1 payment Requested → Paid, 2 payments Reconciliation Pending → Paid and 1 "
+            "expense Reconciliation Pending → Paid, payment date 14-10-2026.",
+        )
+
+    def test_an_old_type_cheque_that_pays_only_expenses_names_them(self):
+        self.assertEqual(
+            self.note("Issued", moved=[("expense", RP)]),
+            "Cheque 000747 cleared: 1 expense Reconciliation Pending → Paid, payment date 14-10-2026.",
+        )
+
+    def test_an_old_type_cheque_whose_every_line_was_already_paid_says_so(self):
+        self.assertEqual(
+            self.note("Issued", moved=[]),
+            "Cheque 000747 cleared: every line was already Paid, so nothing was paid again.",
         )
 
     def test_a_cheque_cleared_by_hand_is_only_linked(self):
