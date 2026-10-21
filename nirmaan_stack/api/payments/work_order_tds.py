@@ -3,10 +3,12 @@
 
 """Read-only: a Work Order's TDS for its page: who bore the paid tax (the details card's label) and each
 payment's own deduction (the transactions table's TDS column) (#1451); and, for any PO or Work Order,
-each payment's counted deduction for the payments pop-up (#1534).
+each payment's counted deduction for the payments pop-up (#1534); and every Paid Work Order payment's
+deduction for the Payment Voucher Uploads report (#1543).
 
 URL: /api/method/nirmaan_stack.api.payments.work_order_tds.get_work_order_tds
 URL: /api/method/nirmaan_stack.api.payments.work_order_tds.get_order_payment_tds
+URL: /api/method/nirmaan_stack.api.payments.work_order_tds.get_paid_work_order_payment_tds
 
 ⚠️ READ IS CHECKED ON THE ORDER, NOT ON `Payment TDS Deduction`. That doctype is readable only by
 the accountants, and its permissions stay so; anyone who may read the Work Order (User Permissions
@@ -21,6 +23,7 @@ from nirmaan_stack.services.payment_tds import (
 	SERVICE_REQUEST_DOCTYPE,
 	TAX_COUNTED_PARENTS,
 	order_deductions,
+	paid_payment_deductions,
 	work_order_tds_borne,
 )
 from nirmaan_stack.services.tds_forecast import waiting_payment_forecasts
@@ -54,6 +57,34 @@ def get_work_order_tds(work_order: str) -> dict:
 		**work_order_tds_borne(work_order),
 		"payments": order_deductions(SERVICE_REQUEST_DOCTYPE, work_order),
 		"forecasts": waiting_payment_forecasts(work_order),
+	}
+
+
+@frappe.whitelist()
+def get_paid_work_order_payment_tds() -> dict:
+	"""Each Paid Work Order payment's deduction, for the TDS column of Reports > WO > Payment Voucher
+	Uploads (#1543, owner ruling Q31-A). The report read `Payment TDS Deduction` itself, so the column was
+	blank for anyone but the accountants; now anyone who may read a Work Order sees its payments' tax.
+
+	Read is checked on each Work Order through `frappe.get_list`, so User Permissions hold: a payment of a
+	Work Order the caller may not read is absent. Raises `frappe.PermissionError` without read on Work
+	Orders at all. Two queries, whatever the number of payments.
+
+	Returns:
+		`{payment name: {tds_amount, borne_by}}`; a Paid payment without a deduction is absent.
+	"""
+	deductions = paid_payment_deductions(SERVICE_REQUEST_DOCTYPE)
+	orders = sorted({d["document_name"] for d in deductions.values()})
+	if not orders:
+		frappe.has_permission(SERVICE_REQUEST_DOCTYPE, "read", throw=True)
+		return {}
+	readable = set(
+		frappe.get_list(SERVICE_REQUEST_DOCTYPE, filters={"name": ["in", orders]}, pluck="name", limit_page_length=0)
+	)
+	return {
+		payment: {"tds_amount": d["tds_amount"], "borne_by": d["borne_by"]}
+		for payment, d in deductions.items()
+		if d["document_name"] in readable
 	}
 
 

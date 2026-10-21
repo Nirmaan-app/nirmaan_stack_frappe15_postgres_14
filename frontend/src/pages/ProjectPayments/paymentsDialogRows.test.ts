@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { VendorRefundRow } from "@/components/vendor-refunds/useVendorRefunds";
 import { TDS_BORNE_BY } from "@/types/NirmaanStack/PaymentTDSDeduction";
-import { paymentsDialogRows } from "./paymentsDialogRows";
+import { amountPaidLine, paymentsDialogRows } from "./paymentsDialogRows";
 
 const payment = (name: string, amount: number, payment_date: string) => ({ name, amount, payment_date });
 const refund = (name: string, amount: number, status: VendorRefundRow["status"], payment_date: string): VendorRefundRow => ({
@@ -33,10 +33,30 @@ describe("paymentsDialogRows (the payments pop-up, #1460)", () => {
     expect(paymentsDialogRows(payments, refunds).total).toBe(120);
   });
 
-  it("is just the payments while the refunds have not loaded", () => {
+  it("lists just the payments while the refunds have not loaded, and has no total then", () => {
     const { rows, total } = paymentsDialogRows(payments, undefined);
     expect(rows.map((r) => r.name)).toEqual(["PAY-2", "PAY-1"]);
-    expect(total).toBe(150);
+    expect(total).toBeUndefined();
+  });
+});
+
+describe("amountPaidLine (the pop-up's Total is the saved Amount Paid, #1543)", () => {
+  it("shows the saved Amount Paid, with no warning when the rows add up to it", () => {
+    expect(amountPaidLine(120, 120)).toEqual({ amountPaid: 120, rowsTotal: 120, mismatch: false });
+  });
+
+  it("warns when the saved Amount Paid has drifted from its rows", () => {
+    // Planted drift: the rows add up to 9,800, the saved figure says 10,000.
+    expect(amountPaidLine("10000", 9800)).toEqual({ amountPaid: 10000, rowsTotal: 9800, mismatch: true });
+  });
+
+  it("does not warn under a rupee, the mismatch report's own threshold", () => {
+    expect(amountPaidLine(3061.22, 3061.9).mismatch).toBe(false);
+    expect(amountPaidLine(3061, 3062).mismatch).toBe(true);
+  });
+
+  it("shows the saved figure at once and does not judge it while the rows are still loading", () => {
+    expect(amountPaidLine(120, undefined)).toEqual({ amountPaid: 120, rowsTotal: undefined, mismatch: false });
   });
 });
 

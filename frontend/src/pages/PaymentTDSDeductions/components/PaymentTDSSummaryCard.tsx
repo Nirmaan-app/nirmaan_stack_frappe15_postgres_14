@@ -17,10 +17,18 @@ import { Card, CardContent } from "@/components/ui/card";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { TailSpin } from "react-loader-spinner";
 import { ColumnFiltersState } from "@tanstack/react-table";
-import { FileText, Info } from "lucide-react";
+import { Filter, FrappeDoc, useFrappeGetDocCount } from "frappe-react-sdk";
+import { AlertTriangle, FileText, Info } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { TDSChallanAttachment } from "@/types/NirmaanStack/TDSChallanAttachment";
 import { ChallanListDialog } from "./ChallanListDialog";
+
+const CHALLAN_DOCTYPE = "TDS Challan Attachment";
+// `is not set` matches NULL and blank on the server; the SDK's operator union just doesn't list `is`.
+const WITHOUT_EXPENSE = [["tds_payment_expense", "is", "not set"]] as unknown as Filter<
+    FrappeDoc<TDSChallanAttachment>
+>[];
 
 interface PaymentTDSSummaryCardProps {
     aggregates: {
@@ -81,6 +89,13 @@ export const PaymentTDSSummaryCard: React.FC<PaymentTDSSummaryCardProps> = ({
 }) => {
     const tds = aggregates?.sum_of_tds_amount || 0;
     const [isChallanListOpen, setIsChallanListOpen] = useState(false);
+    // Challans with no TDS Payment expense (#1544), so the warning shows before the list is opened.
+    const { data: withoutExpense, mutate: recountWithoutExpense } = useFrappeGetDocCount(
+        CHALLAN_DOCTYPE,
+        WITHOUT_EXPENSE,
+        false,
+        "tds_challans_without_expense"
+    );
 
     if (isAggregatesLoading) {
         return (
@@ -128,10 +143,23 @@ export const PaymentTDSSummaryCard: React.FC<PaymentTDSSummaryCardProps> = ({
                 >
                     <FileText className="mr-1.5 h-3.5 w-3.5" />
                     View Challans
+                    {withoutExpense ? (
+                        <span
+                            className="ml-1.5 inline-flex items-center gap-0.5 font-medium text-amber-700 dark:text-amber-400"
+                            title={`${withoutExpense} challan${withoutExpense === 1 ? "" : "s"} without a TDS Payment expense`}
+                        >
+                            <AlertTriangle className="h-3 w-3" />
+                            {withoutExpense}
+                        </span>
+                    ) : null}
                 </Button>
             </CardContent>
 
-            <ChallanListDialog open={isChallanListOpen} onOpenChange={setIsChallanListOpen} />
+            <ChallanListDialog
+                open={isChallanListOpen}
+                onOpenChange={setIsChallanListOpen}
+                onExpenseChanged={() => recountWithoutExpense()}
+            />
         </Card>
     );
 };

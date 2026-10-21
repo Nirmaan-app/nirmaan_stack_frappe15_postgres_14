@@ -527,6 +527,32 @@ def order_deductions(document_type: str, document_name: str) -> dict:
 	return {row.project_payment: {"tds_amount": flt(row.tds_amount, 2), "borne_by": row.borne_by} for row in rows}
 
 
+def paid_payment_deductions(document_type: str) -> dict[str, dict]:
+	"""`{payment name: {tds_amount, borne_by, document_name}}`: the counted deduction on every PAID payment
+	of one order type (`paid_borne_tds_sql`), for Reports > WO > Payment Voucher Uploads (#1543), which
+	lists Paid Work Order payments. One query.
+
+	No permission check: the endpoint keeps only the orders the caller may read.
+	"""
+	rows = frappe.db.sql(
+		f"""
+		SELECT c.project_payment, c.tds_amount, c.borne_by, c.document_name
+		FROM ({paid_borne_tds_sql()}) c
+		WHERE c.document_type = %(doctype)s
+		""",
+		{"doctype": document_type},
+		as_dict=True,
+	)
+	return {
+		row.project_payment: {
+			"tds_amount": flt(row.tds_amount, 2),
+			"borne_by": row.borne_by,
+			"document_name": row.document_name,
+		}
+		for row in rows
+	}
+
+
 def vendor_borne_tds_on(document_type: str, document_name: str, statuses) -> float:
 	"""The tax withheld from the vendor (`borne_by` Vendor) on one order's payments at `statuses`
 	(`counted_deductions_sql`): what its payments' stored amounts lack of what was requested. The PO

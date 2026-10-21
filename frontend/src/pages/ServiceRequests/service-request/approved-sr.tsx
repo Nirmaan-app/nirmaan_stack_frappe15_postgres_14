@@ -32,7 +32,7 @@ import { toast } from "@/components/ui/use-toast";
 import { InvoiceDialog } from "@/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog";
 import { useWorkOrderTds } from "@/pages/ProjectPayments/hooks/useWorkOrderTds";
-import { paymentTableFigures } from "@/pages/ProjectPayments/tdsPreview";
+import { paymentTableFigures, tdsColumnNote } from "@/pages/ProjectPayments/tdsPreview";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
@@ -533,7 +533,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 project={project}
                 vendor={service_vendor}
                 gstEnabled={gstEnabled}
-                getTotal={getTotal}
                 // isRestrictedRole removed, using specific flags below
                 hideActions={isEstimatesExecutive}
                 hideAmounts={isPMUser}
@@ -778,6 +777,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                             payment?.amount, tdsByPayment[payment?.name], tdsForecasts[payment?.name]
                                         );
                                         const forecastTone = figures.forecast ? "font-semibold text-muted-foreground" : "font-semibold";
+                                        // Tax the company pays on top is labelled: it is not cut from the vendor (#1543).
+                                        const tdsNote = tdsColumnNote(figures);
                                         return (
                                             <TableRow key={payment?.name}>
                                                 <TableCell className="font-semibold">
@@ -787,6 +788,12 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                 <TableCell className={forecastTone}
                                                     title={figures.forecast ? "Cut at approval, at the vendor's rate then" : undefined}>
                                                     {figures.tds !== undefined ? formatToRoundedIndianRupee(figures.tds) : "--"}
+                                                    {tdsNote && (
+                                                        <span className="block text-[10px] font-normal leading-3 text-muted-foreground whitespace-nowrap"
+                                                            title="Paid by the company on top; not cut from the vendor">
+                                                            {tdsNote}
+                                                        </span>
+                                                    )}
                                                 </TableCell>
                                                 <TableCell className={forecastTone}>
                                                     {formatToRoundedIndianRupee(figures.toBePaid)}
