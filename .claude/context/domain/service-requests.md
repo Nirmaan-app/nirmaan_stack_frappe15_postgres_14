@@ -25,6 +25,17 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   skip it with the limit. The same check refuses a negative WO payment for everyone (refunds are Vendor
   Refunds). `get_payment_summary` returns it as `limit.invoice_check` with `skipped` for the viewer.
 
+- **The GST flag (`gst`) follows the vendor and is never written by hand (ADR-0028 Amendment A, #1538).**
+  Its writers: `ServiceRequests.set_gst_from_vendor` (first approval; an accepted amendment whose vendor differs
+  from the one before it, read from Version rows by `services/work_order_amendment.vendor_before_amendment`) and
+  `api/service_requests/match_gst_to_vendor` (Admin / Accountants, Approved WOs, Finalized included). Each sets
+  `doc.flags.gst_set_from_vendor`; any other save that changes `gst` is refused by
+  `controllers/service_requests.validate_gst_flag_not_changed_by_hand`. A new server writer must set that flag
+  and save the document (never `set_value`), so `on_update` recounts `total_amount` / `amount_due` and the GST
+  payment guard runs. The rule is the pure `work_order_gst.gst_flag_for_vendor` (frontend twin
+  `utils/workOrderGst.gstForVendor`). Remove GST Hold writes no WO. First approval also fills a blank
+  `project_gst` from the project (`ServiceRequests.fill_project_gst_on_approval`).
+
 ## Doctype: Service Requests
 
 ### Key Fields

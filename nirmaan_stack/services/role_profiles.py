@@ -130,6 +130,11 @@ NON_PROJECT_INFLOWS_DELETE_PROFILES = (ADMIN_PROFILE,)
 # Mirrored client-side by `frontend/src/constants/roles.ts::AMOUNT_PAID_MISMATCH_PROFILES`.
 AMOUNT_PAID_MISMATCH_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
+# Match GST to vendor and the GST mismatch list (#1538, ADR-0028 Amendment A): Admin and Accountants.
+# ENFORCEMENT boundary for `api/service_requests/match_gst_to_vendor`, which saves with
+# `ignore_permissions`. Mirrored client-side by `frontend/src/constants/roles.ts::MATCH_GST_TO_VENDOR_PROFILES`.
+MATCH_GST_TO_VENDOR_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
 HR_EXECUTIVE_PROFILE = "Nirmaan HR Executive Profile"
 HR_LEAD_PROFILE = "Nirmaan HR Lead Profile"
 
@@ -207,6 +212,12 @@ def has_role_profile(user: str, profiles, *, superuser_passes: bool = True) -> b
 def is_nirmaan_admin(user: str) -> bool:
     """True for the Administrator superuser or a `Nirmaan Admin Profile` user."""
     return has_role_profile(user, (ADMIN_PROFILE,))
+
+
+def assert_match_gst_to_vendor_access(user: str) -> None:
+    """Refuse a user outside `MATCH_GST_TO_VENDOR_PROFILES`. Every Match GST to vendor endpoint starts with it."""
+    if not has_role_profile(user, MATCH_GST_TO_VENDOR_PROFILES):
+        raise frappe.PermissionError(_("Only an Admin or an Accountant may use Match GST to vendor."))
 
 
 def assert_amount_paid_mismatch_access(user: str) -> None:
