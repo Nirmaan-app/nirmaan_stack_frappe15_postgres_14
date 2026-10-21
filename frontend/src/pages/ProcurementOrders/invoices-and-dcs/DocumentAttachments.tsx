@@ -29,7 +29,7 @@ import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { InvoiceTable } from "./components/InvoiceTable"; // Adjust import path
 import { DeliveryChallanTable } from "./components/DeliveryChallanTable"; // Adjust import path
 import SITEURL from "@/constants/siteURL"; // Adjust import path
-import { CirclePlus, Upload, Plus } from "lucide-react";
+import { CirclePlus, Upload } from "lucide-react";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { usePODeliveryDocuments } from "@/pages/DeliveryChallansAndMirs/hooks/usePODeliveryDocuments";
 import { UploadDCMIRDialog } from "@/pages/DeliveryChallansAndMirs/components/UploadDCMIRDialog";
@@ -559,10 +559,14 @@ export const DocumentAttachments = <T extends DocumentType>({
             {isWorkOrder && generatedInvoices.length > 0 && (
               <div className="overflow-x-auto border-t border-gray-200">
                 <GeneratedInvoicesTable
+                  workOrder={docName}
                   invoices={generatedInvoices}
-                  canVoid={!!generatedState?.can_generate && !isEstimatesExecutive}
+                  canManage={!!generatedState?.can_generate && !isEstimatesExecutive}
                   onPrint={setInvoicePreview}
-                  onVoided={() => mutateGenerated()}
+                  onChanged={() => {
+                    mutateGenerated();
+                    mutateInvoices();
+                  }}
                 />
               </div>
             )}

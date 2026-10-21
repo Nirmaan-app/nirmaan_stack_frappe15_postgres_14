@@ -8,12 +8,13 @@ A GST-off vendor cannot issue a tax invoice, so the company drafts one for them 
 **WO Generated Invoice** record. Its life:
 
     Generated --upload signed copy--> Signed --Vendor Invoice approved--> Approved
-        |                               |
-        +--void (with a reason)--> Voided <--Vendor Invoice rejected--+
+        |                               |                                    |
+        +--void (with a reason)--> Voided <--Vendor Invoice rejected---------+
 
-Generate and void are here and in `api/service_requests/generated_invoices.py` (#1546). The signed
-upload, and the moves a Vendor Invoice approval or rejection makes, are #1547: `MOVES` below already
-allows them and names the fields each one writes, so that ticket only calls them.
+Generate, void and the signed upload are `api/service_requests/generated_invoices.py` (#1546, #1547).
+The upload creates the record's Pending Vendor Invoice; that invoice's approval or rejection moves the
+record (`vendor_invoice_move`, applied by the Vendor Invoices `on_update` hook
+`controllers/vendor_invoices.follow_generated_invoice`), so every approval path moves it.
 
 Rules:
 
@@ -58,7 +59,12 @@ BILLED_INVOICE_STATUSES = ("Pending", "Approved")
 MOVES = {
 	GENERATED: {SIGNED: ("vendor_invoice", "signed_attachment"), VOIDED: ("void_reason",)},
 	SIGNED: {APPROVED: (), VOIDED: ("void_reason",)},
+	# An Approved Work Order invoice may still be rejected (#1531, ADR-0014 Amendment A): its record follows.
+	APPROVED: {VOIDED: ("void_reason",)},
 }
+
+#: Vendor Invoice status -> what it makes of the generated invoice it came from (`vendor_invoice_move`).
+_INVOICE_MOVES = {"Approved": APPROVED, "Rejected": VOIDED}
 
 #: What the vendor signs for. Set once by Generate, never changed.
 FIXED_FIELDS = ("work_order", "project", "vendor", "ra_number", "invoice_type", "amount", "invoice_date", "invoice_no")
@@ -132,6 +138,18 @@ def change_problem(before, after) -> str | None:
 	if missing:
 		return f"{new} needs {', '.join(_LABELS[f] for f in missing)}."
 	return None
+
+
+def vendor_invoice_move(record_status, invoice_status, rejection_reason=None, invoice_name="") -> dict | None:
+	"""The change a generated invoice at `record_status` takes when its Vendor Invoice is saved at
+	`invoice_status` (approved: Approved; rejected: Voided, the rejection as its reason), or None."""
+	target = _INVOICE_MOVES.get(cstr(invoice_status))
+	if target is None or target == record_status or target not in MOVES.get(record_status, {}):
+		return None
+	if target == VOIDED:
+		reason = cstr(rejection_reason).strip()
+		return {"status": VOIDED, "void_reason": f"Vendor Invoice {invoice_name} rejected" + (f": {reason}" if reason else ".")}
+	return {"status": target}
 
 
 _LABELS = {"void_reason": "a reason", "vendor_invoice": "its Vendor Invoice", "signed_attachment": "the signed copy"}

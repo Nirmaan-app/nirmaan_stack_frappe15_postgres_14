@@ -1,14 +1,16 @@
 /**
- * Generated invoices on a GST-off Work Order's invoices card (#1546, spec #1528): the Generate dialog,
- * and the list with Print and Void. #1547 adds the signed upload to the list's actions.
+ * Generated invoices on a GST-off Work Order's invoices card (#1546, #1547, spec #1528): the Generate
+ * dialog, and the list with Print, Void and Upload signed.
  *
- * The server assigns the RA number, holds the amount limit and decides FINAL
+ * The server assigns the RA number, holds the amount limit, decides FINAL and books the signed upload
  * (`useGeneratedInvoices`); this screen only shows what it says.
  */
 import { useState } from "react";
 import { formatDate } from "date-fns";
-import { Eye, Ban } from "lucide-react";
+import { Eye, Ban, Upload } from "lucide-react";
+import { useFrappeFileUpload } from "frappe-react-sdk";
 
+import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -240,19 +242,25 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "
 };
 
 interface GeneratedInvoicesTableProps {
+  /** The Work Order the scans are filed under. */
+  workOrder: string;
   invoices: GeneratedInvoice[];
-  canVoid: boolean;
+  /** The user may void and upload (the server checks again). */
+  canManage: boolean;
   onPrint: (row: GeneratedInvoice) => void;
-  onVoided: () => void;
+  /** A void or an upload changed the records (an upload also adds a Vendor Invoice). */
+  onChanged: () => void;
 }
 
-export const GeneratedInvoicesTable = ({ invoices, canVoid, onPrint, onVoided }: GeneratedInvoicesTableProps) => {
+export const GeneratedInvoicesTable = ({ workOrder, invoices, canManage, onPrint, onChanged }: GeneratedInvoicesTableProps) => {
   const { toast } = useToast();
   const { voidInvoice, voiding } = useGeneratedInvoiceActions();
   // The row's name, not the row: the list refetches after a void (frontend/CODING_STANDARDS.md).
   const [voidingName, setVoidingName] = useState<string | null>(null);
+  const [uploadingName, setUploadingName] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const voidingRow = invoices.find((r) => r.name === voidingName);
+  const uploadingRow = invoices.find((r) => r.name === uploadingName);
 
   const closeVoid = () => {
     setVoidingName(null);
@@ -265,7 +273,7 @@ export const GeneratedInvoicesTable = ({ invoices, canVoid, onPrint, onVoided }:
       await voidInvoice(voidingName, reason);
       toast({ title: "Invoice voided", description: voidingRow?.invoice_no, variant: "success" });
       closeVoid();
-      onVoided();
+      onChanged();
     } catch (error) {
       toast({ title: "Could not void the invoice", description: getFrappeErrorText(error), variant: "destructive" });
     }
@@ -296,12 +304,25 @@ export const GeneratedInvoicesTable = ({ invoices, canVoid, onPrint, onVoided }:
                 {row.status === "Voided" && row.void_reason && (
                   <p className="text-xs text-muted-foreground mt-1">{row.void_reason}</p>
                 )}
+                {row.status !== "Voided" && row.vendor_invoice && (
+                  <p className="text-xs text-muted-foreground mt-1">Vendor Invoice {row.vendor_invoice}</p>
+                )}
               </TableCell>
               <TableCell className="text-center whitespace-nowrap">
                 <Button variant="ghost" size="sm" onClick={() => onPrint(row)} aria-label={`Print ${row.invoice_no}`}>
                   <Eye className="h-4 w-4 mr-1" /> Print
                 </Button>
-                {canVoid && row.status === "Generated" && (
+                {canManage && row.status === "Generated" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setUploadingName(row.name)}
+                    aria-label={`Upload signed copy of ${row.invoice_no}`}
+                  >
+                    <Upload className="h-4 w-4 mr-1" /> Upload signed
+                  </Button>
+                )}
+                {canManage && row.status === "Generated" && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -343,6 +364,86 @@ export const GeneratedInvoicesTable = ({ invoices, canVoid, onPrint, onVoided }:
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <UploadSignedCopyDialog
+        workOrder={workOrder}
+        row={uploadingRow}
+        onClose={() => setUploadingName(null)}
+        onUploaded={onChanged}
+      />
     </>
+  );
+};
+
+interface UploadSignedCopyDialogProps {
+  workOrder: string;
+  /** The record being uploaded; the dialog is closed while undefined. */
+  row: GeneratedInvoice | undefined;
+  onClose: () => void;
+  onUploaded: () => void;
+}
+
+/** Upload the vendor's signed copy: the record turns Signed and a Pending Vendor Invoice is made (#1547). */
+const UploadSignedCopyDialog = ({ workOrder, row, onClose, onUploaded }: UploadSignedCopyDialogProps) => {
+  const { toast } = useToast();
+  const { uploadSignedCopy, uploading } = useGeneratedInvoiceActions();
+  const { upload, loading: sendingFile } = useFrappeFileUpload();
+  const [file, setFile] = useState<File | null>(null);
+  const busy = uploading || sendingFile;
+
+  const close = () => {
+    setFile(null);
+    onClose();
+  };
+
+  const submit = async () => {
+    if (!row || !file) return;
+    try {
+      const sent = await upload(file, {
+        doctype: "Service Requests",
+        docname: workOrder,
+        fieldname: "attachment",
+        isPrivate: true,
+      });
+      const record = await uploadSignedCopy(row.name, sent.file_url);
+      toast({
+        title: "Signed copy uploaded",
+        description: `${record.invoice_no} is waiting for approval as ${record.vendor_invoice}.`,
+        variant: "success",
+      });
+      close();
+      onUploaded();
+    } catch (error) {
+      toast({ title: "Could not upload the signed copy", description: getFrappeErrorText(error), variant: "destructive" });
+    }
+  };
+
+  return (
+    <Dialog open={!!row} onOpenChange={(open) => !open && !busy && close()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Upload signed copy of {row?.invoice_no}</DialogTitle>
+          <DialogDescription>
+            This books the vendor's signed invoice: a Pending Vendor Invoice for {row ? formatToIndianRupee(row.amount) : ""}{" "}
+            (no GST) goes to Accountants for approval. It can be uploaded once.
+          </DialogDescription>
+        </DialogHeader>
+        <CustomAttachment
+          selectedFile={file}
+          onFileSelect={setFile}
+          label="Attach signed copy"
+          acceptedTypes={["application/pdf", "image/*"]}
+          onError={(e) => toast({ title: "File not accepted", description: e.message, variant: "destructive" })}
+        />
+        <DialogFooter className="gap-2 sm:justify-end">
+          <Button type="button" variant="outline" onClick={close} disabled={busy}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={submit} disabled={busy || !file}>
+            {busy ? "Uploading…" : "Upload"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };

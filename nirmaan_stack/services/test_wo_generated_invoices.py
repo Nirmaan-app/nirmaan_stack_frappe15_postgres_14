@@ -90,9 +90,11 @@ class TestChangeProblem(unittest.TestCase):
 		signed = self._after(status="Signed", vendor_invoice="VI-1", signed_attachment="ATT-1")
 		self.assertIsNone(gi.change_problem(signed, {**signed, "status": "Approved"}))
 		self.assertIsNone(gi.change_problem(signed, {**signed, "status": "Voided", "void_reason": "Rejected"}))
-		for before, status in ((self.BEFORE, "Approved"), (signed, "Generated"),
-							   ({**signed, "status": "Approved"}, "Voided"),
-							   (self._after(status="Voided", void_reason="x"), "Generated")):
+		approved = {**signed, "status": "Approved"}
+		# An Approved Work Order invoice may still be rejected (#1531); that voids its generated one (#1547).
+		self.assertIsNone(gi.change_problem(approved, {**approved, "status": "Voided", "void_reason": "Rejected"}))
+		for before, status in ((self.BEFORE, "Approved"), (signed, "Generated"), (approved, "Voided"),
+							   (approved, "Signed"), (self._after(status="Voided", void_reason="x"), "Generated")):
 			self.assertIsNotNone(gi.change_problem(before, {**before, "status": status}), status)
 
 

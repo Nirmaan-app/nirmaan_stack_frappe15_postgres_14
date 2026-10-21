@@ -20,7 +20,9 @@ and writes every Purchase Order Item row, so putting it on doc events would fire
 on paths it deliberately does not run on today.
 
 Also home of `guard_work_order_invoice` (validate): who may approve, reject or edit a
-Work Order invoice (#1531, ADR-0014 Amendment A).
+Work Order invoice (#1531, ADR-0014 Amendment A); and of `follow_generated_invoice`
+(on_update) and `refuse_deleting_generated_invoice` (on_trash): a generated invoice's
+Vendor Invoice moves its record, and is never deleted (#1547).
 """
 
 import frappe
@@ -28,6 +30,7 @@ import frappe
 from nirmaan_stack.api.invoices._item_billing_sync import (
     recompute_document_amount_invoiced,
 )
+from nirmaan_stack.services import wo_generated_invoices as generated
 from nirmaan_stack.services.role_profiles import (
     can_decide_wo_invoice,
     can_edit_approved_wo_invoice,
@@ -130,3 +133,37 @@ def guard_work_order_invoice(doc, method=None):
     )
     if problem:
         frappe.throw(problem, WorkOrderInvoiceRefused)
+
+
+def follow_generated_invoice(doc, method=None):
+    """Move the generated invoice this Vendor Invoice was uploaded for (#1547): approved -> Approved,
+    rejected -> Voided with the rejection as its reason (`wo_generated_invoices.vendor_invoice_move`).
+    Bound to on_update, inside the decision's own transaction, so every approval path moves it."""
+    if not is_work_order_invoice(doc) or not doc.has_value_changed("status"):
+        return
+    name = generated_invoice_of(doc.name)
+    if not name:
+        return
+    record = frappe.get_doc(generated.DOCTYPE, name)
+    change = generated.vendor_invoice_move(record.status, doc.status, doc.get("rejection_reason"), doc.name)
+    if change:
+        record.update(change)
+        record.save(ignore_permissions=True)
+
+
+def refuse_deleting_generated_invoice(doc, method=None):
+    """A generated invoice's Vendor Invoice is rejected, never deleted (#1547): a delete would leave the
+    record Signed with no invoice, its amount counted by nothing. Bound to on_trash."""
+    name = generated_invoice_of(doc.name)
+    if name:
+        frappe.throw(DELETE_GENERATED_REFUSAL.format(name))
+
+
+DELETE_GENERATED_REFUSAL = (
+    "This invoice was uploaded for generated invoice {0}. Reject it instead: that voids the generated invoice."
+)
+
+
+def generated_invoice_of(vendor_invoice: str) -> str | None:
+    """The generated invoice whose upload created `vendor_invoice`, if any."""
+    return frappe.db.get_value(generated.DOCTYPE, {"vendor_invoice": vendor_invoice}, "name")
