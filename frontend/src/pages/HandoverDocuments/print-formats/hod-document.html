@@ -25,7 +25,13 @@ div.print-format { margin: 0 auto !important; }
     address, and this document never prints the letterhead -- on a boxed sheet that 10mm shows up as
     a band of white under the box. Scoped to this one document: every other document here flows, so
     a taller page would re-paginate it. -#}
-{% if ctx.key in ("escalation_chart", "maintenance_checklist", "recommended_tools", "attic_stock_list", "key_list", "inventory_list", "dos_donts") %}.print-format { margin-bottom: 14mm; }{% endif %}
+{% if ctx.key in ("escalation_chart", "maintenance_checklist", "recommended_tools", "attic_stock_list", "key_list", "dos_donts") %}.print-format { margin-bottom: 14mm; }{% endif %}
+{#- The Inventory List runs over as many landscape pages as it has rows, and its box is STAMPED on
+    afterwards (`api/hod/page_frame.py`) with its foot 19mm up, so the rows stop 3mm inside it -- the O&M
+    Manual's 22mm, below. The signature band is NOT a page footer (a footer prints on every page, and
+    with JavaScript off it cannot tell the last one): it rides at the end of the rows, on the last page
+    only (owner 2026-10-15). -#}
+{% if ctx.key == "inventory_list" %}.print-format { margin-bottom: 22mm; }{% endif %}
 {#- The O&M Manual's box is STAMPED on afterwards (`api/hod/page_frame.py`) with its bottom rule 19mm up
     the page, so the TEXT must stop above that line. At the 14mm the boxed sheets use, the last line of
     every full page printed ON the rule or below it -- measured 2026-10-06, text down to 278-283mm on all
@@ -97,9 +103,6 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 /* The room the PINNED signature band occupies, reserved in the flow -- only on sheets that carry one.
    The Recommended Tools list has no band, so reserving it there would leave 36mm of dead space. */
 .hd-sheet-band { padding-bottom: 36mm; }
-/* The Inventory List prints LANDSCAPE, so its box is the landscape content height, not the portrait
-   one: 210mm - 20mm top - 14mm bottom = 176mm, and 170mm leaves headroom. Declared AFTER
-   `.hd-sheet-grow` so it out-ranks that rule's min-height on source order. */
 /* A TEXT sheet in a box: the Do's & Don'ts and the O&M Manual are prose, not tables, so the frame has
    to draw its OWN top rule -- there is no head table above to draw it -- and the content is padded off
    the border instead of running into it. */
@@ -122,12 +125,53 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 .hd-lib > *:last-child, .print-format .hd-lib > *:last-child { margin-bottom: 0 !important; }
 .hd-sheet-text { padding: 12px 16px; }
 .hd-sheet-text .hd-frame, .print-format .hd-sheet-text .hd-frame { border-top: 1px solid #000; }
-.hd-sheet-land { min-height: 170mm; }
-/* A landscape sheet has 176mm of height against a portrait sheet's 263mm, so the signature band takes
-   a much bigger share of it. Smaller seal and a tighter reserve here, to buy the rows back. */
-.hd-sheet-land.hd-sheet-band { padding-bottom: 25mm; }
-.hd-sheet-land .hd-seal-mark img, .print-format .hd-sheet-land .hd-seal-mark img { height: 62px; }
-.hd-sheet-land .hd-seal-mark, .print-format .hd-sheet-land .hd-seal-mark { margin: 6px 0 4px 0; }
+/* The Inventory List (LANDSCAPE) is the one boxed sheet that is NOT a CSS box. Its rows are data and can
+   outrun a page -- the EXL Kochi HVAC list, 24 areas by 17 materials, took two -- and a CSS box broken by
+   a page hangs open at the foot of page 1, with the signatures on the last page only. So the rows FLOW:
+   the renderer breaks the table between rows and repeats its header row (`<thead>`) on every page, the
+   signature band follows the TOTAL on the last page, and the box is stamped onto every page afterwards
+   (`api/hod/page_frame.FRAMED`). The wrapper keeps the sheet classes only because the type sizes below
+   key on them; this takes the box's height back off -- a min-height here would push a short list onto a
+   second, empty page. */
+/* The margin on the right: the stamped frame's right rule prints at 284.5mm -- wkhtmltopdf draws it to whole
+   pixels -- while the content runs to 285mm, so every row rule poked through the box's side (measured
+   2026-10-15). 0.5mm still left them 1pt past it (808pt against the frame's 807pt, measured 2026-10-16);
+   anything from 0.75mm to 1mm ends them exactly on its outer edge, and 0.8mm sits inside that range. */
+.hd-sheet.hd-sheet-land { min-height: 0; margin-right: 0.8mm; }
+.hd-inv tr { page-break-inside: avoid; }
+/* The cell carrying the last row + TOTAL table: no padding and no rule of its own -- the inner table's
+   cells draw every line, overlapping the row above by the `.hd-table` -1px. */
+.print-format .hd-sheet .hd-inv td.hd-inv-end { padding: 0 !important; border: 0; }
+/* The outer row alone keeps that unit whole. Frappe's print CSS puts `page-break-inside: avoid !important`
+   on every `table td div` (frappe/templates/styles/standard.css), which reaches the band's divs inside this
+   cell, and an avoid nested in the avoided row threw the unit onto a page of its own at one row count while
+   the page above still had room -- measured 2026-10-15 on HVAC, 17 materials: 35 areas printed 3 pages,
+   page 2 stopping at area 34, while 34 and 36 areas printed 2. */
+.hd-inv td.hd-inv-end div, .print-format .hd-inv td.hd-inv-end div { page-break-inside: auto !important; }
+/* The box's SIDES are the stamped frame's alone. The tables' own outer rules printed beside them, half a
+   millimetre inside on the right -- wkhtmltopdf rounds the frame and the table to different pixels -- as a
+   double line down the edge of every page (measured 2026-10-15: frame 284.5mm, table 285.0mm). */
+.print-format .hd-sheet-land .hd-table tr > :first-child { border-left: 0; }
+.print-format .hd-sheet-land .hd-table tr > :last-child { border-right: 0; }
+/* And its TOP. The title row's top rule printed right under the frame's (57-58pt against 56.25-57pt), and on
+   every later page the repeated header row's did the same, so the box opened on a line twice as thick as
+   the rest (measured 2026-10-16). */
+.print-format .hd-sheet-land .hd-head tr:first-child td { border-top: 0; }
+.print-format .hd-sheet-land .hd-inv thead th { border-top: 0; }
+/* With the header row's own top rule gone, page 1 draws that line with the spacer row's bottom rule -- so the
+   grid must not ride up the usual `.hd-table` 1px over it: the header row's grey fill painted straight over
+   the line and page 1's header row printed with no top (2026-10-16). The OUTER grid only: the table inside
+   `td.hd-inv-end` keeps its -1px, which is what lays the last area's top onto the row above. */
+.print-format .hd-sheet-land > table.hd-inv { margin-top: 0; }
+/* The band, ONCE, under the TOTAL (owner 2026-10-15: "in last page only"). It sits in the same outer row
+   as the last area and the TOTAL (`td.hd-inv-end`), so the three can never be parted -- no page ever opens
+   on the signatures alone. A smaller seal than the portrait sheets carry: landscape has 176mm of height
+   against 263mm. Inside a grid cell the names would take the grid's 9px type and padding, so the band's
+   own sizes are restated at a specificity that out-ranks `.hd-sheet .hd-inv td`. */
+.hd-inv-sign { padding-top: 3mm; }
+.hd-inv-sign .hd-seal-mark img, .print-format .hd-inv-sign .hd-seal-mark img { height: 62px; }
+.hd-inv-sign .hd-seal-mark, .print-format .hd-inv-sign .hd-seal-mark { margin: 6px 0 4px 0; }
+.print-format .hd-sheet .hd-inv .hd-inv-sign .hd-signnames td { font-size: 12px; padding: 2px !important; }
 /* The head block is six rows whatever the page, so on landscape it eats a quarter of the height.
    Tighter rows here buy those millimetres back for the grid, which is what the sheet is for. */
 .hd-sheet-land .hd-head td, .print-format .hd-sheet-land .hd-head td {
@@ -742,18 +786,25 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 {# ------------------------------------------------ 8. Inventory List (landscape) #}
 {% elif ctx.key == "inventory_list" %}
     {% set inv = ctx.inventory %}
-    {#- The boxed sheet the other lists use, on a LANDSCAPE page, with the seal-and-names band at the
-        foot -- the same parties the logo strip heads the page with. -#}
-    <div class="hd-sheet hd-sheet-grow hd-sheet-land hd-sheet-band">
-    <div class="hd-frame"></div>
+    {#- The boxed sheet the other lists use, on a LANDSCAPE page, over AS MANY PAGES AS ITS ROWS NEED:
+        each page repeats the header row and ends in its own box (stamped on -- see
+        `.hd-sheet.hd-sheet-land`). The seal-and-names band (the same parties the logo strip heads the
+        page with) prints ONCE, under the TOTAL on the last page -- see `.hd-inv-sign`. -#}
+    <div class="hd-sheet hd-sheet-grow hd-sheet-land">
     {{ head_table(h, title="INVENTORY LIST / ASSET LIST") }}
     <table class="hd-table hd-inv">
-        <tr>
+        <thead><tr>
             <th style="width: 5%;">Sl No</th>
             <th style="width: 14%;">Area</th>
             {% for m in inv.materials %}<th>{{ v(m) }}</th>{% endfor %}
-        </tr>
-        {% for r in inv.rows %}
+        </tr></thead>
+        {#- The last row, the TOTAL and the signature band travel together, so a page can never open on the
+            TOTAL or the signatures alone (at 12 rows it did: a second page holding the header row and the
+            total). wkhtmltopdf keeps only a single `tr` whole -- `page-break-inside: avoid` on a `tbody` is
+            ignored, measured -- so the three are ONE outer row holding a table of its own, with the outer
+            table's column widths, and the band under it. -#}
+        {% set split = (inv.rows | length) - (1 if inv.totals else 0) %}
+        {% for r in inv.rows[:split] %}
         <tr class="hd-row">
             <td class="hd-c">{{ loop.index }}</td>
             <td>{{ v(r.name) }}</td>
@@ -761,13 +812,27 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
         </tr>
         {% endfor %}
         {% if inv.totals %}
-        <tr>
-            <td></td><td class="hd-b hd-r">TOTAL</td>
-            {% for t in inv.totals %}<td class="hd-c hd-b">{{ t }}</td>{% endfor %}
-        </tr>
+        <tr><td class="hd-inv-end" colspan="{{ 2 + (inv.materials | length) }}">
+            <table class="hd-table hd-inv">
+                <colgroup><col style="width: 5%;"><col style="width: 14%;">{% for m in inv.materials %}<col>{% endfor %}</colgroup>
+                {% for r in inv.rows[split:] %}
+                <tr class="hd-row">
+                    <td class="hd-c">{{ split + loop.index }}</td>
+                    <td>{{ v(r.name) }}</td>
+                    {% for c in r.cells %}<td class="hd-c">{{ v(c) }}</td>{% endfor %}
+                </tr>
+                {% endfor %}
+                <tr>
+                    <td></td><td class="hd-b hd-r">TOTAL</td>
+                    {% for t in inv.totals %}<td class="hd-c hd-b">{{ t }}</td>{% endfor %}
+                </tr>
+            </table>
+            <div class="hd-inv-sign">{{ signature_band(ctx) }}</div>
+        </td></tr>
         {% endif %}
     </table>
-    <div class="hd-sheet-foot">{{ signature_band(ctx) }}</div>
+    {#- An empty list prints blank rows to write in and no TOTAL -- one page, so the band simply follows. -#}
+    {% if not inv.totals %}<div class="hd-inv-sign">{{ signature_band(ctx) }}</div>{% endif %}
     </div>
 
 {# -------------------------------------------------- 9. Recommended Tools List #}
