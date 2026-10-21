@@ -15,6 +15,7 @@ from nirmaan_stack.services.approval_tiers import (
     steps_cleared_by_raiser,
 )
 from nirmaan_stack.services.order_payments import assert_within_work_order_limit
+from nirmaan_stack.services.payment_steps import ROUTED_AT_REQUEST
 from nirmaan_stack.services import cheque_payments
 from nirmaan_stack.services.tds_forecast import request_amount_as_stored
 from nirmaan_stack.services.cheques import decide as cheque_decision
@@ -170,6 +171,8 @@ def create_payment_request_for_service(data: str) -> str:
     # Checked above against the amount AS REQUESTED; the insert validation must not check the
     # rounded figure again and refuse what this endpoint just allowed.
     pay.flags.work_order_limit_checked = True
+    # Routed above by the raiser's level (`_tier_new_payment`), on the requested amount or the cheque's.
+    pay.flags[ROUTED_AT_REQUEST] = True
     pay.insert()
 
     if auto_approve:
@@ -312,6 +315,8 @@ def create_project_payment(
         else:
             _stamp_raiser_approval(pay, l1_cleared, ceo_cleared)
 
+        # Routed above by the raiser's level (`_tier_new_payment`), on the amount or the cheque's.
+        pay.flags[ROUTED_AT_REQUEST] = True
         # This insert will trigger the 'after_insert' hook, which routes
         # notifications by status (auto-approved → accountants + admin record note).
         pay.insert(ignore_permissions=True)
