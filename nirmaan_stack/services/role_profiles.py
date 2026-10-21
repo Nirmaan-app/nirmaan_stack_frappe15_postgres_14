@@ -313,6 +313,20 @@ def can_edit_approved_wo_invoice(user: str) -> bool:
 PROJECT_MANAGER_PROFILE = "Nirmaan Project Manager Profile"
 PROJECT_LEAD_PROFILE = "Nirmaan Project Lead Profile"
 
+# Approve or reject a Work Order, and accept or revert its amendment (#1529, spec #1528). The
+# ENFORCEMENT boundary is the Service Requests `validate` hook
+# (`integrations/controllers/service_requests.guard_lifecycle`, rule in `services/work_order_lifecycle.py`),
+# so Desk and the API obey it: about 17 Roles write a Work Order, and System Manager rides on several
+# profiles, so the doctype's Role rows cannot say this. Mirrored client-side by `SR_ADMIN_ROLES` in
+# `frontend/src/pages/ServiceRequests/config/srTabs.constants.ts` -- keep the two in sync. PMO was removed
+# on 2026-09-17 (PMO access review).
+WO_DECIDE_PROFILES = (ADMIN_PROFILE, PROJECT_LEAD_PROFILE)
+
+
+def can_decide_work_order(user: str) -> bool:
+    """True when `user` may approve or reject a Work Order or decide its amendment. Administrator passes."""
+    return has_role_profile(user, WO_DECIDE_PROFILES)
+
 # May upload, edit and delete a Material Test Certificate (owner, 2026-10-07).
 #
 # ENFORCEMENT boundary, checked in `integrations/controllers/material_test_certificate.py`.

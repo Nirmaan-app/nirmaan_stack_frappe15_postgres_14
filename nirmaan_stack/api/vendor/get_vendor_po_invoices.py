@@ -153,9 +153,10 @@ def get_po_ledger_data(vendor_id):
             )
         print(f"DEBUG LEDGER: Found {len(payments)} total historical Project Payments.")
 
-        # A Work Order payment settles its payment PLUS the TDS withheld from the vendor on it (ADR-0034
-        # Amendment A, #1512): that tax is part of the WO's Amount Paid, so the row carries it and the
-        # ledger closes against Amount Paid. Tax the company paid on top was never the vendor's: nothing.
+        # A payment settles its amount PLUS the TDS withheld from the vendor on it (ADR-0034 Amendments A
+        # and B, #1512, #1534): that tax is part of its order's Amount Paid, so the row carries it and the
+        # ledger closes against Amount Paid. Tax the company paid on top was never the vendor's: nothing. A
+        # PO payment still stored gross holds its recorded tax in its amount: nothing on top either.
         tds_by_payment = borne_tds_by_payment(vendor_id)
 
         for payment in payments:

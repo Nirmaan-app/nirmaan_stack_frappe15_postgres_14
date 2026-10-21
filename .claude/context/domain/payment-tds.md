@@ -95,6 +95,23 @@ figure — the company pays the tax on top:
 - **"ALL", not "ANY"** — one other category (Electrical, …) makes it ordinary; no categories is ordinary.
 - **ONE rule, `payment_tds.COMPANY_BORNE_CATEGORIES` + `is_company_borne`**, mirrored on the frontend by
   `tdsForecast.COMPANY_BORNE_CATEGORIES` + `isCompanyBorneWorkOrder`. Change both or neither.
+### Load-bearing invariants: which orders take tax, and whose recorded tax counts
+
+- **Two sets, never one answering for the other (ADR-0034 Amendment B, #1534).**
+  `payment_tds.DEDUCTIBLE_PARENTS` = the orders that TAKE a deduction and store `total_tds`: Work Orders
+  only (`is_deductible`, `cheque_payments.has_no_tds_to_wait_for`, `total_tds_of` / `sync_total_tds`,
+  `is_company_borne`). `TAX_COUNTED_PARENTS` = the orders whose RECORDED tax counts: Work Orders and POs.
+  Every reader of recorded tax (Amount Paid writer, mismatch judge's paid figure, Vendor Ledger, Vendor
+  report, payment summary, request limits, project outflow, payments pop-up) goes through ONE source,
+  `payment_tds.counted_deductions_sql` (`paid_borne_tds_sql` for Paid payments). Asserted at import:
+  `DEDUCTIBLE_PARENTS <= TAX_COUNTED_PARENTS`.
+- **A PO payment still stored gross counts its tax nowhere on top.** `counted_deductions_sql` drops a
+  deduction whose payment's order is not deductible and still carries the legacy `Project Payments.tds`
+  box: the 86 PO payments the 2026-09 backfill left at the full bill. `patches/v3_0/net_po_payments_with_tds`
+  cuts each to net and clears the box, which is what makes its tax count; its skips (bank-matched, tax
+  ≤ ₹5) keep the box and read as before. Never clear that box by hand on a PO payment with a deduction
+  without cutting the amount: the tax would count twice (the mismatch report shows the PO).
+
 ### Load-bearing invariants: who bore the tax
 
 - **`Payment TDS Deduction.borne_by` IS THE SOURCE (#1451).** A stored field by owner ruling 2026-10-16,
@@ -341,6 +358,7 @@ Reports hub → **Payment TDS Deduction** tab (report type "TDS Deduction"), gat
 | `backfill_payment_tds_deduction_link` | Fills `Project Payments.payment_tds` for the 626 existing rows. |
 | `backfill_payment_tds_borne_by` | Sets `borne_by` on every existing row from its payment (kept whole on a company-borne WO → `Company`, else `Vendor`). Recounts nothing. ⚠️ **Run once only** (the patch log is its only guard): a re-run would re-infer rows `record_deduction` wrote since, off payments that may have changed. The reason it cannot be limited to old rows is at the top of the patch. |
 | `recount_work_order_amount_paid_with_tds` | Recounts every Work Order the mismatch judge finds wrong through `write_amount_paid` (ADR-0034 Amendment A, #1513). Run by hand, `preview` first: it also lists each project the WO tax in project outflow newly puts over its cashflow limit, for the owner. Re-checks no CEO Hold; idempotent. |
+| `net_po_payments_with_tds` | Cuts each PO payment with a tax record still stored gross (legacy `tds` box filled) to gross − tax and clears the box (ADR-0034 Amendment B, #1534). Skips and lists bank-matched payments and tax ≤ ₹5. Recounts each touched PO (refund sync step, vendor credit under "PO TDS Netting"), re-checks CEO Hold, and aborts writing nothing unless each touched PO's Amount Paid / Amount Due, vendor credit and project outflow are unchanged. Run by hand, `preview` first; idempotent. |
 
 The first two are idempotent and fill only what is still empty.
 

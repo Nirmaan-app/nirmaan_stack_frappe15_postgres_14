@@ -7,10 +7,10 @@ The terms are `GLOSSARY.md` *Project outflow* and *Current Liabilities*:
 
   * outflow -- cash, not orders: every Paid Project Payment on the project (whatever state its order is
     in now), less its Received Vendor Refunds against a PO / Work Order, plus its Paid Expenses, plus the
-    TDS on its Paid Work Order payments, both the tax withheld from the vendor and the tax the company paid
-    on top (ADR-0034 Amendment A). It is kept as its three parts (PO payments, Work Order payments and
-    their TDS, expenses; each refund comes off its own order kind), which the project's Financials shows as
-    the outflow breakdown; `outflow` is their sum.
+    TDS recorded on its Paid PO and Work Order payments, both the tax withheld from the vendor and the tax
+    the company paid on top (ADR-0034 Amendments A and B). It is kept as its three parts (PO payments and
+    their TDS, Work Order payments and their TDS, expenses; each refund comes off its own order kind), which
+    the project's Financials shows as the outflow breakdown; `outflow` is their sum.
 
     The tax is read off the deduction rows of the Paid payments, keyed and dated by the PAYMENT (its
     project, its date), never by the challan: a challan covers many projects and a whole year. The
@@ -26,7 +26,7 @@ CEO Hold (`integrations/controllers/project_cashflow_hold_update`), the Projects
 `api/projects/project_money` read `project_money`; no reader works the gap out on its own.
 
 A date range counts each row on its own date: a payment, expense and inflow on its `payment_date`, a
-refund on the refund's `payment_date` (not its order's), a WO payment's TDS on its payment's, each falling back to the row's creation date
+refund on the refund's `payment_date` (not its order's), a payment's TDS on its payment's, each falling back to the row's creation date
 when blank. Liabilities are a standing figure, not cash on a date: in a range they cover the POs created
 in it (the Cash Sheet's PO set).
 """
@@ -45,14 +45,13 @@ LIABILITY_EXCLUDED_PO_STATUSES = ("Merged", "Cancelled", "Inactive")
 #: Payments and refunds on this order kind make the Work Order part of the outflow; every other order
 #: kind's make the PO part, so no payment can fall out of the outflow.
 WORK_ORDER_DOCTYPE = "Service Requests"
-#: The TDS on each Paid Work Order payment, both kinds (withheld from the vendor + paid by the company on
-#: top), from the one split (`payment_tds.paid_borne_tds_sql`): one row per deduction, with its payment's
-#: project and dates. Binds `%(work_order)s`. Part of the outflow (`project_money`), and read on its own
-#: by `work_order_tds_by_project`.
-_WORK_ORDER_TDS_ROWS = f"""
-    SELECT project, payment_date, creation, vendor_borne_tds + company_borne_tds AS tds_amount
+#: The recorded TDS on each Paid PO / Work Order payment, both kinds (withheld from the vendor + paid by the
+#: company on top), from the one split (`payment_tds.paid_borne_tds_sql`): one row per deduction, with its
+#: payment's order kind, project and dates. Part of the outflow (`project_money`, on its order kind's part,
+#: ADR-0034 Amendments A and B), and a Work Order's read on its own by `work_order_tds_by_project`.
+_ORDER_TDS_ROWS = f"""
+    SELECT document_type, project, payment_date, creation, vendor_borne_tds + company_borne_tds AS tds_amount
     FROM ({paid_borne_tds_sql()}) AS paid_tds
-    WHERE document_type = %(work_order)s
 """
 
 
@@ -95,8 +94,8 @@ def work_order_tds_by_project(projects=None) -> dict[str, float]:
     rows = frappe.db.sql(
         f"""
         SELECT project, SUM(tds_amount) AS tds
-        FROM ({_WORK_ORDER_TDS_ROWS}) AS work_order_tds
-        WHERE COALESCE(project, '') <> '' {in_projects}
+        FROM ({_ORDER_TDS_ROWS}) AS work_order_tds
+        WHERE document_type = %(work_order)s AND COALESCE(project, '') <> '' {in_projects}
         GROUP BY project
         """,
         {"work_order": WORK_ORDER_DOCTYPE, "projects": tuple(projects or ())},
@@ -151,8 +150,8 @@ def project_money(projects=None, from_date=None, to_date=None) -> dict[str, Proj
             WHERE status IN %(refund_statuses)s AND document_type IN %(refund_doctypes)s
               AND {scope("project", ON_PAYMENT_DATE)}
             UNION ALL
-            SELECT project, 0, tds_amount, 0, 0, 0
-            FROM ({_WORK_ORDER_TDS_ROWS}) AS work_order_tds
+            SELECT project, {order_cash("tds_amount")}, 0, 0, 0
+            FROM ({_ORDER_TDS_ROWS}) AS order_tds
             WHERE {scope("project", ON_PAYMENT_DATE)}
             UNION ALL
             SELECT projects, 0, 0, amount, 0, 0
