@@ -199,7 +199,7 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Current Liabilities** — a **third, separate** figure: `max(0, po_amount_delivered − amount_paid)`, per PO before summing. Based on what physically **arrived**, not what was billed, and clamped at zero so an overpayment never reads as a negative liability. It is *not* Amount Due and the two disagree on roughly half of all POs. It feeds the CEO-Hold cashflow gap. **Merged, Cancelled and Inactive POs are left out**: what they delivered is counted on the PO that replaced them (owner, 2026-10-15).
 
-- **Approved invoice** — a Vendor Invoice at status *Approved*: treated as financially committed (it counts toward the invoiced total and drives billing status). Editing or deleting one is restricted to an *Admin* — the rationale and the (deliberately uneven) enforcement live in [ADR-0014](docs/adr/0014-invoice-mutation-permissions.md).
+- **Approved invoice** — a Vendor Invoice at status *Approved*: treated as financially committed (it counts toward the invoiced total and drives billing status). Editing or deleting one is restricted to an *Admin* — the rationale and the (deliberately uneven) enforcement live in [ADR-0014](docs/adr/0014-invoice-mutation-permissions.md). On a **Work Order** the server enforces all of it (ADR-0014 Amendment A): only the invoice-approval roles approve or reject, only Accountants and Admin edit, and only Admin changes an Approved one's amount, number or date; anyone else rejects it and uploads it again.
 
 - **Credit Note** — a **Purchase-Order-only** Vendor Invoice variant recording a vendor credit: its amount is stored negative and it is excluded from the PO's invoiced quantity. Work Orders (Service Requests) have no credit notes.
 

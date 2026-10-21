@@ -18,10 +18,25 @@ we would remember to edit —
 STAY THAT WAY: it counts a different set (Pending+Approved, credit notes excluded)
 and writes every Purchase Order Item row, so putting it on doc events would fire it
 on paths it deliberately does not run on today.
+
+Also home of `guard_work_order_invoice` (validate): who may approve, reject or edit a
+Work Order invoice (#1531, ADR-0014 Amendment A).
 """
+
+import frappe
 
 from nirmaan_stack.api.invoices._item_billing_sync import (
     recompute_document_amount_invoiced,
+)
+from nirmaan_stack.services.role_profiles import (
+    can_decide_wo_invoice,
+    can_edit_approved_wo_invoice,
+    can_edit_wo_invoice,
+)
+from nirmaan_stack.services.work_order_invoice_access import (
+    WorkOrderInvoiceRefused,
+    change_problem,
+    is_work_order_invoice,
 )
 
 # The stored total sums APPROVED invoices only, so an invoice can only move it while
@@ -95,3 +110,23 @@ def recompute_parent_total(doc, method=None):
 
     for document_type, document_name in targets:
         recompute_document_amount_invoiced(document_type, document_name)
+
+
+def guard_work_order_invoice(doc, method=None):
+    """Refuse a Work Order invoice save the user's role does not allow (#1531, ADR-0014 Amendment A;
+    the rule is `services/work_order_invoice_access.change_problem`). Bound to validate, so the
+    approve and edit endpoints, Desk and the REST API all obey it. A Purchase Order invoice passes.
+    """
+    before = doc.get_doc_before_save()
+    if not (is_work_order_invoice(doc) or is_work_order_invoice(before)):
+        return
+    user = frappe.session.user
+    problem = change_problem(
+        before,
+        doc,
+        may_decide=can_decide_wo_invoice(user),
+        may_edit=can_edit_wo_invoice(user),
+        may_edit_approved=can_edit_approved_wo_invoice(user),
+    )
+    if problem:
+        frappe.throw(problem, WorkOrderInvoiceRefused)
