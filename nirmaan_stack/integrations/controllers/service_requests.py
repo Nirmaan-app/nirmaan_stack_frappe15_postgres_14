@@ -146,33 +146,29 @@ def validate_gst_not_switched_off_with_gst_payments(doc):
 
 
 def on_trash(doc, method):
-    frappe.db.delete("Nirmaan Comments", {
-        "reference_name" : ("=", doc.name)
-    })
-    print(f"flagged for delete sr document: {doc} {doc.modified_by} {doc.owner}")
-    notifications = frappe.db.get_all("Nirmaan Notifications", 
-                                      filters={"docname": doc.name},
-                                      fields={"name", "recipient"}
-                                      )
+    """Clear the Work Order's remarks and bell rows, and tell each bell row's holder it is gone.
 
-    if notifications:
-        for notification in notifications:
-            print(f"running delete notification event for user: {notification['recipient']} with {notification['name']}")
-            message = {
-            "title": _("SR Deleted"),
-            "description": _(f"SR: {doc.name} has been deleted."),
-            "docname": doc.name,
-            "sender": frappe.session.user,
-            "notificationId" : notification["name"]
-            }
-            frappe.publish_realtime(
-                event="sr:delete",
-                message=message,
-                user=notification["recipient"]
-            )
-    frappe.db.delete("Nirmaan Notifications", {
-        "docname": ("=", doc.name)
-    })
+    ⚠️ "sr:delete" WAITS FOR THE COMMIT (#1548). Frappe checks links (a payment, an invoice) only after
+    `on_trash`, so a delete it then refuses would already have told every open screen to drop a Work Order
+    that still exists. The rollback that ends a refused delete drops the queued events, and the deletes here.
+    """
+    frappe.db.delete("Nirmaan Comments", {"reference_name": doc.name})
+    notifications = frappe.get_all("Nirmaan Notifications", filters={"docname": doc.name},
+                                   fields=["name", "recipient"])
+    for notification in notifications:
+        frappe.publish_realtime(
+            event="sr:delete",
+            message={
+                "title": _("SR Deleted"),
+                "description": _("SR: {0} has been deleted.").format(doc.name),
+                "docname": doc.name,
+                "sender": frappe.session.user,
+                "notificationId": notification.name,
+            },
+            user=notification.recipient,
+            after_commit=True,
+        )
+    frappe.db.delete("Nirmaan Notifications", {"docname": doc.name})
 
 # --- Notifications (#1533) ---------------------------------------------------------------------------
 

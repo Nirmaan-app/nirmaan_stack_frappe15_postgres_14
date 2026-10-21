@@ -74,7 +74,6 @@ These pages have their own project selection logic and do **not** use `ProjectSe
 | Page | File | Status Guard |
 |------|------|-------------|
 | New PR creation | `pages/ProcurementRequests/NewPR/NewProcurementRequestPage.tsx` | None |
-| New SR/WO creation | `pages/ServiceRequests/service-request/new-service-request.tsx` | None |
 
 PR and SR creation is **not blocked** for Halted/Completed projects — there is no frontend or backend guard.
 

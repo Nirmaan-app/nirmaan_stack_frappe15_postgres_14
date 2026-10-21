@@ -44,7 +44,7 @@ import {
   workOrderBadgeVariant,
 } from "../config/workOrderAmendment";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
-import { SRRemarksPopover } from "@/pages/ServiceRequests/approved-sr/components/SRRemarksPopover";
+import { SRRemarksPopover } from "@/pages/ServiceRequests/service-request/components/SRRemarksPopover";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { parseNumber } from "@/utils/parseNumber";
 import {

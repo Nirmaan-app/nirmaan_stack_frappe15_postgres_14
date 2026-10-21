@@ -87,9 +87,7 @@ export const SR_SUMMARY_DATE_COLUMNS: string[] = ["creation", "modified"];
 export const SR_SUMMARY_STATUS_OPTIONS = [
   { label: "Approved", value: "Approved" },
   { label: "Vendor Selected", value: "Vendor Selected" },
-  { label: "Created", value: "Created" },
   { label: "Amendment", value: "Amendment" },
-  // { label: "Edit", value: "Edit" },
   { label: "Rejected", value: "Rejected" },
 ];
 

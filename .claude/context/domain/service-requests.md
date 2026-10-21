@@ -132,6 +132,15 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   create Nirmaan Notifications) in the save's own transaction, inside a savepoint: never `frappe.db.commit()` in
   a WO hook. The realtime event (`after_commit=True`) and the push (`frappe.db.after_commit`) wait for the
   commit; a failed notice is logged and undone, never raised.
+- **A WO delete is announced only once it is done (#1548).** `controllers/service_requests.on_trash` clears
+  the WO's remarks and bell rows and sends `sr:delete` to each bell row's holder with `after_commit=True`.
+  Frappe's link check (a payment, an invoice) runs after `on_trash`; the rollback that ends a refused delete
+  drops the queued events and the deletes alike. Anything else `on_trash` clears must be undone by that
+  rollback too: no commit, no file deletes there.
+- **The statuses are Vendor Selected, Approved, Rejected and Amendment (#1548).** The legacy no-vendor form
+  (status *Created*) and the *Edit* filter were removed after the 2026-10-08 data copy held no WO in either
+  (the last move out of *Created* was 2026-02-03; into *Edit*, 2025-02-24). *Pending WO* lists Rejected and
+  Vendor Selected.
 
 ## Doctype: Service Requests
 
@@ -238,10 +247,12 @@ Finalization and revert actions create system-generated audit comments:
 ### Hooks
 
 - `useSRFinalize.ts` - `useSRFinalizePermissions()`, `useFinalizeSR()`, `useRevertFinalizeSR()`
-- `useSRRemarks.ts` - `useSRRemarks()`, `useAddSRRemark()`, `useDeleteSRRemark()`
+- `service-request/hooks/useSRRemarks.ts` - `useSRRemarks()`, `useAddSRRemark()`, `useDeleteSRRemark()`,
+  `useSRRecentRemarks()` (the one remarks hook; the retired `approved-sr/` page and its copy were removed, #1548)
 
 ### Components
 
 - `SRFinalizeDialog.tsx` - Confirmation dialogs for finalize/revert
 - `SRComments.tsx` - Full remarks section with filters and "Auto" badge
+- `SRRemarksPopover.tsx` - Remarks popover in the WO lists
 - `SRDetailsCard.tsx` - Shows finalization status
