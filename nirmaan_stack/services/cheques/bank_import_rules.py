@@ -34,6 +34,13 @@ BANK_REVIVAL_NOTE = "cancelled, but the bank paid it"
 BANK_MATCH_BASIS = "cheque number"
 
 
+def bank_approval_note(approved: Sequence[tuple[str, str]]) -> str:
+    """The history note when the bank import approves payments on a cheque that is not Approval Pending (an
+    Old-type cheque's waiting ones): `approved` holds `(payment, the status it was at)`. Pure. An Approval
+    Pending cheque's approval is its Issued row, `BANK_APPROVAL_NOTE` alone."""
+    return f"{BANK_APPROVAL_NOTE}: {join_words([f'{name} (was {was})' for name, was in approved])}"
+
+
 def bank_cheque_key(*, source: str | None, direction: str | None, reference_id) -> str:
     """The cheque number an imported bank line carries, in the compared form (`cheque_no_key`), or "".
     Pure. Only an ICICI statement DEBIT with its cheque column filled is a cheque line (whatever its

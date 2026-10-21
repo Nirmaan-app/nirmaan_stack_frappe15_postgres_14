@@ -302,6 +302,7 @@ class TestALineClearsAnOldTypeCheque(ChequeImportCase):
         )
         self.assertEqual(self._line(row).row_status, "Settled")
         self.assertEqual(self._state(cheque).status, "Cleared")
+        self.assertEqual(self._history(cheque)[-2][3], f"approved by bank import: {approved} (was Approved)")
 
     def test_a_paid_expense_is_left_as_it_is(self):
         number = self._number()
@@ -375,7 +376,10 @@ class TestALineClearsAnOldTypeCheque(ChequeImportCase):
         self.assertEqual(self._statuses(moved, requested), ["Paid", "Paid"])
         self.assertEqual(str(frappe.db.get_value(PAYMENT, requested, "approval_date")), self.day)
         self.assertEqual(self._legs(row), sorted([(moved, "cheque number"), (requested, "cheque number")]))
-        self.assertEqual(self._history(cheque)[-1][:2], ("Issued", "Cleared"))
+        history = self._history(cheque)
+        # The import's approval is in the cheque's history (ADR-0035), then its clear.
+        self.assertEqual(history[-2], ("Issued", "Issued", U, f"approved by bank import: {requested} (was Requested)"))
+        self.assertEqual(history[-1][:2], ("Issued", "Cleared"))
         self.assertEqual(self._state(cheque).status, "Cleared")
         self.assertEqual(self._line(row).row_status, "Settled")
 

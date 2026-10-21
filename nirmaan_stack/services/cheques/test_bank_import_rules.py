@@ -96,6 +96,14 @@ class TestTheBankImportStartsFromMoreStatuses(unittest.TestCase):
         self.assertEqual(self.problem("Issued", [("PAY-1", RP), ("PAY-2", "Approved")]), "payment PAY-2 is Approved")
 
 
+class TestTheImportsApprovalIsInTheHistory(unittest.TestCase):
+    def test_the_note_names_each_payment_and_where_it_was(self):
+        self.assertEqual(
+            bank_import_rules.bank_approval_note([("PAY-1", "Requested"), ("PAY-2", "Approved")]),
+            "approved by bank import: PAY-1 (was Requested) and PAY-2 (was Approved)",
+        )
+
+
 class TestWhatTheReviewSays(unittest.TestCase):
     def note(self, started, payments=2, suspects=()):
         return bank_import_rules.bank_cleared_note(cheque_no="000747", started=started, payments=payments, day="2026-10-14",

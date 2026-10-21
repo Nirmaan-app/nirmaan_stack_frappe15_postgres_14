@@ -48,7 +48,7 @@ from nirmaan_stack.api.outflow_import.vendor_credit_refresh import SETTLED_ENTRY
 from nirmaan_stack.services.cheque_payments import to_reconciliation
 from nirmaan_stack.services.cheques import old_type_clear
 from nirmaan_stack.services.cheques.approval_rules import approval_problem
-from nirmaan_stack.services.cheques.bank_import_rules import BANK_APPROVAL_NOTE, BANK_REVIVAL_NOTE
+from nirmaan_stack.services.cheques.bank_import_rules import BANK_APPROVAL_NOTE, BANK_REVIVAL_NOTE, bank_approval_note
 from nirmaan_stack.services.cheques.clear_rules import (
     BANK_BRINGS_FORWARD,
     BankLine,
@@ -139,9 +139,10 @@ def clear(cheque: str, *, bank_line: str | None, user: str) -> dict:
     old_type = bool(doc.old_type)
     payments = _line_payments(doc)
     rows = lock_payments(payments) if payments else {}
+    was = {p: (rows[p].status or "").strip() for p in payments}
     expenses = old_type_clear.expense_statuses(doc) if old_type else {}
     # Records Paid before this clear (an Old-type cheque's only): left as they are.
-    paid_before = {(PAYMENT_DOCTYPE, p) for p in payments if (rows[p].status or "").strip() == STATUS_PAID}
+    paid_before = {(PAYMENT_DOCTYPE, p) for p in payments if was[p] == STATUS_PAID}
     paid_before |= {record for record, status in expenses.items() if status == STATUS_PAID}
     reason = clear_problem(
         status=doc.status, cheque_type=doc.cheque_type, old_type=old_type,
@@ -190,6 +191,11 @@ def clear(cheque: str, *, bank_line: str | None, user: str) -> dict:
         legs = [_leg(pay) for pay in paid]
     _record_bank_line(line, legs, user)
 
+    approved = [(p, was[p]) for p in waiting if was[p] != PAYMENT_REJECTED]
+    if approved and started != PENDING:
+        # Every move the import makes is in the cheque's history (ADR-0035). An Approval Pending cheque's
+        # approval is its Issued row; an Old-type cheque's waiting payments get this one.
+        doc.append("status_history", history_row(doc.status, doc.status, user, bank_approval_note(approved)))
     note = f"Cleared by bank import, bank line {line.name}."
     if started == CANCELLED:
         note = f"{note.rstrip('.')}: {BANK_REVIVAL_NOTE}."
