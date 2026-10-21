@@ -128,15 +128,23 @@ def _move_boq_attachments(boq_names, project):
     )
 
 
-def move_boqs_into_project(from_project, to_project):
+def move_boqs_into_project(from_project, to_project, selected_boqs):
     """Merge (ADR-0038 D2): every BoQ of the Tendering project `from_project` moves to the Won
-    project `to_project` as Selected, stamped `merged_from` so Undo can find exactly this set; the
-    BoQs' attachment rows move with them. The caller (`api/projects/tendering_merge`) checks the
-    rule -- including that every BoQ is Draft -- and commits.
+    project `to_project`, stamped `merged_from` so Undo can find exactly this set; the BoQs'
+    attachment rows move with them. A BoQ in `selected_boqs` (ticked) becomes Selected, every other
+    one Draft, so it lands in the Won project's Other BoQs. The caller
+    (`api/projects/tendering_merge`) checks the rule -- including that every BoQ is Draft and every
+    pick belongs to `from_project` -- and commits.
     """
+    ticked = set(selected_boqs or [])
     names = frappe.get_all("BOQs", filters={"project": from_project}, pluck="name", order_by="name asc")
     for name in names:
-        _save_boq(name, project=to_project, merged_from=from_project, status="Selected")
+        _save_boq(
+            name,
+            project=to_project,
+            merged_from=from_project,
+            status="Selected" if name in ticked else "Draft",
+        )
     _move_boq_attachments(names, to_project)
     return names
 
@@ -181,12 +189,14 @@ def return_merged_boqs(from_project):
     return names
 
 
-def select_project_boqs(project, selected_boqs):
+def select_project_boqs(project, selected_boqs, require_pick=True):
     """Record which BoQs a Tendering project was won on (Convert to Won, ADR-0037 D2).
 
     THE one owner of the rule: every BoQ in `selected_boqs` -> Selected. Every other BoQ of the
     project stays as it is (Draft). A project with no BoQ needs no selection; one with any BoQ
-    that is not Superseded must name at least one of them.
+    that is not Superseded must name at least one of them -- unless `require_pick` is False,
+    which the conversion passes when it also merges in other Tendering projects' BoQs (ADR-0038):
+    then a tick among those is enough, and the conversion checks "at least one overall" itself.
 
     Called by `api/projects/tendering.convert_tendering_to_won` INSIDE its transaction and does
     not commit, so the statuses land or roll back together with the conversion. Every pick is
@@ -197,7 +207,9 @@ def select_project_boqs(project, selected_boqs):
     selected = list(dict.fromkeys(name for name in (selected_boqs or []) if name))
 
     if not selected:
-        if frappe.db.exists("BOQs", {"project": project, "status": ["!=", "Superseded"]}):
+        if require_pick and frappe.db.exists(
+            "BOQs", {"project": project, "status": ["!=", "Superseded"]}
+        ):
             frappe.throw(_("Select at least one BoQ this project was won on."))
         return {"selected": []}
 

@@ -453,12 +453,27 @@ class TestBOQs(FrappeTestCase):
         x = self._make_boq("Merge X", stub).name
         y = self._make_boq("Merge Y", stub).name
 
-        moved = move_boqs_into_project(stub, won)
+        moved = move_boqs_into_project(stub, won, [x, y])
 
         self.assertEqual(sorted(moved), sorted([x, y]))
         for name in (x, y):
             self.assertEqual(self._row(name), {"project": won, "merged_from": stub, "status": "Selected"})
         self.assertEqual(self._row(own), {"project": won, "merged_from": None, "status": "Draft"})
+
+    def test_merge_makes_ticked_boqs_selected_and_the_rest_draft(self):
+        """Owner 2026-10-21: every BoQ moves; only the ticked ones are Selected."""
+        stub, won = self._award_project(), self._award_project()
+        x = self._make_boq("Merge X", stub).name
+        y = self._make_boq("Merge Y", stub).name
+
+        moved = move_boqs_into_project(stub, won, [x])
+
+        self.assertEqual(sorted(moved), sorted([x, y]))
+        self.assertEqual(self._row(x), {"project": won, "merged_from": stub, "status": "Selected"})
+        self.assertEqual(self._row(y), {"project": won, "merged_from": stub, "status": "Draft"})
+        return_merged_boqs(stub)
+        for name in (x, y):
+            self.assertEqual(self._row(name), {"project": stub, "merged_from": None, "status": "Draft"})
 
     def test_undo_returns_exactly_the_merged_boqs_as_draft(self):
         """Q3: the Won project's own BoQs, later uploads and another merge's BoQs stay put."""
@@ -467,8 +482,8 @@ class TestBOQs(FrappeTestCase):
         x = self._make_boq("Merge X", stub).name
         y = self._make_boq("Merge Y", stub).name
         z = self._make_boq("Merge Z", other_stub).name
-        move_boqs_into_project(stub, won)
-        move_boqs_into_project(other_stub, won)
+        move_boqs_into_project(stub, won, [x, y])
+        move_boqs_into_project(other_stub, won, [z])
         later = self._make_boq("Uploaded After Merge", won).name
 
         returned = return_merged_boqs(stub)
@@ -485,7 +500,7 @@ class TestBOQs(FrappeTestCase):
         stub, won = self._award_project(), self._award_project()
         self._make_boq("Electrical BOQ", won)
         incoming = self._make_boq("Electrical BOQ", stub)
-        move_boqs_into_project(stub, won)
+        move_boqs_into_project(stub, won, [])
         self.assertEqual(frappe.db.get_value("BOQs", incoming.name, "version"), 1)
         return_merged_boqs(stub)
         self.assertEqual(frappe.db.get_value("BOQs", incoming.name, "version"), 1)
@@ -494,7 +509,7 @@ class TestBOQs(FrappeTestCase):
         """D4: a BoQ outside the merged set that revises one inside it is named."""
         stub, won = self._award_project(), self._award_project()
         x = self._make_boq("Merge X", stub).name
-        move_boqs_into_project(stub, won)
+        move_boqs_into_project(stub, won, [])
         revision = self._make_boq("Merge X", won).name
         frappe.db.set_value("BOQs", revision, {"origin": "revision", "source_boq": x})
 
@@ -505,7 +520,7 @@ class TestBOQs(FrappeTestCase):
         stub, won = self._award_project(), self._award_project()
         own = self._make_boq("Won Own", won).name
         x = self._make_boq("Merge X", stub).name
-        move_boqs_into_project(stub, won)
+        move_boqs_into_project(stub, won, [])
         frappe.db.set_value("BOQs", x, {"origin": "revision", "source_boq": own})
 
         self.assertEqual(boqs_blocking_unmerge(stub), [x])
@@ -514,7 +529,7 @@ class TestBOQs(FrappeTestCase):
         stub, won = self._award_project(), self._award_project()
         x = self._make_boq("Merge X", stub).name
         frappe.db.set_value("BOQs", x, {"origin": "revision", "source_boq": "BOQ-DOES-NOT-EXIST"})
-        move_boqs_into_project(stub, won)
+        move_boqs_into_project(stub, won, [])
 
         self.assertEqual(boqs_blocking_unmerge(stub), [])
 
@@ -539,7 +554,7 @@ class TestBOQs(FrappeTestCase):
         x_file = attach(x, stub)
         other_file = attach(other, "_TEST_ELSEWHERE")
 
-        move_boqs_into_project(stub, won)
+        move_boqs_into_project(stub, won, [])
         self.assertEqual(frappe.db.get_value("Nirmaan Attachments", x_file, "project"), won)
 
         return_merged_boqs(stub)
@@ -578,6 +593,6 @@ class TestBOQs(FrappeTestCase):
         v1 = self._make_boq("Merge X", stub).name
         v2 = self._make_boq("Merge X", stub).name
         frappe.db.set_value("BOQs", v2, {"origin": "revision", "source_boq": v1})
-        move_boqs_into_project(stub, won)
+        move_boqs_into_project(stub, won, [])
 
         self.assertEqual(boqs_blocking_unmerge(stub), [])

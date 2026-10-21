@@ -12,6 +12,7 @@ import { ProjectFormValues } from "../schema";
 import { ProjectFormData } from "../hooks/useProjectFormData";
 import { SectionKey } from "../constants";
 import { ConvertBoqOption } from "@/pages/projects/data/project-form/useProjectFormQueries";
+import type { MergeSource } from "../boqPackageSeed";
 import { useGstOptions } from "@/hooks/useGstOptions";
 
 interface ReviewStepProps {
@@ -24,6 +25,8 @@ interface ReviewStepProps {
     onNavigateToSection: (section: SectionKey) => void;
     /** Convert mode, stub with a BoQ: the picks and how many BoQs stay Draft. */
     boqAward?: { selected: ConvertBoqOption[]; draftCount: number };
+    /** BoQs added from other Tendering projects (ADR-0038); merged in on Create. */
+    mergeSources?: MergeSource[];
 }
 
 export const ReviewStep: React.FC<ReviewStepProps> = ({
@@ -35,6 +38,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
     onSubmit,
     onNavigateToSection,
     boqAward,
+    mergeSources = [],
 }) => {
     const { customers } = formData;
     const { gstOptions } = useGstOptions();
@@ -204,14 +208,15 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
                     </div>
                 </ReviewSection>
 
-                {/* BOQ Section (convert mode, stub has a BoQ) */}
-                {boqAward && (
+                {/* BOQ Section: the stub's own BoQs (convert) and BoQs from other Tendering projects */}
+                {(boqAward || mergeSources.length > 0) && (
                     <ReviewSection
                         title="BOQ"
                         icon={FileSpreadsheet}
                         onEdit={() => onNavigateToSection("boqSelection")}
                         iconColorClass="bg-sky-500/10 text-sky-600 dark:text-sky-400"
                     >
+                        {boqAward && (
                         <ReviewDetail
                             label="Won on"
                             value={
@@ -222,6 +227,8 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
                                     : undefined
                             }
                         />
+                        )}
+                        {boqAward && (
                         <ReviewDetail
                             label="On create"
                             value={
@@ -230,6 +237,20 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
                                     : `${boqAward.selected.length} Selected`
                             }
                         />
+                        )}
+                        {mergeSources.length > 0 && (
+                            <ReviewDetail
+                                label="From other Tendering projects"
+                                value={mergeSources
+                                    .map(
+                                        (source) =>
+                                            `${source.project_name} (${source.project}): ${source.selected_boqs.length} Selected, ${
+                                                source.boqs.length - source.selected_boqs.length
+                                            } Draft`
+                                    )
+                                    .join("; ")}
+                            />
+                        )}
                     </ReviewSection>
                 )}
 

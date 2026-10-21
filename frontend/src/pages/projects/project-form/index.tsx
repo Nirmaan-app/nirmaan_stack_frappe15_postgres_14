@@ -22,7 +22,13 @@ import { useProjectDraftManager } from "@/hooks/useProjectDraftManager";
 import { projectFormSchema, ProjectFormValues, defaultFormValues, sectionFields } from "./schema";
 import { getSections, getWizardStepsConfig, SectionKey, getNextSection, getPreviousSection } from "./constants";
 import { useProjectFormData } from "./hooks/useProjectFormData";
-import { applyBoqPickChange, combineBoqScope } from "./boqPackageSeed";
+import {
+    applyBoqPickChange,
+    combineBoqScope,
+    tickedBoqScopes,
+    wizardBoqCounts,
+    type MergeSource,
+} from "./boqPackageSeed";
 import { OptionalSections, readOptionalSections, sectionSetupProblems, syncSectionsWithPackages } from "./packageSectionSync";
 import {
     ProjectDetailsStep,
@@ -70,9 +76,10 @@ export const ProjectForm = () => {
     // Fetch all form data
     const formData = useProjectFormData();
 
-    // Convert mode adds the BOQ step; creating a new project keeps its six steps.
-    const activeSections = useMemo(() => getSections(isConvertMode), [isConvertMode]);
-    const stepsConfig = useMemo(() => getWizardStepsConfig(isConvertMode), [isConvertMode]);
+    // Both modes show the BOQ step (ADR-0038): convert ticks the stub's own BoQs there, and both
+    // can add BoQs from other Tendering projects.
+    const activeSections = useMemo(() => getSections(), []);
+    const stepsConfig = useMemo(() => getWizardStepsConfig(), []);
 
     // Convert mode: the stub's open BoQs (no fetch in create mode).
     const {
@@ -81,13 +88,15 @@ export const ProjectForm = () => {
         error: boqOptionsError,
     } = useConvertBoqOptions(convertProjectId);
     const boqOptions = useMemo(() => boqOptionsData?.message?.boqs ?? [], [boqOptionsData]);
-    // The BoQs the Packages step was last pre-ticked from. Re-seeding happens only when
-    // the picks change, so going back and forward without changing them keeps manual edits.
-    const [seededBoqNames, setSeededBoqNames] = useState<string[]>([]);
-    const seededBoqs = useMemo(
-        () => boqOptions.filter((b) => seededBoqNames.includes(b.name)),
-        [boqOptions, seededBoqNames]
-    );
+    // The ticked BoQs (own and added) the Packages step was last pre-ticked from, with what they
+    // covered then. Re-seeding happens only when the ticks change, so going back and forward
+    // without changing them keeps manual edits; and the old scope is kept as it was, because an
+    // added project removed since has left the form.
+    const [seeded, setSeeded] = useState<{ names: string[]; packages: string[]; unmappedHeaders: string[] }>({
+        names: [],
+        packages: [],
+        unmappedHeaders: [],
+    });
 
     // Masters the Packages step's optional sections are filled from, by package.
     const sectionMasters = useMemo(
@@ -166,6 +175,8 @@ export const ProjectForm = () => {
         setSection,
         // Convert mode is a one-shot, pre-filled flow — disable draft autosave/resume.
         disabled: isConvertMode,
+        // A resumed draft lands on its saved section, whatever step number it was saved under.
+        sections: activeSections,
     });
 
     // Calculate duration when dates change
@@ -207,27 +218,31 @@ export const ProjectForm = () => {
             return;
         }
 
-        // BoQ selection (convert mode): at least one pick when the stub has a BoQ, and
-        // the picks pre-tick the Packages step. No status changes here — that happens
+        // BoQ selection: at least one tick overall (own or added) whenever any BoQ is involved,
+        // and the ticked BoQs pre-tick the Packages step. No status changes here — that happens
         // on the server only when the project is created.
         if (section === "boqSelection") {
             const selectedBoqs = form.getValues("selected_boqs") ?? [];
-            if (boqOptions.length > 0 && selectedBoqs.length === 0) {
+            const mergeSources = (form.getValues("merge_sources") ?? []) as MergeSource[];
+            const counts = wizardBoqCounts(boqOptions.length, selectedBoqs, mergeSources);
+            if (counts.boqs > 0 && counts.ticked === 0) {
                 toast({
                     title: "Failed!",
-                    description: "Select at least one BoQ this project was won on.",
+                    description: "Tick at least one BoQ, from this project or from another Tendering project.",
                     variant: "destructive",
                 });
                 return;
             }
+            const ticked = tickedBoqScopes(boqOptions, selectedBoqs, mergeSources);
+            const tickedNames = ticked.map((boq) => boq.name);
             const picksChanged =
-                selectedBoqs.length !== seededBoqNames.length ||
-                selectedBoqs.some((name) => !seededBoqNames.includes(name));
-            if (selectedBoqs.length > 0 && picksChanged) {
+                tickedNames.length !== seeded.names.length ||
+                tickedNames.some((name) => !seeded.names.includes(name));
+            if (picksChanged) {
                 // Only the DIFFERENCE between the old and new picks moves (owner 2026-10-21,
                 // option a): packages ticked or unticked by hand stay as the user left them.
-                const newScope = combineBoqScope(boqOptions.filter((b) => selectedBoqs.includes(b.name)));
-                const oldScope = combineBoqScope(seededBoqs);
+                const newScope = combineBoqScope(ticked);
+                const oldScope = { packages: seeded.packages, unmappedHeaders: seeded.unmappedHeaders };
                 const { workPackages, added, removed } = applyBoqPickChange(
                     form.getValues("project_work_packages.work_packages"),
                     oldScope.packages,
@@ -252,7 +267,7 @@ export const ProjectForm = () => {
                         ),
                     })
                 );
-                setSeededBoqNames(selectedBoqs);
+                setSeeded({ names: tickedNames, ...newScope });
             }
         }
 
@@ -335,10 +350,17 @@ export const ProjectForm = () => {
                 design_lead,
                 procurement_lead,
                 estimates_exec,
-                // Convert mode only — added back to the convert payload below
+                // Added back to the convert / create payload below
                 selected_boqs,
+                merge_sources,
                 ...projectValues
             } = values;
+
+            // BoQs from other Tendering projects: the server needs only each project and its ticks.
+            const mergeSourcesPayload = (merge_sources ?? []).map((source) => ({
+                project: source.project,
+                selected_boqs: source.selected_boqs,
+            }));
 
             // PO-driven mode (default): never send a project value — Projects.before_save derives it
             // from the Customer PO rows. Only manual mode keeps the entered values.
@@ -377,10 +399,18 @@ export const ProjectForm = () => {
             // Tendering stub in place (convert mode). Everything downstream
             // (Steps 2-5) runs identically against the returned project name.
             // Convert also marks `selected_boqs` Selected (the stub's other BoQs stay
-            // Draft), in the same server transaction as the conversion.
+            // Draft), and both modes merge in the added Tendering projects, in the same server
+            // transaction as the conversion / creation.
             const response = isConvertMode
-                ? await convertProject(convertProjectId!, { ...projectValues, areaNames, selected_boqs: selected_boqs ?? [] })
-                : await createProjectAndAddress({ values: { ...projectValues, areaNames } });
+                ? await convertProject(convertProjectId!, {
+                      ...projectValues,
+                      areaNames,
+                      selected_boqs: selected_boqs ?? [],
+                      merge_sources: mergeSourcesPayload,
+                  })
+                : await createProjectAndAddress({
+                      values: { ...projectValues, areaNames, merge_sources: mergeSourcesPayload },
+                  });
 
             if (response.message.status !== 200) {
                 throw new Error(
@@ -738,6 +768,8 @@ export const ProjectForm = () => {
                         {section === "boqSelection" && (
                             <BoqSelectionStep
                                 form={form}
+                                isConvertMode={isConvertMode}
+                                currentProjectId={convertProjectId}
                                 boqOptions={boqOptions}
                                 isLoading={boqOptionsLoading}
                                 error={boqOptionsError}
@@ -758,7 +790,7 @@ export const ProjectForm = () => {
                                 formData={formData}
                                 onNext={goToNextSection}
                                 onPrevious={goToPreviousSection}
-                                seededBoqs={seededBoqs}
+                                seededBoqs={seeded}
                             />
                         )}
 
@@ -782,6 +814,7 @@ export const ProjectForm = () => {
                                           })()
                                         : undefined
                                 }
+                                mergeSources={(form.getValues("merge_sources") ?? []) as MergeSource[]}
                             />
                         )}
                     </div>

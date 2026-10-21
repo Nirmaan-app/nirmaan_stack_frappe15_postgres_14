@@ -30,6 +30,47 @@ interface BoqScope {
     unmapped_headers: readonly string[];
 }
 
+/** A BoQ of another Tendering project, added in the wizard's BOQ step (ADR-0038). */
+export interface MergeSourceBoq {
+    name: string;
+    boq_name: string;
+    version: number;
+    packages: string[];
+    unmapped_headers: string[];
+}
+
+/** Another Tendering project added in the BOQ step, with the BoQs ticked to become Selected. */
+export interface MergeSource {
+    project: string;
+    project_name: string;
+    boqs: MergeSourceBoq[];
+    selected_boqs: string[];
+}
+
+/**
+ * How many BoQs the BOQ step involves and how many are ticked: the project's own plus
+ * every added Tendering project's. At least one tick overall is needed whenever any BoQ
+ * is involved (owner 2026-10-21); there is no minimum per project.
+ */
+export const wizardBoqCounts = (
+    ownBoqCount: number,
+    ownSelected: readonly string[],
+    sources: readonly MergeSource[]
+): { boqs: number; ticked: number } => ({
+    boqs: ownBoqCount + sources.reduce((total, source) => total + source.boqs.length, 0),
+    ticked: ownSelected.length + sources.reduce((total, source) => total + source.selected_boqs.length, 0),
+});
+
+/** Every ticked BoQ, own or added, in step order -- what the package pre-fill reads. */
+export const tickedBoqScopes = <T extends BoqScope & { name: string }>(
+    ownOptions: readonly T[],
+    ownSelected: readonly string[],
+    sources: readonly MergeSource[]
+): (T | MergeSourceBoq)[] => [
+    ...ownOptions.filter((boq) => ownSelected.includes(boq.name)),
+    ...sources.flatMap((source) => source.boqs.filter((boq) => source.selected_boqs.includes(boq.name))),
+];
+
 /**
  * What the picked BoQs cover together: the union of their packages and of their
  * headers that have no package, each sorted and without duplicates.

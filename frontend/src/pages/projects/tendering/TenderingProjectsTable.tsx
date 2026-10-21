@@ -1,4 +1,5 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { createContext, useContext, useMemo, useRef, useState } from "react";
+import { useFrappeGetDocList } from "frappe-react-sdk";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { FilePenLine, Hourglass, MoreHorizontal, Trash2 } from "lucide-react";
@@ -66,6 +67,23 @@ const TENDERING_FIELDS_TO_FETCH: (keyof ProjectsType | "name")[] = [
 type TenderingSubTab = "Tendering" | "Lost" | "Merged";
 
 const SUB_TABS: TenderingSubTab[] = ["Tendering", "Lost", "Merged"];
+
+/**
+ * Project names of the Won projects the rows on the Merged sub-tab went into, by docname. The
+ * list fetches each row's own fields only, so the names come from one extra read and reach the
+ * cells through context (the columns are built before the rows load).
+ */
+const MergedIntoNames = createContext<Record<string, string>>({});
+
+const MergedIntoCell: React.FC<{ project?: string }> = ({ project }) => {
+  const names = useContext(MergedIntoNames);
+  if (!project) return <div>--</div>;
+  return (
+    <Link to={`/projects/${project}`} title={project} className="text-blue-600 hover:underline">
+      {names[project] || project}
+    </Link>
+  );
+};
 
 interface TenderingProjectsTableProps {
   customerId?: string;
@@ -366,17 +384,7 @@ export const TenderingProjectsTable: React.FC<TenderingProjectsTableProps> = ({
             {
               accessorKey: "merged_into",
               header: "Merged into",
-              cell: ({ row }) =>
-                row.original.merged_into ? (
-                  <Link
-                    to={`/projects/${row.original.merged_into}`}
-                    className="text-blue-600 hover:underline"
-                  >
-                    {row.original.merged_into}
-                  </Link>
-                ) : (
-                  <div>--</div>
-                ),
+              cell: ({ row }) => <MergedIntoCell project={row.original.merged_into} />,
               meta: { exportHeaderName: "Merged into" },
             },
           ] as ColumnDef<ProjectsType>[])
@@ -451,6 +459,28 @@ export const TenderingProjectsTable: React.FC<TenderingProjectsTableProps> = ({
 
   refetchRef.current = refetch;
 
+  // Merged sub-tab: the names of the Won projects these rows went into, in one read.
+  const mergedIntoIds = useMemo(
+    () =>
+      subTab === "Merged"
+        ? [...new Set((data ?? []).map((row) => row.merged_into).filter((id): id is string => !!id))].sort()
+        : [],
+    [data, subTab]
+  );
+  const { data: mergedIntoProjects } = useFrappeGetDocList<{ name: string; project_name: string }>(
+    "Projects",
+    {
+      fields: ["name", "project_name"],
+      filters: [["name", "in", mergedIntoIds]],
+      limit: mergedIntoIds.length || 1,
+    },
+    mergedIntoIds.length > 0 ? `tendering-merged-into-names-${mergedIntoIds.join(",")}` : null
+  );
+  const mergedIntoNames = useMemo(
+    () => Object.fromEntries((mergedIntoProjects ?? []).map((p) => [p.name, p.project_name || p.name])),
+    [mergedIntoProjects]
+  );
+
   if (error && !data?.length) {
     return <AlertDestructive error={error} />;
   }
@@ -493,6 +523,7 @@ export const TenderingProjectsTable: React.FC<TenderingProjectsTableProps> = ({
       {!hasLoadedOnce && isLoading && !data?.length ? (
         <TableSkeleton />
       ) : (
+        <MergedIntoNames.Provider value={mergedIntoNames}>
         <DataTable<ProjectsType>
           table={table}
           columns={columns}
@@ -511,6 +542,7 @@ export const TenderingProjectsTable: React.FC<TenderingProjectsTableProps> = ({
           isExporting={isExporting}
           exportFileName={`${subTab}_Projects`}
         />
+        </MergedIntoNames.Provider>
       )}
       </div>
     </div>

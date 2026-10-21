@@ -37,9 +37,13 @@ def _busy_message(busy_boqs, action: str) -> str:
     )
 
 
+MAY_MERGE_MESSAGE = "Only users who can create projects can merge BoQs into a Won project."
+MAY_UNDO_MESSAGE = "Only users who can create projects can undo a merge."
+
+
 def merge_refusal(
     *,
-    is_admin: bool,
+    may_merge: bool,
     project: str,
     tendering_status: str | None,
     boq_count: int,
@@ -48,15 +52,21 @@ def merge_refusal(
     target_status: str | None,
     boqs_not_draft: tuple[str, ...] | list[str] = (),
     busy_boqs: tuple[str, ...] | list[str] = (),
+    picks_outside: tuple[str, ...] | list[str] = (),
+    ticked_count: int = 0,
+    require_tick: bool = False,
 ) -> str | None:
     """Why `project` may not be merged into `target` (D2), or None.
 
+    `may_merge`: the user can create projects (owner 2026-10-21; was Admin only).
     `target_tendering_status` is None when the target does not exist. `boqs_not_draft` labels each
     of the project's BoQs whose status is not Draft ("NAME (Status)"). `busy_boqs` labels each
-    sheet someone is editing right now and each BoQ whose parse is running (D9).
+    sheet someone is editing right now and each BoQ whose parse is running (D9). `picks_outside`
+    are ticked names that are not this project's BoQs. `require_tick`: the Merge button needs at
+    least one ticked BoQ; a merge inside the wizard does not (the wizard checks "one overall").
     """
-    if not is_admin:
-        return "Only an Admin can merge BoQs into a Won project."
+    if not may_merge:
+        return MAY_MERGE_MESSAGE
     if tendering_status != TENDERING:
         return (
             f"Project '{project}' cannot be merged (its tendering status is "
@@ -64,6 +74,10 @@ def merge_refusal(
         )
     if boq_count < 1:
         return f"Project '{project}' has no BoQ to merge."
+    if picks_outside:
+        return f"Not a BoQ of project '{project}': {', '.join(picks_outside)}."
+    if require_tick and ticked_count < 1:
+        return "Tick at least one BoQ to merge."
     if busy_boqs:
         return _busy_message(busy_boqs, "Merge")
     if boqs_not_draft:
@@ -83,7 +97,7 @@ def merge_refusal(
 
 def undo_refusal(
     *,
-    is_admin: bool,
+    may_merge: bool,
     project: str,
     tendering_status: str | None,
     blocking_revisions: list[str],
@@ -97,8 +111,8 @@ def undo_refusal(
     set and the BoQs that stay in the Won project, in either direction. `busy_boqs` labels each
     merged BoQ sheet someone is editing right now and each merged BoQ whose parse is running.
     """
-    if not is_admin:
-        return "Only an Admin can undo a merge."
+    if not may_merge:
+        return MAY_UNDO_MESSAGE
     if tendering_status != MERGED:
         return (
             f"Project '{project}' is not merged (its tendering status is "
@@ -119,4 +133,13 @@ def undo_refusal(
             f"and a BoQ that stays in the Won project; undoing would split "
             f"{'it' if one else 'them'} across two projects."
         )
+    return None
+
+
+def wizard_tick_refusal(boq_count: int, ticked_count: int) -> str | None:
+    """Convert to Won / Create (ADR-0038, owner 2026-10-21): when any BoQ is involved -- the
+    project's own or another Tendering project's -- at least one must be ticked overall. No
+    minimum per source project; a project with no BoQs of its own may take all from others."""
+    if boq_count > 0 and ticked_count < 1:
+        return "Tick at least one BoQ, from this project or from another Tendering project."
     return None

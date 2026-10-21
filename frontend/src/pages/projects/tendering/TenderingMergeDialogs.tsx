@@ -12,6 +12,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import {
   FuzzySearchSelect,
@@ -31,13 +32,13 @@ export interface MergeBoqRow {
   version: number;
 }
 
-interface TargetOption extends FuzzyOptionType {
+export interface TargetOption extends FuzzyOptionType {
   value: string;
   label: string;
   status?: string;
 }
 
-const TARGET_SEARCH: TokenSearchConfig = {
+export const TARGET_SEARCH: TokenSearchConfig = {
   searchFields: ["label", "value"],
   minSearchLength: 1,
   partialMatch: true,
@@ -53,7 +54,7 @@ type MergeAction = "merge" | "undo";
  * someone has open in Configure / Review / Pricing, and per BoQ whose parse is running. Read
  * while the dialog is open and every 30 s; the server refuses the action the same way.
  */
-function useMergeBlockers(projectName: string, action: MergeAction, open: boolean) {
+export function useMergeBlockers(projectName: string, action: MergeAction, open: boolean) {
   const { data, isLoading, isValidating, mutate } = useFrappeGetCall<{ message: { busy: string[] } }>(
     "nirmaan_stack.api.projects.tendering_merge.get_merge_blockers",
     { project_name: projectName, action },
@@ -67,7 +68,7 @@ function useMergeBlockers(projectName: string, action: MergeAction, open: boolea
   };
 }
 
-function BusyWarning({
+export function BusyWarning({
   busy,
   actionLabel,
   checking,
@@ -112,8 +113,9 @@ interface MergeBoqsDialogProps {
 
 /**
  * "Merge BoQs into a Won project" (ADR-0038 D7). Picks the target -- a Won project that is not
- * Completed (Q5) -- and lists every BoQ that will move (all of them, Q2). The server re-checks
- * everything (`tendering_merge.merge_tendering_boqs`).
+ * Completed (Q5) -- and lists every BoQ that will move (all of them, Q2) with a tick box each:
+ * ticked BoQs become Selected, the rest Draft; at least one must be ticked (owner 2026-10-21).
+ * The server re-checks everything (`tendering_merge.merge_tendering_boqs`).
  */
 export function MergeBoqsDialog({
   open,
@@ -125,6 +127,8 @@ export function MergeBoqsDialog({
 }: MergeBoqsDialogProps) {
   const { toast } = useToast();
   const [target, setTarget] = useState<TargetOption | null>(null);
+  // Ticked BoQs become Selected in the Won project; the rest move too, as Draft (owner 2026-10-21).
+  const [ticked, setTicked] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const { mergeTenderingBoqs, loading } = useMergeTenderingBoqs();
   const { busy, checking, recheck } = useMergeBlockers(projectName, "merge", open);
@@ -156,15 +160,23 @@ export function MergeBoqsDialog({
   const close = () => {
     if (loading) return;
     setTarget(null);
+    setTicked(new Set());
     setError(null);
     onOpenChange(false);
   };
 
+  const toggle = (name: string, on: boolean) => {
+    const next = new Set(ticked);
+    if (on) next.add(name);
+    else next.delete(name);
+    setTicked(next);
+  };
+
   const handleMerge = async () => {
-    if (!target) return;
+    if (!target || ticked.size === 0) return;
     setError(null);
     try {
-      const response = await mergeTenderingBoqs(projectName, target.value);
+      const response = await mergeTenderingBoqs(projectName, target.value, [...ticked]);
       if (response.message.status !== 200) {
         setError(response.message.error || "Could not merge the BoQs.");
         return;
@@ -177,6 +189,7 @@ export function MergeBoqsDialog({
         variant: "success",
       });
       setTarget(null);
+      setTicked(new Set());
       onOpenChange(false);
       onMerged();
     } catch (err) {
@@ -232,20 +245,34 @@ export function MergeBoqsDialog({
         </div>
 
         <div className="space-y-1.5">
-          <p className="text-sm">
-            {boqs.length === 1 ? "This BoQ moves" : `These ${boqs.length} BoQs move`} to the chosen
-            project as <strong>Selected</strong>:
-          </p>
-          <ul className="max-h-40 overflow-y-auto rounded-md border px-3 py-2 text-sm space-y-1">
-            {boqs.map((boq) => (
-              <li key={boq.name}>
-                {boq.boq_name || boq.name}{" "}
-                <span className="text-muted-foreground">v{boq.version}</span>
-              </li>
-            ))}
+          <p className="text-sm">Tick the BoQs that are part of the job:</p>
+          <ul className="max-h-48 overflow-y-auto rounded-md border px-3 py-2 text-sm space-y-1.5">
+            {boqs.map((boq) => {
+              const id = `merge-boq-${boq.name}`;
+              const on = ticked.has(boq.name);
+              return (
+                <li key={boq.name} className="flex items-center gap-2">
+                  <Checkbox
+                    id={id}
+                    checked={on}
+                    disabled={loading}
+                    onCheckedChange={(value) => toggle(boq.name, value === true)}
+                  />
+                  <label htmlFor={id} className="flex-1 min-w-0 cursor-pointer">
+                    {boq.boq_name || boq.name}{" "}
+                    <span className="text-muted-foreground">v{boq.version}</span>
+                  </label>
+                  <span className={`text-xs whitespace-nowrap ${on ? "font-medium text-emerald-700" : "text-muted-foreground"}`}>
+                    {on ? "→ Selected" : "→ Draft"}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
           <p className="text-xs text-muted-foreground">
-            This project becomes <strong>Merged</strong>. You can undo it.
+            All {boqs.length === 1 ? "this BoQ" : `${boqs.length} BoQs`} move. Ticked ones become{" "}
+            <strong>Selected</strong>, the rest <strong>Draft</strong> (Other BoQs). This project
+            becomes <strong>Merged</strong>; you can undo it.
           </p>
           <p className="text-xs text-muted-foreground">
             Merging does not change {target ? <strong>{target.label}</strong> : "the chosen project"}'s
@@ -261,7 +288,7 @@ export function MergeBoqsDialog({
           <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
           {/* Plain Button (not AlertDialogAction) so the dialog stays open on a backend error. */}
           <Button
-            disabled={!target || loading || busy.length > 0}
+            disabled={!target || ticked.size === 0 || loading || busy.length > 0}
             onClick={() => void handleMerge()}
           >
             {loading && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}

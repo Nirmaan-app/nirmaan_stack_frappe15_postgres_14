@@ -39,7 +39,6 @@ import { formatDate } from "@/utils/FormatDate";
 import { PROJECT_STATUS_BADGE_CLASSES } from "@/components/common/projectStatus";
 import { Projects } from "@/types/NirmaanStack/Projects";
 
-import { canAddBoqToWonProject } from "@/pages/boq-wizard/boqAccess";
 import { canManageTendering } from "./tenderingAuth";
 import {
   useDeleteTenderingProject,
@@ -77,9 +76,8 @@ const TenderingOverviewTab = ({ data, onRefresh }: TenderingOverviewTabProps) =>
   const { role, user_id } = useUserData();
 
   const canManage = canManageTendering(role, user_id);
-  // Merge / Undo (ADR-0038 Q1): Admin only -- a merge adds BoQs to a Won project, which is
-  // exactly what canAddBoqToWonProject answers.
-  const canMerge = canAddBoqToWonProject(role, user_id);
+  // Merge / Undo: anyone who can create projects (owner 2026-10-21; was Admin only).
+  const canMerge = canManage;
   const isLost = data.tendering_status === "Lost";
   const isMerged = data.tendering_status === "Merged";
   const isOpen = !isLost && !isMerged;

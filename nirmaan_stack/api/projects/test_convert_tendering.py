@@ -22,6 +22,7 @@ in `tearDown` via a marker city.
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from nirmaan_stack.api.projects.new_project import create_project_with_address
 from nirmaan_stack.api.projects.tendering import (
 	convert_tendering_to_won,
 	create_tendering_project,
@@ -248,7 +249,7 @@ class TestConvertTenderingToWon(FrappeTestCase):
 		res = convert_tendering_to_won(project_id=stub_name, values=self._full_payload("noboq"))
 
 		self.assertEqual(res["status"], 400)
-		self.assertIn("Select at least one BoQ", res["error"])
+		self.assertIn("Tick at least one BoQ", res["error"])
 		self.assertEqual(frappe.db.get_value("Projects", stub_name, "tendering_status"), "Tendering")
 		self.assertEqual(frappe.db.get_value("BOQs", boq, "status"), "Draft")
 
@@ -270,6 +271,117 @@ class TestConvertTenderingToWon(FrappeTestCase):
 		self.assertFalse(stub.project_address)
 		self.assertEqual(frappe.db.get_value("BOQs", mine, "status"), "Draft")
 		self.assertEqual(frappe.db.get_value("BOQs", foreign, "status"), "Draft")
+
+	# --- BoQs from other Tendering projects, added in the wizard (ADR-0038, owner 2026-10-21) ---
+
+	def _row(self, boq):
+		return frappe.db.get_value("BOQs", boq, ["project", "merged_from", "status"], as_dict=True)
+
+	def _merge_state(self, project):
+		return frappe.db.get_value("Projects", project, ["tendering_status", "merged_into"], as_dict=True)
+
+	def test_convert_merges_another_tendering_projects_boqs(self):
+		"""Ticked BoQs of the added project become Selected, the rest Draft; it becomes Merged."""
+		stub = self._create_stub("merge-target")
+		own = self._add_boq(stub, "ConvTest Own")
+		source = self._create_stub("merge-source")
+		ticked = self._add_boq(source, "ConvTest Source Ticked")
+		unticked = self._add_boq(source, "ConvTest Source Unticked")
+
+		payload = self._full_payload("merge-target")
+		payload["selected_boqs"] = [own]
+		payload["merge_sources"] = [{"project": source, "selected_boqs": [ticked]}]
+		res = convert_tendering_to_won(project_id=stub, values=payload)
+
+		self.assertEqual(res["status"], 200, msg=res)
+		self.assertEqual(self._row(own), {"project": stub, "merged_from": None, "status": "Selected"})
+		self.assertEqual(self._row(ticked), {"project": stub, "merged_from": source, "status": "Selected"})
+		self.assertEqual(self._row(unticked), {"project": stub, "merged_from": source, "status": "Draft"})
+		self.assertEqual(self._merge_state(source), {"tendering_status": "Merged", "merged_into": stub})
+
+	def test_convert_accepts_a_tick_from_another_project_alone(self):
+		"""Q2: one tick anywhere is enough; the project's own BoQ may stay unticked (Draft)."""
+		stub = self._create_stub("tick-elsewhere")
+		own = self._add_boq(stub, "ConvTest Own")
+		source = self._create_stub("tick-elsewhere-source")
+		ticked = self._add_boq(source, "ConvTest Source")
+
+		payload = self._full_payload("tick-elsewhere")
+		payload["merge_sources"] = [{"project": source, "selected_boqs": [ticked]}]
+		res = convert_tendering_to_won(project_id=stub, values=payload)
+
+		self.assertEqual(res["status"], 200, msg=res)
+		self.assertEqual(frappe.db.get_value("BOQs", own, "status"), "Draft")
+		self.assertEqual(frappe.db.get_value("BOQs", ticked, "status"), "Selected")
+
+	def test_convert_refuses_when_no_boq_is_ticked_anywhere(self):
+		stub = self._create_stub("no-tick")
+		own = self._add_boq(stub, "ConvTest Own")
+		source = self._create_stub("no-tick-source")
+		theirs = self._add_boq(source, "ConvTest Source")
+
+		payload = self._full_payload("no-tick")
+		payload["merge_sources"] = [{"project": source, "selected_boqs": []}]
+		res = convert_tendering_to_won(project_id=stub, values=payload)
+
+		self.assertEqual(res["status"], 400)
+		self.assertIn("Tick at least one BoQ", res["error"])
+		self.assertEqual(self._merge_state(stub)["tendering_status"], "Tendering")
+		self.assertEqual(self._merge_state(source)["tendering_status"], "Tendering")
+		self.assertEqual(self._row(own)["status"], "Draft")
+		self.assertEqual(self._row(theirs), {"project": source, "merged_from": None, "status": "Draft"})
+
+	def test_convert_rolls_everything_back_when_an_added_project_cannot_merge(self):
+		"""A Lost source is refused on Create, and the conversion itself is undone with it."""
+		stub = self._create_stub("bad-source")
+		own = self._add_boq(stub, "ConvTest Own")
+		source = self._create_stub("bad-source-lost")
+		theirs = self._add_boq(source, "ConvTest Source")
+		frappe.db.set_value("Projects", source, "tendering_status", "Lost")
+		frappe.db.commit()
+
+		payload = self._full_payload("bad-source")
+		payload["selected_boqs"] = [own]
+		payload["merge_sources"] = [{"project": source, "selected_boqs": [theirs]}]
+		res = convert_tendering_to_won(project_id=stub, values=payload)
+
+		self.assertEqual(res["status"], 400)
+		self.assertIn("Only a Tendering project can be merged", res["error"])
+		self.assertEqual(self._merge_state(stub)["tendering_status"], "Tendering")
+		self.assertEqual(self._row(own)["status"], "Draft")
+		self.assertEqual(self._row(theirs), {"project": source, "merged_from": None, "status": "Draft"})
+
+	def test_convert_refuses_a_project_added_twice(self):
+		stub = self._create_stub("twice")
+		source = self._create_stub("twice-source")
+		theirs = self._add_boq(source, "ConvTest Source")
+
+		payload = self._full_payload("twice")
+		payload["merge_sources"] = [
+			{"project": source, "selected_boqs": [theirs]},
+			{"project": source, "selected_boqs": [theirs]},
+		]
+		res = convert_tendering_to_won(project_id=stub, values=payload)
+
+		self.assertEqual(res["status"], 400)
+		self.assertIn("added twice", res["error"])
+		self.assertEqual(self._merge_state(source)["tendering_status"], "Tendering")
+
+	def test_create_project_merges_tendering_boqs(self):
+		"""Create (no BoQs of its own): the project takes BoQs from a Tendering project."""
+		source = self._create_stub("create-source")
+		ticked = self._add_boq(source, "ConvTest Source Ticked")
+		unticked = self._add_boq(source, "ConvTest Source Unticked")
+
+		payload = self._full_payload("created")
+		payload["merge_sources"] = [{"project": source, "selected_boqs": [ticked]}]
+		res = create_project_with_address(values=payload)
+
+		self.assertEqual(res["status"], 200, msg=res)
+		created = res["project_name"]
+		self.assertEqual(self._row(ticked), {"project": created, "merged_from": source, "status": "Selected"})
+		self.assertEqual(self._row(unticked), {"project": created, "merged_from": source, "status": "Draft"})
+		self.assertEqual(self._merge_state(source), {"tendering_status": "Merged", "merged_into": created})
 
 	def test_convert_rejects_missing_project(self):
 		"""Converting a non-existent project is rejected with a 400."""

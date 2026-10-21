@@ -156,10 +156,33 @@ export const projectFormSchema = z.object({
     // GST
     project_gst: z.string().min(1, { message: "Project GST is required" }),
 
-    // Convert mode only: the BoQs the project was won on (BOQs docnames). At least one is
-    // required there whenever the stub has a BoQ — checked when leaving the BOQ step and
-    // by the server.
+    // Convert mode only: the BoQs the project was won on (BOQs docnames). Ticked ones become
+    // Selected on Create, the rest stay Draft.
     selected_boqs: z.array(z.string()).optional(),
+
+    // Both modes (ADR-0038): BoQs added from other Tendering projects. On Create each project
+    // is merged in -- ticked BoQs Selected, the rest Draft -- and becomes Merged. At least one
+    // BoQ must be ticked overall (own or added) whenever any BoQ is involved; checked when
+    // leaving the BOQ step and by the server. `boqs` keeps what the step shows and the package
+    // pre-fill reads; the server re-checks every source on Create.
+    merge_sources: z
+        .array(
+            z.object({
+                project: z.string(),
+                project_name: z.string(),
+                boqs: z.array(
+                    z.object({
+                        name: z.string(),
+                        boq_name: z.string(),
+                        version: z.number(),
+                        packages: z.array(z.string()),
+                        unmapped_headers: z.array(z.string()),
+                    })
+                ),
+                selected_boqs: z.array(z.string()),
+            })
+        )
+        .optional(),
 
     // Daily Progress Report Setup (Optional - Phase 5, Section 2)
     daily_progress_setup: z.object({
@@ -228,6 +251,7 @@ export const defaultFormValues: ProjectFormValues = {
     },
     project_gst: "29ABFCS9095N1Z9", // Default to Bengaluru GSTIN (the record name)
     selected_boqs: [],
+    merge_sources: [],
     carpet_area: undefined as unknown as number, // Will be validated on submit
     project_scopes: {
         scopes: []

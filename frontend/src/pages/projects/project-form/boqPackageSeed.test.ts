@@ -4,6 +4,9 @@ import {
     buildWorkPackageEntry,
     combineBoqScope,
     seedWorkPackagesFromBoq,
+    tickedBoqScopes,
+    wizardBoqCounts,
+    type MergeSource,
 } from "./boqPackageSeed";
 
 const categories = [
@@ -134,5 +137,40 @@ describe("applyBoqPickChange", () => {
         };
         const result = applyBoqPickChange([withMakes], ["Electrical Work"], ["Electrical Work", "HVAC System"], offered, categories);
         expect(result.workPackages.find((p) => p.work_package_name === "Electrical Work")).toBe(withMakes);
+    });
+});
+
+describe("BoQs from other Tendering projects (ADR-0038)", () => {
+    const own = [
+        { name: "OWN-1", packages: ["Electrical Work"], unmapped_headers: [] },
+        { name: "OWN-2", packages: ["HVAC System"], unmapped_headers: [] },
+    ];
+    const source = (selected: string[]): MergeSource => ({
+        project: "STUB-2",
+        project_name: "E SKY",
+        boqs: [
+            { name: "SRC-1", boq_name: "MEP", version: 1, packages: ["Fire Fighting System"], unmapped_headers: ["ELV System"] },
+            { name: "SRC-2", boq_name: "Fire", version: 1, packages: [], unmapped_headers: [] },
+        ],
+        selected_boqs: selected,
+    });
+
+    it("counts BoQs and ticks across the project's own and the added ones", () => {
+        expect(wizardBoqCounts(2, ["OWN-1"], [source(["SRC-1"])])).toEqual({ boqs: 4, ticked: 2 });
+        expect(wizardBoqCounts(0, [], [source([])])).toEqual({ boqs: 2, ticked: 0 });
+        expect(wizardBoqCounts(0, [], [])).toEqual({ boqs: 0, ticked: 0 });
+    });
+
+    it("a tick on an added project alone is enough (no minimum per project)", () => {
+        expect(wizardBoqCounts(2, [], [source(["SRC-2"])]).ticked).toBe(1);
+    });
+
+    it("collects every ticked BoQ, own first, for the package pre-fill", () => {
+        const ticked = tickedBoqScopes(own, ["OWN-2"], [source(["SRC-1"])]);
+        expect(ticked.map((b) => b.name)).toEqual(["OWN-2", "SRC-1"]);
+        expect(combineBoqScope(ticked)).toEqual({
+            packages: ["Fire Fighting System", "HVAC System"],
+            unmappedHeaders: ["ELV System"],
+        });
     });
 });

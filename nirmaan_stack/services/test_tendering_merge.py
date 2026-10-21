@@ -3,6 +3,7 @@
 import unittest
 
 from nirmaan_stack.services.tendering_merge import (
+    wizard_tick_refusal,
     busy_lock_label,
     busy_parse_label,
     merge_refusal,
@@ -12,7 +13,7 @@ from nirmaan_stack.services.tendering_merge import (
 
 def _merge(**overrides):
     facts = dict(
-        is_admin=True,
+        may_merge=True,
         project="STUB-1",
         tendering_status="Tendering",
         boq_count=2,
@@ -25,7 +26,7 @@ def _merge(**overrides):
 
 
 def _undo(**overrides):
-    facts = dict(is_admin=True, project="STUB-1", tendering_status="Merged", blocking_revisions=[])
+    facts = dict(may_merge=True, project="STUB-1", tendering_status="Merged", blocking_revisions=[])
     facts.update(overrides)
     return undo_refusal(**facts)
 
@@ -36,7 +37,7 @@ class TestMergeRefusal(unittest.TestCase):
             self.assertIsNone(_merge(target_status=status), status)
 
     def test_refuses_a_non_admin(self):
-        self.assertIn("Only an Admin", _merge(is_admin=False))
+        self.assertIn("Only users who can create projects", _merge(may_merge=False))
 
     def test_refuses_a_project_that_is_not_tendering(self):
         for status in ("Lost", "Merged", "Won", None):
@@ -58,6 +59,17 @@ class TestMergeRefusal(unittest.TestCase):
         self.assertIn("Completed", _merge(target_status="Completed"))
         self.assertIsNone(_merge(target_status="Handover"))
 
+    def test_refuses_a_ticked_name_that_is_not_one_of_the_projects_boqs(self):
+        message = _merge(picks_outside=["BOQ-26-00999"])
+        self.assertIn("Not a BoQ of project 'STUB-1': BOQ-26-00999", message)
+
+    def test_the_merge_button_needs_a_tick_the_wizard_does_not(self):
+        """Owner 2026-10-21: the button merges at least one ticked BoQ; inside the wizard a
+        source may have none ticked, because the wizard checks "one overall"."""
+        self.assertIn("Tick at least one BoQ to merge", _merge(require_tick=True, ticked_count=0))
+        self.assertIsNone(_merge(require_tick=True, ticked_count=1))
+        self.assertIsNone(_merge(require_tick=False, ticked_count=0))
+
     def test_refuses_a_boq_that_is_not_draft_and_names_it(self):
         """A status set by hand in Desk is refused, never silently overwritten (review finding 4)."""
         message = _merge(boqs_not_draft=["BOQ-26-00300 (Approved)", "BOQ-26-00301 (Superseded)"])
@@ -70,7 +82,7 @@ class TestUndoRefusal(unittest.TestCase):
         self.assertIsNone(_undo())
 
     def test_refuses_a_non_admin(self):
-        self.assertIn("Only an Admin", _undo(is_admin=False))
+        self.assertIn("Only users who can create projects", _undo(may_merge=False))
 
     def test_refuses_a_project_that_is_not_merged(self):
         for status in ("Tendering", "Lost", "Won", None):
@@ -116,3 +128,16 @@ class TestBusyBoqs(unittest.TestCase):
 
     def test_parse_label(self):
         self.assertEqual(busy_parse_label("MEP"), "MEP — parse running")
+
+
+class TestWizardTicks(unittest.TestCase):
+    """Convert / Create: at least one BoQ ticked overall when any BoQ is involved."""
+
+    def test_refuses_when_boqs_exist_and_none_is_ticked(self):
+        self.assertIn("Tick at least one BoQ", wizard_tick_refusal(boq_count=3, ticked_count=0))
+
+    def test_one_tick_anywhere_is_enough(self):
+        self.assertIsNone(wizard_tick_refusal(boq_count=3, ticked_count=1))
+
+    def test_no_boqs_at_all_needs_no_tick(self):
+        self.assertIsNone(wizard_tick_refusal(boq_count=0, ticked_count=0))

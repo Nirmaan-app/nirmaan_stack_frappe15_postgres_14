@@ -5,17 +5,23 @@ Thin endpoints: the allow/refuse rules are the pure `services/tendering_merge`, 
 `controllers/boqs` (`move_boqs_into_project`, `return_merged_boqs`, `boqs_blocking_unmerge`). The
 reply shape matches the other Tendering endpoints in `tendering.py`:
 {"status": 200, ...} or {"status": 400 | 403, "error": str}.
+
+`merge_into` is the one merge step. The Merge button uses it through `merge_tendering_boqs`;
+Convert to Won and Create project use it through `merge_sources_into`, inside their own
+transaction, for the BoQs the wizard added from other Tendering projects. Who may merge and undo:
+anyone who can create projects (`tendering.is_tendering_manager`, owner 2026-10-21).
 """
 import frappe
 
 from nirmaan_stack.api.boq.wizard.pricing_lock import fresh_locks_for_boqs
+from nirmaan_stack.api.projects.tendering import is_tendering_manager
 from nirmaan_stack.integrations.controllers.boqs import (
     boqs_blocking_unmerge,
     move_boqs_into_project,
     return_merged_boqs,
 )
-from nirmaan_stack.services.role_profiles import is_nirmaan_admin
 from nirmaan_stack.services.tendering_merge import (
+    MAY_MERGE_MESSAGE,
     MERGE_FROM_STATUSES,
     MERGED,
     TENDERING,
@@ -24,6 +30,7 @@ from nirmaan_stack.services.tendering_merge import (
     busy_parse_label,
     merge_refusal,
     undo_refusal,
+    wizard_tick_refusal,
 )
 
 # Which BoQs each action moves: Merge takes the project's own, Undo the ones stamped from it.
@@ -53,25 +60,33 @@ def _busy_labels(column, value):
 
 @frappe.whitelist()
 def get_merge_blockers(project_name, action="merge"):
-    """Who is editing the BoQs a Merge (or an Undo) would move, right now -- for the dialog.
+    """Who is editing the BoQs a Merge (or an Undo) would move, right now -- for the dialogs.
 
     Args:
         project_name (str): The Tendering (merge) or Merged (undo) project's docname.
         action (str): "merge" or "undo".
 
     Returns:
-        dict: {"busy": [one line per sheet being edited / BoQ being parsed]}. Admin only.
+        dict: {"busy": [one line per sheet being edited / BoQ being parsed]}. Only for users who
+        can create projects.
     """
-    if not is_nirmaan_admin(frappe.session.user):
-        frappe.throw("Only an Admin can merge BoQs.", frappe.PermissionError)
+    if not is_tendering_manager():
+        frappe.throw(MAY_MERGE_MESSAGE, frappe.PermissionError)
     column = _BOQ_SET_COLUMN.get(action)
     if not column:
         frappe.throw(f"Unknown action '{action}'.")
     return {"busy": _busy_labels(column, project_name)}
 
 
-def _refuse(message, is_admin):
-    raise (frappe.ValidationError if is_admin else frappe.PermissionError)(message)
+def _refuse(message, may_merge):
+    raise (frappe.ValidationError if may_merge else frappe.PermissionError)(message)
+
+
+def _as_list(value):
+    """A list from a whitelisted argument that may arrive as a JSON string."""
+    if isinstance(value, str):
+        value = frappe.parse_json(value) if value.strip().startswith("[") else [value]
+    return list(dict.fromkeys(name for name in (value or []) if name))
 
 
 def _boqs_outside(column, value, allowed_statuses):
@@ -105,50 +120,111 @@ def _set_project_merge(project_name, tendering_status, merged_into):
     )
 
 
+def merge_into(project_name, target_project, selected_boqs, *, require_tick):
+    """Merge one Tendering project into a Won project, inside the caller's transaction.
+
+    Every check runs first (D2, D9): the user can create projects; the project is Tendering with
+    at least one BoQ, every BoQ Draft and none being edited; every ticked name is one of its BoQs;
+    the target is a running Won project. Then all its BoQs move -- ticked ones Selected, the rest
+    Draft -- and the project becomes Merged. Raises on a refusal; does not commit.
+    """
+    may_merge = is_tendering_manager()
+    project = frappe.db.get_value(
+        "Projects", project_name, ["tendering_status"], as_dict=True, for_update=True
+    ) if project_name else None
+    if not project:
+        _refuse(f"Project '{project_name}' does not exist.", may_merge)
+    target = frappe.db.get_value(
+        "Projects", target_project, ["tendering_status", "status"], as_dict=True
+    ) if target_project else None
+
+    selected = _as_list(selected_boqs)
+    own = set(frappe.get_all("BOQs", filters={"project": project_name}, pluck="name"))
+    refusal = merge_refusal(
+        may_merge=may_merge,
+        project=project_name,
+        tendering_status=project.tendering_status,
+        boq_count=len(own),
+        target=target_project,
+        target_tendering_status=target.tendering_status if target else None,
+        target_status=target.status if target else None,
+        boqs_not_draft=_boqs_outside("project", project_name, MERGE_FROM_STATUSES) if may_merge else [],
+        busy_boqs=_busy_labels("project", project_name) if may_merge else [],
+        picks_outside=[name for name in selected if name not in own],
+        ticked_count=len(selected),
+        require_tick=require_tick,
+    )
+    if refusal:
+        _refuse(refusal, may_merge)
+
+    moved = move_boqs_into_project(project_name, target_project, selected)
+    _set_project_merge(project_name, MERGED, target_project)
+    return moved
+
+
+def parse_merge_sources(raw):
+    """The wizard's `merge_sources` as [{"project", "selected_boqs"}], each project once.
+
+    Accepts a list or its JSON string. A project added twice is refused by name; whether each
+    project may be merged is `merge_into`'s check, run on Create.
+    """
+    if isinstance(raw, str):
+        raw = frappe.parse_json(raw) if raw.strip() else []
+    sources, seen = [], set()
+    for entry in raw or []:
+        project = (entry or {}).get("project")
+        if not project:
+            continue
+        if project in seen:
+            frappe.throw(f"Project '{project}' was added twice.")
+        seen.add(project)
+        sources.append({"project": project, "selected_boqs": _as_list(entry.get("selected_boqs"))})
+    return sources
+
+
+def assert_wizard_ticks(own_boq_count, own_selected, sources):
+    """At least one BoQ ticked overall when any BoQ is involved (owner 2026-10-21). Read only;
+    run before Convert / Create writes anything."""
+    boq_count = own_boq_count + sum(
+        frappe.db.count("BOQs", {"project": source["project"]}) for source in sources
+    )
+    ticked = len(_as_list(own_selected)) + sum(len(source["selected_boqs"]) for source in sources)
+    refusal = wizard_tick_refusal(boq_count, ticked)
+    if refusal:
+        frappe.throw(refusal)
+
+
+def merge_sources_into(target_project, sources):
+    """Merge every Tendering project the wizard added into the project just converted or created.
+    Inside the caller's transaction: one refusal rolls the whole Convert / Create back."""
+    for source in sources:
+        merge_into(source["project"], target_project, source["selected_boqs"], require_tick=False)
+
+
 @frappe.whitelist(methods=["POST"])
-def merge_tendering_boqs(project_name, target_project):
+def merge_tendering_boqs(project_name, target_project, selected_boqs=None):
     """Move every BoQ of a Tendering project into a Won project and mark the project Merged (D2).
+    Ticked BoQs become Selected, the rest Draft; at least one must be ticked.
 
     Args:
         project_name (str): The Tendering project's docname.
         target_project (str): The Won project's docname (not Completed).
+        selected_boqs (list[str] | str): The ticked BoQs (a JSON list is accepted).
 
     Returns:
         dict: {"status": 200, "message": str, "project_name": str, "merged_into": str,
-               "boqs": [names]} on success, or {"status": 400 | 403, "error": str}.
+               "boqs": [names], "selected": [names]} on success, or
+              {"status": 400 | 403, "error": str}.
 
     Example:
         POST nirmaan_stack.api.projects.tendering_merge.merge_tendering_boqs
-        {"project_name": "BENGALURU-PROJ-00262", "target_project": "BENGALURU-PROJ-00080"}
+        {"project_name": "BENGALURU-PROJ-00262", "target_project": "BENGALURU-PROJ-00080",
+         "selected_boqs": ["BOQ-26-00267"]}
     """
     try:
         frappe.db.begin()
-        is_admin = is_nirmaan_admin(frappe.session.user)
-        project = frappe.db.get_value(
-            "Projects", project_name, ["tendering_status"], as_dict=True, for_update=True
-        ) if project_name else None
-        if not project:
-            _refuse(f"Project '{project_name}' does not exist.", is_admin)
-        target = frappe.db.get_value(
-            "Projects", target_project, ["tendering_status", "status"], as_dict=True
-        ) if target_project else None
-
-        refusal = merge_refusal(
-            is_admin=is_admin,
-            project=project_name,
-            tendering_status=project.tendering_status,
-            boq_count=frappe.db.count("BOQs", {"project": project_name}),
-            target=target_project,
-            target_tendering_status=target.tendering_status if target else None,
-            target_status=target.status if target else None,
-            boqs_not_draft=_boqs_outside("project", project_name, MERGE_FROM_STATUSES) if is_admin else [],
-            busy_boqs=_busy_labels("project", project_name) if is_admin else [],
-        )
-        if refusal:
-            _refuse(refusal, is_admin)
-
-        moved = move_boqs_into_project(project_name, target_project)
-        _set_project_merge(project_name, MERGED, target_project)
+        selected = _as_list(selected_boqs)
+        moved = merge_into(project_name, target_project, selected, require_tick=True)
         frappe.db.commit()
 
         return {
@@ -157,6 +233,7 @@ def merge_tendering_boqs(project_name, target_project):
             "project_name": project_name,
             "merged_into": target_project,
             "boqs": moved,
+            "selected": selected,
         }
 
     except frappe.PermissionError as pe:
@@ -184,25 +261,25 @@ def undo_tendering_merge(project_name):
     """
     try:
         frappe.db.begin()
-        is_admin = is_nirmaan_admin(frappe.session.user)
+        may_merge = is_tendering_manager()
         project = frappe.db.get_value(
             "Projects", project_name, ["tendering_status"], as_dict=True, for_update=True
         ) if project_name else None
         if not project:
-            _refuse(f"Project '{project_name}' does not exist.", is_admin)
+            _refuse(f"Project '{project_name}' does not exist.", may_merge)
 
         refusal = undo_refusal(
-            is_admin=is_admin,
+            may_merge=may_merge,
             project=project_name,
             tendering_status=project.tendering_status,
             boqs_in_other_status=(
-                _boqs_outside("merged_from", project_name, UNDO_FROM_STATUSES) if is_admin else []
+                _boqs_outside("merged_from", project_name, UNDO_FROM_STATUSES) if may_merge else []
             ),
-            blocking_revisions=boqs_blocking_unmerge(project_name) if is_admin else [],
-            busy_boqs=_busy_labels("merged_from", project_name) if is_admin else [],
+            blocking_revisions=boqs_blocking_unmerge(project_name) if may_merge else [],
+            busy_boqs=_busy_labels("merged_from", project_name) if may_merge else [],
         )
         if refusal:
-            _refuse(refusal, is_admin)
+            _refuse(refusal, may_merge)
 
         returned = return_merged_boqs(project_name)
         _set_project_merge(project_name, TENDERING, None)

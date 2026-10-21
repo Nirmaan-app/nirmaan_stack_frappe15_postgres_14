@@ -9,7 +9,7 @@ import { ProjectFormValues, DailyProgressWorkHeader } from "../schema";
 import { ProjectFormData } from "../hooks/useProjectFormData";
 import { Plus, X, ClipboardList, ChevronDown, ChevronRight, PenTool, Copy, ListChecks, Info, FileSpreadsheet, AlertTriangle } from "lucide-react";
 import { useState } from "react";
-import { buildWorkPackageEntry, combineBoqScope, FormWorkPackage } from "../boqPackageSeed";
+import { buildWorkPackageEntry, FormWorkPackage } from "../boqPackageSeed";
 import {
     OptionalSections,
     PackageChange,
@@ -19,17 +19,23 @@ import {
     turnSectionOff,
     turnSectionOn,
 } from "../packageSectionSync";
-import { ConvertBoqOption } from "@/pages/projects/data/project-form/useProjectFormQueries";
 
-const NO_SEEDED_BOQS: ConvertBoqOption[] = [];
+/** The ticked BoQs (own and added) the packages were last pre-ticked from, and what they covered. */
+export interface SeededBoqs {
+    names: string[];
+    packages: string[];
+    unmappedHeaders: string[];
+}
+
+const NO_SEEDED_BOQS: SeededBoqs = { names: [], packages: [], unmappedHeaders: [] };
 
 interface PackageSelectionStepProps {
     form: UseFormReturn<ProjectFormValues>;
     formData: ProjectFormData;
     onNext: () => void;
     onPrevious: () => void;
-    /** Convert mode: the BoQs the packages were pre-ticked from, for the banner. */
-    seededBoqs?: ConvertBoqOption[];
+    /** The BoQs the packages were pre-ticked from, for the banner. */
+    seededBoqs?: SeededBoqs;
 }
 
 export const PackageSelectionStep: React.FC<PackageSelectionStepProps> = ({
@@ -39,7 +45,7 @@ export const PackageSelectionStep: React.FC<PackageSelectionStepProps> = ({
     onPrevious,
     seededBoqs = NO_SEEDED_BOQS,
 }) => {
-    const seededScope = useMemo(() => combineBoqScope(seededBoqs), [seededBoqs]);
+    const seededScope = seededBoqs;
     const { workPackages, categories, workHeaders, designCategories, criticalPOCategories, isPackageDataLoading, isWorkHeadersLoading, isDesignCategoriesLoading, isCriticalPOCategoriesLoading } = formData;
     const watchedWorkPackages = form.watch("project_work_packages.work_packages");
     const selectedWorkPackages: FormWorkPackage[] = Array.isArray(watchedWorkPackages) ? watchedWorkPackages : [];
@@ -400,21 +406,21 @@ export const PackageSelectionStep: React.FC<PackageSelectionStepProps> = ({
                     )}
                 </div>
 
-                {/* Convert mode: where the ticks came from */}
-                {seededBoqs.length > 0 && (
+                {/* Where the ticks came from */}
+                {seededBoqs.names.length > 0 && (
                     <div className="flex items-start gap-2 rounded border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
                         <FileSpreadsheet className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                         <span>
                             {seededScope.packages.length > 0 ? (
                                 <>
                                     Pre-selected from{" "}
-                                    <span className="font-medium">{seededBoqs.map((b) => b.name).join(", ")}</span>.
+                                    <span className="font-medium">{seededBoqs.names.join(", ")}</span>.
                                     You can still add or remove packages.
                                 </>
                             ) : (
                                 <>
-                                    <span className="font-medium">{seededBoqs.map((b) => b.name).join(", ")}</span>{" "}
-                                    {seededBoqs.length === 1 ? "maps" : "map"} to no package, so nothing was
+                                    <span className="font-medium">{seededBoqs.names.join(", ")}</span>{" "}
+                                    {seededBoqs.names.length === 1 ? "maps" : "map"} to no package, so nothing was
                                     pre-selected. Select the packages yourself.
                                 </>
                             )}

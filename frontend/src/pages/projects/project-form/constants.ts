@@ -4,8 +4,9 @@ import { WizardStep } from "@/components/ui/wizard-steps";
 /**
  * Wizard Steps Configuration
  *
- * Defines the steps for the project creation wizard with icons and titles.
- * `boqSelection` exists only when converting a Tendering stub (see `getSections`).
+ * Defines the steps for the project creation wizard with icons and titles. Both modes show
+ * every step (ADR-0038): converting a Tendering stub ticks its own BoQs on `boqSelection`, and
+ * both convert and create can add BoQs from other Tendering projects there.
  */
 export const wizardStepsConfig: WizardStep[] = [
     { key: "projectDetails", title: "Project Details", shortTitle: "Details", icon: Building2 },
@@ -32,19 +33,30 @@ export const allSections = [
 
 export type SectionKey = typeof allSections[number];
 
-/** Sections that exist only when converting a Tendering stub to Won. */
-const CONVERT_ONLY_SECTIONS: ReadonlySet<SectionKey> = new Set(["boqSelection"]);
-
 /**
- * The sections a wizard run shows. Creating a new project keeps its original six
- * steps, so drafts saved by step index stay valid.
+ * The sections a wizard run shows: all seven, in both modes. Creating a project used to skip
+ * `boqSelection`; drafts saved then hold a step NUMBER from the six-step list, which is why a
+ * draft resumes by its section name (`resumeStepIndex`).
  */
-export const getSections = (isConvertMode: boolean): SectionKey[] =>
-    allSections.filter((key) => isConvertMode || !CONVERT_ONLY_SECTIONS.has(key));
+export const getSections = (): SectionKey[] => [...allSections];
 
 /** The step-indicator config matching `getSections`. */
-export const getWizardStepsConfig = (isConvertMode: boolean): WizardStep[] =>
-    wizardStepsConfig.filter((step) => isConvertMode || !CONVERT_ONLY_SECTIONS.has(step.key as SectionKey));
+export const getWizardStepsConfig = (): WizardStep[] => wizardStepsConfig;
+
+/**
+ * The step to resume a saved draft on: the index of its saved SECTION NAME in today's list,
+ * falling back to the saved number only when the name is unknown. A draft saved by the old
+ * six-step Create wizard ("packageSelection" at step 4) must not land on today's step 4 (BOQ).
+ */
+export const resumeStepIndex = (
+    sections: readonly string[],
+    section: string | undefined,
+    savedStep: number | undefined
+): number => {
+    const index = section ? sections.indexOf(section) : -1;
+    if (index >= 0) return index;
+    return Math.min(Math.max(savedStep ?? 0, 0), Math.max(sections.length - 1, 0));
+};
 
 /**
  * Section titles for display

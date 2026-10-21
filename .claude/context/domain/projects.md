@@ -17,7 +17,8 @@ Status changes are manual, with one exception: the system places and lifts **aut
 **Bid outcome (`tendering_status`, ADR-0001 v3) is the OTHER status field:** Tendering / Won / Lost / **Merged**.
 Operational code gates on `tendering_status == "Won"` (`_tendering_guard`), so every other value is pre-Won. **Merged**
 (ADR-0038): the project's BoQs were moved into an existing Won project, named by `merged_into`; closed (no Edit /
-Convert / Lost / Delete / BoQ add) until an Admin undoes it. Endpoints `api/projects/tendering_merge.py`, rules
+Convert / Lost / Delete / BoQ add) until it is undone (anyone who can create projects; also merges from the
+Convert / Create wizard's BOQ step, ADR-0038 D10). Endpoints `api/projects/tendering_merge.py`, rules
 `services/tendering_merge.py`, BoQ moves `integrations/controllers/boqs.py` (`move_boqs_into_project`,
 `return_merged_boqs`, keyed on `BOQs.merged_from`).
 

@@ -68,6 +68,10 @@ to v4). Once the job is won, the team should work only on the BoQs the job was w
 
 ## Consequences
 
+- **Exception to D3 (ADR-0038, owner 2026-10-21):** merging a Tendering project into a Won project adds BoQs to that Won
+  project, and anyone who can create projects may do it — on the Tendering overview or in the Convert / Create wizard.
+  Merged BoQs that were ticked arrive Selected, the rest Draft. A plain upload to a Won project stays Admin only.
+
 - **Known gaps of D8:**
   - A non-Admin can still write to an Other BoQ through the API or a bookmarked wizard URL.
   - Six roles with write permission on BOQs (System Manager, Procurement Executive, Project Lead, Project Manager,

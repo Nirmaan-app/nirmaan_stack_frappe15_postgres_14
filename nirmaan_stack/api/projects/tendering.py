@@ -34,12 +34,18 @@ TENDERING_MANAGER_ROLES = {
 }
 
 
-def _ensure_tendering_manager():
-    user = frappe.session.user
+def is_tendering_manager(user=None):
+    """True for the users who may create projects and manage Tendering projects -- the same set
+    the frontend `canManageTendering` lets into New Project. They also merge a Tendering project's
+    BoQs into a Won project and undo it (ADR-0038, owner 2026-10-21)."""
+    user = user or frappe.session.user
     if user == "Administrator":
-        return
-    roles = set(frappe.get_roles(user))
-    if roles.isdisjoint(TENDERING_MANAGER_ROLES):
+        return True
+    return not set(frappe.get_roles(user)).isdisjoint(TENDERING_MANAGER_ROLES)
+
+
+def _ensure_tendering_manager():
+    if not is_tendering_manager():
         frappe.throw(
             "You are not permitted to manage Tendering projects.",
             frappe.PermissionError,
@@ -376,13 +382,17 @@ def convert_tendering_to_won(project_id, values):
 
     In the same transaction it records the BoQs the project was won on
     (``values["selected_boqs"]``, a list) via :func:`select_project_boqs`: those
-    become Selected and every other BoQ of the project stays Draft (ADR-0037). At
-    least one is required whenever the project has a BoQ.
+    become Selected and every other BoQ of the project stays Draft (ADR-0037). It
+    then merges in the BoQs of other Tendering projects the wizard added
+    (``values["merge_sources"]``, ADR-0038): ticked ones Selected, the rest Draft,
+    and each source project becomes Merged. At least one BoQ must be ticked
+    overall whenever any BoQ is involved.
 
     Args:
         project_id (str): The existing stub's docname.
         values (dict): The full wizard payload — the same shape that
-            ``create_project_with_address`` receives, plus ``selected_boqs``.
+            ``create_project_with_address`` receives, plus ``selected_boqs``
+            and ``merge_sources`` ([{"project", "selected_boqs"}]).
 
     Returns:
         dict: {"status": 200, "message": str, "project_name": str} on success
@@ -441,6 +451,22 @@ def convert_tendering_to_won(project_id, values):
             )
             raise frappe.ValidationError("Invalid date format for project start/end dates.")
 
+        # Imported here, not at the top: tendering_merge imports this module's
+        # is_tendering_manager, so a top-level import would be circular.
+        from nirmaan_stack.api.projects.tendering_merge import (
+            assert_wizard_ticks,
+            merge_sources_into,
+            parse_merge_sources,
+        )
+
+        # BoQs from other Tendering projects (ADR-0038). Checked before anything is
+        # written: at least one BoQ ticked overall whenever any BoQ is involved.
+        merge_sources = parse_merge_sources(values.get("merge_sources"))
+        own_boqs = frappe.db.count(
+            "BOQs", {"project": project_doc.name, "status": ["!=", "Superseded"]}
+        )
+        assert_wizard_ticks(own_boqs, values.get("selected_boqs"), merge_sources)
+
         # Populate the existing doc in place (shared logic; no autoname re-run).
         apply_full_project_details(project_doc, values)
 
@@ -450,9 +476,12 @@ def convert_tendering_to_won(project_id, values):
 
         project_doc.save(ignore_permissions=True)
 
-        # Mark the won-on BoQs Selected — same transaction, so a failure here rolls
-        # the whole conversion back.
-        select_project_boqs(project_doc.name, values.get("selected_boqs"))
+        # Mark the won-on BoQs Selected, then merge in the other Tendering projects'
+        # BoQs — same transaction, so a failure here rolls the whole conversion back.
+        select_project_boqs(
+            project_doc.name, values.get("selected_boqs"), require_pick=not merge_sources
+        )
+        merge_sources_into(project_doc.name, merge_sources)
 
         frappe.db.commit()
 
