@@ -253,6 +253,20 @@ export const canActionInvoiceApprovals = (
   (!!role && INVOICE_APPROVAL_PROFILES.includes(role));
 
 /**
+ * May use Match GST to vendor and see the GST mismatch list (#1538, ADR-0028 Amendment A).
+ * Mirrored server-side by `role_profiles.MATCH_GST_TO_VENDOR_PROFILES`, the enforcement boundary.
+ */
+export const MATCH_GST_TO_VENDOR_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  "Nirmaan Accountant Profile",
+  "Nirmaan Accountant Lead Profile",
+];
+
+/** True when `role` (a role PROFILE) may use Match GST to vendor. */
+export const canMatchGstToVendor = (role?: string | null, userId?: string | null): boolean =>
+  userId === "Administrator" || (!!role && MATCH_GST_TO_VENDOR_PROFILES.includes(role));
+
+/**
  * May see the "Pending Invoices Upload" tab (orders still owed a vendor invoice).
  * Wider than the approval set: the invoice approvers plus PMO and every procurement
  * profile, who chase the missing invoices with vendors (owner ruling 2026-09-24).
