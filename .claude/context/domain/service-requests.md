@@ -57,6 +57,13 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   to every WO writer. A new status-move or lock rule (Finalize #1539, amendments #1540) goes into the same
   function, never into a screen or an endpoint alone. PMO Executive writes and deletes WOs through the patch
   `v3_0.pmo_write_on_work_orders` (Custom DocPerm, so it survives a JSON re-import), but never approves.
+- **A WO's approval date is `approved_on` / `approved_by`, never `modified` (#1532).** The save that approves
+  it (`work_order_lifecycle.is_approval`: into Approved from anything but Amendment) stamps them; every other
+  save carries the stored values over, whatever it sends (`approval_record`, from `ServiceRequests.validate`).
+  Accepting or reverting an amendment keeps the first approval. `approved_by` is the user id as Data, not a
+  Link, so it never blocks deleting that user. Old WOs were filled from Version rows by the patch
+  `v3_0.backfill_work_order_approval` (blanks only); one created straight as Approved has no history and
+  stays blank, and the WO page then shows "--".
 - **A WO's remarks and items are read only by someone who may read that WO (#1529).** Every `api/sr_remarks`
   read/add call starts with `assert_can_read_work_order` (doc read permission, project User Permissions
   included); `api/sr_items.get_sr_items_for_parents` returns only readable WOs, with or without names.
@@ -82,6 +89,8 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
 | `is_finalized` | Check | Locks the SR from editing/deletion |
 | `finalized_by` | Data | Full name (not email) of who finalized |
 | `finalized_on` | Datetime | When finalized |
+| `approved_on` | Datetime | First approval (read-only; never moved after, #1532) |
+| `approved_by` | Data | User id (email) of the first approver (read-only) |
 | `total_amount` | Currency | Total service amount |
 | `amount_paid` | Currency | Paid payments less Received refunds (system-recounted, see above) |
 

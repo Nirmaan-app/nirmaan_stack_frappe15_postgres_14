@@ -13,6 +13,8 @@
   "work_order_items",
   "service_category_list",
   "status",
+  "approved_on",
+  "approved_by",
   "notes",
   "gst",
   "project_gst",
@@ -186,12 +188,28 @@
    "label": "Amount Due",
    "no_copy": 1,
    "read_only": 1
+  },
+  {
+   "description": "When the Work Order was first approved. Stamped by that save and never moved after (services/work_order_lifecycle.approval_record).",
+   "fieldname": "approved_on",
+   "fieldtype": "Datetime",
+   "label": "Approved On",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "description": "The user id (email) of whoever first approved the Work Order. Data, not a Link: a Link to User would stop that user ever being deleted.",
+   "fieldname": "approved_by",
+   "fieldtype": "Data",
+   "label": "Approved By",
+   "no_copy": 1,
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-20 00:27:47.157492",
+ "modified": "2026-10-22 01:27:15.833802",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Service Requests",
