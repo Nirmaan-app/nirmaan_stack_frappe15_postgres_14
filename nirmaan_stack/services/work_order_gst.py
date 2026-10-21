@@ -27,6 +27,12 @@ def gst_is_on(gst_flag):
 	return str(gst_flag or "").strip().lower() in ("true", "1", "yes")
 
 
+def gst_is_explicitly_off(gst_flag):
+	"""The `gst` field says off in so many words. A blank flag is neither on nor off here: what may
+	only happen on a GST-off Work Order (a generated invoice, #1546) waits until the flag is set."""
+	return str(gst_flag or "").strip().lower() in ("false", "0", "no")
+
+
 def gst_flag_for_vendor(vendor_gst):
 	"""The GST flag a Work Order should carry for its vendor: on exactly when the vendor has a GST
 	number; blank or whitespace counts as none (ADR-0028 Amendment A; GLOSSARY *GST flag*)."""

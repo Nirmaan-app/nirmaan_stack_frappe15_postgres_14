@@ -253,6 +253,22 @@ export const canActionInvoiceApprovals = (
   (!!role && INVOICE_APPROVAL_PROFILES.includes(role));
 
 /**
+ * May generate and void a GST-off Work Order's generated invoice, and upload its signed copy (#1546 /
+ * #1547, spec #1528 story 89). Mirrored server-side by `role_profiles.WO_GENERATED_INVOICE_PROFILES`,
+ * the enforcement boundary.
+ */
+export const WO_GENERATED_INVOICE_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
+  PROJECT_LEAD_PROFILE,
+  ...SERVICE_PROCUREMENT_PROFILES,
+];
+
+/** True when `role` (a role PROFILE) may generate or void a Work Order's generated invoice. */
+export const canGenerateWoInvoice = (role?: string | null, userId?: string | null): boolean =>
+  userId === "Administrator" || (!!role && WO_GENERATED_INVOICE_PROFILES.includes(role));
+
+/**
  * May use Match GST to vendor and see the GST mismatch list (#1538, ADR-0028 Amendment A).
  * Mirrored server-side by `role_profiles.MATCH_GST_TO_VENDOR_PROFILES`, the enforcement boundary.
  */

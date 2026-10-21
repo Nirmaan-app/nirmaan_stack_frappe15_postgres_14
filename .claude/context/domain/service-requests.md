@@ -33,6 +33,21 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   (`controllers/vendor_invoices.guard_work_order_invoice`), so Desk and REST obey it. Any new path that writes
   a WO Vendor Invoice (the generated-invoice upload, #1547) runs as the session user and passes through it.
   PO invoices keep their old rules.
+- **A generated invoice is a record, numbered and limited by the server, never edited (#1546, GLOSSARY
+  *Generated invoice*, *RA number*).** Doctype `WO Generated Invoice`, named `WGI-<WO>-<RA number>` (so the pair
+  is unique in the primary key). Made only by `api/service_requests/generated_invoices.generate_invoice`
+  (the doc's `before_insert` refuses any insert without `flags.made_by_generate`), changed only by the moves in
+  `services/wo_generated_invoices.MOVES` (`change_problem`, run by the doc's `validate`), never deleted
+  (`on_trash`). Generate runs under `_billing_lock`, a session-level advisory lock followed by a commit: Frappe
+  runs PostgreSQL at REPEATABLE READ, so a row lock alone left a waiting generate reading the old highest RA
+  number (the concurrency test caught it). Generate and void commit. The limit counts Pending + Approved Vendor
+  Invoices and generated invoices at *Generated*; a *Signed* one is counted through the Pending invoice its
+  upload creates, so #1547 must create that invoice in the same save that moves the record to *Signed*. Only an
+  Approved WO with `gst` explicitly off (`work_order_gst.gst_is_explicitly_off`; blank is not off) and a
+  Nirmaan GST is billed. The print is the "WO Generated Invoice" print format, which reads the record; the old
+  "SR Invoice" format, which read the amount from the link, is disabled (patch
+  `v3_0.disable_sr_invoice_print_format`, because a Print Format fixture re-import keeps the site's `disabled`).
+  Roles: `role_profiles.WO_GENERATED_INVOICE_PROFILES`.
 
 - **The GST flag (`gst`) follows the vendor and is never written by hand (ADR-0028 Amendment A, #1538).**
   Its writers: `ServiceRequests.set_gst_from_vendor` (first approval; an accepted amendment whose vendor differs
