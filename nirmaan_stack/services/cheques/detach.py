@@ -10,7 +10,9 @@ Cancelled, with a history row saying why. One left with other lines, or with a d
 status.
 
 A REJECTED payment comes off Old-type cheques only (#1481, spec #1477). On a Payment cheque a rejection
-rejects every payment and cancels the cheque, which keeps its lines (`decide.reject_cheque`).
+rejects every payment and cancels the cheque, which keeps its lines (`decide.reject_cheque`). An Old-type
+cheque's own cancel runs that same cascade, and keeps its lines too: the payments it rejects stay on it
+(spec #1514), so a bank line that turns up later still finds what the cheque paid.
 
 A Work Order comes off a Security Deposit cheque once, through the patch
 `v3_0.drop_work_order_deposit_lines` (`take_work_orders_off_deposit`, spec #1514): Work Orders have no cheques.
@@ -61,15 +63,18 @@ def drop_note(noun: str, name: str, why: str) -> str:
 
 
 def drop_off_cheques(
-    payment_doctype: str, payment_name: str, *, why: str, user: str, old_type_only: bool = False
+    payment_doctype: str, payment_name: str, *, why: str, user: str, old_type_only: bool = False,
+    keep_on: str | None = None,
 ) -> list[str]:
     """Take the lines naming `payment_name` (a `payment_doctype` record) off every Cheque that lists
     them, Cancelled ones included, each with a history note. Returns the Cheques changed.
 
     `why` is `rules.PAYMENT_REJECTED` or DELETED. A rejection passes `old_type_only`: a Payment cheque
     keeps its lines when its payments are rejected (#1481, `decide.reject_cheque`), so only Old-type
-    cheques drop the line. Each Cheque is re-read under its row lock and saved through the document, so
-    its `validate` rules and `track_changes` run.
+    cheques drop the line. `keep_on` names a Cheque the line stays on: the one whose cancel rejected the
+    payment (`decide.reject_cheque` saves it under `DECIDING_FLAG`, and saves that Cheque itself after).
+    Each Cheque is re-read under its row lock and saved through the document, so its `validate` rules and
+    `track_changes` run.
     """
     names = sorted(set(frappe.get_all(
         "Cheque Line",
@@ -78,6 +83,7 @@ def drop_off_cheques(
     )))
     if old_type_only and names:
         names = sorted(frappe.get_all(CHEQUES, filters={"name": ["in", names], "old_type": 1}, pluck="name"))
+    names = [name for name in names if name != keep_on]
     noun = "Payment" if payment_doctype == PAYMENT_DOCTYPE else "Expense"
     for name in names:
         doc = frappe.get_doc(CHEQUES, name, for_update=True)

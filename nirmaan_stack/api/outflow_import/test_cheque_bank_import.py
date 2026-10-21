@@ -29,7 +29,6 @@ from nirmaan_stack.api.outflow_import.unreconcile import plan_of_line, unreconci
 from nirmaan_stack.api.payments.project_payments import update_payment_request
 from nirmaan_stack.services.cheques.bank_import_rules import BANK_APPROVAL_NOTE, BANK_REVIVAL_NOTE
 from nirmaan_stack.services.cheques.status import cancel
-from nirmaan_stack.services.cheques.writer import history_row
 
 PAYMENT = "Project Payments"
 NPE = "Non Project Expenses"
@@ -349,15 +348,9 @@ class TestALineClearsAnOldTypeCheque(ChequeImportCase):
         number = self._number()
         a, b = self._payment(30000, RP), self._payment(20000, RP)
         cheque = self._old_type(number, 50000, [(a, 30000), (b, 20000)])
-        # What a cancel under the old rules could leave (raw: test setup). Today a payment Rejected on an
-        # Old-type cheque drops off it (#1413), so its lines would be gone.
-        for payment in (a, b):
-            frappe.db.set_value(PAYMENT, payment, "status", "Rejected", update_modified=False)
-        doc = frappe.get_doc("Cheques", cheque)
-        doc.append("status_history", history_row("Issued", "Cancelled", U, "Vendor lost the cheque"))
-        doc.status = "Cancelled"
-        doc.save(ignore_permissions=True)
+        cancel(cheque, note="Vendor lost the cheque", user=U)
         frappe.db.commit()
+        self.assertEqual(self._statuses(a, b), ["Rejected", "Rejected"])
 
         (row,) = self._import((number, 50000))
 
@@ -421,6 +414,47 @@ class TestALineClearsAnOldTypeCheque(ChequeImportCase):
         state = self._state(cheque)
         self.assertEqual((state.status, str(state.issue_date)), ("Cleared", self.day))
         self.assertEqual(self._shown(row)["cheque_outcome"]["started"], "Approval Pending")
+
+
+class TestCancellingAnOldTypeCheque(ChequeImportCase):
+    """Cancel is the way to close a cheque the import never matches (spec #1514). An Old-type cheque cancels
+    as any Payment cheque does: its payments Rejected, its lines and history kept, so a bank line that
+    turns up later still finds what it paid (glossary, Payment cheque)."""
+
+    def _lines(self, cheque):
+        return frappe.get_all("Cheque Line", filters={"parent": cheque, "parenttype": "Cheques"},
+                              pluck="payment_name", order_by="idx asc")
+
+    def test_cancelling_rejects_its_payments_and_keeps_every_line(self):
+        number = self._number()
+        a, b = self._payment(30000, RP), self._payment(15000)
+        expense = self._waiting_expense(5000)
+        cheque = self._old_type(number, 50000, [(a, 30000), (b, 15000)], [(expense, 5000)])
+
+        cancel(cheque, note="Stopped at the bank", user=U)
+        frappe.db.commit()
+
+        self.assertEqual(self._statuses(a, b), ["Rejected", "Rejected"])
+        self.assertEqual(self._lines(cheque), [a, b, expense])
+        self.assertEqual(frappe.db.get_value(NPE, expense, "status"), RP)  # a cancel rejects payments only
+        self.assertEqual(self._state(cheque).status, "Cancelled")
+        self.assertEqual(self._history(cheque)[-1], ("Issued", "Cancelled", U, "Stopped at the bank"))
+
+    def test_a_payment_rejected_on_its_own_still_drops_off_the_old_type_cheque(self):
+        # #1413: outside the cheque's own cancel, a Rejected payment comes off an Old-type cheque.
+        number = self._number()
+        a, b = self._payment(30000, RP), self._payment(20000, RP)
+        cheque = self._old_type(number, 50000, [(a, 30000), (b, 20000)])
+
+        pay = frappe.get_doc(PAYMENT, a)
+        pay.status = "Rejected"
+        pay.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        self.assertEqual(self._lines(cheque), [b])
+        self.assertEqual(self._statuses(b), [RP])
+        self.assertEqual(self._state(cheque).status, "Issued")
+        self.assertIn(f"Payment {a} was Rejected, so its line was removed.", self._history(cheque)[-1][3])
 
 
 class TestALineThatClearsNothing(ChequeImportCase):
