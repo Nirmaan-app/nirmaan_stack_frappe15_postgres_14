@@ -10,8 +10,8 @@ profile's real roles, removed in `tearDownClass`), saves the Work Order the way 
 Run: DEVENV test --module nirmaan_stack.nirmaan_stack.doctype.service_requests.test_work_order_lifecycle
 
 ⚠️ RUNS AGAINST THE SITE DATABASE. Work Orders are planted with the GST Hold fixture (`TEST-GSTH-*`) and
-purged after each test. The notifications hook is patched out: it inserts and commits a Nirmaan
-Notification per real user.
+purged after each test. The notifications hook is patched out (`patch_notifications`) except where a
+test checks the notifications themselves (`test_work_order_notifications`).
 """
 
 from unittest.mock import patch
@@ -92,6 +92,9 @@ def _drop_user(email):
 
 
 class _AsRoleCase(FrappeTestCase):
+    #: Patch the notifications hook out, so a test of something else writes no Nirmaan Notifications.
+    patch_notifications = True
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -115,9 +118,10 @@ class _AsRoleCase(FrappeTestCase):
         self.addCleanup(self._purge)
         self.project = self.fx.project()
         self.vendor = self.fx.vendor()
-        notify = patch(NOTIFY_ON_UPDATE)
-        notify.start()
-        self.addCleanup(notify.stop)
+        if self.patch_notifications:
+            notify = patch(NOTIFY_ON_UPDATE)
+            notify.start()
+            self.addCleanup(notify.stop)
 
     def _purge(self):
         frappe.db.rollback()
