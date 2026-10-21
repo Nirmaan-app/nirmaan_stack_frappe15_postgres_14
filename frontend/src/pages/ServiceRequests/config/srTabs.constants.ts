@@ -33,7 +33,8 @@ export const SR_COMMON_TAB_OPTIONS: SRTabOption[] = [
 // WO approval authority — drives the "Approve WO" / "Approve Amended WO" tabs
 // (ServiceRequestsTabs.tsx) and the approve-view URL guard (RenderSRComponent.tsx). PMO
 // Executive was intentionally REMOVED on 2026-09-17 (PMO access review). Do NOT re-add PMO
-// without owner sign-off.
+// without owner sign-off. The server enforces the same set (`services/role_profiles.WO_DECIDE_PROFILES`,
+// #1529) on every approve / reject / amendment decision; keep the two in sync.
 export const SR_ADMIN_ROLES = [
   "Nirmaan Admin Profile",
   "Nirmaan Project Lead Profile",
