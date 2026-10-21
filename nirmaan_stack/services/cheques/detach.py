@@ -12,7 +12,8 @@ status.
 A REJECTED payment comes off Old-type cheques only (#1481, spec #1477). On a Payment cheque a rejection
 rejects every payment and cancels the cheque, which keeps its lines (`decide.reject_cheque`). An Old-type
 cheque's own cancel runs that same cascade, and keeps its lines too: the payments it rejects stay on it
-(spec #1514), so a bank line that turns up later still finds what the cheque paid.
+(spec #1514), so a bank line that turns up later still finds what the cheque paid. A Cancelled cheque keeps
+its lines whatever rejects one of its payments afterwards; only a delete takes a line off it.
 
 A Work Order comes off a Security Deposit cheque once, through the patch
 `v3_0.drop_work_order_deposit_lines` (`take_work_orders_off_deposit`, spec #1514): Work Orders have no cheques.
@@ -67,11 +68,12 @@ def drop_off_cheques(
     keep_on: str | None = None,
 ) -> list[str]:
     """Take the lines naming `payment_name` (a `payment_doctype` record) off every Cheque that lists
-    them, Cancelled ones included, each with a history note. Returns the Cheques changed.
+    them, each with a history note. Returns the Cheques changed.
 
-    `why` is `rules.PAYMENT_REJECTED` or DELETED. A rejection passes `old_type_only`: a Payment cheque
-    keeps its lines when its payments are rejected (#1481, `decide.reject_cheque`), so only Old-type
-    cheques drop the line. `keep_on` names a Cheque the line stays on: the one whose cancel rejected the
+    `why` is `rules.PAYMENT_REJECTED` or DELETED. A delete takes the line off every Cheque, Cancelled ones
+    included (a line left naming it would refuse the delete). A rejection passes `old_type_only`: a Payment
+    cheque keeps its lines when its payments are rejected (#1481, `decide.reject_cheque`), so only an
+    Old-type cheque that is not Cancelled drops the line; a Cancelled one keeps what it would have paid. `keep_on` names a Cheque the line stays on: the one whose cancel rejected the
     payment (`decide.reject_cheque` saves it under `DECIDING_FLAG`, and saves that Cheque itself after).
     Each Cheque is re-read under its row lock and saved through the document, so its `validate` rules and
     `track_changes` run.
@@ -82,7 +84,9 @@ def drop_off_cheques(
         pluck="parent",
     )))
     if old_type_only and names:
-        names = sorted(frappe.get_all(CHEQUES, filters={"name": ["in", names], "old_type": 1}, pluck="name"))
+        names = sorted(frappe.get_all(
+            CHEQUES, filters={"name": ["in", names], "old_type": 1, "status": ["!=", CANCELLED]}, pluck="name"
+        ))
     names = [name for name in names if name != keep_on]
     noun = "Payment" if payment_doctype == PAYMENT_DOCTYPE else "Expense"
     for name in names:

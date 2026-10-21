@@ -94,7 +94,7 @@ def on_payment_rejected(doc) -> None:
     reject go through `decide.reject` and carry `DECIDING_FLAG`, so their saves land here and stop; a
     save made any other way (REST, Desk) starts the cascade, with a note naming this payment. An Old-type
     cheque still drops the line (#1413), except the one whose own cancel is rejecting it (`DECIDING_FLAG`,
-    spec #1514): a cancelled cheque keeps its lines. Any other cheque keeps it. Inside the caller's
+    spec #1514) and any already Cancelled (`detach.drop_off_cheques`): a cancelled cheque keeps its lines. Any other cheque keeps it. Inside the caller's
     savepoint; never commits.
     """
     cheque = live_cheque_of(doc.name)
