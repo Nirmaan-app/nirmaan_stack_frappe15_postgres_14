@@ -803,15 +803,9 @@ export const ProjectForm = () => {
                                 onPrevious={goToPreviousSection}
                                 onSubmit={handleSubmit}
                                 onNavigateToSection={navigateToSection}
-                                boqAward={
+                                ownBoqs={
                                     isConvertMode && boqOptions.length > 0
-                                        ? (() => {
-                                              const picked = form.getValues("selected_boqs") ?? [];
-                                              return {
-                                                  selected: boqOptions.filter((b) => picked.includes(b.name)),
-                                                  draftCount: boqOptions.length - picked.length,
-                                              };
-                                          })()
+                                        ? { boqs: boqOptions, selected: form.getValues("selected_boqs") ?? [] }
                                         : undefined
                                 }
                                 mergeSources={(form.getValues("merge_sources") ?? []) as MergeSource[]}
