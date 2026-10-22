@@ -548,6 +548,13 @@ export interface RateHelperRowContext {
    * must see the row's own text and NEVER a heading. OPTIONAL: the calculator and every other caller omit it.
    */
   ownNotes?: string[];
+  /**
+   * ADP-5a (HN-2, owner 2026-10-22): the NOTES of the row's section headings, root-first, as the extraction payload
+   * carries them (EA-7: a heading one or two levels up gives its own, appended and attached notes; a farther one its
+   * appended notes only), built by `buildRowContext`. Read ONLY by an item-list category's both-streams check and its
+   * `family_merge` words -- every other text rule reads exactly what it read before. OPTIONAL: the calculator omits it.
+   */
+  headingNotes?: string[];
 }
 
 /** A registered rate helper. `compute` is PURE + synchronous.

@@ -566,7 +566,13 @@ _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "unit_
                  # SLICE 12e-5b (owner R5): `material_text` -- a no-SKU family answer whose material AS WRITTEN names a
                  # material the catalogue prices as one of its families (closed cell polyethylene -> nitrile, by unit
                  # class). Arrives WITH `_validate_material_text`. ABSENT => the no-SKU refusal stands.
-                 "material_text"}
+                 "material_text",
+                 # ADP-5a (owner 2026-10-22 10:45 / 10:48 / 10:49, SCOPE-5a-1): `family_merge` -- an item of one family
+                 # prices as ONE item of another where the row also carries an item of a family it absorbs, or its
+                 # text names the pair (a spigot with a butterfly damper). Arrives WITH `_validate_family_merge`.
+                 # ABSENT => every item prices as its own family, exactly as before.
+                 "family_merge"}
+_PRICING_FAMILY_MERGE_KEYS = {"family", "into", "absorbs", "words", "at", "line", "rule"}
 _PRICING_NAMED_IN_ROW_KEYS = {"attr", "words", "refuse", "rule"}
 _PRICING_UNSTOCKED_KEYS = {"words", "from_attr", "rule"}
 _PRICING_REFUSE_UC_KEYS = {"unit_class", "families", "attr", "value_contains", "words", "refuse", "rule"}
@@ -609,6 +615,45 @@ def _validate_named_in_row(rules, by_id, choice_attrs):
         for key in ("refuse", "rule"):
             if not isinstance(r[key], str) or not r[key].strip():
                 _vthrow(f"{rloc}.{key} must be a non-empty string.")
+
+
+def _validate_family_merge(rules, fams, numbers):
+    """ADP-5a (owner 2026-10-22, SCOPE-5a-1) -- `list_spec.pricing.family_merge`: a non-empty list of rules, each
+    naming a priceable `family` and the priceable family it prices `into` (never itself), what fires it -- `absorbs`
+    (priceable families whose item on the same row is the same thing, dropped) and / or `words` (in the row's text,
+    its headings or their notes) -- optionally `at` (the number both families read, the one kept), the working
+    `line` and the ruling. Refused by name otherwise."""
+    loc = "list_spec.pricing.family_merge"
+    if not isinstance(rules, list) or not rules:
+        _vthrow(f"{loc} must be a non-empty list.")
+    fams = fams if isinstance(fams, dict) else {}
+    for i, r in enumerate(rules):
+        rloc = f"{loc}[{i}]"
+        if not isinstance(r, dict):
+            _vthrow(f"{rloc} must be an object.")
+        unk = set(r) - _PRICING_FAMILY_MERGE_KEYS
+        if unk:
+            _vthrow(f"{rloc}: unknown key(s): {', '.join(sorted(unk))}.")
+        for key in ("family", "into", "line", "rule"):
+            if not isinstance(r.get(key), str) or not r[key].strip():
+                _vthrow(f"{rloc}.{key} must be a non-empty string.")
+        for key in ("family", "into"):
+            if r[key] not in fams:
+                _vthrow(f"{rloc}.{key} '{r[key]}' is not a priceable family.")
+        if r["family"] == r["into"]:
+            _vthrow(f"{rloc}: a family cannot merge into itself.")
+        if "absorbs" not in r and "words" not in r:
+            _vthrow(f"{rloc} must carry absorbs and / or words.")
+        if "absorbs" in r and (not isinstance(r["absorbs"], list) or not r["absorbs"]
+                               or not all(isinstance(f, str) and f in fams and f != r["family"] for f in r["absorbs"])):
+            _vthrow(f"{rloc}.absorbs must be a non-empty list of priceable families other than '{r['family']}'.")
+        if "words" in r and not _words_ok(r["words"]):
+            _vthrow(f"{rloc}.words must be a non-empty list of words.")
+        if "at" in r:
+            at = r["at"]
+            needs = [set(fams[f].get("needs") or []) if isinstance(fams[f], dict) else set() for f in (r["family"], r["into"])]
+            if not isinstance(at, str) or at not in (numbers or {}) or any(at not in n for n in needs):
+                _vthrow(f"{rloc}.at must be a number both '{r['family']}' and '{r['into']}' need.")
 
 
 def _validate_unstocked_materials(um, by_id, sku_attrs, numbers):
@@ -853,7 +898,9 @@ _PRICING_CONVERT_KEYS = {"to", "needs", "rule", "pipelines",
                          "show_numbers", "name_missing"}
 # SLICE 6 (owner S6): `absent_as_none` -- an ABSENT answer is read as NOT MENTIONED, so the default fires on it too
 # (declared per attribute; the owner ruled it for UL ONLY, and the config is where that stays).
-_PRICING_DEFAULT_KEYS = {"value", "by_family", "rule", "absent_as_none"}
+# ADP-5a (owner 2026-10-22, AC2): `rule_by_family` -- the line a per-family default says on a family whose value
+# differs from the others' ("curved grille = with"), beside `by_family`; every family it does not name keeps `rule`.
+_PRICING_DEFAULT_KEYS = {"value", "by_family", "rule", "absent_as_none", "rule_by_family"}
 _PRICING_DERIVE_KEYS = {"attr", "families", "when", "then", "rule"}
 # SLICE 8 (owner M-b): `override_when` -- a stated fact that DECIDES the pick whatever else the row said. Same
 # five keys as `derive_when_none` on purpose; what differs is when it fires (that one fills a "None", this one
@@ -1672,6 +1719,9 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
     # (an empty list / object is a mistake, never an inert key).
     if "named_in_row" in pr:
         _validate_named_in_row(pr["named_in_row"], by_id, choice_attrs)
+    # ADP-5a (SCOPE-5a-1): `family_merge` -- PRESENCE before any `or` idiom, as every key above
+    if "family_merge" in pr:
+        _validate_family_merge(pr["family_merge"], fams, numbers)
     if "unstocked_materials" in pr:
         _validate_unstocked_materials(pr["unstocked_materials"], by_id, sku_attrs, numbers)
     if "refuse_on_unit_class" in pr:
@@ -1762,6 +1812,9 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         if "by_family" in d and (not isinstance(d["by_family"], dict) or not d["by_family"] or not all(
                 k in fams and v in vals for k, v in d["by_family"].items())):
             _vthrow(f"{dloc}.by_family must map priceable families to the attribute's values.")
+        if "rule_by_family" in d and ("by_family" not in d or not isinstance(d["rule_by_family"], dict) or not d["rule_by_family"] or not all(
+                k in d["by_family"] and isinstance(v, str) and v.strip() for k, v in d["rule_by_family"].items())):
+            _vthrow(f"{dloc}.rule_by_family must map families of by_family to a non-empty line.")
     dwn = pr.get("derive_when_none") or []
     if not isinstance(dwn, list):
         _vthrow("list_spec.pricing.derive_when_none must be a list.")

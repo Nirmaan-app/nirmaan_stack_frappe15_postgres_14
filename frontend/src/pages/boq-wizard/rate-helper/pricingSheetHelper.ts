@@ -80,6 +80,7 @@ import {
   sizeIsOutsideDiameter,
   severalSizesTaken,
   listSpecDefs,
+  applyFamilyMerge,
   priceItemList,
   sizeFieldHelp,
   twoWayValues,
@@ -3001,9 +3002,31 @@ function computeItemListOwn(
   probe?: OwnPassProbe,
 ): HelperResult {
   const modelItems = ext?.items ?? [];
-  const edits = decodeItemEdits(overrides?.[ITEM_LIST_OVERRIDE_KEY], modelItems.length, probe?.sectionCounts);
+  const decoded = decodeItemEdits(overrides?.[ITEM_LIST_OVERRIDE_KEY], modelItems.length, probe?.sectionCounts);
+  /**
+   * SLICE 12d-1a (owner R2): the row's own text and its HEADINGS reach the pricer, so a silent
+   * material can be decided by the words the owner named ("acoustic", "lining") wherever they sit
+   * -- the row or a section heading above it. The page builds `headings` from the priced rows'
+   * parent chain; the calculator has none and the words simply never match there.
+   */
+  const rowText = [ctx.description ?? "", ...(ctx.headings ?? [])].join(" | ");
+  /**
+   * SLICE 12d-4a (owner D3 / D7 / D9b): the row's OWN text -- its description and its own notes, NEVER a
+   * heading -- reaches the pricer separately, for the word rules that must not be triggered by a heading.
+   * The calculator has no row and passes nothing, so those rules read only the model's values there.
+   */
+  const ownText = [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ");
+  // ADP-5a (HN-2, owner 2026-10-22): the headings' NOTES -- read ONLY by the both-streams check and `family_merge`
+  const headingNoteText = (ctx.headingNotes ?? []).join(" | ");
+  /**
+   * ADP-5a (SCOPE-5a-1): `family_merge` -- two items that are ONE item (a spigot and its butterfly damper) become one
+   * BEFORE anything prices or shows. The absorbed item leaves the EDIT STATE too, because a block's position is its
+   * edit index on the panel: dropping only its view would hand the next block's edits to the wrong item.
+   */
+  const merge = applyFamilyMerge(spec, assembleItems(decoded, modelItems, familyAttr(spec)), [rowText, ownText, headingNoteText].join(" | "));
+  const edits: ItemListEditState = merge ? { ...decoded, items: merge.kept.map((i) => decoded.items[i]) } : decoded;
   if (probe) probe.edits = edits;
-  const assembled = assembleItems(edits, modelItems, familyAttr(spec));
+  const assembled = merge ? merge.items : assembleItems(edits, modelItems, familyAttr(spec));
   // SLICE 12c-S (owner S2 / S10): the picker offers only the units the chosen items can be priced in.
   const chosenFamilies = assembled.map((a) => {
     const v = a.attributes[familyAttr(spec)]?.value;
@@ -3124,20 +3147,8 @@ function computeItemListOwn(
     for (const id of (clearedPicks[i] ?? new Map()).keys()) attributes[id] = { value: null, cleared: true };
     return { ...a, attributes };
   });
-  /**
-   * SLICE 12d-1a (owner R2): the row's own text and its HEADINGS reach the pricer, so a silent
-   * material can be decided by the words the owner named ("acoustic", "lining") wherever they sit
-   * -- the row or a section heading above it. The page builds `headings` from the priced rows'
-   * parent chain; the calculator has none and the words simply never match there.
-   */
-  const rowText = [ctx.description ?? "", ...(ctx.headings ?? [])].join(" | ");
-  /**
-   * SLICE 12d-4a (owner D3 / D7 / D9b): the row's OWN text -- its description and its own notes, NEVER a
-   * heading -- reaches the pricer separately, for the word rules that must not be triggered by a heading.
-   * The calculator has no row and passes nothing, so those rules read only the model's values there.
-   */
-  const ownText = [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ");
-  const priced = priceItemList(spec, items, unit, forPricing, rowText, ownText, ctx.pipeOdHint);
+  // the row's texts are built above, where `family_merge` first reads them
+  const priced = priceItemList(spec, items, unit, forPricing, rowText, ownText, ctx.pipeOdHint, headingNoteText);
   const unitClass = priced.unitClass ?? unitClassOf(spec, unit);
   /**
    * CERT-FOUND 2026-10-04. A composition turns ONE user block into SEVERAL priced layers, so

@@ -11,7 +11,18 @@ os.makedirs(OUT, exist_ok=True)
 os.chdir('/workspace/development/frappe-bench/sites')
 import frappe; frappe.init(site='localhost'); frappe.connect()
 from nirmaan_stack.services.boq_category.context_builder import build_sheet_context
-from nirmaan_stack.services.boq_rate_master.extraction import _resolved_categories
+from nirmaan_stack.services.boq_rate_master.extraction import _note_block, _resolved_categories
+
+
+def heading_notes(ancestors):
+    """ADP-5a (HN-2 / HN-3, owner 2026-10-22: the headings' notes as the extraction payload sends them, then "immediate
+    parent only"): the NOTES of the heading directly above the row -- `extraction._note_block` at the FULL tier
+    (appended, own, attached), flattened to their strings. The page's `rowHeadingNotes` reads the same fields."""
+    if not ancestors:
+        return []
+    a = ancestors[-1]   # root-first, so the last is the immediate parent
+    block = _note_block(a.get('own_notes_raw'), a.get('attached_notes'), a.get('append_notes_raw'), 'full')
+    return list((block.get('appended') or {}).values()) + list(block.get('own') or []) + list(block.get('attached') or [])
 
 configs = {}
 for c in frappe.db.sql('select discipline, category_id, config from "tabBoQ Rate Category Config" where active=1', as_dict=True):
@@ -45,6 +56,7 @@ for r in runs:
         cx = by_row.get(er); nd = nodes.get(er) or {}
         cat, disc = resolved.get(er, (x.get('category_id'), None))
         headings = [a.get('description') or '' for a in (cx or {}).get('ancestors') or []]
+        hnotes = heading_notes((cx or {}).get('ancestors') or [])
         own_notes = []
         if nd.get('notes'): own_notes.append(str(nd['notes']))
         an = nd.get('attached_notes')
@@ -54,7 +66,7 @@ for r in runs:
         for a in an or []:
             if isinstance(a, str): own_notes.append(a)
         rec = {'boq': boq, 'sheet_name': sn, 'excel_row': er, 'run_id': r['run_id'], 'category_id': x.get('category_id'), 'resolved_category': cat, 'discipline': disc,
-               'description': x.get('description') or (cx or {}).get('description') or '', 'unit': nd.get('unit'), 'headings': headings, 'ownNotes': own_notes,
+               'description': x.get('description') or (cx or {}).get('description') or '', 'unit': nd.get('unit'), 'headings': headings, 'ownNotes': own_notes, 'headingNotes': hnotes,
                'attributes': x.get('attributes') or {}, 'items': x.get('items')}
         out.write(json.dumps(rec, default=str) + '\n'); n += 1; per_cat[x.get('category_id')] += 1
 out.close()

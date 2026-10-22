@@ -29,7 +29,7 @@ import {
   ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, assembleItems, decodeItemEdits, makePricingSheetHelper,
   type ItemListSuggestion,
 } from "./pricingSheetHelper";
-import { familyAttr, itemListPricingSpec, priceItemList } from "./itemListPricing";
+import { applyFamilyMerge, familyAttr, itemListPricingSpec, priceItemList } from "./itemListPricing";
 import { applyAdp1 } from "./adp1.harness";
 import { applyAdp2 } from "./adp2.harness";
 import { applyAdp3b } from "./adp3b.harness";
@@ -79,6 +79,14 @@ const ASSET_V50 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMa
 const CFG_V50: Record<string, RateCategoryConfig> = Object.fromEntries(ASSET_V50.category_configs.map((c) => [c.category_id, c]));
 const CONFIGS_V50 = new Map<string, RateCategoryConfig>(Object.entries(CFG_V50));
 const ITEMS_V50: RateMasterItem[] = ASSET_V50.items.map((it) => ({ ...it, discipline: ASSET_V50.discipline } as RateMasterItem));
+// ADP-5a (owner rulings 2026-10-22): HVAC v51 itself (v50 + the curved grille default, `family_merge`, the depth_mm column gone); a
+// case marked `adp5a` runs on it, on the panel's entry point and the pure pricer alike
+const ASSET_V51 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
+  new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v51.json", import.meta.url),
+);
+const CFG_V51: Record<string, RateCategoryConfig> = Object.fromEntries(ASSET_V51.category_configs.map((c) => [c.category_id, c]));
+const CONFIGS_V51 = new Map<string, RateCategoryConfig>(Object.entries(CFG_V51));
+const ITEMS_V51: RateMasterItem[] = ASSET_V51.items.map((it) => ({ ...it, discipline: ASSET_V51.discipline } as RateMasterItem));
 const CONFIGS = new Map<string, RateCategoryConfig>(Object.entries(CFG));
 const ITEMS: RateMasterItem[] = ASSET.items.map((it) => ({ ...it, discipline: ASSET.discipline } as RateMasterItem));
 const INS = "hvac_insulation";
@@ -104,6 +112,8 @@ interface Case {
   model?: Array<Record<string, string>>;      // the stored extraction's items (panel / ptyped)
   edits?: Edit[];                             // session edits (calc / ptyped)
   description?: string; headings?: string[]; ownNotes?: string[];
+  /** ADP-5a (HN-2 / HN-3): the notes of the heading directly above the row, as the panel's row context carries them */
+  headingNotes?: string[];
   /** the rule's OWN line(s): every regex must appear in the panel's lines; none of `not` may */
   re: Array<string | RegExp>; not?: Array<string | RegExp>;
   /** lines that must appear in a block's WORKING -- the pricer's own output, never a display note (F-2: the reader's line must reach the pricer) */
@@ -123,6 +133,8 @@ interface Case {
   adp3b?: boolean;
   /** ADP-4a: run on HVAC v50 (configs and items) */
   adp4a?: boolean;
+  /** ADP-5a: run on HVAC v51 (configs and items) */
+  adp5a?: boolean;
   /** ADP-4a (AC5): the family this case is named for, read by the family guard (default: the first item's family) */
   family?: string;
   /** ADP-4a (AC5): the row's figures, supply and install, exactly (the replay's own figures for the stored row) */
@@ -269,6 +281,8 @@ const T = {
   ratio: "A panel ratio is read from '1:N' as N",
   gauge: "A plenum thickness below 5 mm is a sheet gauge, not a thickness, and refuses",
   sqft: "An area written in square feet refuses",
+  // ADP-5a (owner 2026-10-22, SCOPE-5a-1): the one line v51 adds, LAST on the ADP tab
+  mergeSpigot: "A spigot named with a butterfly damper is priced as one butterfly damper",
   mcm: "A size written in metres or centimetres is read in millimetres",
 };
 /** Tab lines that are NOT panel-path rules (a catalogue / rate-master rule the pricer never reads), by name. */
@@ -708,6 +722,48 @@ const CASES: Case[] = [
   // the two families whose only cases were ADP-3c's positives (C1a, C1b): each its near miss, so the family guard holds
   { id: "FG1-neg", rule: T.kind, family: "curved grille", cat: ADP, path: "panel", kind: "neg", unit: "nos", adp4a: true, model: [{ family: "curved grille" }], re: ["curved grille needs Width + Height, or Area band - neither stated - price this row by hand"], priced: false },
   { id: "FG2-neg", rule: T.kind, family: "door grille", cat: ADP, path: "panel", kind: "neg", unit: "nos", adp4a: true, model: [{ family: "door grille" }], re: ["door grille needs Width + Height, or Area band - neither stated - price this row by hand"], priced: false },
+  // ── ADP-5a (owner rulings 2026-10-22; AC8): a positive and a negative case for each rule this slice builds, each a REAL stored
+  // row (its items, unit, text, headings and heading notes as the replay dump holds them) with the figures the replay gives -- on v51 ──
+  { id: "M1a", rule: T.mergeSpigot, family: "spigot", cat: ADP, path: "panel", kind: "pos", unit: "Nos.", adp5a: true,
+    description: "a) Supply & installation of 200 mm dia Spigot & Butterfly damper for rectangular duct. It should be of 22G.(120 GSM)", headings: ["AIR DISTRIBUTION"],
+    model: [{ family: "spigot", damper: "None", air: "None", dia_mm: "200 mm dia", ul: "None", thickness_mm: "22G", variant: "None", qty_per_row_unit: "None" },
+            { family: "butterfly damper", damper: "None", air: "None", dia_mm: "200 mm dia", ul: "None", thickness_mm: "22G", variant: "None", qty_per_row_unit: "None" }],
+    re: ["spigot with butterfly damper named -> priced as one Butterfly Damper With Spigot, 200 mm", "Butterfly Damper With SPIGOT / 200 MM DIA (Nos)"], not: ["family:spigot"], working: ["spigot with butterfly damper named -> priced as one Butterfly Damper With Spigot, 200 mm"], priced: true, figures: [1015, 0] },   // BOQ-26-00341 r103: 1,247 / 64 -> 1,015 / 0
+  { id: "M1b", rule: T.mergeSpigot, family: "spigot", cat: ADP, path: "panel", kind: "pos", unit: "No", adp5a: true, description: "Ø 150 mm dia",
+    headings: ["AIR DISTRIBUTION", "SITC of round spigot with Butterfly Dampers as per the specifications & the sizes are as following below."],
+    model: [{ family: "spigot", damper: "with", air: "None", dia_mm: "Ø 150 mm dia", ul: "None" }], re: ["spigot with butterfly damper named -> priced as one Butterfly Damper With Spigot, 150 mm"], priced: true, figures: [725, 0] },   // BOQ-26-00231 r257: 211 / 64 -> 725 / 0
+  { id: "M1c", rule: T.mergeSpigot, family: "spigot", cat: ADP, path: "panel", kind: "pos", unit: "Nos", adp5a: true, description: "200 mm dia",
+    headings: ["Supply & Fixing of GI round spicot damper for flexible duct connection"],
+    model: [{ family: "spigot", damper: "with", air: "None", dia_mm: "200 mm dia", ul: "None", qty_per_row_unit: "None" }], re: ["spigot with butterfly damper named -> priced as one Butterfly Damper With Spigot, 200 mm"], priced: true, figures: [1015, 0] },   // BOQ-26-00313 r94: 232 / 64 -> 1,015 / 0
+  { id: "M1a-calc", rule: T.mergeSpigot, family: "spigot", cat: ADP, path: "calc", kind: "pos", adp5a: true,
+    edits: [{ base: null, family: "spigot", attrs: { dia_mm: "200" } }, { base: null, family: "butterfly damper", attrs: { dia_mm: "200" } }], rowUnit: "nos", re: ["spigot with butterfly damper named -> priced as one Butterfly Damper With Spigot, 200 mm"], priced: true, figures: [1015, 0] },
+  { id: "M1b-neg", rule: T.mergeSpigot, family: "spigot", cat: ADP, path: "panel", kind: "neg", unit: "Nos.", adp5a: true,
+    description: "300Dia Dropper of length 150/200mm for round diffuser connection . Its should of 24G and Match Elliptical duct color.",
+    headings: ["AIR DISTRIBUTION", "Supply, Installation, Testing and balancing of square type extruded aluminium powder coated diffusers for supply air"], headingNotes: ["Extruded Aluminium diffusers powder coated"],
+    model: [{ family: "spigot", air: "None", size_mm: "length 150/200mm", dia_mm: "300Dia", ul: "None", thickness_mm: "24G" }], re: ["family:spigot"], not: ["Butterfly Damper With Spigot"], priced: true, figures: [276, 64] },   // BOQ-26-00341 r62: unchanged
+  { id: "CG1a", rule: T.defaults, family: "curved grille", cat: ADP, path: "panel", kind: "pos", unit: "Sqm", adp5a: true,
+    description: "The supply & installation of higher grade Aluminum Extruded powder coated grilles with blade deflection of 0 & 15 deg", headings: ["AIR DISTRIBUTION SYSTEM", "GRILLES - Al. CURVED"],
+    model: [{ family: "curved grille", damper: "None", air: "None", ul: "None", qty_per_row_unit: "None" }], re: ["damper:damper not mentioned (or not answered) on a curved grille = with"], priced: true, figures: [10730, 2800] },   // BOQ-26-00185 r29: 5,510 / 880 -> 10,730 / 2,800
+  { id: "CG1b-neg", rule: T.defaults, family: "curved grille", cat: ADP, path: "panel", kind: "neg", unit: "Sqm", adp5a: true, description: "100 mm wide",
+    headings: ["SITC of the following items", "Return air Curved grilles with Zero deflection type of Powder coated high quality extruded aluminium construction without Collar damper of aluminium mounted directly on grilles."],
+    model: [{ family: "curved grille", damper: "without", insulated: "None", air: "return", size_mm: "100 mm wide", ul: "None", variant: "None", qty_per_row_unit: "None" }], re: [], not: ["on a curved grille = with"], priced: true, figures: [5510, 880] },   // BOQ-26-00140 r168: unchanged
+  { id: "AS1a", rule: T.h5Both, family: "linear grille", cat: ADP, path: "panel", kind: "pos", unit: "Sqm", adp5a: true,
+    description: "Powder coated extruded Extruded Aluminium - linear grille for SA / RA - 100mm width Make: Air master / Caryaire / Ravistar", headings: ["AIR TERMINALS"],
+    model: [{ family: "linear grille", damper: "None", insulated: "None", air: "supply", size_mm: "100mm width", ul: "None", qty_per_row_unit: "None" }], re: ["BoQ names supply and return air -> damper as read (not mentioned -> without)"], priced: true, figures: [4829, 880] },   // BOQ-26-00113 r78: 9,628 / 2,800 -> 4,829 / 880
+  { id: "AS1b", rule: T.h5Both, family: "linear grille", cat: ADP, path: "panel", kind: "pos", unit: "SqM", adp5a: true, description: "i. 100/150/200/250 mm/600mmx600mm Grilles", headings: ["DUCTWORK/AIR TERMINALS", "LINEAR GRILLES"],
+    headingNotes: ["Supply, Installation, Testing and Balancing of one way blow linear supply cum return air grilles complete with fixed core as per approved shop drawings and specifications. The grilles shall be of approved colour & shade.", "Powder coated aluminium grilles of extruded sections with integral flanges on both sides & ends as required complete with corner pieces."],
+    model: [{ family: "linear grille", damper: "None", air: "supply", size_mm: "100/150/200/250 mm/600mmx600mm", ul: "None" }], re: ["BoQ names supply and return air -> damper as read (not mentioned -> without)"], priced: true, figures: [4829, 880] },   // BOQ-26-00122 r65: 9,628 / 2,800 -> 4,829 / 880
+  { id: "AS1c-neg", rule: T.h5Both, family: "square diffuser", cat: ADP, path: "panel", kind: "neg", unit: "Nos.", adp5a: true, description: "375 X 375 (Neck size) overall size 596 X 596 (Tegular type)",
+    headings: ["AIR DISTRIBUTION", "Supply, Installation, Testing and balancing of square type extruded aluminium powder coated diffusers for supply air required as per the approved shop drawings."], headingNotes: ["Extruded Aluminium diffusers powder coated"],
+    model: [{ family: "square diffuser", damper: "None", air: "supply", neck_mm: "375 X 375", size_mm: "596 X 596", ul: "None" }], re: [], not: ["BoQ names supply and return air"], priced: true, figures: [2248, 576] },   // BOQ-26-00341 r59: the section heading's note (two levels up) is not read (HN-3): unchanged
+  { id: "BX1a", rule: T.sizesAdp, family: "mixing box / LP plenum", cat: ADP, path: "panel", kind: "pos", unit: "Nos", adp5a: true,
+    description: "GSS plenum boxes for fiing the diffusers along with openings for flexible ducts 1200x150-300 depth all the nescessary supports to be considered in the rate", headings: ["HVAC SYSTEM"],
+    model: [{ family: "mixing box / LP plenum", damper: "None", air: "None", size_mm: "1200x150-300 depth", ul: "None", qty_per_row_unit: "None" }],
+    re: ["plenum_width_mm:BoQ says 1200x150-300 depth -> 150 mm (the second of length x width x height)", "plenum_height_mm:BoQ says 1200x150-300 depth -> 300 mm (the height as written)"], priced: true, figures: [2306, 0] },   // BOQ-26-00247 r92: refused -> 2,306 / 0
+  { id: "BX1b-neg", rule: T.sizesAdp, family: "mixing box / LP plenum", cat: ADP, path: "panel", kind: "neg", unit: "NOS", adp5a: true, description: "900x200x350mm Ht.",
+    headings: ["GSS SPILL AIR BOX: Supply and installation of GSS Spill air box (24G)."],
+    model: [{ family: "mixing box / LP plenum", damper: "None", air: "None", size_mm: "900x200x350mm Ht.", ul: "None", thickness_mm: "24G", qty_per_row_unit: "None" }],
+    re: ["plenum_length_mm:BoQ says 900x200x350mm Ht. -> 900 mm (the first of length x width x height)"], not: ["-300 depth"], priced: true, figures: [2233, 0] },   // BOQ-26-00186 r58: unchanged
 ];
 
 /** ADP line 5 (`units_not_offered`) acts on the CALCULATOR'S UNIT PICKER, not on a row's price: it is covered
@@ -728,10 +784,11 @@ function run(c: Case) {
   const overrides: Record<string, string> = {};
   if (c.edits) overrides[ITEM_LIST_OVERRIDE_KEY] = JSON.stringify({ items: c.edits });
   if (c.rowUnit !== undefined) overrides[ROW_UNIT_OVERRIDE_KEY] = c.rowUnit;
-  const h = makePricingSheetHelper({ configsByCategory: c.adp4a ? CONFIGS_V50 : c.adp3b ? CONFIGS_ADP3B : c.adp2 ? CONFIGS_ADP2 : c.adp1 ? CONFIGS_ADP1 : c.live ? CONFIGS_LIVE : c.v42 ? CONFIGS42 : CONFIGS, items: c.adp4a ? ITEMS_V50 : c.adp3b ? ITEMS_ADP2 : c.adp2 ? ITEMS_ADP2 : c.adp1 ? ITEMS_ADP1 : c.live ? ITEMS_LIVE : c.v42 ? ITEMS42 : ITEMS, extractionByRow: ext });
+  const h = makePricingSheetHelper({ configsByCategory: c.adp5a ? CONFIGS_V51 : c.adp4a ? CONFIGS_V50 : c.adp3b ? CONFIGS_ADP3B : c.adp2 ? CONFIGS_ADP2 : c.adp1 ? CONFIGS_ADP1 : c.live ? CONFIGS_LIVE : c.v42 ? CONFIGS42 : CONFIGS, items: c.adp5a ? ITEMS_V51 : c.adp4a ? ITEMS_V50 : c.adp3b ? ITEMS_ADP2 : c.adp2 ? ITEMS_ADP2 : c.adp1 ? ITEMS_ADP1 : c.live ? ITEMS_LIVE : c.v42 ? ITEMS42 : ITEMS, extractionByRow: ext });
   const ctx: RateHelperRowContext & { unit?: string } = {
     excelRow: 1, description: c.path === "calc" ? "" : (c.description ?? ""), nodeType: "Line Item", category: c.cat, discipline: "HVAC",
     rateKinds: ["supply_rate", "install_rate", "combined_rate"], headings: c.path === "calc" ? [] : (c.headings ?? []), ownNotes: c.path === "calc" ? [] : (c.ownNotes ?? []),
+    ...(c.path !== "calc" && c.headingNotes ? { headingNotes: c.headingNotes } : {}),   // ADP-5a (HN-2 / HN-3)
   };
   // 12e-2: the family CONTROL's line reaches the lines read here, exactly as the panel shows it
   if (c.path !== "calc" && c.unit !== undefined) ctx.unit = c.unit;
@@ -780,13 +837,16 @@ function run(c: Case) {
     if (v.rowPriced) lines.push(`total:${s.values.supply_rate}/${s.values.install_rate}`);
   }
   // the pure pricer over the SAME assembled inputs
-  const spec = itemListPricingSpec((c.adp4a ? CFG_V50 : c.adp3b ? CFG_ADP3B : c.adp2 ? CFG_ADP2 : c.adp1 ? CFG_ADP1 : c.live ? CFG_LIVE : c.v42 ? CFG42 : CFG)[c.cat])!;
+  const spec = itemListPricingSpec((c.adp5a ? CFG_V51 : c.adp4a ? CFG_V50 : c.adp3b ? CFG_ADP3B : c.adp2 ? CFG_ADP2 : c.adp1 ? CFG_ADP1 : c.live ? CFG_LIVE : c.v42 ? CFG42 : CFG)[c.cat])!;
   const edits = decodeItemEdits(overrides[ITEM_LIST_OVERRIDE_KEY], modelItems.length);
-  const assembled = assembleItems(edits, modelItems, familyAttr(spec));
+  const assembled0 = assembleItems(edits, modelItems, familyAttr(spec));
   const unitForPure = c.path === "calc" ? v.unit : (c.unit ?? v.unit);
   const rowText = c.path === "calc" ? "" : [c.description ?? "", ...(c.headings ?? [])].join(" | ");
   const ownText = c.path === "calc" ? "" : [c.description ?? "", ...(c.ownNotes ?? [])].join(" | ");
-  const pure = priceItemList(spec, c.adp4a ? ITEMS_V50 : c.adp3b ? ITEMS_ADP2 : c.adp2 ? ITEMS_ADP2 : c.adp1 ? ITEMS_ADP1 : c.live ? ITEMS_LIVE : c.v42 ? ITEMS42 : ITEMS, unitForPure, assembled, rowText, ownText);
+  // ADP-5a (SCOPE-5a-1 / HN-2): the SAME merge and the same heading notes the panel helper applies before it prices
+  const headingNoteText = c.path === "calc" ? "" : (c.headingNotes ?? []).join(" | ");
+  const assembled = applyFamilyMerge(spec, assembled0, [rowText, ownText, headingNoteText].join(" | "))?.items ?? assembled0;
+  const pure = priceItemList(spec, c.adp5a ? ITEMS_V51 : c.adp4a ? ITEMS_V50 : c.adp3b ? ITEMS_ADP2 : c.adp2 ? ITEMS_ADP2 : c.adp1 ? ITEMS_ADP1 : c.live ? ITEMS_LIVE : c.v42 ? ITEMS42 : ITEMS, unitForPure, assembled, rowText, ownText, undefined, headingNoteText);
   const working = v.items.flatMap((b) => b.working);
   // 12e-3c (AC2): the strings exactly as a pricer reads them -- no test-side lead -- for the field-id sweep
   const raw: string[] = [...(v.reason ? [v.reason] : []), ...(v.unitNote ? [v.unitNote] : []), ...(s.workings.derivation ?? [])];
@@ -827,7 +887,8 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
   it("THE GUARD: the rules this file names EQUAL the rules the config generates (Insulation 25, ADP 18, Piping 21 at 12e-4b / v38 -- Insulation 24 and Piping 19 before it); a new rule without a case, or a case naming a dead rule, fails here", () => {
     for (const cat of [INS, ADP, PIP]) {
       const generated = new Set(titles(cat));
-      const named = new Set([...CASES.filter((c) => c.cat === cat && ((!c.v42 && !c.live && !c.adp1 && !c.adp2 && !c.adp3b && !c.adp4a) || generated.has(c.rule))).map((c) => c.rule), ...PICKER_CASES.filter(() => cat === ADP).map((p) => p.rule), ...Object.keys(NOT_PANEL_RULES).filter((t) => generated.has(t))]);
+      // ADP-5a: a case run on v51 (`adp5a`) is set aside like every other version-flagged case (BEFORE: the flags up to adp4a)
+      const named = new Set([...CASES.filter((c) => c.cat === cat && ((!c.v42 && !c.live && !c.adp1 && !c.adp2 && !c.adp3b && !c.adp4a && !c.adp5a) || generated.has(c.rule))).map((c) => c.rule), ...PICKER_CASES.filter(() => cat === ADP).map((p) => p.rule), ...Object.keys(NOT_PANEL_RULES).filter((t) => generated.has(t))]);
       const uncovered = [...generated].filter((t) => !named.has(t));
       const dead = [...named].filter((t) => !generated.has(t));
       expect({ cat, uncovered, dead }).toEqual({ cat, uncovered: [], dead: [] });
@@ -1037,6 +1098,25 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
     expect({ uncovered: t50.filter((t) => !named.has(t)) }).toEqual({ uncovered: [] });
     // Insulation and Piping on v50: the tab of v49 exactly (ADP-4a changes ADP's config only)
     for (const cat of [INS, PIP]) expect(itemListRuleOrder(CFG_V50[cat], ITEMS_V50).map((l) => l.title)).toEqual(itemListRuleOrder(CFG_ADP3B[cat], ITEMS_ADP2).map((l) => l.title));
+  });
+
+  // ADP-5a (owner rulings 2026-10-22; AC8): THE ADP-5a GUARD on v51 -- the one line it adds is LAST; the three rules it builds on
+  // existing lines (the defaults, both-streams and sizes lines) each have a positive and a negative case of their own, on v51,
+  // from real stored rows with their figures; v51's ADP tab is exactly the named set; Insulation and Piping are v50's tab exactly
+  it("ADP-5a: the new line is last on v51, each rule has a positive and a negative case, the named set is the tab", () => {
+    const t51 = itemListRuleOrder(CFG_V51[ADP], ITEMS_V51).map((l) => l.title);
+    const t50 = itemListRuleOrder(CFG_V50[ADP], ITEMS_V50).map((l) => l.title);
+    expect(t51[t51.length - 1]).toBe(T.mergeSpigot);
+    expect(t51.filter((t) => !t50.includes(t))).toEqual([T.mergeSpigot]);
+    expect(t50.filter((t) => !t51.includes(t))).toEqual([]);
+    for (const t of [T.mergeSpigot, T.defaults, T.h5Both, T.sizesAdp]) {
+      const mine = CASES.filter((c) => c.cat === ADP && c.rule === t && c.adp5a);
+      expect({ rule: t, pos: mine.some((c) => c.kind === "pos" && c.path !== "calc"), neg: mine.some((c) => c.kind === "neg"), figures: mine.every((c) => c.figures !== undefined) })
+        .toEqual({ rule: t, pos: true, neg: true, figures: true });
+    }
+    const named = new Set([...CASES.filter((c) => c.cat === ADP).map((c) => c.rule), ...PICKER_CASES.map((p) => p.rule), ...Object.keys(NOT_PANEL_RULES)]);
+    expect({ uncovered: t51.filter((t) => !named.has(t)) }).toEqual({ uncovered: [] });
+    for (const cat of [INS, PIP]) expect(itemListRuleOrder(CFG_V51[cat], ITEMS_V51).map((l) => l.title)).toEqual(itemListRuleOrder(CFG_V50[cat], ITEMS_V50).map((l) => l.title));
   });
 
   const caseFamily = (c: Case): string | null => c.family ?? (c.model?.[0]?.family as string | undefined) ?? c.edits?.[0]?.family ?? null;

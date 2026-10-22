@@ -76,10 +76,15 @@ describe("AC2 -- the Pipelines tab is removed for every category (owner D9, opti
       expect({ kept, exported: exported.includes(kept) }).toEqual({ kept, exported: true });
     }
   });
-  it("NEGATIVE (option A): the server keeps update_rate_config one more slice -- it is only uncalled", () => {
+  // INVERTED at ADP-5a (owner D9, 2026-10-21: "kept one slice, then removed") by mechanical authority. BEFORE:
+  //   it("NEGATIVE (option A): the server keeps update_rate_config one more slice -- it is only uncalled", ...)
+  //   expect(api).toContain("def update_rate_config("); expect(api).toContain("def update_rate_config_param(");
+  it("NEGATIVE (option A, the slice after): the server endpoints update_rate_config and update_rate_config_param are removed", () => {
     const api = fs.readFileSync(path.resolve(__dirname, "../../../../../nirmaan_stack/api/boq/rate_master.py"), "utf-8");
-    expect(api).toContain("def update_rate_config(");
-    expect(api).toContain("def update_rate_config_param(");
+    expect(api).not.toContain("def update_rate_config(");
+    expect(api).not.toContain("def update_rate_config_param(");
+    // the validator they wrapped stays importable through the api module (the loader is its product caller)
+    expect(api).toContain("    _validate_config,\n");
   });
 });
 

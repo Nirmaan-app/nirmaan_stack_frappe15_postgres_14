@@ -830,9 +830,10 @@ class TestSlice12e2Live(FrappeTestCase):
 #
 #   TestSlice12e3aGates (the LIVE site; every refusal is verified to have written nothing)
 #     19  `load_rate_master` refuses a payload whose section is broken, BEFORE the first write.
-#     20  the config editor's save (`update_rate_config`) refuses the same, and refuses an edit to the
-#         DELEGATED category that would break Piping's section (the reverse direction); the stored config is
-#         unchanged after each.
+#     20  the config editor's save check (`validate_delegated_sections`, label "Config not saved") refuses the same,
+#         and refuses an edit to the DELEGATED category that would break Piping's section (the reverse direction);
+#         the stored config is unchanged after each. ADP-5a (owner D9): RE-POINTED from the removed endpoint
+#         `update_rate_config`, which ran exactly this call before its write.
 # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
 V37 = "rate_master_hvac_all_v37.json"   # 12e-3a: v36 + Piping's `insulated` definition + `list_spec.sections`
 INSULATION = "hvac_insulation"
@@ -1134,8 +1135,11 @@ class TestSlice12e3aGates(FrappeTestCase):
             config_validation.validate_delegated_sections([copy.deepcopy(piping)], label="Config not saved")
             config_validation.validate_delegated_sections([copy.deepcopy(insulation)], label="Config not saved")
             def refused(cid, cfg, needle):
+                # RE-POINTED at ADP-5a (owner D9, 2026-10-21: the endpoint "kept one slice, then removed"): BEFORE
+                # `rate_master.update_rate_config(name=name(cid), config=json.dumps(cfg))`, whose cross-category half
+                # was exactly this call
                 with self.assertRaises(frappe.ValidationError) as cm:
-                    rate_master.update_rate_config(name=name(cid), config=json.dumps(cfg))
+                    config_validation.validate_delegated_sections([copy.deepcopy(cfg)], label="Config not saved")
                 self.assertIn(needle, str(cm.exception))
                 self.assertIn("Config not saved", str(cm.exception))
                 self.assertEqual(self._state(), before, "nothing stored: %s" % needle)

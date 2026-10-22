@@ -83,6 +83,11 @@ const R = {
   // ADP-4b (owner AC6, 2026-10-21): two lines that said "reason not recorded" have a ruling
   n: "when priced in numbers, the SKU is matched on its slots and damper (owner, 2026-10-19)",
   oBox: "either the area is read, or the length, width and height, and the formula is applied; with neither the row refuses (owner, 2026-10-19)",
+  // ADP-5a (owner 2026-10-22; AC8): the reasons of the four rules this slice builds, each quoted from its ruling
+  pBoxDepth: "\"1200x150-300 depth\" / \"600x600-300 depth\" is read as three box sides (owner, 2026-10-22 10:49, item 6)",
+  qCurved: "\"curved grills are supply only..so they should price with damper only\" -- always with damper unless the row says 'without' (owner, 2026-10-20 12:51)",
+  rWords: "the both-streams rule also reads 'cum' and 'SA / RA' (owner, 2026-10-22 10:49, item 3); the heading directly above the row counts with its notes (owner, 2026-10-22)",
+  sMerge: "\"the model correctly returned spigot and butterfly damper...so these cases should be matched with spigot with butterfly damper\"; \"Spigot Smaper is spigot with butterfly damper\"; \"only the dia of the spigot matters\" (owner, 2026-10-22 10:45 / 10:48 / 10:49)",
 } as const;
 const each = (parts: Array<[string, string]>): string => parts.map(([what, why]) => `${what} -- ${why}`).join("; ");
 export const DERIVATION_RULINGS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
@@ -98,9 +103,12 @@ export const DERIVATION_RULINGS: Readonly<Record<string, Readonly<Record<string,
     area_band: R.dBand,
     conv_band: R.dBand,
     slot_missing: R.n,
-    sizes: each([["the face", `${R.jThree}; ${R.k}`], ["the box sides", R.oBox]]),
+    sizes: each([["the face", `${R.jThree}; ${R.k}`], ["the box sides", `${R.oBox}; ${R.pBoxDepth}`]]),   // ADP-5a: BEFORE the box sides R.oBox alone
     defaults: each([["damper", R.e], ["piece length", R.bLength], ["insulated, UL listed, variant", NOT_RECORDED]]),
-    air_both: R.eBoth,
+    // ADP-5a (AC2): the same line on a config whose default carries a per-family line (v51: the curved grille's "with")
+    defaults_by_family: each([["damper", `${R.e}; ${R.qCurved}`], ["piece length", R.bLength], ["insulated, UL listed, variant", NOT_RECORDED]]),
+    air_both: each([["both streams", R.eBoth], ["'cum', 'SA / RA' and the heading's notes", R.rWords]]),   // ADP-5a: BEFORE R.eBoth alone
+    family_merge: R.sMerge,
     slot_sqm: R.bSqm,
     ladders: each([["neck size", R.f], ["diameter, torque, panel ratio, plenum thickness", NOT_RECORDED]]),
     steps: each([["Mixing box supply adder", R.cAdder], ["Cross-talk assumed depth, Flexible duct length per piece", NOT_RECORDED]]),
@@ -206,7 +214,8 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       ? `a face (${faceReaders.map(([, x]) => String(x.face_side)).join(" x ")}): the size's first two parts ('550X300' -> width 550, height 300); a W / wide / width or H / Ht / high / height label decides between those two ('600 x 400 mm High' -> height 400); a two-part size fills both sides whatever its parts are called ('600(L)X150mm width' -> width 150, height 600; with no width or height label, first = width, second = height); a part labelled as a length or a depth is named and not used only where it cannot be the face -- a third part, or a kind that reads the height alone`
       : "",
     boxReaders.length
-      ? `a box (${boxReaders.map(([a]) => name(a)).join(" x ")}): in that order, the height last ('550 x 550 x 400 mm Ht' -> 550 / 550 / 400); a side written with its label goes to that side -- L / long / length, W / B / width, H / Ht / high, and on a box a D / deep / depth label is the height ('3000 mm Length' -> length 3000)`
+      // ADP-5a (owner 2026-10-22 10:49, item 6): ADDED at the end of the box's part -- "A x B-C depth" is three sides
+      ? `a box (${boxReaders.map(([a]) => name(a)).join(" x ")}): in that order, the height last ('550 x 550 x 400 mm Ht' -> 550 / 550 / 400); a side written with its label goes to that side -- L / long / length, W / B / width, H / Ht / high, and on a box a D / deep / depth label is the height ('3000 mm Length' -> length 3000); 'A x B-C depth' is three sides ('1200x150-300 depth' -> 1200 / 150 / 300)`
       : "",
     "text that is not a size is read whole as the width; the field shows the value used, with a line saying so; a typed value always wins",
   ].filter(Boolean).join("; ");
@@ -468,7 +477,8 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
         // ADP-4a (owner D2 "16 + 35", D3 "35 + 38"): on the plain wording the box sides and the face sides are ONE line
         if (plain) add(sizesLineTitle(), sizesLineDetail(), "sizes");
         else add(`The ${sideNames.length > 1 ? `${sideNames.slice(0, -1).join(", ")} and ${sideNames[sideNames.length - 1]}` : sideNames[0]} are typed in their own boxes, else read from the ${name(String(rd.length_from))}`,
-            `in the order length x width x height, the height last ('550 x 550 x 400 mm Ht' -> 550 / 550 / 400); a side written with its label -- L / long / length, W / B / width, H / Ht / high / depth -- goes to that side ('3000 mm Length' -> length 3000); the field shows the value used, with a line saying so; a typed value always wins`);
+            // ADP-5a (owner 2026-10-22 10:49, item 6): ADDED -- "A x B-C depth" is three sides
+            `in the order length x width x height, the height last ('550 x 550 x 400 mm Ht' -> 550 / 550 / 400); a side written with its label -- L / long / length, W / B / width, H / Ht / high / depth -- goes to that side ('3000 mm Length' -> length 3000); 'A x B-C depth' is three sides ('1200x150-300 depth' -> 1200 / 150 / 300); the field shows the value used, with a line saying so; a typed value always wins`);
       }
     } else if (rd?.typed_only && rd?.length_from && rd?.face_side) {
       // ADP-3b: a face side is said by its own group, LAST (below), so no earlier line moves
@@ -537,9 +547,35 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   // ADP-2 (owner H5; U6): two or more rules deciding the SAME attribute from the SAME fact on the SAME families are one
   // rule (the air stream decides a damper not mentioned) and read as their own line; a single rule keeps its words
   const dwn = ((pr.derive_when_none ?? []) as any[]).filter((d) => d?.attr);
-  const dwnKey = (d: any) => `${d.attr}|${d.when?.attr}|${(d.families ?? []).join(",")}`;
+  // ADP-5a (owner 2026-10-20 12:51, AC2): one rule group per attribute and fact, its kinds the UNION of the rules' kinds and
+  // a rule that leaves some out saying which ("fresh -> without (not on curved grille)"). BEFORE the key also held the kind
+  // list, so v51's curved grille would have split the air-stream line in two; on every config whose rules name the same
+  // kinds (v50 and before) the groups and the words are unchanged.
+  const dwnKey = (d: any) => `${d.attr}|${d.when?.attr}`;
   const dwnGroups = new Map<string, any[]>();
   for (const d of dwn) dwnGroups.set(dwnKey(d), [...(dwnGroups.get(dwnKey(d)) ?? []), d]);
+  const groupFams = (g: any[]): string[] => {
+    const u: string[] = [];
+    for (const d of g) for (const f of (d.families ?? []) as string[]) if (!u.includes(f)) u.push(f);
+    return u;
+  };
+  const notOn = (d: any, union: string[]): string => {
+    const miss = union.filter((f) => !((d.families ?? []) as string[]).includes(f));
+    return miss.length ? ` (not on ${list(miss.map(famWord))})` : "";
+  };
+  // ADP-5a (AC2): a per-family default said as the value most kinds take, with the kinds that differ ("without (curved
+  // grille: with)"); a single `value` reads as it always did
+  const ruledWords = (d: any): string | undefined => {
+    if (!d || typeof d !== "object") return undefined;
+    if (d.value !== undefined) return String(d.value);
+    const bf = d.by_family && typeof d.by_family === "object" ? Object.entries<any>(d.by_family) : [];
+    if (!bf.length) return undefined;
+    const counts = new Map<string, number>();
+    for (const [, v] of bf) counts.set(String(v), (counts.get(String(v)) ?? 0) + 1);
+    const main = [...counts.entries()].reduce((a, b) => (b[1] > a[1] ? b : a))[0];
+    const odd = bf.filter(([, v]) => String(v) !== main).map(([f, v]) => `${famWord(f)}: ${String(v)}`);
+    return odd.length ? `${main} (${list(odd)})` : main;
+  };
   for (const d of dwn) {
     if ((dwnGroups.get(dwnKey(d)) ?? []).length > 1) continue;
     defaultLines.push(`${name(String(d.attr))} not mentioned on ${list((d.families ?? []).map(famWord), 3)} when ${d.when?.attr ? name(String(d.when.attr)) : "a fact"} is ${String(d.when?.equals ?? "stated")} -> ${String(d.then)}`);
@@ -551,19 +587,22 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   for (const g of dwnGroups.values()) {
     if (g.length < 2) continue;
     const d0 = g[0];
+    const union = groupFams(g);
     if (plain) {
-      const ruled = pr.defaults?.[String(d0.attr)]?.value;
+      const ruled = ruledWords(pr.defaults?.[String(d0.attr)]);   // ADP-5a: BEFORE `pr.defaults?.[attr]?.value`
       decidedAttrs.add(String(d0.attr));
-      decidedBy.push(`${name(String(d0.attr))} not mentioned is decided by the ${name(String(d0.when?.attr))} on ${list((d0.families ?? []).map(famWord))}: ${g.map((d) => `${String(d.when?.equals)} -> ${String(d.then)}`).join("; ")}; no ${name(String(d0.when?.attr))} stated, and on every other kind -> ${ruled !== undefined ? String(ruled) : "its ruled value"}; a ${name(String(d0.attr))} the row states, with or without, always wins -- with a line naming the ${name(String(d0.when?.attr))}`);
+      decidedBy.push(`${name(String(d0.attr))} not mentioned is decided by the ${name(String(d0.when?.attr))} on ${list(union.map(famWord))}: ${g.map((d) => `${String(d.when?.equals)} -> ${String(d.then)}${notOn(d, union)}`).join("; ")}; no ${name(String(d0.when?.attr))} stated, and on every other kind -> ${ruled !== undefined ? ruled : "its ruled value"}; a ${name(String(d0.attr))} the row states, with or without, always wins -- with a line naming the ${name(String(d0.when?.attr))}`);
       continue;
     }
     add(`A ${name(String(d0.attr))} not mentioned is decided by the ${name(String(d0.when?.attr))}`,
-        `on ${list((d0.families ?? []).map(famWord), 8)}: ${g.map((d) => `${String(d.when?.equals)} -> ${String(d.then)}`).join("; ")}; a ${name(String(d0.attr))} the row states, with or without, always wins; no ${name(String(d0.when?.attr))} stated -> the ruled default -- with a line naming the ${name(String(d0.when?.attr))}`);
+        `on ${list(union.map(famWord), 8)}: ${g.map((d) => `${String(d.when?.equals)} -> ${String(d.then)}${notOn(d, union)}`).join("; ")}; a ${name(String(d0.attr))} the row states, with or without, always wins; no ${name(String(d0.when?.attr))} stated -> the ruled default -- with a line naming the ${name(String(d0.when?.attr))}`);
   }
   const keptDefaults = plain ? defaultLines.filter((l) => ![...decidedAttrs].some((a) => l.startsWith(`${name(a)} not mentioned -> `))) : defaultLines;
   if (plain && (decidedBy.length || keptDefaults.length)) {
+    // ADP-5a (AC2): a default with its own per-family line (v51's curved grille) carries that ruling as its reason too
+    const perFamilyLine = Object.values<any>(pr.defaults ?? {}).some((d) => d && typeof d === "object" && d.rule_by_family);
     add("A fact the row does not mention takes its ruled value",
-        `${[...decidedBy, ...(keptDefaults.length ? [list(keptDefaults)] : [])].join("; ")} -- shown as assumed, never silently`, "defaults");
+        `${[...decidedBy, ...(keptDefaults.length ? [list(keptDefaults)] : [])].join("; ")} -- shown as assumed, never silently`, perFamilyLine ? "defaults_by_family" : "defaults");
   }
   // ADP-2 (owner H5 fix (a), 2026-10-20; U6): ADDED wherever a rule reads an AIR STREAM (its values hold supply and
   // return) -- the code applies it there, so the tab says it there
@@ -574,7 +613,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   if (airRules.length) {
     const a = name(String(airRules[0].attr));
     add(`A row naming supply and return air leaves the ${a} as read`,
-        `the row's own text naming exactly one air stream decides ('supply air diffuser'); a row naming both ('Supply / Return air diffuser'), or naming none under a heading that names both ('Supply & return air diffusers'), keeps the ${a} as the model read it (not mentioned -> the ruled default), whatever stream the model answered -- with a line 'BoQ names supply and return air -> ${a} as read'; only words used for the air count ('Supply and installation of ...' names no stream)`, "air_both");
+        `the row's own text naming exactly one air stream decides ('supply air diffuser'); a row naming both ('Supply / Return air diffuser'), or naming none under a heading that names both ('Supply & return air diffusers'), keeps the ${a} as the model read it (not mentioned -> the ruled default), whatever stream the model answered -- with a line 'BoQ names supply and return air -> ${a} as read'; only words used for the air count ('Supply and installation of ...' names no stream); 'supply cum return air' and 'SA / RA' name both streams, and the note of the heading directly above the row counts as that heading does`, "air_both");   // ADP-5a (owner 2026-10-22 10:49, item 3; HN-2 / HN-3): ADDED the last clause
   }
   if (defaultLines.length && !plain) {
     add("A fact the row does not mention takes its ruled value",
@@ -910,6 +949,19 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       add("A two-part size on a Width + Height item is the face, whatever its parts are called",
           "a width or height label decides that side, else first = width, second = height");
     }
+  }
+  // ── 13b. ADP-5a (owner 2026-10-22 10:45 / 10:48 / 10:49; SCOPE-5a-1): two kinds that are ONE item -- ADDED LAST, one line
+  // per `family_merge` rule (a config without the key adds nothing, so every earlier tab is unchanged)
+  for (const r of (Array.isArray(pr.family_merge) ? pr.family_merge : []) as any[]) {
+    if (typeof r?.family !== "string" || typeof r?.into !== "string") continue;
+    const abs = (Array.isArray(r.absorbs) ? r.absorbs : []).map((f: unknown) => famWord(String(f)));
+    const at = typeof r.at === "string" ? name(r.at) : "";
+    const unit = typeof r.at === "string" && pr.numbers?.[r.at]?.unit ? ` ${String(pr.numbers[r.at].unit)}` : "";
+    add(`A ${famWord(r.family)} named with a ${list(abs.length ? abs : [famWord(r.into)])} is priced as one ${famWord(r.into)}`,
+        [abs.length ? `a ${list(abs)} item on the same row is the same thing and is dropped -- its own answers, its size too, are not read` : "",
+         Array.isArray(r.words) && r.words.length ? `${quoteList(r.words.map(String))} in the row, its headings or the note of the heading directly above it do the same` : "",
+         at ? `priced at the ${famWord(r.family)}'s ${at}: the stated size, else the next stocked size up; above the largest it refuses` : "",
+         typeof r.line === "string" ? `with a line '${r.line}${at ? `, <size>${unit}` : ""}'` : ""].filter(Boolean).join("; "), "family_merge");
   }
   // ── 14. ADP-4a (owner A1 / D1): WHY -- each line's reason on the plain wording, at the end of its detail ──
   if (plain) {

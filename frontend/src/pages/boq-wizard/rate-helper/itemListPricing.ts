@@ -207,9 +207,33 @@ export interface DefaultSpec {
   value?: string;
   by_family?: Record<string, string>;
   rule: string;
+  /** ADP-5a (owner 2026-10-20 12:51, AC2): the line a family of `by_family` says instead of `rule` -- the one family
+   * whose value differs from the others' ("curved grille = with"). ABSENT => every family says `rule`, as before. */
+  rule_by_family?: Record<string, string>;
   /** SLICE 6 (owner S6, UL ONLY by config): an ABSENT answer is read as NOT MENTIONED, so this default fires
    * on it too. Absent / false => an absent answer stays "could not tell" and refuses (R2). */
   absent_as_none?: boolean;
+}
+
+/**
+ * ADP-5a (owner 2026-10-22 10:45 / 10:48 / 10:49; SCOPE-5a-1) -- TWO FAMILIES THAT ARE ONE ITEM.
+ *
+ * "the model correctly returned spigot and butterfly damper...so these cases should be matched with spigot with
+ * butterfly damper"; "Spigot Smaper is spigot with butterfly damper"; "only the dia of the spigot matters". An item of
+ * `family` prices as ONE item of `into` when the row also carries an item of a family in `absorbs` (that item is the
+ * same thing and is dropped -- its own answers, its size included, are not read) or when the row's text, a heading or
+ * a heading's note names one of `words` at a word start. `at` is the number both families read and the one kept (the
+ * spigot's diameter, then the standard ladder). `line` is said on the item, with the size where `at` resolved one.
+ * Applied by `applyFamilyMerge` BEFORE anything prices or shows, so the panel and the calculator see one item.
+ */
+export interface FamilyMerge {
+  family: string;
+  into: string;
+  absorbs?: string[];
+  words?: string[];
+  at?: string;
+  line: string;
+  rule: string;
 }
 
 export interface DeriveWhenNone {
@@ -389,6 +413,9 @@ export interface ItemListPricingSpec {
   no_sku_named_by?: string;
   defaults?: Record<string, DefaultSpec>;
   derive_when_none?: DeriveWhenNone[];
+  /** ADP-5a (SCOPE-5a-1): items of one family that price as ONE item of another. ABSENT => every item prices as its
+   * own family, exactly as before. See `FamilyMerge` / `applyFamilyMerge`. */
+  family_merge?: FamilyMerge[];
   /** SLICE 12d-1a (owner R2): the family a row with NO material answer prices as, by row kind.
    * ABSENT => a missing family still refuses, exactly as before this slice. */
   family_when_none?: FamilyWhenNone;
@@ -721,6 +748,9 @@ export interface ExtractedListItem {
    * run stores it for an item the model answered from that section's own questions. ABSENT on every item of
    * the config's own kind, which is every stored item of every config without a delegated section. */
   section?: string;
+  /** ADP-5a (SCOPE-5a-1): `applyFamilyMerge` priced this item as another family -- the family it was answered as, the
+   * line to say and the number it is priced at. Set by that function only; absent on every other item. */
+  merged?: { from: string; line: string; at?: string };
 }
 
 export interface DefaultedAttr {
@@ -1337,6 +1367,53 @@ export function wordStartHit(text: string, words: readonly string[] | undefined)
   return null;
 }
 
+/**
+ * ADP-5a (owner 2026-10-22 10:45 / 10:48 / 10:49; SCOPE-5a-1). PURE. The row's items with each `family_merge` rule
+ * applied: an item of the rule's `family` takes the family `into` (marked `merged`, its own answers kept -- the spigot's
+ * diameter is the one priced) where the row also carries an item of a family in `absorbs` (each such item is DROPPED:
+ * it is the same thing) or where `text` -- the row's description, its own notes, its headings and their notes -- names
+ * one of `words` at a word start. `kept` is the index, in `items`, of every item returned. Null when no rule fires,
+ * so a row without one is the very same list. No family or word is named here: both are the config's.
+ */
+export function applyFamilyMerge(
+  spec: ItemListPricingSpec,
+  items: readonly ExtractedListItem[],
+  text: string,
+): { items: ExtractedListItem[]; kept: number[] } | null {
+  const rules = spec.family_merge ?? [];
+  if (!rules.length || !items.length) return null;
+  const fa = familyAttr(spec);
+  const famOf = (it: ExtractedListItem): string | null => {
+    const v = rawValue(it, fa);
+    if (v === null || v === "None") return null;
+    return spec.family_alias?.[String(v)] ?? String(v);
+  };
+  const fams = items.map(famOf);
+  const flat = text.replace(/\s+/g, " ");
+  const convert = new Map<number, FamilyMerge>();
+  const absorb = new Set<number>();
+  for (const r of rules) {
+    const own = fams.flatMap((f, i) => (f === r.family && !convert.has(i) && !absorb.has(i) ? [i] : []));
+    if (!own.length) continue;
+    const others = fams.flatMap((f, i) => (f !== null && (r.absorbs ?? []).includes(f) && !convert.has(i) && !absorb.has(i) ? [i] : []));
+    if (!others.length && wordStartHit(flat, r.words) === null) continue;
+    for (const i of own) convert.set(i, r);
+    for (const i of others) absorb.add(i);
+  }
+  if (!convert.size) return null;
+  const kept = items.map((_, i) => i).filter((i) => !absorb.has(i));
+  return {
+    kept,
+    items: kept.map((i) => {
+      const r = convert.get(i);
+      const it = items[i];
+      if (!r) return it;
+      return { ...it, attributes: { ...it.attributes, [fa]: { ...(it.attributes?.[fa] ?? {}), value: r.into } },
+               merged: { from: r.family, line: r.line, ...(r.at !== undefined ? { at: r.at } : {}) } };
+    }),
+  };
+}
+
 export function splitSizePhrase(text: string | number | null | undefined): string[] | null {
   if (text === null || text === undefined) return null;
   const raw = String(text).trim();
@@ -1398,6 +1475,15 @@ export function readBoxSides(
   const raw = String(text).trim();
   if (raw === "" || raw === "None") return null;
   const parts = raw.split(/\s*[x×*]\s*/i).map((p) => p.trim()).filter((p) => p !== "");
+  /**
+   * ADP-5a (owner 2026-10-22 10:49, item 6: "1200x150-300 depth" / "600x600-300 depth" is read as three box sides): a
+   * two-part size whose second part is "B-C" followed by a height label is A x B x C -- the C keeps the label, so it is
+   * the height as written. Any other two-part size reads as before.
+   */
+  if (parts.length === 2) {
+    const m = parts[1].match(/^(\d+(?:\.\d+)?)\s*(?:mm)?\s*-\s*(\d+(?:\.\d+)?\s*(?:mm)?\s*(?:h|ht|hgt|high|height|d|deep|depth)\.?)$/i);
+    if (m) parts.splice(1, 1, m[1], m[2]);
+  }
   if (parts.length < 1 || parts.length > 3) return null;
   for (const p of parts) if (!partIsReadable(p)) return null;
   const sideOf = (p: string): BoxSide | null => {
@@ -1511,14 +1597,22 @@ export function readFaceSides(text: string | number | null | undefined, opts: { 
  * used FOR the air -- "supply air", "return air", or a list of them ending in "air" ("Supply / Return air", "supply &
  * return air", "supply and return air") -- so the BoQ's everyday "Supply and installation of ..." names no stream.
  * Returns the streams named, lower-cased.
+ *
+ * ADP-5a (owner 2026-10-22 10:49, item 3: the both-streams rule "also reads 'cum' and 'SA / RA'"): "supply cum return
+ * air" joins the list ("cum" beside "/", "&", ",", "and", "or"), and "SA / RA" -- the BoQ's abbreviation, in capitals --
+ * names supply and return. Spellings as the stored rows write them; no other word is read.
  */
 export function airStreamsNamed(text: string, streams: readonly string[]): Set<string> {
   const out = new Set<string>();
   if (!text || !streams.length) return out;
   const alt = streams.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-  const re = new RegExp(`\\b((?:(?:${alt})\\s*(?:\\/|&|,|\\band\\b|\\bor\\b)\\s*)*(?:${alt}))\\s+air\\b`, "gi");
+  const re = new RegExp(`\\b((?:(?:${alt})\\s*(?:\\/|&|,|\\band\\b|\\bor\\b|\\bcum\\b)\\s*)*(?:${alt}))\\s+air\\b`, "gi");
   const word = new RegExp(`\\b(?:${alt})\\b`, "gi");
   for (const m of text.matchAll(re)) for (const w of m[1].match(word) ?? []) out.add(w.toLowerCase());
+  if (streams.includes("supply") && streams.includes("return") && /(^|[^A-Za-z])SA\s*\/\s*RA(?![A-Za-z])/.test(text)) {
+    out.add("supply");
+    out.add("return");
+  }
   return out;
 }
 
@@ -2593,6 +2687,9 @@ function priceOneItem(
    * its size is written as an outside diameter / inch size, false for any other pipe. Undefined (an Insulation row of
    * its own) -> the row's own words decide (`COPPER_WORDS`). */
   odHint?: boolean,
+  /** ADP-5a (HN-2, owner 2026-10-22): the NOTES of the row's headings, read ONLY by the both-streams check. Absent (the
+   * calculator, a section) => that check reads the headings' descriptions alone, as before. */
+  headingNoteText: string = "",
 ): ItemPriceResult {
   const out: ItemPriceResult = {
     index, familyRaw: null, family: null, skuUnitClass: null, state: "blank", selection: {}, readValues: {}, defaulted: [],
@@ -3077,7 +3174,7 @@ function priceOneItem(
       const dv = ruledDefaultValue(spec, attr, family);
       if (dv !== undefined) {
         read[attr] = dv;
-        readDefaulted.push({ attr, value: dv, rule: d!.rule });
+        readDefaulted.push({ attr, value: dv, rule: d!.rule_by_family?.[family] ?? d!.rule });
       }
       continue;
     }
@@ -3099,7 +3196,9 @@ function priceOneItem(
     if (streams.includes("supply") && streams.includes("return")) {
       const own = airStreamsNamed(ownText, streams);
       const both = (x: Set<string>) => x.has("supply") && x.has("return");
-      if (own.size !== 1 && (both(own) || (own.size === 0 && both(airStreamsNamed(rowText, streams))))) {
+      // ADP-5a (HN-2, owner 2026-10-22): a heading's NOTE counts as the heading does -- read here and nowhere else
+      const headingsText = headingNoteText ? `${rowText} | ${headingNoteText}` : rowText;
+      if (own.size !== 1 && (both(own) || (own.size === 0 && both(airStreamsNamed(headingsText, streams))))) {
         const line = `BoQ names supply and return air -> ${rule.attr} as read (not mentioned -> ${String(read[rule.attr] ?? "None")})`;
         if (!notes.includes(line)) notes.push(line);
         continue;
@@ -3963,14 +4062,14 @@ const CPVC = "CPVC";
 const PVC = "PVC";
 function priceOneItemOrCheaper(
   spec: ItemListPricingSpec, projected: RateMasterItem[], rowUnitClass: string, item: ExtractedListItem, index: number,
-  unitFactor: UnitFactor | null, rowText: string, ownText: string, odHint: boolean | undefined,
+  unitFactor: UnitFactor | null, rowText: string, ownText: string, odHint: boolean | undefined, headingNoteText = "",
 ): ItemPriceResult {
   const fa = familyAttr(spec);
   const typed = item.attributes?.[fa]?.typed === true;
   const found = cheaperAlternatives(spec, item, ownText, rowUnitClass);
   // a PICK the pricer made is theirs; a word they TYPED naming two types reads exactly as the same word read off the BoQ
   const alts = found && (!typed || found.fromAnswer) ? found : null;
-  if (!alts) return priceOneItem(spec, projected, rowUnitClass, item, index, unitFactor, rowText, ownText, undefined, odHint);
+  if (!alts) return priceOneItem(spec, projected, rowUnitClass, item, index, unitFactor, rowText, ownText, undefined, odHint, headingNoteText);
   const said = (line: string) => (typed ? typedFamilyLine(line) : line);
   const as = (f: string): ExtractedListItem => ({ ...item, attributes: { ...item.attributes, [fa]: { value: f } } });
   const costOf = (r: ItemPriceResult, f: string): number | null => {
@@ -3981,7 +4080,7 @@ function priceOneItemOrCheaper(
       for (let li = 0; li < c.layers.length; li++) {
         const attrs: ExtractedListItem["attributes"] = { ...as(f).attributes, [c.attr]: { value: c.layers[li] } };
         if (oo && li < c.layers.length - 1) attrs[oo.attr] = { value: oo.value };
-        const layer = priceOneItem(spec, projected, rowUnitClass, { ...item, attributes: attrs }, index, unitFactor, rowText, ownText, undefined, odHint);
+        const layer = priceOneItem(spec, projected, rowUnitClass, { ...item, attributes: attrs }, index, unitFactor, rowText, ownText, undefined, odHint, headingNoteText);
         if (layer.state !== "priced") return null;
         total += (layer.figures.supply ?? 0) + (layer.figures.install ?? 0);
       }
@@ -3995,17 +4094,17 @@ function priceOneItemOrCheaper(
    * -> CPVC, whatever it costs; every other pair of stocked pipe types keeps the cheaper.
    */
   if (alts.pipes && alts.families.includes(CPVC) && alts.families.includes(PVC)) {
-    const r = priceOneItem(spec, projected, rowUnitClass, as(CPVC), index, unitFactor, rowText, ownText, undefined, odHint);
+    const r = priceOneItem(spec, projected, rowUnitClass, as(CPVC), index, unitFactor, rowText, ownText, undefined, odHint, headingNoteText);
     const line = said(`BoQ allows ${alts.said} -> priced as ${CPVC}`);
     return { ...r, familyRaw: rawValue(item, fa) === null ? null : String(rawValue(item, fa)), familyLine: line, working: r.composeInto ? r.working : [line, ...r.working], alternativeChosen: CPVC };
   }
   let best: { f: string; r: ItemPriceResult; cost: number } | null = null;
   for (const f of alts.families) {
-    const r = priceOneItem(spec, projected, rowUnitClass, as(f), index, unitFactor, rowText, ownText, undefined, odHint);
+    const r = priceOneItem(spec, projected, rowUnitClass, as(f), index, unitFactor, rowText, ownText, undefined, odHint, headingNoteText);
     const cost = costOf(r, f);
     if (cost !== null && (best === null || cost < best.cost)) best = { f, r, cost };
   }
-  if (!best) return priceOneItem(spec, projected, rowUnitClass, item, index, unitFactor, rowText, ownText, undefined, odHint);
+  if (!best) return priceOneItem(spec, projected, rowUnitClass, item, index, unitFactor, rowText, ownText, undefined, odHint, headingNoteText);
   const line = said(`BoQ allows ${alts.said} -> priced as ${best.f.trim()}, the lower cost`);
   const working = best.r.composeInto ? best.r.working : [line, ...best.r.working];
   return { ...best.r, familyRaw: rawValue(item, fa) === null ? null : String(rawValue(item, fa)), familyLine: line, working, alternativeChosen: best.f };
@@ -4029,6 +4128,8 @@ export function priceItemList(
   ownText: string = "",
   /** SLICE 12e-6 (AC1): the section pass's word on the pipe above (see `priceOneItem`'s `odHint`). */
   odHint?: boolean,
+  /** ADP-5a (HN-2): the notes of the row's headings, for the both-streams check only (see `priceOneItem`). */
+  headingNoteText: string = "",
 ): RowPriceResult {
   const unit = rowUnit ?? "";
   let cls = unitClassOf(spec, unit);
@@ -4133,7 +4234,17 @@ export function priceItemList(
   const projected = projectUnitClass(spec, items);
   // SLICE 11: computed ONCE from the row's unit TEXT (the class alone cannot say which unit of it this is).
   const unitFactor = unitFactorOf(spec, unit);
-  let priced = extracted.map((it, i) => priceOneItemOrCheaper(spec, projected, cls, it, i, unitFactor, rowText, ownText, odHint));
+  let priced = extracted.map((it, i) => priceOneItemOrCheaper(spec, projected, cls, it, i, unitFactor, rowText, ownText, odHint, headingNoteText));
+  // ADP-5a (SCOPE-5a-1): an item `applyFamilyMerge` priced as another family says so on the item, with the size it is
+  // priced at where `at` resolved one ("... priced as one Butterfly Damper With Spigot, 200 mm")
+  priced = priced.map((p, i) => {
+    const m = extracted[i].merged;
+    if (!m) return p;
+    const at = m.at !== undefined ? p.selection[m.at] : undefined;
+    const u = m.at !== undefined ? spec.numbers[m.at]?.unit : undefined;
+    const line = typeof at === "number" ? `${m.line}, ${fmt(at)}${u ? ` ${u}` : ""}` : m.line;
+    return { ...p, familyRaw: m.from, familyLine: line, working: [line, ...p.working] };
+  });
   // SLICE 12c (owner Q8/Q9): an item whose stated size is above the top rung may be BUILT out of two or
   // more rungs. `priceOneItem` cannot do it alone -- one item cannot return several prices -- so it hands
   // back the layers it found and the expansion happens here, where a row has always been able to hold a
@@ -4159,7 +4270,7 @@ export function priceItemList(
           : undefined;
         // SLICE 12e-6 (R2 / R3): a layer prices the family the cheaper-alternative choice settled on, as answered
         const layerAttrs = p.alternativeChosen ? { ...attrs, [familyAttr(spec)]: { value: p.alternativeChosen } } : attrs;
-        const one = priceOneItem(spec, projected, cls, { ...src, attributes: layerAttrs }, expanded.length, unitFactor, rowText, ownText, wrap, odHint);
+        const one = priceOneItem(spec, projected, cls, { ...src, attributes: layerAttrs }, expanded.length, unitFactor, rowText, ownText, wrap, odHint, headingNoteText);
         if (p.alternativeChosen && p.familyLine) { one.familyLine = p.familyLine; if (li === 0) one.working.unshift(p.familyLine); }
         if (li === 0) {
           const total = c.layers.reduce((a, b) => a + b, 0);

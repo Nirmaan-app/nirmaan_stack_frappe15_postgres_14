@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest";
+import * as EDIT from "./rateMasterEdit";
 import {
   isRateMasterAdmin,
-  matchedConditionIndex,
-  isEditableParam,
   parseFiniteInput,
 } from "./rateMasterEdit";
 
@@ -23,35 +22,22 @@ describe("isRateMasterAdmin (RM-4a admin gate, owner option (a))", () => {
   });
 });
 
-describe("matchedConditionIndex (re-derives the interpreter's matched branch)", () => {
-  const step = {
-    conditions: [
-      { when: { insulation: "ARMOURED" }, params: { discount: 0.75, markup: 0.35 } },
-      { when: { insulation: "UNARMOURED" }, params: { discount: 0.57, markup: 0.4 } },
-    ],
-  };
-  it("returns the ARMOURED branch index (0) for an armoured matched item", () => {
-    expect(matchedConditionIndex(step, { insulation: "ARMOURED", material: "COPPER" })).toBe(0);
+// ADP-5a (owner D9; ADP-R5 Q9): the `matchedConditionIndex` describe (3 its) and the `isEditableParam` it are removed
+// with the two helpers -- the inline param edit they served went with its endpoint, `update_rate_config_param`.
+describe("ADP-5a -- the inline param-edit helpers are gone; the shared ones stay", () => {
+  it("NEGATIVE: matchedConditionIndex and isEditableParam are no longer exported", () => {
+    for (const gone of ["matchedConditionIndex", "isEditableParam"]) {
+      expect({ gone, exported: gone in EDIT }).toEqual({ gone, exported: false });
+    }
   });
-  it("returns the UNARMOURED branch index (1)", () => {
-    expect(matchedConditionIndex(step, { insulation: "UNARMOURED" })).toBe(1);
-  });
-  it("null for a plain step (no conditions) or no match / missing attrs", () => {
-    expect(matchedConditionIndex({ conditions: [] }, { insulation: "ARMOURED" })).toBeNull();
-    expect(matchedConditionIndex(undefined, { insulation: "ARMOURED" })).toBeNull();
-    expect(matchedConditionIndex(step, { insulation: "MYSTERY" })).toBeNull();
-    expect(matchedConditionIndex(step, null)).toBeNull();
+  it("POSITIVE: isRateMasterAdmin and parseFiniteInput (the item editors' helpers) are kept", () => {
+    for (const kept of ["isRateMasterAdmin", "parseFiniteInput"]) {
+      expect({ kept, exported: kept in EDIT }).toEqual({ kept, exported: true });
+    }
   });
 });
 
-describe("isEditableParam / parseFiniteInput (numeric-only, mirrors the server)", () => {
-  it("only finite numbers are editable", () => {
-    expect(isEditableParam(0.75)).toBe(true);
-    expect(isEditableParam(-1)).toBe(true);
-    expect(isEditableParam("cable")).toBe(false); // string param (kind) stays read-only
-    expect(isEditableParam(Infinity)).toBe(false);
-    expect(isEditableParam(null)).toBe(false);
-  });
+describe("parseFiniteInput (numeric-only, mirrors the server)", () => {
   it("parses finite input, rejects the rest", () => {
     expect(parseFiniteInput("0.70")).toBe(0.7);
     expect(parseFiniteInput("  -1 ")).toBe(-1);

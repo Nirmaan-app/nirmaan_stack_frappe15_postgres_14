@@ -18,22 +18,18 @@ Coverage map (behavior -> test):
   - endpoints: shape + kind filter + active-only                             -> test_06
   - endpoints: login required (Guest denied)                                 -> test_07
   - config integrity: attribute defs + all four pipelines survive round trip -> test_08
-  - RM-4a param-value edits (config param + item rate/attr + create + deactivate) -> test_09..14
-  - RM-4b whole-config replace: valid replace audited + seeds goldens          -> test_15
-  - RM-4b validation: unknown step type rejected, no write                     -> test_16
-  - RM-4b validation: malformed condition predicate / non-number param         -> test_17
-  - RM-4b: non-admin PermissionError, no write                                 -> test_18
-  - RM-4b reference guard: removing a referenced definition rejected (named)   -> test_19
-  - RM-4b validation: unknown top-level key rejected                           -> test_20
-  - RM-4b: identity repoint (discipline/category_id) rejected                  -> test_21
-  - RM-4b: a valid add-step + add-param replace persists                       -> test_22
+  - RM-4a item edits (item rate/attr + create + deactivate)                     -> test_11..14
+    (test_09 / test_10, the config-param endpoint, and test_15 / 18 / 21 / 22 / 28, the whole-config
+    endpoint, were removed with both endpoints: ADP-5a (owner D9, 2026-10-21: the endpoint "kept one slice, then removed"))
+  - the config validator: unknown step type rejected                            -> test_16
+  - the config validator: malformed condition predicate / non-number param      -> test_17
+  - the config validator's reference guard: removing a referenced definition    -> test_19
+  - the config validator: unknown top-level key rejected                        -> test_20
   - EA-1: multi-config load -- counts, shared batch, 10 configs, goldens merge -> test_23
   - EA-1: SCOPED replace supersedes only the E-ALL scope, WIRING UNTOUCHED     -> test_24
   - EA-1b: retired-scope (ups) also deactivated on replace, else untouched     -> test_25
-  - EA-1c: update_rate_config accepts a top-level item_kinds (Data-tab scope)   -> test_26
+  - EA-1c: the config validator accepts a top-level item_kinds (Data-tab scope) -> test_26
   - EA-2: relaxed validator -- empty pipelines accepted; bad non-empty rejected -> test_27
-  - EA-2: pass-through keys (matching_mode/identity_attribute_id/notes/
-    pipeline_labels) accepted + a pipeline_labels edit audited (Version doc)     -> test_28
   - EA-2c: the earthing config's component_ref step round-trips through the
     RM-4b validator (accepted); a component_ref missing ref.kind is rejected     -> test_29
 
@@ -1118,67 +1114,6 @@ class TestRateMaster(FrappeTestCase):
     def _versions(self, dt, docname):
         return frappe.get_all("Version", filters={"ref_doctype": dt, "docname": docname}, fields=["name", "data"])
 
-    def test_09_config_param_edit_audited_first_version(self):
-        disc = self._new_disc()
-        loader.load_rate_master(payload=self._real_payload(disc))
-        cfg_name = self._config_name(disc)
-        # no Version for this synthetic config yet
-        self.assertEqual(len(self._versions("BoQ Rate Category Config", cfg_name)), 0)
-
-        # cable_boq step 1 (apply_effective_multiplier), condition 0 (ARMOURED), discount 0.75 -> 0.70
-        res = rate_master.update_rate_config_param(
-            name=cfg_name, pipeline_id="cable_boq", step_index=1, condition_index=0,
-            param_key="discount", new_value="0.70",
-        )
-        self.assertTrue(res["ok"])
-        self.assertEqual(
-            res["config"]["pipelines"]["cable_boq"]["steps"][1]["conditions"][0]["params"]["discount"],
-            0.70,
-        )
-        # persisted
-        stored = _obj(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"))
-        self.assertEqual(
-            stored["pipelines"]["cable_boq"]["steps"][1]["conditions"][0]["params"]["discount"], 0.70
-        )
-        # AUDIT: the FIRST Version doc now exists and its diff captures the config field
-        versions = self._versions("BoQ Rate Category Config", cfg_name)
-        self.assertEqual(len(versions), 1)
-        changed = {c[0] for c in json.loads(versions[0]["data"]).get("changed", [])}
-        self.assertIn("config", changed)
-
-    def test_10_config_param_negatives(self):
-        disc = self._new_disc()
-        loader.load_rate_master(payload=self._real_payload(disc))
-        cfg_name = self._config_name(disc)
-        before = frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config")
-
-        # non-admin -> PermissionError, no write
-        original = frappe.session.user
-        try:
-            frappe.set_user("Guest")
-            with self.assertRaises(frappe.PermissionError):
-                rate_master.update_rate_config_param(
-                    name=cfg_name, pipeline_id="cable_boq", step_index=1, condition_index=0,
-                    param_key="discount", new_value="0.70",
-                )
-        finally:
-            frappe.set_user(original)
-
-        # non-numeric value -> validation error, no write
-        with self.assertRaises(frappe.ValidationError):
-            rate_master.update_rate_config_param(
-                name=cfg_name, pipeline_id="cable_boq", step_index=1, condition_index=0,
-                param_key="discount", new_value="cheap",
-            )
-        # nonexistent param path -> validation error, no write (adding params is RM-4b)
-        with self.assertRaises(frappe.ValidationError):
-            rate_master.update_rate_config_param(
-                name=cfg_name, pipeline_id="cable_boq", step_index=1, condition_index=0,
-                param_key="not_a_param", new_value="0.5",
-            )
-        # config byte-identical after all three rejects
-        self.assertEqual(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"), before)
-
     def test_11_item_rate_edit_audited(self):
         disc = self._new_disc()
         loader.load_rate_master(payload=self._real_payload(disc))
@@ -1297,7 +1232,8 @@ class TestRateMaster(FrappeTestCase):
         # audited
         self.assertGreaterEqual(len(self._versions("BoQ Rate Master Item", made)), 1)
 
-    # ---- RM-4b: whole-config structure editing (update_rate_config) ----
+    # ---- RM-4b: the whole-config VALIDATOR (`config_validation._validate_config`; its endpoint, update_rate_config,
+    # was removed at ADP-5a (owner D9, 2026-10-21: the endpoint "kept one slice, then removed")) ----
     def _full_config(self, cfg_name):
         return _obj(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"))
 
@@ -1311,118 +1247,61 @@ class TestRateMaster(FrappeTestCase):
                     "cable_bcs": {"bcs_supply_per_mtr": 150}}},
     ]
 
-    def test_15_whole_config_replace_audited_and_seeds_goldens(self):
-        disc = self._new_disc()
-        loader.load_rate_master(payload=self._real_payload(disc))
-        cfg_name = self._config_name(disc)
-        self.assertEqual(len(self._versions("BoQ Rate Category Config", cfg_name)), 0)
-
-        cfg = self._full_config(cfg_name)
-        cfg["goldens"] = self._GOLDENS  # seed goldens as config data (RM-4b)
-        res = rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
-        self.assertTrue(res["ok"])
-        self.assertEqual(len(res["config"]["goldens"]), 2)
-        # persisted + audited (first Version doc, diff captures the config field)
-        stored = self._full_config(cfg_name)
-        self.assertIn("goldens", stored)
-        versions = self._versions("BoQ Rate Category Config", cfg_name)
-        self.assertEqual(len(versions), 1)
-        changed = {c[0] for c in json.loads(versions[0]["data"]).get("changed", [])}
-        self.assertIn("config", changed)
-
     def test_16_unknown_step_type_rejected_no_write(self):
         disc = self._new_disc()
         loader.load_rate_master(payload=self._real_payload(disc))
         cfg_name = self._config_name(disc)
-        before = frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config")
         cfg = self._full_config(cfg_name)
         cfg["pipelines"]["cable_boq"]["steps"].append({"step": "quantum_flux", "target": "x"})
+        # RE-POINTED at ADP-5a (owner D9, 2026-10-21: the endpoint "kept one slice, then removed"): the validator is called directly -- the endpoint only wrapped it and wrote
+        # nothing, so its "no write" pin went with it (BEFORE: the stored config byte-identical after the refusal)
         with self.assertRaises(frappe.ValidationError) as cm:
-            rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
+            config_validation._validate_config(cfg)
         self.assertIn("quantum_flux", str(cm.exception))
-        self.assertEqual(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"), before)
 
     def test_17_malformed_condition_predicate_rejected(self):
         disc = self._new_disc()
         loader.load_rate_master(payload=self._real_payload(disc))
         cfg_name = self._config_name(disc)
-        before = frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config")
         cfg = self._full_config(cfg_name)
         # a range/in predicate OBJECT is not executable by the interpreter -> rejected
         cfg["pipelines"]["cable_boq"]["steps"][1]["conditions"][0]["when"] = {"insulation": {"in": ["ARMOURED"]}}
+        # RE-POINTED at ADP-5a (owner D9, 2026-10-21: the endpoint "kept one slice, then removed"): the validator is called directly -- the endpoint only wrapped it and wrote
+        # nothing (BEFORE: the stored config byte-identical after the refusal)
         with self.assertRaises(frappe.ValidationError):
-            rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
-        self.assertEqual(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"), before)
+            config_validation._validate_config(cfg)
         # a params-value non-number is likewise rejected
         cfg2 = self._full_config(cfg_name)
         cfg2["pipelines"]["cable_boq"]["steps"][1]["conditions"][0]["params"]["discount"] = "cheap"
         with self.assertRaises(frappe.ValidationError):
-            rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg2))
-
-    def test_18_non_admin_rejected_no_write(self):
-        disc = self._new_disc()
-        loader.load_rate_master(payload=self._real_payload(disc))
-        cfg_name = self._config_name(disc)
-        before = frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config")
-        cfg = self._full_config(cfg_name)
-        original = frappe.session.user
-        try:
-            frappe.set_user("Guest")
-            with self.assertRaises(frappe.PermissionError):
-                rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
-        finally:
-            frappe.set_user(original)
-        self.assertEqual(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"), before)
+            config_validation._validate_config(cfg2)
 
     def test_19_reference_guard_rejects_removing_referenced_definition(self):
         disc = self._new_disc()
         loader.load_rate_master(payload=self._real_payload(disc))
         cfg_name = self._config_name(disc)
-        before = frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config")
         cfg = self._full_config(cfg_name)
         # insulation is referenced by cable_boq / cable_bcs apply_effective_multiplier conditions
         cfg["attribute_definitions"] = [d for d in cfg["attribute_definitions"] if d["id"] != "insulation"]
+        # RE-POINTED at ADP-5a (owner D9, 2026-10-21: the endpoint "kept one slice, then removed"): the validator is called directly -- the endpoint only wrapped it and wrote
+        # nothing (BEFORE: the stored config byte-identical after the refusal)
         with self.assertRaises(frappe.ValidationError) as cm:
-            rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
+            config_validation._validate_config(cfg)
         msg = str(cm.exception)
         self.assertIn("insulation", msg)
         self.assertIn("referenced by", msg)
-        self.assertEqual(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"), before)
 
     def test_20_unknown_top_level_key_rejected(self):
         disc = self._new_disc()
         loader.load_rate_master(payload=self._real_payload(disc))
         cfg_name = self._config_name(disc)
-        before = frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config")
         cfg = self._full_config(cfg_name)
         cfg["surprise_key"] = 1
+        # RE-POINTED at ADP-5a (owner D9, 2026-10-21: the endpoint "kept one slice, then removed"): the validator is called directly -- the endpoint only wrapped it and wrote
+        # nothing (BEFORE: the stored config byte-identical after the refusal)
         with self.assertRaises(frappe.ValidationError) as cm:
-            rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
+            config_validation._validate_config(cfg)
         self.assertIn("surprise_key", str(cm.exception))
-        self.assertEqual(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"), before)
-
-    def test_21_identity_repoint_rejected(self):
-        disc = self._new_disc()
-        loader.load_rate_master(payload=self._real_payload(disc))
-        cfg_name = self._config_name(disc)
-        cfg = self._full_config(cfg_name)
-        cfg["discipline"] = "SOMETHING_ELSE"
-        with self.assertRaises(frappe.ValidationError):
-            rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
-
-    def test_22_valid_structure_add_step_and_param_persists(self):
-        disc = self._new_disc()
-        loader.load_rate_master(payload=self._real_payload(disc))
-        cfg_name = self._config_name(disc)
-        cfg = self._full_config(cfg_name)
-        # add a NEW param to an existing condition (was RM-4b-forbidden as RM-4a param-add) + a step
-        cfg["pipelines"]["cable_boq"]["steps"][1]["conditions"][0]["params"]["surcharge"] = 0.02
-        cfg["pipelines"]["cable_boq"]["steps"].append({"step": "roundup", "target": "supply_per_mtr", "params": {"digits": 0}})
-        res = rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
-        self.assertTrue(res["ok"])
-        stored = self._full_config(cfg_name)
-        self.assertEqual(stored["pipelines"]["cable_boq"]["steps"][1]["conditions"][0]["params"]["surcharge"], 0.02)
-        self.assertEqual(stored["pipelines"]["cable_boq"]["steps"][-1]["step"], "roundup")
 
     # ---- EA-1: the all-categories (E-ALL) multi-config load ----
     def _eall_payload(self, discipline):
@@ -2816,14 +2695,19 @@ class TestRateMaster(FrappeTestCase):
     def test_26_update_rate_config_accepts_item_kinds(self):
         # EA-1c: the config carries a top-level item_kinds (Data-tab scoping); the RM-4b whole-config
         # validator must ACCEPT it (else editing any E-ALL config's pipelines would break).
+        # RE-POINTED at ADP-5a (owner D9, 2026-10-21: the endpoint "kept one slice, then removed"): the validator is called directly. BEFORE it also
+        # pinned the endpoint's write (`self._full_config(cfg_name)["item_kinds"] == [...]`), which went with it.
         disc = self._new_disc()
         loader.load_rate_master(payload=self._real_payload(disc))
         cfg_name = self._config_name(disc)
         cfg = self._full_config(cfg_name)
         cfg["item_kinds"] = ["cable", "termination"]
-        res = rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
-        self.assertTrue(res["ok"])
-        self.assertEqual(self._full_config(cfg_name)["item_kinds"], ["cable", "termination"])
+        config_validation._validate_config(cfg)   # accepted: raises on any problem
+        # NEGATIVE (added with the re-point, so the acceptance is not vacuous): the same list under a key the
+        # allowlist does not hold is refused, by name
+        with self.assertRaises(frappe.ValidationError) as cm:
+            config_validation._validate_config(dict(cfg, item_kindz=["cable", "termination"]))
+        self.assertIn("item_kindz", str(cm.exception))
 
     # ---- EA-2c: the component_ref step is a first-class RM-4b vocabulary member ----
     def test_29_component_ref_config_roundtrips(self):
@@ -2837,10 +2721,11 @@ class TestRateMaster(FrappeTestCase):
         refs = [s for p in cfg["pipelines"].values() for s in p["steps"] if s["step"] == "component_ref"]
         self.assertTrue(refs)
         self.assertEqual(refs[0]["ref"]["attributes"], {"type": "Bus bar"})
-        # the RM-4b validator ACCEPTS component_ref -> the whole earthing config round-trips
-        res = rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
-        self.assertTrue(res["ok"])
-        # NEGATIVE: a component_ref missing ref.kind is rejected, no write
+        # the RM-4b validator ACCEPTS component_ref -> the whole earthing config validates
+        # RE-POINTED at ADP-5a (owner D9, 2026-10-21: the endpoint "kept one slice, then removed"): the validator is called directly (BEFORE: through the
+        # endpoint, with a "no write" pin after the refusal, which went with it)
+        config_validation._validate_config(copy.deepcopy(cfg))
+        # NEGATIVE: a component_ref missing ref.kind is rejected
         before = frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config")
         bad = copy.deepcopy(_obj(before))  # deep copy -- _obj returns `before` itself when it is a dict
         for p in bad["pipelines"].values():
@@ -2848,8 +2733,7 @@ class TestRateMaster(FrappeTestCase):
                 if s["step"] == "component_ref":
                     s.pop("ref", None)
         with self.assertRaises(frappe.ValidationError):
-            rate_master.update_rate_config(name=cfg_name, config=json.dumps(bad))
-        self.assertEqual(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"), before)
+            config_validation._validate_config(bad)
 
     # ---- EA-DIFF: the synonyms key is a first-class RM-4b pass-through ----
     def test_30_update_rate_config_accepts_synonyms(self):
@@ -2862,9 +2746,10 @@ class TestRateMaster(FrappeTestCase):
         cfg_name = self._config_name(disc)
         cfg = self._full_config(cfg_name)
         cfg["synonyms"] = {"conduit_type": {"GI": "MS"}}
-        res = rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
-        self.assertTrue(res["ok"])
-        self.assertEqual(self._full_config(cfg_name)["synonyms"], {"conduit_type": {"GI": "MS"}})
+        # RE-POINTED at ADP-5a (owner D9, 2026-10-21: the endpoint "kept one slice, then removed"): the validator is called directly. BEFORE it also
+        # pinned the endpoint's write (the stored synonyms), which went with it.
+        config_validation._validate_config(cfg)   # accepted verbatim: raises on any problem
+        self.assertEqual(cfg["synonyms"], {"conduit_type": {"GI": "MS"}})   # and not rewritten by the check
 
     # ---- EA-2: relaxed empty-pipelines validator + pass-through keys ----
     def test_27_relaxed_empty_pipelines_accepted_bad_nonempty_rejected(self):
@@ -2876,40 +2761,14 @@ class TestRateMaster(FrappeTestCase):
         # goldens must also empty (goldens reference pipelines).
         cfg["pipelines"] = {}
         cfg["goldens"] = []
-        res = rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
-        self.assertTrue(res["ok"])
-        self.assertEqual(self._full_config(cfg_name)["pipelines"], {})
-        # (b) a NON-empty but structurally BAD pipeline is STILL rejected, no write
-        before = frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config")
+        # RE-POINTED at ADP-5a (owner D9, 2026-10-21: the endpoint "kept one slice, then removed"): the validator is called directly. BEFORE it also
+        # pinned the endpoint's write (stored pipelines {}) and a "no write" after (b), which went with it.
+        config_validation._validate_config(cfg)   # accepted: raises on any problem
+        # (b) a NON-empty but structurally BAD pipeline is STILL rejected
         bad = self._full_config(cfg_name)
         bad["pipelines"] = {"x": {"output": ["y"], "steps": [{"step": "quantum_flux"}]}}
         with self.assertRaises(frappe.ValidationError):
-            rate_master.update_rate_config(name=cfg_name, config=json.dumps(bad))
-        self.assertEqual(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"), before)
-
-    def test_28_pass_through_keys_and_pipeline_labels_audited(self):
-        disc = self._new_disc()
-        loader.load_rate_master(payload=self._real_payload(disc))
-        cfg_name = self._config_name(disc)
-        self.assertEqual(len(self._versions("BoQ Rate Category Config", cfg_name)), 0)
-        cfg = self._full_config(cfg_name)
-        # EA-2 pass-through keys: accepted by the allowlist, stored verbatim (NOT structurally
-        # validated) -- exactly like item_kinds. pipeline_labels is the wiring-helper label source.
-        cfg["pipeline_labels"] = {"cable_boq": "Cable — per Mtr", "termination_boq": "Termination — per Set"}
-        cfg["matching_mode"] = "item_identity"
-        cfg["identity_attribute_id"] = "material"
-        cfg["notes"] = "authored by test"
-        res = rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
-        self.assertTrue(res["ok"])
-        stored = self._full_config(cfg_name)
-        self.assertEqual(stored["pipeline_labels"]["cable_boq"], "Cable — per Mtr")
-        self.assertEqual(stored["matching_mode"], "item_identity")
-        self.assertEqual(stored["notes"], "authored by test")
-        # AUDIT: a Version doc records the config diff
-        versions = self._versions("BoQ Rate Category Config", cfg_name)
-        self.assertEqual(len(versions), 1)
-        changed = {c[0] for c in json.loads(versions[0]["data"]).get("changed", [])}
-        self.assertIn("config", changed)
+            config_validation._validate_config(bad)
 
     # ---- EA-4d: DB composite-decomposition + the single-item removal + the round-split fix ----
     def test_31_eall_v17_db_composite_decomposition_and_round_split(self):
@@ -2984,11 +2843,11 @@ class TestRateMaster(FrappeTestCase):
             "when_shell_absent": {"attr": "db_shell_item", "equals": "None", "use": "ratio"},
             "round_lookup": None, "round_ratio": -1,
         })
-        res = rate_master.update_rate_config(name=wcfg_name, config=json.dumps(wcfg))
-        self.assertTrue(res["ok"])  # composite_slots / decomposition_rules / lookup_or_ratio all accepted
-        stored = self._full_config(wcfg_name)
-        self.assertEqual(stored.get("matching_mode"), "composite_decomposition")
-        self.assertIn("composite_slots", stored)
+        # RE-POINTED at ADP-5a (owner D9, 2026-10-21: the endpoint "kept one slice, then removed"): the validator is called directly. BEFORE it went
+        # through the endpoint and read the stored config back (matching_mode, composite_slots).
+        config_validation._validate_config(wcfg)  # composite_slots / decomposition_rules / lookup_or_ratio all accepted
+        self.assertEqual(wcfg.get("matching_mode"), "composite_decomposition")
+        self.assertIn("composite_slots", wcfg)
 
     # ---- EA-4d: the GENERAL composite-decomposition extraction seam (config-driven, no DB-specifics) ----
     def test_32_composite_decomposition_extraction_seam(self):
@@ -6831,12 +6690,9 @@ def _rmf_source_of(fn):
     return inspect.getsource(fn)
 
 
-# A param path that genuinely EXISTS in the legacy wiring fixture's cable_boq pipeline. Using a
-# real one matters: `update_rate_config_param` validates the path AFTER the freeze guard, so a
-# bogus path would let the frozen-refusal test pass for the wrong reason and would break the
-# post-unfreeze call (it did, on the first run of this suite).
-_RMF_PARAM_STEP = 4
-_RMF_PARAM_KEY = "install_markup"
+# ADP-5a (owner D9, 2026-10-21: the endpoints "kept one slice, then removed"): `update_rate_config_param` and
+# `update_rate_config` are gone, and with them `_RMF_PARAM_STEP` / `_RMF_PARAM_KEY` (BEFORE: 4 / "install_markup",
+# a real cable_boq param path for the param endpoint's frozen-refusal and post-unfreeze calls).
 
 
 def _rmf_csv_text(discipline):
@@ -6921,15 +6777,12 @@ class TestRateMasterFreeze(FrappeTestCase):
         frappe.db.commit()
 
     def _write_calls(self, cfg, item, disc):
-        """(label, callable) for EVERY rate-master WRITE reachable from the app: the SIX endpoints
+        """(label, callable) for EVERY rate-master WRITE reachable from the app: the FOUR endpoints
         plus the service-level csv apply. Every call is given VALID arguments, so a refusal can
-        only be the freeze."""
+        only be the freeze. ADP-5a (owner D9): SIX -> FOUR -- `update_rate_config_param` and
+        `update_rate_config` were removed (BEFORE: both listed here, first and fifth)."""
         b64 = base64.b64encode(_rmf_csv_text(disc).encode("utf-8")).decode("ascii")
-        cfg_json = frappe.db.get_value("BoQ Rate Category Config", cfg, "config")
         return [
-            ("update_rate_config_param", lambda: rate_master.update_rate_config_param(
-                name=cfg, pipeline_id="cable_boq", step_index=_RMF_PARAM_STEP,
-                param_key=_RMF_PARAM_KEY, new_value=0.5)),
             ("update_rate_master_item", lambda: rate_master.update_rate_master_item(
                 name=item, rates_patch=json.dumps({"list_rate": 123.0}))),
             ("create_rate_master_item", lambda: rate_master.create_rate_master_item(
@@ -6937,8 +6790,6 @@ class TestRateMasterFreeze(FrappeTestCase):
                 rates=json.dumps({"list_rate": 1.0}))),
             ("deactivate_rate_master_item", lambda: rate_master.deactivate_rate_master_item(
                 name=item)),
-            ("update_rate_config", lambda: rate_master.update_rate_config(
-                name=cfg, config=cfg_json)),
             ("apply_rate_master_csv", lambda: rate_master.apply_rate_master_csv(
                 discipline=disc, content_base64=b64)),
             # THE SERVICE PATH, called directly and NOT through the endpoint. This is the one a
@@ -6982,8 +6833,9 @@ class TestRateMasterFreeze(FrappeTestCase):
         self.assertIn(freeze.BLOCKED_MESSAGE, src)
 
     def test_rmf_03_every_write_refuses_while_frozen_with_the_exact_message(self):
-        """NEGATIVE, the core of the feature (R1). All SIX write endpoints AND the service-level csv
-        apply refuse, each with the owner's exact message and nothing appended."""
+        """NEGATIVE, the core of the feature (R1). All FOUR write endpoints (SIX before ADP-5a removed
+        the two config endpoints, owner D9) AND the service-level csv apply refuse, each with the
+        owner's exact message and nothing appended."""
         disc, cfg, item = self._loaded()
         self._freeze_sandbox()
         self._set_frozen()
@@ -7051,9 +6903,7 @@ class TestRateMasterFreeze(FrappeTestCase):
         self.assertFalse(res["frozen"])
 
         rate_master.update_rate_master_item(name=item, rates_patch=json.dumps({"list_rate": 7.0}))
-        rate_master.update_rate_config_param(
-            name=cfg, pipeline_id="cable_boq", step_index=_RMF_PARAM_STEP,
-            param_key=_RMF_PARAM_KEY, new_value=0.5)
+        # ADP-5a (owner D9): BEFORE, `rate_master.update_rate_config_param(...)` was re-opened here too; it is removed
         b64 = base64.b64encode(_rmf_csv_text(disc).encode("utf-8")).decode("ascii")
         # SLICE 1f (inverted under owner Y-a): this fixture's items carry no item_uid, so each row of its own
         # export is a new row that MEANS THE SAME as the item it came from -- every row warns, and an
@@ -7219,11 +7069,13 @@ class TestRateMasterFreeze(FrappeTestCase):
         self.assertNotIn("guard_not_frozen", src)
 
     def test_rmf_13_the_guard_is_one_definition_called_at_both_write_mechanisms(self):
-        """POSITIVE: ONE predicate, two call sites. The five audited doc.save endpoints plus the csv
+        """POSITIVE: ONE predicate, two call sites. The three audited doc.save endpoints plus the csv
         endpoint are guarded inline in the api module; `csv_importer.apply_plan` guards itself,
         because it supersedes by RAW SQL and never touches doc.save. A guard on only one mechanism
-        would leave the other wide open -- and the csv path has the larger blast radius."""
-        self.assertEqual(_rmf_source(rate_master).count("freeze.guard_not_frozen()"), 6)
+        would leave the other wide open -- and the csv path has the larger blast radius.
+        ADP-5a (owner D9): 6 -> 4 in the api module -- the two config endpoints were removed (BEFORE: five
+        audited doc.save endpoints plus the csv one, count 6)."""
+        self.assertEqual(_rmf_source(rate_master).count("freeze.guard_not_frozen()"), 4)
         self.assertEqual(_rmf_source(csv_importer).count("freeze.guard_not_frozen()"), 1)
         self.assertIs(rate_master.freeze.guard_not_frozen, freeze.guard_not_frozen)
         self.assertIs(csv_importer.freeze.guard_not_frozen, freeze.guard_not_frozen)
@@ -12949,7 +12801,9 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                             "family_text", "unit_refusal", "panel_optional",
                             # SLICE 12e-5b (owner R2 / R5): read only by HVAC Insulation; v7 predates them and
                             # ADP declares neither (pinned below)
-                            "choice_text", "material_text"})
+                            "choice_text", "material_text",
+                            # ADP-5a (owner 2026-10-22, SCOPE-5a-1): read only by ADP from v51 on; v7 predates it
+                            "family_merge"})
         self.assertNotIn("panel_controls", pr)
         self.assertNotIn("override_when", pr)
         self.assertNotIn("family_when_none", pr)

@@ -1278,71 +1278,6 @@ def _active_config_attr_ids(discipline):
 
 
 @frappe.whitelist(methods=["POST"])
-def update_rate_config_param(
-    name=None, pipeline_id=None, step_index=None, param_key=None, new_value=None,
-    condition_index=None,
-):
-    """ADMIN-ONLY: set ONE existing numeric parameter on a stored pipeline step (or a step's
-    condition branch). PARAM VALUES ONLY -- the addressed path MUST already exist; creating/removing
-    params or steps is RM-4b (validation error, no write). Audited (doc.save -> Version diff).
-    Path: config.pipelines[pipeline_id].steps[step_index].params[param_key], or
-          ...steps[step_index].conditions[condition_index].params[param_key].
-    Returns {ok, config}. URL: .../rate_master.update_rate_config_param"""
-    _require_rate_admin()  # BEFORE resolution/write
-    freeze.guard_not_frozen()  # DEPLOYMENT FREEZE -- WRITE subset ONLY (R3: never on export/preview)
-    if not name:
-        frappe.throw("name is required.", title="Missing field: name")
-    if not pipeline_id:
-        frappe.throw("pipeline_id is required.", title="Missing field: pipeline_id")
-    if step_index is None or step_index == "":
-        frappe.throw("step_index is required.", title="Missing field: step_index")
-    if not param_key:
-        frappe.throw("param_key is required.", title="Missing field: param_key")
-    num = _finite_number(new_value, "new_value")
-    try:
-        step_index = int(step_index)
-    except (TypeError, ValueError):
-        frappe.throw("step_index must be an integer.", title="Invalid value")
-    has_cond = condition_index is not None and condition_index != ""
-    if has_cond:
-        try:
-            condition_index = int(condition_index)
-        except (TypeError, ValueError):
-            frappe.throw("condition_index must be an integer.", title="Invalid value")
-
-    doc = frappe.get_doc(CONFIG_DOCTYPE, name)  # 404s cleanly if missing
-    cfg = _parse_json(doc.config, {})
-    pipelines = cfg.get("pipelines") or {}
-    if pipeline_id not in pipelines:
-        frappe.throw(f"Pipeline '{pipeline_id}' not found in this config.", title="Path not found")
-    steps = pipelines[pipeline_id].get("steps") or []
-    if not (0 <= step_index < len(steps)):
-        frappe.throw(f"step_index {step_index} out of range.", title="Path not found")
-    step = steps[step_index]
-    if has_cond:
-        conditions = step.get("conditions") or []
-        if not (0 <= condition_index < len(conditions)):
-            frappe.throw(
-                f"condition_index {condition_index} out of range.", title="Path not found"
-            )
-        params = conditions[condition_index].get("params")
-    else:
-        params = step.get("params")
-    if not isinstance(params, dict) or param_key not in params:
-        # The param must ALREADY exist -- creating a param is structure editing (RM-4b).
-        frappe.throw(
-            f"Parameter '{param_key}' does not exist at this path -- adding parameters is not "
-            "supported here.",
-            title="Path not found",
-        )
-    params[param_key] = num
-    doc.config = json.dumps(cfg)
-    doc.save(ignore_permissions=True, ignore_version=False)  # AUDITED (track_changes -> Version diff)
-    frappe.db.commit()
-    return {"ok": True, "config": cfg}
-
-
-@frappe.whitelist(methods=["POST"])
 def _resolve_spec_write(spec_cat, item_name, item_detail, unit, spec_decision, spec_fingerprint):
     """SLICE 1d -- THE ONE resolver both manual endpoints use for an opted-in kind.
 
@@ -1775,7 +1710,11 @@ def deactivate_rate_master_item(name=None):
 # helpers -- LIVES IN `services/boq_rate_master/config_validation.py` since 2026-09-10, so the import
 # loader can run the SAME predicate before it writes. It is re-imported here by name (the
 # `services/boq_bcs/readiness.py` precedent) so `rate_master._validate_config` and friends keep
-# resolving for `update_rate_config` below and for every test that reaches them through this module.
+# resolving for every test that reaches them through this module.
+# ADP-5a (owner D9, 2026-10-21: "kept one slice, then removed"): `update_rate_config` (the RM-4b whole-config
+# replace) and `update_rate_config_param` (the RM-4a step-parameter edit) are REMOVED -- neither had a caller
+# since ADP-4b took the Pipelines tab and the Derivation inline edit away. The import loader is the validator's
+# product caller (`loader.py`); the Rate Master edits items, never a config.
 # ⚠️ Do NOT re-inline a copy here: two copies would sit on either side of an import and could
 # disagree about the same config at exactly the moment it mattered.
 from nirmaan_stack.services.boq_rate_master.config_validation import (  # noqa: E402,F401
@@ -1792,46 +1731,6 @@ from nirmaan_stack.services.boq_rate_master.config_validation import (  # noqa: 
     _vthrow,
     validate_delegated_sections,
 )
-
-
-@frappe.whitelist(methods=["POST"])
-def update_rate_config(name=None, config=None):
-    """ADMIN-ONLY (RM-4b): replace a category config's WHOLE config JSON after full server-side
-    structural validation. Lifts the RM-4a param-values-only boundary -- add/remove params, steps,
-    conditions, and attribute definitions. The submitted config.discipline/category_id must match the
-    stored doc's (no identity repoint). Audited (doc.save -> Version diff). Returns {ok, config}.
-    URL: .../rate_master.update_rate_config"""
-    _require_rate_admin()  # BEFORE resolution/write
-    freeze.guard_not_frozen()  # DEPLOYMENT FREEZE -- WRITE subset ONLY (R3: never on export/preview)
-    if not name:
-        frappe.throw("name is required.", title="Missing field: name")
-    cfg = _parse_json(config, None)
-    if not isinstance(cfg, dict):
-        frappe.throw("config must be an object.", title="Invalid value")
-
-    doc = frappe.get_doc(CONFIG_DOCTYPE, name)  # 404s cleanly if missing
-    # identity guard: the submitted config must not repoint discipline/category_id
-    if cfg.get("discipline") != doc.discipline:
-        frappe.throw(
-            f"config.discipline '{cfg.get('discipline')}' does not match this config's discipline "
-            f"'{doc.discipline}'.",
-            title="Invalid config",
-        )
-    if cfg.get("category_id") != doc.category_id:
-        frappe.throw(
-            f"config.category_id '{cfg.get('category_id')}' does not match this config's category_id "
-            f"'{doc.category_id}'.",
-            title="Invalid config",
-        )
-
-    _validate_config(cfg)  # raises a named ValidationError on any problem -- NO write on raise
-    # SLICE 12e-3a: the cross-category half of `list_spec.sections`, against the catalogue as it will stand
-    validate_delegated_sections([cfg], label="Config not saved")
-
-    doc.config = json.dumps(cfg)
-    doc.save(ignore_permissions=True, ignore_version=False)  # AUDITED (track_changes -> Version diff)
-    frappe.db.commit()
-    return {"ok": True, "config": cfg}
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════

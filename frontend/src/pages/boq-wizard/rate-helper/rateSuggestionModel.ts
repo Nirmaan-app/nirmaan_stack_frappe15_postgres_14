@@ -82,7 +82,29 @@ export function buildRowContext(
     rateKinds,
     ...(rows ? { headings: rowHeadings(row, rows) } : {}),
     ...(rows ? { ownNotes: rowOwnNotes(row) } : {}),
+    ...(rows ? { headingNotes: rowHeadingNotes(row, rows) } : {}),
   };
+}
+
+/**
+ * ADP-5a (HN-2 / HN-3, owner 2026-10-22: "pass the headings' notes (the payload's own structure, EA-7)", then "immediate
+ * parent only"): the NOTES of the heading directly above the row -- what the extraction payload sends for that heading
+ * (`extraction._note_block`, the FULL tier): its appended notes' values, its own note and its attached notes, strings
+ * only. A heading further up (a whole-section specification) is not read. PURE. A row with no parent in `rows` has none.
+ * The replay dump (`scripts/_instruments/ac5_dump.py`) builds the same list from the same fields.
+ */
+export function rowHeadingNotes(row: PricedRow, rows: readonly PricedRow[]): string[] {
+  const parent = row.effective_parent_index;
+  if (typeof parent !== "number" || parent < 0 || parent === row.row_index) return [];
+  const p = rows.find((r) => r.row_index === parent);
+  if (!p) return [];
+  const out: string[] = [];
+  const ap = (p as { append_notes_raw?: unknown }).append_notes_raw;
+  if (ap && typeof ap === "object" && !Array.isArray(ap)) {
+    for (const v of Object.values(ap as Record<string, unknown>)) if (typeof v === "string" && v.trim() !== "") out.push(v);
+  }
+  out.push(...rowOwnNotes(p));
+  return out;
 }
 
 /**
