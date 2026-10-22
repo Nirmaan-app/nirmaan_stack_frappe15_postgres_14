@@ -72,7 +72,8 @@ def settle_lines(doc, line, *, paid: set[str], paid_before: set[tuple[str, str]]
     here, through the import's own expense settle (`settle.link_lines_to_expense`), as if the line's amount
     were the bank line's, so it is checked, dated and made Paid exactly as a linked expense is.
 
-    A record in `paid_before` (`(doctype, name)`, Paid before the clear) is left as it is. It gets the
+    A payment in neither set is refused: the import pays every line in full or not at all, so it never
+    writes a match record short. A record in `paid_before` (`(doctype, name)`, Paid before the clear) is left as it is. It gets the
     line's match record only when no bank line matches it yet: a second would count the same money twice,
     and the bank line then shows the gap."""
     legs = []
@@ -83,8 +84,11 @@ def settle_lines(doc, line, *, paid: set[str], paid_before: set[tuple[str, str]]
                 legs.append(_line_leg(row))
             continue
         if row.payment_doctype == PAYMENT_DOCTYPE:
-            if row.payment_name in paid:
-                legs.append(_line_leg(row))
+            if row.payment_name not in paid:
+                # Every line is paid in full: a payment the clear did not pay has no match record to give.
+                frappe.throw(_("Cheque {0} cannot be cleared: payment {1} on line {2} was not paid by this clear.")
+                             .format(doc.cheque_no, row.payment_name, row.idx))
+            legs.append(_line_leg(row))
             continue
         # The line's share of the bank line; every other field is the bank line's.
         share = frappe._dict({**line, "amount": flt(row.amount)})

@@ -28,6 +28,7 @@ from nirmaan_stack.api.outflow_import.test_review import _stage_icici_statement
 from nirmaan_stack.api.outflow_import.unreconcile import plan_of_line, unreconcile_line
 from nirmaan_stack.api.payments.project_payments import update_payment_request
 from nirmaan_stack.services.cheques.bank_import_rules import BANK_APPROVAL_NOTE, BANK_REVIVAL_NOTE
+from nirmaan_stack.services.cheques import old_type_clear
 from nirmaan_stack.services.cheques.status import cancel
 
 PAYMENT = "Project Payments"
@@ -350,6 +351,19 @@ class TestALineClearsAnOldTypeCheque(ChequeImportCase):
         # 20,000 of the line stays unexplained: the bank paid that payment twice.
         self.assertEqual(self._line(row).row_status, "Partially Allocated")
         self.assertEqual(self._state(cheque).status, "Cleared")
+
+    def test_a_payment_line_the_clear_did_not_pay_is_refused_not_left_unmatched(self):
+        # Every line is paid in full: a payment neither paid by the clear nor Paid before has no match record
+        # to give, so the settle refuses (the line's savepoint rolls the whole cheque back).
+        number = self._number()
+        a = self._payment(30000, RP)
+        cheque = self._old_type(number, 30000, [(a, 30000)])
+        line = frappe.db.get_value(ROW, self._bank_line(reference_id=number, amount=30000), "*", as_dict=True)
+
+        with self.assertRaisesRegex(frappe.ValidationError, f"payment {a} on line 1 was not paid by this clear"):
+            old_type_clear.settle_lines(frappe.get_doc("Cheques", cheque), line, paid=set(), paid_before=set(),
+                                        statement_file_url=None, user=U)
+        frappe.db.rollback()
 
     def test_a_cancelled_old_type_cheque_s_rejected_payments_are_paid_and_its_history_says_so(self):
         number = self._number()
