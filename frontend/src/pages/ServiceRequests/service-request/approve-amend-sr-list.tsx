@@ -1,4 +1,4 @@
-import React, { useCallback, useContext, useMemo, useRef } from "react";
+import React, { createContext, useCallback, useContext, useMemo } from "react";
 import { useFrappeGetCall } from "frappe-react-sdk";
 import { cn } from "@/lib/utils";
 import { ColumnDef, Row } from "@tanstack/react-table";
@@ -42,7 +42,6 @@ import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
-import { useOrderTotals } from "@/hooks/useOrderTotals";
 import {
   DEFAULT_SR_FIELDS_TO_FETCH,
   SR_DATE_COLUMNS,
@@ -54,19 +53,32 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 const DOCTYPE = "Service Requests";
 const URL_SYNC_KEY = "sr_amend_approve"; // Unique key for this table instance
 
+// The amended totals, as the server works them out (`print_totals.get_amended_totals`): the stored
+// `total_amount` is still the one from before the amendment until it is accepted. Never a browser figure
+// (frontend/CODING_STANDARDS.md § Displaying money): a row without its server figure shows a placeholder.
+const AMENDED_TOTALS_METHOD = "nirmaan_stack.api.service_requests.print_totals.get_amended_totals";
+const AMENDED_VALUE_PLACEHOLDER = "…";
+
+/** A row as exported: the list's fields plus its server amended total. */
+type AmendedRow = ServiceRequests & { amended_total?: number };
+
+/** The current page's amended totals: fetched once the page's rows are known, which is after the columns are
+ *  built, so the cell reads them from context rather than from the columns' closure. */
+const AmendedTotalsContext = createContext<Record<string, number> | undefined>(undefined);
+
+const AmendedValueCell: React.FC<{ name: string }> = ({ name }) => {
+  const total = useContext(AmendedTotalsContext)?.[name];
+  return (
+    <p className="font-medium pr-2">
+      {total === undefined ? AMENDED_VALUE_PLACEHOLDER : formatToRoundedIndianRupee(total)}
+    </p>
+  );
+};
+
 // --- Component ---
 export const ApproveSelectAmendSR: React.FC = () => {
-  const { db } = useContext(FrappeContext) as FrappeConfig;
-  const { getTotalAmount } = useOrderTotals();
+  const { db, call } = useContext(FrappeContext) as FrappeConfig;
   const { ceoHoldProjectIds } = useCEOHoldProjects();
-  // The amended totals, as the server works them out (`print_totals.get_amended_totals`): the stored
-  // `total_amount` is still the one from before the amendment until it is accepted. Filled once the page's
-  // rows are known (below); read by the column through a ref, because the columns are built first.
-  const amendedTotalsRef = useRef<Record<string, number>>({});
-  const amendedValue = useCallback(
-    (name: string) => amendedTotalsRef.current[name] ?? getTotalAmount(name, "Service Requests")?.totalWithTax,
-    [getTotalAmount]
-  );
 
   const projectsFetchOptions = getProjectListOptions();
 
@@ -358,14 +370,13 @@ export const ApproveSelectAmendSR: React.FC = () => {
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Amended Value" />
         ),
-        cell: ({ row }) => (
-          <p className="font-medium pr-2">{formatToRoundedIndianRupee(amendedValue(row.original.name))}</p>
-        ),
+        cell: ({ row }) => <AmendedValueCell name={row.original.name} />,
         size: 150,
         enableSorting: false,
         meta: {
           exportHeaderName: "Amended Value",
-          exportValue: (row: ServiceRequests) => formatForReport(amendedValue(row.name)),
+          exportValue: (row: AmendedRow) =>
+            row.amended_total === undefined ? "" : formatForReport(row.amended_total),
         },
       },
     ],
@@ -376,8 +387,6 @@ export const ApproveSelectAmendSR: React.FC = () => {
       userList,
       handleNewSRSeen,
       getVendorName,
-      getTotalAmount,
-      amendedValue,
     ]
   );
 
@@ -413,11 +422,20 @@ export const ApproveSelectAmendSR: React.FC = () => {
 
   const pageNames = useMemo(() => (data || []).map((row) => row.name).sort(), [data]);
   const { data: amendedTotals } = useFrappeGetCall<{ message: Record<string, number> }>(
-    "nirmaan_stack.api.service_requests.print_totals.get_amended_totals",
+    AMENDED_TOTALS_METHOD,
     { work_orders: JSON.stringify(pageNames) },
     pageNames.length ? `AmendedTotals-${pageNames.join(",")}` : null
   );
-  amendedTotalsRef.current = amendedTotals?.message ?? {};
+
+  // Export All: every exported row carries its server amended total, not only the current page's.
+  const exportAllRowsWithAmendedTotals = useCallback(async (): Promise<AmendedRow[]> => {
+    const rows = await exportAllRows();
+    if (!rows.length) return rows;
+    const totals: { message: Record<string, number> } = await call.get(AMENDED_TOTALS_METHOD, {
+      work_orders: JSON.stringify(rows.map((row) => row.name)),
+    });
+    return rows.map((row) => ({ ...row, amended_total: totals.message?.[row.name] }));
+  }, [exportAllRows, call]);
 
   // --- Combined Loading & Error States ---
   const isLoading = projectsLoading || vendorsLoading || userListLoading;
@@ -453,6 +471,7 @@ export const ApproveSelectAmendSR: React.FC = () => {
       {isLoading ? (
         <TableSkeleton />
       ) : (
+        <AmendedTotalsContext.Provider value={amendedTotals?.message}>
         <DataTable<ServiceRequests>
           table={table}
           columns={columns}
@@ -481,12 +500,13 @@ export const ApproveSelectAmendSR: React.FC = () => {
           dateFilterColumns={dateColumns}
           showExportButton={true} // Enable if needed
           onExport={"default"}
-          onExportAll={exportAllRows}
+          onExportAll={exportAllRowsWithAmendedTotals}
           isExporting={isExporting}
           exportFileName={`Approve_Amended_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}`}
           getRowClassName={getRowClassName}
           // toolbarActions={<Button size="sm">Bulk Approve Amended...</Button>} // Placeholder
         />
+        </AmendedTotalsContext.Provider>
       )}
     </div>
   );

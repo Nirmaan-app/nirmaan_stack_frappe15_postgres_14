@@ -11,6 +11,9 @@ import { useUserData } from "@/hooks/useUserData";
 import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 import { workOrderPrintTotals } from "@/utils/workOrderPrintTotals";
 
+/** Shown in a footer figure until the server's totals arrive. */
+const TOTAL_PLACEHOLDER = "…";
+
 interface SRPdfProps {
   srPdfSheet: boolean;
   toggleSrPdfSheet: () => void;
@@ -18,7 +21,6 @@ interface SRPdfProps {
   service_vendor: any;
   project: any;
   gstEnabled: boolean;
-  getTotal: number;
   notes: any[];
   logo: string;
   Seal: string;
@@ -170,7 +172,6 @@ const SRPdf: React.FC<SRPdfProps> = ({
   service_vendor,
   project,
   gstEnabled,
-  getTotal,
   notes,
   logo,
   Seal,
@@ -184,14 +185,16 @@ const SRPdf: React.FC<SRPdfProps> = ({
 
   const { gstOptions } = useGstOptions();
   // The footer's figures are the server's (story 68): the printed rows' value and the Work Order's total,
-  // or, while an amendment is open, the total its accept will store. Until they arrive, the stored figures.
+  // or, while an amendment is open, the total its accept will store. Until they arrive, a placeholder: never a
+  // figure worked out in the browser (frontend/CODING_STANDARDS.md § Displaying money).
   const { data: serverTotals } = useFrappeGetCall<{ message: { sub_total: number; total: number } }>(
     "nirmaan_stack.api.service_requests.print_totals.get_work_order_print_totals",
     { work_order: orderData?.name },
     orderData?.name ? `WorkOrderPrintTotals-${orderData.name}-${orderData.modified}` : null
   );
-  const printedSubTotal = serverTotals?.message?.sub_total ?? getTotal;
-  const printTotals = workOrderPrintTotals(printedSubTotal, serverTotals?.message?.total ?? orderData?.total_amount ?? getTotal);
+  const printTotals = serverTotals?.message
+    ? { subTotal: serverTotals.message.sub_total, ...workOrderPrintTotals(serverTotals.message.sub_total, serverTotals.message.total) }
+    : null;
 
   const resolvedAddress = useMemo(() => {
     // 1. Try to find by orderData's project_gst
@@ -370,7 +373,7 @@ const SRPdf: React.FC<SRPdfProps> = ({
                                 <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
                                 {gstEnabled && <td className="px-4 py-2 text-sm whitespace-nowrap"></td>}
                                 <td className="pl-4 py-2 text-sm whitespace-nowrap font-semibold">Sub-Total:</td>
-                                <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{formatToIndianRupee(printedSubTotal)}</td>
+                                <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{printTotals ? formatToIndianRupee(printTotals.subTotal) : TOTAL_PLACEHOLDER}</td>
                               </tr>
                               <tr className="border-none">
                                 <td></td>
@@ -384,9 +387,9 @@ const SRPdf: React.FC<SRPdfProps> = ({
                                   <div>Total:</div>
                                 </td>
                                 <td className="space-y-4 py-4 text-sm whitespace-nowrap font-semibold">
-                                  {gstEnabled && <div className="ml-4">{formatToIndianRupeeOrZero(printTotals.tax)}</div>}
-                                  <div className="ml-4">{printTotals.roundOff < 0 ? "- " : "+ "}{formatToIndianRupeeOrZero(Math.abs(printTotals.roundOff))}</div>
-                                  <div className="ml-4">{formatToIndianRupeeOrZero(printTotals.total)}</div>
+                                  {gstEnabled && <div className="ml-4">{printTotals ? formatToIndianRupeeOrZero(printTotals.tax) : TOTAL_PLACEHOLDER}</div>}
+                                  <div className="ml-4">{printTotals ? `${printTotals.roundOff < 0 ? "- " : "+ "}${formatToIndianRupeeOrZero(Math.abs(printTotals.roundOff))}` : TOTAL_PLACEHOLDER}</div>
+                                  <div className="ml-4">{printTotals ? formatToIndianRupeeOrZero(printTotals.total) : TOTAL_PLACEHOLDER}</div>
                                 </td>
                               </tr>
                             </>

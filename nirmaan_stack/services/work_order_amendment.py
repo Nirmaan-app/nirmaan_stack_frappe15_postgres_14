@@ -14,7 +14,9 @@ The amendment snapshot (#1540) is the Nirmaan Versions row `controllers/nirmaan_
 the Version of the save that moved the WO from Approved to Amendment. It is kept after the decision and
 marked with its `outcome`, Accepted or Reverted (`mark_snapshots`, from `ServiceRequests.on_update`), so
 an undecided snapshot is one with no outcome. A revert (`api/service_requests/amendment.revert_amendment`)
-writes back what that save changed: items, vendor, categories and Nirmaan GST (`pre_amendment_values`).
+writes back `revert_values`: the Work Order's whole state before the amendment, stored in the snapshot
+(`pre_amendment_state`), or, for a snapshot made before it carried one, what the amend save changed: items,
+vendor, categories and Nirmaan GST (`pre_amendment_values`).
 
 The amend sheet changes the vendor and moves the WO to Amendment in one save, so by the time the
 amendment is accepted the WO no longer holds the vendor it had. Service Requests has `track_changes`,

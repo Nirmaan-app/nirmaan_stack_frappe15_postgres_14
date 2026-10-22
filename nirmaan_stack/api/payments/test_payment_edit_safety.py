@@ -248,7 +248,8 @@ class TestNoBackDoorPastTheSteps(EditSafetyCase):
 
     def _po_payment(self, amount, status, po=None):
         pay = self._plant(amount, status)
-        # Planted by raw write (its creation is not under test); the PO's figures are not read here.
+        # Planted by raw write (its creation is not under test). A test that reads the PO's figures (its
+        # available balance) sets them itself.
         frappe.db.set_value(PAYMENT, pay, {"document_type": "Procurement Orders", "document_name": po or self._po()},
                             update_modified=False)
         frappe.db.commit()

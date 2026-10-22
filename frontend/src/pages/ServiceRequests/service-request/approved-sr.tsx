@@ -1182,7 +1182,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 service_vendor={service_vendor}
                 project={project}
                 gstEnabled={gstEnabled}
-                getTotal={getTotal}
                 notes={notes}
                 logo={logo}
                 Seal={Seal}

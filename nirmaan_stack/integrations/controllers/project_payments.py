@@ -282,7 +282,6 @@ def validate(doc, method):
         _validate_the_order_it_lands_on(doc)
 
 
-#: At these a payment is approved or its money has gone: it is counted on its order and on its vendor.
 MOVED_ORDER_REFUSAL = (
     "An approved payment stays on its order: it was approved, and is counted, for this order and its vendor. "
     "Reject it and request a new payment on the other order."

@@ -250,24 +250,8 @@ def create_project_payment(
                 ).format(term_details.get("due_date")))
 
         # --- Step 3: Financial Validation ---
-        from nirmaan_stack.services.finance import (
-            get_source_document_financials,
-            get_total_paid,
-            get_total_pending,
-            get_total_reconciliation_pending,
-        )
         src = frappe.get_doc(doctype, docname)
-        totals = get_source_document_financials(src)
-        paid = get_total_paid(src)
-        pending = get_total_pending(src)
-        available = (
-            totals.get("payable_total") - paid - pending - get_total_reconciliation_pending(src)
-        )
-
-        if amount > (available + 10):
-            frappe.throw(_(
-                "Maximum amount you can request is {0} (available balance)"
-            ).format(frappe.format_value(available, "Currency")))
+        _assert_within_po_balance(src, amount)
 
         # --- Step 3b: the cheque, checked BEFORE the insert (its `after_insert` commits) ---
         cheque = cheque_header({
