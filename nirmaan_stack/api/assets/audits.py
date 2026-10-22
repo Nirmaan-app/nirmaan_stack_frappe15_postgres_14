@@ -1,12 +1,13 @@
 """Monthly asset audit -- the holder sends it, a category is switched (owner, 2026-10-14).
 
-- Questions: the holder first answers the questions for the asset's category type (Project / IT). They live in
-  the dialog only (`frontend/src/utils/assetAuditQuestions.ts`, owner 2026-10-15); each answer arrives with its
-  question text, and `services/asset_audit.clean_answers` checks the shape.
-- Submit: the person who holds the asset sends the answers and a photo from their profile. The open audit on
-  their Asset Management row becomes Fulfilled, the photo goes into `audit_proof`, the answers into
-  `audit_answers` (the latest audit only), and an "Audit Fulfilled" history row keeps them for good. The audit
-  doesn't touch the asset's condition: the answers show any issue (owner, 2026-10-15).
+- Question: the holder answers "Is it working?", one question for every asset (owner, 2026-10-21). It lives in
+  the dialog only (`frontend/src/utils/assetAuditQuestions.ts`); each answer arrives with its question text, and
+  `services/asset_audit.clean_answers` checks the shape -- "No" must carry a description.
+- Submit: the person who holds the asset sends the answer from their profile -- "Yes" with optional remarks, "No"
+  with its description and, optionally, one image of the problem. No photo is required. The open audit on their
+  Asset Management row becomes Fulfilled, an image goes into `audit_proof`, the answers into `audit_answers` (the
+  latest audit only), and an "Audit Fulfilled" history row keeps them for good. The audit doesn't touch the asset's
+  condition: the answers show any issue (owner, 2026-10-15).
 - Category switch: ticking a category's "Monthly audit required" opens the cycle month's audits of its assets
   at once (the Asset Category hook); unticking leaves open audits to be sent and stops new ones.
 
@@ -42,30 +43,31 @@ ANSWERS_FIELD = "audit_answers"
 
 
 @frappe.whitelist(methods=["POST"])
-def submit_audit(assignment: str, photo: str, remarks: str | None = None, answers: str | list | None = None) -> dict:
+def submit_audit(
+    assignment: str, photo: str | None = None, remarks: str | None = None, answers: str | list | None = None
+) -> dict:
     """Send the audit for an asset the signed-in person holds.
 
-    The photo is uploaded first as a private file attached to nothing (the holder can't write Asset
+    An image, when sent, is uploaded first as a private file attached to nothing (the holder can't write Asset
     Management, so Frappe's upload can't attach it); this claims it for the assignment. Only a file the
     caller uploaded, not yet attached elsewhere, can be claimed.
 
     Args:
         assignment: the Asset Management row with the open audit.
-        photo: the uploaded photo's file_url.
+        photo: the uploaded image's file_url; optional (the dialog offers one only under "No, it is not working").
         remarks: anything else the holder wants to say; optional.
-        answers: [{"id", "q": <the question>, "a": <the choice>, "flag": <1 on a red answer>, "text": <optional
-            note, red answers>}], one per question the dialog asked; a JSON string or a list. Saved as
-            {"answers": [...]} on the assignment and the history row (`services/asset_audit.clean_answers`).
+        answers: [{"id", "q": <the question>, "a": <the choice>, "flag": <1 on a red answer>, "text": <the
+            description, required on a red answer>}], one per question the dialog asked; a JSON string or a list.
+            Saved as {"answers": [...]} on the assignment and the history row (`services/asset_audit.clean_answers`).
 
     Returns:
         {"assignment": <name>, "audit_status": "Fulfilled"}
 
     Example:
         POST /api/method/nirmaan_stack.api.assets.audits.submit_audit
-        {"assignment": "k72sevcfkp", "photo": "/private/files/tab.jpg", "remarks": "Kept in the site office",
-         "answers": [{"id": "who", "q": "Who is using this device?", "a": "Only me, for work"},
-                     {"id": "damage", "q": "Is it damaged anywhere?", "a": "Badly damaged: cracked or broken",
-                      "flag": 1, "text": "Screen cracked"}]}
+        {"assignment": "k72sevcfkp", "photo": "/private/files/tab.jpg",
+         "answers": [{"id": "working", "q": "Is it working?", "a": "No, it is not working", "flag": 1,
+                      "text": "Screen stays black"}]}
     """
     user = frappe.session.user
     if not frappe.db.exists(ASSET_MANAGEMENT_DOCTYPE, assignment):
@@ -81,8 +83,8 @@ def submit_audit(assignment: str, photo: str, remarks: str | None = None, answer
 
     _check_holder(row.asset, row.asset_assigned_to)
 
-    photo = (photo or "").strip()
-    refusal = submit_refusal(row.audit_status, bool(photo))
+    photo = (photo or "").strip() or None
+    refusal = submit_refusal(row.audit_status)
     if refusal:
         frappe.throw(refusal)
     try:
@@ -95,7 +97,8 @@ def submit_audit(assignment: str, photo: str, remarks: str | None = None, answer
     # Stored as {"answers": [...]}: Frappe reads a JSON column back as Python, and refuses a *list* in a JSON
     # field on the row's next save (a Return, an Edit) -- an object saves fine.
     answers_json = json.dumps({"answers": saved_answers}, ensure_ascii=False)
-    _claim_photo(photo, user, row.name)
+    if photo:
+        _claim_photo(photo, user, row.name)
 
     # set_value skips the Asset Management hooks (holder + declaration history: unchanged here). Nothing is
     # derived from these fields, so no recompute is skipped.
@@ -115,7 +118,7 @@ def submit_audit(assignment: str, photo: str, remarks: str | None = None, answer
         row.asset,
         AUDIT_FULFILLED_EVENT,
         assigned_to=user,
-        declaration=photo,  # the history row's file field; the event says it is the audit proof
+        declaration=photo,  # the history row's file field (empty when no image was sent); the event says it is the audit's
         reason=fulfilled_text(row.audit_month, remarks),
         audit_answers=answers_json,
     )
@@ -164,7 +167,7 @@ def _check_holder(asset: str, assigned_to: str) -> None:
 
 
 def _claim_photo(file_url: str, user: str, assignment: str) -> None:
-    """Attach the caller's uploaded photo to the assignment's `audit_proof`.
+    """Attach the caller's uploaded image to the assignment's `audit_proof`.
 
     `set_value` on File skips File's hooks on purpose: only the attachment link changes, not the stored
     object (as `move_files_to_asset` does). On Unassign that hook moves it, with the declaration, to the
@@ -182,10 +185,10 @@ def _claim_photo(file_url: str, user: str, assignment: str) -> None:
         or (f.attached_to_doctype == ASSET_MANAGEMENT_DOCTYPE and f.attached_to_name == assignment)
     ]
     if not claimable:
-        frappe.throw("The photo wasn't found. Add it again, then submit.")
+        frappe.throw("The image wasn't found. Add it again, then submit.")
     file = claimable[0]
     if not (file.file_name or "").lower().endswith(AUDIT_PHOTO_EXTENSIONS):
-        frappe.throw("The proof must be a photo (JPG, PNG, WEBP or HEIC).")
+        frappe.throw("The image must be a photo (JPG, PNG, WEBP or HEIC).")
     frappe.db.set_value(
         "File",
         file.name,

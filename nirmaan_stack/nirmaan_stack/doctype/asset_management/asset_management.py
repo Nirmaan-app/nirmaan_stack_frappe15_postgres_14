@@ -30,12 +30,14 @@ class AssetManagement(Document):
 		self.check_fulfilled_audit()
 
 	def check_fulfilled_audit(self):
-		"""An audit is Fulfilled only with a photo and the answers to its questions (owner, 2026-10-15).
+		"""An audit is Fulfilled only with the answers to its question (owner, 2026-10-15) -- a "No" with its
+		description -- and an image only if it is a photo. No photo is required (owner, 2026-10-21).
 
-		The Submit audit dialog sends both through `api/assets/audits.submit_audit`, which checks them and writes
+		The Submit audit dialog sends them through `api/assets/audits.submit_audit`, which checks them and writes
 		with `set_value` (no validate). This is the same rule on the record, for every other save -- the REST API,
 		Desk -- so an audit can't be marked done by setting `audit_status` alone. A save that leaves the audit as
-		it was (a return, a declaration) isn't checked: audits sent before the questions existed have no answers.
+		it was (a return, a declaration) isn't checked: audits sent before the questions existed have no answers,
+		and a red answer sent before 2026-10-21 may have no description.
 		"""
 		if self.audit_status != AUDIT_FULFILLED:
 			return
@@ -47,12 +49,14 @@ class AssetManagement(Document):
 			and _answers_of(before.audit_answers) == _answers_of(self.audit_answers)
 		):
 			return
-		if not _is_photo_file(self.audit_proof):
-			frappe.throw("An audit can be marked Fulfilled only with a photo of the asset. Send it from Submit audit.")
+		if self.audit_proof and not _is_photo_file(self.audit_proof):
+			frappe.throw("An audit's image must be a photo (JPG, PNG, WEBP or HEIC). Send it from Submit audit.")
 		_, refusal = clean_answers(_answers_of(self.audit_answers))
 		if refusal:
+			# The specific reason too (code review #7): "Describe the problem under ..." says more than "answers".
 			frappe.throw(
-				"An audit can be marked Fulfilled only with the answers to its questions. Send it from Submit audit."
+				f"An audit can be marked Fulfilled only with the answers to its question. {refusal} "
+				"Or send it from Submit audit."
 			)
 
 	def mark_received(self):

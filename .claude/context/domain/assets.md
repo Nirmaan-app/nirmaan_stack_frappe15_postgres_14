@@ -80,21 +80,24 @@ The detailed rules live in the code's own docstrings, cited below; this page is 
   text has `for MM/YYYY` in its place (`services/asset_audit.for_month_pattern`; remarks never count).
 - **No missed count is shown** (owner rejected "N missed"). Overdue = `audit_overdue_since`, the first month of an
   unbroken run of misses, cleared when an audit is sent. Never red during the grace days.
-- **The questions live ONLY in the frontend:** `frontend/src/utils/assetAuditQuestions.ts`, one fixed set per
-  category type (Project / IT), 4 questions each, plain wording (owner, 2026-10-15). No JSON file, no server copy,
-  no questions endpoint.
+- **One question, and it lives ONLY in the frontend:** `frontend/src/utils/assetAuditQuestions.ts` asks every asset,
+  Project and IT alike, "Is it working?" -- "Yes, it is working" / "No, it is not working" (owner, 2026-10-21; before,
+  4 questions per category type). No JSON file, no server copy, no questions endpoint.
   - Each answer is sent WITH its question and choice text (`[{id, q, a, flag?, text?}]`) and kept as sent, so
     rewording a question never changes an old audit.
   - The server checks the SHAPE only (`services/asset_audit.clean_answers`: 1–10 answers, id/q/a present, ≤300
     characters, no id twice, a note ≤200 characters kept only on a red answer).
-  - A red (`flag`) choice opens an optional one-line note.
+  - "No" (the red, `flag` choice) needs a description: the dialog keeps Submit off and `clean_answers` refuses it
+    without one -- also on a direct save that changes the audit, never on an unrelated save, so older audits whose
+    red answers had no note still save.
 - **The audit never sets the asset's condition** (owner, 2026-10-15): the answers show any issue and managers read
   them. Old history rows that start with a condition (`Poor · was Good · for 11/2026`) are still read correctly.
 - **Answers are stored as `{"answers": [...]}`, never a bare list** — on the assignment (latest audit, replaced
   each month, gone on unassign) and on the month's "Audit Fulfilled" history row. A bare list breaks every later
   save of the document (root `CODING_STANDARDS.md` § Writing backend Python, the JSON-field gotcha).
-- **A photo is required; remarks are optional.** The photo is kept in the history row's `declaration` field
-  (labelled "File").
+- **No photo is required** (owner, 2026-10-21). "Yes" offers optional remarks and no image; "No" offers one optional
+  image of the problem, for reference, instead of the remarks. An image is kept in `audit_proof` and in the history
+  row's `declaration` field (labelled "File"); an audit without one simply shows no View photo link.
 
 ## Doctypes
 
@@ -134,12 +137,12 @@ text order.
 |---|---|
 | `src/pages/Assets/AssetsPage.tsx`, `AssetsRoute.tsx` | The Assets page and its route guard (`canViewAssets`) |
 | `src/pages/Assets/utils/permissions.ts` | Every asset permission; mirrors `services/role_profiles.py` |
-| `src/pages/Assets/components/SubmitAuditDialog.tsx` | The holder's audit form (questions, photo, remarks) |
+| `src/pages/Assets/components/SubmitAuditDialog.tsx` | The holder's audit form (the question; remarks on Yes, description + optional image on No) |
 | `src/pages/Assets/components/AssetAuditList.tsx`, `AuditFulfilledList.tsx` | Asset Audit tab: Pending / Fulfilled (List and Answers views) |
 | `src/pages/Assets/components/AssetHistoryList.tsx` (+ `hooks/useAssetHistoryFacets.ts`) | History tab: server data table, header filters with counts |
 | `src/pages/Assets/components/AssetHistoryCard.tsx`, `AuditAnswers.tsx`, `AuditStatusRow.tsx` | The asset page's history, the answers dialog, the audit line on a card |
 | `src/pages/users/components/UserAssetsTab.tsx` | The holder's profile cards |
-| `src/utils/assetAuditQuestions.ts` | The audit questions (the only copy) |
+| `src/utils/assetAuditQuestions.ts` | The audit question (the only copy) |
 | `src/utils/appAccess.ts`, `src/hooks/useAppAccess.ts`, `src/components/layout/AppAccessGate.tsx`, `AccessBlockedCard.tsx` | The app access gate: pending asset tasks (and no project) lock the app |
 | `src/utils/assetAudit.ts`, `assetHistory.ts` | Audit / history display rules (cycle mirrors `services/asset_audit.py`) |
 
