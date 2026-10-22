@@ -164,9 +164,10 @@ permission_query_conditions = {
 # ---------------
 # Override standard doctype classes
 
-# override_doctype_class = {
-# 	"ToDo": "custom_app.overrides.CustomToDo"
-# }
+override_doctype_class = {
+    # A PDF that can't be read is refused with a readable message, not a raw 500 (spec #1528 walk 3).
+    "File": "nirmaan_stack.integrations.controllers.file.NirmaanFile",
+}
 
 # Document Events
 # ---------------

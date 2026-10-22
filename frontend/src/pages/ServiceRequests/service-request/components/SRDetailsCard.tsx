@@ -310,11 +310,12 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
               <p className="text-sm">{orderData?.modified ? formatDate(orderData.modified) : "--"}</p>
             </div>
 
-            {/* Approved: the stored first approval (#1532), not the last edit */}
-            {orderData?.status === "Approved"  && (
+            {/* Approved: the stored first approval (#1532), not the last edit; shown whenever there is one,
+                so a Work Order under amendment (or Finalized) still says when and by whom it was approved */}
+            {orderData?.approved_on && (
               <div className="space-y-0.5">
                 <p className="text-xs text-gray-500">Approved</p>
-                <p className="text-sm">{orderData?.approved_on ? formatDate(orderData.approved_on) : "--"}</p>
+                <p className="text-sm">{formatDate(orderData.approved_on)}</p>
                 {approvedBy && (
                   <p className="text-xs text-gray-400">by {approvedBy}</p>
                 )}

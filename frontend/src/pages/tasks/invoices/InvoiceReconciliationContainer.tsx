@@ -5,6 +5,7 @@ import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
 import { canActionInvoiceApprovals, canViewPendingInvoiceUploads } from '@/constants/roles';
 import { urlStateManager } from '@/utils/urlStateManager';
+import { useLocation } from 'react-router-dom';
 
 const InvoiceSummaryCards = React.lazy(() => import('./components/InvoiceSummaryCards'));
 const TaskHistoryTable = React.lazy(() => import('./components/TaskHistoryTable'));
@@ -51,6 +52,16 @@ export default function InvoiceReconciliationContainer() {
         });
         return unsubscribe; // Cleanup subscription
     }, [initialTab]); // Depend on `tab` to avoid stale closures
+
+    // A link into this page while it is open (a notification such as "Signed invoice uploaded", the sidebar)
+    // is a router navigation: it neither fires popstate (so the subscription above misses its `?tab=`) nor
+    // remounts the table (so the list stays as it was loaded, without the new invoice). Each navigation has
+    // its own `location.key`; tab clicks and the tables' own URL sync use replaceState and keep it.
+    const location = useLocation();
+    useEffect(() => {
+        const urlTab = new URLSearchParams(location.search).get("tab");
+        if (urlTab) setTab(urlTab);
+    }, [location.key]);
 
 
     // Filter task tabs based on role: approvals = Admin/Accountant/Accountant Lead;
@@ -126,7 +137,7 @@ export default function InvoiceReconciliationContainer() {
                 </Suspense>
             </div>
 
-                <Suspense fallback={
+                <Suspense key={location.key} fallback={
                     <LoadingFallback />
                 }>
                     {tab==="history" &&(
