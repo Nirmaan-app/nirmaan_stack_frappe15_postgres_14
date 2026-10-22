@@ -8,8 +8,10 @@
  * Deduction" and its legacy route was deliberately `/payment-tds-deductions`, NOT `/tds-…`, so the
  * two families never collide in the URL space either.
  *
- * The rows are written by `services/payment_tds.py` when an SR-backed payment reaches `Approved`.
- * This screen only READS them — there is no create, edit or delete path here, because a deduction
+ * The rows are written by `services/payment_tds.py` when an SR-backed payment is approved, and by
+ * `services/expense_tds.py` when an Office Rent expense is (194-I, #1525). A rent row shows its
+ * landlord and PAN in the Vendor column and its expense in the Payment and Service Request columns
+ * (`utils/tdsRegisterRow`). This screen only READS them — there is no create, edit or delete path here, because a deduction
  * has no reversal (owner ruling 2026-09-10): it is deleted with the payment it belongs to.
  */
 
@@ -25,6 +27,7 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { paymentHref } from "@/pages/ProjectPayments/config/projectPaymentsTable.config";
 import { PaymentTDSDeduction } from "@/types/NirmaanStack/PaymentTDSDeduction";
 import { deductionNetPaid } from "../deductionNetPaid";
+import { tdsDeductee, tdsDeducteeText, tdsRowSource } from "@/utils/tdsRegisterRow";
 
 export const DOCTYPE = "Payment TDS Deduction";
 
@@ -57,6 +60,10 @@ export type PaymentTDSDeductionRow = PaymentTDSDeduction & {
 export const PAYMENT_TDS_FIELDS_TO_FETCH: string[] = [
     "name",
     "project_payment",
+    // An Office Rent row (#1525): its expense, and the landlord it was withheld from.
+    "non_project_expense",
+    "deductee_name",
+    "deductee_pan",
     "document_type",
     "document_name",
     "vendor",
@@ -67,6 +74,7 @@ export const PAYMENT_TDS_FIELDS_TO_FETCH: string[] = [
     // Net Paid reads it: a company-paid row's vendor got the whole gross (#1543).
     "borne_by",
     "payment_approved_on",
+    "tds_section",
     // Drives the Status column AND the Pay-TDS selection gate (only `Pending` rows are selectable),
     // so a missing fetch here would silently make every row unselectable.
     "status",
@@ -76,6 +84,9 @@ export const PAYMENT_TDS_FIELDS_TO_FETCH: string[] = [
 export const PAYMENT_TDS_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "name", label: "Deduction ID", placeholder: "Search by Deduction ID...", default: true },
     { value: "project_payment", label: "Payment ID", placeholder: "Search by Payment ID..." },
+    { value: "non_project_expense", label: "Expense ID", placeholder: "Search by Expense ID..." },
+    { value: "deductee_name", label: "Landlord", placeholder: "Search by Landlord..." },
+    { value: "deductee_pan", label: "Landlord PAN", placeholder: "Search by Landlord PAN..." },
     { value: "document_name", label: "Service Request", placeholder: "Search by SR ID..." },
     { value: "vendor", label: "Vendor ID", placeholder: "Search by Vendor ID..." },
     { value: "project", label: "Project ID", placeholder: "Search by Project ID..." },
@@ -134,6 +145,21 @@ const UNSORTABLE_NUMERIC_HEADER_CLASS = "flex-1 text-right";
 
 /** The parent ledger whose rows carry an SR deep-link. Mirrors `payment_tds.DEDUCTIBLE_PARENTS`. */
 const SERVICE_REQUESTS = "Service Requests";
+
+/**
+ * A link to the payment or expense a row's tax was withheld on, in the payments queue's All Payments
+ * tab, which lists Project Payments and both expense ledgers and searches them by name.
+ *
+ * `isPaid: false` on purpose -- the deduction row does not carry its source's status, and that
+ * argument only picks which TAB to land on. `false` selects "All Payments", which carries no status
+ * filter and therefore always contains the row; passing `true` would filter to Paid and land an
+ * Approved payment on an empty table.
+ */
+const SourceLink = ({ name }: { name: string }) => (
+    <Link to={paymentHref(name, false)} className="text-blue-600 hover:underline tabular-nums whitespace-nowrap">
+        {name}
+    </Link>
+);
 
 interface ColumnFactoryArgs {
     getProjectName: (projectId?: string) => string;
@@ -199,6 +225,21 @@ export const getPaymentTdsColumns = ({
         },
     },
     {
+        accessorKey: "tds_section",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Section" />,
+        // The Income Tax section, set once when the row is written (#1523): 194C on a Work Order
+        // payment, 194-I on an Office Rent expense. Every row from before the field reads 194C.
+        cell: ({ row }) => (
+            <span className="tabular-nums whitespace-nowrap">{row.original.tds_section || "--"}</span>
+        ),
+        filterFn: facetedFilterFn,
+        meta: {
+            exportHeaderName: "Section",
+            exportValue: (row: PaymentTDSDeductionRow) => row.tds_section || "--",
+            facet: { field: "tds_section", title: "Section" } satisfies FacetDeclaration,
+        },
+    },
+    {
         accessorKey: "project",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
         cell: ({ row }) =>
@@ -222,21 +263,32 @@ export const getPaymentTdsColumns = ({
     {
         accessorKey: "vendor",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Vendor" />,
-        cell: ({ row }) =>
-            row.original.vendor ? (
-                <Link
-                    to={`/vendors/${row.original.vendor}`}
-                    className="text-blue-600 hover:underline"
-                >
-                    {row.original.vendor_name || getVendorName(row.original.vendor)}
+        // A Work Order row names its vendor; an Office Rent row names the landlord and PAN snapshotted
+        // when the tax was withheld (#1525). The facet lists vendors only.
+        cell: ({ row }) => {
+            const deductee = tdsDeductee(row.original);
+            if (!deductee) return <span className="text-muted-foreground">--</span>;
+            if (deductee.kind === "landlord") {
+                return (
+                    <div className="leading-tight">
+                        <div>{deductee.name}</div>
+                        {deductee.pan && (
+                            <div className="text-xs text-muted-foreground tabular-nums">PAN {deductee.pan}</div>
+                        )}
+                    </div>
+                );
+            }
+            return (
+                <Link to={`/vendors/${deductee.vendor}`} className="text-blue-600 hover:underline">
+                    {row.original.vendor_name || getVendorName(deductee.vendor)}
                 </Link>
-            ) : (
-                <span className="text-muted-foreground">--</span>
-            ),
+            );
+        },
         filterFn: facetedFilterFn,
         meta: {
             exportHeaderName: "Vendor",
-            exportValue: (row: PaymentTDSDeductionRow) => row.vendor_name || getVendorName(row.vendor),
+            exportValue: (row: PaymentTDSDeductionRow) =>
+                tdsDeducteeText(row, (vendor) => row.vendor_name || getVendorName(vendor)),
             facet: { field: "vendor", title: "Vendor" } satisfies FacetDeclaration,
         },
     },
@@ -245,6 +297,10 @@ export const getPaymentTdsColumns = ({
         header: ({ column }) => <DataTableColumnHeader column={column} title="Service Request" />,
         cell: ({ row }) => {
             const { document_name, document_type } = row.original;
+            // An Office Rent row has no Work Order: it shows its expense here too, because the Payment
+            // column, where its expense sits, is hidden by default.
+            const source = tdsRowSource(row.original);
+            if (source?.kind === "expense") return <SourceLink name={source.name} />;
             if (!document_name) return <span className="text-muted-foreground">--</span>;
             // Only an SR has a route here. A future non-SR parent renders as plain text rather
             // than a link that 404s -- see the note on PAYMENT_TDS_FIELDS_TO_FETCH.
@@ -262,27 +318,20 @@ export const getPaymentTdsColumns = ({
         },
         meta: {
             exportHeaderName: "Service Request",
-            exportValue: (row: PaymentTDSDeductionRow) => row.document_name || "--",
+            exportValue: (row: PaymentTDSDeductionRow) => row.document_name || row.non_project_expense || "--",
         },
     },
     {
         accessorKey: "project_payment",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Payment" />,
-        cell: ({ row }) => (
-            // `isPaid: false` on purpose -- the deduction row does not carry the payment's status,
-            // and that argument only picks which TAB to land on. `false` selects "All Payments",
-            // which carries no status filter and therefore always contains the row; passing `true`
-            // would filter to Paid and land an Approved payment on an empty table.
-            <Link
-                to={paymentHref(row.original.project_payment, false)}
-                className="text-blue-600 hover:underline tabular-nums whitespace-nowrap"
-            >
-                {row.original.project_payment}
-            </Link>
-        ),
+        // A Work Order row names its payment; an Office Rent row names its Non-Project Expense (#1525).
+        cell: ({ row }) => {
+            const source = tdsRowSource(row.original);
+            return source ? <SourceLink name={source.name} /> : <span className="text-muted-foreground">--</span>;
+        },
         meta: {
             exportHeaderName: "Payment",
-            exportValue: (row: PaymentTDSDeductionRow) => row.project_payment,
+            exportValue: (row: PaymentTDSDeductionRow) => tdsRowSource(row)?.name || "--",
         },
     },
     {

@@ -20,8 +20,7 @@ import {
 } from "./approvalTiers";
 
 // The Python module is the authority; this mirror exists only to describe the outcome to
-// the user. The PARITY block below reads that file so the two cannot drift silently --
-// which is what `expenseApproval.test.ts` claims to do in its header but never actually did.
+// the user. The PARITY block below reads that file so the two cannot drift silently.
 const PY_SOURCE = readFileSync(
   resolve(__dirname, "../../../nirmaan_stack/services/approval_tiers.py"),
   "utf-8"

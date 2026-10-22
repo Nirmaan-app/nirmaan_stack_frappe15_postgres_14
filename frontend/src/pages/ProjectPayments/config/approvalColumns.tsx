@@ -31,6 +31,8 @@ import {
 import { ExpenseBankLinesPopover } from "../components/ExpenseBankLinesPopover";
 import { GstPaymentTag } from "../components/GstPaymentTag";
 import { partReconciled } from "../components/expenseBankLinesView";
+import { ExpenseTdsBreakdown } from "@/components/common/ExpenseTdsBreakdown";
+import { shownExpenseTds } from "@/utils/expenses/expenseTds";
 import { cn } from "@/lib/utils";
 import { paidToCell, paidToExportText, rowEligibility } from "@/utils/payees/paidTo";
 
@@ -670,8 +672,10 @@ const REGISTRY: Record<
         remaining: r.remaining_amount,
       });
       // The full bill, whatever the status (#1541): an approved payment's stored amount is already cut
-      // by its TDS, so what is paid is said under it.
+      // by its TDS, so what is paid is said under it. An Office Rent expense's Rent / TDS / Net (#1527):
+      // forecast while it waits, the stored record after; every other row draws nothing for it.
       const requested = r.requested_amount ?? r.amount;
+      const tds = shownExpenseTds({ type: r.expense_type, amount: r.amount, status: r.status, withheld: r.withheld_tds });
       const figure = (
         <div className="pr-2 text-right tabular-nums">
           <div className="font-medium">{formatToRoundedIndianRupee(requested)}</div>
@@ -680,6 +684,7 @@ const REGISTRY: Record<
               To be paid {formatToRoundedIndianRupee(r.amount)}
             </div>
           )}
+          <ExpenseTdsBreakdown shown={tds} />
           {part && (
             <div className="text-[10px] leading-tight">
               <div className="text-green-700">{part.reconciled} reconciled</div>

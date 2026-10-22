@@ -38,7 +38,9 @@ a payment with no tax row was netted 50,000 → 49,000 by an unreconcile, and a 
 all ("Leftover taxed"), and **nothing in the app can remove a tax row**.
 
 **Where it lives.** `payment_tds.is_approval_from_an_earlier_step(previous, new)` — pure, no database —
-with exactly ONE call site, `controllers/project_payments.on_update`. ⚠️ **The insert path is
+with ONE call site per ledger: `controllers/project_payments.on_update` for a Work Order payment, and
+`expense_tds.withholds_now` (asked by `controllers/expense_tds.on_update`) for an Office Rent expense
+(§ One tax record, two sources). ⚠️ **The insert path is
 deliberately NOT routed through it**: an insert has no previous status, so the predicate answers False,
 which is right for a transition and would be wrong for an insert. `after_insert` calls
 `record_deduction_if_eligible` directly.
@@ -127,12 +129,16 @@ figure — the company pays the tax on top:
   and `payment_tds` blank. Approving it again takes the tax afresh from the gross.
 - **Pay TDS takes tax only from Paid payments** (`pay_tds._refuse_unpaid_payments`, inside the lock).
   The register still lists an Approved payment's deduction as Pending, and selecting it is refused.
+  An Office Rent expense's row names no payment and is not checked (§ withholding from an Office Rent
+  expense).
 - **A deduction is locked once in a challan, correctable before** (`controllers/payment_tds_deduction`):
   `validate` refuses any change to a row with `tds_challan` and any hand-written `status` /
   `tds_challan` (only Pay TDS writes those, by `set_value`), a new row included: a deduction is born
   Pending, in no challan; `on_trash` refuses deleting a deposited
   row; `on_update` (a correction, never an insert) recounts the order of a Paid payment and re-checks
-  CEO Hold, as `after_delete` does. A correction leaves the payment's amount alone.
+  CEO Hold, as `after_delete` does (an Office Rent row has no order and recounts nothing). A correction
+  leaves the payment's amount alone. The lock covers every field a person could change, the rent row's
+  `non_project_expense`, `tds_section`, `deductee_name` and `deductee_pan` included.
 - So no path removes a deduction from a challan, and `reconciled_amount` moves only when Pay TDS pays.
 
 ### Load-bearing invariants: a challan and its TDS Payment expense (#1544)
@@ -223,7 +229,7 @@ figure — the company pays the tax on top:
     deductions on the WO's **Paid** payments only, split withheld / company off `borne_tds_by_order`
     (the writer's own source), kind `withheld` / `company` / `part`; nothing paid yet → the deductions
     recorded on its other payments (any status), and only with none → the category rule (#1537). There is no separate TDS tile. The same answer carries `payments`
-    (`payment_tds.work_order_deductions`: each payment's `tds_amount` and `borne_by`, any status) for
+    (`payment_tds.order_deductions`: each payment's `tds_amount` and `borne_by`, any status) for
     the WO page's transactions table TDS column.
   - **The vendor-level figures read the same split per payment (#1512)**, off
     `payment_tds.paid_borne_tds_sql` (one row per Paid payment's deduction, `vendor_borne_tds` /
@@ -316,13 +322,204 @@ letter decides it (owner, 2026-10-16):
 
 ---
 
+## One tax record, two sources: a Work Order payment or an Office Rent expense (spec #1522)
+
+### Load-bearing invariants: which rows a reader counts
+
+- **A row names EXACTLY ONE source:** `project_payment` (a Work Order payment's tax, section **194C**)
+  or `non_project_expense` (an Office Rent expense's tax, section **194-I**), never both, never neither.
+  ONE rule, `payment_tds.deduction_link_problem` (pure), run on every doc-layer save by
+  `controllers/payment_tds_deduction.validate`; the message says which case it is. Both links are
+  UNIQUE, so one payment or one expense carries at most one row.
+- ⚠️ **EVERY WORK ORDER, PO, VENDOR OR PROJECT READER JOINS THROUGH `project_payment`**, never filters on
+  the row's snapshot `vendor` / `project` / `document_type` / `document_name`: `total_tds_of` (total TDS,
+  Amount Paid's recount) and `counted_deductions_sql`, the one source of recorded tax (an INNER JOIN on
+  the payment), which `paid_borne_tds_sql` / `borne_tds_by_order` (Amount Paid, Amount Due, the mismatch
+  judge), `order_deductions` / `work_order_tds_borne` (the WO page), `paid_payment_deductions` (the WO
+  Payment Voucher report), `borne_tds_by_payment` (the Vendor Ledger), `services/vendor_paid` and
+  `order_payments.load_payments` (the request caps, the payment summary) all read.
+  So an expense row moves no Work Order figure and no project outflow (`project_money` reads no tax at
+  all). A new reader must do the same. `existing_deduction` answers None for a blank payment name, so
+  a blank filter can never match an expense row.
+- **Readers of EVERY row, on purpose:** the challan total (`recompute_challan_reconciled`), Pay TDS
+  (`api/tds_challan/pay_tds`) and the TDS register. Both kinds are paid under the same challans. Pay TDS
+  checks a Work Order or PO row's payment is *Paid* (#1535, spec #1528 story 39); a rent row names no
+  payment and is payable from approval on (merge of spec #1528 with #1522; owner to confirm).
+- **`tds_section`** is set once when the row is created (`write_deduction` writes 194C); the Select
+  options are `payment_tds.TDS_SECTIONS`, pinned by test. The register shows it as the Section column,
+  with a facet.
+- **`deductee_name` / `deductee_pan`** hold the landlord on a rent row; empty on a Work Order row, which
+  names its vendor.
+- Pinned by `services/test_tds_expense_records` (a rent row naming the SAME vendor, project and Work
+  Order as a taxed payment, one of them Company-borne, leaves every Work Order and project figure as it
+  was) and `services/test_tds_record_shape`.
+- **The frontend's copy of the rent rule is ONE module, `frontend/src/utils/expenses/expenseTds.ts`**
+  (#1524): `OFFICE_RENT_TDS` (Office Rent, 10%, 194-I) and `expenseTdsSplit(type, amount)` → gross /
+  rate / tds / net, rounded like `flt(x, 2)`; zero tax for every other type and for a zero or a refund.
+  A forecast only, never sent. The New Expense preview reads it (`tdsPreviewLine`), and the approval
+  screens and the Expense page read it through `shownExpenseTds` (#1527, below). ⚠️ The server's own constant,
+  `services/expense_tds.OFFICE_RENT_TDS` (#1525), is its twin, pinned by the parity block in
+  `expenseTds.test.ts`: change both or neither.
+
+### Load-bearing invariants: withholding from an Office Rent expense (#1525)
+
+- **WHICH: one constant, `services/expense_tds.OFFICE_RENT_TDS`** — type `Office Rent`, rate 10, section
+  `194-I`, and the request answer keys naming the deductee (`landlord_name`, `landlord_pan`, Office
+  Rent's form; pinned to the fixture by `services/test_expense_tds_rule`). `tds_rule_for` answers None
+  for every other type, so no other expense withholds anything. No Expense Type field (owner ruling).
+- **WHEN: the Work Order rule, reused, never restated** — `expense_tds.withholds_now(doctype, type,
+  previous, new, inserted=...)`: a `Non Project Expenses` row of a type with a rule, approved FROM AN
+  EARLIER STEP (`is_approval_from_an_earlier_step`: Requested / CEO Pending → Approved, which only
+  `expense_decision.decide` writes), or INSERTED at Approved (auto-approved under ₹15,000, or the
+  raiser's / an L1 reviewer's own step clearing every approval). Hooks: `controllers/expense_tds`
+  `after_insert` (born Approved) and `on_update` (a transition; the `on_update` Frappe runs at the end of
+  an insert has no doc-before-save and is skipped). Reconciliation Pending / Paid → Approved is an undo
+  and withholds nothing; Bulk Import's Unreconcile lands at Reconciliation Pending anyway. A row born at
+  any other status withholds nothing: the bank-import, cashbook and Porter creates insert at Paid, so an
+  import-made Office Rent records no tax (ADR-0021).
+- **WHAT: `expense_tds.withhold_expense_tds` writes the record FIRST, then nets the amount** — record:
+  `non_project_expense`, `gross_amount` = the amount as approved, `tds_percentage` 10, `tds_amount` =
+  `flt(gross × 10 / 100, 2)`, `tds_section` 194-I, `borne_by` Vendor (the landlord's money), the
+  landlord's name and PAN (read from the originating Expense Request's `source_data`),
+  `payment_approved_on` today, status Pending. Then `doc.db_set("amount", net, update_modified=False)`:
+  no save hook re-fires, so nothing withholds twice, and the approving save's Version row records gross
+  → net. The call site names every other reader of `amount` and why none needs a recompute (Raw SQL
+  rule 1); no new Cheque can carry an expense line, so no cheque line follows it.
+- **NEVER WITHOUT THE LANDLORD (owner, 2026-10-21).** The request endpoints require the landlord's
+  name and a valid PAN on create, on edit AND at a Reviewer's approval, at any amount
+  (`create.guard_deductee_answers`, read under the rule's keys by `ExpenseTdsRule.deductee_in`; shared by
+  `update` and `review.approve_expense_request`, review batch 2): a Reviewer cannot turn a request without
+  them into an Expense no later step could approve, so the request stays Pending Approval and its raiser
+  edits it ("Office Rent needs the landlord's name and …: its 10% TDS is filed against the landlord.").
+  On the Expense, an approval that would withhold (`decide`'s `l1_approve` / `ceo_approve` landing on
+  Approved, any insert born Approved) is REFUSED while the name is blank or the PAN is not a valid one:
+  `expense_tds.refuse_without_deductee` (rule `deductee_gaps`), run by `controllers/expense_tds.validate`
+  BEFORE the row is written, so nothing of the approval lands (`decide_expenses` rolls back its row's
+  savepoint); `withhold_expense_tds` asks it again as the backstop. Only an Expense whose request was
+  raised before the requirement, one re-typed to Office Rent before approval, or one with no request
+  meets it, and none can be edited into shape (its request is decided), so its message names the way
+  out: "… Reject it and raise it again with the landlord's name and PAN." The approve dialog says so
+  before the click: `api/approvals/expense_detail` serves `deductee_missing` (the same reading, at
+  Requested and CEO Pending), the Rent / TDS / Net caption becomes "Landlord's name and PAN are missing —
+  this can't be approved" and Confirm is disabled (`expenseApprovalDetail.approvalBlocked`; the bulk
+  dialog does not check, the server refuses that row). An L1 step that only forwards to CEO Pending
+  withholds nothing and is not refused by the server. A zero or a refund needs no landlord. Both refusals
+  are literals inside `_()`. No record is ever written with a blank deductee.
+- **ONCE.** `non_project_expense` is UNIQUE and `existing_expense_deduction` returns the stored row, so
+  a re-save, a retry or a second call changes nothing and never re-nets.
+- ⚠️ **IT RAISES, unlike the Work Order route** (`record_deduction_if_eligible` logs and swallows). Each
+  caller is one approval in its own savepoint (`decide_expenses` per row) or request (the intake), so a
+  failure refuses that one approval: an Office Rent expense is never Approved at the full rent with no
+  tax record, and no swallowed DB error leaves the Postgres transaction aborted.
+- **The approval tiers read the gross.** The amount is cut only after the approval that withholds, so
+  `decide` bands every step on the full rent (₹55,000 waits at CEO Pending).
+- **After it:** the Expense's `amount` is the net, so Mark as Done, the bank file (`payees/paid_to`) and
+  Bulk Import (`expense_links`, `candidates`) see what the landlord is paid with no change of their own;
+  the Expense Request keeps its own gross `amount` (its mirror carries the status only). Non-project
+  totals sum the net.
+- **No backfill.** Office Rent expenses approved before #1525 have no record and never get one; no
+  patch writes any.
+- **Paying it:** `api/tds_challan/pay_tds` pays rent rows as it pays Work Order rows, under the same
+  challans, and the challan's `reconciled_amount` is the sum of its rows of both kinds. Its Paid-payment
+  check (#1535) reads only rows with a `project_payment`, so a rent row is payable from approval on, as
+  #1522 built it. Pinned by `api/tds_challan/test_pay_tds`.
+- **The register** (`PaymentTDSDeductions/config/paymentTdsDeductions.config.tsx`, rule
+  `utils/tdsRegisterRow`): a rent row shows its landlord and PAN in the Vendor column, and its
+  Non-Project Expense in the Payment column and, because Payment is hidden by default, in the Service
+  Request column too. The link lands on the payments queue's All Payments tab searched by name, which
+  lists expenses as well as payments. Search: Expense ID, Landlord, Landlord PAN.
+- Pinned by `api/expense_requests/test_office_rent_tds` (through the request, decision, bank-line and
+  unreconcile endpoints), `api/expense_requests/test_office_rent_landlord` (the landlord required, on
+  every approval path) and `services/test_expense_tds_rule` (pure).
+
+### Load-bearing invariants: a withheld Office Rent expense (#1526)
+
+- **ITS AMOUNT IS LOCKED, NEVER RESTATED.** `expense_tds.guard_withheld_amount`, run by the
+  `before_validate` hook `controllers/expense_tds.before_validate`, refuses any save that changes the
+  amount of an Expense with a tax record ("The tax has been withheld from …"): every person (Accountant,
+  Accountant Lead, Admin, `Administrator`) and every system writer, `ignore_permissions` included, in the
+  app and in Desk. `before_validate`, because a `doc_events` `validate` runs AFTER the doctype's own
+  `validate`, where `expense_decision.guard_hand_save` would refuse first without saying why. Other fields
+  stay under the Expense edit rules. ⚠️ Unlike a Work Order payment (§ Editing a payment that already
+  carries a deduction), an Office Rent amount is never re-derived as gross = net ÷ 0.9.
+- **THE ONE EXEMPTION: Bulk Import's single-line correction.** `settle.link_lines_to_expense`, on a 1:1
+  fill, sets `doc.flags[expense_tds.BANK_AMOUNT_CORRECTION]` beside the `rewrite_amount` write; the guard
+  passes it only within the settle window (`amounts_match`, ₹5). The record stays as withheld (a ₹89,998
+  line on a ₹90,000 Expense: amount ₹89,998, record still gross ₹1,00,000, tax ₹10,000). The flag is set
+  nowhere else. `withhold_expense_tds`'s own net is a `db_set`, which runs no `validate`.
+- **DELETE: the record goes with its Expense while its tax is on no challan; on a challan the delete is
+  refused, naming the challan.** `expense_tds.delete_with_expense`, from `controllers/expense_tds.on_trash`
+  (after `expense_bank_links.on_trash`, before Frappe's link check, which would otherwise refuse the
+  delete naming the record). It reads the record `for_update` and deletes it through `frappe.delete_doc`
+  (a Deleted Document copy stays). The record's own `on_trash` refuses a row on a challan too (#1535),
+  so the delete never moves a challan's sum. Every delete door reaches it: the app's `deleteDoc` (Non-Project
+  Expenses page, payments queue), Desk, REST. The Expense Request goes with the Expense as before.
+- **ITS TYPE IS LOCKED TO OR FROM OFFICE RENT ONCE APPROVED (owner, 2026-10-21).**
+  `expense_tds.guard_tds_type_change`, beside the amount lock in the same `before_validate`, refuses a
+  type change to or from a type with a rule once the stored status is past CEO Pending
+  (`TYPE_CHANGE_STATUSES` = Requested, CEO Pending): the Accountant at Approved / Reconciliation Pending,
+  Admin and the Accountant Lead at Paid (whose `PAID_EDITABLE_FIELDS` otherwise include `type`), Desk and
+  system saves alike. Before approval the type changes freely: the tax follows the type the approval
+  finds, and a re-typed rent with no landlord is refused there (above). A change between two other types
+  is not this rule's. The edit dialog (`EditNonProjectExpense`, helper `expenseTds.tdsTypeLock`) shows
+  the same lock: an Office Rent expense's type select is disabled with a one-line reason, and another
+  type's expense does not offer Office Rent ("not after approval"); the server stays the authority.
+- Pinned by `api/expense_requests/test_office_rent_tds_lock` (the edit through `frappe.client.set_value`,
+  the bank line through `link_rows_to_expense`, Pay TDS, the delete through `frappe.client.delete`) and
+  `test_office_rent_type_lock` (the type, per status and editor).
+
+### Load-bearing invariants: what the expense screens show (#1527)
+
+- **Rent / TDS / Net, under an Office Rent expense's amount**, to whoever sees the expense: the payments
+  queue's Amount cell on every tab (Approve Payments, CEO Pending, Payment need to paid, the Paid and
+  All tabs), the expense Approve / Reject dialog, the request page (`/expense/requests/<name>`), the
+  Expenses list and the Non-Project Expenses page. ONE rule decides what each shows,
+  `frontend/src/utils/expenses/expenseTds.shownExpenseTds({type, amount, status, withheld})`, drawn by
+  `components/common/ExpenseTdsBreakdown`; any other expense draws nothing.
+  - **A stored record wins:** its `gross_amount`, rate and `tds_amount`, and Net = gross − tax. Never
+    the Expense's amount, so Bulk Import's few-rupee correction leaves the three figures as withheld.
+  - **No record, before approval** (`BEFORE_APPROVAL_STATUSES`: an Expense at Requested or CEO Pending,
+    or a request Pending Approval with no Expense): a forecast from the amount, which is still the full
+    rent. ⚠️ Never at any later status: the amount is the net by then, and a forecast would take the tax
+    off twice. An Office Rent approved before #1525 (no record) shows nothing.
+  - **The section printed is the record's own `tds_section`** (`ShownExpenseTds.section`); a forecast
+    prints the rule's (`OFFICE_RENT_TDS.section`).
+  - **The request page keeps "Raised for ₹<the request's amount>"** under the Expense's amount whenever
+    they differ, a withheld rent included (story 27): the Expense carries the net, the request the full
+    rent asked for (`expenseTds.raisedForAmount`).
+- ⚠️ **THE FIGURES REACH THE SCREENS THROUGH THE EXPENSE APIs, NEVER THE DOCTYPE.** `Payment TDS
+  Deduction` is read by the Accountant roles and System Manager only (an HR approver cannot read it),
+  and its permissions stay so. ONE reader, `services/expense_tds.withheld_tds_of(names)` (one query,
+  read past the record's permission), serves `withheld_tds` = `{gross_amount, tds_percentage,
+  tds_amount, tds_section}` or None; the endpoints that hold rows of either ledger ask it through
+  `withheld_tds_by_expense((doctype, name) pairs)`, keyed `(doctype, name)`, so none of them branches on
+  the ledger: `get_approval_queue`, `expense_detail.get_expense_approval_detail`,
+  `standing.get_request_standing` and
+  `read.get_expense_request` (`standing.withheld_tds`), and `api/approvals/expense_tds.get_withheld_tds`
+  (the Non-Project Expenses page and edit dialog, which hold only the Expense; refused without read on
+  Non Project Expenses, and answers only the rows the caller may read). Each endpoint has already
+  checked its caller may read the Expense or its request.
+- **Before approval every API serves `withheld_tds` None, by decision:** nothing was withheld, and the
+  screen forecasts from the type, amount and status the same answer carries.
+- **The edit dialog locks the amount of an Expense with a record** (`EditNonProjectExpense`, from
+  `get_withheld_tds`): disabled, "10% TDS has been withheld; the amount is locked", and never sent, so
+  nobody meets #1526's server refusal from the app.
+- Pinned by `api/expense_requests/test_office_rent_tds_shown` (an HR Lead, who cannot read the record,
+  through each endpoint: before approval, after it, after a bank line's correction, another type) and
+  the `shownExpenseTds` block of `expenseTds.test.ts`.
+
+---
+
 ## The two doctypes
 
-**`Payment TDS Deduction`** — one deduction, one payment.
+**`Payment TDS Deduction`** — one deduction, one payment or one Non-Project Expense.
 
 | Field | Note |
 |---|---|
-| `project_payment` | Link → Project Payments. **UNIQUE, and that constraint IS the idempotency guarantee** — only the first qualifying approval can write a row, which is also what stops the amount being netted twice. |
+| `project_payment` | Link → Project Payments, on a Work Order row (empty on an expense row). **UNIQUE, and that constraint IS the idempotency guarantee** — only the first qualifying approval can write a row, which is also what stops the amount being netted twice. |
+| `non_project_expense` | Link → Non Project Expenses, on an Office Rent row (empty on a Work Order row). **UNIQUE**, the once-only guarantee for an expense. Exactly one of the two links is set (§ One tax record). |
+| `tds_section` | `194C` (Work Order payment) / `194-I` (Office Rent). Read-only, default `194C`, set once at creation. |
+| `deductee_name`, `deductee_pan` | The landlord on a rent row, snapshotted from the request's answers. Empty on a Work Order row. Read-only. |
 | `gross_amount` | The amount BEFORE tax. ⚠️ The only surviving record of it: `Project Payments.amount` is rewritten to the net. |
 | `tds_percentage` | The rate AS APPLIED, snapshotted. Never re-read from the vendor — 561 of 629 rows differ from their vendor's rate today. |
 | `tds_amount` | `gross × rate / 100`. What `Service Requests.total_tds` sums (Paid payments only). |
@@ -364,7 +561,9 @@ It is the **only writer** of that field.
 One caller since #1535: `api/tds_challan/pay_tds`, which adds its own over-application guard before
 writing. The payment's delete and both deduction delete paths used to recompute too; they no longer
 need to, because a deduction in a challan can't be deleted, rejected, restated or edited (§ deposited
-tax stays safe), so nothing else moves the sum.
+tax stays safe), so nothing else moves the sum. An Office Rent expense's delete is refused the same way
+once its row is on a challan (`expense_tds.delete_with_expense`), and off a challan its row counts in
+no challan's sum.
 
 ⚠️ **MEASURED BUG (2026-09-15):** deleting a payment deleted its deduction, but nothing recomputed —
 a challan sat at ₹150 used with **zero** deductions behind it. A recompute on delete fixed the number;
@@ -454,11 +653,12 @@ Reports hub → **Payment TDS Deduction** tab (report type "TDS Deduction"), gat
 |---|---|
 | `rename_deducted_on_to_payment_approved_on` | Copies the dates across. **Drops nothing** — the owner drops the old column by hand. |
 | `backfill_payment_tds_deduction_link` | Fills `Project Payments.payment_tds` for the 626 existing rows. |
+| `backfill_payment_tds_section` | Sets `tds_section` = `194C` on every row with none. Touches only blanks, so it is idempotent; on PostgreSQL the column default already fills the old rows, so it usually updates nothing. |
 | `backfill_payment_tds_borne_by` | Sets `borne_by` on every existing row from its payment (kept whole on a company-borne WO → `Company`, else `Vendor`). Recounts nothing. ⚠️ **Run once only** (the patch log is its only guard): a re-run would re-infer rows `record_deduction` wrote since, off payments that may have changed. The reason it cannot be limited to old rows is at the top of the patch. |
 | `recount_work_order_amount_paid_with_tds` | Recounts every Work Order the mismatch judge finds wrong through `write_amount_paid` (ADR-0034 Amendment A, #1513). Run by hand, `preview` first: it lists the Work Orders the tax explains (Amount Paid short by exactly the TDS withheld from the vendor) apart from those wrong for another reason (#1545), and each project the WO tax in project outflow newly puts over its cashflow limit, for the owner. Re-checks no CEO Hold; idempotent. |
 | `net_po_payments_with_tds` | Cuts each PO payment with a tax record still stored gross (legacy `tds` box filled) to gross − tax and clears the box (ADR-0034 Amendment B, #1534). Skips and lists bank-matched payments and tax ≤ ₹5. Recounts each touched PO (refund sync step, vendor credit under "PO TDS Netting"), re-checks CEO Hold, and aborts writing nothing unless each touched PO's Amount Paid / Amount Due, vendor credit and project outflow are unchanged. Run by hand only, `preview` first on current data: it is not in `patches.txt`, so no migrate runs it; idempotent. |
 
-The first two are idempotent and fill only what is still empty.
+The first three are idempotent and fill only what is still empty.
 
 ---
 

@@ -43,6 +43,7 @@ import { canViewPaymentSummary } from "@/constants/roles";
 // --- Hooks & Utils ---
 import { Row } from "@tanstack/react-table";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { usePublishRefetch, type RefetchRef } from "@/hooks/usePublishRefetch";
 import { PP_TABS } from "../config/ppTabs.constants";
 import {
   APPROVAL_QUEUE_API,
@@ -54,7 +55,9 @@ import {
   TAB_DEFAULT_SORT,
 } from "../config/approvalsTable.config";
 import { buildApprovalColumns, ApprovalColumnCtx } from "../config/approvalColumns";
-import { statusAfterL1, TIER_L2_ABOVE_EXPENSES } from "@/utils/approvalTiers";
+import { statusAfterL1 } from "@/utils/approvalTiers";
+import { useExpenseDecision, useExpenseEditAccess } from "@/hooks/useExpenseDecision";
+import { isExpenseDoctype } from "@/utils/expenses/expenseDecision";
 import { isChequePayment } from "../paymentMode";
 import { APPROVE_CHEQUE_API, REJECT_CHEQUE_API, approvesThroughCheque } from "@/utils/cheques/chequeApproval";
 import { withChequeSiblings } from "@/utils/cheques/chequeBulk";
@@ -110,13 +113,17 @@ interface ApprovePaymentsProps {
    *                   ceo_approval_date). Reject sets status = "Rejected" via PATCH.
    */
   mode?: ApprovePaymentsMode;
+  /** Where this tab publishes its refetch, which the page calls when its lists changed (a New Expense
+   *  submit): the rows refresh, the filters stay (`usePublishRefetch`). */
+  refetchRef?: RefetchRef;
 }
 
-export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = false, mode = "lead" }) => {
+export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = false, mode = "lead", refetchRef }) => {
   const isCEOMode = mode === "ceo";
   const { toast } = useToast();
   const { db } = useContext(FrappeContext) as FrappeConfig;
   const { role, user_id } = useUserData();
+  const editableStatuses = useExpenseEditAccess();
   const refreshTabCounts = useRefreshApprovalCounts();
   // const { mutate } = useSWRConfig();
   // --- State for Dialogs ---
@@ -407,7 +414,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         ? undefined
         : (row) => openDialog(row as unknown as ProjectPayments, DIALOG_ACTION_TYPES.REJECT),
       onEdit: canWork ? setEditRow : undefined,
-      canEdit: (row) => canEditQueueRow(row, role),
+      canEdit: (row) => canEditQueueRow(row, editableStatuses),
     }),
     [
       activeTab,
@@ -425,6 +432,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
       readOnly,
       canWork,
       role,
+      editableStatuses,
     ]
   );
 
@@ -568,9 +576,11 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     // and every mutate() in the hook is commented out.)
     useFrappeDocTypeEventListener("Project Expenses", () => refetch());
     useFrappeDocTypeEventListener("Non Project Expenses", () => refetch());
+    usePublishRefetch(refetchRef, refetch);
 
   // --- Update Logic ---
   const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
+  const { decideOne: decideExpense, loading: decideExpenseLoading } = useExpenseDecision();
   const { call: ceoApproveCall, loading: ceoApproveLoading } = useFrappePostCall(
     "nirmaan_stack.api.payments.project_payments.ceo_approve_payment"
   );
@@ -615,19 +625,20 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           const ceoDoctype = ceoRow.doctype || DOCTYPE;
           const ceoIsPayment = ceoDoctype === "Project Payments";
 
-          if (actionType === DIALOG_ACTION_TYPES.REJECT) {
+          if (!ceoIsPayment) {
+            // ⚠️ `ceo_approve_payment` is PAYMENTS-ONLY -- it loads a Project Payments doc and
+            // runs the split machinery. An expense goes through the expense decision call, the
+            // same one the bulk bar uses (#1497).
+            const status = await decideExpense(
+              selectedPayment.name,
+              actionType === DIALOG_ACTION_TYPES.REJECT ? "reject" : "ceo_approve",
+              { reason },
+            );
+            successMessage = `Expense marked ${status}.`;
+          } else if (actionType === DIALOG_ACTION_TYPES.REJECT) {
             // CEO rejection: no amount edits — flip status to Rejected.
             await updateDoc(ceoDoctype, selectedPayment.name, {
               status: PAYMENT_STATUS.REJECTED,
-            });
-          } else if (!ceoIsPayment) {
-            // ⚠️ `ceo_approve_payment` is PAYMENTS-ONLY -- it loads a Project Payments
-            // doc and runs the split machinery. An expense has no PO/SR parent and
-            // cannot be split, so a CEO approval on one is a plain status write that
-            // stamps the CEO date, mirroring what the endpoint does for a full approve.
-            await updateDoc(ceoDoctype, selectedPayment.name, {
-              status: PAYMENT_STATUS.APPROVED,
-              ceo_approval_date: new Date().toISOString().split("T")[0],
             });
           } else {
             // CEO approval: call the whitelisted API so the backend can enforce
@@ -649,35 +660,26 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           // Every payment on the cheque, at the tier its cheque amount needs, in one server step.
           const response = await approveChequeCall({ payment_id: selectedPayment.name });
           successMessage = response?.message?.message;
+        } else if (isExpenseDoctype((selectedPayment as unknown as ApprovalQueueRow).doctype)) {
+          // An expense: the server decides where L1 lands it and whether this user is L1
+          // (Accountants are not), through the call bulk approve uses (#1497).
+          const status = await decideExpense(
+            selectedPayment.name,
+            actionType === DIALOG_ACTION_TYPES.APPROVE ? "l1_approve" : "reject",
+            { reason },
+          );
+          successMessage = `Expense marked ${status}.`;
         } else {
-          // ⚠️ THIS QUEUE HOLDS THREE LEDGERS, SO NOTHING HERE MAY BE HARD-CODED.
-          //
-          // This wrote `DOCTYPE` ("Project Payments") with `status: CEO_PENDING` for
-          // every row. Once expenses appeared in this tab that meant approving a
-          // Project / Non-Project Expense tried to update a PAYMENT of the same name
-          // and failed outright. Two things vary per row:
-          //
-          //   1. the DOCTYPE            -> `row.doctype`, the only field that says which
-          //   2. the CEO line           -> 50,000 on all three ledgers since 16 Sep 2026
-          //                                (expenses were briefly 30,000). Still resolved
-          //                                per row: the seam is what makes a future split
-          //                                a one-line change here
-          const row = selectedPayment as unknown as ApprovalQueueRow;
-          const targetDoctype = row.doctype || DOCTYPE;
-          const isPaymentRow = targetDoctype === "Project Payments";
-
+          // A Project Payment (both expense ledgers took the branch above).
           // L1 either FINISHES the approval or forwards to the CEO, depending on the
-          // amount and on that ledger's own CEO line. Writing CEO_PENDING flat would
-          // send a Rs 20,000 row to the CEO that L1 was entitled to finish.
+          // amount. Writing CEO_PENDING flat would send a Rs 20,000 row to the CEO that
+          // L1 was entitled to finish.
           const newStatus =
             actionType === DIALOG_ACTION_TYPES.APPROVE
-              ? statusAfterL1(
-                  amount,
-                  isPaymentRow ? undefined : TIER_L2_ABOVE_EXPENSES
-                )
+              ? statusAfterL1(amount)
               : PAYMENT_STATUS.REJECTED;
 
-          await updateDoc(targetDoctype, selectedPayment.name, {
+          await updateDoc(DOCTYPE, selectedPayment.name, {
             status: newStatus,
             amount: amount,
             approval_date: new Date().toISOString().split("T")[0],
@@ -691,7 +693,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           // ⚠️ CALLED FOR EVERY APPROVED PAYMENT, NOT ONLY ROWS THAT READ "Cheque". A payment can be
           // put on a Cheque (and so become a Cheque payment, spec #1407) after this queue was loaded;
           // the server reads the mode from the payment itself and does nothing for an Online one.
-          if (isPaymentRow && newStatus === PAYMENT_STATUS.APPROVED) {
+          if (newStatus === PAYMENT_STATUS.APPROVED) {
             let moved = false;
             try {
               moved = Boolean((await moveChequeCall({ payment_id: selectedPayment.name }))?.message?.moved);
@@ -700,7 +702,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             }
             if (moved) {
               successMessage = "Cheque payment approved and moved to Reconciliation Pending.";
-            } else if (isChequePayment(row)) {
+            } else if (isChequePayment(selectedPayment as unknown as ApprovalQueueRow)) {
               successMessage = "Payment approved, but the cheque could not be moved on. Mark it as paid from \"Payment need to paid\".";
             }
           }
@@ -728,7 +730,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         });
       }
     },
-    [selectedPayment, updateDoc, ceoApproveCall, moveChequeCall, approveChequeCall, rejectChequeCall, chequeApproval, closeDialog, toast, isCEOHold, showBlockedToast, isCEOMode, refetch, refreshTabCounts]
+    [selectedPayment, updateDoc, decideExpense, ceoApproveCall, moveChequeCall, approveChequeCall, rejectChequeCall, chequeApproval, closeDialog, toast, isCEOHold, showBlockedToast, isCEOMode, refetch, refreshTabCounts]
   );
 
   // --- useServerDataTable Hook moved up above facets for columnFilters access ---
@@ -859,7 +861,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             vendors?.find((v) => v.name === selectedPayment.vendor)?.vendor_name
           }
           onSubmit={handlePaymentUpdate}
-          isLoading={updateLoading || ceoApproveLoading || moveChequeLoading || approveChequeLoading || rejectChequeLoading}
+          isLoading={updateLoading || decideExpenseLoading || ceoApproveLoading || moveChequeLoading || approveChequeLoading || rejectChequeLoading}
           // Partial approval is the CEO gate ONLY (owner ruling). The lead tick stays a plain
           // full approve — two split points would let one payment fragment twice on its way up.
           allowPartial={isCEOMode}

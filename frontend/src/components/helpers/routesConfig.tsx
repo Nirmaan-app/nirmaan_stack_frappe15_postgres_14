@@ -57,7 +57,7 @@ import CreditsPage from "@/pages/credits/CreditsPage";
 //---New Vendors-AQ2 Page
 import VendorsAQ2 from "@/pages/vendors-wp-categories/vendors-aq2";
 import WorkPackages from "@/pages/work-packages";
-import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute, NewProjectRoute, PricingRoute, OutflowImportRoute, RoleRoute } from "@/utils/auth/ProtectedRoute";
+import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute, NewProjectRoute, PricingRoute, OutflowImportRoute, RoleRoute, ExpenseRoute } from "@/utils/auth/ProtectedRoute";
 import {
   BOQ_TEMPLATES_ACCESS,
   CHEQUE_ACCESS_PROFILES,
@@ -82,6 +82,7 @@ import NonProjectExpensesPage from "@/pages/NonProjectExpenses/NonProjectExpense
 import AllProjectExpensesPage from "@/pages/ProjectExpenses/AllProjectExpenses";
 import ExpenseLayout from "@/pages/Expenses/ExpenseLayout";
 import ExpenseRequestsPage from "@/pages/ExpenseRequests/ExpenseRequestsPage";
+import ExpenseRequestPage from "@/pages/ExpenseRequests/ExpenseRequestPage";
 import { ExpenseIndexRedirect } from "@/pages/Expenses/ExpenseIndexRedirect";
 import AdminApprovedQuotationsTable from "@/pages/ApprovedQuotationsFlow/AdminApprovedQuotationsTable";
 import { MilestonesSummary } from "@/pages/Manpower-and-WorkMilestones/MilestonesSummary";
@@ -392,17 +393,25 @@ export const appRoutes: RouteObject[] = [
               { index: true, element: <EstimatedPriceOverview /> },
             ],
           },
-          // --- Expense: unified module (Misc Project + Non-Project) with URL tabs ---
+          // --- Expenses: the request list (New Expense) plus the old ledger pages ---
+          // Open only to someone who can raise at least one type, or who reviews (spec #1494,
+          // #1506): `ExpenseRoute`, the same server answer as the sidebar item.
           {
             path: "expense",
-            element: <ExpenseLayout />,
+            element: <ExpenseRoute />,
             children: [
-              // Index lands on Requests for every role: the Misc Project / Non-Project tabs are
-              // hidden (ExpenseLayout), but their routes below still resolve for deep links.
-              { index: true, element: <ExpenseIndexRedirect /> },
-              { path: "requests", element: <ExpenseRequestsPage /> },
-              { path: "project", element: <AllProjectExpensesPage /> },
-              { path: "non-project", element: <NonProjectExpensesPage /> },
+              {
+                element: <ExpenseLayout />,
+                children: [
+                  // Index lands on Requests for every role: the Misc Project / Non-Project tabs are
+                  // hidden (ExpenseLayout), but their routes below still resolve for deep links.
+                  { index: true, element: <ExpenseIndexRedirect /> },
+                  { path: "requests", element: <ExpenseRequestsPage /> },
+                  { path: "requests/:requestId", element: <ExpenseRequestPage /> },
+                  { path: "project", element: <AllProjectExpensesPage /> },
+                  { path: "non-project", element: <NonProjectExpensesPage /> },
+                ],
+              },
             ],
           },
           // Legacy path -> redirect into the unified module (keeps old bookmarks working)

@@ -1,5 +1,7 @@
-import { useFrappePostCall } from "frappe-react-sdk";
 import { useCallback } from "react";
+
+import { useExpenseDecision } from "@/hooks/useExpenseDecision";
+import { isExpenseDoctype, type ExpenseAction } from "@/utils/expenses/expenseDecision";
 
 import { ApprovalQueueRow } from "../../config/approvalsTable.config";
 import {
@@ -26,34 +28,24 @@ import {
  * Partial failure is the normal result — callers MUST inspect `failed`.
  */
 
-const EXPENSE_DOCTYPES = new Set(["Project Expenses", "Non Project Expenses"]);
-
 /** The minimum a row must carry to be routed. The queue row is a superset. */
 export type BulkTargetRow = Pick<ApprovalQueueRow, "name" | "doctype">;
 
-export const isExpenseRow = (row: BulkTargetRow): boolean =>
-  EXPENSE_DOCTYPES.has(row.doctype);
+export const isExpenseRow = (row: BulkTargetRow): boolean => isExpenseDoctype(row.doctype);
 
-interface ApiEnvelope {
-  message?: {
-    status?: number;
-    message?: string;
-    data?: Omit<BulkResult, "tdsFailed">;
-  };
-}
+/** The queue's bulk click, as the expense decision call names it (#1497). */
+const EXPENSE_ACTION: Record<BulkMode, Record<BulkAction, ExpenseAction>> = {
+  lead: { approve: "l1_approve", reject: "reject" },
+  ceo: { approve: "ceo_approve", reject: "reject" },
+};
 
 export function useBulkApprovalActions(mode: BulkMode) {
   const { submit: submitPayments, loading: paymentsLoading } =
     useBulkPaymentActions(mode);
 
-  const leadExpenses = useFrappePostCall(
-    "nirmaan_stack.api.approvals.expense_actions.bulk_lead_approve_expenses"
-  );
-  const ceoExpenses = useFrappePostCall(
-    "nirmaan_stack.api.approvals.expense_actions.bulk_ceo_approve_expenses"
-  );
-  const { call: callExpenses, loading: expensesLoading } =
-    mode === "ceo" ? ceoExpenses : leadExpenses;
+  // Expenses go through the one decision call, the same one a single-row click uses, so a bulk
+  // approval and a single one land an expense at the same status (#1497).
+  const { decide: decideExpenses, loading: expensesLoading } = useExpenseDecision();
 
   const submit = useCallback(
     async (
@@ -94,13 +86,9 @@ export function useBulkApprovalActions(mode: BulkMode) {
 
       if (expenseIds.length) {
         try {
-          const response: ApiEnvelope = await callExpenses({
-            expense_ids: expenseIds,
-            action,
-            rejection_reason: rejectionReason ?? null,
+          const data = await decideExpenses(expenseIds, EXPENSE_ACTION[mode][action], {
+            reason: rejectionReason,
           });
-          const data = response?.message?.data;
-          if (!data) throw new Error("Bulk expense action returned no data");
           succeeded.push(...data.succeeded);
           failed.push(...data.failed);
         } catch (err: any) {
@@ -111,7 +99,7 @@ export function useBulkApprovalActions(mode: BulkMode) {
 
       return { succeeded, failed, total: rows.length, tdsFailed };
     },
-    [submitPayments, callExpenses]
+    [submitPayments, decideExpenses, mode]
   );
 
   return { submit, loading: paymentsLoading || expensesLoading };

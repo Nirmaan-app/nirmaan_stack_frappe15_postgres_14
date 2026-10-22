@@ -77,6 +77,18 @@ NOT here, and each absence is deliberate:
     back to the gross (`give_back_tax_on_reject`), so no tax is held for money that didn't go out.
   * No tax on a GST PAYMENT, ever (ADR-0030, `is_gst_payment`): TDS is taken on base value only, so
     a Work Order's GST is paid as its own payment and `is_deductible` refuses it.
+
+TWO KINDS OF ROW, ONE DOCTYPE (#1523, spec #1522)
+-------------------------------------------------
+A `Payment TDS Deduction` names exactly one source: a `project_payment` (a Work Order or PO payment,
+section 194C) or a `non_project_expense` (an Office Rent expense, section 194-I), never both and never
+neither (`deduction_link_problem`, run on every save by `controllers/payment_tds_deduction.validate`).
+Both links are UNIQUE. ⚠️ EVERY WORK ORDER, PO, VENDOR OR PROJECT READER JOINS THROUGH `project_payment`
+(`counted_deductions_sql`, the one source every order, vendor and project figure reads, with
+`total_tds_of` and `order_payments.load_payments`), so an expense row, whose `project_payment` is empty,
+can never reach an order's total TDS, Amount Paid or Amount Due, a project's outflow, or a request cap. A new reader must do the same, never filter on the
+row's snapshot `vendor` / `project` / `document_name`. The challan total (`recompute_challan_reconciled`)
+and the TDS register read every row, which is right: both kinds are paid under the same challans.
 """
 
 from typing import NamedTuple
@@ -194,6 +206,14 @@ COMPANY_BORNE_CATEGORIES = frozenset({"Miscellaneous Services", "Transportation 
 BORNE_BY_VENDOR = "Vendor"
 BORNE_BY_COMPANY = "Company"
 
+#: `Payment TDS Deduction.tds_section`: the Income Tax section a row's tax falls under, set once when it
+#: is created. 194C on a Work Order payment (contractors; every row from before the field, patch
+#: `v3_0.backfill_payment_tds_section`), 194-I on an Office Rent expense (rent). The doctype's Select
+#: options are these, in this order, pinned by `services/test_tds_record_shape`.
+TDS_SECTION_WORK_ORDER = "194C"
+TDS_SECTION_RENT = "194-I"
+TDS_SECTIONS = (TDS_SECTION_WORK_ORDER, TDS_SECTION_RENT)
+
 
 class BorneTds(NamedTuple):
 	"""Paid tax split by who bore it (`borne_by`). `vendor` was withheld from the vendor and is part of
@@ -208,9 +228,13 @@ __all__ = [
 	"COMPANY_BORNE_CATEGORIES",
 	"BORNE_BY_VENDOR",
 	"BORNE_BY_COMPANY",
+	"TDS_SECTION_WORK_ORDER",
+	"TDS_SECTION_RENT",
+	"TDS_SECTIONS",
 	"BorneTds",
 	"DEDUCTIBLE_PARENTS",
 	"TAX_COUNTED_PARENTS",
+	"deduction_link_problem",
 	"is_approval_from_an_earlier_step",
 	"is_company_borne",
 	"categories_are_company_borne",
@@ -262,6 +286,29 @@ def is_approval_from_an_earlier_step(previous_status, new_status) -> bool:
 		(new_status or "").strip() == APPROVED
 		and (previous_status or "").strip() in APPROVAL_SOURCE_STATUSES
 	)
+
+
+def deduction_link_problem(project_payment, non_project_expense) -> str | None:
+	"""Why a `Payment TDS Deduction` with these two links may not be saved, or None when it may. Pure.
+
+	A row is the tax withheld from exactly ONE thing: a Project Payment (a Work Order's) or a
+	Non-Project Expense (an Office Rent's). Neither leaves a tax record nobody can trace; both would put
+	one tax on two ledgers, and a Work Order reader (which joins through `project_payment`) would count
+	rent tax.
+	"""
+	payment = (project_payment or "").strip()
+	expense = (non_project_expense or "").strip()
+	if payment and expense:
+		return (
+			f"A TDS record links to a Project Payment or a Non-Project Expense, never both: this one "
+			f"names Project Payment {payment} and Non-Project Expense {expense}."
+		)
+	if not payment and not expense:
+		return (
+			"A TDS record must link to a Project Payment or a Non-Project Expense: the tax was withheld "
+			"from one of them, and this record names neither."
+		)
+	return None
 
 
 def is_gst_payment(doc) -> bool:
@@ -577,6 +624,9 @@ def existing_deduction(payment_name: str) -> str | None:
 	path returns quietly instead of raising a duplicate-key error at every re-save of an approved
 	payment. Removing the unique index and keeping this would be a check-then-act race.
 	"""
+	if not payment_name:
+		# A blank filter would match an expense row, whose `project_payment` is empty.
+		return None
 	return frappe.db.get_value(TDS_DOCTYPE, {"project_payment": payment_name}, "name")
 
 
@@ -923,6 +973,7 @@ def write_deduction(
 			"tds_amount": tds_amount,
 			"payment_approved_on": payment_approved_on or nowdate(),
 			"borne_by": borne_by,
+			"tds_section": TDS_SECTION_WORK_ORDER,
 		}
 	)
 	row.insert(ignore_permissions=True)

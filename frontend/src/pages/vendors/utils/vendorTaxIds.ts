@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { GST_REGEX, PAN_REGEX } from "@/constants/vendorFormRegex";
+import { cleanPan, isValidPan } from "@/utils/pan";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { findVendorByGst } from "./vendorDuplicates";
 
@@ -53,8 +54,6 @@ const INDIVIDUAL_HUF_HOLDERS: Record<string, string> = { P: "Individual", H: "HU
 // A rate as typed: a plain decimal. Hex, exponents, "%" and words are not rates (as on the server).
 const DECIMAL_REGEX = /^\s*-?(\d+(\.\d*)?|\.\d+)\s*$/;
 
-const cleanPan = (pan: unknown) => String(pan ?? "").trim().toUpperCase();
-
 /** True for a valid PAN whose 4th letter is P (Individual) or H (HUF): its rate is always 1%. */
 export const isIndividualHufPan = (pan: unknown): boolean => {
     const clean = cleanPan(pan);
@@ -68,7 +67,7 @@ export const isReadableTdsRate = (rate: unknown): boolean =>
 /** The rate a vendor save stores: 1% for an Individual / HUF, the 2% default for a valid PAN with no readable rate, else as entered. */
 export const tdsRateToStore = <T>(pan: unknown, rate: T): T | number => {
     if (isIndividualHufPan(pan)) return INDIVIDUAL_HUF_TDS_RATE;
-    if (PAN_REGEX.test(cleanPan(pan)) && !isReadableTdsRate(rate)) return DEFAULT_TDS_RATE;
+    if (isValidPan(pan) && !isReadableTdsRate(rate)) return DEFAULT_TDS_RATE;
     return rate;
 };
 
@@ -85,7 +84,7 @@ const panHolderLabel = (pan: unknown) => {
 export type TdsRateHint = { text: string; tone: "info" | "fixed-1" };
 
 export const tdsRateHint = (pan: unknown): TdsRateHint => {
-    if (!PAN_REGEX.test(cleanPan(pan))) {
+    if (!isValidPan(pan)) {
         return {
             text: "Set from the PAN: always 1% for an Individual or HUF (4th letter P or H); 2% by default for everyone else.",
             tone: "info",

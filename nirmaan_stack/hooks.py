@@ -89,7 +89,12 @@ pdf_generator = ["nirmaan_stack.api.pdf_helper.keep_links.keep_links_pdf"]
 # CU-A: after every migrate, create any missing index of the index manifest under its own
 # table-unique name. Frappe's model sync can drop a bare-name index of ANOTHER table; this puts the
 # named one back in the same migrate. It never drops anything.
-after_migrate = ["nirmaan_stack.services.index_manifest.ensure_indexes"]
+after_migrate = [
+    "nirmaan_stack.services.index_manifest.ensure_indexes",
+    # Records without review drops a profile that raises no type, judged on the types the fixture
+    # sync ends with (the sync deletes and re-inserts each type, so its own hooks stand down).
+    "nirmaan_stack.integrations.controllers.expense_type.after_migrate",
+]
 
 # Uninstallation
 # ------------
@@ -215,6 +220,11 @@ doc_events = {
         "after_insert": "nirmaan_stack.integrations.controllers.asset_master.after_insert",
         "on_update": "nirmaan_stack.integrations.controllers.asset_master.on_update",
     },
+    "Expense Type": {
+        # A profile a change takes off its last type leaves Records without review (story 28).
+        "on_update": "nirmaan_stack.integrations.controllers.expense_type.on_update",
+        "after_delete": "nirmaan_stack.integrations.controllers.expense_type.after_delete",
+    },
     "Asset Category": {
         # Monthly asset audit: ticking "Monthly audit required" opens the cycle month's audits of its assets.
         "on_update": "nirmaan_stack.integrations.controllers.asset_category.on_update",
@@ -271,12 +281,13 @@ doc_events = {
         # Client Status (ADR-0025 Amendment B). Doc-layer deletes only, which includes REST.
         "on_trash": "nirmaan_stack.integrations.controllers.project_tds_item_list.on_trash",
     },
-    # TAX DEDUCTED AT SOURCE (not the Technical Data Sheet family above). A challan's
-    # `reconciled_amount` is the sum of the deductions pointing at it, so a deleted deduction has
-    # to stop being counted as spent. Covers a DOC-LAYER delete only; the payment cascade deletes
-    # with raw SQL and recomputes explicitly in `project_payments.on_trash`.
+    # TAX DEDUCTED AT SOURCE (not the Technical Data Sheet family above). Doc-layer saves and
+    # deletes only; the payment cascade deletes with raw SQL and handles its own recount and challan
+    # rules in `project_payments.on_trash`.
     "Payment TDS Deduction": {
-        # Locked once its tax is in a challan; a correction before that recounts the order (#1535).
+        # A row names exactly one of a Project Payment and a Non-Project Expense (#1523); it is
+        # locked, and its delete refused, once its tax is in a challan; a correction before that
+        # recounts the order (#1535).
         "validate": "nirmaan_stack.integrations.controllers.payment_tds_deduction.validate",
         "on_update": "nirmaan_stack.integrations.controllers.payment_tds_deduction.on_update",
         "on_trash": "nirmaan_stack.integrations.controllers.payment_tds_deduction.on_trash",
@@ -429,16 +440,33 @@ doc_events = {
     "Non Project Expenses": {
         # Carry the match records to the new name (ADR-0022 Amendment G).
         "after_rename": "nirmaan_stack.integrations.controllers.settled_targets.after_rename",
-        "validate": "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
-        # Both exit immediately unless the row is transitioning INTO Paid, so the ~700
+        # Office Rent's locks (#1526, spec #1522 review): a withheld amount, and the type to or from
+        # Office Rent once approved. `before_validate`, so they refuse BEFORE the doctype's own
+        # `validate` (the edit rules, `expense_decision.guard_hand_save`) says something vaguer;
+        # a `validate` hook here would run after it.
+        "before_validate": "nirmaan_stack.integrations.controllers.expense_tds.before_validate",
+        "validate": [
+            "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
+            # An approval that would withhold Office Rent's tax is refused without the landlord,
+            # before the row is written. After the doctype's `validate`, which sets a new row's status.
+            "nirmaan_stack.integrations.controllers.expense_tds.validate",
+        ],
+        # Office Rent withholds 10% TDS when approved (#1525): a row born Approved here, an
+        # approval from an earlier step in `on_update`.
+        "after_insert": "nirmaan_stack.integrations.controllers.expense_tds.after_insert",
+        # The request hooks exit immediately unless the row is transitioning INTO Paid, so the ~700
         # ordinary saves cost one field comparison each. STATE FIRST, then the telling:
         # the request must already read Paid by the time the requester is notified.
         "on_update": [
-            "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_paid",
+            "nirmaan_stack.integrations.controllers.expense_tds.on_update",
+            "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_status_changed",
             "nirmaan_stack.integrations.controllers.expense_request_notify.on_expense_update",
         ],
         "on_trash": [
             "nirmaan_stack.integrations.controllers.expense_bank_links.on_trash",
+            # Its Office Rent tax record goes with it, or the delete is refused while that tax is on a
+            # challan (#1526). Before Frappe's link check, which would refuse it outright.
+            "nirmaan_stack.integrations.controllers.expense_tds.on_trash",
             # Drops the expense off its Cheque (#1413) before Frappe's link check refuses the delete.
             "nirmaan_stack.integrations.controllers.cheques.on_expense_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
@@ -463,7 +491,7 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
             # Carries Paid back onto the originating request, then tells the requester.
             # STATE FIRST -- the request must already read Paid when the message goes out.
-            "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_paid",
+            "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_status_changed",
             "nirmaan_stack.integrations.controllers.expense_request_notify.on_expense_update",
         ],
         # generate_versions needs the pre-delete data, so it stays on on_trash.

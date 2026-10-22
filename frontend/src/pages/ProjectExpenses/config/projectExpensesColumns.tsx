@@ -17,7 +17,7 @@
 // tab renders correct actions per row):
 //   - Requested -> Edit, Approve, Delete
 //   - Approved  -> Mark as Paid, Delete
-//   - Paid      -> Delete
+//   - Paid      -> Edit (where the server allows: Admin, Accountant Lead), Delete
 
 import { ColumnDef } from "@tanstack/react-table";
 import { Pencil, CheckCircle2, IndianRupee, Trash2, FileText, Download } from "lucide-react";
@@ -46,6 +46,7 @@ import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 import { isProcurementProfile } from "@/constants/roles";
 import { PorterBadge } from "@/components/common/PorterExpense";
 import { invoiceAttachmentUrl } from "@/utils/porterExpense";
+import { canMarkExpensePaid } from "@/utils/expenses/expenseDecision";
 
 export interface GetProjectExpenseColumnsOptions {
   statusTab: string;
@@ -57,6 +58,8 @@ export interface GetProjectExpenseColumnsOptions {
   getProjectName: (id?: string) => string;
   getVendorName: (id?: string) => string;
   getUserName: (id?: string) => string;
+  /** The statuses the caller may edit, from the server (`useExpenseEditAccess`). */
+  editableStatuses?: readonly string[];
   onEdit: (expense: ProjectExpenses) => void;
   onApprove: (expense: ProjectExpenses) => void;
   onMarkPaid: (expense: ProjectExpenses) => void;
@@ -81,10 +84,10 @@ export const getProjectExpenseColumns = ({
   onApprove,
   onMarkPaid,
   onDelete,
+  editableStatuses = [],
 }: GetProjectExpenseColumnsOptions): ColumnDef<ProjectExpenses>[] => {
   // --- Role gating (frontend-only enforcement, mirrors the existing flow) ---
   const isAdmin = role === "Nirmaan Admin Profile";
-  const isPMO = role === "Nirmaan PMO Executive Profile";
   // Accountant Lead mirrors Accountant for role checks (parity by design).
   const isAccountant =
     role === "Nirmaan Accountant Profile" ||
@@ -93,31 +96,32 @@ export const getProjectExpenseColumns = ({
   const isHR = role === "Nirmaan HR Executive Profile";
 
   // Action-level permissions
-  // Editing a *Requested* expense is allowed for the broader managing set
-  // (Admin, PMO, Accountant/Lead, Procurement, HR). Paid-row edit stays Admin-only.
-  const canEditRequested =
-    isAdmin || isPMO || isAccountant || isProcurement || isHR;
+  // Edit: the server's answer (`expense_actions.get_expense_edit_access`, story 50): Accounts until
+  // paid; on a Paid row Admin and the Accountant Lead (its details only); never Rejected. Both
+  // ledgers' `validate` refuse any other edit.
+  const canEditRow = (status: string) => editableStatuses.includes(status);
   const canApprove = isAdmin; // Requested -> Approved (Admin only)
-  const canMarkPaid = isAdmin || isAccountant || isHR; // Approved -> Paid (Accountant + HR)
+  // Approved -> Paid: the server's rule (`expense_decision.can_mark_paid`, #1497), mirrored once.
+  const canMarkPaid = canMarkExpensePaid(role);
   const canDelete = isAdmin; // Delete is Admin only (PMO removed)
 
   // --- Actions column visibility (scoped to the Paid and All tabs) ---
   // The column shows only for users who can actually act on the tab's rows:
-  //   - Paid tab: Edit/Delete are Admin-only, so only Admin sees it.
-  //   - All tab:  Admin, plus Accountant/HR (who can Mark as Paid the Approved rows).
+  //   - Paid tab: Admin (Delete), and whoever the server lets edit a Paid row.
+  //   - All tab:  Admin, plus Accountants (who can Mark as Paid the Approved rows).
   // Requested/Approved tabs are left unchanged (column always present).
   const canSeeActionsColumn = disableActions
     ? false
     : statusTab === "Paid"
-      ? isAdmin
+      ? isAdmin || canEditRow("Paid")
       : statusTab === "All"
         // The All tab mixes statuses; every button inside the cell is already
-        // gated by the ROW's status, so opening the column to Accountant/HR
+        // gated by the ROW's status, so opening the column to Accountants
         // surfaces exactly the Mark-as-Paid they have on the Approved tab.
-        ? isAdmin || isAccountant || isHR
-        // Approved tab: Procurement has no available action here (Mark-as-Paid is
-        // Admin/Accountant/HR), so hide the empty Actions column for them.
-        : statusTab === "Approved" && isProcurement
+        ? isAdmin || isAccountant
+        // Approved tab: Procurement and HR have no available action here (Mark-as-Paid
+        // is Admin/Accountant), so hide the empty Actions column for them.
+        : statusTab === "Approved" && (isProcurement || isHR)
           ? false
           : true;
 
@@ -459,7 +463,7 @@ export const getProjectExpenseColumns = ({
           <div className="flex items-center gap-1">
             {status === "Requested" && (
               <>
-                {canEditRequested && (
+                {canEditRow(status) && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -506,8 +510,8 @@ export const getProjectExpenseColumns = ({
               </Tooltip>
             )}
 
-            {/* A Paid expense can only be edited by an Admin */}
-            {status === "Paid" && isAdmin && (
+            {/* Edit past Requested: wherever the server lets the caller edit. */}
+            {status !== "Requested" && canEditRow(status) && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button

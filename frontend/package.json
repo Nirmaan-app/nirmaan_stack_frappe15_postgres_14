@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "typecheck": "node scripts/typecheck.mjs",
     "test-local": "cypress open --e2e --browser chrome",
     "copy-html-entry": "cp ../nirmaan_stack/public/frontend/index.html ../nirmaan_stack/www/frontend.html",
     "copy-sw": "cp ../nirmaan_stack/public/frontend/firebase-messaging-sw.js ../nirmaan_stack/www/firebase-messaging-sw.js"

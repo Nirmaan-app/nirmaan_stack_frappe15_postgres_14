@@ -276,8 +276,10 @@ committing).
 
 ## Writing a test
 
-- **`yarn test` runs vitest with `environment: "node"`** over `src/**/*.test.{ts,tsx}` — unit tests only. CI
-  (`.github/workflows/ci.yml`) runs the Python bench suite only, so vitest is a local gate: run it yourself.
+- **`yarn test` runs vitest with `environment: "node"`** over `src/**/*.test.{ts,tsx}` — unit tests only. The
+  Frontend CI job (`.github/workflows/frontend.yml`) runs it and `yarn typecheck` on every PR; run both yourself
+  first. `yarn typecheck` reports only errors new against `tsc-baseline.json`; re-baseline only to lock in old
+  errors you fixed, never to hide a new one.
 - **The DOM environment is opt-in per file, and the global stays `node`.** `jsdom` is a devDependency;
   `vitest.config.ts` still declares `environment: "node"`, so every suite that does not ask for a DOM runs exactly
   as it always did. A file that needs one says so in its own first line: `// @vitest-environment jsdom`.

@@ -20,8 +20,11 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { useFrappeUpdateDoc, useFrappeDeleteDoc, useFrappePostCall } from 'frappe-react-sdk';
 import { useUpdatePaymentRequest } from "../hooks/useUpdatePaymentRequests";
 import { getFrappeError } from "@/utils/frappeErrors";
+import { useExpenseDecision, useExpenseEditAccess } from "@/hooks/useExpenseDecision";
+import { isExpenseDoctype } from "@/utils/expenses/expenseDecision";
 import { GstPaymentTag } from "../components/GstPaymentTag";
 import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { usePublishRefetch, type RefetchRef } from '@/hooks/usePublishRefetch';
 import {
     APPROVAL_QUEUE_API,
     APPROVAL_FETCH_FIELDS,
@@ -86,6 +89,9 @@ const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
 
 interface AccountantTabsProps {
     tab?: string; // "New Payments" or "Fulfilled Payments"
+    /** Where this tab publishes its refetch, which the page calls when its lists changed (a New Expense
+     *  submit): the rows refresh, the filters stay (`usePublishRefetch`). */
+    refetchRef?: RefetchRef;
 }
 
 interface SelectOption { label: string; value: string; }
@@ -97,10 +103,11 @@ interface SelectOption { label: string; value: string; }
  */
 const ICICI_DEBIT_ACCOUNT = "093705003327";
 
-export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payments" }) => {
+export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payments", refetchRef }) => {
     const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
     const { role, user_id } = useUserData();
+    const editableStatuses = useExpenseEditAccess();
 
     // --- CEO Hold Highlighting ---
     const { ceoHoldProjectIds } = useCEOHoldProjects();
@@ -119,6 +126,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     // plain confirmation; the UTR / date / proof are captured on the Reconciliation
     // Pending tab, which is what actually settles the row.
     const { updateDoc } = useFrappeUpdateDoc();
+    const { decide: decideExpenses } = useExpenseDecision();
     const refreshTabCounts = useRefreshApprovalCounts();
 
     // Trash beside "Mark as Paid" (owner, 18 Sep — reverses the 15 Sep removal). Everyone who
@@ -291,7 +299,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         onRecordPayment: (row) => openMarkPaid([row]),
         onDelete: setDeleteRow,
         onEdit: canWork ? setEditRow : undefined,
-        canEdit: (row) => canEditQueueRow(row, role),
+        canEdit: (row) => canEditQueueRow(row, editableStatuses),
         onToggleHold: canWork ? setHoldRow : undefined,
         canHold: (row) => canHoldQueueRow(row, role),
         isUnseen: (row) => !!notifications.find(
@@ -302,7 +310,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         ),
     }), [
         tab, projectLabelMap, vendorLabelMap, userLabelMap, getTotalAmount, getDeliveredAmount,
-        getAmountPaid, notifications, handleNewPaymentSeen, canWork, role, openMarkPaid,
+        getAmountPaid, notifications, handleNewPaymentSeen, canWork, role, openMarkPaid, editableStatuses,
     ]);
 
     const columns = useMemo(
@@ -377,6 +385,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         enableRowSelection: canPaymentRowBeSelected,
         additionalFilters: staticFilters,
     });
+    usePublishRefetch(refetchRef, refetch);
 
     // Type / Vendor / Project / Raised by facets, counted over the same union the table reads,
     // under the table's live column filters and search -- hence AFTER the table hook.
@@ -407,16 +416,16 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     /**
      * Approved → Reconciliation Pending.
      *
-     * ⚠️ Writes to the ROW'S OWN doctype, never a hard-coded one: this queue holds
-     * Project Payments, Project Expenses and Non Project Expenses, and `row.doctype`
-     * is the only thing that says which. The status string is identical on all three.
+     * ⚠️ `row.doctype` decides the path: this queue holds Project Payments, Project Expenses
+     * and Non Project Expenses. The expenses go in one `mark_done` through the expense decision
+     * call (#1497), which also checks the marker may settle; each payment is its own save.
      *
      * This is the MONEY-OUT event — the moment the system says the cash has left.
      * The UTR, date and proof are captured afterwards on the Reconciliation Pending
      * tab, which is what moves it to Paid.
      *
-     * ⚠️ SEQUENTIAL ON PURPOSE, one write per row through the same `updateDoc` the row
-     * button always used, so each row runs its own doctype hooks exactly as before.
+     * ⚠️ PAYMENTS ARE SEQUENTIAL ON PURPOSE, one write per row through the same `updateDoc` the
+     * row button always used, so each row runs its own doctype hooks exactly as before.
      * Two payments on the SAME PO both recompute that PO in their hooks; firing them in
      * parallel races those parent writes. Each row commits on its own, so one failure
      * never rolls back the others — it is reported, and the rest still move.
@@ -448,15 +457,32 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             confirmPaidRows, answer.skipped, (row) => row.doctype === PAYMENT_DOCTYPE);
         const skippedLine = describeSkipped(skipped, (row) => row.against_primary);
         const skippedNote = skippedLine ? ` ${skippedLine}.` : "";
-        for (let i = 0; i < rows.length; i++) {
+        // The expenses go in one Mark as Done through the expense decision call, which checks the
+        // marker may settle (#1497); each payment is still its own save, as before.
+        const expenseRows = rows.filter((row) => isExpenseDoctype(row.doctype));
+        if (expenseRows.length) {
             try {
-                await updateDoc(rows[i].doctype, rows[i].name, {
+                const result = await decideExpenses(expenseRows.map((row) => row.name), "mark_done");
+                for (const failure of result.failed) {
+                    const row = expenseRows.find((r) => r.name === failure.name);
+                    if (row) failed.push({ row, reason: failure.reason });
+                }
+            } catch (e: any) {
+                const reason = getFrappeError(e) || "Please try again.";
+                failed.push(...expenseRows.map((row) => ({ row, reason })));
+            }
+            setMarkingProgress(expenseRows.length);
+        }
+        const paymentRows = rows.filter((row) => !isExpenseDoctype(row.doctype));
+        for (let i = 0; i < paymentRows.length; i++) {
+            try {
+                await updateDoc(paymentRows[i].doctype, paymentRows[i].name, {
                     status: APPROVAL_STATUS.RECONCILIATION_PENDING,
                 });
             } catch (e: any) {
-                failed.push({ row: rows[i], reason: e?.message || "Please try again." });
+                failed.push({ row: paymentRows[i], reason: e?.message || "Please try again." });
             }
-            setMarkingProgress(i + 1);
+            setMarkingProgress(expenseRows.length + i + 1);
         }
         setMarkingProgress(null);
 
@@ -496,7 +522,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         invalidateSidebarCounts();
         refreshTabCounts();
         await refetch();
-    }, [confirmPaidRows, updateDoc, takeVendorAccountsOf, toast, refetch, table, refreshTabCounts]);
+    }, [confirmPaidRows, updateDoc, decideExpenses, takeVendorAccountsOf, toast, refetch, table, refreshTabCounts]);
 
     const handleConfirmDelete = useCallback(async () => {
         if (!deleteRow) return;

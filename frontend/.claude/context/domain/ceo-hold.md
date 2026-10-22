@@ -99,7 +99,6 @@ This status was added in commit `7c691bff` (2026-02-03) alongside "Created", "WI
 
 | Page | File | Guard Hook | Actions Blocked |
 |------|------|------------|-----------------|
-| New Expense | `ProjectExpenses/components/NewProjectExpenseDialog.tsx` | `useCEOHoldGuard` | Create expense |
 | Edit Expense | `ProjectExpenses/components/EditProjectExpenseDialog.tsx` | `useCEOHoldGuard` | Update expense |
 | Expense List | `ProjectExpenses/ProjectExpensesList.tsx` | `useCEOHoldProjects` | Row highlighting |
 | Invoice Lists | `tasks/invoices/components/PoInvoices.tsx`, `SrInvoices.tsx` | `useCEOHoldProjects` | Row highlighting |

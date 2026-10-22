@@ -11,6 +11,14 @@ corrected in Desk, and each correction recounts its order (`on_update`), so the 
 `total_tds` and Amount Due, and its project's outflow, never disagree with the record. The payment's
 own amount is left as it is: it says what went to the vendor.
 
+ONE SOURCE PER ROW (#1523, spec #1522). A row is the tax of exactly one Project Payment (a Work Order's
+or a PO's) or one Non-Project Expense (an Office Rent's), never both and never neither: `validate`
+refuses any other on every doc-layer save (`write_deduction`, `expense_tds.withhold_expense_tds`,
+Desk, REST, data import; the rule is `services/payment_tds.deduction_link_problem`). A raw SQL write
+skips it; the app's raw writes to this doctype (`pay_tds`, `restate_deduction_on_amount_change`) touch
+neither link. An expense row moves no order figure, so its correction or delete recounts nothing here
+(`_recount_payment_order` reads only a `project_payment`); its deposited-tax lock is the same.
+
 `status` and `tds_challan` are never set by hand: only Pay TDS writes them (`api/tds_challan/pay_tds`,
 by `set_value`, which fires none of these hooks), because it alone checks the challan's balance and that
 the payment is Paid. A correction therefore never moves a challan's figures: before a challan there is
@@ -32,7 +40,13 @@ from frappe.utils import cstr, flt
 
 from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import recheck_after_recount
 from nirmaan_stack.services.amount_paid import write_amount_paid
-from nirmaan_stack.services.payment_tds import PAID, PAYMENT_DOCTYPE, TDS_PAID_BY_COMPANY, challan_label
+from nirmaan_stack.services.payment_tds import (
+	PAID,
+	PAYMENT_DOCTYPE,
+	TDS_PAID_BY_COMPANY,
+	challan_label,
+	deduction_link_problem,
+)
 
 #: The deduction's own status before Pay TDS (not the payment's).
 PENDING = "Pending"
@@ -41,13 +55,15 @@ PAY_TDS_FIELDS = ("status", "tds_challan")
 NUMBER_FIELDS = ("gross_amount", "tds_percentage", "tds_amount")
 #: Every field a person could change in Desk; all of them freeze once the tax is in a challan.
 LOCKED_FIELDS = (
-	"project_payment", "document_type", "document_name", "vendor", "project",
+	"project_payment", "non_project_expense", "document_type", "document_name", "vendor", "project",
 	"gross_amount", "tds_percentage", "tds_amount", "borne_by", "payment_approved_on",
+	"tds_section", "deductee_name", "deductee_pan",
 	*PAY_TDS_FIELDS,
 )
 
 
 def validate(doc, method=None):
+	refuse_unless_one_source(doc)
 	if doc.is_new():
 		refuse_born_in_a_challan(doc)
 		return
@@ -57,6 +73,13 @@ def validate(doc, method=None):
 	refuse_change_if_deposited(doc, before)
 	refuse_hand_written_challan(doc, before)
 	refuse_hand_written_borne_by(doc, before)
+
+
+def refuse_unless_one_source(doc):
+	"""A row is the tax of exactly one Project Payment or Non-Project Expense (#1523)."""
+	problem = deduction_link_problem(doc.get("project_payment"), doc.get("non_project_expense"))
+	if problem:
+		frappe.throw(problem)
 
 
 def _changed(doc, before, field) -> bool:
@@ -142,6 +165,9 @@ def _recount_payment_order(doc):
 	Logged, not raised, like the payment's own recount, so a save or delete never fails on a bookkeeping
 	total (the Amount Paid Mismatch report shows the order instead).
 	"""
+	if not doc.get("project_payment"):
+		# An Office Rent expense's row (#1523): it is in no order's figures, so nothing to recount.
+		return
 	payment = frappe.db.get_value(
 		PAYMENT_DOCTYPE,
 		doc.get("project_payment"),
