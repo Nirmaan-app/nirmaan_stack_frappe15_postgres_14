@@ -18,6 +18,13 @@ HOW
     after, so the Amount Paid Mismatch report (WO) shows no Work Orders once it has run. Idempotent: a
     second run finds nothing to change. It changes Work Orders only; Purchase Orders take no TDS.
 
+THE PREVIEW SPLITS THE WORK ORDERS BY CAUSE (#1545, owner: "see old mistakes before they are corrected")
+    A Work Order the tax explains holds exactly what the old rule gave: its Amount Paid is short of
+    source by the TDS withheld from the vendor, and its Amount Due and `total_tds` are already right (the
+    old Amount Due took that tax off as a second subtrahend, so the rule change does not move it). Every
+    other mismatch was wrong under the old rule too -- a skipped recount, an Amount Due that counts the
+    withheld tax as still owed -- and is listed apart. The run corrects both lists alike.
+
 THE CEO HOLD PREVIEW (for the owner, before the run on production)
     `preview` also lists each project the larger outflow newly puts over its cashflow limit: its gap
     without the TDS on its Paid WO payments (old) and with it (new, `project_money` today), decided by
@@ -50,13 +57,37 @@ from typing import NamedTuple
 import frappe
 from frappe.utils import flt
 
-from nirmaan_stack.services.amount_paid_drift import Mismatch, mismatches, recount_work_orders
+from nirmaan_stack.services.amount_paid_drift import THRESHOLD, Mismatch, mismatches, recount_work_orders
 from nirmaan_stack.services.ceo_hold import core as ceo_hold
 from nirmaan_stack.services.ceo_hold.rules import over_cashflow_limit
+from nirmaan_stack.services.payment_tds import borne_tds_by_order
 from nirmaan_stack.services.project_money import project_money, work_order_tds_by_project
 
 WO = "Service Requests"
 TAG = "recount_work_order_amount_paid_with_tds"
+#: The preview's two lists of Work Orders (#1545).
+TAX_CAUSED_HEADING = "the tax explains (Amount Paid short by exactly the TDS withheld from the vendor)"
+OTHER_CAUSE_HEADING = "wrong for another reason (wrong under the old rule too; check these before the run)"
+
+
+def split_by_cause(rows: list[Mismatch]) -> tuple[list[Mismatch], list[Mismatch]]:
+    """`(tax_caused, other)`: the mismatched Work Orders whose stored figures are what the old rule gave
+    -- Amount Paid short of source by exactly the TDS withheld from the vendor, Amount Due and
+    `total_tds` right -- and the rest. Reads only."""
+    withheld = borne_tds_by_order(WO, [m.name for m in rows])
+    tax_caused, other = [], []
+    for m in rows:
+        vendor_tds = withheld[m.name].vendor if m.name in withheld else 0.0
+        explained = all(
+            abs(stored - correct) < THRESHOLD
+            for stored, correct in (
+                (m.stored_paid, m.correct_paid - vendor_tds),
+                (m.stored_due, m.correct_due),
+                (m.stored_tds, m.correct_tds),
+            )
+        )
+        (tax_caused if explained else other).append(m)
+    return tax_caused, other
 
 
 class NewHold(NamedTuple):
@@ -97,9 +128,14 @@ def new_ceo_holds(projects=None) -> list[NewHold]:
 
 
 def preview(names=None, projects=None):
-    """Print what `execute` would change, and the projects that would newly go on CEO Hold. Writes nothing."""
+    """Print what `execute` would change, split by cause, and the projects that would newly go on CEO
+    Hold. Writes nothing."""
     # The judge's mismatches are exactly what `execute` changes.
-    _print_work_orders("would change", mismatches(WO, names))
+    found = mismatches(WO, names)
+    tax_caused, other = split_by_cause(found)
+    print(f"{TAG}: would change {len(found)} Work Orders: {len(tax_caused)} the tax explains, {len(other)} other")
+    _print_work_orders(f"{len(tax_caused)} {TAX_CAUSED_HEADING}", tax_caused)
+    _print_work_orders(f"{len(other)} {OTHER_CAUSE_HEADING}", other)
     holds = new_ceo_holds(projects)
     print(f"{TAG}: {len(holds)} projects newly over their cashflow limit (old gap: without WO TDS; new: with it)")
     for h in holds:
@@ -115,12 +151,12 @@ def preview(names=None, projects=None):
 def execute(names=None) -> list[Mismatch]:
     """Recount every Work Order (only those in `names` when given) the judge finds wrong. Returns them."""
     changed = recount_work_orders(names)
-    _print_work_orders("changed", changed)
+    _print_work_orders(f"changed {len(changed)} Work Orders", changed)
     return changed
 
 
-def _print_work_orders(verb, rows):
-    print(f"{TAG}: {verb} {len(rows)} Work Orders")
+def _print_work_orders(heading, rows):
+    print(f"{TAG}: {heading}")
     for m in rows:
         line = (
             f"  {m.name:<22} paid {m.stored_paid:>14,.2f} -> {m.correct_paid:>14,.2f}"
