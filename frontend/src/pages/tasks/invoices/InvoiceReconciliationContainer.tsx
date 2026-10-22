@@ -61,7 +61,7 @@ export default function InvoiceReconciliationContainer() {
     useEffect(() => {
         const urlTab = new URLSearchParams(location.search).get("tab");
         if (urlTab) setTab(urlTab);
-    }, [location.key]);
+    }, [location.key, location.search]);
 
 
     // Filter task tabs based on role: approvals = Admin/Accountant/Accountant Lead;

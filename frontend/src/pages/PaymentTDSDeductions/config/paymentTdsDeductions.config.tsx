@@ -354,7 +354,9 @@ export const getPaymentTdsColumns = ({
         // Pay TDS takes tax only from a Paid payment (story 39): an Office Rent row names none ("--").
         cell: ({ row }) => <PaymentStatusCell payment={row.original.project_payment} />,
         enableSorting: false,
-        meta: { exportHeaderName: "Payment Status", exportValue: () => "" },
+        // Not exported: the statuses are fetched for the page on screen only, so an export would print a blank
+        // column for every other row.
+        meta: { excludeFromExport: true },
     },
     {
         accessorKey: "gross_amount",

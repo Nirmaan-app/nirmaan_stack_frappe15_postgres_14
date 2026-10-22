@@ -139,7 +139,7 @@ def step_needed(was: str, now: str, amount) -> str | None:
 def raise_step_needed(status: str, old_amount, new_amount) -> str | None:
     """The step a save that raises a payment past its approval needs: the tier its NEW amount needs (the
     CEO above the L1 limit, L1 from the auto-approve line), or None within the auto band or for a cut."""
-    if (status or "").strip() not in PAST_APPROVAL or flt(new_amount) <= flt(old_amount):
+    if status not in PAST_APPROVAL or flt(new_amount) <= flt(old_amount):
         return None
     if needs_ceo(flt(new_amount)):
         return STEP_CEO
@@ -147,8 +147,8 @@ def raise_step_needed(status: str, old_amount, new_amount) -> str | None:
 
 
 def born_step_needed(status: str, amount) -> str | None:
-    """The step a new payment born at `status` has already passed, or None when it passed none."""
-    status = (status or "").strip()
+    """The step a new payment born at `status` has already passed, or None when it passed none. Not
+    stripped, as nowhere here: a padded status is no status of the six (`refuse_unknown_status`)."""
     if status == APPROVED:
         if is_auto_approved(flt(amount)):
             return None
