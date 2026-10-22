@@ -63,7 +63,11 @@ class PaidByCompanyCase(DepositedTaxCase):
     def _negative_due(self):
         """The decision record's case: approved at 10,200 (cut to 9,996 + 204), then raised back to
         10,000 before the raise was refused (planted by `set_value`, as the old edit left it), and Paid."""
-        made = self._approved_on(10200, total=10000)
+        # Approved within the Work Order's limit, then its total cut to 10,000 by raw write: the approval
+        # re-checks the limit, so only the old edit's back door reaches the state.
+        made = self._approved_on(10200, total=10200)
+        frappe.db.set_value("Service Requests", frappe.db.get_value(PAYMENT, made.name, "document_name"),
+                            "total_amount", 10000, update_modified=False)
         frappe.db.set_value(PAYMENT, made.name, "amount", 10000)
         self._mark_paid(made)
         return made

@@ -62,6 +62,11 @@ class TestChequePayments(FrappeTestCase):
 		frappe.set_user(U)
 
 	# -- helpers --------------------------------------------------------------------------------
+	def _gst_work_order(self):
+		"""A GST-on Work Order with GST released: an approval re-checks the Work Order's payment limit,
+		which refuses a GST payment on a Work Order without GST."""
+		return self.fx.service_request(self.project, self.vendor, gst=True, gst_invoiced=10000000)
+
 	def _plant(self, amount, status, *, cheque=True, cheque_no=None, sr=None, po=None, gst=False):
 		"""A payment already sitting at `status`, planted like the fixture plants its own."""
 		name = self.fx._name("PAY")
@@ -190,7 +195,7 @@ class TestChequePayments(FrappeTestCase):
 
 	# -- a GST cheque (ADR-0030): never taxed, so it is written and moved at its full amount -------
 	def test_a_gst_cheque_is_moved_at_its_full_amount_on_single_approve(self):
-		name = self._plant(20000, "Requested", gst=True)
+		name = self._plant(20000, "Requested", gst=True, sr=self._gst_work_order())
 		doc = frappe.get_doc(PAYMENT, name)
 		doc.update({"status": "Approved", "amount": 20000, "approval_date": nowdate()})
 		doc.save()
@@ -201,13 +206,14 @@ class TestChequePayments(FrappeTestCase):
 		self.assertEqual(self._state(name), (RECON, 20000.0, []))
 
 	def test_a_ceo_approved_gst_cheque_is_moved_untaxed(self):
-		name = self._plant(60000, "CEO Pending", gst=True)
+		name = self._plant(60000, "CEO Pending", gst=True, sr=self._gst_work_order())
 		self._as_ceo(ceo_approve_payment, name)
 		self.assertEqual(self._state(name), (RECON, 60000.0, []))
 
 	def test_bulk_approve_moves_a_gst_cheque_untaxed_beside_a_taxed_base_one(self):
-		gst = self._plant(20000, "Requested", gst=True)
-		base = self._plant(20000, "Requested")
+		wo = self._gst_work_order()
+		gst = self._plant(20000, "Requested", gst=True, sr=wo)
+		base = self._plant(20000, "Requested", sr=wo)
 		with patch.object(bulk_actions, "_emit_approve_summary"):
 			res = bulk_actions.bulk_lead_approve_payments([gst, base], "approve")["data"]
 		self.assertEqual(sorted(res["succeeded"]), sorted([gst, base]))

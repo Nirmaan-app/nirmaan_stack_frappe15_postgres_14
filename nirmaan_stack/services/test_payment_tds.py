@@ -84,8 +84,8 @@ class TestPaymentTDS(FrappeTestCase):
 			)
 		frappe.db.sql(
 			"""INSERT INTO "tabProcurement Orders" (name, creation, modified, modified_by, owner,
-				   docstatus, idx, project, vendor, total_amount, amount_paid, status)
-			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 1000000, 0, 'PO Approved')""",
+				   docstatus, idx, project, vendor, amount, tax_amount, total_amount, amount_paid, status)
+			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 1000000, 0, 1000000, 0, 'PO Approved')""",
 			(cls.po, U, U, cls.project, cls.vendor2),
 		)
 		frappe.db.commit()
@@ -112,6 +112,17 @@ class TestPaymentTDS(FrappeTestCase):
 		super().tearDown()
 
 	# -- helpers ---------------------------------------------------------------------------
+	def _release_gst_on_the_work_order(self):
+		"""The fixture Work Order turned GST-on with GST released, for this test only: an approval re-checks
+		the Work Order's payment limit, which refuses a GST payment on a Work Order without GST."""
+		frappe.db.set_value(SR, self.sr, {"gst": "true", "gst_invoiced": 1000000}, update_modified=False)
+		frappe.db.commit()
+
+		def restore():
+			frappe.db.set_value(SR, self.sr, {"gst": "false", "gst_invoiced": 0}, update_modified=False)
+			frappe.db.commit()
+		self.addCleanup(restore)
+
 	def _pay(self, amount, status="Approved", parent_dt=SR, parent=None, vendor=None, gst=False):
 		name = f"{P}PAY-{frappe.generate_hash(length=8)}"
 		frappe.db.sql(
@@ -649,6 +660,7 @@ class TestPaymentTDS(FrappeTestCase):
 	def test_editing_a_gst_payments_amount_creates_no_deduction(self):
 		# Lowered, not raised: the fixture's Work Order has no GST released, so a raise is refused by the
 		# Work Order payment limit (#1536) before the tax code is reached.
+		self._release_gst_on_the_work_order()
 		doc = self._pay(5000, status="CEO Pending", gst=True)
 		doc.status = "Approved"
 		doc.save(ignore_permissions=True)
