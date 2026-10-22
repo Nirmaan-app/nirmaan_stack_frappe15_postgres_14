@@ -123,4 +123,14 @@ export interface PayeePage extends PayeeSummary {
     /** When and by whom its account number or IFSC last changed; null when never (#1435). */
     account_changed: PayeeChange | null;
     linked_vendors: PayeePageVendor[];
+    /** The person whose own bank account (Reimbursements) this Payee is, or null. */
+    linked_user: PayeeLinkedUser | null;
+}
+
+/** The person a Payee is an own bank account of (`links.linked_user`). */
+export interface PayeeLinkedUser {
+    /** The user's email (their Nirmaan Users name). */
+    name: string;
+    full_name?: string | null;
+    role_profile?: string | null;
 }
