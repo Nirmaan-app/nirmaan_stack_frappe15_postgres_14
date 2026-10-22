@@ -332,6 +332,11 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.nirmaan_versions.generate_sr_amend_version"
             ]
     },
+    # A generated invoice is made only by Generate and never deleted (#1546).
+    "WO Generated Invoice": {
+        "before_insert": "nirmaan_stack.integrations.controllers.wo_generated_invoice.refuse_insert_outside_generate",
+        "on_trash": "nirmaan_stack.integrations.controllers.wo_generated_invoice.refuse_delete",
+    },
     # A Work Order's amendment snapshot is kept, unchanged, as its audit record (spec #1528 story 25).
     "Nirmaan Versions": {
         "validate": "nirmaan_stack.integrations.controllers.nirmaan_versions.keep_amendment_snapshot",
@@ -339,6 +344,9 @@ doc_events = {
     },
     "Service Requests": {
         "validate": [
+            # What an approving or amendment-deciding save sets (GST from the vendor, Nirmaan GST, the
+            # approval stamp, the amendment's outcome); first, so the guards below see it.
+            "nirmaan_stack.integrations.controllers.service_requests.apply_approval",
             # Who may move a Work Order (#1529); the one home of the WO status-move rules.
             "nirmaan_stack.integrations.controllers.service_requests.guard_lifecycle",
             "nirmaan_stack.integrations.controllers.service_requests.validate",
@@ -349,7 +357,10 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.service_requests.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions"
         ],
-        "on_update": "nirmaan_stack.integrations.controllers.service_requests.on_update"
+        "on_update": [
+            "nirmaan_stack.integrations.controllers.service_requests.mark_amendment_snapshots",
+            "nirmaan_stack.integrations.controllers.service_requests.on_update",
+        ]
     },
     "Project Estimates" : {
         "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",

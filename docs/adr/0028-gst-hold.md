@@ -119,7 +119,7 @@ rule: nothing changes history by itself; a person decides each old Work Order.
 
 1. **GST follows the vendor.** A Work Order's GST flag is on exactly when its vendor has a GST number
    (blank or whitespace counts as none). The server sets it at first approval and when an amendment that
-   changed the vendor is accepted (`ServiceRequests.set_gst_from_vendor`; the vendor before the amendment
+   changed the vendor is accepted (`controllers/service_requests.set_gst_from_vendor`; the vendor before the amendment
    is read from the WO's Version history, `services/work_order_amendment.vendor_before_amendment`). An
    amendment that kept the vendor, or a revert back to it, leaves the flag alone.
 2. **The switch is locked**, on the WO page and on the server: any other save that changes the flag is

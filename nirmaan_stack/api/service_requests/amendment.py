@@ -25,7 +25,19 @@ SR = "Service Requests"
 
 @frappe.whitelist(methods=["POST"])
 def revert_amendment(work_order: str) -> dict:
-    doc = frappe.get_doc(SR, work_order)
+    """Put `work_order` back as it was before its amendment, and Approved.
+
+    Args:
+        work_order: a Service Requests name under amendment.
+
+    Returns:
+        `{"name": work_order}` once the revert is committed.
+
+    The Work Order is read again under a row lock, and its status checked inside it, so an accept and a
+    revert of the same amendment can't both land. Refused when it is not under amendment, when it has no
+    snapshot, and (the save's lifecycle guard) for anyone but Admin and Project Lead.
+    """
+    doc = frappe.get_doc(SR, work_order, for_update=True)
     if doc.status != "Amendment":
         frappe.throw(_("{0} is not under amendment, so there is nothing to revert.").format(work_order))
     snapshot = pending_snapshot(work_order)
@@ -38,4 +50,5 @@ def revert_amendment(work_order: str) -> dict:
     doc.status = "Approved"
     doc.flags.amendment_outcome = REVERTED
     doc.save()
+    frappe.db.commit()
     return {"name": doc.name}

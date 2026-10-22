@@ -32,7 +32,12 @@ from frappe.utils import flt
 
 from nirmaan_stack.api.po_adjustments.refund_links import sync_po_refund_links
 from nirmaan_stack.services.amount_paid import amount_due_columns, amount_due_from, write_amount_paid
-from nirmaan_stack.services.payment_tds import DEDUCTIBLE_PARENTS, TAX_COUNTED_PARENTS, borne_tds_by_order_sql
+from nirmaan_stack.services.payment_tds import (
+    DEDUCTIBLE_PARENTS,
+    TAX_COUNTED_PARENTS,
+    borne_tds_by_order,
+    borne_tds_by_order_sql,
+)
 from nirmaan_stack.services.vendor_refunds import LOWERS_PAID_STATUSES, PROCUREMENT_ORDERS, SERVICE_REQUESTS
 
 #: The orders that store an Amount Paid.
@@ -184,6 +189,27 @@ def _drift(m: Mismatch) -> Drift:
 
 # ── the 2026-10-20 Work Order recount patch (#1513) ─────────────────────────────────────────────
 # `patches/v3_0/recount_work_order_amount_paid_with_tds` (append-only) calls this by name.
+
+
+def split_by_cause(rows: list[Mismatch]) -> tuple[list[Mismatch], list[Mismatch]]:
+    """`(tax_caused, other)` of mismatched Work Orders (#1545): those whose stored figures are what the
+    old rule gave -- Amount Paid short of source by exactly the TDS withheld from the vendor, Amount Due
+    and `total_tds` right -- and the rest, which were wrong under the old rule too. Reads only. The recount
+    patch's preview lists the two apart."""
+    withheld = borne_tds_by_order(SERVICE_REQUESTS, [m.name for m in rows])
+    tax_caused, other = [], []
+    for m in rows:
+        vendor_tds = withheld[m.name].vendor if m.name in withheld else 0.0
+        explained = all(
+            abs(stored - correct) < THRESHOLD
+            for stored, correct in (
+                (m.stored_paid, m.correct_paid - vendor_tds),
+                (m.stored_due, m.correct_due),
+                (m.stored_tds, m.correct_tds),
+            )
+        )
+        (tax_caused if explained else other).append(m)
+    return tax_caused, other
 
 
 def recount_work_orders(names=None) -> list[Mismatch]:

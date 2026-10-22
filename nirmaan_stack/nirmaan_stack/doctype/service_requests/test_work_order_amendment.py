@@ -234,6 +234,12 @@ class TestTheDecision(_AmendmentCase):
         )
         self.assertEqual(self._snapshots(), ["Reverted"])
 
+    def test_a_revert_is_committed_by_the_endpoint(self):
+        self._amend(rate=120_000)
+        self._as(self.approver, revert_amendment, self.wo)
+        frappe.db.rollback()   # what the request does after the endpoint returns: nothing is lost
+        self.assertEqual((self._status(self.wo), self._snapshots()), ("Approved", ["Reverted"]))
+
     def test_only_an_approver_may_revert(self):
         self._amend(rate=120_000)
         self.assertRefused(lambda: self._as(self.amender, revert_amendment, self.wo),

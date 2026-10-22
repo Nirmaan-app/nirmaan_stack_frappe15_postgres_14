@@ -678,9 +678,10 @@ def mark_tds_paid_by_company(payment_name: str) -> str:
 	name = existing_deduction(payment_name)
 	if not name:
 		frappe.throw(f"{payment_name} carries no TDS.")
+	# Locked before the challan check, so Pay TDS can't deposit the tax between the check and the flip.
+	row = frappe.get_doc(TDS_DOCTYPE, name, for_update=True)
 	refuse_if_deposited(payment_name, f"can't be marked {TDS_PAID_BY_COMPANY}")
 
-	row = frappe.get_doc(TDS_DOCTYPE, name)
 	if row.borne_by == BORNE_BY_COMPANY:
 		frappe.throw(f"{payment_name}: its TDS is already paid by the company.")
 	row.borne_by = BORNE_BY_COMPANY

@@ -57,10 +57,9 @@ from typing import NamedTuple
 import frappe
 from frappe.utils import flt
 
-from nirmaan_stack.services.amount_paid_drift import THRESHOLD, Mismatch, mismatches, recount_work_orders
+from nirmaan_stack.services.amount_paid_drift import Mismatch, mismatches, recount_work_orders, split_by_cause
 from nirmaan_stack.services.ceo_hold import core as ceo_hold
 from nirmaan_stack.services.ceo_hold.rules import over_cashflow_limit
-from nirmaan_stack.services.payment_tds import borne_tds_by_order
 from nirmaan_stack.services.project_money import project_money, work_order_tds_by_project
 
 WO = "Service Requests"
@@ -68,26 +67,6 @@ TAG = "recount_work_order_amount_paid_with_tds"
 #: The preview's two lists of Work Orders (#1545).
 TAX_CAUSED_HEADING = "the tax explains (Amount Paid short by exactly the TDS withheld from the vendor)"
 OTHER_CAUSE_HEADING = "wrong for another reason (wrong under the old rule too; check these before the run)"
-
-
-def split_by_cause(rows: list[Mismatch]) -> tuple[list[Mismatch], list[Mismatch]]:
-    """`(tax_caused, other)`: the mismatched Work Orders whose stored figures are what the old rule gave
-    -- Amount Paid short of source by exactly the TDS withheld from the vendor, Amount Due and
-    `total_tds` right -- and the rest. Reads only."""
-    withheld = borne_tds_by_order(WO, [m.name for m in rows])
-    tax_caused, other = [], []
-    for m in rows:
-        vendor_tds = withheld[m.name].vendor if m.name in withheld else 0.0
-        explained = all(
-            abs(stored - correct) < THRESHOLD
-            for stored, correct in (
-                (m.stored_paid, m.correct_paid - vendor_tds),
-                (m.stored_due, m.correct_due),
-                (m.stored_tds, m.correct_tds),
-            )
-        )
-        (tax_caused if explained else other).append(m)
-    return tax_caused, other
 
 
 class NewHold(NamedTuple):

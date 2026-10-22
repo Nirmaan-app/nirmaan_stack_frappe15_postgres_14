@@ -57,10 +57,10 @@ BILLED_INVOICE_STATUSES = ("Pending", "Approved")
 
 #: status -> {status it may move to: the fields that move writes, each required}.
 MOVES = {
-	GENERATED: {SIGNED: ("vendor_invoice", "signed_attachment"), VOIDED: ("void_reason",)},
-	SIGNED: {APPROVED: (), VOIDED: ("void_reason",)},
-	# An Approved Work Order invoice may still be rejected (#1531, ADR-0014 Amendment A): its record follows.
-	APPROVED: {VOIDED: ("void_reason",)},
+    GENERATED: {SIGNED: ("vendor_invoice", "signed_attachment"), VOIDED: ("void_reason",)},
+    SIGNED: {APPROVED: (), VOIDED: ("void_reason",)},
+    # An Approved Work Order invoice may still be rejected (#1531, ADR-0014 Amendment A): its record follows.
+    APPROVED: {VOIDED: ("void_reason",)},
 }
 
 #: Vendor Invoice status -> what it makes of the generated invoice it came from (`vendor_invoice_move`).
@@ -79,92 +79,92 @@ _RA_IN_TEXT = re.compile(r"\bRA\s*[-–]?\s*(\d+)", re.IGNORECASE)
 
 
 def next_ra_number(used_ra_numbers, invoice_numbers) -> int:
-	"""The RA number the next generated invoice gets: one above the highest of `used_ra_numbers`
-	(every record's, Voided included) and every "RA-n" written in `invoice_numbers` (the Work Order's
-	saved invoice number and its Vendor Invoices' numbers, from before invoices were generated)."""
-	highest = max((cint(n) for n in used_ra_numbers), default=0)
-	for text in invoice_numbers:
-		for found in _RA_IN_TEXT.findall(cstr(text)):
-			highest = max(highest, int(found))
-	return highest + 1
+    """The RA number the next generated invoice gets: one above the highest of `used_ra_numbers`
+    (every record's, Voided included) and every "RA-n" written in `invoice_numbers` (the Work Order's
+    saved invoice number and its Vendor Invoices' numbers, from before invoices were generated)."""
+    highest = max((cint(n) for n in used_ra_numbers), default=0)
+    for text in invoice_numbers:
+        for found in _RA_IN_TEXT.findall(cstr(text)):
+            highest = max(highest, int(found))
+    return highest + 1
 
 
 def financial_year_code(invoice_date) -> str:
-	"""The April-March financial year of a date, as "26-27"."""
-	d = getdate(invoice_date)
-	start = d.year if d.month >= 4 else d.year - 1
-	return f"{start % 100:02d}-{(start + 1) % 100:02d}"
+    """The April-March financial year of a date, as "26-27"."""
+    d = getdate(invoice_date)
+    start = d.year if d.month >= 4 else d.year - 1
+    return f"{start % 100:02d}-{(start + 1) % 100:02d}"
 
 
 def invoice_number(invoice_date, project, work_order, invoice_type, ra_number, final_number: int = 1) -> str:
-	"""INV-<FY>-<project last 5>-<WO last 5>-<RA-n | FINAL>, the format the WO page has printed since
-	#1405; the year is the invoice date's. A FINAL generated after a voided one prints its own number,
-	FINAL-2, FINAL-3 (`final_number`, counting every FINAL the WO has had), so a voided number is never
-	printed again."""
-	if invoice_type == FINAL:
-		suffix = FINAL if cint(final_number) <= 1 else f"{FINAL}-{cint(final_number)}"
-	else:
-		suffix = f"RA-{cint(ra_number)}"
-	return f"INV-{financial_year_code(invoice_date)}-{cstr(project)[-5:]}-{cstr(work_order)[-5:]}-{suffix}"
+    """INV-<FY>-<project last 5>-<WO last 5>-<RA-n | FINAL>, the format the WO page has printed since
+    #1405; the year is the invoice date's. A FINAL generated after a voided one prints its own number,
+    FINAL-2, FINAL-3 (`final_number`, counting every FINAL the WO has had), so a voided number is never
+    printed again."""
+    if invoice_type == FINAL:
+        suffix = FINAL if cint(final_number) <= 1 else f"{FINAL}-{cint(final_number)}"
+    else:
+        suffix = f"RA-{cint(ra_number)}"
+    return f"INV-{financial_year_code(invoice_date)}-{cstr(project)[-5:]}-{cstr(work_order)[-5:]}-{suffix}"
 
 
 def billable_left(total_amount, amount_paid, billed) -> float:
-	"""The most a new generated invoice may bill: min(Work Order amount, Amount Paid incl. TDS) less
-	`billed` (Approved and Pending Vendor Invoices plus generated invoices not yet uploaded), never
-	below 0."""
-	return max(0.0, round(min(flt(total_amount), flt(amount_paid)) - flt(billed), 2))
+    """The most a new generated invoice may bill: min(Work Order amount, Amount Paid incl. TDS) less
+    `billed` (Approved and Pending Vendor Invoices plus generated invoices not yet uploaded), never
+    below 0."""
+    return max(0.0, round(min(flt(total_amount), flt(amount_paid)) - flt(billed), 2))
 
 
 def is_fully_paid(total_amount, amount_paid) -> bool:
-	"""Amount Paid (incl. TDS) has reached the Work Order's amount, to within ₹10."""
-	return flt(amount_paid) >= flt(total_amount) - FULLY_PAID_TOLERANCE
+    """Amount Paid (incl. TDS) has reached the Work Order's amount, to within ₹10."""
+    return flt(amount_paid) >= flt(total_amount) - FULLY_PAID_TOLERANCE
 
 
 def change_problem(before, after) -> str | None:
-	"""Why `after` may not be saved over `before` (two mappings of one record), or None.
+    """Why `after` may not be saved over `before` (two mappings of one record), or None.
 
-	Only a move in `MOVES` changes a record, and it writes only its own fields, each of them filled.
-	"""
-	for field in FIXED_FIELDS:
-		if _value(field, before.get(field)) != _value(field, after.get(field)):
-			return "A generated invoice is never edited. Void it and generate a new one."
+    Only a move in `MOVES` changes a record, and it writes only its own fields, each of them filled.
+    """
+    for field in FIXED_FIELDS:
+        if _value(field, before.get(field)) != _value(field, after.get(field)):
+            return "A generated invoice is never edited. Void it and generate a new one."
 
-	old, new = cstr(before.get("status")), cstr(after.get("status"))
-	changed = {f for f in MOVE_FIELDS if cstr(before.get(f)).strip() != cstr(after.get(f)).strip()}
-	if old == new:
-		return "A generated invoice is never edited. Void it and generate a new one." if changed else None
+    old, new = cstr(before.get("status")), cstr(after.get("status"))
+    changed = {f for f in MOVE_FIELDS if cstr(before.get(f)).strip() != cstr(after.get(f)).strip()}
+    if old == new:
+        return "A generated invoice is never edited. Void it and generate a new one." if changed else None
 
-	writes = MOVES.get(old, {}).get(new)
-	if writes is None:
-		return f"A generated invoice can't go from {old} to {new}."
-	if changed - set(writes):
-		return "A generated invoice is never edited. Void it and generate a new one."
-	missing = [f for f in writes if not cstr(after.get(f)).strip()]
-	if missing:
-		return f"{new} needs {', '.join(_LABELS[f] for f in missing)}."
-	return None
+    writes = MOVES.get(old, {}).get(new)
+    if writes is None:
+        return f"A generated invoice can't go from {old} to {new}."
+    if changed - set(writes):
+        return "A generated invoice is never edited. Void it and generate a new one."
+    missing = [f for f in writes if not cstr(after.get(f)).strip()]
+    if missing:
+        return f"{new} needs {', '.join(_LABELS[f] for f in missing)}."
+    return None
 
 
 def vendor_invoice_move(record_status, invoice_status, rejection_reason=None, invoice_name="") -> dict | None:
-	"""The change a generated invoice at `record_status` takes when its Vendor Invoice is saved at
-	`invoice_status` (approved: Approved; rejected: Voided, the rejection as its reason), or None."""
-	target = _INVOICE_MOVES.get(cstr(invoice_status))
-	if target is None or target == record_status or target not in MOVES.get(record_status, {}):
-		return None
-	if target == VOIDED:
-		reason = cstr(rejection_reason).strip()
-		return {"status": VOIDED, "void_reason": f"Vendor Invoice {invoice_name} rejected" + (f": {reason}" if reason else ".")}
-	return {"status": target}
+    """The change a generated invoice at `record_status` takes when its Vendor Invoice is saved at
+    `invoice_status` (approved: Approved; rejected: Voided, the rejection as its reason), or None."""
+    target = _INVOICE_MOVES.get(cstr(invoice_status))
+    if target is None or target == record_status or target not in MOVES.get(record_status, {}):
+        return None
+    if target == VOIDED:
+        reason = cstr(rejection_reason).strip()
+        return {"status": VOIDED, "void_reason": f"Vendor Invoice {invoice_name} rejected" + (f": {reason}" if reason else ".")}
+    return {"status": target}
 
 
 _LABELS = {"void_reason": "a reason", "vendor_invoice": "its Vendor Invoice", "signed_attachment": "the signed copy"}
 
 
 def _value(field, value):
-	if field == "amount":
-		return round(flt(value), 2)
-	if field == "ra_number":
-		return cint(value)
-	if field == "invoice_date":
-		return getdate(value) if value else None
-	return cstr(value).strip()
+    if field == "amount":
+        return round(flt(value), 2)
+    if field == "ra_number":
+        return cint(value)
+    if field == "invoice_date":
+        return getdate(value) if value else None
+    return cstr(value).strip()

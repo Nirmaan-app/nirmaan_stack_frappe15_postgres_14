@@ -87,7 +87,7 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   included); `api/sr_items.get_sr_items_for_parents` returns only readable WOs, with or without names.
 
 - **The GST flag (`gst`) follows the vendor and is never written by hand (ADR-0028 Amendment A, #1538).**
-  Its writers: `ServiceRequests.set_gst_from_vendor` (first approval; an accepted amendment whose vendor differs
+  Its writers: `controllers/service_requests.set_gst_from_vendor` (first approval; an accepted amendment whose vendor differs
   from the one before it, read from Version rows by `services/work_order_amendment.vendor_before_amendment`) and
   `api/service_requests/match_gst_to_vendor` (Admin / Accountants, Approved WOs, Finalized included). Each sets
   `doc.flags.gst_set_from_vendor`; any other save that changes `gst` is refused by
@@ -95,7 +95,7 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   and save the document (never `set_value`), so `on_update` recounts `total_amount` / `amount_due` and the GST
   payment guard runs. The rule is the pure `work_order_gst.gst_flag_for_vendor` (frontend twin
   `utils/workOrderGst.gstForVendor`). Remove GST Hold writes no WO. First approval also fills a blank
-  `project_gst` from the project (`ServiceRequests.fill_project_gst_on_approval`).
+  `project_gst` from the project (`controllers/service_requests.fill_project_gst_on_approval`).
 - **A Finalized WO's scope is locked on the server, for everyone, Admin included (#1539).** The same
   `work_order_lifecycle.change_problem` refuses a save of a Finalized WO that changes `LOCKED_FIELDS`
   (status, so Amend; vendor, project, `gst`, `notes` (terms), `work_order_items`, `service_order_list`,
@@ -126,8 +126,8 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   The snapshot (Nirmaan Versions, `new_state` Amendment, copied from the amend save's Version by
   `controllers/nirmaan_versions`) is never deleted or changed through the document layer, by anyone
   (`nirmaan_versions.keep_amendment_snapshot`, validate + on_trash): the deciding save marks every undecided one with
-  `outcome` Accepted or Reverted (`ServiceRequests.name_amendment_outcome` -> `flags.amendment_outcome`, then
-  `work_order_amendment.mark_snapshots` in `on_update`). Revert is `api/service_requests/amendment.revert_amendment`
+  `outcome` Accepted or Reverted (`controllers/service_requests.name_amendment_outcome` -> `flags.amendment_outcome`, then
+  `work_order_amendment.mark_snapshots` from `controllers/service_requests.mark_amendment_snapshots` in `on_update`). Revert is `api/service_requests/amendment.revert_amendment`
   (the user's own save, so the decide rule applies), which writes back items, vendor, categories and
   `project_gst` from the snapshot (`pre_amendment_values`); a plain Amendment -> Approved save is an accept.
   Snapshots exist only for saves that leave a Version: in tests pass `ignore_version=False` on the amend save.

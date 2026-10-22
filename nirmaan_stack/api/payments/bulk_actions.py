@@ -57,7 +57,7 @@ def bulk_lead_approve_payments(payment_ids, action: str, rejection_reason: Optio
     )
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def retry_bulk_deductions(payment_ids):
     """Retry TDS (#1536, story 42): record the tax a bulk approve failed to withhold (`tds_failed`).
 

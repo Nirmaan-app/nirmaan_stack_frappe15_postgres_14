@@ -15,14 +15,16 @@ from .procurement_requests import get_user_name
 from nirmaan_stack.api.projects._tendering_guard import validate_won
 from nirmaan_stack.api.service_requests.vendor_fy_limit import validate_vendor_gst_hold
 from nirmaan_stack.services.role_profiles import SERVICE_PROCUREMENT_PROFILES, can_decide_work_order
-from nirmaan_stack.services.work_order_amendment import REVERTED, vendor_before_amendment
-from nirmaan_stack.services.work_order_gst import gst_is_on
+from frappe.utils import now_datetime
+from nirmaan_stack.services.work_order_amendment import ACCEPTED, REVERTED, mark_snapshots, vendor_before_amendment
+from nirmaan_stack.services.work_order_gst import gst_flag_for_vendor, gst_is_on
 from nirmaan_stack.services.work_order_lifecycle import (
     AMENDMENT,
     APPROVED,
     SETTLED_PAYMENT_STATUSES,
     AmendmentFacts,
     WorkOrderChangeRefused,
+    approval_record,
     change_problem,
     delete_problem,
     is_amendment_save,
@@ -31,13 +33,79 @@ from nirmaan_stack.services.work_order_lifecycle import (
 )
 
 
+def apply_approval(doc, method=None):
+    """What the save that approves a Work Order, or decides its amendment, sets on it. First in
+    `validate`, so the lifecycle guard and the GST flag guard see the server's own changes."""
+    set_gst_from_vendor(doc)
+    fill_project_gst_on_approval(doc)
+    stamp_approval(doc)
+    name_amendment_outcome(doc)
+
+
+def set_gst_from_vendor(doc):
+    """GST follows the vendor (ADR-0028 Amendment A): ON when the vendor has a GST number, OFF when it
+    doesn't. Set by the save that approves the Work Order (`work_order_lifecycle.is_approval`: from any
+    status but Amendment, or inserted Approved) and when an amendment that changed the vendor is accepted
+    (Amendment -> Approved with a vendor other than the one before the amendment). An amendment that kept
+    the vendor, or a revert back to it, leaves the flag alone: an old WO never changes by itself, only
+    through Match GST to vendor.
+
+    `flags.gst_set_from_vendor` tells `validate_gst_flag_not_changed_by_hand` and the Finalize lock that
+    this change is the server's. `ServiceRequests.on_update` recomputes `total_amount`, so the 18% follows."""
+    old_doc = doc.get_doc_before_save()
+    before_status = old_doc.status if old_doc else None
+    if before_status == AMENDMENT and doc.status == APPROVED:
+        before = vendor_before_amendment(doc.name, old_doc.vendor)
+        if before is None or before == doc.vendor:
+            return
+    elif not is_approval(before_status, doc.status):
+        return
+    vendor_gst = frappe.db.get_value("Vendors", doc.vendor, "vendor_gst") if doc.vendor else None
+    doc.gst = gst_flag_for_vendor(vendor_gst)
+    doc.flags.gst_set_from_vendor = True
+
+
+def fill_project_gst_on_approval(doc):
+    """The approving save (`is_approval`) fills a blank Nirmaan GST from the project, whoever approves
+    (SPA, Desk, API), so Finalize and the PDF are never blocked by it. A Nirmaan GST already chosen is kept."""
+    old_doc = doc.get_doc_before_save()
+    if not is_approval(old_doc.status if old_doc else None, doc.status):
+        return
+    if (doc.project_gst or "").strip() or not doc.project:
+        return
+    doc.project_gst = frappe.db.get_value("Projects", doc.project, "project_gst") or doc.project_gst
+
+
+def stamp_approval(doc):
+    """The approving save stores who approved and when; every other save keeps what is stored, whatever
+    it sends (#1532, `work_order_lifecycle.approval_record`)."""
+    doc.update(approval_record(doc.get_doc_before_save(), doc, user=frappe.session.user, now=now_datetime()))
+
+
+def name_amendment_outcome(doc):
+    """The save that decides an amendment (Amendment -> Approved) carries its outcome in
+    `flags.amendment_outcome`: Reverted when `api/service_requests/amendment.revert_amendment` set it,
+    Accepted otherwise (the approve screen, Desk, REST). `mark_amendment_snapshots` marks the snapshot
+    with it, and the notifications read it (#1540)."""
+    old_doc = doc.get_doc_before_save()
+    if old_doc and old_doc.status == AMENDMENT and doc.status == APPROVED:
+        doc.flags.amendment_outcome = doc.flags.amendment_outcome or ACCEPTED
+
+
+def mark_amendment_snapshots(doc, method=None):
+    """Mark the decided amendment's snapshot Accepted or Reverted (#1540). In `on_update`, apart from
+    the notifications, so a test that patches those out still marks it."""
+    if doc.flags.amendment_outcome:
+        mark_snapshots(doc.name, doc.flags.amendment_outcome)
+
+
 def guard_lifecycle(doc, method=None):
     """Refuse a Work Order save the lifecycle rules forbid for this user (`services/work_order_lifecycle`).
 
     Bound to validate on its own, so the SPA, Desk and the REST API all meet it: only Admin and Project
     Lead may approve, reject, or accept or revert an amendment (#1529); a Finalized Work Order's scope is
     locked (#1539); an amendment is held to the amendment rules (#1540), read here from the database. It runs
-    after the doctype's own `validate`, so `flags.gst_set_from_vendor` is set by then.
+    after `apply_approval`, so `flags.gst_set_from_vendor` is set by then.
     """
     before = doc.get_doc_before_save()
     problem = change_problem(
@@ -106,8 +174,8 @@ def validate_gst_flag_not_changed_by_hand(doc):
     """Refuse a GST flag change that the server did not make (ADR-0028 Amendment A, #1538).
 
     GST follows the vendor. Its only writers set `doc.flags.gst_set_from_vendor`: approval and an
-    accepted vendor-changing amendment (`ServiceRequests.set_gst_from_vendor`, the doctype's own
-    `validate`, which runs before this hook) and Match GST to vendor
+    accepted vendor-changing amendment (`set_gst_from_vendor`, from `apply_approval`, which runs before
+    this hook) and Match GST to vendor
     (`api/service_requests/match_gst_to_vendor`). Flags never travel over REST, so the page switch,
     Desk and the API all meet this, Admin included.
     """
@@ -125,8 +193,8 @@ def validate_gst_not_switched_off_with_gst_payments(doc):
     """Refuse turning the GST flag OFF while the Work Order has a GST payment (ADR-0030, decision 6).
 
     A GST payment counts at every status, Rejected included, until it is deleted. Turning GST ON is
-    never refused. This runs in the lifecycle, after the doctype's own `validate`, so the two ways the
-    flag can still move meet it: `ServiceRequests.set_gst_from_vendor` (approval, an accepted
+    never refused. This runs after `apply_approval`, so the two ways the
+    flag can still move meet it: `set_gst_from_vendor` (approval, an accepted
     vendor-changing amendment) and Match GST to vendor. A raw `set_value` of `gst` would not --
     nothing writes `gst` that way.
     """

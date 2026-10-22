@@ -20,5 +20,5 @@ FORMAT = "SR Invoice"
 
 
 def execute():
-	if frappe.db.exists("Print Format", FORMAT):
-		frappe.db.set_value("Print Format", FORMAT, "disabled", 1, update_modified=False)
+    if frappe.db.exists("Print Format", FORMAT):
+        frappe.db.set_value("Print Format", FORMAT, "disabled", 1, update_modified=False)
