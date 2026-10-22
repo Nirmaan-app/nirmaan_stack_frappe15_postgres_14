@@ -91,19 +91,29 @@ export function buildRowContext(
  * parent only"): the NOTES of the heading directly above the row -- what the extraction payload sends for that heading
  * (`extraction._note_block`, the FULL tier): its appended notes' values, its own note and its attached notes, strings
  * only. A heading further up (a whole-section specification) is not read. PURE. A row with no parent in `rows` has none.
- * The replay dump (`scripts/_instruments/ac5_dump.py`) builds the same list from the same fields.
+ *
+ * ADP-5a CERT-C5 (owner 2026-10-22): the page's rows carry NO `attached_notes` field -- an attached note reaches the page
+ * as its OWN committed row, classified "note", whose effective parent is the heading. So the attached notes are built
+ * exactly as their authority builds them (`commit_pipeline._derive_attached_notes`): the descriptions of the rows
+ * classified as notes whose effective parent is this heading, in row order. Every value is trimmed and a blank one
+ * dropped, as the payload's `_note_block` does. The replay harnesses compute the context with THIS function from the
+ * page's own rows and refuse to run if it differs from the payload's notes on any stored row.
  */
+export const NOTE_CLASSIFICATION = "note";   // = review_screen._NOTE_CLS
 export function rowHeadingNotes(row: PricedRow, rows: readonly PricedRow[]): string[] {
   const parent = row.effective_parent_index;
   if (typeof parent !== "number" || parent < 0 || parent === row.row_index) return [];
   const p = rows.find((r) => r.row_index === parent);
   if (!p) return [];
   const out: string[] = [];
+  const keep = (v: unknown) => { if (typeof v === "string" && v.trim() !== "") out.push(v.trim()); };
   const ap = (p as { append_notes_raw?: unknown }).append_notes_raw;
-  if (ap && typeof ap === "object" && !Array.isArray(ap)) {
-    for (const v of Object.values(ap as Record<string, unknown>)) if (typeof v === "string" && v.trim() !== "") out.push(v);
-  }
-  out.push(...rowOwnNotes(p));
+  if (ap && typeof ap === "object" && !Array.isArray(ap)) for (const v of Object.values(ap as Record<string, unknown>)) keep(v);
+  keep((p as { row_notes?: unknown }).row_notes);
+  const notes = rows
+    .filter((r) => (r as { effective_classification?: unknown }).effective_classification === NOTE_CLASSIFICATION && r.effective_parent_index === p.row_index)
+    .sort((a, b) => a.row_index - b.row_index);
+  for (const n of notes) keep(n.description);
   return out;
 }
 

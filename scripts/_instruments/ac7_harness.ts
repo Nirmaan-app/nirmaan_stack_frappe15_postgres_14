@@ -7,6 +7,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { makePricingSheetHelper } from "../../frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper";
 import { mergeItemsByName } from "../../frontend/src/pages/boq-wizard/rate-helper/rateHelperPlumbing";
+import { rowHeadingNotes } from "../../frontend/src/pages/boq-wizard/rate-helper/rateSuggestionModel";
 
 const label = process.argv[2] ?? "run";
 const S = process.env.REPLAY_DIR ?? "/tmp/replay17883";
@@ -17,6 +18,20 @@ const byDisc: Record<string, any[]> = {};
 for (const it of rawItems) (byDisc[it.discipline] ??= []).push(it);
 const items = mergeItemsByName(...Object.values(byDisc));
 const lines = readFileSync(`${S}/ac5_rows.jsonl`, "utf8").split("\n").filter(Boolean);
+// ADP-5a CERT-C5 / C5c (owner 2026-10-22): the row context's headingNotes are built by the PAGE's own function from the
+// page's own rows (dumped by ac5_dump.py), so the replay sees exactly what the page sees; how many rows differ from the
+// payload's notes (`payloadHeadingNotes`, reference only) is REPORTED, never a reason to stop
+const PAGE_ROWS: Record<string, any[]> = JSON.parse(readFileSync(`${S}/ac5_page_rows.json`, "utf8"));
+const hnMismatch: string[] = [];
+let hnRows = 0;
+function pageHeadingNotes(r: any): string[] {
+  const rows = PAGE_ROWS[`${r.boq}|${r.sheet_name}`] ?? [];
+  const row = rows.find((x: any) => x.source_row_number === r.excel_row);
+  const got = row ? rowHeadingNotes(row, rows) : [];
+  hnRows++;
+  if (JSON.stringify(got) !== JSON.stringify(r.payloadHeadingNotes ?? [])) hnMismatch.push(`${r.boq}|${r.sheet_name}|${r.excel_row}`);
+  return got;
+}
 const out: string[] = [];
 let n = 0;
 for (const line of lines) {
@@ -29,7 +44,7 @@ for (const line of lines) {
   const helper = makePricingSheetHelper({ configsByCategory, items, extractionByRow: ext });
   let res: any;
   try {
-    res = helper.compute({ excelRow: r.excel_row, description: r.description, nodeType: "Line Item", category: cat, discipline: r.discipline, rateKinds: ["supply_rate", "install_rate", "combined_rate"] as any, headings: r.headings ?? [], ownNotes: r.ownNotes ?? [], headingNotes: r.headingNotes ?? [], unit: r.unit ?? "" } as any, {});
+    res = helper.compute({ excelRow: r.excel_row, description: r.description, nodeType: "Line Item", category: cat, discipline: r.discipline, rateKinds: ["supply_rate", "install_rate", "combined_rate"] as any, headings: r.headings ?? [], ownNotes: r.ownNotes ?? [], headingNotes: pageHeadingNotes(r), unit: r.unit ?? "" } as any, {});
   } catch (e: any) {
     res = { kind: "error", error: String(e?.message ?? e) };
   }
@@ -48,3 +63,5 @@ for (const line of lines) {
 }
 writeFileSync(`${S}/ac7_${label}.jsonl`, out.join("\n") + "\n");
 console.log(`${label}: priced ${n} rows; configs ${configsByCategory.size}; items ${items.length}`);
+console.log(`${label}: heading notes, page vs payload: equal on ${hnRows - hnMismatch.length} / ${hnRows} rows; differ on ${hnMismatch.length} (hn_differ_${label}.txt)`);
+writeFileSync(`${S}/hn_differ_${label}.txt`, hnMismatch.join("\n") + (hnMismatch.length ? "\n" : ""));

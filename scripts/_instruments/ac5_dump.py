@@ -11,18 +11,21 @@ os.makedirs(OUT, exist_ok=True)
 os.chdir('/workspace/development/frappe-bench/sites')
 import frappe; frappe.init(site='localhost'); frappe.connect()
 from nirmaan_stack.services.boq_category.context_builder import build_sheet_context
+from nirmaan_stack.api.boq.wizard.review_screen import get_committed_rows
 from nirmaan_stack.services.boq_rate_master.extraction import _note_block, _resolved_categories
 
 
 def heading_notes(ancestors):
     """ADP-5a (HN-2 / HN-3, owner 2026-10-22: the headings' notes as the extraction payload sends them, then "immediate
     parent only"): the NOTES of the heading directly above the row -- `extraction._note_block` at the FULL tier
-    (appended, own, attached), flattened to their strings. The page's `rowHeadingNotes` reads the same fields."""
+    (appended, own, attached), flattened to their strings. REFERENCE ONLY (CERT-C5c): the panel's row context is built by
+    the page's `rowHeadingNotes` from the page rows exported below; the harnesses report how many rows differ."""
     if not ancestors:
         return []
     a = ancestors[-1]   # root-first, so the last is the immediate parent
     block = _note_block(a.get('own_notes_raw'), a.get('attached_notes'), a.get('append_notes_raw'), 'full')
     return list((block.get('appended') or {}).values()) + list(block.get('own') or []) + list(block.get('attached') or [])
+
 
 configs = {}
 for c in frappe.db.sql('select discipline, category_id, config from "tabBoQ Rate Category Config" where active=1', as_dict=True):
@@ -36,6 +39,13 @@ for it in frappe.db.sql('select name, discipline, kind, brand, unit, attributes,
 json.dump(configs, open(os.path.join(OUT, 'ac5_configs.json'), 'w'))
 json.dump(items, open(os.path.join(OUT, 'ac5_items.json'), 'w'), default=str)
 
+# ADP-5a CERT-C5 / C5c: the page's own committed rows per sheet (what get_priced_rows hands the BoQ page), so the harnesses
+# build the row context's headingNotes with the PAGE's function (`rowHeadingNotes`) and REPORT where it differs from
+# `payloadHeadingNotes` (the payload's view, kept for reference)
+PAGE_KEYS = ('row_index', 'source_row_number', 'effective_parent_index', 'effective_classification', 'description',
+             'row_notes', 'append_notes_raw')
+page_rows = {}
+frappe.set_user('Administrator')
 runs = frappe.db.sql('select boq, sheet_name, committed_version, run_id, status, ai_status, results from "tabBoQ Rate Suggestion Run" where active=1', as_dict=True)
 out = open(os.path.join(OUT, 'ac5_rows.jsonl'), 'w')
 n = 0; per_cat = collections.Counter(); skipped = collections.Counter()
@@ -45,6 +55,7 @@ for r in runs:
     if not cur or cur['commit_version'] != r['committed_version']:
         skipped['run not at current version'] += 1; continue
     ctx = build_sheet_context(boq, sn)
+    page_rows['%s|%s' % (boq, sn)] = [{k: pr.get(k) for k in PAGE_KEYS} for pr in (get_committed_rows(boq_name=boq, sheet_name=sn).get('rows') or [])]
     by_row = {x['excel_row']: x for x in ctx['rows']}
     resolved = _resolved_categories(boq, sn, cur['commit_version'])
     nodes = {nd['source_row_number']: nd for nd in frappe.get_all('BOQ Nodes', filters={'boq': boq, 'sheet': cur['name'], 'is_current': 1}, fields=['source_row_number', 'unit', 'notes', 'attached_notes', 'node_type'])}
@@ -66,9 +77,10 @@ for r in runs:
         for a in an or []:
             if isinstance(a, str): own_notes.append(a)
         rec = {'boq': boq, 'sheet_name': sn, 'excel_row': er, 'run_id': r['run_id'], 'category_id': x.get('category_id'), 'resolved_category': cat, 'discipline': disc,
-               'description': x.get('description') or (cx or {}).get('description') or '', 'unit': nd.get('unit'), 'headings': headings, 'ownNotes': own_notes, 'headingNotes': hnotes,
+               'description': x.get('description') or (cx or {}).get('description') or '', 'unit': nd.get('unit'), 'headings': headings, 'ownNotes': own_notes, 'payloadHeadingNotes': hnotes,
                'attributes': x.get('attributes') or {}, 'items': x.get('items')}
         out.write(json.dumps(rec, default=str) + '\n'); n += 1; per_cat[x.get('category_id')] += 1
 out.close()
+json.dump(page_rows, open(os.path.join(OUT, 'ac5_page_rows.json'), 'w'), default=str)
 print('runs', len(runs), 'rows', n, 'skipped', dict(skipped)); print('per category', per_cat.most_common())
 frappe.destroy()

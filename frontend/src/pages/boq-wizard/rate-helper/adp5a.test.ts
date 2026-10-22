@@ -257,16 +257,36 @@ describe("AC3 -- 'SA / RA', 'supply cum return air' and the immediate heading's 
     const s = panel({ ...R00122_65, description: "Supply air linear grilles" });
     expect(figs(s)).toEqual([9628, 2800]);
   });
-  it("PURE: rowHeadingNotes reads the immediate parent only -- its appended, own and attached notes, strings only", () => {
-    const row = (i: number, p: number | null, extra: Record<string, unknown> = {}) => ({ row_index: i, effective_parent_index: p, description: `r${i}`, ...extra }) as unknown as PricedRow;
+  // CERT-C5 / C5c (owner 2026-10-22): the page's rows carry NO `attached_notes` field -- a heading's note is its own committed
+  // row, classified "note", whose effective parent is the heading. BEFORE (the C5 failure): the notes were read from the
+  // parent's `attached_notes` field, which the live page never receives, so the live page saw none
+  it("PURE: rowHeadingNotes reads the immediate parent only -- its appended values, its row note, then its note rows in row order", () => {
+    const row = (i: number, p: number | null, cls: string, extra: Record<string, unknown> = {}) =>
+      ({ row_index: i, effective_parent_index: p, effective_classification: cls, description: `r${i}`, ...extra }) as unknown as PricedRow;
     const rows = [
-      row(1, null, { row_notes: "the section's note: supply air, return air" }),
-      row(2, 1, { row_notes: "own", attached_notes: ["attached", 5], append_notes_raw: { Remarks: "appended", Blank: "" } }),
-      row(3, 2),
+      row(1, null, "preamble"),
+      row(2, 1, "note", { description: "the section's note: supply air, return air" }),   // two levels up from row 7: not read
+      row(3, 1, "preamble", { row_notes: " own ", attached_notes: ["a field the page never receives"], append_notes_raw: { Remarks: "appended", Blank: "" } }),
+      row(6, 3, "note", { description: " second note " }),
+      row(4, 3, "note", { description: "first note" }),
+      row(5, 3, "note", { description: "   " }),
+      row(8, 3, "line_item", { description: "a sibling item is no note" }),
+      row(7, 3, "line_item"),
     ];
-    expect(rowHeadingNotes(rows[2], rows)).toEqual(["appended", "own", "attached"]);
-    expect(rowHeadingNotes(rows[1], rows)).toEqual(["the section's note: supply air, return air"]);
+    expect(rowHeadingNotes(rows[7], rows)).toEqual(["appended", "own", "first note", "second note"]);
+    expect(rowHeadingNotes(rows[2], rows)).toEqual(["the section's note: supply air, return air"]);
     expect(rowHeadingNotes(rows[0], rows)).toEqual([]);
+  });
+  it("the live shape of BOQ-26-00122 'HVAC BOQ' r65: the note is committed row 62 under LINEAR GRILLES (row 60)", () => {
+    const rows = [
+      { row_index: 54, source_row_number: 60, effective_parent_index: 20, effective_classification: "preamble", description: "LINEAR GRILLES", row_notes: null, append_notes_raw: null },
+      { row_index: 56, source_row_number: 62, effective_parent_index: 54, effective_classification: "note", description: R00122_65.headingNotes![0], row_notes: null, append_notes_raw: null },
+      { row_index: 57, source_row_number: 63, effective_parent_index: 54, effective_classification: "note", description: R00122_65.headingNotes![1], row_notes: null, append_notes_raw: null },
+      { row_index: 59, source_row_number: 65, effective_parent_index: 54, effective_classification: "line_item", description: R00122_65.description, row_notes: null, append_notes_raw: null },
+    ] as unknown as PricedRow[];
+    const notes = rowHeadingNotes(rows[3], rows);
+    expect(notes).toEqual(R00122_65.headingNotes);
+    expect(figs(panel({ ...R00122_65, headingNotes: notes }))).toEqual([4829, 880]);
   });
 });
 
