@@ -428,6 +428,28 @@ class TestTheEndStateHolds(EditSafetyCase):
         with self.assertRaisesRegex(frappe.ValidationError, "under amendment"):
             self._save_as(admin, pay, status="Approved")
 
+    def test_a_requested_payment_keeps_the_vendor_it_was_raised_for(self):
+        """X1, all the way: a Rejected payment brought back to Requested (L1) whose vendor were then changed
+        would reach an approval whose vendor check reads that changed vendor. The vendor is set once."""
+        wo = self._wo()
+        pay = self._plant_on(wo, 5000, "Requested")
+        with self.assertRaisesRegex(frappe.ValidationError, "keeps the vendor"):
+            self._save_as(self._user(ADMIN_PROFILE), pay, vendor=self.fx.vendor(2.0))
+        self.assertEqual(frappe.db.get_value(PAYMENT, pay, "vendor"), self.vendor)
+
+    def test_no_rejected_payment_is_asked_for_again_on_a_work_order_under_amendment(self):
+        """X2(e), story 22: Rejected -> Requested (or CEO Pending) is a payment request again."""
+        admin = self._user(ADMIN_PROFILE)
+        wo = self._wo()
+        pay = self._plant_on(wo, 5000, "Rejected")
+        frappe.db.set_value("Service Requests", wo, "status", "Amendment", update_modified=False)   # its state only
+        frappe.db.commit()
+        for status in ("Requested", "CEO Pending"):
+            with self.subTest(status=status):
+                with self.assertRaisesRegex(frappe.ValidationError, "under amendment"):
+                    self._save_as(admin, pay, status=status)
+                self.assertEqual(self._status(pay), "Rejected")
+
     # X5 ------------------------------------------------------------------------------------------
     def test_a_padded_status_is_refused(self):
         pay = self._plant(WITHIN_L1, "Approved")
@@ -440,6 +462,14 @@ class TestTheEndStateHolds(EditSafetyCase):
         with self.assertRaisesRegex(frappe.ValidationError, "Only the CEO can move a payment from Hold"):
             self._save_as(self._user(ADMIN_PROFILE), pay, status="Paid")
         self.assertEqual(self._status(pay), "Hold")
+
+    def test_a_stored_padded_status_is_unknown_too(self):
+        """A padded "Paid " saved before the rule is no status of the six: its move on needs the tier its
+        amount needs, not the L1 correction a "Paid" would."""
+        pay = self._plant(60000, "Paid ")
+        with self.assertRaisesRegex(frappe.ValidationError, "Only the CEO can move a payment from Paid"):
+            self._save_as(self._user(ADMIN_PROFILE), pay, status="Approved")
+        self.assertEqual(self._status(pay), "Paid ")
 
     # X6 ------------------------------------------------------------------------------------------
     def test_turning_a_payment_into_a_cheque_does_not_unlock_rejecting_settled_money(self):

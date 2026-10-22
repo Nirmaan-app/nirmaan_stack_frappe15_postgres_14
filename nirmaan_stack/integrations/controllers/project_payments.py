@@ -288,8 +288,8 @@ MOVED_ORDER_REFUSAL = (
     "Reject it and request a new payment on the other order."
 )
 VENDOR_KEPT_REFUSAL = (
-    "A payment keeps the vendor it was raised for once it is past Requested: its approval, and the order's "
-    "limit, were for that vendor. Reject it and request a new one."
+    "A payment keeps the vendor it was raised for: its approval, and the order's limit, are for that vendor. "
+    "Reject it and request a new one."
 )
 
 
@@ -307,11 +307,12 @@ def refuse_moving_an_approved_payment(doc):
 
 
 def refuse_changing_the_vendor(doc):
-    """A payment past Requested keeps the vendor it was raised for (review round 4, X1): every later rule
-    (an approval's vendor check, the order's limit) reads that vendor, so a user save does not move it.
-    System moves pass."""
+    """A payment keeps the vendor it was raised for (review round 4, X1): every later rule (an approval's
+    vendor check, the order's limit) reads its vendor before the save as that raise-time vendor, so no user
+    save moves it, at Requested either (a Rejected payment brought back to Requested would otherwise take
+    the Work Order's new vendor before its approval). One raised with none may get one. System moves pass."""
     before = doc.get_doc_before_save()
-    if not before or is_system_move(doc) or before.status == "Requested":
+    if not before or is_system_move(doc) or not before.vendor:
         return
     if (before.vendor or None) != (doc.vendor or None):
         frappe.throw(_(VENDOR_KEPT_REFUSAL), title=_("Not allowed"))
@@ -325,14 +326,17 @@ def _validate_the_order_it_lands_on(doc):
       approval, or a Rejected one brought back) must fit its order again, as a new request would, since the
       order may have changed meanwhile: a Work Order not under amendment, still the vendor the payment was
       raised for (its vendor before the save, which `refuse_changing_the_vendor` keeps), and within its
-      payment limit; a PO within its available balance (X2(a), (e); stories 18, 19, 22).
+      payment limit; a PO within its available balance (X2(a), (e); stories 18, 19, 22);
+    * a Rejected payment brought back to Requested or CEO Pending is a payment request again: not on a Work
+      Order under amendment, nor one whose vendor is no longer the one it was raised for (story 22).
     System moves skip it."""
     before = doc.get_doc_before_save()
     if not before or is_system_move(doc) or not doc.document_name:
         return
     moved = (before.document_type, before.document_name) != (doc.document_type, doc.document_name)
     approving = before.status not in PAST_APPROVAL and doc.status in PAST_APPROVAL
-    if not (moved or approving):
+    reviving = before.status == PAYMENT_REJECTED and doc.status != PAYMENT_REJECTED
+    if not (moved or approving or reviving):
         return
     if doc.document_type == "Service Requests":
         sr = frappe.get_doc("Service Requests", doc.document_name)

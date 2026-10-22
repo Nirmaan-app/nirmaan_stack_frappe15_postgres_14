@@ -112,12 +112,13 @@ class PaymentStepRefused(frappe.ValidationError):
 
 def step_needed(was: str, now: str, amount) -> str | None:
     """The step a save moving a payment from `was` to `now` makes, or None when the status is unchanged."""
-    was, now = (was or "").strip(), (now or "").strip()
+    # Not stripped: a padded "Paid " is no status of the six (`refuse_unknown_status`), so it is unknown here too.
+    was, now = was or "", now or ""
     if was == now:
         return None
     if was not in KNOWN_STATUSES and now in PAST_APPROVAL:
-        # A status saved before the rule (or typed in): it is past no step, so the move needs the approval
-        # its amount needs (review round 4, X5).
+        # A status saved before the rule (or typed in, or padded): it is past no step, so the move needs
+        # the approval its amount needs (review round 4, X5).
         return STEP_CEO if needs_ceo(flt(amount)) else STEP_L1
     if was in (REQUESTED, REJECTED) and now == APPROVED:
         return STEP_CEO if needs_ceo(flt(amount)) else STEP_L1
