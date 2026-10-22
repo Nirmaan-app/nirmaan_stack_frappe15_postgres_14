@@ -109,7 +109,7 @@ figure — the company pays the tax on top:
   deduction whose payment's order is not deductible and still carries the legacy `Project Payments.tds`
   box: the 86 PO payments the 2026-09 backfill left at the full bill. `patches/v3_0/net_po_payments_with_tds`
   cuts each to net and clears the box, which is what makes its tax count; its skips (bank-matched, tax
-  ≤ ₹5) keep the box and read as before. Never clear that box by hand on a PO payment with a deduction
+  ≤ ₹5) keep the box and read as before. The box is read-only in Desk (spec #1528 review). Never clear that box by hand on a PO payment with a deduction
   without cutting the amount: the tax would count twice (the mismatch report shows the PO).
 
 ### Load-bearing invariants: deposited tax stays safe (#1535)
@@ -456,7 +456,7 @@ Reports hub → **Payment TDS Deduction** tab (report type "TDS Deduction"), gat
 | `backfill_payment_tds_deduction_link` | Fills `Project Payments.payment_tds` for the 626 existing rows. |
 | `backfill_payment_tds_borne_by` | Sets `borne_by` on every existing row from its payment (kept whole on a company-borne WO → `Company`, else `Vendor`). Recounts nothing. ⚠️ **Run once only** (the patch log is its only guard): a re-run would re-infer rows `record_deduction` wrote since, off payments that may have changed. The reason it cannot be limited to old rows is at the top of the patch. |
 | `recount_work_order_amount_paid_with_tds` | Recounts every Work Order the mismatch judge finds wrong through `write_amount_paid` (ADR-0034 Amendment A, #1513). Run by hand, `preview` first: it lists the Work Orders the tax explains (Amount Paid short by exactly the TDS withheld from the vendor) apart from those wrong for another reason (#1545), and each project the WO tax in project outflow newly puts over its cashflow limit, for the owner. Re-checks no CEO Hold; idempotent. |
-| `net_po_payments_with_tds` | Cuts each PO payment with a tax record still stored gross (legacy `tds` box filled) to gross − tax and clears the box (ADR-0034 Amendment B, #1534). Skips and lists bank-matched payments and tax ≤ ₹5. Recounts each touched PO (refund sync step, vendor credit under "PO TDS Netting"), re-checks CEO Hold, and aborts writing nothing unless each touched PO's Amount Paid / Amount Due, vendor credit and project outflow are unchanged. Run by hand, `preview` first; idempotent. |
+| `net_po_payments_with_tds` | Cuts each PO payment with a tax record still stored gross (legacy `tds` box filled) to gross − tax and clears the box (ADR-0034 Amendment B, #1534). Skips and lists bank-matched payments and tax ≤ ₹5. Recounts each touched PO (refund sync step, vendor credit under "PO TDS Netting"), re-checks CEO Hold, and aborts writing nothing unless each touched PO's Amount Paid / Amount Due, vendor credit and project outflow are unchanged. Run by hand only, `preview` first on current data: it is not in `patches.txt`, so no migrate runs it; idempotent. |
 
 The first two are idempotent and fill only what is still empty.
 

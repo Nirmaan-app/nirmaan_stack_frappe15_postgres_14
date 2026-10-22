@@ -15,6 +15,8 @@ Amount Paid stays ₹1,00,000 and its Amount Due ₹18,000.
 
 import contextlib
 import io
+import unittest
+from pathlib import Path
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -141,3 +143,13 @@ class TheRun(NettingFixture):
         self.assertEqual(self.payment(payment), (100000.0, "100"))
         self.assertEqual(self.payment(self.cut), (100000.0, "100"))
         self.assertEqual(self.stored(stale), (90000.0, 28000.0))
+
+
+class WhenItRuns(unittest.TestCase):
+    """Every data change previews first on current data (owner rule, spec #1528): the money patch runs by
+    hand only, never on migrate; the approval backfill (blanks only, no money) runs on migrate."""
+
+    def test_migrate_runs_the_approval_backfill_but_not_the_money_patch(self):
+        lines = (Path(__file__).resolve().parents[1] / "patches.txt").read_text().split()
+        self.assertFalse("nirmaan_stack.patches.v3_0.net_po_payments_with_tds" in lines, "migrate would cut money")
+        self.assertTrue("nirmaan_stack.patches.v3_0.backfill_work_order_approval" in lines, "backfill not on migrate")

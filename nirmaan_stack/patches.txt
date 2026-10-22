@@ -187,6 +187,5 @@ nirmaan_stack.patches.v3_0.backfill_first_asset_history
 nirmaan_stack.patches.v3_0.cheque_types_pending_and_dates
 nirmaan_stack.patches.v3_0.recount_work_order_amount_paid_with_tds
 nirmaan_stack.patches.v3_0.disable_sr_invoice_print_format
-nirmaan_stack.patches.v3_0.net_po_payments_with_tds
 nirmaan_stack.patches.v3_0.pmo_write_on_work_orders
 nirmaan_stack.patches.v3_0.backfill_work_order_approval

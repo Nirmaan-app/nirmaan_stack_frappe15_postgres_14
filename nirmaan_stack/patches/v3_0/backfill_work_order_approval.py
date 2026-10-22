@@ -22,10 +22,10 @@ HOOKS
     The fill is a `set_value` with no `modified` stamp: no `doc_events` fire, and none hang off these
     two fields (nothing reads them but the Work Order page).
 
-RUN BY HAND, preview first
+RUNS ON MIGRATE (it is in `patches.txt`): it fills blank fields only and moves no money. To see what
+it will fill on current data first, preview it by hand before the migrate:
     bench --site <site> execute nirmaan_stack.patches.v3_0.backfill_work_order_approval.preview
-    bench --site <site> execute nirmaan_stack.patches.v3_0.backfill_work_order_approval.execute
-`preview` only reads. A second run changes nothing: a filled Work Order is no longer blank, and a
+`preview` only reads; `execute` is what the migrate runs. A second run changes nothing: a filled Work Order is no longer blank, and a
 Work Order left blank has no history to fill it from.
 """
 

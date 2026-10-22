@@ -42,12 +42,12 @@ HOOKS
     vendor's credit and the project's CEO Hold. The deduction rows, their challans and the Work Orders are
     not touched: the tax figures do not change.
 
-RUN BY HAND, preview first
+RUN BY HAND ONLY, preview first, on current data (owner rule: "every data change previews first on
+current data"). It is NOT in `patches.txt`, so a `migrate` never runs it: it changes money.
     bench --site <site> execute nirmaan_stack.patches.v3_0.net_po_payments_with_tds.preview
     bench --site <site> execute nirmaan_stack.patches.v3_0.net_po_payments_with_tds.execute
-`preview` only reads. `bench execute` commits after `execute` returns; on a throw it writes nothing. The
-`patches.txt` line then makes `migrate` run it again, which finds nothing to cut. A second run changes
-nothing: a cut payment has no box, so it is never selected again.
+`preview` only reads. `bench execute` commits after `execute` returns; on a throw it writes nothing. A
+second run changes nothing: a cut payment has no box, so it is never selected again.
 """
 
 from typing import NamedTuple
