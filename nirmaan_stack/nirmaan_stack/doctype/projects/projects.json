@@ -35,6 +35,7 @@
   "accountant",
   "project_work_details_section",
   "tendering_status",
+  "merged_into",
   "status",
   "ceo_hold_by",
   "ceo_hold_recheck_scheduled",
@@ -173,7 +174,7 @@
    "fieldname": "tendering_status",
    "fieldtype": "Select",
    "label": "Tendering Status",
-   "options": "\nTendering\nWon\nLost"
+   "options": "\nTendering\nWon\nLost\nMerged"
   },
   {
    "fieldname": "status",
@@ -344,13 +345,22 @@
    "label": "Cashflow Gap Limit",
    "non_negative": 1,
    "precision": "2"
+  },
+  {
+   "depends_on": "eval:doc.tendering_status==\"Merged\"",
+   "fieldname": "merged_into",
+   "fieldtype": "Link",
+   "label": "Merged Into",
+   "no_copy": 1,
+   "options": "Projects",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-24 00:00:00.000000",
- "modified_by": "nitesh@nirmaan.app",
+ "modified": "2026-10-21 16:53:19.065942",
+ "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",
  "owner": "Administrator",

@@ -42,6 +42,7 @@ from nirmaan_stack.api.boq.wizard.parse_run import _LIST_JSON_FIELDS
 # get_stale_sheets on every hub load) rejects any non-A-Z column_role_map key.
 from openpyxl.utils import column_index_from_string, get_column_letter
 from nirmaan_stack.services.role_profiles import PROCUREMENT_PROFILES
+from nirmaan_stack.integrations.controllers.boqs import assert_can_add_boq
 
 
 # ---------------------------------------------------------------------------
@@ -293,6 +294,8 @@ def create_from_template(project=None, boq_name=None, sheet_names=None, tax_trea
     # --- Validate project ---
     if not frappe.db.exists("Projects", project):
         frappe.throw(f"Project '{project}' not found.", title="Not found")
+    # Won project -> Admin only (checked before any write or enqueue).
+    assert_can_add_boq(project)
 
     # --- Normalize + validate sheet_names (non-empty subset of the master's sheets) ---
     if isinstance(sheet_names, str):

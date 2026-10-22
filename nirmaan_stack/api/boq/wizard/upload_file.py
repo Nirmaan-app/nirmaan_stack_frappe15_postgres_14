@@ -5,6 +5,7 @@ import frappe
 from frappe.utils.file_manager import save_file
 
 from nirmaan_stack.api.boq.wizard.revision import assert_revisable_source
+from nirmaan_stack.integrations.controllers.boqs import assert_can_add_boq
 from nirmaan_stack.api.boq.wizard.sheet_preview import _fetch_boq_file_to_tempfile
 from nirmaan_stack.services.boq_parser._auto_guess import auto_guess_sheet_config
 from nirmaan_stack.services.boq_parser.reader import BoqReader
@@ -91,6 +92,9 @@ def upload_file():
 
         if not frappe.db.exists("Projects", project_id):
             frappe.throw(f"Project '{project_id}' not found.", title="Not found")
+        # Won project -> Admin only. Checked here so the refusal is immediate rather than a
+        # failed background job; BOQs.before_insert re-checks for every other path.
+        assert_can_add_boq(project_id)
     else:
         # Template-source authoring: project is optional/None. If a project IS supplied it
         # must still exist; otherwise the seed is project-less.

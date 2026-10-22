@@ -99,12 +99,22 @@ import frappe
 from datetime import datetime
 
 from nirmaan_stack.api.projects._project_population import apply_full_project_details
+from nirmaan_stack.api.projects.tendering_merge import (
+    assert_wizard_ticks,
+    merge_sources_into,
+    parse_merge_sources,
+)
 
 @frappe.whitelist(methods=["POST"])
 def create_project_with_address(values: dict):
     """
     Creates a new project, its associated address, and populates the
     project_wp_category_makes child table.
+
+    `values["merge_sources"]` ([{"project", "selected_boqs"}], optional): BoQs the wizard
+    added from Tendering projects (ADR-0038). Each is merged into the new project in the
+    same transaction -- ticked ones Selected, the rest Draft -- and each source becomes
+    Merged. At least one must be ticked overall when any is added.
     """
     try:
         frappe.db.begin()
@@ -141,6 +151,10 @@ def create_project_with_address(values: dict):
             frappe.log(f"Date parsing error: {e}. Start: {start_date_str}, End: {end_date_str}")
             raise frappe.ValidationError(f"Invalid date format for project start/end dates.")
 
+        # BoQs from Tendering projects (ADR-0038), checked before anything is written.
+        merge_sources = parse_merge_sources(values.get("merge_sources"))
+        assert_wizard_ticks(0, [], merge_sources)
+
         # --- Steps 3-6: Create Address + populate the project doc (shared logic) ---
         project_doc = frappe.new_doc("Projects")
         apply_full_project_details(project_doc, values)
@@ -152,12 +166,16 @@ def create_project_with_address(values: dict):
         project_doc.tendering_status = "Won"
         project_doc.status = "Won"
 
-        # --- Step 7: Save and Commit ---
+        # --- Step 7: Save, merge in the Tendering projects' BoQs, and Commit ---
         project_doc.save(ignore_permissions=True)
+        merge_sources_into(project_doc.name, merge_sources)
         frappe.db.commit()
 
         return {"status": 200, "message": f"Project '{project_doc.project_name}' created successfully!", "project_name": project_doc.name}
 
+    except frappe.PermissionError as pe:
+        frappe.db.rollback()
+        return {"status": 403, "error": str(pe)}
     except frappe.ValidationError as ve:
         frappe.db.rollback()
         # Using frappe.log for consistency with your request, though frappe.log_error is generally better for errors.
