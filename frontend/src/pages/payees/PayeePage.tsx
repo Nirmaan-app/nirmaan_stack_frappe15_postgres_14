@@ -33,6 +33,7 @@ import {
 import { urlStateManager } from "@/utils/urlStateManager";
 
 import { DeletePayeeDialog } from "./components/DeletePayeeDialog";
+import { PayeeLinkedUserTab } from "./components/PayeeLinkedUserTab";
 import { PayeeLinkedVendorsTab } from "./components/PayeeLinkedVendorsTab";
 import { PayeeOverviewTab } from "./components/PayeeOverviewTab";
 import { usePayeePage } from "./hooks/usePayeePage";
@@ -85,7 +86,7 @@ function PayeeView({ payeeId }: { payeeId: string }) {
             </div>
 
             <div role="tablist" aria-label="Payee" className="flex overflow-x-auto overflow-y-hidden border-b">
-                {payeePageTabs(payee).map((item) => (
+                {payeePageTabs({ vendors: payee.vendors, users: payee.linked_user ? 1 : 0 }).map((item) => (
                     <button
                         key={item.key}
                         type="button"
@@ -111,6 +112,7 @@ function PayeeView({ payeeId }: { payeeId: string }) {
 
             {tab === PAYEE_PAGE_TABS.OVERVIEW && <PayeeOverviewTab payee={payee} />}
             {tab === PAYEE_PAGE_TABS.VENDORS && <PayeeLinkedVendorsTab vendors={payee.linked_vendors} />}
+            {tab === PAYEE_PAGE_TABS.USER && <PayeeLinkedUserTab user={payee.linked_user} />}
 
             {editing && (
                 <EditPayeeDialog
