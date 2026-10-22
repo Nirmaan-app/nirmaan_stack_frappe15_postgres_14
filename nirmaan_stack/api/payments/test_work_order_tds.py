@@ -120,8 +120,9 @@ class TestTheWorkOrderTdsAsProcurement(BorneByFixture):
 		answer = self._as_procurement(wo)
 
 		self.assertEqual(answer["payments"], {
-			withheld.name: {"tds_amount": 120.0, "borne_by": "Vendor"},
-			kept_whole.name: {"tds_amount": 282.4, "borne_by": "Company"},
+			# `requested_amount`: the full bill (walk W5): 5,880 + 120 withheld; 14,120 kept whole.
+			withheld.name: {"tds_amount": 120.0, "borne_by": "Vendor", "requested_amount": 6000.0},
+			kept_whole.name: {"tds_amount": 282.4, "borne_by": "Company", "requested_amount": 14120.0},
 		})
 		self.assertEqual(answer["kind"], "withheld")
 

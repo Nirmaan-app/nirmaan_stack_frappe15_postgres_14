@@ -101,7 +101,8 @@ class TheNettedShape(PoTaxFixture):
     def test_the_payments_pop_up_reads_its_tax_from_an_endpoint_that_checks_read_on_the_po(self):
         self.assertEqual(
             get_order_payment_tds(PO, self.po),
-            {"payments": {self.payment: {"tds_amount": 100.0, "borne_by": "Vendor"}}},
+            # `requested_amount`: the full bill, 99,900 + 100 (walk W5).
+            {"payments": {self.payment: {"tds_amount": 100.0, "borne_by": "Vendor", "requested_amount": 100000.0}}},
         )
         frappe.set_user("Guest")
         with self.assertRaises(frappe.PermissionError):

@@ -94,7 +94,7 @@ export interface PaymentTableFigures {
  */
 export const paymentTableFigures = (
 	amount: number | string | null | undefined,
-	deduction: { tds_amount: number; borne_by: TdsBorneBy } | undefined,
+	deduction: { tds_amount: number; borne_by: TdsBorneBy; requested_amount?: number } | undefined,
 	forecast: ServerTdsForecast | undefined
 ): PaymentTableFigures => {
 	const stored = parseNumber(amount);
@@ -102,7 +102,9 @@ export const paymentTableFigures = (
 		const companyOnTop = deduction.borne_by === TDS_BORNE_BY.COMPANY;
 		const tds = parseNumber(deduction.tds_amount);
 		return {
-			requested: companyOnTop ? stored : Math.round((stored + tds) * 100) / 100,
+			// The server's full bill (`payment_tds.requested_amount_sql`) when it gives one: a cut payment
+			// later marked TDS paid by company still bills its gross (walk W5).
+			requested: deduction.requested_amount ?? (companyOnTop ? stored : Math.round((stored + tds) * 100) / 100),
 			tds,
 			toBePaid: stored,
 			companyOnTop,

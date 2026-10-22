@@ -34,7 +34,7 @@ export interface WorkOrderTds {
 	company: number;
 	kind: TdsBorneKind;
 	/** Each payment's own deduction, whatever its status, keyed by payment name; a payment with none is absent. */
-	payments: Record<string, { tds_amount: number; borne_by: TdsBorneBy }>;
+	payments: Record<string, { tds_amount: number; borne_by: TdsBorneBy; requested_amount?: number }>;
 	/** Each payment still waiting for approval, as its approval will tax it (#1541); one with no tax to come is absent. */
 	forecasts?: Record<string, ServerTdsForecast>;
 }

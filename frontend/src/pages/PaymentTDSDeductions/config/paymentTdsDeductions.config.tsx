@@ -15,6 +15,7 @@
  * has no reversal (owner ruling 2026-09-10): it is deleted with the payment it belongs to.
  */
 
+import { createContext, useContext } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { SearchFieldOption } from "@/components/data-table/new-data-table";
@@ -57,6 +58,19 @@ export type PaymentTDSDeductionRow = PaymentTDSDeduction & {
  * `Procurement Orders` joins the set, the link cell has to branch on it, and the column plus its
  * facet come back together.
  */
+/**
+ * `{payment name: its status}` for the register rows on screen (walk W9): the payment's status, shown in
+ * its own column and read by the Pay TDS selection (`payableDeduction.canPayDeduction`). Provided by the
+ * ledger table, which reads the page's payments once.
+ */
+export const PaymentStatusContext = createContext<Record<string, string>>({});
+
+const PaymentStatusCell = ({ payment }: { payment?: string | null }) => {
+    const status = useContext(PaymentStatusContext)[payment || ""];
+    if (!payment) return <span className="text-muted-foreground">--</span>;
+    return <span className={status === "Paid" ? "text-green-700" : "text-amber-700"}>{status || "…"}</span>;
+};
+
 export const PAYMENT_TDS_FIELDS_TO_FETCH: string[] = [
     "name",
     "project_payment",
@@ -333,6 +347,14 @@ export const getPaymentTdsColumns = ({
             exportHeaderName: "Payment",
             exportValue: (row: PaymentTDSDeductionRow) => tdsRowSource(row)?.name || "--",
         },
+    },
+    {
+        id: "payment_status",
+        header: () => <span>Payment Status</span>,
+        // Pay TDS takes tax only from a Paid payment (story 39): an Office Rent row names none ("--").
+        cell: ({ row }) => <PaymentStatusCell payment={row.original.project_payment} />,
+        enableSorting: false,
+        meta: { exportHeaderName: "Payment Status", exportValue: () => "" },
     },
     {
         accessorKey: "gross_amount",

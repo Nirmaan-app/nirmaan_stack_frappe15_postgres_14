@@ -10,6 +10,28 @@ import { ProjectCalculatedFields } from "../../hooks/useProjectReportCalculation
 import { Info } from "lucide-react";
 import { CASHFLOW_GAP_TOOLTIP, PROJECT_OUTFLOW_TOOLTIP } from "@/constants/projectOutflow";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { urlStateManager } from "@/utils/urlStateManager";
+import { projectReportLink, type ProjectReportLink } from "../../utils/projectReportLink";
+
+/**
+ * A Cash Sheet figure that opens a project's report. A plain click sets the report's filters and the report
+ * through `urlStateManager`, which the Reports page subscribes to, so it switches at once (walk W8); a
+ * modified click (new tab) follows the href.
+ */
+const ProjectReportAnchor: React.FC<{ link: ProjectReportLink; children: React.ReactNode }> = ({ link, children }) => (
+  <Link
+    to={link.url}
+    className="text-blue-600 hover:underline"
+    onClick={(e) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+      e.preventDefault();
+      urlStateManager.updateParam(link.filterKey, link.filters);
+      urlStateManager.updateParam("report", link.report);
+    }}
+  >
+    {children}
+  </Link>
+);
 
 // Wraps a column header with a small info icon that reveals a definition tooltip on hover.
 // The icon is a sibling of the sort trigger so clicks don't toggle sort.
@@ -17,14 +39,16 @@ export const HeaderWithInfo: React.FC<{
   tooltip: string;
   children: React.ReactNode;
 }> = ({ tooltip, children }) => (
-  <div className="flex items-center gap-1">
-    {children}
+  // `min-w-0` lets the title shrink and the icon (`shrink-0`, above the next header) stay inside the
+  // column, so its tooltip opens (walk W6: at 1920px it spilled under "Current Liability").
+  <div className="flex min-w-0 items-center gap-1">
+    <div className="min-w-0">{children}</div>
     <Tooltip delayDuration={150}>
       <TooltipTrigger asChild>
         <button
           type="button"
           aria-label="Column definition"
-          className="text-muted-foreground hover:text-foreground focus:outline-none"
+          className="relative z-10 shrink-0 text-muted-foreground hover:text-foreground focus:outline-none"
           onClick={(e) => e.stopPropagation()}
         >
           <Info className="h-3 w-3" />
@@ -111,43 +135,10 @@ const CalculatedCell: React.FC<{
   const displayValue = <div className="tabular-nums">{formatter(valueToFormat)}</div>;
 
   if (isLink && projectId && linkToReport) {
-    // 1. Define the filter structure for tanstack-table
-    const filters = [{ id: 'project', value: [projectId] }];
-
-    const { dateRange } = meta; 
-
-// ...
-
-const dateColumnIdInReport = 'payment_date';
-
-if (dateRange && dateRange.from && dateRange.to) {
-        // We push a single filter object using the 'Between' operator 
-        // and an array containing the start and end date strings.
-        filters.push({
-            id: dateColumnIdInReport,
-            value: {
-                operator: 'Between', // <-- NEW OPERATOR
-                value: [dateRange.from, dateRange.to] // <-- NEW ARRAY VALUE
-            },
-        });
-    }
-
-    // 2. Stringify and Base64 encode the filter array.
-    const encodedFilters = btoa(JSON.stringify(filters));
-
-    const reportType = encodeURIComponent(linkToReport);
-
-    const urlSyncKey = linkToReport === 'Inflow Report'
-      ? 'inflow_report_table'
-      : 'outflow_report_table';
-    // 3. Construct the URL with the correct sync key ('inflow_report_table') + '_filters'
-    // const targetUrl = `/reports?tab=projects&report=${reportType}&inflow_report_table_filters=${encodedFilters}`;
-    const targetUrl = `/reports?tab=projects&report=${reportType}&${urlSyncKey}_filters=${encodedFilters}`;
-
     return (
-      <Link to={targetUrl} className="text-blue-600 hover:underline">
+      <ProjectReportAnchor link={projectReportLink(linkToReport, projectId, meta.dateRange)}>
         {displayValue}
-      </Link>
+      </ProjectReportAnchor>
     );
   }
 
@@ -206,20 +197,10 @@ export const getClientProjectColumns = (): ColumnDef<ProjectWithCalculations>[] 
         const { dateRange } = meta || {};
 
         if (row.original.name) {
-             const filters = [{ id: 'project', value: [row.original.name] }];
-             if (dateRange?.from && dateRange?.to) {
-                filters.push({
-                    id: 'payment_date',
-                    value: { operator: 'Between', value: [dateRange.from, dateRange.to] }
-                });
-            }
-             const encodedFilters = btoa(JSON.stringify(filters));
-             const targetUrl = `/reports?tab=projects&report=Inflow%20Report&inflow_report_table_filters=${encodedFilters}`;
-             
              return (
-                <Link to={targetUrl} className="text-blue-600 hover:underline">
+                <ProjectReportAnchor link={projectReportLink("Inflow Report", row.original.name, dateRange)}>
                      <div className="tabular-nums">{formatDisplayValueToLakhs(value)}</div>
-                </Link>
+                </ProjectReportAnchor>
              )
         }
         return <div className="tabular-nums">{formatDisplayValueToLakhs(value)}</div>
@@ -241,26 +222,15 @@ export const getClientProjectColumns = (): ColumnDef<ProjectWithCalculations>[] 
         const { dateRange } = meta || {};
 
         if (row.original.name) {
-             const filters = [{ id: 'project', value: [row.original.name] }];
-             if (dateRange?.from && dateRange?.to) {
-                filters.push({
-                    id: 'payment_date',
-                    value: { operator: 'Between', value: [dateRange.from, dateRange.to] }
-                });
-            }
-             const encodedFilters = btoa(JSON.stringify(filters));
-             // Correct URL encoding for "Outflow Report(Project)" -> Outflow%20Report(Project)
-             const targetUrl = `/reports?tab=projects&report=Outflow%20Report(Project)&outflow_report_table_filters=${encodedFilters}`;
-             
              return (
-                <Link to={targetUrl} className="text-blue-600 hover:underline">
+                <ProjectReportAnchor link={projectReportLink("Outflow Report(Project)", row.original.name, dateRange)}>
                      <div className="tabular-nums">{formatDisplayValueToLakhs(value)}</div>
-                </Link>
+                </ProjectReportAnchor>
              )
         }
         return <div className="tabular-nums ">{formatDisplayValueToLakhs(value)}</div>
     },
-    size: 100,
+    size: 140,
     meta: { exportHeaderName: "Project Outflow (in Lakhs)", exportValue: (row: any) => formatValueToLakhsNumber(row.totalOutflow), isNumeric: true }
   },
   {

@@ -55,6 +55,13 @@ describe("paymentTableFigures", () => {
 		});
 	});
 
+	it("reads the server's full bill when it gives one: a cut payment marked TDS paid by company (walk W5)", () => {
+		// 16,000 cut to 15,840 by 160, then marked TDS paid by company before Paid: no figure moved (story 46).
+		expect(paymentTableFigures(15840, { tds_amount: 160, borne_by: "Company", requested_amount: 16000 }, undefined)).toEqual({
+			requested: 16000, tds: 160, toBePaid: 15840, companyOnTop: true, forecast: false,
+		});
+	});
+
 	it("shows the amount alone when there is no tax", () => {
 		expect(paymentTableFigures(1800, undefined, undefined)).toEqual({
 			requested: 1800, tds: undefined, toBePaid: 1800, companyOnTop: false, forecast: false,

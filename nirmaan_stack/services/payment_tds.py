@@ -408,6 +408,18 @@ def withheld_expense_gross_sql() -> str:
 	"""
 
 
+def requested_amount_sql(alias: str) -> str:
+	"""SQL: the full bill ("Req. Amount") of a payment, from a `counted_deductions_sql` row `alias`. A
+	payment that was cut by its tax (stored amount + tax = gross, to the rupee) reads its deduction's gross,
+	whoever bears the tax now: a cut payment marked *TDS paid by company* keeps every figure (story 46) and is
+	still that bill (walk W5). Otherwise its stored amount plus any tax withheld from it (a kept-whole
+	payment, or one a part settlement trimmed below its gross)."""
+	return (
+		f"CASE WHEN ABS({alias}.payment_amount + {alias}.tds_amount - {alias}.gross_amount) < 1 "
+		f"THEN {alias}.gross_amount ELSE {alias}.payment_amount + {alias}.vendor_borne_tds END"
+	)
+
+
 def counted_deductions_sql() -> str:
 	"""A derived table: one row per payment whose deduction COUNTS (`project_payment` is unique),
 	WHATEVER THE PAYMENT'S STATUS, with the payment's own `project_payment` (its name), `status`,
@@ -434,7 +446,8 @@ def counted_deductions_sql() -> str:
 	"""
 	return f"""
 		SELECT p.name AS project_payment, p.status, p.vendor, p.project, p.document_type,
-		       p.document_name, p.payment_date, p.creation, d.tds_amount,
+		       p.document_name, p.payment_date, p.creation, p.amount AS payment_amount, d.gross_amount,
+		       d.tds_amount,
 		       COALESCE(NULLIF(d.borne_by, ''), '{BORNE_BY_VENDOR}') AS borne_by,
 		       CASE WHEN {vendor_borne_sql("d")} THEN d.tds_amount ELSE 0 END AS vendor_borne_tds,
 		       CASE WHEN {vendor_borne_sql("d")} THEN 0 ELSE d.tds_amount END AS company_borne_tds
@@ -575,7 +588,7 @@ def work_order_tds_borne(work_order: str) -> dict:
 
 
 def order_deductions(document_type: str, document_name: str) -> dict:
-	"""`{payment name: {tds_amount, borne_by}}`: the counted deduction on each of one PO's or Work
+	"""`{payment name: {tds_amount, borne_by, requested_amount}}`: the counted deduction on each of one PO's or Work
 	Order's payments (`counted_deductions_sql`), WHATEVER THE PAYMENT'S STATUS, for the Work Order
 	page's transactions table (one row per payment, Approved ones included) and the payments pop-up. A
 	payment with none -- or still stored gross -- is absent. One query.
@@ -584,14 +597,18 @@ def order_deductions(document_type: str, document_name: str) -> dict:
 	"""
 	rows = frappe.db.sql(
 		f"""
-		SELECT c.project_payment, c.tds_amount, c.borne_by
+		SELECT c.project_payment, c.tds_amount, c.borne_by, {requested_amount_sql("c")} AS requested_amount
 		FROM ({counted_deductions_sql()}) c
 		WHERE c.document_type = %(doctype)s AND c.document_name = %(name)s
 		""",
 		{"doctype": document_type, "name": document_name},
 		as_dict=True,
 	)
-	return {row.project_payment: {"tds_amount": flt(row.tds_amount, 2), "borne_by": row.borne_by} for row in rows}
+	return {
+		row.project_payment: {"tds_amount": flt(row.tds_amount, 2), "borne_by": row.borne_by,
+							  "requested_amount": flt(row.requested_amount, 2)}
+		for row in rows
+	}
 
 
 def paid_payment_deductions(document_type: str) -> dict[str, dict]:

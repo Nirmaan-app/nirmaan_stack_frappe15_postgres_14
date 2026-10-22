@@ -17,6 +17,7 @@ import { DataTable } from "@/components/data-table/new-data-table";
 import { StandaloneDateFilter } from "@/components/ui/StandaloneDateFilter";
 import { useSharedReportDateRange } from "@/pages/reports/store/useReportDateStore";
 import { usePartiallyReconciled } from "@/pages/reports/hooks/usePartiallyReconciled";
+import { nonProjectReconciledInFilters } from "./utils/nonProjectReconciledInFilters";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import {
   AlertDialog,
@@ -416,6 +417,12 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
     additionalFilters: additionalFilters, // date range + active status tab
   });
 
+  // The add-on follows the report's filters and search, as its rows do (walk W7, story 65).
+  const partiallyReconciledShown = useMemo(
+    () => nonProjectReconciledInFilters(partiallyReconciled.items, columnFilters, searchTerm || "", selectedSearchField || "description"),
+    [partiallyReconciled.items, columnFilters, searchTerm, selectedSearchField]
+  );
+
  const handleClearDateFilter = useCallback(() => {
     onDateClear(); // Reset to "ALL" (no date filtering)
   }, [onDateClear]);
@@ -505,7 +512,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
           <NonProjectExpenseSummaryCard
             /* Report mode only -- see the prop's own note. The standalone page's figure follows
                the status tab, which this sum is not true of. */
-            partiallyReconciled={DisableAction ? partiallyReconciled : undefined}
+            partiallyReconciled={DisableAction ? partiallyReconciledShown : undefined}
             aggregates={aggregates}
             isAggregatesLoading={isAggregatesLoading}
             totalCount={totalCount}

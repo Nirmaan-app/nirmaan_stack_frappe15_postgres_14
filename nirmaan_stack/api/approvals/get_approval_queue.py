@@ -35,7 +35,7 @@ from nirmaan_stack.services.outflow_import.expense_links import (
 from nirmaan_stack.services.payees.paid_to import paid_to_rows
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.payment_split import load_part_reconciled_split_families
-from nirmaan_stack.services.payment_tds import counted_deductions_sql, withheld_expense_gross_sql
+from nirmaan_stack.services.payment_tds import counted_deductions_sql, requested_amount_sql, withheld_expense_gross_sql
 
 from nirmaan_stack.services.cheque_payments import in_cheque_tracker_sql
 from nirmaan_stack.services.expense_tds import withheld_tds_by_expense
@@ -219,7 +219,8 @@ def _payments_select():
             -- The full bill ("Req. Amount"): the stored amount plus the tax withheld from the vendor
             -- (`payment_tds.counted_deductions_sql`; tax the company paid on top is not added).
             -- ⚠️ POSITIONAL: right before the pay-to columns in `_expense_select` too.
-            (COALESCE(p."amount", 0) + COALESCE(w."vendor_borne_tds", 0))::numeric AS requested_amount,
+            (CASE WHEN w."project_payment" IS NULL THEN COALESCE(p."amount", 0)
+                  ELSE {requested} END)::numeric AS requested_amount,
             -- The payment's own pay-to account (ADR-0033, #1438), folded into `paid_to` after the
             -- fetch. ⚠️ POSITIONAL: last in `_expense_select` too.
             {pay_to_p}
@@ -229,6 +230,7 @@ def _payments_select():
         {linked_join}
     """.format(
         counted=counted_deductions_sql(),
+        requested=requested_amount_sql("w"),
         src=SOURCE_VENDOR_PAYMENT,
         po=TYPE_PO_PAYMENT,
         sr=TYPE_SR_PAYMENT,

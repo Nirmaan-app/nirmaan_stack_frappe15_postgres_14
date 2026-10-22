@@ -208,6 +208,23 @@ class TestReqAmountIsTheFullBill(ProcurementFixture):
         self.assertEqual(self._queue_row(waiting)["requested_amount"], 20000.0)
 
 
+class TestReqAmountAfterTdsPaidByCompany(ProcurementFixture):
+    """Walk W5 (story 60): a payment whose tax was cut and then marked *TDS paid by company* before it was
+    Paid keeps every figure (story 46), so it still reads its full bill under "Req. Amount": the deduction's
+    gross, not the stored amount."""
+
+    def test_its_req_amount_is_the_deductions_gross(self):
+        from nirmaan_stack.api.approvals.get_approval_queue import get_approval_queue
+
+        made = self._approve(self._wo(MISC_AND_ELECTRICAL), 10000)
+        payment_tds.mark_tds_paid_by_company(made.name)
+        frappe.db.commit()
+        [row] = get_approval_queue(filters=[["name", "=", made.name]], limit_page_length=5)["data"]
+        self.assertEqual((row["requested_amount"], row["amount"]), (10000.0, 9800.0))
+        figures = get_work_order_tds(made.service_request)["payments"][made.name]
+        self.assertEqual((figures["borne_by"], figures["requested_amount"]), ("Company", 10000.0))
+
+
 class TestReqAmountSortsAndFilters(ProcurementFixture):
     """The "Req. Amount" column (id `amount`) sorts and filters on the full bill it shows (story 60)."""
 
