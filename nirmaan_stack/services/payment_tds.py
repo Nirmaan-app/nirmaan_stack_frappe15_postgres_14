@@ -390,6 +390,24 @@ def _sql_names(doctypes) -> str:
 	return ", ".join(f"'{name}'" for name in sorted(doctypes))
 
 
+def vendor_borne_sql(alias: str) -> str:
+	"""SQL: the deduction row `alias` was withheld from the payee (Vendor), a blank `borne_by` reading as the
+	column default, Vendor. The one spelling of that test for every query (`counted_deductions_sql`,
+	`withheld_expense_gross_sql`)."""
+	return f"COALESCE(NULLIF({alias}.borne_by, ''), '{BORNE_BY_VENDOR}') <> '{BORNE_BY_COMPANY}'"
+
+
+def withheld_expense_gross_sql() -> str:
+	"""A derived table: one row per Non-Project Expense whose tax was withheld from its payee (Office Rent,
+	spec #1522), with `non_project_expense` and the rent before withholding, `gross_amount`. The expense is
+	stored at the net, so its full bill (the approval queue's "Req. Amount") is this gross."""
+	return f"""
+		SELECT d.non_project_expense, d.gross_amount
+		FROM "tab{TDS_DOCTYPE}" d
+		WHERE d.non_project_expense IS NOT NULL AND {vendor_borne_sql("d")}
+	"""
+
+
 def counted_deductions_sql() -> str:
 	"""A derived table: one row per payment whose deduction COUNTS (`project_payment` is unique),
 	WHATEVER THE PAYMENT'S STATUS, with the payment's own `project_payment` (its name), `status`,
@@ -418,8 +436,8 @@ def counted_deductions_sql() -> str:
 		SELECT p.name AS project_payment, p.status, p.vendor, p.project, p.document_type,
 		       p.document_name, p.payment_date, p.creation, d.tds_amount,
 		       COALESCE(NULLIF(d.borne_by, ''), '{BORNE_BY_VENDOR}') AS borne_by,
-		       CASE WHEN d.borne_by = '{BORNE_BY_COMPANY}' THEN 0 ELSE d.tds_amount END AS vendor_borne_tds,
-		       CASE WHEN d.borne_by = '{BORNE_BY_COMPANY}' THEN d.tds_amount ELSE 0 END AS company_borne_tds
+		       CASE WHEN {vendor_borne_sql("d")} THEN d.tds_amount ELSE 0 END AS vendor_borne_tds,
+		       CASE WHEN {vendor_borne_sql("d")} THEN 0 ELSE d.tds_amount END AS company_borne_tds
 		FROM "tab{TDS_DOCTYPE}" d
 		INNER JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = d.project_payment
 		WHERE p.document_type IN ({_sql_names(TAX_COUNTED_PARENTS)})

@@ -60,11 +60,13 @@ class Lookups:
         self._rates, self._borne = {}, {}
 
     def rate(self, vendor):
+        """`payment_tds.vendor_rate(vendor)`, read once per vendor."""
         if vendor not in self._rates:
             self._rates[vendor] = payment_tds.vendor_rate(vendor)
         return self._rates[vendor]
 
     def company_borne(self, document_type, document_name):
+        """`payment_tds.is_company_borne` of one order, read once per order."""
         order = (document_type, document_name)
         if order not in self._borne:
             self._borne[order] = payment_tds.is_company_borne(document_type, document_name)

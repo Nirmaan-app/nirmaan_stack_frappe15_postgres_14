@@ -281,6 +281,12 @@ export const MATCH_GST_TO_VENDOR_PROFILES: readonly string[] = [ADMIN_PROFILE, .
  */
 export const WO_INVOICE_EDIT_PROFILES: readonly string[] = [ADMIN_PROFILE, ...ACCOUNTANT_PROFILES];
 
+/**
+ * Shown the Edit dialog on a Purchase Order invoice: Admin and the accountants, as before spec #1528, which
+ * left PO invoice rules unchanged. A UI gate only: no server role check backs PO invoice edits.
+ */
+export const PO_INVOICE_EDIT_PROFILES: readonly string[] = [ADMIN_PROFILE, ...ACCOUNTANT_PROFILES];
+
 /** True when `role` (a role PROFILE) may edit a Work Order invoice. */
 export const canEditWoInvoice = (role?: string | null, userId?: string | null): boolean =>
   userId === "Administrator" || (!!role && WO_INVOICE_EDIT_PROFILES.includes(role));

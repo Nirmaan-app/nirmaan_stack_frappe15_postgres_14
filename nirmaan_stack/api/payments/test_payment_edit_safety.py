@@ -42,6 +42,7 @@ class EditSafetyCase(PaymentStepCase):
 
     def _plant_on(self, sr, amount, status):
         name = self._plant(amount, status)
+        # Re-pointed by raw write at planting; the order's stored figures are not what these tests read.
         frappe.db.set_value(PAYMENT, name, "document_name", sr, update_modified=False)
         frappe.db.commit()
         return name
@@ -193,6 +194,8 @@ class TestTheLegacyTdsBox(EditSafetyCase):
     def test_a_user_cannot_fill_or_clear_it(self):
         po = self._po()
         pay = self._plant(WITHIN_L1, "Paid")
+        # Planted by raw write, as the 2026-09 backfill left a gross PO payment; no recount: the order's
+        # figures are not read here, only the refusal.
         frappe.db.set_value(PAYMENT, pay, {"document_type": "Procurement Orders", "document_name": po, "tds": "600"},
                             update_modified=False)
         frappe.db.commit()
@@ -206,6 +209,20 @@ class TestTheLegacyTdsBox(EditSafetyCase):
                 with self.assertRaisesRegex(frappe.ValidationError, "legacy TDS box"):
                     self._as(admin, save)
         self.assertEqual(frappe.db.get_value(PAYMENT, pay, "tds"), "600")
+
+    def test_the_same_figure_sent_back_as_text_is_no_change(self):
+        pay = self._plant(WITHIN_L1, "Approved")
+        frappe.db.set_value(PAYMENT, pay, "tds", "600", update_modified=False)   # the stored box; nothing reads it here
+        frappe.db.commit()
+        self._save_as_admin_with_tds(pay, "600.0")
+        self.assertEqual(frappe.db.get_value(PAYMENT, pay, "tds"), "600.0")
+
+    def _save_as_admin_with_tds(self, pay, value):
+        def save():
+            doc = frappe.get_doc(PAYMENT, pay)
+            doc.tds = value
+            doc.save()
+        self._as(self._user(ADMIN_PROFILE), save)
 
     def test_a_save_that_leaves_it_alone_passes(self):
         pay = self._plant(WITHIN_L1, "Approved")

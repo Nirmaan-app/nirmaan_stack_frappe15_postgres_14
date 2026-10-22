@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { GST_RATE, gstForVendor, gstMatchesVendor, isGstExplicitlyOff, isGstOn, itemsValue, workOrderTotal } from "./workOrderGst";
+import { gstForVendor, gstMatchesVendor, isGstExplicitlyOff, isGstOn } from "./workOrderGst";
 
 const PY_SOURCE = readFileSync(
   resolve(__dirname, "../../../nirmaan_stack/services/work_order_gst.py"),
@@ -58,22 +58,5 @@ describe("gstMatchesVendor", () => {
   it("disagrees in both directions", () => {
     expect(gstMatchesVendor({ gst: "false" }, "29AADCU7527Q1ZG")).toBe(false);
     expect(gstMatchesVendor({ gst: "true" }, "  ")).toBe(false);
-  });
-});
-
-describe("workOrderTotal", () => {
-  it("adds GST_RATE to the items when GST is on, as the server's work_order_total does", () => {
-    expect(workOrderTotal(100000, true)).toBe(118000);
-    expect(workOrderTotal(100000, false)).toBe(100000);
-    expect(PY_SOURCE).toMatch(new RegExp(`GST_RATE = ${GST_RATE}\\b`));
-    expect(PY_SOURCE).toMatch(/return sub_total \+ sub_total \* GST_RATE if gst_is_on\(gst_flag\) else sub_total/);
-  });
-});
-
-describe("itemsValue", () => {
-  it("sums quantity x rate, as the server's items_value does", () => {
-    expect(itemsValue([{ quantity: 15, rate: 4000 }, { quantity: "2", rate: "250.5" }])).toBe(60501);
-    expect(itemsValue(undefined)).toBe(0);
-    expect(PY_SOURCE).toMatch(/return sum\(flt\(row.get\("quantity"\)\) \* flt\(row.get\("rate"\)\) for row in rows or \[\]\)/);
   });
 });

@@ -129,7 +129,7 @@ def guard_work_order_invoice(doc, method=None):
         doc,
         may_decide=can_decide_wo_invoice(user),
         may_edit=can_edit_wo_invoice(user),
-        may_edit_approved=can_edit_approved_wo_invoice(user),
+        may_override_decision=can_edit_approved_wo_invoice(user),
         generated=bool(before and generated_invoice_of(doc.name)),
     )
     if problem:

@@ -347,7 +347,8 @@ def refuse_hand_written_legacy_tds(doc):
     if frappe.flags.in_patch or _is_system_move(doc):
         return
     before = doc.get_doc_before_save()
-    if str((before.get("tds") if before else "") or "").strip() != str(doc.get("tds") or "").strip():
+    # Compared as numbers: Desk and REST send "600.0" for a stored "600", which is no change.
+    if flt((before.get("tds") if before else 0) or 0, 2) != flt(doc.get("tds") or 0, 2):
         frappe.throw(LEGACY_TDS_REFUSAL)
 
 

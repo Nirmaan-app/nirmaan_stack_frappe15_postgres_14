@@ -20,7 +20,6 @@ from nirmaan_stack.services.payment_tds import PAYMENT_DOCTYPE, SERVICE_REQUEST_
 from nirmaan_stack.services.tds_forecast import forecast, payment_forecasts, request_amount_as_stored
 
 
-
 @frappe.whitelist()
 def forecast_work_order_tds(work_order: str, amount, is_gst_payment=0, cheque_amount=None) -> dict:
     """The forecast for a payment of `amount` about to be requested on `work_order`.

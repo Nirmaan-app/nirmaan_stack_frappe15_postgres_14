@@ -33,8 +33,11 @@ No amendment save may lower the total below Amount Paid or the approved invoices
 other than the one before the amendment once a payment (not Rejected) or an invoice exists, nor swap in
 a vendor on GST Hold. A Work Order under amendment takes no new payment (`payment_request_problem`).
 So those rules can't be skipped, an Approved Work Order moves only into Amendment, one under Amendment
-only back to Approved (accept, or revert), and an Approved one's own save keeps its scope (`SCOPE_FIELDS`: vendor, items, categories, total); a Desk edit of a paid Approved Work
-Order, or a move back to Vendor Selected and a fresh approval, is refused (`_approved_problem`).
+only back to Approved (accept, or revert), and an Approved one's own save keeps its scope
+(`SCOPE_FIELDS`: vendor, items, categories, total); a Desk edit of a paid Approved Work Order, or a
+move back to Vendor Selected and a fresh approval, is refused (`_approved_problem`). The floor is read
+from source (`AmendmentFacts.paid_floor` / `invoiced_floor`), and no user save changes the stored money
+figures (`STORED_MONEY_FIELDS`).
 
 Pure: the caller resolves who the user is (`services/role_profiles.can_decide_work_order`), which
 server action is saving, and, for an amendment save, the payments, invoices and vendor facts
@@ -297,8 +300,6 @@ def _amendment_problem(before, after, facts: AmendmentFacts) -> str | None:
                 f"{what} of {rupees(floor)}."
             )
     return None
-
-
 
 
 def delete_problem(doc) -> str | None:

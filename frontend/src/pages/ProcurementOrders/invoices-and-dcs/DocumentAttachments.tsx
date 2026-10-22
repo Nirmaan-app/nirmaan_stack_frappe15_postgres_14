@@ -36,7 +36,7 @@ import { usePODeliveryDocuments } from "@/pages/DeliveryChallansAndMirs/hooks/us
 import { UploadDCMIRDialog } from "@/pages/DeliveryChallansAndMirs/components/UploadDCMIRDialog";
 import type { PODeliveryDocuments as PODeliveryDoc } from "@/types/NirmaanStack/PODeliveryDocuments";
 import {
-  WO_INVOICE_EDIT_PROFILES,
+  PO_INVOICE_EDIT_PROFILES,
   canActionInvoiceApprovals,
   canDeleteDeliveryDocument,
   canEditWoInvoice,
@@ -109,11 +109,10 @@ export const DocumentAttachments = <T extends DocumentType>({
   // Generated invoices (#1546): GST-off Work Orders only. The server decides every figure.
   const isWorkOrder = docType === "Service Requests";
   // Who gets the invoice Edit dialog: on a WO, Admin and the accountants (`canEditWoInvoice`, the server's
-  // `WO_INVOICE_EDIT_PROFILES`); on a PO the same three profiles as always (PO invoice rules are unchanged
-  // by spec #1528, so no Administrator-user widening there).
+  // `WO_INVOICE_EDIT_PROFILES`); on a PO, `PO_INVOICE_EDIT_PROFILES`, unchanged by spec #1528.
   const mayEditInvoices = isWorkOrder
     ? canEditWoInvoice(role, user_id)
-    : !!role && WO_INVOICE_EDIT_PROFILES.includes(role);
+    : !!role && PO_INVOICE_EDIT_PROFILES.includes(role);
   const workOrder = documentData as ServiceRequests | null | undefined;
   const woGstOff = isWorkOrder && isGstExplicitlyOff(workOrder);
   const {

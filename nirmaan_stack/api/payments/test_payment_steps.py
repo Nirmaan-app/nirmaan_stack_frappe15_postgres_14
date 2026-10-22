@@ -294,6 +294,7 @@ class TestNoStepIsSkipped(PaymentStepCase):
             for parent in ((SR, self.sr), ("Procurement Orders", po)):
                 with self.subTest(status=status, parent=parent[0]):
                     pay = self._plant(WITHIN_L1, status)
+                    # Re-pointed by raw write at planting (no recount: no order figure is read here).
                     frappe.db.set_value(PAYMENT, pay, {"document_type": parent[0], "document_name": parent[1]},
                                         update_modified=False)
                     frappe.db.commit()
@@ -333,6 +334,7 @@ class TestTheCeoTierHoldsAfterApproval(PaymentStepCase):
 
     def _po_payment(self, amount, status, **stamps):
         pay = self._plant(amount, status)
+        # Planted by raw write (its creation and stamps are the inputs under test; no order figure is read).
         frappe.db.set_value(PAYMENT, pay, {"document_type": "Procurement Orders", "document_name": self._po(),
                                            **stamps}, update_modified=False)
         frappe.db.commit()
@@ -368,6 +370,7 @@ class TestTheCeoTierHoldsAfterApproval(PaymentStepCase):
 
     def test_a_payment_born_at_reconciliation_pending_needs_its_amounts_tier(self):
         po = self._po()   # a PO payment: no Work Order invoice check stands in the way of the tier
+        # The PO's total, by raw write: the insert's own cap reads it; nothing derived hangs off it here.
         frappe.db.set_value("Procurement Orders", po, "total_amount", 1000000, update_modified=False)
         frappe.db.commit()
 

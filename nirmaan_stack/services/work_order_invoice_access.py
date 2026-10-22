@@ -88,13 +88,14 @@ def billed_fields_changed(before, after) -> bool:
 
 
 def change_problem(
-    before, after, *, may_decide: bool, may_edit: bool, may_edit_approved: bool, generated: bool = False
+    before, after, *, may_decide: bool, may_edit: bool, may_override_decision: bool, generated: bool = False
 ) -> str | None:
     """Why this user may not save `after` over `before` (None for a new invoice), or None when they may.
 
-    `may_decide` / `may_edit` / `may_edit_approved` are the user's answers to the three role sets in
+    `may_decide` / `may_edit` / `may_override_decision` are the user's answers to the three role sets in
     `services/role_profiles` (WO_INVOICE_DECIDE_PROFILES, WO_INVOICE_EDIT_PROFILES,
-    WO_APPROVED_INVOICE_EDIT_PROFILES). `generated`: a generated invoice's signed upload created this
+    WO_APPROVED_INVOICE_EDIT_PROFILES); `may_override_decision` (Admin) changes an Approved invoice's
+    figures, moves it anywhere but Rejected, and reopens a Rejected one. `generated`: a generated invoice's signed upload created this
     invoice. Reconciliation, autofill and attachment fields pass freely.
     """
     if not (is_work_order_invoice(after) or is_work_order_invoice(before)):
@@ -106,23 +107,22 @@ def change_problem(
         return None
 
     status_before, status_after = cstr(before.get("status")), cstr(after.get("status"))
-    if generated:
-        if billed_fields_changed(before, after):
-            return GENERATED_EDIT_REFUSAL
-        if status_before == REJECTED and status_after != REJECTED:
-            return GENERATED_REJECTED_REFUSAL
+    if generated and billed_fields_changed(before, after):
+        return GENERATED_EDIT_REFUSAL
+    # A Rejected invoice stays Rejected: a signed upload's for everyone (its generated invoice is Voided),
+    # any other only an Admin may reopen (it is uploaded again).
+    if status_before == REJECTED and status_after != REJECTED and (generated or not may_override_decision):
+        return GENERATED_REJECTED_REFUSAL if generated else REJECTED_MOVE_REFUSAL
 
     if status_before != status_after and not may_decide:
         return DECIDE_REFUSAL
-    if status_before == APPROVED and status_after not in (APPROVED, REJECTED) and not may_edit_approved:
+    if status_before == APPROVED and status_after not in (APPROVED, REJECTED) and not may_override_decision:
         return APPROVED_MOVE_REFUSAL
-    if status_before == REJECTED and status_after != REJECTED and not may_edit_approved:
-        return REJECTED_MOVE_REFUSAL
 
     if billed_fields_changed(before, after):
         if not may_edit:
             return EDIT_REFUSAL
-        if before.get("status") == APPROVED and not may_edit_approved:
+        if before.get("status") == APPROVED and not may_override_decision:
             return APPROVED_REFUSAL
     return None
 

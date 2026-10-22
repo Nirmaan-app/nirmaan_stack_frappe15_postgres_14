@@ -35,7 +35,7 @@ from nirmaan_stack.services.outflow_import.expense_links import (
 from nirmaan_stack.services.payees.paid_to import paid_to_rows
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.payment_split import load_part_reconciled_split_families
-from nirmaan_stack.services.payment_tds import BORNE_BY_VENDOR, TDS_DOCTYPE, counted_deductions_sql
+from nirmaan_stack.services.payment_tds import counted_deductions_sql, withheld_expense_gross_sql
 
 from nirmaan_stack.services.cheque_payments import in_cheque_tracker_sql
 from nirmaan_stack.services.expense_tds import withheld_tds_by_expense
@@ -257,8 +257,7 @@ def _expense_select(table, source, project_col):
     # bill is its tax record's gross (`non_project_expense` is unique, so the join adds no row). Tax the
     # company pays on top leaves the amount whole. A Project Expense carries no tax record.
     if source == SOURCE_NON_PROJECT:
-        tds_join = (f'LEFT JOIN "tab{TDS_DOCTYPE}" t ON t."non_project_expense" = e."name" '
-                    f'AND COALESCE(NULLIF(t."borne_by", \'\'), \'{BORNE_BY_VENDOR}\') = \'{BORNE_BY_VENDOR}\'')
+        tds_join = f'LEFT JOIN ({withheld_expense_gross_sql()}) t ON t."non_project_expense" = e."name"'
         requested_expr = f'COALESCE(t."gross_amount", {_EXPENSE_AMOUNT})::numeric'
     else:
         tds_join, requested_expr = "", _EXPENSE_AMOUNT

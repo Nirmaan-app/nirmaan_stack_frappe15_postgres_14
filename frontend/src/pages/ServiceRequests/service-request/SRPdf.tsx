@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { useFrappeGetCall } from 'frappe-react-sdk';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Download } from 'lucide-react';
@@ -9,7 +10,6 @@ import { useGstOptions } from "@/hooks/useGstOptions";
 import { useUserData } from "@/hooks/useUserData";
 import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 import { workOrderPrintTotals } from "@/utils/workOrderPrintTotals";
-import { itemsValue } from "@/utils/workOrderGst";
 
 interface SRPdfProps {
   srPdfSheet: boolean;
@@ -183,15 +183,15 @@ const SRPdf: React.FC<SRPdfProps> = ({
   const AVAILABLE_HEIGHT = PAGE_HEIGHT - HEADER_HEIGHT;
 
   const { gstOptions } = useGstOptions();
-  // The server's total, to the nearest rupee (story 68), not the items x 1.18 floored; while an amendment is
-  // open, the amended items' total, as its accept will store it.
-  // The footer's basis is the printed rows (story 68 review 2): while an amendment is open the stored total
-  // is still the old one, so `getTotal` (derived from it) would not match the items printed above it.
-  const printedSubTotal = itemsValue(orderData?.work_order_items);
-  const printTotals = workOrderPrintTotals(printedSubTotal, orderData?.total_amount ?? getTotal, {
-    amendmentOpen: orderData?.status === "Amendment",
-    gstOn: gstEnabled,
-  });
+  // The footer's figures are the server's (story 68): the printed rows' value and the Work Order's total,
+  // or, while an amendment is open, the total its accept will store. Until they arrive, the stored figures.
+  const { data: serverTotals } = useFrappeGetCall<{ message: { sub_total: number; total: number } }>(
+    "nirmaan_stack.api.service_requests.print_totals.get_work_order_print_totals",
+    { work_order: orderData?.name },
+    orderData?.name ? `WorkOrderPrintTotals-${orderData.name}-${orderData.modified}` : null
+  );
+  const printedSubTotal = serverTotals?.message?.sub_total ?? getTotal;
+  const printTotals = workOrderPrintTotals(printedSubTotal, serverTotals?.message?.total ?? orderData?.total_amount ?? getTotal);
 
   const resolvedAddress = useMemo(() => {
     // 1. Try to find by orderData's project_gst
