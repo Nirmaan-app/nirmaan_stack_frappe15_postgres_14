@@ -3524,7 +3524,8 @@ class TestSlice12d4cModelCall(FrappeTestCase):
         # INVERTED at ADP-2 (HVAC v48) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v47.json"`
         # INVERTED at ADP-3b (HVAC v49) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v48.json"`
         # INVERTED at ADP-4a (HVAC v50; owner PY-1, the current-asset pins) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v49.json"`
-        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v50.json"   # ADP-4a: v50 (BEFORE: v49, ADP-3b); ADP-3b: v49 (BEFORE: v48, ADP-2); ADP-2: v48 (BEFORE: v47, ADP-1); ADP-1: v47 (BEFORE: v46, 12e-6c)
+        # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v50.json"`
+        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v51.json"   # ADP-5a: v51 (BEFORE: v50, ADP-4a); ADP-4a: v50 (BEFORE: v49, ADP-3b); ADP-3b: v49 (BEFORE: v48, ADP-2); ADP-2: v48 (BEFORE: v47, ADP-1); ADP-1: v47 (BEFORE: v46, 12e-6c)
         # 12e-4b: v38 (+ what a Piping row is asked, + Insulation's one key)
         # 12e-5b: v39 re-worded Insulation's item / cladding notes and added "Cladding as written (BoQ)" (owner R2-R4).
         # This class is the record of the v32 -> v33 mint, so on the NEW side Insulation is read from v38 -- the last

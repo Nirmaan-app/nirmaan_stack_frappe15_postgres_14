@@ -276,7 +276,10 @@ describe("12d-4c: the Derivation tab lists EVERY Insulation rule the config decl
     // INVERTED at ADP-4a (owner D2 "17 + 19": the damper said once, decided by the air stream, its fallback named) by
     // mechanical authority. BEFORE: `expect(text).toMatch(/damper not mentioned -> without, insulated not mentioned -> with,
     // UL listed not mentioned -> no/)`. The values are still the config's own; the separate "-> without" is gone.
-    expect(text).toMatch(/no air stream stated, and on every other kind -> without; a damper the row states, with or without, always wins -- with a line naming the air stream; insulated not mentioned -> with, UL listed not mentioned -> no/);
+    // INVERTED at ADP-5a (HVAC v51, the LATEST asset this reads; owner 2026-10-20 12:51, AC2: the curved grille's default is
+    // "with") by mechanical authority. BEFORE: `/no air stream stated, and on every other kind -> without; a damper the row
+    // states, .../` -- the fallback now names the one kind that differs.
+    expect(text).toMatch(/no air stream stated, and on every other kind -> without \(curved grille: with\); a damper the row states, with or without, always wins -- with a line naming the air stream; insulated not mentioned -> with, UL listed not mentioned -> no/);
     expect(text).not.toMatch(/damper not mentioned -> without, insulated/);
     expect(text).toMatch(/variant on fire damper becomes UL 555 when UL listed is yes/);
     expect(text).toMatch(/double-skin plenum is not offered per number/);
