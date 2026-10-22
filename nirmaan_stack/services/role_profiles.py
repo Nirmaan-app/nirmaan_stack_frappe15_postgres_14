@@ -184,6 +184,20 @@ ASSET_ASSIGN_PROJECT_PROFILES = PROCUREMENT_PROFILES
 ASSET_CATEGORY_AUDIT_PROFILES = (ADMIN_PROFILE,)
 ASSET_AUDIT_VIEW_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE) + PROCUREMENT_PROFILES
 
+# Reimbursements (owner, 2026-10-21/22). Everyone raises and sees their own claims. HR decides a claim of
+# ₹2,000 or less raised outside HR; Admin decides the rest (`services/reimbursements/rules.py`). These
+# profiles see every claim, and work the Approved and Rejected tabs (tick + Export). Enforced by
+# `integrations/controllers/reimbursement.py` and `services/reimbursements/access.py`; mirrored client-side
+# by `REIMBURSEMENT_*` in `frontend/src/constants/roles.ts` -- keep the lists in sync.
+REIMBURSEMENT_HR_PROFILES = (HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
+REIMBURSEMENT_VIEW_ALL_PROFILES = (
+    ADMIN_PROFILE,
+    HR_EXECUTIVE_PROFILE,
+    HR_LEAD_PROFILE,
+    ACCOUNTANT_PROFILE,
+    ACCOUNTANT_LEAD_PROFILE,
+)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Resolvers — the ONE way a whitelisted endpoint answers "is this user X?".

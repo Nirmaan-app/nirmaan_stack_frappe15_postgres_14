@@ -1,0 +1,260 @@
+{
+  "_about": "Shared by services/reimbursements/test_rules.py and frontend/src/utils/reimbursements/rules.test.ts (F1): one set of cases, two twins. The server's rules are the boundary; the screen mirrors them to show the right tabs and buttons. `allowed` true = no problem.",
+  "hr_approval_limit": 2000,
+  "description_required_above": 2000,
+  "statuses": [
+    "Pending Approval",
+    "Approved",
+    "Rejected"
+  ],
+  "types": [
+    "Travel",
+    "Food",
+    "Others"
+  ],
+  "reviewer": [
+    {
+      "name": "small claim from outside HR",
+      "amount": 1450,
+      "claimant_is_hr": false,
+      "reviewer": "HR or Admin"
+    },
+    {
+      "name": "exactly the limit is HR's",
+      "amount": 2000,
+      "claimant_is_hr": false,
+      "reviewer": "HR or Admin"
+    },
+    {
+      "name": "one paisa above the limit",
+      "amount": 2000.01,
+      "claimant_is_hr": false,
+      "reviewer": "Admin"
+    },
+    {
+      "name": "large claim",
+      "amount": 4800,
+      "claimant_is_hr": false,
+      "reviewer": "Admin"
+    },
+    {
+      "name": "small claim raised by HR",
+      "amount": 500,
+      "claimant_is_hr": true,
+      "reviewer": "Admin"
+    }
+  ],
+  "decide": [
+    {
+      "name": "HR, small claim from outside HR",
+      "status": "Pending Approval",
+      "amount": 1450,
+      "claimant_is_hr": false,
+      "decider_is_admin": false,
+      "decider_is_hr": true,
+      "allowed": true
+    },
+    {
+      "name": "HR, exactly the limit",
+      "status": "Pending Approval",
+      "amount": 2000,
+      "claimant_is_hr": false,
+      "decider_is_admin": false,
+      "decider_is_hr": true,
+      "allowed": true
+    },
+    {
+      "name": "HR, one paisa above the limit",
+      "status": "Pending Approval",
+      "amount": 2000.01,
+      "claimant_is_hr": false,
+      "decider_is_admin": false,
+      "decider_is_hr": true,
+      "allowed": false
+    },
+    {
+      "name": "HR, claim raised by HR (their own or a colleague's)",
+      "status": "Pending Approval",
+      "amount": 500,
+      "claimant_is_hr": true,
+      "decider_is_admin": false,
+      "decider_is_hr": true,
+      "allowed": false
+    },
+    {
+      "name": "HR, an Admin's small claim",
+      "status": "Pending Approval",
+      "amount": 1800,
+      "claimant_is_hr": false,
+      "decider_is_admin": false,
+      "decider_is_hr": true,
+      "allowed": true
+    },
+    {
+      "name": "Admin, large claim",
+      "status": "Pending Approval",
+      "amount": 4800,
+      "claimant_is_hr": false,
+      "decider_is_admin": true,
+      "decider_is_hr": false,
+      "allowed": true
+    },
+    {
+      "name": "Admin, claim raised by HR",
+      "status": "Pending Approval",
+      "amount": 500,
+      "claimant_is_hr": true,
+      "decider_is_admin": true,
+      "decider_is_hr": false,
+      "allowed": true
+    },
+    {
+      "name": "Admin, their own claim",
+      "status": "Pending Approval",
+      "amount": 1800,
+      "claimant_is_hr": false,
+      "decider_is_admin": true,
+      "decider_is_hr": false,
+      "allowed": true
+    },
+    {
+      "name": "Accountant",
+      "status": "Pending Approval",
+      "amount": 500,
+      "claimant_is_hr": false,
+      "decider_is_admin": false,
+      "decider_is_hr": false,
+      "allowed": false
+    },
+    {
+      "name": "Admin, already approved",
+      "status": "Approved",
+      "amount": 500,
+      "claimant_is_hr": false,
+      "decider_is_admin": true,
+      "decider_is_hr": false,
+      "allowed": false
+    },
+    {
+      "name": "HR, already rejected",
+      "status": "Rejected",
+      "amount": 500,
+      "claimant_is_hr": false,
+      "decider_is_admin": false,
+      "decider_is_hr": true,
+      "allowed": false
+    }
+  ],
+  "edit": [
+    {
+      "name": "claimant, pending",
+      "status": "Pending Approval",
+      "is_claimant": true,
+      "allowed": true
+    },
+    {
+      "name": "claimant, approved",
+      "status": "Approved",
+      "is_claimant": true,
+      "allowed": false
+    },
+    {
+      "name": "claimant, rejected",
+      "status": "Rejected",
+      "is_claimant": true,
+      "allowed": false
+    },
+    {
+      "name": "someone else, pending",
+      "status": "Pending Approval",
+      "is_claimant": false,
+      "allowed": false
+    }
+  ],
+  "delete": [
+    {
+      "name": "claimant, pending",
+      "status": "Pending Approval",
+      "is_claimant": true,
+      "allowed": true
+    },
+    {
+      "name": "claimant, rejected",
+      "status": "Rejected",
+      "is_claimant": true,
+      "allowed": true
+    },
+    {
+      "name": "claimant, approved",
+      "status": "Approved",
+      "is_claimant": true,
+      "allowed": false
+    },
+    {
+      "name": "someone else, rejected",
+      "status": "Rejected",
+      "is_claimant": false,
+      "allowed": false
+    }
+  ],
+  "mergeable": [
+    {
+      "file_name": "bill.pdf",
+      "mergeable": true
+    },
+    {
+      "file_name": "Bill.PDF",
+      "mergeable": true
+    },
+    {
+      "file_name": "photo.jpeg",
+      "mergeable": true
+    },
+    {
+      "file_name": "photo.JPG",
+      "mergeable": true
+    },
+    {
+      "file_name": "scan.png",
+      "mergeable": true
+    },
+    {
+      "file_name": "scan.webp",
+      "mergeable": true
+    },
+    {
+      "file_name": "IMG_0042.HEIC",
+      "mergeable": false
+    },
+    {
+      "file_name": "trip_log.xlsx",
+      "mergeable": false
+    },
+    {
+      "file_name": "notes",
+      "mergeable": false
+    }
+  ],
+  "description_required": [
+    {
+      "name": "small claim",
+      "amount": 1450,
+      "required": false
+    },
+    {
+      "name": "exactly ₹2,000 does not need one",
+      "amount": 2000,
+      "required": false
+    },
+    {
+      "name": "a paisa above ₹2,000 does",
+      "amount": 2000.01,
+      "required": true
+    },
+    {
+      "name": "large claim",
+      "amount": 9000,
+      "required": true
+    }
+  ]
+}

@@ -148,6 +148,9 @@ has_permission = {
     "Nirmaan Comments": "nirmaan_stack.integrations.controllers.nirmaan_comments.has_permission",
     # A Work Order's amendment snapshots need read on that Work Order (review round 4, X4).
     "Nirmaan Versions": "nirmaan_stack.integrations.controllers.nirmaan_versions.has_permission",
+    # Reimbursements (2026-10-22): your own claims, or every claim for Admin / HR / Accounts; writes only
+    # through api/reimbursements.
+    "Reimbursement": "nirmaan_stack.integrations.controllers.reimbursement.has_permission",
 }
 
 permission_query_conditions = {
@@ -158,6 +161,7 @@ permission_query_conditions = {
     # A Work Order's item rows need read on that Work Order (story 4, walk W1).
     "Work Order Items": "nirmaan_stack.integrations.controllers.work_order_items.get_permission_query_conditions",
     "Nirmaan Versions": "nirmaan_stack.integrations.controllers.nirmaan_versions.get_permission_query_conditions",
+    "Reimbursement": "nirmaan_stack.integrations.controllers.reimbursement.get_permission_query_conditions",
 }
 
 # DocType Class
@@ -180,6 +184,9 @@ doc_events = {
 		# "on_trash": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.delete_user_profile"
 	},
     "Nirmaan Users": {
+        # The person's own bank account (Nirmaan Users.payee, Reimbursements) changes only through
+        # services/payees/own_accounts.add_own_account.
+        "validate": "nirmaan_stack.integrations.controllers.nirmaan_users.validate",
         # A department set for the first time fills the department of the assets the person holds.
         "on_update": "nirmaan_stack.integrations.controllers.nirmaan_users.on_update",
         "on_trash": [

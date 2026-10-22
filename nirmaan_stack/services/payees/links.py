@@ -104,8 +104,8 @@ def last_changed(name: str, *fields: str) -> dict | None:
 
 def payee_page(name: str) -> dict:
     """Everything one Payee's page shows: `payee_summary`'s fields plus `creation`,
-    `holder_name_changed` and `account_changed` (`last_changed`: the account is its number or IFSC)
-    and `linked_vendors`. Refuses a name with no Payee."""
+    `holder_name_changed` and `account_changed` (`last_changed`: the account is its number or IFSC),
+    `linked_vendors` and `linked_user` (the person it is an own bank account of). Refuses a name with no Payee."""
     summary = payee_summary(name)
     if not summary:
         frappe.throw(frappe._("Payee {0} not found.").format(name), frappe.DoesNotExistError)
@@ -115,4 +115,13 @@ def payee_page(name: str) -> dict:
         "holder_name_changed": last_changed(name, "account_name"),
         "account_changed": last_changed(name, "account_number", "ifsc"),
         "linked_vendors": linked_vendors(name),
+        "linked_user": linked_user(name),
     }
+
+
+def linked_user(name: str) -> dict | None:
+    """The person whose own bank account Payee `name` is (`Nirmaan Users.payee`, ADR-0033 Amendment A), or
+    None: `{name, full_name, role_profile}`. At most one person holds a Payee (`own_accounts.check_own_account`)."""
+    return frappe.db.get_value(
+        "Nirmaan Users", {"payee": name}, ["name", "full_name", "role_profile"], as_dict=True, order_by="creation asc",
+    )
