@@ -306,10 +306,6 @@ export const appRoutes: RouteObject[] = [
             children: [
               { index: true, element: <ListSR /> },
               {
-                path: ":project/new-sr",
-                lazy: () => import("@/pages/ServiceRequests/service-request/new-service-request"),
-              },
-              {
                 path: ":srId",
                 children: [
                   // Consolidated: ApprovedSR now handles all statuses with role-based feature visibility

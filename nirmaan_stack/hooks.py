@@ -465,9 +465,14 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.expense_files.delete_attached_files",
         ],
     },
-    # No expense ever owns a File for a Porter invoice PDF: that one File is its Porter Invoice's (#1442).
+    # ONE "File" key: a second one in this dict silently replaces this one (#1548).
     "File": {
-        "before_insert": "nirmaan_stack.integrations.controllers.expense_files.refuse_invoice_pdf_copy",
+        "before_insert": [
+            # No expense ever owns a File for a Porter invoice PDF: that one File is its Porter Invoice's (#1442).
+            "nirmaan_stack.integrations.controllers.expense_files.refuse_invoice_pdf_copy",
+            # CU-A: the dev-only cloud-upload off-switch (site config `disable_cloud_upload`; never on prod).
+            "nirmaan_stack.integrations.controllers.file.before_insert",
+        ],
     },
     "Project Inflows": {
         # Carry the match records to the new name (ADR-0022 Amendment G).
@@ -550,10 +555,6 @@ doc_events = {
         # CU-A: the delete cascade. after_delete, never on_trash -- on_trash runs before the link
         # check, so a refused delete would already have removed the sheet / grid rows.
         "after_delete": "nirmaan_stack.integrations.controllers.boqs.after_delete",
-    },
-    # CU-A: the dev-only cloud-upload off-switch (site config `disable_cloud_upload`; never on prod).
-    "File": {
-        "before_insert": "nirmaan_stack.integrations.controllers.file.before_insert",
     },
     "BOQ Nodes": {
         "validate": "nirmaan_stack.integrations.controllers.boq_nodes.validate",

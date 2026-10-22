@@ -13,7 +13,9 @@ THE SPINE
 ---------
 A deduction is recorded when a payment is APPROVED FROM AN EARLIER STEP -- it enters `Approved` from
 `Requested`, `CEO Pending` or `Rejected`, or it is created already `Approved` -- from its vendor's
-rate, and is never recomputed afterwards.
+rate. Its rate never changes afterwards; its figures move only when the payment's amount is edited
+(`restate_deduction_on_amount_change`, at that same rate), and it is deleted when the payment is
+rejected or deleted -- never once its tax is in a challan.
 
 ⚠️ "APPROVED FROM AN EARLIER STEP", NOT "REACHES `Approved`" (#1288, retiring the ADR-0022 owner
 ruling "TDS on Approved") -- `APPROVAL_SOURCE_STATUSES` below holds the reasoning and the measured
@@ -39,16 +41,16 @@ Tax the COMPANY paid on top (`borne_by` Company) is in neither figure. Before Am
 `amount_paid` was net and `amount_due` subtracted `total_tds` as well; spec #1508's one-time patch
 recounts the stored figures of every Work Order.
 
-⚠️ LEGACY SRs HAVE NO DEDUCTION ROWS, so they add no tax: their payments were never netted and their
-`amount_paid` is unchanged. ⚠️ THE DAY THE BACKFILL RUNS THAT MUST STAY TRUE -- a backfilled SR gains
-a real deduction, and unless the same pass ALSO rewrites its payments to net, the tax is counted
-twice in `amount_paid`. The backfill is not a data copy; it is this same change applied backwards.
+⚠️ OLD SR PAYMENTS WERE BACKFILLED THE SAME WAY (`patches/v3_0/backfill_sr_payment_tds_deductions`):
+each got its deduction row AND its amount netted in one pass, so its tax is counted once. Any later
+backfill must do both -- a deduction row on a payment left gross counts the tax twice in
+`amount_paid`. A backfill is not a data copy; it is this same change applied backwards.
 
 ⚠️ THE REWRITE HAPPENS AT MOST ONCE, guarded by the deduction row's existence: `record_deduction`
 returns early when a row is already there, so a re-saved approved payment can never be reduced
 twice, with the UNIQUE constraint on `project_payment` as the hard floor under that. An amount
-EDITED after approval is out of scope -- the deduction is not recomputed, and correcting one needs
-a reversal path that does not exist yet.
+EDITED after approval re-derives the existing row (`restate_deduction_on_amount_change`) and never
+writes a second one.
 
 SCOPE, AND WHAT IS DELIBERATELY NOT HERE
 ----------------------------------------
@@ -60,10 +62,6 @@ payments (`backfill_po_payment_tds_deductions`) does COUNT, as a Work Order's do
 is netted (`TAX_COUNTED_PARENTS`, ADR-0034 Amendment B, #1534).
 
 NOT here, and each absence is deliberate:
-  * No BACKFILL. 1,331 Paid SR payments carry legacy `tds` totalling Rs 6,34,002 across 623 SRs and
-    NONE of them has a `Payment TDS Deduction` row, so `total_tds` reads 0 for those SRs. Deferred
-    by the owner until the forward path is proven. Until it runs, `total_tds` describes only
-    payments approved after this shipped.
   * No REVERSAL STATUS, by owner ruling 2026-09-10. An earlier draft carried a `Deducted/Reversed`
     Select; there is no reversal, so a deduction is simply DELETED with the payment it belongs to
     (`controllers/project_payments.on_trash`), or when the payment is rejected
