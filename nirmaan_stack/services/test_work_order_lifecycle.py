@@ -14,6 +14,7 @@ from nirmaan_stack.services.work_order_lifecycle import (
     FINALIZE_FLAG_REFUSAL,
     FINALIZED_REFUSAL,
     GST_HOLD_AMEND_REFUSAL,
+    STORED_MONEY_REFUSAL,
     TOTAL_BELOW_REFUSAL,
     UNDER_AMENDMENT_PAYMENT_REFUSAL,
     VENDOR_CHANGE_REFUSAL,
@@ -104,7 +105,7 @@ class TestFinalizedLocksItsScope(unittest.TestCase):
 
     def test_payments_invoices_and_the_nirmaan_gst_stay_open(self):
         for changes in (
-            {"amount_paid": 2000.0, "latest_payment_date": "2026-10-22"},
+            {"latest_payment_date": "2026-10-22"},
             {"invoice_no": "INV-1"},
             {"project_gst": "27ABFCS9095N1Z1"},
         ):
@@ -131,7 +132,7 @@ class TestFinalizedLocksItsScope(unittest.TestCase):
     def test_a_work_order_that_is_not_finalized_is_not_locked(self):
         open_wo = _finalized(is_finalized=0)
         self.assertIsNone(
-            change_problem(open_wo, {**open_wo, "status": "Amendment", "total_amount": 1.0}, may_decide=False)
+            change_problem(open_wo, {**open_wo, "status": "Amendment", "notes": {"list": []}}, may_decide=False)
         )
 
 
@@ -199,7 +200,8 @@ class TestAmendmentRules(unittest.TestCase):
             self.assertIn(listed, problem)
 
     def test_paid_and_rejected_payments_do_not_stop_an_amend(self):
-        self.assertIsNone(self._problem(_approved(amount_paid=1000.0), _amended(), has_live_payment=True))
+        before = _approved(amount_paid=1000.0)
+        self.assertIsNone(self._problem(before, _amended(before), has_live_payment=True))
 
     def test_the_total_may_not_fall_below_amount_paid(self):
         before = _approved(amount_paid=4000.0)
@@ -359,3 +361,19 @@ class TestApprovalRecord(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheStoredMoneyIsTheSystems(unittest.TestCase):
+    def test_a_save_that_changes_a_stored_money_figure_is_refused(self):
+        """Its writers use `set_value`; a save that sends another figure is a user's (review round 3, V5)."""
+        before = _approved()
+        for field in ("amount_paid", "total_tds", "amount_due", "amount_invoiced", "gst_invoiced"):
+            with self.subTest(field=field):
+                self.assertEqual(change_problem(before, {**before, field: 12345.0}, may_decide=True),
+                                 STORED_MONEY_REFUSAL)
+
+    def test_the_floor_reads_the_facts_from_source_over_the_stored_figures(self):
+        before = _approved(amount_paid=0.0, amount_invoiced=0.0)
+        problem = change_problem(before, _amended(before, work_order_items=_rate(300.0)), may_decide=True,
+                                 amendment=AmendmentFacts(paid_floor=4000.0, invoiced_floor=0.0))
+        self.assertTrue(problem.startswith(TOTAL_BELOW_REFUSAL))

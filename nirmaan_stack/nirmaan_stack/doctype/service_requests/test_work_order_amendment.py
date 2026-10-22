@@ -31,11 +31,13 @@ from nirmaan_stack.nirmaan_stack.doctype.service_requests.test_work_order_lifecy
     _AsRoleCase,
 )
 from nirmaan_stack.integrations.controllers.nirmaan_versions import SNAPSHOT_KEPT_REFUSAL
+from nirmaan_stack.integrations.controllers.service_requests import ITEM_ROW_REFUSAL
 from nirmaan_stack.services.work_order_lifecycle import (
     AMEND_PAYMENTS_REFUSAL,
     APPROVED_SCOPE_REFUSAL,
     GST_HOLD_AMEND_REFUSAL,
     LEAVE_AMENDMENT_REFUSAL,
+    STORED_MONEY_REFUSAL,
     LEAVE_APPROVED_REFUSAL,
     TOTAL_BELOW_REFUSAL,
     UNDER_AMENDMENT_PAYMENT_REFUSAL,
@@ -78,13 +80,13 @@ class _AmendmentCase(_AsRoleCase):
         frappe.db.commit()
         return name
 
-    def _invoice(self, status):
+    def _invoice(self, status, amount=1000):
         frappe.db.sql(
             """INSERT INTO "tabVendor Invoices" (name, creation, modified, modified_by, owner, docstatus, idx,
                    document_type, document_name, project, vendor, status, invoice_no, invoice_amount)
-               VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s, %s, 1000)""",
+               VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s, %s, %s)""",
             (f"TEST-AMD-VI-{frappe.generate_hash(length=8)}", U, U, SR, self.wo, self.project, self.vendor,
-             status, f"T-{frappe.generate_hash(length=6)}"),
+             status, f"T-{frappe.generate_hash(length=6)}", amount),
         )
         frappe.db.commit()
 
@@ -150,7 +152,10 @@ class TestAmendWaitsForMoneyInFlight(_AmendmentCase):
 
 class TestAmendmentKeepsTheMoneyRight(_AmendmentCase):
     def test_the_total_may_not_fall_below_amount_paid(self):
-        frappe.db.set_value(SR, self.wo, "amount_paid", 60_000)
+        """The floor is read from source (review round 3, V5): the Paid payments, whatever the stored
+        `amount_paid` says, which a stale or overwritten figure would otherwise lower."""
+        self._payment("Paid", 60_000)
+        frappe.db.set_value(SR, self.wo, "amount_paid", 0)   # a stale stored figure; the rule must not read it
         frappe.db.commit()
         message = self.assertRefused(lambda: self._amend(rate=50_000), TOTAL_BELOW_REFUSAL)
         self.assertIn("Amount Paid", message)
@@ -159,7 +164,8 @@ class TestAmendmentKeepsTheMoneyRight(_AmendmentCase):
         self.assertEqual(self._status(self.wo), "Amendment")
 
     def test_the_total_may_not_fall_below_approved_invoices(self):
-        frappe.db.set_value(SR, self.wo, "amount_invoiced", 80_000)
+        self._invoice("Approved", 80_000)
+        frappe.db.set_value(SR, self.wo, "amount_invoiced", 0)   # a stale stored figure; the rule must not read it
         frappe.db.commit()
         message = self.assertRefused(lambda: self._amend(rate=70_000), TOTAL_BELOW_REFUSAL)
         self.assertIn("approved invoices", message)
@@ -343,3 +349,47 @@ class TestTheSnapshotIsKept(_AmendmentCase):
         self._amend(rate=120_000)
         self._accept()
         self.assertEqual(self._snapshots(), ["Accepted"])
+
+
+class TestTheStoredMoneyIsTheSystems(_AmendmentCase):
+    """A Work Order's stored money figures are written by the system alone (review round 3, V5): a Desk or
+    REST save that sends another value is refused, Admin included."""
+
+    def test_a_user_save_cannot_change_them(self):
+        # (`total_amount` is refused too, by the Approved scope lock:
+        # `test_a_desk_save_that_changes_an_approved_work_orders_scope_is_refused`.)
+        for field in ("amount_paid", "total_tds", "amount_due", "amount_invoiced", "gst_invoiced"):
+            with self.subTest(field=field):
+                before = frappe.db.get_value(SR, self.wo, field)
+                self.assertRefused(lambda: self._save(USERS[ADMIN], self.wo, **{field: 12_345}), STORED_MONEY_REFUSAL)
+                self.assertEqual(frappe.db.get_value(SR, self.wo, field), before)
+
+
+class TestAnItemRowIsNotSavedOnItsOwn(_AmendmentCase):
+    """`PUT /api/resource/Work Order Items/<row>` saves the row on its own, then its parent, whose
+    before-image then already holds the edit (`frappe/api/v1.update_doc`), so the scope and Finalize locks
+    would see no change (review round 3, V6). A row is saved only with its Work Order."""
+
+    def _rest_put_row(self, user, **changes):
+        def put():
+            row_name = frappe.db.get_value("Work Order Items", {"parent": self.wo}, "name")
+            row = frappe.get_doc("Work Order Items", row_name, for_update=True)
+            row.update(changes)
+            row.save()
+            if row.get("parenttype"):
+                frappe.get_doc(row.parenttype, row.parent).save()
+        self._as(user, put)
+
+    def test_a_rest_edit_of_an_approved_work_orders_row_is_refused(self):
+        for user in (USERS[PROJECT_MANAGER], USERS[ADMIN]):
+            with self.subTest(user=user):
+                self.assertRefused(lambda: self._rest_put_row(user, rate=1), ITEM_ROW_REFUSAL)
+                frappe.db.rollback()
+                self.assertEqual(flt(frappe.db.get_value("Work Order Items", {"parent": self.wo}, "rate")), 100_000)
+
+    def test_a_finalized_work_orders_row_is_refused_too(self):
+        frappe.db.set_value(SR, self.wo, "is_finalized", 1)   # the flag only; no figure hangs off it
+        frappe.db.commit()
+        self.assertRefused(lambda: self._rest_put_row(USERS[ADMIN], quantity=2), ITEM_ROW_REFUSAL)
+        frappe.db.rollback()
+        self.assertEqual(flt(frappe.db.get_value("Work Order Items", {"parent": self.wo}, "quantity")), 1)

@@ -78,18 +78,9 @@ def _comment_raiser_approval(pay, ceo_cleared: bool) -> None:
 
 def _assert_within_po_balance(src, amount):
     """A PO request: value incl. GST − Paid − open requests − Reconciliation Pending, ₹10 tolerance."""
-    from nirmaan_stack.services.finance import (
-        get_source_document_financials,
-        get_total_paid,
-        get_total_pending,
-        get_total_reconciliation_pending,
-    )
-    available = (
-        get_source_document_financials(src).get("payable_total")
-        - get_total_paid(src)
-        - get_total_pending(src)
-        - get_total_reconciliation_pending(src)
-    )
+    from nirmaan_stack.services.finance import po_available_balance
+
+    available = po_available_balance(src)
     if amount > (available + 10):
         frappe.throw(_(
             "Maximum amount you can request is {0} (available balance)"

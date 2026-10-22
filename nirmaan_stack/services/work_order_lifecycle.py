@@ -101,6 +101,11 @@ LEAVE_AMENDMENT_REFUSAL = (
     "A Work Order under amendment is accepted or reverted, back to Approved; it can't move to"
 )
 
+STORED_MONEY_REFUSAL = (
+    "A Work Order's stored money figures (total, Amount Paid, TDS, Amount Due, invoiced) are the system's: "
+    "they move only with the payments, invoices and items behind them."
+)
+
 UNDER_AMENDMENT_PAYMENT_REFUSAL = "A payment can't be requested on a Work Order under amendment."
 
 #: A payment at one of these statuses is settled; any other is money in flight.
@@ -123,6 +128,11 @@ class AmendmentFacts:
     invoices: int = 0
     vendor_before: str | None = None
     vendor_on_gst_hold: bool = False
+    #: Amount Paid and the approved invoices, read from source (`amount_paid.amount_paid_of`, the Approved
+    #: Vendor Invoices), not the stored fields, which a stale or overwritten figure would lower. None: use
+    #: the stored ones (a caller with no database).
+    paid_floor: float | None = None
+    invoiced_floor: float | None = None
 
 
 #: What a Finalized Work Order's save may not change. `gst` gives way to Match GST to vendor.
@@ -140,6 +150,10 @@ LOCKED_FIELDS = (
 
 #: What an Approved Work Order's own save may not change: its scope moves only through Amend (`APPROVED -> AMENDMENT`).
 SCOPE_FIELDS = ("vendor", "work_order_items", "service_order_list", "service_category_list", "total_amount")
+
+#: The stored money figures. Their writers are the system's (`amount_paid.write_amount_paid`, the invoice
+#: recount, `ServiceRequests.calculate_total_amount`), all by `set_value`; a user save never changes them.
+STORED_MONEY_FIELDS = ("total_amount", "amount_paid", "total_tds", "amount_due", "amount_invoiced", "gst_invoiced")
 
 #: The statuses an Approved Work Order's save may leave it at.
 APPROVED_NEXT_STATUSES = (APPROVED, AMENDMENT)
@@ -222,6 +236,8 @@ def change_problem(
         problem = _approved_problem(before, after)
         if problem:
             return problem
+    if before and _changed(before, after, STORED_MONEY_FIELDS):
+        return STORED_MONEY_REFUSAL
     if before_status == AMENDMENT and after.get("status") not in (AMENDMENT, APPROVED):
         # Leaving it any other way, then re-approving, would skip the amendment rules (stories 18-19).
         return f"{LEAVE_AMENDMENT_REFUSAL} {after.get('status')}."
@@ -272,8 +288,9 @@ def _amendment_problem(before, after, facts: AmendmentFacts) -> str | None:
     new_total = round(work_order_total(items_value(after.get("work_order_items")), after.get("gst")), 2)
     if new_total >= round(flt(before.get("total_amount")), 2):
         return None
-    for floor, what in ((flt(before.get("amount_paid")), "Amount Paid"),
-                        (flt(before.get("amount_invoiced")), "approved invoices")):
+    paid = facts.paid_floor if facts.paid_floor is not None else before.get("amount_paid")
+    invoiced = facts.invoiced_floor if facts.invoiced_floor is not None else before.get("amount_invoiced")
+    for floor, what in ((flt(paid), "Amount Paid"), (flt(invoiced), "approved invoices")):
         if new_total < round(floor, 2):
             return (
                 f"{TOTAL_BELOW_REFUSAL} It would make the total {rupees(new_total)}, below its "

@@ -343,6 +343,11 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.nirmaan_versions.generate_sr_amend_version"
             ]
     },
+    # A Work Order's item row is saved only with its Work Order: the REST child-row PUT would slip past its
+    # locks (spec #1528 review 3, V6).
+    "Work Order Items": {
+        "validate": "nirmaan_stack.integrations.controllers.service_requests.refuse_saving_an_item_row_alone",
+    },
     # A generated invoice is made only by Generate and never deleted (#1546).
     "WO Generated Invoice": {
         "before_insert": "nirmaan_stack.integrations.controllers.wo_generated_invoice.refuse_insert_outside_generate",

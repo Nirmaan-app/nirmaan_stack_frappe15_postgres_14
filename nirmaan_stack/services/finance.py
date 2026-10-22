@@ -196,3 +196,15 @@ def get_total_reconciliation_pending(src):
     if total and total[0] and total[0].total is not None:
         return flt(total[0].total) + tax
     return tax
+
+
+def po_available_balance(src) -> float:
+    """What a PO may still be asked to pay: its value incl. GST less Paid, open requests (Requested, CEO
+    Pending, Approved, Rejected: `get_total_pending`) and Reconciliation Pending. The request cap of
+    `create_payment_request_for_service` and of a rejected PO payment brought back (spec #1528 review 3)."""
+    return (
+        get_source_document_financials(src).get("payable_total")
+        - get_total_paid(src)
+        - get_total_pending(src)
+        - get_total_reconciliation_pending(src)
+    )

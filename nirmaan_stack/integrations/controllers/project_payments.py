@@ -9,6 +9,7 @@ from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.api.projects._tendering_guard import validate_won
 from nirmaan_stack.services import payment_tds
 from nirmaan_stack.services.cheque_payments import is_cheque
+from nirmaan_stack.services.finance import po_available_balance
 from nirmaan_stack.services.order_payments import assert_within_work_order_limit
 from nirmaan_stack.services.payment_hold import validate_hold
 from nirmaan_stack.services.payment_steps import SYSTEM_STEP_FLAGS, refuse_step_out_of_tier
@@ -275,7 +276,60 @@ def validate(doc, method):
     refuse_raise_after_tax_cut(doc)
     refuse_hand_written_legacy_tds(doc)
     if not doc.is_new():
+        refuse_moving_an_approved_payment(doc)
         _validate_work_order_limit_on_edit(doc)
+        _validate_bringing_back_a_rejected_payment(doc)
+
+
+#: At these a payment is approved or its money has gone: it is counted on its order and on its vendor.
+_APPROVED_OR_LATER = ("Approved", "Reconciliation Pending", "Paid")
+
+MOVED_ORDER_REFUSAL = (
+    "An approved payment stays on its order: it was approved, and is counted, for this order and its vendor. "
+    "Reject it and request a new payment on the other order."
+)
+
+
+def _is_system_move(doc) -> bool:
+    return any(doc.flags.get(flag) for flag in SYSTEM_STEP_FLAGS)
+
+
+def refuse_moving_an_approved_payment(doc):
+    """A user can't move a payment at Approved or later to another order (stories 18-19): moving it away
+    and back would let an amendment swap the vendor or cut the total under paid money. The system's own
+    moves (`SYSTEM_STEP_FLAGS`: PO adjustments, Bulk Import) are its own business, and `Administrator`, the
+    site superuser, passes as it holds every payment step."""
+    before = doc.get_doc_before_save()
+    if (not before or _is_system_move(doc) or frappe.session.user == "Administrator"
+            or (before.status or "").strip() not in _APPROVED_OR_LATER):
+        return
+    if (before.document_type, before.document_name) != (doc.document_type, doc.document_name):
+        frappe.throw(_(MOVED_ORDER_REFUSAL), title=_("Not allowed"))
+
+
+def _validate_bringing_back_a_rejected_payment(doc):
+    """Bringing a Rejected payment back to Approved or later is a fresh approval (stories 18-19): its step
+    is the payment steps' (`services/payment_steps`), and here it must fit its order again, as a new request
+    would, since the order may have been amended while it was out: a Work Order's payment limit, and the
+    vendor it was raised for still the Work Order's; a PO's available balance. System moves skip it."""
+    before = doc.get_doc_before_save()
+    if (not before or _is_system_move(doc) or (before.status or "").strip() != PAYMENT_REJECTED
+            or (doc.status or "").strip() not in _APPROVED_OR_LATER or not doc.document_name):
+        return
+    if doc.document_type == "Service Requests":
+        sr = frappe.get_doc("Service Requests", doc.document_name)
+        if (doc.vendor or None) != (sr.vendor or None):
+            frappe.throw(_("{0} was raised for {1}, but {2}'s vendor is now {3}. Request a new payment instead.").format(
+                doc.name, doc.vendor, sr.name, sr.vendor), title=_("Not allowed"))
+        assert_within_work_order_limit(sr, flt(doc.amount), bool(cint(doc.get("is_gst_payment"))), action="pay",
+                                       exclude_payment=doc.name)
+    elif doc.document_type == "Procurement Orders":
+        po = frappe.get_doc("Procurement Orders", doc.document_name)
+        # The Rejected payment is still counted as an open request in the balance: add it back.
+        available = po_available_balance(po) + flt(before.amount)
+        if flt(doc.amount) > available + 10:
+            frappe.throw(_("Maximum amount you can request is {0} (available balance)").format(
+                frappe.format_value(available, "Currency")), title=_("Not allowed"))
 
 
 LEGACY_TDS_REFUSAL = (
@@ -290,7 +344,7 @@ def refuse_hand_written_legacy_tds(doc):
     Desk form shows it read-only; this refuses it from REST too. Its one writer is the by-hand patch
     `v3_0.net_po_payments_with_tds` (`set_value`, under `in_patch` when run by migrate); the system's moves
     (`SYSTEM_STEP_FLAGS`) copy what they find."""
-    if frappe.flags.in_patch or any(doc.flags.get(flag) for flag in SYSTEM_STEP_FLAGS):
+    if frappe.flags.in_patch or _is_system_move(doc):
         return
     before = doc.get_doc_before_save()
     if str((before.get("tds") if before else "") or "").strip() != str(doc.get("tds") or "").strip():

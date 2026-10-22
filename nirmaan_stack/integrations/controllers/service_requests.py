@@ -14,8 +14,10 @@ from ..Notifications.pr_notifications import (
     get_users_who_see_project,
 )
 from .procurement_requests import get_user_name
+from nirmaan_stack.api.invoices._item_billing_sync import invoiced_of
 from nirmaan_stack.api.projects._tendering_guard import validate_won
 from nirmaan_stack.api.service_requests.vendor_fy_limit import validate_vendor_gst_hold
+from nirmaan_stack.services.amount_paid import amount_paid_of
 from nirmaan_stack.services.role_profiles import ACCOUNTANT_PROFILES, SERVICE_PROCUREMENT_PROFILES, can_decide_work_order
 from nirmaan_stack.services.work_order_amendment import ACCEPTED, REVERTED, mark_snapshots, vendor_before_amendment
 from nirmaan_stack.services.work_order_gst import gst_flag_for_vendor, gst_is_on
@@ -142,7 +144,23 @@ def amendment_facts(before, doc) -> AmendmentFacts:
         invoices=invoices,
         vendor_before=before.vendor if starting else vendor_before_amendment(doc.name, before.vendor),
         vendor_on_gst_hold=bool(doc.vendor and frappe.db.get_value("Vendors", doc.vendor, "gst_hold")),
+        paid_floor=amount_paid_of("Service Requests", doc.name),
+        invoiced_floor=invoiced_of("Service Requests", doc.name)[0],
     )
+
+
+ITEM_ROW_REFUSAL = (
+    "A Work Order's item rows are saved with the Work Order, never on their own: the Work Order's own rules "
+    "(the Approved scope, Finalize, amendments) must see the change."
+)
+
+
+def refuse_saving_an_item_row_alone(doc, method=None):
+    """`Work Order Items` `validate`: only a row's own save runs it (a parent's save writes its rows without
+    their hooks), and that is the REST child-row PUT (`frappe/api/v1.update_doc`). It would save the row,
+    then the parent with the edit already in its before-image, past every lock (review round 3, V6). No app
+    code saves a row alone; patches write rows by SQL."""
+    frappe.throw(_(ITEM_ROW_REFUSAL), WorkOrderChangeRefused, title=_("Not allowed"))
 
 
 def guard_delete(doc, method=None):

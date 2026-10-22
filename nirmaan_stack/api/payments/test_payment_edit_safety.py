@@ -67,7 +67,9 @@ class TestADeskAmountEdit(EditSafetyCase):
         # Base 1,00,000 + GST 18,000; no GST invoiced, so base payments are capped at 1,00,000. Fully
         # invoiced, so the invoice check passes unless a test plants a Work Order that is not.
         self.wo = self.fx.service_request(self.project, self.vendor, total=118000, gst=True, amount_invoiced=118000)
-        self.accountant = self._user(ACCOUNTANT_PROFILE)
+        # A raise of an approved payment needs the tier its new amount needs (review round 3, V2), so the
+        # limit is met by the Admin who may make it; an Accountant's raise is refused before it.
+        self.accountant = self._user(ADMIN_PROFILE)
 
     def _small_wo(self):
         """Base 40,000 + GST: a raise to its limit stays within the L1 limit, which an Accountant may
@@ -106,8 +108,9 @@ class TestADeskAmountEdit(EditSafetyCase):
         wo = self.fx.service_request(self.project, self.vendor, total=118000, gst=True)
         self._plant_on(wo, 20000, "Requested")
         pay = self._plant_on(wo, 10000, "Approved")
+        # An Accountant (an Admin skips the invoice check), raising within the auto band, which needs no step.
         with self.assertRaisesRegex(frappe.ValidationError, "in approved invoices"):
-            self._edit_amount_as(self.accountant, pay, 15000)
+            self._edit_amount_as(self._user(ACCOUNTANT_PROFILE), pay, 14000)
         self.assertEqual(self._amount(pay), 10000.0)
 
 
@@ -212,3 +215,110 @@ class TestTheLegacyTdsBox(EditSafetyCase):
             doc.save()
         self._as(self._user(ACCOUNTANT_PROFILE), save)
         self.assertEqual(frappe.db.get_value(PAYMENT, pay, "utr"), "UTR-LEFT-ALONE")
+
+
+class TestNoBackDoorPastTheSteps(EditSafetyCase):
+    """Review round 3 (stories 5, 6, 18, 19): a payment's status is one of the six, a raise needs the tier
+    its new amount needs, settled money is not rejected by hand, a rejected payment comes back only as an
+    approval that fits the order again, and an approved payment stays on its order."""
+
+    def _save_as(self, user, payment, **changes):
+        def save():
+            doc = frappe.get_doc(PAYMENT, payment)
+            doc.update(changes)
+            doc.save()
+        self._as(user, save)
+
+    def _po_payment(self, amount, status, po=None):
+        pay = self._plant(amount, status)
+        # Planted by raw write (its creation is not under test); the PO's figures are not read here.
+        frappe.db.set_value(PAYMENT, pay, {"document_type": "Procurement Orders", "document_name": po or self._po()},
+                            update_modified=False)
+        frappe.db.commit()
+        return pay
+
+    # V1 ------------------------------------------------------------------------------------------
+    def test_a_status_outside_the_six_is_refused(self):
+        admin = self._user(ADMIN_PROFILE)
+        pay = self._plant(50000, "Approved")
+        with self.assertRaisesRegex(frappe.ValidationError, "is not a payment status"):
+            self._save_as(admin, pay, status="Hold")
+        self.assertEqual(self._status(pay), "Approved")
+        with self.assertRaisesRegex(frappe.ValidationError, "is not a payment status"):
+            self._as(admin, lambda: frappe.get_doc({"doctype": PAYMENT, "document_type": "Service Requests",
+                "document_name": self.sr, "project": self.project, "vendor": self.vendor, "amount": 1000,
+                "status": "Hold"}).insert())
+
+    # V2 ------------------------------------------------------------------------------------------
+    def test_a_raise_out_of_the_auto_band_needs_an_admin(self):
+        pay = self._po_payment(14999, "Approved")
+        accountant = self._user(ACCOUNTANT_PROFILE)
+        with self.assertRaisesRegex(frappe.ValidationError, "Only an Admin can raise"):
+            self._edit_amount_as(accountant, pay, 30000)
+        self.assertEqual(self._amount(pay), 14999)
+        self._edit_amount_as(accountant, pay, 14000)   # lowering: anyone who may write
+        self._edit_amount_as(self._user(ADMIN_PROFILE), pay, 30000)
+        self.assertEqual(self._amount(pay), 30000)
+
+    # V3 ------------------------------------------------------------------------------------------
+    def test_settled_money_is_not_rejected_by_hand(self):
+        admin = self._user(ADMIN_PROFILE)
+        for status in ("Paid", "Reconciliation Pending"):
+            with self.subTest(status=status):
+                pay = self._plant(WITHIN_L1, status)
+                with self.assertRaisesRegex(frappe.ValidationError, "can't be rejected"):
+                    self._save_as(admin, pay, status="Rejected")
+                self.assertEqual(self._status(pay), status)
+
+    def test_a_rejected_work_order_payment_comes_back_only_if_it_fits_the_work_order_again(self):
+        admin = self._user(ADMIN_PROFILE)
+        wo = self.fx.service_request(self.project, self.vendor, total=100000, amount_invoiced=100000)
+        self._plant_on(wo, 90000, "Paid")
+        pay = self._plant_on(wo, 20000, "Rejected")
+        with self.assertRaisesRegex(frappe.ValidationError, "Base left"):
+            self._save_as(admin, pay, status="Approved")
+        self.assertEqual(self._status(pay), "Rejected")
+        # A Rejected payment still holds its place in the limit (`work_order_payment_limit.is_counted`), so
+        # the one that fits is tried once the other is gone.
+        frappe.db.delete(PAYMENT, {"name": pay})
+        frappe.db.commit()
+        fits = self._plant_on(wo, 5000, "Rejected")
+        self._save_as(admin, fits, status="Approved")
+        self.assertEqual(self._status(fits), "Approved")
+
+    def test_a_rejected_payment_does_not_come_back_to_another_vendor(self):
+        admin = self._user(ADMIN_PROFILE)
+        wo = self.fx.service_request(self.project, self.vendor, total=100000, amount_invoiced=100000)
+        pay = self._plant_on(wo, 5000, "Rejected")
+        frappe.db.set_value("Service Requests", wo, "vendor", self.fx.vendor(2.0), update_modified=False)   # the vendor swap an amendment made; no figure hangs off it
+        frappe.db.commit()
+        with self.assertRaisesRegex(frappe.ValidationError, "raised for"):
+            self._save_as(admin, pay, status="Approved")
+        self.assertEqual(self._status(pay), "Rejected")
+
+    def test_a_rejected_po_payment_comes_back_only_within_the_po_balance(self):
+        admin = self._user(ADMIN_PROFILE)
+        po = self._po()
+        # The PO's value incl. GST: 50,000. Planted by raw write; its own figures are what is under test.
+        frappe.db.set_value("Procurement Orders", po, {"amount": 50000, "tax_amount": 0}, update_modified=False)
+        frappe.db.commit()
+        self._po_payment(45000, "Paid", po)
+        pay = self._po_payment(10000, "Rejected", po)
+        with self.assertRaisesRegex(frappe.ValidationError, "available balance"):
+            self._save_as(admin, pay, status="Approved")
+        fits = self._po_payment(5000, "Rejected", po)
+        frappe.db.delete(PAYMENT, {"name": pay})
+        frappe.db.commit()
+        self._save_as(admin, fits, status="Approved")
+        self.assertEqual(self._status(fits), "Approved")
+
+    # V4 ------------------------------------------------------------------------------------------
+    def test_an_approved_payment_stays_on_its_order(self):
+        accountant = self._user(ACCOUNTANT_PROFILE)
+        other = self.fx.service_request(self.project, self.vendor)
+        for status in ("Approved", "Paid"):
+            with self.subTest(status=status):
+                pay = self._plant(WITHIN_L1, status)
+                with self.assertRaisesRegex(frappe.ValidationError, "stays on its order"):
+                    self._save_as(accountant, pay, document_name=other)
+                self.assertEqual(frappe.db.get_value(PAYMENT, pay, "document_name"), self.sr)

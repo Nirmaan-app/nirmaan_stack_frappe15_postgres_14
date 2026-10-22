@@ -47,7 +47,7 @@ from frappe.utils import flt, getdate
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.services import settlement
 from nirmaan_stack.services.approval_tiers import TIER_L2_ABOVE, is_auto_approved, needs_ceo
-from nirmaan_stack.services.cheque_payments import CHEQUE_MOVES_ON
+from nirmaan_stack.services.cheque_payments import CHEQUE_MOVES_ON, is_cheque
 from nirmaan_stack.services.cheques.decide import DECIDING_FLAG
 from nirmaan_stack.services.role_profiles import (
     PAYMENT_L1_PROFILES,
@@ -89,6 +89,9 @@ SYSTEM_STEP_FLAGS = (
     DECIDING_FLAG,  # a cheque's decision moves every payment on it (`services/cheques/decide`)
 )
 
+#: Every status a payment can hold (`services/settlement`). Status is a Data field, so the save refuses any other.
+KNOWN_STATUSES = tuple(settlement.STATUS_LABELS)
+
 #: Statuses before approval, and past it.
 _WAITING = (REQUESTED, REJECTED, CEO_PENDING)
 _PAST_APPROVAL = (APPROVED, RECONCILIATION_PENDING, PAID)
@@ -129,12 +132,13 @@ def step_needed(was: str, now: str, amount) -> str | None:
 
 
 def raise_step_needed(status: str, old_amount, new_amount) -> str | None:
-    """The CEO step a save that raises a payment past its approval to above the L1 limit needs, or None."""
-    if (status or "").strip() not in _PAST_APPROVAL:
+    """The step a save that raises a payment past its approval needs: the tier its NEW amount needs (the
+    CEO above the L1 limit, L1 from the auto-approve line), or None within the auto band or for a cut."""
+    if (status or "").strip() not in _PAST_APPROVAL or flt(new_amount) <= flt(old_amount):
         return None
-    if flt(new_amount) > flt(old_amount) and needs_ceo(flt(new_amount)):
+    if needs_ceo(flt(new_amount)):
         return STEP_CEO
-    return None
+    return None if is_auto_approved(flt(new_amount)) else STEP_L1
 
 
 def born_step_needed(status: str, amount) -> str | None:
@@ -167,6 +171,7 @@ def holds(user: str, step: str) -> bool:
 
 def refuse_step_out_of_tier(doc, user: str) -> None:
     """Refuse a save of payment `doc` that makes a step `user` does not hold."""
+    refuse_unknown_status(doc)
     if any(doc.flags.get(flag) for flag in SYSTEM_STEP_FLAGS):
         return
     if doc.is_new():
@@ -178,9 +183,14 @@ def refuse_step_out_of_tier(doc, user: str) -> None:
             return
         was, step = before.status, step_needed(before.status, doc.status, doc.amount)
         ceo_date_moved = _date(before.get("ceo_approval_date")) != _date(doc.get("ceo_approval_date"))
+        if _rejects_settled_money(before, doc) and user != "Administrator":
+            # Money that has left the bank: a reject would free the order for a fresh payment and let
+            # the amendment rules pass (stories 18-19). Unreconcile or revert is the way back.
+            frappe.throw(SETTLED_REJECT_REFUSAL, PaymentStepRefused, title=_("Not allowed"))
         raise_step = raise_step_needed(doc.status, before.amount, doc.amount)
         if raise_step and not holds(user, raise_step):
-            frappe.throw(_raise_refusal(doc.status), PaymentStepRefused, title=_("Not allowed"))
+            frappe.throw(_raise_refusal(doc.status, raise_step, doc.amount), PaymentStepRefused,
+                         title=_("Not allowed"))
     if ceo_date_moved and step != STEP_CEO:
         frappe.throw(CEO_DATE_REFUSAL, PaymentStepRefused, title=_("Not allowed"))
     if step and not holds(user, step):
@@ -194,9 +204,37 @@ def _date(value):
     return getdate(value) if value else None
 
 
-def _raise_refusal(status: str) -> str:
-    return _("Only the CEO can raise a {0} payment above ₹{1}: the CEO never approved it at that amount.").format(
-        status, f"{int(TIER_L2_ABOVE):,}"
+SETTLED_REJECT_REFUSAL = (
+    "A payment whose money has left the bank (Reconciliation Pending or Paid) can't be rejected. Unreconcile it, "
+    "or revert it to Approved, first."
+)
+
+
+def _rejects_settled_money(before, doc) -> bool:
+    """A move from Reconciliation Pending or Paid to Rejected. A cheque payment at Reconciliation Pending
+    is not money gone yet: its cheque waits to clear, and rejecting it cancels the cheque (#1481)."""
+    was, now = (before.status or "").strip(), (doc.status or "").strip()
+    if now != REJECTED or was not in settlement.SETTLED_STATUSES:
+        return False
+    return not (was == RECONCILIATION_PENDING and is_cheque(doc))
+
+
+def refuse_unknown_status(doc) -> None:
+    """A payment holds one of `KNOWN_STATUSES`: any other (a typed "Hold") would sit outside every step and
+    let the payment come back to Approved or Paid unchecked. A legacy row saved without a status change passes."""
+    status = (doc.status or "").strip()
+    if status in KNOWN_STATUSES:
+        return
+    before = None if doc.is_new() else doc.get_doc_before_save()
+    if before is not None and (before.status or "").strip() == status:
+        return
+    frappe.throw(_("{0} is not a payment status. A payment is one of: {1}.").format(
+        status or _("A blank status"), ", ".join(KNOWN_STATUSES)), PaymentStepRefused, title=_("Not allowed"))
+
+
+def _raise_refusal(status: str, step: str, amount) -> str:
+    return _("Only {0} can raise a {1} payment to ₹{2}: that amount needs their approval.").format(
+        _(HOLDERS[step]), status, f"{flt(amount):,.0f}"
     )
 
 

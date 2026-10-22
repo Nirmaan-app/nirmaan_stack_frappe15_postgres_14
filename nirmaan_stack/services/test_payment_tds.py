@@ -609,6 +609,12 @@ class TestPaymentTDS(FrappeTestCase):
 
 	def test_approving_a_gst_payment_from_every_earlier_step_withholds_nothing(self):
 		"""Requested, CEO Pending and Rejected, each through a real save: no row, full amount."""
+		# A Rejected payment brought back must fit its Work Order again (review round 3, V3), and a GST
+		# payment fits only GST released by an invoice: plant a GST-on WO with GST invoiced. A raw write of the
+		# two inputs of the limit; no stored figure hangs off them here.
+		frappe.db.set_value(SR, self.sr, {"gst": "true", "gst_invoiced": 180000}, update_modified=False)
+		frappe.db.commit()
+		self.addCleanup(self._restore_sr_gst)
 		for previous in ("Requested", "CEO Pending", "Rejected"):
 			with self.subTest(previous=previous):
 				doc = self._pay(4000, status=previous, gst=True)
@@ -618,6 +624,11 @@ class TestPaymentTDS(FrappeTestCase):
 				self.assertEqual(frappe.db.count(TDS_DOCTYPE, {"project_payment": doc.name}), 0)
 				self.assertEqual(frappe.db.get_value(PAYMENT, doc.name, "amount"), 4000)
 				self.assertFalse(frappe.db.get_value(PAYMENT, doc.name, "payment_tds"))
+
+	def _restore_sr_gst(self):
+		frappe.db.rollback()
+		frappe.db.set_value(SR, self.sr, {"gst": None, "gst_invoiced": 0}, update_modified=False)
+		frappe.db.commit()
 
 	def test_a_gst_payment_created_already_approved_withholds_nothing(self):
 		"""Auto-approve at insert (`after_insert`). Notification fan-outs patched out, as above."""
