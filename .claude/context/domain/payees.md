@@ -43,6 +43,10 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     `fill_from_vendor` is the request / Project Expense save rule, `fill_payment_from_vendor` the
     `Project Payments` one; `pay_to_account` serves a copy to a screen.
   - `ifsc.py`: the IFSC lookup (Razorpay), the app's only outside bank service.
+  - `own_accounts.py` (2026-10-22, ADR-0033 Amendment A): a person's own bank account, the one Payee in their
+    `Nirmaan Users.payee` field (one per person), into which their Reimbursements are paid. `add_own_account` is
+    the only way it is set (new account: `create_payee`; on record with nobody's name: linked; another person's,
+    or a second one: refused); `check_own_account` (Nirmaan Users `validate`) refuses every other change. Payee itself has no user field. Detail: `reimbursements.md`.
   - `matching.py` (pure): which Payees look like a vendor. *Strong match*: a vendor linked to the
     Payee has the same PAN; *Name only*: no PAN agrees but the names read alike. Strong first.
   - `choosing.py`: a vendor's Payee. `suggest_for_vendor`, `payee_choices` (its linked vendors, for

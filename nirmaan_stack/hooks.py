@@ -139,12 +139,16 @@ has_permission = {
     # Billing (2026-10-03): Admin, PMO and billing profiles only, read included.
     "Project Billing Tracker": "nirmaan_stack.integrations.controllers.project_billing.has_permission",
     "Project Billing": "nirmaan_stack.integrations.controllers.project_billing.has_permission",
+    # Reimbursements (2026-10-22): your own claims, or every claim for Admin / HR / Accounts; writes only
+    # through api/reimbursements.
+    "Reimbursement": "nirmaan_stack.integrations.controllers.reimbursement.has_permission",
 }
 
 permission_query_conditions = {
     "Non Project Inflows": "nirmaan_stack.integrations.controllers.non_project_inflows.get_permission_query_conditions",
     "Project Billing Tracker": "nirmaan_stack.integrations.controllers.project_billing.get_permission_query_conditions",
     "Project Billing": "nirmaan_stack.integrations.controllers.project_billing.get_permission_query_conditions",
+    "Reimbursement": "nirmaan_stack.integrations.controllers.reimbursement.get_permission_query_conditions",
 }
 
 # DocType Class
@@ -166,6 +170,9 @@ doc_events = {
 		# "on_trash": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.delete_user_profile"
 	},
     "Nirmaan Users": {
+        # The person's own bank account (Nirmaan Users.payee, Reimbursements) changes only through
+        # services/payees/own_accounts.add_own_account.
+        "validate": "nirmaan_stack.integrations.controllers.nirmaan_users.validate",
         # A department set for the first time fills the department of the assets the person holds.
         "on_update": "nirmaan_stack.integrations.controllers.nirmaan_users.on_update",
         "on_trash": [

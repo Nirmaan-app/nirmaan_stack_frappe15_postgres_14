@@ -125,3 +125,18 @@ Options considered for later:
 
 Cash and cheque payees with no bank account are not Payees, so expenses paid to them carry the
 payee only as text. That text cannot be searched for or matched.
+
+## Amendment A — a person's own bank account (2026-10-22, owner)
+
+Decision 3 said a Payee with no Vendor is paid only through Expenses. It may now also be paid through a
+**Reimbursement** (ADR-0039), into the claimant's own bank account.
+
+- **The link lives on the person, not on the Payee.** Nirmaan Users gains one field, `payee` (Link → Payee): **one
+  account per person** (owner, 2026-10-22, replacing a first cut that let a person hold several through a `User
+  Payee` child table). Payee keeps its shape: one Payee is still one bank account, with no user field.
+- **Only the person sets it**, from Raise Reimbursement (`services/payees/own_accounts.add_own_account`). An
+  account already on record with nobody's name on it becomes theirs; one that is already another person's is
+  refused; a person who already has an account is refused a second and corrects theirs instead. The field never
+  changes by any other path (`check_own_account`, the Nirmaan Users `validate` hook).
+- **The person may correct their own account** (holder name, number, IFSC) from their profile's Payee tab, through the Payee module's own edit (`own_accounts.edit_own_account` -> `writer.edit_payee_reply`), unless a Vendor is also paid into it: that edit would move the vendor's payments, so it stays with Accounts.
+- **A Payee that is someone's account can't be deleted** while it is (Frappe's link check). **A person can always be deleted** (owner, 2026-10-22): the field goes with them, so their Payee stays, linked to nobody, and their claims stay, each carrying its own copy of the claimant and the account; HR or Admin decide any claim still pending.
