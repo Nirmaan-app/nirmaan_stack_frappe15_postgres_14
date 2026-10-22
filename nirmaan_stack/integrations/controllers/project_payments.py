@@ -799,8 +799,8 @@ def on_trash(doc, method):
     """
     # FIRST, so a refused delete runs no clean-up (`settled_targets.on_trash` runs before this hook).
     # `force=True` skips Frappe's link check, not this.
-    refuse_deleting_settled_money(doc)
     payment_tds.refuse_if_deposited(doc.name, "can't be deleted")
+    refuse_deleting_settled_money(doc)
 
     # A Paid payment leaving recounts its order first, without itself (still in the table here), so
     # the vendor credit below reads the recounted figure.
