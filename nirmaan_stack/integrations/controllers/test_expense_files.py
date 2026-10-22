@@ -89,13 +89,15 @@ class TestTheInvoicePdfIsNeverCopiedOntoAnExpense(FrappeTestCase):
         }).insert(ignore_permissions=True)
 
     def _save_expense(self, **fields):
-        """Record a non-project expense as the Accountant, the way the expense dialog saves one."""
+        """Record a non-project expense as the Accountant, the way the app's writers insert one: no role may
+        create an expense row by hand (#1506, spec #1494), so every writer inserts with `ignore_permissions`
+        (`expense_requests.convert.create_ledger_row`)."""
         frappe.set_user(ACCOUNTANT)
         try:
             doc = frappe.get_doc({
                 "doctype": NPE, "type": self.expense_type, "amount": 100,
                 "description": f"test expense files {self.tag}", **fields,
-            }).insert()
+            }).insert(ignore_permissions=True)
         finally:
             frappe.set_user("Administrator")
         self.expenses.append(doc.name)
