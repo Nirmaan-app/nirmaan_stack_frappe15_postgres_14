@@ -54,7 +54,7 @@ export const RenderRightActionButton = ({
   const { role, user_id } = useUserData()
   const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
   const { selectedProject } = useContext(UserContext);
-  const { toggleNewInflowDialog, toggleNewNonProjectInflowDialog, toggleNewPayeeDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewNonProjectExpenseDialog, toggleNewProjectExpenseDialog, toggleNewExpenseRequestDialog, toggleNewWODialog, setNewReminderDialog, setEditReminderScheduleName } = useDialogStore()
+  const { toggleNewInflowDialog, toggleNewNonProjectInflowDialog, toggleNewPayeeDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewNonProjectExpenseDialog, toggleNewProjectExpenseDialog, toggleNewExpenseRequestDialog, toggleNewReimbursementDialog, toggleNewWODialog, setNewReminderDialog, setEditReminderScheduleName } = useDialogStore()
 
   if (newButtonRoutes[locationPath]) {
     // "Add New Project" uses the shared canManageTendering gate (Admin / PMO /
@@ -199,6 +199,15 @@ export const RenderRightActionButton = ({
     //     Add <span className="hidden md:flex pl-1">New Expense</span>
     //   </Button>
     // );
+  } else if (locationPath === "/reimbursements") {
+    // No role gate: every user claims back money they spent for work. The dialog has no trigger of
+    // its own and is mounted on ReimbursementsPage, so this button only flips the store flag.
+    return (
+      <Button onClick={toggleNewReimbursementDialog} className="sm:mr-4 mr-2">
+        <CirclePlus className="w-5 h-5 pr-1" />
+        Raise <span className="hidden md:flex pl-1">Reimbursement</span>
+      </Button>
+    );
   } else if (locationPath === "/expense/requests") {
     // No role gate: anyone who can reach the Expense module may RAISE a request. The
     // approval side is what is gated, and it is gated on the SERVER.
