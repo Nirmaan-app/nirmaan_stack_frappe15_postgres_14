@@ -23,19 +23,23 @@ def mode_change_problem(
     cheque: str | None,
     old_cheque_status: str | None,
     on_old_cheque_lines: bool,
+    by_the_cheques_service: bool,
 ) -> str | None:
     """Why a payment's Mode of Payment may not change this way, or None (spec #1407). The Project
     Payments `validate` asks it on every save.
 
-    Online -> Cheque happens when the cheques service puts the payment on a Cheque, which sets the
-    `cheque` link in the same save. Cheque -> Online only once nothing holds the payment to its Cheque:
+    Online -> Cheque happens only when the cheques service puts the payment on a Cheque
+    (`by_the_cheques_service`, `writer.link_payments`), which sets the `cheque` link in the same save: a
+    user's save naming a Cheque (a Cancelled one, by REST) is not that (review round 5, AA1).
+    Cheque -> Online only once nothing holds the payment to its Cheque:
     that Cheque (`old_cheque_status`) is Cancelled, or it was on none, or its line has come off it
     (`on_old_cheque_lines` False: an edit took it off, #1418).
     """
     if was_cheque == now_cheque:
         return None
     if now_cheque:
-        return None if cheque else "An Online payment becomes a Cheque payment by putting it on a Cheque."
+        return None if cheque and by_the_cheques_service else (
+            "An Online payment becomes a Cheque payment by putting it on a Cheque.")
     if old_cheque_status not in _RELEASED_CHEQUE_STATUSES and on_old_cheque_lines:
         return "A Cheque payment goes back to Online only once its Cheque is Cancelled."
     return None

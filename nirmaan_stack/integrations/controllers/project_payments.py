@@ -17,7 +17,7 @@ from nirmaan_stack.services.amount_paid import orders_moved_by, write_amount_pai
 from nirmaan_stack.services.payees.pay_to import fill_payment_from_vendor
 from nirmaan_stack.services.work_order_lifecycle import WorkOrderChangeRefused, payment_request_problem
 from nirmaan_stack.integrations.controllers.cheques import drop_off_cheques_of, on_payment_rejected
-from nirmaan_stack.services.cheques.decide import refuse_lone_approval
+from nirmaan_stack.services.cheques.decide import held_by_a_live_cheque, refuse_lone_approval
 from nirmaan_stack.services.cheques.detach import DELETED
 from nirmaan_stack.services.cheques.payment_mode import validate_cheque_mode
 from nirmaan_stack.services.cheques.rules import PAYMENT_REJECTED
@@ -320,7 +320,8 @@ def refuse_changing_the_vendor(doc):
 def _validate_the_order_it_lands_on(doc):
     """End-state rules for a user save (review round 4: a rule keyed on one step is dodged by another):
 
-    * a payment moved to another Work Order must fit it: not under amendment, the same vendor (X2(c));
+    * a payment moved to another Work Order must fit it: not under amendment, the same vendor (X2(c)); one
+      moved to another PO, the same vendor (round 5, AA3);
     * a payment moving INTO Approved / Reconciliation Pending / Paid from any status before approval (an
       approval, or a Rejected one brought back) must fit its order again, as a new request would, since the
       order may have changed meanwhile: a Work Order not under amendment, still the vendor the payment was
@@ -348,8 +349,14 @@ def _validate_the_order_it_lands_on(doc):
         if approving:
             assert_within_work_order_limit(sr, flt(doc.amount), bool(cint(doc.get("is_gst_payment"))),
                                            action="pay", exclude_payment=doc.name)
-    elif doc.document_type == "Procurement Orders" and approving:
+    elif doc.document_type == "Procurement Orders":
         po = frappe.get_doc("Procurement Orders", doc.document_name)
+        if moved and (before.vendor or None) != (po.vendor or None):
+            # A payment is for its vendor (review round 5, AA3): a Work Order's is checked above.
+            frappe.throw(_("{0} was raised for {1}, but {2}'s vendor is {3}. Request a new payment instead.").format(
+                doc.name, before.vendor, po.name, po.vendor), title=_("Not allowed"))
+        if not approving:
+            return
         available = po_available_balance(po)
         if not moved and before.status in PO_PENDING_STATUSES:
             available += flt(before.amount)   # still counted as an open request in the balance
@@ -767,6 +774,24 @@ def on_update(doc, method):
             print("No matching users found with push notifications enabled for payment fulfillment.")
 
 
+SETTLED_DELETE_REFUSAL = (
+    "A payment whose money has left the bank can't be deleted: Amount Paid and the Work Order's amendment rules "
+    "count it. Unreconcile it in Bulk Import Outflow (Paid), or Revert to Approved (Reconciliation Pending), first."
+)
+
+
+def refuse_deleting_settled_money(doc):
+    """A user's delete (REST, Desk, the app's Delete) of a Paid payment, or of one at Reconciliation Pending
+    that no live Cheque holds (review round 5, AA2; stories 18-19): it would drop out of Amount Paid and free
+    an amendment to cut the total or swap the vendor. The system's deletes pass `ignore_permissions` (a PO's
+    clean-up, a split's leftover, a cheque withdrawn) and patches run under `in_patch`; `Administrator`, the
+    site superuser, passes as elsewhere."""
+    if doc.flags.ignore_permissions or frappe.flags.in_patch or frappe.session.user == "Administrator":
+        return
+    if doc.status == "Paid" or (doc.status == "Reconciliation Pending" and not held_by_a_live_cheque(doc.name)):
+        frappe.throw(_(SETTLED_DELETE_REFUSAL), title=_("Not allowed"))
+
+
 def on_trash(doc, method):
     """
     On deletion, find the related PO term by searching and revert its status to Created.
@@ -774,6 +799,7 @@ def on_trash(doc, method):
     """
     # FIRST, so a refused delete runs no clean-up (`settled_targets.on_trash` runs before this hook).
     # `force=True` skips Frappe's link check, not this.
+    refuse_deleting_settled_money(doc)
     payment_tds.refuse_if_deposited(doc.name, "can't be deleted")
 
     # A Paid payment leaving recounts its order first, without itself (still in the table here), so

@@ -16,7 +16,7 @@ from frappe import _
 from nirmaan_stack.services.cheque_payments import is_cheque
 from nirmaan_stack.services.cheques.payment_rules import cheque_mode_problem, mode_change_problem
 from nirmaan_stack.services.cheques.rules import PAYMENT_DOCTYPE
-from nirmaan_stack.services.cheques.writer import CHEQUES
+from nirmaan_stack.services.cheques.writer import CHEQUES, PUTTING_ON_CHEQUE
 
 
 def validate_mode_change(pay) -> None:
@@ -38,6 +38,7 @@ def validate_mode_change(pay) -> None:
             "payment_doctype": PAYMENT_DOCTYPE,
             "payment_name": pay.name,
         })),
+        by_the_cheques_service=bool(pay.flags.get(PUTTING_ON_CHEQUE)),
     )
     if problem:
         frappe.throw(_(problem))

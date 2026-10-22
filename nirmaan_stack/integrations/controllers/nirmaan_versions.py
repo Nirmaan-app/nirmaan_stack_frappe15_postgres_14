@@ -3,6 +3,7 @@ import json
 import frappe
 
 from nirmaan_stack.integrations.controllers.nirmaan_comments import readable_work_orders_sql
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, has_role_profile
 from nirmaan_stack.services.work_order_amendment import PRE_AMENDMENT_KEY, pre_amendment_state
 
 SNAPSHOT_KEPT_REFUSAL = "An amendment snapshot is the Work Order's audit record: it can't be deleted or changed."
@@ -51,9 +52,10 @@ def has_permission(doc, ptype=None, user=None, debug=False):
     holds the items and rates from before the amendment. Other doctypes' snapshots: the role rows decide."""
     if doc.get("ref_doctype") != "Service Requests" or not doc.get("docname"):
         return None
-    if not frappe.db.exists("Service Requests", doc.docname):
-        return None
     user = user or frappe.session.user
+    if not frappe.db.exists("Service Requests", doc.docname):
+        # Its Work Order deleted, no read of it decides: the snapshot is the Admin's (review round 5, AA4).
+        return None if has_role_profile(user, (ADMIN_PROFILE,)) else False
     return None if frappe.has_permission("Service Requests", "read", doc=doc.docname, user=user) else False
 
 

@@ -47,6 +47,15 @@ class EditSafetyCase(PaymentStepCase):
         frappe.db.commit()
         return name
 
+    def _po_payment(self, amount, status, po=None):
+        pay = self._plant(amount, status)
+        # Planted by raw write (its creation is not under test). A test that reads the PO's figures (its
+        # available balance) sets them itself.
+        frappe.db.set_value(PAYMENT, pay, {"document_type": "Procurement Orders", "document_name": po or self._po()},
+                            update_modified=False)
+        frappe.db.commit()
+        return pay
+
     def _amount(self, payment):
         return flt(frappe.db.get_value(PAYMENT, payment, "amount"))
 
@@ -245,15 +254,6 @@ class TestNoBackDoorPastTheSteps(EditSafetyCase):
             doc.update(changes)
             doc.save()
         self._as(user, save)
-
-    def _po_payment(self, amount, status, po=None):
-        pay = self._plant(amount, status)
-        # Planted by raw write (its creation is not under test). A test that reads the PO's figures (its
-        # available balance) sets them itself.
-        frappe.db.set_value(PAYMENT, pay, {"document_type": "Procurement Orders", "document_name": po or self._po()},
-                            update_modified=False)
-        frappe.db.commit()
-        return pay
 
     # V1 ------------------------------------------------------------------------------------------
     def test_a_status_outside_the_six_is_refused(self):
@@ -475,7 +475,7 @@ class TestTheEndStateHolds(EditSafetyCase):
     # X6 ------------------------------------------------------------------------------------------
     def test_turning_a_payment_into_a_cheque_does_not_unlock_rejecting_settled_money(self):
         """The cheque exemption reads the mode before the save: a save that also puts an Online payment on
-        a Cheque is no cheque payment yet."""
+        a Cheque is no cheque payment yet (and, since round 5's AA1, a user save does not put it on one)."""
         pay = self._plant(WITHIN_L1, "Reconciliation Pending")
         cheque = f"TEST-RND4-CHQ-{frappe.generate_hash(length=6)}"
         # A Cheque row to link to, by raw write; its own figures are not what this test reads.
@@ -486,10 +486,76 @@ class TestTheEndStateHolds(EditSafetyCase):
         )
         frappe.db.commit()
         self.addCleanup(self._drop_cheque, cheque)
-        with self.assertRaisesRegex(frappe.ValidationError, "can't be rejected"):
+        with self.assertRaisesRegex(frappe.ValidationError, "can't be rejected|putting it on a Cheque"):
             self._save_as(self._user(ADMIN_PROFILE), pay, status="Rejected", mode_of_payment="Cheque",
                           cheque=cheque, cheque_no="004522", cheque_date="2026-10-22")
         self.assertEqual(self._status(pay), "Reconciliation Pending")
+
+    def _cheque_row(self, status):
+        name = f"TEST-RND5-CHQ-{frappe.generate_hash(length=6)}"
+        # A Cheque row to link to, by raw write; its own figures are not what these tests read.
+        frappe.db.sql(
+            """INSERT INTO "tabCheques" (name, creation, modified, modified_by, owner, docstatus, idx, status)
+               VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s)""",
+            (name, status),
+        )
+        frappe.db.commit()
+        self.addCleanup(self._drop_cheque, name)
+        return name
+
+    # AA1 (review round 5) ------------------------------------------------------------------------
+    def test_a_user_save_does_not_turn_an_online_payment_into_a_cheque_payment(self):
+        """Online -> Cheque happens only as the cheques service puts the payment on a Cheque: a REST save
+        naming any Cheque (a Cancelled one) would make it a cheque payment that may then be rejected."""
+        pay = self._po_payment(WITHIN_L1, "Reconciliation Pending")
+        cancelled = self._cheque_row("Cancelled")
+        with self.assertRaisesRegex(frappe.ValidationError, "putting it on a Cheque"):
+            self._save_as(self._user(ADMIN_PROFILE), pay, mode_of_payment="Cheque", cheque=cancelled,
+                          cheque_no="004523", cheque_date="2026-10-22")
+        self.assertEqual(frappe.db.get_value(PAYMENT, pay, "mode_of_payment") or "Online", "Online")
+
+    def test_settled_money_on_no_live_cheque_is_not_rejected_by_hand(self):
+        """The cheque exemption is for a payment a live (Pending or Issued) Cheque still holds: one marked
+        Cheque whose Cheque is Cancelled is money gone like any other."""
+        pay = self._po_payment(WITHIN_L1, "Reconciliation Pending")
+        cancelled = self._cheque_row("Cancelled")
+        # Its mode and link as the two-save dodge would have left them, by raw write.
+        frappe.db.set_value(PAYMENT, pay, {"mode_of_payment": "Cheque", "cheque": cancelled,
+                                           "cheque_no": "004524", "cheque_date": "2026-10-22"},
+                            update_modified=False)
+        frappe.db.commit()
+        with self.assertRaisesRegex(frappe.ValidationError, "can't be rejected"):
+            self._save_as(self._user(ADMIN_PROFILE), pay, status="Rejected")
+        self.assertEqual(self._status(pay), "Reconciliation Pending")
+
+    # AA2 (review round 5) ------------------------------------------------------------------------
+    def test_a_user_does_not_delete_money_that_left_the_bank(self):
+        """A delete (REST, or the app's Delete) of a Paid or Reconciliation Pending payment would drop it from
+        Amount Paid and free the amendment rules (stories 18-19). Unreconcile or Revert to Approved first."""
+        admin = self._user(ADMIN_PROFILE)
+        for status in ("Paid", "Reconciliation Pending"):
+            with self.subTest(status=status):
+                pay = self._plant(WITHIN_L1, status)
+                with self.assertRaisesRegex(frappe.ValidationError, "left the bank"):
+                    self._as(admin, update_payment_request,
+                             json.dumps({"action": "delete", "name": pay}))
+                self.assertTrue(frappe.db.exists(PAYMENT, pay))
+
+    def test_a_user_still_deletes_a_payment_before_its_money_moves(self):
+        pay = self._plant(WITHIN_L1, "Approved")
+        self._as(self._user(ADMIN_PROFILE), update_payment_request, json.dumps({"action": "delete", "name": pay}))
+        self.assertFalse(frappe.db.exists(PAYMENT, pay))
+
+    # AA3 (review round 5) ------------------------------------------------------------------------
+    def test_a_payment_does_not_move_onto_a_po_of_another_vendor(self):
+        """A payment is for its vendor (story 19): moved to another order, that order's vendor must be it."""
+        pay = self._po_payment(5000, "Requested")
+        other = self._po()
+        frappe.db.set_value("Procurement Orders", other, "vendor", self.fx.vendor(2.0), update_modified=False)
+        frappe.db.commit()
+        with self.assertRaisesRegex(frappe.ValidationError, "raised for"):
+            self._save_as(self._user(ACCOUNTANT_PROFILE), pay, document_name=other)
+        self.assertNotEqual(frappe.db.get_value(PAYMENT, pay, "document_name"), other)
 
     @staticmethod
     def _drop_cheque(name):

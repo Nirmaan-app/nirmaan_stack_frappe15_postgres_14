@@ -841,7 +841,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                         Deleting the payment also deletes its Payment TDS Deduction (server on_trash).
                                                         A REJECTED payment: Admin also gets the trash in the summary view, which is how
                                                         every WO opens (owner, 2026-09-21). */}
-                                                    {payment?.status !== "Paid" && (payment?.status !== "Approved" || role === "Nirmaan Admin Profile") &&
+                                                    {payment?.status !== "Paid" && payment?.status !== "Reconciliation Pending" && (payment?.status !== "Approved" || role === "Nirmaan Admin Profile") &&
                                                         (!summaryPage || (payment?.status === "Rejected" && role === "Nirmaan Admin Profile")) &&
                                                         <Button
                                                             variant="ghost"

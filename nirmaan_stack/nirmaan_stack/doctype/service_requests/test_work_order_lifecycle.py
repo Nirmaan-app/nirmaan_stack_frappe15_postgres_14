@@ -404,6 +404,17 @@ class TestRemarksAndItemsNeedReadAccess(_AsRoleCase):
         self.assertFalse(self._as(self.pm, frappe.has_permission, "Nirmaan Versions", "read", doc=hidden))
         self.assertTrue(self._as(self.pm, frappe.has_permission, "Nirmaan Versions", "read", doc=mine))
 
+    def test_a_snapshot_of_a_deleted_work_order_is_read_only_by_an_admin(self):
+        """Review round 5, AA4: with its Work Order gone, nobody's read of that Work Order decides, so the
+        snapshot (its items and rates) is the Admin's alone."""
+        doc = frappe.get_doc({"doctype": "Nirmaan Versions", "ref_doctype": SR, "docname": "SR-GONE-AA4",
+                              "previous_state": "Approved", "new_state": "Amendment", "data": "{}"})
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(self._drop_snapshots, [doc.name])
+        self.assertFalse(self._as(self.pm, frappe.has_permission, "Nirmaan Versions", "read", doc=doc.name))
+        self.assertTrue(self._as(USERS[ADMIN], frappe.has_permission, "Nirmaan Versions", "read", doc=doc.name))
+
     @staticmethod
     def _drop_snapshots(names):
         frappe.db.rollback()

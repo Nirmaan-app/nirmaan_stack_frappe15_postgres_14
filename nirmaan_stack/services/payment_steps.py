@@ -48,7 +48,7 @@ from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.services import settlement
 from nirmaan_stack.services.approval_tiers import TIER_L2_ABOVE, is_auto_approved, needs_ceo
 from nirmaan_stack.services.cheque_payments import CHEQUE_MOVES_ON, is_cheque
-from nirmaan_stack.services.cheques.decide import DECIDING_FLAG
+from nirmaan_stack.services.cheques.decide import DECIDING_FLAG, held_by_a_live_cheque
 from nirmaan_stack.services.role_profiles import (
     PAYMENT_L1_PROFILES,
     PAYMENT_SETTLE_PROFILES,
@@ -236,13 +236,13 @@ SETTLED_BACK_REFUSAL = (
 
 def _rejects_settled_money(before, doc) -> bool:
     """A move from Reconciliation Pending or Paid to Rejected. A cheque payment at Reconciliation Pending
-    is not money gone yet: its cheque waits to clear, and rejecting it cancels the cheque (#1481). The mode
-    is read BEFORE the save (review round 4, X6): a save that also turns it into a cheque payment is no
-    cheque payment yet."""
+    is not money gone yet: its cheque waits to clear, and rejecting it cancels the cheque (#1481). It is one
+    only while a live (Pending or Issued) Cheque holds it (review round 5, AA1), its mode read BEFORE the
+    save (round 4, X6): a mode and `cheque` link a save wrote by hand, onto a Cancelled cheque, are not that."""
     was, now = before.status, doc.status
     if now != REJECTED or was not in settlement.SETTLED_STATUSES:
         return False
-    return not (was == RECONCILIATION_PENDING and is_cheque(before))
+    return not (was == RECONCILIATION_PENDING and is_cheque(before) and held_by_a_live_cheque(doc.name))
 
 
 def _goes_back_from_settled_money(before, doc) -> bool:
