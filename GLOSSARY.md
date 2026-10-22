@@ -444,5 +444,10 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
   parts). It may carry a short note. "2 issues" means two red answers. The audit never changes the asset's
   condition; people read the answers.
 
+- **App access gate / locked app** — while a person has asset tasks pending, or (Project Manager, Project Lead and
+  material procurement) no project assigned, the app shows them only the dashboard card that says what to do;
+  the sidebar and every other page come back when it is done. *Avoid*: blocked user (that is Frappe's disabled
+  user).
+
 - **Asset history** — the permanent, append-only record of everything that happened to an asset. Seen by Admin
   and HR only.

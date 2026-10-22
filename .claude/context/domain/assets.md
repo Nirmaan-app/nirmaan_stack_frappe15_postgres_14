@@ -8,7 +8,7 @@ Users work with assets in two places:
   Assets tabs with sub-tabs All, Assigned, Unassigned, Pending Declaration, Return Request and Asset Audit; plus
   Categories, Departments and History;
 - the holder's own profile (`/users/<id>?tab=assets`): one card per held asset with Sign declaration, Return and
-  Submit audit.
+  Submit audit. While anything there is pending, the app access gate locks the rest of the app (below).
 
 The detailed rules live in the code's own docstrings, cited below; this page is the map and the owner-locked rules.
 
@@ -49,6 +49,14 @@ The detailed rules live in the code's own docstrings, cited below; this page is 
 - **Two people at once get a plain message:** every row lock (assign, Return, Reject return, the category audit switch,
   submit audit) catches PostgreSQL's serialization failure (`asset_audit_open.is_serialization_failure`) and says
   "just changed ... Reload the page", never a database error.
+- **Pending asset tasks lock the app** (owner, 2026-10-21). While the signed-in person has a declaration to sign or
+  an audit to send, the sidebar shows only Dashboard, every page but `/`, their own profile and the pages of the
+  assets they hold goes back to `/`, and `/` shows one card with the counts and "Open my assets". Every holder,
+  Admin included; an audit locks as soon as it opens (the 28th). It counts with the same rules as the Sign and Submit
+  audit buttons (`useMyPendingAssetActions`), so nobody is locked on something they can't clear. Screens only. It
+  is one rule of the app access gate, `frontend/src/utils/appAccess.ts` (the other: no project assigned,
+  `frontend/.claude/context/role-access.md` § Project requirement); the old sidebar / Profile-menu warning icons
+  were removed. The profile keeps its own markers (tab icons, header counts, card colours).
 - **Declarations:** every holder signs their own in the app, Admin included
   (`api/assets/declaration.sign_declaration`). No screen offers a scanned-declaration upload (owner, 2026-10-15);
   older "Declaration Uploaded" history rows stay. A declaration arriving ticks `received` and opens the month's
@@ -132,6 +140,7 @@ text order.
 | `src/pages/Assets/components/AssetHistoryCard.tsx`, `AuditAnswers.tsx`, `AuditStatusRow.tsx` | The asset page's history, the answers dialog, the audit line on a card |
 | `src/pages/users/components/UserAssetsTab.tsx` | The holder's profile cards |
 | `src/utils/assetAuditQuestions.ts` | The audit questions (the only copy) |
+| `src/utils/appAccess.ts`, `src/hooks/useAppAccess.ts`, `src/components/layout/AppAccessGate.tsx`, `AccessBlockedCard.tsx` | The app access gate: pending asset tasks (and no project) lock the app |
 | `src/utils/assetAudit.ts`, `assetHistory.ts` | Audit / history display rules (cycle mirrors `services/asset_audit.py`) |
 
 ## Tests
@@ -141,6 +150,6 @@ Backend (run each with `--module`; they hit the live localhost DB and roll back 
 `api.assets.test_audits`, `test_history`, `test_returns`, `test_declaration`, `test_mine`, `test_assign_access`,
 `test_projects`, and the doctype tests `asset_master`, `asset_category`, `asset_management`.
 
-Frontend (vitest, in the container): `src/utils/assetAudit.test.ts`, `assetAuditAnswers.test.ts`,
+Frontend (vitest, in the container): `src/utils/appAccess.test.ts`, `assetAudit.test.ts`, `assetAuditAnswers.test.ts`,
 `assetHistory.test.ts`, `assetDeclaration.test.ts`, `assetDepartment.test.ts`, `assetUnassign.test.ts`,
 `ownAssets.test.ts`.

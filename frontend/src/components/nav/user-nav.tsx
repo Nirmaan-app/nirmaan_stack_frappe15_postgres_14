@@ -22,9 +22,7 @@ import {
 } from "../ui/sidebar";
 import { BadgeCheck, Bell, ChevronsUpDown, HelpCircle, LogOut } from "lucide-react";
 import { Notifications } from "./notifications";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
-import { useMyPendingAssetActions } from "@/hooks/useUserAssignments";
-import { PendingDeclarationIcon, PendingDeclarationTooltip, pendingAssetActionsLabel } from "../helpers/PendingDeclarationIcon";
+import { useAppAccess } from "@/hooks/useAppAccess";
 
 export function UserNav({ isMobileMain = false }) {
   const userData = useUserData();
@@ -33,26 +31,11 @@ export function UserNav({ isMobileMain = false }) {
   const location = useLocation();
 
   const { isMobile, state, toggleSidebar } = useSidebar();
-  // Declarations to sign and monthly audits to send: one icon, one tooltip. Red while an audit is waiting
-  // to be sent (owner, 2026-10-14); amber for declarations alone.
-  const pendingActions = useMyPendingAssetActions();
-  const pendingDeclarations = pendingActions.declarations + pendingActions.audits;
-  const auditPending = pendingActions.audits > 0;
-  const pendingDeclarationText = pendingAssetActionsLabel(
-    pendingActions.declarations,
-    pendingActions.audits,
-    true,
-    pendingActions.overdueAudits
-  );
-
-  // The badge sits inside the menu's trigger button: stop the event so it opens the profile's
-  // Assets tab instead of the menu.
-  const openMyAssets = (event: React.SyntheticEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (isMobile && !isMobileMain) toggleSidebar();
-    navigate(`/users/${userData.user_id}?tab=assets`);
-  };
+  // The pending-asset warnings that sat here are gone (owner, 2026-10-21): the app access gate locks the app and
+  // its dashboard card says what to do. While it locks, Help and Notifications hide -- both open pages it blocks.
+  const appAccess = useAppAccess();
+  const locked = appAccess.state !== "open";
+  const assetTasksPending = appAccess.blockers.some((blocker) => blocker.key === "asset_tasks");
 
   const generateFallback = (full_name: string) => {
     let names = full_name.split(" ");
@@ -69,40 +52,39 @@ export function UserNav({ isMobileMain = false }) {
       if (isMobile && !isMobileMain) {
         toggleSidebar();
       }
-      // Declarations waiting: open the Assets tab, on the Project / IT tab that needs signing.
-      navigate(`/users/${userData.user_id}${pendingDeclarations > 0 ? "?tab=assets" : ""}`);
+      // Asset tasks waiting: open the Assets tab, on the Project / IT tab that has them.
+      navigate(`/users/${userData.user_id}${assetTasksPending ? "?tab=assets" : ""}`);
     }
   };
 
   return (
     <SidebarMenu>
-      <SidebarMenuItem>
-        <SidebarMenuButton
-          size="lg"
-          className={`${location.pathname === "/help-repository" ? "bg-[#FFD3CC]" : ""}`}
-          onClick={() => {
-            if (isMobile && !isMobileMain) toggleSidebar();
-            navigate("/help-repository");
-          }}
-          tooltip="Help"
-        >
-          <div className="flex gap-4 ml-1 items-center">
-            <HelpCircle className="relative max-md:w-5 max-md:h-5" />
-            <span className="font-medium">Help</span>
-          </div>
-        </SidebarMenuButton>
-      </SidebarMenuItem>
-      <SidebarMenuItem>{!isMobileMain && <Notifications />}</SidebarMenuItem>
+      {!locked && (
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            size="lg"
+            className={`${location.pathname === "/help-repository" ? "bg-[#FFD3CC]" : ""}`}
+            onClick={() => {
+              if (isMobile && !isMobileMain) toggleSidebar();
+              navigate("/help-repository");
+            }}
+            tooltip="Help"
+          >
+            <div className="flex gap-4 ml-1 items-center">
+              <HelpCircle className="relative max-md:w-5 max-md:h-5" />
+              <span className="font-medium">Help</span>
+            </div>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      )}
+      {!locked && <SidebarMenuItem>{!isMobileMain && <Notifications />}</SidebarMenuItem>}
       <SidebarMenuItem>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             {/* {!isMobileMain ? ( */}
-            {/* An audit to send turns the whole name / email card light red, not just the icon. */}
             <SidebarMenuButton
               size="lg"
-              className={`data-[state=open]:bg-[#FFD3CC] data-[state=open]:text-sidebar-accent-foreground ${
-                auditPending ? "bg-red-50 hover:bg-red-100" : ""
-              }`}
+              className="data-[state=open]:bg-[#FFD3CC] data-[state=open]:text-sidebar-accent-foreground"
             >
               <div className="relative shrink-0">
                 <Avatar className="h-8 w-8 rounded-lg">
@@ -118,14 +100,6 @@ export function UserNav({ isMobileMain = false }) {
                     {generateFallback(userData.full_name)}
                   </AvatarFallback>
                 </Avatar>
-                {/* Collapsed sidebar hides the badge below; a dot keeps the reminder visible. */}
-                {pendingDeclarations > 0 && state === "collapsed" && (
-                  <span
-                    className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-white ${
-                      auditPending ? "bg-red-500" : "bg-amber-500"
-                    }`}
-                  />
-                )}
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-semibold">
@@ -133,26 +107,6 @@ export function UserNav({ isMobileMain = false }) {
                 </span>
                 <span className="truncate text-xs">{userData.user_id}</span>
               </div>
-              {pendingDeclarations > 0 && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <PendingDeclarationIcon
-                      size="md"
-                      auditPending={auditPending}
-                      role="button"
-                      tabIndex={0}
-                      aria-label={pendingDeclarationText}
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onClick={openMyAssets}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") openMyAssets(event);
-                      }}
-                      className={auditPending ? "hover:bg-red-200" : "hover:bg-amber-200"}
-                    />
-                  </TooltipTrigger>
-                  <TooltipContent side="right">{pendingDeclarationText}</TooltipContent>
-                </Tooltip>
-              )}
               <ChevronsUpDown className="ml-auto mr-2 size-4" />
             </SidebarMenuButton>
             {/* ) : (
@@ -202,14 +156,6 @@ export function UserNav({ isMobileMain = false }) {
               >
                 <BadgeCheck className="w-4 h-4" />
                 Profile
-                {pendingDeclarations > 0 && (
-                  <PendingDeclarationTooltip
-                    className="ml-auto"
-                    side="right"
-                    auditPending={auditPending}
-                    label={pendingDeclarationText}
-                  />
-                )}
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />

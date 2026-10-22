@@ -72,6 +72,7 @@ import {
 } from "../ui/collapsible";
 import { Separator } from "../ui/separator";
 import { useCountsBridge } from "@/hooks/useSidebarCounts";
+import { useAppAccess } from "@/hooks/useAppAccess";
 import {
   ACCOUNTANT_LEAD_PROFILE,
   ACCOUNTANT_PROFILE,
@@ -101,8 +102,14 @@ export function NewSidebar() {
 
   const user_id = Cookies.get("user_id") ?? "";
 
+  // While the app is locked (utils/appAccess.ts) -- or still being checked, so no item shows and then vanishes --
+  // the menu is the Dashboard alone; the dashboard shows what to sort out first.
+  const appAccess = useAppAccess();
+
   // * inside component body */
-  useCountsBridge(user_id);
+  // The badge counts are for menu items a locked person can't see: fetch them only once the app is open
+  // (code review #12). A null user keeps the counts query off.
+  useCountsBridge(appAccess.state === "open" ? user_id : null);
 
   const [collapsedKey, setCollapsedKey] = useState<string | null>(null); // Tracks the currently open group
 
@@ -1027,6 +1034,8 @@ export function NewSidebar() {
     }
   }, [])
 
+  const visibleItems = appAccess.state === "open" ? items : items.filter((item) => item.key === "/");
+
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="h-14 min-h-[56px] flex flex-row items-center justify-between px-3 border-b border-border/40">
@@ -1057,7 +1066,7 @@ export function NewSidebar() {
       >
         <SidebarGroup>
           <SidebarMenu>
-            {items.map((item) => (
+            {visibleItems.map((item) => (
               <Collapsible
                 key={item.key}
                 open={collapsedKey === item?.key}

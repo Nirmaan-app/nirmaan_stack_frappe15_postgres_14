@@ -1,14 +1,17 @@
 import React, { useEffect, useState } from "react";
-import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useFrappeGetDoc } from "frappe-react-sdk";
 import { ArrowLeft, ChevronDown, Home, Menu } from "lucide-react";
 
 // Local Imports
 import ScrollToTop from "@/hooks/ScrollToTop";
+import { useSentryUser } from "@/hooks/useSentryUser";
 import { QuickCalc } from "@/components/quick-calc/QuickCalc";
 import ErrorBoundaryWithNavigationReset from "../common/ErrorBoundaryWrapper";
 import { RenderRightActionButton } from "../helpers/renderRightActionButton";
 import { useSidebar } from "../ui/sidebar";
+import { AppAccessGate } from "./AppAccessGate";
+import { useAppAccess } from "@/hooks/useAppAccess";
 import { NewSidebar } from "./NewSidebar";
 import {
   DropdownMenu,
@@ -34,6 +37,9 @@ export const MainLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { isMobile, toggleSidebar } = useSidebar();
+  useSentryUser();
+  // The floating calculator hides while the app is locked: it would cover the locked screen's button (owner, 2026-10-22).
+  const appOpen = useAppAccess().state === "open";
 
   // --- State Variables ---
   const [project, setProject] = useState<string | null>(null);
@@ -262,7 +268,8 @@ export const MainLayout: React.FC = () => {
         <main className={`flex-1 overflow-auto ${location.pathname === "/" || location.pathname === "/prs&milestones" ? "p-0" : "px-4 sm:px-6 py-4"}`}>
           <ErrorBoundaryWithNavigationReset>
             <ScrollToTop />
-            <Outlet />
+            {/* The page, or -- while the app is locked -- the dashboard card / a redirect (utils/appAccess.ts). */}
+            <AppAccessGate />
           </ErrorBoundaryWithNavigationReset>
         </main>
       </div>
@@ -270,7 +277,7 @@ export const MainLayout: React.FC = () => {
       {/* Floating calculator. Non-blocking, keyboard-scoped to itself, and
           mounted here so it is present on every authenticated screen but never
           on the login page. */}
-      <QuickCalc />
+      {appOpen && <QuickCalc />}
     </div>
   );
 };
