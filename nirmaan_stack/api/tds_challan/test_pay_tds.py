@@ -57,11 +57,12 @@ class TestPayTds(FrappeTestCase):
                                     deductee_pan="ABCPK1234D")
 
     def _work_order_row(self, tds) -> str:
+        """A Work Order payment's tax on a Paid payment: Pay TDS refuses an unpaid one (#1535)."""
         payment = f"{P}PAY-{frappe.generate_hash(length=8)}"
         frappe.db.sql(
             """INSERT INTO "tabProject Payments" (name, creation, modified, modified_by, owner,
                    docstatus, idx, amount, status)
-               VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s, 'Approved')""",
+               VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s, 'Paid')""",
             (payment, tds * 49),
         )
         row = frappe.new_doc(TDS)

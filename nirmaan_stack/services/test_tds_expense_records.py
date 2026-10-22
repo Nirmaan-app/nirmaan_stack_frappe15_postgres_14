@@ -140,9 +140,9 @@ class TestTdsExpenseRecords(FrappeTestCase):
         return {
             "stored": dict(stored),
             "total_tds_of": payment_tds.total_tds_of(SR, self.sr),
-            "company_borne": payment_tds.company_borne_tds_by_order(SR, [self.sr]),
+            "borne_by_order": payment_tds.borne_tds_by_order(SR, [self.sr]),
             "borne": payment_tds.work_order_tds_borne(self.sr),
-            "deductions": payment_tds.work_order_deductions(self.sr),
+            "deductions": payment_tds.order_deductions(SR, self.sr),
             "request_cap_tds": order_payments.load_payments(SR, self.sr)[1],
             "mismatches": mismatches(SR, [self.sr]),
             "project_money": project_money_of(self.project).as_dict(),

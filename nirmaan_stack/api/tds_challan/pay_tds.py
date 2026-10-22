@@ -153,19 +153,27 @@ def _load_payable(names: list[str]) -> list[dict]:
 
 
 def _refuse_unpaid_payments(rows: list[dict]) -> None:
-    """Tax is deposited only for money that went out (#1535): every deduction's payment must be Paid.
+    """Tax is deposited only for money that went out (#1535): every Work Order or PO deduction's payment
+    must be Paid.
 
     A deduction is recorded at approval, so an Approved payment's tax already sits in the register; it
     can still be rejected, which gives the tax back (`payment_tds.give_back_tax_on_reject`).
+
+    An Office Rent expense's row (`non_project_expense`, #1525) names no payment and is not checked
+    here: spec #1522 pays it from approval on (`test_pay_tds`, `test_office_rent_tds_lock`), and its
+    delete is refused once it is on a challan (`expense_tds.delete_with_expense`).
     """
+    payment_rows = [row for row in rows if row.get("project_payment")]
+    if not payment_rows:
+        return
     paid = set(
         frappe.db.get_all(
             PAYMENT_DOCTYPE,
-            filters={"name": ["in", [row["project_payment"] for row in rows]], "status": PAYMENT_PAID},
+            filters={"name": ["in", [row["project_payment"] for row in payment_rows]], "status": PAYMENT_PAID},
             pluck="name",
         )
     )
-    unpaid = sorted(row["name"] for row in rows if row.get("project_payment") not in paid)
+    unpaid = sorted(row["name"] for row in payment_rows if row["project_payment"] not in paid)
     if unpaid:
         frappe.throw(
             _(
