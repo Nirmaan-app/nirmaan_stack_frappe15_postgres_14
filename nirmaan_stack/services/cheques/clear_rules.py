@@ -51,6 +51,9 @@ OLD_TYPE_BRINGS_FORWARD = (STATUS_REQUESTED, STATUS_CEO_PENDING, STATUS_APPROVED
 #: (`outflow_import/sources.BANK_STATEMENT_SOURCES`, `outflow_import/parser.DIRECTION_DEBIT`).
 ICICI_STATEMENT_SOURCE = "ICICI Bank Statement"
 DIRECTION_DEBIT = "Debit"
+#: Why a cheque with a line already Paid cannot be cancelled, after "payment PAY-1" / "expense NPE-1" (owner,
+#: 2026-10-22). Pinned to the Cancel dialog's `PAID_LINE_CANCEL_REASON` (`chequeEditParity.test.ts`).
+PAID_LINE_CANCEL_REASON = "on it is already Paid, so the money has left the bank"
 #: An imported line nobody has matched yet (`api/outflow_import/review._NOT_MATCHED_STATUSES`).
 UNMATCHED_LINE_STATUSES = ("Pending match run", "Mismatched", "Error")
 
@@ -167,16 +170,17 @@ def cancel_problem(*, status: str, paid: Sequence[tuple[str, str]] = ()) -> str 
     """Why a cheque at `status` cannot be cancelled by hand, as a short reason, or None. Pure. Approval
     Pending and Issued cheques may be (their payments are Rejected); a Cleared one has no undo (ADR-0035 §5).
 
-    `paid` holds `(kind, name)` ("payment" or "expense") of each record on its lines already Paid, which only
-    an Old-type cheque may have: that money has left the bank, and a cancel cannot take it back, so the
-    first is named."""
+    `paid` holds `(kind, name)` ("payment" or "expense") of each record on its lines already Paid, in line
+    order, which only an Old-type cheque may have: that money has left the bank, and a cancel cannot take it
+    back, so the first is named (owner, 2026-10-22). The Cancel dialog says the same up front
+    (`frontend/src/utils/cheques/chequeStatus.paidLineCancelProblem`)."""
     if status == CLEARED:
         return "it is Cleared: a cleared cheque cannot be cancelled"
     if status == CANCELLED:
         return "already Cancelled"
     if paid:
         kind, name = paid[0]
-        return f"{kind} {name} on it is already Paid, so the money has left the bank"
+        return f"{kind} {name} {PAID_LINE_CANCEL_REASON}"
     return None
 
 

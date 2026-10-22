@@ -6,6 +6,7 @@ import { PAYMENT_STATUS } from "@/constants/paymentStatus";
  * logic. The server enforces the same rules (`services/cheques/clear_rules.py`, `services/cheques/status.py`):
  *
  * - Cancel (Approval Pending or Issued): every payment becomes Rejected, with the note as their reason.
+ * - A cheque with a line already Paid is never cancelled: the money has left the bank (owner, 2026-10-22).
  * - There is no Clear (#1516, ADR-0035 Amendment A): only an imported bank-statement line clears a cheque.
  */
 
@@ -38,6 +39,20 @@ export const paymentsRejectedByCancel = <T extends ChequePaymentLine>(lines: T[]
     lines.filter(
         (l) => l.payment_doctype === "Project Payments" && !!l.payment_name && l.payment_status !== PAYMENT_STATUS.REJECTED,
     );
+
+/** Why a cheque with a line already Paid cannot be cancelled, after its kind and name (`clear_rules.PAID_LINE_CANCEL_REASON`). */
+export const PAID_LINE_CANCEL_REASON = "on it is already Paid, so the money has left the bank";
+
+/**
+ * Why a cheque with these lines cannot be cancelled, or null: its first line already Paid, a payment or an
+ * Old-type cheque's expense (`clear_rules.cancel_problem`, which refuses the same on the server).
+ */
+export const paidLineCancelProblem = (lines: ChequePaymentLine[]): string | null => {
+    const paid = lines.find((l) => !!l.payment_name && l.payment_status === PAYMENT_STATUS.PAID);
+    if (!paid) return null;
+    const kind = paid.payment_doctype === "Project Payments" ? "payment" : "expense";
+    return `${kind} ${paid.payment_name} ${PAID_LINE_CANCEL_REASON}`;
+};
 
 /** What cancelling does, in the Cancel dialog's warning. */
 export const cancelNote = (chequeNo: string, payments: number): string => {

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { canCancelCheques, cancelNote, cancelNoteProblem, paymentsRejectedByCancel, todayISO } from "./chequeStatus";
+import {
+    canCancelCheques,
+    cancelNote,
+    cancelNoteProblem,
+    paidLineCancelProblem,
+    paymentsRejectedByCancel,
+    todayISO,
+} from "./chequeStatus";
 
 describe("todayISO", () => {
     it("is the local day, zero-padded", () => {
@@ -25,6 +32,33 @@ describe("paymentsRejectedByCancel", () => {
             { payment_doctype: "Project Payments", payment_name: "PAY-3", payment_status: "Requested", amount: 5 },
         ];
         expect(paymentsRejectedByCancel(lines).map((l) => l.payment_name)).toEqual(["PAY-1", "PAY-3"]);
+    });
+});
+
+describe("paidLineCancelProblem", () => {
+    // Owner, 2026-10-22: a cheque with a line already Paid cannot be cancelled (an Old-type cheque may have one).
+    it("names the first line already Paid, a payment or an expense", () => {
+        const line = (payment_doctype: string, payment_name: string, payment_status: string) =>
+            ({ payment_doctype, payment_name, payment_status, amount: 1 });
+        expect(
+            paidLineCancelProblem([
+                line("Project Payments", "PAY-1", "Reconciliation Pending"),
+                line("Non Project Expenses", "NPE-1", "Paid"),
+                line("Project Payments", "PAY-2", "Paid"),
+            ]),
+        ).toBe("expense NPE-1 on it is already Paid, so the money has left the bank");
+        expect(paidLineCancelProblem([line("Project Payments", "PAY-2", "Paid")])).toBe(
+            "payment PAY-2 on it is already Paid, so the money has left the bank",
+        );
+    });
+
+    it("lets a cheque with no Paid line be cancelled", () => {
+        expect(
+            paidLineCancelProblem([
+                { payment_doctype: "Project Payments", payment_name: "PAY-1", payment_status: "Rejected", amount: 1 },
+                { payment_doctype: null, payment_name: null, payment_status: null, amount: 2 },
+            ]),
+        ).toBeNull();
     });
 });
 

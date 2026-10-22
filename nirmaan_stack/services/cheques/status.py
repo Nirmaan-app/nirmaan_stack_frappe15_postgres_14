@@ -401,15 +401,19 @@ def cancel(cheque: str, *, note: str, user: str) -> dict:
 
 
 def _paid_lines(doc) -> list[tuple[str, str]]:
-    """`(kind, name)` of each record cheque `doc`'s lines name that is already Paid: its payments, and an
-    Old-type cheque's expenses (`clear_rules.cancel_problem` reads them)."""
+    """`(kind, name)` of each record cheque `doc`'s lines name that is already Paid, in line order: its
+    payments, and an Old-type cheque's expenses (`clear_rules.cancel_problem` reads them)."""
     payments = _line_payments(doc)
-    paid = frappe.get_all(PAYMENT_DOCTYPE, filters={"name": ["in", payments or [""]], "status": STATUS_PAID},
-                          pluck="name", order_by="name asc")
+    paid = set(frappe.get_all(PAYMENT_DOCTYPE, filters={"name": ["in", payments or [""]], "status": STATUS_PAID},
+                              pluck="name"))
     expenses = old_type_clear.expense_statuses(doc) if doc.old_type else {}
-    return [(PAYMENT_KIND, p) for p in paid] + [
-        (EXPENSE_KIND, name) for (_doctype, name), status in expenses.items() if status == STATUS_PAID
-    ]
+    out = []
+    for row in doc.get("lines") or []:
+        if row.payment_doctype == PAYMENT_DOCTYPE and row.payment_name in paid:
+            out.append((PAYMENT_KIND, row.payment_name))
+        elif expenses.get((row.payment_doctype, row.payment_name)) == STATUS_PAID:
+            out.append((EXPENSE_KIND, row.payment_name))
+    return out
 
 
 def cancel_deposit(cheque: str, *, note: str, user: str) -> dict:
