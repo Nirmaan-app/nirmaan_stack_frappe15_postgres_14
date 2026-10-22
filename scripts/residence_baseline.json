@@ -1,4 +1,9 @@
 {
+  "a1_explicit_any": {
+    "count": 1789,
+    "description": "Frontend lines (not tests or components/ui) that type something as `any`.",
+    "rule": "A1"
+  },
   "b1_pure_module_purity": {
     "count": 0,
     "description": "frappe.db/get_all/get_doc/sql usages inside declared PURE_MODULES (a pure module must have none).",
@@ -28,6 +33,16 @@
     "count": 2,
     "description": "Lines that add up Project Payments amounts (frontend, backend, print formats) outside the allowed owners in PAYMENT_SUM_OWNERS: the Amount Paid rule, the payment caps, the bank cash-out lists.",
     "rule": "P1"
+  },
+  "r1_rupee_formatters": {
+    "count": 8,
+    "description": "Functions that format rupees outside RUPEE_FORMATTER_HOMES.",
+    "rule": "R1"
+  },
+  "s1_oversized_files": {
+    "count": 336,
+    "description": "Hand-written source files (not tests, patches or components/ui) over 500 lines.",
+    "rule": "S1"
   },
   "t1_tests_pick_any_row": {
     "count": 23,

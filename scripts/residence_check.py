@@ -29,6 +29,7 @@ import ast
 import io
 import json
 import re
+import subprocess
 import sys
 import tokenize
 from dataclasses import dataclass
@@ -361,6 +362,83 @@ def payment_sum_copies() -> list[str]:
     return [f"{rel}:{n}" for rel, n in sorted(found)]
 
 
+# --- Rules S1, A1, R1: what the code review kept finding by hand (retro of spec #1442) ----------
+# Hand-written source only: tests, patches (append-only) and shadcn's generated components are left out.
+
+def _hand_written(p: Path) -> bool:
+    rel = p.relative_to(REPO_ROOT).as_posix()
+    return not (p.name.startswith("test_") or ".test." in p.name or "/patches/" in rel
+                or rel.startswith("frontend/src/components/ui/"))
+
+
+def _source_files() -> list[Path]:
+    return [p for p in iter_files("nirmaan_stack", (".py",)) + iter_files("frontend/src", (".ts", ".tsx"))
+            if _hand_written(p)]
+
+
+MAX_FILE_LINES = 500  # CODING_STANDARDS.md § Where code goes, "File size"
+
+
+def oversized_files() -> list[str]:
+    """Every hand-written source file over MAX_FILE_LINES, as `path (N lines)`."""
+    found = []
+    for p in _source_files():
+        n = read(p).count("\n")
+        if n > MAX_FILE_LINES:
+            found.append(f"{p.relative_to(REPO_ROOT).as_posix()} ({n} lines)")
+    return sorted(found)
+
+
+# `x: any`, `as any`, `any[]`, `Record<string, any>`. The lookaheads keep prose out ("Note: any value").
+_TS_EXPLICIT_ANY = (
+    re.compile(r":\s*any\b(?=\s*(?:[)\];,=|&>\[]|$))"),
+    re.compile(r"\bas\s+any\b(?=\s*(?:[)\];,.]|$))"),
+    re.compile(r"[<,]\s*any\s*(?=[>,\]])"),
+)
+
+
+def explicit_any_lines_ts(src: str) -> list[int]:
+    """1-based lines of a TS/TSX source that type something as `any`."""
+    return [i + 1 for i, line in enumerate(src.splitlines())
+            if not _is_comment_line(line) and any(p.search(line) for p in _TS_EXPLICIT_ANY)]
+
+
+def explicit_any_copies() -> list[str]:
+    found = []
+    for p in _source_files():
+        if p.suffix in (".ts", ".tsx"):
+            rel = p.relative_to(REPO_ROOT).as_posix()
+            found.extend(f"{rel}:{n}" for n in explicit_any_lines_ts(read(p)))
+    return found
+
+
+# A function that turns a number into "₹1,234" text. The homes stay; every other one is a copy.
+RUPEE_FORMATTER_HOMES = {
+    "nirmaan_stack/services/outflow_import/amounts.py",  # amounts.rupees(amount, paise=...)
+    "frontend/src/utils/FormatPrice.ts",                 # formatToIndianRupee and its rounded forms
+}
+_PY_RUPEE_DEF = re.compile(r"^\s*def\s+\w*rupee\w*\s*\(", re.IGNORECASE)
+_TS_RUPEE_DEF = re.compile(
+    r"^\s*(?:export\s+)?(?:function\s+\w*rupee\w*\s*[(<]|const\s+\w*rupee\w*\s*=\s*(?:\(|async\b|function\b|\w+\s*=>))",
+    re.IGNORECASE,
+)
+
+
+def rupee_formatter_lines(src: str, suffix: str) -> list[int]:
+    """1-based lines that define a rupee formatter, in a .py or a .ts/.tsx source."""
+    pattern = _PY_RUPEE_DEF if suffix == ".py" else _TS_RUPEE_DEF
+    return [i + 1 for i, line in enumerate(src.splitlines()) if pattern.search(line)]
+
+
+def rupee_formatters() -> list[str]:
+    found = []
+    for p in _source_files():
+        rel = p.relative_to(REPO_ROOT).as_posix()
+        if rel not in RUPEE_FORMATTER_HOMES:
+            found.extend(f"{rel}:{n}" for n in rupee_formatter_lines(read(p), p.suffix))
+    return sorted(found)
+
+
 # --- check registry ----------------------------------------------------------
 
 @dataclass
@@ -383,6 +461,19 @@ def _measure_b2() -> int:
         if p.name != "procurement_approval.py" and not p.name.startswith("test_")
     ]
     return count_files(files, _VENDOR_SELECTED)
+
+
+_GET_VALUE_ANY_ROW = re.compile(r"""get_value\(\s*["'][^"']+["']\s*,\s*\{\s*\}""")
+
+
+def tests_picking_any_row() -> list[str]:
+    found = []
+    for p in iter_files("nirmaan_stack", (".py",)):
+        if p.name.startswith("test_"):
+            rel = p.relative_to(REPO_ROOT).as_posix()
+            found.extend(f"{rel}:{i + 1}" for i, line in enumerate(read(p).splitlines())
+                         if _GET_VALUE_ANY_ROW.search(line))
+    return sorted(found)
 
 
 CHECKS: list[Check] = [
@@ -445,10 +536,8 @@ CHECKS: list[Check] = [
                     "the record depends on whatever was modified last.",
         route_hint="put the property the test needs in the filters (e.g. {\"vendor_nickname\": [\"is\", \"set\"]}) "
                    "or create the record in the test's setUp.",
-        measure=lambda: count_lines(
-            [p for p in iter_files("nirmaan_stack", (".py",)) if p.name.startswith("test_")],
-            re.compile(r"""get_value\(\s*["'][^"']+["']\s*,\s*\{\s*\}"""),
-        ),
+        measure=lambda: len(tests_picking_any_row()),
+        locate=tests_picking_any_row,
     ),
     # Not an ADR-0010 rule either: ADR-0034 (stored Amount Paid is the one paid figure). Each screen ticket
     # of spec #1451 lowers it; at zero, a new copy fails here. `--list` prints every copy.
@@ -463,6 +552,35 @@ CHECKS: list[Check] = [
                    f"'{CAP_MARKER}' on the line or the comment line above it.",
         measure=lambda: len(payment_sum_copies()),
         locate=payment_sum_copies,
+    ),
+    # The three below are not ADR-0010 rules: they are review findings a script can make, so a change
+    # meets them at commit time instead of in review (.githooks/pre-commit runs this file).
+    Check(
+        id="s1_oversized_files",
+        rule="S1",
+        description=f"Hand-written source files (not tests, patches or components/ui) over {MAX_FILE_LINES} lines.",
+        route_hint=f"split the file into focused submodules before it passes {MAX_FILE_LINES} lines "
+                   "(CODING_STANDARDS.md § Where code goes, File size).",
+        measure=lambda: len(oversized_files()),
+        locate=oversized_files,
+    ),
+    Check(
+        id="a1_explicit_any",
+        rule="A1",
+        description="Frontend lines (not tests or components/ui) that type something as `any`.",
+        route_hint="type unknown data as `unknown` and narrow it; `catch (err: unknown)` "
+                   "(frontend/CODING_STANDARDS.md § Writing TypeScript and styling).",
+        measure=lambda: len(explicit_any_copies()),
+        locate=explicit_any_copies,
+    ),
+    Check(
+        id="r1_rupee_formatters",
+        rule="R1",
+        description="Functions that format rupees outside RUPEE_FORMATTER_HOMES.",
+        route_hint="format with services/outflow_import/amounts.rupees (backend) or utils/FormatPrice.ts "
+                   "(frontend); never write another rupee formatter.",
+        measure=lambda: len(rupee_formatters()),
+        locate=rupee_formatters,
     ),
 ]
 
@@ -496,6 +614,32 @@ def compare(check_id: str, current: int, baseline: int) -> Verdict:
             new_baseline=current,
         )
     return Verdict(ok=True, message=f"holding at {current}", new_baseline=None)
+
+
+def changed_paths() -> set[str] | None:
+    """Repo-relative paths changed since HEAD (staged, unstaged, untracked); None outside git."""
+    paths: set[str] = set()
+    for cmd in (["diff", "--name-only", "HEAD"], ["ls-files", "--others", "--exclude-standard"]):
+        try:
+            out = subprocess.run(["git", "-C", str(REPO_ROOT), *cmd], capture_output=True, text=True, check=True)
+        except (OSError, subprocess.CalledProcessError):
+            return None
+        paths.update(filter(None, out.stdout.splitlines()))
+    return paths
+
+
+LOCATIONS_SHOWN = 20
+
+
+def locations_to_show(where: list[str], changed: set[str] | None = None) -> list[str]:
+    """On a failure, the violations in files this change touches; with none of those, the first few."""
+    changed = changed_paths() if changed is None else changed
+    mine = [loc for loc in where if re.split(r"[: ]", loc, maxsplit=1)[0] in (changed or set())]
+    if mine:
+        return mine
+    if len(where) <= LOCATIONS_SHOWN:
+        return where
+    return where[:LOCATIONS_SHOWN] + [f"... {len(where) - LOCATIONS_SHOWN} more (--list prints them all)"]
 
 
 # --- baseline I/O + entry points ---------------------------------------------
@@ -539,7 +683,7 @@ def do_check(list_all: bool = False) -> int:
             failed = True
             print(f"    -> {c.route_hint}")
         if where and (list_all or not verdict.ok):
-            for loc in where:
+            for loc in where if list_all else locations_to_show(where):
                 print(f"       {loc}")
         if verdict.new_baseline is not None:
             rewrites[c.id] = verdict.new_baseline

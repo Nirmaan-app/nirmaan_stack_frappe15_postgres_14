@@ -351,9 +351,10 @@ controller's duplicate refusal for two saves racing.
 
 ## Before committing
 
-Run `python3 scripts/residence_check.py` (from the app root) before committing backend or frontend changes — it
+`.githooks/pre-commit` runs `python3 scripts/residence_check.py` (from the app root) on every commit — it
 ratchets per-rule violation counts against `scripts/residence_baseline.json` (fail on increase; auto-tighten on
-decrease). Commit messages follow `type(scope): summary` (enforced by `.githooks/commit-msg`; see
+decrease). Besides the ADR-0010 rules it counts files over 500 lines (S1), `any` in frontend code (A1) and rupee
+formatters outside their two homes (R1), so a review need not hunt for those by hand. Commit messages follow `type(scope): summary` (enforced by `.githooks/commit-msg`; see
 `.claude/hooks/README.md`).
 
 ---
