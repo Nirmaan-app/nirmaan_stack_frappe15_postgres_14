@@ -117,6 +117,7 @@ class TestTdsExpenseRecords(FrappeTestCase):
                 **links,
             }
         )
+        row.flags[payment_tds.RECORDED_BY_SERVER] = True   # as the server's writers insert it
         return row.insert(ignore_permissions=True)
 
     def _paid_work_order_payment(self, amount=50000):

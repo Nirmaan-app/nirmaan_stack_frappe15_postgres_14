@@ -9,7 +9,8 @@ requests and the GST payment limit, so its figures are controlled:
 * approving or rejecting it takes an invoice-approval role,
 * editing its number, date or amounts takes an Accountant or Admin,
 * once it is Approved, only an Admin may change them, or move it anywhere but Rejected: anyone else
-  rejects it and uploads it again (a move back to Pending, an edit and a fresh approval would skip that),
+  rejects it and uploads it again (a move back to Pending, an edit and a fresh approval would skip that;
+  so a Rejected one is not brought back to Pending or Approved but by an Admin either),
 * the Vendor Invoice a generated invoice's signed upload created (#1547) carries what the vendor signed:
   nobody changes its number, date or amounts, Admin included, and once Rejected (its generated invoice
   Voided) it stays Rejected.
@@ -45,6 +46,9 @@ DECIDE_REFUSAL = "Only Admin and Accountants can approve or reject a Work Order 
 EDIT_REFUSAL = "Only Admin and Accountants can edit a Work Order invoice."
 APPROVED_MOVE_REFUSAL = (
     "An approved Work Order invoice is only rejected (with a reason), or corrected by an Admin."
+)
+REJECTED_MOVE_REFUSAL = (
+    "A rejected Work Order invoice is uploaded again, not brought back; only an Admin can reopen it."
 )
 GENERATED_EDIT_REFUSAL = (
     "This invoice is the signed copy of a generated invoice: its number, date and amount are what the "
@@ -112,6 +116,8 @@ def change_problem(
         return DECIDE_REFUSAL
     if status_before == APPROVED and status_after not in (APPROVED, REJECTED) and not may_edit_approved:
         return APPROVED_MOVE_REFUSAL
+    if status_before == REJECTED and status_after != REJECTED and not may_edit_approved:
+        return REJECTED_MOVE_REFUSAL
 
     if billed_fields_changed(before, after):
         if not may_edit:

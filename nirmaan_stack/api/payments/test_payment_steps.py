@@ -121,6 +121,24 @@ class PaymentStepCase(FrappeTestCase):
     def _status(self, payment):
         return frappe.db.get_value(PAYMENT, payment, "status")
 
+    def _po(self):
+        po = self.fx._name("PO")
+        frappe.db.sql(
+            """INSERT INTO "tabProcurement Orders" (name, creation, modified, modified_by, owner, docstatus,
+                   idx, project, vendor, amount_paid) VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 0)""",
+            (po, U, U, self.project, self.vendor),
+        )
+        self.addCleanup(TestTheSystemsOwnMoves._drop_po, po)
+        frappe.db.commit()
+        return po
+
+    def _raise_as(self, user, payment, amount):
+        def save():
+            doc = frappe.get_doc(PAYMENT, payment)
+            doc.amount = amount
+            doc.save()
+        self._as(user, save)
+
     def assertRefused(self, user, payment, status, message):
         before = self._status(payment)
         with self.assertRaisesRegex(frappe.ValidationError, message):
@@ -256,24 +274,6 @@ class TestNoStepIsSkipped(PaymentStepCase):
     """A move or an edit that would leave a payment past a step it never went through needs that step's
     holder: the CEO for a payment above the L1 limit, settle roles for one born waiting for its bank line."""
 
-    def _po(self):
-        po = self.fx._name("PO")
-        frappe.db.sql(
-            """INSERT INTO "tabProcurement Orders" (name, creation, modified, modified_by, owner, docstatus,
-                   idx, project, vendor, amount_paid) VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 0)""",
-            (po, U, U, self.project, self.vendor),
-        )
-        self.addCleanup(TestTheSystemsOwnMoves._drop_po, po)
-        frappe.db.commit()
-        return po
-
-    def _raise_as(self, user, payment, amount):
-        def save():
-            doc = frappe.get_doc(PAYMENT, payment)
-            doc.amount = amount
-            doc.save()
-        self._as(user, save)
-
     def test_an_admin_cannot_settle_a_payment_that_never_reached_the_ceo(self):
         admin = self._user(ADMIN_PROFILE)
         for was in ("Requested", "CEO Pending"):
@@ -317,6 +317,81 @@ class TestNoStepIsSkipped(PaymentStepCase):
                                     "Only an Admin, Accountant or Accountant Lead can create a payment at Reconciliation Pending"):
             self._as(self._user(PROCUREMENT_EXECUTIVE_PROFILE), insert)
         self.assertFalse(frappe.db.exists(PAYMENT, {"document_name": self.sr}))
+
+
+class TestTheCeoTierHoldsAfterApproval(PaymentStepCase):
+    """Round 2 (story 5): a stamped `ceo_approval_date` is no pass. Only the CEO raises a payment past its
+    approval to above the L1 limit; nobody stamps the date by hand; a payment born waiting for its bank
+    line needs the tier its amount needs."""
+
+    def _save_as(self, user, payment, **changes):
+        def save():
+            doc = frappe.get_doc(PAYMENT, payment)
+            doc.update(changes)
+            doc.save()
+        self._as(user, save)
+
+    def _po_payment(self, amount, status, **stamps):
+        pay = self._plant(amount, status)
+        frappe.db.set_value(PAYMENT, pay, {"document_type": "Procurement Orders", "document_name": self._po(),
+                                           **stamps}, update_modified=False)
+        frappe.db.commit()
+        return pay
+
+    def test_an_auto_approved_payment_is_not_raised_past_the_ceo(self):
+        pay = self._po_payment(14000, "Approved", auto_approved=1, approval_date=nowdate(), ceo_approval_date=nowdate())
+        with self.assertRaisesRegex(frappe.ValidationError, "Only the CEO can raise"):
+            self._raise_as(self._user(ADMIN_PROFILE), pay, 500000)
+        self.assertEqual(flt(frappe.db.get_value(PAYMENT, pay, "amount")), 14000)
+
+    def test_a_ceo_approved_payment_is_raised_further_only_by_the_ceo(self):
+        pay = self._po_payment(ABOVE_L1, "Approved", ceo_approval_date=nowdate())
+        with self.assertRaisesRegex(frappe.ValidationError, "Only the CEO can raise"):
+            self._raise_as(self._user(ADMIN_PROFILE), pay, ABOVE_L1 + 20000)
+        self._raise_as(self._ceo(), pay, ABOVE_L1 + 20000)
+        self.assertEqual(flt(frappe.db.get_value(PAYMENT, pay, "amount")), ABOVE_L1 + 20000)
+
+    def test_the_ceo_approval_date_is_not_set_by_hand(self):
+        admin = self._user(ADMIN_PROFILE)
+        pay = self._po_payment(WITHIN_L1, "Approved")
+        for changes, refusal in (({"ceo_approval_date": nowdate()}, "CEO approval date"),
+                                 ({"ceo_approval_date": nowdate(), "amount": ABOVE_L1}, "Only the CEO")):
+            with self.subTest(changes=changes):
+                with self.assertRaisesRegex(frappe.ValidationError, refusal):
+                    self._save_as(admin, pay, **changes)
+        self.assertEqual(frappe.db.get_value(PAYMENT, pay, ["amount", "ceo_approval_date"]), (WITHIN_L1, None))
+
+    def test_the_ceo_approval_still_stamps_it(self):
+        pay = self._plant(ABOVE_L1, "CEO Pending")
+        self._as(self._ceo(), ceo_approve_payment, pay)
+        self.assertTrue(frappe.db.get_value(PAYMENT, pay, "ceo_approval_date"))
+
+    def test_a_payment_born_at_reconciliation_pending_needs_its_amounts_tier(self):
+        po = self._po()   # a PO payment: no Work Order invoice check stands in the way of the tier
+        frappe.db.set_value("Procurement Orders", po, "total_amount", 1000000, update_modified=False)
+        frappe.db.commit()
+
+        def insert(amount):
+            return lambda: frappe.get_doc({"doctype": PAYMENT, "document_type": "Procurement Orders",
+                "document_name": po, "project": self.project, "vendor": self.vendor, "amount": amount,
+                "status": "Reconciliation Pending"}).insert()
+
+        accountant, admin = self._user(ACCOUNTANT_PROFILE), self._user(ADMIN_PROFILE)
+        with self.assertRaisesRegex(frappe.ValidationError, "Only the CEO can create a payment at Reconciliation Pending"):
+            self._as(admin, insert(ABOVE_L1))
+        with self.assertRaisesRegex(frappe.ValidationError, "Only an Admin can create a payment at Reconciliation Pending"):
+            self._as(accountant, insert(WITHIN_L1))
+        self._as(admin, insert(WITHIN_L1))
+        self._as(accountant, insert(10000))
+        self.assertEqual(frappe.db.count(PAYMENT, {"document_name": po, "status": "Reconciliation Pending"}), 2)
+
+    def test_the_direct_paid_entry_stays_open(self):
+        """The WO accounts page's direct Paid entry is out of scope (spec #1528): born Paid, no step asked."""
+        self._as(self._user(ACCOUNTANT_PROFILE), lambda: frappe.get_doc({
+            "doctype": PAYMENT, "document_type": SR, "document_name": self.sr, "project": self.project,
+            "vendor": self.vendor, "amount": ABOVE_L1, "status": "Paid", "payment_date": nowdate(),
+            "utr": f"UTR-{frappe.generate_hash(length=8)}"}).insert())
+        self.assertEqual(frappe.db.count(PAYMENT, {"document_name": self.sr, "status": "Paid"}), 1)
 
 
 class TestTheSystemsOwnMoves(PaymentStepCase):

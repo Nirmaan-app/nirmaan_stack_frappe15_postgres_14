@@ -43,6 +43,7 @@ from nirmaan_stack.services.amount_paid import write_amount_paid
 from nirmaan_stack.services.payment_tds import (
 	PAID,
 	PAYMENT_DOCTYPE,
+	RECORDED_BY_SERVER,
 	TDS_PAID_BY_COMPANY,
 	challan_label,
 	deduction_link_problem,
@@ -66,6 +67,7 @@ def validate(doc, method=None):
 	refuse_unless_one_source(doc)
 	if doc.is_new():
 		refuse_born_in_a_challan(doc)
+		refuse_insert_outside_approval(doc)
 		return
 	before = doc.get_doc_before_save()
 	if not before:
@@ -109,6 +111,15 @@ def refuse_born_in_a_challan(doc):
 	if doc.get("tds_challan") or cstr(doc.get("status") or PENDING) != PENDING:
 		frappe.throw(f"A new deduction starts {PENDING}, in no challan: the challan and status are set by Pay TDS, "
 					 "not by hand.")
+
+
+def refuse_insert_outside_approval(doc):
+	"""Tax is recorded only at approval (story 61): by `payment_tds.write_deduction` or `expense_tds`, which
+	set `RECORDED_BY_SERVER`, or by a patch (`in_patch`). A Desk or REST insert would put tax on a payment no
+	approval taxed, and it would count in Amount Paid once the payment is Paid."""
+	if doc.flags.get(RECORDED_BY_SERVER) or frappe.flags.in_patch:
+		return
+	frappe.throw("A deduction is recorded only at approval, by the server, never by hand.")
 
 
 def refuse_hand_written_challan(doc, before):

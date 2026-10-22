@@ -35,6 +35,7 @@ from nirmaan_stack.services.work_order_lifecycle import (
     AMEND_PAYMENTS_REFUSAL,
     APPROVED_SCOPE_REFUSAL,
     GST_HOLD_AMEND_REFUSAL,
+    LEAVE_AMENDMENT_REFUSAL,
     LEAVE_APPROVED_REFUSAL,
     TOTAL_BELOW_REFUSAL,
     UNDER_AMENDMENT_PAYMENT_REFUSAL,
@@ -290,6 +291,17 @@ class TestScopeChangesOnlyThroughAmend(_AmendmentCase):
             with self.subTest(status=status):
                 self.assertRefused(lambda: self._save(USERS[ADMIN], self.wo, status=status), LEAVE_APPROVED_REFUSAL)
                 self.assertEqual(self._status(self.wo), "Approved")
+
+    def test_a_work_order_under_amendment_only_goes_to_approved(self):
+        """Out of Amendment to Vendor Selected, then a vendor swap and a fresh approval, would skip the
+        amendment rules: an amendment is decided (accept, revert), never left."""
+        self._amend(rate=120_000)
+        for status in ("Vendor Selected", "Created", "Rejected"):
+            with self.subTest(status=status):
+                self.assertRefused(lambda: self._save(USERS[ADMIN], self.wo, status=status), LEAVE_AMENDMENT_REFUSAL)
+                self.assertEqual(self._status(self.wo), "Amendment")
+        self._accept()
+        self.assertEqual(self._status(self.wo), "Approved")
 
     def test_terms_and_nirmaan_gst_stay_editable(self):
         self._save(USERS[PROJECT_MANAGER], self.wo, notes={"list": ["New terms"]}, project_gst=OTHER_NIRMAAN_GST)

@@ -25,12 +25,15 @@ THE MOVES (`step_needed`)
                                                             the L1 limit
     CEO Pending -> Reconciliation Pending / Paid            CEO (it skips the CEO's step)
     any other move                                          L1: an Admin's correction
-A raise (`raise_step_needed`) that takes a payment past its approval (Approved, Reconciliation Pending,
-Paid) from within the L1 limit to above it needs the CEO, unless the CEO approved it: else an Admin could
-approve ₹50,000 and edit it to ₹5,00,000 in Desk. PO and Work Order payments alike.
+A raise (`raise_step_needed`) of a payment past its approval (Approved, Reconciliation Pending, Paid) to
+above the L1 limit needs the CEO, whatever its `ceo_approval_date` says: the CEO approved the amount it had
+then, not the new one, and an auto-approval stamps that date too. PO and Work Order payments alike.
+`ceo_approval_date` is set only by the CEO's own approval (the save that makes the CEO step) or by the
+system's moves; a user save that sets or changes it otherwise is refused (`ceo_date_refusal`).
 A new payment (`born_step_needed`) may be born at Approved or CEO Pending only past the steps its raiser
 holds or its amount skips: the auto band and the raiser's own step (`approval_tiers`). One born at
-Reconciliation Pending needs the settle roles. A payment born at any other status is left as it was:
+Reconciliation Pending needs the tier its amount needs: the CEO above the L1 limit, L1 from the auto line,
+the settle roles below it. A payment born at any other status is left as it was:
 Requested needs no one, and the direct Paid entry stays as it is (spec #1528, Out of Scope).
 
 THE SYSTEM'S OWN MOVES (`SYSTEM_STEP_FLAGS`) are not a person choosing a step, and carry a flag only
@@ -39,7 +42,7 @@ server code can set. Each caller checks its own user first.
 
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import flt, getdate
 
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.services import settlement
@@ -125,12 +128,11 @@ def step_needed(was: str, now: str, amount) -> str | None:
     return STEP_L1
 
 
-def raise_step_needed(status: str, old_amount, new_amount, *, ceo_approved: bool) -> str | None:
-    """The CEO step a save that raises a payment past its approval from within the L1 limit to above it
-    needs, or None. `ceo_approved`: the payment carries the CEO's approval (`ceo_approval_date`)."""
-    if (status or "").strip() not in _PAST_APPROVAL or ceo_approved:
+def raise_step_needed(status: str, old_amount, new_amount) -> str | None:
+    """The CEO step a save that raises a payment past its approval to above the L1 limit needs, or None."""
+    if (status or "").strip() not in _PAST_APPROVAL:
         return None
-    if needs_ceo(flt(new_amount)) and not needs_ceo(flt(old_amount)):
+    if flt(new_amount) > flt(old_amount) and needs_ceo(flt(new_amount)):
         return STEP_CEO
     return None
 
@@ -145,7 +147,11 @@ def born_step_needed(status: str, amount) -> str | None:
     if status == CEO_PENDING:
         return STEP_L1
     if status == RECONCILIATION_PENDING:
-        return STEP_SETTLE
+        # Born past approval AND Mark as Paid: the approval its amount needs, or the settle roles below
+        # the auto line (which needs no approval).
+        if needs_ceo(flt(amount)):
+            return STEP_CEO
+        return STEP_SETTLE if is_auto_approved(flt(amount)) else STEP_L1
     return None
 
 
@@ -165,17 +171,27 @@ def refuse_step_out_of_tier(doc, user: str) -> None:
         return
     if doc.is_new():
         was, step = None, born_step_needed(doc.status, doc.amount)
+        ceo_date_moved = bool(doc.get("ceo_approval_date"))
     else:
         before = doc.get_doc_before_save()
         if before is None:
             return
         was, step = before.status, step_needed(before.status, doc.status, doc.amount)
-        raise_step = raise_step_needed(doc.status, before.amount, doc.amount,
-                                       ceo_approved=bool(before.get("ceo_approval_date")))
+        ceo_date_moved = _date(before.get("ceo_approval_date")) != _date(doc.get("ceo_approval_date"))
+        raise_step = raise_step_needed(doc.status, before.amount, doc.amount)
         if raise_step and not holds(user, raise_step):
             frappe.throw(_raise_refusal(doc.status), PaymentStepRefused, title=_("Not allowed"))
+    if ceo_date_moved and step != STEP_CEO:
+        frappe.throw(CEO_DATE_REFUSAL, PaymentStepRefused, title=_("Not allowed"))
     if step and not holds(user, step):
         frappe.throw(_refusal(was, doc.status, step), PaymentStepRefused, title=_("Not allowed"))
+
+
+CEO_DATE_REFUSAL = "The CEO approval date is set only by the CEO's approval, never by hand."
+
+
+def _date(value):
+    return getdate(value) if value else None
 
 
 def _raise_refusal(status: str) -> str:

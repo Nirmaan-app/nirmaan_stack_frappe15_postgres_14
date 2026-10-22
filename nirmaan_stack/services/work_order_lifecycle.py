@@ -32,8 +32,8 @@ starts an amendment (Approved -> Amendment), changes a Work Order under amendmen
 No amendment save may lower the total below Amount Paid or the approved invoices, nor leave a vendor
 other than the one before the amendment once a payment (not Rejected) or an invoice exists, nor swap in
 a vendor on GST Hold. A Work Order under amendment takes no new payment (`payment_request_problem`).
-So those rules can't be skipped, an Approved Work Order moves only into Amendment, and its own save
-keeps its scope (`SCOPE_FIELDS`: vendor, items, categories, total); a Desk edit of a paid Approved Work
+So those rules can't be skipped, an Approved Work Order moves only into Amendment, one under Amendment
+only back to Approved (accept, or revert), and an Approved one's own save keeps its scope (`SCOPE_FIELDS`: vendor, items, categories, total); a Desk edit of a paid Approved Work
 Order, or a move back to Vendor Selected and a fresh approval, is refused (`_approved_problem`).
 
 Pure: the caller resolves who the user is (`services/role_profiles.can_decide_work_order`), which
@@ -96,6 +96,10 @@ APPROVED_SCOPE_REFUSAL = (
 )
 
 LEAVE_APPROVED_REFUSAL = "An Approved Work Order can only be amended; it can't go back to"
+
+LEAVE_AMENDMENT_REFUSAL = (
+    "A Work Order under amendment is accepted or reverted, back to Approved; it can't move to"
+)
 
 UNDER_AMENDMENT_PAYMENT_REFUSAL ="A payment can't be requested on a Work Order under amendment."
 
@@ -218,6 +222,9 @@ def change_problem(
         problem = _approved_problem(before, after)
         if problem:
             return problem
+    if before_status == AMENDMENT and after.get("status") not in (AMENDMENT, APPROVED):
+        # Leaving it any other way, then re-approving, would skip the amendment rules (stories 18-19).
+        return f"{LEAVE_AMENDMENT_REFUSAL} {after.get('status')}."
     if is_amendment_save(before, after):
         return _amendment_problem(before, after, amendment or AmendmentFacts())
     return None

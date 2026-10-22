@@ -11,7 +11,7 @@ from nirmaan_stack.services import payment_tds
 from nirmaan_stack.services.cheque_payments import is_cheque
 from nirmaan_stack.services.order_payments import assert_within_work_order_limit
 from nirmaan_stack.services.payment_hold import validate_hold
-from nirmaan_stack.services.payment_steps import refuse_step_out_of_tier
+from nirmaan_stack.services.payment_steps import SYSTEM_STEP_FLAGS, refuse_step_out_of_tier
 from nirmaan_stack.services.amount_paid import orders_moved_by, write_amount_paid
 from nirmaan_stack.services.payees.pay_to import fill_payment_from_vendor
 from nirmaan_stack.services.work_order_lifecycle import WorkOrderChangeRefused, payment_request_problem
@@ -273,8 +273,28 @@ def validate(doc, method):
     refuse_reject_if_deposited(doc)
     refuse_amount_change_if_deposited(doc)
     refuse_raise_after_tax_cut(doc)
+    refuse_hand_written_legacy_tds(doc)
     if not doc.is_new():
         _validate_work_order_limit_on_edit(doc)
+
+
+LEGACY_TDS_REFUSAL = (
+    "The legacy TDS box is not set or changed by hand: it decides whether a PO payment's tax counts on top. "
+    "A payment's tax is its Payment TDS Deduction."
+)
+
+
+def refuse_hand_written_legacy_tds(doc):
+    """`tds`, the legacy TDS box, marks a PO payment with a tax record as stored gross
+    (`payment_tds.counted_deductions_sql`), so a hand edit would change PO tax counting (story 53). The
+    Desk form shows it read-only; this refuses it from REST too. Its one writer is the by-hand patch
+    `v3_0.net_po_payments_with_tds` (`set_value`, under `in_patch` when run by migrate); the system's moves
+    (`SYSTEM_STEP_FLAGS`) copy what they find."""
+    if frappe.flags.in_patch or any(doc.flags.get(flag) for flag in SYSTEM_STEP_FLAGS):
+        return
+    before = doc.get_doc_before_save()
+    if str((before.get("tds") if before else "") or "").strip() != str(doc.get("tds") or "").strip():
+        frappe.throw(LEGACY_TDS_REFUSAL)
 
 
 def _is_restating_save(doc) -> bool:

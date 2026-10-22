@@ -37,7 +37,8 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   (`controllers/vendor_invoices.guard_work_order_invoice`), so Desk and REST obey it. Any new path that writes
   a WO Vendor Invoice (the generated-invoice upload, #1547) runs as the session user and passes through it.
   An Approved WO invoice moves only to Rejected for anyone but Admin (back to Pending, edit, approve again would
-  skip the Admin-only rule). The Vendor Invoice a generated invoice's signed upload created is fixed for
+  skip the Admin-only rule), and a Rejected one is not brought back to Pending or Approved but by Admin (it is
+  uploaded again). The Vendor Invoice a generated invoice's signed upload created is fixed for
   everyone, Admin included: no change to number, date or amounts, no Edit dialog (`update_invoice_data` refuses
   it whole, so the signed scan is not swapped), and once Rejected it stays Rejected. PO invoices keep their old
   rules.
@@ -120,7 +121,7 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   not Rejected, a Vendor Invoice not Rejected or a WO Generated Invoice not Voided exists; a vendor on GST Hold
   is not swapped in. So none of that can be skipped, an Approved WO moves only into Amendment (never back to
   Vendor Selected, Rejected or Created) and its own save keeps its scope (`work_order_lifecycle.SCOPE_FIELDS`:
-  vendor, items, categories, total). GST Hold is checked on every vendor change of an existing WO
+  vendor, items, categories, total), and a WO under Amendment moves only back to Approved (accept, or revert). GST Hold is checked on every vendor change of an existing WO
   (`controllers/service_requests.validate`), not only on a new one. A new payment on a WO in Amendment is refused on insert
   (`controllers/project_payments.refuse_while_work_order_under_amendment`, rule `payment_request_problem`).
   The snapshot (Nirmaan Versions, `new_state` Amendment, copied from the amend save's Version by

@@ -289,3 +289,21 @@ class TestADeductionMadeInDesk(DepositedTaxCase):
                 frappe.db.rollback()
         self.assertEqual(frappe.db.count(PTD, {"project_payment": row.project_payment}), 0)
         self.assertEqual(self._reconciled(challan), 0)
+
+    def test_a_pending_one_made_by_hand_is_refused(self):
+        """Tax is recorded only at approval (story 61): a hand-made Pending row on an unpaid payment would
+        count in Amount Paid once the payment is Paid, without the approval ever taking it."""
+        made = self._approved()
+        row = frappe.db.get_value(PTD, made.deduction, ["project_payment", "document_type", "document_name",
+                                                        "vendor", "project", "gross_amount", "tds_percentage",
+                                                        "tds_amount"], as_dict=True)
+        frappe.db.delete(PTD, {"name": made.deduction})
+        frappe.db.commit()
+        with self.assertRaisesRegex(frappe.ValidationError, "only at approval"):
+            self._as_accountant(lambda: frappe.get_doc({"doctype": PTD, **row}).insert())
+        frappe.db.rollback()
+        self.assertEqual(frappe.db.count(PTD, {"project_payment": row.project_payment}), 0)
+
+    def test_the_approval_still_records_it(self):
+        made = self._approved()
+        self.assertTrue(frappe.db.exists(PTD, made.deduction))

@@ -23,7 +23,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.tds_challan.pay_tds import create_challan_and_pay, pay_tds
 from nirmaan_stack.services.expense_tds import withhold_expense_tds
-from nirmaan_stack.services.payment_tds import TDS_SECTION_WORK_ORDER
+from nirmaan_stack.services.payment_tds import RECORDED_BY_SERVER, TDS_SECTION_WORK_ORDER
 
 TDS = "Payment TDS Deduction"
 CHALLAN = "TDS Challan Attachment"
@@ -68,6 +68,7 @@ class TestPayTds(FrappeTestCase):
         row = frappe.new_doc(TDS)
         row.update({"project_payment": payment, "gross_amount": tds * 50, "tds_percentage": 2,
                     "tds_amount": tds, "tds_section": TDS_SECTION_WORK_ORDER})
+        row.flags[RECORDED_BY_SERVER] = True   # planted as the approval's writer inserts it
         return row.insert(ignore_permissions=True).name
 
     @staticmethod

@@ -181,3 +181,34 @@ class TestRetryTds(EditSafetyCase):
         with self.assertRaisesRegex(frappe.PermissionError, "Only an Admin can retry"):
             self._as(self._user(ACCOUNTANT_PROFILE), retry_bulk_deductions, [victim])
         self.assertIsNone(payment_tds.existing_deduction(victim))
+
+
+class TestTheLegacyTdsBox(EditSafetyCase):
+    """`Project Payments.tds` decides whether a PO payment's tax counts on top (story 53): no user save,
+    Desk or REST, sets or changes it, Admin included. The netting patch clears it under `in_patch`."""
+
+    def test_a_user_cannot_fill_or_clear_it(self):
+        po = self._po()
+        pay = self._plant(WITHIN_L1, "Paid")
+        frappe.db.set_value(PAYMENT, pay, {"document_type": "Procurement Orders", "document_name": po, "tds": "600"},
+                            update_modified=False)
+        frappe.db.commit()
+        admin = self._user(ADMIN_PROFILE)
+        for value in ("", "900"):
+            with self.subTest(value=value):
+                def save():
+                    doc = frappe.get_doc(PAYMENT, pay)
+                    doc.tds = value
+                    doc.save()
+                with self.assertRaisesRegex(frappe.ValidationError, "legacy TDS box"):
+                    self._as(admin, save)
+        self.assertEqual(frappe.db.get_value(PAYMENT, pay, "tds"), "600")
+
+    def test_a_save_that_leaves_it_alone_passes(self):
+        pay = self._plant(WITHIN_L1, "Approved")
+        def save():
+            doc = frappe.get_doc(PAYMENT, pay)
+            doc.utr = "UTR-LEFT-ALONE"
+            doc.save()
+        self._as(self._user(ACCOUNTANT_PROFILE), save)
+        self.assertEqual(frappe.db.get_value(PAYMENT, pay, "utr"), "UTR-LEFT-ALONE")

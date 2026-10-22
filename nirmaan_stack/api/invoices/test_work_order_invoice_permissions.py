@@ -158,6 +158,7 @@ class TestDecidingAWorkOrderInvoice(_AsRoleCase):
 EDIT_REFUSAL = "Only Admin and Accountants can edit a Work Order invoice."
 APPROVED_REFUSAL = "Only an Admin can change the amount, number or date of an approved Work Order invoice."
 APPROVED_MOVE_REFUSAL = "An approved Work Order invoice is only rejected"
+REJECTED_MOVE_REFUSAL = "A rejected Work Order invoice is uploaded again"
 
 
 class TestEditingAWorkOrderInvoice(_AsRoleCase):
@@ -260,6 +261,32 @@ class TestEditingAWorkOrderInvoice(_AsRoleCase):
         doc = frappe.get_doc("Vendor Invoices", name)
         doc.status = "Pending"
         self._as(ADMIN, doc.save, ignore_permissions=True)
+        self.assertEqual(self._status(name), "Pending")
+
+    def test_an_accountant_cannot_bring_a_rejected_one_back(self):
+        """Reject, back to Pending, edit, approve would be the Approved-edit route again: a rejected WO invoice
+        is uploaded anew; only an Admin moves it back."""
+        name = self._approved(self.wo_gst_on)
+        self.assertEqual(approve_vendor_invoice(name, "Rejected", "wrong amount")["status"], 200)
+        for status in ("Pending", "Approved"):
+            with self.subTest(status=status):
+                doc = frappe.get_doc("Vendor Invoices", name)
+                doc.status = status
+                with self.assertRaises(frappe.ValidationError) as refused:
+                    self._as(ACCOUNTANT, doc.save, ignore_permissions=True)
+                self.assertIn(REJECTED_MOVE_REFUSAL, str(refused.exception))
+        self.assertEqual(self._status(name), "Rejected")
+        doc = frappe.get_doc("Vendor Invoices", name)
+        doc.status = "Pending"
+        self._as(ADMIN, doc.save, ignore_permissions=True)
+        self.assertEqual(self._status(name), "Pending")
+
+    def test_a_purchase_order_invoice_still_comes_back_from_rejected(self):
+        name = self._invoice(self.po)
+        self.assertEqual(approve_vendor_invoice(name, "Rejected", "wrong")["status"], 200)
+        doc = frappe.get_doc("Vendor Invoices", name)
+        doc.status = "Pending"
+        self._as(ACCOUNTANT, doc.save, ignore_permissions=True)
         self.assertEqual(self._status(name), "Pending")
 
     # ------------------------------------------------------------------ Desk

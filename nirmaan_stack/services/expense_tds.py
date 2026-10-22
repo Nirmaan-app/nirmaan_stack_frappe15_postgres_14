@@ -72,6 +72,7 @@ from nirmaan_stack.services.outflow_import.ledgers import NON_PROJECT_EXPENSE_DO
 from nirmaan_stack.services.payment_tds import (
     BORNE_BY_VENDOR,
     CHALLAN_DOCTYPE,
+    RECORDED_BY_SERVER,
     TDS_DOCTYPE,
     TDS_SECTION_RENT,
     is_approval_from_an_earlier_step,
@@ -284,6 +285,7 @@ def withhold_expense_tds(doc, *, deductee_name: str | None = None, deductee_pan:
             "payment_approved_on": nowdate(),
         }
     )
+    row.flags[RECORDED_BY_SERVER] = True
     row.insert(ignore_permissions=True)
     # ⚠️ NO HOOKS, ON PURPOSE (CODING_STANDARDS § Raw SQL rule 1). What else reads this `amount`, and why
     # none of it needs a recompute here:

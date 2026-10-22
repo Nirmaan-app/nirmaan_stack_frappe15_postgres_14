@@ -134,7 +134,8 @@ figure — the company pays the tax on top:
 - **A deduction is locked once in a challan, correctable before** (`controllers/payment_tds_deduction`):
   `validate` refuses any change to a row with `tds_challan` and any hand-written `status` /
   `tds_challan` (only Pay TDS writes those, by `set_value`), a new row included: a deduction is born
-  Pending, in no challan; `on_trash` refuses deleting a deposited
+  Pending, in no challan, and only by the server (`payment_tds.RECORDED_BY_SERVER`, set by `write_deduction`
+  and `expense_tds`; patches insert under `in_patch`): a Desk or REST insert is refused (story 61); `on_trash` refuses deleting a deposited
   row; `on_update` (a correction, never an insert) recounts the order of a Paid payment and re-checks
   CEO Hold, as `after_delete` does (an Office Rent row has no order and recounts nothing). A correction
   leaves the payment's amount alone. The lock covers every field a person could change, the rent row's

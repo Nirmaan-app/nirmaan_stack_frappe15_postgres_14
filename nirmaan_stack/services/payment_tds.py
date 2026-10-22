@@ -99,6 +99,10 @@ from frappe.utils import cint, flt, nowdate
 from nirmaan_stack.services import settlement
 
 TDS_DOCTYPE = "Payment TDS Deduction"
+#: Set by every server path that records a deduction (`write_deduction`, `expense_tds`): tax is recorded only
+#: at approval (spec #1528 story 61), so a Desk or REST insert without it is refused
+#: (`controllers/payment_tds_deduction.refuse_insert_outside_approval`). Patches insert under `in_patch`.
+RECORDED_BY_SERVER = "tds_recorded_by_server"
 PAYMENT_DOCTYPE = "Project Payments"
 SERVICE_REQUEST_DOCTYPE = "Service Requests"
 PROCUREMENT_ORDER_DOCTYPE = "Procurement Orders"
@@ -976,6 +980,7 @@ def write_deduction(
 			"tds_section": TDS_SECTION_WORK_ORDER,
 		}
 	)
+	row.flags[RECORDED_BY_SERVER] = True
 	row.insert(ignore_permissions=True)
 
 	# Mirror the deduction onto the payment (owner request 2026-09-15), so the link can be read
