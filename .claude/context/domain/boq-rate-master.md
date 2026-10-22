@@ -1607,6 +1607,34 @@ warning line per sheet (heading nodes and counts, never the text; no DB write). 
   reconciliation would have refused. Cause unknown read-only; a separate read-only look, then the owner's call. The payload
   already reads their tree.
 
+**ADP-5b: ADP's "none of these" refusal NAMES THE ITEM AS WRITTEN (owner R1, 2026-10-22 10:49; HVAC v52).** ADP asks a text
+answer `item_as_written` ("Item as written", asked last; its note asks for the BoQ's own shortest continuous words, and only
+when the family is "none of these") and `list_spec.pricing.no_sku_named_by: "item_as_written"` -- the Insulation mechanism
+(12d-1b T5), used with NO code change: ADP declares none of the keys the pricer's other `no_sku_named_by` readers need
+(`unstocked_materials`, `family_when_none`, `material_text`, `choice_text`, a PUF or fiberglass family), so the answer only
+ever reaches `namedMaterialRefusal`: "No SKU in the catalogue for Hit & Miss Damper - price this row by hand". The pricing
+never reads it, no panel box shows it, and an answer without it keeps the R18 sentence (pinned: `adp5b.test.ts`,
+`test_adp5b_question.py`).
+
+**ADP-5b: A CLADDING NAMED "WHERE REQUIRED" STILL APPLIES (owner R2, 2026-10-22 10:49; HVAC v52).** The Insulation `cladding`
+note's conditional sentence reads: "A cladding a heading names with 'where required', 'if required', 'as required' or 'as
+directed' still applies to every row under that heading: answer it. Only a condition that names WHERE the item is (pipes
+exposed to sun or atmosphere, outdoor, exposed areas) limits the cladding to rows that meet that condition." **Piping asks it
+too:** Piping's question carries the Insulation question whole as its delegated section (12e-3a, owner D-2 "no second copy"),
+so an Insulation note change ALWAYS changes the Piping items spec, only inside that section (owner, ADP-5b STOP 1 option 1).
+A stub proof for an Insulation question change must expect the Piping sha to move.
+
+**ADP-5b: THE MODEL-FACING DAMPER DEFAULT SAYS "without (curved grille: with)" (owner R5, HVAC v52)** -- the ADP-5a per-family
+default in the words the model reads; figure-neutral.
+
+**ADP-5b PAID RE-READ (2026-10-23): a question change MOVES ANSWERS IT DID NOT TARGET.** 185 rows on 34 sheets re-read
+(47 calls): the targets landed (00087 r28 / r29 price with Aluminium Foil, 712 / 581; 19 of 25 "none of these" rows name their
+item), but on payloads identical to the stored answers' the model also moved 8 rows (a spigot to "none of these", two
+"Z TYPE BAFFLE" rows to actuator, two louver dampers to VCD at 9,750, a transfer duct to cross-talk, an Insulation control
+Acoustic -> Thermal, a Piping probe's cladding left out) and 2 F1 rows unexplained by their note change. Row list, payloads
+and both replies: the plan doc's ADP-5b entry and the Desktop `2026-10-23_ADP-5b_Rows.xlsx`. Rows NOT selected kept their
+stored answers byte-for-byte (34 / 34 sheets).
+
 **ADP-5a: "A x B-C depth" IS THREE BOX SIDES (owner 2026-10-22 10:49 item 6).** `readBoxSides` splits a two-part size whose
 second part is "B-C" followed by a height label ("1200x150-300 depth", "600x600-300 depth") into length A, width B, height C.
 A plenum does NOT borrow its diffuser's face size (R6, owner 2026-10-19 23:13). 2 stored rows price (2,306 / 2,787 supply).
@@ -1790,8 +1818,8 @@ be for now"). A row that states layers but no pipe size refuses per layer, exact
 schedule in a heading (thickness keyed to pipe size) is a FACT THE MODEL READS** for this row's size
 (the thickness note); "take the highest" is CODE for the case with no schedule. **A `no_sku_families`
 refusal may NAME the material as written** through `no_sku_named_by` (a text def the pricing never
-reads): "No SKU in the catalogue for XLPE - price this row by hand"; without the key the R18 sentence
-stands, which is how ADP's stays byte-identical. **A pipe-size field holding a slash list is not an
+reads): "No SKU in the catalogue for XLPE - price this row by hand"; without the key, or with the answer
+absent / "None" / blank, the R18 sentence stands. ADP uses the same key since HVAC v52 (`item_as_written`, ADP-5b R1). **A pipe-size field holding a slash list is not an
 inch fraction** -- a fraction is ONE slash between TWO numbers (or a mixed number).
 
 **A CATEGORY IS ELIGIBLE WHEN IT CARRIES PRICING RULES THAT RUN -- top-level `pipelines`, OR an

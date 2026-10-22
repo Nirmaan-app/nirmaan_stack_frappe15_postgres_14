@@ -48868,3 +48868,85 @@ Start tip `bd298ded8` (= origin). Report on the Desktop: `2026-10-22_F1-a_Report
 1. **O4**: six sheets with no pass-3 field on any node (00106, 00173, 00181, 00221 x2, 00260) -- a separate read-only look.
 2. **O2** (deferred): the page shows a stand-in note's text; the payload does not (3 + 9 stored rows).
 3. The classifier still reads the saved copy (O1); moving it would change 922 rule verdicts on a re-run (F1-R Q5).
+
+
+## Slice ADP-5b - the model-question changes (ADP item as written, the Insulation conditional-cladding sentence, the damper default's words), HVAC v52, and the paid re-read - as built 2026-10-23
+
+**Owner rulings built:** R1 / R2 / R5-note of the ADP-R5 table (2026-10-22 10:49 "ok with 1 to3 and 5 to 8"); the paid run's
+"go" (2026-10-23 00:24, "cap does not matter" -> runaway guard 80 calls / 900k tokens only); R6 / Q6 (no host-face borrowing:
+the 13 Q6 rows and 00337 r72 dropped). **STOP 1 (spec contradiction), ruled option 1:** Piping's question carries Insulation's
+whole (12e-3a D-2), so R2 necessarily moves the Piping items spec -- allowed ONLY inside its delegated Insulation section
+(757f2ba4 -> f5524dd1); plus the read-only Piping cladding-exposure count (item 3) and 2 Piping probes + 3 Piping controls in
+the run (item 4); 7 Insulation controls (ADP-R5 said 8, named 7).
+
+**Commits (unpushed at the time of writing):**
+- `122400f3d` feat(rate-helper): `adp5b.test.ts` -- the R1 mechanism on the v51 ADP config with only the definition and the key
+  added, through `makePricingSheetHelper(...).compute` on real rows (positive: 00096 r56 / 00122 r160 named; negative: absent /
+  "None" / blank and the key-less config keep the R18 sentence; a priced row given an item as written is unchanged field for
+  field; generic: ADP declares none of the other readers' keys). NO product code: the Insulation mechanism is generic for ADP.
+- `67a3af26c` feat(rate-master): HVAC v52 (exported = v51 by content; only `hvac_adp` -- `item_as_written` last +
+  `no_sku_named_by`, the damper note "without (curved grille: with)" -- and `hvac_insulation` -- the cladding sentence -- edited);
+  mint gate v51 -> v52 PASS; load batch `rmbulk-d20abacadfea`, pre-load snapshot `BRMS-26-02341`; live == v52 (HVAC configs
+  `e8a0b8a1743302d4`, items `793a2b39344242ad` unchanged). `test_adp5b_question.py` (9: validator, the definition, refusals in
+  other forms, both note texts, only two configs change, the three spec shas, Piping only in its section, a pricing key never
+  sent). Latest-asset pins inverted, BEFORE kept: test_piping_v34 x20, test_rate_master x7, test_extraction_coercion x1 + the
+  second wave x2 (il_02's ADP text-definition list; mc4c_02 reads ADP's model-facing definitions from v51, the class's idiom).
+- The docs commit that carries this entry.
+
+Start tip `424f4208f` (= origin). Report on the Desktop: `2026-10-23_ADP-5b_Report.md` (ledger first), `_Ledger.md`,
+`_Expected.xlsx`, `_Rows.xlsx`, the three full-suite logs, `ADP-5b Payload Archive\`.
+
+### 1. The question (no model call)
+
+Items-spec shas through `_group_context`: ADP `dcbe3a2e` -> `2d9cd352`, Insulation `c335f2b8` -> `5dd6268f`, Piping `757f2ba4` ->
+`f5524dd1` (only its delegated section); every other HVAC and Electrical category byte-identical. Stub proof through the real
+`_extract_batch` (34 sheets, 222 requests, 0 capture writes): 75 identical; 147 differ ONLY in ITEMS_SPEC (old spec json
+replaced by the new reproduces the request exactly). Replay on v52 before any call: ac7 `e45102ef` / ac7v2 `e4fe5588` = START
+(the 25 stored "none of these" rows keep their wording until re-read). Vacuity V1-V5 red, restores sha-equal.
+
+### 2. The paid re-read
+
+`start_suggest` called in-process as Administrator (the function the Suggest button POSTs to; only the HTTP dispatch is not
+exercised), one sheet at a time, every sheet ALLOWED by the server's own guards at the current state. **34 sheets, 185 rows (181
+selected + 4 never-read 00341 Insulation rows), 47 calls, 411,623 tokens** (estimate 47 / 384,853); 0 failed attempts, 0 ceiling
+cuts, no capture roll (465 -> 546); carried rows byte-identical on all 34 sheets. Payload integrity: 185 / 185 blocks byte-equal
+to the logged payload_items, EA-7 PASS 185 / 185, every row replied, 8 rows answered an unasked "air" on Insulation.
+
+**Classes (P5):** EXPECTED 163, NEUTRAL 12 (same SKU and figures; an air answer or the merge line differs), RUN-VARIATION 8,
+UNEXPLAINED 2.
+- As declared: 00087 r28 594 -> **712** (866), r29 464 -> **581** (735), Aluminium Foil; 19 of 25 Q1 rows name their item
+  (Hit & Miss Damper x9, Bird Screens x2, Z-Piece x3, Circular ducts x4, condensate pump, 10 mm rigid flexible pipes); the 4 Q3 /
+  ADP-2 rows, spigots (but one), curved grilles and every other control as START.
+- RUN-VARIATION (payload identical to the stored answer's; the question differs by AC1-AC3 only): 00096 r93 spigot ->
+  "none of these" / "Spigot Dampers" (334 -> refusal); 00185 r42 + 00281 r42 "Z TYPE BAFFLE" under "ACTUATORS" -> actuator
+  ("no torque stated"); 00269 r82 pressure sensor -> no item returned; 00108 r214 aluminium louver damper -> VCD 9,750;
+  00197 r137 return air transfer duct -> cross-talk 3,120; **control** 00329 r257 Acoustic -> Thermal Nitrile (1,525 -> 748);
+  **Piping probe** 00191 r37 cladding left out -> the row refuses (was 4,695) -- the new R2 sentence with the coating rule is the
+  likely cause ("UV coatings ... as required").
+- UNEXPLAINED (F1 rows whose note change does not explain the move): 00007 r171 louver damper -> VCD 9,750; **control** 00149 r277
+  adds an "access door" item (in its unchanged own text) -> the row refuses.
+
+**AC8:** replay after = 17,918 rows (+4); 64 rows differ (ADP 54, Insulation 8, Piping 2), all re-read; 0 others. **New
+baseline: ac7 `2f0e0f13f852637a...`, ac7v2 `b5e79698ffe6fbba...`.** Field table: 49 differences, all on re-read rows.
+
+### 3. Suites, cert
+
+- Python full: 8,597, FAILED (failures=7, errors=3) = F1-a's 8 + `tds.test_edit_request` (full-run only; 28 OK alone) +
+  `test_daily_window_picks_a_wo_touched_since` (the known time-of-day failure after IST midnight; nothing under `tasks/`
+  changed). vitest 198 / 7,460, 1 failed = writeOffControl (known). tsc 3,170 = F1-a by message. Capture log unchanged by the
+  suites.
+- Cert at :8080 after the full de-stale (served-module grep + in-page import): C1 00087 r28 712 / 154 / 866 and r29 581 / 154 /
+  735 with the foil line; C2 00096 r56 "No SKU in the catalogue for Hit & Miss Damper" and 00122 r160 "... Bird Screens with GI
+  wire mesh ..."; C3 00313 r93 Butterfly Damper With SPIGOT 334, 00185 r29 curved grille 13,530 "with"; C4 00087 r32 (Insulation)
+  1,731 and r36 (ADP) 1,609 = START; C5 00096 r49 1972 / 576 / 2548, Electrical 00174 r148 260 / 60 / 320, Piping 00131 r75 358 /
+  42 / 400; C6 HVAC configs v52 `e8a0b8a1`, Electrical v66. Nothing pressed that writes.
+
+### 4. Findings (open, for the owner)
+
+1. The 8 RUN-VARIATION and 2 UNEXPLAINED rows are LIVE in the new active runs (no repair: the slice writes only its runs). Wrong
+   by their own words: the two Z-baffle rows (actuator), the two louver dampers (a GI VCD at 9,750), the transfer duct
+   (cross-talk); a priced spigot, a priced control and a priced Piping row now refuse; one Insulation control dropped 777.
+2. Whether R1's new answer pulls borderline rows to "none of these" (00096 r93) or out of it (the louver / baffle / duct rows)
+   cannot be told from one read; a repeat read of the 10 rows would separate the question from chance.
+3. 00191 r37: the R2 sentence meets the coating rule ("a coating with no glass cloth: leave Cladding out, copy it into
+   Cladding as written"): the model left the cladding out but did not copy it, so the row cannot price.
