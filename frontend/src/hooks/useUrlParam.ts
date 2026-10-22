@@ -20,7 +20,7 @@ export const useUrlParam = (key: string) => {
   // per-navigation remount, removed in d2b2dc14.
   // Keyed on the navigation, not on location.search: after a tab click (urlStateManager,
   // replaceState) the router's search is stale, so a navigate() back to that same search
-  // -- the sidebar's pending-declaration icon opening ?tab=assets -- would change nothing.
+  // -- the app access gate's "Open my assets" opening ?tab=assets -- would change nothing.
   useEffect(() => {
     setParamValue(new URLSearchParams(location.search).get(key));
   }, [key, location.key, location.search]);

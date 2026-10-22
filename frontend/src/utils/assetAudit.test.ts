@@ -162,7 +162,7 @@ describe("who submits", () => {
   });
 });
 
-describe("an overdue audit (the red sidebar icon)", () => {
+describe("an overdue audit (the gate's Overdue label and the red tab mark)", () => {
   it("is an open audit with a month recorded Missed and nothing sent since", () => {
     expect(isAuditOverdue({ audit_status: "Pending", audit_overdue_since: "09/2026" })).toBe(true);
     expect(isAuditOverdue({ audit_status: "Pending", audit_overdue_since: null })).toBe(false);

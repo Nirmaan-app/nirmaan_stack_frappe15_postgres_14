@@ -8,7 +8,7 @@ import { DataTableColumnHeader } from '@/components/data-table/data-table-column
 import { Badge } from '@/components/ui/badge';
 import { useDepartmentOptions } from '@/hooks/useDepartmentOptions';
 import { useServerDataTable } from '@/hooks/useServerDataTable';
-import { auditChecksLabel, auditHistorySummary, countAuditIssues, parseAuditAnswers } from '@/utils/assetAudit';
+import { auditAnswerCount, auditChecksLabel, auditHistorySummary, countAuditIssues, parseAuditAnswers } from '@/utils/assetAudit';
 import { formatHistoryTime } from '@/utils/assetHistory';
 import { HistoryFacetField, useAssetHistoryFacets } from '../hooks/useAssetHistoryFacets';
 import { useAssetHistoryPeople } from '../hooks/useAssetHistoryPeople';
@@ -334,7 +334,7 @@ const AuditSummaryCell: React.FC<{ summary: ReturnType<typeof auditHistorySummar
     );
 };
 
-/** A sent audit's links on the History tab: its photo, and "4 answers · 1 issue", which opens the answers. */
+/** A sent audit's links on the History tab: its photo, and "1 answer · 1 issue", which opens the answers. */
 const AuditRowLinks: React.FC<{ row: HistoryListRow; onOpenAnswers: () => void }> = ({ row, onOpenAnswers }) => {
     const answers = parseAuditAnswers(row.audit_answers);
     const label = auditChecksLabel(answers);
@@ -351,7 +351,7 @@ const AuditRowLinks: React.FC<{ row: HistoryListRow; onOpenAnswers: () => void }
                     onClick={onOpenAnswers}
                     className={`text-xs font-medium hover:underline ${countAuditIssues(answers) ? 'text-red-700' : 'text-teal-700'}`}
                 >
-                    {answers.length} answers · {label === 'All OK' ? 'all OK' : label}
+                    {auditAnswerCount(answers.length)} · {label === 'All OK' ? 'all OK' : label}
                 </button>
             )}
         </div>

@@ -162,7 +162,7 @@ export const AuditFulfilledList: React.FC<{ assetType: AssetCategoryType }> = ({
                                 <th className="px-3 py-2">Holder</th>
                                 <th className="px-3 py-2">Checks</th>
                                 <th className="px-3 py-2">Remarks</th>
-                                <th className="px-3 py-2">Photo</th>
+                                <th className="px-3 py-2">Image</th>
                                 <th className="px-3 py-2">For Month</th>
                                 <th className="px-3 py-2">Sent On</th>
                             </tr>
