@@ -12,7 +12,9 @@ Run: DEVENV test --module nirmaan_stack.api.service_requests.test_print_totals
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from nirmaan_stack.api.service_requests.print_totals import get_work_order_print_totals
+import json
+
+from nirmaan_stack.api.service_requests.print_totals import get_amended_totals, get_work_order_print_totals
 from nirmaan_stack.api.vendor.test_gst_hold import U, _Fixture
 
 SR = "Service Requests"
@@ -45,3 +47,22 @@ class TestPrintTotals(FrappeTestCase):
                 get_work_order_print_totals(wo)
         finally:
             frappe.set_user(U)
+
+
+class TestAmendedTotals(FrappeTestCase):
+    """The Approve Amended list's "Amended Value" (walk W4): each WO's total as its accept will store it."""
+
+    def setUp(self):
+        super().setUp()
+        frappe.set_user(U)
+        self.fx = _Fixture()
+        self.addCleanup(self.fx.purge)
+        self.project, self.vendor = self.fx.project(), self.fx.vendor()
+
+    def test_each_work_order_under_amendment_reads_its_amended_total(self):
+        amended = self.fx.work_order(self.project, self.vendor, 100_000, gst="true", status="Amendment")
+        frappe.db.set_value("Work Order Items", {"parent": amended}, "rate", 120_000)   # the amended row, as the sheet's save leaves it
+        frappe.db.commit()
+        approved = self.fx.work_order(self.project, self.vendor, 50_000)
+        self.assertEqual(get_amended_totals(json.dumps([amended, approved, "SR-NOT-THERE"])),
+                         {amended: 141_600, approved: 50_000})

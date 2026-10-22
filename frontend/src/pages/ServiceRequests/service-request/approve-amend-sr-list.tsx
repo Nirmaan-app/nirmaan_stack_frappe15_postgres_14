@@ -1,4 +1,5 @@
-import React, { useCallback, useContext, useMemo } from "react";
+import React, { useCallback, useContext, useMemo, useRef } from "react";
+import { useFrappeGetCall } from "frappe-react-sdk";
 import { cn } from "@/lib/utils";
 import { ColumnDef, Row } from "@tanstack/react-table";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
@@ -58,6 +59,14 @@ export const ApproveSelectAmendSR: React.FC = () => {
   const { db } = useContext(FrappeContext) as FrappeConfig;
   const { getTotalAmount } = useOrderTotals();
   const { ceoHoldProjectIds } = useCEOHoldProjects();
+  // The amended totals, as the server works them out (`print_totals.get_amended_totals`): the stored
+  // `total_amount` is still the one from before the amendment until it is accepted. Filled once the page's
+  // rows are known (below); read by the column through a ref, because the columns are built first.
+  const amendedTotalsRef = useRef<Record<string, number>>({});
+  const amendedValue = useCallback(
+    (name: string) => amendedTotalsRef.current[name] ?? getTotalAmount(name, "Service Requests")?.totalWithTax,
+    [getTotalAmount]
+  );
 
   const projectsFetchOptions = getProjectListOptions();
 
@@ -350,21 +359,13 @@ export const ApproveSelectAmendSR: React.FC = () => {
           <DataTableColumnHeader column={column} title="Amended Value" />
         ),
         cell: ({ row }) => (
-          <p className="font-medium pr-2">
-            {formatToRoundedIndianRupee(
-              getTotalAmount(row.original.name, "Service Requests")
-                ?.totalWithTax
-            )}
-          </p>
+          <p className="font-medium pr-2">{formatToRoundedIndianRupee(amendedValue(row.original.name))}</p>
         ),
         size: 150,
         enableSorting: false,
         meta: {
           exportHeaderName: "Amended Value",
-          exportValue: (row: ServiceRequests) =>
-            formatForReport(
-              getTotalAmount(row.name, "Service Requests")?.totalWithTax
-            ),
+          exportValue: (row: ServiceRequests) => formatForReport(amendedValue(row.name)),
         },
       },
     ],
@@ -376,6 +377,7 @@ export const ApproveSelectAmendSR: React.FC = () => {
       handleNewSRSeen,
       getVendorName,
       getTotalAmount,
+      amendedValue,
     ]
   );
 
@@ -408,6 +410,14 @@ export const ApproveSelectAmendSR: React.FC = () => {
     enableRowSelection: false, // For bulk approval
     additionalFilters: staticFilters,
   });
+
+  const pageNames = useMemo(() => (data || []).map((row) => row.name).sort(), [data]);
+  const { data: amendedTotals } = useFrappeGetCall<{ message: Record<string, number> }>(
+    "nirmaan_stack.api.service_requests.print_totals.get_amended_totals",
+    { work_orders: JSON.stringify(pageNames) },
+    pageNames.length ? `AmendedTotals-${pageNames.join(",")}` : null
+  );
+  amendedTotalsRef.current = amendedTotals?.message ?? {};
 
   // --- Combined Loading & Error States ---
   const isLoading = projectsLoading || vendorsLoading || userListLoading;

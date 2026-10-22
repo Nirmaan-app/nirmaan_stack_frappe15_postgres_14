@@ -247,6 +247,15 @@ class TestTheDecision(_AmendmentCase):
         frappe.db.rollback()   # what the request does after the endpoint returns: nothing is lost
         self.assertEqual((self._status(self.wo), self._snapshots()), ("Approved", ["Reverted"]))
 
+    def test_revert_restores_the_nirmaan_gst_changed_during_the_amendment(self):
+        """Walk W2: a change made while the amendment waits (WO Options' Nirmaan GST) is undone by the revert
+        too: it restores the whole state from before the amendment, not only what the amend save changed."""
+        self._amend(rate=120_000)
+        self._save(self.amender, self.wo, project_gst=OTHER_NIRMAAN_GST)
+        self._as(self.approver, revert_amendment, self.wo)
+        doc = frappe.get_doc(SR, self.wo)
+        self.assertEqual((doc.project_gst, flt(doc.work_order_items[0].rate)), (NIRMAAN_GST, 100_000))
+
     def test_only_an_approver_may_revert(self):
         self._amend(rate=120_000)
         self.assertRefused(lambda: self._as(self.amender, revert_amendment, self.wo),

@@ -6,7 +6,8 @@
     revert_amendment(work_order) -> {"name"}
 
 Writes back what the amend save changed, read from the amendment snapshot
-(`services/work_order_amendment.pre_amendment_values`): items, vendor, categories and Nirmaan GST, and
+(`services/work_order_amendment.revert_values`: the whole state from before the amendment, so a change
+made while it waited is undone too): items, vendor, categories and Nirmaan GST, and
 moves the Work Order back to Approved. Accepting needs no endpoint: it is the plain status move, from the
 approve screen, Desk or REST.
 
@@ -18,7 +19,7 @@ marks the snapshot (`ServiceRequests.on_update`).
 import frappe
 from frappe import _
 
-from nirmaan_stack.services.work_order_amendment import REVERTED, pending_snapshot, pre_amendment_values
+from nirmaan_stack.services.work_order_amendment import REVERTED, pending_snapshot, revert_values
 
 SR = "Service Requests"
 
@@ -46,7 +47,7 @@ def revert_amendment(work_order: str) -> dict:
             _("{0} has no amendment snapshot on record, so it can't be reverted. Accept it, or amend it "
               "again by hand.").format(work_order)
         )
-    doc.update(pre_amendment_values(snapshot["data"], [row.as_dict() for row in doc.work_order_items]))
+    doc.update(revert_values(snapshot["data"], [row.as_dict() for row in doc.work_order_items]))
     doc.status = "Approved"
     doc.flags.amendment_outcome = REVERTED
     doc.save()

@@ -27,17 +27,24 @@ def has_permission(doc, ptype=None, user=None, debug=False):
     return None if frappe.has_permission(WORK_ORDER, "read", doc=doc.reference_name, user=user) else False
 
 
+def readable_work_orders_sql(user: str) -> str | None:
+    """SQL selecting the names of the Work Orders `user` may read: the Work Order list query Frappe itself
+    builds for the user (role rows and User Permissions). None when the user may read none. Shared by the
+    remarks and the Work Order Items row scoping (`controllers/work_order_items`)."""
+    try:
+        return frappe.get_list(WORK_ORDER, fields=["name"], user=user, run=0, limit_page_length=0,
+                               order_by=None) or None
+    except frappe.PermissionError:
+        return None
+
+
 def get_permission_query_conditions(user=None, doctype=None):
-    """A list holds a Work Order's remarks only where the user may read that Work Order: the Work Order
-    list query Frappe itself builds for the user (role rows and User Permissions) is the subquery."""
+    """A list holds a Work Order's remarks only where the user may read that Work Order
+    (`readable_work_orders_sql`)."""
     user = user or frappe.session.user
     if user == "Administrator":
         return ""
-    try:
-        readable = frappe.get_list(WORK_ORDER, fields=["name"], user=user, run=0, limit_page_length=0,
-                                   order_by=None)
-    except frappe.PermissionError:
-        readable = None
+    readable = readable_work_orders_sql(user)
     other_doctype = f"COALESCE(\"tabNirmaan Comments\".reference_doctype, '') != {frappe.db.escape(WORK_ORDER)}"
     if not readable:
         return other_doctype

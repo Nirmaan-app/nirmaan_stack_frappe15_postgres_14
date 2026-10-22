@@ -374,3 +374,15 @@ class TestRemarksAndItemsNeedReadAccess(_AsRoleCase):
         other = self._comment("Projects", self.project)
         self.assertEqual(self._as(self.pm, frappe.get_list, "Nirmaan Comments",
                                   filters={"name": other}, pluck="name"), [other])
+
+
+    def test_the_rest_api_hides_item_rows_of_a_work_order_the_user_cannot_read(self):
+        """`GET /api/resource/Work Order Items?parent=Service Requests` (walk W1): the rows of another project's
+        Work Order are not listed, nor read one by one."""
+        rows = self._as(self.pm, frappe.get_list, "Work Order Items", parent_doctype=SR,
+                        filters={"parent": ("in", [self.wo, self.other_wo])}, fields=["parent", "item_name"])
+        self.assertEqual({r.parent for r in rows}, {self.other_wo})
+        hidden = frappe.db.get_value("Work Order Items", {"parent": self.wo}, "name")
+        mine = frappe.db.get_value("Work Order Items", {"parent": self.other_wo}, "name")
+        self.assertFalse(self._as(self.pm, frappe.has_permission, "Work Order Items", "read", doc=hidden))
+        self.assertTrue(self._as(self.pm, frappe.has_permission, "Work Order Items", "read", doc=mine))

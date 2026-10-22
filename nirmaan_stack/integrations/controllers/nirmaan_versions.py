@@ -1,5 +1,8 @@
 import json
+
 import frappe
+
+from nirmaan_stack.services.work_order_amendment import PRE_AMENDMENT_KEY, pre_amendment_state
 
 SNAPSHOT_KEPT_REFUSAL = "An amendment snapshot is the Work Order's audit record: it can't be deleted or changed."
 
@@ -7,7 +10,6 @@ def generate_sr_amend_version(doc, method):
     if doc.ref_doctype != "Service Requests":
         return
     data = json.loads(doc.data)
-    print(f"amend version: {data}")
 
     # Check if the status changed from "Approved" to "Amendment"
     status_change = next((change for change in data['changed'] if change[0] == 'status'), None)
@@ -16,7 +18,10 @@ def generate_sr_amend_version(doc, method):
         nv = frappe.new_doc("Nirmaan Versions")
         nv.ref_doctype = doc.ref_doctype
         nv.docname = doc.docname
-        nv.data = json.dumps(doc.data)
+        # The Version's changes, plus the whole state from before the amendment (walk W2): a revert restores
+        # that, so a change made while the amendment waits is undone too.
+        work_order = frappe.get_doc("Service Requests", doc.docname)
+        nv.data = frappe.as_json({**data, PRE_AMENDMENT_KEY: pre_amendment_state(data, work_order)})
         nv.previous_state = status_change[1]
         nv.new_state = status_change[2]
         nv.insert(ignore_permissions=True)

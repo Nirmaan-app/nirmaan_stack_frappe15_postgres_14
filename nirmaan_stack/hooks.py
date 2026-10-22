@@ -146,6 +146,8 @@ has_permission = {
     "Project Billing": "nirmaan_stack.integrations.controllers.project_billing.has_permission",
     # A Work Order's remarks need read on that Work Order (spec #1528 story 4); other remarks as before.
     "Nirmaan Comments": "nirmaan_stack.integrations.controllers.nirmaan_comments.has_permission",
+    # A Work Order's item rows need read on that Work Order (story 4, walk W1).
+    "Work Order Items": "nirmaan_stack.integrations.controllers.work_order_items.has_permission",
 }
 
 permission_query_conditions = {
@@ -153,6 +155,7 @@ permission_query_conditions = {
     "Project Billing Tracker": "nirmaan_stack.integrations.controllers.project_billing.get_permission_query_conditions",
     "Project Billing": "nirmaan_stack.integrations.controllers.project_billing.get_permission_query_conditions",
     "Nirmaan Comments": "nirmaan_stack.integrations.controllers.nirmaan_comments.get_permission_query_conditions",
+    "Work Order Items": "nirmaan_stack.integrations.controllers.work_order_items.get_permission_query_conditions",
 }
 
 # DocType Class

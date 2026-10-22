@@ -27,7 +27,9 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
 - **A WO's remarks are readable only by users who may read that WO** (story 4): the endpoints check it
   (`api/sr_remarks.assert_can_read_work_order`), and the Nirmaan Comments `has_permission` and
   `permission_query_conditions` hooks (`controllers/nirmaan_comments`) scope the doctype itself, because the
-  screens read remarks through `/api/resource`. Remarks on other doctypes are left to the role rows.
+  screens read remarks through `/api/resource`. Remarks on other doctypes are left to the role rows. A WO's item
+  rows are scoped the same way (`controllers/work_order_items`, on `readable_work_orders_sql`): the child-table
+  REST list checks only the parent doctype otherwise.
 - **Who may decide or edit a WO invoice is checked on the server (#1531, ADR-0014 Amendment A).** Approve or
   reject: the invoice-approval roles; edit number, date or amounts: Accountants and Admin; once *Approved*, only
   Admin may change them, and anyone else rejects it (an Approved WO invoice may be rejected) and uploads it
@@ -130,7 +132,7 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   `outcome` Accepted or Reverted (`controllers/service_requests.name_amendment_outcome` -> `flags.amendment_outcome`, then
   `work_order_amendment.mark_snapshots` from `controllers/service_requests.mark_amendment_snapshots` in `on_update`). Revert is `api/service_requests/amendment.revert_amendment`
   (the user's own save, so the decide rule applies), which writes back items, vendor, categories and
-  `project_gst` from the snapshot (`pre_amendment_values`); a plain Amendment -> Approved save is an accept.
+  `project_gst` from the snapshot's whole pre-amendment state (`work_order_amendment.revert_values`, the `pre_amendment` key written when the snapshot is made), so a change made while the amendment waited is undone too; a plain Amendment -> Approved save is an accept.
   Snapshots exist only for saves that leave a Version: in tests pass `ignore_version=False` on the amend save.
   The amend reason is the Nirmaan Comments row with subject "amending approved work order".
 - **WO notifications fire on the move into a status, never on a save that keeps it (#1533).** The Service

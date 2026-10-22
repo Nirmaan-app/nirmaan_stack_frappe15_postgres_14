@@ -5,6 +5,8 @@
 
     vendor_before_amendment(work_order, vendor_now) -> str | None
     pre_amendment_values(snapshot, current_rows) -> dict         (pure)
+    pre_amendment_state(version_data, doc) -> dict               the whole state, stored in the snapshot
+    revert_values(snapshot, current_rows) -> dict                what a revert writes back
     pending_snapshot(work_order) -> dict | None
     mark_snapshots(work_order, outcome)
 
@@ -125,6 +127,33 @@ def pre_amendment_values(snapshot: dict, current_rows: list) -> dict:
     rows = sorted(kept + removed, key=lambda row: row.get("idx") or 0)
     values[ITEMS] = [{k: v for k, v in row.items() if k not in _ROW_BOOKKEEPING} for row in rows]
     return values
+
+
+#: The snapshot's key holding the whole pre-amendment state (`pre_amendment_state`), written when it is made.
+PRE_AMENDMENT_KEY = "pre_amendment"
+
+
+def pre_amendment_state(version_data: dict, doc) -> dict:
+    """The Work Order's whole state before the amendment, for the snapshot: `RESTORED_FIELDS` and the items.
+    `doc` is the Work Order as the amend save left it, `version_data` that save's Version data; a field the
+    save did not change still holds its value from before. Stored whole so a revert also undoes what was
+    changed WHILE the amendment waited (a Nirmaan GST set on WO Options, walk W2), not only the amend save."""
+    rows = [row.as_dict() if hasattr(row, "as_dict") else dict(row) for row in doc.get(ITEMS) or []]
+    changed = pre_amendment_values(version_data, rows)
+    state = {field: changed[field] if field in changed else doc.get(field) for field in RESTORED_FIELDS}
+    state[ITEMS] = changed.get(ITEMS) or [
+        {k: v for k, v in row.items() if k not in _ROW_BOOKKEEPING} for row in rows
+    ]
+    return state
+
+
+def revert_values(snapshot: dict, current_rows: list) -> dict:
+    """What a revert writes back: the snapshot's whole pre-amendment state, or, for a snapshot made before
+    it carried one, the amend save's own changes undone (`pre_amendment_values`)."""
+    state = snapshot.get(PRE_AMENDMENT_KEY)
+    if isinstance(state, dict) and state:
+        return state
+    return pre_amendment_values(snapshot, current_rows)
 
 
 def _rows(snapshot: dict, key: str, width: int) -> list:
