@@ -1268,6 +1268,42 @@ def _rate_editable_excel_rows(boq, sheet_name, committed_version):
     return out
 
 
+def _log_attached_notes_drift(boq, sheet_name, committed_version, drift):
+    """F1-a AC6: ONE file-log line per sheet naming every heading whose saved `attached_notes` differs from the notes
+    derived from the current tree (counts only, never the text). The payload already uses the derived notes; this only
+    makes a stale saved copy visible. No database write, no Error Log, nothing in the capture."""
+    frappe.logger("boq_rate_extraction").warning(
+        "F1-a attached_notes drift (pricing payload uses the derived notes): "
+        f"boq={boq} sheet={sheet_name!r} committed_version={committed_version} headings={len(drift)} "
+        + "; ".join(f"node={d['node']} src={d['source_row_number']} saved={d['saved']} derived={d['derived']}"
+                    for d in drift)
+    )
+
+
+def _log_attached_notes_drift_for(boq, sheet_name, committed_version):
+    """F1-a AC6, called by the Suggest run (run_extraction) right after its population read: reads the sheet's current
+    nodes ONCE and writes _log_attached_notes_drift's one line when any saved copy differs from the derived notes
+    (context_builder.derive_attached_notes / _attached_notes_drift -- the builder's own functions, not a copy).
+
+    ⚠️ KEPT OUT OF assemble_population ON PURPOSE (F1-a STOP 2, option D, 2026-10-22): test doubles replace
+    assemble_population with a TWO-argument stand-in (test_piping_v34 test_28), so its call stays exactly
+    `assemble_population(boq, sheet_name)`. One indexed query per run, never per row or batch. ADVISORY: a failure here is
+    swallowed and can never fail or change a run."""
+    try:
+        from nirmaan_stack.services.boq_category import context_builder
+
+        sheet = frappe.db.get_value(_BOQ_SHEET, {"boq": boq, "sheet_name": sheet_name, "is_current": 1}, "name")
+        if not sheet:
+            return
+        nodes = frappe.get_all(_BOQ_NODES, filters={"boq": boq, "sheet": sheet, "is_current": 1},
+                               fields=context_builder._NODE_FIELDS, order_by="sort_order asc")
+        drift = context_builder._attached_notes_drift(nodes, context_builder.derive_attached_notes(nodes))
+        if drift:
+            _log_attached_notes_drift(boq, sheet_name, committed_version, drift)
+    except Exception:
+        pass
+
+
 def assemble_population(boq, sheet_name):
     """(committed_version, rows) -- rate-editable rows whose RESOLVED category is an ELIGIBLE config
     (non-empty pipelines AND definitions), ACROSS ALL categories on the sheet (EA-2). Each row keeps
@@ -1339,6 +1375,17 @@ def _as_list(raw):
         return out
     s = str(v).strip()
     return [s] if s else []
+
+
+def _attached_of(node):
+    """F1-a (owner 2026-10-22, O1): the attached notes the PRICING payload reads for a row or an ancestor -- the list
+    context_builder DERIVED from the current tree by the commit's own rule (`derived_attached_notes`), never the saved
+    `attached_notes` copy, which is stale on sheets committed before 2026-08-11. The saved copy is read only for a dict
+    that has no derived key at all (a hand-built row; every row from build_sheet_context carries it, None included).
+    The classifier keeps reading the saved copy (O1)."""
+    if "derived_attached_notes" in node:
+        return node["derived_attached_notes"]
+    return node.get("attached_notes")
 
 
 def _as_labelled_map(raw):
@@ -1420,7 +1467,7 @@ def _ai_item(row):
             "node_type": a.get("node_type") or "",
             "description": a.get("description") or "",
         }
-        block = _note_block(a.get("own_notes_raw"), a.get("attached_notes"),
+        block = _note_block(a.get("own_notes_raw"), _attached_of(a),
                             a.get("append_notes_raw"), tier)
         if block:
             entry["notes"] = block
@@ -1431,7 +1478,7 @@ def _ai_item(row):
         "description": row.get("description") or "",
         "ancestor_chain": chain,
     }
-    self_block = _note_block(row.get("own_notes_raw"), row.get("attached_notes"),
+    self_block = _note_block(row.get("own_notes_raw"), _attached_of(row),
                              row.get("append_notes_raw"), "full")
     if self_block:
         item["notes"] = self_block
@@ -2540,7 +2587,7 @@ def row_own_text_fragments(row):
     if desc:
         frags.append(str(desc))
     frags.extend(_as_list(row.get("own_notes_raw")))
-    frags.extend(_as_list(row.get("attached_notes")))
+    frags.extend(_as_list(_attached_of(row)))
     frags.extend(_as_labelled_map(row.get("append_notes_raw")).values())
     return [f for f in frags if f]
 
@@ -3499,6 +3546,8 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
     )
 
     cv, all_rows = assemble_population(boq, sheet_name)
+    if cv is not None:
+        _log_attached_notes_drift_for(boq, sheet_name, cv)   # F1-a AC6: one file-log line per stale sheet
     settings = get_boq_ai_settings()
     model = settings.get("model") or _DEFAULT_MODEL
 

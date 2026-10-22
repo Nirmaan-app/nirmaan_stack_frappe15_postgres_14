@@ -81,7 +81,7 @@ export function buildRowContext(
     discipline: null,
     rateKinds,
     ...(rows ? { headings: rowHeadings(row, rows) } : {}),
-    ...(rows ? { ownNotes: rowOwnNotes(row) } : {}),
+    ...(rows ? { ownNotes: rowOwnNotes(row, rows) } : {}),
     ...(rows ? { headingNotes: rowHeadingNotes(row, rows) } : {}),
   };
 }
@@ -118,16 +118,24 @@ export function rowHeadingNotes(row: PricedRow, rows: readonly PricedRow[]): str
 }
 
 /**
- * SLICE 12d-4a (owner D3): the row's OWN notes -- `row_notes` and the STRING entries of `attached_notes` --
- * as the context carries them for the word rules. PURE. Nothing from a parent; a heading's note is a
- * heading's (and the owner ruled headings do not trigger the rule). Non-string attachments are skipped.
+ * SLICE 12d-4a (owner D3): the row's OWN notes -- its `row_notes`, then its attached notes -- as the context carries
+ * them for the word rules. PURE. Nothing from a parent; a heading's note is a heading's (and the owner ruled headings
+ * do not trigger the rule).
+ *
+ * F1-a (owner O3, 2026-10-22): the attached notes are the row's own child NOTE rows, built the way `rowHeadingNotes`
+ * builds a heading's (= `commit_pipeline._derive_attached_notes`): rows classified "note" whose effective parent is THIS
+ * row, in row order, each trimmed, blanks dropped. The page's rows carry no `attached_notes` field (ADP-5a CERT-C5), so
+ * the field this function used to read was always absent on the page and is no longer read. `row_notes` is kept exactly
+ * as before (untrimmed). A caller with no rows gets the row's `row_notes` only.
  */
-export function rowOwnNotes(row: PricedRow): string[] {
+export function rowOwnNotes(row: PricedRow, rows: readonly PricedRow[] = []): string[] {
   const out: string[] = [];
   const rn = (row as { row_notes?: unknown }).row_notes;
   if (typeof rn === "string" && rn.trim() !== "") out.push(rn);
-  const att = (row as { attached_notes?: unknown }).attached_notes;
-  if (Array.isArray(att)) for (const a of att) if (typeof a === "string" && a.trim() !== "") out.push(a);
+  const notes = rows
+    .filter((r) => r !== row && (r as { effective_classification?: unknown }).effective_classification === NOTE_CLASSIFICATION && r.effective_parent_index === row.row_index)
+    .sort((a, b) => a.row_index - b.row_index);
+  for (const n of notes) if (typeof n.description === "string" && n.description.trim() !== "") out.push(n.description.trim());
   return out;
 }
 
