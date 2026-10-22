@@ -157,6 +157,7 @@ class TestDecidingAWorkOrderInvoice(_AsRoleCase):
 
 EDIT_REFUSAL = "Only Admin and Accountants can edit a Work Order invoice."
 APPROVED_REFUSAL = "Only an Admin can change the amount, number or date of an approved Work Order invoice."
+APPROVED_MOVE_REFUSAL = "An approved Work Order invoice is only rejected"
 
 
 class TestEditingAWorkOrderInvoice(_AsRoleCase):
@@ -245,6 +246,21 @@ class TestEditingAWorkOrderInvoice(_AsRoleCase):
         self.assertEqual(res["status"], 200, res)
         self.assertEqual(self._status(name), "Approved")
         self.assertEqual(self._invoiced(self.wo_gst_on), (5_900, 900))
+
+    def test_an_accountant_cannot_take_an_approved_one_back_to_pending(self):
+        """Back to Pending, edit, approve again would skip the Admin-only rule: only rejecting moves it."""
+        name = self._approved(self.wo_gst_on)
+        doc = frappe.get_doc("Vendor Invoices", name)
+        doc.status = "Pending"
+        with self.assertRaises(frappe.ValidationError) as refused:
+            self._as(ACCOUNTANT, doc.save, ignore_permissions=True)
+        self.assertIn(APPROVED_MOVE_REFUSAL, str(refused.exception))
+        self.assertEqual(self._status(name), "Approved")
+
+        doc = frappe.get_doc("Vendor Invoices", name)
+        doc.status = "Pending"
+        self._as(ADMIN, doc.save, ignore_permissions=True)
+        self.assertEqual(self._status(name), "Pending")
 
     # ------------------------------------------------------------------ Desk
 

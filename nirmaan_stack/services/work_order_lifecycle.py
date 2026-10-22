@@ -32,6 +32,9 @@ starts an amendment (Approved -> Amendment), changes a Work Order under amendmen
 No amendment save may lower the total below Amount Paid or the approved invoices, nor leave a vendor
 other than the one before the amendment once a payment (not Rejected) or an invoice exists, nor swap in
 a vendor on GST Hold. A Work Order under amendment takes no new payment (`payment_request_problem`).
+So those rules can't be skipped, an Approved Work Order moves only into Amendment, and its own save
+keeps its scope (`SCOPE_FIELDS`: vendor, items, categories, total); a Desk edit of a paid Approved Work
+Order, or a move back to Vendor Selected and a fresh approval, is refused (`_approved_problem`).
 
 Pure: the caller resolves who the user is (`services/role_profiles.can_decide_work_order`), which
 server action is saving, and, for an amendment save, the payments, invoices and vendor facts
@@ -86,7 +89,14 @@ VENDOR_CHANGE_REFUSAL = (
 
 GST_HOLD_AMEND_REFUSAL = "An amendment can't make a vendor on GST Hold this Work Order's vendor."
 
-UNDER_AMENDMENT_PAYMENT_REFUSAL = "A payment can't be requested on a Work Order under amendment."
+APPROVED_SCOPE_REFUSAL = (
+    "An Approved Work Order's vendor, items, categories and total change only through Amend, so the "
+    "amendment rules and an approver see the change."
+)
+
+LEAVE_APPROVED_REFUSAL = "An Approved Work Order can only be amended; it can't go back to"
+
+UNDER_AMENDMENT_PAYMENT_REFUSAL ="A payment can't be requested on a Work Order under amendment."
 
 #: A payment at one of these statuses is settled; any other is money in flight.
 SETTLED_PAYMENT_STATUSES = ("Paid", "Rejected")
@@ -122,6 +132,12 @@ LOCKED_FIELDS = (
     "service_category_list",
     "total_amount",
 )
+
+#: What an Approved Work Order's own save may not change: its scope moves only through Amend (`APPROVED -> AMENDMENT`).
+SCOPE_FIELDS = ("vendor", "work_order_items", "service_order_list", "service_category_list", "total_amount")
+
+#: The statuses an Approved Work Order's save may leave it at.
+APPROVED_NEXT_STATUSES = (APPROVED, AMENDMENT)
 
 CHILD_TABLES = frozenset(("work_order_items",))
 
@@ -197,8 +213,23 @@ def change_problem(
         return FINALIZE_FLAG_REFUSAL
     if is_finalized(before) and _locked_changes(before, after, gst_from_vendor=gst_from_vendor):
         return FINALIZED_REFUSAL
+    if before_status == APPROVED:
+        problem = _approved_problem(before, after)
+        if problem:
+            return problem
     if is_amendment_save(before, after):
         return _amendment_problem(before, after, amendment or AmendmentFacts())
+    return None
+
+
+def _approved_problem(before, after) -> str | None:
+    """An Approved Work Order moves only into Amendment, and its own save keeps its scope: otherwise a
+    Desk edit, or a move back to Vendor Selected and a fresh approval, would skip the amendment rules."""
+    after_status = after.get("status")
+    if after_status not in APPROVED_NEXT_STATUSES:
+        return f"{LEAVE_APPROVED_REFUSAL} {after_status}."
+    if after_status == APPROVED and _changed(before, after, SCOPE_FIELDS):
+        return APPROVED_SCOPE_REFUSAL
     return None
 
 
@@ -254,7 +285,10 @@ def delete_problem(doc) -> str | None:
 
 
 def _locked_changes(before, after, *, gst_from_vendor: bool) -> list[str]:
-    fields = [f for f in LOCKED_FIELDS if not (f == "gst" and gst_from_vendor)]
+    return _changed(before, after, [f for f in LOCKED_FIELDS if not (f == "gst" and gst_from_vendor)])
+
+
+def _changed(before, after, fields) -> list[str]:
     return [f for f in fields if _comparable_field(before, f) != _comparable_field(after, f)]
 
 

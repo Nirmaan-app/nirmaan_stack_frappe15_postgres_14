@@ -27,6 +27,7 @@ from nirmaan_stack.services.role_profiles import can_edit_wo_invoice, is_nirmaan
 from nirmaan_stack.services.work_order_gst import gst_is_on
 from nirmaan_stack.services.work_order_invoice_access import (
     EDIT_REFUSAL,
+    GENERATED_EDIT_REFUSAL,
     WorkOrderInvoiceRefused,
     is_work_order_invoice,
 )
@@ -125,6 +126,10 @@ def update_invoice_data(
         )
         if is_work_order_invoice(stored) and not can_edit_wo_invoice(frappe.session.user):
             frappe.throw(EDIT_REFUSAL, WorkOrderInvoiceRefused)
+        # A generated invoice's signed upload is never edited, by anyone (#1547, story 87): not its
+        # figures (the validate hook's rule too) and not its scan, which this dialog would swap.
+        if is_work_order_invoice(stored) and generated_invoice_of(invoice_id):
+            frappe.throw(GENERATED_EDIT_REFUSAL, WorkOrderInvoiceRefused)
 
         # Hard-block future-dated invoices, on create and edit — a future invoice
         # date is never legitimate on either document type.

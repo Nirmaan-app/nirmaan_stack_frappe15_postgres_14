@@ -69,18 +69,23 @@ class TestADeskAmountEdit(EditSafetyCase):
         self.wo = self.fx.service_request(self.project, self.vendor, total=118000, gst=True, amount_invoiced=118000)
         self.accountant = self._user(ACCOUNTANT_PROFILE)
 
+    def _small_wo(self):
+        """Base 40,000 + GST: a raise to its limit stays within the L1 limit, which an Accountant may
+        make; a raise past ₹50,000 needs the CEO (`payment_steps.raise_step_needed`)."""
+        return self.fx.service_request(self.project, self.vendor, total=47200, gst=True, amount_invoiced=47200)
+
     def test_a_raise_above_base_left_is_refused(self):
-        pay = self._plant_on(self.wo, 50000, "Approved")
+        pay = self._plant_on(self._small_wo(), 20000, "Approved")
         with self.assertRaisesRegex(
-            frappe.ValidationError, r"Maximum amount you can raise this payment to is ₹ ?1,00,000.00 \(Base left\)"
+            frappe.ValidationError, r"Maximum amount you can raise this payment to is ₹ ?40,000.00 \(Base left\)"
         ):
-            self._edit_amount_as(self.accountant, pay, 100011)
-        self.assertEqual(self._amount(pay), 50000.0)
+            self._edit_amount_as(self.accountant, pay, 40011)
+        self.assertEqual(self._amount(pay), 20000.0)
 
     def test_a_raise_within_the_tolerance_is_saved(self):
-        pay = self._plant_on(self.wo, 50000, "Approved")
-        self._edit_amount_as(self.accountant, pay, 100010)
-        self.assertEqual(self._amount(pay), 100010.0)
+        pay = self._plant_on(self._small_wo(), 20000, "Approved")
+        self._edit_amount_as(self.accountant, pay, 40010)
+        self.assertEqual(self._amount(pay), 40010.0)
 
     def test_the_other_payments_on_the_order_count(self):
         self._plant_on(self.wo, 60000, "Paid")

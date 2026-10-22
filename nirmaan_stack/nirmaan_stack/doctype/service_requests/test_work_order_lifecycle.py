@@ -343,3 +343,34 @@ class TestRemarksAndItemsNeedReadAccess(_AsRoleCase):
         # The user is on one project only, so every Work Order returned is on it.
         projects = set(frappe.get_all(SR, filters={"name": ("in", list(everything))}, pluck="project"))
         self.assertEqual(projects, {self.other_project})
+
+    def _comment(self, reference_doctype, reference_name):
+        doc = frappe.get_doc({
+            "doctype": "Nirmaan Comments", "reference_doctype": reference_doctype,
+            "reference_name": reference_name, "content": f"note {frappe.generate_hash(length=6)}",
+            "subject": "admin_remark",
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(self._drop_comment, doc.name)
+        return doc.name
+
+    @staticmethod
+    def _drop_comment(name):
+        frappe.db.rollback()
+        frappe.db.delete("Nirmaan Comments", {"name": name})
+        frappe.db.commit()
+
+    def test_the_rest_api_hides_remarks_of_a_work_order_the_user_cannot_read(self):
+        """The screens read remarks through /api/resource, so the doctype itself is scoped, not only the
+        endpoints: a list and a single read both need read access on the Work Order."""
+        hidden, mine = self._comment(SR, self.wo), self._comment(SR, self.other_wo)
+        listed = self._as(self.pm, frappe.get_list, "Nirmaan Comments",
+                          filters={"name": ("in", [hidden, mine])}, pluck="name")
+        self.assertEqual(listed, [mine])
+        self.assertFalse(self._as(self.pm, frappe.has_permission, "Nirmaan Comments", "read", doc=hidden))
+        self.assertTrue(self._as(self.pm, frappe.has_permission, "Nirmaan Comments", "read", doc=mine))
+
+    def test_remarks_on_other_doctypes_are_left_as_they_were(self):
+        other = self._comment("Projects", self.project)
+        self.assertEqual(self._as(self.pm, frappe.get_list, "Nirmaan Comments",
+                                  filters={"name": other}, pluck="name"), [other])

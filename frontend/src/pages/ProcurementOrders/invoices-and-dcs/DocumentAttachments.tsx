@@ -110,6 +110,11 @@ export const DocumentAttachments = <T extends DocumentType>({
     mutate: mutateGenerated,
   } = useGeneratedInvoices(isWorkOrder && docName ? docName : null);
   const generatedInvoices = generatedState?.invoices ?? [];
+  // A signed upload's Vendor Invoice carries what the vendor signed: never edited (#1547, story 87).
+  const signedUploadInvoices = useMemo(
+    () => new Set(generatedInvoices.map((g) => g.vendor_invoice).filter(Boolean)),
+    [generatedInvoices]
+  );
   const [isGenerateDialogOpen, setIsGenerateDialogOpen] = useState(false);
   // The generated invoice open in the in-app preview, or null.
   const [invoicePreview, setInvoicePreview] = useState<GeneratedInvoice | null>(null);
@@ -330,6 +335,11 @@ export const DocumentAttachments = <T extends DocumentType>({
     toggleEditInvoiceDialog();
   }, [setSelectedInvoice, toggleEditInvoiceDialog]);
 
+  const canEditInvoice = useCallback(
+    (item: VendorInvoice): boolean => !signedUploadInvoices.has(item.name),
+    [signedUploadInvoices]
+  );
+
   const canDeleteInvoice = useCallback((item: VendorInvoice): boolean => {
     // Admins can delete any invoice, including Approved ones.
     if (isAdmin) return true;
@@ -548,6 +558,7 @@ export const DocumentAttachments = <T extends DocumentType>({
                 items={vendorInvoices} // Use Vendor Invoices instead of JSON data
                 onViewAttachment={handleViewInvoiceAttachment}
                 onEditEntry={isAccountant ? handleEditInvoice : undefined}
+                canEditEntry={canEditInvoice}
                 onDeleteEntry={handleDeleteInvoiceEntry}
                 isLoading={deleteInvoiceEntryLoading}
                 canDeleteEntry={canDeleteInvoice}

@@ -267,3 +267,25 @@ class TestCorrectingADeductionBeforeAChallan(DepositedTaxCase):
 		self.assertEqual(after.amount_paid, 10100)
 		self.assertEqual(after.total_tds, 300)
 		self.assertEqual(after.amount_due, after.total_amount - 10100)
+
+
+class TestADeductionMadeInDesk(DepositedTaxCase):
+	def test_it_cannot_be_born_in_a_challan_or_paid(self):
+		"""Only Pay TDS links a challan and marks tax Paid: it checks the payment is Paid and the balance."""
+		made = self._approved()
+		challan = self._empty_challan()
+		row = frappe.db.get_value(PTD, made.deduction, ["project_payment", "document_type", "document_name",
+														"vendor", "project", "gross_amount", "tds_percentage",
+														"tds_amount"], as_dict=True)
+		# The payment's own deduction is gone (as after a reject), so a hand-made one is the only one.
+		frappe.db.delete(PTD, {"name": made.deduction})
+		frappe.db.commit()
+		for extra in ({"tds_challan": challan}, {"status": "Paid"}):
+			with self.subTest(extra=extra):
+				def insert():
+					frappe.get_doc({"doctype": PTD, **row, **extra}).insert()
+				with self.assertRaisesRegex(frappe.ValidationError, "set by Pay TDS"):
+					self._as_accountant(insert)
+				frappe.db.rollback()
+		self.assertEqual(frappe.db.count(PTD, {"project_payment": row.project_payment}), 0)
+		self.assertEqual(self._reconciled(challan), 0)

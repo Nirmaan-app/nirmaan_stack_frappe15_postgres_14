@@ -499,6 +499,61 @@ class TestSignedUpload(SignedUploadTestCase):
 		self.assertEqual(self._as(procurement, upload_signed_copy, second, SCAN)["status"], "Signed")
 
 
+class TestTheUploadsVendorInvoiceIsFixed(SignedUploadTestCase):
+	"""The Vendor Invoice a signed upload creates carries the number and amount the vendor signed: nobody
+	edits them, Admin included, and once rejected it stays rejected (its generated invoice is Voided)."""
+
+	def _desk_save(self, user, vi, **changes):
+		doc = frappe.get_doc("Vendor Invoices", vi)
+		doc.update(changes)
+		self._as(user, doc.save, ignore_permissions=True)
+
+	def test_its_amount_number_and_date_are_never_changed(self):
+		vi = self._vi(self._uploaded(self._wo(paid=60_000), 10_000))
+		accountant = self._on_project(self._user(ACCOUNTANT))
+		for user in (accountant, U):
+			for changes in ({"invoice_amount": 9_000, "invoice_base_amount": 9_000}, {"invoice_no": "NEW-NO"},
+							{"invoice_date": "2026-01-01"}):
+				with self.subTest(user=user, changes=changes):
+					with self.assertRaisesRegex(frappe.ValidationError, "signed copy of a generated invoice"):
+						self._desk_save(user, vi, **changes)
+		self.assertEqual(flt(self._invoice(vi).invoice_amount), 10_000)
+
+	def test_the_edit_dialog_is_refused_even_unchanged_so_the_signed_scan_stays(self):
+		import json
+		from nirmaan_stack.api.delivery_notes.update_invoice_data import update_invoice_data
+		wo = self._wo(paid=60_000)
+		vi = self._vi(self._uploaded(wo, 10_000))
+		row = self._invoice(vi)
+		res = update_invoice_data(docname=wo, isSR=True, invoice_id=vi, invoice_attachment="/private/files/other.pdf",
+								  invoice_data=json.dumps({"invoice_no": row.invoice_no, "date": str(row.invoice_date),
+														   "amount": 10_000, "base_amount": 10_000, "gst_amount": 0}))
+		self.assertEqual(res["status"], 400, res)
+		self.assertIn("signed copy of a generated invoice", res["message"])
+		self.assertEqual(frappe.db.get_value("Nirmaan Attachments", row.invoice_attachment, "attachment"), SCAN)
+
+	def test_a_rejected_one_stays_rejected(self):
+		wo = self._wo(paid=60_000)
+		name = self._uploaded(wo, 10_000)
+		vi = self._vi(name)
+		approve_vendor_invoice(vi, "Rejected", "Signature missing")
+		for status in ("Pending", "Approved"):
+			with self.subTest(status=status):
+				with self.assertRaisesRegex(frappe.ValidationError, "Voided"):
+					self._desk_save(U, vi, status=status)
+		self.assertEqual((self._invoice(vi).status, self._stored(name).status), ("Rejected", "Voided"))
+
+	def test_the_upload_is_refused_once_the_work_order_is_gst_on(self):
+		wo = self._wo(paid=60_000)
+		name = self._ra(wo, 1_000)["name"]
+		frappe.db.set_value(SR, wo, "gst", "true")
+		frappe.db.commit()
+		with self.assertRaisesRegex(frappe.ValidationError, "GST-off"):
+			upload_signed_copy(name, SCAN)
+		self.assertEqual(self._stored(name).status, "Generated")
+		self.assertEqual(frappe.db.count("Vendor Invoices", {"document_name": wo}), 0)
+
+
 class TestApprovalMovesIt(SignedUploadTestCase):
 	def _decide(self, name, action, reason=None):
 		"""Decide its Vendor Invoice the normal way, as an Accountant on the project."""

@@ -30,9 +30,12 @@ from nirmaan_stack.nirmaan_stack.doctype.service_requests.test_work_order_lifecy
     USERS,
     _AsRoleCase,
 )
+from nirmaan_stack.integrations.controllers.nirmaan_versions import SNAPSHOT_KEPT_REFUSAL
 from nirmaan_stack.services.work_order_lifecycle import (
     AMEND_PAYMENTS_REFUSAL,
+    APPROVED_SCOPE_REFUSAL,
     GST_HOLD_AMEND_REFUSAL,
+    LEAVE_APPROVED_REFUSAL,
     TOTAL_BELOW_REFUSAL,
     UNDER_AMENDMENT_PAYMENT_REFUSAL,
     VENDOR_CHANGE_REFUSAL,
@@ -244,3 +247,81 @@ class TestTheDecision(_AmendmentCase):
         self._as(self.approver, revert_amendment, self.wo)
         self.assertEqual(self._snapshots(), ["Accepted", "Reverted"])
         self.assertEqual(flt(frappe.db.get_value(SR, self.wo, "total_amount")), 120_000)
+
+
+class TestScopeChangesOnlyThroughAmend(_AmendmentCase):
+    """An Approved Work Order's vendor, items, categories and total change only through Amend, and it never
+    goes back to an earlier status, where a change and a fresh approval would skip the amendment rules."""
+
+    def test_a_desk_save_that_changes_an_approved_work_orders_scope_is_refused(self):
+        frappe.db.set_value(SR, self.wo, "amount_paid", 60_000)
+        frappe.db.commit()
+        other = self.fx.vendor()
+        frappe.db.commit()
+
+        def new_rate(doc):
+            doc.work_order_items[0].rate = 10_000
+
+        def new_vendor(doc):
+            doc.vendor = other
+
+        def new_categories(doc):
+            doc.service_category_list = {"list": [{"name": "Painting"}]}
+
+        for change in (new_rate, new_vendor, new_categories):
+            with self.subTest(change=change.__name__):
+                def save():
+                    doc = frappe.get_doc(SR, self.wo)
+                    change(doc)
+                    doc.save()
+                self.assertRefused(lambda: self._as(USERS[ADMIN], save), APPROVED_SCOPE_REFUSAL)
+        doc = frappe.get_doc(SR, self.wo)
+        self.assertEqual((doc.status, doc.vendor, flt(doc.work_order_items[0].rate)),
+                         ("Approved", self.vendor, 100_000))
+
+    def test_an_approved_work_order_does_not_go_back_to_an_earlier_status(self):
+        for status in ("Vendor Selected", "Rejected", "Created"):
+            with self.subTest(status=status):
+                self.assertRefused(lambda: self._save(USERS[ADMIN], self.wo, status=status), LEAVE_APPROVED_REFUSAL)
+                self.assertEqual(self._status(self.wo), "Approved")
+
+    def test_terms_and_nirmaan_gst_stay_editable(self):
+        self._save(USERS[PROJECT_MANAGER], self.wo, notes={"list": ["New terms"]}, project_gst=OTHER_NIRMAAN_GST)
+        self.assertEqual(frappe.db.get_value(SR, self.wo, "project_gst"), OTHER_NIRMAAN_GST)
+
+    def test_a_vendor_on_gst_hold_cannot_be_put_on_any_existing_work_order(self):
+        held = self.fx.vendor(held=1)
+        frappe.db.commit()
+        for status in ("Vendor Selected", "Rejected"):
+            with self.subTest(status=status):
+                wo = self._wo(status)
+                self.assertRefused(lambda: self._save(USERS[ADMIN], wo, vendor=held), "GST Hold")
+                self.assertEqual(frappe.db.get_value(SR, wo, "vendor"), self.vendor)
+
+
+class TestTheSnapshotIsKept(_AmendmentCase):
+    """An amendment snapshot is the audit record of what was amended (story 25): REST and Desk can't delete
+    or change it; only the server marks its outcome."""
+
+    def _snapshot(self):
+        return frappe.get_all("Nirmaan Versions", {"ref_doctype": SR, "docname": self.wo}, pluck="name")[0]
+
+    def test_it_cannot_be_deleted_or_changed_by_anyone(self):
+        self._amend(rate=120_000)
+        snapshot = self._snapshot()
+        for user in (USERS[ADMIN], "Administrator"):
+            with self.subTest(user=user):
+                self.assertRefused(lambda: self._as(user, frappe.delete_doc, "Nirmaan Versions", snapshot),
+                                   SNAPSHOT_KEPT_REFUSAL)
+                for changes in ({"data": "{}"}, {"outcome": "Accepted"}, {"new_state": "Approved"}):
+                    def save():
+                        doc = frappe.get_doc("Nirmaan Versions", snapshot)
+                        doc.update(changes)
+                        doc.save(ignore_permissions=True)
+                    self.assertRefused(lambda: self._as(user, save), SNAPSHOT_KEPT_REFUSAL)
+        self.assertEqual(self._snapshots(), [None])
+
+    def test_the_decision_still_marks_it(self):
+        self._amend(rate=120_000)
+        self._accept()
+        self.assertEqual(self._snapshots(), ["Accepted"])

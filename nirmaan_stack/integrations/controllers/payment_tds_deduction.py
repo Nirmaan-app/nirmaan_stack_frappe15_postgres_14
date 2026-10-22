@@ -49,6 +49,7 @@ LOCKED_FIELDS = (
 
 def validate(doc, method=None):
 	if doc.is_new():
+		refuse_born_in_a_challan(doc)
 		return
 	before = doc.get_doc_before_save()
 	if not before:
@@ -77,6 +78,14 @@ def refuse_change_if_deposited(doc, before):
 			f"{challan_label(before.tds_challan)}.",
 			title="TDS already deposited",
 		)
+
+
+def refuse_born_in_a_challan(doc):
+	"""A new deduction starts Pending, in no challan: one made in Desk with either filled would count as
+	deposited tax that Pay TDS never checked (the payment Paid, the challan's balance) or counted."""
+	if doc.get("tds_challan") or cstr(doc.get("status") or PENDING) != PENDING:
+		frappe.throw(f"A new deduction starts {PENDING}, in no challan: the challan and status are set by Pay TDS, "
+					 "not by hand.")
 
 
 def refuse_hand_written_challan(doc, before):

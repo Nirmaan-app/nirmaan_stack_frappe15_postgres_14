@@ -129,7 +129,8 @@ figure — the company pays the tax on top:
   The register still lists an Approved payment's deduction as Pending, and selecting it is refused.
 - **A deduction is locked once in a challan, correctable before** (`controllers/payment_tds_deduction`):
   `validate` refuses any change to a row with `tds_challan` and any hand-written `status` /
-  `tds_challan` (only Pay TDS writes those, by `set_value`); `on_trash` refuses deleting a deposited
+  `tds_challan` (only Pay TDS writes those, by `set_value`), a new row included: a deduction is born
+  Pending, in no challan; `on_trash` refuses deleting a deposited
   row; `on_update` (a correction, never an insert) recounts the order of a Paid payment and re-checks
   CEO Hold, as `after_delete` does. A correction leaves the payment's amount alone.
 - So no path removes a deduction from a challan, and `reconciled_amount` moves only when Pay TDS pays.

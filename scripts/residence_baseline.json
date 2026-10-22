@@ -5,7 +5,7 @@
     "rule": "B1"
   },
   "b2_predicate_literal_scatter": {
-    "count": 8,
+    "count": 7,
     "description": "Files hardcoding the \"Vendor Selected\" state literal instead of importing the shared predicate.",
     "rule": "B2"
   },

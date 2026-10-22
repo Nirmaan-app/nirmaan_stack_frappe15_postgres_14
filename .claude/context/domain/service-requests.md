@@ -24,6 +24,10 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   (`order_payments.skips_invoice_check`, via `approval_raiser.raiser_level`); split leftovers and adjustments
   skip it with the limit. The same check refuses a negative WO payment for everyone (refunds are Vendor
   Refunds). `get_payment_summary` returns it as `limit.invoice_check` with `skipped` for the viewer.
+- **A WO's remarks are readable only by users who may read that WO** (story 4): the endpoints check it
+  (`api/sr_remarks.assert_can_read_work_order`), and the Nirmaan Comments `has_permission` and
+  `permission_query_conditions` hooks (`controllers/nirmaan_comments`) scope the doctype itself, because the
+  screens read remarks through `/api/resource`. Remarks on other doctypes are left to the role rows.
 - **Who may decide or edit a WO invoice is checked on the server (#1531, ADR-0014 Amendment A).** Approve or
   reject: the invoice-approval roles; edit number, date or amounts: Accountants and Admin; once *Approved*, only
   Admin may change them, and anyone else rejects it (an Approved WO invoice may be rejected) and uploads it
@@ -32,7 +36,11 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   `services/work_order_invoice_access.change_problem`, applied by the Vendor Invoices `validate` hook
   (`controllers/vendor_invoices.guard_work_order_invoice`), so Desk and REST obey it. Any new path that writes
   a WO Vendor Invoice (the generated-invoice upload, #1547) runs as the session user and passes through it.
-  PO invoices keep their old rules.
+  An Approved WO invoice moves only to Rejected for anyone but Admin (back to Pending, edit, approve again would
+  skip the Admin-only rule). The Vendor Invoice a generated invoice's signed upload created is fixed for
+  everyone, Admin included: no change to number, date or amounts, no Edit dialog (`update_invoice_data` refuses
+  it whole, so the signed scan is not swapped), and once Rejected it stays Rejected. PO invoices keep their old
+  rules.
 - **A generated invoice is a record, numbered and limited by the server, never edited (#1546, GLOSSARY
   *Generated invoice*, *RA number*).** Doctype `WO Generated Invoice`, named `WGI-<WO>-<RA number>` (so the pair
   is unique in the primary key). Made only by `api/service_requests/generated_invoices.generate_invoice`
@@ -51,7 +59,7 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
 - **A generated invoice's signed upload is its one Vendor Invoice, and that invoice's decision moves it (#1547).**
   `generated_invoices.upload_signed_copy`, under `_billing_lock`, makes the scan's Nirmaan Attachments row and a
   *Pending* Vendor Invoice (the record's number, date and amount; base = amount, GST = 0; no auto-approval) and
-  moves the record to *Signed* in one commit; only a *Generated* record is uploaded. Accountants who can see the
+  moves the record to *Signed* in one commit; only a *Generated* record is uploaded, and only while the WO is still GST-off (a WO turned GST-on keeps its records, but books no zero-GST invoice). Accountants who can see the
   project (a Projects User Permission on it, or none at all, as most have) get a `wo_invoice:signed_uploaded`
   notification after the commit; `pr_notifications.get_allowed_accountants` would miss the unrestricted ones. The Vendor Invoices `on_update` hook
   `controllers/vendor_invoices.follow_generated_invoice` moves the record (approved: *Approved*; rejected, even
@@ -110,10 +118,14 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   total from before the amendment; a save that does not lower it is never refused, so a revert passes); the
   vendor stays the one before the amendment (`work_order_amendment.vendor_before_amendment`) once a payment
   not Rejected, a Vendor Invoice not Rejected or a WO Generated Invoice not Voided exists; a vendor on GST Hold
-  is not swapped in. A new payment on a WO in Amendment is refused on insert
+  is not swapped in. So none of that can be skipped, an Approved WO moves only into Amendment (never back to
+  Vendor Selected, Rejected or Created) and its own save keeps its scope (`work_order_lifecycle.SCOPE_FIELDS`:
+  vendor, items, categories, total). GST Hold is checked on every vendor change of an existing WO
+  (`controllers/service_requests.validate`), not only on a new one. A new payment on a WO in Amendment is refused on insert
   (`controllers/project_payments.refuse_while_work_order_under_amendment`, rule `payment_request_problem`).
   The snapshot (Nirmaan Versions, `new_state` Amendment, copied from the amend save's Version by
-  `controllers/nirmaan_versions`) is never deleted: the deciding save marks every undecided one with
+  `controllers/nirmaan_versions`) is never deleted or changed through the document layer, by anyone
+  (`nirmaan_versions.keep_amendment_snapshot`, validate + on_trash): the deciding save marks every undecided one with
   `outcome` Accepted or Reverted (`ServiceRequests.name_amendment_outcome` -> `flags.amendment_outcome`, then
   `work_order_amendment.mark_snapshots` in `on_update`). Revert is `api/service_requests/amendment.revert_amendment`
   (the user's own save, so the decide rule applies), which writes back items, vendor, categories and

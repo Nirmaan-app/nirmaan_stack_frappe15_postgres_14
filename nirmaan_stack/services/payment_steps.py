@@ -21,11 +21,17 @@ THE MOVES (`step_needed`)
     Approved -> Reconciliation Pending (Mark as Paid)       settle
     Approved / Reconciliation Pending -> Paid (fulfil)      settle
     Reconciliation Pending -> Approved (revert)             settle
+    Requested / Rejected -> Reconciliation Pending / Paid   the approval it skips: L1, or the CEO above
+                                                            the L1 limit
+    CEO Pending -> Reconciliation Pending / Paid            CEO (it skips the CEO's step)
     any other move                                          L1: an Admin's correction
+A raise (`raise_step_needed`) that takes a payment past its approval (Approved, Reconciliation Pending,
+Paid) from within the L1 limit to above it needs the CEO, unless the CEO approved it: else an Admin could
+approve ₹50,000 and edit it to ₹5,00,000 in Desk. PO and Work Order payments alike.
 A new payment (`born_step_needed`) may be born at Approved or CEO Pending only past the steps its raiser
-holds or its amount skips: the auto band and the raiser's own step (`approval_tiers`). A payment born at
-any other status is left as it was: Requested needs no one, and the direct Paid entry stays as it is
-(spec #1528, Out of Scope).
+holds or its amount skips: the auto band and the raiser's own step (`approval_tiers`). One born at
+Reconciliation Pending needs the settle roles. A payment born at any other status is left as it was:
+Requested needs no one, and the direct Paid entry stays as it is (spec #1528, Out of Scope).
 
 THE SYSTEM'S OWN MOVES (`SYSTEM_STEP_FLAGS`) are not a person choosing a step, and carry a flag only
 server code can set. Each caller checks its own user first.
@@ -78,6 +84,10 @@ SYSTEM_STEP_FLAGS = (
     DECIDING_FLAG,  # a cheque's decision moves every payment on it (`services/cheques/decide`)
 )
 
+#: Statuses before approval, and past it.
+_WAITING = (REQUESTED, REJECTED, CEO_PENDING)
+_PAST_APPROVAL = (APPROVED, RECONCILIATION_PENDING, PAID)
+
 _SETTLE_MOVES = {
     (APPROVED, RECONCILIATION_PENDING),
     (APPROVED, PAID),
@@ -107,7 +117,20 @@ def step_needed(was: str, now: str, amount) -> str | None:
         return STEP_CEO
     if (was, now) in _SETTLE_MOVES:
         return STEP_SETTLE
+    if was in _WAITING and now in _PAST_APPROVAL:
+        # Skips the approval: the step it skips is the one it needs.
+        return STEP_CEO if was == CEO_PENDING or needs_ceo(flt(amount)) else STEP_L1
     return STEP_L1
+
+
+def raise_step_needed(status: str, old_amount, new_amount, *, ceo_approved: bool) -> str | None:
+    """The CEO step a save that raises a payment past its approval from within the L1 limit to above it
+    needs, or None. `ceo_approved`: the payment carries the CEO's approval (`ceo_approval_date`)."""
+    if (status or "").strip() not in _PAST_APPROVAL or ceo_approved:
+        return None
+    if needs_ceo(flt(new_amount)) and not needs_ceo(flt(old_amount)):
+        return STEP_CEO
+    return None
 
 
 def born_step_needed(status: str, amount) -> str | None:
@@ -119,6 +142,8 @@ def born_step_needed(status: str, amount) -> str | None:
         return STEP_CEO if needs_ceo(flt(amount)) else STEP_L1
     if status == CEO_PENDING:
         return STEP_L1
+    if status == RECONCILIATION_PENDING:
+        return STEP_SETTLE
     return None
 
 
@@ -143,8 +168,18 @@ def refuse_step_out_of_tier(doc, user: str) -> None:
         if before is None:
             return
         was, step = before.status, step_needed(before.status, doc.status, doc.amount)
+        raise_step = raise_step_needed(doc.status, before.amount, doc.amount,
+                                       ceo_approved=bool(before.get("ceo_approval_date")))
+        if raise_step and not holds(user, raise_step):
+            frappe.throw(_raise_refusal(doc.status), PaymentStepRefused, title=_("Not allowed"))
     if step and not holds(user, step):
         frappe.throw(_refusal(was, doc.status, step), PaymentStepRefused, title=_("Not allowed"))
+
+
+def _raise_refusal(status: str) -> str:
+    return _("Only the CEO can raise a {0} payment above ₹{1}: the CEO never approved it at that amount.").format(
+        status, f"{int(TIER_L2_ABOVE):,}"
+    )
 
 
 def _refusal(was: str | None, now: str, step: str) -> str:

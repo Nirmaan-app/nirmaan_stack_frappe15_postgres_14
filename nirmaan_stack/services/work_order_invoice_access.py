@@ -8,7 +8,11 @@ requests and the GST payment limit, so its figures are controlled:
 
 * approving or rejecting it takes an invoice-approval role,
 * editing its number, date or amounts takes an Accountant or Admin,
-* once it is Approved, only an Admin may change them. Anyone else rejects it and uploads it again.
+* once it is Approved, only an Admin may change them, or move it anywhere but Rejected: anyone else
+  rejects it and uploads it again (a move back to Pending, an edit and a fresh approval would skip that),
+* the Vendor Invoice a generated invoice's signed upload created (#1547) carries what the vendor signed:
+  nobody changes its number, date or amounts, Admin included, and once Rejected (its generated invoice
+  Voided) it stays Rejected.
 
 Purchase Order invoices are untouched by every rule here. Uploading a new invoice is not narrowed.
 
@@ -39,6 +43,17 @@ _AMOUNT_FIELDS = {"invoice_amount", "invoice_base_amount", "invoice_gst_amount"}
 
 DECIDE_REFUSAL = "Only Admin and Accountants can approve or reject a Work Order invoice."
 EDIT_REFUSAL = "Only Admin and Accountants can edit a Work Order invoice."
+APPROVED_MOVE_REFUSAL = (
+    "An approved Work Order invoice is only rejected (with a reason), or corrected by an Admin."
+)
+GENERATED_EDIT_REFUSAL = (
+    "This invoice is the signed copy of a generated invoice: its number, date and amount are what the "
+    "vendor signed and can't be changed. Reject it and generate a new one."
+)
+GENERATED_REJECTED_REFUSAL = (
+    "This invoice was the signed copy of a generated invoice; rejecting it Voided that invoice, so it stays "
+    "Rejected. Generate a new one."
+)
 APPROVED_REFUSAL = (
     "Only an Admin can change the amount, number or date of an approved Work Order invoice. "
     "To correct it, reject it and upload it again."
@@ -68,12 +83,15 @@ def billed_fields_changed(before, after) -> bool:
     return any(_value(field, before.get(field)) != _value(field, after.get(field)) for field in BILLED_FIELDS)
 
 
-def change_problem(before, after, *, may_decide: bool, may_edit: bool, may_edit_approved: bool) -> str | None:
+def change_problem(
+    before, after, *, may_decide: bool, may_edit: bool, may_edit_approved: bool, generated: bool = False
+) -> str | None:
     """Why this user may not save `after` over `before` (None for a new invoice), or None when they may.
 
     `may_decide` / `may_edit` / `may_edit_approved` are the user's answers to the three role sets in
     `services/role_profiles` (WO_INVOICE_DECIDE_PROFILES, WO_INVOICE_EDIT_PROFILES,
-    WO_APPROVED_INVOICE_EDIT_PROFILES). Reconciliation, autofill and attachment fields pass freely.
+    WO_APPROVED_INVOICE_EDIT_PROFILES). `generated`: a generated invoice's signed upload created this
+    invoice. Reconciliation, autofill and attachment fields pass freely.
     """
     if not (is_work_order_invoice(after) or is_work_order_invoice(before)):
         return None
@@ -83,8 +101,17 @@ def change_problem(before, after, *, may_decide: bool, may_edit: bool, may_edit_
             return DECIDE_REFUSAL
         return None
 
-    if cstr(before.get("status")) != cstr(after.get("status")) and not may_decide:
+    status_before, status_after = cstr(before.get("status")), cstr(after.get("status"))
+    if generated:
+        if billed_fields_changed(before, after):
+            return GENERATED_EDIT_REFUSAL
+        if status_before == REJECTED and status_after != REJECTED:
+            return GENERATED_REJECTED_REFUSAL
+
+    if status_before != status_after and not may_decide:
         return DECIDE_REFUSAL
+    if status_before == APPROVED and status_after not in (APPROVED, REJECTED) and not may_edit_approved:
+        return APPROVED_MOVE_REFUSAL
 
     if billed_fields_changed(before, after):
         if not may_edit:

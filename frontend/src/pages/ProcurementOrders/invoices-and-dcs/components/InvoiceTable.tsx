@@ -24,6 +24,8 @@ interface InvoiceTableProps {
     onViewAttachment: (attachmentId: string | undefined) => void;
     /** Function called when the edit button is clicked */
     onEditEntry?: (item: VendorInvoice) => void;
+    /** Whether a specific entry offers Edit (default: every entry, when `onEditEntry` is set) */
+    canEditEntry?: (item: VendorInvoice) => boolean;
     /** Function called when the delete button is clicked */
     onDeleteEntry?: (invoiceId: string) => void;
     /** Loading state of the delete button */
@@ -59,6 +61,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
     items,
     onViewAttachment,
     onEditEntry,
+    canEditEntry,
     onDeleteEntry,
     isLoading,
     canDeleteEntry,
@@ -104,7 +107,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                             poItemsByRow={poItemsByRow}
                             poItemsById={poItemsById}
                             onViewAttachment={onViewAttachment}
-                            onEditEntry={onEditEntry}
+                            onEditEntry={onEditEntry && (canEditEntry?.(invoice) ?? true) ? onEditEntry : undefined}
                             onDeleteEntry={onDeleteEntry}
                             isLoading={isLoading}
                             showDeleteColumn={showDeleteColumn}

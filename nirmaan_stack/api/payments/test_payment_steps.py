@@ -252,6 +252,73 @@ class TestANewPayment(PaymentStepCase):
         self.assertFalse(frappe.db.exists(PAYMENT, {"document_name": self.sr}))
 
 
+class TestNoStepIsSkipped(PaymentStepCase):
+    """A move or an edit that would leave a payment past a step it never went through needs that step's
+    holder: the CEO for a payment above the L1 limit, settle roles for one born waiting for its bank line."""
+
+    def _po(self):
+        po = self.fx._name("PO")
+        frappe.db.sql(
+            """INSERT INTO "tabProcurement Orders" (name, creation, modified, modified_by, owner, docstatus,
+                   idx, project, vendor, amount_paid) VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 0)""",
+            (po, U, U, self.project, self.vendor),
+        )
+        self.addCleanup(TestTheSystemsOwnMoves._drop_po, po)
+        frappe.db.commit()
+        return po
+
+    def _raise_as(self, user, payment, amount):
+        def save():
+            doc = frappe.get_doc(PAYMENT, payment)
+            doc.amount = amount
+            doc.save()
+        self._as(user, save)
+
+    def test_an_admin_cannot_settle_a_payment_that_never_reached_the_ceo(self):
+        admin = self._user(ADMIN_PROFILE)
+        for was in ("Requested", "CEO Pending"):
+            for now in ("Paid", "Reconciliation Pending"):
+                with self.subTest(was=was, now=now):
+                    pay = self._plant(ABOVE_L1, was)
+                    self.assertRefused(admin, pay, now, f"Only the CEO can move a payment from {was} to {now}")
+
+    def test_an_accountant_cannot_settle_a_requested_payment(self):
+        pay = self._plant(WITHIN_L1, "Requested")
+        self.assertRefused(self._user(ACCOUNTANT_PROFILE), pay, "Paid",
+                           "Only an Admin can move a payment from Requested to Paid")
+
+    def test_raising_an_approved_payment_above_the_l1_limit_needs_the_ceo(self):
+        admin = self._user(ADMIN_PROFILE)
+        po = self._po()
+        for status in ("Approved", "Reconciliation Pending", "Paid"):
+            for parent in ((SR, self.sr), ("Procurement Orders", po)):
+                with self.subTest(status=status, parent=parent[0]):
+                    pay = self._plant(WITHIN_L1, status)
+                    frappe.db.set_value(PAYMENT, pay, {"document_type": parent[0], "document_name": parent[1]},
+                                        update_modified=False)
+                    frappe.db.commit()
+                    with self.assertRaisesRegex(frappe.ValidationError, "Only the CEO can raise"):
+                        self._raise_as(admin, pay, ABOVE_L1)
+                    self.assertEqual(flt(frappe.db.get_value(PAYMENT, pay, "amount")), WITHIN_L1)
+
+    def test_the_ceo_may_raise_it_and_a_raise_within_the_limit_passes(self):
+        pay = self._plant(WITHIN_L1, "Approved")
+        self._raise_as(self._user(ADMIN_PROFILE), pay, WITHIN_L1 + 5000)
+        self._raise_as(self._ceo(), pay, ABOVE_L1)
+        self.assertEqual(flt(frappe.db.get_value(PAYMENT, pay, "amount")), ABOVE_L1)
+
+    def test_a_payment_born_at_reconciliation_pending_needs_the_settle_roles(self):
+        def insert():
+            frappe.get_doc({"doctype": PAYMENT, "document_type": SR, "document_name": self.sr,
+                "project": self.project, "vendor": self.vendor, "amount": 10000,
+                "status": "Reconciliation Pending"}).insert()
+
+        with self.assertRaisesRegex(frappe.ValidationError,
+                                    "Only an Admin, Accountant or Accountant Lead can create a payment at Reconciliation Pending"):
+            self._as(self._user(PROCUREMENT_EXECUTIVE_PROFILE), insert)
+        self.assertFalse(frappe.db.exists(PAYMENT, {"document_name": self.sr}))
+
+
 class TestTheSystemsOwnMoves(PaymentStepCase):
     def test_an_approved_cheque_payment_moves_on_whoever_set_it_going(self):
         pay = self._plant(WITHIN_L1, "Approved")

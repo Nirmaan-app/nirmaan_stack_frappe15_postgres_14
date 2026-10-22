@@ -161,6 +161,11 @@ def upload_signed_copy(name: str, file_url: str) -> dict:
 		if doc.status != gi.GENERATED:
 			frappe.throw(_("A {0} invoice can't be uploaded. Generate a new one.").format(doc.status))
 		sr = frappe.get_doc(SR, work_order)
+		if not gst_is_explicitly_off(sr.gst):
+			# The WO turned GST-on after the generate (Match GST to vendor): the record is kept, but no
+			# zero-GST invoice is booked on it.
+			frappe.throw(_("{0} is no longer a GST-off Work Order, so this generated invoice can't be uploaded: "
+						   "a GST vendor sends their own tax invoice. Void it.").format(sr.name))
 		attachment = create_attachment_doc(sr, cstr(file_url).strip(), "sr invoice")
 		invoice = create_vendor_invoice(
 			parent_doc=sr,

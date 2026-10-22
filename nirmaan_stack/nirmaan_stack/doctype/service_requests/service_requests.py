@@ -7,7 +7,7 @@ from frappe.model.document import Document
 from frappe.model.naming import getseries
 
 from nirmaan_stack.services.work_order_amendment import ACCEPTED, mark_snapshots, vendor_before_amendment
-from nirmaan_stack.services.work_order_lifecycle import approval_record
+from nirmaan_stack.services.work_order_lifecycle import approval_record, is_approval
 from nirmaan_stack.services.work_order_gst import gst_flag_for_vendor, work_order_total
 
 
@@ -41,29 +41,32 @@ class ServiceRequests(Document):
 
 	def set_gst_from_vendor(self):
 		"""GST follows the vendor (ADR-0028 Amendment A): ON when the vendor has a GST number, OFF when
-		it doesn't. Set at first approval (Vendor Selected -> Approved) and when an amendment that
-		changed the vendor is accepted (Amendment -> Approved with a vendor other than the one before
-		the amendment). An amendment that kept the vendor, or a revert back to it, leaves the flag
-		alone: an old WO never changes by itself, only through Match GST to vendor.
+		it doesn't. Set by the save that approves the Work Order (`work_order_lifecycle.is_approval`:
+		from any status but Amendment, or inserted Approved) and when an amendment that changed the
+		vendor is accepted (Amendment -> Approved with a vendor other than the one before the
+		amendment). An amendment that kept the vendor, or a revert back to it, leaves the flag alone:
+		an old WO never changes by itself, only through Match GST to vendor.
 
 		`flags.gst_set_from_vendor` tells the lock in `integrations/controllers/service_requests` that
 		this change is the server's. `on_update` recomputes `total_amount`, so the 18% follows."""
 		old_doc = self.get_doc_before_save()
-		if not (old_doc and self.status == "Approved" and old_doc.status in ("Vendor Selected", "Amendment")):
-			return
-		if old_doc.status == "Amendment":
+		before_status = old_doc.status if old_doc else None
+		if before_status == "Amendment" and self.status == "Approved":
 			before = vendor_before_amendment(self.name, old_doc.vendor)
 			if before is None or before == self.vendor:
 				return
+		elif not is_approval(before_status, self.status):
+			return
 		vendor_gst = frappe.db.get_value("Vendors", self.vendor, "vendor_gst") if self.vendor else None
 		self.gst = gst_flag_for_vendor(vendor_gst)
 		self.flags.gst_set_from_vendor = True
 
 	def fill_project_gst_on_approval(self):
-		"""First approval fills a blank Nirmaan GST from the project, whoever approves (SPA, Desk, API),
-		so Finalize and the PDF are never blocked by it. A Nirmaan GST already chosen is kept."""
+		"""The approving save (`is_approval`) fills a blank Nirmaan GST from the project, whoever approves
+		(SPA, Desk, API), so Finalize and the PDF are never blocked by it. A Nirmaan GST already chosen
+		is kept."""
 		old_doc = self.get_doc_before_save()
-		if not (old_doc and old_doc.status == "Vendor Selected" and self.status == "Approved"):
+		if not is_approval(old_doc.status if old_doc else None, self.status):
 			return
 		if (self.project_gst or "").strip() or not self.project:
 			return
@@ -78,9 +81,7 @@ class ServiceRequests(Document):
 			# pre-approval list views (Approve WO etc.) show a non-zero value.
 			self.calculate_total_amount()
 			return
-		if old_doc.gst != self.gst or (
-			old_doc.status in ["Amendment", "Vendor Selected"] and self.status == "Approved"
-		):
+		if old_doc.gst != self.gst or (self.status == "Approved" and old_doc.status != "Approved"):
 			self.calculate_total_amount()
 
 	def calculate_total_amount(self):

@@ -139,12 +139,15 @@ has_permission = {
     # Billing (2026-10-03): Admin, PMO and billing profiles only, read included.
     "Project Billing Tracker": "nirmaan_stack.integrations.controllers.project_billing.has_permission",
     "Project Billing": "nirmaan_stack.integrations.controllers.project_billing.has_permission",
+    # A Work Order's remarks need read on that Work Order (spec #1528 story 4); other remarks as before.
+    "Nirmaan Comments": "nirmaan_stack.integrations.controllers.nirmaan_comments.has_permission",
 }
 
 permission_query_conditions = {
     "Non Project Inflows": "nirmaan_stack.integrations.controllers.non_project_inflows.get_permission_query_conditions",
     "Project Billing Tracker": "nirmaan_stack.integrations.controllers.project_billing.get_permission_query_conditions",
     "Project Billing": "nirmaan_stack.integrations.controllers.project_billing.get_permission_query_conditions",
+    "Nirmaan Comments": "nirmaan_stack.integrations.controllers.nirmaan_comments.get_permission_query_conditions",
 }
 
 # DocType Class
@@ -328,6 +331,11 @@ doc_events = {
         "after_insert": [
             "nirmaan_stack.integrations.controllers.nirmaan_versions.generate_sr_amend_version"
             ]
+    },
+    # A Work Order's amendment snapshot is kept, unchanged, as its audit record (spec #1528 story 25).
+    "Nirmaan Versions": {
+        "validate": "nirmaan_stack.integrations.controllers.nirmaan_versions.keep_amendment_snapshot",
+        "on_trash": "nirmaan_stack.integrations.controllers.nirmaan_versions.keep_amendment_snapshot",
     },
     "Service Requests": {
         "validate": [

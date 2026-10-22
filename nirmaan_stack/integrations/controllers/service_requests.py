@@ -84,19 +84,22 @@ def guard_delete(doc, method=None):
 
 
 def validate(doc, method):
-    """Tendering operational guard (Slice 5 / B5) + vendor GST Hold on a NEW Work Order;
-    the GST flag guard on an existing one.
+    """Tendering operational guard (Slice 5 / B5) on a NEW Work Order; vendor GST Hold on a new one and
+    on every vendor change of an existing one; the GST flag guards on an existing one.
 
-    Defense-in-depth backstop: refuse to create a Service Request (Work Order)
-    against a Tendering project stub, or for a vendor on GST Hold (ADR-0028).
-    Those two guard only NEW docs so edits to existing/legacy SRs are never blocked.
+    Defense-in-depth backstop: refuse to create a Service Request (Work Order) against a Tendering
+    project stub, or to give one to a vendor on GST Hold (ADR-0028). A held vendor's own existing Work
+    Orders stay editable: only a save that puts that vendor on one is refused.
     """
     if doc.is_new():
         validate_won(doc.project, "Service Request")
         validate_vendor_gst_hold(doc)
-    else:
-        validate_gst_flag_not_changed_by_hand(doc)
-        validate_gst_not_switched_off_with_gst_payments(doc)
+        return
+    old_doc = doc.get_doc_before_save()
+    if old_doc and (old_doc.vendor or None) != (doc.vendor or None):
+        validate_vendor_gst_hold(doc)
+    validate_gst_flag_not_changed_by_hand(doc)
+    validate_gst_not_switched_off_with_gst_payments(doc)
 
 
 def validate_gst_flag_not_changed_by_hand(doc):

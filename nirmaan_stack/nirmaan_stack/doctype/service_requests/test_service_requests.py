@@ -169,3 +169,46 @@ class TestGstFlagIsLocked(FrappeTestCase):
         wo = self.fx.work_order(self.project, self.fx.vendor(), 100_000, gst="true")
         sr = self._save(wo, project_gst="29ABFCS9095N1Z9")
         self.assertEqual((sr.gst, flt(sr.total_amount)), ("true", 118_000))
+
+
+class TestEveryApprovalSetsGstAndNirmaanGst(FrappeTestCase):
+    """Any save that approves a Work Order (`work_order_lifecycle.is_approval`) sets the GST flag from the
+    vendor, fills a blank Nirmaan GST and stamps the approval: from Rejected or Created too, and a Work
+    Order inserted already Approved through Desk or REST."""
+
+    def setUp(self):
+        super().setUp()
+        frappe.set_user(U)
+        self.fx = _Fixture()
+        self.addCleanup(self.fx.purge)
+        self.project = self.fx.project()
+        frappe.db.set_value("Projects", self.project, "project_gst", "29ABFCS9095N1Z9")
+        self.vendor = self.fx.vendor(gst_number="29AADCU7527Q1ZG")
+
+    def _stored(self, name):
+        return frappe.db.get_value(SR, name, ["gst", "project_gst", "approved_on", "total_amount"], as_dict=True)
+
+    def assertApprovedFromTheVendor(self, sr):
+        self.assertEqual((sr.gst, sr.project_gst, flt(sr.total_amount)), ("true", "29ABFCS9095N1Z9", 118_000))
+        self.assertIsNotNone(sr.approved_on)
+
+    def test_approving_from_rejected_or_created(self):
+        for status in ("Rejected", "Created"):
+            with self.subTest(status=status):
+                name = self.fx.work_order(self.project, self.vendor, 100_000, gst="false", status=status)
+                doc = frappe.get_doc(SR, name)
+                doc.status = "Approved"
+                with patch(NOTIFY_ON_UPDATE):
+                    doc.save()
+                self.assertApprovedFromTheVendor(self._stored(name))
+
+    def test_inserting_an_approved_work_order(self):
+        doc = frappe.get_doc({
+            "doctype": SR, "project": self.project, "vendor": self.vendor, "status": "Approved", "gst": "false",
+            "work_order_items": [{"item_name": "Test work", "category": "Test", "uom": "Nos",
+                                  "quantity": 1, "rate": 100_000}],
+        })
+        with patch(NOTIFY_ON_UPDATE):
+            doc.insert()
+        self.fx.srs.append(doc.name)
+        self.assertApprovedFromTheVendor(self._stored(doc.name))
