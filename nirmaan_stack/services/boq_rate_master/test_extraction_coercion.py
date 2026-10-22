@@ -2264,7 +2264,11 @@ class TestItemListSlice4(FrappeTestCase):
         # SLICE 9 INVERSION (owner A-1, superseding slice 4's three-field question): a BoQ writes a size as
         # ONE phrase, so the model is asked for it ONCE and code splits it into width / height / depth. The
         # negative half is kept below: the three old ids are GONE from what the model is asked.
-        self.assertEqual(text_defs, ["area_band", "dia_mm", "insulation_thickness_mm", "neck_mm",
+        # INVERTED at ADP-5b (HVAC v52, the CURRENT asset this reads; owner R1 2026-10-22: ADP is asked the item as written on a
+        # "none of these" row; standing authority for this slice: a pin of the ADP question on the current asset) by mechanical
+        # authority. BEFORE: `self.assertEqual(text_defs, ["area_band", "dia_mm", "insulation_thickness_mm", "neck_mm",
+        # "panel_ratio", "size_mm", "slot_count", "thickness_mm", "torque"])`
+        self.assertEqual(text_defs, ["area_band", "dia_mm", "insulation_thickness_mm", "item_as_written", "neck_mm",
                                      "panel_ratio", "size_mm", "slot_count", "thickness_mm", "torque"])
         for gone in ("face_w_mm", "face_h_mm", "depth_mm"):
             self.assertNotIn(gone, by_id, gone)
@@ -3525,7 +3529,8 @@ class TestSlice12d4cModelCall(FrappeTestCase):
         # INVERTED at ADP-3b (HVAC v49) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v48.json"`
         # INVERTED at ADP-4a (HVAC v50; owner PY-1, the current-asset pins) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v49.json"`
         # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v50.json"`
-        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v51.json"   # ADP-5a: v51 (BEFORE: v50, ADP-4a); ADP-4a: v50 (BEFORE: v49, ADP-3b); ADP-3b: v49 (BEFORE: v48, ADP-2); ADP-2: v48 (BEFORE: v47, ADP-1); ADP-1: v47 (BEFORE: v46, 12e-6c)
+        # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v51.json"`
+        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v52.json"   # ADP-5b: v52 (BEFORE: v51, ADP-5a)
         # 12e-4b: v38 (+ what a Piping row is asked, + Insulation's one key)
         # 12e-5b: v39 re-worded Insulation's item / cladding notes and added "Cladding as written (BoQ)" (owner R2-R4).
         # This class is the record of the v32 -> v33 mint, so on the NEW side Insulation is read from v38 -- the last
@@ -3534,6 +3539,14 @@ class TestSlice12d4cModelCall(FrappeTestCase):
         with open(_asset_path("rate_master_hvac_all_v38.json"), "r", encoding="utf-8") as fh:
             ins38 = next(c for c in json.load(fh)["category_configs"] if c["category_id"] == "hvac_insulation")
         cls.v33["category_configs"] = [ins38 if c["category_id"] == "hvac_insulation" else c for c in cls.v33["category_configs"]]
+        # ADP-5b: v52 is the first mint since v33 to change ADP's QUESTION (owner R1 `item_as_written`, the damper note's
+        # "(curved grille: with)"). On the NEW side ADP's model-facing definitions are read from v51 -- the last asset asking
+        # v33's ADP questions -- the same normalisation idiom, NAMED here; ADP's pricing stays the current asset's.
+        with open(_asset_path("rate_master_hvac_all_v51.json"), "r", encoding="utf-8") as fh:
+            adp51 = next(c for c in json.load(fh)["category_configs"] if c["category_id"] == "hvac_adp")
+        for c in cls.v33["category_configs"]:
+            if c["category_id"] == "hvac_adp":
+                c["list_spec"]["attribute_definitions"] = adp51["list_spec"]["attribute_definitions"]
 
     _cfgs = staticmethod(TestSlice12d1bModelCall._cfgs)
     _row = staticmethod(TestSlice12d1bModelCall._row)
