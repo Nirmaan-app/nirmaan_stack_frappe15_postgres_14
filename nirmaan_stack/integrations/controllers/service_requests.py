@@ -149,20 +149,6 @@ def amendment_facts(before, doc) -> AmendmentFacts:
     )
 
 
-ITEM_ROW_REFUSAL = (
-    "A Work Order's item rows are saved with the Work Order, never on their own: the Work Order's own rules "
-    "(the Approved scope, Finalize, amendments) must see the change."
-)
-
-
-def refuse_saving_an_item_row_alone(doc, method=None):
-    """`Work Order Items` `validate`: only a row's own save runs it (a parent's save writes its rows without
-    their hooks), and that is the REST child-row PUT (`frappe/api/v1.update_doc`). It would save the row,
-    then the parent with the edit already in its before-image, past every lock (review round 3, V6). No app
-    code saves a row alone; patches write rows by SQL."""
-    frappe.throw(_(ITEM_ROW_REFUSAL), WorkOrderChangeRefused, title=_("Not allowed"))
-
-
 def guard_delete(doc, method=None):
     """Refuse deleting a Finalized Work Order (#1539). First in `on_trash`, so nothing is cleared before it."""
     problem = delete_problem(doc)

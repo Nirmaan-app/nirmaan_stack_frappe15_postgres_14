@@ -339,3 +339,129 @@ class TestNoBackDoorPastTheSteps(EditSafetyCase):
                 with self.assertRaisesRegex(frappe.ValidationError, "stays on its order"):
                     self._save_as(accountant, pay, document_name=other)
                 self.assertEqual(frappe.db.get_value(PAYMENT, pay, "document_name"), self.sr)
+
+
+class TestTheEndStateHolds(EditSafetyCase):
+    """Review round 4 (stories 5, 18, 19, 22, 38): the rules hold for the state a payment ends in, however
+    many saves reach it."""
+
+    def _save_as(self, user, payment, **changes):
+        def save():
+            doc = frappe.get_doc(PAYMENT, payment)
+            doc.update(changes)
+            doc.save()
+        self._as(user, save)
+
+    def _wo(self, total=100000):
+        return self.fx.service_request(self.project, self.vendor, total=total, amount_invoiced=total)
+
+    # X1 ------------------------------------------------------------------------------------------
+    def test_a_payment_past_requested_keeps_its_vendor(self):
+        other = self.fx.vendor(2.0)
+        accountant, admin = self._user(ACCOUNTANT_PROFILE), self._user(ADMIN_PROFILE)
+        paid = self._plant(WITHIN_L1, "Paid")
+        with self.assertRaisesRegex(frappe.ValidationError, "keeps the vendor"):
+            self._save_as(accountant, paid, vendor=other)
+        wo = self._wo()
+        rejected = self._plant_on(wo, 5000, "Rejected")
+        # The amendment's vendor swap, by raw write: no figure hangs off the vendor link.
+        frappe.db.set_value("Service Requests", wo, "vendor", other, update_modified=False)
+        frappe.db.commit()
+        with self.assertRaisesRegex(frappe.ValidationError, "keeps the vendor"):
+            self._save_as(admin, rejected, status="Paid", vendor=other)
+        self.assertEqual(frappe.db.get_value(PAYMENT, rejected, ["status", "vendor"]), ("Rejected", self.vendor))
+
+    # X2 ------------------------------------------------------------------------------------------
+    def test_every_approval_checks_the_order_again(self):
+        admin = self._user(ADMIN_PROFILE)
+        wo = self._wo()
+        self._plant_on(wo, 95000, "Paid")
+        waiting = self._plant_on(wo, 20000, "Requested")
+        with self.assertRaisesRegex(frappe.ValidationError, "Base left"):
+            self._save_as(admin, waiting, status="Approved")
+        self.assertEqual(self._status(waiting), "Requested")
+
+    def test_an_approval_does_not_land_on_another_vendor(self):
+        admin = self._user(ADMIN_PROFILE)
+        wo = self._wo()
+        waiting = self._plant_on(wo, 5000, "Requested")
+        frappe.db.set_value("Service Requests", wo, "vendor", self.fx.vendor(2.0), update_modified=False)   # the swap; nothing derived
+        frappe.db.commit()
+        with self.assertRaisesRegex(frappe.ValidationError, "raised for"):
+            self._save_as(admin, waiting, status="Approved")
+
+    def test_settled_money_does_not_go_backwards_by_hand(self):
+        admin = self._user(ADMIN_PROFILE)
+        for was, now in (("Paid", "Approved"), ("Paid", "Requested"), ("Paid", "Reconciliation Pending"),
+                         ("Reconciliation Pending", "Approved"), ("Reconciliation Pending", "Requested")):
+            with self.subTest(was=was, now=now):
+                pay = self._plant(WITHIN_L1, was)
+                with self.assertRaisesRegex(frappe.ValidationError, "goes back only"):
+                    self._save_as(admin, pay, status=now)
+                self.assertEqual(self._status(pay), was)
+
+    def test_the_revert_endpoint_still_reverts(self):
+        from nirmaan_stack.api.payments.revert_to_approved import revert_payment_to_approved
+        pay = self._plant(WITHIN_L1, "Reconciliation Pending")
+        self._as(self._user(ACCOUNTANT_PROFILE), revert_payment_to_approved, pay)
+        self.assertEqual(self._status(pay), "Approved")
+
+    def test_a_payment_does_not_move_onto_a_work_order_under_amendment_or_of_another_vendor(self):
+        accountant = self._user(ACCOUNTANT_PROFILE)
+        waiting = self._plant(5000, "Requested")
+        amended = self.fx.service_request(self.project, self.vendor)
+        frappe.db.set_value("Service Requests", amended, "status", "Amendment", update_modified=False)   # its state only
+        others = self.fx.service_request(self.project, self.fx.vendor(2.0))
+        frappe.db.commit()
+        for target, refusal in ((amended, "under amendment"), (others, "raised for")):
+            with self.subTest(target=target):
+                with self.assertRaisesRegex(frappe.ValidationError, refusal):
+                    self._save_as(accountant, waiting, document_name=target)
+                self.assertEqual(frappe.db.get_value(PAYMENT, waiting, "document_name"), self.sr)
+
+    def test_no_payment_comes_back_on_a_work_order_under_amendment(self):
+        admin = self._user(ADMIN_PROFILE)
+        wo = self._wo()
+        pay = self._plant_on(wo, 5000, "Rejected")
+        frappe.db.set_value("Service Requests", wo, "status", "Amendment", update_modified=False)   # its state only
+        frappe.db.commit()
+        with self.assertRaisesRegex(frappe.ValidationError, "under amendment"):
+            self._save_as(admin, pay, status="Approved")
+
+    # X5 ------------------------------------------------------------------------------------------
+    def test_a_padded_status_is_refused(self):
+        pay = self._plant(WITHIN_L1, "Approved")
+        with self.assertRaisesRegex(frappe.ValidationError, "is not a payment status"):
+            self._save_as(self._user(ACCOUNTANT_PROFILE), pay, status="Paid ")
+        self.assertEqual(self._status(pay), "Approved")
+
+    def test_a_stored_unknown_status_moves_on_only_with_the_tier_its_amount_needs(self):
+        pay = self._plant(60000, "Hold")   # a status saved before the rule, by raw write
+        with self.assertRaisesRegex(frappe.ValidationError, "Only the CEO can move a payment from Hold"):
+            self._save_as(self._user(ADMIN_PROFILE), pay, status="Paid")
+        self.assertEqual(self._status(pay), "Hold")
+
+    # X6 ------------------------------------------------------------------------------------------
+    def test_turning_a_payment_into_a_cheque_does_not_unlock_rejecting_settled_money(self):
+        """The cheque exemption reads the mode before the save: a save that also puts an Online payment on
+        a Cheque is no cheque payment yet."""
+        pay = self._plant(WITHIN_L1, "Reconciliation Pending")
+        cheque = f"TEST-RND4-CHQ-{frappe.generate_hash(length=6)}"
+        # A Cheque row to link to, by raw write; its own figures are not what this test reads.
+        frappe.db.sql(
+            """INSERT INTO "tabCheques" (name, creation, modified, modified_by, owner, docstatus, idx, status)
+               VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, 'Issued')""",
+            (cheque,),
+        )
+        frappe.db.commit()
+        self.addCleanup(self._drop_cheque, cheque)
+        with self.assertRaisesRegex(frappe.ValidationError, "can't be rejected"):
+            self._save_as(self._user(ADMIN_PROFILE), pay, status="Rejected", mode_of_payment="Cheque",
+                          cheque=cheque, cheque_no="004522", cheque_date="2026-10-22")
+        self.assertEqual(self._status(pay), "Reconciliation Pending")
+
+    @staticmethod
+    def _drop_cheque(name):
+        frappe.db.rollback()
+        frappe.db.delete("Cheques", {"name": name})
+        frappe.db.commit()

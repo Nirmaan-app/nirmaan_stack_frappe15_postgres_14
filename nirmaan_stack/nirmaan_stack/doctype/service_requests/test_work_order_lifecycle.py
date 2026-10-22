@@ -386,3 +386,26 @@ class TestRemarksAndItemsNeedReadAccess(_AsRoleCase):
         mine = frappe.db.get_value("Work Order Items", {"parent": self.other_wo}, "name")
         self.assertFalse(self._as(self.pm, frappe.has_permission, "Work Order Items", "read", doc=hidden))
         self.assertTrue(self._as(self.pm, frappe.has_permission, "Work Order Items", "read", doc=mine))
+
+
+    def test_the_rest_api_hides_amendment_snapshots_of_a_work_order_the_user_cannot_read(self):
+        """A snapshot holds the Work Order's items and rates from before its amendment (review round 4, X4)."""
+        names = []
+        for wo in (self.wo, self.other_wo):
+            doc = frappe.get_doc({"doctype": "Nirmaan Versions", "ref_doctype": SR, "docname": wo,
+                                  "previous_state": "Approved", "new_state": "Amendment", "data": "{}"})
+            doc.insert(ignore_permissions=True)
+            names.append(doc.name)
+        frappe.db.commit()
+        self.addCleanup(self._drop_snapshots, names)
+        hidden, mine = names
+        listed = self._as(self.pm, frappe.get_list, "Nirmaan Versions", filters={"name": ("in", names)}, pluck="name")
+        self.assertEqual(listed, [mine])
+        self.assertFalse(self._as(self.pm, frappe.has_permission, "Nirmaan Versions", "read", doc=hidden))
+        self.assertTrue(self._as(self.pm, frappe.has_permission, "Nirmaan Versions", "read", doc=mine))
+
+    @staticmethod
+    def _drop_snapshots(names):
+        frappe.db.rollback()
+        frappe.db.delete("Nirmaan Versions", {"name": ("in", names)})
+        frappe.db.commit()

@@ -78,13 +78,11 @@ def _comment_raiser_approval(pay, ceo_cleared: bool) -> None:
 
 def _assert_within_po_balance(src, amount):
     """A PO request: value incl. GST − Paid − open requests − Reconciliation Pending, ₹10 tolerance."""
-    from nirmaan_stack.services.finance import po_available_balance
+    from nirmaan_stack.services.finance import po_available_balance, po_balance_refusal
 
-    available = po_available_balance(src)
-    if amount > (available + 10):
-        frappe.throw(_(
-            "Maximum amount you can request is {0} (available balance)"
-        ).format(frappe.format_value(available, "Currency")))
+    problem = po_balance_refusal(po_available_balance(src), amount)
+    if problem:
+        frappe.throw(problem)
 
 
 @frappe.whitelist()

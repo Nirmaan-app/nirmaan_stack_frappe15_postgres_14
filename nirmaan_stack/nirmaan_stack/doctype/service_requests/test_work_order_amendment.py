@@ -23,6 +23,7 @@ from frappe.utils import flt
 from nirmaan_stack.api.payments.project_payments import create_payment_request_for_service
 from nirmaan_stack.api.service_requests.amendment import revert_amendment
 from nirmaan_stack.nirmaan_stack.doctype.service_requests.test_work_order_lifecycle import (
+    ACCOUNTANT,
     ADMIN,
     PROJECT_LEAD,
     PROJECT_MANAGER,
@@ -31,7 +32,7 @@ from nirmaan_stack.nirmaan_stack.doctype.service_requests.test_work_order_lifecy
     _AsRoleCase,
 )
 from nirmaan_stack.integrations.controllers.nirmaan_versions import SNAPSHOT_KEPT_REFUSAL
-from nirmaan_stack.integrations.controllers.service_requests import ITEM_ROW_REFUSAL
+from nirmaan_stack.integrations.controllers.work_order_items import ITEM_ROW_REFUSAL
 from nirmaan_stack.services.work_order_lifecycle import (
     AMEND_PAYMENTS_REFUSAL,
     APPROVED_SCOPE_REFUSAL,
@@ -402,3 +403,13 @@ class TestAnItemRowIsNotSavedOnItsOwn(_AmendmentCase):
         self.assertRefused(lambda: self._rest_put_row(USERS[ADMIN], quantity=2), ITEM_ROW_REFUSAL)
         frappe.db.rollback()
         self.assertEqual(flt(frappe.db.get_value("Work Order Items", {"parent": self.wo}, "quantity")), 1)
+
+
+    def test_a_row_is_not_deleted_on_its_own(self):
+        """`DELETE /api/resource/Work Order Items/<row>` runs the row's own delete (review round 4, X3)."""
+        row = frappe.db.get_value("Work Order Items", {"parent": self.wo}, "name")
+        for user in (USERS[ACCOUNTANT], USERS[ADMIN]):
+            with self.subTest(user=user):
+                self.assertRefused(lambda: self._as(user, frappe.delete_doc, "Work Order Items", row), ITEM_ROW_REFUSAL)
+                frappe.db.rollback()
+                self.assertTrue(frappe.db.exists("Work Order Items", row))

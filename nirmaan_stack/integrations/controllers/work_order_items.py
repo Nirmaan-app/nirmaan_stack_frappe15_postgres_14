@@ -1,26 +1,41 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Who may read a Work Order's item rows (spec #1528 story 4, walk W1).
+"""A Work Order's item rows (`Work Order Items`): who reads them, and that they change only with their
+Work Order (spec #1528 stories 4 and 12).
 
-`GET /api/resource/Work Order Items?parent=Service Requests` checks only read on the Service Requests
-doctype, not on each row's Work Order, so a user on one project could list another project's rows and rates.
-These two hooks scope the child doctype to the Work Orders the user may read, as the remarks are
-(`controllers/nirmaan_comments.readable_work_orders_sql`). The Work Order's own reads (`frappe.get_doc`)
-load its rows without them.
+* Read (walk W1): `GET /api/resource/Work Order Items?parent=Service Requests` checks only read on the
+  Service Requests doctype, not each row's Work Order. `get_permission_query_conditions` scopes the list to
+  the Work Orders the user may read (`controllers/nirmaan_comments.readable_work_orders_sql`). A single row's
+  read already goes through its parent's permission (`frappe.permissions.has_child_permission`), so no
+  `has_permission` hook is needed (Frappe would not call one for a table doctype).
+* Write (review round 3 V6, round 4 X3): the REST child-row PUT and DELETE save or delete the row on its
+  own, then (PUT) the parent with the edit already in its before-image, past every lock. A parent's own
+  save writes and removes its rows without their hooks, so a row's own `validate` or `on_trash` runs only on
+  those standalone paths, and both are refused. No app code saves or deletes a row alone; patches write rows
+  by SQL.
 """
 
 import frappe
+from frappe import _
 
-from nirmaan_stack.integrations.controllers.nirmaan_comments import WORK_ORDER, readable_work_orders_sql
+from nirmaan_stack.integrations.controllers.nirmaan_comments import readable_work_orders_sql
+from nirmaan_stack.services.work_order_lifecycle import WorkOrderChangeRefused
+
+ITEM_ROW_REFUSAL = (
+    "A Work Order's item rows are saved with the Work Order, never on their own: the Work Order's own rules "
+    "(the Approved scope, Finalize, amendments) must see the change."
+)
 
 
-def has_permission(doc, ptype=None, user=None, debug=False):
-    """Deny a row of a Work Order the user may not read; None otherwise (the role rows decide)."""
-    if doc.get("parenttype") != WORK_ORDER or not doc.get("parent") or not frappe.db.exists(WORK_ORDER, doc.parent):
-        return None
-    user = user or frappe.session.user
-    return None if frappe.has_permission(WORK_ORDER, "read", doc=doc.parent, user=user) else False
+def refuse_saving_an_item_row_alone(doc, method=None):
+    """`validate`: a row saved on its own (the REST child-row PUT)."""
+    frappe.throw(_(ITEM_ROW_REFUSAL), WorkOrderChangeRefused, title=_("Not allowed"))
+
+
+def refuse_deleting_an_item_row_alone(doc, method=None):
+    """`on_trash`: a row deleted on its own (the REST child-row DELETE)."""
+    frappe.throw(_(ITEM_ROW_REFUSAL), WorkOrderChangeRefused, title=_("Not allowed"))
 
 
 def get_permission_query_conditions(user=None, doctype=None):

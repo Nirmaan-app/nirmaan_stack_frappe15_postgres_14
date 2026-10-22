@@ -122,6 +122,11 @@ def get_total_paid(src):
     #     return flt(result[0][0])
     # return 0.0
 
+#: The statuses `get_total_pending` counts as an open request on an order (Rejected included, as it has
+#: always counted: a Rejected payment still holds its place in the request cap).
+PO_PENDING_STATUSES = ("Requested", "CEO Pending", "Approved", "Rejected")
+
+
 def get_total_pending(src):
     """
     Calculates the total 'Requested' or 'Approved' (but not yet Paid/Cancelled)
@@ -129,7 +134,7 @@ def get_total_pending(src):
     """
     sum_field = "sum(CAST(amount as numeric)) as total_pending"
 
-    pending_statuses = ("Requested", "CEO Pending", "Approved", "Rejected")
+    pending_statuses = PO_PENDING_STATUSES
     pending_payments = frappe.get_all(
         "Project Payments",
         filters=[
@@ -208,3 +213,12 @@ def po_available_balance(src) -> float:
         - get_total_pending(src)
         - get_total_reconciliation_pending(src)
     )
+
+
+def po_balance_refusal(available: float, amount) -> str | None:
+    """Why `amount` is refused against a PO's `available` balance (`po_available_balance`, with the payment
+    itself left out), or None: ₹10 of tolerance. The request cap and a payment coming back to Approved share it."""
+    if flt(amount) > flt(available) + 10:
+        return _("Maximum amount you can request is {0} (available balance)").format(
+            frappe.format_value(available, "Currency"))
+    return None

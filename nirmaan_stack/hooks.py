@@ -146,8 +146,8 @@ has_permission = {
     "Project Billing": "nirmaan_stack.integrations.controllers.project_billing.has_permission",
     # A Work Order's remarks need read on that Work Order (spec #1528 story 4); other remarks as before.
     "Nirmaan Comments": "nirmaan_stack.integrations.controllers.nirmaan_comments.has_permission",
-    # A Work Order's item rows need read on that Work Order (story 4, walk W1).
-    "Work Order Items": "nirmaan_stack.integrations.controllers.work_order_items.has_permission",
+    # A Work Order's amendment snapshots need read on that Work Order (review round 4, X4).
+    "Nirmaan Versions": "nirmaan_stack.integrations.controllers.nirmaan_versions.has_permission",
 }
 
 permission_query_conditions = {
@@ -155,7 +155,9 @@ permission_query_conditions = {
     "Project Billing Tracker": "nirmaan_stack.integrations.controllers.project_billing.get_permission_query_conditions",
     "Project Billing": "nirmaan_stack.integrations.controllers.project_billing.get_permission_query_conditions",
     "Nirmaan Comments": "nirmaan_stack.integrations.controllers.nirmaan_comments.get_permission_query_conditions",
+    # A Work Order's item rows need read on that Work Order (story 4, walk W1).
     "Work Order Items": "nirmaan_stack.integrations.controllers.work_order_items.get_permission_query_conditions",
+    "Nirmaan Versions": "nirmaan_stack.integrations.controllers.nirmaan_versions.get_permission_query_conditions",
 }
 
 # DocType Class
@@ -349,7 +351,8 @@ doc_events = {
     # A Work Order's item row is saved only with its Work Order: the REST child-row PUT would slip past its
     # locks (spec #1528 review 3, V6).
     "Work Order Items": {
-        "validate": "nirmaan_stack.integrations.controllers.service_requests.refuse_saving_an_item_row_alone",
+        "validate": "nirmaan_stack.integrations.controllers.work_order_items.refuse_saving_an_item_row_alone",
+        "on_trash": "nirmaan_stack.integrations.controllers.work_order_items.refuse_deleting_an_item_row_alone",
     },
     # A generated invoice is made only by Generate and never deleted (#1546).
     "WO Generated Invoice": {

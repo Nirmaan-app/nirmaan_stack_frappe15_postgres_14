@@ -2,6 +2,7 @@ import json
 
 import frappe
 
+from nirmaan_stack.integrations.controllers.nirmaan_comments import readable_work_orders_sql
 from nirmaan_stack.services.work_order_amendment import PRE_AMENDMENT_KEY, pre_amendment_state
 
 SNAPSHOT_KEPT_REFUSAL = "An amendment snapshot is the Work Order's audit record: it can't be deleted or changed."
@@ -43,3 +44,26 @@ def keep_amendment_snapshot(doc, method=None):
     before = doc if method == "on_trash" else doc.get_doc_before_save()
     if before and is_amendment_snapshot(before):
         frappe.throw(SNAPSHOT_KEPT_REFUSAL, frappe.ValidationError)
+
+
+def has_permission(doc, ptype=None, user=None, debug=False):
+    """Deny a Work Order's snapshot to a user who may not read that Work Order (review round 4, X4): it
+    holds the items and rates from before the amendment. Other doctypes' snapshots: the role rows decide."""
+    if doc.get("ref_doctype") != "Service Requests" or not doc.get("docname"):
+        return None
+    if not frappe.db.exists("Service Requests", doc.docname):
+        return None
+    user = user or frappe.session.user
+    return None if frappe.has_permission("Service Requests", "read", doc=doc.docname, user=user) else False
+
+
+def get_permission_query_conditions(user=None, doctype=None):
+    """A list holds a Work Order's snapshots only where the user may read that Work Order."""
+    user = user or frappe.session.user
+    if user == "Administrator":
+        return ""
+    readable = readable_work_orders_sql(user)
+    other = "COALESCE(\"tabNirmaan Versions\".ref_doctype, '') != 'Service Requests'"
+    if not readable:
+        return other
+    return f'({other} OR "tabNirmaan Versions".docname IN ({readable}))'

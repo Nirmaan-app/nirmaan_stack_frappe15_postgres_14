@@ -94,7 +94,7 @@ KNOWN_STATUSES = tuple(settlement.STATUS_LABELS)
 
 #: Statuses before approval, and past it.
 _WAITING = (REQUESTED, REJECTED, CEO_PENDING)
-_PAST_APPROVAL = (APPROVED, RECONCILIATION_PENDING, PAID)
+PAST_APPROVAL = (APPROVED, RECONCILIATION_PENDING, PAID)
 
 _SETTLE_MOVES = {
     (APPROVED, RECONCILIATION_PENDING),
@@ -115,6 +115,10 @@ def step_needed(was: str, now: str, amount) -> str | None:
     was, now = (was or "").strip(), (now or "").strip()
     if was == now:
         return None
+    if was not in KNOWN_STATUSES and now in PAST_APPROVAL:
+        # A status saved before the rule (or typed in): it is past no step, so the move needs the approval
+        # its amount needs (review round 4, X5).
+        return STEP_CEO if needs_ceo(flt(amount)) else STEP_L1
     if was in (REQUESTED, REJECTED) and now == APPROVED:
         return STEP_CEO if needs_ceo(flt(amount)) else STEP_L1
     if was in (REQUESTED, REJECTED) and now == CEO_PENDING:
@@ -125,7 +129,7 @@ def step_needed(was: str, now: str, amount) -> str | None:
         return STEP_CEO
     if (was, now) in _SETTLE_MOVES:
         return STEP_SETTLE
-    if was in _WAITING and now in _PAST_APPROVAL:
+    if was in _WAITING and now in PAST_APPROVAL:
         # Skips the approval: the step it skips is the one it needs.
         return STEP_CEO if was == CEO_PENDING or needs_ceo(flt(amount)) else STEP_L1
     return STEP_L1
@@ -134,7 +138,7 @@ def step_needed(was: str, now: str, amount) -> str | None:
 def raise_step_needed(status: str, old_amount, new_amount) -> str | None:
     """The step a save that raises a payment past its approval needs: the tier its NEW amount needs (the
     CEO above the L1 limit, L1 from the auto-approve line), or None within the auto band or for a cut."""
-    if (status or "").strip() not in _PAST_APPROVAL or flt(new_amount) <= flt(old_amount):
+    if (status or "").strip() not in PAST_APPROVAL or flt(new_amount) <= flt(old_amount):
         return None
     if needs_ceo(flt(new_amount)):
         return STEP_CEO
@@ -169,10 +173,15 @@ def holds(user: str, step: str) -> bool:
     return user == CEO_AUTHORIZED_USER or has_role_profile(user, PAYMENT_L1_PROFILES)
 
 
+def is_system_move(doc) -> bool:
+    """The save is one of the system's own moves (`SYSTEM_STEP_FLAGS`), each flag set only by server code."""
+    return any(doc.flags.get(flag) for flag in SYSTEM_STEP_FLAGS)
+
+
 def refuse_step_out_of_tier(doc, user: str) -> None:
     """Refuse a save of payment `doc` that makes a step `user` does not hold."""
     refuse_unknown_status(doc)
-    if any(doc.flags.get(flag) for flag in SYSTEM_STEP_FLAGS):
+    if is_system_move(doc):
         return
     if doc.is_new():
         was, step = None, born_step_needed(doc.status, doc.amount)
@@ -187,6 +196,10 @@ def refuse_step_out_of_tier(doc, user: str) -> None:
             # Money that has left the bank: a reject would free the order for a fresh payment and let
             # the amendment rules pass (stories 18-19). Unreconcile or revert is the way back.
             frappe.throw(SETTLED_REJECT_REFUSAL, PaymentStepRefused, title=_("Not allowed"))
+        if _goes_back_from_settled_money(before, doc) and user != "Administrator":
+            # Paid -> Approved, then Approved -> Rejected (or Requested, then another order) would reach
+            # what one save may not (review round 4, X2(b), X6).
+            frappe.throw(SETTLED_BACK_REFUSAL, PaymentStepRefused, title=_("Not allowed"))
         raise_step = raise_step_needed(doc.status, before.amount, doc.amount)
         if raise_step and not holds(user, raise_step):
             frappe.throw(_raise_refusal(doc.status, raise_step, doc.amount), PaymentStepRefused,
@@ -210,23 +223,50 @@ SETTLED_REJECT_REFUSAL = (
 )
 
 
+#: Set by `api/payments/revert_to_approved`, the one sanctioned user move from Reconciliation Pending back
+#: to Approved (it checks the settle roles, the cheque and the bank match itself).
+REVERT_TO_APPROVED = "revert_to_approved"
+
+SETTLED_BACK_REFUSAL = (
+    "A payment whose money has left the bank goes back only by Unreconcile in Bulk Import Outflow (Paid), "
+    "or Revert to Approved (Reconciliation Pending)."
+)
+
+
 def _rejects_settled_money(before, doc) -> bool:
     """A move from Reconciliation Pending or Paid to Rejected. A cheque payment at Reconciliation Pending
-    is not money gone yet: its cheque waits to clear, and rejecting it cancels the cheque (#1481)."""
-    was, now = (before.status or "").strip(), (doc.status or "").strip()
+    is not money gone yet: its cheque waits to clear, and rejecting it cancels the cheque (#1481). The mode
+    is read BEFORE the save (review round 4, X6): a save that also turns it into a cheque payment is no
+    cheque payment yet."""
+    was, now = before.status, doc.status
     if now != REJECTED or was not in settlement.SETTLED_STATUSES:
         return False
-    return not (was == RECONCILIATION_PENDING and is_cheque(doc))
+    return not (was == RECONCILIATION_PENDING and is_cheque(before))
+
+
+def _goes_back_from_settled_money(before, doc) -> bool:
+    """A user move out of Paid, or out of Reconciliation Pending other than to Paid, Rejected (ruled by
+    `_rejects_settled_money`) or, through Revert to Approved, Approved."""
+    was, now = before.status, doc.status
+    if was == now or was not in settlement.SETTLED_STATUSES:
+        return False
+    if was == PAID:
+        return True
+    if now in (PAID, REJECTED):
+        return False
+    return not (now == APPROVED and doc.flags.get(REVERT_TO_APPROVED))
 
 
 def refuse_unknown_status(doc) -> None:
     """A payment holds one of `KNOWN_STATUSES`: any other (a typed "Hold") would sit outside every step and
     let the payment come back to Approved or Paid unchecked. A legacy row saved without a status change passes."""
-    status = (doc.status or "").strip()
+    status = doc.status or ""
+    # Exactly one of the six: a padded "Paid " would pass a stripped check yet drop out of every filter
+    # on `status = "Paid"` (Amount Paid, the limits; review round 4, X5).
     if status in KNOWN_STATUSES:
         return
     before = None if doc.is_new() else doc.get_doc_before_save()
-    if before is not None and (before.status or "").strip() == status:
+    if before is not None and (before.status or "") == status:
         return
     frappe.throw(_("{0} is not a payment status. A payment is one of: {1}.").format(
         status or _("A blank status"), ", ".join(KNOWN_STATUSES)), PaymentStepRefused, title=_("Not allowed"))
