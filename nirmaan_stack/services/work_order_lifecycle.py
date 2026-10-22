@@ -101,7 +101,7 @@ LEAVE_AMENDMENT_REFUSAL = (
     "A Work Order under amendment is accepted or reverted, back to Approved; it can't move to"
 )
 
-UNDER_AMENDMENT_PAYMENT_REFUSAL ="A payment can't be requested on a Work Order under amendment."
+UNDER_AMENDMENT_PAYMENT_REFUSAL = "A payment can't be requested on a Work Order under amendment."
 
 #: A payment at one of these statuses is settled; any other is money in flight.
 SETTLED_PAYMENT_STATUSES = (STATUS_PAID, STATUS_REJECTED)
@@ -269,7 +269,7 @@ def _amendment_problem(before, after, facts: AmendmentFacts) -> str | None:
 
     # The stored total moves only when an amendment is decided (`ServiceRequests.on_update`), so while
     # one is open it is still the total from before it. A save that doesn't lower it is never refused here.
-    new_total = round(work_order_total(_items_value(after), after.get("gst")), 2)
+    new_total = round(work_order_total(items_value(after.get("work_order_items")), after.get("gst")), 2)
     if new_total >= round(flt(before.get("total_amount")), 2):
         return None
     for floor, what in ((flt(before.get("amount_paid")), "Amount Paid"),
@@ -282,9 +282,6 @@ def _amendment_problem(before, after, facts: AmendmentFacts) -> str | None:
     return None
 
 
-def _items_value(doc) -> float:
-    """The Work Order's items' value before GST (`work_order_gst.items_value`)."""
-    return items_value(doc.get("work_order_items"))
 
 
 def delete_problem(doc) -> str | None:

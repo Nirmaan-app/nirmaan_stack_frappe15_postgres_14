@@ -52,16 +52,37 @@ def figures(gross, rate, company_borne: bool) -> dict | None:
     }
 
 
-def forecast(document_type: str, document_name: str, vendor: str | None, gross, *, gst_payment: bool = False) -> dict | None:
+class Lookups:
+    """The vendor rates and company-borne answers one call reads, each once (a bulk forecast of many
+    payments asks the same vendor and order again and again)."""
+
+    def __init__(self):
+        self._rates, self._borne = {}, {}
+
+    def rate(self, vendor):
+        if vendor not in self._rates:
+            self._rates[vendor] = payment_tds.vendor_rate(vendor)
+        return self._rates[vendor]
+
+    def company_borne(self, document_type, document_name):
+        order = (document_type, document_name)
+        if order not in self._borne:
+            self._borne[order] = payment_tds.is_company_borne(document_type, document_name)
+        return self._borne[order]
+
+
+def forecast(document_type: str, document_name: str, vendor: str | None, gross, *, gst_payment: bool = False,
+             lookups: Lookups | None = None) -> dict | None:
     """The forecast (`figures`) for one payment of `gross` from `vendor` on an order, or None when its
     approval would withhold nothing: a GST payment, an order that takes no deductions, a vendor with no
-    rate, or nothing to withhold from."""
+    rate, or nothing to withhold from. `lookups` shares the rate and category reads across calls."""
     if gst_payment or (document_type or "").strip() not in payment_tds.DEDUCTIBLE_PARENTS:
         return None
-    rate = payment_tds.vendor_rate(vendor)
+    lookups = lookups or Lookups()
+    rate = lookups.rate(vendor)
     if rate is None:
         return None
-    return figures(gross, rate, payment_tds.is_company_borne(document_type, document_name))
+    return figures(gross, rate, lookups.company_borne(document_type, document_name))
 
 
 def waiting_payment_forecasts(work_order: str) -> dict:
@@ -109,19 +130,12 @@ def payment_forecasts(rows, amounts=None) -> dict:
         return {}
     taxed = set(frappe.get_all(payment_tds.TDS_DOCTYPE, filters={"project_payment": ("in", names)},
                                pluck="project_payment"))
-    rates, borne, forecasts = {}, {}, {}
+    lookups, forecasts = Lookups(), {}
     for row in rows:
-        if (row.name in taxed or cint(row.is_gst_payment)
-                or (row.document_type or "").strip() not in payment_tds.DEDUCTIBLE_PARENTS):
+        if row.name in taxed:
             continue
-        if row.vendor not in rates:
-            rates[row.vendor] = payment_tds.vendor_rate(row.vendor)
-        if rates[row.vendor] is None:
-            continue
-        order = (row.document_type, row.document_name)
-        if order not in borne:
-            borne[order] = payment_tds.is_company_borne(*order)
-        answer = figures(amounts.get(row.name, row.amount), rates[row.vendor], borne[order])
+        answer = forecast(row.document_type, row.document_name, row.vendor, amounts.get(row.name, row.amount),
+                          gst_payment=bool(cint(row.is_gst_payment)), lookups=lookups)
         if answer:
             forecasts[row.name] = answer
     return forecasts

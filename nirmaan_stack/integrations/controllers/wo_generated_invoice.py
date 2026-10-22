@@ -13,9 +13,12 @@ from frappe import _
 
 
 def refuse_insert_outside_generate(doc, method=None):
+    """`before_insert`: refuse a generated invoice not made by Generate (`flags.made_by_generate`), which
+    alone assigns the RA number under the Work Order's billing lock."""
     if not doc.flags.made_by_generate:
         frappe.throw(_("A generated invoice is made only by Generate invoice on its Work Order."))
 
 
 def refuse_delete(doc, method=None):
+    """`on_trash`: refuse every delete, Administrator's included; a deleted record would free its RA number."""
     frappe.throw(_("A generated invoice is never deleted. Void it instead, so its RA number is not reused."))

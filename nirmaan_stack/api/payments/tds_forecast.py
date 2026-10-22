@@ -16,10 +16,9 @@ from frappe.utils import cint, flt
 
 from nirmaan_stack.api.payments.project_payments import tier_new_payment
 from nirmaan_stack.services import settlement
-from nirmaan_stack.services.payment_tds import SERVICE_REQUEST_DOCTYPE
+from nirmaan_stack.services.payment_tds import PAYMENT_DOCTYPE, SERVICE_REQUEST_DOCTYPE
 from nirmaan_stack.services.tds_forecast import forecast, payment_forecasts, request_amount_as_stored
 
-PAYMENT = "Project Payments"
 
 
 @frappe.whitelist()
@@ -77,13 +76,13 @@ def forecast_payments_tds(payments) -> dict:
     Example: `[{"name": "PAY-1"}]` on a 20,000 Work Order payment, vendor at 2% ->
         {"forecasts": {"PAY-1": {"rate": 2.0, "tds": 400.0, "vendor_gets": 19600.0, "borne_by": "Vendor"}}}
     """
-    frappe.has_permission(PAYMENT, "read", throw=True)
+    frappe.has_permission(PAYMENT_DOCTYPE, "read", throw=True)
     asks = [a for a in (frappe.parse_json(payments) or []) if isinstance(a, dict) and a.get("name")]
     if not asks:
         return {"forecasts": {}}
     amounts = {a["name"]: flt(a["amount"]) for a in asks if a.get("amount") not in (None, "")}
     rows = frappe.get_list(
-        PAYMENT,
+        PAYMENT_DOCTYPE,
         filters={"name": ("in", [a["name"] for a in asks])},
         fields=["name", "document_type", "document_name", "vendor", "amount", "is_gst_payment"],
         limit_page_length=0,

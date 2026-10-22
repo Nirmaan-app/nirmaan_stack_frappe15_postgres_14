@@ -35,7 +35,12 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { usePODeliveryDocuments } from "@/pages/DeliveryChallansAndMirs/hooks/usePODeliveryDocuments";
 import { UploadDCMIRDialog } from "@/pages/DeliveryChallansAndMirs/components/UploadDCMIRDialog";
 import type { PODeliveryDocuments as PODeliveryDoc } from "@/types/NirmaanStack/PODeliveryDocuments";
-import { canActionInvoiceApprovals, canDeleteDeliveryDocument, canEditWoInvoice } from "@/constants/roles";
+import {
+  WO_INVOICE_EDIT_PROFILES,
+  canActionInvoiceApprovals,
+  canDeleteDeliveryDocument,
+  canEditWoInvoice,
+} from "@/constants/roles";
 import { MTCCard } from "@/pages/MaterialTestCertificates/components/MTCCard";
 import { ReportPreviewDialog } from "@/pages/CommissionReport/components/ReportPreviewDialog";
 import {
@@ -85,8 +90,6 @@ export const DocumentAttachments = <T extends DocumentType>({
 
   const { toggleNewInvoiceDialog, toggleEditInvoiceDialog, setSelectedInvoice, setNewInvoiceIsCredit } = useDialogStore();
   const { role, user_id } = useUserData();
-  // Edits an invoice: Admin and the accountants (`WO_INVOICE_EDIT_PROFILES`, the server's set for a WO invoice).
-  const isAccountant = canEditWoInvoice(role, user_id);
   // Admins (Nirmaan Admin Profile or the Administrator user) may delete ANY invoice,
   // including Approved ones. Everyone else is limited to Pending/Rejected.
   const isAdmin = user_id === "Administrator" || role === "Nirmaan Admin Profile";
@@ -105,6 +108,12 @@ export const DocumentAttachments = <T extends DocumentType>({
 
   // Generated invoices (#1546): GST-off Work Orders only. The server decides every figure.
   const isWorkOrder = docType === "Service Requests";
+  // Who gets the invoice Edit dialog: on a WO, Admin and the accountants (`canEditWoInvoice`, the server's
+  // `WO_INVOICE_EDIT_PROFILES`); on a PO the same three profiles as always (PO invoice rules are unchanged
+  // by spec #1528, so no Administrator-user widening there).
+  const mayEditInvoices = isWorkOrder
+    ? canEditWoInvoice(role, user_id)
+    : !!role && WO_INVOICE_EDIT_PROFILES.includes(role);
   const workOrder = documentData as ServiceRequests | null | undefined;
   const woGstOff = isWorkOrder && isGstExplicitlyOff(workOrder);
   const {
@@ -346,7 +355,13 @@ export const DocumentAttachments = <T extends DocumentType>({
   );
 
   // Rejecting an Approved WO invoice is the correction path for everyone else (story 11).
-  const [rejectingInvoice, setRejectingInvoice] = useState<VendorInvoice | null>(null);
+  // The invoice being rejected, by name: the dialog reads the row from the fetched list, so it never shows
+  // a copy older than the list (frontend/CODING_STANDARDS.md § Fetching or mutating data).
+  const [rejectingName, setRejectingName] = useState<string | null>(null);
+  const rejectingInvoice = useMemo(
+    () => (rejectingName ? vendorInvoices?.find((vi) => vi.name === rejectingName) ?? null : null),
+    [rejectingName, vendorInvoices]
+  );
   const mayDecideInvoices = canActionInvoiceApprovals(role, user_id);
   const canRejectInvoice = useCallback(
     (item: VendorInvoice): boolean => isWorkOrder && item.status === "Approved" && mayDecideInvoices,
@@ -570,9 +585,9 @@ export const DocumentAttachments = <T extends DocumentType>({
               <InvoiceTable
                 items={vendorInvoices} // Use Vendor Invoices instead of JSON data
                 onViewAttachment={handleViewInvoiceAttachment}
-                onEditEntry={isAccountant ? handleEditInvoice : undefined}
+                onEditEntry={mayEditInvoices ? handleEditInvoice : undefined}
                 canEditEntry={canEditInvoice}
-                onRejectEntry={setRejectingInvoice}
+                onRejectEntry={(invoice) => setRejectingName(invoice.name)}
                 canRejectEntry={canRejectInvoice}
                 onDeleteEntry={handleDeleteInvoiceEntry}
                 isLoading={deleteInvoiceEntryLoading}
@@ -598,7 +613,7 @@ export const DocumentAttachments = <T extends DocumentType>({
             )}
             <RejectApprovedInvoiceDialog
               invoice={rejectingInvoice}
-              onClose={() => setRejectingInvoice(null)}
+              onClose={() => setRejectingName(null)}
               onRejected={() => {
                 mutateInvoices();
                 mutateGenerated();
