@@ -26,6 +26,8 @@ from nirmaan_stack.services.cheques.rules import (
 )
 
 
+#: A payment approved already, which the bank import only moves on to Reconciliation Pending.
+APPROVED = "Approved"
 #: The note on the history row when the bank import approves an Approval Pending cheque's payments.
 BANK_APPROVAL_NOTE = "approved by bank import"
 #: The note on the history row when the bank import clears a Cancelled cheque.
@@ -34,11 +36,16 @@ BANK_REVIVAL_NOTE = "cancelled, but the bank paid it"
 BANK_MATCH_BASIS = "cheque number"
 
 
-def bank_approval_note(approved: Sequence[tuple[str, str]]) -> str:
-    """The history note when the bank import approves payments on a cheque that is not Approval Pending (an
-    Old-type cheque's waiting ones): `approved` holds `(payment, the status it was at)`. Pure. An Approval
-    Pending cheque's approval is its Issued row, `BANK_APPROVAL_NOTE` alone."""
-    return f"{BANK_APPROVAL_NOTE}: {join_words([f'{name} (was {was})' for name, was in approved])}"
+def bank_approval_note(brought: Sequence[tuple[str, str]]) -> str:
+    """The history note when the bank import brings payments forward on a cheque that is not Approval
+    Pending (an Old-type cheque's waiting ones): `brought` holds `(payment, the status it was at)`. Pure.
+    One at Requested or CEO Pending was approved by the import; one already Approved was only moved on to
+    Reconciliation Pending. An Approval Pending cheque's approval is its Issued row, `BANK_APPROVAL_NOTE` alone."""
+    approved = [f"{name} (was {was})" for name, was in brought if was != APPROVED]
+    moved_on = [name for name, was in brought if was == APPROVED]
+    parts = [f"{BANK_APPROVAL_NOTE}: {join_words(approved)}"] if approved else []
+    parts += [f"moved on from {APPROVED} by bank import: {join_words(moved_on)}"] if moved_on else []
+    return "; ".join(parts)
 
 
 def bank_cheque_key(*, source: str | None, direction: str | None, reference_id) -> str:
@@ -126,29 +133,25 @@ def _moves(moved: Sequence[tuple[str, str]]) -> str:
 
 
 def bank_cleared_note(
-    *, cheque_no: str, started: str, moved: Sequence[tuple[str, str]], day, suspects: Sequence[DoublePayment] = ()
+    *, cheque_no: str, started: str, moved: Sequence[tuple[str, str]], day, suspects: Sequence[DoublePayment] = (),
+    linked: int = 0,
 ) -> str:
     """What the import review says about a line that cleared cheque `cheque_no`, by the status the cheque
     was at (`started`; Cleared means it was cleared by hand and the line is only linked). Pure.
 
     `moved` holds `(kind, status it was at)` for each record the clear paid (`PAYMENT_KIND` or
-    `EXPENSE_KIND`: an Old-type cheque's lines may pay expenses); a record already Paid is not in it. A linked
-    hand-cleared cheque's Paid payments are."""
+    `EXPENSE_KIND`: an Old-type cheque's lines may pay expenses); a record already Paid is not in it. A cheque
+    cleared by hand moves nothing: `linked` counts the Paid payments its line is linked to."""
     when = day_text(str(day))
-    payments = sum(1 for kind, _was in moved if kind == PAYMENT_KIND)
-    expenses = [(kind, was) for kind, was in moved if kind != PAYMENT_KIND]
     if started == CLEARED:
         return (
             f"Cheque {cheque_no} was already cleared by hand: this line is linked to it and its "
-            f"{_payments(payments)}; nothing was paid again."
+            f"{_payments(linked)}; nothing was paid again."
         )
     nothing = "every line was already Paid, so nothing was paid again."
     if started == PENDING:
-        verb = "was" if payments == 1 else "were"
-        approved = (f" Its {_payments(payments)} {verb} approved by bank import (approval date {when}), then Paid."
-                    if payments else "")
-        return (f"Cheque {cheque_no} was {PENDING}: the bank paid it before approval.{approved}"
-                + (f" {_moves(expenses)}." if expenses else ""))
+        return (f"Cheque {cheque_no} was {PENDING}: the bank paid it before approval, so it was {BANK_APPROVAL_NOTE} "
+                f"(approval date {when}): {f'{_moves(moved)}.' if moved else nothing}")
     if started == CANCELLED:
         what = f"{_moves(moved)}, payment date {when}." if moved else nothing
         note = f"Cheque {cheque_no} was cancelled, but the bank paid it: {what}"

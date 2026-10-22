@@ -307,7 +307,8 @@ class TestALineClearsAnOldTypeCheque(ChequeImportCase):
         )
         self.assertEqual(self._line(row).row_status, "Settled")
         self.assertEqual(self._state(cheque).status, "Cleared")
-        self.assertEqual(self._history(cheque)[-2][3], f"approved by bank import: {approved} (was Approved)")
+        # It was Approved already: the import only moved it on.
+        self.assertEqual(self._history(cheque)[-2][3], f"moved on from Approved by bank import: {approved}")
 
     def test_a_paid_expense_is_left_as_it_is(self):
         number = self._number()

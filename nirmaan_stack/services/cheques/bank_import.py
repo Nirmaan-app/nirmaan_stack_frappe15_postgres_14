@@ -128,7 +128,7 @@ def clear_from_line(row, *, source: str, user: str) -> LineOutcome | None:
     return LineOutcome(
         settled=True,
         note=bank_cleared_note(cheque_no=cheque.cheque_no, started=out["started"], moved=out["moved"],
-                               day=day, suspects=suspects),
+                               day=day, suspects=suspects, linked=len(payments)),
         statement_file_url=out["statement_file_url"],
         payments=payments,
     )

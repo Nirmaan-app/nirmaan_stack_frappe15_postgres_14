@@ -198,11 +198,11 @@ def clear(cheque: str, *, bank_line: str | None, user: str) -> dict:
         legs = [_leg(pay) for pay in paid]
     _record_bank_line(line, legs, user)
 
-    approved = [(p, was[p]) for p in waiting if was[p] != PAYMENT_REJECTED]
-    if approved and started != PENDING:
+    brought = [(p, was[p]) for p in waiting if was[p] != PAYMENT_REJECTED]
+    if brought and started != PENDING:
         # Every move the import makes is in the cheque's history (ADR-0035). An Approval Pending cheque's
         # approval is its Issued row; an Old-type cheque's waiting payments get this one.
-        doc.append("status_history", history_row(doc.status, doc.status, user, bank_approval_note(approved)))
+        doc.append("status_history", history_row(doc.status, doc.status, user, bank_approval_note(brought)))
     note = f"Cleared by bank import, bank line {line.name}."
     if started == CANCELLED:
         note = f"{note.rstrip('.')}: {BANK_REVIVAL_NOTE}."
@@ -307,7 +307,7 @@ def link_bank_line(cheque: str, *, bank_line: str, user: str) -> dict:
     frappe.publish_realtime(CHEQUES_CHANGED_EVENT, {"cheques": [cheque]}, after_commit=True)
     return {
         "cheque": cheque, "cheque_no": doc.cheque_no, "status": CLEARED, "payments": paid,
-        "moved": [(PAYMENT_KIND, STATUS_PAID)] * len(paid),
+        "moved": [],  # nothing is paid again: the line only matches what the hand clear paid
         "bank_line": line.name, "statement_file_url": None, "started": CLEARED,
     }
 

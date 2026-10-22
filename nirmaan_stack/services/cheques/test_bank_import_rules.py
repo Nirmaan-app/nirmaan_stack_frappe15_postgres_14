@@ -97,16 +97,24 @@ class TestTheBankImportStartsFromMoreStatuses(unittest.TestCase):
 
 
 class TestTheImportsApprovalIsInTheHistory(unittest.TestCase):
-    def test_the_note_names_each_payment_and_where_it_was(self):
+    def test_the_note_names_the_payments_the_import_approved_and_those_it_only_moved_on(self):
         self.assertEqual(
-            bank_import_rules.bank_approval_note([("PAY-1", "Requested"), ("PAY-2", "Approved")]),
-            "approved by bank import: PAY-1 (was Requested) and PAY-2 (was Approved)",
+            bank_import_rules.bank_approval_note([("PAY-1", "Requested"), ("PAY-2", "Approved"), ("PAY-3", "CEO Pending")]),
+            "approved by bank import: PAY-1 (was Requested) and PAY-3 (was CEO Pending); moved on from Approved by "
+            "bank import: PAY-2",
         )
+
+    def test_an_approved_payment_alone_was_only_moved_on(self):
+        self.assertEqual(bank_import_rules.bank_approval_note([("PAY-2", "Approved")]),
+                         "moved on from Approved by bank import: PAY-2")
 
 
 class TestWhatTheReviewSays(unittest.TestCase):
     def note(self, started, payments=2, suspects=(), *, was=None, moved=None):
-        was = was or {"Approval Pending": "Requested", "Cancelled": "Rejected", "Cleared": "Paid"}.get(started, RP)
+        if started == "Cleared":  # a hand-cleared cheque's line is only linked: nothing moves
+            return bank_import_rules.bank_cleared_note(cheque_no="000747", started=started, moved=[], linked=payments,
+                                                       day="2026-10-14")
+        was = was or {"Approval Pending": "Requested", "Cancelled": "Rejected"}.get(started, RP)
         moved = [("payment", was)] * payments if moved is None else moved
         return bank_import_rules.bank_cleared_note(cheque_no="000747", started=started, moved=moved, day="2026-10-14",
                                                    suspects=suspects)
@@ -120,8 +128,8 @@ class TestWhatTheReviewSays(unittest.TestCase):
     def test_a_pending_cheque_says_the_import_approved_it(self):
         self.assertEqual(
             self.note("Approval Pending", payments=1),
-            "Cheque 000747 was Approval Pending: the bank paid it before approval. Its 1 payment was approved by bank "
-            "import (approval date 14-10-2026), then Paid.",
+            "Cheque 000747 was Approval Pending: the bank paid it before approval, so it was approved by bank import "
+            "(approval date 14-10-2026): 1 payment Requested → Paid.",
         )
 
     def test_a_cancelled_cheque_says_the_bank_paid_it_and_names_a_possible_double_payment(self):
@@ -150,6 +158,14 @@ class TestWhatTheReviewSays(unittest.TestCase):
         self.assertEqual(
             self.note("Issued", moved=[]),
             "Cheque 000747 cleared: every line was already Paid, so nothing was paid again.",
+        )
+
+    def test_an_old_type_approval_pending_cheque_names_where_each_record_started(self):
+        self.assertEqual(
+            self.note("Approval Pending", moved=[("payment", "Requested"), ("payment", RP), ("expense", RP)]),
+            "Cheque 000747 was Approval Pending: the bank paid it before approval, so it was approved by bank import "
+            "(approval date 14-10-2026): 1 payment Requested → Paid, 1 payment Reconciliation Pending → Paid and 1 "
+            "expense Reconciliation Pending → Paid.",
         )
 
     def test_a_cheque_cleared_by_hand_is_only_linked(self):
