@@ -273,7 +273,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                   </div>
                   <div className="flex items-center justify-between">
                     <Label className=" text-red-700">PO Amt incl. Tax:</Label>
-                    <span className="">{formatToRoundedIndianRupee(Math.floor(getTotal?.totalWithTax || 0))}</span>
+                    <span className="">{formatToRoundedIndianRupee(getTotal?.totalWithTax || 0)}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <Label className=" text-red-700">Amt Paid Till Now:</Label>

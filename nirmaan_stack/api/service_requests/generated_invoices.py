@@ -113,7 +113,8 @@ def generate_invoice(work_order: str, invoice_type: str, invoice_date: str | Non
 			"invoice_type": invoice_type,
 			"amount": bill,
 			"invoice_date": date,
-			"invoice_no": gi.invoice_number(date, sr.project, sr.name, invoice_type, ra_number),
+			"invoice_no": gi.invoice_number(date, sr.project, sr.name, invoice_type, ra_number,
+											final_number=state["finals"] + 1),
 			"status": gi.GENERATED,
 		})
 		frappe.db.commit()
@@ -297,6 +298,8 @@ def _billing_state(sr) -> dict:
 		"left": gi.billable_left(sr.total_amount, sr.amount_paid, billed),
 		"fully_paid": gi.is_fully_paid(sr.total_amount, sr.amount_paid),
 		"final": final,
+		# Every FINAL the WO has had, Voided ones included: the next one's printed number follows them.
+		"finals": sum(1 for r in records if r.invoice_type == gi.FINAL),
 		"next_ra_number": gi.next_ra_number(
 			[r.ra_number for r in records], [sr.invoice_no] + [i.invoice_no for i in invoices]
 		),

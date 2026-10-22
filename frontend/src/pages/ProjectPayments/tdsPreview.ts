@@ -13,7 +13,7 @@
 import { TDS_BORNE_BY, type TdsBorneBy } from "@/types/NirmaanStack/PaymentTDSDeduction";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
-import type { TdsForecast } from "./tdsForecast";
+import type { TdsForecast, TdsTotals } from "./tdsForecast";
 
 /** One payment's forecast as the server answers it (`services/tds_forecast.figures`). */
 export interface ServerTdsForecast {
@@ -29,6 +29,34 @@ export interface ServerTdsForecast {
 /** The server's forecast in the shape the cheque fields read (`PaymentModeFields`). */
 export const toTdsForecast = (forecast: ServerTdsForecast | null | undefined): TdsForecast | null =>
 	forecast ? { ratePct: forecast.rate, tds: forecast.tds, net: forecast.vendor_gets } : null;
+
+const toPaise = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100;
+
+/**
+ * A bulk selection's tax, added up from the server's forecasts (`forecast_payments_tds`, story 59): only
+ * the rows it forecasts tax on contribute, `gross` included, so the figures describe one subset and read
+ * as one sentence. `amount` is each row's stored amount, the figure its approval taxes.
+ */
+export const forecastTotals = (
+	rows: ReadonlyArray<{ name: string; amount?: number | string }>,
+	forecasts: Readonly<Record<string, ServerTdsForecast>>
+): TdsTotals =>
+	rows.reduce<TdsTotals>(
+		(totals, row) => {
+			const forecast = forecasts[row.name];
+			if (!forecast) return totals;
+			return {
+				count: totals.count + 1,
+				tds: toPaise(totals.tds + forecast.tds),
+				companyBorneTds: toPaise(
+					totals.companyBorneTds + (forecast.borne_by === TDS_BORNE_BY.COMPANY ? forecast.tds : 0)
+				),
+				gross: toPaise(totals.gross + parseNumber(row.amount)),
+				net: toPaise(totals.net + forecast.vendor_gets),
+			};
+		},
+		{ count: 0, tds: 0, companyBorneTds: 0, gross: 0, net: 0 }
+	);
 
 /**
  * The Request Payment dialog's preview (owner ruling X1-A): "TDS 2%: ₹200 · Vendor gets ₹9,800", or on a

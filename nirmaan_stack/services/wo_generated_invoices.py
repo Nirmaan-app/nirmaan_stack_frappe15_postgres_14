@@ -96,10 +96,15 @@ def financial_year_code(invoice_date) -> str:
 	return f"{start % 100:02d}-{(start + 1) % 100:02d}"
 
 
-def invoice_number(invoice_date, project, work_order, invoice_type, ra_number) -> str:
+def invoice_number(invoice_date, project, work_order, invoice_type, ra_number, final_number: int = 1) -> str:
 	"""INV-<FY>-<project last 5>-<WO last 5>-<RA-n | FINAL>, the format the WO page has printed since
-	#1405; the year is the invoice date's."""
-	suffix = FINAL if invoice_type == FINAL else f"RA-{cint(ra_number)}"
+	#1405; the year is the invoice date's. A FINAL generated after a voided one prints its own number,
+	FINAL-2, FINAL-3 (`final_number`, counting every FINAL the WO has had), so a voided number is never
+	printed again."""
+	if invoice_type == FINAL:
+		suffix = FINAL if cint(final_number) <= 1 else f"{FINAL}-{cint(final_number)}"
+	else:
+		suffix = f"RA-{cint(ra_number)}"
 	return f"INV-{financial_year_code(invoice_date)}-{cstr(project)[-5:]}-{cstr(work_order)[-5:]}-{suffix}"
 
 

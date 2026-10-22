@@ -653,7 +653,8 @@ const REGISTRY: Record<
 
   amount: (ctx) => ({
     id: "amount",
-    accessorKey: "amount",
+    // Sorts and filters on the full bill it shows (#1541, story 60), not the stored, TDS-cut amount.
+    accessorFn: (r: ApprovalQueueRow) => r.requested_amount ?? r.amount,
     header: ({ column }) => <DataTableColumnHeader column={column} title="Req. Amount" className="justify-end" />,
     // 128, not 112: "Req. Amount" plus the sort control needs the extra 16px, and
     // a clipped header on a money column reads as a different column.

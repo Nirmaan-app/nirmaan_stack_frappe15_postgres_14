@@ -7,6 +7,8 @@ import { AddressView } from "@/components/address-view";
 
 import { useGstOptions } from "@/hooks/useGstOptions";
 import { useUserData } from "@/hooks/useUserData";
+import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
+import { workOrderPrintTotals } from "@/utils/workOrderPrintTotals";
 
 interface SRPdfProps {
   srPdfSheet: boolean;
@@ -180,6 +182,8 @@ const SRPdf: React.FC<SRPdfProps> = ({
   const AVAILABLE_HEIGHT = PAGE_HEIGHT - HEADER_HEIGHT;
 
   const { gstOptions } = useGstOptions();
+  // The server's total, to the nearest rupee (story 68), not the items x 1.18 floored.
+  const printTotals = workOrderPrintTotals(getTotal, orderData?.total_amount ?? getTotal);
 
   const resolvedAddress = useMemo(() => {
     // 1. Try to find by orderData's project_gst
@@ -372,9 +376,9 @@ const SRPdf: React.FC<SRPdfProps> = ({
                                   <div>Total:</div>
                                 </td>
                                 <td className="space-y-4 py-4 text-sm whitespace-nowrap font-semibold">
-                                  {gstEnabled && <div className="ml-4">{formatToIndianRupee(getTotal * 1.18 - getTotal)}</div>}
-                                  <div className="ml-4">- {formatToIndianRupee((getTotal * (gstEnabled ? 1.18 : 1)) - Math.floor(getTotal * (gstEnabled ? 1.18 : 1)))}</div>
-                                  <div className="ml-4">{formatToIndianRupee(Math.floor(getTotal * (gstEnabled ? 1.18 : 1)))}</div>
+                                  {gstEnabled && <div className="ml-4">{formatToIndianRupeeOrZero(printTotals.tax)}</div>}
+                                  <div className="ml-4">{printTotals.roundOff < 0 ? "- " : "+ "}{formatToIndianRupeeOrZero(Math.abs(printTotals.roundOff))}</div>
+                                  <div className="ml-4">{formatToIndianRupeeOrZero(printTotals.total)}</div>
                                 </td>
                               </tr>
                             </>

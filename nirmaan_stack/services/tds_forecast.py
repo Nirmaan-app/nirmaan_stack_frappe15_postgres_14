@@ -19,7 +19,7 @@ The browser computes none of this (`frontend/src/pages/ProjectPayments/hooks/use
 """
 
 import frappe
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 from nirmaan_stack.services import payment_tds, settlement
 
@@ -96,21 +96,32 @@ def waiting_payment_forecasts(work_order: str) -> dict:
 	return forecasts
 
 
-def withheld_by_payment(payment_names) -> dict[str, float]:
-	"""`{payment name: tax withheld from the vendor}` for the given payments that carry a counted,
-	vendor-borne deduction (`payment_tds.counted_deductions_sql`), whatever their status; others are
-	absent. A withheld payment's stored amount is already cut, so its full bill (a list's "Req. Amount",
-	owner ruling X4-A) is its amount plus this. One query."""
-	names = sorted({n for n in payment_names or () if n})
+def payment_forecasts(rows, amounts=None) -> dict:
+	"""`{payment name: forecast}` for each payment in `rows` (`name, document_type, document_name,
+	vendor, amount, is_gst_payment`) whose approval would withhold tax: the approve dialogs' forecast
+	(spec #1528 story 59). Taxed on `amounts[name]` when given (a partial approval's figure), else on the
+	stored amount. A GST payment, an order that takes no deductions, a vendor with no rate, and a payment
+	already carrying a deduction (its tax is recorded) are absent. One query, plus one rate per vendor
+	and one category read per order. No permission check: the endpoint reads `rows` as the user."""
+	amounts = amounts or {}
+	names = [row.name for row in rows]
 	if not names:
 		return {}
-	rows = frappe.db.sql(
-		f"""
-		SELECT c.project_payment, c.vendor_borne_tds
-		FROM ({payment_tds.counted_deductions_sql()}) c
-		WHERE c.project_payment IN %(names)s AND c.vendor_borne_tds > 0
-		""",
-		{"names": tuple(names)},
-		as_dict=True,
-	)
-	return {row.project_payment: flt(row.vendor_borne_tds, 2) for row in rows}
+	taxed = set(frappe.get_all(payment_tds.TDS_DOCTYPE, filters={"project_payment": ("in", names)},
+							   pluck="project_payment"))
+	rates, borne, forecasts = {}, {}, {}
+	for row in rows:
+		if (row.name in taxed or cint(row.is_gst_payment)
+				or (row.document_type or "").strip() not in payment_tds.DEDUCTIBLE_PARENTS):
+			continue
+		if row.vendor not in rates:
+			rates[row.vendor] = payment_tds.vendor_rate(row.vendor)
+		if rates[row.vendor] is None:
+			continue
+		order = (row.document_type, row.document_name)
+		if order not in borne:
+			borne[order] = payment_tds.is_company_borne(*order)
+		answer = figures(amounts.get(row.name, row.amount), rates[row.vendor], borne[order])
+		if answer:
+			forecasts[row.name] = answer
+	return forecasts

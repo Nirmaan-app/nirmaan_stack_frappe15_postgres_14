@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { paymentTableFigures, requestPreviewLines, tdsColumnNote, toTdsForecast } from "./tdsPreview";
+import { forecastTotals, paymentTableFigures, requestPreviewLines, tdsColumnNote, toTdsForecast } from "./tdsPreview";
 
 const VENDOR_BORNE = { rate: 2, tds: 200, vendor_gets: 9800, borne_by: "Vendor" } as const;
 const COMPANY_BORNE = { rate: 2, tds: 200, vendor_gets: 10000, borne_by: "Company" } as const;
@@ -75,5 +75,28 @@ describe("tdsColumnNote (the Work Order payment table labels company tax, #1543)
 	it("has no label for tax withheld from the vendor, nor for a payment without tax", () => {
 		expect(tdsColumnNote(paymentTableFigures(9800, { tds_amount: 200, borne_by: "Vendor" }, undefined))).toBeUndefined();
 		expect(tdsColumnNote(paymentTableFigures(1800, undefined, undefined))).toBeUndefined();
+	});
+});
+
+describe("forecastTotals (the bulk approve dialog, from the server's forecasts)", () => {
+	it("adds only the payments the server forecasts tax on, so the figures describe one subset", () => {
+		const rows = [
+			{ name: "PAY-1", amount: 10000 },
+			{ name: "PAY-2", amount: 10000 },
+			{ name: "PAY-PO", amount: 70000 }, // a PO payment: no forecast, adds nothing
+		];
+		expect(forecastTotals(rows, { "PAY-1": VENDOR_BORNE, "PAY-2": COMPANY_BORNE })).toEqual({
+			count: 2,
+			tds: 400,
+			companyBorneTds: 200,
+			gross: 20000,
+			net: 19800,
+		});
+	});
+
+	it("is all zero with no forecasts", () => {
+		expect(forecastTotals([{ name: "PAY-1", amount: 10000 }], {})).toEqual({
+			count: 0, tds: 0, companyBorneTds: 0, gross: 0, net: 0,
+		});
 	});
 });

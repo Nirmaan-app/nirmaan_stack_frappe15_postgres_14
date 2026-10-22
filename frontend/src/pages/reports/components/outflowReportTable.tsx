@@ -385,7 +385,7 @@ export function OutflowReportTable() {
                 // onExport={handleCustomExport}
                 onExport={'default'}
                 onExportAll={exportAllRows}
-                exportFileName={'Project_Outflow_Report'}
+                exportFileName={'Project_Payments_Report'}
                 summaryCard={
                     <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
                         {/* ===== COMPACT MOBILE VIEW ===== */}

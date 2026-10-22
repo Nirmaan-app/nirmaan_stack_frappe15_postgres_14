@@ -27,6 +27,7 @@ import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 
 // Reusable Table Components
 import { InvoiceTable } from "./components/InvoiceTable"; // Adjust import path
+import { RejectApprovedInvoiceDialog } from "./components/RejectApprovedInvoiceDialog";
 import { DeliveryChallanTable } from "./components/DeliveryChallanTable"; // Adjust import path
 import SITEURL from "@/constants/siteURL"; // Adjust import path
 import { CirclePlus, Upload } from "lucide-react";
@@ -34,7 +35,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { usePODeliveryDocuments } from "@/pages/DeliveryChallansAndMirs/hooks/usePODeliveryDocuments";
 import { UploadDCMIRDialog } from "@/pages/DeliveryChallansAndMirs/components/UploadDCMIRDialog";
 import type { PODeliveryDocuments as PODeliveryDoc } from "@/types/NirmaanStack/PODeliveryDocuments";
-import { canDeleteDeliveryDocument } from "@/constants/roles";
+import { canActionInvoiceApprovals, canDeleteDeliveryDocument } from "@/constants/roles";
 import { MTCCard } from "@/pages/MaterialTestCertificates/components/MTCCard";
 import { ReportPreviewDialog } from "@/pages/CommissionReport/components/ReportPreviewDialog";
 import {
@@ -335,9 +336,20 @@ export const DocumentAttachments = <T extends DocumentType>({
     toggleEditInvoiceDialog();
   }, [setSelectedInvoice, toggleEditInvoiceDialog]);
 
+  // A WO invoice: a signed upload's is never edited; an Approved one only by Admin (the server's rule,
+  // ADR-0014 Amendment A). PO invoices keep their old rule.
   const canEditInvoice = useCallback(
-    (item: VendorInvoice): boolean => !signedUploadInvoices.has(item.name),
-    [signedUploadInvoices]
+    (item: VendorInvoice): boolean =>
+      !signedUploadInvoices.has(item.name) && (!isWorkOrder || item.status !== "Approved" || isAdmin),
+    [signedUploadInvoices, isWorkOrder, isAdmin]
+  );
+
+  // Rejecting an Approved WO invoice is the correction path for everyone else (story 11).
+  const [rejectingInvoice, setRejectingInvoice] = useState<VendorInvoice | null>(null);
+  const mayDecideInvoices = canActionInvoiceApprovals(role, user_id);
+  const canRejectInvoice = useCallback(
+    (item: VendorInvoice): boolean => isWorkOrder && item.status === "Approved" && mayDecideInvoices,
+    [isWorkOrder, mayDecideInvoices]
   );
 
   const canDeleteInvoice = useCallback((item: VendorInvoice): boolean => {
@@ -559,6 +571,8 @@ export const DocumentAttachments = <T extends DocumentType>({
                 onViewAttachment={handleViewInvoiceAttachment}
                 onEditEntry={isAccountant ? handleEditInvoice : undefined}
                 canEditEntry={canEditInvoice}
+                onRejectEntry={setRejectingInvoice}
+                canRejectEntry={canRejectInvoice}
                 onDeleteEntry={handleDeleteInvoiceEntry}
                 isLoading={deleteInvoiceEntryLoading}
                 canDeleteEntry={canDeleteInvoice}
@@ -581,6 +595,15 @@ export const DocumentAttachments = <T extends DocumentType>({
                 />
               </div>
             )}
+            <RejectApprovedInvoiceDialog
+              invoice={rejectingInvoice}
+              onClose={() => setRejectingInvoice(null)}
+              onRejected={() => {
+                mutateInvoices();
+                mutateGenerated();
+                docMutate();
+              }}
+            />
           </CardContent>
         </Card>
       )}

@@ -48,7 +48,7 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   `services/wo_generated_invoices.MOVES` (`change_problem`, run by the doc's `validate`), never deleted
   (`on_trash`). Generate runs under `_billing_lock`, a session-level advisory lock followed by a commit: Frappe
   runs PostgreSQL at REPEATABLE READ, so a row lock alone left a waiting generate reading the old highest RA
-  number (the concurrency test caught it). Generate and void commit. The limit counts Pending + Approved Vendor
+  number (the concurrency test caught it). Generate and void commit. A FINAL generated after a voided one prints FINAL-2, FINAL-3 (`invoice_number`'s `final_number`, counting every FINAL the WO has had), so a voided number is never printed again. The limit counts Pending + Approved Vendor
   Invoices and generated invoices at *Generated*; a *Signed* one is counted through the Pending invoice its
   upload creates, so #1547 must create that invoice in the same save that moves the record to *Signed*. Only an
   Approved WO with `gst` explicitly off (`work_order_gst.gst_is_explicitly_off`; blank is not off) and a

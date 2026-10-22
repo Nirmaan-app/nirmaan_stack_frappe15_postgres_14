@@ -272,6 +272,10 @@ figure — the company pays the tax on top:
   pieces, never a copy. Readers: the Request Payment dialog (`api/payments/tds_forecast.forecast_work_order_tds`,
   via `useTdsForecast`; read checked on the Work Order) and the WO page's payment table
   (`get_work_order_tds` `forecasts`: each Requested / CEO Pending, non-GST payment without a deduction).
+  The approve dialogs, single and bulk (`api/payments/tds_forecast.forecast_payments_tds`, via
+  `usePaymentTdsForecasts`; `services/tds_forecast.payment_forecasts`, on the stored amount or a partial
+  approval's typed figure). The browser holds no copy of the rate or the company-borne categories (spec
+  #1528 story 59): the bulk dialog only adds the server's figures up (`tdsPreview.forecastTotals`).
 - **Nothing is written before approval.** A request left at Requested has no deduction
   (`test_tds_forecast`). A request below ₹15,000, or raised by someone holding the approval, is born
   Approved and is taxed at insert, so the dialog says "Tax is cut now" (`cut_now`, from the endpoint's
@@ -279,9 +283,11 @@ figure — the company pays the tax on top:
 - **"Req. Amount" is the full bill whatever the status (owner ruling X4-A).** The WO page table:
   Req. Amount / TDS / To be paid (`tdsPreview.paymentTableFigures`: a recorded `Vendor` deduction is
   added back onto the cut amount). The approval queue (All Payments, accountant tabs, CSV): the row's
-  `requested_amount` (`tds_forecast.withheld_by_payment`, the counted `Vendor` tax) with a "To be paid"
-  line under it when they differ. `amount` stays the stored figure: every action, total, sort and the
-  bank file read it.
+  `requested_amount` (a union column in `api/approvals/get_approval_queue`: the stored amount plus the counted
+  `Vendor` tax, `counted_deductions_sql`) with a "To be paid" line under it when they differ. The column's
+  sort and filter (id `amount`) read `requested_amount` too (`_COLUMN_FOR`, story 60), as does the "Req. Amt"
+  selection pill (`bulkSelectionSummary.requestedTotal`). `amount` stays the stored figure: every action, the
+  summary total, the Mark-as-Paid confirm total and the bank file read it.
 
 ---
 

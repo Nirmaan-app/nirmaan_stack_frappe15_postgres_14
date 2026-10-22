@@ -35,7 +35,7 @@ from nirmaan_stack.services.outflow_import.expense_links import (
 from nirmaan_stack.services.payees.paid_to import paid_to_rows
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.payment_split import load_part_reconciled_split_families
-from nirmaan_stack.services.tds_forecast import withheld_by_payment
+from nirmaan_stack.services.payment_tds import counted_deductions_sql
 
 from nirmaan_stack.services.cheque_payments import in_cheque_tracker_sql
 from nirmaan_stack.services.approval_tiers import (
@@ -89,10 +89,15 @@ _EXPENSE_AMOUNT = 'COALESCE(e."amount", 0)::numeric'
 # values are parameterized, but the identifiers are interpolated, so an allowlist
 # is what keeps that safe.
 SORTABLE = {
-    "name", "source", "source_type", "status", "amount", "against_primary", "vendor", "project",
+    "name", "source", "source_type", "status", "amount", "requested_amount", "against_primary", "vendor", "project",
     "raised_by", "creation", "modified", "approved_on", "paid_on", "utr_ref", "payment_by",
     "expense_type", "doctype",
 }
+
+# The "Req. Amount" column's id is `amount`, but it shows the full bill (owner ruling X4-A, #1541), so it
+# sorts and filters on that (spec #1528 story 60). `amount` itself stays the stored, TDS-cut figure: what is
+# paid, what the actions, the bank file and the summary total read.
+_COLUMN_FOR = {"amount": "requested_amount"}
 
 # Date columns get their own operator vocabulary. `creation` is a TIMESTAMP while
 # the other two are DATEs, so every comparison casts to ::date -- otherwise
@@ -210,13 +215,19 @@ def _payments_select():
             -- payment's invoices are Vendor Invoices, never a field here, so it is blank.
             -- ⚠️ POSITIONAL: before the pay-to columns in `_expense_select` too.
             ''::text                        AS invoice,
+            -- The full bill ("Req. Amount"): the stored amount plus the tax withheld from the vendor
+            -- (`payment_tds.counted_deductions_sql`; tax the company paid on top is not added).
+            -- ⚠️ POSITIONAL: right before the pay-to columns in `_expense_select` too.
+            (COALESCE(p."amount", 0) + COALESCE(w."vendor_borne_tds", 0))::numeric AS requested_amount,
             -- The payment's own pay-to account (ADR-0033, #1438), folded into `paid_to` after the
             -- fetch. ⚠️ POSITIONAL: last in `_expense_select` too.
             {pay_to_p}
         FROM "tabProject Payments" p
         LEFT JOIN "tabCheques" c ON c."name" = p."cheque"
+        LEFT JOIN ({counted}) w ON w."project_payment" = p."name"
         {linked_join}
     """.format(
+        counted=counted_deductions_sql(),
         src=SOURCE_VENDOR_PAYMENT,
         po=TYPE_PO_PAYMENT,
         sr=TYPE_SR_PAYMENT,
@@ -299,6 +310,8 @@ def _expense_select(table, source, project_col):
             0                               AS is_gst_payment,
             COALESCE(e."request_id", '')::text AS request_id,
             COALESCE(e."invoice_attachment", '')::text AS invoice,
+            -- An expense withholds no tax: its full bill is its amount.
+            {_EXPENSE_AMOUNT}               AS requested_amount,
             {_pay_to_columns("e")}
         FROM "{table}" e
         {linked_join}
@@ -384,6 +397,7 @@ def _build_where(filters, search_term, search_fields):
             # Silently ignoring an unknown filter would show MORE rows than asked
             # for -- the same failure mode as a missing case in the tab switch.
             frappe.throw(_("Unsupported filter field: {0}").format(field))
+        field = _COLUMN_FOR.get(field, field)
         if field == "raised_by" and value == CURRENT_USER_TOKEN:
             # Unconditional since 23 Sep 2026 -- no Admin bypass. This one substitution
             # scopes the LIST, the FACETS and the CSV EXPORT together, because all three
@@ -425,6 +439,7 @@ def _build_order(order_by):
     if not parts:
         return default
     col = parts[0].split(".")[-1].strip('"')
+    col = _COLUMN_FOR.get(col, col)
     direction = "DESC" if len(parts) > 1 and parts[1].lower() == "desc" else "ASC"
     if col not in SORTABLE:
         return default
@@ -518,11 +533,6 @@ def get_approval_queue(
     ])):
         r["paid_to"] = paid_to
 
-    # "Req. Amount" is the full bill whatever the status (owner ruling X4-A, #1541): an approved
-    # payment's stored amount is already cut by the tax withheld from it, so that tax is added back.
-    # `amount` stays the stored figure -- what is paid, what the actions and the bank file read.
-    withheld = withheld_by_payment([r["name"] for r in rows if r.get("doctype") == "Project Payments"])
-
     for r in rows:
         # Derived SERVER-side, from the same cast amount the routing will use, so
         # the chip on screen and the gate that runs can never disagree.
@@ -535,7 +545,8 @@ def get_approval_queue(
         # per-source lookup means a future split cannot reopen that gap.
         r["tier"] = required_tier(flt(r.get("amount")), _l2_line_for(r.get("source")))
         r["amount"] = flt(r.get("amount"))
-        r["requested_amount"] = flt(r["amount"] + withheld.get(r["name"], 0), 2) if r.get("doctype") == "Project Payments" else r["amount"]
+        # "Req. Amount" is the full bill whatever the status (owner ruling X4-A, #1541), from the union.
+        r["requested_amount"] = flt(r.get("requested_amount"), 2)
         r["has_proof"] = bool(r.get("proof"))
         r["has_invoice"] = bool(r.get("invoice"))
         r["bank_line_count"] = cint(r.get("bank_line_count"))

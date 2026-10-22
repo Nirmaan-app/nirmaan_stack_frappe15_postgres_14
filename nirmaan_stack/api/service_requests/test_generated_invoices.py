@@ -266,6 +266,17 @@ class TestFinal(GeneratedInvoiceTestCase):
 			generate_invoice(wo, "FINAL")
 		self.assertTrue(get_generated_invoices(wo)["has_final"])
 
+	def test_a_regenerated_final_prints_its_own_number(self):
+		"""A voided FINAL's number is never given again, so the next FINAL prints FINAL-2, and so on."""
+		wo = self._wo(paid=100_000)
+		first = generate_invoice(wo, "FINAL")
+		void_invoice(first["name"], "Wrong date")
+		second = generate_invoice(wo, "FINAL")
+		void_invoice(second["name"], "Wrong amount")
+		third = generate_invoice(wo, "FINAL")
+		numbers = [self._stored(r["name"]).invoice_no for r in (first, second, third)]
+		self.assertEqual([n.split(f"{wo[-5:]}-")[-1] for n in numbers], ["FINAL", "FINAL-2", "FINAL-3"])
+
 	def test_a_voided_final_frees_the_work_order_again(self):
 		wo = self._wo(paid=100_000)
 		void_invoice(generate_invoice(wo, "FINAL")["name"], "Wrong date")

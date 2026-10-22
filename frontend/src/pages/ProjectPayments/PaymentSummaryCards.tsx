@@ -271,7 +271,7 @@ interface PaymentStats {
     total_non_project_expense_30_days_part_reconciled_count: number;
     total_non_project_expense_30_days_part_reconciled_amount: number;
     /**
-     * Total Unreconciled Outflow (#1286) — bank money that has left the account and still owes
+     * Unreconciled bank debits (#1286; "Total Unreconciled Outflow" until story 62) — bank money that has left the account and still owes
      * somebody a decision in Bulk Import.
      *
      * ⚠️ IT IS ALL TIME, NOT 30 DAYS, although it renders inside the "Outflow (30 Days)" column.
@@ -585,7 +585,7 @@ const RecentActivityTile: React.FC<{
     projectOutflowPartReconciledCount: number;
     nonProjectOutflowPartReconciledAmount: number;
     nonProjectOutflowPartReconciledCount: number;
-    // Total Unreconciled Outflow (#1286) — ALL TIME, not 30 days. See `PaymentStats`.
+    // Unreconciled bank debits (#1286) — ALL TIME, not 30 days. See `PaymentStats`.
     unreconciledOutflowAmount: number;
     unreconciledOutflowCount: number;
     unreconciledInflowAmount: number;
@@ -698,10 +698,10 @@ const RecentActivityTile: React.FC<{
                                 unallocated on its "Partly Allocated – Outflow" lines. */}
                             <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
                             {/* ⚠️ ONE LABEL, NO SHORT VARIANT. Every other row here swaps a short label
-                                in below `lg:`; this one must read "Total Unreconciled Outflow" at every
+                                in below `lg:`; this one must read "Unreconciled bank debits" at every
                                 width, because that exact wording is what the ticket asks the card to
                                 show. It truncates on a narrow card like the rows above it. */}
-                            <BreakdownRow tone="violet" label="Total Unreconciled Outflow" amount={unreconciledOutflowAmount} count={unreconciledOutflowCount} amountClassName="text-primary" />
+                            <BreakdownRow tone="violet" label="Unreconciled bank debits" amount={unreconciledOutflowAmount} count={unreconciledOutflowCount} amountClassName="text-primary" />
                         </div>
                     </div>
                 </div>
@@ -879,7 +879,7 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
                             </span>
                         </div>
                     </div>
-                    {/* Total Unreconciled Outflow (#1286) — ALL TIME, so it gets its own full-width
+                    {/* Unreconciled bank debits (#1286) — ALL TIME, so it gets its own full-width
                         row rather than a fourth cell in the 30-day grid above. Its count rides
                         beside the amount: the backlog's size is half of what the figure says. */}
                     <div className="mt-2 grid grid-cols-2 gap-2">
@@ -891,7 +891,7 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
                             </span>
                         </div>
                         <div className="bg-violet-50 dark:bg-violet-950/30 rounded-md p-2 border border-violet-100 dark:border-violet-900/50">
-                            <span className="text-[9px] font-medium text-violet-600 dark:text-violet-400 uppercase block">Total Unreconciled Outflow</span>
+                            <span className="text-[9px] font-medium text-violet-600 dark:text-violet-400 uppercase block">Unreconciled bank debits</span>
                             <span className="text-sm font-bold text-violet-700 dark:text-violet-400 tabular-nums">
                                 {formatToRoundedIndianRupee(stats.total_unreconciled_outflow_amount)}
                                 <span className="text-[10px] font-semibold ml-1">({stats.total_unreconciled_outflow_count})</span>

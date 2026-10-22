@@ -20,7 +20,7 @@ import frappe
 from frappe.utils import flt
 
 from nirmaan_stack.api.payments.project_payments import create_payment_request_for_service
-from nirmaan_stack.api.payments.tds_forecast import forecast_work_order_tds
+from nirmaan_stack.api.payments.tds_forecast import forecast_payments_tds, forecast_work_order_tds
 from nirmaan_stack.api.payments.work_order_tds import get_work_order_tds
 from nirmaan_stack.services import payment_tds
 from nirmaan_stack.services.test_tds_borne_by import MISC, MISC_AND_ELECTRICAL, BorneByFixture
@@ -206,3 +206,61 @@ class TestReqAmountIsTheFullBill(ProcurementFixture):
 		waiting = self._plant(self._wo(MISC_AND_ELECTRICAL), 20000, "Requested")
 		self.assertEqual(self._queue_row(kept_whole.name)["requested_amount"], 10000.0)
 		self.assertEqual(self._queue_row(waiting)["requested_amount"], 20000.0)
+
+
+class TestReqAmountSortsAndFilters(ProcurementFixture):
+	"""The "Req. Amount" column (id `amount`) sorts and filters on the full bill it shows (story 60)."""
+
+	def _queue(self, names, **kwargs):
+		from nirmaan_stack.api.approvals.get_approval_queue import get_approval_queue
+
+		filters = [["name", "in", names], *kwargs.pop("filters", [])]
+		return [r["name"] for r in get_approval_queue(filters=filters, limit_page_length=5, **kwargs)["data"]]
+
+	def test_a_cut_payment_sorts_and_filters_at_its_full_bill(self):
+		cut = self._approve(self._wo(MISC_AND_ELECTRICAL), 10000).name   # stored 9,800
+		waiting = self._plant(self._wo(MISC_AND_ELECTRICAL), 9900, "Requested")
+		self.assertEqual(self._queue([cut, waiting], order_by="amount desc"), [cut, waiting])
+		self.assertEqual(self._queue([cut, waiting], filters=[["amount", ">=", 9950]]), [cut])
+
+
+class TestTheApproveDialogsForecast(ProcurementFixture):
+	"""The approve dialogs read each payment's forecast from the server too (spec #1528 story 59): the
+	vendor's rate today and the category rule, on the stored amount or a partial approval's figure."""
+
+	def _ask(self, *asks):
+		return forecast_payments_tds(json.dumps(list(asks)))["forecasts"]
+
+	def test_each_payment_is_forecast_on_its_stored_amount(self):
+		wo, kept_whole = self._wo(MISC_AND_ELECTRICAL), self._wo(MISC)
+		withheld = self._plant(wo, 20000, "Requested")
+		on_top = self._plant(kept_whole, 60000, "CEO Pending")
+		self.assertEqual(self._ask({"name": withheld}, {"name": on_top}), {
+			withheld: {"rate": 2.0, "tds": 400.0, "vendor_gets": 19600.0, "borne_by": "Vendor"},
+			on_top: {"rate": 2.0, "tds": 1200.0, "vendor_gets": 60000.0, "borne_by": "Company"},
+		})
+
+	def test_a_partial_approval_is_forecast_on_the_figure_typed(self):
+		pay = self._plant(self._wo(MISC_AND_ELECTRICAL), 60000, "CEO Pending")
+		self.assertEqual(self._ask({"name": pay, "amount": 40000})[pay]["tds"], 800.0)
+
+	def test_the_rate_is_the_vendors_today(self):
+		pay = self._plant(self._wo(MISC_AND_ELECTRICAL), 20000, "Requested")
+		frappe.db.set_value("Vendors", self.vendor, "tds_deduction_percentage", 1)
+		frappe.db.commit()
+		self.assertEqual(self._ask({"name": pay})[pay]["tds"], 200.0)
+
+	def test_gst_approved_and_unknown_payments_have_none(self):
+		wo = self._wo(MISC_AND_ELECTRICAL)
+		gst = self._plant(wo, 1800, "Requested", gst=True)
+		approved = self._approve(wo, 10000)
+		self.assertEqual(self._ask({"name": gst}, {"name": approved.name}, {"name": "PE-NOT-A-PAYMENT"}), {})
+
+	def test_a_user_who_cannot_read_the_payments_gets_none(self):
+		pay = self._plant(self._wo(MISC_AND_ELECTRICAL), 20000, "Requested")
+		frappe.set_user("Guest")
+		try:
+			with self.assertRaises(frappe.PermissionError):
+				self._ask({"name": pay})
+		finally:
+			frappe.set_user("Administrator")
