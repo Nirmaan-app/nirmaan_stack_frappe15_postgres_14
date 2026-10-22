@@ -14,15 +14,13 @@ interface ReportSummaryCardProps {
     items?: any[];
   } | null;
   totalItems: number;
-  onEdit?: () => void;
-  cooldownMessage?: string;
+  onEdit: () => void;
 }
 
 export const ReportSummaryCard = ({
   report,
   totalItems,
   onEdit,
-  cooldownMessage,
 }: ReportSummaryCardProps) => {
   const filledCount =
     report?.items?.filter(
@@ -52,16 +50,10 @@ export const ReportSummaryCard = ({
               </p>
             )}
           </div>
-          {onEdit ? (
-            <Button variant="outline" size="sm" onClick={onEdit}>
-              <Pencil className="mr-1 h-3.5 w-3.5" />
-              Edit Report
-            </Button>
-          ) : cooldownMessage ? (
-            <div className="text-xs text-muted-foreground bg-muted/50 px-3 py-1.5 rounded-md">
-              {cooldownMessage}
-            </div>
-          ) : null}
+          <Button variant="outline" size="sm" onClick={onEdit}>
+            <Pencil className="mr-1 h-3.5 w-3.5" />
+            Edit Report
+          </Button>
         </div>
       </CardContent>
     </Card>
