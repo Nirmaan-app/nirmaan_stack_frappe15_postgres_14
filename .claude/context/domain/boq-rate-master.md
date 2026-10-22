@@ -1522,9 +1522,69 @@ option A; every category).** "whatever needs to be edited from there becomes a p
 category catalogs." Business numbers live in Pricing Inputs, dropdown values in the catalogue, and attribute definitions,
 steps, conditions, bands and goldens change only through a minted asset (developer-only). The editor-only helpers went with it
 (`cloneConfig`, `evaluateGoldens`, `goldenDeltas`, `referencedAttrIds`, `blankAttributeDefinition`, `blankPipeline`); the
-goldens stay config DATA for the mint gate, the loader and the exporter. `update_rate_config` stays server-side, uncalled,
-ONE more slice (its tests also guard the validator), then goes; `update_rate_config_param` (the retired inline edit) is
-likewise uncalled.
+goldens stay config DATA for the mint gate, the loader and the exporter. **ADP-5a (owner D9: "kept one slice, then
+removed"): `update_rate_config` and `update_rate_config_param` are REMOVED**, with the frontend helpers only they served
+(`rateMasterEdit.matchedConditionIndex` / `isEditableParam`). The validator they wrapped (`config_validation._validate_config`,
+`validate_delegated_sections`) keeps one product caller, the import loader (`loader.py`), and is tested directly; the
+re-import block in `rate_master.py` stays for the tests that reach it through the api module. Rate Master write endpoints
+are now four: `update_rate_master_item`, `create_rate_master_item`, `deactivate_rate_master_item`, `apply_rate_master_csv`.
+
+**ADP-5a: A SPIGOT WITH A BUTTERFLY DAMPER IS ONE "BUTTERFLY DAMPER WITH SPIGOT", AT THE SPIGOT'S DIAMETER (owner 2026-10-22
+10:43-10:49: "the model correctly returned spigot and butterfly damper...so these cases should be matched with spigot with
+butterfly damper"; "Spigot Smaper is spigot with butterfly damper"; "only the dia of the spigot matters"; the SKU's 0 install
+"is ok").** Config key `list_spec.pricing.family_merge` (SCOPE-5a-1; shape check `config_validation._validate_family_merge`):
+an item of `family` prices as ONE item of `into` when the row also carries an item of a family in `absorbs` (that item is the
+same thing and is DROPPED -- its own answers, its size included, are not read) or when the row's text, a heading or the note
+of the heading directly above names one of `words` at a word start; `at` is the number kept (the spigot's diameter, then the
+standard ladder: the stated size, else the next stocked size up, refusing above the largest). ADP v51: spigot -> butterfly
+damper, absorbs butterfly damper, words "butterfly damper" / "spigot damper" / "spicot damper". `applyFamilyMerge` runs in the
+panel helper RIGHT AFTER the items are assembled, so the absorbed item leaves the EDIT STATE too (a block's position is its
+edit index on the panel), and the calculator gets the same one item from the same two. It applies whoever chose the family
+(model or pricer). The item says "spigot with butterfly damper named -> priced as one Butterfly Damper With Spigot, <size>
+mm". A spigot with no damper named stays a spigot. 93 stored rows moved (28 with both items, 9 under a butterfly heading, 56
+"spigot / spicot damper"), e.g. BOQ-26-00341 r103 1,311 -> 1,015.
+
+**ADP-5a: A CURVED GRILLE TAKES A DAMPER UNLESS THE BoQ SAYS WITHOUT (owner 2026-10-20 12:51: "curved grills are supply
+only..so they should price with damper only"; "always with damper unless the row says 'without'").** `defaults.damper` is
+per family (`by_family`: curved grille "with", the other five damper families "without") with the curved grille's own line
+(`rule_by_family`, SCOPE-5a-2: a family named there says that line; every other family keeps `rule` word for word); curved
+grille is out of the return / exhaust / fresh `derive_when_none` rules. A stated "without" (the model's answer, which reads a
+heading's "without") wins. 5 stored rows moved (6,390 -> 13,530 x4; 576 -> 1,218).
+
+**ADP-5a: "SUPPLY CUM RETURN AIR" AND "SA / RA" NAME BOTH AIR STREAMS; THE NOTE OF THE HEADING DIRECTLY ABOVE COUNTS (owner
+2026-10-22 10:49 item 3; HN-2 / HN-3).** `airStreamsNamed` reads "cum" among the joining words and "SA / RA" (capitals) as both
+streams -- in code; the model's question is unchanged. The panel's row context carries `headingNotes` -- the notes of the
+heading DIRECTLY above the row (`rateSuggestionModel.rowHeadingNotes`) -- read ONLY by the both-streams check and
+`family_merge`'s words; every other text rule reads what it always read. A farther heading's note (a section-wide
+specification) is not read (HN-3: on BOQ-26-00341 it would have moved six undeclared rows). 4 stored rows moved
+(12,428 -> 5,709).
+
+**ADP-5a CERT-C5 / C5c: THE PAGE BUILDS A HEADING'S NOTES FROM ITS COMMITTED ROWS (owner 2026-10-22).** The page's rows carry
+NO `attached_notes` field: an attached note reaches the page as its OWN committed row, `effective_classification` "note"
+(`NOTE_CLASSIFICATION` = `review_screen._NOTE_CLS`), whose effective parent is the heading. `rowHeadingNotes` builds the list as
+`commit_pipeline._derive_attached_notes` does: the heading's `append_notes_raw` values, its `row_notes`, then its note rows in
+row order, each trimmed, blanks dropped (= the BOQ Nodes tree). The replay rig uses the SAME function on the page rows
+`ac5_dump.py` exports (`ac5_page_rows.json`), so the replay sees what the page sees; the dump keeps the payload's view
+(`extraction._note_block` on the stored `attached_notes`) as `payloadHeadingNotes`, REFERENCE ONLY, and both harnesses REPORT
+the comparison (`hn_differ_<label>.txt`), never stop. At ADP-5a: equal on 17,680 / 17,914 rows, differ on 234 -- all on 17
+sheets whose stored `attached_notes` blob is stale (finding F-1, below); no stored row prices differently under either source.
+The owner's standing view: the payload structure is the standard and the panel should see what the model sees -- a follow-up
+slice moves the panel onto the server's payload builder.
+
+**OPEN FINDING F-1 (ADP-5a, for a follow-up slice): stale `attached_notes` on 17 committed sheets.** On 234 stored rows the
+heading's stored `attached_notes` (what `_note_block` sends the model) differs from the committed tree (the heading's note
+children by `parent_node`); on all 234 the tree equals the page. Sheets: 00003 PUNE HVAC BOQ, 00007 HVAC BOQ, 00088 HVAC,
+00102 Electrical, 00131 ESTIMATE, 00137 LOWSIDE OFFICE WORKS, 00140 HVAC Lowside Works, 00149 HVAC-BOQ, 00165 AC WORKS,
+00166 HVAC, 00171 Electrical + HVAC, 00174 Electrical, 00175 First floor + Ground floor, 00260 Electrical BOQ, 00292 HVAC.
+Cause as far as read-only evidence goes: 8 (00003 ... 00149) were committed before `cda170eb0` (2026-08-04, EA-6a slice 2,
+"commit derives attached_notes", owner D5 forward-only, no backfill), so their blobs were copied from the parser's review rows;
+the other 9 need the date that change reached production. A re-commit self-heals a sheet (D5). 0 drift Error Log entries.
+
+**ADP-5a: "A x B-C depth" IS THREE BOX SIDES (owner 2026-10-22 10:49 item 6).** `readBoxSides` splits a two-part size whose
+second part is "B-C" followed by a height label ("1200x150-300 depth", "600x600-300 depth") into length A, width B, height C.
+A plenum does NOT borrow its diffuser's face size (R6, owner 2026-10-19 23:13). 2 stored rows price (2,306 / 2,787 supply).
+The dead top-level `depth_mm` catalogue column definition is gone from v51 (declared `attr:hvac_adp:depth_mm`; not
+model-facing; `spec_reader`'s LP-plenum branch still writes the key for an "A X B X C" detail -- inert, 0 of 93 SKUs).
 
 **ADP-4b D7: THE ADP DATA VIEWER SHOWS WHAT DOWNLOADS (owner 2026-10-21 14:41).** On a spec-driven grid (`attributes_from_spec`)
 the default columns are the download's (`csv_exporter.build_category_rows`): item id, discipline, category, [kind], brand,
@@ -1574,7 +1634,7 @@ category exists in the discipline, is an item-list config with pricing rules, is
 family in the owner's family attribute; every family offered is priceable in the section's unit class THERE and has
 an active SKU there; `mirror.to` is one of ITS number readers. It is called ONCE by `loader._load_multi` over the
 payload's configs and items BEFORE the first write, by the single-config load path (`load_rate_master` with a
-singular `category_config`; owner F9 "fix", 12e-3c) with the same arguments, and by `update_rate_config` before
+singular `category_config`; owner F9 "fix", 12e-3c) with the same arguments, and (until ADP-5a removed it) by `update_rate_config` before
 `doc.save` -- EVERY config load path runs it; both read whatever
 stays active outside the write from the database, so a write is checked against the catalogue AS IT WILL STAND and an
 edit to the DELEGATED category that would break another config's section is refused on its own save. The pure half is
@@ -2059,7 +2119,7 @@ other spelling refuses by name), shared by the calculator's typed "Other..." pip
   via RM-4b but never written back into that top-level dict is DROPPED on the next `replace=True` import.
   **Verify an apply by comparing `stored == asset` KEY BY KEY, never by golden COUNT** -- a swap can leave the
   count identical while replacing the content.
-- **Estimator rules are read from the DB, not the asset:** `extraction._load_active_configs` reads `BoQ Rate Category Config`, so editing `services/boq_rate_master/data/rate_master_*.json` is **INERT at runtime** until re-imported or applied via the audited RM-4b `update_rate_config`. The asset is the record; the config row is what the model reads.
+- **Estimator rules are read from the DB, not the asset:** `extraction._load_active_configs` reads `BoQ Rate Category Config`, so editing `services/boq_rate_master/data/rate_master_*.json` is **INERT at runtime** until re-imported (the audited RM-4b `update_rate_config` path was removed in ADP-5a, owner D9). The asset is the record; the config row is what the model reads.
 
 ## BoQ Rate Master (RM-1)
 
@@ -2089,7 +2149,7 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
 - **RM-4a editing endpoints (ADMIN-ONLY, owner option (a); full as-built in the plan doc's "Build slice
   RM-4a").** Four `@frappe.whitelist(methods=["POST"])` writes in `api/boq/rate_master.py`:
   `update_rate_config_param` / `update_rate_master_item` / `create_rate_master_item` /
-  `deactivate_rate_master_item`. ALL gate on the IMPORTED `pricing._is_nirmaan_admin` (never a re-minted
+  `deactivate_rate_master_item` (`update_rate_config_param` REMOVED in ADP-5a, owner D9). ALL gate on the IMPORTED `pricing._is_nirmaan_admin` (never a re-minted
   copy), admin gate BEFORE any target resolution or write (`frappe.PermissionError` otherwise). **The
   AUDITED write recipe is `doc.save(ignore_permissions=True, ignore_version=False)`** (get_doc → json.loads
   → mutate the parsed dict → json.dumps → save → commit): both doctypes are `track_changes:1` with
@@ -2103,7 +2163,8 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   `import_batch="manual-"+hash` / `source_sheet="Manual entry"` / `source_row=0`; `deactivate` sets
   `active=0` (RETAINED, never deleted). Frontend HIDES every affordance for non-admins (`isRateMasterAdmin`;
   the server is authoritative). The first `Version` docs for the two rate-master doctypes now exist.
-- **RM-4b structure editor (ADMIN-ONLY; full as-built in the plan doc's "Build slice RM-4b").** ONE
+- **RM-4b structure editor (ADMIN-ONLY; full as-built in the plan doc's "Build slice RM-4b"). REMOVED in ADP-5a (owner D9);
+  the record below is historical.** ONE
   `@frappe.whitelist(methods=["POST"])` write `update_rate_config(name, config)` in `api/boq/rate_master.py`
   LIFTS the RM-4a param-values-only boundary — add/remove params, steps, conditions, and attribute
   definitions. Admin-gated FIRST (`pricing._is_nirmaan_admin`), then FULL server-side STRUCTURAL VALIDATION
@@ -2819,7 +2880,8 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   wrong, not merely shorter, which is why `component_ref` has always refused in the same situation.
 - **⚠️ THE TAIL BACKSTOP'S PREDICATE IS `typeof v === "number" && !Number.isFinite(v)` — A NUMBER THAT
   IS NOT FINITE, NEVER A MISSING VALUE (owner-locked).** It is the only mechanism that does not depend
-  on config being well-formed (**the loader does not validate; only `update_rate_config` does**), so a
+  on config being well-formed (**the loader does not validate; only `update_rate_config` does** -- historical: the loader validates since 2026-09-10 and
+  `update_rate_config` was removed in ADP-5a), so a
   bad value reaching `stageRate` is caught here. **A backstop written as "no non-value may pass with
   ok" would BREAK the four live `miscellaneous` CEIG / AS Built honest partials while fixing nothing
   that was ever broken.** Absent means *"this row has no such rate"*; NaN means *"we computed
@@ -2965,7 +3027,8 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   **`*_from_attr` param holding a STRING** (an attribute-id binding — scoped to that suffix ONLY; any
   other param carrying a string still raises). Before this, `cabletray_raceway` and `popup_boxes` could
   not be saved through RM-4b at all.
-- **⚠️ THE LOADER DOES NOT VALIDATE, THE EDITOR DOES.** `_validate_config` has exactly ONE caller
+- **⚠️ THE LOADER DOES NOT VALIDATE, THE EDITOR DOES** (historical: the loader validates since 2026-09-10; the editor,
+  `update_rate_config`, was removed in ADP-5a). `_validate_config` had exactly ONE caller
   (`update_rate_config`); `load_rate_master` / `_load_multi` validate nothing of the sort. **So an
   un-validatable config imports cleanly and only fails later, at the editor** — a whole-config RM-4b
   save. This asymmetry has now bitten TWICE in one slice (an unregistered top-level key, and step

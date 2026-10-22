@@ -1789,7 +1789,7 @@ attached_to_index = note_parent_index = target
 **Prompt/rules alignment.** `prompts/boq_composite_decomposition_prompt.md` names the row own notes in three
 clauses (source list, breaker enumeration, CURVE/UPS trigger) -- read from disk per request, so live on edit.
 R3 reworded in the new asset `data/rate_master_electrical_all_v18.json` (one JSON leaf differs from v17;
-v17 untouched) and applied LIVE via the audited RM-4b `update_rate_config` (`Version` 4 -> 5).
+v17 untouched) and applied LIVE via the audited RM-4b `update_rate_config` (`Version` 4 -> 5; the endpoint was removed in ADP-5a, owner D9).
 **Asset pin (current): the E-ALL asset is now `data/rate_master_electrical_all_v22.json`**
 (sha256 prefix `f1344c1853614d75`, 795 items / 12 configs), minted at slice 1b for point_wiring's
 blanker + the back_box dependency fix (v21 was slice 1a's `switches_sockets` rebuild). v18 above is the historical record of THAT cycle, not the
@@ -2417,9 +2417,9 @@ Both writes return `{ok, changed, frozen, frozen_by, frozen_at}`.
 
 ### Guard placement -- SIX inline + ONE self-guard
 
-`freeze.guard_not_frozen()` sits immediately AFTER `_require_rate_admin()` in the six WRITE
-endpoints (`update_rate_config_param`, `update_rate_master_item`, `create_rate_master_item`,
-`deactivate_rate_master_item`, `update_rate_config`, `apply_rate_master_csv`), and at the TOP of
+`freeze.guard_not_frozen()` sits immediately AFTER `_require_rate_admin()` in the four WRITE
+endpoints (`update_rate_master_item`, `create_rate_master_item`, `deactivate_rate_master_item`, `apply_rate_master_csv`;
+`update_rate_config_param` and `update_rate_config` were removed in ADP-5a, owner D9), and at the TOP of
 `csv_importer.apply_plan`, ahead of `build_plan`.
 
 **Gate order is admin-first, freeze-second** so a non-admin gets the honest "Not permitted" rather

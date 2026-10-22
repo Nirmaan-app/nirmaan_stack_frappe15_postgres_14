@@ -48716,3 +48716,90 @@ Electrical, Piping and Insulation 0. The field table (873 rows, HEAD vs slice) d
 2. `update_rate_config` and `update_rate_config_param` have no caller (D9 option A); `rateMasterEdit.matchedConditionIndex` /
    `isEditableParam` lost their only product caller (outside this slice's file scope; kept with their test).
 3. The cert re-saved the admin `fcm_token` after the mandated site-data clear (Version `951ifpifsu`), as at every cert.
+
+## Slice ADP-5a - ADP rules in code and config: spigot + butterfly damper as one item, the curved grille's damper, both air streams, box sides, the endpoint tidy-up, HVAC v51 - as built 2026-10-22
+
+**Owner rulings built:** the spigot ruling (2026-10-22 10:43-10:49: "the model correctly returned spigot and butterfly
+damper...so these cases should be matched with spigot with butterfly damper"; "Spigot Smaper is spigot with butterfly damper";
+"only the dia of the spigot matters"; the SKU's 0 install "is ok"), replacing the F-ADP1 interim warning and the R4 warning
+plan; items 3, 5, 6, 7 and 8 of the ADP-R5 table (10:49 "ok with 1 to3 and 5 to 8"); R9 / D9 (the endpoints "kept one slice,
+then removed"). Rulings taken in the slice: **SCOPE-5a-1** (the spigot rule is a config key, `family_merge`, with its shape
+check in `config_validation.py` and its own validator test module -- no family or word in code), **SCOPE-5a-2** (a per-family
+line on a default, `rule_by_family`), **HN-2** (the headings' notes reach the pricer's row context as the payload carries them,
+read ONLY by the both-streams check and `family_merge`), **HN-3** ("immediate parent only": the heading directly above the
+row; a section heading's note two levels up moved six undeclared rows on BOQ-26-00341 and is not read).
+
+**Commits (unpushed at the time of writing):**
+- `22fed197b` feat(rate-helper): code + tests. `config_validation.py` (`family_merge` + `_validate_family_merge`;
+  `rule_by_family`); `itemListPricing.ts` (`FamilyMerge`, `applyFamilyMerge`, the merged item's line with its size,
+  `rule_by_family` read by the pricer, "cum" and "SA / RA" in `airStreamsNamed`, the heading notes in the both-streams check,
+  "A x B-C depth" in `readBoxSides`); `pricingSheetHelper.ts` (the merge right after assembly -- the absorbed item leaves the
+  EDIT STATE too, because a block's position is its edit index; the heading notes passed); `rateHelperTypes.ts` /
+  `rateSuggestionModel.ts` (`headingNotes`, `rowHeadingNotes`); `itemListRuleOrder.ts` (the spigot line, last; the defaults
+  line groups rules per attribute and fact and says "(not on curved grille)" and "without (curved grille: with)"; the
+  both-streams and sizes lines' new clauses; four reasons quoted from the rulings); `rate_master.py` (`update_rate_config`,
+  `update_rate_config_param` removed); `rateMasterEdit.ts` (`matchedConditionIndex`, `isEditableParam` removed); the replay
+  rig (`ac5_dump.py` + both harnesses carry `headingNotes`). Tests: `adp5a.test.ts`, `test_config_validation_adp5a.py`,
+  ruleReachability (12 cases on v51 from real stored rows with figures + the ADP-5a guard; the pure path applies the same
+  merge), the AC6 re-points / deletions in `test_rate_master.py` (validator tests 16, 17, 19, 20, 26, 27, 29, 30 and 31's seeding
+  re-pointed at `_validate_config`; endpoint tests 09, 10, 15, 18, 21, 22, 28 deleted; the freeze tests SIX -> FOUR writes, rmf_13
+  6 -> 4) and `test_piping_v34.py` (test_20 at `validate_delegated_sections`), `adp4b.test.ts` and `rateMasterEdit.test.ts`
+  inverted (BEFORE kept).
+- `0c209c9ec` feat(rate-master): HVAC v51 (exported from the DB = v50 by content; only `hvac_adp` edited: the damper default
+  per family with the curved grille's line, curved grille out of the return / exhaust / fresh derive rules, `family_merge`,
+  the dead top-level `depth_mm` definition removed and declared `attr:hvac_adp:depth_mm`); mint gate v50 -> v51 PASS; load
+  batch `rmbulk-a0c8878633cd`, pre-load snapshot `BRMS-26-02143`; live == v51 by content; the latest-asset pins (test_piping_v34
+  x20, test_rate_master the constant + 6 + the second wave `_without_adp5a_adp` / `_without_adp5a_removal`,
+  test_extraction_coercion x1, itemListRuleOrder.test.ts x1), BEFORE kept.
+- `ca7dc377b` fix(rate-helper): CERT-C5 / C5c (a declared fourth code commit, not an amend: commits 1-2 had already passed
+  the full suites). The cert found BOQ-26-00122 r65 still at 12,428 on the live page: the page's rows carry no
+  `attached_notes`, so `rowHeadingNotes` read nothing there while the replay dump read BOQ Nodes. `rowHeadingNotes` now builds
+  a heading's notes from its committed note rows, as `commit_pipeline._derive_attached_notes` does; the rig builds the
+  replay's context with the same function from the page rows the dump exports and REPORTS the payload comparison
+  (`payloadHeadingNotes`, reference only); `adp5a.test.ts` pins the page shape and the live 00122 shape.
+- The docs commit that carries this entry.
+
+Start tip `796f7ff59` (= origin). Report on the Desktop: `2026-10-22_ADP-5a_Report.md` (ledger first), `_Ledger.md`,
+`_Moved_Rows.xlsx`, the three full-suite logs.
+
+### 1. The replay (17,914 rows, the tracked rig)
+
+The rig change alone (the dump gains `headingNotes`) moved nothing: re-baselined once, dump rows `b48267f533c06447`, ac7 /
+ac7v2 = START (`376852e4` / `412594e2`) with the product code stashed. After CERT-C5c the replay's heading notes come from
+the page's own rows (`rowHeadingNotes`), equal to the payload's on 17,680 / 17,914 rows (234 differ, finding 1) -- the
+result below is the same byte for byte. On live v51: EXACTLY the 104 declared rows change, 102
+with figures -- spigot 93 (e.g. BOQ-26-00341 r103 1,311 -> 1,015; BOQ-26-00231 r257 275 -> 725; 00239 r268 and 00144 r229 stay
+refused, wording only), curved grille 5 (6,390 -> 13,530 x4; 576 -> 1,218), both streams 4 (12,428 -> 5,709), box sides 2
+(-> 2,306 / 2,787 supply); 0 other rows, 0 Electrical / Piping / Insulation; ac7 `e45102ef...`, ac7v2 `e4fe5588...`. The model's
+question is unchanged: ADP `dcbe3a2e...`, Insulation `c335f2b8...`, Piping `757f2ba4...` = v50. The field table (397 surface
+rows, HEAD vs slice) differs in 26 leaves, all the curved grille's damper value and line, panel and calculator.
+
+### 2. Suites, cert
+
+- vitest full (on `ca7dc377b`): 197 files / 7,455, 1 failed = `writeOffControl` (known 5 s timeout). On `0c209c9ec`: 197 /
+  7,454, plus the plainEnglish 12d-5 ADP sweep timing out (5,206 ms; alone 2,603 ms PASS) -- a standing load timeout.
+- tsc: 3,170 = ADP-4b's by message (0 new, 0 gone), on `0c209c9ec` and on `ca7dc377b`.
+- Python full (on `0c209c9ec`; commit 3 changes no Python file): 8,576 tests (= 8,572 + 11 new - 7 deleted). Every BoQ /
+  rate-master module OK alone; left: 6 F + 2 E in 5 untouched non-BoQ modules = ADP-4a's shape.
+- Vacuity V1-V11: each break red where expected, each restore sha-equal.
+- Cert at :8080 after the full de-stale (served-module and in-page import proofs), run whole AFTER the CERT-C5 fix: C1-C10
+  PASS. 00231 r257 725 / 0; 00341 r103 one item 1,015; 00341 r62 plain spigot 276 / 64 / 340; 00185 r29 curved grille
+  "with" 10,730 / 2,800 / 13,530 and 00140 r168 "without" 6,390; 00122 r65 both streams 4,829 / 880 / 5,709 (the cert's
+  C5 failure, fixed by `ca7dc377b`); 00247 r92 boxes 1,200 / 150 / 300, 2,306; the calculator equals the panel (spigot 200 +
+  butterfly damper -> one item 1,015; curved grille per sq.m "with" 13,530); the Derivation tab's four new clauses with
+  their reasons and no `depth_mm`; 00096 r49 1972 / 576 / 2548, Electrical 00174 r148 260 / 60 / 320, Piping 00131 r75 358 /
+  42 / 400 unchanged; end state = v51 live (HVAC configs `992e860a2231dcf1`, items unchanged), capture 465 unchanged, runs
+  351 / 200, AI on. Nothing pressed that writes.
+
+### 3. Findings (open)
+
+1. **F-1: stale `attached_notes` on 17 committed sheets** (234 stored rows): what the model is sent for a heading's notes
+   differs from the committed tree, which the page shows. 8 sheets predate `cda170eb0` (D5 forward-only, no backfill); the
+   other 9 need the production deploy date. No price effect today. For a follow-up slice, with the owner's standing view that
+   the panel should use the server's payload builder (detail in `boq-rate-master.md`).
+2. `spec_reader`'s LP-plenum branch still writes `depth_mm` for an "A X B X C" detail -- inert (0 of 93 SKUs carry it).
+3. Writes outside the slice, none of live content: the two certs' mandated site-data clears re-saved the admin `fcm_token`
+   (Versions `qlinq7mdvq`, `kkatu1tl5t`, `knd27615cv`); the Python suites (12:00-13:59) left 2,251 Error Log rows (failure-path
+   tests: 1,658 "Error Attaching File", 522 outflow statement links, the rest BoQ / payment / tendering tests), 44 Version rows on
+   finance documents that no longer exist, and 3 Versions on `BRMI-26-15812` (tray_discount; Electrical items sha unchanged).
+   Not deleted: residue goes only from a list the owner approves.
