@@ -3,11 +3,13 @@
  * themselves are the server's (`services/work_order_lifecycle`): these only show them before the user acts.
  */
 
+import { PAYMENT_STATUS } from "@/constants/paymentStatus";
+
 /** The statuses the Work Order lists (All WO, the project's Work Order table) show: an amended one stays listed. */
 export const LISTED_WORK_ORDER_STATUSES = ["Approved", "Amendment"];
 
-/** A payment at any other status is money in flight, and Amend waits for it. */
-const SETTLED_PAYMENT_STATUSES = ["Paid", "Rejected"];
+/** A payment at any other status is money in flight, and Amend waits for it (server: `work_order_lifecycle`). */
+const SETTLED_PAYMENT_STATUSES: readonly string[] = [PAYMENT_STATUS.PAID, PAYMENT_STATUS.REJECTED];
 
 export type WorkOrderBadge = "Finalized" | "Under amendment" | "Approved";
 

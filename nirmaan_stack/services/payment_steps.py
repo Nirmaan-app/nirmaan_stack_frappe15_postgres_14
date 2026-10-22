@@ -42,6 +42,7 @@ from frappe import _
 from frappe.utils import flt
 
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
+from nirmaan_stack.services import settlement
 from nirmaan_stack.services.approval_tiers import TIER_L2_ABOVE, is_auto_approved, needs_ceo
 from nirmaan_stack.services.cheque_payments import CHEQUE_MOVES_ON
 from nirmaan_stack.services.cheques.decide import DECIDING_FLAG
@@ -51,12 +52,13 @@ from nirmaan_stack.services.role_profiles import (
     has_role_profile,
 )
 
-REQUESTED = "Requested"
-CEO_PENDING = "CEO Pending"
-APPROVED = "Approved"
-REJECTED = "Rejected"
-RECONCILIATION_PENDING = "Reconciliation Pending"
-PAID = "Paid"
+# The payment statuses are `services/settlement`'s (ADR-0010: one owner), under short local names.
+REQUESTED = settlement.STATUS_REQUESTED
+CEO_PENDING = settlement.STATUS_CEO_PENDING
+APPROVED = settlement.STATUS_APPROVED
+REJECTED = settlement.STATUS_REJECTED
+RECONCILIATION_PENDING = settlement.STATUS_RECONCILIATION_PENDING
+PAID = settlement.STATUS_PAID
 
 STEP_L1 = "l1"
 STEP_CEO = "ceo"

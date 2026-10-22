@@ -1,3 +1,4 @@
+import { ADMIN_PROFILE, PROJECT_LEAD_PROFILE } from "@/constants/roles";
 /**
  * Service Requests tabs configuration
  * Used by ServiceRequestsTabs.tsx for consistent tab values and role-based access
@@ -37,7 +38,4 @@ export const SR_COMMON_TAB_OPTIONS: SRTabOption[] = [
 // Executive was intentionally REMOVED on 2026-09-17 (PMO access review). Do NOT re-add PMO
 // without owner sign-off. The server enforces the same set (`services/role_profiles.WO_DECIDE_PROFILES`,
 // #1529) on every approve / reject / amendment decision; keep the two in sync.
-export const SR_ADMIN_ROLES = [
-  "Nirmaan Admin Profile",
-  "Nirmaan Project Lead Profile",
-];
+export const SR_ADMIN_ROLES: string[] = [ADMIN_PROFILE, PROJECT_LEAD_PROFILE];

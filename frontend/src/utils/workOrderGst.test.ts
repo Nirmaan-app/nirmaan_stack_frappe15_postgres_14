@@ -21,7 +21,8 @@ describe("isGstOn", () => {
   });
 
   it("uses the same spellings as the server's gst_is_on", () => {
-    expect(PY_SOURCE).toMatch(/\.strip\(\)\.lower\(\) in \("true", "1", "yes"\)/);
+    expect(PY_SOURCE).toMatch(/GST_ON_SPELLINGS = \("true", "1", "yes"\)/);
+    expect(PY_SOURCE).toMatch(/\.strip\(\)\.lower\(\) in GST_ON_SPELLINGS/);
   });
 });
 

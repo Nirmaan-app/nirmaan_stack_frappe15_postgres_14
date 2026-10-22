@@ -25,7 +25,13 @@ from frappe.utils import flt
 
 from nirmaan_stack.services.outflow_import.amounts import rupees
 from nirmaan_stack.services.role_profiles import assert_match_gst_to_vendor_access
-from nirmaan_stack.services.work_order_gst import gst_flag_for_vendor, gst_is_on, work_order_total
+from nirmaan_stack.services.work_order_gst import (
+    GST_ON_SPELLINGS,
+    gst_flag_for_vendor,
+    gst_is_on,
+    items_value,
+    work_order_total,
+)
 
 SR = "Service Requests"
 #: Only an Approved WO is matched. One waiting for approval gets its flag at approval; one in
@@ -55,10 +61,10 @@ def get_gst_mismatch_work_orders() -> list:
         LEFT JOIN "tabProjects" p ON p.name = s.project
         WHERE s.status = %(status)s
           AND (COALESCE(TRIM(v.vendor_gst), '') != '')
-              != (LOWER(TRIM(COALESCE(s.gst, ''))) IN ('true', '1', 'yes'))
+              != (LOWER(TRIM(COALESCE(s.gst, ''))) IN %(gst_on)s)
         ORDER BY s.creation, s.name
         """,
-        {"sr": SR, "status": MATCHABLE_STATUS},
+        {"sr": SR, "status": MATCHABLE_STATUS, "gst_on": GST_ON_SPELLINGS},
         as_dict=True,
     )
     for row in rows:
@@ -106,7 +112,7 @@ def _figures(doc) -> dict:
     `ServiceRequests.calculate_total_amount` does; Amount Paid does not move."""
     vendor_gst = frappe.db.get_value("Vendors", doc.vendor, "vendor_gst") if doc.vendor else None
     target = gst_flag_for_vendor(vendor_gst)
-    sub_total = sum(flt(row.quantity) * flt(row.rate) for row in doc.work_order_items or [])
+    sub_total = items_value(doc.work_order_items)
     amount_paid = flt(doc.amount_paid)
     total_before = flt(doc.total_amount)
     total_after = flt(work_order_total(sub_total, target), 2)

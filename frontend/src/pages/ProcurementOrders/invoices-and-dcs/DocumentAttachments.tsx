@@ -35,7 +35,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { usePODeliveryDocuments } from "@/pages/DeliveryChallansAndMirs/hooks/usePODeliveryDocuments";
 import { UploadDCMIRDialog } from "@/pages/DeliveryChallansAndMirs/components/UploadDCMIRDialog";
 import type { PODeliveryDocuments as PODeliveryDoc } from "@/types/NirmaanStack/PODeliveryDocuments";
-import { canActionInvoiceApprovals, canDeleteDeliveryDocument } from "@/constants/roles";
+import { canActionInvoiceApprovals, canDeleteDeliveryDocument, canEditWoInvoice } from "@/constants/roles";
 import { MTCCard } from "@/pages/MaterialTestCertificates/components/MTCCard";
 import { ReportPreviewDialog } from "@/pages/CommissionReport/components/ReportPreviewDialog";
 import {
@@ -85,7 +85,8 @@ export const DocumentAttachments = <T extends DocumentType>({
 
   const { toggleNewInvoiceDialog, toggleEditInvoiceDialog, setSelectedInvoice, setNewInvoiceIsCredit } = useDialogStore();
   const { role, user_id } = useUserData();
-  const isAccountant = role === "Nirmaan Accountant Profile" || role === "Nirmaan Accountant Lead Profile" || role === "Nirmaan Admin Profile";
+  // Edits an invoice: Admin and the accountants (`WO_INVOICE_EDIT_PROFILES`, the server's set for a WO invoice).
+  const isAccountant = canEditWoInvoice(role, user_id);
   // Admins (Nirmaan Admin Profile or the Administrator user) may delete ANY invoice,
   // including Approved ones. Everyone else is limited to Pending/Rejected.
   const isAdmin = user_id === "Administrator" || role === "Nirmaan Admin Profile";

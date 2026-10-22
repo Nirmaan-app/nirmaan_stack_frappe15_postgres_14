@@ -85,6 +85,8 @@ ADMIN_PROFILE = "Nirmaan Admin Profile"
 PMO_EXECUTIVE_PROFILE = "Nirmaan PMO Executive Profile"
 ACCOUNTANT_PROFILE = "Nirmaan Accountant Profile"
 ACCOUNTANT_LEAD_PROFILE = "Nirmaan Accountant Lead Profile"
+#: The accountants: told of an approved Work Order and of a signed generated invoice, and linked to payments.
+ACCOUNTANT_PROFILES = (ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
 # May act on the "Pending Invoice Approvals" queue -- approve, reject, or re-run
 # the auto-approve gates on an invoice that is stuck behind a stale reason.

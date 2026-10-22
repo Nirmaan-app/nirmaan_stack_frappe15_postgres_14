@@ -55,7 +55,7 @@ def _route_new_payment(amount):
     return status, l1_cleared, ceo_cleared
 
 
-def _tier_new_payment(amount, cheque):
+def tier_new_payment(amount, cheque):
     """`(auto_approve, status, l1_cleared, ceo_cleared)` for a new payment of `amount` the session user
     raises. A cheque payment (`cheque`, its cheque's header) is tiered on the CHEQUE amount (spec #1477,
     C3): one cheque is one decision. Small payments auto-approve; a negative refund never does."""
@@ -150,7 +150,7 @@ def create_payment_request_for_service(data: str) -> str:
     # ── create payment doc  (ACID wrapper) ─────────────────────────
     # Small payments auto-approve; negative refunds (amount < 0) always go
     # through manual review, hence the strict `0 < amount` lower bound.
-    auto_approve, status, l1_cleared, ceo_cleared = _tier_new_payment(amount, cheque)
+    auto_approve, status, l1_cleared, ceo_cleared = tier_new_payment(amount, cheque)
 
     pay = frappe.new_doc("Project Payments")
     pay.update({
@@ -172,7 +172,7 @@ def create_payment_request_for_service(data: str) -> str:
     # Checked above against the amount AS REQUESTED; the insert validation must not check the
     # rounded figure again and refuse what this endpoint just allowed.
     pay.flags.work_order_limit_checked = True
-    # Routed above by the raiser's level (`_tier_new_payment`), on the requested amount or the cheque's.
+    # Routed above by the raiser's level (`tier_new_payment`), on the requested amount or the cheque's.
     pay.flags[ROUTED_AT_REQUEST] = True
     pay.insert()
 
@@ -293,7 +293,7 @@ def create_project_payment(
         refuse_unless_cheque_can_be_made(cheque)
 
         # --- Step 4: Create the payment document (small ones skip both gates) ---
-        auto_approve, status, l1_cleared, ceo_cleared = _tier_new_payment(amount, cheque)
+        auto_approve, status, l1_cleared, ceo_cleared = tier_new_payment(amount, cheque)
 
         pay = frappe.new_doc("Project Payments")
         pay.update({
@@ -316,7 +316,7 @@ def create_project_payment(
         else:
             _stamp_raiser_approval(pay, l1_cleared, ceo_cleared)
 
-        # Routed above by the raiser's level (`_tier_new_payment`), on the amount or the cheque's.
+        # Routed above by the raiser's level (`tier_new_payment`), on the amount or the cheque's.
         pay.flags[ROUTED_AT_REQUEST] = True
         # This insert will trigger the 'after_insert' hook, which routes
         # notifications by status (auto-approved → accountants + admin record note).

@@ -14,7 +14,7 @@ from frappe import _
 from .procurement_requests import get_user_name
 from nirmaan_stack.api.projects._tendering_guard import validate_won
 from nirmaan_stack.api.service_requests.vendor_fy_limit import validate_vendor_gst_hold
-from nirmaan_stack.services.role_profiles import SERVICE_PROCUREMENT_PROFILES, can_decide_work_order
+from nirmaan_stack.services.role_profiles import ACCOUNTANT_PROFILES, SERVICE_PROCUREMENT_PROFILES, can_decide_work_order
 from frappe.utils import now_datetime
 from nirmaan_stack.services.work_order_amendment import ACCEPTED, REVERTED, mark_snapshots, vendor_before_amendment
 from nirmaan_stack.services.work_order_gst import gst_flag_for_vendor, gst_is_on
@@ -253,7 +253,6 @@ AMENDMENT_ACCEPTED_EVENT = "sr:amendmentAccepted"
 AMENDMENT_REVERTED_EVENT = "sr:amendmentReverted"
 FINALIZED_EVENT = "sr:finalized"
 
-ACCOUNTANT_PROFILES = ("Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile")
 _NOTICE_SAVEPOINT = "work_order_notice"
 
 

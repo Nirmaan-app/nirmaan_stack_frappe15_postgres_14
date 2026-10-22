@@ -34,7 +34,11 @@ from nirmaan_stack.api.sr_remarks import assert_can_read_work_order
 from nirmaan_stack.integrations.Notifications.pr_notifications import get_users_who_see_project
 from nirmaan_stack.services import wo_generated_invoices as gi
 from nirmaan_stack.services.outflow_import.amounts import rupees
-from nirmaan_stack.services.role_profiles import assert_generate_wo_invoice_access, can_generate_wo_invoice
+from nirmaan_stack.services.role_profiles import (
+    ACCOUNTANT_PROFILES,
+    assert_generate_wo_invoice_access,
+    can_generate_wo_invoice,
+)
 from nirmaan_stack.services.work_order_gst import gst_is_explicitly_off
 
 SR = "Service Requests"
@@ -186,7 +190,6 @@ def upload_signed_copy(name: str, file_url: str) -> dict:
     return _row(doc)
 
 
-ACCOUNTANT_PROFILES = ("Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile")
 SIGNED_UPLOAD_EVENT = "wo_invoice:signed_uploaded"
 
 

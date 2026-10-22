@@ -14,7 +14,7 @@ read `Payment TDS Deduction` or, necessarily, the vendor's rate, but may know a 
 import frappe
 from frappe.utils import cint, flt
 
-from nirmaan_stack.api.payments.project_payments import _tier_new_payment
+from nirmaan_stack.api.payments.project_payments import tier_new_payment
 from nirmaan_stack.services import settlement
 from nirmaan_stack.services.payment_tds import SERVICE_REQUEST_DOCTYPE
 from nirmaan_stack.services.tds_forecast import forecast, payment_forecasts, request_amount_as_stored
@@ -45,7 +45,7 @@ def forecast_work_order_tds(work_order: str, amount, is_gst_payment=0, cheque_am
     vendor = frappe.db.get_value(SERVICE_REQUEST_DOCTYPE, work_order, "vendor")
     cheque = frappe._dict(amount=flt(cheque_amount)) if flt(cheque_amount) else None
     # The status the request would be created at, by the endpoint's own routing.
-    status = _tier_new_payment(flt(amount), cheque)[1]
+    status = tier_new_payment(flt(amount), cheque)[1]
     return {
         "forecast": forecast(
             SERVICE_REQUEST_DOCTYPE, work_order, vendor, request_amount_as_stored(amount),

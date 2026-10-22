@@ -2,11 +2,10 @@
 # For license information, please see license.txt
 
 import frappe
-from frappe.utils import flt
 from frappe.model.document import Document
 from frappe.model.naming import getseries
 
-from nirmaan_stack.services.work_order_gst import work_order_total
+from nirmaan_stack.services.work_order_gst import items_value, work_order_total
 
 
 class ServiceRequests(Document):
@@ -31,11 +30,7 @@ class ServiceRequests(Document):
 		`gst === "true"`, and persist `total_amount` via direct DB write
 		(no `doc.save()` — avoids re-entering hooks).
 		"""
-		sub_total = 0.0
-		for row in self.work_order_items or []:
-			sub_total += flt(row.quantity) * flt(row.rate)
-
-		total_amount = work_order_total(sub_total, self.gst)
+		total_amount = work_order_total(items_value(self.work_order_items), self.gst)
 
 		frappe.db.set_value("Service Requests", self.name, "total_amount", total_amount)
 

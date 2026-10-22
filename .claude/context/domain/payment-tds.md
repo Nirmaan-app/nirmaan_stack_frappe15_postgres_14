@@ -279,7 +279,7 @@ figure — the company pays the tax on top:
 - **Nothing is written before approval.** A request left at Requested has no deduction
   (`test_tds_forecast`). A request below ₹15,000, or raised by someone holding the approval, is born
   Approved and is taxed at insert, so the dialog says "Tax is cut now" (`cut_now`, from the endpoint's
-  own routing `_tier_new_payment`).
+  own routing `tier_new_payment`).
 - **"Req. Amount" is the full bill whatever the status (owner ruling X4-A).** The WO page table:
   Req. Amount / TDS / To be paid (`tdsPreview.paymentTableFigures`: a recorded `Vendor` deduction is
   added back onto the cut amount). The approval queue (All Payments, accountant tabs, CSV): the row's

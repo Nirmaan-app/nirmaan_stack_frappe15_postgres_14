@@ -49,7 +49,8 @@ import frappe
 from frappe.utils import flt
 
 from nirmaan_stack.services.outflow_import.amounts import rupees
-from nirmaan_stack.services.work_order_gst import work_order_total
+from nirmaan_stack.services.settlement import STATUS_PAID, STATUS_REJECTED
+from nirmaan_stack.services.work_order_gst import items_value, work_order_total
 
 APPROVED = "Approved"
 REJECTED = "Rejected"
@@ -99,7 +100,7 @@ LEAVE_APPROVED_REFUSAL = "An Approved Work Order can only be amended; it can't g
 UNDER_AMENDMENT_PAYMENT_REFUSAL ="A payment can't be requested on a Work Order under amendment."
 
 #: A payment at one of these statuses is settled; any other is money in flight.
-SETTLED_PAYMENT_STATUSES = ("Paid", "Rejected")
+SETTLED_PAYMENT_STATUSES = (STATUS_PAID, STATUS_REJECTED)
 
 
 @dataclass(frozen=True)
@@ -275,8 +276,8 @@ def _amendment_problem(before, after, facts: AmendmentFacts) -> str | None:
 
 
 def _items_value(doc) -> float:
-    """The Work Order's items' value before GST, as `ServiceRequests.calculate_total_amount` sums it."""
-    return sum(flt(row.get("quantity")) * flt(row.get("rate")) for row in doc.get("work_order_items") or [])
+    """The Work Order's items' value before GST (`work_order_gst.items_value`)."""
+    return items_value(doc.get("work_order_items"))
 
 
 def delete_problem(doc) -> str | None:

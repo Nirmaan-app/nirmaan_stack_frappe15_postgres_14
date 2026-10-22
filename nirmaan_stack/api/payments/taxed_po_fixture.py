@@ -3,7 +3,7 @@
 
 """Test-only: a PO payment that carries a tax record, in the two shapes the database holds (#1534).
 
-Shared by `services/test_po_tax_counts` and `patches/v3_0/test_net_po_payments_with_tds`. Not a `test_`
+Shared by `services/test_po_tax_counts` and `services/test_net_po_payments_with_tds_patch`. Not a `test_`
 module, so the runner never collects it.
 
 THE TWO SHAPES (ADR-0034 Amendment B)
