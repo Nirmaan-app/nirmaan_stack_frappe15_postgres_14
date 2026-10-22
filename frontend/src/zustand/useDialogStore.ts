@@ -97,6 +97,12 @@ export type DialogStore = {
   setNewExpenseRequestDialog: (open: boolean) => void;
   toggleNewExpenseRequestDialog: () => void;
 
+  // Reimbursement: a user's claim to be repaid. Raised from the /reimbursements header button; the
+  // dialog itself is mounted on ReimbursementsPage.
+  newReimbursementDialog: boolean;
+  setNewReimbursementDialog: (open: boolean) => void;
+  toggleNewReimbursementDialog: () => void;
+
   // --- (Indicator) NEW: Generic Delete Confirmation Dialog ---
   deleteConfirmationDialog: boolean;
   setDeleteConfirmationDialog: (open: boolean) => void;
@@ -189,6 +195,10 @@ export const useDialogStore = create<DialogStore>((set) => ({
   newExpenseRequestDialog: false,
   setNewExpenseRequestDialog: (open: boolean) => set({ newExpenseRequestDialog: open }),
   toggleNewExpenseRequestDialog: () => set((state) => ({ newExpenseRequestDialog: !state.newExpenseRequestDialog })),
+
+  newReimbursementDialog: false,
+  setNewReimbursementDialog: (open: boolean) => set({ newReimbursementDialog: open }),
+  toggleNewReimbursementDialog: () => set((state) => ({ newReimbursementDialog: !state.newReimbursementDialog })),
 
   // --- (Indicator) NEW: Generic Delete Confirmation Dialog Implementation ---
   deleteConfirmationDialog: false,
