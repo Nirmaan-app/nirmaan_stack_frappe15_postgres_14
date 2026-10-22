@@ -113,6 +113,16 @@ class TestTheWithheldTaxIsServed(OfficeRentCase):
         self.assertEqual(served["detail"]["amount"], 90000)
         self.assertEqual(served["page"]["amount"], 90000)
 
+    def test_its_req_amount_is_the_full_rent_and_sorts_and_filters_as_it(self):
+        """"Req. Amount" is the full bill (story 60): a withheld Office Rent expense reads the rent before
+        withholding, not the net it is now stored at."""
+        _, name = self._raise(100000)
+        self._approve_by_admin_then_ceo(name)
+        [row] = self._as_hr_lead(get_approval_queue, filters=json.dumps([["name", "=", name]]))["data"]
+        self.assertEqual((row["requested_amount"], row["amount"]), (100000, 90000))
+        found = self._as_hr_lead(get_approval_queue, filters=json.dumps([["name", "=", name], ["amount", ">=", 95000]]))
+        self.assertEqual([r["name"] for r in found["data"]], [name])
+
     def test_a_bank_line_a_little_short_leaves_the_served_split_as_withheld(self):
         request, name = self._raise(100000)
         self._approve_by_admin_then_ceo(name)

@@ -14,3 +14,15 @@ describe("workOrderPrintTotals", () => {
     expect(workOrderPrintTotals(1000.5, 1000.5)).toEqual({ tax: 0, roundOff: 0.5, total: 1001 });
   });
 });
+
+describe("workOrderPrintTotals while an amendment is open", () => {
+  it("prints the amended items' GST and total, as the server will store them, not the old stored total", () => {
+    // Stored ₹1,18,000 is the total from before the amendment; the printed items now sum to ₹1,20,000.
+    expect(workOrderPrintTotals(120000, 118000, { amendmentOpen: true, gstOn: true })).toEqual({
+      tax: 21600, roundOff: 0, total: 141600,
+    });
+    expect(workOrderPrintTotals(1000.4, 118000, { amendmentOpen: true, gstOn: false })).toEqual({
+      tax: 0, roundOff: -0.4, total: 1000,
+    });
+  });
+});

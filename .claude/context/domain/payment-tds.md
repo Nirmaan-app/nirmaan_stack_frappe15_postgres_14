@@ -291,7 +291,7 @@ figure — the company pays the tax on top:
   Req. Amount / TDS / To be paid (`tdsPreview.paymentTableFigures`: a recorded `Vendor` deduction is
   added back onto the cut amount). The approval queue (All Payments, accountant tabs, CSV): the row's
   `requested_amount` (a union column in `api/approvals/get_approval_queue`: the stored amount plus the counted
-  `Vendor` tax, `counted_deductions_sql`) with a "To be paid" line under it when they differ. The column's
+  `Vendor` tax, `counted_deductions_sql`; a withheld Office Rent expense's is its tax record's `gross_amount`, the rent before withholding) with a "To be paid" line under it when they differ. The column's
   sort and filter (id `amount`) read `requested_amount` too (`_COLUMN_FOR`, story 60), as does the "Req. Amt"
   selection pill (`bulkSelectionSummary.requestedTotal`). `amount` stays the stored figure: every action, the
   summary total, the Mark-as-Paid confirm total and the bank file read it.

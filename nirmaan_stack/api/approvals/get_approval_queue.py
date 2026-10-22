@@ -35,7 +35,7 @@ from nirmaan_stack.services.outflow_import.expense_links import (
 from nirmaan_stack.services.payees.paid_to import paid_to_rows
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.payment_split import load_part_reconciled_split_families
-from nirmaan_stack.services.payment_tds import counted_deductions_sql
+from nirmaan_stack.services.payment_tds import BORNE_BY_VENDOR, TDS_DOCTYPE, counted_deductions_sql
 
 from nirmaan_stack.services.cheque_payments import in_cheque_tracker_sql
 from nirmaan_stack.services.expense_tds import withheld_tds_by_expense
@@ -253,6 +253,15 @@ def _expense_select(table, source, project_col):
     payment_by_expr = 'COALESCE(e."payment_by", \'\')::text' if source == SOURCE_PROJECT_EXPENSE else "''::text"
     # Grouped by target, so it can only ever add columns to a row -- never duplicate one.
     linked_join = linked_totals_join(SOURCE_TO_DOCTYPE[source], "e")
+    # A Non-Project Expense whose tax was withheld (Office Rent, spec #1522) is stored at the net; its full
+    # bill is its tax record's gross (`non_project_expense` is unique, so the join adds no row). Tax the
+    # company pays on top leaves the amount whole. A Project Expense carries no tax record.
+    if source == SOURCE_NON_PROJECT:
+        tds_join = (f'LEFT JOIN "tab{TDS_DOCTYPE}" t ON t."non_project_expense" = e."name" '
+                    f'AND COALESCE(NULLIF(t."borne_by", \'\'), \'{BORNE_BY_VENDOR}\') = \'{BORNE_BY_VENDOR}\'')
+        requested_expr = f'COALESCE(t."gross_amount", {_EXPENSE_AMOUNT})::numeric'
+    else:
+        tds_join, requested_expr = "", _EXPENSE_AMOUNT
     return f"""
         SELECT
             e."name"                        AS name,
@@ -311,10 +320,11 @@ def _expense_select(table, source, project_col):
             0                               AS is_gst_payment,
             COALESCE(e."request_id", '')::text AS request_id,
             COALESCE(e."invoice_attachment", '')::text AS invoice,
-            -- An expense withholds no tax: its full bill is its amount.
-            {_EXPENSE_AMOUNT}               AS requested_amount,
+            -- The full bill: the amount, or a withheld expense's rent before withholding.
+            {requested_expr}                AS requested_amount,
             {_pay_to_columns("e")}
         FROM "{table}" e
+        {tds_join}
         {linked_join}
     """
 

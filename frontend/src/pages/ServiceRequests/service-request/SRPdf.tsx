@@ -9,6 +9,7 @@ import { useGstOptions } from "@/hooks/useGstOptions";
 import { useUserData } from "@/hooks/useUserData";
 import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 import { workOrderPrintTotals } from "@/utils/workOrderPrintTotals";
+import { itemsValue } from "@/utils/workOrderGst";
 
 interface SRPdfProps {
   srPdfSheet: boolean;
@@ -182,8 +183,15 @@ const SRPdf: React.FC<SRPdfProps> = ({
   const AVAILABLE_HEIGHT = PAGE_HEIGHT - HEADER_HEIGHT;
 
   const { gstOptions } = useGstOptions();
-  // The server's total, to the nearest rupee (story 68), not the items x 1.18 floored.
-  const printTotals = workOrderPrintTotals(getTotal, orderData?.total_amount ?? getTotal);
+  // The server's total, to the nearest rupee (story 68), not the items x 1.18 floored; while an amendment is
+  // open, the amended items' total, as its accept will store it.
+  // The footer's basis is the printed rows (story 68 review 2): while an amendment is open the stored total
+  // is still the old one, so `getTotal` (derived from it) would not match the items printed above it.
+  const printedSubTotal = itemsValue(orderData?.work_order_items);
+  const printTotals = workOrderPrintTotals(printedSubTotal, orderData?.total_amount ?? getTotal, {
+    amendmentOpen: orderData?.status === "Amendment",
+    gstOn: gstEnabled,
+  });
 
   const resolvedAddress = useMemo(() => {
     // 1. Try to find by orderData's project_gst
@@ -362,7 +370,7 @@ const SRPdf: React.FC<SRPdfProps> = ({
                                 <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
                                 {gstEnabled && <td className="px-4 py-2 text-sm whitespace-nowrap"></td>}
                                 <td className="pl-4 py-2 text-sm whitespace-nowrap font-semibold">Sub-Total:</td>
-                                <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{formatToIndianRupee(getTotal)}</td>
+                                <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{formatToIndianRupee(printedSubTotal)}</td>
                               </tr>
                               <tr className="border-none">
                                 <td></td>
