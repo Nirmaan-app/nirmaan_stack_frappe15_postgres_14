@@ -226,6 +226,17 @@ carry, classification-freeze and BCS invariants live in `boq-pricing-editor.md`.
   `DROP INDEX IF EXISTS "<fieldname>"` with no table name -- which drops ANOTHER table's index. `BoQ AI Run Log` keeps
   the flag on both indexed columns and creates `boq_ai_run_log_boq` / `boq_ai_run_log_status` in `on_doctype_update`;
   its doctype test fails if a column is ever indexed without the flag.
+- **The pricing payload re-derives attached notes from the committed tree (F1-a, owner 2026-10-22, O1 / V2):**
+  `context_builder.build_sheet_context` adds `derived_attached_notes` to every row and every `ancestors` entry -- the
+  commit's own `_derive_attached_notes` (imported lazily, never re-implemented) over the nodes it already loads, with the
+  stand-in adapter `_commit_note_text` ("(untitled)" / a node's own code read as "", what the commit saw) -- plus a wrapper
+  `attached_notes_drift` list. **Readers:** `extraction._attached_of` -> `_ai_item` (self + ancestors, EA-7 tiers unchanged),
+  `row_own_text_fragments`, and through the payload `point_type_of`; the Suggest run (`run_extraction`) calls
+  `_log_attached_notes_drift_for` right after its population read and logs one `boq_rate_extraction` line per stale sheet
+  (`assemble_population` keeps its exact two-argument call: test doubles stand in for it). **NOT readers:** the classifier (rules feed, voter, `_notes_text`,
+  `anc_attached_notes`) keeps the saved `attached_notes` (O1); every pre-existing key is byte-identical (proven over all 899
+  committed sheets). A dict without the key (a hand-built test row) falls back to the saved copy. Detail and the blind spot:
+  `boq-rate-master.md` § F-1.
 - **Committed `attached_notes` is DERIVED, not carried (EA-6a slice 2, owner-locked):** at commit,
   `commit_pipeline._derive_attached_notes` rebuilds every node's `attached_notes` from the EFFECTIVE
   tree (effective parent + effective classification, row_index order -- order is load-bearing,

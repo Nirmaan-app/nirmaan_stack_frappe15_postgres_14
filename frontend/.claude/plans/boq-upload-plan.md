@@ -48803,3 +48803,68 @@ rows, HEAD vs slice) differs in 26 leaves, all the curved grille's damper value 
    tests: 1,658 "Error Attaching File", 522 outflow statement links, the rest BoQ / payment / tendering tests), 44 Version rows on
    finance documents that no longer exist, and 3 Versions on `BRMI-26-15812` (tray_discount; Electrical items sha unchanged).
    Not deleted: residue goes only from a list the owner approves.
+
+
+## Slice F1-a - the pricing payload's heading notes from the current BoQ tree by the commit's own rule; the page's own notes from its note rows - as built 2026-10-22 / 23
+
+**Owner rulings built:** 18:21 ("First Ai shopuld not see all notes. it should follow the current payload structure!!" -> the
+EA-7 tiers unchanged, only the SOURCE of the attached part moves); 18:25 (no change to either payload "betond the sheets for
+which we are targeting"); 18:27 (the pricing payload ALWAYS derives a heading's attached notes from the current tree with the
+commit's own `_derive_attached_notes`, reused, never re-implemented); **O1** (pricing payload only, the classifier untouched);
+**O2 deferred** (rule recorded in `boq-rate-master.md`); **O3** (the page's `rowOwnNotes` from the row's child note rows); **O4**
+(the six pass-3-absent sheets: a later read-only look). Rulings taken in the slice: **STOP 1 -> V2** (the commit's stand-in
+text "(untitled)" / a node's own code is handed to the derive as "", what the commit saw; V1, the node text as stored, moved
+164 rows on 28 sheets committed since 2026-08-11); **STOP 2** (a test double stands in for `assemble_population` with two
+arguments -> option D: the call stays `assemble_population(boq, sheet_name)` and the Suggest run logs the drift in a separate
+advisory call). Recon: F1-R (Desktop `2026-10-22_F1-R_Report.md`).
+
+**Commits (unpushed at the time of writing):**
+- `8b236a419` feat(rate-helper): code + tests + rig. `context_builder.py` (`derive_attached_notes`, `_commit_note_text`,
+  `_attached_notes_drift`; additive `derived_attached_notes` on every row and `ancestors` entry, wrapper `attached_notes_drift`;
+  0 extra queries); `extraction.py` (`_attached_of` read by `_ai_item` and `row_own_text_fragments` -- and through the payload
+  `point_type_of`; `_log_attached_notes_drift` / `_log_attached_notes_drift_for` called by `run_extraction` after its
+  unchanged population read); `rateSuggestionModel.ts` (`rowOwnNotes(row, rows)`); both harnesses feed the replay the page's
+  own notes and REPORT `on_differ_<label>.txt`. Tests: `test_f1a_derived_notes.py` (12: fresh commit through the real
+  write-body -- derived == saved, payload byte-identical, the stand-in adapter pinned to `_build_node_pass1`'s expression, the
+  payload == page pin outside the O2 rows; a stale fixture -- the tree's notes sent, the stale text absent, the classifier still
+  reading the saved copy, the deterministic own-text reader; the lean tier; AC6 fires once / stays silent / is called by
+  `run_extraction` through a two-argument stand-in); `test_rate_suggest.TestEA7PayloadShape` fixture gains note-child nodes
+  with the same asserted texts; `rateSuggestionModel.test.ts` rowOwnNotes pins inverted (BEFORE kept).
+- The docs commit that carries this entry.
+
+Start tip `bd298ded8` (= origin). Report on the Desktop: `2026-10-22_F1-a_Report.md` (ledger first), `_Ledger.md`,
+`_Proof.xlsx`, the three full-suite logs.
+
+### 1. The proofs (stub builds only: no model call, no capture record)
+
+- Blind spot (ruling item 3): over all 899 committed sheets, 178 note nodes carry the stand-in shape, all genuine stand-ins
+  (153 code, 25 "(untitled)"; review description empty); 0 real descriptions equal to their own sl_no_value.
+- AC3, HEAD vs the slice, every eligible row of every committed sheet (899 sheets / 73,158 rows): the rows whose pricing
+  payload item differs = EXACTLY the 6,429 expected (a node at EA-7 distance 0-2 whose saved copy differs from the commit's
+  derive over the committed nodes, the V2 adapter computed independently in the rig); on each, the only difference is
+  attached-note text in the full tier, every lean entry byte-identical; 0 rows on the 734 sheets whose saved copy equals the
+  derive; through the REAL `_extract_batch` (stub client, capture writer replaced): 3,176 calls, 322 differ, only on expected
+  rows, the prompt before `ROWS:` identical. Against F1-R's 751 (the page's rule, stored rows): 740 under V2; the 11 dropped are
+  the stand-in rows; 0 new.
+- AC4: the classifier's context (every pre-existing key, the voter item, the rules-engine arguments) byte-identical on 899 / 899.
+- End to end: BOQ-26-00260 "Electrical BOQ " r56's parent sends its 37 note rows (was none); BOQ-26-00174 "Electrical " r148
+  no longer sends the note of another heading.
+- AC7 replay (tracked rig, page own notes): ac7 `e45102ef...`, ac7v2 `e4fe5588...` = START; own notes page vs dump differ on 35
+  rows (the stale saved copy, reported). Heading notes page == payload on 17,911 / 17,914 stored rows (3 O2 rows, BOQ-26-00292
+  r58-60); own notes page == tree on 17,905 (9 O2 rows).
+- Capture 465 `89c4ea9c...` unchanged through every proof, test run and the cert.
+
+### 2. Suites, vacuity, cert
+
+- Python full (on `8b236a419`): 8,588 tests (= 8,576 + 12), FAILED (failures=6, errors=2) = the same 8 non-BoQ failures.
+- vitest full: 197 files / 7,455, 1 failed = `writeOffControl` (known 5 s timeout). tsc: 3,170 = ADP-5a's by message.
+- Targeted (27 modules / 2,147 tests) OK on the final code. Vacuity V1-V7 (V5 a/b) all red where expected, every restore sha-equal.
+- Cert at :8080 after the full de-stale (served-module grep of transformed code; in-page `import()` of `rowOwnNotes`): 00096 r49
+  1972 / 576 / 2548; 00088 r60 (own note row) 1258 / 154 / 1412 with all 16 lines = START; 00122 r65 4,829 / 880 / 5,709;
+  Electrical 00174 r148 260 / 60 / 320; Piping 00131 r75 358 / 42 / 400; END = START by content. Nothing pressed that writes.
+
+### 3. Findings (open)
+
+1. **O4**: six sheets with no pass-3 field on any node (00106, 00173, 00181, 00221 x2, 00260) -- a separate read-only look.
+2. **O2** (deferred): the page shows a stand-in note's text; the payload does not (3 + 9 stored rows).
+3. The classifier still reads the saved copy (O1); moving it would change 922 rule verdicts on a re-run (F1-R Q5).

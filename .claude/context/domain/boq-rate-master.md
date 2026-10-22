@@ -1569,16 +1569,43 @@ row order, each trimmed, blanks dropped (= the BOQ Nodes tree). The replay rig u
 the comparison (`hn_differ_<label>.txt`), never stop. At ADP-5a: equal on 17,680 / 17,914 rows, differ on 234 -- all on 17
 sheets whose stored `attached_notes` blob is stale (finding F-1, below); no stored row prices differently under either source.
 The owner's standing view: the payload structure is the standard and the panel should see what the model sees -- a follow-up
-slice moves the panel onto the server's payload builder.
+slice moves the panel onto the server's payload builder. **F1-a (owner O3, 2026-10-22):** the row's OWN notes are built the
+same way -- `rowOwnNotes(row, rows)`: its `row_notes` (as before), then its own child note rows in row order, trimmed; the
+`attached_notes` field it used to read is never on the page and is no longer read. Screen only; neither payload changes. The
+rig builds `ownNotes` with it too and REPORTS the comparison with the dump's saved-copy view (`on_differ_<label>.txt`; 35
+rows at F1-a); the replay stayed `e45102ef` / `e4fe5588`.
 
-**OPEN FINDING F-1 (ADP-5a, for a follow-up slice): stale `attached_notes` on 17 committed sheets.** On 234 stored rows the
-heading's stored `attached_notes` (what `_note_block` sends the model) differs from the committed tree (the heading's note
-children by `parent_node`); on all 234 the tree equals the page. Sheets: 00003 PUNE HVAC BOQ, 00007 HVAC BOQ, 00088 HVAC,
-00102 Electrical, 00131 ESTIMATE, 00137 LOWSIDE OFFICE WORKS, 00140 HVAC Lowside Works, 00149 HVAC-BOQ, 00165 AC WORKS,
-00166 HVAC, 00171 Electrical + HVAC, 00174 Electrical, 00175 First floor + Ground floor, 00260 Electrical BOQ, 00292 HVAC.
-Cause as far as read-only evidence goes: 8 (00003 ... 00149) were committed before `cda170eb0` (2026-08-04, EA-6a slice 2,
-"commit derives attached_notes", owner D5 forward-only, no backfill), so their blobs were copied from the parser's review rows;
-the other 9 need the date that change reached production. A re-commit self-heals a sheet (D5). 0 drift Error Log entries.
+**F-1 CLOSED FOR THE PRICING PAYLOAD (F1-a, 2026-10-22; owner 18:21 / 18:25 / 18:27, O1, V2).** The pricing payload
+(`extraction._ai_item`, and the deterministic readers `row_own_text_fragments` / `point_type_of`) reads a node's attached
+notes ONLY from `derived_attached_notes`, which `context_builder.build_sheet_context` builds per row and per ancestor from the
+nodes it already loads by the COMMIT'S OWN rule (`commit_pipeline._derive_attached_notes`, imported, never re-implemented):
+the node's child nodes of row_class "note", in sort_order. Where the saved copy is right -- every commit since the derive
+reached production (2026-08-11 05:22 IST) -- the payload is byte-identical by construction; only where it is stale (165
+sheets, all committed before then; the cause was the pre-derive pass 3 copying the review row's own carried copy, which a
+re-commit could carry forward) does it change. The EA-7 tiers are untouched (the lean tier still carries no attached notes).
+Proven over all 899 committed sheets / 73,158 rows: exactly the 6,429 rows with a stale node at distance 0-2 differ, only in
+attached-note text inside the full tier; 0 rows on the 734 sheets whose saved copy is right; the classifier's input
+byte-identical everywhere. A Suggest run that meets a stale saved copy writes ONE `frappe.logger("boq_rate_extraction")`
+warning line per sheet (heading nodes and counts, never the text; no DB write). Nothing stored is rewritten (D5).
+- **The classifier still reads the saved copy (O1, 18:28 / 18:32).** Its rules feed, voter payload and `_notes_text` are
+  unchanged; moving it is a separate, measured decision (F1-R Q5: 7,313 inputs / 922 rule verdicts would move on a re-run).
+- **THE STAND-IN ADAPTER (owner V2, 2026-10-22) and its blind spot.** The commit writes a node's description as
+  `description or sl_no_value or "(untitled)"` (`commit_pipeline._build_node_pass1`) but derived the saved copy from the
+  REVIEW description, where an empty one contributes "". So `context_builder._commit_note_text` hands the derive "" for a
+  note node whose text is exactly "(untitled)" or its own code -- pinned to the commit's expression by
+  `test_f1a_derived_notes`. **Blind spot:** a note whose REAL description equals its own sl_no_value is indistinguishable
+  from the stand-in and contributes "" too -- 0 such note rows across all 899 sheets at F1-a (all 178 matching nodes are
+  stand-ins: 153 code, 25 "(untitled)").
+- **O2 -- DEFERRED, the rule recorded in the owner's words (18:31):** "an empty-description note row contributes only text
+  from the captured columns (description parts, appended notes, row notes), never a fallback, a row number or
+  '(untitled)'." Until it is built, an empty-description note contributes exactly what it did before F1-a (nothing to the
+  payload); the PAGE still shows the stand-in text, so page and payload differ on those rows only (F1-a: 3 stored rows'
+  heading notes, BOQ-26-00292 r58-60; 9 rows' own notes).
+- **O4 -- OPEN: six "pass-3 absent" sheets** (BOQ-26-00106 ELECTRICAL BOQ, 00173 FAPA, 00181 FAPA, 00221 BOQ 2025-GF and
+  BOQ 2025- (Basement), 00260 Electrical BOQ): no node carries any pass-3 JSON field (no `attached_notes`, no
+  `description_parts_raw`) although the review rows do; 4 were committed after the derive deployed, which today's
+  reconciliation would have refused. Cause unknown read-only; a separate read-only look, then the owner's call. The payload
+  already reads their tree.
 
 **ADP-5a: "A x B-C depth" IS THREE BOX SIDES (owner 2026-10-22 10:49 item 6).** `readBoxSides` splits a two-part size whose
 second part is "B-C" followed by a height label ("1200x150-300 depth", "600x600-300 depth") into length A, width B, height C.
