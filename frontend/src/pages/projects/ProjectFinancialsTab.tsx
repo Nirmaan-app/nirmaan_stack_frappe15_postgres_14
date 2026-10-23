@@ -282,6 +282,14 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       },
     },
     {
+      // Same figure as the project's Misc. Project Expenses tab total: its Paid
+      // expenses' amount (that tab is Paid-only when embedded in a project).
+      label: "Misc. Project Expenses",
+      value: projectMoney?.expense_outflow ?? 0,
+      style: "",
+      info: "Total of Paid misc. project expenses -- the same total as the Misc. Project Expenses tab.",
+    },
+    {
       label: "Payable Amount Against Delivered Items in PO",
       value: getAllPODeliveredAmount,
       style: "",

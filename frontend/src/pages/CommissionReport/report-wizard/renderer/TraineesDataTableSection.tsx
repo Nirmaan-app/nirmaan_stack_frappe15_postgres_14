@@ -12,6 +12,8 @@ import { AlertTriangle, Check, ImagePlus, Loader2, Plus, Trash2 } from 'lucide-r
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -23,6 +25,7 @@ import {
 import type {
     AttachmentRecord,
     Field,
+    TraineesDataTableColumn,
     TraineesDataTableSection as TraineesDataTableSectionT,
 } from '../types';
 import { FieldControl } from './FieldControl';
@@ -550,6 +553,102 @@ export const TraineesDataTableSection: React.FC<Props> = ({
     const earthPitCountMismatch =
         earthPitSeedEnabled && numEarthPits !== null && numEarthPits < fields.length;
 
+    // Phones get one stacked card per row instead of the table — a 5-column
+    // table-fixed squeezes every input to ~40px at 360px wide.
+    const isMobile = useIsMobile();
+    const rowTitle = (idx: number): string => {
+        if (section.rowLabelPrefix) return section.rowLabelPrefix + (idx + 1);
+        const noun = /^add another (.+)$/i.exec(addLabel)?.[1];
+        return `${noun ? noun.charAt(0).toUpperCase() + noun.slice(1) : 'Row'} ${idx + 1}`;
+    };
+
+    const cellClassName = (col: { key: string; type: string; default?: unknown }): string => {
+        if (col.type === 'image') return 'py-2 px-2 align-top text-center';
+        if (isLuxAreaColumn(templateId, col) || isLtCablePassColumn(templateId, col)) {
+            return 'py-2 px-2 align-top';
+        }
+        return 'py-2 px-2';
+    };
+
+    /** One cell's control — shared by the desktop table and the mobile cards. */
+    const renderCell = (col: TraineesDataTableColumn, idx: number) => {
+        const cellName = `${fieldName}.${idx}.${col.key}`;
+        // Lux Level Report's `area` always stores uppercase.
+        if (isLuxAreaColumn(templateId, col)) {
+            return (
+                <LuxAreaCell
+                    name={cellName}
+                    placeholder={(col as { placeholder?: string }).placeholder}
+                    required={col.required}
+                    forceReadonly={forceReadonly}
+                />
+            );
+        }
+        // Per-row image cell: upload to S3 + store the
+        // AttachmentRecord inline in the row.
+        if (col.type === 'image') {
+            return (
+                <ImageCell
+                    name={cellName}
+                    column={col as Field & { type: 'image' }}
+                    childRowName={childRowName}
+                    forceReadonly={forceReadonly}
+                    onAttachmentCreated={onAttachmentCreated}
+                />
+            );
+        }
+        // LT Cable Megger measurement columns render as a
+        // pass-default cell (label + tick), not a plain input.
+        if (isLtCablePassColumn(templateId, col)) {
+            return (
+                <MeasurementPassCell
+                    name={cellName}
+                    defaultValue={col.default as string}
+                    forceReadonly={forceReadonly}
+                />
+            );
+        }
+
+        const isLtCableSize = ltCableSizeEnabled && col.key === LT_CABLE_SIZE_COL_KEY;
+        // Swap the text input for a select fed by the project's
+        // filtered Wires & Cables items, with per-row dedup so
+        // each cable appears in at most one row's dropdown.
+        // While the API is loading (or returns nothing), fall
+        // back to the original text input so the user is
+        // never blocked.
+        const perRowCableSizeOptions = isLtCableSize ? buildCableSizeOptionsFor(idx) : [];
+        const effectiveField =
+            isLtCableSize && perRowCableSizeOptions.length > 0
+                ? ({
+                      ...col,
+                      bind: undefined,
+                      type: 'select',
+                      options: perRowCableSizeOptions,
+                  } as Field)
+                : ({ ...col, bind: undefined } as Field);
+        return (
+            <>
+                <FieldControl
+                    name={cellName}
+                    field={effectiveField}
+                    forceReadonly={forceReadonly}
+                    hideLabel
+                />
+                {isLtCableSize && ltCableSizeLoading && ltCableSizeOptions.length === 0 && (
+                    <p className="mt-1 text-[10px] text-muted-foreground">
+                        Loading Wires &amp; Cables items…
+                    </p>
+                )}
+                {isLtCableSize && !ltCableSizeLoading && ltCableSizeOptions.length === 0 && (
+                    <p className="mt-1 text-[10px] text-muted-foreground">
+                        No ARMOURED CABLE items found on this project — type the cable size
+                        manually.
+                    </p>
+                )}
+            </>
+        );
+    };
+
     return (
         <section className="space-y-3">
             {section.title && (
@@ -570,150 +669,115 @@ export const TraineesDataTableSection: React.FC<Props> = ({
                 </div>
             )}
 
-            <div className="overflow-x-auto rounded-md border">
-                <table className="w-full table-fixed border-collapse text-sm">
-                    <thead>
-                        <tr className="border-b bg-muted/30">
-                            <th className="w-10 py-2 px-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                                #
-                            </th>
+            {isMobile ? (
+                <div className="space-y-3">
+                    {fields.map((row, idx) => (
+                        <div key={row.id} className="space-y-3 rounded-md border p-3">
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm font-semibold text-foreground">
+                                    {rowTitle(idx)}
+                                </span>
+                                {canRemove && (
+                                    <button
+                                        type="button"
+                                        onClick={() => remove(idx)}
+                                        className="rounded p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                        aria-label={`Remove row ${idx + 1}`}
+                                        title="Remove row"
+                                    >
+                                        <Trash2 className="h-4 w-4" />
+                                    </button>
+                                )}
+                            </div>
                             {section.columns.map((col) => (
-                                <th
-                                    key={col.key}
-                                    className="py-2 px-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
-                                    style={col.width ? { width: col.width } : undefined}
-                                >
-                                    {col.label}
-                                    {col.required && (
-                                        <sup className="ml-0.5 text-destructive">*</sup>
-                                    )}
-                                </th>
-                            ))}
-                            {!forceReadonly && (
-                                <th className="w-10 py-2 px-2" aria-label="Actions" />
-                            )}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {fields.map((row, idx) => (
-                            <tr key={row.id} className="border-b last:border-0 align-top">
-                                <td className="py-2 px-2 text-muted-foreground">{(section.rowLabelPrefix || '') + (idx + 1)}</td>
-                                {section.columns.map((col) => {
-                                    const cellName = `${fieldName}.${idx}.${col.key}`;
-                                    // Lux Level Report's `area` always stores uppercase.
-                                    if (isLuxAreaColumn(templateId, col)) {
-                                        return (
-                                            <td key={col.key} className="py-2 px-2 align-top">
-                                                <LuxAreaCell
-                                                    name={cellName}
-                                                    placeholder={(col as { placeholder?: string }).placeholder}
-                                                    required={col.required}
-                                                    forceReadonly={forceReadonly}
-                                                />
-                                            </td>
-                                        );
-                                    }
-                                    // Per-row image cell: upload to S3 + store the
-                                    // AttachmentRecord inline in the row.
-                                    if (col.type === 'image') {
-                                        return (
-                                            <td key={col.key} className="py-2 px-2 align-top text-center">
-                                                <ImageCell
-                                                    name={cellName}
-                                                    column={col as Field & { type: 'image' }}
-                                                    childRowName={childRowName}
-                                                    forceReadonly={forceReadonly}
-                                                    onAttachmentCreated={onAttachmentCreated}
-                                                />
-                                            </td>
-                                        );
-                                    }
-                                    // LT Cable Megger measurement columns render as a
-                                    // pass-default cell (label + tick), not a plain input.
-                                    if (isLtCablePassColumn(templateId, col)) {
-                                        return (
-                                            <td key={col.key} className="py-2 px-2 align-top">
-                                                <MeasurementPassCell
-                                                    name={cellName}
-                                                    defaultValue={col.default as string}
-                                                    forceReadonly={forceReadonly}
-                                                />
-                                            </td>
-                                        );
-                                    }
-
-                                    const isLtCableSize =
-                                        ltCableSizeEnabled && col.key === LT_CABLE_SIZE_COL_KEY;
-                                    // Swap the text input for a select fed by the project's
-                                    // filtered Wires & Cables items, with per-row dedup so
-                                    // each cable appears in at most one row's dropdown.
-                                    // While the API is loading (or returns nothing), fall
-                                    // back to the original text input so the user is
-                                    // never blocked.
-                                    const perRowCableSizeOptions = isLtCableSize
-                                        ? buildCableSizeOptionsFor(idx)
-                                        : [];
-                                    const effectiveField =
-                                        isLtCableSize && perRowCableSizeOptions.length > 0
-                                            ? ({
-                                                  ...col,
-                                                  bind: undefined,
-                                                  type: 'select',
-                                                  options: perRowCableSizeOptions,
-                                              } as Field)
-                                            : ({ ...col, bind: undefined } as Field);
-                                    return (
-                                        <td key={col.key} className="py-2 px-2">
-                                            <FieldControl
-                                                name={cellName}
-                                                field={effectiveField}
-                                                forceReadonly={forceReadonly}
-                                                hideLabel
-                                            />
-                                            {isLtCableSize &&
-                                                ltCableSizeLoading &&
-                                                ltCableSizeOptions.length === 0 && (
-                                                    <p className="mt-1 text-[10px] text-muted-foreground">
-                                                        Loading Wires &amp; Cables items…
-                                                    </p>
-                                                )}
-                                            {isLtCableSize &&
-                                                !ltCableSizeLoading &&
-                                                ltCableSizeOptions.length === 0 && (
-                                                    <p className="mt-1 text-[10px] text-muted-foreground">
-                                                        No ARMOURED CABLE items found on this
-                                                        project — type the cable size manually.
-                                                    </p>
-                                                )}
-                                        </td>
-                                    );
-                                })}
-                                {!forceReadonly && (
-                                    <td className="py-2 px-2 text-right">
-                                        {canRemove ? (
-                                            <button
-                                                type="button"
-                                                onClick={() => remove(idx)}
-                                                className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                                                aria-label={`Remove row ${idx + 1}`}
-                                                title="Remove row"
-                                            >
-                                                <Trash2 className="h-3.5 w-3.5" />
-                                            </button>
-                                        ) : (
-                                            <span className="inline-block h-3.5 w-3.5" />
+                                <div key={col.key} className="space-y-1">
+                                    <Label
+                                        htmlFor={`${fieldName}.${idx}.${col.key}`}
+                                        className="text-xs uppercase tracking-wide text-muted-foreground"
+                                    >
+                                        {col.label}
+                                        {col.required && !forceReadonly && (
+                                            <sup className="ml-0.5 text-destructive">*</sup>
                                         )}
-                                    </td>
+                                    </Label>
+                                    {/* flex keeps the centred image cell hugging the left edge */}
+                                    {col.type === 'image' ? (
+                                        <div className="flex">{renderCell(col, idx)}</div>
+                                    ) : (
+                                        renderCell(col, idx)
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div className="overflow-x-auto rounded-md border">
+                    <table className="w-full table-fixed border-collapse text-sm">
+                        <thead>
+                            <tr className="border-b bg-muted/30">
+                                <th className="w-10 py-2 px-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                    #
+                                </th>
+                                {section.columns.map((col) => (
+                                    <th
+                                        key={col.key}
+                                        className="py-2 px-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+                                        style={col.width ? { width: col.width } : undefined}
+                                    >
+                                        {col.label}
+                                        {col.required && (
+                                            <sup className="ml-0.5 text-destructive">*</sup>
+                                        )}
+                                    </th>
+                                ))}
+                                {!forceReadonly && (
+                                    <th className="w-10 py-2 px-2" aria-label="Actions" />
                                 )}
                             </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
+                        </thead>
+                        <tbody>
+                            {fields.map((row, idx) => (
+                                <tr key={row.id} className="border-b last:border-0 align-top">
+                                    <td className="py-2 px-2 text-muted-foreground">{(section.rowLabelPrefix || '') + (idx + 1)}</td>
+                                    {section.columns.map((col) => (
+                                        <td key={col.key} className={cellClassName(col)}>
+                                            {renderCell(col, idx)}
+                                        </td>
+                                    ))}
+                                    {!forceReadonly && (
+                                        <td className="py-2 px-2 text-right">
+                                            {canRemove ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => remove(idx)}
+                                                    className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                                    aria-label={`Remove row ${idx + 1}`}
+                                                    title="Remove row"
+                                                >
+                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                </button>
+                                            ) : (
+                                                <span className="inline-block h-3.5 w-3.5" />
+                                            )}
+                                        </td>
+                                    )}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
 
             {canAdd && !isEarthPitParameters && (
                 <div className="flex items-center justify-between gap-3">
-                    <Button type="button" variant="outline" size="sm" onClick={handleAdd}>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleAdd}
+                        className={cn(isMobile && 'flex-1')}
+                    >
                         <Plus className="mr-1 h-3.5 w-3.5" />
                         {addLabel}
                     </Button>
