@@ -10,6 +10,14 @@
 #   env_sync.sh reports                copy new or newer files from the desktop's Desktop to the laptop's Desktop
 #   env_sync.sh watch [--logs NAME]    one monitoring snapshot: desktop commits, changes, servers, Claude sessions
 #
+# Delegating work to a Claude session on the desktop (the session runs in the owner's console session through Task
+# Scheduler, so no SSH connection has to stay open):
+#   env_sync.sh session-start --brief FILE [--name N]     hand over the code if needed, then start a session on FILE
+#   env_sync.sh session-wait --name N [--pull-back]       poll until it writes DONE / BLOCKED / FAILED (or stalls);
+#                                                         with --pull-back, DONE runs from-desktop and reports
+#   env_sync.sh session-send --name N --message FILE      relay an answer and resume the session
+#   env_sync.sh session-stop --name N
+#
 # Flags: --allow-dirty (transfer although uncommitted tracked changes stay behind), --no-restart (skip the destale).
 # Overrides: .claude/state/env.local (git-ignored) may set the ENV_SYNC_* variables below.
 set -uo pipefail
@@ -27,6 +35,7 @@ FRAPPE_C="${ENV_SYNC_FRAPPE_CONTAINER:-frappe_docker_devcontainer-frappe-1}"
 PG_C="${ENV_SYNC_PG_CONTAINER:-frappe_docker_devcontainer-postgresql-1}"
 C_BENCH=/workspace/development/frappe-bench           # the same path inside both machines' containers
 STAGE=envsync                                          # frappe-bench/envsync: seen by the host and the container
+SDIR="$D_BENCH/$STAGE/sessions"                       # the desktop's brief / message / status / launch files
 SSH=/c/Windows/System32/OpenSSH/ssh.exe
 SCP=/c/Windows/System32/OpenSSH/scp.exe
 SSHO=(-o BatchMode=yes -o ConnectTimeout=20)
@@ -41,8 +50,9 @@ TMPD="$(mktemp -d)"; trap 'rm -rf "$TMPD"' EXIT
 ensure_stage() {
   [ -n "${STAGED:-}" ] && return 0
   mkdir -p "$BENCH_HOST/$STAGE" && cp "$HERE"/remote/* "$BENCH_HOST/$STAGE/" || die "cannot stage scripts on the laptop"
-  dps "New-Item -ItemType Directory -Force -Path '$D_BENCH/$STAGE' | Out-Null" > /dev/null
+  dps "New-Item -ItemType Directory -Force -Path '$D_BENCH/$STAGE/desktop', '$SDIR' | Out-Null" > /dev/null
   "$SCP" -q "${SSHO[@]}" "$HERE"/remote/* "$DESKTOP:$D_BENCH/$STAGE/" || die "cannot reach the desktop over SSH ($DESKTOP)"
+  "$SCP" -q "${SSHO[@]}" "$HERE"/desktop/*.ps1 "$DESKTOP:$D_BENCH/$STAGE/desktop/" || die "cannot stage the desktop launch scripts"
   STAGED=1
 }
 
@@ -223,18 +233,129 @@ if not rows: print("  none")'
   fi
 }
 
+# ---- delegated desktop sessions ---------------------------------------------------------------------------------
+
+check_name() { [[ "${1:-}" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,40}$ ]] || die "--name takes letters, digits and dashes (got '${1:-}')"; }
+
+# agent_field <name> <field>: that field of the newest background session with this display name, "" if there is none.
+# --all also lists sessions that have exited.
+agent_field() {
+  dps "claude agents --json --all" | python3 -c '
+import json, sys
+try: rows = json.load(sys.stdin) or []
+except Exception: rows = []
+rows = [r for r in rows if r.get("name") == sys.argv[1] and r.get("kind") != "interactive"]
+rows.sort(key=lambda r: r.get("startedAt") or 0)
+print(rows[-1].get(sys.argv[2], "") if rows else "")' "$1" "$2"
+}
+
+show_logs() {
+  echo "--- claude logs $1 (last ${LINES_N:-40} lines)"
+  dps "claude logs '$1'" | sed -e 's/\x1b\[[0-9;?]*[A-Za-z]//g' -e 's/\x1b\][^\x07]*\x07//g' | grep -v '^\s*$' | tail -n "${LINES_N:-40}"
+}
+
+# run_task <name> <start|resume> [session-id]: the launch itself, through Task Scheduler (desktop/start_task.ps1).
+run_task() {
+  local extra="" out; [ -n "${3:-}" ] && extra=" -SessionId $3"     # PowerShell 5.1 drops an empty '' argument
+  out=$(dps "powershell -NoProfile -ExecutionPolicy Bypass -File '$D_BENCH/$STAGE/desktop/start_task.ps1' -Name $1 -Mode $2$extra" | sed '1s/^\xEF\xBB\xBF//')
+  printf '%s\n' "$out" | sed 's/^/  /'
+  printf '%s\n' "$out" | grep -q '^done=' || die "the desktop launch failed"
+}
+
+cmd_session_start() {
+  [ -n "${BRIEF:-}" ] && [ -f "$BRIEF" ] || die "session-start needs --brief FILE: what the desktop session should do"
+  NAME="${NAME:-nirmaan-$(date +%m%d-%H%M)}"; check_name "$NAME"
+  [ "$(agent_field "$NAME" status)" = "" ] || [ "${REUSE_NAME:-0}" = 1 ] || die "the desktop already has a session named $NAME; pick another --name"
+  collect
+  case $VERDICT in
+    IN_SYNC) print_code;;
+    LAPTOP_AHEAD) cmd_to_desktop;;
+    *) print_code; die "refusing: the verdict is $VERDICT; the desktop must hold the laptop's code before it gets work";;
+  esac
+  { cat "$BRIEF"; sed "s|{{STATUS_FILE}}|$SDIR/$NAME.status.md|g" "$HERE/desktop/brief_footer.md"; } > "$TMPD/$NAME.brief.md"
+  dps "Remove-Item -LiteralPath '$SDIR/$NAME.status.md' -ErrorAction SilentlyContinue" > /dev/null
+  "$SCP" -q "${SSHO[@]}" "$TMPD/$NAME.brief.md" "$DESKTOP:$SDIR/$NAME.brief.md" || die "copying the brief to the desktop failed"
+  echo "desktop: starting session $NAME ..."
+  run_task "$NAME" start
+  local sid=""
+  for _ in 1 2 3 4 5 6; do sid=$(agent_field "$NAME" sessionId); [ -n "$sid" ] && break; sleep 5; done
+  [ -n "$sid" ] || die "the launch reported success but no background session named $NAME is listed; see env_sync.sh watch"
+  echo "desktop: session $NAME is running (session id $sid)"
+  echo "next: env_sync.sh session-wait --name $NAME --pull-back   (in the background)"
+}
+
+cmd_session_send() {
+  check_name "${NAME:-}"; [ -n "${MESSAGE:-}" ] && [ -f "$MESSAGE" ] || die "session-send needs --name N --message FILE"
+  local sid; sid=$(agent_field "$NAME" sessionId)
+  [ -n "$sid" ] || die "the desktop has no session named $NAME"
+  { cat "$MESSAGE"
+    printf '\n\n---\n(Relayed from the owner by the laptop. The protocol in your brief still applies: carry on end to end, and write %s, first line DONE, BLOCKED or FAILED, as your last action.)\n' "$SDIR/$NAME.status.md"
+  } > "$TMPD/$NAME.message.md"
+  dps "Remove-Item -LiteralPath '$SDIR/$NAME.status.md' -ErrorAction SilentlyContinue" > /dev/null
+  "$SCP" -q "${SSHO[@]}" "$TMPD/$NAME.message.md" "$DESKTOP:$SDIR/$NAME.message.md" || die "copying the message to the desktop failed"
+  echo "desktop: resuming $NAME ($sid) with the message ..."
+  run_task "$NAME" resume "$sid"
+  echo "next: env_sync.sh session-wait --name $NAME --pull-back   (in the background)"
+}
+
+cmd_session_wait() {
+  check_name "${NAME:-}"
+  local interval="${INTERVAL:-60}" idle=0 fails=0 st first state
+  echo "waiting on desktop session $NAME, polling every ${interval}s, since $(date +%T)"
+  while :; do
+    if ! st=$(dps "if (Test-Path -LiteralPath '$SDIR/$NAME.status.md') { Get-Content -Raw -LiteralPath '$SDIR/$NAME.status.md' } else { 'NO_STATUS' }") || [ -z "$st" ]; then
+      fails=$((fails + 1)); [ "$fails" -ge 30 ] && die "the desktop has not answered for 30 polls in a row"
+      sleep "$interval"; continue
+    fi
+    fails=0
+    st=$(printf '%s\n' "$st" | sed '1s/^\xEF\xBB\xBF//')
+    first=$(printf '%s\n' "$st" | head -1 | tr -d '[:space:]')
+    case "$first" in
+      DONE|BLOCKED|FAILED)
+        echo "=== $NAME: $first (seen $(date +%T))"; printf '%s\n' "$st"
+        if [ "$first" = DONE ] && [ "${PULL_BACK:-0}" = 1 ]; then
+          echo "=== pulling the work back"; cmd_from_desktop; cmd_reports
+        fi
+        case "$first" in DONE) return 0;; BLOCKED) return 5;; FAILED) return 6;; esac;;
+    esac
+    state=$(agent_field "$NAME" status)
+    if [ -z "$state" ]; then echo "=== $NAME is not listed on the desktop and wrote no status file"; show_logs "$NAME"; return 7; fi
+    if [ "$state" = idle ]; then idle=$((idle + 1)); else idle=0; fi
+    if [ "$idle" -ge "${IDLE_LIMIT:-5}" ]; then
+      echo "=== $NAME has been idle for $idle polls without a status file (waiting on a prompt or a question?)"
+      show_logs "$NAME"; return 4
+    fi
+    sleep "$interval"
+  done
+}
+
+cmd_session_stop() {
+  check_name "${NAME:-}"
+  local ids; ids=$(dps "claude agents --json" | python3 -c '
+import json, sys
+try: rows = json.load(sys.stdin) or []
+except Exception: rows = []
+print(" ".join(r["sessionId"][:8] for r in rows if r.get("name") == sys.argv[1] and r.get("kind") != "interactive" and r.get("sessionId")))' "$NAME")
+  [ -n "$ids" ] || { echo "the desktop has no running session named $NAME"; return 0; }
+  for id in $ids; do dps "claude stop $id"; done        # claude stop takes the short id
+}
+
 CMD="${1:-}"; [ $# -gt 0 ] && shift
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes) YES=1;; --allow-dirty) ALLOW_DIRTY=1;; --no-restart) NO_RESTART=1;; --no-data) NO_DATA=1;;
     --logs) LOGS="${2:-}"; shift;; --lines) LINES_N="${2:-40}"; shift;;
+    --name) NAME="${2:-}"; shift;; --brief) BRIEF="${2:-}"; shift;; --message) MESSAGE="${2:-}"; shift;;
+    --interval) INTERVAL="${2:-60}"; shift;; --idle-limit) IDLE_LIMIT="${2:-5}"; shift;; --pull-back) PULL_BACK=1;;
     *) die "unknown flag $1";;
   esac
   shift
 done
-case "$CMD" in status|to-desktop|from-desktop|db-pull|watch) ensure_stage;; esac   # once, outside any $(...) subshell
+case "$CMD" in status|to-desktop|from-desktop|db-pull|watch|session-*) ensure_stage;; esac   # once, outside any $(...)
 case "$CMD" in
   status) cmd_status;; to-desktop) cmd_to_desktop;; from-desktop) cmd_from_desktop;;
   db-pull) cmd_db_pull;; reports) cmd_reports;; watch) cmd_watch;;
-  *) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 1;;
+  session-start) cmd_session_start;; session-send) cmd_session_send;;
+  session-wait) cmd_session_wait;; session-stop) cmd_session_stop;;
+  *) sed -n "2,25p" "$0" | sed 's/^# \{0,1\}//'; exit 1;;
 esac

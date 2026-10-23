@@ -28,8 +28,10 @@ Three standards fail silently when broken, so they are summarised here too (full
 ## Session workflow
 
 - **Before implementing anything, ask the owner where it runs: laptop or desktop.** Then run
-  `bash scripts/env_sync/env_sync.sh status` and act on its verdict. On the desktop (hostname `DESKTOP-4RMALAH`), skip
-  the question: the laptop has already handed over. The loop, its rules and recovery: `docs/agents/environments.md`.
+  `bash scripts/env_sync/env_sync.sh status` and act on its verdict. **Desktop chosen:** delegate. Write the brief,
+  run `session-start`, then `session-wait --pull-back` in the background; relay any `BLOCKED` question to the owner and
+  answer it with `session-send`. On the desktop (hostname `DESKTOP-4RMALAH`), skip the question: the laptop has already
+  handed over. The loop, the delegation protocol and recovery: `docs/agents/environments.md`.
 - **Tickets and specs are GitHub issues.** Read the ticket and its parent spec first:
   `gh issue view <n> --comments --repo Nirmaan-app/nirmaan_stack_frappe15_postgres_14`.
 - **Ad-hoc work (no ticket): write a plan and wait for the user's review before writing code.** Under
