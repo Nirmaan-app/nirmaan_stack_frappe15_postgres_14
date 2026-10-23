@@ -6,7 +6,9 @@
 HR decides a claim of ₹2,000 or less raised outside HR; Admin decides the rest and may decide their own
 (`services/reimbursements/rules.py`). Each decision locks the claim and reads its status again inside the
 lock, so two people can't decide one claim, and an edit can't slip in between (CODING_STANDARDS § Status
-transitions). The claimant is notified after the commit.
+transitions). Approving also creates the claim's Non-Project Expense in the same transaction (ADR-0040,
+`services/reimbursements/convert.py`), so a claim is never Approved without one. The claimant is notified
+after the commit.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from frappe import _
 
 from nirmaan_stack.integrations.controllers.reimbursement_notify import notify_decided
 from nirmaan_stack.services.reimbursements.access import claim_decide_problem, is_hr
+from nirmaan_stack.services.reimbursements.convert import create_expense
 from nirmaan_stack.services.reimbursements.rules import (
     APPROVED,
     PENDING,
@@ -39,15 +42,17 @@ def _locked_for_decision(name: str, user: str):
 
 @frappe.whitelist(methods=["POST"])
 def approve_reimbursement(name) -> dict:
-    """Approve the full amount. Saves `approved_by`; the claimant is notified."""
+    """Approve the full amount. Saves `approved_by` and creates the claim's Non-Project Expense, whose
+    starting status follows the expense rule with this approver as the raiser; the claimant is notified."""
     user = frappe.session.user
     claim = _locked_for_decision(name, user)
     claim.status = APPROVED
     claim.approved_by = user
     claim.save(ignore_permissions=True)
+    expense = create_expense(claim, user)
     frappe.db.commit()
     notify_decided(claim, APPROVED)
-    return {"name": claim.name, "status": claim.status}
+    return {"name": claim.name, "status": claim.status, "expense": expense.name, "expense_status": expense.status}
 
 
 @frappe.whitelist(methods=["POST"])

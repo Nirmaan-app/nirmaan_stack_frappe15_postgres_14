@@ -20,10 +20,11 @@ from frappe.utils import flt
 from nirmaan_stack.services.payees.own_accounts import assert_own_account
 from nirmaan_stack.services.payees.pay_to import copy_payee_account
 from nirmaan_stack.services.reimbursements.access import is_hr
+from nirmaan_stack.services.reimbursements.convert import LINK_FIELD
+from nirmaan_stack.services.reimbursements.expense_link import delete_claim, delete_expense_of
 from nirmaan_stack.services.reimbursements.receipts import (
     apply_receipts,
     claim_files,
-    detach_claim_files,
     loose_files,
     plan_receipts,
 )
@@ -124,14 +125,15 @@ def update_reimbursement(name, title, amount, payee, description=None, file_urls
 
 @frappe.whitelist(methods=["POST"])
 def delete_reimbursement(name) -> dict:
-    """Delete the claimant's own claim while it is Pending Approval or Rejected, with its receipts."""
+    """Delete the claimant's own claim while it is Pending Approval or Rejected, with its receipts -- and,
+    for a claim Rejected in the Payments queue, its Rejected expense (ADR-0040)."""
     user = frappe.session.user
     claim = frappe.get_doc(DOCTYPE, name, for_update=True)
     problem = delete_problem(claim.status, is_claimant=claim.owner == user)
     if problem:
         frappe.throw(_(problem), frappe.PermissionError if claim.owner != user else frappe.ValidationError)
-    files = detach_claim_files(name)
-    frappe.delete_doc(DOCTYPE, name, ignore_permissions=True)
+    delete_expense_of(name)
+    files = delete_claim(name)
     frappe.db.commit()
     _delete_last(files)
     return {"name": name, "deleted": True}
@@ -148,3 +150,30 @@ def get_claim_files(name) -> list[dict]:
         {"file_name": f.file_name, "file_url": f.file_url, "is_receipts_pdf": f.file_url == claim.attachment}
         for f in files
     ]
+
+
+@frappe.whitelist()
+def get_claim_payments(names) -> dict:
+    """The Non-Project Expense paying each claim the caller may read, by claim name (ADR-0040):
+    `{claim: {expense, status, payment_date, payment_ref}}`. Claims with no expense are left out.
+
+    Read here rather than by the screen, because most claimants can't read Non-Project Expenses.
+    """
+    wanted = [n for n in _as_list(names) if n]
+    if not wanted:
+        return {}
+    readable = frappe.get_list(DOCTYPE, filters={"name": ["in", wanted]}, pluck="name")
+    if not readable:
+        return {}
+    rows = frappe.get_all(
+        "Non Project Expenses",
+        filters={LINK_FIELD: ["in", readable]},
+        fields=["name", LINK_FIELD, "status", "payment_date", "payment_ref"],
+    )
+    return {
+        row[LINK_FIELD]: {
+            "expense": row.name, "status": row.status,
+            "payment_date": row.payment_date, "payment_ref": row.payment_ref,
+        }
+        for row in rows
+    }

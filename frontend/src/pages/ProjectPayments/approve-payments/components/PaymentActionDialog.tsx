@@ -35,6 +35,7 @@ interface PaymentActionDialogProps {
     paymentData: ProjectPayments | null;
     vendorName?: string; // Pass pre-fetched vendor name
     /** `reason` is sent by a cheque reject (#1481) and an expense reject (#1497); both require one. */
+    /** `reason` is sent only by a cheque reject (#1481) and an expense reject, which require one. */
     onSubmit: (actionType: DialogActionType, amount: number, reason?: string) => Promise<void>;
     isLoading: boolean; // Loading state passed from parent
     /**
@@ -111,12 +112,16 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
     const chequeLoading = chequeApprovalLoading && !chequeApproval;
     const throughCheque = type === DIALOG_ACTION_TYPES.APPROVE && !!chequeApproval;
     const rejectsCheque = type === DIALOG_ACTION_TYPES.REJECT && !!chequeApproval;
+    // An expense reject needs a reason, saved as a comment on the expense, as a bulk reject does. For a
+    // reimbursement's expense (ADR-0040) the claim is rejected too, and its raiser sees the reason.
+    const rejectsExpense = type === DIALOG_ACTION_TYPES.REJECT && !chequeApproval && isExpense;
+    const isReimbursement = (paymentData as { source_type?: string } | null)?.source_type === "Reimbursement";
     const [reason, setReason] = useState("");
     // An expense reject needs a reason too: the decision call refuses one without (#1497).
     const rejectsExpense = type === DIALOG_ACTION_TYPES.REJECT && isExpense;
     const needsReason = rejectsCheque || rejectsExpense;
     const chequeBlocked =
-        chequeLoading || (throughCheque && !!chequeApproval?.problem) || (needsReason && !reason.trim());
+        chequeLoading || (throughCheque && !!chequeApproval?.problem) || ((needsReason || rejectsCheque || rejectsExpense) && !reason.trim());
     // An Office Rent expense whose request does not name the landlord cannot be approved (the server
     // refuses it); the details block says so, and Confirm is disabled (spec #1522 review batch 2).
     const { data: expenseDetail } = useExpenseApprovalDetail(isExpense ? ledger : null, paymentData?.name, isOpen);
@@ -175,7 +180,7 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
         if (chequeBlocked) return;
 
         // Non-partial paths send the untouched requested amount, exactly as before.
-        await onSubmit(type, isPartialApprove ? split.approved : requestedAmount, needsReason ? reason.trim() : undefined);
+        await onSubmit(type, isPartialApprove ? split.approved : requestedAmount, needsReason ||rejectsCheque || rejectsExpense ? reason.trim() : undefined);
         // Parent component will handle closing the dialog via onOpenChange after successful submission if needed
 
     }, [paymentData, type, isPartialApprove, split, requestedAmount, onSubmit, chequeBlocked, needsReason, reason]);
@@ -256,6 +261,29 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
                         onReasonChange={setReason}
                         disabled={isLoading}
                     />
+                )}
+                {paymentData && rejectsExpense && (
+                    <div className="text-sm">
+                        <label htmlFor="expense-reject-reason" className="text-xs font-medium text-muted-foreground">
+                            Reason <span className="text-red-600">*</span>
+                        </label>
+                        <Textarea
+                            id="expense-reject-reason"
+                            rows={3}
+                            value={reason}
+                            onChange={(e) => setReason(e.target.value)}
+                            disabled={isLoading}
+                            required
+                            aria-required="true"
+                            placeholder={isReimbursement ? "Why is this reimbursement rejected?" : "Why is this expense rejected?"}
+                            className="mt-1 resize-none"
+                        />
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                            {isReimbursement
+                                ? "The claim is rejected too, and the person who raised it sees this reason."
+                                : "Saved as a comment on the expense."}
+                        </p>
+                    </div>
                 )}
                 {paymentData && showMode && !throughCheque && !rejectsCheque && !chequeLoading && (
                     <PaymentSummaryBlock summary={summary} isLoading={summaryLoading} thisAmount={requestedAmount} />

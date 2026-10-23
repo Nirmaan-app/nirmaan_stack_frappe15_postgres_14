@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-
+import { useFrappeGetCall, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useExpenseDecision } from "@/hooks/useExpenseDecision";
 import { isExpenseDoctype, type ExpenseAction } from "@/utils/expenses/expenseDecision";
 
@@ -39,6 +39,10 @@ const EXPENSE_ACTION: Record<BulkMode, Record<BulkAction, ExpenseAction>> = {
   ceo: { approve: "ceo_approve", reject: "reject" },
 };
 
+/** The expense engine's two endpoints (lead and CEO). Also used by the single-row reject in ApprovePayments. */
+export const LEAD_EXPENSE_ACTIONS_API = "nirmaan_stack.api.approvals.expense_actions.bulk_lead_approve_expenses";
+export const CEO_EXPENSE_ACTIONS_API = "nirmaan_stack.api.approvals.expense_actions.bulk_ceo_approve_expenses";
+
 export function useBulkApprovalActions(mode: BulkMode) {
   const { submit: submitPayments, loading: paymentsLoading } =
     useBulkPaymentActions(mode);
@@ -46,6 +50,10 @@ export function useBulkApprovalActions(mode: BulkMode) {
   // Expenses go through the one decision call, the same one a single-row click uses, so a bulk
   // approval and a single one land an expense at the same status (#1497).
   const { decide: decideExpenses, loading: expensesLoading } = useExpenseDecision();
+  const leadExpenses = useFrappePostCall(LEAD_EXPENSE_ACTIONS_API);
+  const ceoExpenses = useFrappePostCall(CEO_EXPENSE_ACTIONS_API);
+  const { call: callExpenses, loading: expensesLoading } =
+    mode === "ceo" ? ceoExpenses : leadExpenses;
 
   const submit = useCallback(
     async (

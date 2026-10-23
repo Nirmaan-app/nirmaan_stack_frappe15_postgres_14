@@ -144,11 +144,26 @@ const daysSince = (iso?: string | null): number | null => {
   return Math.floor((Date.now() - then) / 86_400_000);
 };
 
-const TypeChip = ({ type }: { type: ApprovalQueueRow["source_type"] }) => (
-  <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${TYPE_BADGE[type] ?? ""}`}>
-    {TYPE_LABEL[type] ?? type}
-  </span>
-);
+/** A label with a " / " (e.g. "Reimbursement / Non Project Expense", ADR-0040) stacks its parts, so the pill
+ *  stays as narrow as the single-line labels and never spills into the next column. */
+const TypeChip = ({ type }: { type: ApprovalQueueRow["source_type"] }) => {
+  const label = TYPE_LABEL[type] ?? type;
+  const [main, ...rest] = label.split(" / ");
+  if (rest.length === 0) {
+    // Every one-line label keeps its original pill, unchanged.
+    return (
+      <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${TYPE_BADGE[type] ?? ""}`}>
+        {label}
+      </span>
+    );
+  }
+  return (
+    <span className={`inline-flex max-w-full flex-col rounded-2xl px-2 py-0.5 text-[11px] font-medium leading-tight ring-1 ring-inset ${TYPE_BADGE[type] ?? ""}`}>
+      <span className="whitespace-nowrap">{main}</span>
+      <span className="text-[10px] font-normal opacity-80">{rest.join(" / ")}</span>
+    </span>
+  );
+};
 
 const TIER_CLASSES: Record<ApprovalQueueRow["tier"], string> = {
   auto: "bg-green-100 text-green-800",
@@ -394,12 +409,13 @@ const REGISTRY: Record<
     accessorKey: "source_type",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
     cell: ({ row }) => (
-      <span className="inline-flex items-center">
+      <span className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1">
         <TypeChip type={row.original.source_type} />
         <GstPaymentTag payment={row.original} />
       </span>
     ),
-    // Sized for the longest label, "Non Project Expense", rendered as a pill.
+    // Sized for the longest one-line label, "Non Project Expense", rendered as a pill; the Reimbursement
+    // label stacks onto two lines inside its pill (TypeChip), so it fits the same width.
     size: 158,
     meta: { exportHeaderName: "Type", exportValue: (r: ApprovalQueueRow) => TYPE_LABEL[r.source_type] ?? r.source_type },
   }),

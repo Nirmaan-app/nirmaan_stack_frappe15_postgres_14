@@ -16,8 +16,10 @@ import {
 export const PENDING = "Pending Approval";
 export const APPROVED = "Approved";
 export const REJECTED = "Rejected";
-export type ReimbursementStatus = typeof PENDING | typeof APPROVED | typeof REJECTED;
-export const STATUSES: readonly ReimbursementStatus[] = [PENDING, APPROVED, REJECTED];
+/** Set only when the claim's Non-Project Expense is paid (ADR-0040); never by a person on this screen. */
+export const PAID = "Paid";
+export type ReimbursementStatus = typeof PENDING | typeof APPROVED | typeof REJECTED | typeof PAID;
+export const STATUSES: readonly ReimbursementStatus[] = [PENDING, APPROVED, REJECTED, PAID];
 
 /** What a claim was spent on, in the doctype's order (owner, 2026-10-22). */
 export const TYPES = ["Travel", "Food", "Others"] as const;
@@ -68,6 +70,20 @@ export function deleteProblem(status: string, isClaimant: boolean): string | nul
     return null;
 }
 
+/** Where the claim's payment is, from its Non-Project Expense's status (ADR-0040). The claim itself stays
+ *  Approved until the expense is Paid or Rejected. */
+export function paymentStage(expenseStatus: string | null | undefined): string {
+    switch (expenseStatus) {
+        case "Requested": return "Waiting for approval in Payments";
+        case "CEO Pending": return "Waiting for CEO approval";
+        case "Approved": return "Waiting to be paid";
+        case "Reconciliation Pending": return "Paid, waiting for the bank statement";
+        case "Paid": return "Paid";
+        case "Rejected": return "Rejected in Payments";
+        default: return expenseStatus || "Not sent to Payments";
+    }
+}
+
 const PDF_EXTENSIONS = [".pdf"];
 const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff"];
 
@@ -111,9 +127,10 @@ export const TAB_ALL = "all";
 export const TAB_MINE = "mine";
 export const TAB_PENDING = "pending";
 export const TAB_APPROVED = "approved";
+export const TAB_PAID = "paid";
 export const TAB_REJECTED = "rejected";
 export type ReimbursementTab =
-    | typeof TAB_ALL | typeof TAB_MINE | typeof TAB_PENDING | typeof TAB_APPROVED | typeof TAB_REJECTED;
+    | typeof TAB_ALL | typeof TAB_MINE | typeof TAB_PENDING | typeof TAB_APPROVED | typeof TAB_PAID | typeof TAB_REJECTED;
 
 export const TAB_LABELS: Record<ReimbursementTab, string> = {
     [TAB_ALL]: "All",
@@ -121,14 +138,16 @@ export const TAB_LABELS: Record<ReimbursementTab, string> = {
     [TAB_PENDING]: "Pending Approval",
     // The Approved claims, waiting to be paid (owner, 2026-10-22: named like the Payments queue's tab).
     [TAB_APPROVED]: "Payment need to be paid",
+    [TAB_PAID]: "Paid",
     [TAB_REJECTED]: "Rejected",
 };
 
 /**
- * The tabs a person sees, in order (owner, 2026-10-22): Pending Approval, Payment need to be paid, All,
- * Reimbursement Raised By Me, Rejected -- each to whom it belongs:
- * Pending Approval -- HR and Admin; Payment need to be paid (the Approved claims), All and Rejected -- Admin,
- * HR and Accounts (All for Accounts too: owner, 2026-10-22); Reimbursement Raised By Me -- everyone.
+ * The tabs a person sees, in order (owner, 2026-10-22/23): Pending Approval, Payment need to be paid, Paid,
+ * All, Reimbursement Raised By Me, Rejected -- each to whom it belongs:
+ * Pending Approval -- HR and Admin; Payment need to be paid (the Approved claims, paid from Project Payments
+ * & Expenses through their Non-Project Expense, ADR-0040), Paid, All and Rejected -- Admin, HR and Accounts
+ * (All for Accounts too: owner, 2026-10-22); Reimbursement Raised By Me -- everyone.
  */
 export function tabsFor(viewer: Viewer): ReimbursementTab[] {
     const decides = isReimbursementAdmin(viewer) || isReimbursementHr(viewer);
@@ -136,6 +155,7 @@ export function tabsFor(viewer: Viewer): ReimbursementTab[] {
     const tabs: ReimbursementTab[] = [];
     if (decides) tabs.push(TAB_PENDING);
     if (pays) tabs.push(TAB_APPROVED);
+    if (pays) tabs.push(TAB_PAID);
     if (pays) tabs.push(TAB_ALL);
     tabs.push(TAB_MINE);
     if (pays) tabs.push(TAB_REJECTED);

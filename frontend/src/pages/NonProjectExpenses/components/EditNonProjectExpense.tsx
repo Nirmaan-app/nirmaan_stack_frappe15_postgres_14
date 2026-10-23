@@ -52,6 +52,7 @@ import { useDialogStore } from "@/zustand/useDialogStore";
 import { queryKeys, getNonProjectExpenseTypeListOptions } from "@/config/queryKeys";
 import { ExpenseEditPayToSection, useExpenseEditPayTo } from "@/components/payees/ExpenseEditPayTo";
 import { expenseAccountSaveError } from "@/components/payees/useChangeExpenseAccount";
+import { reimbursementAccountLine } from "@/utils/payees/paidTo";
 
 interface EditExpenseFormState {
     type: string;
@@ -100,6 +101,9 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
             !(field === "amount" && amountLocked) && mayEditExpenseField(fieldAccess, expenseToEdit?.status, field),
         [fieldAccess, expenseToEdit?.status, amountLocked],
     );
+    // A reimbursement's expense (ADR-0040) has no Expense Type: its claim link says what it is, so the type is
+    // neither shown as a picker nor required (owner, 2026-10-23).
+    const reimbursement = expenseToEdit?.reimbursement || null;
 
     // A Porter Expense (#1450): it shows a locked Project row -- moving it onto a project is Rectify in
     // Bulk Import, which keeps the import's record in step -- and its Porter facts, read-only. Any other
@@ -203,7 +207,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
 
     const validateForm = useCallback((): boolean => { /* Same as New... */
         const errors: Partial<Record<keyof EditExpenseFormState, string>> = {};
-        if (!formState.type) errors.type = "Expense Type is required.";
+        if (!formState.type && !reimbursement) errors.type = "Expense Type is required.";
         if (!formState.description.trim()) errors.description = "Description is required.";
         if (!formState.amount || parseNumber(formState.amount) === 0) errors.amount = "Amount cannot be zero. Use negative for refunds.";
         // Marking Paid (Record Payment Details) makes BOTH dates mandatory.
@@ -258,7 +262,8 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
         }
 
         const dataToUpdate: Partial<NonProjectExpensesType> = {
-            type: formState.type,
+            // A reimbursement's expense keeps no type (it never had one to change).
+            type: reimbursement ? expenseToEdit.type : formState.type,
             description: formState.description.trim(),
             comment: formState.comment.trim() || undefined, // Send null to clear if empty
             amount: parseNumber(formState.amount),
@@ -304,7 +309,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
 
     const isLoadingOverall = updateLoading || uploadLoading || expenseTypesLoading || payTo.busy;
     const editHasInvoiceAttachment = !!newInvoiceAttachmentFile || (invoiceAttachmentAction !== "remove" && !!existingInvoiceAttachmentUrl);
-    const isSubmitDisabled = isLoadingOverall || !!payTo.problem || !formState.type || !formState.description.trim() || !formState.amount || (recordPaymentDetails && !formState.invoice_date) || (recordInvoiceDetails && !formState.invoice_date) || (recordInvoiceDetails && editHasInvoiceAttachment && !formState.invoice_ref.trim());
+    const isSubmitDisabled = isLoadingOverall || !!payTo.problem || (!formState.type && !reimbursement) || !formState.description.trim() || !formState.amount || (recordPaymentDetails && !formState.invoice_date) || (recordInvoiceDetails && !formState.invoice_date) || (recordInvoiceDetails && editHasInvoiceAttachment && !formState.invoice_ref.trim());
     const selectedExpenseTypeLabel = expenseTypeOptionsForCommand.find(option => option.value === formState.type)?.label || "Select Expense Type...";
 
 
@@ -372,8 +377,13 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                     )}
                     {/* Core Details: Type, Description, Amount */}
                     <div className="grid grid-cols-4 items-center gap-3">
-                        <Label htmlFor="type_edit_npe_trigger" className="text-right col-span-1">Type <sup className="text-destructive">*</sup></Label>
+                        <Label htmlFor="type_edit_npe_trigger" className="text-right col-span-1">Type {!reimbursement && <sup className="text-destructive">*</sup>}</Label>
                         <div className="col-span-3">
+                            {reimbursement ? (
+                                <p id="type_edit_npe_trigger" className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                                    Reimbursement · <span className="font-mono">{reimbursement}</span>
+                                </p>
+                            ) : (
                             <Popover open={expenseTypePopoverOpen} onOpenChange={setExpenseTypePopoverOpen}>
                                 <PopoverTrigger asChild>
                                     <Button id="type_edit_npe_trigger" variant="outline" role="combobox" aria-expanded={expenseTypePopoverOpen} className="w-full justify-between" disabled={expenseTypesLoading || isLoadingOverall || typeLock.selectLocked}>
@@ -396,6 +406,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                                     </Command>
                                 </PopoverContent>
                             </Popover>
+                            )}
                             {formErrors.type && <p className="text-xs text-destructive mt-1">{formErrors.type}</p>}
                             {typeLock.selectLocked && <p className="text-xs text-muted-foreground mt-1">{typeLock.reason}</p>}
                         </div>
@@ -423,6 +434,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                         payTo={payTo}
                         expenseType={selectedExpenseType?.expense_name || formState.type}
                         disabled={isLoadingOverall}
+                        ruleLine={reimbursement ? reimbursementAccountLine(payTo.canRemove) : undefined}
                     />
 
                     {/* Payment Details are recorded via "Mark as Paid"; shown, read-only unless the

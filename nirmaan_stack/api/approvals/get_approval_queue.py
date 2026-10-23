@@ -69,6 +69,9 @@ SOURCE_NON_PROJECT = "Non-Project"
 # export and the bulk engines all branch on it -- so this is an extra column, not a rename.
 TYPE_PO_PAYMENT = "PO Payment"
 TYPE_SR_PAYMENT = "SR Payment"
+# A Non-Project Expense created from an approved Reimbursement (ADR-0040): its `reimbursement` is set. Its
+# `source` stays Non-Project, so every engine that branches on `source` treats it as the expense it is.
+TYPE_REIMBURSEMENT = "Reimbursement"
 
 SOURCE_TO_DOCTYPE = {
     SOURCE_VENDOR_PAYMENT: "Project Payments",
@@ -267,7 +270,7 @@ def _expense_select(table, source, project_col):
         SELECT
             e."name"                        AS name,
             '{source}'                      AS source,
-            '{source}'                      AS source_type,
+            {source_type_expr}              AS source_type,
             '{SOURCE_TO_DOCTYPE[source]}'   AS doctype,
             e."status"                      AS status,
             {_EXPENSE_AMOUNT}               AS amount,

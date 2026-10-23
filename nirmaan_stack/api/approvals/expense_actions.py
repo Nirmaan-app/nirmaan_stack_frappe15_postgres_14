@@ -42,6 +42,19 @@ def decide_expenses(expense_ids, action: str, reason: Optional[str] = None, paym
     `payment` and `invoice` are Mark as Paid's details (`expense_decision.PAYMENT_FIELDS`,
     `INVOICE_FIELDS`), dicts or their JSON. They are saved in the same write as the status, so a
     refused Mark as Paid saves neither.
+#: Where a reject puts its reason for the ledger row's own hooks, which carry it to the Expense Request
+#: (`expense_request_status.on_expense_rejected`) and the Reimbursement (`reimbursements.expense_link`).
+REJECTION_REASON_FLAG = "rejection_reason"
+#: What those hooks write when a row reaches Rejected with no reason on it (a Desk or REST edit).
+FALLBACK_REJECTION_REASON = "Rejected in Payments."
+
+
+@frappe.whitelist()
+def bulk_lead_approve_expenses(expense_ids, action: str, rejection_reason: Optional[str] = None):
+    """L1 bulk action on expenses currently in 'Requested'.
+
+    Approve lands each row at `Approved` or `CEO Pending` depending on its own
+    amount against this ledger's CEO line.
     """
     names = _parse_list(expense_ids)
     if action not in ACTIONS:
@@ -134,6 +147,72 @@ def _parse_list(expense_ids) -> list[str]:
 
 def _resolve_ledgers(names: list[str]) -> dict[str, str]:
     """name -> its expense doctype, resolved SERVER-SIDE.
+        frappe.throw(_("Bulk action limited to {0} records per call.").format(MAX_BATCH_SIZE))
+
+    if action not in ("approve", "reject"):
+        frappe.throw(_("action must be 'approve' or 'reject'."))
+
+    if action == "reject" and not (rejection_reason or "").strip():
+        frappe.throw(_("Rejection reason is required."))
+
+    deduped_ids = list(dict.fromkeys(expense_ids))
+    found = _resolve_ledgers(deduped_ids)
+
+    succeeded: list[str] = []
+    failed: list[dict] = []
+    # Deferred to AFTER the commit, exactly as the payments engine does it: a
+    # comment failure must not be able to unwind an approval that already landed.
+    pending_comments: list[tuple[str, str]] = []
+
+    for eid in deduped_ids:
+        row = found.get(eid)
+        if not row:
+            failed.append({"name": eid, "reason": "Expense not found"})
+            continue
+        _process_expense(
+            expense_id=eid,
+            row=row,
+            action=action,
+            source_status=source_status,
+            approve_date_field=approve_date_field,
+            ceo_mode=ceo_mode,
+            succeeded=succeeded,
+            failed=failed,
+            pending_comments=pending_comments,
+            rejection_reason=rejection_reason,
+        )
+
+    frappe.db.commit()
+
+    if action == "reject" and rejection_reason and pending_comments:
+        _add_rejection_comments(pending_comments, rejection_reason)
+
+    return {
+        "status": 200,
+        "message": _("Processed {0} expenses. {1} succeeded, {2} failed.").format(
+            len(deduped_ids), len(succeeded), len(failed)
+        ),
+        "data": {
+            "succeeded": succeeded,
+            "failed": failed,
+            "total": len(deduped_ids),
+        },
+    }
+
+
+def _process_expense(
+    expense_id: str,
+    row: dict,
+    action: str,
+    source_status: str,
+    approve_date_field: str,
+    ceo_mode: bool,
+    succeeded: list[str],
+    failed: list[dict],
+    pending_comments: list[tuple[str, str]],
+    rejection_reason: str | None = None,
+):
+    """One expense, inside its own SAVEPOINT.
 
     Trusting a client-declared doctype would let a caller name a Project Payment and have it moved
     by the engine that skips every PO lock and term sync. Both expense tables are read instead, so
@@ -144,6 +223,77 @@ def _resolve_ledgers(names: list[str]) -> dict[str, str]:
         for name in frappe.get_all(doctype, filters={"name": ["in", names]}, pluck="name"):
             found[name] = doctype
     return found
+    doctype = row["doctype"]
+
+    if row["status"] != source_status:
+        failed.append({
+            "name": expense_id,
+            "reason": f"Status is '{row['status']}', expected '{source_status}'",
+        })
+        return
+
+    project = row.get("project")
+    if project:
+        if frappe.db.get_value("Projects", project, "status") == CEO_HOLD_STATUS:
+            failed.append({"name": expense_id, "reason": "Project is on CEO Hold"})
+            return
+
+    if action == "reject":
+        target_status = REJECTED_STATUS
+    elif ceo_mode:
+        # An L2 approval always finishes it -- there is no third gate to forward to.
+        target_status = STATUS_APPROVED
+    else:
+        # ⚠️ flt() FIRST: `Project Expenses.amount` is a varchar column, so an
+        # unconverted value would be banded by its characters. The explicit
+        # `TIER_L2_ABOVE_EXPENSES` equals the module default today (both 50,000);
+        # it is passed anyway so a future split lands here without a code change.
+        target_status = status_after_l1(flt(row["amount"]), TIER_L2_ABOVE_EXPENSES)
+
+    savepoint = f"bulk_exp_{frappe.generate_hash(length=12)}"
+    frappe.db.savepoint(savepoint)
+    try:
+        # Lock the row so a single-row approver racing on the same expense
+        # serialises behind us rather than producing a last-write-wins flip.
+        frappe.db.sql(f'SELECT name FROM "tab{doctype}" WHERE name = %s FOR UPDATE', expense_id)
+        doc = frappe.get_doc(doctype, expense_id)
+
+        # Re-read under the lock. The status came from a list query taken before it.
+        if doc.status != source_status:
+            frappe.db.rollback(save_point=savepoint)
+            failed.append({
+                "name": expense_id,
+                "reason": f"Status is '{doc.status}', expected '{source_status}'",
+            })
+            return
+
+        doc.status = target_status
+        if action == "approve":
+            # ⚠️ ONLY THIS MODE'S OWN DATE FIELD, even when an L1 tick FINISHES the
+            # approval. Stamping `ceo_approval_date` there would make the dashboard's
+            # CEO Approval counter -- which keys on `ceo_approval_date and not
+            # auto_approved` -- count an approval the CEO never made.
+            doc.set(approve_date_field, nowdate())
+
+        doc.flags.bulk_approval = True
+        if action == "reject":
+            # A reimbursement's expense hands the reason to its claim in the same save (ADR-0040,
+            # `services/reimbursements/expense_link.follow_expense`); the comment below comes after the commit.
+            doc.flags[REJECTION_REASON_FLAG] = (rejection_reason or "").strip()
+        doc.save(ignore_permissions=True)
+    except Exception as exc:
+        frappe.db.rollback(save_point=savepoint)
+        failed.append({"name": expense_id, "reason": str(exc) or "Unknown error"})
+        frappe.log_error(
+            title=f"Bulk Expense Save Error ({expense_id})",
+            message=frappe.get_traceback(),
+        )
+        return
+
+    frappe.db.release_savepoint(savepoint)
+    succeeded.append(expense_id)
+    if action == "reject":
+        pending_comments.append((doctype, expense_id))
 
 
 def _add_rejection_comments(records: list[tuple[str, str]], reason: str):

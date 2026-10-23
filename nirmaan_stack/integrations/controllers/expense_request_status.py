@@ -36,6 +36,10 @@ from nirmaan_stack.services.expense_statuses import (
 	REQUEST_PAID,
 	REQUEST_REJECTED,
 )
+from nirmaan_stack.api.expense_requests.access import APPROVED, PAID, REJECTED
+from nirmaan_stack.api.approvals.expense_actions import FALLBACK_REJECTION_REASON, REJECTION_REASON_FLAG
+from nirmaan_stack.api.payments.bulk_actions import REJECTED_STATUS as REJECTED_LEDGER_STATUS
+from nirmaan_stack.services.notification_links import delete_notifications_for
 
 # The request statuses an Expense can move. `Pending Approval` is the review's, never this hook's:
 # the Expense is inserted while the request still waits, and the review sets Approved itself.
@@ -77,6 +81,39 @@ def on_expense_status_changed(doc, method=None) -> None:
 		frappe.db.set_value("Expense Request", request, "status", target)
 
 
+def on_expense_rejected(doc, method=None) -> None:
+	"""Ledger `on_update`: a request whose expense is REJECTED in Payments becomes Rejected too, with the reason
+	typed there (the engine puts it on `doc.flags[REJECTION_REASON_FLAG]`). An expense put back OUT of Rejected
+	(a request-born expense is not frozen, unlike a reimbursement's) puts its request back to Approved, so a
+	later Paid still reaches it through `on_expense_paid` (code review, 2026-10-23).
+
+	Before this (code review, 2026-10-23) only Paid and delete reached the request, so a request whose expense
+	L1 or the CEO rejected stayed Approved for good and its requester never learned why. Same narrowing as
+	`on_expense_paid`: the transition into Rejected only, from an Approved request only.
+
+	`set_value`, as `_mark_request_paid` does, for the same reason: the request is only mirroring the ledger.
+	`review_comment` is written with the status, which is what the request's `validate` requires of a Rejected
+	request.
+	"""
+	if not doc.has_value_changed("status"):
+		return
+	request = doc.get("request_id")
+	if not request:
+		return  # an ordinary expense, raised directly rather than through a request
+	before = doc.get_doc_before_save()
+	previous = before.status if before else None
+	request_status = frappe.db.get_value("Expense Request", request, "status")
+	if doc.status == REJECTED_LEDGER_STATUS:
+		if request_status != APPROVED:
+			return
+		reason = (doc.flags.get(REJECTION_REASON_FLAG) or "").strip() or FALLBACK_REJECTION_REASON
+		frappe.db.set_value("Expense Request", request, {"status": REJECTED, "review_comment": reason})
+	elif previous == REJECTED_LEDGER_STATUS and request_status == REJECTED:
+		# Only a rejection that came from the ledger can be undone here: a request rejected by its reviewer
+		# never had an expense. The review comment stays, as the record of the rejection that was undone.
+		frappe.db.set_value("Expense Request", request, "status", APPROVED)
+
+
 def on_expense_deleted(doc, method=None) -> None:
 	"""Ledger `after_delete`: delete the request the row was created from.
 
@@ -106,19 +143,5 @@ def on_expense_deleted(doc, method=None) -> None:
 
 def delete_request_notifications(request: str) -> None:
 	"""Clear the bell messages pointing at a request, so the request itself can be deleted.
-
-	⚠️ THIS IS NOT TIDINESS -- IT IS WHAT MAKES THE DELETE POSSIBLE. `Nirmaan Notifications`
-	addresses its subject through `document` + `docname`, and `docname` is a **Dynamic Link**.
-	Frappe's delete guard walks dynamic links as well as ordinary ones, so a request carrying
-	any notification (every rejected or paid one does) would raise `LinkExistsError` and take
-	the expense deletion down with it.
-
-	`ignore_links=True` would also get past the guard and is the WRONG fix: it leaves bell
-	entries pointing at a record that no longer exists, and the requester can still click them.
-
-	Raw `frappe.db.delete` rather than per-row `delete_doc`: a notification is an ephemeral UI
-	record, so N document loads to bank N `Deleted Document` rows buys nothing. Same reasoning
-	as the version prune in `api/pricing/workbook.py`.
-	"""
-	frappe.db.delete("Nirmaan Notifications",
-	                 {"document": "Expense Request", "docname": request})
+	The rule and its reasons live in `services/notification_links`."""
+	delete_notifications_for("Expense Request", request)

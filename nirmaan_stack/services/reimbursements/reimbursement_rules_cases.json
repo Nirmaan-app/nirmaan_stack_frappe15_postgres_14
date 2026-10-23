@@ -5,7 +5,8 @@
   "statuses": [
     "Pending Approval",
     "Approved",
-    "Rejected"
+    "Rejected",
+    "Paid"
   ],
   "types": [
     "Travel",
@@ -136,6 +137,15 @@
       "allowed": false
     },
     {
+      "name": "Admin, already paid",
+      "status": "Paid",
+      "amount": 4800,
+      "claimant_is_hr": false,
+      "decider_is_admin": true,
+      "decider_is_hr": false,
+      "allowed": false
+    },
+    {
       "name": "HR, already rejected",
       "status": "Rejected",
       "amount": 500,
@@ -155,6 +165,12 @@
     {
       "name": "claimant, approved",
       "status": "Approved",
+      "is_claimant": true,
+      "allowed": false
+    },
+    {
+      "name": "claimant, paid",
+      "status": "Paid",
       "is_claimant": true,
       "allowed": false
     },
@@ -187,6 +203,12 @@
     {
       "name": "claimant, approved",
       "status": "Approved",
+      "is_claimant": true,
+      "allowed": false
+    },
+    {
+      "name": "claimant, paid",
+      "status": "Paid",
       "is_claimant": true,
       "allowed": false
     },

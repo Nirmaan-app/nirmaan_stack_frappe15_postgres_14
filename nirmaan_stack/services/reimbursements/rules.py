@@ -15,7 +15,10 @@ A claim above ₹2,000 (`DESCRIPTION_REQUIRED_ABOVE`) needs a description (owner
 type: Travel, Food or Others (`TYPES`, owner, 2026-10-22).
 
 The claimant may edit a claim only while it is Pending Approval, and delete it while it is Pending
-Approval or Rejected. An Approved claim is locked.
+Approval or Rejected. An Approved or Paid claim is locked.
+
+Approval creates the claim's Non-Project Expense (`convert.py`, ADR-0040). The claim then follows only that
+expense's endings: Paid, or Rejected in the Payments queue (`expense_link.py`); nothing else sets Paid.
 
 Mirrored on the screen by `frontend/src/utils/reimbursements/rules.ts`; both twins read
 `reimbursement_rules_cases.json` (F1), so they cannot drift apart unnoticed.
@@ -26,9 +29,11 @@ from __future__ import annotations
 PENDING = "Pending Approval"
 APPROVED = "Approved"
 REJECTED = "Rejected"
+#: Set only when the claim's Non-Project Expense turns Paid (`expense_link.follow_expense`).
+PAID = "Paid"
 
 #: The status options, in the doctype's order. Pinned to the doctype by test.
-STATUSES = (PENDING, APPROVED, REJECTED)
+STATUSES = (PENDING, APPROVED, REJECTED, PAID)
 
 #: What a claim was spent on, in the doctype's order. Pinned to the doctype's options by test.
 TYPES = ("Travel", "Food", "Others")

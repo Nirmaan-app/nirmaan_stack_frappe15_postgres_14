@@ -16,6 +16,7 @@ import {
     paidToExportText,
     PAY_TO_FIELDS,
     payToBoxView,
+    reimbursementAccountLine,
     rowEligibility,
     switchLine,
     unpayableReason,
@@ -485,6 +486,14 @@ describe("Change account names the expense and words its type's rule", () => {
         expect(canRemoveExpenseAccount("Optional", true)).toBe(true);
         expect(canRemoveExpenseAccount(null, true)).toBe(true);
         expect(canRemoveExpenseAccount("Optional", false)).toBe(false);
+    });
+
+    it("words a reimbursement's expense by the claimant's account, never by a type it doesn't have (ADR-0040)", () => {
+        expect(reimbursementAccountLine(true)).toBe(
+            "The claimant's bank account, copied from their claim. Remove it if this is paid by card or cash.",
+        );
+        expect(reimbursementAccountLine(false)).toBe("The claimant's bank account, copied from their claim.");
+        expect(reimbursementAccountLine(true)).not.toContain("type");
     });
 });
 

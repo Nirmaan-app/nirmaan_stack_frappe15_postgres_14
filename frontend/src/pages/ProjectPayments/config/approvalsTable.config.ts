@@ -68,7 +68,9 @@ export interface ApprovalQueueRow {
    * its parent. Display + filter ONLY: every ledger branch keeps reading `source`.
    * "Vendor Payment" survives here only as the server's fallback for an unrecognised parent.
    */
-  source_type: "PO Payment" | "SR Payment" | "Vendor Payment" | "Project Expense" | "Non-Project";
+  /** "Reimbursement": a Non-Project Expense created from an approved Reimbursement (ADR-0040); its `source`
+   *  stays "Non-Project". */
+  source_type: "PO Payment" | "SR Payment" | "Vendor Payment" | "Project Expense" | "Non-Project" | "Reimbursement";
   doctype: "Project Payments" | "Project Expenses" | "Non Project Expenses";
   status: string;
   /** The stored amount: what is paid. On a PO / WO payment with TDS withheld, already cut by the tax. */
@@ -381,11 +383,12 @@ export const TYPE_LABEL: Record<ApprovalQueueRow["source_type"], string> = {
   "Vendor Payment": "Payment",
   "Project Expense": "Project Expense",
   "Non-Project": "Non Project Expense",
+  "Reimbursement": "Reimbursement / Non Project Expense",
 };
 
 /** The Type filter's options. The "Vendor Payment" fallback is left out: no row carries it today. */
 export const TYPE_FILTER_VALUES: ApprovalQueueRow["source_type"][] = [
-  "PO Payment", "SR Payment", "Project Expense", "Non-Project",
+  "PO Payment", "SR Payment", "Project Expense", "Non-Project", "Reimbursement",
 ];
 
 export const TYPE_BADGE: Record<ApprovalQueueRow["source_type"], string> = {
@@ -394,6 +397,7 @@ export const TYPE_BADGE: Record<ApprovalQueueRow["source_type"], string> = {
   "Vendor Payment": SOURCE_BADGE_BASE["Vendor Payment"],
   "Project Expense": SOURCE_BADGE_BASE["Project Expense"],
   "Non-Project": SOURCE_BADGE_BASE["Non-Project"],
+  "Reimbursement": "bg-rose-50 text-rose-700 ring-rose-200",
 };
 
 /**

@@ -60,6 +60,7 @@ import { useExpenseDecision, useExpenseEditAccess } from "@/hooks/useExpenseDeci
 import { isExpenseDoctype } from "@/utils/expenses/expenseDecision";
 import { isChequePayment } from "../paymentMode";
 import { APPROVE_CHEQUE_API, REJECT_CHEQUE_API, approvesThroughCheque } from "@/utils/cheques/chequeApproval";
+import { CEO_EXPENSE_ACTIONS_API, LEAD_EXPENSE_ACTIONS_API } from "./hooks/useBulkApprovalActions";
 import { withChequeSiblings } from "@/utils/cheques/chequeBulk";
 import { useChequeApproval } from "@/components/cheques/useChequeApproval";
 import { withholdsOnApproval } from "../tdsForecast";
@@ -589,6 +590,10 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   );
   const { call: approveChequeCall, loading: approveChequeLoading } = useFrappePostCall(APPROVE_CHEQUE_API);
   const { call: rejectChequeCall, loading: rejectChequeLoading } = useFrappePostCall(REJECT_CHEQUE_API);
+  // Every expense row is rejected through the expense engine, exactly as a bulk reject is: it requires the reason,
+  // records it as a comment on the expense, and (for a reimbursement, ADR-0040) hands it to the claim.
+  const { call: leadRejectExpenseCall, loading: leadRejectExpenseLoading } = useFrappePostCall(LEAD_EXPENSE_ACTIONS_API);
+  const { call: ceoRejectExpenseCall, loading: ceoRejectExpenseLoading } = useFrappePostCall(CEO_EXPENSE_ACTIONS_API);
 
   // One cheque, one decision (#1480, #1481, spec #1477): a payment on a Pending cheque is approved or
   // rejected with every payment on it. The dialog lists them; the decision goes to the server, never a
@@ -620,6 +625,20 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             stage: isCEOMode ? "ceo" : "lead",
           });
           successMessage = response?.message?.message;
+        } else if (
+          actionType === DIALOG_ACTION_TYPES.REJECT
+          && ((selectedPayment as unknown as ApprovalQueueRow).doctype || DOCTYPE) !== "Project Payments"
+        ) {
+          const response = await (isCEOMode ? ceoRejectExpenseCall : leadRejectExpenseCall)({
+            expense_ids: [selectedPayment.name],
+            action: "reject",
+            rejection_reason: reason ?? "",
+          });
+          const failed: { name: string; reason: string }[] = response?.message?.data?.failed ?? [];
+          if (failed.length) throw new Error(failed[0].reason);
+          successMessage = (selectedPayment as unknown as ApprovalQueueRow).source_type === "Reimbursement"
+            ? "Rejected. The reimbursement claim is rejected too, with your reason."
+            : "Expense rejected, with your reason.";
         } else if (isCEOMode) {
           const ceoRow = selectedPayment as unknown as ApprovalQueueRow;
           const ceoDoctype = ceoRow.doctype || DOCTYPE;
@@ -730,7 +749,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         });
       }
     },
-    [selectedPayment, updateDoc, decideExpense, ceoApproveCall, moveChequeCall, approveChequeCall, rejectChequeCall, chequeApproval, closeDialog, toast, isCEOHold, showBlockedToast, isCEOMode, refetch, refreshTabCounts]
+    [selectedPayment, updateDoc, decideExpense,ceoApproveCall, moveChequeCall, approveChequeCall, rejectChequeCall, leadRejectExpenseCall, ceoRejectExpenseCall, chequeApproval, closeDialog, toast, isCEOHold, showBlockedToast, isCEOMode, refetch, refreshTabCounts]
   );
 
   // --- useServerDataTable Hook moved up above facets for columnFilters access ---
@@ -861,7 +880,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             vendors?.find((v) => v.name === selectedPayment.vendor)?.vendor_name
           }
           onSubmit={handlePaymentUpdate}
-          isLoading={updateLoading || decideExpenseLoading || ceoApproveLoading || moveChequeLoading || approveChequeLoading || rejectChequeLoading}
+          isLoading={updateLoading || decideExpenseLoading || ceoApproveLoading || moveChequeLoading || approveChequeLoading || rejectChequeLoading || leadRejectExpenseLoading || ceoRejectExpenseLoading}
           // Partial approval is the CEO gate ONLY (owner ruling). The lead tick stays a plain
           // full approve — two split points would let one payment fragment twice on its way up.
           allowPartial={isCEOMode}
