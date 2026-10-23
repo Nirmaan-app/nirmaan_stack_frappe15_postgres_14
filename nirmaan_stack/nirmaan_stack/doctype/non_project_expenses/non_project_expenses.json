@@ -9,6 +9,7 @@
   "details_section",
   "type",
   "request_id",
+  "reimbursement",
   "porter_order",
   "pay_to_account_name",
   "pay_to_account_number",
@@ -172,12 +173,22 @@
    "fieldtype": "Data",
    "label": "Pay-to Branch",
    "read_only": 1
+  },
+  {
+   "description": "The reimbursement claim this expense pays, set only when the claim is approved and never changed (ADR-0040). Paid or Rejected here moves the claim; deleting this expense, in any status, deletes the claim and its receipts.",
+   "fieldname": "reimbursement",
+   "fieldtype": "Link",
+   "label": "Reimbursement",
+   "no_copy": 1,
+   "options": "Reimbursement",
+   "read_only": 1,
+   "search_index": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-16 23:14:56.721288",
+ "modified": "2026-10-23 16:51:01.443979",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Non Project Expenses",

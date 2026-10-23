@@ -18,6 +18,7 @@ import {
     TYPES,
     TAB_APPROVED,
     TAB_MINE,
+    TAB_PAID,
     TAB_PENDING,
     TAB_REJECTED,
     claimantName,
@@ -27,6 +28,7 @@ import {
     descriptionRequired,
     editProblem,
     isMergeable,
+    paymentStage,
     resolveTab,
     reviewerFor,
     roleLabel,
@@ -84,7 +86,7 @@ describe("tabsFor", () => {
     });
 
     it("gives HR and Admin every tab, in the owner's order", () => {
-        const all = [TAB_PENDING, TAB_APPROVED, TAB_ALL, TAB_MINE, TAB_REJECTED];
+        const all = [TAB_PENDING, TAB_APPROVED, TAB_PAID, TAB_ALL, TAB_MINE, TAB_REJECTED];
         for (const role of [HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, ADMIN_PROFILE]) {
             expect(tabsFor({ role })).toEqual(all);
         }
@@ -93,13 +95,14 @@ describe("tabsFor", () => {
 
     it("gives Accounts All and the decided tabs, but no approval queue", () => {
         for (const role of [ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE]) {
-            expect(tabsFor({ role })).toEqual([TAB_APPROVED, TAB_ALL, TAB_MINE, TAB_REJECTED]);
+            expect(tabsFor({ role })).toEqual([TAB_APPROVED, TAB_PAID, TAB_ALL, TAB_MINE, TAB_REJECTED]);
         }
         expect(resolveTab(TAB_ALL, { role: ACCOUNTANT_PROFILE })).toBe(TAB_ALL);
     });
 
     it("sends a bookmarked tab the person can't see back to their first tab", () => {
         expect(resolveTab(TAB_APPROVED, { role: "Nirmaan Project Manager Profile" })).toBe(TAB_MINE);
+        expect(resolveTab(TAB_PAID, { role: "Nirmaan Project Manager Profile" })).toBe(TAB_MINE);
         expect(resolveTab(TAB_PENDING, { role: ACCOUNTANT_PROFILE })).toBe(TAB_APPROVED);
         expect(resolveTab(TAB_APPROVED, { role: ACCOUNTANT_PROFILE })).toBe(TAB_APPROVED);
         expect(resolveTab("nonsense", { role: ADMIN_PROFILE })).toBe(TAB_PENDING);
@@ -126,5 +129,16 @@ describe("claimant details saved on the claim", () => {
         expect(roleLabel("Nirmaan Project Manager Profile")).toBe("Project Manager");
         expect(roleLabel("Nirmaan HR Executive Profile")).toBe("HR Executive");
         expect(roleLabel(null)).toBe("");
+    });
+});
+
+describe("paymentStage", () => {
+    it("says where a claim's payment is, from its expense's status", () => {
+        expect(paymentStage("CEO Pending")).toBe("Waiting for CEO approval");
+        expect(paymentStage("Approved")).toBe("Waiting to be paid");
+        expect(paymentStage("Reconciliation Pending")).toBe("Paid, waiting for the bank statement");
+        expect(paymentStage("Paid")).toBe("Paid");
+        expect(paymentStage("Rejected")).toBe("Rejected in Payments");
+        expect(paymentStage(undefined)).toBe("Not sent to Payments");
     });
 });

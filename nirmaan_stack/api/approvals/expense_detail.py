@@ -11,7 +11,8 @@ same-type-and-amount expenses of the last 60 days.
 
 ⚠️ THE RAISER IS THE REQUEST'S OWNER, NOT THE ROW'S. A request-born row is inserted by the
 reviewer who approved the request, so `owner` names the wrong person. One answer for that,
-`approval_raiser.expense_raiser`, which is also what decides the row's approval path.
+`approval_raiser.expense_raiser`. The approval path is decided by `approval_raiser.routing_raiser`,
+which is the same answer except for a row created from an approved Reimbursement (its approver).
 
 The request is read WITHOUT its own permission check on purpose: anyone who may read the
 ledger row already reads the same answers flattened into its `description`.

@@ -1,6 +1,6 @@
 // src/pages/Reimbursements/config/reimbursementColumns.tsx
 //
-// Columns for the Reimbursement Raised By Me, Pending Approval, Approved and Rejected tables: one config, so every tab
+// Columns for the Reimbursement Raised By Me, Pending Approval, Approved, Paid and Rejected tables: one config, so every tab
 // reads the same way. Pending Approval ends with Approve / Reject (`DecideButtons`).
 //
 // EVERY FIELD IS A COLUMN, because the default Export writes every column definition (hidden ones
@@ -25,10 +25,12 @@ import type { Decision } from "../components/DecisionDialog";
 import { PayToCell, TitleCell } from "../components/HoverDetails";
 import {
     APPROVED,
+    PAID,
     REJECTED,
     TAB_ALL,
     TAB_APPROVED,
     TAB_MINE,
+    TAB_PAID,
     TAB_PENDING,
     TAB_REJECTED,
     claimantName,
@@ -42,6 +44,7 @@ export const STATUS_BADGE: Record<string, string> = {
     "Pending Approval": "bg-amber-100 text-amber-800",
     Approved: "bg-emerald-100 text-emerald-800",
     Rejected: "bg-red-100 text-red-800",
+    Paid: "bg-sky-100 text-sky-800",
 };
 
 /** Exported, never shown: the Pay to column already shows them in one cell. */
@@ -56,13 +59,15 @@ export const HIDDEN_BY_DEFAULT = {
     pay_to_bank_branch: false,
 };
 
-/** What each tab shows on screen: the hidden-by-default fields, plus Approved By only on Approved and Rejection
- *  Reason only on Rejected (Reimbursement Raised By Me shows both inside its Status cell). Every column still exports. */
+/** What each tab shows on screen: the hidden-by-default fields, plus Approved By only on Approved and Paid, and
+ *  Rejection Reason only on Rejected (Reimbursement Raised By Me shows both inside its Status cell). Every column
+ *  still exports. */
 export const columnVisibilityFor = (tab: ReimbursementTab) => ({
     ...HIDDEN_BY_DEFAULT,
-    approved_by: tab === TAB_APPROVED,
+    approved_by: tab === TAB_APPROVED || tab === TAB_PAID,
     rejection_reason: tab === TAB_REJECTED,
 });
+
 
 interface Args {
     tab: ReimbursementTab;
@@ -186,7 +191,7 @@ export function getReimbursementColumns({
                         <span className={cn("px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap", STATUS_BADGE[r.status])}>
                             {r.status}
                         </span>
-                        {r.status === APPROVED && r.approved_by && (
+                        {(r.status === APPROVED || r.status === PAID) && r.approved_by && (
                             <div className="mt-1 truncate text-[11px] text-muted-foreground">by {getUserName(r.approved_by)}</div>
                         )}
                         {r.status === REJECTED && r.rejection_reason && (
@@ -212,7 +217,7 @@ export function getReimbursementColumns({
             accessorKey: "approved_by",
             size: 120,
             header: ({ column }) => <DataTableColumnHeader column={column} title="Approved By" />,
-            cell: ({ row }) => row.original.status === APPROVED ? getUserName(row.original.approved_by) : <span className="text-muted-foreground">--</span>,
+            cell: ({ row }) => row.original.approved_by ? getUserName(row.original.approved_by) : <span className="text-muted-foreground">--</span>,
             meta: exported("Approved By", (r) => (r.approved_by ? getUserName(r.approved_by) : "")),
         },
         {

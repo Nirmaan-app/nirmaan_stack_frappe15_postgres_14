@@ -4,7 +4,7 @@
 from frappe.model.document import Document
 from frappe.utils import flt, nowdate
 
-from nirmaan_stack.services.approval_raiser import expense_raiser, raiser_level
+from nirmaan_stack.services.approval_raiser import raiser_level, routing_raiser
 from nirmaan_stack.services.approval_tiers import (
 	TIER_L2_ABOVE_EXPENSES,
 	initial_status_for_raiser,
@@ -44,9 +44,10 @@ class NonProjectExpenses(Document):
 		amount = flt(self.amount)
 		# A step the person who RAISED it already holds is not asked again (owner, 2026-09-21):
 		# an L1 approver's expense skips L1, the CEO's skips both. With no level this is the
-		# plain amount rule. `expense_raiser` reads the Expense Request's owner -- this row's own
-		# owner is the reviewer who approved that request. Keep `convert.target_status` in step.
-		level = raiser_level(expense_raiser(self))
+		# plain amount rule. `routing_raiser` reads the Expense Request's owner -- this row's own
+		# owner is the reviewer who approved that request -- or, for a row created from a Reimbursement,
+		# the person who approved the claim (ADR-0040). Keep `convert.target_status` in step.
+		level = raiser_level(routing_raiser(self))
 		self.status = initial_status_for_raiser(amount, TIER_L2_ABOVE_EXPENSES, level)
 		if is_auto_approved(amount):
 			# Stamp the approval the same way Project Payments does

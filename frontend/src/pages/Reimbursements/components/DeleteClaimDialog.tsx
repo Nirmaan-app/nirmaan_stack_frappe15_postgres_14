@@ -21,12 +21,14 @@ import { REJECTED } from "@/utils/reimbursements/rules";
 const DELETE_API = "nirmaan_stack.api.reimbursements.claims.delete_reimbursement";
 
 interface Props {
+    open: boolean;
+    /** Kept by the page after closing, so the dialog still shows it while it animates out. */
     claim: Reimbursement | null;
     onOpenChange: (open: boolean) => void;
     onDone: () => void;
 }
 
-export function DeleteClaimDialog({ claim, onOpenChange, onDone }: Props) {
+export function DeleteClaimDialog({ open, claim, onOpenChange, onDone }: Props) {
     const { toast } = useToast();
     const [error, setError] = useState<string | null>(null);
     const { call, loading } = useFrappePostCall(DELETE_API);
@@ -49,7 +51,7 @@ export function DeleteClaimDialog({ claim, onOpenChange, onDone }: Props) {
     };
 
     return (
-        <AlertDialog open={!!claim} onOpenChange={close}>
+        <AlertDialog open={open && !!claim} onOpenChange={close}>
             <AlertDialogContent className="sm:max-w-md">
                 <AlertDialogHeader>
                     <AlertDialogTitle>Delete {claim?.name}?</AlertDialogTitle>

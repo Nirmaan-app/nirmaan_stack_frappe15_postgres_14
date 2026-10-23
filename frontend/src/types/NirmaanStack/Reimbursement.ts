@@ -1,7 +1,8 @@
 /**
  * Reimbursement (owner, 2026-10-21/22): a Nirmaan user's claim to be repaid money they spent for work.
- * Money of its own, never an Expense: it counts in no financial figure. Written only by
- * `nirmaan_stack/api/reimbursements/`; the claimant is the standard `owner`.
+ * Approving it creates a Non-Project Expense (ADR-0040) that Accounts pays from Project Payments & Expenses;
+ * the claim turns Paid, or Rejected, when that expense does. Written only by `nirmaan_stack/api/reimbursements/`
+ * and the expense's hooks; the claimant is the standard `owner`.
  */
 
 import type { ReimbursementStatus, ReimbursementType } from "@/utils/reimbursements/rules";
@@ -35,8 +36,18 @@ export interface Reimbursement {
     attachment?: string | null;
     /** Who approved it; empty until approved. */
     approved_by?: string | null;
-    /** Why it was rejected; required to reject. */
+    /** Why it was rejected: by HR / Admin, or the reason typed when its expense was rejected in Payments. */
     rejection_reason?: string | null;
+}
+
+/** A row of `api/reimbursements/claims.get_claim_payments`: the Non-Project Expense paying a claim. */
+export interface ClaimPayment {
+    expense: string;
+    /** The expense's status: Requested, CEO Pending, Approved, Reconciliation Pending, Paid or Rejected. */
+    status: string;
+    payment_date?: string | null;
+    /** The UTR / payment reference, once paid. */
+    payment_ref?: string | null;
 }
 
 /** A row of `api/reimbursements/review.get_pending_for_me`. */

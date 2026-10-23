@@ -1,6 +1,6 @@
 # ADR 0039 — A Reimbursement is money outside the expense ledgers
 
-**Status:** Accepted · 2026-10-22 (owner)
+**Status:** Superseded by [ADR-0040](0040-an-approved-reimbursement-becomes-a-non-project-expense.md) (2026-10-23): an approved claim now becomes a Non-Project Expense and turns Paid with it. Accepted · 2026-10-22 (owner)
 
 ## Context
 

@@ -26,6 +26,8 @@ const APPROVE_API = "nirmaan_stack.api.reimbursements.review.approve_reimburseme
 const REJECT_API = "nirmaan_stack.api.reimbursements.review.reject_reimbursement";
 
 interface Props {
+    open: boolean;
+    /** Kept by the page after closing, so the dialog still shows it while it animates out. */
     decision: Decision | null;
     claim: Reimbursement | null;
     claimantName: string;
@@ -34,14 +36,13 @@ interface Props {
     onDone: () => void;
 }
 
-export function DecisionDialog({ decision, claim, claimantName, isOwn, onOpenChange, onDone }: Props) {
+export function DecisionDialog({ open, decision, claim, claimantName, isOwn, onOpenChange, onDone }: Props) {
     const { toast } = useToast();
     const [reason, setReason] = useState("");
     const [error, setError] = useState<string | null>(null);
     const { call: approve, loading: approving } = useFrappePostCall(APPROVE_API);
     const { call: reject, loading: rejecting } = useFrappePostCall(REJECT_API);
     const busy = approving || rejecting;
-    const open = !!decision && !!claim;
 
     const close = (next: boolean) => {
         if (!next) {
@@ -73,7 +74,7 @@ export function DecisionDialog({ decision, claim, claimantName, isOwn, onOpenCha
     };
 
     return (
-        <AlertDialog open={open} onOpenChange={close}>
+        <AlertDialog open={open && !!decision && !!claim} onOpenChange={close}>
             <AlertDialogContent className="sm:max-w-md">
                 <AlertDialogHeader>
                     <AlertDialogTitle>{decision === "approve" ? "Approve" : "Reject"} {claim?.name}?</AlertDialogTitle>

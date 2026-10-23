@@ -71,6 +71,13 @@ EXPENSE_LEDGERS = {
 # Public endpoints
 # ---------------------------------------------------------------------------
 
+#: Where a reject puts its reason for the ledger row's own hooks, which carry it to the Expense Request
+#: (`expense_request_status.on_expense_rejected`) and the Reimbursement (`reimbursements.expense_link`).
+REJECTION_REASON_FLAG = "rejection_reason"
+#: What those hooks write when a row reaches Rejected with no reason on it (a Desk or REST edit).
+FALLBACK_REJECTION_REASON = "Rejected in Payments."
+
+
 @frappe.whitelist()
 def bulk_lead_approve_expenses(expense_ids, action: str, rejection_reason: Optional[str] = None):
     """L1 bulk action on expenses currently in 'Requested'.
@@ -184,6 +191,7 @@ def _bulk_expense_action(
             succeeded=succeeded,
             failed=failed,
             pending_comments=pending_comments,
+            rejection_reason=rejection_reason,
         )
 
     frappe.db.commit()
@@ -214,6 +222,7 @@ def _process_expense(
     succeeded: list[str],
     failed: list[dict],
     pending_comments: list[tuple[str, str]],
+    rejection_reason: str | None = None,
 ):
     """One expense, inside its own SAVEPOINT.
 
@@ -275,6 +284,10 @@ def _process_expense(
             doc.set(approve_date_field, nowdate())
 
         doc.flags.bulk_approval = True
+        if action == "reject":
+            # A reimbursement's expense hands the reason to its claim in the same save (ADR-0040,
+            # `services/reimbursements/expense_link.follow_expense`); the comment below comes after the commit.
+            doc.flags[REJECTION_REASON_FLAG] = (rejection_reason or "").strip()
         doc.save(ignore_permissions=True)
     except Exception as exc:
         frappe.db.rollback(save_point=savepoint)

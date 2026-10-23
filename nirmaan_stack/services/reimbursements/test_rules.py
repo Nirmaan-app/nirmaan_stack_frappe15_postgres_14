@@ -119,5 +119,96 @@ class TestClaimProblem(unittest.TestCase):
         self.assertIsNone(rejection_problem("Receipt unreadable"))
 
 
+class TestClaimFollowsExpense(unittest.TestCase):
+    """ADR-0040: only the expense's endings move the claim, and only from the status it can be in."""
+
+    def test_paid_and_rejected_move_an_approved_claim(self):
+        from nirmaan_stack.services.reimbursements.expense_link import claim_status_for
+
+        self.assertEqual(claim_status_for("Paid", "Reconciliation Pending", "Approved"), "Paid")
+        self.assertEqual(claim_status_for("Paid", "Approved", "Approved"), "Paid")
+        self.assertEqual(claim_status_for("Rejected", "CEO Pending", "Approved"), "Rejected")
+
+    def test_the_waiting_statuses_leave_the_claim_approved(self):
+        from nirmaan_stack.services.reimbursements.expense_link import claim_status_for
+
+        for new, old in (("CEO Pending", None), ("Approved", "CEO Pending"), ("Reconciliation Pending", "Approved")):
+            with self.subTest(new):
+                self.assertIsNone(claim_status_for(new, old, "Approved"))
+
+    def test_an_undone_match_puts_a_paid_claim_back(self):
+        from nirmaan_stack.services.reimbursements.expense_link import claim_status_for
+
+        self.assertEqual(claim_status_for("Reconciliation Pending", "Paid", "Paid"), "Approved")
+        self.assertEqual(claim_status_for("Approved", "Paid", "Paid"), "Approved")
+
+    def test_no_change_and_the_wrong_claim_status_do_nothing(self):
+        from nirmaan_stack.services.reimbursements.expense_link import claim_status_for
+
+        self.assertIsNone(claim_status_for("Paid", "Paid", "Approved"))
+        self.assertIsNone(claim_status_for("Paid", "Approved", "Rejected"))
+        self.assertIsNone(claim_status_for("Rejected", "CEO Pending", "Paid"))
+
+
+class TestRejectedIsFinal(unittest.TestCase):
+    def test_a_rejected_expense_cannot_move_to_any_other_status(self):
+        from nirmaan_stack.services.reimbursements.expense_link import revival_problem
+
+        for new in ("Requested", "CEO Pending", "Approved", "Reconciliation Pending", "Paid"):
+            with self.subTest(new):
+                self.assertIn("raise a new reimbursement", revival_problem("Rejected", new) or "")
+        self.assertIsNone(revival_problem("Rejected", "Rejected"))
+        self.assertIsNone(revival_problem("Approved", "Rejected"))
+        self.assertIsNone(revival_problem("CEO Pending", "Approved"))
+
+
+class TestReceiptsLink(unittest.TestCase):
+    """Code review finding 7: a local-disk receipts path is never copied onto the expense."""
+
+    def test_a_cloud_url_is_copied_and_a_local_path_is_not(self):
+        from nirmaan_stack.services.reimbursements.convert import receipts_link
+
+        cloud = "/api/method/frappe_gcp_attachment.controller.generate_file?key=attachments/x.pdf"
+        self.assertEqual(receipts_link(cloud), cloud)
+        for local in ("/private/files/REIMB-26-00001-receipts.pdf", "/files/r.pdf"):
+            with self.subTest(local):
+                self.assertIsNone(receipts_link(local))
+        self.assertIsNone(receipts_link(None))
+        self.assertIsNone(receipts_link(""))
+
+
+class TestLinkProblem(unittest.TestCase):
+    """Only the approval step sets `reimbursement`; it never changes; one expense per claim."""
+
+    def test_rules(self):
+        from nirmaan_stack.services.reimbursements.expense_link import link_problem
+
+        self.assertIsNone(link_problem(True, None, None, False))                  # an ordinary expense
+        self.assertIsNone(link_problem(True, None, "REIMB-1", True))              # the approval step
+        self.assertIsNotNone(link_problem(True, None, "REIMB-1", False))           # typed in / duplicated
+        self.assertIsNotNone(link_problem(True, None, "REIMB-1", True, "abc123")) # a second expense
+        self.assertIsNone(link_problem(False, "REIMB-1", "REIMB-1", False))       # unchanged on edit
+        self.assertIsNotNone(link_problem(False, "REIMB-1", "REIMB-2", False))    # changed
+        self.assertIsNotNone(link_problem(False, "REIMB-1", None, False))         # removed
+        self.assertIsNotNone(link_problem(False, None, "REIMB-1", False))         # added later
+
+
+class TestDescribe(unittest.TestCase):
+    def test_the_claim_in_one_line(self):
+        from frappe import _dict
+
+        from nirmaan_stack.services.reimbursements.convert import approver_note, describe, role_label
+
+        claim = _dict(name="REIMB-26-00012", reimbursement_type="Travel", title=" Cab to site ",
+                      description="Slab\ninspection   visit", claimant_name="A Person",
+                      claimant_role="Nirmaan Project Manager Profile", owner="a@x.com")
+        self.assertEqual(
+            describe(claim),
+            "Travel · Cab to site · Slab inspection visit · Claimant: A Person (Project Manager) · [REIMB-26-00012]",
+        )
+        self.assertEqual(role_label("Nirmaan HR Lead Profile"), "HR Lead")
+        self.assertEqual(len(approver_note("x" * 300)), 140)
+
+
 if __name__ == "__main__":
     unittest.main()

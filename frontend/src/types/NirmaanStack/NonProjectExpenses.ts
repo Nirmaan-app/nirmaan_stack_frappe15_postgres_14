@@ -26,6 +26,9 @@ export interface NonProjectExpenses {
 
     // Set only by the Porter Statement import (#1445): the Porter Order this expense pays for.
     porter_order?: string | null;
+    /** The Reimbursement claim this expense pays (ADR-0040); set only when the claim is approved. Deleting the
+     *  expense deletes that claim too. */
+    reimbursement?: string | null;
 
     // The Expense Request this expense was created from, written by its approval; blank on a Direct Expense.
     request_id?: string | null;

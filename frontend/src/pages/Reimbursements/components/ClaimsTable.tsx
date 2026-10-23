@@ -7,10 +7,12 @@
  *   rules allow.
  * * Pending Approval (HR and Admin): every pending claim, with Approve / Reject. HR's are disabled, with the
  *   reason on hover, on claims they can't decide (the server's `can_decide`, from `get_pending_for_me`).
- * * Approved: tick claims, then Export -- the default export with row selection writes ONLY the ticked
- *   rows, with every column (the hidden bank fields included). Exporting changes nothing: there is no Paid
- *   status yet, so the same claim can be exported again.
- * * Rejected: every rejected claim, with its reason.
+ * * Payment need to be paid (Approved): claims waiting on their Non-Project Expense, which Accounts pays from
+ *   Project Payments & Expenses (ADR-0040). NO Export at all on this tab (owner, 2026-10-23): its file carried
+ *   every approved claim's bank account, and a second place to pay a claim is how it gets paid twice. No Payment column (owner, 2026-10-23): a claim's payment
+ *   (expense, stage, UTR) is in its detail sheet.
+ * * Paid: claims whose expense is Paid.
+ * * Rejected: every rejected claim, with its reason (HR / Admin's, or the one typed in Payments).
  *
  * The server scopes every read (`integrations/controllers/reimbursement.py`): someone outside Admin / HR /
  * Accounts gets only their own claims whatever the filters say.
@@ -28,7 +30,9 @@ import {
     TAB_ALL,
     TAB_APPROVED,
     TAB_MINE,
+    TAB_PAID,
     TAB_PENDING,
+    PAID,
     type ReimbursementTab,
 } from "@/utils/reimbursements/rules";
 
@@ -64,6 +68,7 @@ export function ClaimsTable({
             : tab === TAB_MINE ? [["owner", "=", userId]]
             : tab === TAB_PENDING ? [["status", "=", PENDING]]
             : tab === TAB_APPROVED ? [["status", "=", APPROVED]]
+            : tab === TAB_PAID ? [["status", "=", PAID]]
             : [["status", "=", REJECTED]],
         [tab, userId],
     );
@@ -86,26 +91,18 @@ export function ClaimsTable({
         searchableFields: REIMBURSEMENT_SEARCHABLE_FIELDS,
         urlSyncKey: `reimb_${tab}`,
         defaultSort: "creation desc",
-        enableRowSelection: approved,
         getRowId: (row) => row.name,
         initialState: { columnVisibility: columnVisibilityFor(tab) },
         additionalFilters,
     });
 
-    const selectedCount = table.getSelectedRowModel().rows.length;
-    const selectedTotal = table.getSelectedRowModel().rows.reduce((sum, r) => sum + (r.original.amount || 0), 0);
-
     return (
         <div className="flex flex-col gap-2">
             {approved && (
                 <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                    Approved claims waiting to be paid. Tick the ones you're paying, then Export: only the ticked rows
-                    are exported, with every field. Exporting doesn't mark a claim as paid, so it stays here.
-                    {selectedCount > 0 && (
-                        <span className="ml-1 font-semibold">
-                            {selectedCount} selected · ₹{selectedTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-                        </span>
-                    )}
+                    Approved claims are paid from <span className="font-semibold">Project Payments &amp; Expenses</span>,
+                    where each one is a Non-Project Expense marked Reimbursement. A claim moves to Paid when its
+                    expense is paid, and to Rejected if the expense is rejected there.
                 </p>
             )}
             <DataTable<Reimbursement>
@@ -120,13 +117,12 @@ export function ClaimsTable({
                 searchTerm={searchTerm}
                 onSearchTermChange={setSearchTerm}
                 dateFilterColumns={REIMBURSEMENT_DATE_COLUMNS}
-                showRowSelection={approved}
-                showExportButton={true}
+                // Not on "Payment need to be paid": that file would be a list of accounts to pay (owner, 2026-10-23).
+                showExportButton={!approved}
                 onExport={"default"}
-                onExportAll={approved ? undefined : exportAllRows}
+                onExportAll={exportAllRows}
                 isExporting={isExporting}
-                exportFileName={{ all: "Reimbursements_All", mine: "My_Reimbursements", pending: "Reimbursements_Pending", approved: "Reimbursements_Approved", rejected: "Reimbursements_Rejected" }[tab]}
-                exportButtonLabel={approved ? "Export selected" : "Export"}
+                exportFileName={{ all: "Reimbursements_All", mine: "My_Reimbursements", pending: "Reimbursements_Pending", approved: "Reimbursements_Approved", paid: "Reimbursements_Paid", rejected: "Reimbursements_Rejected" }[tab]}
             />
         </div>
     );

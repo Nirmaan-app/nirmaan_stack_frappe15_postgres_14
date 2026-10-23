@@ -42,16 +42,16 @@ interface ApiEnvelope {
   };
 }
 
+/** The expense engine's two endpoints (lead and CEO). Also used by the single-row reject in ApprovePayments. */
+export const LEAD_EXPENSE_ACTIONS_API = "nirmaan_stack.api.approvals.expense_actions.bulk_lead_approve_expenses";
+export const CEO_EXPENSE_ACTIONS_API = "nirmaan_stack.api.approvals.expense_actions.bulk_ceo_approve_expenses";
+
 export function useBulkApprovalActions(mode: BulkMode) {
   const { submit: submitPayments, loading: paymentsLoading } =
     useBulkPaymentActions(mode);
 
-  const leadExpenses = useFrappePostCall(
-    "nirmaan_stack.api.approvals.expense_actions.bulk_lead_approve_expenses"
-  );
-  const ceoExpenses = useFrappePostCall(
-    "nirmaan_stack.api.approvals.expense_actions.bulk_ceo_approve_expenses"
-  );
+  const leadExpenses = useFrappePostCall(LEAD_EXPENSE_ACTIONS_API);
+  const ceoExpenses = useFrappePostCall(CEO_EXPENSE_ACTIONS_API);
   const { call: callExpenses, loading: expensesLoading } =
     mode === "ceo" ? ceoExpenses : leadExpenses;
 

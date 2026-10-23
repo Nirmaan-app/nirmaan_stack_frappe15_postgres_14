@@ -399,15 +399,25 @@ doc_events = {
     "Non Project Expenses": {
         # Carry the match records to the new name (ADR-0022 Amendment G).
         "after_rename": "nirmaan_stack.integrations.controllers.settled_targets.after_rename",
-        "validate": "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
+        "validate": [
+            "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
+            # A reimbursement's Rejected expense is final (ADR-0040): no other status after it.
+            "nirmaan_stack.integrations.controllers.reimbursement_expense.validate",
+        ],
         # Both exit immediately unless the row is transitioning INTO Paid, so the ~700
         # ordinary saves cost one field comparison each. STATE FIRST, then the telling:
         # the request must already read Paid by the time the requester is notified.
         "on_update": [
             "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_paid",
+            # Rejected in Payments -> the originating request is Rejected, with the reason.
+            "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_rejected",
             "nirmaan_stack.integrations.controllers.expense_request_notify.on_expense_update",
+            # A reimbursement's expense (ADR-0040): Paid / Rejected / an undone match moves its claim.
+            "nirmaan_stack.integrations.controllers.reimbursement_expense.on_update",
         ],
         "on_trash": [
+            # A claimant can't delete their own reimbursement's expense unless Rejected -- FIRST (ADR-0040).
+            "nirmaan_stack.integrations.controllers.reimbursement_expense.on_trash",
             "nirmaan_stack.integrations.controllers.expense_bank_links.on_trash",
             # Drops the expense off its Cheque (#1413) before Frappe's link check refuses the delete.
             "nirmaan_stack.integrations.controllers.cheques.on_expense_trash",
@@ -417,6 +427,8 @@ doc_events = {
         # the row must be GONE before the request it links to can be deleted.
         "after_delete": [
             "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_deleted",
+            # ...and a reimbursement's expense deletes its claim and receipts (ADR-0040).
+            "nirmaan_stack.integrations.controllers.reimbursement_expense.after_delete",
             # Its Files through the shared-bytes-safe delete, before Frappe's own `remove_all` (#1442).
             "nirmaan_stack.integrations.controllers.expense_files.delete_attached_files",
         ],
@@ -434,6 +446,8 @@ doc_events = {
             # Carries Paid back onto the originating request, then tells the requester.
             # STATE FIRST -- the request must already read Paid when the message goes out.
             "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_paid",
+            # Rejected in Payments -> the originating request is Rejected, with the reason.
+            "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_rejected",
             "nirmaan_stack.integrations.controllers.expense_request_notify.on_expense_update",
         ],
         # generate_versions needs the pre-delete data, so it stays on on_trash.

@@ -984,8 +984,14 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                                 <p>It will be permanently deleted. This can't be undone.</p>
                                 {/* The server does this, not the page: the expense doctypes'
                                     `after_delete` deletes the request (expense_request_status.py). */}
-                                {deleteRow && deleteRow.doctype !== "Project Payments" && (
+                                {/* A reimbursement's expense never comes from a request: its own line below says what goes. */}
+                                {deleteRow && deleteRow.doctype !== "Project Payments" && deleteRow.source_type !== "Reimbursement" && (
                                     <p>If it came from an Expense Request, that request is deleted too.</p>
+                                )}
+                                {deleteRow?.source_type === "Reimbursement" && (
+                                    <p className="font-medium text-destructive">
+                                        It pays a reimbursement claim, so that claim and its receipts are deleted too.
+                                    </p>
                                 )}
                                 {deleteRow && (
                                     <div className="rounded border bg-muted/40 p-2">

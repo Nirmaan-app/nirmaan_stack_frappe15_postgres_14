@@ -3,8 +3,9 @@
 
 """Tell the claimant what happened to their reimbursement: Approved, or Rejected with the reason.
 
-Only the claimant is told (owner, 2026-10-22). Unlike an Expense Request, approval is NOT silent: Approved
-is where a claim ends for now (there is no Paid yet), so it is the one outcome there is to report.
+Only the claimant is told (owner, 2026-10-22). Unlike an Expense Request, approval is NOT silent. The claim's
+later endings -- its expense Paid, or Rejected in the Payments queue (ADR-0040) -- send nothing (owner,
+2026-10-23: a bell for them was added and then removed the same day).
 
 Bell + realtime only, no Firebase push, the `expense_request_notify` shape. ⚠️ A NOTIFICATION MUST NEVER
 BREAK THE THING IT IS REPORTING: it runs after the decision is committed, and a failure is logged and
@@ -66,3 +67,4 @@ def notify_decided(claim, decision: str) -> None:
 		_notify(claim, decision)
 	except Exception:
 		frappe.log_error(frappe.get_traceback(), "Reimbursement notification failed")
+

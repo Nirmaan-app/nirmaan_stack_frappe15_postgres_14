@@ -148,9 +148,11 @@ interface ExpenseEditPayToSectionProps {
     vendor?: string;
     vendorName?: string | null;
     disabled?: boolean;
+    /** Replaces the type's rule line, for an expense the type doesn't describe (a reimbursement's has none). */
+    ruleLine?: string;
 }
 
-export function ExpenseEditPayToSection({ payTo, expenseType, vendor, vendorName, disabled }: ExpenseEditPayToSectionProps) {
+export function ExpenseEditPayToSection({ payTo, expenseType, vendor, vendorName, disabled, ruleLine }: ExpenseEditPayToSectionProps) {
     const { offers, box, boxError, rule, choice, removing, setRemoving, canRemove, problem, busy } = payTo;
     if (offers === "none") return null;
     const required = asPayeeRule(rule) === PAYEE_RULE.REQUIRED;
@@ -202,7 +204,7 @@ export function ExpenseEditPayToSection({ payTo, expenseType, vendor, vendorName
                 </h3>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                     {/* A vendor's account is never removed here, so the line doesn't offer it. */}
-                    {changeAccountRuleLine(rule, expenseType, offers === "change" && !!box?.account)}
+                    {ruleLine ?? changeAccountRuleLine(rule, expenseType, offers === "change" && !!box?.account)}
                 </p>
             </div>
             {body}

@@ -17,9 +17,10 @@ import { cn } from "@/lib/utils";
 import { REIMBURSEMENT_DOCTYPE, type ClaimFile, type Reimbursement } from "@/types/NirmaanStack/Reimbursement";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { APPROVED, PENDING, REJECTED, claimantName, deleteProblem, editProblem, roleLabel } from "@/utils/reimbursements/rules";
+import { APPROVED, PAID, PENDING, REJECTED, claimantName, deleteProblem, editProblem, paymentStage, roleLabel } from "@/utils/reimbursements/rules";
 
 import { STATUS_BADGE } from "../config/reimbursementColumns";
+import { claimsWithPayments, useClaimPayments } from "../hooks/useClaimPayments";
 import { CLAIM_FILES_API } from "./RaiseReimbursementDialog";
 import type { Decision } from "./DecisionDialog";
 
@@ -41,6 +42,8 @@ export function ClaimDetailSheet({ claimName, onOpenChange, userId, getUserName,
     );
     const files = filesData?.message ?? [];
     const isClaimant = claim?.owner === userId;
+    // The Non-Project Expense paying this claim (ADR-0040), once it is approved.
+    const payment = useClaimPayments(claimName && claim ? claimsWithPayments([claim]) : [])[claimName ?? ""];
 
     return (
         <Sheet open={!!claimName} onOpenChange={onOpenChange}>
@@ -69,6 +72,13 @@ export function ClaimDetailSheet({ claimName, onOpenChange, userId, getUserName,
                             {claim.status === APPROVED && (
                                 <div className="rounded-md bg-emerald-50 px-3 py-2.5 text-sm text-emerald-900">
                                     <span className="font-semibold">Approved by {getUserName(claim.approved_by)}</span>
+                                    <p className="mt-0.5">Being paid from Project Payments &amp; Expenses.</p>
+                                </div>
+                            )}
+                            {claim.status === PAID && (
+                                <div className="rounded-md bg-sky-50 px-3 py-2.5 text-sm text-sky-900">
+                                    <span className="font-semibold">Paid</span>
+                                    {claim.approved_by && <p className="mt-0.5">Approved by {getUserName(claim.approved_by)}</p>}
                                 </div>
                             )}
                             {claim.status === REJECTED && (
@@ -103,6 +113,19 @@ export function ClaimDetailSheet({ claimName, onOpenChange, userId, getUserName,
                                 </dl>
                                 <p className="mt-1.5 text-xs text-muted-foreground">Copied from the claimant's bank account when the claim was raised.</p>
                             </section>
+
+                            {payment && (
+                                <section>
+                                    <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Payment</h4>
+                                    <dl className="grid grid-cols-[120px_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-md border p-3 text-sm">
+                                        <dt className="text-muted-foreground">Stage</dt><dd>{paymentStage(payment.status)}</dd>
+                                        <dt className="text-muted-foreground">Expense</dt><dd className="font-mono">{payment.expense}</dd>
+                                        {payment.payment_date && (<><dt className="text-muted-foreground">Paid on</dt><dd>{formatDate(payment.payment_date)}</dd></>)}
+                                        {payment.payment_ref && (<><dt className="text-muted-foreground">UTR</dt><dd className="break-all font-mono">{payment.payment_ref}</dd></>)}
+                                    </dl>
+                                    <p className="mt-1.5 text-xs text-muted-foreground">A Non-Project Expense, paid from Project Payments &amp; Expenses.</p>
+                                </section>
+                            )}
 
                             <section>
                                 <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Receipts</h4>
