@@ -7,6 +7,7 @@
 // finer step and the live amount are read from the Expense through `get_request_standing`.
 
 import type { PayToAccount } from "./Payee";
+import type { WithheldTds } from "@/utils/expenses/expenseTds";
 
 export type ExpenseRequestStatus = "Pending Approval" | "Approved" | "Rejected" | "Paid";
 
@@ -39,6 +40,9 @@ export interface RequestStanding {
   amount: number;
   expense: RequestExpense | null;
   steps: StandingStep[];
+  /** The Expense's tax record once an Office Rent expense is approved (#1527); null before approval,
+   *  when the screen forecasts from `amount`, and for every other type. */
+  withheld_tds: WithheldTds | null;
 }
 
 export type GetRequestStandingResponse = Record<string, RequestStanding>;

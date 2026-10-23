@@ -113,6 +113,7 @@ import frappe
 
 from nirmaan_stack.services.caller_transaction import OUTFLOW_IMPORT_SETTLING
 from nirmaan_stack.services.cheques.decide import pay_alone_problem
+from nirmaan_stack.services.expense_tds import BANK_AMOUNT_CORRECTION
 from nirmaan_stack.services.expense_type_ledger import expense_type_problem
 from nirmaan_stack.services.non_project_inflows import inflow_type_problem
 from nirmaan_stack.services.vendor_refunds import (
@@ -643,6 +644,9 @@ def link_lines_to_expense(
         exact = rewrite_amount(amount, lines_total)
         if exact is not None:
             doc.amount = format_amount_for(target_doctype, exact)
+            # The one save that may move a withheld Office Rent's amount (#1526): the bank's few
+            # rupees, which leave its tax record as it was (`expense_tds.guard_withheld_amount`).
+            doc.flags[BANK_AMOUNT_CORRECTION] = True
             written = exact
     elif not (doc.get("payment_ref") or "").strip():
         doc.payment_ref = (

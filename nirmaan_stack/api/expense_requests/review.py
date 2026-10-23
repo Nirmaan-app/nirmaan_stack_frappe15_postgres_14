@@ -13,6 +13,7 @@ from frappe.utils import now_datetime
 
 from nirmaan_stack.api.expense_requests.access import guard_reviewer
 from nirmaan_stack.api.expense_requests.convert import approve_request
+from nirmaan_stack.api.expense_requests.create import guard_deductee_answers
 from nirmaan_stack.integrations.controllers.expense_request_notify import notify_decided
 from nirmaan_stack.services.expense_statuses import REQUEST_PENDING, REQUEST_REJECTED
 
@@ -40,6 +41,11 @@ def approve_expense_request(name: str):
 	"""
 	req = _load_pending(name)
 	guard_reviewer(req)
+	# An Office Rent request without the landlord's name and PAN is refused here, at any amount, before
+	# anything is written (spec #1522 review batch 2): approved, it would become an Expense that no later
+	# step could approve (`expense_tds.refuse_without_deductee`). It stays Pending Approval, and its
+	# raiser can edit it; the edit requires both (`create.guard_deductee_answers`).
+	guard_deductee_answers(req.type, req.source_data)
 
 	savepoint = f"exr_approve_{frappe.generate_hash(length=10)}"
 	frappe.db.savepoint(savepoint)

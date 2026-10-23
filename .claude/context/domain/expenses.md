@@ -118,6 +118,30 @@ Both share one approval lifecycle and are entered/managed together in a single u
   when the row is new or its type changed, so an old row whose type was re-flagged stays editable.
   Paths that refuse before building anything (`settle._assert_type_scope`, `execute_adjustment`)
   ask the same `expense_type_problem`.
+- **An Office Rent expense withholds 10% TDS (194-I) when it is approved** (spec #1522, #1525). Approved
+  from an earlier step (`decide`'s `l1_approve` / `ceo_approve` landing on Approved) or born Approved,
+  it gets one `Payment TDS Deduction` (the full rent, the tax, the landlord from its request's answers)
+  and its `amount` becomes the net, once (`services/expense_tds`, hooks `controllers/expense_tds`). The
+  status machine is unchanged and the tiers read the gross, because the cut comes after the approval;
+  the Expense Request keeps the gross. No other type withholds, and nothing backfills. Full rule:
+  `payment-tds.md` § Load-bearing invariants: withholding from an Office Rent expense.
+  **Once withheld, its amount is locked** for every role and every system save, except Bulk Import's
+  single-line correction within ₹5, which leaves the tax record as it was; deleting it deletes its tax
+  record, and is refused once that tax is on a challan (#1526, `expense_tds.guard_withheld_amount` /
+  `delete_with_expense`; `payment-tds.md` § a withheld Office Rent expense).
+  **No approval withholds without the landlord** (owner, 2026-10-21): an approval that would withhold is
+  refused, before anything is written, while the landlord's name or a valid PAN is missing
+  (`expense_tds.refuse_without_deductee`, hook `controllers/expense_tds.validate`), naming the way out
+  (reject it and raise it again); the request endpoints require both on create, edit and a Reviewer's
+  approval at any amount (`create.guard_deductee_answers`), so such a request stays Pending Approval for
+  its raiser to edit, and the approve dialog warns and disables Confirm (`deductee_missing`). **Once approved, its type cannot
+  change to or from Office Rent** (Approved, Reconciliation Pending, Paid; every role, Desk, system
+  saves), while before approval it changes freely (`expense_tds.guard_tds_type_change`). Both locks run
+  in the `before_validate` hook `controllers/expense_tds.before_validate`, ahead of `guard_hand_save`.
+  **Every screen that shows its amount shows Rent / TDS / Net** (the payments queue, the approve
+  dialog, the request page, the Expenses and Non-Project Expenses lists): a forecast before approval,
+  the stored record after, served by the expense APIs because the record itself stays Accountant-only
+  (#1527; `payment-tds.md` § what the expense screens show).
 - **An expense's bank lines decide Paid, not a person** (ADR-0027, 2026-09-18). An expense can be
   settled by MANY imported bank lines — a salary or reimbursement run leaves the bank as one transfer
   per employee but is recorded as one expense. The **linked total** is the sum of the expense's live
@@ -664,6 +688,29 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   fields kept their keys (`premises` = Location, `billing_month` = Bill Date, `bank_name` = Bank
   Name), so answers already given still fill them. Rent/PG for Staff stays `staff-accommodation` with
   `person_name` and the rent period, which the duplicate staff-stay check reads.
+- **Office Rent's form (spec #1522, #1524) and the `pan` and `month` field kinds.** Office Rent asks Rent
+  Month (a `month` field: month and year only, owner 2026-10-21), Office Location, Landlord Name and
+  Landlord PAN, all required (`templateId` `office-rent`, `templateVersion` 2), and its sentence is
+  `Office rent for {rent_month} – {office_location}. Landlord: {landlord_name} (PAN {landlord_pan}). (10%
+  TDS will be deducted)`, e.g. "Office rent for Oct 2026 – …"; pinned by
+  `test_request_forms.TestTheOfficeRentForm`. The landlord's name and PAN are the TAX DEDUCTEE's, the one
+  exemption to "no form names who gets paid" (`TAX_DEDUCTEE_FIELDS`); who gets paid is the landlord's
+  account, through the Payee picker: Office Rent is *Required* (owner 2026-10-21, reversing the spec's
+  "payee out of scope"), enforced like every *Required* type, on screen only (`payees.md`). A `month`
+  field is drawn as `<input type="month">` (value `YYYY-MM`) and checked on screen
+  (`utils/expenseFormat.monthAnswerProblem` / `invalidMonthKeys`, which block submit) and on the server by
+  `create.guard_month_answers` on create AND edit (rule `month_answers.month_problems`); the sentence
+  (`flatten._prose_value`), the request page and the approve dialog's request rows (`expenseFormat.showAnswer`) read it as `Oct 2026`. A
+  request raised against version 1 keeps its frozen form and its date (`1 Oct 2026`). A `pan` field is uppercased as
+  typed and checked by the vendor PAN rule: on screen by `utils/expenseFormat.panAnswerProblem` /
+  `invalidPanKeys` (over `utils/pan.isValidPan`, shared with the vendor forms), which block submit; on the
+  server by `create.guard_pan_answers` on create AND edit (rule `pan_answers.clean_pan_answers`, over
+  `services/vendor_tds.is_valid_pan` / `clean_pan`), which stores the answer uppercased and refuses one
+  not shaped like ABCPK1234D. ⚠️ Office Rent's landlord name and PAN are the ONE pair of form answers
+  the server REQUIRES (`create.guard_deductee_answers`, on create and edit, read under the tax rule's
+  keys; spec #1522 review): every other required answer is still the dialog's. The New Expense form shows the
+  10% split under the Amount for Office Rent only (`utils/expenses/expenseTds`; see
+  `payment-tds.md` § One tax record, two sources).
 - **Per-type visibility (`Expense Type.allowed_roles`, 2026-09-16).** Role PROFILES that may pick
   the type in the request dialog; Admin sees every type and is never listed, so **EMPTY = Admin
   only**. Enforced in `access.can_request_type` → `get_request_catalog` filter + `guard_requestable`
@@ -833,6 +880,9 @@ save an invalid template**.
   matters.
 
 - **Empty is normal and valid** — 33 of 40 types have no format and use the plain form.
+- **Field types** (`utils/expenseFormat.FIELD_TYPES`, drawn by `FormatFieldsRenderer`): `text`,
+  `textarea`, `number`, `date`, `select`, `pan` (#1524, an Income Tax PAN) and `month` (a month and year,
+  `YYYY-MM`; spec #1522 review batch 2); see Office Rent's form above.
   Unlike commissioning, an unauthored format must never block a request.
 - **`Expense Type.source_format` is the ONLY home.** There is deliberately no seed file and
   no reference copy in the repo (owner ruling, 2026-08-18): a second copy drifts the moment

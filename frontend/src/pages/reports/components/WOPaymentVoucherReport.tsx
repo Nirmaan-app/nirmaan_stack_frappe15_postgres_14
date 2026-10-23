@@ -83,7 +83,11 @@ export default function WOPaymentVoucherReport() {
         "Payment TDS Deduction",
         {
             fields: ["project_payment", "tds_amount"],
-            filters: [["document_type", "=", "Service Requests"]],
+            // Work Order rows only: an Office Rent expense's row has no payment (#1523).
+            filters: [
+                ["document_type", "=", "Service Requests"],
+                ["project_payment", "!=", ""],
+            ],
             limit: 0,
         },
         "wo-voucher-report-tds",

@@ -1,11 +1,17 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Keep a TDS challan's `reconciled_amount` true when a deduction is deleted through the doc layer.
+"""Lifecycle hooks of `Payment TDS Deduction`: the one-source rule on save, and the challan total on delete.
 
 ⚠️ "TDS" HERE IS **TAX DEDUCTED AT SOURCE**, not the Technical Data Sheet family.
 
-A challan's `reconciled_amount` is the SUM of the deductions pointing at it. `pay_tds` re-derives it
+`validate` refuses a row that names neither or both of a Project Payment and a Non-Project Expense
+(#1523; the rule is `services/payment_tds.deduction_link_problem`). It runs on every doc-layer save:
+`write_deduction`, Desk, REST, data import. A raw SQL write skips it; the app's raw writes to this
+doctype (`pay_tds`, `restate_deduction_on_amount_change`) touch neither link.
+
+`on_trash` keeps a TDS challan's `reconciled_amount` true when a deduction is deleted through the doc
+layer. A challan's `reconciled_amount` is the SUM of the deductions pointing at it. `pay_tds` re-derives it
 when tax is paid; this hook re-derives it when a deduction goes away, so a deleted deduction stops
 being counted as spent. Without it a challan keeps showing money used against a row that no longer
 exists, and its remaining balance reads short forever.
@@ -19,7 +25,14 @@ function; neither is redundant, because neither covers the other's route.
 
 import frappe
 
-from nirmaan_stack.services.payment_tds import recompute_challan_reconciled
+from nirmaan_stack.services.payment_tds import deduction_link_problem, recompute_challan_reconciled
+
+
+def validate(doc, method=None):
+	"""Refuse a row that is not the tax of exactly one Project Payment or Non-Project Expense."""
+	problem = deduction_link_problem(doc.get("project_payment"), doc.get("non_project_expense"))
+	if problem:
+		frappe.throw(problem)
 
 
 def on_trash(doc, method=None):

@@ -31,6 +31,8 @@ import {
 import { ExpenseBankLinesPopover } from "../components/ExpenseBankLinesPopover";
 import { GstPaymentTag } from "../components/GstPaymentTag";
 import { partReconciled } from "../components/expenseBankLinesView";
+import { ExpenseTdsBreakdown } from "@/components/common/ExpenseTdsBreakdown";
+import { shownExpenseTds } from "@/utils/expenses/expenseTds";
 import { cn } from "@/lib/utils";
 import { paidToCell, paidToExportText, rowEligibility } from "@/utils/payees/paidTo";
 
@@ -668,9 +670,13 @@ const REGISTRY: Record<
         line_count: r.bank_line_count,
         remaining: r.remaining_amount,
       });
+      // An Office Rent expense's Rent / TDS / Net (#1527): forecast while it waits, the stored record
+      // after. Every other row draws nothing here.
+      const tds = shownExpenseTds({ type: r.expense_type, amount: r.amount, status: r.status, withheld: r.withheld_tds });
       const figure = (
         <div className="pr-2 text-right tabular-nums">
           <div className="font-medium">{formatToRoundedIndianRupee(r.amount)}</div>
+          <ExpenseTdsBreakdown shown={tds} />
           {part && (
             <div className="text-[10px] leading-tight">
               <div className="text-green-700">{part.reconciled} reconciled</div>

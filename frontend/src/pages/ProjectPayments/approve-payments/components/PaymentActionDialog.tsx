@@ -22,8 +22,8 @@ import { isGstPayment } from '../../paymentKind';
 import { isChequePayment } from '../../paymentMode';
 import { formatDate } from '@/utils/FormatDate';
 import { PaymentSummaryBlock, usePaymentSummary } from '../../components/PaymentSummaryBlock';
-import { ExpenseApprovalDetails } from './ExpenseApprovalDetails';
-import type { ApprovalStage } from '../expenseApprovalDetail';
+import { ExpenseApprovalDetails, useExpenseApprovalDetail } from './ExpenseApprovalDetails';
+import { approvalBlocked, type ApprovalStage } from '../expenseApprovalDetail';
 import { approveAllLabel, rejectAllLabel, rejectTitle, type ChequeApproval } from '@/utils/cheques/chequeApproval';
 import { ChequeApprovalBlock } from './ChequeApprovalBlock';
 import { ChequeRejectBlock } from './ChequeRejectBlock';
@@ -120,6 +120,10 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
     const needsReason = rejectsCheque || rejectsExpense;
     const chequeBlocked =
         chequeLoading || (throughCheque && !!chequeApproval?.problem) || (needsReason && !reason.trim());
+    // An Office Rent expense whose request does not name the landlord cannot be approved (the server
+    // refuses it); the details block says so, and Confirm is disabled (spec #1522 review batch 2).
+    const { data: expenseDetail } = useExpenseApprovalDetail(isExpense ? ledger : null, paymentData?.name, isOpen);
+    const expenseBlocked = !!approvalBlocked(expenseDetail?.message, type === DIALOG_ACTION_TYPES.APPROVE);
 
     // Reset amount input when payment data changes or dialog opens/closes
     useEffect(() => {
@@ -413,7 +417,7 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
                         <>
                             <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
                             <Button
-                                disabled={isLoading || chequeBlocked || (isPartialApprove && !split.valid)}
+                                disabled={isLoading || chequeBlocked || expenseBlocked || (isPartialApprove && !split.valid)}
                                 onClick={handleConfirm}
                                 variant={needsReason ? "destructive" : "default"}
                             >

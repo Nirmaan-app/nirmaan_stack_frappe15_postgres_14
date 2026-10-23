@@ -6,6 +6,7 @@
 import { attachmentsFromSourceData } from "@/utils/expenseFormat";
 import { statusAfterL1, TIER_L2_ABOVE_EXPENSES } from "@/utils/approvalTiers";
 import type { StayDuplicate } from "@/types/NirmaanStack/ExpenseRequest";
+import { LANDLORD_MISSING, type WithheldTds } from "@/utils/expenses/expenseTds";
 
 export interface ExpenseApprovalDetail {
   doctype: "Project Expenses" | "Non Project Expenses";
@@ -40,6 +41,12 @@ export interface ExpenseApprovalDetail {
   /** Other stays for the same person on overlapping days (#1504); never this Expense's own request. */
   stays: StayDuplicate[];
   user_names: Record<string, string>;
+  /** An Office Rent expense's tax record once approved (#1527); null before approval, when the dialog
+   *  forecasts from `amount`. */
+  withheld_tds: WithheldTds | null;
+  /** An Office Rent expense whose approval the server refuses for want of the landlord's name or PAN
+   *  (spec #1522 review batch 2): the dialog warns and disables Confirm, and Reject stays the way out. */
+  deductee_missing: boolean;
 }
 
 export type ApprovalStage = "lead" | "ceo";
@@ -57,6 +64,13 @@ export const expenseApprovalOutcome = (
     text: `Above ₹${TIER_L2_ABOVE_EXPENSES.toLocaleString("en-IN")}, so your approval forwards it to the CEO.`,
   };
 };
+
+/** Why this approve cannot go through, for the dialog's warning and its disabled Confirm; null when it
+ *  can, for a reject, and while the detail is loading (the server refuses anyway). */
+export const approvalBlocked = (
+  detail: ExpenseApprovalDetail | null | undefined,
+  approving: boolean
+): string | null => (approving && detail?.deductee_missing ? LANDLORD_MISSING : null);
 
 /** The request's files, minus the bill already shown on the row's own Invoice line. */
 export const requestAttachments = (detail: ExpenseApprovalDetail | null | undefined): string[] => {

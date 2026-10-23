@@ -28,6 +28,8 @@ FIXTURE = os.path.join(
 EXPECTED_RULES = {
 	# The landlord's account: a deposit is transferred to, and recovered from, whoever holds it.
 	"Accommodation Deposit": REQUIRED,
+	# The rent is paid into the landlord's account (owner, 2026-10-21, spec #1522 review batch 2).
+	"Office Rent": REQUIRED,
 	# Sometimes paid by card or cash, or a batch with no single payee.
 	"Rent/PG for Staff": OPTIONAL,
 	"Office Maintenance": OPTIONAL,
@@ -38,6 +40,10 @@ EXPECTED_RULES = {
 # Fields that only said who gets paid, now asked through the Payee picker.
 PAYEE_NAME_KEYS = {"landlord_name", "landlord_or_pg_name", "employee_name"}
 PAYEE_NAME_LABELS = re.compile(r"paid to|landlord|holder", re.I)
+# Office Rent names its landlord as the TAX DEDUCTEE (spec #1522, #1524): the 10% TDS is filed against
+# the landlord's name and PAN, so these two stay form fields. Who gets paid is the landlord's account,
+# asked through the Payee picker like every other type (Required, owner 2026-10-21).
+TAX_DEDUCTEE_FIELDS = {("Office Rent", "landlord_name"), ("Office Rent", "landlord_pan")}
 
 # Bank details of the account the money goes to.
 BANK_DETAIL = re.compile(r"ifsc|holder|a/c|bank account|account number|bank details", re.I)
@@ -72,6 +78,8 @@ class TestRequestFormsAskNoBankDetails(unittest.TestCase):
 	def test_no_form_asks_who_gets_paid_as_free_text(self):
 		for row in _types():
 			for _section, field in _fields(row):
+				if (row["name"], field["key"]) in TAX_DEDUCTEE_FIELDS:
+					continue
 				with self.subTest(type=row["name"], field=field["key"]):
 					self.assertNotIn(field["key"], PAYEE_NAME_KEYS)
 					self.assertNotRegex(field.get("label") or "", PAYEE_NAME_LABELS)
@@ -102,7 +110,8 @@ class TestDescriptionTemplatesNameOnlyAskedFields(unittest.TestCase):
 
 
 # The owner's per-field review of 2026-10-19 (spec #1494, ticket #1503): the ten types that keep a
-# form, each as (label, required) in form order. Every other type asks Description + Comment.
+# form, each as (label, required) in form order, plus Office Rent's (spec #1522, #1524). Every other
+# type asks Description + Comment.
 EXPECTED_FORMS = {
 	"Rent/PG for Staff": [("Person Name", True), ("Accommodation Type", True), ("City", False),
 	                      ("Rent Period From", True), ("Rent Period To", True)],
@@ -116,6 +125,8 @@ EXPECTED_FORMS = {
 	"Bank Interest": [("Bank Name", False)],
 	"Accommodation Deposit": [("Deposit For", True)],
 	"Audit Fee": [("Period / FY", True)],
+	"Office Rent": [("Rent Month", True), ("Office Location", True), ("Landlord Name", True),
+	                ("Landlord PAN", True)],
 }
 
 
@@ -124,7 +135,7 @@ def _format(row):
 
 
 class TestTheFormsAreTheOwnersReview(unittest.TestCase):
-	def test_the_ten_types_ask_exactly_the_reviewed_fields(self):
+	def test_the_types_with_a_form_ask_exactly_the_reviewed_fields(self):
 		rows = {r["name"]: r for r in _types()}
 		for name, expected in EXPECTED_FORMS.items():
 			with self.subTest(type=name):
@@ -134,8 +145,9 @@ class TestTheFormsAreTheOwnersReview(unittest.TestCase):
 
 	def test_every_other_type_has_no_form_and_asks_description_and_comment(self):
 		others = [r for r in _types() if r["name"] not in EXPECTED_FORMS]
-		# 25 from the owner's review, plus the 8 database-only types #1507 brought into the fixture.
-		self.assertEqual(len(others), 33)
+		# 25 from the owner's review, plus the 8 database-only types #1507 brought into the fixture,
+		# less Office Rent, which gained its form with #1524.
+		self.assertEqual(len(others), 32)
 		for row in others:
 			with self.subTest(type=row["name"]):
 				self.assertFalse((row.get("source_format") or "").strip())
@@ -167,3 +179,29 @@ class TestTheFormsAreTheOwnersReview(unittest.TestCase):
 		self.assertEqual(_format(row)["templateId"], "staff-accommodation")
 		keys = {f["key"] for _s, f in _fields(row)}
 		self.assertLessEqual({"person_name", "rent_period_from", "rent_period_to"}, keys)
+
+
+class TestTheOfficeRentForm(unittest.TestCase):
+	"""The owner-approved Office Rent form (spec #1522, #1524)."""
+
+	def setUp(self):
+		self.row = next(r for r in _types() if r["name"] == "Office Rent")
+		self.fmt = _format(self.row)
+
+	def test_it_asks_the_month_as_a_month_and_the_landlord_pan_as_a_pan(self):
+		"""Month and year only (owner, 2026-10-21): the form asked a full date before."""
+		types = {f["key"]: f.get("type") for _s, f in _fields(self.row)}
+		self.assertEqual(types, {"rent_month": "month", "office_location": "text",
+		                         "landlord_name": "text", "landlord_pan": "pan"})
+
+	def test_its_version_moved_with_the_month(self):
+		self.assertEqual(self.fmt["templateVersion"], 2)
+
+	def test_its_description_states_the_rent_the_landlord_and_the_tax(self):
+		self.assertEqual(
+			self.fmt["description_template"],
+			"Office rent for {rent_month} – {office_location}. Landlord: {landlord_name} "
+			"(PAN {landlord_pan}). (10% TDS will be deducted)")
+
+	def test_who_gets_paid_is_required(self):
+		self.assertEqual(self.row["payee_rule"], REQUIRED)

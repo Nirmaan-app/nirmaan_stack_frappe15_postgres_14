@@ -62,6 +62,7 @@ import { UpdatePaymentDetailsDialog } from "./components/UpdatePaymentDetailsDia
 import { UpdateInvoiceDetailsDialog } from "./components/UpdateInvoiceDetailsDialog";
 import { NonProjectExpenseSummaryCard } from "./components/NonProjectExpenseSummaryCard";
 import { getFrappeError } from "@/utils/frappeErrors";
+import { officeRentNames, useWithheldTds, WithheldTdsContext } from "@/hooks/useWithheldTds";
 
 const DOCTYPE = "Non Project Expenses";
 
@@ -419,11 +420,16 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
     onDateClear(); // Reset to "ALL" (no date filtering)
   }, [onDateClear]);
 
+  // Office Rent rows' tax records (#1527), for the Amount cells (`WithheldTdsContext`).
+  const officeRent = useMemo(() => officeRentNames(data), [data]);
+  const withheldTds = useWithheldTds(officeRent);
+
   if (error && !data?.length) {
     return <AlertDestructive error={error} className="m-4" />;
   }
 
   return (
+    <WithheldTdsContext.Provider value={withheldTds}>
     <div
       className={cn(
         "flex flex-col gap-2 overflow-hidden",
@@ -608,6 +614,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
         </AlertDialog>
       )}
     </div>
+    </WithheldTdsContext.Provider>
   );
 };
 

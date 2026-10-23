@@ -130,19 +130,22 @@ class TestExpenseRequests(FrappeTestCase):
 		frappe.set_user("Administrator")
 		for n in cls.granted_roles:
 			frappe.db.delete("Expense Type Role", {"name": n})
-		for r in frappe.get_all("Expense Request",
-		                        filters={"owner": ["in", [PM_USER, PM2_USER, HR_USER,
-		                                                  ACC_USER, HRL_USER]]}):
+		requests = frappe.get_all("Expense Request", pluck="name",
+		                          filters={"owner": ["in", [PM_USER, PM2_USER, HR_USER,
+		                                                    ACC_USER, HRL_USER]]})
+		# Only the ledger rows born from this suite's own requests: other rows on the site
+		# (a browser walk's, say) carry the same "[EXR-" description and must survive.
+		# Deleting a row also deletes its request, so the rows go first.
+		for dt in ("Project Expenses", "Non Project Expenses"):
+			for r in frappe.get_all(dt, filters={"request_id": ["in", requests or [""]]}):
+				frappe.delete_doc(dt, r.name, force=True, ignore_permissions=True)
+		for name in requests:
 			for n in frappe.get_all("Nirmaan Notifications",
-			                        filters={"document": "Expense Request", "docname": r.name}):
+			                        filters={"document": "Expense Request", "docname": name}):
 				frappe.delete_doc("Nirmaan Notifications", n.name, force=True,
 				                  ignore_permissions=True)
-			frappe.delete_doc("Expense Request", r.name, force=True, ignore_permissions=True)
-		# Ledger rows are owned by whoever approved, so they are found by the request id the
-		# composed description carries -- the only durable link back on the non-project side.
-		for dt in ("Project Expenses", "Non Project Expenses"):
-			for r in frappe.get_all(dt, filters={"description": ["like", "%[EXR-%"]}):
-				frappe.delete_doc(dt, r.name, force=True, ignore_permissions=True)
+			if frappe.db.exists("Expense Request", name):
+				frappe.delete_doc("Expense Request", name, force=True, ignore_permissions=True)
 		frappe.delete_doc("Projects", cls.project, force=True, ignore_permissions=True)
 		for email in (PM_USER, PM2_USER, HR_USER, ACC_USER, HRL_USER):
 			for dt in ("Nirmaan Users", "User"):
@@ -524,8 +527,8 @@ class TestExpenseRequests(FrappeTestCase):
 		row.update({"type": NON_PROJECT_TYPE, "status": "Approved", "amount": 900,
 		            "description": "exr_test_ direct expense"})
 		row.insert(ignore_permissions=True)
-		# This row has no request id, so `tearDownClass` (which finds ledger rows by the id in
-		# their description) never sees it -- it leaked one Paid row per run until deleted here.
+		# This row has no request id, so `tearDownClass` (which finds ledger rows by their
+		# `request_id`) never sees it -- it leaked one Paid row per run until deleted here.
 		self.addCleanup(lambda: (frappe.delete_doc("Non Project Expenses", row.name, force=True,
 		                                           ignore_permissions=True), frappe.db.commit()))
 		row.status = "Paid"

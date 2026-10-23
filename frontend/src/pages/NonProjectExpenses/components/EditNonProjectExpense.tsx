@@ -26,6 +26,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { isPaidExpense } from "@/pages/ProjectPayments/config/queueRowActions";
 import { useExpenseFieldAccess } from "@/hooks/useExpenseDecision";
 import { mayEditExpenseField } from "@/utils/expenses/expenseDecision";
+import { OFFICE_RENT_TDS, tdsTypeLock } from "@/utils/expenses/expenseTds";
+import { useWithheldTds } from "@/hooks/useWithheldTds";
 import { useToast } from "@/components/ui/use-toast";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { Separator } from "@/components/ui/separator";
@@ -84,9 +86,19 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
     // payment stay read-only for everyone. A field the answer withholds is shown disabled and never sent.
     const isPaid = isPaidExpense(expenseToEdit?.status);
     const fieldAccess = useExpenseFieldAccess();
+    // An Office Rent expense whose 10% TDS was withheld keeps its amount, for everyone (#1526): the
+    // server refuses the change, so the field is locked here and says why, and is never sent (#1527).
+    const withheldTds = useWithheldTds(
+        expenseToEdit?.type === OFFICE_RENT_TDS.expenseType && expenseToEdit?.name ? [expenseToEdit.name] : [],
+    )[expenseToEdit?.name ?? ""];
+    const amountLocked = !!withheldTds;
+    // Once approved, the type cannot change to or from Office Rent (spec #1522 review batch 2): the server
+    // refuses it (`expense_tds.guard_tds_type_change`), so the select says why and does not offer it.
+    const typeLock = tdsTypeLock(expenseToEdit?.status, expenseToEdit?.type);
     const mayEdit = useCallback(
-        (field: string) => mayEditExpenseField(fieldAccess, expenseToEdit?.status, field),
-        [fieldAccess, expenseToEdit?.status],
+        (field: string) =>
+            !(field === "amount" && amountLocked) && mayEditExpenseField(fieldAccess, expenseToEdit?.status, field),
+        [fieldAccess, expenseToEdit?.status, amountLocked],
     );
 
     // A Porter Expense (#1450): it shows a locked Project row -- moving it onto a project is Rectify in
@@ -368,7 +380,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                         <div className="col-span-3">
                             <Popover open={expenseTypePopoverOpen} onOpenChange={setExpenseTypePopoverOpen}>
                                 <PopoverTrigger asChild>
-                                    <Button id="type_edit_npe_trigger" variant="outline" role="combobox" aria-expanded={expenseTypePopoverOpen} className="w-full justify-between" disabled={expenseTypesLoading || isLoadingOverall}>
+                                    <Button id="type_edit_npe_trigger" variant="outline" role="combobox" aria-expanded={expenseTypePopoverOpen} className="w-full justify-between" disabled={expenseTypesLoading || isLoadingOverall || typeLock.selectLocked}>
                                         <span className="truncate">{selectedExpenseTypeLabel}</span><ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                     </Button>
                                 </PopoverTrigger>
@@ -376,8 +388,12 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                                     <Command>
                                         <CommandInput placeholder="Search expense type..." /><CommandList><CommandEmpty>No type found.</CommandEmpty><CommandGroup>
                                             {expenseTypeOptionsForCommand.map((option) => (
-                                                <CommandItem key={option.value} value={option.value} onSelect={handleExpenseTypeSelect}>
+                                                <CommandItem key={option.value} value={option.value} onSelect={handleExpenseTypeSelect}
+                                                    disabled={option.value === typeLock.blockedType}>
                                                     <Check className={cn("mr-2 h-4 w-4", formState.type === option.value ? "opacity-100" : "opacity-0")} />{option.label}
+                                                    {option.value === typeLock.blockedType && (
+                                                        <span className="ml-auto pl-2 text-xs text-muted-foreground">not after approval</span>
+                                                    )}
                                                 </CommandItem>
                                             ))}
                                         </CommandGroup></CommandList>
@@ -385,6 +401,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                                 </PopoverContent>
                             </Popover>
                             {formErrors.type && <p className="text-xs text-destructive mt-1">{formErrors.type}</p>}
+                            {typeLock.selectLocked && <p className="text-xs text-muted-foreground mt-1">{typeLock.reason}</p>}
                         </div>
                     </div>
                     <div className="grid grid-cols-4 items-center gap-3">
@@ -399,7 +416,8 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                     <div className="grid grid-cols-4 items-center gap-3">
                         <Label htmlFor="amount_edit_npe" className="text-right col-span-1">Amount <sup className="text-destructive">*</sup></Label>
                         <Input id="amount_edit_npe" name="amount" type="number" value={formState.amount} onChange={handleInputChange} className="col-span-3" disabled={isLoadingOverall || !mayEdit("amount")} />
-                        {isPaid && !mayEdit("amount") && <p className="col-span-3 col-start-2 text-xs text-muted-foreground mt-0.5">Paid — the amount can no longer be changed.</p>}
+                        {amountLocked && <p className="col-span-3 col-start-2 text-xs text-muted-foreground mt-0.5">10% TDS has been withheld; the amount is locked.</p>}
+                        {!amountLocked && isPaid && !mayEdit("amount") && <p className="col-span-3 col-start-2 text-xs text-muted-foreground mt-0.5">Paid — the amount can no longer be changed.</p>}
                         {formErrors.amount && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.amount}</p>}
                         <p className="col-span-3 col-start-2 text-xs text-muted-foreground mt-0.5">
                             Use negative amount for refunds.

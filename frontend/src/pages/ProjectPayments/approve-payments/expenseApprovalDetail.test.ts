@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  approvalBlocked,
   ExpenseApprovalDetail,
   expenseApprovalOutcome,
   requestAttachments,
@@ -30,6 +31,8 @@ const base = (over: Partial<ExpenseApprovalDetail> = {}): ExpenseApprovalDetail 
   similar: [],
   stays: [],
   user_names: {},
+  withheld_tds: null,
+  deductee_missing: false,
   ...over,
 });
 
@@ -51,6 +54,22 @@ describe("expenseApprovalOutcome", () => {
 
   it("the CEO's approval always finishes it", () => {
     expect(expenseApprovalOutcome("ceo", 90000).finishes).toBe(true);
+  });
+});
+
+describe("approvalBlocked", () => {
+  it("blocks the approve of an Office Rent expense missing its landlord, with the warning", () => {
+    const d = base({ doctype: "Non Project Expenses", type: "Office Rent", deductee_missing: true });
+    expect(approvalBlocked(d, true)).toBe("Landlord's name and PAN are missing — this can't be approved");
+  });
+
+  it("never blocks a reject, which is the way out", () => {
+    expect(approvalBlocked(base({ deductee_missing: true }), false)).toBeNull();
+  });
+
+  it("blocks nothing else, nor before the detail has loaded", () => {
+    expect(approvalBlocked(base(), true)).toBeNull();
+    expect(approvalBlocked(undefined, true)).toBeNull();
   });
 });
 

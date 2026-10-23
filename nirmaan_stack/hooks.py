@@ -278,12 +278,14 @@ doc_events = {
         # Client Status (ADR-0025 Amendment B). Doc-layer deletes only, which includes REST.
         "on_trash": "nirmaan_stack.integrations.controllers.project_tds_item_list.on_trash",
     },
-    # TAX DEDUCTED AT SOURCE (not the Technical Data Sheet family above). A challan's
+    # TAX DEDUCTED AT SOURCE (not the Technical Data Sheet family above). `validate`: a row names
+    # exactly one of a Project Payment and a Non-Project Expense (#1523). `on_trash`: a challan's
     # `reconciled_amount` is the sum of the deductions pointing at it, so a deleted deduction has
     # to stop being counted as spent. Covers a DOC-LAYER delete only; the payment cascade deletes
     # with raw SQL and recomputes explicitly in `project_payments.on_trash`.
     "Payment TDS Deduction": {
-        "on_trash": "nirmaan_stack.integrations.controllers.payment_tds_deduction.on_trash"
+        "validate": "nirmaan_stack.integrations.controllers.payment_tds_deduction.validate",
+        "on_trash": "nirmaan_stack.integrations.controllers.payment_tds_deduction.on_trash",
     },
     "Critical PO Items": {
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.critical_po_items.critical_po_items.after_insert",
@@ -402,16 +404,33 @@ doc_events = {
     "Non Project Expenses": {
         # Carry the match records to the new name (ADR-0022 Amendment G).
         "after_rename": "nirmaan_stack.integrations.controllers.settled_targets.after_rename",
-        "validate": "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
-        # Both exit immediately unless the row is transitioning INTO Paid, so the ~700
+        # Office Rent's locks (#1526, spec #1522 review): a withheld amount, and the type to or from
+        # Office Rent once approved. `before_validate`, so they refuse BEFORE the doctype's own
+        # `validate` (the edit rules, `expense_decision.guard_hand_save`) says something vaguer;
+        # a `validate` hook here would run after it.
+        "before_validate": "nirmaan_stack.integrations.controllers.expense_tds.before_validate",
+        "validate": [
+            "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
+            # An approval that would withhold Office Rent's tax is refused without the landlord,
+            # before the row is written. After the doctype's `validate`, which sets a new row's status.
+            "nirmaan_stack.integrations.controllers.expense_tds.validate",
+        ],
+        # Office Rent withholds 10% TDS when approved (#1525): a row born Approved here, an
+        # approval from an earlier step in `on_update`.
+        "after_insert": "nirmaan_stack.integrations.controllers.expense_tds.after_insert",
+        # The request hooks exit immediately unless the row is transitioning INTO Paid, so the ~700
         # ordinary saves cost one field comparison each. STATE FIRST, then the telling:
         # the request must already read Paid by the time the requester is notified.
         "on_update": [
+            "nirmaan_stack.integrations.controllers.expense_tds.on_update",
             "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_status_changed",
             "nirmaan_stack.integrations.controllers.expense_request_notify.on_expense_update",
         ],
         "on_trash": [
             "nirmaan_stack.integrations.controllers.expense_bank_links.on_trash",
+            # Its Office Rent tax record goes with it, or the delete is refused while that tax is on a
+            # challan (#1526). Before Frappe's link check, which would refuse it outright.
+            "nirmaan_stack.integrations.controllers.expense_tds.on_trash",
             # Drops the expense off its Cheque (#1413) before Frappe's link check refuses the delete.
             "nirmaan_stack.integrations.controllers.cheques.on_expense_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",

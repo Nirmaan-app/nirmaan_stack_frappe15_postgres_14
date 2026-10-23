@@ -24,12 +24,15 @@ from frappe import _
 from frappe.utils import flt
 
 from nirmaan_stack.api.expense_requests.duplicates import find_stay_duplicates
-from nirmaan_stack.api.expense_requests.flatten import NATIVE_INVOICE_SECTION, detail_rows
+from nirmaan_stack.api.expense_requests.flatten import NATIVE_INVOICE_SECTION, detail_rows, flat_responses
 from nirmaan_stack.api.expense_requests.form_snapshot import governing_form
 from nirmaan_stack.api.expense_requests.similar import _scan_ledgers
 from nirmaan_stack.services.approval_raiser import expense_raiser
+from nirmaan_stack.services.expense_statuses import EXPENSE_CEO_PENDING, EXPENSE_REQUESTED
+from nirmaan_stack.services.expense_tds import deductee_gaps, tds_rule_for, tds_split, withheld_tds_by_expense
 from nirmaan_stack.services.outflow_import.ledgers import (
     EXPENSE_DOCTYPES,
+    NON_PROJECT_EXPENSE_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
 )
 
@@ -48,6 +51,7 @@ def get_expense_approval_detail(doctype: str, name: str) -> dict:
 
 	request = _request_detail(doc.get("request_id"))
 	raised_by = expense_raiser(doc)
+	withheld = withheld_tds_by_expense([(doctype, name)]).get((doctype, name))
 
 	similar = [
 		s for s in _scan_ledgers(frappe._dict(
@@ -77,6 +81,12 @@ def get_expense_approval_detail(doctype: str, name: str) -> dict:
 		"raised_by": raised_by,
 		"raised_on": (request or {}).get("creation") or doc.creation,
 		"approval_date": doc.get("approval_date"),
+		# The tax withheld from an Office Rent expense, read past the record's own permission (#1527,
+		# `expense_tds.withheld_tds_by_expense`); None before approval, when the dialog forecasts from `amount`.
+		"withheld_tds": withheld,
+		# An Office Rent expense its approval would refuse for want of the landlord's name or PAN: the
+		# dialog warns and offers only Reject (spec #1522 review batch 2).
+		"deductee_missing": _deductee_missing(doc, request, withheld),
 		"request": request,
 		"similar": similar,
 		# The request itself is never its own match. Like `similar`, it names other people's
@@ -102,6 +112,24 @@ def _request_detail(request_id: str | None) -> dict | None:
 		"detail": detail_rows(req.source_data, source_format,
 		                      skip_sections=() if source_format else (NATIVE_INVOICE_SECTION,)),
 	}
+
+
+def _deductee_missing(doc, request: dict | None, withheld: dict | None) -> bool:
+	"""Would approving this expense meet `expense_tds.refuse_without_deductee`? True for an Office Rent
+	Non-Project Expense not yet approved, with no tax record and a rent to withhold from, whose request
+	(or the lack of one) does not name the landlord with a valid PAN. The same reading as the hook
+	(`controllers/expense_tds._deductee`), so the warning and the refusal agree.
+
+	At CEO Pending and at Requested alike: an L1 step that would only forward it to the CEO is not
+	refused, but it moves an expense no one can finish.
+	"""
+	rule = tds_rule_for(doc.get("type"))
+	if (rule is None or withheld or doc.doctype != NON_PROJECT_EXPENSE_DOCTYPE
+	        or doc.get("status") not in (EXPENSE_REQUESTED, EXPENSE_CEO_PENDING)
+	        or tds_split(doc.get("type"), doc.get("amount")) is None):
+		return False
+	answers = flat_responses(request["source_data"]) if request else {}
+	return bool(deductee_gaps(*rule.deductee_in(answers)))
 
 
 def _names(users: list) -> dict:

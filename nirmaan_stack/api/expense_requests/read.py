@@ -31,7 +31,7 @@ from nirmaan_stack.api.expense_requests.flatten import (
 )
 from nirmaan_stack.api.expense_requests.form_snapshot import governing_form, governing_forms
 from nirmaan_stack.api.expense_requests.invoice import invoice_refusal
-from nirmaan_stack.api.expense_requests.standing import expenses_of, standing_of
+from nirmaan_stack.api.expense_requests.standing import expenses_of, standing_of, withheld_tds_of_expenses
 from nirmaan_stack.api.expense_requests.update import can_edit
 from nirmaan_stack.services.expense_decision import approval_level
 from nirmaan_stack.services.expense_request_routing import (
@@ -172,7 +172,8 @@ def get_expense_request(name: str):
 	row["invoice_refusal"] = invoice_refusal(row, expense)
 	row["can_add_invoice"] = row["invoice_refusal"] is None
 	row["can_edit"] = can_edit(row)
-	row["standing"] = standing_of(row, expense, approval_level(doc.owner, doc.reviewed_by))
+	row["standing"] = standing_of(row, expense, approval_level(doc.owner, doc.reviewed_by),
+	                              withheld_tds_of_expenses([expense]))
 	return row
 
 
