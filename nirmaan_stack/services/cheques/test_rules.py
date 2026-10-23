@@ -230,9 +230,8 @@ class TestAChequePaymentIsPaidOnlyByItsClear(unittest.TestCase):
         for from_status in ("Reconciliation Pending", "Approved", None):
             self.assertEqual(
                 self.problem(from_status, "Paid"),
-                "PAY-1 is a cheque payment, so it cannot be saved as Paid: a cheque payment becomes Paid only when a "
-                "bank-statement line with its cheque's number and amount is imported, which clears the cheque and "
-                "pays every payment on it.",
+                "PAY-1 is a cheque payment, so it cannot be saved as Paid: a cheque's payments are paid when a "
+                "bank-statement line with the cheque's number and amount is imported, which clears the cheque.",
             )
 
     def test_a_paid_cheque_payment_is_never_set_back(self):
@@ -246,13 +245,26 @@ class TestAChequePaymentIsPaidOnlyByItsClear(unittest.TestCase):
         self.assertIsNone(self.problem("Reconciliation Pending", "Paid", is_cheque=False))
         self.assertIsNone(self.problem("Paid", "Approved", is_cheque=False))
 
-    def test_a_cheque_payment_on_no_cheque_is_refused_unless_rejected(self):
+    def test_a_cheque_payment_on_no_cheque_is_refused_unless_rejected_or_paid(self):
         self.assertIsNone(payment_rules.no_cheque_problem("PAY-1", status="Requested", on_a_cheque=True))
         self.assertIsNone(payment_rules.no_cheque_problem("PAY-1", status="Rejected", on_a_cheque=False))
+        self.assertIsNone(payment_rules.no_cheque_problem("PAY-1", status="Paid", on_a_cheque=False))
         self.assertEqual(
-            payment_rules.no_cheque_problem("PAY-1", status="Approved", on_a_cheque=False),
+            payment_rules.no_cheque_problem("PAY-1", status="Reconciliation Pending", on_a_cheque=False),
             "PAY-1 is in Cheque mode, but no cheque lists it, so it cannot be saved: a cheque payment always has its "
-            "cheque. Delete it and request the payment again.",
+            "cheque. Switch its Mode of Payment to Online to pay it another way.",
+        )
+
+    def test_one_sentence_says_how_a_cheque_payment_is_paid(self):
+        paid_alone = payment_rules.cheque_payment_problem("PAY-1", payment_rules.CHEQUE_REFUSES_PAY, is_cheque=True)
+        set_back = payment_rules.paid_set_back_problem("PAY-1", "be unreconciled")
+        how = "a cheque's payments are paid when a bank-statement line with the cheque's number and amount is imported"
+        self.assertIn(how, paid_alone)
+        self.assertIn(how, self.problem(None, "Paid"))
+        self.assertEqual(
+            set_back,
+            f"PAY-1 is a Paid cheque payment, so it cannot be unreconciled: {how}, which clears the cheque, and a "
+            "Paid one is never set back.",
         )
 
 

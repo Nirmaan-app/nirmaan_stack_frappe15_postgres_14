@@ -49,6 +49,7 @@ class TestChequePayments(FrappeTestCase):
 	def setUp(self):
 		frappe.set_user(U)
 		self.fx = TaxedWorkOrderFixture.attach(self)
+		self.old_cheques = ChequeFixture.attach(self)  # after `fx`: cleanups run LIFO, so its Cheques go first
 		self.project = self.fx.project()
 		self.vendor = self.fx.vendor(2.0)
 		self.sr = self.fx.service_request(self.project, self.vendor)
@@ -93,9 +94,7 @@ class TestChequePayments(FrappeTestCase):
 		self.fx.payments.append(name)
 		frappe.db.commit()
 		if cheque and on_old_cheque:
-			if not hasattr(self, "_old_cheques"):
-				self._old_cheques = ChequeFixture.attach(self)
-			self._old_cheques.put_on_old_type_cheque(name)
+			self.old_cheques.put_on_old_type_cheque(name)
 		return name
 
 	def _po(self):

@@ -49,7 +49,8 @@ from nirmaan_stack.services.cheques.approval_rules import (
     is_approval,
     lone_approval_problem,
 )
-from nirmaan_stack.services.cheques.payment_rules import CHEQUE_REFUSES_PAY, cheque_payment_problem
+from nirmaan_stack.services.cheques.lines import cheques_naming
+from nirmaan_stack.services.cheques.payment_rules import CHEQUE_REFUSES_PAY, cheque_payment_problem, no_cheque_problem
 from nirmaan_stack.services.cheques.rules import (
     CANCELLED,
     CHEQUE_TYPE_PAYMENT,
@@ -103,27 +104,26 @@ def live_cheque_of(payment_name: str) -> str | None:
 def pay_alone_problem(payment_name: str) -> str | None:
     """Why `payment_name` may not be paid on its own, or None (story 45, #1552): it is a cheque payment, paid
     only when its cheque's bank line clears every payment on it (`status.clear`). Old-type cheques too
-    (ADR-0035 Amendment B). Asked by the user-facing ways to pay one payment, the import's hand settle and
-    the payments screen's fulfil, so they refuse by name before the payment's own save would
-    (`payment_mode.validate_paid_by_clear`)."""
-    row = frappe.db.get_value(PAYMENT_DOCTYPE, payment_name, ["mode_of_payment", "cheque_no"], as_dict=True)
+    (ADR-0035 Amendment B). The refusal names the cheque it is on (one not Cancelled first); one on no cheque
+    gets the no-cheque refusal (`payment_rules.no_cheque_problem`). Asked by the user-facing ways to pay one
+    payment, the import's hand settle and the payments screen's fulfil, so they refuse by name before the
+    payment's own save would (`payment_mode.validate_paid_by_clear`)."""
+    row = frappe.db.get_value(PAYMENT_DOCTYPE, payment_name, ["mode_of_payment", "status"], as_dict=True)
     if not row or not is_cheque(row):
         return None
-    return cheque_payment_problem(payment_name, CHEQUE_REFUSES_PAY, is_cheque=True, cheque_no=row.cheque_no)
+    cheques = sorted(cheques_naming(PAYMENT_DOCTYPE, [payment_name]), key=lambda r: r.status == CANCELLED)
+    if not cheques:
+        return no_cheque_problem(payment_name, status=(row.status or "").strip(), on_a_cheque=False)
+    return cheque_payment_problem(payment_name, CHEQUE_REFUSES_PAY, is_cheque=True, cheque_no=cheques[0].cheque_no)
 
 
 def _payment_cheque_of(payment_name: str, statuses: tuple) -> str | None:
-    rows = frappe.db.sql(
-        f"""SELECT c.name FROM "tabCheque Line" l JOIN "tab{CHEQUES}" c ON c.name = l.parent
-            WHERE l.parenttype = %(cheques)s AND l.payment_doctype = %(doctype)s AND l.payment_name = %(payment)s
-              AND c.status IN %(statuses)s AND c.cheque_type = %(payment_type)s AND COALESCE(c.old_type, 0) = 0
-            ORDER BY c.creation LIMIT 1""",
-        {
-            "cheques": CHEQUES, "doctype": PAYMENT_DOCTYPE, "payment": payment_name, "statuses": tuple(statuses),
-            "payment_type": CHEQUE_TYPE_PAYMENT,
-        },
+    """The oldest not Old-type Payment cheque at one of `statuses` whose lines name `payment_name`, else None."""
+    return next(
+        (r.cheque for r in cheques_naming(PAYMENT_DOCTYPE, [payment_name])
+         if r.status in statuses and r.cheque_type == CHEQUE_TYPE_PAYMENT and not r.old_type),
+        None,
     )
-    return rows[0][0] if rows else None
 
 
 def _payment_of(row) -> str | None:

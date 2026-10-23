@@ -40,28 +40,37 @@ from nirmaan_stack.services.cheques.rules import (
 )
 
 
+def cheques_naming(payment_doctype: str, payment_names) -> list[dict]:
+    """THE ONE READ OF "the Cheques whose lines name these records" (ADR-0010 B2): one row per line, `{payment,
+    cheque, cheque_no, status, cheque_type, old_type}`, oldest Cheque first, any status and type. `payment_names`
+    are Project Payments or expenses of `payment_doctype`. Every question about which cheque a record is on
+    filters these rows."""
+    names = tuple(sorted({n for n in payment_names if n}))
+    if not names:
+        return []
+    return frappe.db.sql(
+        """SELECT l.payment_name AS payment, c.name AS cheque, c.cheque_no, c.status, c.cheque_type,
+                  COALESCE(c.old_type, 0) AS old_type
+           FROM "tabCheque Line" l
+           JOIN "tabCheques" c ON c.name = l.parent
+           WHERE l.parenttype = 'Cheques'
+             AND l.payment_doctype = %(doctype)s
+             AND l.payment_name IN %(names)s
+           ORDER BY c.creation, c.name""",
+        {"doctype": payment_doctype, "names": names},
+        as_dict=True,
+    )
+
+
 def live_cheques_of(payment_doctype: str, payment_names, *, exclude: str | None = None) -> dict[str, dict]:
     """`{payment: {cheque, cheque_no, status}}` for each of `payment_names` (Project Payments or
     expenses of `payment_doctype`) that sits on a Cheque that is not Cancelled. `exclude` leaves one
     Cheque out (the one being saved)."""
-    names = tuple(sorted({n for n in payment_names if n}))
-    if not names:
-        return {}
-    exclude_clause = "AND c.name != %(exclude)s" if exclude else ""
-    rows = frappe.db.sql(
-        f"""SELECT l.payment_name AS payment, c.name AS cheque, c.cheque_no, c.status
-            FROM "tabCheque Line" l
-            JOIN "tabCheques" c ON c.name = l.parent
-            WHERE l.parenttype = 'Cheques'
-              AND l.payment_doctype = %(doctype)s
-              AND l.payment_name IN %(names)s
-              AND c.status != %(cancelled)s
-              {exclude_clause}
-            ORDER BY c.creation""",
-        {"doctype": payment_doctype, "names": names, "cancelled": CANCELLED, "exclude": exclude},
-        as_dict=True,
-    )
-    return {r.payment: {"cheque": r.cheque, "cheque_no": r.cheque_no, "status": r.status} for r in rows}
+    return {
+        r.payment: {"cheque": r.cheque, "cheque_no": r.cheque_no, "status": r.status}
+        for r in cheques_naming(payment_doctype, payment_names)
+        if r.status != CANCELLED and r.cheque != exclude
+    }
 
 
 def normalise_lines(doc) -> None:

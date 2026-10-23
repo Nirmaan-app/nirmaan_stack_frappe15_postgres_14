@@ -35,6 +35,7 @@ behind it), it is just no longer one of that Cheque's lines.
 
 import frappe
 
+from nirmaan_stack.services.cheques.lines import cheques_naming
 from nirmaan_stack.services.cheques.rules import (
     CANCELLED,
     CHEQUE_TYPE_SECURITY_DEPOSIT,
@@ -78,16 +79,10 @@ def drop_off_cheques(
     Each Cheque is re-read under its row lock and saved through the document, so its `validate` rules and
     `track_changes` run.
     """
-    names = sorted(set(frappe.get_all(
-        "Cheque Line",
-        filters={"parenttype": CHEQUES, "payment_doctype": payment_doctype, "payment_name": payment_name},
-        pluck="parent",
-    )))
-    if old_type_only and names:
-        names = sorted(frappe.get_all(
-            CHEQUES, filters={"name": ["in", names], "old_type": 1, "status": ["!=", CANCELLED]}, pluck="name"
-        ))
-    names = [name for name in names if name != keep_on]
+    names = sorted({
+        r.cheque for r in cheques_naming(payment_doctype, [payment_name])
+        if r.cheque != keep_on and (not old_type_only or (r.old_type and r.status != CANCELLED))
+    })
     noun = "Payment" if payment_doctype == PAYMENT_DOCTYPE else "Expense"
     for name in names:
         doc = frappe.get_doc(CHEQUES, name, for_update=True)

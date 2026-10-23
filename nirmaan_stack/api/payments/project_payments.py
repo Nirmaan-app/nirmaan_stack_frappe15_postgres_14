@@ -19,6 +19,7 @@ from nirmaan_stack.services import cheque_payments
 from nirmaan_stack.services.cheques import decide as cheque_decision
 from nirmaan_stack.api.payments.payment_cheque import (
     cheque_header,
+    expect_new_cheque,
     put_on_new_cheque,
     refuse_unless_cheque_can_be_made,
 )
@@ -169,6 +170,7 @@ def create_payment_request_for_service(data: str) -> str:
     # Checked above against the amount AS REQUESTED; the insert validation must not check the
     # rounded figure again and refuse what this endpoint just allowed.
     pay.flags.work_order_limit_checked = True
+    expect_new_cheque(pay, cheque)
     pay.insert()
 
     if auto_approve:
@@ -313,6 +315,7 @@ def create_project_payment(
 
         # This insert will trigger the 'after_insert' hook, which routes
         # notifications by status (auto-approved → accountants + admin record note).
+        expect_new_cheque(pay, cheque)
         pay.insert(ignore_permissions=True)
 
         if auto_approve:

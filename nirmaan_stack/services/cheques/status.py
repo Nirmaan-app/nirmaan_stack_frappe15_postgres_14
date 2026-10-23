@@ -72,6 +72,7 @@ from nirmaan_stack.services.cheques.decide import (
     reject_cheque,
     write_po_terms,
 )
+from nirmaan_stack.services.cheques.lines import cheques_naming
 from nirmaan_stack.services.cheques.payment_rules import CLEARING_FLAG
 from nirmaan_stack.services.cheques.rules import (
     CANCELLED,
@@ -317,14 +318,9 @@ def cleared_cheque_of(payment_name: str) -> str | None:
     """The number of the Cleared cheque whose lines name `payment_name`, else None. A Cleared cheque has
     no undo (ADR-0035 §5), so its payments may not be put back to Reconciliation Pending (the import's
     Unreconcile asks this)."""
-    rows = frappe.db.sql(
-        f"""SELECT c.cheque_no FROM "tabCheque Line" l JOIN "tab{CHEQUES}" c ON c.name = l.parent
-            WHERE l.parenttype = %(cheques)s AND l.payment_doctype = %(doctype)s AND l.payment_name = %(payment)s
-              AND c.status = %(cleared)s
-            ORDER BY c.creation LIMIT 1""",
-        {"cheques": CHEQUES, "doctype": PAYMENT_DOCTYPE, "payment": payment_name, "cleared": CLEARED},
+    return next(
+        (r.cheque_no for r in cheques_naming(PAYMENT_DOCTYPE, [payment_name]) if r.status == CLEARED), None
     )
-    return rows[0][0] if rows else None
 
 
 def _lock_bank_line(doc, name: str):

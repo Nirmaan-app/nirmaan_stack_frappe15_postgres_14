@@ -18,7 +18,9 @@ import frappe
 from frappe import _
 
 from nirmaan_stack.services.cheque_payments import is_cheque
+from nirmaan_stack.services.cheques.lines import cheques_naming
 from nirmaan_stack.services.cheques.payment_rules import (
+    CHEQUE_FOLLOWS_FLAG,
     CLEARING_FLAG,
     cheque_mode_problem,
     mode_change_problem,
@@ -42,12 +44,7 @@ def validate_mode_change(pay) -> None:
         now_cheque=is_cheque(pay),
         cheque=pay.get("cheque"),
         old_cheque_status=frappe.db.get_value(CHEQUES, old_cheque, "status") if old_cheque else None,
-        on_old_cheque_lines=bool(old_cheque) and bool(frappe.db.exists("Cheque Line", {
-            "parenttype": CHEQUES,
-            "parent": old_cheque,
-            "payment_doctype": PAYMENT_DOCTYPE,
-            "payment_name": pay.name,
-        })),
+        on_old_cheque_lines=bool(old_cheque) and old_cheque in _cheques_listing(pay.name),
     )
     if problem:
         frappe.throw(_(problem))
@@ -89,23 +86,22 @@ def validate_paid_by_clear(pay) -> None:
 
 
 def validate_on_a_cheque(pay) -> None:
-    """Refuse a save of the saved Project Payment `pay`, in Cheque mode, that no cheque lists
-    (`payment_rules.no_cheque_problem`). Called from its `validate`. A new payment is skipped: Request Payment
-    inserts it, then makes its cheque (`api/payments/payment_cheque.put_on_new_cheque`), and the save that
-    puts it on that cheque already finds the line."""
-    if pay.is_new() or not is_cheque(pay):
+    """Refuse a save of the Project Payment `pay`, in Cheque mode, that no cheque lists
+    (`payment_rules.no_cheque_problem`). Called from its `validate`. A new one counts as on a cheque only when
+    Request Payment set `CHEQUE_FOLLOWS_FLAG`: it inserts the payment, then makes its cheque
+    (`api/payments/payment_cheque.put_on_new_cheque`), and the save that puts it on that cheque finds the line.
+    Any other insert in Cheque mode (Desk, REST) is refused."""
+    if not is_cheque(pay):
         return
-    problem = no_cheque_problem(
-        pay.name, status=(pay.status or "").strip(), on_a_cheque=bool(_cheques_listing(pay.name))
-    )
+    if pay.is_new():
+        on_a_cheque = bool(pay.flags.get(CHEQUE_FOLLOWS_FLAG))
+    else:
+        on_a_cheque = bool(_cheques_listing(pay.name))
+    problem = no_cheque_problem(pay.name, status=(pay.status or "").strip(), on_a_cheque=on_a_cheque)
     if problem:
         frappe.throw(_(problem), title=_("Cheque payment on no cheque"))
 
 
-def _cheques_listing(payment: str) -> list[str]:
-    """The Cheques whose lines name `payment`, any status."""
-    return frappe.get_all(
-        "Cheque Line",
-        filters={"parenttype": CHEQUES, "payment_doctype": PAYMENT_DOCTYPE, "payment_name": payment},
-        pluck="parent",
-    )
+def _cheques_listing(payment: str) -> set[str]:
+    """The Cheques whose lines name Project Payment `payment`, any status (`lines.cheques_naming`)."""
+    return {r.cheque for r in cheques_naming(PAYMENT_DOCTYPE, [payment])}

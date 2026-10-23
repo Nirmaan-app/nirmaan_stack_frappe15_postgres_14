@@ -82,6 +82,7 @@ amount so a human can compare it against the payment's Version log.
 from dataclasses import dataclass
 from datetime import datetime
 
+from nirmaan_stack.services.cheques.payment_rules import paid_set_back_problem
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.amounts import AMOUNT_TOLERANCE, to_decimal
 from nirmaan_stack.services.outflow_import.ledgers import (
@@ -266,6 +267,8 @@ class LegFacts:
     refund_no_bank_line_before: bool = False
     # PAYMENTS ONLY (#1485): the number of the Cleared cheque whose lines name the payment, else None.
     cleared_cheque: str | None = None
+    # PAYMENTS ONLY (#1552): the payment is in Cheque mode. A Paid one is never set back (ADR-0035 Amendment B).
+    cheque_payment: bool = False
 
 
 @dataclass(frozen=True)
@@ -330,6 +333,10 @@ def leg_verdict(facts: LegFacts) -> LegVerdict:
             f"{name} is on cheque {facts.cleared_cheque}, which is Cleared. A cleared cheque cannot be "
             f"undone, so this line cannot be unreconciled.",
         )
+    if facts.cheque_payment and (facts.target_status or "").strip() == _PAID:
+        # One paid by hand before #1552 (its cheque still Issued): its own save would refuse the move, so the
+        # plan says why up front instead of offering a revert that fails.
+        return _refused(facts, "Paid by cheque", paid_set_back_problem(name, "be unreconciled"))
 
     if (facts.split_from or "").strip() and not is_balance_of_a_part_settle(
         facts.target_created, facts.parent_settled_at

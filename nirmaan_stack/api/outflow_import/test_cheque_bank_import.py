@@ -638,6 +638,35 @@ class TestAClearedChequeStaysCleared(ChequeImportCase):
         self.assertEqual(self._statuses(a), ["Paid"])
         self.assertEqual(self._line(row).row_status, "Settled")
 
+    def test_a_payment_paid_by_hand_before_1552_on_an_issued_old_type_cheque_is_refused_up_front(self):
+        """#1552: a Paid cheque payment is never set back, so the plan refuses it with the reason and the
+        Unreconcile writes nothing, though its cheque is still Issued."""
+        a = self._payment(30000, "Paid")
+        cheque = self._old_type(self._number(), 30000, [(a, 30000)])
+        row = self._bank_line(reference_id="UTR-BY-HAND-1552", amount=30000)
+        frappe.db.sql(
+            """INSERT INTO "tabOutflow Row Match" (name, creation, modified, modified_by, owner, docstatus, idx,
+                   import_row, import_batch, transfer_id, target_doctype, target_name, target_amount, match_kind,
+                   match_basis)
+               SELECT %s, NOW(), NOW(), %s, %s, 0, 0, name, import_batch, transfer_id, %s, %s, 30000, 'Settled',
+                      'Manual'
+               FROM "tabOutflow Import Row" WHERE name = %s""",
+            (frappe.generate_hash(length=12), U, U, PAYMENT, a, row),
+        )
+        frappe.db.set_value(ROW, row, "row_status", "Settled", update_modified=False)
+        frappe.db.commit()
+        never_set_back = f"{a} is a Paid cheque payment, so it cannot be unreconciled: .*never set back"
+
+        plan = plan_of_line(row)
+        self.assertEqual(plan["refused_count"], 1)
+        self.assertRegex(plan["legs"][0]["reason"], never_set_back)
+        with self.assertRaisesRegex(frappe.ValidationError, never_set_back):
+            unreconcile_line(row, "all", "wrong line", U)
+        frappe.db.rollback()
+
+        self.assertEqual(self._statuses(a), ["Paid"])
+        self.assertEqual(self._state(cheque).status, "Issued")
+
     def test_deleting_the_line_is_refused_out_loud(self):
         number = self._number()
         self._issued(11000, cheque_no=number)

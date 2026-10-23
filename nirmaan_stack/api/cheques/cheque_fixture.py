@@ -162,6 +162,10 @@ class ChequeFixture:
             "Project Payments", payment, ["amount", "vendor", "project", "document_type", "document_name"], as_dict=True
         )
         cheque = self.track(f"{NUMBER_PREFIX}-OLD-{frappe.generate_hash(length=10)}")
+        # Raw on purpose, test setup only: no Cheques `validate` / `on_update` hook and no Project Payments
+        # `validate` / `on_update` hook runs. Safe because a Cheque moves no money figure (nothing to recompute),
+        # the payment's `cheque` link is metadata no recount reads, and today's Cheques `validate` would refuse
+        # making an Old-type cheque at all; the payment's own hooks still run on every save the test makes.
         frappe.db.sql(
             """INSERT INTO "tabCheques" (name, creation, modified, modified_by, owner, docstatus, idx, cheque_no,
                    bank, cheque_date, amount, vendor, status, cheque_type, old_type)
