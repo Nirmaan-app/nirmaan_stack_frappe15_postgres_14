@@ -9,6 +9,7 @@ import type { PayeeSummary } from "@/types/NirmaanStack/Payee";
 export const PAYEE_PAGE_TABS = {
     OVERVIEW: "overview",
     VENDORS: "vendors",
+    USER: "user",
 } as const;
 
 export type PayeePageTab = (typeof PAYEE_PAGE_TABS)[keyof typeof PAYEE_PAGE_TABS];
@@ -25,9 +26,13 @@ export interface PayeePageTabItem {
     count?: number;
 }
 
-/** Payee Overview first, then Linked Vendors with its count. A Payee lists no payments or expenses:
- *  none points at it (#1434). */
-export const payeePageTabs = ({ vendors }: Pick<PayeeSummary, "vendors">): PayeePageTabItem[] => [
+/** Payee Overview first, then Linked Vendors and Linked User with their counts. A Payee lists no payments
+ *  or expenses: none points at it (#1434). Linked User is the person who has it in their own bank accounts
+ *  (Reimbursements, ADR-0033 Amendment A): one at most. */
+export const payeePageTabs = (
+    { vendors, users = 0 }: Pick<PayeeSummary, "vendors"> & { users?: number },
+): PayeePageTabItem[] => [
     { key: PAYEE_PAGE_TABS.OVERVIEW, label: "Payee Overview" },
     { key: PAYEE_PAGE_TABS.VENDORS, label: "Linked Vendors", count: vendors },
+    { key: PAYEE_PAGE_TABS.USER, label: "Linked User", count: users },
 ];

@@ -44,6 +44,19 @@ Both share one approval lifecycle and are entered/managed together in a single u
   is owned by `services/outflow_import/expense_links.py` (`load_expense_links`, `derive_expense_status`,
   `remaining_balance`), which is also the ONE place that answers "is this expense fully linked". Full
   as-built: `.claude/context/domain/outflow-import.md`.
+- **An expense rejected in Payments rejects its Expense Request** (code review, 2026-10-23):
+  `expense_request_status.on_expense_rejected`, on both ledgers' `on_update`, turns an Approved request Rejected
+  with the queue's reason in `review_comment` (`expense_actions.FALLBACK_REJECTION_REASON` when none reached the
+  save). An expense put back out of Rejected puts its request back to Approved, so a later Paid still reaches it.
+  Before this, only Paid and delete reached the request. Every single-row expense reject in Approve Payments goes through the
+  expense engine with a required reason, so the reason reaches the request and lands as a comment on the expense.
+- **A Non-Project Expense with `reimbursement` set pays a Reimbursement claim** (ADR-0040). It is created on
+  the claim's approval at Requested and routed by `validate` like any expense, with the claim's APPROVER as the
+  raiser (`approval_raiser.routing_raiser`, only on that flagged insert). The link is set ONLY by that approval
+  step, never changes, and a claim has one expense (`expense_link.guard_link`). Its status moves the claim
+  (Paid / Rejected / un-Paid), once **Rejected it can't move to any other status**, and **deleting it (any status) deletes the claim too**, as a request's expense does
+  (`integrations/controllers/reimbursement_expense.py`). Everything else on it may be edited. Detail:
+  `.claude/context/domain/reimbursements.md`.
 
 ---
 

@@ -46,3 +46,28 @@ def expense_raiser(doc) -> str | None:
         if owner:
             return owner
     return doc.get("owner") or frappe.session.user
+
+
+#: Set by `reimbursements.convert.create_expense` on the one insert allowed to carry `reimbursement`. Read here (to
+#: route by the claim's approver) and by `reimbursements.expense_link.guard_link`. A server-side doc flag: no client
+#: can set it. One constant for both, so they can't drift apart (code review, 2026-10-23).
+REIMBURSEMENT_APPROVAL_FLAG = "from_reimbursement_approval"
+
+
+def routing_raiser(doc) -> str | None:
+    """Whose level decides a NEW expense row's approval path (`NonProjectExpenses.validate`).
+
+    `expense_raiser` for every row, except one created from an approved Reimbursement (ADR-0040): there it is
+    the person who APPROVED the claim, so a step they already hold is not asked again (HR's claims fall in the
+    auto band; an Admin's approval clears L1; the CEO's clears both). `expense_raiser` itself still answers
+    "who raised it" with the claimant, who is the row's owner.
+    """
+    claim = doc.get("reimbursement")
+    # Only on the insert the approval step itself makes (`convert.APPROVAL_FLAG`, a server-side flag): a
+    # `reimbursement` typed into any other insert must never lend it the claim approver's level (code review,
+    # 2026-10-23). `expense_link.guard_link` refuses such an insert anyway; this keeps routing safe on its own.
+    if claim and doc.flags.get(REIMBURSEMENT_APPROVAL_FLAG):
+        approver = frappe.db.get_value("Reimbursement", claim, "approved_by")
+        if approver:
+            return approver
+    return expense_raiser(doc)

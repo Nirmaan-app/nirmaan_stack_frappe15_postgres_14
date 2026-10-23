@@ -24,7 +24,7 @@ _LIKE_SPECIALS = re.compile(r"([\\%_])")
 MIN_SEARCH_LENGTH = 2
 
 _SEARCH_SQL = """
-    SELECT p.name, p.account_name, p.account_number, p.ifsc, p.bank_name, p.bank_branch
+    SELECT p.name, p.account_name, p.account_number, p.ifsc, p.bank_name, p.bank_branch, p.payee_type
     FROM "tabPayee" p
     WHERE {match}
     ORDER BY p.account_name ASC, p.name ASC
@@ -38,7 +38,7 @@ def _like(text: str) -> str:
 
 def find_payees(text: str | None, limit: int = 8) -> list[dict]:
     """Payees whose holder name contains `text`, or whose account number contains it (in identity
-    form), by holder name: `[{name, account_name, account_number, ifsc, bank_name, bank_branch}]`.
+    form), by holder name: `[{name, account_name, account_number, ifsc, bank_name, bank_branch, payee_type}]`.
     Text shorter than `MIN_SEARCH_LENGTH` finds nothing."""
     text = " ".join(str(text or "").split())
     if len(text) < MIN_SEARCH_LENGTH:

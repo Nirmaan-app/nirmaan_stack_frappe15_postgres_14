@@ -23,6 +23,8 @@ export const DEFAULT_NPE_FIELDS_TO_FETCH: (keyof NonProjectExpenses | 'name' | '
     "invoice_attachment",
     // The Porter badge and the edit dialog's Porter section (#1450).
     "porter_order",
+    // The delete dialog warns that the Reimbursement claim goes too (ADR-0040).
+    "reimbursement",
 ];
 
 export const NPE_SEARCHABLE_FIELDS: SearchFieldOption[] = [

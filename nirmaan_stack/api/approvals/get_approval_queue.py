@@ -67,6 +67,9 @@ SOURCE_NON_PROJECT = "Non-Project"
 # export and the bulk engines all branch on it -- so this is an extra column, not a rename.
 TYPE_PO_PAYMENT = "PO Payment"
 TYPE_SR_PAYMENT = "SR Payment"
+# A Non-Project Expense created from an approved Reimbursement (ADR-0040): its `reimbursement` is set. Its
+# `source` stays Non-Project, so every engine that branches on `source` treats it as the expense it is.
+TYPE_REIMBURSEMENT = "Reimbursement"
 
 SOURCE_TO_DOCTYPE = {
     SOURCE_VENDOR_PAYMENT: "Project Payments",
@@ -240,11 +243,18 @@ def _expense_select(table, source, project_col):
     payment_by_expr = 'COALESCE(e."payment_by", \'\')::text' if source == SOURCE_PROJECT_EXPENSE else "''::text"
     # Grouped by target, so it can only ever add columns to a row -- never duplicate one.
     linked_join = linked_totals_join(SOURCE_TO_DOCTYPE[source], "e")
+    # `Non Project Expenses.reimbursement` arrives with `bench migrate`, which every deploy runs before this
+    # code serves (code review finding 10: no per-load column check that would hide a failed migrate).
+    source_type_expr = (
+        f"CASE WHEN COALESCE(e.\"reimbursement\", '') <> '' THEN '{TYPE_REIMBURSEMENT}' ELSE '{source}' END"
+        if source == SOURCE_NON_PROJECT
+        else f"'{source}'"
+    )
     return f"""
         SELECT
             e."name"                        AS name,
             '{source}'                      AS source,
-            '{source}'                      AS source_type,
+            {source_type_expr}              AS source_type,
             '{SOURCE_TO_DOCTYPE[source]}'   AS doctype,
             e."status"                      AS status,
             {_EXPENSE_AMOUNT}               AS amount,

@@ -38,6 +38,9 @@ from nirmaan_stack.services.payees.ifsc import lookup_ifsc
 from nirmaan_stack.services.payees.links import payee_summary
 from nirmaan_stack.services.payees.rules import (
     PAYEE_DOCTYPE,
+    PAYEE_TYPE_OTHERS,
+    PAYEE_TYPE_VENDORS,
+    PAYEE_TYPES,
     PayeeDetails,
     details_problem,
     duplicate_problem,
@@ -104,14 +107,20 @@ def unless_duplicate(action):
         return None, duplicate_reply(e.existing)
 
 
-def create_payee(account_name, account_number, ifsc):
+def create_payee(account_name, account_number, ifsc, payee_type: str = PAYEE_TYPE_OTHERS):
     """Insert a new Payee for this bank account and return it.
+
+    `payee_type` says where it was created (`rules.PAYEE_TYPES`, owner 2026-10-23): the own-account flow
+    passes Users, a vendor's bank details Vendors, everywhere else keeps the default, Others. It is set
+    once here and never changes (`set_only_once`).
 
     Refuses incomplete or malformed details, an account + IFSC another Payee holds
     (`DuplicatePayeeError`, carrying `existing`), and an IFSC the lookup can't find
     (`ifsc.IfscLookupError`); bank and branch come from the lookup, never from the caller. Writes
     with `ignore_permissions`: the calling endpoint's role check is the boundary. Never commits.
     """
+    if payee_type not in PAYEE_TYPES:
+        frappe.throw(_("Unknown payee type: {0}").format(payee_type))
     details = parse_details(account_name, account_number, ifsc)
     problem = details_problem(details)
     if problem:
@@ -125,6 +134,7 @@ def create_payee(account_name, account_number, ifsc):
         "ifsc": details.ifsc,
         "bank_name": branch.bank_name,
         "bank_branch": branch.bank_branch,
+        "payee_type": payee_type,
     })
     doc.insert(ignore_permissions=True)
     return doc
@@ -146,6 +156,8 @@ def backfill_payee(details: PayeeDetails, bank_name: str | None, bank_branch: st
         "ifsc": details.ifsc,
         "bank_name": (bank_name or "").strip() or None,
         "bank_branch": (bank_branch or "").strip() or None,
+        # Every Payee this makes is a vendor's bank details moved off the vendor.
+        "payee_type": PAYEE_TYPE_VENDORS,
     })
     doc.insert(ignore_permissions=True)
     return doc

@@ -292,7 +292,7 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
 
     return (
         <AlertDialog open={isOpen} onOpenChange={setIsOpen}>
-            <AlertDialogContent>
+            <AlertDialogContent className="max-h-[90vh] overflow-y-auto">
                 <AlertDialogHeader>
                     <AlertDialogTitle>{markAsPaid ? "Record Payment & Mark as Paid" : "Update Payment Details"}</AlertDialogTitle>
                     <AlertDialogDescription>Expense ID: {expense.name}</AlertDialogDescription>

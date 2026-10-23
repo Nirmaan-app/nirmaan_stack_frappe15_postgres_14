@@ -1,6 +1,13 @@
 import frappe
 
 from nirmaan_stack.services.asset_history import DEPARTMENT_SET, add_history
+from nirmaan_stack.services.payees.own_accounts import check_own_account
+
+
+def validate(doc, method):
+    """The person's own bank account (Reimbursements) changes only through
+    `services/payees/own_accounts.add_own_account`, and is never another person's."""
+    check_own_account(doc)
 
 
 def on_update(doc, method):
