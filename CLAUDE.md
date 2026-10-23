@@ -27,13 +27,17 @@ Three standards fail silently when broken, so they are summarised here too (full
 
 ## Session workflow
 
+- **Before implementing anything, ask the owner where it runs: laptop or desktop.** Then run
+  `bash scripts/env_sync/env_sync.sh status` and act on its verdict. On the desktop (hostname `DESKTOP-4RMALAH`), skip
+  the question: the laptop has already handed over. The loop, its rules and recovery: `docs/agents/environments.md`.
 - **Tickets and specs are GitHub issues.** Read the ticket and its parent spec first:
   `gh issue view <n> --comments --repo Nirmaan-app/nirmaan_stack_frappe15_postgres_14`.
 - **Ad-hoc work (no ticket): write a plan and wait for the user's review before writing code.** Under
   `/implement`, the ticket is the approved plan: build it without re-planning or stopping for review.
 - **Commit once per ticket, on the current branch;** branch only when the user asks. Run
   `python3 scripts/residence_check.py` before each commit.
-- **Never push, and never close issues.** The user does both, by hand.
+- **Never push to GitHub, and never close issues.** The user does both, by hand, from the laptop. Moving commits
+  between the laptop and the desktop with `env_sync.sh` is not a push. The desktop never pushes anywhere.
 - **Per ticket, run the affected test modules, not the whole app.** This overrides `/implement`'s "full test suite
   once at the end". Affected means: the test modules of the package you changed, every test module that imports
   a module you changed (`grep -rln "<dotted.package.path>" nirmaan_stack --include='test_*.py'`; grep the
@@ -131,5 +135,6 @@ Read by the installed engineering skills (`/triage`, `/to-spec`, `/code-review`,
   `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
 - **Domain docs:** single-context — root `GLOSSARY.md` + root `docs/adr/` — plus the per-domain reference docs
   under `.claude/context/domain/` and `frontend/.claude/context/`. See `docs/agents/domain.md`.
+- **Environments:** the laptop / desktop loop and `scripts/env_sync/env_sync.sh`. See `docs/agents/environments.md`.
 - **Coding standards:** `CODING_STANDARDS.md` and `frontend/CODING_STANDARDS.md` (the `/code-review` Standards axis
   reads both).
