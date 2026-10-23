@@ -1635,6 +1635,65 @@ Acoustic -> Thermal, a Piping probe's cladding left out) and 2 F1 rows unexplain
 and both replies: the plan doc's ADP-5b entry and the Desktop `2026-10-23_ADP-5b_Rows.xlsx`. Rows NOT selected kept their
 stored answers byte-for-byte (34 / 34 sheets).
 
+**ADP-5c: WORK ON EXISTING ITEMS -- REMOVAL x1, REMOVAL AND REFIXING x2 (owner 2026-10-23 12:07 / 12:08; HVAC v53).**
+`list_spec.pricing.existing_work` (ADP only for now): a list of entries `{words, install_times, line, rule}`, tried IN ORDER;
+the first entry with a phrase at a word start in the row's OWN text (description + own notes -- never a heading, owner Q1 (b))
+wins. The SKU is matched the normal way (family + size ladder; a no-size cross-talk takes the 300 x 300 default below); a row
+with no SKU match refuses as before. Then step (6c) of `priceOneItem` sets supply 0 and install = the matched install x
+`install_times`, with the plain working line "removal and refixing of existing -> supply 0, install 2 x 288 = 576 (the row's
+own text says 'Refixing of Existing')". Phrases live in config, never in code: x2 "refixing (of) existing", "re-fixing (of)
+existing", "shifting (of) existing" (listed first, so "Removing and Refixing of Existing" reads as x2); x1 "removing (of)
+existing", "removal (of) existing". A bare "removing" never matches ("removable core" is on 36 priced rows). The calculator
+has no row text, so the rule never fires there. Validator: `_validate_existing_work` (a phrase in two entries is refused).
+**OPEN (owner Q1 (b), 2026-10-23): the phrases on the PARENT heading.** The ruling said "the row's own text and its parent
+heading"; `priceOneItem` sees the parent heading only inside the joined `rowText`, so passing it needs one optional argument
+from `pricingSheetHelper.ts` -- deferred. 0 of the 11 stored matches come from a heading.
+
+**ADP-5c: A CROSS-TALK SILENCER WITH NO SIZE PRICES AS 300 x 300 (owner 2026-10-23 10:14 / 12:08; HVAC v53).**
+`number_defaults.face_w_mm` / `face_h_mm` = 300 for family `cross-talk` (the ADP-1 mechanism, no code): 836 / 288 / 1,124,
+marked as assumed; a stated size always wins; a removal row with no size takes it too (then existing_work applies). The
+families list keeps every other per-number family's refusal ("no width and height stated") unchanged. This SUPERSEDES the
+earlier "option 3 now, option 4 later" record of the same day.
+
+**ADP-5c: THE ADP QUESTION (owner 2026-10-23 10:46; HVAC v53).** The family note gains, word for word: "A row that buys
+something returns at least one item: an item outside the list is 'none of these' with 'Item as written' -- never an empty
+list." (C3); in ALTERNATIVE NAMES "a spigot damper is 'spigot' (code prices it as the Butterfly Damper With Spigot); a
+multi-blade louver damper is 'VCD'. A Z-piece, a Z type baffle, a Z baffle or a cross talk silencer is 'cross-talk' (owner
+2026-10-23), also under a heading that names another family (a Z type baffle under an ACTUATORS heading is 'cross-talk')."
+(C4 / C1 / C5); and after "both items are returned." "A PLENUM'S ACCESSORIES ARE PART OF IT (owner 2026-10-23): where the row's
+item is a 'double-skin plenum' or a 'mixing box / LP plenum' itself, an access door or any other accessory the row names with
+it (hangers, cut-outs, openings) is not a second item -- return the plenum alone; its rate includes them." (C6; a canvas
+connection is NOT an accessory and stays its own item -- the sentence does not name it).
+
+**ADP-5c: VCD ALUMINIUM (owner 2026-10-23 10:21 / 10:23 / 12:03; HVAC v53).** One SKU, "Volume control Damper (VCD)" /
+"Aluminium", SQM, cost_supply 5,940 TYPED (= GI Rectangular's 5,400 x 1.10, not a formula or a link), install 1,200, markups
+0.45 / 0.6: 8,613 + 1,920 = 10,533 per sq.m; every other field from rmi-4f4585c07dd2. `spec_reader`'s VCD rule reads the detail
+"Aluminium" to variant "aluminium" (attributes are READ, never hand-typed). The variant (values, `values_by_family.VCD`, the
+catalogue values) gains "aluminium"; the note: "A VCD is 'aluminium' ONLY where the row or its headings say the damper is
+aluminium (aluminium, aluminum, Al.) (owner 2026-10-23); a VCD that does not say aluminium is answered as before and takes the
+default. A motorised aluminium VCD is 'motorised'." (D8 (a)). Every dropdown that offers the variant is driven by the SKUs or
+the config -- no code. Aluminium hit & miss dampers stay named refusals (D10).
+
+**ADP-5c: A COATING IS NEVER A CLADDING, AND IT IS SHOWN (owner C7, 2026-10-23 10:51; HVAC v53).** The Insulation `cladding`
+note's coating sentence reads: "A paint or coating ('polyshield coating', 'fire retardant coating', 'protective coating', a UV
+coating, a lacquer) is not a cladding and never changes the price (owner 2026-10-23): where it is the only covering the text
+names, with no glass cloth, answer 'None' -- never 'Glass Cloth with paint' -- and leave it out of 'Cladding as written'. A
+cladding named beside it (an aluminium sheet, a foil) is answered as that cladding. Where the coating IS sandwiched with or
+applied over glass cloth, it is the paint of 'Glass Cloth with paint': copy the words up to and including the glass cloth into
+'Cladding as written'." The model copies the coating's own words into the text answer `coating_as_written` (asked last);
+`panel_readonly` shows it and a `read_notes` rule (every Insulation family, the whole text) adds the line "Coating (as in BoQ):
+<text>. Coating price is not included - adjust the price if appropriate." -- the pipe-class mechanism, by config. Piping's
+insulation section is priced with the Insulation config, so the line reaches it. Known: a COMPOSED row (two layers) shows the
+line once per layer (the existing `read_notes` mechanism). A coating sandwiched with glass cloth is the glass-cloth cladding
+(BOQ-26-00086 "High side": "sandwiched with 10 Mil Class E Glass Cloth" -> Glass Cloth with paint, owner Q2 (a)).
+
+**ADP-5c BROAD RE-READ (2026-10-23, HVAC v53): 453 rows on 54 sheets, 81 calls.** EXPECTED 375 / NEUTRAL 50 / QUESTION-EFFECT 22
+/ UNEXPLAINED 6; rows NOT selected kept their stored answers byte-for-byte (54 / 54). **OPEN for the owner:** BOQ-26-00087 r28 /
+r29 now read "aluminum cladding / reinforced foil facing" as 24G Aluminium with Glass Cloth and refuse (were Aluminium Foil,
+712 / 581) -- the v53 note moved a 0.4-confidence answer; 00302 r53's canvas connection is dropped as a plenum "accessory"
+(C6 reached it, against the canvas ruling); 00231 r214-216 motorised VCDs no longer return their control panel / actuator as
+items and now price. Rows, payloads and both replies: the plan doc's ADP-5c entry and the Desktop `2026-10-23_ADP-5c_Rows.xlsx`.
+
 **ADP-5a: "A x B-C depth" IS THREE BOX SIDES (owner 2026-10-22 10:49 item 6).** `readBoxSides` splits a two-part size whose
 second part is "B-C" followed by a height label ("1200x150-300 depth", "600x600-300 depth") into length A, width B, height C.
 A plenum does NOT borrow its diffuser's face size (R6, owner 2026-10-19 23:13). 2 stored rows price (2,306 / 2,787 supply).

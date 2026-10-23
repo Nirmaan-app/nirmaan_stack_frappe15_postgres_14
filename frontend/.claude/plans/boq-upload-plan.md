@@ -48950,3 +48950,95 @@ baseline: ac7 `2f0e0f13f852637a...`, ac7v2 `b5e79698ffe6fbba...`.** Field table:
    cannot be told from one read; a repeat read of the 10 rows would separate the question from chance.
 3. 00191 r37: the R2 sentence meets the coating rule ("a coating with no glass cloth: leave Cladding out, copy it into
    Cladding as written"): the model left the cladding out but did not copy it, so the row cannot price.
+
+## Slice ADP-5c - why 10 rows moved in ADP-5b, the ruled wording (HVAC v53), VCD Aluminium, the cross-talk default, work on existing items, the coating shown read-only, and a broad re-read - as built 2026-10-23
+
+**Owner rulings built** (2026-10-23): the Phase A stop 10:46 / 10:51 (C1 louver = VCD; C3 never an empty list; C4 spigot damper
+= spigot; C5 Z-piece / Z baffle / cross talk silencer = cross-talk, also under another family's heading; C6 plenum accessories
+are part of it, a canvas connection is NOT; C9 VCD Aluminium + D8 (a) motorised wins; C7 a coating is never a cladding and is
+shown read-only with its note; D10 aluminium hit & miss stay refusals; D11 00086 High side added); 12:03 spec_reader's VCD
+"Aluminium" entry; 12:04 / 12:07 / 12:08 the cross-talk 300 x 300 default on EVERY no-size cross-talk row and the removal /
+refixing rule (supersedes "option 3 now, option 4 later"); desktop Q1 (b) phrases on the row's OWN text only (parent heading
+OPEN); 18:18 Q1 (a) 00191 r37 accepted on D4 (a), Q2 (a) 00086 High side declared Glass Cloth with paint (premise corrected).
+Built on the desktop (DESKTOP-4RMALAH) from Phase B on; the laptop did Phase A.
+
+**Commits (unpushed at the time of writing):**
+- `bbcbb7fb5` feat(rate-helper): itemListPricing.ts `existing_work` (`existingWorkOf` + step (6c) of `priceOneItem`: supply 0,
+  install x `install_times`, a plain line quoting the row; own text only; no SKU -> refuses as before); config_validation.py
+  `existing_work` + `_validate_existing_work`; spec_reader.py VCD "Aluminium" -> variant "aluminium" (93 live ADP items read
+  byte-identical); tests adp5c.test.ts (16), test_config_validation_adp5c.py (8), the test_spec_reader.py case; test_rate_master
+  test_p01 key-set pin extended (mechanical). Vacuity V1-V5 red, restores sha-equal (V-S1 on the laptop).
+- `e1a4fea33` feat(rate-master): HVAC v53 (export = v52 by content; ONLY the ruled edits; 380 items carried byte-equal + ONE added,
+  VCD Aluminium `rmi-c1ebcadd4fd5`, 5,940 / 1,200 typed, attributes read by spec_reader: 8,613 + 1,920 = 10,533 per sq.m); mint
+  gate v52 -> v53 PASS, `--latest` PASS; pre-load snapshot `BRMS-26-02473`, batch `rmbulk-09dc78cf4501`; live == v53 (HVAC
+  configs `bda58c7f28b919c9`, items `31631135edffdf23`; Electrical v66 unchanged). test_adp5c_question.py (9) + the adp5c.test.ts
+  v53 block (the coating line on Insulation and in Piping's section; VCD Aluminium on the panel). Current-asset pins inverted,
+  BEFORE kept: test_piping_v34 (21 + the live count), test_rate_master (the constant, 6 asserts, sv_01, `_without_adp5c_items` /
+  `_without_adp5c_insulation` in 4 cross-version pins), test_extraction_coercion (1), servedVsStoredPricing.test.ts
+  (`withoutAdp5c`; it reads the latest asset by readdir, so the name search missed it -- found by the full vitest run).
+- The docs commit that carries this entry.
+
+Desktop: `2026-10-23_ADP-5c_Report.md` (ledger first), `_Ledger.md`, `_PhaseA.xlsx`, `_Expected.xlsx`, `_Rows.xlsx`,
+`_python_full.log`, `ADP-5c Payload Archive\` (AB_resend\A2, AB_resend\B4, Phase_C), `Capture log backup\2026-10-23_ADP-5c_*`.
+
+### 1. Phase A (laptop; full record in the report)
+A1 history over 7,757 capture records; A2 A/B re-send of ADP-5b's own requests (60 calls, 524,843 tokens): no clean QUESTION
+row -- most moves are chance or old; A3 / A4 the candidates C1-C10; A5 the broad set (431 rows / 52 sheets). Corrections the
+owner ruled on: the louver damper is a VCD (aluminium -> a new SKU), the Z-piece default needs the removal rule, the coating
+sentence made 00191 r37 refuse.
+
+### 2. Phase B (no model call except B4)
+- Items-spec shas: ADP `2d9cd352` -> `72712eb4`, Insulation `5dd6268f` -> `66639b0c`, Piping `f5524dd1` -> `ee6848a5` (only its
+  delegated section); every other category identical.
+- Stub through the real `_extract_batch` over the 54 Phase C sheets (338 requests, 0 capture writes): 211 item-list requests
+  differ ONLY in ITEMS_SPEC, 127 others byte-identical; v53 file in memory == live, byte for byte.
+- Replay (tracked rig) v53 vs the desktop START by key: 187 rows moved = the 8 declared movers at their declared figures (00166
+  r268 / 00239 r272 0 / 288 / 288; 00166 r270 / 00239 r274 0 / 576 / 576; 00218-2F / -3F r121, 00278-2F r121, 00336 r116
+  836 / 288 / 1,124) + 179 rows whose only difference is "aluminium" in a VCD option list; 0 undeclared.
+- B4 (30 calls, 279,232 tokens): 00096 r93 spigot, 00185 / 00281 r42 cross-talk, 00269 r82 named refusal, 00108 r214 / 00007 r171
+  VCD aluminium, 00149 r277 the plenum alone -- 3 / 3 each; 00191 r37 cladding None 3 / 3 but item "none of these" 3 / 3
+  (accepted, Q1 (a)); control 00329 r254 26G 3 / 3 (as on v52 in A2).
+
+### 3. Full suites (after commit 2, before Phase C)
+Python 8,615 tests: 6 failures + 2 errors, all in ADP-5b's known set, 0 new (8,597 -> 8,615: +18 this slice); the capture log
+unchanged. vitest 199 files / 7,482: the known writeOffControl timeout only (two 5 s load timeouts pass alone). tsc 3,170, the
+same set as ADP-5b.
+
+### 4. Phase C - the broad re-read (54 sheets, 453 rows)
+Population 453 rows / 54 sheets (A5's 431 + the aluminium movers + 00086 High side x21), every sheet ALLOWED by the server's
+own guards, 0 never-read joins; expected table frozen before the first call (rows sha256 `c5a36aac...`). `start_suggest`
+in-process as Administrator, one sheet at a time, nohup. The account's monthly spend limit stopped the run at sheet 48 (00313):
+three refused first calls (0 tokens; runs 01735 / 01736 / 01737, all inactive, no stored answer changed) before the owner's
+limit change took effect. **81 answered calls, 1,048,531 tokens**; carried rows byte-identical on all 54 sheets; the replay
+after vs before: 140 rows differ, all re-read rows, 0 outside. New replay baseline ac7 `c75fe0fe5c9487e5` / ac7v2
+`771683e3673d114d` (17,918 rows).
+
+Classification (hand-read; Desktop `_Rows.xlsx` Classification): **EXPECTED 375, NEUTRAL 50, QUESTION-EFFECT 22,
+UNEXPLAINED 6, RUN-VARIATION 0**. Payload == logged 453 / 453; EA-7 PASS 453 / 453.
+- Met: VCD Aluminium 10,533 on 15 rows (00191 r78 rightly stays GI -- its "aluminium" is the grille); the plenum alone (6,295 x3,
+  5,425); cross-talk 1,124 x3, 1,685, 1,404, 3,120 per sq.m; 00096 r93 334; 00191 r37 4,695 (coating shown, read-only);
+  00329 r257 Acoustic 1,525; 00269 r82 / 00197 r137 named refusals; 00086 High side x21 Glass Cloth with paint, unchanged;
+  Acoustic_Thermal 0 contradictions (0 / 56 read, 0 / 370 stored).
+- **NOT met: 00087 r28 / r29 now refuse** -- cladding "24G Aluminium with Glass Cloth" (0.30; was Aluminium Foil 0.40) on
+  "aluminum cladding / reinforced foil facing where required", same payload: a QUESTION-EFFECT of the v53 Insulation note
+  (712 / 581 lost). Not iterated (spec).
+- QUESTION-EFFECT to rule on: 00302 r53 (control) canvas connection dropped under C6 (4,514 -> 1,784) against the owner's canvas
+  ruling; 00231 r211 (control) aluminium blades -> VCD Aluminium; 00231 r214-216 refusals -> priced (control panel / actuator
+  no longer separate items); 00066 r638 (control) 5,709 -> 12,428; 00140 r39 (control) R2 "exposed" -> cladding None;
+  12 grille / diffuser family flips on the same payload.
+- UNEXPLAINED 6: 00140 "HVAC Lowside Works" Piping r542-546 / r550 -- the payload changed under F1-a (derived heading notes); the
+  pipe type is stated nowhere (the prior MS was a 0.45 guess); now left out -> refuse.
+
+### 5. Browser cert (Chrome on the desktop, :8080, after the full de-stale)
+C1 00108 r214 / 00007 r171 VCD Aluminium 10,533 (variant select "aluminium"); C2 00197 r137 named refusal, 00185 r42 cross-talk
+1,124 with the 300 x 300 default lines; C3 00087 r28 / r29 refuse (as the workbook records -- the end-to-end shortfall); C4
+00191 r37 4,695 with "Coating as written" read-only and its note, 00329 r257 Acoustic 1,525; C5 controls 00007 r75 2,730 and
+00329 r249 735 unchanged; C6 00096 r49 1,972 / 576 / 2,548 and Electrical 00183 r12 210 unchanged; additions 00239 r272
+0 / 288 / 288 ("removal of existing -> supply 0, install 1 x 288 = 288") and r274 0 / 576 / 576 ("removal and refixing of
+existing -> ... 2 x 288 = 576"); C7 HVAC = v53 by content, Electrical v66.
+
+### 6. Open
+- The parent-heading match for `existing_work` (desktop Q1 (b)).
+- 00087 r28 / r29 (the foil facing read as glass cloth), the C6 canvas side effect (00302 r53), the motorised VCD accessories
+  (00231 r214-216), 00231 r211 aluminium blades: owner rulings for a follow-up slice.
+- A composed (two-layer) Insulation row shows the coating note once per layer (the existing `read_notes` mechanism).
