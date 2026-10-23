@@ -126,7 +126,7 @@ def read_adp_spec(item_name, item_detail, unit=None):
     Family by family, in plain words:
 
       VCD ............. name starts "volume control damper"; detail is exactly one of GI Rectangular /
-                        GI Oval / Motorized -> variant. Anything else: not understood.
+                        GI Oval / Motorized / Aluminium -> variant. Anything else: not understood.
       fire damper ..... name is exactly "fire damper"; detail names motorised / UL 555 / with sleeve /
                         without sleeve -> variant + ul. Anything else: not understood.
       actuator ........ name starts "fire damper actuator"; ul from "UL 555" in the name; torque from a
@@ -170,9 +170,10 @@ def read_adp_spec(item_name, item_detail, unit=None):
 
     if il.startswith("volume control damper"):
         fam("VCD")
-        variants = {"gi rectangular": "GI rectangular", "gi oval": "GI oval", "motorized": "motorised"}
+        # ADP-5c (owner 2026-10-23 10:21): the VCD Aluminium SKU
+        variants = {"gi rectangular": "GI rectangular", "gi oval": "GI oval", "motorized": "motorised", "aluminium": "aluminium"}
         if dl not in variants:
-            _refuse("VCD detail '%s' is not one of GI Rectangular, GI Oval, Motorized." % det)
+            _refuse("VCD detail '%s' is not one of GI Rectangular, GI Oval, Motorized, Aluminium." % det)
         a["variant"] = variants[dl]
     elif il == "fire damper":
         fam("fire damper")

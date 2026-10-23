@@ -362,6 +362,18 @@ export interface UnstockedMaterials {
 }
 
 /**
+ * ADP-5c (owner 2026-10-23 12:07 / 12:08): one kind of work on an EXISTING item. A row whose OWN text names one of
+ * `words` at a word start ("Removing and Refixing of Existing") prices its matched SKU at supply 0 and install x
+ * `install_times` (removal 1, removal and refixing 2); `line` is the plain words the working line starts with.
+ */
+export interface ExistingWork {
+  words: string[];
+  install_times: number;
+  line: string;
+  rule: string;
+}
+
+/**
  * SLICE 12d-4a (owner D9b): a value that is NOT OFFERED on rows of one UNIT CLASS -- glass cloth on sheet
  * (per-sq.m) insulation -- refuses with the ruled sentence. It fires on the value the pricing READS (after
  * defaults and the value map) when it contains `value_contains`, or, where the model answered `"None"`, on a
@@ -449,6 +461,10 @@ export interface ItemListPricingSpec {
   /** SLICE 12d-4a (owner D7): unstocked materials refuse by name whatever family the model picked.
    * ABSENT => only `no_sku_families` refuses, as before. */
   unstocked_materials?: UnstockedMaterials;
+  /** ADP-5c (owner 2026-10-23 12:07 / 12:08): work on EXISTING items, named by phrases in the row's OWN text -- the
+   * matched SKU prices at supply 0 and its install x `install_times`. Tried in order, the first hit wins. ABSENT =>
+   * every row prices as before. See `existingWorkOf`. */
+  existing_work?: ExistingWork[];
   /** SLICE 12e-5b (owner R2): a CHOICE the BoQ names in a word the catalogue does not stock ("26 G GI cladding"),
    * copied by the model into `from_attr` as written, priced as the stocked option the entry names -- read only
    * where the choice itself was not answered. ABSENT => nothing is mapped. See `choiceTextFor`. */
@@ -1363,6 +1379,24 @@ export function wordStartHit(text: string, words: readonly string[] | undefined)
     const w = word.toLowerCase().trim();
     if (!w) continue;
     if (new RegExp(`(^|[^a-z0-9])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(t)) return word;
+  }
+  return null;
+}
+
+/**
+ * ADP-5c (owner 2026-10-23 12:07 / 12:08). PURE. The first `existing_work` entry whose phrase is in the row's OWN
+ * text (description + own notes, never a heading -- owner Q1 (b), 2026-10-23), with the phrase as the row writes it.
+ * Null when none hits, so a row without such words -- and every row of a config without the key -- is untouched.
+ */
+export function existingWorkOf(spec: ItemListPricingSpec, ownText: string): { work: ExistingWork; said: string } | null {
+  for (const work of spec.existing_work ?? []) {
+    const hit = wordStartHit(ownText, work.words);
+    if (hit === null) continue;
+    // the hit's own position, found by the same word-start test, so the line quotes the row's spelling
+    const w = hit.toLowerCase().trim();
+    const m = new RegExp(`(^|[^a-z0-9])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).exec(ownText.toLowerCase());
+    const at = m ? m.index + m[1].length : -1;
+    return { work, said: at >= 0 ? ownText.slice(at, at + w.length) : hit };
   }
   return null;
 }
@@ -3919,6 +3953,16 @@ function priceOneItem(
     for (const k of Object.keys(finals)) finals[k] = Math.ceil(finals[k] * unitFactor.factor);
     const each = Object.keys(finals).map((k) => `${k} ${fmt(beforeFactor[k])} -> ${fmt(finals[k])}`).join("; ");
     out.working.push(`per ${unitFactor.word}: ${unitWord(spec, unitFactor.class)} rate x ${unitFactor.factor}${each ? ` (${each})` : ""}`);
+  }
+  // (6c) ADP-5c (owner 2026-10-23 12:07 / 12:08): work on an EXISTING item. The SKU was matched the normal way above (a
+  // row it does not match has already refused); here its supply becomes 0 and its install the matched install x the
+  // entry's multiple. Only a row whose OWN text says so: the calculator passes none, so nothing fires there.
+  const existing = existingWorkOf(spec, ownText);
+  if (existing && typeof finals.install === "number") {
+    const install = finals.install;
+    if ("supply" in finals) finals.supply = 0;
+    finals.install = install * existing.work.install_times;
+    out.working.push(`${existing.work.line} -> supply 0, install ${fmt(existing.work.install_times)} x ${fmt(install)} = ${fmt(finals.install)} (the row's own text says '${existing.said}')`);
   }
   const figures: Record<string, number> = {};
   for (const [k, v] of Object.entries(finals)) figures[k] = v * qty;

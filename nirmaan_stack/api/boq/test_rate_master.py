@@ -12835,7 +12835,9 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                             # ADP declares neither (pinned below)
                             "choice_text", "material_text",
                             # ADP-5a (owner 2026-10-22, SCOPE-5a-1): read only by ADP from v51 on; v7 predates it
-                            "family_merge"})
+                            "family_merge",
+                            # ADP-5c (owner 2026-10-23 12:07 / 12:08): read only by ADP from v53 on; v7 predates it
+                            "existing_work"})
         self.assertNotIn("panel_controls", pr)
         self.assertNotIn("override_when", pr)
         self.assertNotIn("family_when_none", pr)

@@ -531,6 +531,10 @@ _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "unit_
                  # SLICE 12d-1b (owner T5): the text item attribute carrying the material AS WRITTEN, which a
                  # no_sku_families refusal names. Arrives WITH its check below.
                  "no_sku_named_by",
+                 # ADP-5c (owner 2026-10-23 12:07 / 12:08): `existing_work` -- a row whose OWN text removes, refixes or
+                 # shifts EXISTING work prices its matched SKU at supply 0 and the install times a factor. The phrases
+                 # live here, no family or word in code. Arrives WITH `_validate_existing_work`.
+                 "existing_work",
                  # SLICE 12d-4a (owner D3): a value NAMED in the row's own text but answered "not mentioned"
                  # refuses -- the words in config, no category in code. Arrives WITH `_validate_named_in_row`.
                  "named_in_row",
@@ -575,6 +579,10 @@ _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "unit_
 _PRICING_FAMILY_MERGE_KEYS = {"family", "into", "absorbs", "words", "at", "line", "rule"}
 _PRICING_NAMED_IN_ROW_KEYS = {"attr", "words", "refuse", "rule"}
 _PRICING_UNSTOCKED_KEYS = {"words", "from_attr", "rule"}
+# ADP-5c (owner 2026-10-23 12:07 / 12:08): one `existing_work` entry -- the phrases, the install multiple, the plain words
+# the working line starts with, and the ruling. Entries are tried IN ORDER and the first whose phrase is in the row's own
+# text wins, so "removing and refixing of existing" is read by the refixing entry listed first.
+_PRICING_EXISTING_WORK_KEYS = {"words", "install_times", "line", "rule"}
 _PRICING_REFUSE_UC_KEYS = {"unit_class", "families", "attr", "value_contains", "words", "refuse", "rule"}
 _PRICING_READ_NOTE_KEYS = {"families", "from_attr", "pattern", "unless", "line"}
 # SLICE 12e-2: the closed shapes of `family_text` (see `_validate_family_text`).
@@ -677,6 +685,36 @@ def _validate_unstocked_materials(um, by_id, sku_attrs, numbers):
             _vthrow(f"{loc}.from_attr must name an item attribute of this category.")
         if by_id[fa].get("type") != "text" or fa in read_by_pricing:
             _vthrow(f"{loc}.from_attr must be a text definition the pricing does not read.")
+
+
+def _validate_existing_work(rules):
+    """ADP-5c (owner 2026-10-23 12:07 / 12:08) -- `list_spec.pricing.existing_work`: a non-empty list of entries, each
+    a non-empty phrase list, a positive `install_times` (removal 1, removal and refixing 2), the plain words its working
+    line starts with and the ruling. A phrase in two entries is refused: the first entry would silently win."""
+    loc = "list_spec.pricing.existing_work"
+    if not isinstance(rules, list) or not rules:
+        _vthrow(f"{loc} must be a non-empty list.")
+    seen = {}
+    for i, r in enumerate(rules):
+        rloc = f"{loc}[{i}]"
+        if not isinstance(r, dict):
+            _vthrow(f"{rloc} must be an object.")
+        unk = set(r) - _PRICING_EXISTING_WORK_KEYS
+        if unk:
+            _vthrow(f"{rloc}: unknown key(s): {', '.join(sorted(unk))}.")
+        if not _words_ok(r.get("words")):
+            _vthrow(f"{rloc}.words must be a non-empty list of phrases.")
+        for w in r["words"]:
+            k = w.strip().lower()
+            if k in seen:
+                _vthrow(f"{rloc}.words repeats '{w}', already in entry {seen[k]}.")
+            seen[k] = i
+        t = r.get("install_times")
+        if not isinstance(t, (int, float)) or isinstance(t, bool) or t <= 0:
+            _vthrow(f"{rloc}.install_times must be a positive number.")
+        for key in ("line", "rule"):
+            if not isinstance(r.get(key), str) or not r[key].strip():
+                _vthrow(f"{rloc}.{key} must be a non-empty string.")
 
 
 def _validate_refuse_on_unit_class(rules, by_id, choice_attrs, ucls, fams):
@@ -1726,6 +1764,8 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         _validate_unstocked_materials(pr["unstocked_materials"], by_id, sku_attrs, numbers)
     if "refuse_on_unit_class" in pr:
         _validate_refuse_on_unit_class(pr["refuse_on_unit_class"], by_id, choice_attrs, ucls, fams)
+    if "existing_work" in pr:
+        _validate_existing_work(pr["existing_work"])
     if "read_notes" in pr:
         _validate_read_notes(pr["read_notes"], by_id, fams, sku_attrs, numbers)
     # SLICE 12d-1a (owner R7): `panel_readonly` -- each a `text` item definition that NO pricing rule
