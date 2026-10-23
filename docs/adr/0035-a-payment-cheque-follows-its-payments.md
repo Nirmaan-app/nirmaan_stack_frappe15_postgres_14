@@ -97,3 +97,27 @@ cheque, so a deposit cheque that secures one had no reason to be there.
 - A cheque that the import never matches stays Issued until it is cancelled.
 - "Cleared by" is no longer shown. It stays on old cheques as history.
 - A Project Payment still keeps its own copy of the cheque's paper date.
+
+## Amendment B — a cheque payment is Paid only with its cheque (2026-10-23)
+
+**Accepted** (owner, 2026-10-23, while checking spec #1514). Extends Decision 4 and Amendment A Decision 1, and
+withdraws the Old-type exception that let a person pay one of an Old-type cheque's payments by hand.
+
+### Context
+
+After #1514 every screen refused to pay a cheque payment on its own, except for payments on Old-type cheques, which
+a person could still settle by hand from Bulk Import or fulfil from Project Payments. A direct edit of the
+payment's status (Desk, the REST API) was refused nowhere. Either way a cheque could read Issued while one of its
+payments read Paid, which says the bank paid half a cheque.
+
+### Decision
+
+1. **A cheque payment becomes Paid only when its cheque is cleared by an imported bank-statement line,** together
+   with every other payment on that cheque. Nothing else moves a cheque payment to Paid or away from it.
+2. **Old-type cheques follow the same rule.** Their payments are no longer paid by hand.
+3. **A payment in Cheque mode always has its cheque.** One without a cheque line is refused.
+
+### Consequences
+
+- An Old-type cheque that already has some payments Paid still clears at the import, which leaves those as they are.
+- The rule sits on the payment's own save, so it holds for every path, including ones added later.
