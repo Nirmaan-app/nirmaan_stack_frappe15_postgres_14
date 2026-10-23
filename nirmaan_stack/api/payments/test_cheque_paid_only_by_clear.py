@@ -136,7 +136,7 @@ class TestTheSaveRefusesPaidOutsideTheClear(ChequeImportCase):
         self.assertEqual(frappe.db.get_value(PAYMENT, a, ["status", "utr"]), ("Paid", "UTR1552-EDITED"))
 
 
-ON_NO_CHEQUE = "no cheque lists it.*a cheque payment always has its cheque. Switch its Mode of Payment to Online"
+ON_NO_CHEQUE = "no cheque lists it.*a cheque payment always has its cheque. An Admin can switch its Mode of Payment to Online in Desk"
 
 
 class TestAChequePaymentAlwaysHasItsCheque(ChequeImportCase):

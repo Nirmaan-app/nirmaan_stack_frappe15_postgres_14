@@ -252,7 +252,7 @@ class TestAChequePaymentIsPaidOnlyByItsClear(unittest.TestCase):
         self.assertEqual(
             payment_rules.no_cheque_problem("PAY-1", status="Reconciliation Pending", on_a_cheque=False),
             "PAY-1 is in Cheque mode, but no cheque lists it, so it cannot be saved: a cheque payment always has its "
-            "cheque. Switch its Mode of Payment to Online to pay it another way.",
+            "cheque. An Admin can switch its Mode of Payment to Online in Desk to pay it another way.",
         )
 
     def test_one_sentence_says_how_a_cheque_payment_is_paid(self):

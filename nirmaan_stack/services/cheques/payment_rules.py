@@ -139,5 +139,5 @@ def no_cheque_problem(payment: str, *, status: str, on_a_cheque: bool) -> str | 
         return None
     return (
         f"{payment} is in Cheque mode, but no cheque lists it, so it cannot be saved: a cheque payment always has "
-        "its cheque. Switch its Mode of Payment to Online to pay it another way."
+        "its cheque. An Admin can switch its Mode of Payment to Online in Desk to pay it another way."
     )

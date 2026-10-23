@@ -115,7 +115,9 @@ payments read Paid, which says the bank paid half a cheque.
 1. **A cheque payment becomes Paid only when its cheque is cleared by an imported bank-statement line,** together
    with every other payment on that cheque. Nothing else moves a cheque payment to Paid or away from it.
 2. **Old-type cheques follow the same rule.** Their payments are no longer paid by hand.
-3. **A payment in Cheque mode always has its cheque.** One without a cheque line is refused.
+3. **A payment in Cheque mode always has its cheque.** One without a cheque line is refused, except an older
+   one already Paid or Rejected that the first cheque backfill could not put on a cheque (owner, 2026-10-23):
+   it is settled history, nothing can pay it or set it back, and it may still be saved.
 
 ### Consequences
 

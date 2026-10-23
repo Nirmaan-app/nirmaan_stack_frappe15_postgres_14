@@ -644,6 +644,8 @@ class TestAClearedChequeStaysCleared(ChequeImportCase):
         a = self._payment(30000, "Paid")
         cheque = self._old_type(self._number(), 30000, [(a, 30000)])
         row = self._bank_line(reference_id="UTR-BY-HAND-1552", amount=30000)
+        # Test setup: plant the match a pre-#1552 hand settle wrote. Raw, so no hook recounts anything; the
+        # payment is already Paid and the test reads only the plan and the rows.
         frappe.db.sql(
             """INSERT INTO "tabOutflow Row Match" (name, creation, modified, modified_by, owner, docstatus, idx,
                    import_row, import_batch, transfer_id, target_doctype, target_name, target_amount, match_kind,
