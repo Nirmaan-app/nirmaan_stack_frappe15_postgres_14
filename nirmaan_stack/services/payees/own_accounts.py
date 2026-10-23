@@ -29,7 +29,7 @@ from __future__ import annotations
 import frappe
 from frappe import _
 
-from nirmaan_stack.services.payees.rules import ACCOUNT_FIELDS, details_problem, parse_details
+from nirmaan_stack.services.payees.rules import ACCOUNT_FIELDS, PAYEE_TYPE_USERS, details_problem, parse_details
 from nirmaan_stack.services.payees.links import linked_vendors
 from nirmaan_stack.services.payees.writer import create_payee, edit_payee_reply, existing_payee
 
@@ -145,7 +145,7 @@ def add_own_account(user: str, account_name, account_number, ifsc) -> tuple[str,
         _set(person, payee)
         return payee, LINKED
 
-    payee = create_payee(details.account_name, details.account_number, details.ifsc).name
+    payee = create_payee(details.account_name, details.account_number, details.ifsc, PAYEE_TYPE_USERS).name
     _set(person, payee)
     return payee, ADDED
 

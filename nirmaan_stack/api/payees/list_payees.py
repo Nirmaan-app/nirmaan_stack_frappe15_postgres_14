@@ -40,9 +40,10 @@ TABS = {
     "no_vendor": "q.vendors = 0",
 }
 
-FILTERABLE = {"name"}
+#: `payee_type` is the Payee Type column's filter (Users / Vendors / Others, owner 2026-10-23).
+FILTERABLE = {"name", "payee_type"}
 SEARCHABLE = {"account_name", "account_number", "ifsc", "name", "vendor_name"}
-SORTABLE = {"name", "creation", "account_name", "account_number", "ifsc", "bank_name", "vendors"}
+SORTABLE = {"name", "creation", "account_name", "account_number", "ifsc", "bank_name", "payee_type", "vendors"}
 
 
 def _coerce(value):
@@ -56,8 +57,8 @@ def _coerce(value):
 
 def _filter_clauses(filters) -> tuple[str | None, list[str], list]:
     """`(tab, clauses, params)` from the table's filters. The page sends its tab as the filter
-    `["tab", "=", <key>]` (the hook refetches on a filter change). The column filter is only `name`,
-    with `=`, `!=`, `in` or `not in`; anything else is refused rather than ignored, which
+    `["tab", "=", <key>]` (the hook refetches on a filter change). The column filters are `name` and
+    `payee_type`, with `=`, `!=`, `in` or `not in`; anything else is refused rather than ignored, which
     would show more rows than asked for."""
     filters = _coerce(filters) or []
     if isinstance(filters, dict):
