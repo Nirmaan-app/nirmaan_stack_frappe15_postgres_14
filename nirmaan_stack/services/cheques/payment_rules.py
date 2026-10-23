@@ -6,9 +6,14 @@
 A Project Payment's Mode of Payment changes only through a Cheque (`mode_change_problem`), only a PO payment
 is paid by cheque (`cheque_mode_problem`), and a cheque's payments move together, so no one-payment action
 (hold, Revert to Approved, split, paying it alone) takes one of them (`cheque_payment_problem`).
+
+A cheque payment is Paid only when its cheque clears from the bank statement (#1552, ADR-0035 Amendment B):
+no save moves one into or out of Paid but the cheques service's clear (`paid_move_problem`), and a payment
+in Cheque mode always has its cheque (`no_cheque_problem`).
 """
 
-from nirmaan_stack.services.cheques.rules import CANCELLED, PO_DOCTYPE
+from nirmaan_stack.services.cheques.rules import CANCELLED, PAYMENT_REJECTED, PO_DOCTYPE
+from nirmaan_stack.services.settlement import STATUS_PAID
 
 
 #: A Cheque payment's Cheque that no longer holds it to the cheque: Cancelled, or none at all (a
@@ -79,3 +84,52 @@ def cheque_payment_problem(payment: str, action: str, *, is_cheque: bool, cheque
         return None
     cheque = f"cheque {cheque_no}" if cheque_no else "cheque"
     return f"{payment} is paid by {cheque}, so it {refusal}"
+
+
+#: Set by the cheques service's clear (`status._pay`) on each payment save it makes, naming the cheque it
+#: clears. Only server code sets it (a REST write cannot); it is what lets that one save make a cheque
+#: payment Paid (`paid_move_problem`).
+CLEARING_FLAG = "cheque_clearing"
+_PAID_BY_CLEAR = (
+    "a cheque payment becomes Paid only when a bank-statement line with its cheque's number and amount is "
+    "imported, which clears the cheque and pays every payment on it"
+)
+
+
+def paid_move_problem(
+    payment: str, *, from_status: str | None, to_status: str, is_cheque: bool, clearing: bool
+) -> str | None:
+    """Why a save that moves `payment` from `from_status` (None: a new payment) to `to_status` is refused, or
+    None. The Project Payments `validate` asks it on every save (`payment_mode.validate_paid_by_clear`).
+
+    Only a status move into or out of Paid of a cheque payment is refused; any other edit of a Paid one
+    (its UTR, its date, its attachment) is not a move. Into Paid only when `clearing`: the save is the
+    cheques service clearing the cheque the payment is on. Out of Paid never: a cheque has no undo.
+    """
+    if not is_cheque or from_status == to_status:
+        return None
+    if to_status == STATUS_PAID:
+        return None if clearing else f"{payment} is a cheque payment, so it cannot be saved as Paid: {_PAID_BY_CLEAR}."
+    if from_status == STATUS_PAID:
+        return (
+            f"{payment} is a Paid cheque payment, so it cannot be moved to {to_status}: {_PAID_BY_CLEAR}, "
+            "and a Paid one is never set back."
+        )
+    return None
+
+
+def no_cheque_problem(payment: str, *, status: str, on_a_cheque: bool) -> str | None:
+    """Why a save of `payment`, in Cheque mode at `status` and listed by a cheque only when `on_a_cheque`, is
+    refused, or None (#1552, ADR-0035 Amendment B). The Project Payments `validate` asks it on every save of a
+    saved payment (`payment_mode.validate_on_a_cheque`); a new one is put on its cheque right after its insert.
+
+    A Rejected one may be off every cheque's lines: the backfill left Rejected payments off, and one rejected
+    alone drops off its Old-type cheque (`detach.drop_off_cheques`). Any other is what a failed Request Payment
+    leaves behind, and it may not move on.
+    """
+    if on_a_cheque or status == PAYMENT_REJECTED:
+        return None
+    return (
+        f"{payment} is in Cheque mode, but no cheque lists it, so it cannot be saved: a cheque payment always has "
+        "its cheque. Delete it and request the payment again."
+    )

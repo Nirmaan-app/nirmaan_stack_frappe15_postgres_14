@@ -13,6 +13,7 @@ USAGE
     no = self.cheques.number()                      # a fresh TESTCHQ cheque number
     self.cheques.track(name)                        # a Cheque the code under test made
     name = self.cheques.plant_cheque(vendor=v, ...) # a Cheque in an old shape, at Issued (#1482)
+    self.cheques.put_on_old_type_cheque(pay)        # a raw-planted Cheque payment's Old-type cheque (#1552)
     ChequeFixture.move_to_other_bank(name, "HDFC Bank")  # a Payment cheque on Others from before #1516
     pay = self.cheques.plant_payment(self.fx, "Approved", project=p, vendor=v, document=(SR, sr))
     self.addCleanup(ChequeFixture.purge_rows, [("Version", {...}), (doctype, {"name": name})])
@@ -150,6 +151,35 @@ class ChequeFixture:
         for payment in line_payments(doc):
             commit_move_to_reconciliation(payment)
         return doc.name
+
+    def put_on_old_type_cheque(self, payment: str) -> str:
+        """Put Cheque payment `payment` on its own Issued Old-type cheque, raw: a cheque payment from before spec
+        #1477 still in flight, approved one payment at a time and never issued by its approval (`decide.cheque_of`
+        and `status.issue` pass Old-type cheques by). A payment in Cheque mode always has its cheque (#1552), so a
+        suite that plants one raw puts it here. Test setup only: today's cheques service makes no such cheque.
+        Tracked and committed; returns the cheque's name."""
+        pay = frappe.db.get_value(
+            "Project Payments", payment, ["amount", "vendor", "project", "document_type", "document_name"], as_dict=True
+        )
+        cheque = self.track(f"{NUMBER_PREFIX}-OLD-{frappe.generate_hash(length=10)}")
+        frappe.db.sql(
+            """INSERT INTO "tabCheques" (name, creation, modified, modified_by, owner, docstatus, idx, cheque_no,
+                   bank, cheque_date, amount, vendor, status, cheque_type, old_type)
+               VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, 'ICICI Bank', %s, %s, %s, 'Issued', 'Payment', 1)""",
+            (cheque, ADMIN, ADMIN, self.number(), nowdate(), flt(pay.amount), pay.vendor),
+        )
+        frappe.db.sql(
+            """INSERT INTO "tabCheque Line" (name, creation, modified, modified_by, owner, docstatus, idx, parent,
+                   parenttype, parentfield, line_type, project, record_doctype, record_name, payment_doctype,
+                   payment_name, amount)
+               VALUES (%s, NOW(), NOW(), %s, %s, 0, 1, %s, %s, 'lines', 'PO/WO Payment', %s, %s, %s,
+                       'Project Payments', %s, %s)""",
+            (frappe.generate_hash(length=10), ADMIN, ADMIN, cheque, CHEQUES, pay.project, pay.document_type,
+             pay.document_name, payment, flt(pay.amount)),
+        )
+        frappe.db.set_value("Project Payments", payment, "cheque", cheque, update_modified=False)
+        frappe.db.commit()
+        return cheque
 
     @staticmethod
     def move_to_other_bank(name: str, bank_name: str, *, cheque_no: str | None = None) -> None:

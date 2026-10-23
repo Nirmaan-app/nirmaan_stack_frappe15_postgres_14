@@ -41,7 +41,7 @@ from frappe.utils import flt, nowdate
 
 from nirmaan_stack.services.approval_tiers import status_after_l1
 from nirmaan_stack.services.ceo_hold.core import CEO_HOLD_STATUS
-from nirmaan_stack.services.cheque_payments import move_to_reconciliation
+from nirmaan_stack.services.cheque_payments import is_cheque, move_to_reconciliation
 from nirmaan_stack.services.cheques.approval_rules import (
     ApprovalLine,
     approval_problem,
@@ -101,15 +101,15 @@ def live_cheque_of(payment_name: str) -> str | None:
 
 
 def pay_alone_problem(payment_name: str) -> str | None:
-    """Why `payment_name` may not be paid on its own, or None (story 45): it is on a live (Approval Pending or
-    Issued), not Old-type Payment cheque, whose clear pays every payment on it (`status.clear`). Asked by
-    the user-facing ways to pay one payment: the import's hand settle and the payments screen's fulfil."""
-    cheque = live_cheque_of(payment_name)
-    if not cheque:
+    """Why `payment_name` may not be paid on its own, or None (story 45, #1552): it is a cheque payment, paid
+    only when its cheque's bank line clears every payment on it (`status.clear`). Old-type cheques too
+    (ADR-0035 Amendment B). Asked by the user-facing ways to pay one payment, the import's hand settle and
+    the payments screen's fulfil, so they refuse by name before the payment's own save would
+    (`payment_mode.validate_paid_by_clear`)."""
+    row = frappe.db.get_value(PAYMENT_DOCTYPE, payment_name, ["mode_of_payment", "cheque_no"], as_dict=True)
+    if not row or not is_cheque(row):
         return None
-    return cheque_payment_problem(
-        payment_name, CHEQUE_REFUSES_PAY, is_cheque=True, cheque_no=frappe.db.get_value(CHEQUES, cheque, "cheque_no")
-    )
+    return cheque_payment_problem(payment_name, CHEQUE_REFUSES_PAY, is_cheque=True, cheque_no=row.cheque_no)
 
 
 def _payment_cheque_of(payment_name: str, statuses: tuple) -> str | None:

@@ -16,7 +16,11 @@ from nirmaan_stack.services.payees.pay_to import fill_payment_from_vendor
 from nirmaan_stack.integrations.controllers.cheques import drop_off_cheques_of, on_payment_rejected
 from nirmaan_stack.services.cheques.decide import refuse_lone_approval
 from nirmaan_stack.services.cheques.detach import DELETED
-from nirmaan_stack.services.cheques.payment_mode import validate_cheque_mode
+from nirmaan_stack.services.cheques.payment_mode import (
+    validate_cheque_mode,
+    validate_on_a_cheque,
+    validate_paid_by_clear,
+)
 from nirmaan_stack.services.cheques.rules import PAYMENT_REJECTED
 
 # Imports for notification system
@@ -253,8 +257,10 @@ def validate(doc, method):
     (`services/payees/pay_to.fill_payment_from_vendor`).
 
     And the cheque rules (spec #1477): only a PO payment becomes a Cheque payment
-    (`payment_mode.validate_cheque_mode`), and a cheque payment is approved only with
-    its cheque, one cheque one decision (`decide.refuse_lone_approval`).
+    (`payment_mode.validate_cheque_mode`), a cheque payment is approved only with
+    its cheque, one cheque one decision (`decide.refuse_lone_approval`), and it moves
+    into Paid only when its cheque clears, never out of it, and always has its cheque
+    (#1552, `payment_mode.validate_paid_by_clear`, `payment_mode.validate_on_a_cheque`).
     """
     if doc.is_new():
         validate_won(doc.project, "Project Payment")
@@ -262,6 +268,8 @@ def validate(doc, method):
         fill_payment_from_vendor(doc)
     validate_hold(doc)
     validate_cheque_mode(doc)
+    validate_paid_by_clear(doc)
+    validate_on_a_cheque(doc)
     refuse_lone_approval(doc)
 
 

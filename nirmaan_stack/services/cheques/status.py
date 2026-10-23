@@ -72,6 +72,7 @@ from nirmaan_stack.services.cheques.decide import (
     reject_cheque,
     write_po_terms,
 )
+from nirmaan_stack.services.cheques.payment_rules import CLEARING_FLAG
 from nirmaan_stack.services.cheques.rules import (
     CANCELLED,
     CHEQUE_TYPE_PAYMENT,
@@ -186,7 +187,7 @@ def clear(cheque: str, *, bank_line: str | None, user: str) -> dict:
     to_pay = [p for p in payments if rows[p].status == STATUS_RECONCILIATION_PENDING]
     statement_file_url = frappe.db.get_value(BANK_BATCH_DOCTYPE, line.import_batch, "source_file") or None
 
-    paid = [_pay(name, day, line=line, statement_file_url=statement_file_url) for name in to_pay]
+    paid = [_pay(name, day, cheque=cheque, line=line, statement_file_url=statement_file_url) for name in to_pay]
     write_po_terms({p: rows[p] for p in to_pay}, STATUS_PAID)
     # A Reconciliation Pending -> Paid save moves no vendor credit through the payment's hook, which only
     # watches Approved -> Paid; recomputed from source once per vendor, as the import's settle does.
@@ -351,11 +352,13 @@ def _payments_total_problem(line, payments: list[str]) -> str | None:
     return f"its payments add up to {rupees(total)}, but line {line.name} is for {rupees(line.amount)}"
 
 
-def _pay(name: str, payment_date: str, *, line, statement_file_url: str | None):
-    """One payment Reconciliation Pending -> Paid on `payment_date`, from bank line `line`. Saved with the
-    flags the import's settle uses (`services/outflow_import/settle.settle_payment`): `from_outflow_import`
-    and the request flag keep every hook from committing, and `bulk_approval` leaves the PO term to
-    `write_po_terms`, one save per PO. Returns the saved payment."""
+def _pay(name: str, payment_date: str, *, cheque: str, line, statement_file_url: str | None):
+    """One payment on `cheque` Reconciliation Pending -> Paid on `payment_date`, from bank line `line`. Saved
+    with the flags the import's settle uses (`services/outflow_import/settle.settle_payment`):
+    `from_outflow_import` and the request flag keep every hook from committing, and `bulk_approval` leaves
+    the PO term to `write_po_terms`, one save per PO. `CLEARING_FLAG` names the cheque: THIS IS THE ONE SAVE
+    THAT MAKES A CHEQUE PAYMENT PAID (`payment_mode.validate_paid_by_clear`, #1552). Returns the saved
+    payment."""
     pay = frappe.get_doc(PAYMENT_DOCTYPE, name)
     pay.status = STATUS_PAID
     pay.payment_date = payment_date
@@ -364,6 +367,7 @@ def _pay(name: str, payment_date: str, *, line, statement_file_url: str | None):
     apply_statement_attachment(pay, statement_file_url)
     pay.flags.from_outflow_import = True
     pay.flags.bulk_approval = True
+    pay.flags[CLEARING_FLAG] = cheque
     with outflow_import_write():
         pay.save(ignore_permissions=True)
     advance_po_latest_payment_date(pay, frappe.utils.getdate(payment_date))

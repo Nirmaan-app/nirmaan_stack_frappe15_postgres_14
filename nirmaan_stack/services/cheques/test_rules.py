@@ -216,6 +216,46 @@ class TestWhatAChequePaymentRefuses(unittest.TestCase):
             payment_rules.cheque_payment_problem("PAY-1", "delete", is_cheque=True)
 
 
+class TestAChequePaymentIsPaidOnlyByItsClear(unittest.TestCase):
+    """#1552, ADR-0035 Amendment B: no save moves a cheque payment into or out of Paid but its cheque's clear,
+    and a payment in Cheque mode always has its cheque."""
+
+    def problem(self, from_status, to_status, *, is_cheque=True, clearing=False):
+        return payment_rules.paid_move_problem(
+            "PAY-1", from_status=from_status, to_status=to_status, is_cheque=is_cheque, clearing=clearing
+        )
+
+    def test_only_the_clear_makes_a_cheque_payment_paid(self):
+        self.assertIsNone(self.problem("Reconciliation Pending", "Paid", clearing=True))
+        for from_status in ("Reconciliation Pending", "Approved", None):
+            self.assertEqual(
+                self.problem(from_status, "Paid"),
+                "PAY-1 is a cheque payment, so it cannot be saved as Paid: a cheque payment becomes Paid only when a "
+                "bank-statement line with its cheque's number and amount is imported, which clears the cheque and "
+                "pays every payment on it.",
+            )
+
+    def test_a_paid_cheque_payment_is_never_set_back(self):
+        for to_status in ("Reconciliation Pending", "Approved", "Rejected"):
+            self.assertIn(f"PAY-1 is a Paid cheque payment, so it cannot be moved to {to_status}",
+                          self.problem("Paid", to_status, clearing=True))
+
+    def test_any_other_save_is_not_a_paid_move(self):
+        self.assertIsNone(self.problem("Paid", "Paid"))
+        self.assertIsNone(self.problem("Requested", "Approved"))
+        self.assertIsNone(self.problem("Reconciliation Pending", "Paid", is_cheque=False))
+        self.assertIsNone(self.problem("Paid", "Approved", is_cheque=False))
+
+    def test_a_cheque_payment_on_no_cheque_is_refused_unless_rejected(self):
+        self.assertIsNone(payment_rules.no_cheque_problem("PAY-1", status="Requested", on_a_cheque=True))
+        self.assertIsNone(payment_rules.no_cheque_problem("PAY-1", status="Rejected", on_a_cheque=False))
+        self.assertEqual(
+            payment_rules.no_cheque_problem("PAY-1", status="Approved", on_a_cheque=False),
+            "PAY-1 is in Cheque mode, but no cheque lists it, so it cannot be saved: a cheque payment always has its "
+            "cheque. Delete it and request the payment again.",
+        )
+
+
 class TestModeChange(unittest.TestCase):
     """A payment's Mode of Payment changes only through a Cheque (spec #1407)."""
 

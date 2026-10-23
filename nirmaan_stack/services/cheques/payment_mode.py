@@ -8,13 +8,23 @@
   drop `set_only_once`. The rule itself is pure: `payment_rules.mode_change_problem`.
 * `validate_cheque_mode` -- a payment requested in, or changing to, Cheque mode must be a PO payment: Work
   Order payments are paid Online (#1487). The rule itself is pure: `payment_rules.cheque_mode_problem`.
+* `validate_paid_by_clear` -- a cheque payment moves into Paid only in the clear of its cheque, and never out
+  of it (#1552, ADR-0035 Amendment B). The rule itself is pure: `payment_rules.paid_move_problem`.
+* `validate_on_a_cheque` -- a payment in Cheque mode always has its cheque (#1552). The rule itself is pure:
+  `payment_rules.no_cheque_problem`.
 """
 
 import frappe
 from frappe import _
 
 from nirmaan_stack.services.cheque_payments import is_cheque
-from nirmaan_stack.services.cheques.payment_rules import cheque_mode_problem, mode_change_problem
+from nirmaan_stack.services.cheques.payment_rules import (
+    CLEARING_FLAG,
+    cheque_mode_problem,
+    mode_change_problem,
+    no_cheque_problem,
+    paid_move_problem,
+)
 from nirmaan_stack.services.cheques.rules import PAYMENT_DOCTYPE
 from nirmaan_stack.services.cheques.writer import CHEQUES
 
@@ -56,3 +66,46 @@ def validate_cheque_mode(pay) -> None:
     problem = cheque_mode_problem(pay.get("document_type"))
     if problem:
         frappe.throw(_(problem))
+
+
+def validate_paid_by_clear(pay) -> None:
+    """Refuse a save of the Project Payment `pay` that moves a cheque payment into or out of Paid other than
+    in the clear of its cheque (`payment_rules.paid_move_problem`). Called from its `validate`, so it holds
+    for every path: Desk, REST, a hand settle, an Unreconcile, and any added later. The clear's own saves
+    carry `CLEARING_FLAG` naming a cheque whose lines list the payment (`status._pay`)."""
+    before = None if pay.is_new() else pay.get_doc_before_save()
+    from_status = (before.status or "").strip() if before else None
+    to_status = (pay.status or "").strip()
+    clearing = pay.flags.get(CLEARING_FLAG)
+    problem = paid_move_problem(
+        pay.name,
+        from_status=from_status,
+        to_status=to_status,
+        is_cheque=is_cheque(pay) or bool(before and is_cheque(before)),
+        clearing=bool(clearing) and clearing in _cheques_listing(pay.name),
+    )
+    if problem:
+        frappe.throw(_(problem), title=_("Paid by cheque"))
+
+
+def validate_on_a_cheque(pay) -> None:
+    """Refuse a save of the saved Project Payment `pay`, in Cheque mode, that no cheque lists
+    (`payment_rules.no_cheque_problem`). Called from its `validate`. A new payment is skipped: Request Payment
+    inserts it, then makes its cheque (`api/payments/payment_cheque.put_on_new_cheque`), and the save that
+    puts it on that cheque already finds the line."""
+    if pay.is_new() or not is_cheque(pay):
+        return
+    problem = no_cheque_problem(
+        pay.name, status=(pay.status or "").strip(), on_a_cheque=bool(_cheques_listing(pay.name))
+    )
+    if problem:
+        frappe.throw(_(problem), title=_("Cheque payment on no cheque"))
+
+
+def _cheques_listing(payment: str) -> list[str]:
+    """The Cheques whose lines name `payment`, any status."""
+    return frappe.get_all(
+        "Cheque Line",
+        filters={"parenttype": CHEQUES, "payment_doctype": PAYMENT_DOCTYPE, "payment_name": payment},
+        pluck="parent",
+    )

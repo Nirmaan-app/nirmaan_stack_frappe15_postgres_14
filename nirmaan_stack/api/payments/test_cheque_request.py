@@ -199,6 +199,7 @@ class TestChequeRequest(FrappeTestCase):
             self.fx, "CEO Pending", project=self.project, vendor=self.vendor, document=(SR, self.sr),
             amount=60000, cheque_no=self.cheques.number(),
         )
+        self.cheques.put_on_old_type_cheque(name)  # in flight on a cheque from before the rule
         frappe.set_user(CEO_AUTHORIZED_USER)
         try:
             ceo_approve_payment(name)
