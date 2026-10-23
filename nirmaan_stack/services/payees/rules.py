@@ -32,6 +32,15 @@ ACCOUNT_FIELDS = (*ENTERED_FIELDS, "bank_name", "bank_branch")
 #: as "settled" (`services/settlement.SETTLED_STATUSES`), so paid means one thing.
 PAID_STATUSES = SETTLED_STATUSES
 
+#: A Payee's type: where it was CREATED (owner, 2026-10-23), set once and never changed (`set_only_once`).
+#: Users -- a person's own bank account, added from Raise Reimbursement (`own_accounts.add_own_account`);
+#: Vendors -- a vendor's bank details (`choosing.choose_payee`, the #1424 vendor patch); Others -- anywhere
+#: else (the Payees page, an expense's Add new payee). In the doctype's option order; pinned by test.
+PAYEE_TYPE_USERS = "Users"
+PAYEE_TYPE_VENDORS = "Vendors"
+PAYEE_TYPE_OTHERS = "Others"
+PAYEE_TYPES = (PAYEE_TYPE_USERS, PAYEE_TYPE_VENDORS, PAYEE_TYPE_OTHERS)
+
 _SEPARATORS = re.compile(r"[\s\-]+")
 _SPACES = re.compile(r"\s+")
 _ACCOUNT_CHARS = re.compile(r"^[A-Z0-9]+$")
@@ -99,3 +108,14 @@ def payee_in_use_problem(payee: str, vendors: list[tuple[str, str | None]]) -> s
 def already_linked_problem(vendor: str, payee: str) -> str:
     """The refusal when Use a different payee picks the Payee vendor `vendor` is already paid into."""
     return f"{vendor} is already paid into {payee}. Pick another payee, or enter new bank details."
+
+
+def payee_type_from_links(is_own_account: bool, vendor_count: int) -> str:
+    """The type a Payee created before `payee_type` existed is given, from what links to it now: a person's own
+    account -> Users, else any vendor -> Vendors, else Others. For the one-time backfill only
+    (`patches/v3_0/backfill_payee_type`); every Payee created since is typed by its creator and never changes."""
+    if is_own_account:
+        return PAYEE_TYPE_USERS
+    if vendor_count > 0:
+        return PAYEE_TYPE_VENDORS
+    return PAYEE_TYPE_OTHERS

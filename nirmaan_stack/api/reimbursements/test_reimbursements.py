@@ -246,6 +246,8 @@ class TestOwnBankAccount(ReimbursementTestCase):
         self.assertEqual(self.as_user(PM, bank_accounts.my_bank_account).name, payee)
         self.assertEqual(own_accounts.holder_of(payee), PM)
         self.assertEqual(frappe.db.get_value("Nirmaan Users", PM, "payee"), payee)
+        # Made from Raise Reimbursement, so its Payee Type is Users, for good (owner, 2026-10-23).
+        self.assertEqual(frappe.db.get_value("Payee", payee, "payee_type"), "Users")
 
     def test_the_same_account_again_is_already_yours(self):
         frappe.set_user(PM)

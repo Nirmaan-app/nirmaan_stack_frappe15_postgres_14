@@ -27,7 +27,7 @@ from nirmaan_stack.services.payees.versions import changed_field_pattern, last_f
 #: grouped once, so the list costs one pass over it, not one per Payee.
 PAYEES_WITH_LINKS_SQL = """
     SELECT p.name, p.creation, p.account_name, p.account_number, p.normalized_account, p.ifsc,
-           p.bank_name, p.bank_branch,
+           p.bank_name, p.bank_branch, p.payee_type,
            COALESCE(v.vendors, 0) AS vendors
     FROM "tabPayee" p
     LEFT JOIN (
@@ -38,7 +38,7 @@ PAYEES_WITH_LINKS_SQL = """
 
 def payee_summaries(names: list[str]) -> dict[str, dict]:
     """Each named Payee's fields with its vendor count: `{name: {name, account_name, account_number,
-    ifsc, bank_name, bank_branch, vendors}}`. A name with no Payee is left out."""
+    ifsc, bank_name, bank_branch, payee_type, vendors}}`. A name with no Payee is left out."""
     names = [n for n in names if n]
     if not names:
         return {}
@@ -64,6 +64,7 @@ def summary_row(row) -> dict:
         "ifsc": row.get("ifsc"),
         "bank_name": row.get("bank_name"),
         "bank_branch": row.get("bank_branch"),
+        "payee_type": row.get("payee_type"),
         "vendors": int(row.get("vendors") or 0),
     }
 

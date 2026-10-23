@@ -31,7 +31,7 @@ from nirmaan_stack.services.payees.writer import create_payee, duplicate_verdict
 @frappe.whitelist()
 def search_payees(text: str | None = None, limit: int = 8) -> list[dict]:
     """Payees matching `text` (holder name, or account number ignoring spaces and leading zeros), by
-    holder name: `[{name, account_name, account_number, ifsc, bank_name, bank_branch}]`."""
+    holder name: `[{name, account_name, account_number, ifsc, bank_name, bank_branch, payee_type}]`."""
     guard_can_name_expense_payee()
     return find_payees(text, limit=limit)
 
