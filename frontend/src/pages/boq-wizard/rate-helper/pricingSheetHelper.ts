@@ -3148,7 +3148,8 @@ function computeItemListOwn(
     return { ...a, attributes };
   });
   // the row's texts are built above, where `family_merge` first reads them
-  const priced = priceItemList(spec, items, unit, forPricing, rowText, ownText, ctx.pipeOdHint, headingNoteText);
+  // ADP-5d (HN-3): the headings themselves too, so a rule can read the heading directly above the row on its own
+  const priced = priceItemList(spec, items, unit, forPricing, rowText, ownText, ctx.pipeOdHint, headingNoteText, ctx.headings ?? []);
   const unitClass = priced.unitClass ?? unitClassOf(spec, unit);
   /**
    * CERT-FOUND 2026-10-04. A composition turns ONE user block into SEVERAL priced layers, so

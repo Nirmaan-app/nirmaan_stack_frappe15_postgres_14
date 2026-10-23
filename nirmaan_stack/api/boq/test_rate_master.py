@@ -12871,7 +12871,10 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                             # ADP-5a (owner 2026-10-22, SCOPE-5a-1): read only by ADP from v51 on; v7 predates it
                             "family_merge",
                             # ADP-5c (owner 2026-10-23 12:07 / 12:08): read only by ADP from v53 on; v7 predates it
-                            "existing_work"})
+                            "existing_work",
+                            # INVERTED at ADP-5d (owner Q1 / Q3 / Q4, 2026-10-24) by mechanical authority: BEFORE the set
+                            # ended at "existing_work". The three keys are read only by ADP from v54 on; v7 predates them
+                            "stream_heading_default", "text_notes", "companion_items"})
         self.assertNotIn("panel_controls", pr)
         self.assertNotIn("override_when", pr)
         self.assertNotIn("family_when_none", pr)

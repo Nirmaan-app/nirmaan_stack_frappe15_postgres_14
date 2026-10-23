@@ -408,6 +408,56 @@ export interface ReadNote {
   line: string;
 }
 
+/**
+ * ADP-5d (owner R9 / R13, 2026-10-23 23:32 / 23:37; Q4 2026-10-24) -- a WORKING LINE generated from the ROW'S TEXT, the
+ * `read_notes` shape with the text in place of a model attribute. `from_text` names which text `pattern` is matched
+ * against (case-insensitive): "headings" -- the row's headings and the notes of the heading directly above, never the
+ * row itself; "own_and_headings" -- those plus the row's own text. `unit_classes` and `when` (a raw answer of the item)
+ * narrow it further. Display only -- nothing here reaches the matcher. The calculator has no row text: never fires.
+ */
+export interface TextNote {
+  families: string[];
+  from_text: "headings" | "own_and_headings";
+  pattern: string;
+  unit_classes?: string[];
+  when?: { attr: string; equals: string };
+  line: string;
+  rule: string;
+}
+
+/**
+ * ADP-5d (owner R6b, 2026-10-23 23:24; Q1 (B) 2026-10-24) -- AN AIR STREAM THE ROW CANNOT TELL. Where the heading
+ * DIRECTLY above the row names both supply and return air, the row's own text names neither stream and no damper, and
+ * that heading does not give its damper to both streams (nor name a damper for no stream), the model's answer for
+ * `attr` is set aside and the family's ruled default prices, recorded as an override with `line`. `words` are the
+ * damper words, at a word start. The heading is read from the row context; the calculator passes none.
+ */
+export interface StreamHeadingDefault {
+  attr: string;
+  /** The choice attribute whose values are the air streams (its definition must list supply and return). */
+  streams_attr: string;
+  families: string[];
+  words: string[];
+  line: string;
+  rule: string;
+}
+
+/**
+ * ADP-5d (owner R4, 2026-10-23 23:28 / 23:29; Q3 2026-10-24) -- A SECOND ITEM CODE ADDS. An item of one of `families`
+ * whose row's OWN text names one of `words` at a word start ("return air baffle") also pays for `item` -- priced through
+ * this same function as one item per row unit on the `unit_class` path (a 300 x 300 grille on a per-number row's
+ * per-sq.m rate x W x H), its supply and install added to the item's, with `line` in the working. A companion that does
+ * not price leaves the item as it was, with a line saying so.
+ */
+export interface CompanionItem {
+  families: string[];
+  words: string[];
+  unit_class: string;
+  item: Record<string, string>;
+  line: string;
+  rule: string;
+}
+
 export interface ItemListPricingSpec {
   kind: string;
   unit_class_attr: string;
@@ -478,6 +528,12 @@ export interface ItemListPricingSpec {
   refuse_on_unit_class?: RefuseOnUnitClass[];
   /** SLICE 12d-4a (owner D8): a working line generated from a copied text. ABSENT => no line. */
   read_notes?: ReadNote[];
+  /** ADP-5d (owner R9 / R13): a working line generated from the row's text. ABSENT => no line. See `TextNote`. */
+  text_notes?: TextNote[];
+  /** ADP-5d (owner R6b): the default replaces an answer the row's stream cannot decide. ABSENT => every answer stands. */
+  stream_heading_default?: StreamHeadingDefault[];
+  /** ADP-5d (owner R4): an item code adds beside a named one. ABSENT => nothing is added. See `CompanionItem`. */
+  companion_items?: CompanionItem[];
   /** SLICE 12e-2 (owner Q19 / C2): the sentence a unit outside the category's classes refuses with --
    * "unit '{unit}' is not a length unit". ABSENT => the R12 sentence, byte-identical for every other category. */
   unit_refusal?: string;
@@ -513,7 +569,9 @@ export interface ItemListPricingSpec {
   /** SLICE 12c FINISH (owner F1: "missing thickness -> 9 mm default"). A NUMBER the row never stated
    * takes a ruled value, optionally only for named families. `defaults` cannot express this -- it is
    * for a CHOICE attribute whose model answer was "None". ABSENT => nothing is defaulted. */
-  number_defaults?: Record<string, { value: number; families?: string[]; rule: string }>;
+  number_defaults?: Record<string, { value: number; families?: string[]; rule: string;
+    /** ADP-5d (owner Q5 (b)): the line a family says instead of `rule`. ABSENT => every family says `rule`. */
+    rule_by_family?: Record<string, string> }>;
   /** SLICE 12c (owner Q8): what to do when a stated value is ABOVE the top rung of one named ladder
    * -- build it out of two or more rungs instead of refusing. ABSENT => it still refuses, exactly as
    * before. The tolerance and the layer ceiling are config, never code. */
@@ -1399,6 +1457,64 @@ export function existingWorkOf(spec: ItemListPricingSpec, ownText: string): { wo
     return { work, said: at >= 0 ? ownText.slice(at, at + w.length) : hit };
   }
   return null;
+}
+
+/**
+ * ADP-5d (HN-3). PURE. The two heading texts the row context carries: the heading DIRECTLY above the row (the last of
+ * the root-first `headings`, with its notes) and every heading with those notes. Empty when the context has none (the
+ * calculator, a section).
+ */
+export function headingTexts(headings: readonly string[], headingNoteText: string): { parent: string; all: string } {
+  const notes = headingNoteText ? [headingNoteText] : [];
+  const last = headings.length ? [headings[headings.length - 1]] : [];
+  return { parent: [...last, ...notes].join(" | "), all: [...headings, ...notes].join(" | ") };
+}
+
+/** ADP-5d: a heading's sentences, split at a full stop / semicolon followed by a space, and at a note boundary. */
+const HEADING_SENTENCE_SPLIT = /(?<=[.;])\s+|\s*\|\s*/;
+
+/**
+ * ADP-5d (owner R6b; Q1 (B), 2026-10-24). PURE. Does the heading directly above (`parentText`) leave the row's stream
+ * undecided, so its damper answer cannot stand? All of: the row's OWN text names neither supply nor return air and no
+ * damper word; the heading names both; and the heading's damper sentences -- those holding a damper word -- name no
+ * sentence with both streams and at least one with exactly one ("supply air grilles with VCD ... return air grilles
+ * without VCD"). A heading naming no damper at all also qualifies. "supply & return air grilles with vcd" (the damper
+ * given to both) and "damper should be operable" (a damper for no stream) do not.
+ */
+export function streamHeadingUndecided(
+  rule: StreamHeadingDefault, streams: readonly string[], ownText: string, parentText: string,
+): boolean {
+  const SR = ["supply", "return"];
+  const own = airStreamsNamed(ownText, streams);
+  if (SR.some((s) => own.has(s)) || wordStartHit(ownText, rule.words) !== null) return false;
+  const parent = airStreamsNamed(parentText, streams);
+  if (!SR.every((s) => parent.has(s))) return false;
+  const named = parentText.split(HEADING_SENTENCE_SPLIT).filter((s) => s && wordStartHit(s, rule.words) !== null)
+    .map((s) => SR.filter((x) => airStreamsNamed(s, streams).has(x)).length);
+  if (!named.length) return true;
+  return !named.includes(2) && named.includes(1);
+}
+
+/**
+ * ADP-5d (owner R9 / R13). PURE. The `text_notes` lines one item carries: each entry naming the family, the row's unit
+ * class (where it lists any) and the item's raw answer (where it has a `when`), whose pattern matches its text.
+ */
+export function textNoteLines(
+  spec: ItemListPricingSpec, family: string, rowUnitClass: string, item: ExtractedListItem,
+  ownText: string, heads: { parent: string; all: string },
+): string[] {
+  const out: string[] = [];
+  for (const tn of spec.text_notes ?? []) {
+    if (!tn.families.includes(family)) continue;
+    if (tn.unit_classes && !tn.unit_classes.includes(rowUnitClass)) continue;
+    if (tn.when && String(rawValue(item, tn.when.attr) ?? "") !== tn.when.equals) continue;
+    const text = tn.from_text === "headings" ? heads.all : [ownText, heads.all].join(" | ");
+    if (!heads.all.trim() && !ownText.trim()) continue;
+    let hit = false;
+    try { hit = new RegExp(tn.pattern, "i").test(text); } catch { hit = false; }
+    if (hit && !out.includes(tn.line)) out.push(tn.line);
+  }
+  return out;
 }
 
 /**
@@ -2724,6 +2840,10 @@ function priceOneItem(
   /** ADP-5a (HN-2, owner 2026-10-22): the NOTES of the row's headings, read ONLY by the both-streams check. Absent (the
    * calculator, a section) => that check reads the headings' descriptions alone, as before. */
   headingNoteText: string = "",
+  /** ADP-5d (HN-3, owner R6b / R9 / R13): the row's headings, root-first, as the row context carries them -- read ONLY by
+   * `stream_heading_default` (the last one, with `headingNoteText`) and `text_notes`. Absent (the calculator, a section)
+   * => neither fires. */
+  headings: readonly string[] = [],
 ): ItemPriceResult {
   const out: ItemPriceResult = {
     index, familyRaw: null, family: null, skuUnitClass: null, state: "blank", selection: {}, readValues: {}, defaulted: [],
@@ -2938,6 +3058,9 @@ function priceOneItem(
     // SLICE 12e-2: `{family}` names the family the line is drawn for (one entry may serve several families)
     out.working.push(rn.line.replace("{match}", m[0].trim()).replace("{family}", family));
   }
+  // ADP-5d (owner R9 / R13): a line drawn from the row's text ("control panel ... not included", the diffuser's shape)
+  const heads = headingTexts(headings, headingNoteText);
+  out.working.push(...textNoteLines(spec, family, rowUnitClass, item, ownText, heads));
 
   // (2) the facts: stated -> as stated; "None" -> the ruled default (marked); absent -> omitted. Read over every
   //     match attribute; only the family's NEEDS reach the matcher (below), so a stated fact the SKUs are not
@@ -3264,6 +3387,25 @@ function priceOneItem(
     // SLICE 9 (A-6): recorded STRUCTURALLY as well as in the working, so the panel can show the catalogue's
     // own word for what the row now prices as instead of the variant the row happened to name.
     out.overrides.push({ attr: rule.attr, value: rule.then, display: rule.display ?? rule.then, rule: rule.rule });
+  }
+  /**
+   * ADP-5d (owner R6b, 2026-10-23 23:24 "option b if we can ring fence it correctly"; Q1 (B) 2026-10-24): an answer the
+   * row's air stream cannot decide -- the heading directly above names supply and return, the row names neither and no
+   * damper (`streamHeadingUndecided`) -- is set aside for the family's ruled default, recorded as an override so the field
+   * shows the value priced with the line under it. Only a MODEL answer that differs from the default: "not mentioned"
+   * already takes it, and a pricer's own pick (typed) is theirs.
+   */
+  for (const rule of spec.stream_heading_default ?? []) {
+    if (!rule.families.includes(family) || noneSaid.has(rule.attr)) continue;
+    if (item.attributes?.[rule.attr]?.typed === true) continue;
+    const now = read[rule.attr];
+    const dv = ruledDefaultValue(spec, rule.attr, family);
+    if (now === undefined || dv === undefined || String(now) === dv) continue;
+    if (!streamHeadingUndecided(rule, spec.choice_defs?.[rule.streams_attr]?.values ?? [], ownText, heads.parent)) continue;
+    read[rule.attr] = dv;
+    const line = rule.line.replace("{value}", dv);
+    overridden.push(line);
+    out.overrides.push({ attr: rule.attr, value: dv, display: dv, rule: line });
   }
   // SLICE 12d-1a (owner R4): the VALUE MAP -- a stated value that prices as another, or refuses. It runs
   // LAST, over what the pricing now believes (defaults and overrides applied), so a ruled "No" can never
@@ -3601,7 +3743,8 @@ function priceOneItem(
       sel[n] = ndef.value;
       read[n] = ndef.value;
       // `DefaultedAttr.value` is the DISPLAY string every other default already uses
-      readDefaulted.push({ attr: n, value: fmt(ndef.value), rule: ndef.rule });
+      // ADP-5d (owner Q5 (b)): a family with a line of its own says it; every other family says `rule`, as before
+      readDefaulted.push({ attr: n, value: fmt(ndef.value), rule: ndef.rule_by_family?.[out.family ?? ""] ?? ndef.rule });
       continue;
     }
     absent.push(n);
@@ -3964,6 +4107,22 @@ function priceOneItem(
     finals.install = install * existing.work.install_times;
     out.working.push(`${existing.work.line} -> supply 0, install ${fmt(existing.work.install_times)} x ${fmt(install)} = ${fmt(finals.install)} (the row's own text says '${existing.said}')`);
   }
+  // (6d) ADP-5d (owner R4, 2026-10-23 23:28 / 23:29; Q3 2026-10-24): an item code ADDS beside this one -- the return air
+  // baffle's grille. It prices through this same function on its own unit path (one grille per row unit), and its supply
+  // and install join this item's. Only a row whose OWN text names the words: the calculator passes none, so it never fires.
+  for (const c of spec.companion_items ?? []) {
+    if (!c.families.includes(family) || wordStartHit(ownText, c.words) === null) continue;
+    const attrs: ExtractedListItem["attributes"] = {};
+    for (const [k, v] of Object.entries(c.item)) attrs[k] = { value: v };
+    const g = priceOneItem(spec, projected, c.unit_class, { attributes: attrs }, index, null, rowText, ownText, undefined, odHint, headingNoteText, headings);
+    if (g.state !== "priced") {
+      out.working.push(`${c.line}: not priced (${g.reason ?? "no price"}) - add it by hand`);
+      continue;
+    }
+    const each = Object.keys(finals).filter((k) => typeof g.finals[k] === "number").map((k) => `${k} ${fmt(g.finals[k])}`).join(" + ");
+    for (const k of Object.keys(finals)) if (typeof g.finals[k] === "number") finals[k] += g.finals[k];
+    out.working.push(`${c.line}: ${each} = ${fmt(Object.keys(finals).reduce((a, k) => a + (g.finals[k] ?? 0), 0))}`);
+  }
   const figures: Record<string, number> = {};
   for (const [k, v] of Object.entries(finals)) figures[k] = v * qty;
   if (qty !== 1) out.working.push(`x ${fmt(qty)} per row unit`);
@@ -4107,13 +4266,14 @@ const PVC = "PVC";
 function priceOneItemOrCheaper(
   spec: ItemListPricingSpec, projected: RateMasterItem[], rowUnitClass: string, item: ExtractedListItem, index: number,
   unitFactor: UnitFactor | null, rowText: string, ownText: string, odHint: boolean | undefined, headingNoteText = "",
+  headings: readonly string[] = [],
 ): ItemPriceResult {
   const fa = familyAttr(spec);
   const typed = item.attributes?.[fa]?.typed === true;
   const found = cheaperAlternatives(spec, item, ownText, rowUnitClass);
   // a PICK the pricer made is theirs; a word they TYPED naming two types reads exactly as the same word read off the BoQ
   const alts = found && (!typed || found.fromAnswer) ? found : null;
-  if (!alts) return priceOneItem(spec, projected, rowUnitClass, item, index, unitFactor, rowText, ownText, undefined, odHint, headingNoteText);
+  if (!alts) return priceOneItem(spec, projected, rowUnitClass, item, index, unitFactor, rowText, ownText, undefined, odHint, headingNoteText, headings);
   const said = (line: string) => (typed ? typedFamilyLine(line) : line);
   const as = (f: string): ExtractedListItem => ({ ...item, attributes: { ...item.attributes, [fa]: { value: f } } });
   const costOf = (r: ItemPriceResult, f: string): number | null => {
@@ -4124,7 +4284,7 @@ function priceOneItemOrCheaper(
       for (let li = 0; li < c.layers.length; li++) {
         const attrs: ExtractedListItem["attributes"] = { ...as(f).attributes, [c.attr]: { value: c.layers[li] } };
         if (oo && li < c.layers.length - 1) attrs[oo.attr] = { value: oo.value };
-        const layer = priceOneItem(spec, projected, rowUnitClass, { ...item, attributes: attrs }, index, unitFactor, rowText, ownText, undefined, odHint, headingNoteText);
+        const layer = priceOneItem(spec, projected, rowUnitClass, { ...item, attributes: attrs }, index, unitFactor, rowText, ownText, undefined, odHint, headingNoteText, headings);
         if (layer.state !== "priced") return null;
         total += (layer.figures.supply ?? 0) + (layer.figures.install ?? 0);
       }
@@ -4138,17 +4298,17 @@ function priceOneItemOrCheaper(
    * -> CPVC, whatever it costs; every other pair of stocked pipe types keeps the cheaper.
    */
   if (alts.pipes && alts.families.includes(CPVC) && alts.families.includes(PVC)) {
-    const r = priceOneItem(spec, projected, rowUnitClass, as(CPVC), index, unitFactor, rowText, ownText, undefined, odHint, headingNoteText);
+    const r = priceOneItem(spec, projected, rowUnitClass, as(CPVC), index, unitFactor, rowText, ownText, undefined, odHint, headingNoteText, headings);
     const line = said(`BoQ allows ${alts.said} -> priced as ${CPVC}`);
     return { ...r, familyRaw: rawValue(item, fa) === null ? null : String(rawValue(item, fa)), familyLine: line, working: r.composeInto ? r.working : [line, ...r.working], alternativeChosen: CPVC };
   }
   let best: { f: string; r: ItemPriceResult; cost: number } | null = null;
   for (const f of alts.families) {
-    const r = priceOneItem(spec, projected, rowUnitClass, as(f), index, unitFactor, rowText, ownText, undefined, odHint, headingNoteText);
+    const r = priceOneItem(spec, projected, rowUnitClass, as(f), index, unitFactor, rowText, ownText, undefined, odHint, headingNoteText, headings);
     const cost = costOf(r, f);
     if (cost !== null && (best === null || cost < best.cost)) best = { f, r, cost };
   }
-  if (!best) return priceOneItem(spec, projected, rowUnitClass, item, index, unitFactor, rowText, ownText, undefined, odHint, headingNoteText);
+  if (!best) return priceOneItem(spec, projected, rowUnitClass, item, index, unitFactor, rowText, ownText, undefined, odHint, headingNoteText, headings);
   const line = said(`BoQ allows ${alts.said} -> priced as ${best.f.trim()}, the lower cost`);
   const working = best.r.composeInto ? best.r.working : [line, ...best.r.working];
   return { ...best.r, familyRaw: rawValue(item, fa) === null ? null : String(rawValue(item, fa)), familyLine: line, working, alternativeChosen: best.f };
@@ -4174,6 +4334,8 @@ export function priceItemList(
   odHint?: boolean,
   /** ADP-5a (HN-2): the notes of the row's headings, for the both-streams check only (see `priceOneItem`). */
   headingNoteText: string = "",
+  /** ADP-5d (HN-3): the row's headings, root-first, for `stream_heading_default` and `text_notes` (see `priceOneItem`). */
+  headings: readonly string[] = [],
 ): RowPriceResult {
   const unit = rowUnit ?? "";
   let cls = unitClassOf(spec, unit);
@@ -4278,7 +4440,7 @@ export function priceItemList(
   const projected = projectUnitClass(spec, items);
   // SLICE 11: computed ONCE from the row's unit TEXT (the class alone cannot say which unit of it this is).
   const unitFactor = unitFactorOf(spec, unit);
-  let priced = extracted.map((it, i) => priceOneItemOrCheaper(spec, projected, cls, it, i, unitFactor, rowText, ownText, odHint, headingNoteText));
+  let priced = extracted.map((it, i) => priceOneItemOrCheaper(spec, projected, cls, it, i, unitFactor, rowText, ownText, odHint, headingNoteText, headings));
   // ADP-5a (SCOPE-5a-1): an item `applyFamilyMerge` priced as another family says so on the item, with the size it is
   // priced at where `at` resolved one ("... priced as one Butterfly Damper With Spigot, 200 mm")
   priced = priced.map((p, i) => {
@@ -4314,7 +4476,7 @@ export function priceItemList(
           : undefined;
         // SLICE 12e-6 (R2 / R3): a layer prices the family the cheaper-alternative choice settled on, as answered
         const layerAttrs = p.alternativeChosen ? { ...attrs, [familyAttr(spec)]: { value: p.alternativeChosen } } : attrs;
-        const one = priceOneItem(spec, projected, cls, { ...src, attributes: layerAttrs }, expanded.length, unitFactor, rowText, ownText, wrap, odHint, headingNoteText);
+        const one = priceOneItem(spec, projected, cls, { ...src, attributes: layerAttrs }, expanded.length, unitFactor, rowText, ownText, wrap, odHint, headingNoteText, headings);
         if (p.alternativeChosen && p.familyLine) { one.familyLine = p.familyLine; if (li === 0) one.working.unshift(p.familyLine); }
         if (li === 0) {
           const total = c.layers.reduce((a, b) => a + b, 0);

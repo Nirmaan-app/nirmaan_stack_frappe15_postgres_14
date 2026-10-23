@@ -575,7 +575,22 @@ _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "unit_
                  # prices as ONE item of another where the row also carries an item of a family it absorbs, or its
                  # text names the pair (a spigot with a butterfly damper). Arrives WITH `_validate_family_merge`.
                  # ABSENT => every item prices as its own family, exactly as before.
-                 "family_merge"}
+                 "family_merge",
+                 # ADP-5d (owner R6b; Q1 (B) 2026-10-24): `stream_heading_default` -- where the heading directly above
+                 # names supply and return air and the row names neither stream and no damper, the model's damper answer
+                 # is set aside for the family's ruled default. Arrives WITH `_validate_stream_heading_default`.
+                 "stream_heading_default",
+                 # ADP-5d (owner R9 / R13; Q4): `text_notes` -- a working line drawn from the ROW'S TEXT (the `read_notes`
+                 # shape, the text in place of a model attribute). Arrives WITH `_validate_text_notes`.
+                 "text_notes",
+                 # ADP-5d (owner R4; Q3): `companion_items` -- an item code adds beside a named one (the return air
+                 # baffle's grille), priced on its own unit path. Arrives WITH `_validate_companion_items`.
+                 "companion_items"}
+_PRICING_STREAM_HEADING_KEYS = {"attr", "streams_attr", "families", "words", "line", "rule"}
+_PRICING_TEXT_NOTE_KEYS = {"families", "from_text", "pattern", "unit_classes", "when", "line", "rule"}
+_PRICING_TEXT_NOTE_REQUIRED = {"families", "from_text", "pattern", "line", "rule"}
+_PRICING_TEXT_NOTE_SOURCES = {"headings", "own_and_headings"}
+_PRICING_COMPANION_KEYS = {"families", "words", "unit_class", "item", "line", "rule"}
 _PRICING_FAMILY_MERGE_KEYS = {"family", "into", "absorbs", "words", "at", "line", "rule"}
 _PRICING_NAMED_IN_ROW_KEYS = {"attr", "words", "refuse", "rule"}
 _PRICING_UNSTOCKED_KEYS = {"words", "from_attr", "rule"}
@@ -717,6 +732,111 @@ def _validate_existing_work(rules):
                 _vthrow(f"{rloc}.{key} must be a non-empty string.")
 
 
+def _strings_ok(r, rloc, keys):
+    for key in keys:
+        if not isinstance(r.get(key), str) or not r[key].strip():
+            _vthrow(f"{rloc}.{key} must be a non-empty string.")
+
+
+def _validate_stream_heading_default(rules, by_id, choice_attrs, fams, defaults):
+    """ADP-5d (owner R6b; Q1 (B), 2026-10-24) -- `list_spec.pricing.stream_heading_default`: a non-empty list, each naming
+    a choice attribute with a RULED default for every family listed (a rule whose default is missing never executes), a
+    choice attribute whose values hold both 'supply' and 'return' (the air streams), priceable families, the damper words,
+    the line (it may carry {value}) and the ruling."""
+    loc = "list_spec.pricing.stream_heading_default"
+    if not isinstance(rules, list) or not rules:
+        _vthrow(f"{loc} must be a non-empty list.")
+    for i, r in enumerate(rules):
+        rloc = f"{loc}[{i}]"
+        if not isinstance(r, dict):
+            _vthrow(f"{rloc} must be an object.")
+        unk = set(r) - _PRICING_STREAM_HEADING_KEYS
+        if unk:
+            _vthrow(f"{rloc}: unknown key(s): {', '.join(sorted(unk))}.")
+        if _PRICING_STREAM_HEADING_KEYS - set(r):
+            _vthrow(f"{rloc} must carry {' / '.join(sorted(_PRICING_STREAM_HEADING_KEYS))}.")
+        if r["attr"] not in choice_attrs:
+            _vthrow(f"{rloc}.attr must be a choice attribute of this category.")
+        sa = r["streams_attr"]
+        if sa not in by_id or by_id[sa].get("type") != "choice" or not {"supply", "return"} <= set(by_id[sa].get("values") or []):
+            _vthrow(f"{rloc}.streams_attr must be a choice definition whose values include supply and return.")
+        if not isinstance(r["families"], list) or not r["families"] or not all(f in fams for f in r["families"]):
+            _vthrow(f"{rloc}.families must be a non-empty list of priceable families.")
+        d = (defaults or {}).get(r["attr"])
+        for f in r["families"]:
+            if not isinstance(d, dict) or ((d.get("by_family") or {}).get(f) is None and d.get("value") is None):
+                _vthrow(f"{rloc}: '{f}' has no ruled default for '{r['attr']}' (defaults), so the rule could never price.")
+        if not _words_ok(r["words"]):
+            _vthrow(f"{rloc}.words must be a non-empty list of words.")
+        _strings_ok(r, rloc, ("line", "rule"))
+
+
+def _validate_text_notes(rules, by_id, fams, ucls):
+    """ADP-5d (owner R9 / R13; Q4, 2026-10-24) -- `list_spec.pricing.text_notes`: a non-empty list, each naming priceable
+    families, the text it reads ('headings' or 'own_and_headings'), a regular expression that compiles, optionally the
+    unit classes and a raw answer (`when`: an item attribute and the value) it is limited to, the line and the ruling."""
+    loc = "list_spec.pricing.text_notes"
+    if not isinstance(rules, list) or not rules:
+        _vthrow(f"{loc} must be a non-empty list.")
+    for i, r in enumerate(rules):
+        rloc = f"{loc}[{i}]"
+        if not isinstance(r, dict):
+            _vthrow(f"{rloc} must be an object.")
+        unk = set(r) - _PRICING_TEXT_NOTE_KEYS
+        if unk:
+            _vthrow(f"{rloc}: unknown key(s): {', '.join(sorted(unk))}.")
+        if _PRICING_TEXT_NOTE_REQUIRED - set(r):
+            _vthrow(f"{rloc} must carry {' / '.join(sorted(_PRICING_TEXT_NOTE_REQUIRED))}.")
+        if not isinstance(r["families"], list) or not r["families"] or not all(f in fams for f in r["families"]):
+            _vthrow(f"{rloc}.families must be a non-empty list of priceable families.")
+        if r["from_text"] not in _PRICING_TEXT_NOTE_SOURCES:
+            _vthrow(f"{rloc}.from_text must be one of {', '.join(sorted(_PRICING_TEXT_NOTE_SOURCES))}.")
+        try:
+            re.compile(r["pattern"])
+        except (re.error, TypeError):
+            _vthrow(f"{rloc}.pattern must be a regular expression.")
+        if "unit_classes" in r and (not isinstance(r["unit_classes"], list) or not r["unit_classes"]
+                                    or not all(u in ucls for u in r["unit_classes"])):
+            _vthrow(f"{rloc}.unit_classes must be a non-empty list of unit_classes keys.")
+        if "when" in r:
+            w = r["when"]
+            if not isinstance(w, dict) or set(w) != {"attr", "equals"} or w["attr"] not in by_id \
+                    or not isinstance(w["equals"], str) or not w["equals"].strip():
+                _vthrow(f"{rloc}.when must be {{attr, equals}}: an item attribute and the value it holds.")
+        _strings_ok(r, rloc, ("line", "rule"))
+
+
+def _validate_companion_items(rules, by_id, fams, ucls, family_attr):
+    """ADP-5d (owner R4; Q3, 2026-10-24) -- `list_spec.pricing.companion_items`: a non-empty list, each naming priceable
+    families, the words of the row's own text that call for it, the unit class it is priced on, the item (item attribute
+    ids and their values, its family a priceable family that is NOT one of `families` -- a companion of its own family
+    would add itself again), the line and the ruling."""
+    loc = "list_spec.pricing.companion_items"
+    if not isinstance(rules, list) or not rules:
+        _vthrow(f"{loc} must be a non-empty list.")
+    for i, r in enumerate(rules):
+        rloc = f"{loc}[{i}]"
+        if not isinstance(r, dict):
+            _vthrow(f"{rloc} must be an object.")
+        unk = set(r) - _PRICING_COMPANION_KEYS
+        if unk:
+            _vthrow(f"{rloc}: unknown key(s): {', '.join(sorted(unk))}.")
+        if _PRICING_COMPANION_KEYS - set(r):
+            _vthrow(f"{rloc} must carry {' / '.join(sorted(_PRICING_COMPANION_KEYS))}.")
+        if not isinstance(r["families"], list) or not r["families"] or not all(f in fams for f in r["families"]):
+            _vthrow(f"{rloc}.families must be a non-empty list of priceable families.")
+        if not _words_ok(r["words"]):
+            _vthrow(f"{rloc}.words must be a non-empty list of phrases.")
+        if r["unit_class"] not in ucls:
+            _vthrow(f"{rloc}.unit_class must be a unit_classes key.")
+        it = r["item"]
+        if not isinstance(it, dict) or not it or not all(k in by_id and isinstance(v, str) and v.strip() for k, v in it.items()):
+            _vthrow(f"{rloc}.item must map item attribute ids to non-empty values.")
+        if it.get(family_attr) not in fams or it.get(family_attr) in r["families"]:
+            _vthrow(f"{rloc}.item.{family_attr} must be a priceable family other than the ones it is added to.")
+        _strings_ok(r, rloc, ("line", "rule"))
+
+
 def _validate_refuse_on_unit_class(rules, by_id, choice_attrs, ucls, fams):
     """SLICE 12d-4a (owner D9b) -- `list_spec.pricing.refuse_on_unit_class`: a non-empty list of rules, each
     naming a `unit_classes` key, the FAMILIES it applies to (12d-4aF, REQUIRED: a non-empty list of priceable
@@ -792,7 +912,10 @@ _PRICING_VALUE_MAP_REQUIRED = {"attr", "families", "from", "rule"}
 # `numbers`. A separate key rather than a widening of `defaults`, because the two differ in what they
 # are FOR: `defaults` turns the model's "not mentioned" into a ruled value, while this fills a number
 # the row never stated at all. ABSENT => nothing is defaulted and every category is unchanged.
-_PRICING_NUMBER_DEFAULT_KEYS = {"value", "families", "rule"}
+_PRICING_NUMBER_DEFAULT_KEYS = {"value", "families", "rule",
+                                # ADP-5d (owner Q5 (b), 2026-10-24): the line one family says instead of `rule`
+                                # (the `defaults` precedent) -- the floor grille's, beside the cross-talk's.
+                                "rule_by_family"}
 # SLICE 12c -- a stated value and a catalogue rung that are the SAME size written to different precision.
 # `dp` is the rounding depths to try, in order. ABSENT => nothing resolves and the ladder decides, exactly
 # as before. A depth that is not collision-free over a family's rungs is SKIPPED at run time, never
@@ -1572,6 +1695,13 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
                         _vthrow(f"{loc}.families names '{f}', which is not a family of this category.")
             if not isinstance(spec_nd.get("rule"), str) or not spec_nd.get("rule").strip():
                 _vthrow(f"{loc} needs a 'rule' saying whose ruling it is.")
+            rbf = spec_nd.get("rule_by_family")
+            if rbf is not None:
+                # a family the default does not apply to would carry a line that is never said
+                allowed = set(fams) if fams is not None else set(pr.get("families") or {})
+                if not isinstance(rbf, dict) or not rbf or not all(
+                        f in allowed and isinstance(t, str) and t.strip() for f, t in rbf.items()):
+                    _vthrow(f"{loc}.rule_by_family must map families the default applies to, each to a line.")
     rn = pr.get("reason_names")
     if rn is not None and (not isinstance(rn, dict) or set(rn) - sku_attrs or not all(isinstance(v, str) and v for v in rn.values())):
         _vthrow("list_spec.pricing.reason_names must name SKU attributes only, each with a phrase.")
@@ -1768,6 +1898,13 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         _validate_existing_work(pr["existing_work"])
     if "read_notes" in pr:
         _validate_read_notes(pr["read_notes"], by_id, fams, sku_attrs, numbers)
+    # ADP-5d (owner R6b / R9 / R13 / R4): the three new keys, PRESENCE-tested like every key above
+    if "stream_heading_default" in pr:
+        _validate_stream_heading_default(pr["stream_heading_default"], by_id, choice_attrs, fams, pr.get("defaults"))
+    if "text_notes" in pr:
+        _validate_text_notes(pr["text_notes"], by_id, fams, ucls)
+    if "companion_items" in pr:
+        _validate_companion_items(pr["companion_items"], by_id, fams, ucls, spec.get("family_attribute_id") or "family")
     # SLICE 12d-1a (owner R7): `panel_readonly` -- each a `text` item definition that NO pricing rule
     # reads (not a SKU attribute, not a `numbers` source): recorded and shown, never matched.
     # SLICE 12d-1b (owner T5): `no_sku_named_by` -- ONE `text` item definition the pricing does not read.
