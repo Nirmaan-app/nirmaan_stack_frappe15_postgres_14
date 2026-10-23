@@ -94,6 +94,16 @@ function withoutAdp1(items: RateMasterItem[]): RateMasterItem[] {
   return [...items.filter((it) => !ADP1_INPUTS.includes(String(it.item_uid))), ...back];
 }
 
+/**
+ * ADP-5c (owner 2026-10-23 10:21): HVAC v53's ONE new SKU, VCD Aluminium, which the served fixture predates -- set aside on the
+ * stored side by name, exactly as `withoutAdp1` does; it throws if the uid is not in the stored asset, so it cannot pass vacuously.
+ */
+const ADP5C_VCD_ALUMINIUM = "rmi-c1ebcadd4fd5";
+function withoutAdp5c(items: RateMasterItem[]): RateMasterItem[] {
+  if (!items.some((it) => String(it.item_uid) === ADP5C_VCD_ALUMINIUM)) throw new Error(`ADP-5c SKU ${ADP5C_VCD_ALUMINIUM} is not in the stored asset`);
+  return items.filter((it) => String(it.item_uid) !== ADP5C_VCD_ALUMINIUM);
+}
+
 /** ONE block per SKU, from the SKU's own attributes -- the replay_insulation instrument's construction. */
 function skuBlock(it: RateMasterItem) {
   const attrs: Record<string, { value: string }> = {};
@@ -135,7 +145,9 @@ describe("the served fixture is the live endpoint's payload, and its rates ARE t
   it("every served item's rates deep-equal the asset's stored rates -- both disciplines, every uid NAMED on failure", () => {
     // INVERTED at ADP-1 under mechanical authority (owner "go"). BEFORE: [["HVAC", servedHvac, storedHvac], ...] -- the five ADP-1
     // uids are normalised out of the stored side by name (`withoutAdp1`); everything else is compared as before.
-    for (const [label, s, a] of [["HVAC", servedHvac, withoutAdp1(storedHvac)], ["Electrical", served.items.Electrical, storedItems(ELEC)]] as const) {
+    // INVERTED at ADP-5c (HVAC v53; standing authority: a test failing solely because it reads the current HVAC asset) by mechanical
+    // authority. BEFORE: [["HVAC", servedHvac, withoutAdp1(storedHvac)], ...] -- the VCD Aluminium SKU set aside by name (`withoutAdp5c`)
+    for (const [label, s, a] of [["HVAC", servedHvac, withoutAdp1(withoutAdp5c(storedHvac))], ["Electrical", served.items.Electrical, storedItems(ELEC)]] as const) {
       const stored = new Map(a.map((it) => [String(it.item_uid), it.rates]));
       expect(new Set(s.map((it) => String(it.item_uid))), `${label}: the same uids`).toEqual(new Set(stored.keys()));
       const bad = s.filter((it) => JSON.stringify(it.rates) !== JSON.stringify(stored.get(String(it.item_uid))))

@@ -194,3 +194,77 @@ describe("ADP-5c -- existingWorkOf (pure)", () => {
     expect(existingWorkOf(itemListPricingSpec(cfgOf(V52, ADP))!, "Removing Existing cross talk silencers")).toBeNull();
   });
 });
+
+// ── HVAC v53 itself (commit 2): the coating shown read-only with its note -- config only (owner C7, 2026-10-23 10:51) ──────
+// `panel_readonly` + `read_notes` on Insulation, the pipe-class mechanism; Piping's insulation section is priced with the
+// Insulation config's own spec, so the same line reaches it. A coating never moves a figure.
+const V53 = readJsonFixture<Asset>(pathToFileURL(path.join(DATA, "rate_master_hvac_all_v53.json")));
+const V53_CONFIGS = new Map<string, RateCategoryConfig>(V53.category_configs.map((c) => [c.category_id, c]));
+const V53_ITEMS: RateMasterItem[] = mergeItemsByName(V53.items.map((it) => ({ ...it, discipline: V53.discipline } as RateMasterItem)));
+const COATING_LINE = (t: string) => `Coating (as in BoQ): ${t}. Coating price is not included - adjust the price if appropriate.`;
+interface V53Row { cat: string; unit: string; description: string; headings: string[]; items: Array<Record<string, string>> }
+function panel53(row: V53Row): ItemListSuggestion {
+  const ext = new Map<number, ExtractionRow>([[1, { excelRow: 1, description: row.description, attributes: {},
+    items: row.items.map(({ section, ...a }) => ({ attributes: cells(a), ...(section ? { section } : {}) })) } as unknown as ExtractionRow]]);
+  return must(makePricingSheetHelper({ configsByCategory: V53_CONFIGS, items: V53_ITEMS, extractionByRow: ext })
+    .compute({ excelRow: 1, description: row.description, nodeType: "Line Item", category: row.cat, discipline: "HVAC", rateKinds: RK,
+      headings: row.headings, ownNotes: [], headingNotes: [], unit: row.unit } as never, {}));
+}
+const withoutCoating = (row: V53Row): V53Row => ({ ...row, items: row.items.map(({ coating_as_written: _c, ...a }) => a) });
+// BOQ-26-00086 "High side" r78's answer (stored: Glass Cloth with paint, 32 mm), answered here with the coating alone and on a
+// 50 mm pipe at 19 mm -- the stored 125 mm is above the sheet's largest Nitrile size (53.98) and refuses for that reason on its own
+const R00086_78: V53Row = {
+  cat: "hvac_insulation", unit: "RM", description: "50 mm dia - 19 mm",
+  headings: ["The quoted price should include lifting, shifting, positioning at site of all the equipment fittings, remote controls, vibration isolators, ancilliary materials as specified and all such item required to fullfill the intent and purpose as laid down in specifications and drawings.", "CHILLED WATER PIPING INSULATION - NITRILE RUBBER"],
+  items: [{ item: "Nitrile Rubber Insulation", cladding: "None", thickness_mm: "19 mm", pipe_size_mm: "50 mm dia", brand: "Beardsell",
+            material_as_written: "closed cell elastomeric nitrile rubber", coating_as_written: "500 micron (0.5 mm) WFT Flame Retardant coating" }],
+};
+// BOQ-26-00191 Sheet1 r37 (Piping, the stored pipe answer), its insulation section answered Nitrile with the coating
+const R00191_37: V53Row = {
+  cat: "hvac_piping", unit: "Metres", description: "41.3 mm O.D.", headings: ["Section L - HVAC System", "Refrigerant Piping for VRF units"],
+  items: [{ pipe_type: "Copper", pipe_type_as_written: "copper", size_mm: "41.3 mm O.D.", pipe_class: "16 gauge", insulated: "Yes" },
+          { section: "insulation", item: "Nitrile Rubber Insulation", cladding: "None", coating_as_written: "fire retardent UV coatings",
+            material_as_written: "XPLE Class-O tubular insulation/with Class-O closed cell elastomeric nitrile rubber tubular sleeves" }],
+};
+
+describe("ADP-5c HVAC v53 -- a coating is shown read-only with its note and never moves a figure", () => {
+  it("Insulation: 'Coating as written' is shown read-only with the BoQ's words (never a field), and the working carries the note", () => {
+    const s = panel53(R00086_78);
+    expect(s.itemList!.items[0].readOnly).toContainEqual({ id: "coating_as_written", label: "Coating as written", value: "500 micron (0.5 mm) WFT Flame Retardant coating" });
+    expect(s.itemList!.items[0].fields.map((x) => x.id)).not.toContain("coating_as_written");
+    expect(s.itemList!.items[0].working).toContain(COATING_LINE("500 micron (0.5 mm) WFT Flame Retardant coating"));
+  });
+  it("Insulation: a composed row (32 mm = two layers) shows the note once per layer -- the existing read_notes mechanism, unchanged", () => {
+    const r32: V53Row = { ...R00086_78, description: "50 mm dia - 32 mm", items: [{ ...R00086_78.items[0], thickness_mm: "32 mm" }] };
+    const s = panel53(r32);
+    expect(s.itemList!.items[0].working.filter((l) => l.trim() === COATING_LINE("500 micron (0.5 mm) WFT Flame Retardant coating"))).toHaveLength(2);
+    expect(fig(s)).toEqual(fig(panel53(withoutCoating(r32))));
+  });
+  it("Insulation: the same answer without the coating has the same figures, and no line or value for it", () => {
+    const a = panel53(R00086_78), b = panel53(withoutCoating(R00086_78));
+    expect(fig(a)).toEqual(fig(b));
+    expect(fig(a)[2]).not.toBeNull();
+    expect(working(b).some((l) => l.startsWith("Coating (as in BoQ)"))).toBe(false);
+    expect(b.itemList!.items[0].readOnly.map((x) => x.id)).not.toContain("coating_as_written");
+  });
+  it("Piping: the insulation section carries the same note, with the pipe and section figures unchanged by it", () => {
+    const a = panel53(R00191_37), b = panel53(withoutCoating(R00191_37));
+    const sec = (s: ItemListSuggestion) => s.itemList!.items[0].sections![0].view.items[0];
+    expect(sec(a).working).toContain(COATING_LINE("fire retardent UV coatings"));
+    expect(sec(a).readOnly).toContainEqual({ id: "coating_as_written", label: "Coating as written", value: "fire retardent UV coatings" });
+    expect(sec(b).working.some((l) => l.startsWith("Coating (as in BoQ)"))).toBe(false);
+    expect(fig(a)).toEqual(fig(b));
+    expect(fig(a)[2]).not.toBeNull();
+  });
+  it("v53's ADP config carries this slice's two pricing keys exactly as the tests above built them", () => {
+    const pr = (cfgOf(V53, ADP) as unknown as { list_spec: { pricing: Record<string, any> } }).list_spec.pricing;
+    expect(pr.existing_work).toEqual(EXISTING_WORK);
+    expect([pr.number_defaults.face_w_mm, pr.number_defaults.face_h_mm]).toEqual([CROSS_TALK_DEFAULT, CROSS_TALK_DEFAULT]);
+  });
+  it("v53's VCD Aluminium prices 8,613 / 1,920 / 10,533 per sq.m on the panel; a VCD not saying aluminium keeps GI 9,750", () => {
+    const vcd = (variant: string): V53Row => ({ cat: ADP, unit: "SqM", description: "Volume control damper", headings: [], items: [{ family: "VCD", variant, qty_per_row_unit: "None" }] });
+    expect(fig(panel53(vcd("aluminium")))).toEqual([8613, 1920, 10533]);
+    expect(fig(panel53(vcd("None")))).toEqual([7830, 1920, 9750]);
+    expect(fig(panel53(vcd("GI rectangular")))).toEqual([7830, 1920, 9750]);
+  });
+});
