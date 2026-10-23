@@ -3,7 +3,6 @@ import { useFrappeEventListener, useFrappeGetCall } from "frappe-react-sdk";
 import {
     CHEQUES_CHANGED_EVENT,
     type ChequeBank,
-    type ChequeClearedBy,
     type ChequeLineType,
     type ChequeMadeFrom,
     type ChequeStatus,
@@ -44,6 +43,7 @@ export interface ChequeDetail {
     bank: ChequeBank;
     bank_name?: string | null;
     bank_label: string;
+    /** The Cheque/Payment Date: the paper date, then the day the bank paid it (#1520). */
     cheque_date: string;
     amount: number;
     status: ChequeStatus;
@@ -51,8 +51,6 @@ export interface ChequeDetail {
     /** 1 for a Cheque from before cheque types (spec #1477): only its photo can change. */
     old_type?: 0 | 1;
     issue_date?: string | null;
-    clearance_date?: string | null;
-    cleared_by?: ChequeClearedBy | null;
     bank_line?: string | null;
     /** The imported bank line that cleared it (#1484). */
     bank_line_detail?: {

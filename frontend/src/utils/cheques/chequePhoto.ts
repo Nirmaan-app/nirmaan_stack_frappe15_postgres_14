@@ -9,7 +9,7 @@ import { EMPTY_CHEQUE_FORM } from "./chequeForm";
  * every field it was unsure of as empty. Here the reply becomes form values, and a field keeps its
  * "From photo" tag only while it still holds what the photo said.
  *
- * Two forms use it: Add Cheque (`chequeForm.ts`) and the Request Payment dialog's Cheque mode
+ * Two forms use it: the Security Deposit cheque form (`chequeDeposit.ts`) and the Request Payment dialog's Cheque mode
  * (`pages/ProjectPayments/paymentMode.ts`, #1414). Any form whose values carry these field names works.
  */
 

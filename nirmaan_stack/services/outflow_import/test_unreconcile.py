@@ -1078,3 +1078,26 @@ class TestAPaymentOnAClearedChequeStaysPaid(unittest.TestCase):
 
     def test_a_payment_on_no_cleared_cheque_still_reverts(self):
         self.assertEqual(leg_verdict(facts(cleared_cheque=None)).verdict, VERDICT_REVERT_PAYMENT)
+
+
+class TestAPaidChequePaymentIsNeverSetBack(unittest.TestCase):
+    """#1552 (ADR-0035 Amendment B): a Paid cheque payment is never set back, whatever its cheque's status, so
+    one paid by hand before the rule (on an Issued Old-type cheque) is refused up front, not at its save."""
+
+    def test_the_leg_is_refused_saying_why(self):
+        verdict = leg_verdict(facts(cheque_payment=True))
+        self.assertEqual(verdict.verdict, VERDICT_REFUSED)
+        self.assertEqual(verdict.title, "Paid by cheque")
+        self.assertEqual(
+            verdict.reason,
+            f"{PAY} is a Paid cheque payment, so it cannot be unreconciled: a cheque's payments are paid when a "
+            "bank-statement line with the cheque's number and amount is imported, which clears the cheque, and a "
+            "Paid one is never set back.",
+        )
+        self.assertIsNone(verdict.fix_at)
+
+    def test_a_cleared_cheque_s_refusal_is_unchanged(self):
+        self.assertEqual(leg_verdict(facts(cleared_cheque="000747", cheque_payment=True)).title, "On a cleared cheque")
+
+    def test_an_online_payment_still_reverts(self):
+        self.assertEqual(leg_verdict(facts(cheque_payment=False)).verdict, VERDICT_REVERT_PAYMENT)

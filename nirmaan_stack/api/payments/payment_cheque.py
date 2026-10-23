@@ -9,7 +9,8 @@ Both PO / Work Order request endpoints (`project_payments.create_project_payment
 1. `cheque_header` -- the cheque the dialog sends (read off its photo), or None for Online.
 2. `refuse_unless_cheque_can_be_made` -- BEFORE `pay.insert()`. A Project Payment's `after_insert`
    commits (its notifications), so once the payment is inserted a refusal can no longer take it back.
-   A bank + cheque number already recorded raises `DuplicateChequeError`.
+   A bank + cheque number already recorded raises `DuplicateChequeError`. Then `expect_new_cheque` on the
+   new payment: without it the payment's `validate` refuses a Cheque-mode insert that no cheque lists (#1552).
 3. `put_on_new_cheque` -- after the insert: the cheques service makes the Cheque and puts the payment
    on it. Should that still fail (another user recorded the same number in between), the payment is
    withdrawn, so no Cheque payment is left without its Cheque.
@@ -22,6 +23,7 @@ import frappe
 from frappe import _
 
 from nirmaan_stack.services import cheque_payments
+from nirmaan_stack.services.cheques.payment_rules import CHEQUE_FOLLOWS_FLAG
 from nirmaan_stack.services.cheques.rules import ChequeHeader, parse_header
 from nirmaan_stack.services.cheques.writer import (
     CHEQUES_CHANGED_EVENT,
@@ -59,6 +61,14 @@ def refuse_unless_cheque_can_be_made(header: ChequeHeader | None) -> None:
         frappe.throw(_(problem), DuplicateChequeError, title=_("Cheque Already Exists"))
     if problem:
         frappe.throw(_(problem))
+
+
+def expect_new_cheque(pay, header: ChequeHeader | None) -> None:
+    """Mark the not-yet-inserted payment `pay` as getting its new Cheque right after the insert
+    (`put_on_new_cheque`), which is what lets its `validate` take a Cheque-mode payment no cheque lists yet
+    (`payment_rules.CHEQUE_FOLLOWS_FLAG`). Nothing for Online."""
+    if header is not None:
+        pay.flags[CHEQUE_FOLLOWS_FLAG] = True
 
 
 def put_on_new_cheque(payment_name: str, header: ChequeHeader | None) -> str | None:
