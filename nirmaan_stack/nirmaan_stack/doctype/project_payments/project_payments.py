@@ -34,9 +34,7 @@ class ProjectPayments(Document):
 		The mode itself changes only through a Cheque (`services/cheques/payment_mode.validate_mode_change`).
 
 		⚠️ ONE CHEQUE MAY COVER SEVERAL PAYMENTS (owner, 2026-09-19, reversing the same day's
-		"one number, one live payment" ruling), so the number is deliberately NOT unique. The
-		payments on one cheque also share its reference at reconciliation -- see
-		`reference_guard.cheque_siblings_of`.
+		"one number, one live payment" ruling), so the number is deliberately NOT unique.
 		"""
 		if not is_cheque(self):
 			# An online payment has no cheque. A number left on it would still block the

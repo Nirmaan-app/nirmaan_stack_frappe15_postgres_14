@@ -1,28 +1,29 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Clear and Cancel a cheque from the Cheque Tracker, and the detail view (#1484, spec #1477, ADR-0035).
+"""Clear a cheque from its bank line, Cancel it from the Cheque Tracker, and the detail view (#1484, spec
+#1477, #1516, ADR-0035 Amendment A).
 
-Drives the endpoints the Clear and Cancel dialogs call (`cheque_status.clear_cheque`, `clear_cheques`,
-`cancel_cheque`, `get_bank_lines`) and the detail view (`cheque_detail.get_cheque`), and reads back what
-a user sees: each payment's status, payment date and PO term, the Cheque's status, dates and history, the
-bank line's status, or the refusal.
+Only an imported bank line clears a cheque, so clearing is driven through the cheques service
+(`status.clear`, what the bank import calls) with a planted line; Cancel through the endpoint its dialog
+calls (`cheque_status.cancel_cheque`), and the detail view through `cheque_detail.get_cheque`. Each reads
+back what a user sees: each payment's status, payment date and PO term, the Cheque's status, dates and
+history, the bank line's status, or the refusal.
 
 ⚠️ RUNS AGAINST THE ENV DATABASE (the endpoints commit). Projects, vendors, POs and payments come from
 `TaxedWorkOrderFixture` / `PendingChequeCase`; every Cheque is purged by `ChequeFixture`; the planted bank
 lines are purged here.
 """
 
-import json
-
 import frappe
 from frappe.utils import add_days, flt, nowdate
 
 from nirmaan_stack.api.cheques.cheque_detail import get_cheque
 from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
-from nirmaan_stack.api.cheques.cheque_status import cancel_cheque, clear_cheque, clear_cheques, get_bank_lines
+from nirmaan_stack.api.cheques.cheque_status import cancel_cheque
 from nirmaan_stack.api.payments.test_cheque_approval import PendingChequeCase
 from nirmaan_stack.services.cheques.rules import ChequeHeader, ChequeLineInput
+from nirmaan_stack.services.cheques.status import clear
 from nirmaan_stack.services.cheques.writer import create_cheque
 
 PAYMENT = "Project Payments"
@@ -70,8 +71,17 @@ class ChequeStatusCase(PendingChequeCase):
         frappe.db.commit()
         return name
 
-    def _bank_line(self, *, reference_id, amount, direction="Debit", row_status="Mismatched"):
-        """An imported ICICI statement line nobody has matched yet, staged directly."""
+    def _clear_by_bank(self, cheque, *, day=None):
+        """Clear `cheque` as the bank import does: a planted ICICI line with its number and amount, dated
+        `day` (today by default). Returns the line."""
+        number, amount = frappe.db.get_value("Cheques", cheque, ["cheque_no", "amount"])
+        line = self._bank_line(reference_id=number, amount=amount, day=day)
+        clear(cheque, bank_line=line, user=U)
+        frappe.db.commit()
+        return line
+
+    def _bank_line(self, *, reference_id, amount, direction="Debit", row_status="Mismatched", day=None):
+        """An imported ICICI statement line nobody has matched yet, staged directly, dated `day`."""
         batch = frappe.new_doc("Outflow Import Batch")
         batch.update({"source": "ICICI Bank Statement", "status": "In Review", "source_file": STATEMENT})
         batch.insert(ignore_permissions=True)
@@ -80,7 +90,7 @@ class ChequeStatusCase(PendingChequeCase):
             "import_batch": batch.name, "source": "ICICI Bank Statement",
             "transfer_id": f"chq-{frappe.generate_hash(length=10)}", "amount": flt(amount), "direction": direction,
             "reference_id": reference_id, "settlement_reference": f"CLG/TEST VENDOR/{reference_id}",
-            "added_on": f"{nowdate()} 00:00:00", "row_status": row_status,
+            "added_on": f"{day or nowdate()} 00:00:00", "row_status": row_status,
         })
         row.insert(ignore_permissions=True)
         frappe.db.commit()
@@ -126,155 +136,79 @@ class ChequeStatusCase(PendingChequeCase):
             frappe.set_user(U)
 
 
-class TestClearByHand(ChequeStatusCase):
-    def test_clearing_an_issued_cheque_pays_every_payment_on_the_clearance_date(self):
-        cheque, (a, b) = self._issued(30000, 20000)
-        frappe.db.set_value("Cheques", cheque, "issue_date", add_days(nowdate(), -5), update_modified=False)
-        frappe.db.commit()
-        day = add_days(nowdate(), -1)
+class TestOnlyABankLineClears(ChequeStatusCase):
+    """Nobody clears a cheque by hand (#1516, ADR-0035 Amendment A): the cheques service clears one only
+    with an imported bank line carrying its number and amount, on the line's date."""
 
-        out = clear_cheque(cheque, day)
+    def test_clearing_without_a_bank_line_is_refused_and_nothing_changes(self):
+        cheque, (a,) = self._issued(20000)
+        self._refused("cannot be cleared: only a bank-statement line with its number and amount clears a cheque",
+                      clear, cheque, bank_line=None, user=U)
+        self.assertEqual((self._status(cheque), self._statuses(a)), ("Issued", [RP]))
+
+    def test_the_hand_clear_endpoints_are_gone(self):
+        import nirmaan_stack.api.cheques.cheque_status as endpoints
+
+        for removed in ("clear_cheque", "clear_cheques", "get_bank_lines"):
+            self.assertFalse(hasattr(endpoints, removed), removed)
+        self.assertTrue(hasattr(endpoints, "cancel_cheque"))
+
+    def test_a_bank_line_pays_every_payment_on_its_own_date(self):
+        number = self.cheques.number()
+        cheque, (a, b) = self._issued(30000, 20000, cheque_no=number)
+        day = add_days(nowdate(), -1)
+        line = self._bank_line(reference_id=number, amount=50000, day=day)
+
+        out = clear(cheque, bank_line=line, user=U)
+        frappe.db.commit()
 
         self.assertEqual((out["status"], sorted(out["payments"])), ("Cleared", sorted([a, b])))
         self.assertEqual(self._statuses(a, b), ["Paid", "Paid"])
         self.assertEqual(self._payment_dates(a, b), [day, day])
         self.assertEqual(self._terms(a, b), ["Paid", "Paid"])
+        # The cheque's Cheque/Payment Date becomes the line's day (#1520); the paper date stays only on each
+        # payment's own cheque date.
         doc = frappe.get_doc("Cheques", cheque)
-        self.assertEqual((doc.status, str(doc.clearance_date), doc.cleared_by, doc.bank_line),
-                         ("Cleared", day, "By hand", None))
-        self.assertEqual(self._history(cheque)[-1], ("Issued", "Cleared", U, "Cleared by hand."))
-        # Paid money counts on the PO (its Amount Paid is recounted from its Paid payments).
-        po = frappe.db.get_value(PAYMENT, a, "document_name")
-        self.assertEqual(flt(frappe.db.get_value(PO, po, "amount_paid")), 30000)
-
-    def test_a_pending_cheque_is_refused_and_nothing_changes(self):
-        a = self._payment(20000)
-        cheque = self._cheque((a, 20000))
-        self._refused("cannot be cleared: it is Pending: its payments are not approved yet", clear_cheque, cheque,
-                      nowdate())
-        self.assertEqual((self._status(cheque), self._statuses(a)), ("Pending", ["Requested"]))
-
-    def test_a_cancelled_cheque_is_refused_and_never_goes_back(self):
-        cheque, (a,) = self._issued(20000)
-        cancel_cheque(cheque, "torn up")
-        self._refused("cannot be cleared: it is Cancelled: its payments are Rejected", clear_cheque, cheque,
-                      nowdate())
-        self.assertEqual((self._status(cheque), self._statuses(a)), ("Cancelled", ["Rejected"]))
-
-    def test_a_cleared_cheque_cannot_be_cleared_again(self):
-        cheque, _ = self._issued(20000)
-        clear_cheque(cheque, nowdate())
-        self._refused("cannot be cleared: already Cleared", clear_cheque, cheque, nowdate())
-
-    def test_a_clearance_date_after_today_is_refused(self):
-        cheque, (a,) = self._issued(20000)
-        self._refused("The clearance date cannot be after today", clear_cheque, cheque, add_days(nowdate(), 1))
-        self.assertEqual(self._statuses(a), [RP])
-
-    def test_procurement_cannot_clear_or_cancel(self):
-        cheque, _ = self._issued(20000)
-        user = self._user(PROCUREMENT)
-        with self.assertRaises(frappe.PermissionError):
-            self._as(user, clear_cheque, cheque, nowdate())
-        with self.assertRaises(frappe.PermissionError):
-            self._as(user, cancel_cheque, cheque, "torn up")
-        with self.assertRaises(frappe.PermissionError):
-            self._as(user, clear_cheques, [cheque], nowdate())
-        self.assertEqual(self._status(cheque), "Issued")
-
-    def test_an_accountant_can_clear(self):
-        cheque, _ = self._issued(20000)
-        user = self._user((ACCOUNTANT,))
-        self._as(user, clear_cheque, cheque, nowdate(), note="ICICI statement 12 Oct")
-        self.assertEqual(self._history(cheque)[-1], ("Issued", "Cleared", user, "ICICI statement 12 Oct"))
-
-    def test_an_old_type_cheque_is_cleared_by_hand_and_pays_its_payments(self):
-        a = self._payment(20000, RP)
-        cheque = self.cheques.plant_cheque(
-            status="Issued", bank="ICICI Bank", cheque_no=self.cheques.number(), cheque_date=nowdate(),
-            amount=20000, vendor=self.vendor, attachment=PHOTO,
-            lines=[{"line_type": "PO/WO Payment", "project": self.project, "record_doctype": PO,
-                    "record_name": frappe.db.get_value(PAYMENT, a, "document_name"), "payment_name": a}],
-        )
-        frappe.db.set_value("Cheques", cheque, "old_type", 1, update_modified=False)
-        frappe.db.commit()
-
-        clear_cheque(cheque, nowdate())
-
-        self.assertEqual((self._status(cheque), self._statuses(a)), ("Cleared", ["Paid"]))
-
-
-class TestClearWithABankLine(ChequeStatusCase):
-    def test_the_dialog_offers_unmatched_lines_with_the_number_whatever_the_zeros(self):
-        number = f"00{frappe.generate_hash(length=6).translate(str.maketrans('abcdef', '123456'))}"
-        cheque, _ = self._issued(30000, 20000, cheque_no=number)
-        line = self._bank_line(reference_id=f"{number.lstrip('0')}.0", amount=50003)
-        self._bank_line(reference_id=f"9{number}", amount=50000)  # another number
-        self._bank_line(reference_id=number, amount=50000, direction="Credit")
-        self._bank_line(reference_id=number, amount=50010)  # amount too far off
-
-        self.assertEqual([r["name"] for r in get_bank_lines(cheque)], [line])
-
-    def test_linking_a_line_records_it_on_the_cheque_and_its_payments(self):
-        number = self.cheques.number()
-        cheque, (a, b) = self._issued(30000, 20000, cheque_no=number)
-        line = self._bank_line(reference_id=number, amount=50000)
-
-        clear_cheque(cheque, nowdate(), bank_line=line)
-
-        doc = frappe.get_doc("Cheques", cheque)
-        self.assertEqual((doc.status, doc.bank_line, doc.cleared_by), ("Cleared", line, "By hand"))
-        self.assertEqual(self._statuses(a, b), ["Paid", "Paid"])
+        self.assertEqual((doc.status, str(doc.cheque_date), doc.cleared_by, doc.bank_line),
+                         ("Cleared", day, "Bank import", line))
+        self.assertEqual([str(frappe.db.get_value(PAYMENT, p, "cheque_date")) for p in (a, b)], [nowdate()] * 2)
+        self.assertEqual(self._history(cheque)[-1], ("Issued", "Cleared", U, f"Cleared by bank import, bank line {line}."))
         matches = frappe.get_all("Outflow Row Match", filters={"import_row": line},
                                  fields=["target_doctype", "target_name", "target_amount", "match_kind"])
         self.assertEqual(
             sorted((m.target_doctype, m.target_name, flt(m.target_amount), m.match_kind) for m in matches),
             sorted([(PAYMENT, a, 30000.0, "Settled"), (PAYMENT, b, 20000.0, "Settled")]),
         )
-        for p in (a, b):
-            self.assertEqual(frappe.db.get_value(PAYMENT, p, "utr"), f"CLG/TEST VENDOR/{number}")
         self.assertEqual(frappe.db.get_value("Outflow Import Row", line, "row_status"), "Settled")
-        self.assertEqual(get_bank_lines(cheque), [])  # no longer unmatched
-        self.assertEqual(self._history(cheque)[-1][3], f"Cleared by hand, bank line {line}.")
+        # Paid money counts on the PO (its Amount Paid is recounted from its Paid payments).
+        po = frappe.db.get_value(PAYMENT, a, "document_name")
+        self.assertEqual(flt(frappe.db.get_value(PO, po, "amount_paid")), 30000)
+
+    def test_a_cleared_cheque_cannot_be_cleared_again(self):
+        cheque, _ = self._issued(20000)
+        self._clear_by_bank(cheque)
+        number = frappe.db.get_value("Cheques", cheque, "cheque_no")
+        again = self._bank_line(reference_id=number, amount=20000)
+        self._refused("cannot be cleared: already Cleared", clear, cheque, bank_line=again, user=U)
 
     def test_a_line_that_does_not_fit_is_refused_and_nothing_changes(self):
         number = self.cheques.number()
         cheque, (a,) = self._issued(20000, cheque_no=number)
         other = self._bank_line(reference_id=f"{number}9", amount=20000)
 
-        self._refused(f"cannot be cleared with that bank line: line {other} carries cheque number", clear_cheque,
-                      cheque, nowdate(), bank_line=other)
+        self._refused(f"cannot be cleared with that bank line: line {other} carries cheque number", clear,
+                      cheque, bank_line=other, user=U)
 
         self.assertEqual((self._status(cheque), self._statuses(a)), ("Issued", [RP]))
         self.assertEqual(frappe.db.get_value("Outflow Import Row", other, "row_status"), "Mismatched")
         self.assertFalse(frappe.db.exists("Outflow Row Match", {"import_row": other}))
 
-
-class TestBulkClear(ChequeStatusCase):
-    def test_bulk_clears_the_issued_and_skips_the_rest_with_reasons(self):
-        (a, _), (b, _) = self._issued(10000), self._issued(15000)
-        done, _ = self._issued(5000)
-        clear_cheque(done, nowdate())
-        pending = self._cheque((self._payment(20000), 20000))
-        numbers = {c: frappe.db.get_value("Cheques", c, "cheque_no") for c in (done, pending)}
-
-        result = clear_cheques(json.dumps([a, b, done, pending]), nowdate())
-
-        self.assertEqual([c["cheque"] for c in result["changed"]], [a, b])
-        self.assertEqual(result["skipped"], [
-            {"cheque": done, "cheque_no": numbers[done], "reason": "already Cleared"},
-            {"cheque": pending, "cheque_no": numbers[pending],
-             "reason": "it is Pending: its payments are not approved yet"},
-        ])
-        self.assertEqual([self._status(c) for c in (a, b, pending)], ["Cleared", "Cleared", "Pending"])
-
-    def test_the_preview_writes_nothing(self):
-        cheque, (p,) = self._issued(10000)
-
-        preview = clear_cheques([cheque], nowdate(), dry_run="true")
-
-        self.assertEqual([c["cheque"] for c in preview["changed"]], [cheque])
-        self.assertEqual((self._status(cheque), self._statuses(p)), ("Issued", [RP]))
+    def test_procurement_cannot_cancel(self):
+        cheque, _ = self._issued(20000)
+        user = self._user(PROCUREMENT)
+        with self.assertRaises(frappe.PermissionError):
+            self._as(user, cancel_cheque, cheque, "torn up")
+        self.assertEqual(self._status(cheque), "Issued")
 
 
 class TestCancel(ChequeStatusCase):
@@ -298,6 +232,13 @@ class TestCancel(ChequeStatusCase):
         cancel_cheque(cheque, "torn up")
         self.assertEqual((self._status(cheque), self._statuses(a)), ("Cancelled", ["Rejected"]))
 
+    def test_a_payment_cheque_on_another_bank_from_before_1516_can_still_be_cancelled(self):
+        # Cancelling is the only way to close one now: no imported statement can clear it.
+        cheque, (a,) = self._issued(20000)
+        ChequeFixture.move_to_other_bank(cheque, "HDFC Bank")
+        cancel_cheque(cheque, "drawn on HDFC; cancelled to raise it again on ICICI")
+        self.assertEqual((self._status(cheque), self._statuses(a)), ("Cancelled", ["Rejected"]))
+
     def test_cancel_needs_a_note(self):
         cheque, (a,) = self._issued(20000)
         self._refused("Write a note saying why the cheque is cancelled", cancel_cheque, cheque, "   ")
@@ -305,7 +246,7 @@ class TestCancel(ChequeStatusCase):
 
     def test_a_cleared_cheque_cannot_be_cancelled(self):
         cheque, (a,) = self._issued(20000)
-        clear_cheque(cheque, nowdate())
+        self._clear_by_bank(cheque)
         self._refused("cannot be cancelled: it is Cleared: a cleared cheque cannot be cancelled", cancel_cheque,
                       cheque, "bounced")
         self.assertEqual((self._status(cheque), self._statuses(a)), ("Cleared", ["Paid"]))
@@ -313,22 +254,19 @@ class TestCancel(ChequeStatusCase):
 
 class TestDetailView(ChequeStatusCase):
     def test_the_detail_view_shows_type_dates_how_it_cleared_and_the_bank_line(self):
-        number = self.cheques.number()
-        cheque, (a,) = self._issued(20000, cheque_no=number)
-        line = self._bank_line(reference_id=number, amount=20000)
-        clear_cheque(cheque, nowdate(), bank_line=line)
+        cheque, (a,) = self._issued(20000)
+        line = self._clear_by_bank(cheque)
 
         detail = get_cheque(cheque)
 
         self.assertEqual(
-            (detail["cheque_type"], str(detail["issue_date"]), str(detail["clearance_date"]), detail["cleared_by"],
-             detail["bank_line"]),
-            ("Payment", nowdate(), nowdate(), "By hand", line),
+            (detail["cheque_type"], str(detail["issue_date"]), str(detail["cheque_date"]), detail["bank_line"]),
+            ("Payment", nowdate(), nowdate(), line),
         )
         self.assertEqual((detail["bank_line_detail"]["name"], flt(detail["bank_line_detail"]["amount"])), (line, 20000))
         self.assertEqual([(l["payment_name"], l["payment_status"]) for l in detail["lines"]], [(a, "Paid")])
         self.assertEqual([(h["from_status"], h["to_status"]) for h in detail["history"]],
-                         [(None, "Pending"), ("Pending", "Issued"), ("Issued", "Cleared")])
+                         [(None, "Approval Pending"), ("Approval Pending", "Issued"), ("Issued", "Cleared")])
 
     def test_a_project_manager_cannot_open_the_detail_view(self):
         cheque, _ = self._issued(20000)

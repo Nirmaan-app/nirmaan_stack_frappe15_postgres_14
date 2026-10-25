@@ -19,7 +19,11 @@ from nirmaan_stack.services.work_order_lifecycle import WorkOrderChangeRefused, 
 from nirmaan_stack.integrations.controllers.cheques import drop_off_cheques_of, on_payment_rejected
 from nirmaan_stack.services.cheques.decide import held_by_a_live_cheque, refuse_lone_approval
 from nirmaan_stack.services.cheques.detach import DELETED
-from nirmaan_stack.services.cheques.payment_mode import validate_cheque_mode
+from nirmaan_stack.services.cheques.payment_mode import (
+    validate_cheque_mode,
+    validate_on_a_cheque,
+    validate_paid_by_clear,
+)
 from nirmaan_stack.services.cheques.rules import PAYMENT_REJECTED
 
 # Imports for notification system
@@ -256,8 +260,10 @@ def validate(doc, method):
     (`services/payees/pay_to.fill_payment_from_vendor`).
 
     And the cheque rules (spec #1477): only a PO payment becomes a Cheque payment
-    (`payment_mode.validate_cheque_mode`), and a cheque payment is approved only with
-    its cheque, one cheque one decision (`decide.refuse_lone_approval`).
+    (`payment_mode.validate_cheque_mode`), a cheque payment is approved only with
+    its cheque, one cheque one decision (`decide.refuse_lone_approval`), and it moves
+    into Paid only when its cheque clears, never out of it, and always has its cheque
+    (#1552, `payment_mode.validate_paid_by_clear`, `payment_mode.validate_on_a_cheque`).
 
     And the payment steps (#1530): each status move, and a new payment's status, needs the tier the
     Payments screens use (`services/payment_steps.py`).
@@ -270,6 +276,8 @@ def validate(doc, method):
         fill_payment_from_vendor(doc)
     validate_hold(doc)
     validate_cheque_mode(doc)
+    validate_paid_by_clear(doc)
+    validate_on_a_cheque(doc)
     refuse_lone_approval(doc)
     refuse_reject_if_deposited(doc)
     refuse_amount_change_if_deposited(doc)

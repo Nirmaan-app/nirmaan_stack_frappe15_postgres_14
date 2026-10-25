@@ -11,15 +11,30 @@ const PM = { role: "Nirmaan Project Manager Profile", user: "pm@nirmaan.app" };
 const cheque = (status: string, cheque_type = "Payment", owner = "proc@nirmaan.app"): ChequeActionRow =>
     ({ status, cheque_type, owner }) as ChequeActionRow;
 
+const STATUSES = ["Approval Pending", "Issued", "Cleared", "Cancelled"];
+const EVERYONE = [ADMIN, ACCOUNTANT, LEAD, PROCUREMENT, PM];
+
+describe("chequeRowActions never offers Clear (#1516)", () => {
+    it("on any cheque, for anyone: only an imported bank-statement line clears a cheque", () => {
+        for (const viewer of EVERYONE) {
+            for (const status of STATUSES) {
+                for (const type of ["Payment", "Security Deposit"]) {
+                    expect(chequeRowActions(cheque(status, type, viewer.user), viewer)).not.toContain("clear");
+                }
+            }
+        }
+    });
+});
+
 describe("chequeRowActions for accounts", () => {
-    it("offers Clear and Cancel on an Issued Payment cheque", () => {
+    it("offers Cancel on an Issued Payment cheque", () => {
         for (const viewer of [ADMIN, ACCOUNTANT, LEAD]) {
-            expect(chequeRowActions(cheque("Issued"), viewer)).toEqual(["view", "edit", "clear", "cancel"]);
+            expect(chequeRowActions(cheque("Issued"), viewer)).toEqual(["view", "edit", "cancel"]);
         }
     });
 
-    it("offers Cancel but never Clear on a Pending Payment cheque: only the bank import clears one", () => {
-        expect(chequeRowActions(cheque("Pending"), ACCOUNTANT)).toEqual(["view", "edit", "cancel"]);
+    it("offers Cancel on an Approval Pending Payment cheque", () => {
+        expect(chequeRowActions(cheque("Approval Pending"), ACCOUNTANT)).toEqual(["view", "edit", "cancel"]);
     });
 
     it("offers neither on a Cleared or Cancelled cheque: there is no undo by hand", () => {
@@ -27,23 +42,23 @@ describe("chequeRowActions for accounts", () => {
         expect(chequeRowActions(cheque("Cancelled"), ACCOUNTANT)).toEqual(["view", "edit"]);
     });
 
-    it("offers Cancel but never Clear on an Issued Security Deposit: the bank never pays one", () => {
+    it("offers Cancel on an Issued Security Deposit", () => {
         expect(chequeRowActions(cheque("Issued", "Security Deposit"), ADMIN)).toEqual(["view", "edit", "cancel"]);
         expect(chequeRowActions(cheque("Cancelled", "Security Deposit"), ADMIN)).toEqual(["view", "edit"]);
     });
 });
 
 describe("chequeRowActions for Procurement", () => {
-    it("never offers Clear or Cancel", () => {
-        for (const status of ["Pending", "Issued", "Cleared", "Cancelled"]) {
+    it("never offers Cancel", () => {
+        for (const status of STATUSES) {
             expect(chequeRowActions(cheque(status, "Payment", "someone@else"), PROCUREMENT)).toEqual(["view"]);
         }
     });
 
-    it("offers Edit on a Pending cheque it made, as the edit rule allows (#1482)", () => {
-        expect(chequeRowActions(cheque("Pending"), PROCUREMENT)).toContain("edit");
+    it("offers Edit on an Approval Pending cheque it made, as the edit rule allows (#1482)", () => {
+        expect(chequeRowActions(cheque("Approval Pending"), PROCUREMENT)).toContain("edit");
         expect(chequeRowActions(cheque("Issued"), PROCUREMENT)).not.toContain("edit");
-        expect(chequeRowActions(cheque("Pending", "Payment", "someone@else"), PROCUREMENT)).not.toContain("edit");
+        expect(chequeRowActions(cheque("Approval Pending", "Payment", "someone@else"), PROCUREMENT)).not.toContain("edit");
     });
 });
 

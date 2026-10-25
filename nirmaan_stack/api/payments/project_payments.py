@@ -21,6 +21,7 @@ from nirmaan_stack.services.tds_forecast import request_amount_as_stored
 from nirmaan_stack.services.cheques import decide as cheque_decision
 from nirmaan_stack.api.payments.payment_cheque import (
     cheque_header,
+    expect_new_cheque,
     put_on_new_cheque,
     refuse_unless_cheque_can_be_made,
 )
@@ -163,6 +164,7 @@ def create_payment_request_for_service(data: str) -> str:
     pay.flags.work_order_limit_checked = True
     # Routed above by the raiser's level (`tier_new_payment`), on the requested amount or the cheque's.
     pay.flags[ROUTED_AT_REQUEST] = True
+    expect_new_cheque(pay, cheque)
     pay.insert()
 
     if auto_approve:
@@ -293,6 +295,7 @@ def create_project_payment(
         pay.flags[ROUTED_AT_REQUEST] = True
         # This insert will trigger the 'after_insert' hook, which routes
         # notifications by status (auto-approved → accountants + admin record note).
+        expect_new_cheque(pay, cheque)
         pay.insert(ignore_permissions=True)
 
         if auto_approve:

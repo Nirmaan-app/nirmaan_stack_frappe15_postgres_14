@@ -56,7 +56,6 @@ import { SRFinalizeDialog, SRRevertFinalizeDialog } from "../components/SRFinali
 import { useServiceRequestLogic } from "../hooks/useServiceRequestLogic";
 import { useSRFinalizePermissions, useFinalizeSR, useRevertFinalizeSR } from "../hooks/useSRFinalize";
 import { DocumentAttachments } from "@/pages/ProcurementOrders/invoices-and-dcs/DocumentAttachments";
-import { SecurityDepositChequesCard } from "@/components/cheques/SecurityDepositChequesCard";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { DeletePaymentDialog } from "@/pages/ProjectPayments/update-payment/DeletePaymentDialog";
 import SRPdf from "./SRPdf";
@@ -1068,15 +1067,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                         />
                     </CardContent>
                 </Card>
-                {/* Security Deposit cheques that name this Work Order (#1486); renders only for cheque users. */}
-                <SecurityDepositChequesCard
-                    record={{
-                        doctype: "Service Requests",
-                        name: service_request?.name,
-                        project: service_request?.project,
-                        vendor: service_request?.vendor,
-                    }}
-                />
             </div>)}
 
 

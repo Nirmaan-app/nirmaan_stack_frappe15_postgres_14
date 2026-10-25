@@ -9,7 +9,7 @@ import type { ChequePhotoField } from "@/utils/cheques/chequePhoto";
 import { getFrappeError } from "@/utils/frappeErrors";
 
 /**
- * The header every Cheque form holds (Add Cheque's Payment form and the Security Deposit form, spec #1477):
+ * The header every Cheque form holds (a Payment cheque's Edit and the Security Deposit form, spec #1477, #1514):
  * the photo, bank, number, date and amount, as the inputs hold them (an amount input hands back text).
  */
 export type ChequeHeaderInput = {

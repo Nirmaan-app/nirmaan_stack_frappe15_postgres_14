@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
     chequeSummary,
     chequeTypeLabel,
-    clearanceText,
     daysSinceIssue,
     firstWithMore,
     hasNoPhoto,
@@ -72,7 +71,7 @@ describe("chequeSummary", () => {
             }),
         ).toEqual([
             { key: "all", label: "All", status: undefined, count: 6, amount: 98000 },
-            { key: "pending", label: "Pending", status: "Pending", count: 1, amount: 8000 },
+            { key: "pending", label: "Approval Pending", status: "Approval Pending", count: 1, amount: 8000 },
             { key: "issued", label: "Issued", status: "Issued", count: 2, amount: 50000 },
             { key: "cleared", label: "Cleared", status: "Cleared", count: 2, amount: 35000 },
             { key: "cancelled", label: "Cancelled", status: "Cancelled", count: 1, amount: 5000 },
@@ -146,8 +145,8 @@ describe("daysSinceIssue and isStale", () => {
         expect(daysSinceIssue({ status: "Issued", issue_date: null, cheque_date: "2026-10-04" }, today)).toBe(10);
     });
 
-    it("is nothing while Pending and once the cheque is Cleared or Cancelled", () => {
-        expect(daysSinceIssue({ status: "Pending", cheque_date: "2026-01-01" }, today)).toBeNull();
+    it("is nothing while Approval Pending and once the cheque is Cleared or Cancelled", () => {
+        expect(daysSinceIssue({ status: "Approval Pending", cheque_date: "2026-01-01" }, today)).toBeNull();
         expect(daysSinceIssue({ status: "Cleared", issue_date: "2026-01-01", cheque_date: "2026-01-01" }, today)).toBeNull();
         expect(daysSinceIssue({ status: "Cancelled", issue_date: "2026-01-01", cheque_date: "2026-01-01" }, today)).toBeNull();
     });
@@ -206,15 +205,3 @@ describe("chequeTypeLabel", () => {
     });
 });
 
-describe("clearanceText", () => {
-    it("shows the clearance date and how the cheque was cleared", () => {
-        expect(clearanceText({ clearance_date: "2026-09-10", cleared_by: "Bank import" })).toBe(
-            "10-Sep-2026 (Bank import)",
-        );
-        expect(clearanceText({ clearance_date: "2026-09-10", cleared_by: null })).toBe("10-Sep-2026");
-    });
-
-    it("is blank while the bank has not paid it", () => {
-        expect(clearanceText({ clearance_date: null, cleared_by: null })).toBe("");
-    });
-});

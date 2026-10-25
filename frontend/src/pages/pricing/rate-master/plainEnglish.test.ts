@@ -72,6 +72,37 @@ describe("12d-5: plainPricerText -- one function, every class of line the owner 
   });
 });
 
+describe("plainPricerText reads a catalogue's Pricing Inputs ONCE, not once per line (BOQ-26-00393: 2-4 s freezes)", () => {
+  /** A catalogue of `n` items, three of them Pricing Inputs, that counts every read of an item's kind. */
+  const countingCatalogue = (n: number) => {
+    let reads = 0;
+    const items = Array.from({ length: n }, (_, i) => ({
+      get kind() { reads += 1; return i < 3 ? "hvac_pricing_input" : "hvac_duct_item"; },
+      attributes: { item: `input_${i}_rate`, name: `Input ${i}` },
+    }));
+    return { items, reads: () => reads };
+  };
+
+  it("100 lines read the catalogue no more often than 1 line does", () => {
+    const one = countingCatalogue(379);
+    plainPricerText("rate x input_0_rate", one.items);
+    const many = countingCatalogue(379);
+    for (let i = 0; i < 100; i++) plainPricerText(`line ${i}: rate x input_${i % 3}_rate`, many.items);
+    expect(many.reads()).toBe(one.reads());
+  });
+  it("the lines read the same as before: each id is written as its label", () => {
+    const { items } = countingCatalogue(10);
+    expect(plainPricerText("supply x input_1_rate + input_2_rate", items)).toBe("supply x Input 1 + Input 2");
+    expect(plainPricerText("supply x input_1_rate", items)).toBe("supply x Input 1");
+  });
+  it("each catalogue gives its own labels: a second catalogue is never answered from the first", () => {
+    const a = [{ kind: "hvac_pricing_input", attributes: { item: "gi_sheet_rate", name: "GI sheet (A)" } }];
+    const b = [{ kind: "hvac_pricing_input", attributes: { item: "gi_sheet_rate", name: "GI sheet (B)" } }];
+    expect(plainPricerText("rate x gi_sheet_rate", a)).toBe("rate x GI sheet (A)");
+    expect(plainPricerText("rate x gi_sheet_rate", b)).toBe("rate x GI sheet (B)");
+  });
+});
+
 // ═════════════════════════════════════════════════════════════════════════════════════════════════════
 // THE NEGATIVE PIN (acceptance 3): every Insulation and ADP SKU case of the 12c-S sweep, through BOTH real
 // paths, shows NO internal code and NO snake_case name on any pricer-facing string. The fixture and the

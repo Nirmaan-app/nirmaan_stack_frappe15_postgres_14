@@ -8,6 +8,8 @@
  * `services/outflow_import/status.py` -- never recompute them in the client, or the list page and
  * the review screen will disagree about how much of a batch is done.
  */
+import type { ChequeStatus } from "./Cheques";
+
 export interface OutflowImportBatch {
     name: string;
     creation: string;
@@ -116,14 +118,14 @@ export interface ChequeDoublePayment {
 
 /**
  * The Payment cheque a Settled ICICI line cleared, or was linked to (#1485), as both row reads send it.
- * `started` is where the cheque stood before the line: Issued, Pending (the import approved it),
+ * `started` is where the cheque stood before the line: Issued, Approval Pending (the import approved it),
  * Cancelled (the bank paid it anyway), or Cleared (cleared by hand, the line only linked).
  */
 export interface ChequeOutcome {
     cheque: string;
     cheque_no: string;
     status: string;
-    started: "Issued" | "Pending" | "Cancelled" | "Cleared";
+    started: ChequeStatus;
     double_payments: ChequeDoublePayment[];
 }
 

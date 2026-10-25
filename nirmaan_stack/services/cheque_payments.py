@@ -24,10 +24,10 @@ only for rows still at `Approved` (`bulk_actions._record_bulk_deductions`); movi
 would leave a Work Order cheque with no deduction and its amount gross. That is why this is an
 explicit call at the end of each approval route, never a hook inside the save.
 
-THE MOVE ISSUES THE CHEQUE (#1479, spec #1477, ADR-0035). A Payment cheque starts Pending; the save
+THE MOVE ISSUES THE CHEQUE (#1479, spec #1477, ADR-0035). A Payment cheque starts Approval Pending; the save
 that moves its last payment on to Reconciliation Pending also makes it Issued, dated the day of the
 last approval (`services/cheques/status.issue`). One transaction, so a failed move leaves both the
-payment at Approved and its cheque at Pending: the two never disagree.
+payment at Approved and its cheque at Approval Pending: the two never disagree.
 """
 
 import frappe
@@ -73,27 +73,17 @@ def move_to_reconciliation(payment_name: str, *, sync_po_term: bool = True) -> b
 	group in one PO save (`bulk_actions._process_group`): the payment's own hook then leaves the
 	PO alone, exactly as it does for the bulk approval itself.
 
-	⚠️ THE TDS CALL IS A RETRY, NOT A SECOND DEDUCTION. `record_deduction` returns the existing row
-	when there is one. It is here for the payment whose deduction FAILED during its approval
-	(`record_deduction_if_eligible` swallows the error): once it leaves `Approved` nothing can record
-	it any more (`is_deductible` needs `Approved`), so it is recorded now or the move is refused.
+	The step itself, TDS retry included, is `to_reconciliation`.
 	"""
 	pay = frappe.get_doc("Project Payments", payment_name)
 	if not is_cheque(pay) or (pay.status or "").strip() != settlement.STATUS_APPROVED:
 		return False
-	# A held payment stays at Approved (`services/payment_hold.py`, whose `validate_hold` would
-	# refuse the save anyway) -- returning here keeps a stray call from logging an error.
-	if pay.get("on_hold"):
-		return False
 
-	if payment_tds.is_deductible(pay):
-		payment_tds.record_deduction(pay)
-
-	pay.status = settlement.STATUS_RECONCILIATION_PENDING
 	pay.flags[CHEQUE_MOVES_ON] = True
 	if not sync_po_term:
 		pay.flags.bulk_approval = True  # `_find_and_update_po_term` stays out; the caller writes the term
-	pay.save(ignore_permissions=True)
+	if not to_reconciliation(pay):
+		return False
 	if pay.get("cheque"):
 		# Local: the cheques service imports this module.
 		from nirmaan_stack.services.cheques.status import issue
@@ -101,6 +91,30 @@ def move_to_reconciliation(payment_name: str, *, sync_po_term: bool = True) -> b
 
 		if issue(pay.cheque, user=frappe.session.user):
 			frappe.publish_realtime(CHEQUES_CHANGED_EVENT, {"cheque": pay.cheque}, after_commit=True)
+	return True
+
+
+def to_reconciliation(pay) -> bool:
+	"""THE STEP FROM `Approved` TO `Reconciliation Pending` FOR A CHEQUE PAYMENT: `pay` (a loaded
+	payment at Approved, carrying the caller's flags) has its TDS deduction retried, then is saved at
+	Reconciliation Pending. The reload after a deduction keeps `pay.flags`. False, and nothing written, for a payment on hold:
+	it stays at Approved (`services/payment_hold.validate_hold` would refuse the save). Its callers are the
+	move after an approval (`move_to_reconciliation`) and the bank import, which brings a cheque's payments
+	forward before it pays them (`services/cheques/status._bring_forward`).
+
+	⚠️ THE TDS CALL IS A RETRY, NOT A SECOND DEDUCTION. `record_deduction` returns the existing row
+	when there is one. It is here for the payment whose deduction FAILED during its approval
+	(`record_deduction_if_eligible` swallows the error): once it leaves `Approved` nothing can record
+	it any more (`is_deductible` needs `Approved`), so it is recorded now or the move is refused. The
+	deduction writes the payment's net amount, so `pay` is read again before its save.
+	"""
+	if pay.get("on_hold"):
+		return False
+	if payment_tds.is_deductible(pay):
+		payment_tds.record_deduction(pay)
+		pay.reload()
+	pay.status = settlement.STATUS_RECONCILIATION_PENDING
+	pay.save(ignore_permissions=True)
 	return True
 
 

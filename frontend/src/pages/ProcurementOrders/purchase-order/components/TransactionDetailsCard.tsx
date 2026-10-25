@@ -84,6 +84,7 @@ import { mergePaymentsAndRefunds, VendorRefundTableRow } from "@/components/vend
 import { WaitingRefundActions } from "@/components/vendor-refunds/WaitingRefundActions";
 import { PaymentUtrOrCheque } from "@/components/cheques/PaymentUtrOrCheque";
 import { useChequeChips } from "@/components/cheques/useChequeChips";
+import { listedInTransactionDetails } from "@/utils/cheques/transactionDetails";
 // import RequestPaymentDialog from "../ProjectPayments/request-payment-dialog";
 
 interface TransactionDetailsCardProps {
@@ -127,9 +128,11 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
 
   // Refunds against this PO sit in the payments table as their own rows (badge "Vendor Refund").
   const { refunds } = useVendorRefunds(poRefundsTarget(PO?.name ?? ""));
-  const transactionRows = useMemo(() => mergePaymentsAndRefunds(poPayments, refunds), [poPayments, refunds]);
+  // A cheque payment is listed only once it is Paid (#1519); the PO's cheque card shows it before that.
+  const listedPayments = useMemo(() => (poPayments || []).filter(listedInTransactionDetails), [poPayments]);
+  const transactionRows = useMemo(() => mergePaymentsAndRefunds(listedPayments, refunds), [listedPayments, refunds]);
   // The cheque chip's number and status for every payment on a Cheque: one call for the card (#1416).
-  const chequeChips = useChequeChips((poPayments || []).map((p) => p.cheque));
+  const chequeChips = useChequeChips(listedPayments.map((p) => p.cheque));
 
   const [newPaymentDialog, setNewPaymentDialog] = useState(false);
   const toggleNewPaymentDialog = useCallback(() => {

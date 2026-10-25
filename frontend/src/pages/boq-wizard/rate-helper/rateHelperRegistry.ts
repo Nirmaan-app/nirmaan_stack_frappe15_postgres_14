@@ -58,16 +58,26 @@ export function suggestionCountForKind(
   kind: string,
   helpers: RateHelper[] = RATE_HELPERS,
 ): number {
-  let n = 0;
+  return suggestionCountsByKind(ctx, [kind], helpers)[kind];
+}
+
+/** `suggestionCountForKind` for several kinds from ONE compute of each helper: the compute never reads the
+ * kind asked about, so a row with supply + install + combined cells is priced once, not three times. */
+export function suggestionCountsByKind(
+  ctx: RateHelperRowContext,
+  kinds: readonly string[],
+  helpers: RateHelper[] = RATE_HELPERS,
+): Record<string, number> {
+  const counts: Record<string, number> = Object.fromEntries(kinds.map((k) => [k, 0]));
   for (const { result } of resolveRateHelpers(ctx, undefined, helpers)) {
-    // Badge a kind if the helper has a COMPUTED value for it OR declares it producible (a partial
-    // extraction still badges so the pricer can open the panel to complete it -- RM-3).
-    if (
-      isSuggestion(result) &&
-      (typeof result.values[kind] === "number" || (result.producibleKinds?.includes(kind) ?? false))
-    ) {
-      n += 1;
+    if (!isSuggestion(result)) continue;
+    for (const kind of kinds) {
+      // Badge a kind if the helper has a COMPUTED value for it OR declares it producible (a partial
+      // extraction still badges so the pricer can open the panel to complete it -- RM-3).
+      if (typeof result.values[kind] === "number" || (result.producibleKinds?.includes(kind) ?? false)) {
+        counts[kind] += 1;
+      }
     }
   }
-  return n;
+  return counts;
 }

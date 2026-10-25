@@ -42,8 +42,8 @@ export interface ChequeApproval {
 }
 
 /**
- * Is this queue row approved through its cheque? A Project Payment on a Pending cheque is: approving it
- * approves every payment on that cheque. An Online payment, an expense, or a payment on no Pending cheque
+ * Is this queue row approved through its cheque? A Project Payment on an Approval Pending cheque is: approving it
+ * approves every payment on that cheque. An Online payment, an expense, or a payment on no Approval Pending cheque
  * is approved alone, as before.
  */
 export const approvesThroughCheque = (
