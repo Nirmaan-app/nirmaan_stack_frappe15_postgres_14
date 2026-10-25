@@ -45,6 +45,7 @@ from nirmaan_stack.api.outflow_import.porter_records import (
     BATCH_DOCTYPE,
     SOURCE,
     created_anything,
+    failed_lines,
     porter_progress,
     refuse_unless_porter_import,
 )
@@ -276,6 +277,8 @@ def porter_status(batch: str) -> dict:
         # Per phase: what is done, what is waiting and what needs a person (#1556). Import History
         # gets the same summary per Porter import (`review.list_imports`).
         "progress": progress,
+        # Each line Create could not create: its CRN, the note it stored and its fix (#1561).
+        "failed_lines": failed_lines(batch),
         "invoices": [
             {
                 "name": invoice.name,

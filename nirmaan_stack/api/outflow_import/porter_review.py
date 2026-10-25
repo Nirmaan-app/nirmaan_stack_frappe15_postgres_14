@@ -24,6 +24,7 @@ import frappe
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.porter_records import (
     ROW_DOCTYPE,
+    failed_lines,
     is_validated,
     line_names,
     refuse_unless_porter_import,
@@ -54,6 +55,7 @@ def get_porter_review(batch: str):
     `completed_on`, `fare`, `remarks`, `city`, `from_address`, `to_address`, `booked_by`, `group_key`
     (blank: no remark, reviewed on its own), `ledger`, `project`, `project_name`, `reason`, `strength`,
     `editable` (Create would still write it: waiting, in Error, or reopened by Unreconcile).
+    `failed_lines`: each order Create could not create, as `porter_records.failed_lines` (#1561).
     """
     require_outflow_access()
     _refuse_unless_validated(batch)
@@ -150,7 +152,7 @@ def porter_review(batch: str) -> dict:
                 "editable": row.row_status in CREATE_LINE_STATUSES,
             }
         )
-    return {"batch": batch, "lines": lines, "projects": won_projects()}
+    return {"batch": batch, "lines": lines, "projects": won_projects(), "failed_lines": failed_lines(batch)}
 
 
 def _refuse_unless_validated(batch: str) -> None:

@@ -93,6 +93,7 @@ import { PorterDiscardButton } from "./PorterDiscardButton";
 import { PorterFileChecks } from "./PorterFileChecks";
 import { PorterImportSummary } from "./PorterImportSummary";
 import { PorterProgressBar } from "./PorterProgressBar";
+import { PorterResult } from "./PorterResult";
 import { PorterReviewPanel } from "./PorterReviewPanel";
 import { SheetHeaderPicker } from "./SheetHeaderPicker";
 
@@ -720,6 +721,18 @@ export const ImportStatementDialog = ({
     }, [onOpenChange, onRefresh]);
 
 
+    /**
+     * The result's links (#1561): close on Bulk Import pinned to this import, on the tab its created lines are
+     * in (`postImportTab`). ⚠️ THROUGH `onImported`, THE PAGE'S OWN PIN: it fires on the close and sets the tab
+     * even where the page does not remount. Offered only once Create has made lines Settled, so the table
+     * shows them (the reason `handlePorterDone` does not pin).
+     */
+    const handlePorterOpenLines = useCallback(() => {
+        if (!porterBatch) return;
+        onImported(porterBatch, undefined, PORTER_SOURCE);
+        onOpenChange(false);
+    }, [porterBatch, onImported, onOpenChange]);
+
     const handleConfirm = useCallback(async () => {
         if (!file || isBusy) return;
         setIsBusy("upload");
@@ -1071,7 +1084,19 @@ export const ImportStatementDialog = ({
                             status={porterStatus}
                             onRetry={handlePorterRetry}
                             retrying={retrying}
-                            collapseInvoices={porterReviewOffered(porterStatus)}
+                            collapseInvoices={porterReviewOffered(porterStatus) || porterCreateStarted(porterStatus)}
+                        />
+                    )}
+
+                    {/* PORTER, AFTER CREATE -- every order it could not create, named with its fix, or
+                        "All N expenses created."; and the links to the expenses and to Move (#1561). */}
+                    {isPorter && porterStatus && (
+                        <PorterResult
+                            status={porterStatus}
+                            onCreate={handlePorterCreate}
+                            creating={startingCreate}
+                            onPlaced={() => void setPorterData()}
+                            onOpenLines={handlePorterOpenLines}
                         />
                     )}
 

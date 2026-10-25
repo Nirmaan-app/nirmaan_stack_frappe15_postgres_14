@@ -203,7 +203,8 @@ def _create_one(name: str, batch: str, actor: str, invoices: dict[str, ExpenseIn
     # line to Non-Project behind the reviewer's back. A person re-places it in Review, then re-runs.
     refusal = project and won_refusal(project)
     if refusal:
-        raise _LineRefused(f"{refusal} Place this order again in Review, then run Create again.")
+        # The result names this line with this sentence and a "Choose project" fix (#1561).
+        raise _LineRefused(f"{refusal} Choose a Won project for this order, then try again.")
     statement = statement_line(row.porter_line)
     order = _porter_order(row, statement)
     project_name = frappe.db.get_value("Projects", project, "project_name") if project else ""

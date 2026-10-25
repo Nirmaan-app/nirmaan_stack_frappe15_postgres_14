@@ -5,6 +5,7 @@
 // (validation progress, review, create) extend THIS module.
 
 import type { PorterProgress } from "./porterProgress";
+import type { PorterFailedLine } from "./porterResult";
 
 /** The source string. The parser adapter key and the batch Select option, pinned by test. */
 export const PORTER_SOURCE = "Porter Statement";
@@ -108,6 +109,8 @@ export interface PorterStatus {
     create_running: boolean;
     /** Per phase: what is done, what is waiting and what needs a person (#1556). The progress bar reads it. */
     progress?: PorterProgress;
+    /** Each line Create could not create: its CRN, the note it stored and its fix (#1561). */
+    failed_lines?: PorterFailedLine[];
 }
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
@@ -281,14 +284,14 @@ export const createButtonLabel = (status: PorterCreateProgress): string =>
         ? `Create the remaining ${status.to_create}`
         : `Create ${plural(status.to_create, "expense", "expenses")}`;
 
-/** Where Create stands, from the lines; null before it has started. */
+/**
+ * Where Create stands, from the lines; null before it has started. Null too once every order is created, or
+ * when an order failed: the result (`porterResult`, #1561) says so, naming each failed order.
+ */
 export const createProgress = (status: PorterCreateProgress): string | null => {
     const of = `${status.created} of ${status.completed} created.`;
     if (status.create_running) return `Creating… ${of}`;
-    if (status.state === "Created") return `All ${plural(status.created, "expense", "expenses")} created, at Paid.`;
-    if (status.state !== "Creating") return null;
-    if (status.failed > 0)
-        return `${of} ${status.failed} could not be created: press Create again to retry ${status.failed === 1 ? "it" : "them"}.`;
+    if (status.state !== "Creating" || status.failed > 0) return null;
     const waiting = status.to_create;
     return `${of} ${waiting} ${waiting === 1 ? "is" : "are"} waiting: press Create again to create ${waiting === 1 ? "it" : "them"}.`;
 };

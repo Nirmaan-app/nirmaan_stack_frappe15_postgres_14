@@ -1143,6 +1143,10 @@ describe("postImportTab", () => {
         expect(postImportTab("Cashbook", "notMatchedOutflow")).toBe("matchedOutflow");
     });
 
+    it("lands a Porter import opened from its result on the same tab, where its created lines are (#1561)", () => {
+        expect(postImportTab("Porter Statement", "notMatchedOutflow")).toBe("matchedOutflow");
+    });
+
     it("leaves every other source where the reader was", () => {
         expect(postImportTab("Cashfree", "partlyAllocatedOutflow")).toBe("partlyAllocatedOutflow");
         expect(postImportTab("ICICI Bank Statement", "notMatchedInflow")).toBe("notMatchedInflow");
