@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
     historyEmptyLabel,
+    importCountLabel,
     historySubtitle,
     importsInTab,
     initialHistoryMonth,
@@ -125,7 +126,13 @@ describe("matchesEveryToken", () => {
 describe("dialog text", () => {
     it("states the source and the month", () => {
         expect(historySubtitle(ICICI, "2026-10")).toBe(
-            "ICICI Bank Statement statements covering October 2026. Select one to open it."
+            "ICICI Bank statements covering October 2026. Select one to open it."
+        );
+        expect(historySubtitle("Porter Statement", "2026-09")).toBe(
+            "Porter statements covering September 2026. Select one to open it."
+        );
+        expect(historySubtitle("Cashfree", "2026-09")).toBe(
+            "Cashfree statements covering September 2026. Select one to open it."
         );
     });
 
@@ -152,5 +159,18 @@ describe("summaryScopeIsDefault", () => {
             summaryScopeIsDefault({ ...base, period: { operator: "Timespan", value: "last 30 days" } })
         ).toBe(false);
         expect(summaryScopeIsDefault({ ...base, selectedImport: "OFI-26-00007" })).toBe(false);
+    });
+});
+
+describe("the count on an Import History row", () => {
+    it("counts a Porter import in orders", () => {
+        expect(importCountLabel("Porter Statement", 158)).toBe("158 orders");
+        expect(importCountLabel("Porter Statement", 1)).toBe("1 order");
+    });
+
+    it("keeps transfers for a bank import, and for one with no source", () => {
+        expect(importCountLabel(ICICI, 12)).toBe("12 transfers");
+        expect(importCountLabel("Cashfree", 1)).toBe("1 transfer");
+        expect(importCountLabel(null, 0)).toBe("0 transfers");
     });
 });

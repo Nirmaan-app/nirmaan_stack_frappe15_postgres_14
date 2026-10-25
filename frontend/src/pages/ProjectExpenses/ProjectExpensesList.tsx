@@ -36,6 +36,7 @@ import {
   DOCTYPE,
 } from "./config/projectExpensesTable.config";
 import { getProjectExpenseColumns } from "./config/projectExpensesColumns";
+import { PE_STATUS_TAB_PARAM, peListUrlSyncKey } from "./config/projectExpensesUrl";
 import { EditProjectExpenseDialog } from "./components/EditProjectExpenseDialog";
 import { UpdatePaymentDetailsDialog } from "./components/UpdatePaymentDetailsDialog";
 import { ProjectExpenseSummaryCard } from "./components/ProjectExpenseSummaryCard";
@@ -72,10 +73,6 @@ const PE_GROUP_BY_CONFIG: GroupByConfig = {
   limit: 5,
 };
 
-// URL param key for the active status workflow tab. Namespaced ("pe_status") so
-// it never collides with the project page's own ?tab=/?page= params when this
-// list is embedded as a project tab.
-const PE_STATUS_TAB_PARAM = "pe_status";
 
 export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
   projectId,
@@ -385,7 +382,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
       "type.expense_name as expense_type_name",
     ], // Ensure display name is fetched
     searchableFields: PE_SEARCHABLE_FIELDS,
-    urlSyncKey: `project_expenses_list_${projectId || "all"}_${effectiveStatusTab.toLowerCase()}`,
+    urlSyncKey: peListUrlSyncKey(projectId, effectiveStatusTab),
     // Project scope + active status tab
     additionalFilters: baseFilters,
     aggregatesConfig: PE_AGGREGATES_CONFIG, // NEW: Pass the aggregation config

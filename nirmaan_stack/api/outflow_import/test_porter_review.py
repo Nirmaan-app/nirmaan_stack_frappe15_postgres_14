@@ -21,6 +21,11 @@ from nirmaan_stack.api.outflow_import.test_porter_import import (
     _fresh_fixture,
 )
 from nirmaan_stack.services.outflow_import.porter import EXPENSE_TYPE
+from nirmaan_stack.services.outflow_import.porter_state import (
+    NEEDS_PERSON,
+    PLACED_AUTOMATICALLY,
+    PLACED_BY_PERSON,
+)
 
 PLAN_FIELDS = [
     "suggested_doctype",
@@ -267,3 +272,104 @@ class TestWhatReviewRefuses(PorterReviewCase):
             frappe.set_user("Administrator")
         frappe.db.rollback()
         self.assertEqual(self._plans(), self.before)
+
+
+class TestWhichOrdersNeedAPerson(PorterReviewCase):
+    """#1560: each line says whether it needs a person -- a remark group with a Check order, an order
+    with no placement, or a remark group placed differently. A Strong placement needs no one."""
+
+    def setUp(self):
+        super().setUp()
+        self._set_invoices("Passed")
+
+    def _placements(self):
+        return {line["crn"][-3:]: line["placement"] for line in self._review()["lines"]}
+
+    def _needs(self):
+        return {crn: kind == NEEDS_PERSON for crn, kind in self._placements().items()}
+
+    def test_a_strong_group_needs_no_one_a_check_and_an_unplaced_order_do(self):
+        needs = self._needs()
+        # 001/004/008: "zephyr tower project", Strong. 002: a Check. 003: no remark, no project found.
+        self.assertEqual((needs["001"], needs["004"], needs["008"]), (False, False, False))
+        self.assertTrue(needs["002"])
+        self.assertTrue(needs["003"])
+
+    def test_a_remark_group_placed_differently_needs_a_person(self):
+        # One order of the Strong zephyr group is suggested elsewhere, as a stray address vote would.
+        frappe.db.set_value(ROW_DOCTYPE, self._row("004").name, "resolved_project", self.quillon)
+        frappe.db.commit()
+        needs = self._needs()
+        self.assertEqual((needs["001"], needs["004"], needs["008"]), (True, True, True))
+
+    def test_not_a_project_is_a_persons_choice_and_needs_no_one_after(self):
+        self._assign([self._row("003")], None)
+        plan = self._row("003")
+        self.assertEqual(
+            (plan.suggested_doctype, plan.resolved_project, plan.placement_reason),
+            ("Non Project Expenses", None, "review"),
+        )
+        self.assertFalse(self._needs()["003"])
+
+    def test_each_line_says_who_placed_it(self):
+        # The screen reads "placed by a person" from here, never from the stored reason (#1554 review).
+        self._assign([self._row("002")], self.quillon)
+        kinds = self._placements()
+        self.assertEqual(kinds["002"], PLACED_BY_PERSON)
+        self.assertEqual(kinds["001"], PLACED_AUTOMATICALLY)
+        self.assertEqual(kinds["003"], NEEDS_PERSON)
+
+    def test_the_progress_count_is_the_same_set(self):
+        from nirmaan_stack.api.outflow_import.porter import get_porter_status
+
+        needing = sum(self._needs().values())
+        self.assertGreater(needing, 0)
+        self.assertEqual(get_porter_status(self.batch)["progress"]["projects"]["needs_person"], needing)
+
+
+class TestChoosingPerOrder(PorterReviewCase):
+    """#1563: one order inside a remark group can be placed on its own, as the whole group can."""
+
+    def setUp(self):
+        super().setUp()
+        self._set_invoices("Passed")
+        self.group = [self._row(suffix) for suffix in ("001", "004", "008")]
+
+    def test_setting_one_order_of_a_group_changes_only_that_order(self):
+        before = {plan.name: plan for plan in self._plans()}
+        porter_review.set_porter_placement(self.batch, self.group[1].name, self.quillon)
+        after = {plan.name: plan for plan in self._plans()}
+        moved = after.pop(self.group[1].name)
+        self.assertEqual(
+            (moved.resolved_project, moved.placement_reason, moved.placement_strength),
+            (self.quillon, "review", None),
+        )
+        del before[self.group[1].name]
+        self.assertEqual(after, before)
+
+    def test_a_group_split_by_a_person_needs_no_one_once_each_order_is_chosen(self):
+        porter_review.set_porter_placement(self.batch, self.group[1].name, self.quillon)
+        needs = {line["name"]: line["placement"] == NEEDS_PERSON for line in self._review()["lines"]}
+        # The other two are still the matcher's Strong zephyr: the group now disagrees.
+        self.assertEqual([needs[row.name] for row in self.group], [True, False, True])
+        self._assign([self.group[0], self.group[2]], self.zephyr)
+        needs = {line["name"]: line["placement"] == NEEDS_PERSON for line in self._review()["lines"]}
+        self.assertEqual([needs[row.name] for row in self.group], [False, False, False])
+
+
+class TestTheLikelyProjects(PorterReviewCase):
+    """#1563: an order that needs a person names the projects the placement signals pointed to."""
+
+    def setUp(self):
+        super().setUp()
+        self._set_invoices("Passed")
+        self.lines = {line["crn"][-3:]: line for line in self._review()["lines"]}
+
+    def test_a_loose_name_names_its_project(self):
+        self.assertEqual(self.lines["002"]["likely_projects"], [self.quillon])
+
+    def test_nothing_found_names_none(self):
+        self.assertEqual(self.lines["003"]["likely_projects"], [])
+
+    def test_an_order_that_needs_no_one_is_not_asked(self):
+        self.assertEqual(self.lines["001"]["likely_projects"], [])

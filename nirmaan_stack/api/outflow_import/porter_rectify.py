@@ -348,7 +348,7 @@ def _follow_on_the_line(row: str, new, project: str | None, actor: str) -> None:
             "suggested_doctype": new.doctype,
             "resolved_project": project,
             "suggested_name": new.name,
-            "outcome_note": f"Rectified to {new.doctype} {new.name}.",
+            "outcome_note": f"Moved to {new.doctype} {new.name}.",
             "decided_at": frappe.utils.now_datetime(),
             "decided_by": actor,
             "settlement_origin": _ORIGIN,

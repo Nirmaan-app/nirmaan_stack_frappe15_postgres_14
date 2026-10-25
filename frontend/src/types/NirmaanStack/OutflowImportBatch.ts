@@ -9,6 +9,7 @@
  * the review screen will disagree about how much of a batch is done.
  */
 import type { ChequeStatus } from "./Cheques";
+import type { PorterProgress } from "@/pages/outflow-import/porterProgress";
 
 export interface OutflowImportBatch {
     name: string;
@@ -428,6 +429,8 @@ export interface OutflowImportOption {
     gross_amount?: number;
     uploaded_at?: string;
     uploaded_by?: string;
+    /** A Porter import's per-phase progress summary (#1556), the one its dialog's bar reads. Porter only. */
+    progress?: PorterProgress;
 }
 
 /** `review.get_import_summary` (slice X2). Every money figure crosses the wire as a number. */

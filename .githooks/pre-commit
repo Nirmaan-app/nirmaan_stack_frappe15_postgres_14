@@ -1,0 +1,28 @@
+#!/bin/sh
+# pre-commit hook: run the residence ratchet (scripts/residence_check.py, about 5 s) so a commit meets the
+# rules a script can check -- file size, `any`, a second rupee formatter, ADR-0010 residence -- here,
+# instead of in code review.
+#
+# Activate (once per clone):   git config core.hooksPath .githooks
+# Bypass for a one-off:        git commit --no-verify ...
+#
+# Silent when every count holds. Rejects (exit 1) when a count rises, printing the rule, where the concept
+# lives, and the violations in the files this change touches.
+
+[ -f scripts/residence_check.py ] || exit 0
+
+out=$(python3 scripts/residence_check.py 2>&1)
+rc=$?
+
+if [ $rc -ne 0 ]; then
+    echo "✘ pre-commit rejected: scripts/residence_check.py counts a new violation." >&2
+    printf '%s\n' "$out" | grep -v '^✓' >&2
+    echo "    (bypass a one-off with: git commit --no-verify)" >&2
+    exit 1
+fi
+
+# A count that fell rewrites the baseline after the commit's files were staged.
+if printf '%s' "$out" | grep -q '^Tightened baseline'; then
+    echo "⚠ pre-commit: a count fell, so scripts/residence_baseline.json was tightened -- commit it too." >&2
+fi
+exit 0

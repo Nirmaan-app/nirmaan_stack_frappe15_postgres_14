@@ -4026,13 +4026,17 @@ def list_imports(limit=60, sources=None, month=None):
     # ⚠️ A PORTER IMPORT REPORTS ITS OWN STATE (#1444): Validating / Validated / Validation failed,
     # derived from its Porter Invoices. Its stored `status` is the bank-line rollup, which reads
     # "Partially Settled" over lines that are not bank lines and wait for Create.
-    from nirmaan_stack.api.outflow_import.porter_records import porter_import_states
+    # Each also carries the per-phase `progress` summary the import dialog's bar reads (#1556): one
+    # reader, `porter_records.porter_progress`, for both screens.
+    from nirmaan_stack.api.outflow_import.porter_records import porter_import_states, porter_progress
 
     porter = [row["name"] for row in imports if (row.get("source") or "").strip() == PORTER_STATEMENT_SOURCE]
     states = porter_import_states(porter)
+    progress = porter_progress(porter)
     for row in imports:
         if row["name"] in states:
             row["status"] = states[row["name"]]
+            row["progress"] = progress[row["name"]]
     return imports
 
 

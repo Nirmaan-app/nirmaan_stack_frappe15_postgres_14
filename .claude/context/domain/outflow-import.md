@@ -6652,18 +6652,26 @@ that rule skips the wallet top-ups and stays unchanged.
    order column. The expense points at its order through one `porter_order` Link. No marker fields on the
    expense doctypes.
 3. **The validation gate is all or nothing, with NO override.**
-   - Checked per invoice: invoice number, Porter GSTIN, customer GSTIN, fare and tax, fare and tax
-     within ₹1.
+   - **Only the Porter fare and the invoice date decide (#1559, spec #1554).** Failed: the fare is more
+     than ₹1 off, or the PDF's invoice date is outside [first order date, last order date +
+     `porter_verdict.INVOICE_DATE_SLACK_DAYS` (7)], the period being the batch's `period_from` /
+     `period_to`. Error: the PDF was not downloaded or read, or the fare or the date was not read.
+     Passed otherwise.
+   - Invoice number, Porter GSTIN, customer GSTIN and tax (±₹1) differences, and unreadable values for
+     them, are **warnings only**, stored on `Porter Invoice.validation_warnings`: the GST on a Porter Order
+     comes from the statement whatever the PDF says.
    - Compared against the statement's **completed** orders only. A cancelled order is a skipped row and
      counts toward nothing.
    - Measured on the 2026-09 file: all 10 invoices pass. The tax rounding gap was at most ₹0.18.
 4. **Steps:** Upload (sync) → Validate (background, 3 invoices at a time) → Review (editable) → Create
    (a button, then background).
    - **Validate:** each invoice goes Downloading → Reading → Comparing. Progress is committed per invoice
-     and read by polling. Only download or Gemini errors are retryable.
+     and read by polling. A Failed or Error invoice can be retried: it is downloaded, read and judged
+     again (#1562). There is still no override.
    - **Create:** order by order, Cashbook-style, so it can resume.
    - **What exists before Create:** only the batch, its rows, the Porter Invoices and their PDFs. A failed
-     or abandoned import is Discarded (Admin and Accountant Lead; refused once Create has started).
+     or abandoned import is Discarded, whole, by any module user: Accountant, Accountant Lead or Admin
+     (#1557); refused for everyone once Create has created anything, and while a job of it runs.
    - **Re-uploads:** an uncreated import blocks a re-upload of its invoices.
 5. **Identity is the invoice number.** Already-imported invoices are left out and counted (ADR-0031
    shape). An already-imported invoice now listing different orders BLOCKS the upload.
@@ -6678,7 +6686,9 @@ that rule skips the wallet top-ups and stays unchanged.
      - Site-address match. It overrides a name only when most of a remark group's orders agree.
      - Earlier confirmed or rectified Porter Orders.
    - **How suggestions are shown:** weak ones are marked "Check". Orders with no remark are reviewed one
-     by one. Blank means Non-Project.
+     by one. Since #1560 only the orders that need a person are listed, and a blank is no longer
+     Non-Project: a person chooses **Not a project**, and Create is refused until every order is placed
+     (see "As built — #1560").
    - **Measured on the 2026-09 file:** 144 of 158 placed.
    - ⚠️ Index **Won projects only**, as Cashbook's `_build_plan` does. Indexing every project makes the
      Tendering duplicate "EXL KOCHI" hide the Won "EXL Kochi".
@@ -6701,6 +6711,12 @@ that rule skips the wallet top-ups and stays unchanged.
       Expense it is just "Porter Delivery raised by {customer_name}".
 11. **Import period** = the first to the last order completion date (the CSV declares no period). It
     gets its own *Porter* tab in Import History.
+12. **The upload screen checks the CSV in the browser first, by the parser's own rules** (#1555).
+    `porterPrecheck.checkPorterFile` reads the header and rows and counts orders, invoices, order dates
+    and Cancelled Porter orders. It takes the required columns and the completed status from
+    `porter.get_porter_statement_rules`, which returns `parser.PORTER_STATEMENT_COLUMNS` and
+    `PORTER_ORDER_COMPLETED`. ⚠️ **Never copy the column list into the frontend.** The parser stays the
+    authority: the upload re-reads the file, and its refusals still show.
 
 **Every place the new source string must be added** (pinned together by test, like `ICICI Bank Statement`):
 - `parser._ADAPTERS`
@@ -7097,8 +7113,10 @@ the Porter Invoice's name, so a number is held by at most one import. Per invoic
   OFI-…. Nothing in this file is new, so nothing was saved."
 Every blocking invoice is named in one refusal (re-issued first). Title "Already imported".
 
-**Discard.** `has_outflow_undo_access` (Admin, Accountant Lead; "Only an Admin or an Accountant Lead can
-discard a Porter import."). Locks the batch row, then every line `FOR UPDATE` (a Create line in flight
+**Discard.** Who may: every module user, `require_outflow_access` (Accountant, Accountant Lead, Admin;
+widened from Admin/Accountant Lead at #1557, spec #1554 stories 23-25, so a failed check is no dead end
+for an Accountant). Nothing settled exists before Create, so it is not an undo action. Whole import only:
+there is no per-invoice or per-line discard. Locks the batch row, then every line `FOR UPDATE` (a Create line in flight
 commits first), then refuses: not a Porter import; `created_anything` ("… Correct its lines with Rectify
 or Unreconcile instead."); any job of the import queued or running — `porter.create_job_id`,
 `porter_validation.validation_job_id(batch)` and the per-invoice Retry ids (`validation_job_id(batch,
@@ -7115,9 +7133,9 @@ another File shares the `content_hash`. Then commits. The statement can be uploa
 discard is the screen's question).
 
 **Screen.** `PorterDiscardButton` in the Porter dialog's footer (left), shown when
-`porterDiscard.canDiscardPorter`: `canUndoOutflow` and `discardable` and the Create job not running — in
-Validating too. It confirms with `discardConfirmation` ("Discard OFI-…? This deletes its 12 orders, its 4
-Porter invoices and their PDFs. …"), posts, then closes the dialog like Done. `PorterImportSummary` shows
+`porterDiscard.canDiscardPorter`: `discardable` and the Create job not running (no role check; #1557) — in
+Validating too. Its label is "Discard this import". It confirms with `discardConfirmation` ("Discard OFI-…? This removes the whole import: its 12
+orders, its 4 Porter invoices and their PDFs. …"), posts, then closes the dialog like Done. `PorterImportSummary` shows
 `repeatsLeftOutNote` ("9 orders on invoices already created were left out: they are not saved again.").
 A refused upload shows the server's sentence in the dialog's error box; "open it" means Import History →
 Porter Statement tab.
@@ -7126,7 +7144,8 @@ Porter Statement tab.
 one refusal naming every block); `api/outflow_import/test_porter_reupload.py` (bench: created import →
 left out + counted + not read again, re-issued invoice blocked, nothing new refused; uncreated import
 blocked; Discard removes exactly its records and Files, keeps bytes another File shares, refused once
-created / for a plain Accountant / while its validation job runs, works on an import stuck Validating, and
+created (an Accountant too, with the same message) / while a job of it runs (Accountant too) / for a
+user outside the module, allowed for an Accountant and an Accountant Lead, works on an import stuck Validating, and
 the same statement uploads again); `frontend/.../porterDiscard.test.ts`.
 
 ### As built — #1449: Rectify (and Unreconcile) a Porter expense (2026-10-15)
@@ -7158,8 +7177,8 @@ refusals: not a Porter line, not Settled, not exactly one live leg that the impo
 4. the old expense deleted through `unreconcile_created.delete_created` (series counter kept);
 5. a new Settled match: `match_basis` `porter statement`, `created_by_import` 1, `settlement_origin`
    Suggestion overridden, `target_project` snapshot;
-6. the line follows: `suggested_doctype`, `resolved_project`, `suggested_name`, `outcome_note` "Rectified to
-   …", `decided_at/by`, `settlement_origin`; status stays Settled (no rollup). So a later Unreconcile + Create
+6. the line follows: `suggested_doctype`, `resolved_project`, `suggested_name`, `outcome_note` "Moved to
+   …" (the screen's word for Rectify; #1554 review), `decided_at/by`, `settlement_origin`; status stays Settled (no rollup). So a later Unreconcile + Create
    re-creates it where it was rectified to. A comment on the line: "Rectified by <user>: <reason> (<old> on A
    -> <new> on B)";
 7. `resync_cashflow_hold` for BOTH projects (the insert / delete hooks' check is de-duplicated per request).
@@ -7232,8 +7251,8 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
 - Paid by: a blank booked-by name leaves Paid by blank (`create_expense_from_row(…,
   blank_payment_by_is_actor=False)` from Create and Rectify), never the importer (story 47).
 - Create re-checks every Project line's project with `won_refusal`; a project no longer Won stops that line
-  in Error with "<name> (<id>) is <status>, not Won. Place this order again in Review, then run Create
-  again." Nothing moves it to Non-Project.
+  in Error with "<name> (<id>) is <status>, not Won. Choose a Won project for this order, then try again."
+  (worded for the result's "Choose project" fix since #1561). Nothing moves it to Non-Project.
 - Review accepts every line in `CREATE_LINE_STATUSES` (waiting, Error, reopened `Mismatched`), still refusing
   Settled and cancelled ones. The screen offers Review again on a *Creating* import that is not running and
   has `to_create > 0`; a group's choice places only its still-editable orders (`ReviewItem.toPlace`).
@@ -7248,6 +7267,152 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
   `body` with `menuPosition="fixed"`, and `FuzzySearchSelect`'s shared theme (`getSelectStyles`) gives the
   portal `zIndex` 9999 and `pointerEvents: "auto"` (no styles of its own). Walked on both: the option clicked
   is the project saved.
+
+### As built — #1556: the progress bar (spec #1554, 2026-10-25)
+
+- **One summary, one reader.** `porter_records.porter_progress(batches)` (grouped queries over the pure
+  `porter_state.import_progress`) is `progress` on `get_porter_status` and on each Porter row of
+  `review.list_imports`; the dialog's bar and Import History's chips read only it. Phases: `upload` (orders,
+  invoices, cancelled), `check` (invoices, passed, in_progress, to_retry = Error, not_matching = Failed,
+  seconds_left), `projects` (orders, placed_automatically, placed_by_person, needs_person), `create` (orders,
+  created, waiting, failed, reopened, running). Each phase is a flat dict: later tickets ADD keys, never reshape.
+- **Placement kinds** (`porter_state.placement_kinds`): `review` reason = by a person; Strong = automatic;
+  anything else (Check, or no placement) = needs a person. #1560 widens needs-a-person to remark groups in
+  doubt (below).
+- **`seconds_left`** is a rough estimate: in-progress invoices ÷ `VALIDATION_CONCURRENCY` ×
+  `CHECK_SECONDS_PER_INVOICE` (60 s), None once nothing is in progress.
+- ⚠️ **"Creating" only while a Create job is queued or running** (`create.running`). The stored-state word
+  `state` still reads Creating for a partly created import (the gates use it); the bar
+  (`porterProgress.progressPhases`) shows such an import's Create phase as needing a person, and the state
+  badge in the dialog and Import History shows `porterProgress.shownPorterState` ("Needs you").
+- The review panel's `onPlaced` re-reads the status, so a placement moves the Choose-projects count at once.
+- The bar replaces `WizardSteps` for Porter only; `importSteps`/`currentStepIndex` still decide the body.
+
+### As built — #1559: only the fare and the date can fail an invoice (spec #1554, 2026-10-25)
+
+- **The verdict** (`services/outflow_import/porter_verdict.judge_invoice`, pure) takes `InvoiceFigures`, now
+  with `first_order_date` / `last_order_date`, and returns `InvoiceVerdict(status, message, warnings)`. It
+  needs no download, so an invoice can be judged again from its stored `read_*` fields (#1562). A None
+  period leaves the date unchecked. `invoice_date_window` is the one place the window is computed.
+- **Warnings** (`InvoiceWarning(figure, statement, read)`, `read` None = not read) are stored by the job's
+  final `_move` on `Porter Invoice.validation_warnings` (JSON, `{"warnings": [...]}`, NULL when none;
+  `stored_warnings` / `warnings_from_stored`). Every other move clears them. `get_porter_status` returns
+  them per invoice as `warnings`, plus `invoice_date_window` {from, to}, so the screen marks a failing date
+  without a copy of the 7 days.
+- **Progress:** `check.passed_with_warnings` = Passed invoices whose `validation_warnings IS NOT NULL`.
+- `porter_validation._read_invoice` now turns the read date into a `date` (`normalize_date` answers a string).
+- **Screen** (`porterImport.ts`, `PorterImportSummary.tsx`): badges "Couldn't read the PDF" (Error, amber) /
+  "Doesn't match" (Failed, red) / "Passed"; a red banner per Failed invoice naming the fare or date (statement
+  vs PDF) and the next step; a Fare / Invoice date table on Failed and read Error cards, the failing row
+  highlighted; one grey "GST taken from the statement. …" line on a Passed card with warnings; plain Passed
+  cards folded under "N more invoices passed". Retry is still Error-only until #1562.
+
+### As built — #1562: retry a Failed invoice, re-judge old ones (spec #1554, 2026-10-25)
+
+- **Retry takes Failed and Error** (`porter_state.INVOICE_RETRYABLE`; `retry_porter_invoice`,
+  `can_retry`). It queues the invoice (warnings cleared), so the import is Validating and the bar counts
+  it in progress until the job decides it. A fare or date that still disagrees stays Failed.
+- ⚠️ **Every attempt downloads the PDF** (`porter_validation._download_pdf`), a retry included: the new
+  copy replaces the stored one (same bytes = the same File; a different one deletes the old through
+  `stored_files.delete_files`, after the commit). Safe because a Failed or Error invoice blocks Create,
+  so no Expense shares its URL yet. If the link no longer serves the PDF, the copy kept is read, so an
+  expired link never strands an invoice downloaded once.
+- **Patch `v3_0.rejudge_failed_porter_invoices`** re-judges every Failed invoice from its stored reading
+  (`porter_validation.rejudge_from_stored`: 0 in `read_fare`/`read_tax` = not read), no download. Imports
+  in `porter_records.created_imports` are skipped. Raw `_move`, no recount: `Porter Invoice` has no
+  `doc_events` and the import state is derived on read. A never-read date becomes Error (retryable).
+- **Screen:** the card button reads "Read the PDF again" on Failed and "Try again" on Error
+  (`porterImport.retryLabel`, replacing `canRetryInvoice`).
+
+### As built — #1560: Choose projects lists only the orders that need a person (spec #1554, 2026-10-25)
+
+- ⚠️ **ONE needs-a-person rule: `porter_state.placement_kinds`** (pure), read through
+  `porter_records.porter_placements(batches)` (one query). Review's filter (each line of `get_porter_review`
+  carries its `placement` kind: `placed_automatically` / `placed_by_person` / `needs_person`), Create's refusal (`orders_needing_a_person`) and the progress bar's
+  `projects.needs_person` all come from it; never write a second copy (the screen reads `placement` through
+  `porterReview.needsPerson` / `placedByPerson`; it never re-derives "chosen by a person" from `reason`). An open order (Create would still write it) needs a person when no person chose it
+  and it is not Strong, or its remark group is in doubt: any open order of the group is Check or unplaced,
+  or the group's open orders go to different destinations. Strong placements, Strong Non-Project from
+  history included, need no one. A created order never needs a person and casts no doubt on its group.
+- **Not a project** (GLOSSARY) is `set_porter_placement` with a blank project: reason `review`, no project,
+  Non-Project ledger. The screen offers it as its own button; the project picker lists Won projects only.
+- ⚠️ **Create is refused while any order needs a person** ("N orders still need a project. …"). This
+  replaces "a blank becomes Non-Project at Create": upload still stages an unplaced order on the
+  Non-Project ledger, but no such order reaches Create unless a person chose it. Old imports already
+  Validated with Check or unplaced orders now need those orders chosen before Create.
+- **Screen.** `PorterReviewPanel` lists `porterReview.choiceItems` (groups with an order that needs a person,
+  plus groups a person already chose and can still change); heading and note from `choiceSummary` ("N orders
+  need a project" / "M orders were placed automatically. …", or "All N orders placed automatically."). The
+  footer on a Validated import reads "Save and close" and `nextConfirmLabel` ("Next: confirm (N left)"),
+  N = `progress.projects.needs_person`, disabled until 0; Next opens Confirm & create (#1564).
+  A Creating import (re-run after Error / Unreconcile) keeps the old Create button.
+- Tests: `services/outflow_import/test_porter.TestWhichOrdersNeedAPerson` (pure), DB
+  `test_porter_review.TestWhichOrdersNeedAPerson`, `test_porter_create.TestCreateWaitsForEveryOrderThatNeedsAPerson`;
+  `PorterCreateCase._press_create` confirms every order that needs a person first (`confirm_first=False` to
+  test the refusal). Vitest: `porterReview.test.ts`.
+
+### As built — #1563: faster project picking (spec #1554, 2026-10-25)
+
+- **Per-order choice.** `set_porter_placement` already takes any set of line names, so one order inside a
+  remark group is placed on its own with `rows` = that one name (no second endpoint). Splitting a group
+  makes it "placed differently", so its other open orders need a person until each is chosen
+  (`placement_kinds`). The screen's "Choose per order" (groups of 2+) gives each order its own control.
+- **Two likely projects.** `porter_placement.Placement.likely`: every project the signals named for the
+  remark group, the remark's (or history's) project first, then the address votes, most voted first.
+  ⚠️ Never stored: `get_porter_review` re-runs `place_orders` over the CURRENT master
+  (`porter_upload.placement_master`) on the whole remark group of each order that needs a person, and
+  returns it as `likely_projects` (empty otherwise; no master read when nobody is needed). The screen
+  (`porterReview.likelyChoices`) shows one-click buttons only when exactly two are named and both still
+  Won, plus "Other…" for the picker.
+- **Badges** (`porterReview.listedBecause`), first that applies: a `conflict` reason → "Name and address
+  disagree"; a mixed group → "Orders placed differently"; no reason on any undecided order → "No match";
+  an `address` reason → "Only the address matched"; else "Loose name match". No bare "Check".
+- Note under the list: "Only Won projects can take expenses. If a project is missing, check its status."
+- Tests: pure `test_porter_placement.TestTheLikelyProjects`; DB `test_porter_review.TestChoosingPerOrder`,
+  `TestTheLikelyProjects`; vitest `porterReview.test.ts` (badges, two likely projects).
+
+### As built — #1564: Confirm & create before Create (spec #1554, 2026-10-25)
+
+- **Next opens Confirm & create** (`PorterConfirmPanel`); its footer is "Back" (to Choose projects) and
+  `createButtonLabel` ("Create N expenses"), which runs the existing Create. Screen-only: no endpoint changed.
+  The screen is view state in the dialog (`porterConfirmAsked`), shown only while the server still says
+  Validated and `canCreatePorter`, so a Create started elsewhere, or a discard, takes it away.
+- **The table** is `porterReview.confirmSummary(lines)`: orders and fare per project (largest fare first),
+  then Not a project, then the total; only lines Create would still write (`editable`). The closed accordion
+  lists `automaticLines` (open, not `needs_person`, reason not `review`) with CRN, remark and `placedOn`; its
+  Change places that one order through `set_porter_placement`, the call Choose projects uses. A changed order
+  stays listed until the screen is left.
+- ⚠️ **Changing one order of a remark group splits the group**, so the server marks the rest as needing a
+  person (`placement_kinds`). The screen then says "N orders now need a project. Go Back to choose." and
+  Create stays disabled until `progress.projects.needs_person` is 0 (the server refuses it too).
+- ⚠️ **`porterReviewOffered` is false while a Create job is queued or running**, Validated included: a job
+  just queued writes no line yet, so the import still reads Validated, and offering placements then would let
+  a person edit lines the job is about to write.
+- Vitest: `porterReview.test.ts` ("what Confirm & create totals", "which orders Confirm & create folds away").
+
+### As built — #1561: the orders Create could not create (spec #1554, 2026-10-25)
+
+- **One reader.** `porter_records.failed_lines(batch)` is `failed_lines` on `get_porter_status` (the result) and
+  on `get_porter_review`: each Error line's `name`, `crn`, `note` (its stored `outcome_note`), `fix`, `project`,
+  `project_name`.
+- ⚠️ **The fix is derived from the line as it stands now, never parsed from the note and never stored.**
+  `re-place` (`FIX_REPLACE`) when the line is a Project Expense line whose project is not Won or no longer
+  exists; `retry` (`FIX_RETRY`) otherwise. Placing a refused line on a Won project (Review's
+  `set_porter_placement`, which leaves the line in Error) turns its fix to `retry` with nothing else written.
+- The screen (`porterResult.porterResult`, `components/PorterResult.tsx`) shows nothing before Create and while
+  its job runs; then "N orders couldn't be created" with a CRN / Why / fix table ("Choose project" opens a Won
+  project picker for that one line; "Try again" presses Create again), or "All N expenses created.". "View
+  the N expenses" opens the created Expenses in their own lists: `get_porter_status.created_expenses` names the
+  import's Porter Orders that have an Expense, by the doctype each is on now (`porter_records.created_expenses`),
+  and `utils/porterExpense.createdExpenseLinks` opens each list's Paid tab with a `porter_order` column filter
+  in the list's own URL state (one link per list the expenses are on). "Move an order to another project"
+  closes the dialog on Bulk Import pinned to the import, on its Settled tab, where each line carries Move. ⚠️ It
+  goes through the page's own pin (`onImported` with the Porter source,
+  `postImportTab` maps it to `matchedOutflow`), not a `navigate` of their own: the index and `:id` routes
+  render the same page without remounting it, so a tab carried in router state alone was ignored (walked).
+  The Move link shows only to those the lines' Move button shows to (`canUndoOutflow`: Admin, Accountant
+  Lead); an Accountant gets the expenses link alone. `porterImport.createProgress` no longer words the failed or all-created
+  cases; the result does.
 
 
 ## #1485 (2026-10-17) — an ICICI cheque line clears its Payment cheque (spec #1477, ADR-0035)

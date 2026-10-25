@@ -1,4 +1,9 @@
 {
+  "a1_explicit_any": {
+    "count": 1754,
+    "description": "Frontend lines (not tests or components/ui) that type something as `any`.",
+    "rule": "A1"
+  },
   "b1_pure_module_purity": {
     "count": 0,
     "description": "frappe.db/get_all/get_doc/sql usages inside declared PURE_MODULES (a pure module must have none).",
@@ -15,7 +20,7 @@
     "rule": "B3"
   },
   "f2_inline_json_parse_pages": {
-    "count": 214,
+    "count": 213,
     "description": "Inline JSON.parse occurrences in pages/ (backend shapes should be parsed at one typed accessor).",
     "rule": "F2"
   },
@@ -33,6 +38,16 @@
     "count": 0,
     "description": "Lines adding a Work Order's total_tds (or a deduction's tds_amount) onto amount_paid outside PAYMENT_SUM_OWNERS: amount_paid already holds the TDS withheld from the vendor, so the sum counts it twice.",
     "rule": "P1"
+  },
+  "r1_rupee_formatters": {
+    "count": 9,
+    "description": "Functions that format rupees outside RUPEE_FORMATTER_HOMES.",
+    "rule": "R1"
+  },
+  "s1_oversized_files": {
+    "count": 338,
+    "description": "Hand-written source files (not tests, patches or components/ui) over 500 lines.",
+    "rule": "S1"
   },
   "t1_tests_pick_any_row": {
     "count": 22,

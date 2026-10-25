@@ -13,20 +13,23 @@ import {
     importSteps,
 } from "./importWizard";
 import { NEVER_MATCHED_SOURCES } from "./outflowImportStatus";
-import { SOURCE_OPTIONS } from "./outflowTableModel";
+import { SOURCE_OPTIONS, importStatusTone } from "./outflowTableModel";
 import {
     PORTER_CREATE_METHOD,
     PORTER_IMPORT_STATES,
     PORTER_INVOICE_STATES,
     PORTER_SOURCE,
     canCreatePorter,
-    canRetryInvoice,
+    retryLabel,
     createButtonLabel,
     createProgress,
     invoiceFigureRows,
     invoiceProgress,
+    foldPassedInvoices,
+    invoiceStateLabel,
     invoiceStateTone,
     isPorterImport,
+    notMatchingBanner,
     opensPorterDialog,
     porterCountsLine,
     porterCreateStarted,
@@ -34,7 +37,10 @@ import {
     porterStateNote,
     porterStateTone,
     porterValidationRunning,
+    warningLine,
     type PorterCreateProgress,
+    type PorterInvoiceRead,
+    type PorterInvoiceStatus,
 } from "./porterImport";
 import { porterReviewOffered } from "./porterReview";
 import { unskipBlockReason } from "./unskipView";
@@ -170,7 +176,7 @@ describe("what the upload reports", () => {
     it("tones an invoice by whether its check is settled, and which way", () => {
         expect(invoiceStateTone("Passed")).toBe("passed");
         expect(invoiceStateTone("Failed")).toBe("failed");
-        expect(invoiceStateTone("Error")).toBe("failed");
+        expect(invoiceStateTone("Error")).toBe("retry");
         for (const state of ["Queued", "Downloading", "Reading", "Comparing"]) {
             expect(invoiceStateTone(state)).toBe("pending");
         }
@@ -178,6 +184,27 @@ describe("what the upload reports", () => {
 });
 
 describe("validating against Porter's invoices (#1444)", () => {
+    // The statement's orders run 1 to 30 Sep 2026; the server allows invoices dated up to 7 Oct 2026.
+    const WINDOW = { from: "2026-09-01", to: "2026-10-07" };
+    const READ: PorterInvoiceRead = {
+        invoice_number: null,
+        invoice_date: null,
+        supplier_gstin: null,
+        receiver_gstin: null,
+        fare: null,
+        tax: null,
+    };
+    const invoiceAt = (validation_status: string, invoice_number: string): PorterInvoiceStatus => ({
+        name: invoice_number,
+        invoice_number,
+        city: "Pune",
+        billing_entity: "PORTERTEST",
+        completed_orders: 1,
+        fare_total: 100,
+        tax_total: 5,
+        validation_status,
+    });
+
     it("spells every invoice state as the Porter Invoice doctype does, in its order", () => {
         const doctype = repoFile("nirmaan_stack/nirmaan_stack/doctype/porter_invoice/porter_invoice.json");
         const options = doctype.match(/"fieldname": "validation_status",[\s\S]*?"options": "([^"]*)"/)?.[1] ?? "";
@@ -214,7 +241,7 @@ describe("validating against Porter's invoices (#1444)", () => {
         ]);
         expect(progress("Reading", true, null).map((step) => step.mark)).toEqual(["done", "current", "todo", "todo"]);
         expect(progress("Passed")[3]).toEqual({ label: "Passed", mark: "passed" });
-        expect(progress("Failed")[3]).toEqual({ label: "Failed", mark: "failed" });
+        expect(progress("Failed")[3]).toEqual({ label: "Doesn't match", mark: "failed" });
         expect(progress("Passed").slice(0, 3).every((step) => step.mark === "done")).toBe(true);
     });
 
@@ -227,53 +254,112 @@ describe("validating against Porter's invoices (#1444)", () => {
         expect(marks(true, null)).toEqual(["done", "failed", "todo", "failed"]);
         // Read, but a figure missing: the comparison could not decide.
         expect(marks(true, {})).toEqual(["done", "done", "failed", "failed"]);
-        expect(invoiceProgress({ validation_status: "Error", has_pdf: false, read: null })[3].label).toBe("Error");
+        expect(invoiceProgress({ validation_status: "Error", has_pdf: false, read: null })[3].label).toBe(
+            "Couldn't read the PDF",
+        );
     });
 
-    it("sets what Gemini read beside the statement's figures, flagging only a read that differs", () => {
-        const rows = invoiceFigureRows({
-            invoice_number: "29SS27A0900001",
-            porter_gstin: "29AAATP0000A1Z1",
-            customer_gstin: "29AAACN9999X1Z0",
-            fare_total: 3087,
-            tax_total: 154.36,
-            read: {
-                invoice_number: "29SS27A0900001",
-                invoice_date: "2026-10-01",
-                supplier_gstin: "29aaatp0000a1z1",
-                receiver_gstin: "27AAACN9999X1Z4",
-                fare: 3087,
-                tax: 155.37,
+    it("sets the statement's fare and allowed dates beside what the PDF read, flagging a fare beyond ₹1", () => {
+        const rows = invoiceFigureRows(
+            { fare_total: 18420, read: { ...READ, fare: 18240, invoice_date: "2026-10-01" } },
+            WINDOW,
+        );
+        expect(rows).toEqual([
+            { label: "Fare", statement: "₹18,420.00", read: "₹18,240.00", differs: true },
+            {
+                label: "Invoice date",
+                statement: "01-Sep-2026 to 07-Oct-2026",
+                read: "01-Oct-2026",
+                differs: false,
             },
-        });
-        expect(rows.map((row) => [row.label, row.differs])).toEqual([
-            ["Invoice number", false],
-            ["Porter GSTIN", false],
-            ["Customer GSTIN", true],
-            ["Fare", false],
-            ["Tax", true],
         ]);
-        const tax = rows.find((row) => row.label === "Tax");
-        expect(tax?.statement).toBe(154.36);
-        expect(tax?.read).toBe(155.37);
+        expect(invoiceFigureRows({ fare_total: 18420, read: { ...READ, fare: 18421 } }, WINDOW)[0].differs).toBe(false);
+    });
+
+    it("flags an invoice date outside the window, on either edge", () => {
+        const differs = (invoice_date: string) =>
+            invoiceFigureRows({ fare_total: 1, read: { ...READ, fare: 1, invoice_date } }, WINDOW)[1].differs;
+        expect(differs("2026-08-31")).toBe(true);
+        expect(differs("2026-09-01")).toBe(false);
+        expect(differs("2026-10-07")).toBe(false);
+        expect(differs("2026-10-08")).toBe(true);
     });
 
     it("flags nothing before Gemini has read the invoice", () => {
-        const rows = invoiceFigureRows({
-            invoice_number: "X",
-            porter_gstin: "G1",
-            customer_gstin: "G2",
-            fare_total: 1,
-            tax_total: 1,
-        });
+        const rows = invoiceFigureRows({ fare_total: 1 }, WINDOW);
         expect(rows.every((row) => !row.differs && row.read === null)).toBe(true);
     });
 
-    it("offers Retry only on an invoice that hit an Error", () => {
-        expect(canRetryInvoice({ validation_status: "Error" })).toBe(true);
-        for (const state of ["Failed", "Passed", "Queued", "Reading"]) {
-            expect(canRetryInvoice({ validation_status: state })).toBe(false);
+    it("names the problem states by meaning", () => {
+        expect(invoiceStateLabel("Error")).toBe("Couldn't read the PDF");
+        expect(invoiceStateLabel("Failed")).toBe("Doesn't match");
+        expect(invoiceStateLabel("Passed")).toBe("Passed");
+        expect(invoiceStateLabel("Reading")).toBe("Reading");
+    });
+
+    it("says on one grey line that GST came from the statement, and what the PDF read differently", () => {
+        expect(warningLine([])).toBeNull();
+        expect(warningLine(undefined)).toBeNull();
+        expect(
+            warningLine([{ figure: "Customer GSTIN", statement: "29AAACN9999X1Z5", read: "29AAACN9999X1Z8" }]),
+        ).toBe("GST taken from the statement. The PDF read the customer GSTIN as 29AAACN9999X1Z8, not 29AAACN9999X1Z5.");
+        expect(
+            warningLine([
+                { figure: "Porter GSTIN", statement: "29AAATP0000A1Z1", read: null },
+                { figure: "Tax", statement: "₹154.36", read: "₹155.37" },
+            ]),
+        ).toBe(
+            "GST taken from the statement. The PDF's Porter GSTIN couldn't be read; the PDF read the tax as ₹155.37, not ₹154.36.",
+        );
+    });
+
+    it("banners each invoice that doesn't match, naming the figure and the next step", () => {
+        const failed = (invoice_number: string, read: Partial<PorterInvoiceRead>) => ({
+            ...invoiceAt("Failed", invoice_number),
+            fare_total: 18420,
+            read: { ...READ, fare: 18420, invoice_date: "2026-09-30", ...read },
+        });
+        expect(notMatchingBanner([invoiceAt("Passed", "A"), invoiceAt("Error", "B")], WINDOW)).toBeNull();
+        expect(
+            notMatchingBanner([failed("MH/0912", { fare: 18240 }), failed("MH/0913", { invoice_date: "2026-10-08" })], WINDOW),
+        ).toEqual({
+            title: "2 invoices don't match Porter's PDF.",
+            lines: [
+                "Invoice MH/0912: the fare is ₹18,420.00 in the statement but ₹18,240.00 on the PDF.",
+                "Invoice MH/0913: the PDF is dated 08-Oct-2026, but this statement's invoices must be dated 01-Sep-2026 to 07-Oct-2026.",
+            ],
+            next: "Read it again. If it still differs, ask Porter for a corrected file, then discard this import and upload the new one.",
+        });
+        expect(notMatchingBanner([failed("MH/0912", { fare: 1 })], WINDOW)?.title).toBe(
+            "1 invoice doesn't match Porter's PDF.",
+        );
+    });
+
+    it("folds the invoices that simply passed, keeping problems and warnings in view", () => {
+        const warned = { ...invoiceAt("Passed", "W"), warnings: [{ figure: "Tax", statement: "₹1.00", read: null }] };
+        const invoices = [invoiceAt("Passed", "P1"), invoiceAt("Failed", "F"), warned, invoiceAt("Passed", "P2"), invoiceAt("Reading", "R")];
+        const split = foldPassedInvoices(invoices, false);
+        expect(split.shown.map((i) => i.invoice_number)).toEqual(["F", "W", "R"]);
+        expect(split.folded.map((i) => i.invoice_number)).toEqual(["P1", "P2"]);
+        expect(split.foldLabel).toBe("2 more invoices passed");
+        const all = foldPassedInvoices([invoiceAt("Passed", "P1"), warned], true);
+        expect(all.shown).toEqual([]);
+        expect(all.foldLabel).toBe("2 invoices passed");
+        expect(foldPassedInvoices([invoiceAt("Failed", "F")], false).foldLabel).toBeNull();
+    });
+
+    it("offers to read a mismatched PDF again and to try an unread one again, and nothing else", () => {
+        expect(retryLabel({ validation_status: "Failed" })).toBe("Read the PDF again");
+        expect(retryLabel({ validation_status: "Error" })).toBe("Try again");
+        for (const state of ["Passed", "Queued", "Downloading", "Reading", "Comparing"]) {
+            expect(retryLabel({ validation_status: state })).toBeNull();
         }
+    });
+
+    it("tells a failed import that a mismatched invoice can be read again", () => {
+        expect(porterStateNote("Validation failed")).toBe(
+            "Nothing will be created from this import: every invoice has to agree with Porter's PDF on the fare and the invoice date. Read a mismatched PDF again, or try again on one that couldn't be read.",
+        );
     });
 
     it("says what each import state means for Create", () => {
@@ -332,21 +418,26 @@ describe("creating the expenses (#1445)", () => {
         expect(createProgress(status({ state: "Creating", create_running: true, created: 4, to_create: 7 }))).toBe(
             "Creating… 4 of 11 created.",
         );
-        expect(createProgress(status({ state: "Creating", created: 10, to_create: 1, failed: 1 }))).toBe(
-            "10 of 11 created. 1 could not be created: press Create again to retry it.",
-        );
         expect(createProgress(status({ state: "Creating", created: 10, to_create: 1 }))).toBe(
             "10 of 11 created. 1 is waiting: press Create again to create it.",
         );
-        expect(createProgress(status({ state: "Created", created: 11, to_create: 0 }))).toBe(
-            "All 11 expenses created, at Paid.",
-        );
+        // A failed order, and every order created, are the result's to say (`porterResult`, #1561).
+        expect(createProgress(status({ state: "Creating", created: 10, to_create: 1, failed: 1 }))).toBeNull();
+        expect(createProgress(status({ state: "Created", created: 11, to_create: 0 }))).toBeNull();
     });
 
     it("says what Creating and Created mean, and tones Created as done", () => {
         expect(porterStateNote("Creating")).toMatch(/Creating the expenses/);
         expect(porterStateNote("Created")).toMatch(/one expense per completed order/);
+        expect(porterStateNote("Needs you")).toBe(
+            "Not every order is created yet, and nothing is running: press Create again for the rest.",
+        );
         expect(porterStateTone("Created")).toBe("passed");
         expect(porterStateTone("Creating")).toBe("pending");
+    });
+
+    it("tones a partly created import that needs a person amber, never grey (#1556)", () => {
+        expect(porterStateTone("Needs you")).toBe("attention");
+        expect(importStatusTone("Needs you")).toBe("bg-amber-50 text-amber-700");
     });
 });
