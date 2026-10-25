@@ -140,8 +140,9 @@ export const useOrderTotals = () => {
     [purchaseOrders]
   );
 
-  // What the order has been paid: its stored Amount Paid, Paid payments less Received refunds
-  // (ADR-0034), whatever the order's status. Never add up payments here.
+  // What the order has been paid: its stored Amount Paid, Paid payments (on a WO plus the TDS withheld
+  // from the vendor) less Received refunds (ADR-0034, Amendment A), whatever the order's status. Never
+  // add up payments or tax here.
   const getAmountPaid = useMemo(
     () => memoize((orderId: string, type: string): number => {
       if (['Procurement Orders', 'Purchase Order'].includes(type)) {

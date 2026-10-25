@@ -53,7 +53,7 @@ describe("canDownloadBcsExport -- who may see the internal export", () => {
   it("★ refuses while the role is still resolving, so the action never flashes in", () => {
     // `useUserData` returns these literals while the Nirmaan Users doc is in flight. Without
     // the guard an entitled user watches the item appear and vanish -- the exact reason
-    // canAdminOverride carries the same check.
+    // isNirmaanAdmin carries the same check.
     expect(canDownloadBcsExport("Loading", "a@b.com")).toBe(false);
     expect(canDownloadBcsExport("Error", "a@b.com")).toBe(false);
   });

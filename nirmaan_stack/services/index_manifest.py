@@ -159,6 +159,7 @@ INDEXES: tuple[tuple[str, tuple[str, ...], str, bool], ...] = (
     ('Vendor Invoices', ('project',), 'Vendor_Invoices_project_idx', False),
     ('Vendor Invoices', ('status',), 'Vendor_Invoices_status_idx', False),
     ('Vendor Invoices', ('vendor',), 'Vendor_Invoices_vendor_idx', False),
+    ('WO Generated Invoice', ('work_order',), 'WO_Generated_Invoice_work_order_idx', False),
 )
 
 

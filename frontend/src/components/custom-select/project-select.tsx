@@ -24,8 +24,9 @@ interface ProjectSelectProps {
 }
 
 // Token-based search config optimized for projects
-// Searches both project name (label) and project code (value)
-const projectSearchConfig: TokenSearchConfig = {
+// Searches both project name (label) and project code (value). Shared with pickers that need a
+// controlled value, which `ProjectSelect` does not take (the Project Expense edit dialog).
+export const projectSearchConfig: TokenSearchConfig = {
     searchFields: ['label', 'value'],
     minSearchLength: 1,
     partialMatch: true,

@@ -10,7 +10,13 @@ Cancelled, with a history row saying why. One left with other lines, or with a d
 status.
 
 A REJECTED payment comes off Old-type cheques only (#1481, spec #1477). On a Payment cheque a rejection
-rejects every payment and cancels the cheque, which keeps its lines (`decide.reject_cheque`).
+rejects every payment and cancels the cheque, which keeps its lines (`decide.reject_cheque`). An Old-type
+cheque's own cancel runs that same cascade, and keeps its lines too: the payments it rejects stay on it
+(spec #1514), so a bank line that turns up later still finds what the cheque paid. A Cancelled cheque keeps
+its lines whatever rejects one of its payments afterwards; only a delete takes a line off it.
+
+A Work Order comes off a Security Deposit cheque once, through the patch
+`v3_0.drop_work_order_deposit_lines` (`take_work_orders_off_deposit`, spec #1514): Work Orders have no cheques.
 
 Called from the lifecycle hooks: the payment's `on_update` (into Rejected, through
 `controllers/cheques.on_payment_rejected`) and `on_trash`, and each expense doctype's `on_trash`.
@@ -29,7 +35,13 @@ behind it), it is just no longer one of that Cheque's lines.
 
 import frappe
 
-from nirmaan_stack.services.cheques.rules import CANCELLED, PAYMENT_DOCTYPE
+from nirmaan_stack.services.cheques.lines import cheques_naming
+from nirmaan_stack.services.cheques.rules import (
+    CANCELLED,
+    CHEQUE_TYPE_SECURITY_DEPOSIT,
+    PAYMENT_DOCTYPE,
+    WORK_ORDER_DOCTYPE,
+)
 from nirmaan_stack.services.cheques.writer import CHEQUES, history_row
 
 DELETED = "deleted"
@@ -53,23 +65,24 @@ def drop_note(noun: str, name: str, why: str) -> str:
 
 
 def drop_off_cheques(
-    payment_doctype: str, payment_name: str, *, why: str, user: str, old_type_only: bool = False
+    payment_doctype: str, payment_name: str, *, why: str, user: str, old_type_only: bool = False,
+    keep_on: str | None = None,
 ) -> list[str]:
     """Take the lines naming `payment_name` (a `payment_doctype` record) off every Cheque that lists
-    them, Cancelled ones included, each with a history note. Returns the Cheques changed.
+    them, each with a history note. Returns the Cheques changed.
 
-    `why` is `rules.PAYMENT_REJECTED` or DELETED. A rejection passes `old_type_only`: a Payment cheque
-    keeps its lines when its payments are rejected (#1481, `decide.reject_cheque`), so only Old-type
-    cheques drop the line. Each Cheque is re-read under its row lock and saved through the document, so
-    its `validate` rules and `track_changes` run.
+    `why` is `rules.PAYMENT_REJECTED` or DELETED. A delete takes the line off every Cheque, Cancelled ones
+    included (a line left naming it would refuse the delete). A rejection passes `old_type_only`: a Payment
+    cheque keeps its lines when its payments are rejected (#1481, `decide.reject_cheque`), so only an
+    Old-type cheque that is not Cancelled drops the line; a Cancelled one keeps what it would have paid. `keep_on` names a Cheque the line stays on: the one whose cancel rejected the
+    payment (`decide.reject_cheque` saves it under `DECIDING_FLAG`, and saves that Cheque itself after).
+    Each Cheque is re-read under its row lock and saved through the document, so its `validate` rules and
+    `track_changes` run.
     """
-    names = sorted(set(frappe.get_all(
-        "Cheque Line",
-        filters={"parenttype": CHEQUES, "payment_doctype": payment_doctype, "payment_name": payment_name},
-        pluck="parent",
-    )))
-    if old_type_only and names:
-        names = sorted(frappe.get_all(CHEQUES, filters={"name": ["in", names], "old_type": 1}, pluck="name"))
+    names = sorted({
+        r.cheque for r in cheques_naming(payment_doctype, [payment_name])
+        if r.cheque != keep_on and (not old_type_only or (r.old_type and r.status != CANCELLED))
+    })
     noun = "Payment" if payment_doctype == PAYMENT_DOCTYPE else "Expense"
     for name in names:
         doc = frappe.get_doc(CHEQUES, name, for_update=True)
@@ -85,3 +98,32 @@ def drop_off_cheques(
             doc.status = to_status
         doc.save(ignore_permissions=True)
     return names
+
+
+def work_orders_off_note(work_orders: list[str]) -> str:
+    """The history note for Work Orders taken off a deposit cheque (spec #1514)."""
+    noun = "Work Order" if len(work_orders) == 1 else "Work Orders"
+    return f"{noun} {', '.join(work_orders)} taken off: Work Orders have no cheques."
+
+
+def take_work_orders_off_deposit(name: str, *, user: str) -> list[str]:
+    """Take every Work Order line off Security Deposit cheque `name`, with one history note, and return the
+    Work Orders taken off (none: nothing is written). Spec #1514, ADR-0035 Amendment A: a deposit secures POs
+    only.
+
+    The cheque keeps its status even when no line is left: the paper is still held until it comes back, and
+    a deposit securing nothing is a valid one (`status_after_drop` is not asked). Re-read under its row lock
+    and saved through the document, so its `validate` rules and `track_changes` run. A deposit pays nothing,
+    so no payment is touched and nothing is recomputed.
+    """
+    doc = frappe.get_doc(CHEQUES, name, for_update=True)
+    if doc.cheque_type != CHEQUE_TYPE_SECURITY_DEPOSIT:
+        return []
+    lines = doc.get("lines") or []
+    work_orders = [row.record_name for row in lines if row.record_doctype == WORK_ORDER_DOCTYPE]
+    if not work_orders:
+        return []
+    doc.set("lines", [row for row in lines if row.record_doctype != WORK_ORDER_DOCTYPE])
+    doc.append("status_history", history_row(doc.status, doc.status, user, work_orders_off_note(work_orders)))
+    doc.save(ignore_permissions=True)
+    return work_orders

@@ -13,7 +13,7 @@
  */
 
 import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
-import { ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PMO_EXECUTIVE_PROFILE } from "@/constants/roles";
+import { HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PAYMENT_L1_PROFILES, PMO_EXECUTIVE_PROFILE } from "@/constants/roles";
 
 import { PP_ACCOUNTANT_ROLES, PP_ADMIN_ROLES, PP_PROJECT_ROLES, PP_TABS, type PPTabValue } from "./ppTabs.constants";
 
@@ -35,7 +35,7 @@ export interface PaymentsTabSet {
 type Rule = (v: PaymentsViewer) => boolean;
 
 /** Approves payments: the Administrator user and the Admin profile. */
-const canApprove: Rule = (v) => v.userId === "Administrator" || v.role === ADMIN_PROFILE;
+const canApprove: Rule = (v) => v.userId === "Administrator" || PAYMENT_L1_PROFILES.includes(v.role);
 const isCEO: Rule = (v) => v.userId === CEO_AUTHORIZED_USER;
 /** Settles payments (Mark as Paid, Mark Reconciled). PMO removed 2026-09-17. */
 const canSettle: Rule = (v) => PP_ADMIN_ROLES.includes(v.role) || PP_ACCOUNTANT_ROLES.includes(v.role);

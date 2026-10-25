@@ -5,8 +5,9 @@
  *
  * Shown for an expense and for a PO / WO payment. Who to pay is the server's
  * (`services/payees/paid_to.pay_to_box`); what the box says about it is `utils/payees/paidTo.payToBoxView`;
- * when Change account shows is a screen rule (`canChangeExpenseAccount`): Accounts, an expense, not
- * yet paid, no vendor named. A PO / WO payment's copy is never edited by hand.
+ * when Change account shows is the server's edit answer (`canChangeExpenseAccount`): an expense whose
+ * account the viewer may change (Accounts, until it is paid), not yet paid, no vendor named. A PO / WO
+ * payment's copy is never edited by hand.
  *
  * An unpaid PO / WO payment whose vendor's account changed since it was raised, or that has none
  * (#1463), turns blue: the account shown, with its Copy buttons, is the vendor's current one, which
@@ -21,8 +22,7 @@ import { Check, Copy } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
-import { canManagePayees } from "@/constants/roles";
-import { useUserData } from "@/hooks/useUserData";
+import { useExpenseFieldAccess } from "@/hooks/useExpenseDecision";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
@@ -54,7 +54,7 @@ interface PayToBoxProps {
 }
 
 export function PayToBox({ doctype, name, expenseType = "" }: PayToBoxProps) {
-    const { role, user_id } = useUserData();
+    const editAccess = useExpenseFieldAccess();
     const [changing, setChanging] = useState(false);
     const changeChoice = usePayeeChoice(ACCOUNTS_PAYEE_APIS);
     const { data, isLoading, error, mutate } = useFrappeGetCall<{ message: PayToBoxData }>(
@@ -78,9 +78,9 @@ export function PayToBox({ doctype, name, expenseType = "" }: PayToBoxProps) {
     // A switching payment is paid into its vendor's current account; the one it holds is only "Was".
     const account = box.switch_to ?? box.account;
     const was = box.switch_to ? box.account : null;
-    const view = payToBoxView(doctype, box, expenseType);
+    const canChange = canChangeExpenseAccount(doctype, box, editAccess);
+    const view = payToBoxView(doctype, box, expenseType, canChange);
     const switching = view.tone === "vendor_account";
-    const canChange = canChangeExpenseAccount(doctype, box, canManagePayees(role, user_id));
     const bank = account ? bankLine(account) : "";
     // Each open starts from a fresh pick: the copy is not a Payee, so there is nothing to seed it with.
     const openChange = () => {

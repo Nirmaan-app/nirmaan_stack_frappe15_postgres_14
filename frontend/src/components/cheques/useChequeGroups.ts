@@ -5,7 +5,7 @@ import type { ChequeApproval, ChequeApprovalStage } from "@/utils/cheques/cheque
 import { CHEQUE_GROUPS_API } from "@/utils/cheques/chequeBulk";
 
 /**
- * The Pending cheques a bulk selection's payments are on, each with every line (#1481): what the bulk dialog
+ * The Approval Pending cheques a bulk selection's payments are on, each with every line (#1481): what the bulk dialog
  * shows as locked cheque groups. Idle (no request) when `paymentIds` is empty.
  */
 export const useChequeGroups = (paymentIds: readonly string[], stage: ChequeApprovalStage) => {

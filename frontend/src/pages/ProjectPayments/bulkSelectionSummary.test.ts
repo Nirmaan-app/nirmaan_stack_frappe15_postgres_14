@@ -5,6 +5,7 @@ import {
   forwardedToCeoNote,
   selectionBreakdown,
   selectionNoun,
+  requestedTotal,
   selectionTotal,
   summarizeSelection,
 } from "./bulkSelectionSummary";
@@ -125,5 +126,16 @@ describe("selectionTotal", () => {
   it("treats a missing or text amount the way parseNumber does, never as NaN", () => {
     const rows = [{ amount: 100 }, { amount: undefined }, { amount: "250" }] as unknown as { amount: number }[];
     expect(selectionTotal(rows)).toBe(350);
+  });
+});
+
+describe("requestedTotal", () => {
+  it("adds the full bills, so a payment cut by its TDS counts at what was requested", () => {
+    // ₹10,000 requested, ₹200 TDS withheld: stored 9,800; an expense with no requested_amount counts its amount.
+    expect(requestedTotal([{ amount: 9800, requested_amount: 10000 }, { amount: 500 }])).toBe(10500);
+  });
+
+  it("is 0 for an empty selection", () => {
+    expect(requestedTotal([])).toBe(0);
   });
 });

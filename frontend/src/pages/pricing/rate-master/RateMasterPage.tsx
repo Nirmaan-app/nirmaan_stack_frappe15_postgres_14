@@ -30,7 +30,7 @@ import { RATE_MASTER_CONFIG_TARGETS, RateConfigFetcher, useConfigsByCategory }
   from "@/pages/boq-wizard/rate-helper/rateHelperPlumbing";
 import { RateMasterDerivation } from "./RateMasterDerivation";
 import { RateMasterPipelines } from "./RateMasterPipelines";
-import { isRateMasterAdmin } from "./rateMasterEdit";
+import { isNirmaanAdmin } from "@/constants/roles";
 import {
   FREEZE_COPY,
   UNFROZEN,
@@ -111,7 +111,7 @@ export function RateMasterPage() {
   const configName = configData?.message?.name;
 
   // RM-4a: admin gate (owner option (a)). `role` off the already-warm useUserData (PricingRoute warmed
-  // it); the pure isRateMasterAdmin mirrors the server _is_nirmaan_admin. When false the tabs render
+  // it); the shared isNirmaanAdmin mirrors the server _is_nirmaan_admin. When false the tabs render
   // read-only (controls HIDDEN, not disabled). Server-authoritative regardless.
   // SLICE 12b(B) -- the impact panel. All configs for the discipline (the shared plumbing), the reach
   // walk memoised on [configs, items], and which input the panel is open on.
@@ -181,7 +181,7 @@ export function RateMasterPage() {
   useEffect(() => { setImpactInputUid(null); }, [activeCategoryId, disciplineId]);
 
   const { user_id: currentUser, role } = useUserData();
-  const isAdmin = isRateMasterAdmin(role, currentUser);
+  const isAdmin = isNirmaanAdmin(role, currentUser);
   // RMF-1: the freeze population IS the rate-master edit population (owner ruling R5), so this
   // DELEGATES to the same predicate rather than minting a second one that could drift.
   const canManageFreeze = canManageRateMasterFreeze(role, currentUser);

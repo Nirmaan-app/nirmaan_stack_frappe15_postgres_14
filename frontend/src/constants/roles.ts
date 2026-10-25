@@ -108,6 +108,10 @@ export const isBillingProfile = (role?: string | null): boolean =>
   !!role && BILLING_PROFILES.includes(role);
 
 export const ADMIN_PROFILE = "Nirmaan Admin Profile";
+export const ACCOUNTANT_PROFILE = "Nirmaan Accountant Profile";
+export const ACCOUNTANT_LEAD_PROFILE = "Nirmaan Accountant Lead Profile";
+/** The accountants. Server twin: `role_profiles.ACCOUNTANT_PROFILES`. */
+export const ACCOUNTANT_PROFILES: readonly string[] = [ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE];
 export const PMO_EXECUTIVE_PROFILE = "Nirmaan PMO Executive Profile";
 export const HR_EXECUTIVE_PROFILE = "Nirmaan HR Executive Profile";
 export const HR_LEAD_PROFILE = "Nirmaan HR Lead Profile";
@@ -250,11 +254,7 @@ export const canDeleteCashflowPlan = (
  * PMO Executive was REMOVED on 2026-09-17 (PMO access review). Do not re-add PMO
  * without owner sign-off.
  */
-const INVOICE_APPROVAL_PROFILES: readonly string[] = [
-  ADMIN_PROFILE,
-  "Nirmaan Accountant Profile",
-  "Nirmaan Accountant Lead Profile",
-];
+const INVOICE_APPROVAL_PROFILES: readonly string[] = [ADMIN_PROFILE, ...ACCOUNTANT_PROFILES];
 
 /** True when `role` (a role PROFILE) may action pending invoice approvals. */
 export const canActionInvoiceApprovals = (
@@ -263,6 +263,55 @@ export const canActionInvoiceApprovals = (
 ): boolean =>
   userId === "Administrator" ||
   (!!role && INVOICE_APPROVAL_PROFILES.includes(role));
+
+/**
+ * May generate and void a GST-off Work Order's generated invoice, and upload its signed copy (#1546 /
+ * #1547, spec #1528 story 89). Mirrored server-side by `role_profiles.WO_GENERATED_INVOICE_PROFILES`,
+ * the enforcement boundary.
+ */
+export const WO_GENERATED_INVOICE_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
+  PROJECT_LEAD_PROFILE,
+  ...SERVICE_PROCUREMENT_PROFILES,
+];
+
+/** True when `role` (a role PROFILE) may generate, void or upload a Work Order's generated invoice. */
+export const canGenerateWoInvoice = (role?: string | null, userId?: string | null): boolean =>
+  userId === "Administrator" || (!!role && WO_GENERATED_INVOICE_PROFILES.includes(role));
+
+/**
+ * May use Match GST to vendor and see the GST mismatch list (#1538, ADR-0028 Amendment A).
+ * Mirrored server-side by `role_profiles.MATCH_GST_TO_VENDOR_PROFILES`, the enforcement boundary.
+ */
+export const MATCH_GST_TO_VENDOR_PROFILES: readonly string[] = [ADMIN_PROFILE, ...ACCOUNTANT_PROFILES];
+
+/**
+ * May edit a Work Order invoice's number, date and amounts while it is Pending or Rejected (#1531,
+ * ADR-0014 Amendment A); an Approved one only Admin. Mirrored server-side by
+ * `role_profiles.WO_INVOICE_EDIT_PROFILES`, the enforcement boundary.
+ */
+export const WO_INVOICE_EDIT_PROFILES: readonly string[] = [ADMIN_PROFILE, ...ACCOUNTANT_PROFILES];
+
+/**
+ * Shown the Edit dialog on a Purchase Order invoice: Admin and the accountants, as before spec #1528, which
+ * left PO invoice rules unchanged. A UI gate only: no server role check backs PO invoice edits.
+ */
+export const PO_INVOICE_EDIT_PROFILES: readonly string[] = [ADMIN_PROFILE, ...ACCOUNTANT_PROFILES];
+
+/** True when `role` (a role PROFILE) may edit a Work Order invoice. */
+export const canEditWoInvoice = (role?: string | null, userId?: string | null): boolean =>
+  userId === "Administrator" || (!!role && WO_INVOICE_EDIT_PROFILES.includes(role));
+
+/**
+ * The L1 payment approvers (`canApprove` in `pages/ProjectPayments/config/paymentsTabSet.ts`), with the
+ * Administrator user. Mirrored server-side by `role_profiles.PAYMENT_L1_PROFILES`, the enforcement boundary.
+ */
+export const PAYMENT_L1_PROFILES: readonly string[] = [ADMIN_PROFILE];
+
+/** True when `role` (a role PROFILE) may use Match GST to vendor. */
+export const canMatchGstToVendor = (role?: string | null, userId?: string | null): boolean =>
+  userId === "Administrator" || (!!role && MATCH_GST_TO_VENDOR_PROFILES.includes(role));
 
 /**
  * May see the "Pending Invoices Upload" tab (orders still owed a vendor invoice).
@@ -358,8 +407,6 @@ export const canViewTargetProgress = (
 // UI gate only; no server-side role check backs these.
 // ---------------------------------------------------------------------------
 
-export const ACCOUNTANT_PROFILE = "Nirmaan Accountant Profile";
-export const ACCOUNTANT_LEAD_PROFILE = "Nirmaan Accountant Lead Profile";
 const ESTIMATES_EXECUTIVE_PROFILE = "Nirmaan Estimates Executive Profile";
 const SALES_EXECUTIVE_PROFILE = "Nirmaan Sales Executive Profile";
 const SALES_LEAD_PROFILE = "Nirmaan Sales Lead Profile";
@@ -597,12 +644,13 @@ export const PAYMENT_VOUCHER_EDIT: readonly string[] = [
  *
  * HR LEAD IS IN, and needed a sidebar entry to go with it (owner, 2026-09-23): it was
  * already a valid reviewer server-side but had no nav item anywhere, so the right it held
- * was unreachable. See the `/expense` gate in `NewSidebar.tsx`.
+ * was unreachable. The `/expense` sidebar item and route now open to a reviewer or anyone who
+ * can raise a type (`access.opens_expenses`, spec #1494 #1506).
  *
- * NOT an access gate: `/expense` has no route guard, so any logged-in user who types the
- * URL reaches the page. They land on `Expense Raised By Me`, which is the safe direction --
- * hence the predicate asks "is this a reviewer", never "is this one of the narrowed roles".
- * An unknown or new profile then defaults to its own rows.
+ * NOT an access gate: it decides only the tabs. A raiser who reviews nothing lands on
+ * `Expense Raised By Me`, which is the safe direction -- hence the predicate asks "is this a
+ * reviewer", never "is this one of the narrowed roles". An unknown or new profile then
+ * defaults to its own rows.
  */
 export const EXPENSE_REQUEST_REVIEW_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
@@ -625,9 +673,14 @@ export const reviewsExpenseRequests = (
 // ENFORCEMENT boundary (`api/vendor_refunds/waiting_refunds`); these only decide which controls render.
 // ---------------------------------------------------------------------------
 
-/** The Admin user or an Admin profile: `role_profiles.is_nirmaan_admin`. */
+/**
+ * The Admin user or an Admin profile: the server's `role_profiles.is_nirmaan_admin` (and
+ * `pricing._is_nirmaan_admin`). False while `useUserData` still reports the role as "Loading", so an
+ * admin-only control never flashes in. Decides only what renders: every admin-only endpoint re-checks on
+ * the server, which is authoritative.
+ */
 export const isNirmaanAdmin = (role?: string | null, userId?: string | null): boolean =>
-  userId === "Administrator" || role === ADMIN_PROFILE;
+  role !== "Loading" && (userId === "Administrator" || role === ADMIN_PROFILE);
 
 /** `REFUND_ACCOUNTANT_PROFILES`: "an Accountant" for a waiting refund. Besides its creator, may correct its
  *  amount or PO while it waits, or cancel it. */

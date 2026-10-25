@@ -9,7 +9,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { CHEQUE_TYPE } from "@/types/NirmaanStack/Cheques";
 import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
-import { CANCEL_CHEQUE_API, cancelNote, cancelNoteProblem, paymentsRejectedByCancel } from "@/utils/cheques/chequeStatus";
+import {
+    CANCEL_CHEQUE_API,
+    cancelNote,
+    cancelNoteProblem,
+    paidLineCancelProblem,
+    paymentsRejectedByCancel,
+} from "@/utils/cheques/chequeStatus";
 import { getFrappeError } from "@/utils/frappeErrors";
 
 import { chequeDetailKey, useChequeDetail } from "./useChequeDetail";
@@ -26,7 +32,8 @@ interface CancelChequeDialogProps {
  * Cancel by hand (#1484, spec #1477): every payment on the cheque becomes Rejected, with the note as their
  * reason, and the cheque becomes Cancelled. Lists the payments that will be Rejected before the user confirms.
  * The cheque keeps its lines and history. A Security Deposit cheque (#1486) is "marked returned": it becomes
- * Cancelled with the note, and no payment is touched. Mount it only while open.
+ * Cancelled with the note, and no payment is touched. A cheque with a line already Paid cannot be cancelled
+ * (owner, 2026-10-22): the dialog says so, naming the line, and offers no Cancel. Mount it only while open.
  */
 export const CancelChequeDialog = ({ cheque: name, onClose, onDone }: CancelChequeDialogProps) => {
     const { cheque, isLoading } = useChequeDetail(name);
@@ -36,6 +43,7 @@ export const CancelChequeDialog = ({ cheque: name, onClose, onDone }: CancelCheq
 
     const isDeposit = cheque?.cheque_type === CHEQUE_TYPE.SECURITY_DEPOSIT;
     const rejected = cheque && !isDeposit ? paymentsRejectedByCancel(cheque.lines) : [];
+    const paidProblem = cheque && !isDeposit ? paidLineCancelProblem(cheque.lines) : null;
     const problem = cancelNoteProblem(note);
 
     const submit = async () => {
@@ -72,6 +80,13 @@ export const CancelChequeDialog = ({ cheque: name, onClose, onDone }: CancelCheq
                 {isLoading || !cheque ? (
                     <div className="flex justify-center py-6">
                         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    </div>
+                ) : paidProblem ? (
+                    <div className="rounded border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                        <p className="flex items-center gap-1.5 font-medium">
+                            <AlertTriangle className="h-4 w-4 shrink-0" /> Cheque {cheque.cheque_no} cannot be cancelled:{" "}
+                            {paidProblem}.
+                        </p>
                     </div>
                 ) : (
                     <div className="space-y-4">
@@ -117,14 +132,16 @@ export const CancelChequeDialog = ({ cheque: name, onClose, onDone }: CancelCheq
                     <Button variant="outline" onClick={onClose} disabled={loading}>
                         Close
                     </Button>
-                    <Button variant="destructive" onClick={submit} disabled={loading || !cheque || !!problem}>
-                        {loading && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-                        {isDeposit
-                            ? "Mark returned"
-                            : rejected.length > 0
-                              ? `Reject ${rejected.length} and cancel cheque`
-                              : "Cancel cheque"}
-                    </Button>
+                    {!paidProblem && (
+                        <Button variant="destructive" onClick={submit} disabled={loading || !cheque || !!problem}>
+                            {loading && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+                            {isDeposit
+                                ? "Mark returned"
+                                : rejected.length > 0
+                                  ? `Reject ${rejected.length} and cancel cheque`
+                                  : "Cancel cheque"}
+                        </Button>
+                    )}
                 </DialogFooter>
             </DialogContent>
         </Dialog>

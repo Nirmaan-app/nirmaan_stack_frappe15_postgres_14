@@ -59,6 +59,7 @@ import {
 } from "./data/root/useProjectRootApi";
 import { TenderingProjectsTable } from "./tendering/TenderingProjectsTable";
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
+import { CASHFLOW_GAP_TOOLTIP, PROJECT_OUTFLOW_TOOLTIP } from "@/constants/projectOutflow";
 // --- Constants ---
 const DOCTYPE = "Projects";
 
@@ -664,8 +665,8 @@ export const Projects: React.FC<ProjectsProps> = ({
       {
         id: "outflow",
         header: ({ column }) => (
-          <HeaderWithInfo tooltip="Total cash paid out: vendor payments + project expenses (settled only — excludes scheduled credit terms).">
-            <DataTableColumnHeader column={column} title="Outflow" />
+          <HeaderWithInfo tooltip={PROJECT_OUTFLOW_TOOLTIP}>
+            <DataTableColumnHeader column={column} title="Project Outflow" />
           </HeaderWithInfo>
         ),
         cell: ({ row }) => {
@@ -678,7 +679,7 @@ export const Projects: React.FC<ProjectsProps> = ({
         },
         size: 100,
         meta: {
-          exportHeaderName: "Outflow (in Lakhs)",
+          exportHeaderName: "Project Outflow (in Lakhs)",
           exportValue: (row) => {
             const financials = getProjectFinancials(row.name);
             return formatToLakhsNumber(financials.calculatedTotalOutflow);
@@ -714,7 +715,7 @@ export const Projects: React.FC<ProjectsProps> = ({
       {
         id: "cashflow_gap",
         header: ({ column }) => (
-          <HeaderWithInfo tooltip="Outflow + Current Liabilities − Inflow. Positive (red) means committed spend exceeds funds received; negative (green) means inflows are ahead.">
+          <HeaderWithInfo tooltip={CASHFLOW_GAP_TOOLTIP}>
             <DataTableColumnHeader column={column} title="Cashflow Gap" />
           </HeaderWithInfo>
         ),

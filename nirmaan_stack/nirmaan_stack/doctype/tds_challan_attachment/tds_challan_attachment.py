@@ -10,6 +10,10 @@ from frappe.utils import flt
 
 FINANCIAL_YEAR_PATTERN = re.compile(r"^(\d{4})-(\d{2})$")
 
+EXPENSE_DOCTYPE = "Non Project Expenses"
+# The Expense Type an Accountant books a deposit of tax under (fixtures/expense_type.json).
+TDS_PAYMENT_EXPENSE_TYPE = "TDS Payment"
+
 
 class TDSChallanAttachment(Document):
 	"""One ITNS 281 challan: the receipt for TDS deposited with the Income Tax Department.
@@ -30,6 +34,37 @@ class TDSChallanAttachment(Document):
 		self._validate_financial_year()
 		self._validate_reconciled_amount()
 		self._validate_duplicate()
+		self._validate_tds_payment_expense()
+
+	def _validate_tds_payment_expense(self):
+		"""The expense that records this deposit (#1544): a TDS Payment expense, not Rejected, on no other challan.
+
+		Linked by hand; nothing creates or links it automatically. The field is also `unique`, which is
+		what holds under two simultaneous saves; this check is what gives the readable refusal.
+		"""
+		expense = self.tds_payment_expense
+		if not expense:
+			return
+		row = frappe.db.get_value(EXPENSE_DOCTYPE, expense, ["type", "status"], as_dict=True)
+		if not row:
+			return  # Frappe's own link check refuses a missing expense with its standard message.
+		if row.type != TDS_PAYMENT_EXPENSE_TYPE:
+			frappe.throw(
+				_("Expense {0} is a {1} expense. Only a {2} expense can record a challan.").format(
+					expense, row.type or _("untyped"), TDS_PAYMENT_EXPENSE_TYPE
+				)
+			)
+		if row.status == "Rejected":
+			frappe.throw(_("Expense {0} is Rejected, so it can't record a challan.").format(expense))
+		other = frappe.db.get_value(
+			self.doctype, {"tds_payment_expense": expense, "name": ["!=", self.name or ""]}, "name"
+		)
+		if other:
+			frappe.throw(
+				_("Expense {0} already records challan {1}. One expense can record only one challan.").format(
+					expense, other
+				)
+			)
 
 	def _normalize_keys(self):
 		self.financial_year = (self.financial_year or "").strip()

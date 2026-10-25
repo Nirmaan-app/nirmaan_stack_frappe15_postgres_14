@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import { FileCheck2, FileWarning, Wallet } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 
@@ -13,7 +13,7 @@ import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { urlStateManager } from "@/utils/urlStateManager";
 
-import { getWOPaymentVoucherColumns } from "./columns/woPaymentVoucherColumns";
+import { getWOPaymentVoucherColumns, type VoucherTds } from "./columns/woPaymentVoucherColumns";
 import {
     VoucherStatusFilter,
     WO_PAYMENT_VOUCHER_AGGREGATES,
@@ -79,13 +79,11 @@ export default function WOPaymentVoucherReport() {
         { fields: ["name", "vendor_name"], limit: 0 },
         "wo-voucher-report-vendors",
     );
-    const { data: tdsRows } = useFrappeGetDocList<{ project_payment: string; tds_amount: number }>(
-        "Payment TDS Deduction",
-        {
-            fields: ["project_payment", "tds_amount"],
-            filters: [["document_type", "=", "Service Requests"]],
-            limit: 0,
-        },
+    // Asked of the server, which keeps the Work Orders the viewer may read (#1543): `Payment TDS Deduction`
+    // itself is readable by the accountants only, so reading it here left the column blank for everyone else.
+    const { data: tdsAnswer } = useFrappeGetCall<{ message: Record<string, VoucherTds> }>(
+        "nirmaan_stack.api.payments.work_order_tds.get_paid_work_order_payment_tds",
+        undefined,
         "wo-voucher-report-tds",
     );
 
@@ -98,8 +96,8 @@ export default function WOPaymentVoucherReport() {
         [vendors],
     );
     const tdsByPayment = useMemo(
-        () => new Map((tdsRows || []).map((t) => [t.project_payment, Number(t.tds_amount) || 0])),
-        [tdsRows],
+        () => new Map(Object.entries(tdsAnswer?.message ?? {})),
+        [tdsAnswer],
     );
 
     // `refetch` is only known after the table hook runs; route the voucher callback through a

@@ -23,6 +23,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt, nowdate
 
+from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
 from nirmaan_stack.api.payments.payment_hold import set_payment_hold
 from nirmaan_stack.api.payments.project_payments import (
 	move_cheque_payment_to_reconciliation,
@@ -71,6 +72,8 @@ class TestPaymentHold(FrappeTestCase):
 		)
 		self.fx.payments.append(name)
 		frappe.db.commit()
+		if cheque:  # a payment in Cheque mode always has its cheque (#1552)
+			ChequeFixture.attach(self).put_on_old_type_cheque(name)
 		return name
 
 	def _user(self, profile):

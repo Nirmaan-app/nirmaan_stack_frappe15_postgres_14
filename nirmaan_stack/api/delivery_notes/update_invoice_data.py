@@ -21,9 +21,16 @@ from nirmaan_stack.api.invoices._auto_approve import (
 )
 from nirmaan_stack.api.invoices._item_billing_sync import recompute_po_invoice_qty
 from nirmaan_stack.api.invoices._validation import ORDER_TOTAL_LABEL, existing_invoiced_sum
+from nirmaan_stack.integrations.controllers.vendor_invoices import DELETE_GENERATED_REFUSAL, generated_invoice_of
 from nirmaan_stack.services import invoice_amounts
-from nirmaan_stack.services.role_profiles import is_nirmaan_admin as _is_nirmaan_admin
+from nirmaan_stack.services.role_profiles import can_edit_wo_invoice, is_nirmaan_admin as _is_nirmaan_admin
 from nirmaan_stack.services.work_order_gst import gst_is_on
+from nirmaan_stack.services.work_order_invoice_access import (
+    EDIT_REFUSAL,
+    GENERATED_EDIT_REFUSAL,
+    WorkOrderInvoiceRefused,
+    is_work_order_invoice,
+)
 
 
 @frappe.whitelist()
@@ -110,6 +117,19 @@ def update_invoice_data(
             )
             if missing:
                 frappe.throw(f"Enter the {' and the '.join(missing)} from the bill.")
+
+        # Editing a Work Order invoice is for Accountants and Admin (#1531, ADR-0014 Amendment A),
+        # the whole edit, so an unchanged re-save cannot swap the attached bill either. Which
+        # FIGURES may change, an Approved invoice's included, is the Vendor Invoices validate hook's.
+        stored = invoice_id and frappe.db.get_value(
+            "Vendor Invoices", invoice_id, ["document_type"], as_dict=True
+        )
+        if is_work_order_invoice(stored) and not can_edit_wo_invoice(frappe.session.user):
+            frappe.throw(EDIT_REFUSAL, WorkOrderInvoiceRefused)
+        # A generated invoice's signed upload is never edited, by anyone (#1547, story 87): not its
+        # figures (the validate hook's rule too) and not its scan, which this dialog would swap.
+        if is_work_order_invoice(stored) and generated_invoice_of(invoice_id):
+            frappe.throw(GENERATED_EDIT_REFUSAL, WorkOrderInvoiceRefused)
 
         # Hard-block future-dated invoices, on create and edit — a future invoice
         # date is never legitimate on either document type.
@@ -263,6 +283,8 @@ def update_invoice_data(
                         title="Auto-approve evaluation failed",
                         message=frappe.get_traceback(),
                     )
+        except WorkOrderInvoiceRefused:
+            raise   # its message is the answer; the wrapper below would bury it
         except Exception as invoice_err:
             frappe.log_error(
                 f"Failed to {'update' if invoice_id else 'create'} Vendor Invoice for {doctype} {docname}",
@@ -577,6 +599,12 @@ def delete_invoice_entry(docname: str, date_key: str = None, isSR: bool = False,
                 "status": 403,
                 "message": "Only an admin can delete an approved invoice.",
             }
+
+    # A generated invoice's Vendor Invoice is rejected, never deleted (#1547). The Vendor Invoices
+    # on_trash hook refuses it on every path; answered here so the toast shows why.
+    generated_invoice = generated_invoice_of(vendor_invoice_name)
+    if generated_invoice:
+        return {"status": 403, "message": DELETE_GENERATED_REFUSAL.format(generated_invoice)}
 
     try:
         # --- Start Transaction ---

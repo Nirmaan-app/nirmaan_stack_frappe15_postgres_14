@@ -5,17 +5,20 @@
 spec #1477, ADR-0035). Part of THE cheques service; never commits.
 
 An ICICI statement DEBIT whose cheque column is filled (`bank_import_rules.bank_cheque_key`) is looked up against the
-Payment cheques on ICICI Bank, not Old-type, by number with leading zeros ignored, and the one within ₹5
-of the line's amount (`bank_import_rules.pick_bank_cheque`) is cleared through THE clear (`status.clear`), with the
-line's date as the clearance date and `CLEARED_BY_BANK_IMPORT`, in one savepoint per line:
+Payment cheques on ICICI Bank, Old-type ones included (#1516), by number with leading zeros ignored, and the
+one within ₹5 of the line's amount (`bank_import_rules.pick_bank_cheque`) is cleared through THE clear
+(`status.clear`, the only way a cheque is cleared), on the line's date, in one savepoint per line:
 
 * Issued: cleared, every payment Paid and linked to the line (one bank-match row each);
-* Pending: the import approves the payments first (approval date = the line's date, history
+* Old-type, from any of these statuses: every line paid in full, each record (payment or expense) not
+  yet Paid settled for the line's amount, one bank-match row per line; a record already Paid is left as
+  it is;
+* Approval Pending: the import approves the payments first (approval date = the line's date, history
   `bank_import_rules.BANK_APPROVAL_NOTE`), then as Issued;
 * Cancelled: Rejected -> Paid, history `bank_import_rules.BANK_REVIVAL_NOTE`, and the review names any payment on its
   POs raised after the cancel (`double_payment_suspects`);
-* Cleared by hand with no line yet: the line is linked to it and its payments, nothing is paid again
-  (`status.link_bank_line`);
+* Cleared by hand before #1516 with no line yet: the line is linked to it and its payments, nothing is paid
+  again (`status.link_bank_line`);
 * number found, amount differs (or two cheques fit, or another line cleared it): nothing is settled and
   the line says why.
 
@@ -45,7 +48,6 @@ from nirmaan_stack.services.cheques.rules import (
     CANCELLED,
     CHEQUE_TYPE_PAYMENT,
     CLEARED,
-    CLEARED_BY_BANK_IMPORT,
     ICICI_BANK,
     PAYMENT_DOCTYPE,
     PAYMENT_REJECTED,
@@ -70,12 +72,12 @@ class LineOutcome:
 
 
 def find_payment_cheques(key: str) -> list[FoundCheque]:
-    """The Payment cheques on ICICI Bank, not Old-type, whose number compares equal to `key`."""
+    """The Payment cheques on ICICI Bank, Old-type ones included (#1516), whose number compares equal to `key`."""
     if not key:
         return []
     rows = frappe.db.sql(
         f"""SELECT name, cheque_no, status, amount, bank_line FROM "tab{CHEQUES}"
-            WHERE bank = %(bank)s AND cheque_type = %(type)s AND COALESCE(old_type, 0) = 0
+            WHERE bank = %(bank)s AND cheque_type = %(type)s
               AND ltrim(cheque_no, '0') LIKE %(prefix)s
             ORDER BY creation""",
         {"bank": ICICI_BANK, "type": CHEQUE_TYPE_PAYMENT, "prefix": f"{key}%"},
@@ -110,8 +112,7 @@ def clear_from_line(row, *, source: str, user: str) -> LineOutcome | None:
         if cheque.status == CLEARED:
             out = link_bank_line(cheque.name, bank_line=row.name, user=user)
         else:
-            out = clear(cheque.name, clearance_date=day, user=user, bank_line=row.name,
-                        cleared_by=CLEARED_BY_BANK_IMPORT)
+            out = clear(cheque.name, bank_line=row.name, user=user)
     except Exception as e:
         frappe.db.rollback(save_point=savepoint)
         frappe.clear_messages()  # the reason is on the line; no toast per line
@@ -126,8 +127,8 @@ def clear_from_line(row, *, source: str, user: str) -> LineOutcome | None:
     payments = tuple(out["payments"])
     return LineOutcome(
         settled=True,
-        note=bank_cleared_note(cheque_no=cheque.cheque_no, started=out["started"], payments=len(payments),
-                               day=day, suspects=suspects),
+        note=bank_cleared_note(cheque_no=cheque.cheque_no, started=out["started"], moved=out["moved"],
+                               day=day, suspects=suspects, linked=len(payments)),
         statement_file_url=out["statement_file_url"],
         payments=payments,
     )
@@ -168,9 +169,9 @@ def double_payment_suspects(cheque: str) -> list[DoublePayment]:
 
 def cheque_outcomes(row_names) -> dict[str, dict]:
     """For the import review: per bank line that a Payment cheque records (`Cheques.bank_line`), the
-    cheque, where it started (`bank_import_rules.bank_start`: Issued, Pending, Cancelled, or Cleared when it was
-    cleared by hand and the line only linked) and, for a Cancelled one, the possible double payments.
-    Reads only."""
+    cheque, where it started (`bank_import_rules.bank_start`: Issued, Approval Pending, Cancelled, or Cleared
+    when it was cleared by hand and the line only linked) and, for a Cancelled one, the possible double
+    payments. Reads only."""
     names = [n for n in row_names or [] if n]
     if not names:
         return {}

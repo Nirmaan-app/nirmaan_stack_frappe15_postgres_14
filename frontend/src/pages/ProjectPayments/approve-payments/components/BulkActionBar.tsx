@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { Table } from "@tanstack/react-table";
-import { CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, XCircle, Loader2, RotateCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -16,7 +16,7 @@ import { useRefreshApprovalCounts } from "../../hooks/useRefreshApprovalCounts";
 // PAYMENT names, so nothing in here had to change — only the type widened.
 import { ApprovalQueueRow } from "../../config/approvalsTable.config";
 
-import { BulkAction, BulkFailure, BulkMode } from "../hooks/useBulkPaymentActions";
+import { BulkAction, BulkFailure, BulkMode, useRetryBulkTds } from "../hooks/useBulkPaymentActions";
 import { useBulkApprovalActions } from "../hooks/useBulkApprovalActions";
 import { countLabel, summarizeSelection } from "../../bulkSelectionSummary";
 import { BulkConfirmDialog } from "./BulkConfirmDialog";
@@ -43,6 +43,9 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
 
   const [dialogAction, setDialogAction] = useState<BulkAction | null>(null);
   const [lastFailures, setLastFailures] = useState<BulkFailure[]>([]);
+  // Approved payments whose TDS was not withheld (#1536): still gross until Retry TDS records it.
+  const [tdsFailed, setTdsFailed] = useState<string[]>([]);
+  const { retry, loading: retrying } = useRetryBulkTds();
 
   const selectedRows = table.getSelectedRowModel().rows;
   const selectedPayments = useMemo(
@@ -71,6 +74,11 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
       try {
         const result = await submit(selectedPayments, dialogAction, rejectionReason);
         setLastFailures(result.failed);
+        setTdsFailed(result.tdsFailed);
+        const tdsNote =
+          result.tdsFailed.length > 0
+            ? ` TDS failed on ${result.tdsFailed.length}: retry it before they are paid.`
+            : "";
 
         const succeededCount = result.succeeded.length;
         const failedCount = result.failed.length;
@@ -79,10 +87,10 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
           toast({
             title: dialogAction === "approve" ? "Approved" : "Rejected",
             description:
-              failedCount > 0
+              (failedCount > 0
                 ? `${succeededCount} succeeded, ${failedCount} failed. See details.`
-                : `${countLabel(mix, succeededCount)} ${dialogAction === "approve" ? "approved" : "rejected"}.`,
-            variant: failedCount > 0 ? "default" : "success",
+                : `${countLabel(mix, succeededCount)} ${dialogAction === "approve" ? "approved" : "rejected"}.`) + tdsNote,
+            variant: failedCount > 0 || tdsNote ? "default" : "success",
           });
         } else {
           toast({
@@ -108,9 +116,48 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
     [dialogAction, count, selectedPayments, mix, submit, toast, refetch, table, refreshTabCounts]
   );
 
+  const handleRetryTds = useCallback(async () => {
+    try {
+      const result = await retry(tdsFailed);
+      setTdsFailed(result.tds_failed);
+      const parts = [`TDS recorded on ${result.tds_recorded}.`];
+      if (result.tds_failed.length) parts.push(`Still failing: ${result.tds_failed.length}.`);
+      if (result.not_approved.length) {
+        parts.push(`No longer Approved, not retried: ${result.not_approved.join(", ")}.`);
+      }
+      toast({
+        title: "Retry TDS",
+        description: parts.join(" "),
+        variant: result.tds_failed.length || result.not_approved.length ? "default" : "success",
+      });
+      refetch();
+    } catch (err: any) {
+      toast({
+        title: "Retry TDS failed",
+        description: err?.message || "Could not retry TDS.",
+        variant: "destructive",
+      });
+    }
+  }, [retry, tdsFailed, toast, refetch]);
+
+  const tdsPanel =
+    tdsFailed.length > 0 ? (
+      <TdsFailuresPopover
+        payments={tdsFailed}
+        retrying={retrying}
+        onRetry={handleRetryTds}
+        onClear={() => setTdsFailed([])}
+      />
+    ) : null;
+
   if (count === 0) {
-    return lastFailures.length > 0 ? (
-      <FailuresPopover failures={lastFailures} onClear={() => setLastFailures([])} />
+    return lastFailures.length > 0 || tdsPanel ? (
+      <div className="flex flex-wrap items-center gap-2">
+        {tdsPanel}
+        {lastFailures.length > 0 && (
+          <FailuresPopover failures={lastFailures} onClear={() => setLastFailures([])} />
+        )}
+      </div>
     ) : null;
   }
 
@@ -146,6 +193,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
         Reject
       </Button>
 
+      {tdsPanel}
       {lastFailures.length > 0 && (
         <FailuresPopover failures={lastFailures} onClear={() => setLastFailures([])} />
       )}
@@ -199,6 +247,54 @@ const FailuresPopover: React.FC<FailuresPopoverProps> = ({ failures, onClear }) 
           </li>
         ))}
       </ul>
+    </PopoverContent>
+  </Popover>
+);
+
+interface TdsFailuresPopoverProps {
+  payments: string[];
+  retrying: boolean;
+  onRetry: () => void;
+  onClear: () => void;
+}
+
+/**
+ * The payments a bulk approve approved without withholding their TDS (#1536). Opens by itself, so the
+ * approver sees it before anyone pays the full amount by mistake.
+ */
+const TdsFailuresPopover: React.FC<TdsFailuresPopoverProps> = ({ payments, retrying, onRetry, onClear }) => (
+  <Popover defaultOpen>
+    <PopoverTrigger asChild>
+      <Button size="sm" variant="outline" className="h-8 gap-1 text-amber-700 border-amber-300">
+        <AlertTriangle className="h-4 w-4" />
+        TDS failed on {payments.length}
+      </Button>
+    </PopoverTrigger>
+    <PopoverContent align="end" className="w-80 p-3">
+      <div className="flex items-center justify-between mb-1">
+        <h4 className="text-sm font-semibold">TDS not withheld</h4>
+        <button
+          type="button"
+          className="text-xs text-muted-foreground hover:text-foreground"
+          onClick={onClear}
+        >
+          Dismiss
+        </button>
+      </div>
+      <p className="text-xs text-muted-foreground mb-2">
+        Approved, but still at the full amount. Retry TDS before they are paid.
+      </p>
+      <ul className="text-xs space-y-1 max-h-48 overflow-y-auto mb-3">
+        {payments.map((name) => (
+          <li key={name} className="font-medium truncate" title={name}>
+            {name}
+          </li>
+        ))}
+      </ul>
+      <Button size="sm" className="h-8 w-full gap-1" disabled={retrying} onClick={onRetry}>
+        {retrying ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
+        Retry TDS
+      </Button>
     </PopoverContent>
   </Popover>
 );

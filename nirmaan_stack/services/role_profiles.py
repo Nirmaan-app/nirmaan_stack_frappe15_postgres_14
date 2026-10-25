@@ -85,6 +85,8 @@ ADMIN_PROFILE = "Nirmaan Admin Profile"
 PMO_EXECUTIVE_PROFILE = "Nirmaan PMO Executive Profile"
 ACCOUNTANT_PROFILE = "Nirmaan Accountant Profile"
 ACCOUNTANT_LEAD_PROFILE = "Nirmaan Accountant Lead Profile"
+#: The accountants: told of an approved Work Order and of a signed generated invoice, and linked to payments.
+ACCOUNTANT_PROFILES = (ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
 # May act on the "Pending Invoice Approvals" queue -- approve, reject, or re-run
 # the auto-approve gates on an invoice that is stuck behind a stale reason.
@@ -112,6 +114,13 @@ INVOICE_APPROVAL_PROFILES = (
 # keep the two lists in sync.
 PAYMENT_SETTLE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
+# The L1 step of a payment's approval: approve or reject a Requested payment, alone or in bulk
+# (#1530). The Admin profile, plus `Administrator` and the CEO. Mirrored client-side by `canApprove`
+# in `frontend/src/pages/ProjectPayments/config/paymentsTabSet.ts` (the Approve Payments tab) and
+# matching `services/approval_raiser.raiser_level`. ENFORCEMENT boundary: the Project Payments
+# `validate` hook (`services/payment_steps.py`) and `api/payments/bulk_actions._authorize_lead`.
+PAYMENT_L1_PROFILES = (ADMIN_PROFILE,)
+
 # `Non Project Inflows` (#1265, ADR-0016 Amendment A) -- company treasury money. Read + create:
 # Admin / Accountant / Accountant Lead; edit: Admin + Accountant Lead; delete: Admin only.
 #
@@ -129,6 +138,11 @@ NON_PROJECT_INFLOWS_DELETE_PROFILES = (ADMIN_PROFILE,)
 # ENFORCEMENT boundary for `api/reports/amount_paid_mismatch`, whose recount writes with `set_value`.
 # Mirrored client-side by `frontend/src/constants/roles.ts::AMOUNT_PAID_MISMATCH_PROFILES`.
 AMOUNT_PAID_MISMATCH_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
+# Match GST to vendor and the GST mismatch list (#1538, ADR-0028 Amendment A): Admin and Accountants.
+# ENFORCEMENT boundary for `api/service_requests/match_gst_to_vendor`, which saves with
+# `ignore_permissions`. Mirrored client-side by `frontend/src/constants/roles.ts::MATCH_GST_TO_VENDOR_PROFILES`.
+MATCH_GST_TO_VENDOR_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
 HR_EXECUTIVE_PROFILE = "Nirmaan HR Executive Profile"
 HR_LEAD_PROFILE = "Nirmaan HR Lead Profile"
@@ -209,6 +223,12 @@ def is_nirmaan_admin(user: str) -> bool:
     return has_role_profile(user, (ADMIN_PROFILE,))
 
 
+def assert_match_gst_to_vendor_access(user: str) -> None:
+    """Refuse a user outside `MATCH_GST_TO_VENDOR_PROFILES`. Every Match GST to vendor endpoint starts with it."""
+    if not has_role_profile(user, MATCH_GST_TO_VENDOR_PROFILES):
+        raise frappe.PermissionError(_("Only an Admin or an Accountant may use Match GST to vendor."))
+
+
 def assert_amount_paid_mismatch_access(user: str) -> None:
     """Refuse a user outside `AMOUNT_PAID_MISMATCH_PROFILES`. Both of the report's endpoints start with it."""
     if not has_role_profile(user, AMOUNT_PAID_MISMATCH_PROFILES):
@@ -268,8 +288,53 @@ def can_action_invoice_approvals(user: str) -> bool:
     return has_role_profile(user, INVOICE_APPROVAL_PROFILES)
 
 
+# A Vendor Invoice on a WORK ORDER (#1531, ADR-0014 Amendment A). Purchase Order invoices keep
+# their old rules. The ENFORCEMENT boundary is the Vendor Invoices `validate` hook
+# (`integrations/controllers/vendor_invoices.guard_work_order_invoice`, rule in
+# `services/work_order_invoice_access.py`), so Desk and the API obey it as the screens do.
+#
+# * Approve or reject: the invoice-approval roles, the same people who work the Pending queue.
+# * Edit (number, date, amount, base, GST): Accountants and Admin, the WO page's Edit gate
+#   (`isAccountant` in `DocumentAttachments.tsx`).
+# * Change an APPROVED invoice's number, date or amount: Admin only. Everyone else rejects it and
+#   uploads it again.
+# Uploading a new invoice is NOT narrowed: PMO and Procurement upload WO invoices today.
+WO_INVOICE_DECIDE_PROFILES = INVOICE_APPROVAL_PROFILES
+WO_INVOICE_EDIT_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+WO_APPROVED_INVOICE_EDIT_PROFILES = (ADMIN_PROFILE,)
+
+
+def can_decide_wo_invoice(user: str) -> bool:
+    """True when `user` may approve or reject a Work Order invoice. Administrator passes."""
+    return has_role_profile(user, WO_INVOICE_DECIDE_PROFILES)
+
+
+def can_edit_wo_invoice(user: str) -> bool:
+    """True when `user` may edit a Pending or Rejected Work Order invoice. Administrator passes."""
+    return has_role_profile(user, WO_INVOICE_EDIT_PROFILES)
+
+
+def can_edit_approved_wo_invoice(user: str) -> bool:
+    """True when `user` may change an Approved Work Order invoice's number, date or amount."""
+    return has_role_profile(user, WO_APPROVED_INVOICE_EDIT_PROFILES)
+
+
 PROJECT_MANAGER_PROFILE = "Nirmaan Project Manager Profile"
 PROJECT_LEAD_PROFILE = "Nirmaan Project Lead Profile"
+
+# Approve or reject a Work Order, and accept or revert its amendment (#1529, spec #1528). The
+# ENFORCEMENT boundary is the Service Requests `validate` hook
+# (`integrations/controllers/service_requests.guard_lifecycle`, rule in `services/work_order_lifecycle.py`),
+# so Desk and the API obey it: about 17 Roles write a Work Order, and System Manager rides on several
+# profiles, so the doctype's Role rows cannot say this. Mirrored client-side by `SR_ADMIN_ROLES` in
+# `frontend/src/pages/ServiceRequests/config/srTabs.constants.ts` -- keep the two in sync. PMO was removed
+# on 2026-09-17 (PMO access review).
+WO_DECIDE_PROFILES = (ADMIN_PROFILE, PROJECT_LEAD_PROFILE)
+
+
+def can_decide_work_order(user: str) -> bool:
+    """True when `user` may approve or reject a Work Order or decide its amendment. Administrator passes."""
+    return has_role_profile(user, WO_DECIDE_PROFILES)
 
 # May upload, edit and delete a Material Test Certificate (owner, 2026-10-07).
 #
@@ -289,6 +354,27 @@ MTC_PROJECT_SCOPED_PROFILES = (PROJECT_MANAGER_PROFILE, PROJECT_LEAD_PROFILE)
 def can_manage_mtc(user: str) -> bool:
     """True when `user` may upload / edit / delete an MTC. Administrator always passes."""
     return has_role_profile(user, MTC_MANAGE_PROFILES)
+
+
+# Generate and void a generated invoice on a GST-off Work Order, and upload its signed copy (#1546 /
+# #1547, spec #1528 story 89): Admin, PMO, service procurement and Project Lead. Approving the Vendor
+# Invoice the upload creates stays with WO_INVOICE_DECIDE_PROFILES. ENFORCEMENT boundary for
+# `api/service_requests/generated_invoices`, which writes with `ignore_permissions` (the doctype grants
+# read only). Mirrored client-side by `frontend/src/constants/roles.ts::WO_GENERATED_INVOICE_PROFILES`.
+WO_GENERATED_INVOICE_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, PROJECT_LEAD_PROFILE) + SERVICE_PROCUREMENT_PROFILES
+
+
+def can_generate_wo_invoice(user: str) -> bool:
+    """True when `user` may generate, void or upload a Work Order's generated invoice."""
+    return has_role_profile(user, WO_GENERATED_INVOICE_PROFILES)
+
+
+def assert_generate_wo_invoice_access(user: str) -> None:
+    """Refuse a user outside `WO_GENERATED_INVOICE_PROFILES`."""
+    if not can_generate_wo_invoice(user):
+        raise frappe.PermissionError(
+            _("Only Admin, PMO, Procurement and Project Leads can generate, void or upload a Work Order's generated invoice.")
+        )
 
 
 # May open "Adjust Payments" on a PO and record a waiting Vendor Refund from it (#1400, ADR-0032:

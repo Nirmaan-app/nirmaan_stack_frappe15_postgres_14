@@ -1,0 +1,250 @@
+{
+ "actions": [],
+ "autoname": "format:WGI-{work_order}-{ra_number}",
+ "creation": "2026-10-21 23:37:12.053024",
+ "description": "An invoice the company drafts for a GST-off Work Order's vendor to sign (spec #1528, GLOSSARY *Generated invoice*). Made only by Generate invoice (api/service_requests/generated_invoices.generate_invoice); never edited.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "work_order",
+  "project",
+  "vendor",
+  "column_break_main",
+  "status",
+  "invoice_type",
+  "ra_number",
+  "section_break_invoice",
+  "invoice_no",
+  "invoice_date",
+  "amount",
+  "section_break_after",
+  "void_reason",
+  "vendor_invoice",
+  "signed_attachment"
+ ],
+ "fields": [
+  {
+   "fieldname": "work_order",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Work Order",
+   "options": "Service Requests",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fetch_from": "work_order.project",
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Project",
+   "options": "Projects",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "work_order.vendor",
+   "fieldname": "vendor",
+   "fieldtype": "Link",
+   "label": "Vendor",
+   "options": "Vendors",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Generated",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Generated\nSigned\nApproved\nVoided",
+   "read_only": 1
+  },
+  {
+   "fieldname": "invoice_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Invoice Type",
+   "options": "RA\nFINAL",
+   "read_only": 1
+  },
+  {
+   "description": "System-assigned per Work Order (1, 2, ...), never reused. A FINAL takes the next one too.",
+   "fieldname": "ra_number",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "RA Number",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_invoice",
+   "fieldtype": "Section Break",
+   "label": "Invoice"
+  },
+  {
+   "fieldname": "invoice_no",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Invoice No",
+   "read_only": 1
+  },
+  {
+   "fieldname": "invoice_date",
+   "fieldtype": "Date",
+   "label": "Invoice Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_after",
+   "fieldtype": "Section Break",
+   "label": "After generation"
+  },
+  {
+   "fieldname": "void_reason",
+   "fieldtype": "Small Text",
+   "label": "Void Reason",
+   "read_only": 1
+  },
+  {
+   "description": "The Pending Vendor Invoice the signed upload creates.",
+   "fieldname": "vendor_invoice",
+   "fieldtype": "Link",
+   "label": "Vendor Invoice",
+   "options": "Vendor Invoices",
+   "read_only": 1
+  },
+  {
+   "fieldname": "signed_attachment",
+   "fieldtype": "Link",
+   "label": "Signed Copy",
+   "options": "Nirmaan Attachments",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-10-21 23:44:52.567603",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "WO Generated Invoice",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Lead"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan HR Executive"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Lead"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Tendering Executive"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Sales Executive"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Billing Executive"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant Lead"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Tendering Lead"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Sales Lead"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Billing Lead"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan HR Lead"
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "work_order,invoice_no,status",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "invoice_no",
+ "track_changes": 1
+}

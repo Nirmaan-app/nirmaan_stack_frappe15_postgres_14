@@ -25,7 +25,7 @@ const approval = (lines: ChequeApproval["lines"], over: Partial<ChequeApproval> 
     cheque: "CHQ-26-00007",
     cheque_no: "000751",
     bank: "ICICI Bank",
-    status: "Pending",
+    status: "Approval Pending",
     amount: lines.reduce((sum, l) => sum + l.amount, 0),
     vendor: "VEN-1",
     vendor_name: "Suman Electric",
@@ -36,8 +36,8 @@ const approval = (lines: ChequeApproval["lines"], over: Partial<ChequeApproval> 
 });
 
 describe("approvesThroughCheque", () => {
-    it("sends a payment on a Pending cheque through its cheque", () => {
-        expect(approvesThroughCheque({ doctype: "Project Payments", cheque: "CHQ-1", cheque_status: "Pending" })).toBe(true);
+    it("sends a payment on an Approval Pending cheque through its cheque", () => {
+        expect(approvesThroughCheque({ doctype: "Project Payments", cheque: "CHQ-1", cheque_status: "Approval Pending" })).toBe(true);
     });
 
     it("approves an Online payment, an expense or an older cheque payment alone, as before", () => {

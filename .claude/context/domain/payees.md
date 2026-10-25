@@ -104,9 +104,9 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 - **Who:** the Payees page and its endpoints (`api/payees/`) are Admin, Accountant and Accountant Lead
   only (`services/role_profiles.PAYEE_MANAGE_PROFILES`, mirrored in `frontend/src/constants/roles.ts`).
   The vendor screens' Payee step (`api/payees/vendor_payee`, `api/create_vendor_and_address`) is
-  for whoever may create a vendor (`VENDOR_PAYEE_PROFILES`). Anyone who can raise an Expense
-  Request or record an expense (Frappe `create` on `Project Expenses` or `Non Project Expenses`,
-  #1471) searches and adds Payees only through the request's endpoints
+  for whoever may create a vendor (`VENDOR_PAYEE_PROFILES`). Anyone who can raise at least one
+  expense type (since #1506 the ledgers' `create` no longer counts: no person holds it) searches
+  and adds Payees only through the request's endpoints
   (`api/expense_requests/payees.py`, #1429, gated by `access.can_name_expense_payee`), which call the
   same `create_payee`.
 - **Expense payee** (#1429, reworked by #1436): an expense type's *Who gets paid*
@@ -121,21 +121,9 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   - **Picked or added**: the request endpoints copy the Payee sent (`pay_to.apply_picked_payee`); an
     edit with `keep_pay_to` leaves the copy as it is. With a vendor named the Payee sent is ignored. A
     Payee that does not exist is refused (`frappe.DoesNotExistError`), so nothing is saved.
-  - **A Direct Expense** (#1471; GLOSSARY *Direct Expense*): Add Expense's Project Expense /
-    Non-Project Expense, with no Expense Request behind it, names who gets paid too.
-    `api/expenses/direct_expense.create_direct_expense(doctype, expense, payee=None)` (POST; Frappe's
-    `create` permission on the doctype) inserts it with the Payee's account copied in the same save
-    (`expense_payee.create_direct_expense`, through `apply_picked_payee`, so a vendor named wins as on
-    a request) and commits once. `expense` is a closed field list (`DIRECT_EXPENSE_FIELDS`): a
-    `status`, approval stamp or `pay_to_*` sent is refused, so the status stays the doctype's
-    `validate` (auto-approval, the Raiser's own step). It refuses nothing about who gets paid. Both
-    Add Expense dialogs save through it and render the request's `WhoGetsPaidSection` by the type's
-    rule; changing the type resets the pick. The Non-Project Expense dialog (`NewNonProjectExpense`,
-    #1471) is pick / add only. The Project Expense dialog (`NewProjectExpenseDialog`, #1474) reads
-    its section from `utils/payees/expensePayee.whoGetsPaidView`: a Vendor picked shows its account
-    read-only through `useVendorAccount` (the one vendor-account SWR key), on a *Not asked* type too,
-    or the "no bank account on record" note (which blocks a *Required* type); "Others (No Vendor)"
-    picks or adds a Payee and sends it. With a Vendor no Payee is sent: the save copies the Vendor's.
+  - **A Direct Expense** (#1471; GLOSSARY *Direct Expense (retired)*): retired by #1506 with its
+    endpoint, its two Add Expense dialogs and `whoGetsPaidView`. Every expense names who gets paid
+    through New Expense, as a request; an old Direct Expense keeps the account it was recorded with.
   - **A vendor named** (request or Project Expense, every write path): the save copies the vendor's
     Payee when the record has no copy and whenever the vendor changes (`pay_to.fill_from_vendor`), a
     fill, never a refusal. Once the record is paid (`rules.PAID_STATUSES`) nothing is copied: the copy
@@ -145,7 +133,9 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     request carried none.
   - **Not refused on the server** (#1436, owner 2026-10-15): a *Required* type with no account, a
     vendor and an account that disagree, a change after payment, a change by someone outside
-    Accounts. Who may change a copy, and until when, are screen rules (ADR-0033 decision 9).
+    Accounts. Who may change a copy, and until when, are screen rules (ADR-0033 decision 9), except on
+    an Expense: `expense_decision.assert_may_edit` refuses a change to its `pay_to_*` fields except by
+    Accounts before Reconciliation Pending (ADR-0033 Amendment A).
 - **A PO / Work Order payment's pay-to account** (#1437): `Project Payments` holds the same five
   `pay_to_*` fields. Its `validate` (`integrations/controllers/project_payments`) copies the vendor's
   Payee when a payment is INSERTED with no copy (`pay_to.fill_payment_from_vendor`), so every creator
@@ -245,24 +235,23 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     paid*, below): copies a picked or added Payee's account
     onto the expense, overwriting its copy (`expense_payee.change_expense_account`; the save leaves a
     Version row: who and when). The endpoint (`api/payees/paid_to.change_expense_account`) asks
-    Frappe's write permission on the expense (its save ignores permissions, so that check is the
-    boundary) and refuses a PO / WO payment; offering it to Accounts only, and only for an approved,
-    unpaid expense with no vendor, is a screen rule (`utils/payees/paidTo.canChangeExpenseAccount`). A PO / WO payment's copy
+    the expense edit rule for the `pay_to_*` fields (`expense_decision.assert_may_edit`, spec #1494:
+    Accounts until the expense is paid, nobody once Paid; its save ignores permissions, so that check
+    is the boundary) and refuses a PO / WO payment. The screen offers it from the same answer
+    (`get_expense_edit_access`, read through `utils/payees/paidTo.mayChangeExpenseAccount` at the
+    `pay_to_box`'s `status`), on an unpaid expense with no vendor (`paidTo.canChangeExpenseAccount`). A PO / WO payment's copy
     is never edited by hand: it follows its vendor's account when paid (above). The dialog names the expense by
     its description (`pay_to_box`'s `description`, `paidTo.expenseTitle`), words its type's rule
     (`paidTo.changeAccountRuleLine`) and offers Remove account only when the type is not *Required*
     (`paidTo.canRemoveExpenseAccount`, a screen rule).
-  - **Who gets paid in the expense Edit dialogs** (#1465; the pencil on "Payment need to paid" and on
-    the expense pages): Change account inside the edit, for Accounts on an Approved expense, and for
-    the raiser of a **Direct Expense** (its `owner`, with no `request_id`) while it is Requested
-    (#1472, `paidTo.editDialogPayTo`, whose raiser case is `paidTo.raiserMayChangeAccount`). An
-    expense an Expense Request's approval created never gets the raiser case: its raiser changes the
-    account on the request. The raiser reaches the dialog from the pencil on their own Requested
-    Direct Expense rows on "Payment Raised By Me" (`queueRowActions.canRaiserEditQueueRow`; the
-    queue row's `request_id` says whether a request is behind it); the settle-side pencil is
-    unchanged. A raiser outside Accounts searches and adds Payees through the request's endpoints
-    (`api/expense_requests/payees`), Accounts through theirs. Both save through Change account's
-    endpoint, which asks write permission on the expense and leaves the Version row "Set by" reads.
+  - **Who gets paid in the expense Edit dialogs** (#1465; the pencil on the Payments queue and on
+    the expense pages): Change account inside the edit, wherever the server's edit answer lets the
+    viewer change the `pay_to_*` fields at the expense's status (`paidTo.editDialogPayTo` ->
+    `mayChangeExpenseAccount`): Accounts, until it is paid. The raiser's own case (#1472, a Direct
+    Expense while Requested) is gone: no person creates a ledger row any more, and the server refuses
+    anyone outside Accounts (spec #1494 story 50). Payees are searched and added through the Accounts
+    endpoints, and the save goes through Change account's endpoint, which leaves the Version row
+    "Set by" reads.
     Same picker and rule wording; it saves with Save Changes:
     the pick is resolved first (a new Payee is added, a duplicate stops the save), the fields are
     updated, then the Payee is copied (`components/payees/ExpenseEditPayTo`,
@@ -273,6 +262,65 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     beneficiary with the payment's own holder name (`pay_to_account_name`) and the vendor's name. The
     cheque photo check (`match_payee_to_vendor`) still reads the vendor's current Payee: a cheque has
     no copy.
+
+## Ways money leaves
+
+Every path that pays a payment or an expense, or sends it to the bank. A rule about whether something may
+be paid (a hold, *Ineligible*, *Kept out of the bank file*, a new flag) holds only where it is enforced,
+so a change to such a rule checks every line below (`CODING_STANDARDS.md` § Writing backend Python,
+*Rules about whether money may be paid*). Lifecycle: `Approved -> Reconciliation Pending -> Paid`
+(`services/settlement.py`); money is gone from Reconciliation Pending on. Paths are under `frontend/src/`
+and `nirmaan_stack/`. As of 2026-10-25:
+
+1. **Mark as Paid, row and bulk** ("Payment need to paid" tab): `pages/ProjectPayments/update-payment/AccountantTabs.tsx`
+   (`openMarkPaid`, `handleMarkPaid`). A payment goes `Approved -> Reconciliation Pending` by a REST `updateDoc`;
+   an expense by `api/approvals/expense_actions.decide_expenses` (`mark_done`). Rules: payments get
+   `payment_hold.validate_hold`, the cheque validators and `take_vendor_accounts` on the server; expenses get
+   `expense_decision.can_mark_paid` (roles) only. *Ineligible* and held rows are refused in the browser only
+   (`config/queueRowActions.canPayQueueRow`, `utils/payees/paidTo.rowEligibility`).
+2. **Fulfil Payment** (a payment): `pages/ProjectPayments/update-payment/UpdatePaymentDialog.tsx` ->
+   `api/payments/project_payments.update_payment_request` (`_fulfil_payment`). `Approved` or `Reconciliation Pending
+   -> Paid` with a UTR. Rules: status gate, `services/cheques/decide.pay_alone_problem`, UTR uniqueness, `validate_hold`
+   on save. No *Ineligible* check; it still accepts `Approved`, skipping Reconciliation Pending.
+3. **Record Payment / Mark as Paid** (an expense): `pages/ProjectExpenses/components/UpdatePaymentDetailsDialog.tsx`,
+   `pages/NonProjectExpenses/components/UpdatePaymentDetailsDialog.tsx` -> `expense_decision.decide` (`mark_paid`).
+   `Approved` or `Reconciliation Pending -> Paid`. Rules: `can_mark_paid`, required date, reference and proof. No
+   cheque, hold or *Ineligible* check.
+4. **Export for Payment** (ICICI / Cashfree file): `pages/ProjectPayments/bankUploadFile.ts` (`buildBankFile`),
+   from AccountantTabs. No status change; writes each PO / WO payment's vendor account through
+   `take_vendor_accounts` (skips one no longer Approved), then builds the file. Rules: `rowEligibility` leaves out
+   *Ineligible*, `by_cheque` and card / cash rows, in the browser; a held row is kept out only because it cannot be
+   ticked (`buildBankFile` does not check the hold).
+5. **Bulk Import settle** (a bank line settles a record): `api/outflow_import/expenses.py` (`settle_row`,
+   `allocate_row`, `settle_row_partial`, `settle_expense`), `api/outflow_import/link_lines.py` ->
+   `services/outflow_import/settle.py` (`settle_payment`, `link_lines_to_expense`). `Reconciliation Pending -> Paid`
+   only (`ledgers.SETTLEABLE_STATUSES`). Rules: `require_outflow_access`, status re-read under the lock,
+   `pay_alone_problem`, the amount window. The hold cannot apply (a payment is held only while Approved).
+6. **Bulk Import creates a Paid expense**: `settle.create_expense_from_row`, from `expenses.create_expense`,
+   `cashbook.confirm_cashbook_import`, `porter_create.create_porter_expenses`, `porter_rectify.rectify_porter_rows`.
+   Inserts an expense at `Paid`. Rules: `require_outflow_access` only.
+7. **Cheque cleared by the bank import**: `api/outflow_import/review.py` -> `services/cheques/bank_import.clear_from_line`
+   -> `services/cheques/status.clear` (`_pay`; old-type cheques also `old_type_clear.settle_lines`). The cheque's
+   payments go `Reconciliation Pending -> Paid`, first brought forward from Requested / CEO Pending / Rejected. Rules:
+   `clear_problem` refuses a held payment, the bank line must match, `validate_paid_by_clear`.
+8. **Cheque payment approved**: `services/cheque_payments.move_to_reconciliation` / `to_reconciliation` (from the
+   payment create and approve endpoints, `bulk_actions`, `cheques/decide.py`, and `set_payment_hold` on release).
+   `Approved -> Reconciliation Pending` with no Mark as Paid. Rules: skips a held payment; `refuse_lone_approval`.
+9. **Pay TDS**: `api/tds_challan/pay_tds.py` (`pay_tds`, `create_challan_and_pay` -> `_apply`). Payment TDS
+   Deduction `Pending -> Paid` by `db.set_value` (no `validate`). Rules: write permission on both doctypes.
+10. **PO Adjustment / credit transfer** (book entries): `api/po_adjustments/adjustment_logic.execute_adjustment`,
+    `_payment_utils._transfer_credit` / `_create_project_payment`. Inserts Project Payments at `Paid` (an Ad-hoc
+    entry also a Paid Project Expense, `ignore_permissions`). Rules: no role check on the server; Vendor Hold in the
+    browser only.
+11. **Desk / REST edit, and an "Add Payment" created as Paid**: Project Payments' `status` is free text and many
+    roles hold write, so a hand edit or REST insert can set `Paid` directly; only `validate_hold`, the cheque
+    validators, `before_insert`'s over-total check and the Work Order limit apply. The SPA's old Add Payment
+    dialogs that insert at `Paid` (`project-payments-list.tsx`, `approved-sr.tsx`, `TransactionDetailsCard.tsx`,
+    `approved-sr/hooks/useSRPaymentManager.ts`) have no live trigger. Expenses: `guard_hand_save` refuses a hand
+    status change or a non-Requested insert.
+
+Not exits: Expense Request approval (`expense_requests/convert.create_ledger_row` never sets Paid), Vendor Refunds
+(money in), payment splits (the paid half goes through line 5), Revert to Approved and Unreconcile (money back).
 
 ## Where things are
 
@@ -288,9 +336,9 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 | Vendor bank details → Payees (#1424) | `patches/v3_0/move_vendor_bank_details_to_payees.py` (re-runnable; its docstring holds the grouping, fallback and skip rules); test `api/payees/test_vendor_payees_patch.py` |
 | Pay-to backfill (#1441) | `patches/v3_0/backfill_pay_to_accounts.py` (re-runnable; its docstring holds the sources and hook reasoning); test `api/payees/test_pay_to_backfill_patch.py` |
 | Frontend fields + dialog | `components/payees/` (`PayeeBankFields`, `usePayeeBankForm`, `AddPayeeDialog`) |
-| Direct Expense create (#1471) | `api/expenses/direct_expense.create_direct_expense`, `services/payees/expense_payee.create_direct_expense`; test `api/expenses/test_direct_expense.py` |
+| Who gets paid reaching the Expense (moved from the retired Direct Expense suite, #1506) | test `api/expense_requests/test_one_door.py` |
 | Expense payee rules (#1429, #1436) | `services/payees/expense_rules.py` (pure: the Required / Optional / Not asked options; the rules are the screen's), `services/payees/expense_payee.py` (`change_expense_account`), `services/payees/search.py` (`find_payees`, by holder name) |
-| Expense payee picker endpoints | `api/expense_requests/payees.py` (`search_payees`, `check_request_payee`, `add_request_payee`), gated on `access.can_name_expense_payee` (raise a request, or create an expense); the picked vendor's Payee is `useVendorAccount` (`get_vendor_account`, Vendors read) |
+| Expense payee picker endpoints | `api/expense_requests/payees.py` (`search_payees`, `check_request_payee`, `add_request_payee`), gated on `access.can_name_expense_payee` (can raise at least one type); the picked vendor's Payee is `useVendorAccount` (`get_vendor_account`, Vendors read) |
 | Frontend picker | `components/payees/PayeePicker.tsx` + `usePayeeChoice.ts` (pick or add new; reused by Change account) |
 | Frontend rules | `utils/payees/payeeForm.ts` (form rules, `newPayeeProblem`, `bankLine`), `utils/payees/expensePayee.ts`, `utils/payees/payeeRoutes.ts` (`payeeHref`); pinned to the server's by the shared cases `services/payees/payee_rules_cases.json` (F1: `test_rules.py` / `test_expense_rules.py` and `payeeForm.test.ts` / `expensePayee.test.ts` run the same cases) |
 | Payees page | `pages/payees/PayeesPage.tsx`, route `/payees` |

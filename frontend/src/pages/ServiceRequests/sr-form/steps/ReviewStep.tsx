@@ -38,7 +38,7 @@ interface ReviewStepProps {
     /**
      * Whether the 18% GST is added. The amend flow passes the Work Order's own `gst` flag (amendment
      * approval never changes it). When omitted (new WO) it follows the selected vendor's GST number,
-     * the same rule approval applies server-side (`ServiceRequests.set_gst_from_vendor_on_approval`).
+     * the same rule approval applies server-side (`controllers/service_requests.set_gst_from_vendor`).
      */
     gstApplicable?: boolean;
 }

@@ -7,7 +7,7 @@ import { ChequeStatusBadge } from "@/components/cheques/ChequeStatusBadge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { chequeTypeLabel } from "@/pages/cheque-tracker/config/chequePaymentTable.config";
-import { CHEQUE_TYPE } from "@/types/NirmaanStack/Cheques";
+import { CHEQUE_PAYMENT_DATE_LABEL, CHEQUE_TYPE } from "@/types/NirmaanStack/Cheques";
 import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 import { chequeDateText } from "@/utils/cheques/chequeChip";
 import type { ChequeRowAction } from "@/utils/cheques/chequeRowActions";
@@ -15,10 +15,9 @@ import { getFrappeError } from "@/utils/frappeErrors";
 
 import { type ChequeDetail, useChequeDetail } from "./useChequeDetail";
 
-/** The Clear and Cancel buttons the detail view shows, as the Tracker row offers them (`chequeRowActions`). */
+/** The Cancel button the detail view shows, as the Tracker row offers it (`chequeRowActions`). */
 export interface ChequeDetailActions {
     actionsOf: (cheque: ChequeDetail) => ChequeRowAction[];
-    onClear: (cheque: ChequeDetail) => void;
     onCancel: (cheque: ChequeDetail) => void;
 }
 
@@ -26,7 +25,7 @@ interface ChequeDetailDialogProps {
     /** The Cheque shown; the dialog is closed while null. */
     cheque: string | null;
     onClose: () => void;
-    /** Clear and Cancel, when the viewer may (the Cheque Tracker passes them). */
+    /** Cancel, when the viewer may (the Cheque Tracker passes it). */
     actions?: ChequeDetailActions;
 }
 
@@ -37,16 +36,10 @@ const Field = ({ label, children }: { label: string; children: ReactNode }) => (
     </div>
 );
 
-/** "12-10-2026 · By hand", or just the date. */
-const clearedText = (cheque: ChequeDetail) =>
-    cheque.clearance_date
-        ? [chequeDateText(cheque.clearance_date), cheque.cleared_by].filter(Boolean).join(" · ")
-        : "";
-
 /**
- * The Cheque detail view (#1412, spec #1407; #1484): photo, header (type, the cheque, issue and clearance dates,
- * how it was cleared and the bank line), lines and the full status history, with Clear and Cancel when the
- * viewer may. Holds the Cheque's name and refetches on every Cheque change, so it stays live after a move.
+ * The Cheque detail view (#1412, spec #1407; #1484): photo, header (type, the cheque, its Cheque/Payment Date and
+ * issue date (#1520), and the bank line that cleared it), lines and the full status history, with Cancel when the viewer may.
+ * Nothing here clears a cheque (#1516): only an imported bank-statement line does. Holds the Cheque's name and refetches on every Cheque change, so it stays live after a move.
  */
 export const ChequeDetailDialog = ({ cheque: name, onClose, actions }: ChequeDetailDialogProps) => {
     const { cheque, error, isLoading } = useChequeDetail(name);
@@ -61,18 +54,11 @@ export const ChequeDetailDialog = ({ cheque: name, onClose, actions }: ChequeDet
                     <DialogTitle className="flex flex-wrap items-center gap-3">
                         Cheque {cheque?.cheque_no ?? ""}
                         {cheque && <ChequeStatusBadge status={cheque.status} />}
-                        {cheque && actions && (offered.includes("clear") || offered.includes("cancel")) && (
+                        {cheque && actions && offered.includes("cancel") && (
                             <span className="ml-auto mr-6 flex gap-2">
-                                {offered.includes("clear") && (
-                                    <Button size="sm" variant="outline" onClick={() => actions.onClear(cheque)}>
-                                        Clear
-                                    </Button>
-                                )}
-                                {offered.includes("cancel") && (
-                                    <Button size="sm" variant="outline" className="text-destructive" onClick={() => actions.onCancel(cheque)}>
-                                        {isDeposit ? "Mark returned" : "Cancel cheque"}
-                                    </Button>
-                                )}
+                                <Button size="sm" variant="outline" className="text-destructive" onClick={() => actions.onCancel(cheque)}>
+                                    {isDeposit ? "Mark returned" : "Cancel cheque"}
+                                </Button>
                             </span>
                         )}
                     </DialogTitle>
@@ -107,9 +93,8 @@ export const ChequeDetailDialog = ({ cheque: name, onClose, actions }: ChequeDet
                                     {cheque.old_type ? " · Old-type" : ""}
                                 </Field>
                                 <Field label="Bank">{cheque.bank_label}</Field>
-                                <Field label="Cheque date">{chequeDateText(cheque.cheque_date)}</Field>
+                                <Field label={CHEQUE_PAYMENT_DATE_LABEL}>{chequeDateText(cheque.cheque_date)}</Field>
                                 <Field label="Issue date">{chequeDateText(cheque.issue_date)}</Field>
-                                <Field label="Clearance date">{clearedText(cheque)}</Field>
                                 <Field label="Bank line">
                                     {line
                                         ? `${chequeDateText(line.added_on)} · ${formatToIndianRupeeOrZero(line.amount)} · No. ${line.reference_id ?? ""} (${line.name})`
@@ -133,7 +118,7 @@ export const ChequeDetailDialog = ({ cheque: name, onClose, actions }: ChequeDet
                             <h3 className="mb-2 text-sm font-semibold">{isDeposit ? "Secures" : "Lines"}</h3>
                             {cheque.lines.length === 0 ? (
                                 <p className="text-sm text-muted-foreground">
-                                    {isDeposit ? "No PO or Work Order named." : "No lines: an Ad-hoc cheque."}
+                                    {isDeposit ? "No PO named." : "No lines: an Ad-hoc cheque."}
                                 </p>
                             ) : (
                                 <ChequeLinesView lines={cheque.lines} />

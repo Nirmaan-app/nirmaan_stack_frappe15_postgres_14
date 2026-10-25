@@ -3,6 +3,8 @@
 import frappe
 from frappe.utils import flt, get_datetime, create_batch
 
+from nirmaan_stack.services.outflow_import.amounts import rupees
+from nirmaan_stack.services.payment_tds import BorneTds, borne_tds_by_payment
 from nirmaan_stack.services.vendor_refunds import LOWERS_PAID_STATUSES, REFUND_DOCUMENT_FIELDS, VENDOR_REFUNDS
 
 @frappe.whitelist()
@@ -151,16 +153,26 @@ def get_po_ledger_data(vendor_id):
             )
         print(f"DEBUG LEDGER: Found {len(payments)} total historical Project Payments.")
 
+        # A payment settles its amount PLUS the TDS withheld from the vendor on it (ADR-0034 Amendments A
+        # and B, #1512, #1534): that tax is part of its order's Amount Paid, so the row carries it and the
+        # ledger closes against Amount Paid. Tax the company paid on top was never the vendor's: nothing. A
+        # PO payment still stored gross holds its recorded tax in its amount: nothing on top either.
+        tds_by_payment = borne_tds_by_payment(vendor_id)
+
         for payment in payments:
             linked_doc_name = payment.get("document_name")
             project_name_for_payment = doc_project_map.get(linked_doc_name, "N/A")
             doc_type_abbr = "PO" if payment.get("document_type") == "Procurement Orders" else "SR"
+            details = f"UTR: {payment.get('utr', 'N/A')}\nFor {doc_type_abbr}: {linked_doc_name}"
+            withheld = tds_by_payment.get(payment.get("name"), BorneTds()).vendor
+            if withheld:
+                details += f"\nincl. TDS {rupees(withheld)}"
             all_transactions.append({
                 "type": "Refund Received" if flt(payment.get("amount", 0)) < 0 else "Payment Made",
                 "date": get_datetime(payment.get("payment_date") or payment.get("creation")),
-                "details": f"UTR: {payment.get('utr', 'N/A')}\nFor {doc_type_abbr}: {linked_doc_name}",
+                "details": details,
                 "amount": 0,
-                "payment": flt(payment.get("amount", 0)),
+                "payment": flt(payment.get("amount", 0)) + withheld,
                 "project": project_name_for_payment,
                 "is_inactive": linked_doc_name in inactive_doc_names
             })

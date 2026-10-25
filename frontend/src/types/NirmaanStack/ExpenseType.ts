@@ -23,4 +23,6 @@ export interface ExpenseType {
     /** Who gets paid on a request of this type: Required / Optional / Not asked (the default).
      *  See `utils/payees/expensePayee`. */
     payee_rule?: string | null
+    /** "Confirmed as Expense Request": a label only, changed by Admin alone (spec #1494). */
+    confirmed_as_request?: 0 | 1 | boolean
 }

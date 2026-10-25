@@ -20,28 +20,33 @@ function formatToIndianRupee(price: number | string | undefined) {
 export const formatToIndianRupeeOrZero = (price: number | string | undefined) =>
   parseNumber(price) ? formatToIndianRupee(price) : "₹0.00";
 
+/**
+ * A rupee figure rounded to the NEAREST rupee (#1543, owner ruling Q30-A): ₹3,061.22 reads ₹3,061 and a
+ * ₹0.30 Due reads ₹0, so a fully paid order never shows ₹1 due. Half a rupee rounds away from zero, so an
+ * overpaid -₹120.50 reads -₹121 as ₹120.50 reads ₹121, and a figure that rounds to nothing is 0, never -0.
+ * ⚠️ NEVER `Math.ceil`: it was, and it turned every paisa into a rupee.
+ */
+export const roundToRupee = (amount: number): number => (Math.sign(amount) * Math.round(Math.abs(amount))) || 0;
+
 export const formatToRoundedIndianRupee = (price: number | string | undefined) => {
-  // Ensure the price is a number before formatting
   const amount = parseNumber(price);
 
   if (isNaN(amount)) {
     return "--";
   }
 
-  // Convert the number to Indian currency format
-  return `₹${Math.ceil(amount).toLocaleString('en-IN')}`;
+  return `₹${roundToRupee(amount).toLocaleString('en-IN')}`;
 }
 
+/** The same rounded figure as a number, for a report's export column. */
 export const formatForReport = (price: number | string | undefined) => {
-  // Ensure the price is a number before formatting
   const amount = parseNumber(price);
 
   if (isNaN(amount)) {
     return "--";
   }
 
-  // Convert the number to Indian currency format
-  return Math.ceil(amount);
+  return roundToRupee(amount);
 }
 
 /**
