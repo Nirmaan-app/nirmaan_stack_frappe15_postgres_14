@@ -88,7 +88,7 @@ export const MainLayout: React.FC = () => {
     // Helper to clean up segments (remove specific ones)
     const processPathSegments = (segments: string[]): string[] => {
       let processed = [...segments];
-      const indicesToRemoveBefore = ["new-pr", "new-sr"];
+      const indicesToRemoveBefore = ["new-pr"];
       indicesToRemoveBefore.forEach(marker => {
         const index = processed.indexOf(marker);
         if (index > 0) {

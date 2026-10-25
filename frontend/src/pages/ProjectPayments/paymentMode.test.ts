@@ -11,7 +11,11 @@ import {
 	paymentModeSummary,
 	type PaymentModeValue,
 } from "./paymentMode";
-import { forecastTds } from "./tdsForecast";
+import type { TdsForecast } from "./tdsForecast";
+
+// The server's forecasts (`services/tds_forecast`), in the shape the cheque fields read (`toTdsForecast`).
+const WITHHELD: TdsForecast = { ratePct: 2, tds: 1000, net: 49000 };
+const COMPANY_BORNE: TdsForecast = { ratePct: 2, tds: 1000, net: 50000 };
 
 /** A cheque as the dialog holds it once its photo is uploaded and read. */
 const cheque: PaymentModeValue = {
@@ -68,24 +72,20 @@ describe("paymentMode", () => {
 
 	describe("the cheque is written for the amount AFTER TDS", () => {
 		it("an ordinary Work Order: 50,000 at 2% is a 49,000 cheque", () => {
-			expect(chequeAmountFor(50000, forecastTds("Service Requests", 50000, 2))).toBe(49000);
+			expect(chequeAmountFor(50000, WITHHELD)).toBe(49000);
 		});
 
 		it("a company-borne Work Order is written for the full amount", () => {
-			expect(chequeAmountFor(50000, forecastTds("Service Requests", 50000, 2, true))).toBe(50000);
+			expect(chequeAmountFor(50000, COMPANY_BORNE)).toBe(50000);
 		});
 
-		it("a GST payment is never taxed and is written for the full amount", () => {
-			expect(chequeAmountFor(50000, forecastTds("Service Requests", 50000, 2, false, true))).toBe(50000);
-		});
-
-		it("a Procurement Order has no TDS and is written for the amount", () => {
-			expect(chequeAmountFor(50000, forecastTds("Procurement Orders", 50000, 2))).toBe(50000);
+		it("a payment with no forecast (a GST payment, a Procurement Order) is written for the amount", () => {
+			expect(chequeAmountFor(50000, null)).toBe(50000);
 		});
 	});
 
 	describe("chequeAmountHint: a soft warning on the cheque's amount, never a block", () => {
-		const wo = forecastTds("Service Requests", 50000, 2);
+		const wo = WITHHELD;
 
 		it("says nothing when the cheque matches what it should be written for, within ₹2", () => {
 			expect(chequeAmountHint(49000, 50000, wo)).toBeNull();
@@ -107,7 +107,7 @@ describe("paymentMode", () => {
 		});
 
 		it("a company-borne Work Order's cheque is the full amount, so the gross is right", () => {
-			expect(chequeAmountHint(50000, 50000, forecastTds("Service Requests", 50000, 2, true))).toBeNull();
+			expect(chequeAmountHint(50000, 50000, COMPANY_BORNE)).toBeNull();
 		});
 	});
 });

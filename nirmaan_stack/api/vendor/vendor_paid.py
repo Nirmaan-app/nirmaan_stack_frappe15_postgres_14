@@ -3,8 +3,8 @@
 
 """Read what reached each vendor in a date range (#1461, ADR-0034).
 
-A thin door onto `services/vendor_paid`: Paid PO / Work Order payments less Received Vendor Refunds, each
-on its own date. The Vendor report reads it for its dated paid figures. Dates are optional and inclusive
+A thin door onto `services/vendor_paid`: Paid PO / Work Order payments, plus the TDS withheld from the
+vendor on the Work Order ones, less Received Vendor Refunds, each on its own date (the tax on its payment's). The Vendor report reads it for its dated paid figures. Dates are optional and inclusive
 (`YYYY-MM-DD`).
 
     nirmaan_stack.api.vendor.vendor_paid.get_vendors_paid

@@ -28,7 +28,7 @@ from nirmaan_stack.services.cheques.payment_rules import (
     paid_move_problem,
 )
 from nirmaan_stack.services.cheques.rules import PAYMENT_DOCTYPE
-from nirmaan_stack.services.cheques.writer import CHEQUES
+from nirmaan_stack.services.cheques.writer import CHEQUES, PUTTING_ON_CHEQUE
 
 
 def validate_mode_change(pay) -> None:
@@ -45,6 +45,7 @@ def validate_mode_change(pay) -> None:
         cheque=pay.get("cheque"),
         old_cheque_status=frappe.db.get_value(CHEQUES, old_cheque, "status") if old_cheque else None,
         on_old_cheque_lines=bool(old_cheque) and old_cheque in _cheques_listing(pay.name),
+        by_the_cheques_service=bool(pay.flags.get(PUTTING_ON_CHEQUE)),
     )
     if problem:
         frappe.throw(_(problem))

@@ -292,8 +292,9 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         // Adapters: these helpers have this screen's own shapes.
         getDocumentTotal: (docName, docType) => getTotalAmount(docName, docType).totalWithTax,
         getPoAmountDelivered: (docName, docType) => parseNumber(getDeliveredAmount(docName, docType)),
-        // "Total Paid" is the order's stored Amount Paid (ADR-0034): Paid payments less Received
-        // refunds. Reconciliation Pending is not paid yet, so it no longer counts here.
+        // "Total Paid" is the order's stored Amount Paid (ADR-0034): Paid payments (on a WO plus the
+        // TDS withheld from the vendor, Amendment A) less Received refunds. Reconciliation Pending is
+        // not paid yet, so it no longer counts here.
         getAmountPaid,
         onRecordPayment: (row) => openMarkPaid([row]),
         onDelete: setDeleteRow,

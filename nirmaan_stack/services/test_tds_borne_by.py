@@ -74,7 +74,7 @@ class TestTheDeductionRecordsWhoBearsTheTax(BorneByFixture):
 
 class TestAWorkOrderWithBothKinds(BorneByFixture):
 	"""SR-00107-001055: one payment had 120 withheld (approved while the WO was ordinary), one was kept
-	whole with 282.40 paid on top. Paid 5,880 + 14,120 on a 20,120 order: nothing is due."""
+	whole with 282.40 paid on top. Paid 5,880 + 120 withheld + 14,120 on a 20,120 order: nothing is due."""
 
 	def setUp(self):
 		super().setUp()
@@ -90,8 +90,8 @@ class TestAWorkOrderWithBothKinds(BorneByFixture):
 		self.assertEqual((self.kept_whole.net, self.kept_whole.tds), (14120.0, 282.4))
 		self.assertEqual((self._borne_by(self.withheld), self._borne_by(self.kept_whole)), ("Vendor", "Company"))
 
-	def test_amount_due_takes_off_only_the_tax_withheld_from_the_vendor(self):
-		self.assertEqual(self._wo_figures(self.wo), (20000.0, 402.4, 0.0))
+	def test_amount_paid_counts_only_the_tax_withheld_from_the_vendor(self):
+		self.assertEqual(self._wo_figures(self.wo), (20120.0, 402.4, 0.0))
 		self.assertEqual(mismatches(SR, [self.wo]), [])
 
 	def test_the_request_cap_counts_each_payment_at_what_was_requested(self):
@@ -100,12 +100,12 @@ class TestAWorkOrderWithBothKinds(BorneByFixture):
 		self.assertEqual(summary["lines"]["paid"], 20120.0)
 		self.assertEqual(summary["left"], 0.0)
 
-	def test_deleting_the_kept_whole_payment_takes_its_tax_out_of_the_amount_due(self):
+	def test_deleting_the_kept_whole_payment_takes_its_tax_out(self):
 		# `on_trash` recounts with the payment still in the table (`exclude_payment`): its 282.40 must
-		# leave the company-borne figure as it leaves `total_tds`, or Amount Due reads 14,120 + 282.40.
+		# leave `total_tds` with it. What stays paid is 5,880 + the 120 withheld.
 		frappe.delete_doc(PAYMENT, self.kept_whole.name, force=True, ignore_permissions=True)
 		frappe.db.commit()
-		self.assertEqual(self._wo_figures(self.wo), (5880.0, 120.0, 14120.0))
+		self.assertEqual(self._wo_figures(self.wo), (6000.0, 120.0, 14120.0))
 		self.assertEqual(mismatches(SR, [self.wo]), [])
 
 

@@ -5,7 +5,7 @@
     "rule": "B1"
   },
   "b2_predicate_literal_scatter": {
-    "count": 8,
+    "count": 7,
     "description": "Files hardcoding the \"Vendor Selected\" state literal instead of importing the shared predicate.",
     "rule": "B2"
   },
@@ -15,18 +15,23 @@
     "rule": "B3"
   },
   "f2_inline_json_parse_pages": {
-    "count": 217,
+    "count": 214,
     "description": "Inline JSON.parse occurrences in pages/ (backend shapes should be parsed at one typed accessor).",
     "rule": "F2"
   },
   "f5_raw_updatedoc_files": {
-    "count": 109,
+    "count": 106,
     "description": "Frontend files calling useFrappeUpdateDoc / updateDoc( directly instead of one write-safety seam.",
     "rule": "F5"
   },
   "p1_payment_sum_copies": {
     "count": 2,
     "description": "Lines that add up Project Payments amounts (frontend, backend, print formats) outside the allowed owners in PAYMENT_SUM_OWNERS: the Amount Paid rule, the payment caps, the bank cash-out lists.",
+    "rule": "P1"
+  },
+  "p1_tds_added_to_amount_paid": {
+    "count": 0,
+    "description": "Lines adding a Work Order's total_tds (or a deduction's tds_amount) onto amount_paid outside PAYMENT_SUM_OWNERS: amount_paid already holds the TDS withheld from the vendor, so the sum counts it twice.",
     "rule": "P1"
   },
   "t1_tests_pick_any_row": {

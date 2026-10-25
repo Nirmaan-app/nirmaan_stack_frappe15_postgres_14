@@ -655,7 +655,8 @@ const REGISTRY: Record<
 
   amount: (ctx) => ({
     id: "amount",
-    accessorKey: "amount",
+    // Sorts and filters on the full bill it shows (#1541, story 60), not the stored, TDS-cut amount.
+    accessorFn: (r: ApprovalQueueRow) => r.requested_amount ?? r.amount,
     header: ({ column }) => <DataTableColumnHeader column={column} title="Req. Amount" className="justify-end" />,
     // 128, not 112: "Req. Amount" plus the sort control needs the extra 16px, and
     // a clipped header on a money column reads as a different column.
@@ -670,12 +671,19 @@ const REGISTRY: Record<
         line_count: r.bank_line_count,
         remaining: r.remaining_amount,
       });
-      // An Office Rent expense's Rent / TDS / Net (#1527): forecast while it waits, the stored record
-      // after. Every other row draws nothing here.
+      // The full bill, whatever the status (#1541): an approved payment's stored amount is already cut
+      // by its TDS, so what is paid is said under it. An Office Rent expense's Rent / TDS / Net (#1527):
+      // forecast while it waits, the stored record after; every other row draws nothing for it.
+      const requested = r.requested_amount ?? r.amount;
       const tds = shownExpenseTds({ type: r.expense_type, amount: r.amount, status: r.status, withheld: r.withheld_tds });
       const figure = (
         <div className="pr-2 text-right tabular-nums">
-          <div className="font-medium">{formatToRoundedIndianRupee(r.amount)}</div>
+          <div className="font-medium">{formatToRoundedIndianRupee(requested)}</div>
+          {requested !== r.amount && (
+            <div className="text-[10px] leading-tight text-muted-foreground">
+              To be paid {formatToRoundedIndianRupee(r.amount)}
+            </div>
+          )}
           <ExpenseTdsBreakdown shown={tds} />
           {part && (
             <div className="text-[10px] leading-tight">
@@ -711,7 +719,7 @@ const REGISTRY: Record<
         </HoverCard>
       );
     },
-    meta: { exportHeaderName: "Req. Amount", exportValue: (r: ApprovalQueueRow) => r.amount },
+    meta: { exportHeaderName: "Req. Amount", exportValue: (r: ApprovalQueueRow) => r.requested_amount ?? r.amount },
   }),
 
   // What your click DOES: finish the approval, or forward it to the CEO. Without

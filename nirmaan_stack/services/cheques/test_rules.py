@@ -272,18 +272,19 @@ class TestModeChange(unittest.TestCase):
     """A payment's Mode of Payment changes only through a Cheque (spec #1407)."""
 
     def test_the_mode_changes_only_through_a_cheque(self):
-        def problem(was, now, *, cheque=None, old_cheque_status=None):
+        def problem(was, now, *, cheque=None, old_cheque_status=None, by_the_cheques_service=False):
             return payment_rules.mode_change_problem(
                 was_cheque=was, now_cheque=now, cheque=cheque, old_cheque_status=old_cheque_status,
-                on_old_cheque_lines=old_cheque_status is not None,
+                on_old_cheque_lines=old_cheque_status is not None, by_the_cheques_service=by_the_cheques_service,
             )
 
+        refusal = "An Online payment becomes a Cheque payment by putting it on a Cheque."
         self.assertIsNone(problem(False, False))
         self.assertIsNone(problem(True, True))
-        self.assertIsNone(problem(False, True, cheque="CHQ-1"))
-        self.assertEqual(
-            problem(False, True), "An Online payment becomes a Cheque payment by putting it on a Cheque."
-        )
+        self.assertIsNone(problem(False, True, cheque="CHQ-1", by_the_cheques_service=True))
+        self.assertEqual(problem(False, True), refusal)
+        # A save naming a Cheque is not the cheques service putting the payment on one (review round 5, AA1).
+        self.assertEqual(problem(False, True, cheque="CHQ-1"), refusal)
         self.assertIsNone(problem(True, False, old_cheque_status="Cancelled"))
         self.assertIsNone(problem(True, False))  # on no Cheque: nothing holds it
         for status in ("Issued", "Cleared"):
@@ -295,7 +296,8 @@ class TestModeChange(unittest.TestCase):
     def test_a_payment_whose_line_came_off_its_issued_cheque_may_go_online(self):
         # #1418, story 82: the report's Edit took its line off, so the Cheque no longer holds it.
         self.assertIsNone(payment_rules.mode_change_problem(
-            was_cheque=True, now_cheque=False, cheque=None, old_cheque_status="Issued", on_old_cheque_lines=False
+            was_cheque=True, now_cheque=False, cheque=None, old_cheque_status="Issued", on_old_cheque_lines=False,
+            by_the_cheques_service=False,
         ))
 
 

@@ -40,7 +40,7 @@ interface Props {
 	onChange: Dispatch<SetStateAction<PaymentModeValue>>;
 	/** The amount being requested, for the "write the cheque for" line. Omit to hide the line. */
 	amount?: number;
-	/** The Work Order's TDS forecast on `amount` (`forecastTds`), or null when nothing is withheld. */
+	/** The Work Order's TDS forecast on `amount` (the server's, `toTdsForecast`), or null when nothing is withheld. */
 	tds?: TdsForecast | null;
 	/** Miscellaneous / Transportation-only Work Order: the company pays the tax on top. */
 	companyBorne?: boolean;

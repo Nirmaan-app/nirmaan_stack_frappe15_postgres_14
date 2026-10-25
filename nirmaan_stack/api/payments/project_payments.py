@@ -15,7 +15,9 @@ from nirmaan_stack.services.approval_tiers import (
     steps_cleared_by_raiser,
 )
 from nirmaan_stack.services.order_payments import assert_within_work_order_limit
+from nirmaan_stack.services.payment_steps import ROUTED_AT_REQUEST
 from nirmaan_stack.services import cheque_payments
+from nirmaan_stack.services.tds_forecast import request_amount_as_stored
 from nirmaan_stack.services.cheques import decide as cheque_decision
 from nirmaan_stack.api.payments.payment_cheque import (
     cheque_header,
@@ -26,6 +28,7 @@ from nirmaan_stack.api.payments.payment_cheque import (
 # api -> service is the one legal direction (ADR-0010). See `reference_guard.py`'s module
 # docstring: this call site and `settle._assert_reference_is_free` must move together.
 from nirmaan_stack.services.outflow_import.reference_guard import assert_reference_is_free
+from nirmaan_stack.services.outflow_import.settle import recompute_latest_payment_date
 
 # This constant is a good security practice
 ALLOWED_DOCS = {"Procurement Orders", "Service Requests"}
@@ -53,7 +56,7 @@ def _route_new_payment(amount):
     return status, l1_cleared, ceo_cleared
 
 
-def _tier_new_payment(amount, cheque):
+def tier_new_payment(amount, cheque):
     """`(auto_approve, status, l1_cleared, ceo_cleared)` for a new payment of `amount` the session user
     raises. A cheque payment (`cheque`, its cheque's header) is tiered on the CHEQUE amount (spec #1477,
     C3): one cheque is one decision. Small payments auto-approve; a negative refund never does."""
@@ -76,22 +79,11 @@ def _comment_raiser_approval(pay, ceo_cleared: bool) -> None:
 
 def _assert_within_po_balance(src, amount):
     """A PO request: value incl. GST − Paid − open requests − Reconciliation Pending, ₹10 tolerance."""
-    from nirmaan_stack.services.finance import (
-        get_source_document_financials,
-        get_total_paid,
-        get_total_pending,
-        get_total_reconciliation_pending,
-    )
-    available = (
-        get_source_document_financials(src).get("payable_total")
-        - get_total_paid(src)
-        - get_total_pending(src)
-        - get_total_reconciliation_pending(src)
-    )
-    if amount > (available + 10):
-        frappe.throw(_(
-            "Maximum amount you can request is {0} (available balance)"
-        ).format(frappe.format_value(available, "Currency")))
+    from nirmaan_stack.services.finance import po_available_balance, po_balance_refusal
+
+    problem = po_balance_refusal(po_available_balance(src), amount)
+    if problem:
+        frappe.throw(problem)
 
 
 @frappe.whitelist()
@@ -148,7 +140,7 @@ def create_payment_request_for_service(data: str) -> str:
     # ── create payment doc  (ACID wrapper) ─────────────────────────
     # Small payments auto-approve; negative refunds (amount < 0) always go
     # through manual review, hence the strict `0 < amount` lower bound.
-    auto_approve, status, l1_cleared, ceo_cleared = _tier_new_payment(amount, cheque)
+    auto_approve, status, l1_cleared, ceo_cleared = tier_new_payment(amount, cheque)
 
     pay = frappe.new_doc("Project Payments")
     pay.update({
@@ -156,7 +148,7 @@ def create_payment_request_for_service(data: str) -> str:
         "document_name" : docname,
         "project"       : src.project,
         "vendor"        : src.vendor,
-        "amount"        : round(amount),
+        "amount"        : request_amount_as_stored(amount),
         "status"        : status,
         "is_gst_payment": 1 if gst_payment else 0,
         **_mode_fields(payload),
@@ -170,6 +162,8 @@ def create_payment_request_for_service(data: str) -> str:
     # Checked above against the amount AS REQUESTED; the insert validation must not check the
     # rounded figure again and refuse what this endpoint just allowed.
     pay.flags.work_order_limit_checked = True
+    # Routed above by the raiser's level (`tier_new_payment`), on the requested amount or the cheque's.
+    pay.flags[ROUTED_AT_REQUEST] = True
     expect_new_cheque(pay, cheque)
     pay.insert()
 
@@ -258,24 +252,8 @@ def create_project_payment(
                 ).format(term_details.get("due_date")))
 
         # --- Step 3: Financial Validation ---
-        from nirmaan_stack.services.finance import (
-            get_source_document_financials,
-            get_total_paid,
-            get_total_pending,
-            get_total_reconciliation_pending,
-        )
         src = frappe.get_doc(doctype, docname)
-        totals = get_source_document_financials(src)
-        paid = get_total_paid(src)
-        pending = get_total_pending(src)
-        available = (
-            totals.get("payable_total") - paid - pending - get_total_reconciliation_pending(src)
-        )
-
-        if amount > (available + 10):
-            frappe.throw(_(
-                "Maximum amount you can request is {0} (available balance)"
-            ).format(frappe.format_value(available, "Currency")))
+        _assert_within_po_balance(src, amount)
 
         # --- Step 3b: the cheque, checked BEFORE the insert (its `after_insert` commits) ---
         cheque = cheque_header({
@@ -290,7 +268,7 @@ def create_project_payment(
         refuse_unless_cheque_can_be_made(cheque)
 
         # --- Step 4: Create the payment document (small ones skip both gates) ---
-        auto_approve, status, l1_cleared, ceo_cleared = _tier_new_payment(amount, cheque)
+        auto_approve, status, l1_cleared, ceo_cleared = tier_new_payment(amount, cheque)
 
         pay = frappe.new_doc("Project Payments")
         pay.update({
@@ -313,6 +291,8 @@ def create_project_payment(
         else:
             _stamp_raiser_approval(pay, l1_cleared, ceo_cleared)
 
+        # Routed above by the raiser's level (`tier_new_payment`), on the amount or the cheque's.
+        pay.flags[ROUTED_AT_REQUEST] = True
         # This insert will trigger the 'after_insert' hook, which routes
         # notifications by status (auto-approved → accountants + admin record note).
         expect_new_cheque(pay, cheque)
@@ -599,9 +579,12 @@ def _fulfil_payment(pay, args):
     if file_url:
         _attach_file(pay, file_url)
 
-    po_doc = frappe.get_doc(pay.document_type, pay.document_name)
-    po_doc.latest_payment_date = args.get("pay_date") or nowdate()
-    po_doc.save()
+    # The order is recounted, never saved (#1536, story 44): the payment's own `on_update` has just
+    # recounted its Amount Paid, Total TDS and Amount Due (`recount_orders`), and its latest payment date is
+    # re-read from its Paid payments here. Saving the whole PO / Work Order ran every one of its own checks,
+    # so an unrelated problem on it (a broken link, a lifecycle lock) failed the payment. No `doc_events`
+    # handler watches `latest_payment_date` (`settle.recompute_latest_payment_date`).
+    recompute_latest_payment_date(pay.document_type, pay.document_name)
 
 
 def _attach_file(pay, file_url: str):

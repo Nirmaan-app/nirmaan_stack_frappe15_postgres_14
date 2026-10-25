@@ -194,3 +194,7 @@ nirmaan_stack.patches.v3_0.cheque_status_approval_pending
 nirmaan_stack.patches.v3_0.list_open_payment_cheques_on_others
 nirmaan_stack.patches.v3_0.list_pending_cheques_with_open_lines
 nirmaan_stack.patches.v3_0.cheque_date_from_clearance_date
+nirmaan_stack.patches.v3_0.recount_work_order_amount_paid_with_tds
+nirmaan_stack.patches.v3_0.disable_sr_invoice_print_format
+nirmaan_stack.patches.v3_0.pmo_write_on_work_orders
+nirmaan_stack.patches.v3_0.backfill_work_order_approval

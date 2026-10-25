@@ -4,6 +4,7 @@ from frappe.utils import flt
 
 from nirmaan_stack.nirmaan_stack.doctype.projects.projects import CEO_HOLD_SYSTEM_USER
 from nirmaan_stack.services.ceo_hold import core
+from nirmaan_stack.services.ceo_hold.rules import over_cashflow_limit, watches_cashflow_gap
 from nirmaan_stack.services.caller_transaction import caller_owns_the_commit
 from nirmaan_stack.services.project_money import project_money_of
 from nirmaan_stack.services.amount_paid import paid_money
@@ -47,16 +48,10 @@ def sync_cashflow_reason(project_id: str) -> None:
 		return  # scheduled-recheck mode — only tasks.ceo_hold_recheck may decide.
 
 	limit = flt(row.cashflow_gap_limit)
-	over_limit = False
-	if row.status != "Completed" and limit > 0:
-		gap = _compute_cashflow_gap(project_id)
-		over_limit = gap > limit
-		if over_limit:
-			core.set_reason(
-				project_id, core.SOURCE_CASHFLOW, core.cashflow_reason_text(gap, limit)
-			)
-		else:
-			core.clear_reason(project_id, core.SOURCE_CASHFLOW)
+	gap = _compute_cashflow_gap(project_id) if watches_cashflow_gap(row.status, limit) else 0.0
+	over_limit = over_cashflow_limit(row.status, limit, gap)
+	if over_limit:
+		core.set_reason(project_id, core.SOURCE_CASHFLOW, core.cashflow_reason_text(gap, limit))
 	else:
 		core.clear_reason(project_id, core.SOURCE_CASHFLOW)
 

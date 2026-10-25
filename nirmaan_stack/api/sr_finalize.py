@@ -1,6 +1,7 @@
 import frappe
 from frappe import _
 from frappe.utils import now_datetime, format_datetime
+from nirmaan_stack.integrations.controllers.service_requests import notify_finalized
 from nirmaan_stack.services.role_profiles import SERVICE_PROCUREMENT_PROFILES
 
 # Admin roles that can finalize and revert
@@ -117,12 +118,14 @@ def finalize_sr(sr_id: str) -> dict:
     sr_doc.is_finalized = 1
     sr_doc.finalized_by = full_name
     sr_doc.finalized_on = timestamp
+    sr_doc.flags.finalize_action = True  # the flag moves only here and in revert (`services/work_order_lifecycle`)
     sr_doc.save(ignore_permissions=True)
 
     frappe.db.commit()
 
     # Create system remark
     create_finalization_remark(sr_id, "finalize", full_name, timestamp)
+    notify_finalized(sr_doc)  # the "sr:finalized" bell rows and realtime event, sent on this commit (#1533)
     frappe.db.commit()
 
     return {
@@ -179,6 +182,7 @@ def revert_finalize_sr(sr_id: str) -> dict:
     sr_doc.is_finalized = 0
     sr_doc.finalized_by = None
     sr_doc.finalized_on = None
+    sr_doc.flags.finalize_action = True
     sr_doc.save(ignore_permissions=True)
 
     frappe.db.commit()

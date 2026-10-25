@@ -46,7 +46,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
-from nirmaan_stack.services.payment_tds import recompute_challan_reconciled
+from nirmaan_stack.services.payment_tds import PAID as PAYMENT_PAID, PAYMENT_DOCTYPE, recompute_challan_reconciled
 
 DEDUCTION_DOCTYPE = "Payment TDS Deduction"
 CHALLAN_DOCTYPE = "TDS Challan Attachment"
@@ -124,7 +124,7 @@ def _load_payable(names: list[str]) -> list[dict]:
     rows = frappe.db.get_all(
         DEDUCTION_DOCTYPE,
         filters={"name": ["in", names]},
-        fields=["name", "status", "tds_challan", "tds_amount"],
+        fields=["name", "status", "tds_challan", "tds_amount", "project_payment"],
     )
     found = {row["name"]: row for row in rows}
 
@@ -148,22 +148,51 @@ def _load_payable(names: list[str]) -> list[dict]:
                 "Refresh the ledger and try again."
             ).format(len(taken), ", ".join(sorted(taken)[:5]))
         )
+    _refuse_unpaid_payments(rows)
     return rows
+
+
+def _refuse_unpaid_payments(rows: list[dict]) -> None:
+    """Tax is deposited only for money that went out (#1535): every Work Order or PO deduction's payment
+    must be Paid.
+
+    A deduction is recorded at approval, so an Approved payment's tax already sits in the register; it
+    can still be rejected, which gives the tax back (`payment_tds.give_back_tax_on_reject`).
+
+    An Office Rent expense's row (`non_project_expense`, #1525) names no payment and is not checked
+    here: spec #1522 pays it from approval on (`test_pay_tds`, `test_office_rent_tds_lock`), and its
+    delete is refused once it is on a challan (`expense_tds.delete_with_expense`).
+    """
+    payment_rows = [row for row in rows if row.get("project_payment")]
+    if not payment_rows:
+        return
+    paid = set(
+        frappe.db.get_all(
+            PAYMENT_DOCTYPE,
+            filters={"name": ["in", [row["project_payment"] for row in payment_rows]], "status": PAYMENT_PAID},
+            pluck="name",
+        )
+    )
+    unpaid = sorted(row["name"] for row in payment_rows if row["project_payment"] not in paid)
+    if unpaid:
+        frappe.throw(
+            _(
+                "TDS can be deposited only for Paid payments. The payments of {0} of the selected "
+                "deductions are not Paid yet ({1})."
+            ).format(len(unpaid), ", ".join(unpaid[:5]))
+        )
 
 
 def _recompute_reconciled(challan: str) -> float:
     """Re-derive `reconciled_amount`, then assert this PAY did not over-apply the challan.
 
-    ⚠️ THE RECOMPUTE ITSELF LIVES IN THE SERVICE (`payment_tds.recompute_challan_reconciled`) and is
-    deliberately NOT duplicated here. The DELETE path needs the identical rule -- deleting a payment
-    deletes its deduction, and the challan must stop counting it -- and a CONTROLLER cannot import
-    from `api/`. Two copies of "the total is the sum of its deductions" would be two chances to
-    disagree about a figure that gates whether a challan can be paid from at all.
+    The recompute itself lives in the service (`payment_tds.recompute_challan_reconciled`), the one
+    writer of the field. Since #1535 this is its only caller: a deduction in a challan can no longer be
+    deleted, rejected or edited, so nothing else moves the sum.
 
-    THE GUARD BELOW BELONGS TO THIS PATH ONLY. Recomputing must never raise, because a delete must
-    not fail over bookkeeping; but a PAY that somehow landed over the challan's face value should
-    fail loudly rather than quietly write a challan claiming to have paid out more than it holds.
-    Unreachable in practice -- `_apply`'s capacity check runs first.
+    THE GUARD BELOW BELONGS TO THIS PATH: a PAY that somehow landed over the challan's face value
+    should fail loudly rather than quietly write a challan claiming to have paid out more than it
+    holds. Unreachable in practice -- `_apply`'s capacity check runs first.
     """
     total = flt(recompute_challan_reconciled(challan) or 0, 2)
 

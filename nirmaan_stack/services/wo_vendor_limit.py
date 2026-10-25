@@ -28,7 +28,7 @@ at a new financial year, not when a GST number is added. Only an Admin removes i
 
 ⚠️ `gst` IS A STRING ("true" / "false"), NOT A CHECK. A new WO is inserted with the field default
 "true" and approval sets it from the vendor's GST number ("false" when the vendor has none --
-`ServiceRequests.set_gst_from_vendor_on_approval`), so a WO still waiting for approval is NOT counted.
+`controllers/service_requests.set_gst_from_vendor`), so a WO still waiting for approval is NOT counted.
 
 ⚠️ THE AMOUNT IS PRE-GST. On a GST-off WO `total_amount` IS qty * rate -- the 18% is only added
 when gst is "true" (`ServiceRequests.calculate_total_amount`). Checked equal on all 684 GST-off

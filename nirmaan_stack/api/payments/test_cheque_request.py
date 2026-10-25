@@ -186,6 +186,10 @@ class TestChequeRequest(FrappeTestCase):
                                            amount=10000, vendor=self.vendor, description="Advance", attachment=PHOTO)
         pay = frappe.get_doc(PAYMENT, name)
         pay.update({"mode_of_payment": "Cheque", "cheque": cheque, "cheque_no": "1", "cheque_date": nowdate()})
+        # As the cheques service puts it on (`writer.link_payments`): a user's own save is refused before
+        # this rule is reached (review round 5, AA1).
+        from nirmaan_stack.services.cheques.writer import PUTTING_ON_CHEQUE
+        pay.flags[PUTTING_ON_CHEQUE] = True
         with self.assertRaisesRegex(
             frappe.ValidationError, "A Work Order payment is paid Online: only a PO payment can be paid by cheque."
         ):

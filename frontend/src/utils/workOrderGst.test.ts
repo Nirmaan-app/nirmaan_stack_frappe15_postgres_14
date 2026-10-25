@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { isGstOn } from "./workOrderGst";
+import { gstForVendor, gstMatchesVendor, isGstExplicitlyOff, isGstOn } from "./workOrderGst";
 
 const PY_SOURCE = readFileSync(
   resolve(__dirname, "../../../nirmaan_stack/services/work_order_gst.py"),
@@ -21,6 +21,42 @@ describe("isGstOn", () => {
   });
 
   it("uses the same spellings as the server's gst_is_on", () => {
-    expect(PY_SOURCE).toMatch(/\.strip\(\)\.lower\(\) in \("true", "1", "yes"\)/);
+    expect(PY_SOURCE).toMatch(/GST_ON_SPELLINGS = \("true", "1", "yes"\)/);
+    expect(PY_SOURCE).toMatch(/\.strip\(\)\.lower\(\) in GST_ON_SPELLINGS/);
+  });
+});
+
+describe("isGstExplicitlyOff", () => {
+  it("is true only for a flag that says off", () => {
+    for (const gst of ["false", " False ", "0", "no"]) expect(isGstExplicitlyOff({ gst })).toBe(true);
+    for (const gst of ["true", "1", "", null, undefined]) expect(isGstExplicitlyOff({ gst })).toBe(false);
+    expect(isGstExplicitlyOff(null)).toBe(false);
+  });
+
+  it("uses the same spellings as the server's gst_is_explicitly_off", () => {
+    expect(PY_SOURCE).toMatch(/\.strip\(\)\.lower\(\) in \("false", "0", "no"\)/);
+  });
+});
+
+describe("gstForVendor", () => {
+  it("is on exactly when the vendor has a GST number", () => {
+    expect(gstForVendor("29AADCU7527Q1ZG")).toBe(true);
+    for (const vendorGst of ["", "   ", null, undefined]) expect(gstForVendor(vendorGst)).toBe(false);
+  });
+
+  it("uses the same rule as the server's gst_flag_for_vendor", () => {
+    expect(PY_SOURCE).toMatch(/return GST_ON if str\(vendor_gst or ""\)\.strip\(\) else GST_OFF/);
+  });
+});
+
+describe("gstMatchesVendor", () => {
+  it("matches when the flag agrees with the vendor's GST number", () => {
+    expect(gstMatchesVendor({ gst: "true" }, "29AADCU7527Q1ZG")).toBe(true);
+    expect(gstMatchesVendor({ gst: "false" }, "")).toBe(true);
+  });
+
+  it("disagrees in both directions", () => {
+    expect(gstMatchesVendor({ gst: "false" }, "29AADCU7527Q1ZG")).toBe(false);
+    expect(gstMatchesVendor({ gst: "true" }, "  ")).toBe(false);
   });
 });

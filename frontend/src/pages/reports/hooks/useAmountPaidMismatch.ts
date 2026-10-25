@@ -5,8 +5,9 @@ import { useState } from "react";
 export type OrderDoctype = "Procurement Orders" | "Service Requests";
 
 /**
- * One order whose stored Amount Paid or Amount Due is ₹1 or more off its source (Paid payments less
- * Received refunds). Shape of `api/reports/amount_paid_mismatch.get_amount_paid_mismatches`.
+ * One order whose stored Amount Paid or Amount Due (a WO's Total TDS too) is ₹1 or more off its source
+ * (Paid payments, plus a WO's TDS withheld from the vendor, less Received refunds). Shape of
+ * `api/reports/amount_paid_mismatch.get_amount_paid_mismatches`.
  */
 export interface AmountPaidMismatchRow {
   doctype: OrderDoctype;
@@ -22,6 +23,9 @@ export interface AmountPaidMismatchRow {
   paid_difference: number;
   stored_due: number;
   correct_due: number;
+  /** A WO's stored `total_tds` and the sum of its Paid payments' deductions; 0 on a PO. */
+  stored_tds: number;
+  correct_tds: number;
 }
 
 interface RecountReply {

@@ -404,6 +404,11 @@ def line_payments(doc) -> list[str]:
     ]
 
 
+#: Set by `link_payments` on each payment it puts on a Cheque: the one way an Online payment becomes a
+#: Cheque payment (`payment_rules.mode_change_problem`). Only server code sets it.
+PUTTING_ON_CHEQUE = "putting_on_cheque"
+
+
 def link_payments(doc) -> None:
     """Put each Project Payment on the Cheque's lines on it (spec #1407): link it, make it a Cheque
     payment (an Online one converts) and copy the cheque number and date onto it.
@@ -424,6 +429,7 @@ def link_payments(doc) -> None:
         if all(str(pay.get(field) or "") == str(value or "") for field, value in values.items()):
             continue
         pay.update(values)
+        pay.flags[PUTTING_ON_CHEQUE] = True
         pay.save(ignore_permissions=True)
 
 

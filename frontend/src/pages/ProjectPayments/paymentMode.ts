@@ -104,8 +104,9 @@ export const isChequePayment = (row?: { mode_of_payment?: string | null } | null
  * ⚠️ AFTER TDS (owner, 2026-09-19). A Work Order payment is netted at approval — ₹50,000 requested
  * at 2% is recorded as ₹49,000 — and the cheque must match what the record will say, or the
  * vendor is overpaid by the tax and reconciliation cannot match the bank line. A company-borne
- * Work Order (Miscellaneous / Transportation only) is not reduced, which `forecastTds` already
- * reflects in its `net`; a Procurement Order has no forecast and is written for the amount.
+ * Work Order (Miscellaneous / Transportation only) is not reduced, which the server's forecast already
+ * reflects in its `net` (`tdsPreview.toTdsForecast`); a Procurement Order has no forecast and is written
+ * for the amount.
  */
 export const chequeAmountFor = (amount: number, tds: TdsForecast | null): number =>
 	tds ? tds.net : amount;

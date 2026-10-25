@@ -1,9 +1,10 @@
 // The Vendor report's paid figures (ADR-0034, #1461).
 //
-// An order's stored Amount Paid (Paid payments less Received refunds) is the one paid figure, but it
-// carries no date. So the report reads it only for the all-time Total Paid; every dated figure comes
-// from the server (`api/vendor/vendor_paid.get_vendors_paid`), which applies the same rule to the rows
-// themselves, a refund on its own date. Nothing here adds up payments.
+// An order's stored Amount Paid (Paid payments, plus a Work Order's TDS withheld from the vendor, less
+// Received refunds; ADR-0034 Amendment A) is the one paid figure, but it carries no date. So the report
+// reads it only for the all-time Total Paid; every dated figure comes from the server
+// (`api/vendor/vendor_paid.get_vendors_paid`), which applies the same rule to the rows themselves, the
+// tax on its payment's date, a refund on its own. Nothing here adds up payments.
 import { parseNumber } from "@/utils/parseNumber";
 import { sumAmountPaid } from "@/utils/projects/projectPaid";
 

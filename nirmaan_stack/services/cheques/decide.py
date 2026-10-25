@@ -101,6 +101,17 @@ def live_cheque_of(payment_name: str) -> str | None:
     return _payment_cheque_of(payment_name, LIVE_STATUSES)
 
 
+def held_by_a_live_cheque(payment_name: str) -> bool:
+    """Is `payment_name` a line of an Approval Pending or Issued Cheque, of any type? Such a payment's money has not
+    left the bank: its cheque waits to clear (`payment_steps`, the reject of one at Reconciliation Pending)."""
+    return bool(frappe.db.sql(
+        f"""SELECT 1 FROM "tabCheque Line" l JOIN "tab{CHEQUES}" c ON c.name = l.parent
+            WHERE l.parenttype = %(cheques)s AND l.payment_doctype = %(doctype)s AND l.payment_name = %(payment)s
+              AND c.status IN %(statuses)s LIMIT 1""",
+        {"cheques": CHEQUES, "doctype": PAYMENT_DOCTYPE, "payment": payment_name, "statuses": LIVE_STATUSES},
+    ))
+
+
 def pay_alone_problem(payment_name: str) -> str | None:
     """Why `payment_name` may not be paid on its own, or None (story 45, #1552): it is a cheque payment, paid
     only when its cheque's bank line clears every payment on it (`status.clear`). Old-type cheques too

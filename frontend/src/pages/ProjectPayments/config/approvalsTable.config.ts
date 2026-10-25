@@ -71,7 +71,14 @@ export interface ApprovalQueueRow {
   source_type: "PO Payment" | "SR Payment" | "Vendor Payment" | "Project Expense" | "Non-Project";
   doctype: "Project Payments" | "Project Expenses" | "Non Project Expenses";
   status: string;
+  /** The stored amount: what is paid. On a PO / WO payment with TDS withheld, already cut by the tax. */
   amount: number;
+  /**
+   * The full bill ("Req. Amount", owner ruling X4-A, #1541): `amount` plus the TDS withheld from it;
+   * `amount` itself on an expense or a payment with none. Display only: every action reads `amount`.
+   * Absent on a row not built by the queue endpoint; read it as `amount` then.
+   */
+  requested_amount?: number;
   against_primary: string;
   /** Line 2 under Against — the expense TYPE. Blank on a payment. */
   against_secondary: string;

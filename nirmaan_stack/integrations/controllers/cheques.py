@@ -89,7 +89,7 @@ def drop_off_cheques_of(doc, why: str, *, old_type_only: bool = False, keep_on: 
 def on_payment_rejected(doc) -> None:
     """A Project Payment was saved to Rejected (#1481, spec #1477). Called from the payment's `on_update`.
 
-    On a live (Pending or Issued) Payment cheque, every other payment on it is rejected too and the cheque
+    On a live (Approval Pending or Issued) Payment cheque, every other payment on it is rejected too and the cheque
     is Cancelled (`decide.reject_cheque`), however this one was rejected: the approval dialog and bulk
     reject go through `decide.reject` and carry `DECIDING_FLAG`, so their saves land here and stop; a
     save made any other way (REST, Desk) starts the cascade, with a note naming this payment. An Old-type

@@ -1,6 +1,6 @@
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeFileUpload, useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { CheckIcon, CirclePlus, Edit, PencilIcon, Save, SquarePlus, Trash, Trash2, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
@@ -11,6 +11,7 @@ import { Pencil2Icon } from "@radix-ui/react-icons";
 import logo from "@/assets/logo-svg.svg";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { SRDetailsCard } from "./components/SRDetailsCard";
+import { FinalizedLockBanner } from "./components/FinalizedLockBanner";
 import { SRComments } from "./components/SRComments";
 import {
     AlertDialog,
@@ -30,7 +31,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "@/components/ui/use-toast";
 import { InvoiceDialog } from "@/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog";
-import type { WorkOrderTds } from "@/pages/ProjectPayments/tdsForecast";
+import { useWorkOrderTds } from "@/pages/ProjectPayments/hooks/useWorkOrderTds";
+import { paymentTableFigures, tdsColumnNote } from "@/pages/ProjectPayments/tdsPreview";
+import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
@@ -43,6 +46,7 @@ import { useDialogStore } from "@/zustand/useDialogStore";
 import { TailSpin } from "react-loader-spinner";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 import { SRAmendSheet } from "../sr-form/amend";
+import { amendBlockedReason, UNDER_AMENDMENT_PAYMENT_NOTE } from "../config/workOrderAmendment";
 import { useUserData } from "@/hooks/useUserData";
 import { useVendorRefunds } from "@/components/vendor-refunds/useVendorRefunds";
 import { mergePaymentsAndRefunds, VendorRefundTableRow } from "@/components/vendor-refunds/VendorRefundTableRow";
@@ -63,7 +67,10 @@ import { usePaymentSummary } from "@/pages/ProjectPayments/components/PaymentSum
 import { PayForChoice } from "@/pages/ProjectPayments/components/PayForChoice";
 import { PayFor, workOrderPaymentCap } from "@/pages/ProjectPayments/components/paymentSummaryView";
 import { getFrappeError } from "@/utils/frappeErrors";
-import { isGstOn } from "@/utils/workOrderGst";
+import { gstMatchesVendor, isGstOn } from "@/utils/workOrderGst";
+import { canMatchGstToVendor, isNirmaanAdmin } from "@/constants/roles";
+import { MatchGstToVendorDialog } from "../components/MatchGstToVendorDialog";
+import { TdsPaidByCompanyAction } from "../components/TdsPaidByCompanyAction";
 
 // Everything requested but not yet `Paid` -- INCLUDING `Reconciliation Pending`, which counts as
 // neither paid (money figures count `Paid` alone) nor pending anywhere else. Left out, its amount
@@ -157,10 +164,10 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     // reaches that hook; a figure typed here landed in the legacy `Project Payments.tds` column and
     // rendered as "--" in the payments table below, which reads the new doctype.
     //
-    // Removing it is ARITHMETICALLY NEUTRAL: `update_parent_amount_paid` sums `amount`, never
-    // `amount - tds`, so these payments have always contributed their GROSS figure to `amount_paid`,
-    // and with `total_tds` at 0 for them `amount_due = total_amount - amount_paid - total_tds` was
-    // and stays correct. What is lost is only the CAPTURE of the withheld figure here -- intended,
+    // Removing it is ARITHMETICALLY NEUTRAL: `amount_paid` sums `amount`, never `amount - tds`, so
+    // these payments have always contributed their GROSS figure to `amount_paid`, and with no
+    // deduction row for them `amount_due = total_amount - amount_paid` was and stays correct.
+    // What is lost is only the CAPTURE of the withheld figure here -- intended,
     // because the sanctioned route is approve -> net -> export payout -> settle from the statement.
     const [newPayment, setNewPayment] = useState({
         amount: "",
@@ -236,6 +243,10 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
     const { data: project, isLoading: project_loading } = useFrappeGetDoc<Projects>("Projects", service_request?.project, service_request?.project ? `Projects ${service_request?.project}` : null)
 
+    // The approver's name for the card's Approved date; the stored user id shows if it can't be read.
+    const approvedBy: string | undefined = service_request?.approved_by || undefined
+    const { data: approver } = useFrappeGetDoc<NirmaanUsers>("Nirmaan Users", approvedBy, approvedBy ? undefined : null)
+
     const { data: projectPayments, isLoading: projectPaymentsLoading, mutate: projectPaymentsMutate } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
         fields: ["*"],
         filters: [["document_name", "=", id]],
@@ -259,12 +270,9 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     // deduction (the transactions table's TDS column). Asked of the server, which checks read on the
     // Work Order. ⚠️ The page never reads `Payment TDS Deduction` itself: that doctype is readable by
     // the accountants only, and a Procurement user's list read was refused with a 403 (#1451).
-    const { data: workOrderTdsResponse, mutate: workOrderTdsMutate } = useFrappeGetCall<{ message: WorkOrderTds }>(
-        "nirmaan_stack.api.payments.work_order_tds.get_work_order_tds",
-        { work_order: id },
-        id ? `WorkOrderTds-${id}` : null
-    );
-    const tdsByPayment = workOrderTdsResponse?.message?.payments ?? {};
+    const { workOrderTds, mutate: workOrderTdsMutate } = useWorkOrderTds(id);
+    const tdsByPayment = workOrderTds?.payments ?? {};
+    const tdsForecasts = workOrderTds?.forecasts ?? {};
 
     // A new request can be auto-approved with TDS withheld at insert, so the lists must refresh
     // together -- otherwise the new row shows its net amount with no TDS and the label lags.
@@ -384,27 +392,11 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         }
     }
 
-    const handleGstToggle = async (enabled: boolean) => {
-        setGstEnabled(enabled);
-        try {
-            await updateDoc("Service Requests", orderData!.name, { gst: String(enabled) });
-            await service_request_mutate();
-            toast({
-                title: "Success!",
-                description: "GST status updated successfully!",
-                variant: "success"
-            });
-        } catch (error) {
-            setGstEnabled(!enabled); // revert on failure
-            console.log("error while toggling GST", error);
-            toast({
-                title: "Failed!",
-                // The server says why, e.g. GST cannot be switched off while GST payments exist.
-                description: getFrappeError(error),
-                variant: "destructive"
-            });
-        }
-    };
+    // GST follows the vendor (ADR-0028 Amendment A, #1538): the switch is locked; the server refuses a
+    // hand change too. Admin and Accountants bring a mismatched Approved WO into line with Match GST to vendor.
+    const [matchGstOpen, setMatchGstOpen] = useState(false);
+    const gstMismatched = !!service_vendor && !gstMatchesVendor(orderData, service_vendor.vendor_gst);
+    const canOfferMatchGst = gstMismatched && orderData?.status === "Approved" && canMatchGstToVendor(role, user_id);
 
     const AddPayment = async () => {
         try {
@@ -532,14 +524,14 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
     return (
         <div className="flex-1 space-y-4">
+            {isFinalized && <FinalizedLockBanner />}
             {/* WO Details Card - using new SRDetailsCard component */}
             <SRDetailsCard
                 orderData={orderData}
-                workOrderTds={workOrderTdsResponse?.message}
+                workOrderTds={workOrderTds}
                 project={project}
                 vendor={service_vendor}
                 gstEnabled={gstEnabled}
-                getTotal={getTotal}
                 // isRestrictedRole removed, using specific flags below
                 hideActions={isEstimatesExecutive}
                 hideAmounts={isPMUser}
@@ -564,6 +556,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 isProcessingFinalize={isFinalizingLoading || isRevertingLoading}
                 missingGst={!orderData?.project_gst}
                 isOwner={orderData?.owner === user_id}
+                approvedBy={approver?.full_name || orderData?.approved_by}
+                amendBlockedReason={amendBlockedReason(projectPayments)}
             />
 
             {/* Delete Confirmation Dialog */}
@@ -616,7 +610,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                             variant="outline"
                                             className="text-primary border-primary text-xs px-2"
                                             onClick={toggleRequestPaymentDialog}
-                                            disabled={isPMUser || isEstimatesExecutive}
+                                            disabled={isPMUser || isEstimatesExecutive || orderData?.status === "Amendment"}
+                                            title={orderData?.status === "Amendment" ? UNDER_AMENDMENT_PAYMENT_NOTE : undefined}
 
                                         >
                                             Request Payment
@@ -756,8 +751,9 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead className="text-black font-bold">Amount</TableHead>
+                                    <TableHead className="text-black font-bold">Req. Amount</TableHead>
                                     <TableHead className="text-black font-bold">TDS</TableHead>
+                                    <TableHead className="text-black font-bold">To be paid</TableHead>
                                     <TableHead className="text-black font-bold">UTR / Cheque</TableHead>
                                     <TableHead className="text-black font-bold">Payment Date</TableHead>
                                     <TableHead className="text-black font-bold w-[5%]">Status</TableHead>
@@ -774,15 +770,32 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                             return <VendorRefundTableRow key={row.name} refund={row.refund} tdsColumn className="font-semibold" />;
                                         }
                                         const payment = row.payment;
-                                        const tds = tdsByPayment[payment?.name];
+                                        // Req. Amount is the full bill, To be paid what the vendor gets: a waiting
+                                        // payment's tax is the server's forecast, an approved one's its deduction (#1541).
+                                        const figures = paymentTableFigures(
+                                            payment?.amount, tdsByPayment[payment?.name], tdsForecasts[payment?.name]
+                                        );
+                                        const forecastTone = figures.forecast ? "font-semibold text-muted-foreground" : "font-semibold";
+                                        // Tax the company pays on top is labelled: it is not cut from the vendor (#1543).
+                                        const tdsNote = tdsColumnNote(figures);
                                         return (
                                             <TableRow key={payment?.name}>
                                                 <TableCell className="font-semibold">
-                                                    {formatToRoundedIndianRupee(payment?.amount)}
+                                                    {formatToRoundedIndianRupee(figures.requested)}
                                                     <GstPaymentTag payment={payment} />
                                                 </TableCell>
-                                                <TableCell className="font-semibold">
-                                                    {tds ? formatToRoundedIndianRupee(tds.tds_amount) : "--"}
+                                                <TableCell className={forecastTone}
+                                                    title={figures.forecast ? "Cut at approval, at the vendor's rate then" : undefined}>
+                                                    {figures.tds !== undefined ? formatToRoundedIndianRupee(figures.tds) : "--"}
+                                                    {tdsNote && (
+                                                        <span className="block text-[10px] font-normal leading-3 text-muted-foreground whitespace-nowrap"
+                                                            title="Paid by the company on top; not cut from the vendor">
+                                                            {tdsNote}
+                                                        </span>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell className={forecastTone}>
+                                                    {formatToRoundedIndianRupee(figures.toBePaid)}
                                                 </TableCell>
                                                 <TableCell className="font-semibold">
                                                     <PaymentUtrOrCheque
@@ -815,11 +828,19 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                 {/* ----------------------------------------------- */}
 
                                                 <TableCell className="text-red-500 text-end w-[5%]">
+                                                    <div className="flex items-center justify-end gap-1">
+                                                    {/* Admin, on a payment whose tax is recorded as withheld (#1537). */}
+                                                    <TdsPaidByCompanyAction
+                                                        payment={payment}
+                                                        deduction={tdsByPayment[payment?.name]}
+                                                        isAdmin={isNirmaanAdmin(role, user_id)}
+                                                        onMarked={() => Promise.all([refreshPayments(), service_request_mutate()])}
+                                                    />
                                                     {/* Approved: Admin only (owner, 18 Sep) — as on the PO page. Paid: never.
                                                         Deleting the payment also deletes its Payment TDS Deduction (server on_trash).
                                                         A REJECTED payment: Admin also gets the trash in the summary view, which is how
                                                         every WO opens (owner, 2026-09-21). */}
-                                                    {payment?.status !== "Paid" && (payment?.status !== "Approved" || role === "Nirmaan Admin Profile") &&
+                                                    {payment?.status !== "Paid" && payment?.status !== "Reconciliation Pending" && (payment?.status !== "Approved" || role === "Nirmaan Admin Profile") &&
                                                         (!summaryPage || (payment?.status === "Rejected" && role === "Nirmaan Admin Profile")) &&
                                                         <Button
                                                             variant="ghost"
@@ -830,6 +851,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                             <Trash2 className="h-4 w-4" />
                                                         </Button>
                                                     }
+                                                    </div>
 
                                                     <DeletePaymentDialog isOpen={!!deleteFlagged} onOpenChange={() => setDeleteFlagged(null)} paymentToDelete={deleteFlagged} onDeleteSuccess={() => refreshPayments()} />
                                                 </TableCell>
@@ -1018,14 +1040,31 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                         <Separator className="my-4" />
 
                         {!isEstimatesExecutive && (
-                            <div className="flex items-center justify-between">
-                                <Label className="font-bold">GST Applicable?</Label>
-                                <Switch
-                                    checked={gstEnabled}
-                                    onCheckedChange={handleGstToggle}
-                                />
+                            <div className="space-y-2" data-testid="gst-applicable">
+                                <div className="flex items-center justify-between">
+                                    <Label className="font-bold">GST Applicable?</Label>
+                                    <Switch checked={gstEnabled} disabled aria-readonly="true" />
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                    Set from the vendor: on when it has a GST number.
+                                    {gstMismatched && (
+                                        <span className="text-amber-700 dark:text-amber-400">
+                                            {" "}This Work Order doesn't match its vendor ({service_vendor?.vendor_gst?.trim() ? "it has a GST number" : "it has no GST number"}).
+                                        </span>
+                                    )}
+                                </p>
+                                {canOfferMatchGst && (
+                                    <Button size="sm" variant="outline" onClick={() => setMatchGstOpen(true)}>
+                                        Match GST to vendor
+                                    </Button>
+                                )}
                             </div>
                         )}
+                        <MatchGstToVendorDialog
+                            workOrder={matchGstOpen ? orderData?.name ?? null : null}
+                            onClose={() => setMatchGstOpen(false)}
+                            onMatched={service_request_mutate}
+                        />
                     </CardContent>
                 </Card>
             </div>)}
@@ -1133,7 +1172,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 service_vendor={service_vendor}
                 project={project}
                 gstEnabled={gstEnabled}
-                getTotal={getTotal}
                 notes={notes}
                 logo={logo}
                 Seal={Seal}

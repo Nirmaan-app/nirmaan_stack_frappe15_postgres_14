@@ -11,7 +11,7 @@ The pure rule -- what that level clears -- is `approval_tiers.initial_status_for
     anyone else                                 -> None         (the normal path)
 
 L1 is exactly the set the "Payment Pending Approval" tab lets approve (`canApprovePayments`).
-Accountants are deliberately NOT L1 here, even though the bulk endpoint admits them.
+Accountants are not L1, for this rule or any other payment step (`services/payment_steps.py`, #1530).
 """
 
 import frappe

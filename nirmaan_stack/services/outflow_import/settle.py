@@ -948,11 +948,11 @@ def _assert_reference_is_free(
 
 
 def advance_po_latest_payment_date(doc, payment_date) -> None:
-    """Keep the parent's `latest_payment_date` in step, the way the canonical fulfil does.
+    """Keep the parent's `latest_payment_date` in step, as the canonical fulfil does.
 
-    ⚠️ ADVANCE-ONLY, which the canonical path is not -- it overwrites unconditionally. That is
-    harmless when a human is fulfilling today's payment and wrong here, because a statement can be
-    uploaded weeks late and would drag the parent's latest payment date BACKWARDS.
+    ⚠️ ADVANCE-ONLY, never an overwrite: a statement can be uploaded weeks late and would drag the
+    parent's latest payment date BACKWARDS. (The canonical fulfil recomputes it from the Paid payments,
+    `recompute_latest_payment_date`, since #1536, which comes to the same thing.)
 
     Written with `set_value` rather than `po_doc.save()` to avoid firing the whole Procurement
     Order lifecycle once per settled row.

@@ -58,6 +58,8 @@ export function useBulkApprovalActions(mode: BulkMode) {
 
       const succeeded: string[] = [];
       const failed: BulkFailure[] = [];
+      // Only the payments half withholds tax; expenses have none.
+      const tdsFailed: string[] = [];
 
       /**
        * The two halves run in SEQUENCE, not `Promise.all`. Each endpoint commits its
@@ -75,6 +77,7 @@ export function useBulkApprovalActions(mode: BulkMode) {
           const result = await submitPayments(paymentIds, action, rejectionReason);
           succeeded.push(...result.succeeded);
           failed.push(...result.failed);
+          tdsFailed.push(...result.tdsFailed);
         } catch (err: any) {
           const reason = err?.message || "Bulk payment action failed";
           failed.push(...paymentIds.map((name) => ({ name, reason })));
@@ -94,7 +97,7 @@ export function useBulkApprovalActions(mode: BulkMode) {
         }
       }
 
-      return { succeeded, failed, total: rows.length };
+      return { succeeded, failed, total: rows.length, tdsFailed };
     },
     [submitPayments, decideExpenses, mode]
   );

@@ -15,6 +15,7 @@
  * has no reversal (owner ruling 2026-09-10): it is deleted with the payment it belongs to.
  */
 
+import { createContext, useContext } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { SearchFieldOption } from "@/components/data-table/new-data-table";
@@ -26,6 +27,7 @@ import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { paymentHref } from "@/pages/ProjectPayments/config/projectPaymentsTable.config";
 import { PaymentTDSDeduction } from "@/types/NirmaanStack/PaymentTDSDeduction";
+import { deductionNetPaid } from "../deductionNetPaid";
 import { tdsDeductee, tdsDeducteeText, tdsRowSource } from "@/utils/tdsRegisterRow";
 
 export const DOCTYPE = "Payment TDS Deduction";
@@ -56,6 +58,19 @@ export type PaymentTDSDeductionRow = PaymentTDSDeduction & {
  * `Procurement Orders` joins the set, the link cell has to branch on it, and the column plus its
  * facet come back together.
  */
+/**
+ * `{payment name: its status}` for the register rows on screen (walk W9): the payment's status, shown in
+ * its own column and read by the Pay TDS selection (`payableDeduction.canPayDeduction`). Provided by the
+ * ledger table, which reads the page's payments once.
+ */
+export const PaymentStatusContext = createContext<Record<string, string>>({});
+
+const PaymentStatusCell = ({ payment }: { payment?: string | null }) => {
+    const status = useContext(PaymentStatusContext)[payment || ""];
+    if (!payment) return <span className="text-muted-foreground">--</span>;
+    return <span className={status === "Paid" ? "text-green-700" : "text-amber-700"}>{status || "…"}</span>;
+};
+
 export const PAYMENT_TDS_FIELDS_TO_FETCH: string[] = [
     "name",
     "project_payment",
@@ -70,6 +85,8 @@ export const PAYMENT_TDS_FIELDS_TO_FETCH: string[] = [
     "gross_amount",
     "tds_percentage",
     "tds_amount",
+    // Net Paid reads it: a company-paid row's vendor got the whole gross (#1543).
+    "borne_by",
     "payment_approved_on",
     "tds_section",
     // Drives the Status column AND the Pay-TDS selection gate (only `Pending` rows are selectable),
@@ -332,6 +349,16 @@ export const getPaymentTdsColumns = ({
         },
     },
     {
+        id: "payment_status",
+        header: () => <span>Payment Status</span>,
+        // Pay TDS takes tax only from a Paid payment (story 39): an Office Rent row names none ("--").
+        cell: ({ row }) => <PaymentStatusCell payment={row.original.project_payment} />,
+        enableSorting: false,
+        // Not exported: the statuses are fetched for the page on screen only, so an export would print a blank
+        // column for every other row.
+        meta: { excludeFromExport: true },
+    },
+    {
         accessorKey: "gross_amount",
         header: ({ column }) => (
             <DataTableColumnHeader column={column} title="Gross Amount" className={NUMERIC_HEADER_CLASS} />
@@ -392,24 +419,24 @@ export const getPaymentTdsColumns = ({
     },
     {
         id: "net_paid",
-        accessorFn: (row) => (row.gross_amount || 0) - (row.tds_amount || 0),
+        accessorFn: (row) => deductionNetPaid(row),
         header: ({ column }) => (
             <DataTableColumnHeader column={column} title="Net Paid" className={UNSORTABLE_NUMERIC_HEADER_CLASS} />
         ),
         // DERIVED, NOT STORED -- and deliberately so. Once the deduction row exists,
         // `Project Payments.amount` IS this figure; a stored second copy could only drift from it.
+        // What the vendor got: the whole gross on a company-paid row (#1543), see `deductionNetPaid`.
         // `enableSorting: false` because the backend sorts on real columns and there is no
         // `net_paid` column to sort on.
         enableSorting: false,
         cell: ({ row }) => (
             <div className="text-right tabular-nums text-muted-foreground">
-                {formatToIndianRupee((row.original.gross_amount || 0) - (row.original.tds_amount || 0))}
+                {formatToIndianRupee(deductionNetPaid(row.original))}
             </div>
         ),
         meta: {
             exportHeaderName: "Net Paid",
-            exportValue: (row: PaymentTDSDeductionRow) =>
-                (row.gross_amount || 0) - (row.tds_amount || 0),
+            exportValue: (row: PaymentTDSDeductionRow) => deductionNetPaid(row),
             isNumeric: true,
         },
     },

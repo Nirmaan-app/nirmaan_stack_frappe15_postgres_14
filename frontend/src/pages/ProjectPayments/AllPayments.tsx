@@ -338,6 +338,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                 document_name: row.document_name,
                 document_type: row.document_type,
                 amount: row.amount,
+                requested_amount: row.requested_amount,
                 status: row.status,
                 cheque_no: row.cheque_no || undefined,
             });

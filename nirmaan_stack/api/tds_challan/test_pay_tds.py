@@ -23,7 +23,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.tds_challan.pay_tds import create_challan_and_pay, pay_tds
 from nirmaan_stack.services.expense_tds import withhold_expense_tds
-from nirmaan_stack.services.payment_tds import TDS_SECTION_WORK_ORDER
+from nirmaan_stack.services.payment_tds import RECORDED_BY_SERVER, TDS_SECTION_WORK_ORDER
 
 TDS = "Payment TDS Deduction"
 CHALLAN = "TDS Challan Attachment"
@@ -57,16 +57,18 @@ class TestPayTds(FrappeTestCase):
                                     deductee_pan="ABCPK1234D")
 
     def _work_order_row(self, tds) -> str:
+        """A Work Order payment's tax on a Paid payment: Pay TDS refuses an unpaid one (#1535)."""
         payment = f"{P}PAY-{frappe.generate_hash(length=8)}"
         frappe.db.sql(
             """INSERT INTO "tabProject Payments" (name, creation, modified, modified_by, owner,
                    docstatus, idx, amount, status)
-               VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s, 'Approved')""",
+               VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s, 'Paid')""",
             (payment, tds * 49),
         )
         row = frappe.new_doc(TDS)
         row.update({"project_payment": payment, "gross_amount": tds * 50, "tds_percentage": 2,
                     "tds_amount": tds, "tds_section": TDS_SECTION_WORK_ORDER})
+        row.flags[RECORDED_BY_SERVER] = True   # planted as the approval's writer inserts it
         return row.insert(ignore_permissions=True).name
 
     @staticmethod

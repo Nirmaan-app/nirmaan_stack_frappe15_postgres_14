@@ -16,9 +16,9 @@ import { parseNumber } from "@/utils/parseNumber";
 import { TailSpin } from 'react-loader-spinner';
 import { DIALOG_ACTION_TYPES, DialogActionType } from '../constants';
 import { computeSplit, isAmountKeystroke, isSplittable } from '../paymentSplit';
-import { useCompanyBorneTds, useVendorTdsRate } from '../../hooks/useVendorTdsRates';
-import { forecastTds } from '../../tdsForecast';
-import { isGstPayment } from '../../paymentKind';
+import { usePaymentTdsForecasts } from '../../hooks/usePaymentTdsForecasts';
+import { toTdsForecast } from '../../tdsPreview';
+import { TDS_BORNE_BY } from '@/types/NirmaanStack/PaymentTDSDeduction';
 import { isChequePayment } from '../../paymentMode';
 import { formatDate } from '@/utils/FormatDate';
 import { PaymentSummaryBlock, usePaymentSummary } from '../../components/PaymentSummaryBlock';
@@ -81,9 +81,6 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
     chequeApprovalLoading = false,
 }) => {
     const [amountInput, setAmountInput] = useState<string>("");
-    const rateFor = useVendorTdsRate();
-    // Miscellaneous / Transportation-only Work Order: the tax is paid on top, the payment stays whole.
-    const companyBorne = useCompanyBorneTds()(paymentData?.document_name);
 
     const requestedAmount = parseNumber(paymentData?.amount);
     // `isSplittable` is what keeps a REFUND approvable. A negative payment (a credit raised after
@@ -152,11 +149,19 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
      * renders no tax lines at all rather than a row of zeroes.
      */
     const approvingAmount = isPartialApprove && split.valid ? split.approved : requestedAmount;
-    const tds = useMemo(
-        // A GST payment is never taxed (ADR-0030), so it gets no forecast at all.
-        () => forecastTds(paymentData?.document_type, approvingAmount, rateFor(paymentData?.vendor), companyBorne, isGstPayment(paymentData)),
-        [paymentData, approvingAmount, rateFor, companyBorne]
+    // The server works the forecast out (story 59): the vendor's rate today and the rule approval uses.
+    // A GST payment, a PO payment and a vendor with no rate get none.
+    const forecastAsks = useMemo(
+        () => (isOpen && paymentData?.name && approvingAmount > 0
+            ? [{ name: paymentData.name, amount: approvingAmount }]
+            : null),
+        [isOpen, paymentData?.name, approvingAmount]
     );
+    const { forecasts } = usePaymentTdsForecasts(forecastAsks);
+    const serverForecast = paymentData ? forecasts[paymentData.name] : undefined;
+    const tds = toTdsForecast(serverForecast);
+    // Miscellaneous / Transportation-only Work Order: the tax is paid on top, the payment stays whole.
+    const companyBorne = serverForecast?.borne_by === TDS_BORNE_BY.COMPANY;
 
     const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (isAmountKeystroke(e.target.value)) {

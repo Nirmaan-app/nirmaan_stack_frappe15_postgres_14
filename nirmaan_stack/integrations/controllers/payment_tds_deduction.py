@@ -1,61 +1,198 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Lifecycle hooks of `Payment TDS Deduction`: the one-source rule on save, and the challan total on delete.
+"""A deduction edited or deleted through the doc layer (Desk, the REST API, `frappe.delete_doc`).
 
 ⚠️ "TDS" HERE IS **TAX DEDUCTED AT SOURCE**, not the Technical Data Sheet family.
 
-`validate` refuses a row that names neither or both of a Project Payment and a Non-Project Expense
-(#1523; the rule is `services/payment_tds.deduction_link_problem`). It runs on every doc-layer save:
-`write_deduction`, Desk, REST, data import. A raw SQL write skips it; the app's raw writes to this
-doctype (`pay_tds`, `restate_deduction_on_amount_change`) touch neither link.
+LOCKED ONCE DEPOSITED (#1535, spec #1528 stories 40-41). A deduction whose tax is in a challan can't be
+changed or deleted: deposited tax never changes and never disappears. Before that its figures may be
+corrected in Desk, and each correction recounts its order (`on_update`), so the order's Amount Paid,
+`total_tds` and Amount Due, and its project's outflow, never disagree with the record. The payment's
+own amount is left as it is: it says what went to the vendor.
 
-`on_trash` keeps a TDS challan's `reconciled_amount` true when a deduction is deleted through the doc
-layer. A challan's `reconciled_amount` is the SUM of the deductions pointing at it. `pay_tds` re-derives it
-when tax is paid; this hook re-derives it when a deduction goes away, so a deleted deduction stops
-being counted as spent. Without it a challan keeps showing money used against a row that no longer
-exists, and its remaining balance reads short forever.
+ONE SOURCE PER ROW (#1523, spec #1522). A row is the tax of exactly one Project Payment (a Work Order's
+or a PO's) or one Non-Project Expense (an Office Rent's), never both and never neither: `validate`
+refuses any other on every doc-layer save (`write_deduction`, `expense_tds.withhold_expense_tds`,
+Desk, REST, data import; the rule is `services/payment_tds.deduction_link_problem`). A raw SQL write
+skips it; the app's raw writes to this doctype (`pay_tds`, `restate_deduction_on_amount_change`) touch
+neither link. An expense row moves no order figure, so its correction or delete recounts nothing here
+(`_recount_payment_order` reads only a `project_payment`); its deposited-tax lock is the same.
 
-⚠️ THIS HOOK IS HALF THE COVERAGE, NOT ALL OF IT. It fires only on a DOC-LAYER delete (Desk, the
-REST API, `frappe.delete_doc`). The cascade that matters most — deleting a Project Payment — removes
-the row with a RAW `frappe.db.delete`, which fires no hooks at all, so
-`controllers/project_payments.on_trash` recomputes explicitly. Both paths call the same service
-function; neither is redundant, because neither covers the other's route.
+`status` and `tds_challan` are never set by hand: only Pay TDS writes them (`api/tds_challan/pay_tds`,
+by `set_value`, which fires none of these hooks), because it alone checks the challan's balance and that
+the payment is Paid. A correction therefore never moves a challan's figures: before a challan there is
+none to move, and after one the row is locked. `borne_by` is moved only by the Admin action *TDS paid by
+company* (`payment_tds.mark_tds_paid_by_company`, #1537), which saves through here so its correction
+recounts the order like any other.
+
+A deduction on a PAID payment is part of its order's Amount Paid, `total_tds` and Amount Due (ADR-0034
+Amendments A and B) and of its project's outflow (#1510), so a correction or a delete recounts the order
+and re-checks the project's CEO Hold.
+
+⚠️ HALF THE COVERAGE. These hooks fire only on the doc layer. Pay TDS and the payment's amount restate
+write by `set_value`; the payment's delete and reject remove the row by raw SQL and handle their own
+recount and challan rules (`controllers/project_payments`).
 """
 
 import frappe
+from frappe.utils import cstr, flt
 
-from nirmaan_stack.services.payment_tds import deduction_link_problem, recompute_challan_reconciled
+from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import recheck_after_recount
+from nirmaan_stack.services.amount_paid import write_amount_paid
+from nirmaan_stack.services.payment_tds import (
+	PAID,
+	PAYMENT_DOCTYPE,
+	RECORDED_BY_SERVER,
+	TDS_PAID_BY_COMPANY,
+	challan_label,
+	deduction_link_problem,
+)
+
+#: The deduction's own status before Pay TDS (not the payment's).
+PENDING = "Pending"
+#: Written only by Pay TDS, never by hand.
+PAY_TDS_FIELDS = ("status", "tds_challan")
+NUMBER_FIELDS = ("gross_amount", "tds_percentage", "tds_amount")
+#: Every field a person could change in Desk; all of them freeze once the tax is in a challan.
+LOCKED_FIELDS = (
+	"project_payment", "non_project_expense", "document_type", "document_name", "vendor", "project",
+	"gross_amount", "tds_percentage", "tds_amount", "borne_by", "payment_approved_on",
+	"tds_section", "deductee_name", "deductee_pan",
+	*PAY_TDS_FIELDS,
+)
 
 
 def validate(doc, method=None):
-	"""Refuse a row that is not the tax of exactly one Project Payment or Non-Project Expense."""
+	refuse_unless_one_source(doc)
+	if doc.is_new():
+		refuse_born_in_a_challan(doc)
+		refuse_insert_outside_approval(doc)
+		return
+	before = doc.get_doc_before_save()
+	if not before:
+		return
+	refuse_change_if_deposited(doc, before)
+	refuse_hand_written_challan(doc, before)
+	refuse_hand_written_borne_by(doc, before)
+
+
+def refuse_unless_one_source(doc):
+	"""A row is the tax of exactly one Project Payment or Non-Project Expense (#1523)."""
 	problem = deduction_link_problem(doc.get("project_payment"), doc.get("non_project_expense"))
 	if problem:
 		frappe.throw(problem)
 
 
-def on_trash(doc, method=None):
-	"""Re-derive the challan's total AFTER this row is gone.
+def _changed(doc, before, field) -> bool:
+	"""Did this save change `field`? Read as Desk and REST send values: a number to 2 places, a date or
+	text as its string, a blank status as `Pending` (the column default every screen assumes)."""
+	old, new = before.get(field), doc.get(field)
+	if field in NUMBER_FIELDS:
+		return flt(old, 2) != flt(new, 2)
+	if field == "status":
+		old, new = old or PENDING, new or PENDING
+	return cstr(old) != cstr(new)
 
-	`on_trash` runs BEFORE the row leaves the table, so recomputing here would still count the
-	deduction being deleted. The work is therefore deferred to after the commit, which is also what
-	keeps a failure here from blocking the delete the user asked for.
-	"""
-	challan = doc.get("tds_challan")
-	if not challan:
+
+def refuse_change_if_deposited(doc, before):
+	"""Deposited tax never changes (#1535)."""
+	if before.get("tds_challan") and any(_changed(doc, before, field) for field in LOCKED_FIELDS):
+		frappe.throw(
+			f"{doc.name} can't be changed: its tax is already deposited under TDS challan "
+			f"{challan_label(before.tds_challan)}.",
+			title="TDS already deposited",
+		)
+
+
+def refuse_born_in_a_challan(doc):
+	"""A new deduction starts Pending, in no challan: one made in Desk with either filled would count as
+	deposited tax that Pay TDS never checked (the payment Paid, the challan's balance) or counted."""
+	if doc.get("tds_challan") or cstr(doc.get("status") or PENDING) != PENDING:
+		frappe.throw(f"A new deduction starts {PENDING}, in no challan: the challan and status are set by Pay TDS, "
+					 "not by hand.")
+
+
+def refuse_insert_outside_approval(doc):
+	"""Tax is recorded only at approval (story 61): by `payment_tds.write_deduction` or `expense_tds`, which
+	set `RECORDED_BY_SERVER`, or by a patch (`in_patch`). A Desk or REST insert would put tax on a payment no
+	approval taxed, and it would count in Amount Paid once the payment is Paid."""
+	if doc.flags.get(RECORDED_BY_SERVER) or frappe.flags.in_patch:
 		return
+	frappe.throw("A deduction is recorded only at approval, by the server, never by hand.")
 
-	# ⚠️ MUST NOT RAISE INTO THE DELETE. Correcting a bookkeeping total is a side-effect of the
-	# delete, never a reason to refuse it -- the same treatment the payments controller gives its
-	# own notification fan-out.
-	def _recompute():
-		try:
-			recompute_challan_reconciled(challan)
-		except Exception:
-			frappe.log_error(
-				title="TDS challan recompute failed after deduction delete",
-				message=f"challan={challan} deduction={doc.name}\n{frappe.get_traceback()}",
-			)
 
-	frappe.db.after_commit.add(_recompute)
+def refuse_hand_written_challan(doc, before):
+	"""Only Pay TDS links a challan and marks tax Paid: it checks the balance and that the payment is Paid."""
+	if any(_changed(doc, before, field) for field in PAY_TDS_FIELDS):
+		frappe.throw(f"{doc.name}: the challan and status are set by Pay TDS, not by hand.")
+
+
+def refuse_hand_written_borne_by(doc, before):
+	"""Who bore the tax is set when the deduction is taken, and moved only by the Admin action *TDS paid
+	by company* (`payment_tds.mark_tds_paid_by_company`, #1537), which checks the role and the challan."""
+	if _changed(doc, before, "borne_by") and not doc.flags.get("tds_paid_by_company"):
+		frappe.throw(
+			f"{doc.name}: who bore the tax is not changed by hand. An Admin uses "
+			f"\"{TDS_PAID_BY_COMPANY}\" on the payment instead."
+		)
+
+
+def on_update(doc, method=None):
+	"""A correction made before any challan recounts the payment's order (`_recount_payment_order`).
+	Nothing on insert: `write_deduction` nets the payment after the insert and recounts itself."""
+	if doc.get_doc_before_save():
+		_recount_payment_order(doc)
+
+
+def on_trash(doc, method=None):
+	"""Deposited tax never disappears (#1535). Nothing else: a deduction not in a challan counts in no
+	challan's `reconciled_amount`, and its order is recounted in `after_delete`, once it is gone."""
+	if doc.get("tds_challan"):
+		frappe.throw(
+			f"{doc.name} can't be deleted: its tax is already deposited under TDS challan "
+			f"{challan_label(doc.tds_challan)}.",
+			title="TDS already deposited",
+		)
+
+
+def after_delete(doc, method=None):
+	"""Recount the order now the row is gone (the writer reads the deduction rows, so never in
+	`on_trash`).
+
+	This runs on a forced delete of the deduction (`frappe.delete_doc(..., force=True)`): a plain delete
+	from Desk or REST is refused, because the payment's `Project Payments.payment_tds` links to it. The
+	payment's own delete removes its deduction by raw SQL, so this never runs for it; that path recounts
+	in `controllers/project_payments.on_trash`.
+	"""
+	_recount_payment_order(doc)
+
+
+def _recount_payment_order(doc):
+	"""Recount the order of this deduction's payment through the one writer when the payment is Paid
+	(only a Paid payment's tax counts in its order's figures and its project's outflow), then re-check
+	that project's CEO Hold (`recheck_after_recount`). Any other status moves nothing.
+
+	Logged, not raised, like the payment's own recount, so a save or delete never fails on a bookkeeping
+	total (the Amount Paid Mismatch report shows the order instead).
+	"""
+	if not doc.get("project_payment"):
+		# An Office Rent expense's row (#1523): it is in no order's figures, so nothing to recount.
+		return
+	payment = frappe.db.get_value(
+		PAYMENT_DOCTYPE,
+		doc.get("project_payment"),
+		["status", "document_type", "document_name", "project"],
+		as_dict=True,
+	)
+	if not payment or payment.status != PAID:
+		return
+	try:
+		write_amount_paid(payment.document_type, payment.document_name)
+	except Exception:
+		frappe.log_error(
+			title="Amount Paid recount failed after a deduction changed",
+			message=f"deduction={doc.name} payment={doc.get('project_payment')}\n{frappe.get_traceback()}",
+		)
+		return
+	recheck_after_recount(payment.project)
