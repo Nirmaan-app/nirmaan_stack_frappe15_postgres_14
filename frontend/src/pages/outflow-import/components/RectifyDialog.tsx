@@ -2,7 +2,8 @@
 //
 // Rectify created Porter orders (#1449, ADR-0032): move each one's Expense to a chosen Won project, or to
 // Non-Project, with a typed reason. One line (the Outcome cell's button) or several ticked together (the
-// toolbar's "Rectify N"); the same dialog either way. Wording and offers: `porterRectify.ts`.
+// toolbar's "Move N orders"); the same dialog either way. On screen Rectify is "Move to another project"
+// (#1558). Wording and offers: `porterRectify.ts`.
 
 import { useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
@@ -25,6 +26,8 @@ import {
     RECTIFY_METHOD,
     RECTIFY_PLAN_METHOD,
     linesToMove,
+    moveDialogTitle,
+    moveOrdersLabel,
     placementText,
     rectifyOutcome,
     staysNote,
@@ -65,7 +68,7 @@ export const RectifyDialog = ({
                     <>
                         <DialogHeader>
                             <DialogTitle>
-                                {rows.length === 1 ? "Rectify this Porter order" : `Rectify ${rows.length} Porter orders`}
+                                {moveDialogTitle(rows.length)}
                             </DialogTitle>
                             <DialogDescription>
                                 Each expense is replaced by one identical in amount, date, reference and invoice,
@@ -221,7 +224,7 @@ const RectifyForm = ({
                     ) : (
                         <ArrowRightLeft className="mr-1.5 h-4 w-4" />
                     )}
-                    {moving.length > 1 ? `Rectify ${moving.length} orders` : "Rectify"}
+                    {moveOrdersLabel(moving.length || rows.length)}
                 </Button>
             </div>
         </div>

@@ -7,7 +7,14 @@
 
 import formatToIndianRupee, { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 
-export const RECTIFY_HINT = "Use Rectify in Bulk Import";
+/**
+ * Rectify's name on screen (#1558): the Bulk Import line's button, and the locked-project hint on an expense.
+ * The domain term stays Rectify (GLOSSARY.md).
+ */
+export const MOVE_ORDER_LABEL = "Move to another project";
+
+/** The Bulk Import URL parameter naming the Outflow Import Row whose move dialog opens on arrival. */
+export const MOVE_URL_KEY = "move";
 
 /** What `api/outflow_import/porter_expense.get_porter_expense` returns for a Porter Expense. */
 export interface PorterExpenseSection {
@@ -24,6 +31,9 @@ export interface PorterExpenseSection {
 	pdf_url: string;
 	project: string | null;
 	project_name: string | null;
+	/** The import and the line the order came from; null when the Porter Order has no line. */
+	import_batch: string | null;
+	import_row: string | null;
 }
 
 /** Whether the expense came from a Porter Statement import (the badge, and every lock below). */
@@ -34,7 +44,22 @@ export const isPorterExpense = (expense: { porter_order?: string | null } | null
 export const projectField = (
 	expense: { porter_order?: string | null } | null | undefined
 ): { locked: false } | { locked: true; hint: string } =>
-	isPorterExpense(expense) ? { locked: true, hint: RECTIFY_HINT } : { locked: false };
+	isPorterExpense(expense) ? { locked: true, hint: MOVE_ORDER_LABEL } : { locked: false };
+
+/**
+ * Where the hint links: Bulk Import on the order's import, the Settled tab searched to its CRN, with the move
+ * dialog open on its line (`OutflowMasterPage` reads `MOVE_URL_KEY` and the router state). Null, so the hint
+ * stays plain text, while the line is not known.
+ */
+export const moveOrderLink = (
+	section: Pick<PorterExpenseSection, "crn" | "import_batch" | "import_row"> | null
+): { to: string; state: { outflowTab: "matchedOutflow"; outflowSearch: string } } | null => {
+	if (!section?.import_batch || !section.import_row) return null;
+	return {
+		to: `/bulk-import-transactions/${encodeURIComponent(section.import_batch)}?${MOVE_URL_KEY}=${encodeURIComponent(section.import_row)}`,
+		state: { outflowTab: "matchedOutflow", outflowSearch: section.crn },
+	};
+};
 
 /** Serves a Porter Expense's invoice PDF (`api/outflow_import/porter_expense.porter_invoice_pdf`). */
 export const PORTER_INVOICE_PDF_METHOD = "nirmaan_stack.api.outflow_import.porter_expense.porter_invoice_pdf";

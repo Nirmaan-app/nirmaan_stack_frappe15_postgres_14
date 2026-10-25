@@ -36,7 +36,7 @@ import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { isPaidExpense } from "@/pages/ProjectPayments/config/queueRowActions";
 import SITEURL from "@/constants/siteURL";
 import { invoiceAttachmentUrl, projectField } from "@/utils/porterExpense";
-import { PorterSectionBlock, usePorterExpense } from "@/components/common/PorterExpense";
+import { MoveOrderHint, PorterSectionBlock, usePorterExpense } from "@/components/common/PorterExpense";
 import { ExpenseEditPayToSection, useExpenseEditPayTo } from "@/components/payees/ExpenseEditPayTo";
 import { expenseAccountSaveError } from "@/components/payees/useChangeExpenseAccount";
 
@@ -263,7 +263,12 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                             <Label htmlFor="project_edit" className="text-right">Project</Label>
                             <div className="col-span-3">
                                 <Input id="project_edit" value={porter.section?.project_name || expenseToEdit.projects || ""} disabled readOnly />
-                                <p className="text-xs text-muted-foreground mt-1">{project.hint}</p>
+                                <MoveOrderHint
+                                    hint={project.hint}
+                                    section={porter.section}
+                                    onFollow={() => setEditProjectExpenseDialog(false)}
+                                    className="text-xs text-muted-foreground mt-1"
+                                />
                             </div>
                         </div>
                     )}

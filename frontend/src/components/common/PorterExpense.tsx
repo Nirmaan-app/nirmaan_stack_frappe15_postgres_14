@@ -10,9 +10,15 @@
 import React from "react";
 import { useFrappeGetCall } from "frappe-react-sdk";
 import { Paperclip } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import SITEURL from "@/constants/siteURL";
-import { isPorterExpense, porterSectionRows, type PorterExpenseSection } from "@/utils/porterExpense";
+import {
+	isPorterExpense,
+	moveOrderLink,
+	porterSectionRows,
+	type PorterExpenseSection,
+} from "@/utils/porterExpense";
 
 const PORTER_EXPENSE_METHOD = "nirmaan_stack.api.outflow_import.porter_expense.get_porter_expense";
 
@@ -26,6 +32,28 @@ export const PorterBadge = ({ expense }: { expense: { porter_order?: string | nu
 			Porter
 		</span>
 	) : null;
+
+/**
+ * The locked project's hint, "Move to another project" (#1558): a link to the order's line in Bulk Import with
+ * the move dialog open, or plain text while the line is not known. `onFollow` closes the edit dialog, whose
+ * open flag lives in a global store and would otherwise reopen it on the way back.
+ */
+export const MoveOrderHint: React.FC<{
+	hint: string;
+	section: PorterExpenseSection | null;
+	onFollow: () => void;
+	className?: string;
+}> = ({ hint, section, onFollow, className }) => {
+	const link = moveOrderLink(section);
+	if (!link) return <p className={className}>{hint}</p>;
+	return (
+		<p className={className}>
+			<Link to={link.to} state={link.state} onClick={onFollow} className="text-primary underline underline-offset-2">
+				{hint}
+			</Link>
+		</p>
+	);
+};
 
 /** The Porter section's data. `enabled` false fetches nothing (SWR key null). */
 export const usePorterExpense = (doctype: string, name: string | undefined, enabled: boolean) => {

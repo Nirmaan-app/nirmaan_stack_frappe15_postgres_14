@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
     historyEmptyLabel,
+    importCountLabel,
     historySubtitle,
     importsInTab,
     initialHistoryMonth,
@@ -152,5 +153,18 @@ describe("summaryScopeIsDefault", () => {
             summaryScopeIsDefault({ ...base, period: { operator: "Timespan", value: "last 30 days" } })
         ).toBe(false);
         expect(summaryScopeIsDefault({ ...base, selectedImport: "OFI-26-00007" })).toBe(false);
+    });
+});
+
+describe("the count on an Import History row", () => {
+    it("counts a Porter import in orders", () => {
+        expect(importCountLabel("Porter Statement", 158)).toBe("158 orders");
+        expect(importCountLabel("Porter Statement", 1)).toBe("1 order");
+    });
+
+    it("keeps transfers for a bank import, and for one with no source", () => {
+        expect(importCountLabel(ICICI, 12)).toBe("12 transfers");
+        expect(importCountLabel("Cashfree", 1)).toBe("1 transfer");
+        expect(importCountLabel(null, 0)).toBe("0 transfers");
     });
 });
