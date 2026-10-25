@@ -4,9 +4,10 @@
 // carries BOTH a name and a logo for it. A role that cannot be ticked is shown GREYED WITH THE REASON
 // and a link to the TDS tab -- hiding it is what makes people ask where a stakeholder went.
 //
-// Nothing ticked means every available logo prints, so a project is already right before anyone opens
-// this. The print ORDER is fixed (the server's `ROLE_ORDER`), not the order they were ticked, so every
-// project's documents look alike -- the dialog says so rather than letting people guess.
+// Nirmaan always prints (its box is ticked and locked), so nothing else ticked means Nirmaan alone and a
+// project is already right before anyone opens this. The print ORDER is fixed (the server's `ROLE_ORDER`),
+// not the order they were ticked, so every project's documents look alike -- the dialog says so rather
+// than letting people guess.
 
 import { Loader2 } from "lucide-react";
 import * as React from "react";
@@ -34,6 +35,10 @@ interface HeaderLogosDialogProps {
   projectId: string;
   canEdit: boolean;
 }
+
+// Nirmaan prints on every project whatever else is ticked (`header_logos.ALWAYS_ROLES`, owner 2026-10-16),
+// so its box is shown ticked and locked rather than offered as a choice.
+const ALWAYS_ROLE = "mep_contractor";
 
 /** Why a role cannot be ticked, in the user's terms. */
 const missingReason = (name: string, logo: string): string => {
@@ -111,21 +116,26 @@ export const HeaderLogosDialog: React.FC<HeaderLogosDialogProps> = ({
         ) : (
           <div className="space-y-1">
             {roles.map((r) => {
-              const on = picked.has(r.role);
+              const locked = r.role === ALWAYS_ROLE;
+              const on = locked || picked.has(r.role);
               return (
                 <label
                   key={r.role}
                   className={cn(
                     "flex items-center gap-3 rounded-md border px-3 py-2",
-                    r.selectable
-                      ? "cursor-pointer hover:bg-gray-50"
-                      : "cursor-not-allowed bg-gray-50 opacity-70",
+                    locked
+                      ? "cursor-default"
+                      : r.selectable
+                        ? "cursor-pointer hover:bg-gray-50"
+                        : "cursor-not-allowed bg-gray-50 opacity-70",
                   )}
                 >
                   <Checkbox
                     checked={on}
-                    disabled={!r.selectable || !canEdit || saving}
-                    onCheckedChange={() => r.selectable && toggle(r.role)}
+                    disabled={locked || !r.selectable || !canEdit || saving}
+                    onCheckedChange={() =>
+                      !locked && r.selectable && toggle(r.role)
+                    }
                   />
                   <span className="flex h-8 w-16 shrink-0 items-center justify-center overflow-hidden rounded border bg-white">
                     {r.logo ? (
@@ -144,6 +154,7 @@ export const HeaderLogosDialog: React.FC<HeaderLogosDialogProps> = ({
                     </span>
                     <span className="block text-xs text-gray-500">
                       {r.label}
+                      {locked && " · always printed"}
                       {!r.selectable && (
                         <>
                           {" · "}
@@ -166,8 +177,7 @@ export const HeaderLogosDialog: React.FC<HeaderLogosDialogProps> = ({
             <p className="pt-2 text-xs text-gray-500">
               The logo page lays them out in this order: Client · Project
               Manager · Consultant · Architect · GC Contractor · Nirmaan.
-              {/* `header_logos.DEFAULT_ROLES`: nothing picked prints Nirmaan alone (owner 2026-09-25). */}
-              {anySelectable && " Nothing ticked means Nirmaan alone."}
+              Nirmaan is always printed.
             </p>
           </div>
         )}
