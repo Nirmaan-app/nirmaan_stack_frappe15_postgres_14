@@ -28,20 +28,20 @@ from __future__ import annotations
 import frappe
 from frappe.utils.background_jobs import is_job_enqueued
 
+from nirmaan_stack.services.outflow_import.ledgers import PROJECT_EXPENSE_DOCTYPE
+from nirmaan_stack.services.outflow_import.porter import remark_group_key, statement_line
 from nirmaan_stack.services.outflow_import.porter_state import (
-    IMPORT_VALIDATED,
     CREATE_LINE_STATUSES,
+    IMPORT_VALIDATED,
     INVOICE_PASSED,
     NEEDS_PERSON,
     import_progress,
     import_state,
     placement_kinds,
 )
-from nirmaan_stack.services.outflow_import.ledgers import PROJECT_EXPENSE_DOCTYPE
-from nirmaan_stack.services.outflow_import.porter import remark_group_key
 from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_PORTER_CANCELLED
-from nirmaan_stack.services.outflow_import.status import ROW_ERROR
 from nirmaan_stack.services.outflow_import.sources import PORTER_STATEMENT_SOURCE
+from nirmaan_stack.services.outflow_import.status import ROW_ERROR
 
 BATCH_DOCTYPE = "Outflow Import Batch"
 ROW_DOCTYPE = "Outflow Import Row"
@@ -144,7 +144,7 @@ def porter_placements(batches: list[str]) -> dict[str, dict[str, str]]:
     if batches:
         for row in frappe.db.sql(
             """
-            SELECT name, import_batch, row_status, remarks, porter_line ->> 'city' AS city,
+            SELECT name, import_batch, row_status, remarks, porter_line,
                    placement_reason, placement_strength, suggested_doctype, resolved_project
             FROM "tabOutflow Import Row"
             WHERE import_batch IN %s AND COALESCE(skip_kind, '') <> %s
@@ -155,7 +155,7 @@ def porter_placements(batches: list[str]) -> dict[str, dict[str, str]]:
             placed[row.import_batch].append(
                 {
                     "name": row.name,
-                    "group_key": remark_group_key(row.remarks, row.city),
+                    "group_key": remark_group_key(row.remarks, statement_line(row.porter_line).get("city")),
                     "reason": row.placement_reason,
                     "strength": row.placement_strength,
                     "destination": (

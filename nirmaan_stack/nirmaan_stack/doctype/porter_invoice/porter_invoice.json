@@ -1,5 +1,6 @@
 {
  "actions": [],
+ "allow_rename": 0,
  "autoname": "field:invoice_number",
  "creation": "2026-10-15 19:35:41.171803",
  "doctype": "DocType",

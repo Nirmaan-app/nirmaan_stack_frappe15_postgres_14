@@ -120,7 +120,9 @@ def judge_invoice(statement: InvoiceFigures, read: InvoiceRead) -> InvoiceVerdic
     if read.fare is None:
         unread.append("fare")
     elif _money_differs(read.fare, statement.fare):
-        failed.append(f"Fare: invoice {_rupees(read.fare)}, statement {_rupees(statement.fare)}")
+        failed.append(
+            f"Fare: invoice {rupees(read.fare, paise=True)}, statement {rupees(statement.fare, paise=True)}"
+        )
 
     if read.invoice_date is None:
         unread.append("invoice date")
@@ -143,9 +145,8 @@ def judge_invoice(statement: InvoiceFigures, read: InvoiceRead) -> InvoiceVerdic
                 InvoiceWarning(figure, (statement_value or "").strip(), (read_value or "").strip() or None)
             )
     if read.tax is None or _money_differs(read.tax, statement.tax):
-        warnings.append(
-            InvoiceWarning("Tax", _rupees(statement.tax), None if read.tax is None else _rupees(read.tax))
-        )
+        read_tax = None if read.tax is None else rupees(read.tax, paise=True)
+        warnings.append(InvoiceWarning("Tax", rupees(statement.tax, paise=True), read_tax))
 
     number = statement.invoice_number
     if failed:
@@ -174,10 +175,6 @@ def warnings_from_stored(stored: dict | None) -> tuple[InvoiceWarning, ...]:
 
 def _money_differs(read_value: Decimal, statement_value: Decimal) -> bool:
     return abs(Decimal(read_value) - Decimal(statement_value)) > PORTER_INVOICE_TOLERANCE
-
-
-def _rupees(value: Decimal) -> str:
-    return rupees(value, paise=True)
 
 
 def _day(value: date) -> str:
