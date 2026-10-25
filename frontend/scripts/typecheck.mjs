@@ -5,14 +5,18 @@
 //   node scripts/typecheck.mjs --update-baseline  rewrite tsc-baseline.json from the current errors
 //
 // Run from frontend/. An error's key is its file, its code and its message, never its line or column, so moving
-// code does not make an old error look new. The baseline counts each key, because one file can raise the same
-// error several times; an error is new when its key's count goes above the baseline's.
+// code does not make an old error look new. The message in the key has the members of every union type sorted
+// (`unionsSorted`), because tsc prints a union's members in the order it happened to create them, which changes
+// from run to run; the baseline keeps the message as tsc printed it, and both sides are sorted before comparing.
+// The baseline counts each key, because one file can raise the same error several times; an error is new when
+// its key's count goes above the baseline's.
 //
 // Re-baseline only after fixing old errors (the run lists them as "fixed:"), never to hide a new one.
 
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const BASELINE = "tsc-baseline.json";
 const TSC = join("node_modules", ".bin", "tsc");
@@ -56,27 +60,134 @@ function parseTscOutput(output) {
   return errors;
 }
 
-const keyOf = (e) => JSON.stringify([e.path, e.code, e.message]);
+const OPENERS = "([{<";
+const CLOSERS = ")]}>";
 
-function countByKey(errors) {
+/**
+ * Walks a type's text and calls `visit(i, depth)` for every character outside a string literal, with the bracket
+ * depth before it. The `>` of an arrow `=>` closes nothing.
+ */
+function walkType(text, visit) {
+  let depth = 0;
+  let quote = null;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === "\\") i++;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "`") {
+      quote = ch;
+      continue;
+    }
+    if (CLOSERS.includes(ch) && !(ch === ">" && text[i - 1] === "=")) depth--;
+    visit(i, depth);
+    if (OPENERS.includes(ch)) depth++;
+  }
+}
+
+/** Splits `text` at every top-level character for which `isSeparator(text, i)` holds; separators are kept. */
+function splitTopLevel(text, isSeparator) {
+  const parts = [];
+  let start = 0;
+  walkType(text, (i, depth) => {
+    if (depth === 0 && isSeparator(text, i)) {
+      parts.push(text.slice(start, i), text[i]);
+      start = i + 1;
+    }
+  });
+  parts.push(text.slice(start));
+  return parts;
+}
+
+/** Every bracketed group of `text` with its contents sorted by `sortedType`. */
+function groupsSorted(text) {
+  let out = "";
+  let from = 0;
+  let open = -1;
+  walkType(text, (i, depth) => {
+    if (depth !== 0) return;
+    if (OPENERS.includes(text[i])) open = i;
+    else if (CLOSERS.includes(text[i]) && open >= 0 && !(text[i] === ">" && text[i - 1] === "=")) {
+      out += text.slice(from, open + 1) + sortedType(text.slice(open + 1, i));
+      from = i;
+      open = -1;
+    }
+  });
+  return out + text.slice(from);
+}
+
+/** One union: its members, each with its own groups sorted, in a stable order. */
+function unionSorted(text) {
+  if (!text.trim()) return text;
+  const lead = text.match(/^\s*/)[0];
+  const trail = text.match(/\s*$/)[0];
+  const members = splitTopLevel(text.trim(), (t, i) => t[i] === "|")
+    .filter((_, n) => n % 2 === 0)
+    .map((m) => groupsSorted(m.trim()));
+  return lead + (members.length > 1 ? members.sort().join(" | ") : members[0]) + trail;
+}
+
+/**
+ * A type with the members of every union in it sorted, at every depth: `{ a: "y" | "x"; }[] | null` and
+ * `null | { a: "x" | "y"; }[]` come out the same. A member list (`;` or `,`) is kept in order; in each member,
+ * only the type after a top-level `name:` or the last top-level `=>` is a union.
+ */
+function sortedType(text) {
+  return splitTopLevel(text, (t, i) => t[i] === ";" || t[i] === ",")
+    .map((part, n) => {
+      if (n % 2 === 1) return part;
+      let head = "";
+      let body = part;
+      let cut = -1;
+      walkType(body, (i, depth) => {
+        if (depth === 0 && cut < 0 && body[i] === ":") cut = i + 1;
+      });
+      walkType(body, (i, depth) => {
+        if (depth === 0 && body[i] === ">" && body[i - 1] === "=") cut = Math.max(cut, i + 1);
+      });
+      if (cut > 0) {
+        head = groupsSorted(body.slice(0, cut));
+        body = body.slice(cut);
+      }
+      return head + unionSorted(body);
+    })
+    .join("");
+}
+
+/**
+ * `message` with every quoted type in it (`'...'`) given its unions in a stable order: the part of an error's key
+ * that tsc may print differently from one run to the next. Only for comparing; never printed.
+ */
+export function unionsSorted(message) {
+  return message.replace(/'([^'\n]*)'/g, (whole, type) => (type.includes("|") ? `'${sortedType(type)}'` : whole));
+}
+
+export const keyOf = (e) => JSON.stringify([e.path, e.code, unionsSorted(e.message)]);
+
+/** {key -> {path, code, message, count}}: `message` is the first spelling seen, the one a re-baseline writes. */
+export function countByKey(errors) {
   const counts = new Map();
-  for (const e of errors) counts.set(keyOf(e), (counts.get(keyOf(e)) ?? 0) + 1);
+  for (const e of errors) {
+    const key = keyOf(e);
+    const entry = counts.get(key) ?? { path: e.path, code: e.code, message: e.message, count: 0 };
+    entry.count += e.count ?? 1;
+    counts.set(key, entry);
+  }
   return counts;
 }
 
 function readBaseline() {
   if (!existsSync(BASELINE)) return null;
-  const counts = new Map();
-  for (const [path, code, message, count] of JSON.parse(readFileSync(BASELINE, "utf8")).errors) {
-    counts.set(JSON.stringify([path, code, message]), count);
-  }
-  return counts;
+  const rows = JSON.parse(readFileSync(BASELINE, "utf8")).errors;
+  return countByKey(rows.map(([path, code, message, count]) => ({ path, code, message, count })));
 }
 
 /** Sorted, one entry per line, so a re-baseline diff shows exactly which errors came or went. */
 function writeBaseline(counts) {
-  const entries = [...counts]
-    .map(([key, count]) => [...JSON.parse(key), count])
+  const entries = [...counts.values()]
+    .map((e) => [e.path, e.code, e.message, e.count])
     .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : a[2] < b[2] ? -1 : a[2] > b[2] ? 1 : 0));
   const body = entries.map((e) => "    " + JSON.stringify(e)).join(",\n");
   writeFileSync(
@@ -88,7 +199,7 @@ function writeBaseline(counts) {
   );
 }
 
-const total = (counts) => [...counts.values()].reduce((a, b) => a + b, 0);
+const total = (counts) => [...counts.values()].reduce((a, e) => a + e.count, 0);
 const firstLine = (message) => message.split("\n")[0];
 
 function runTsc() {
@@ -130,7 +241,7 @@ function main() {
     byKey.get(keyOf(e)).push(e);
   }
   for (const [key, list] of byKey) {
-    const was = base.get(key) ?? 0;
+    const was = base.get(key)?.count ?? 0;
     if (list.length <= was) continue;
     newCount += list.length - was;
     // Line numbers are not in the baseline, so when a key only grew, every occurrence is listed.
@@ -140,10 +251,9 @@ function main() {
     }
   }
   const fixed = [];
-  for (const [key, was] of base) {
-    const now = current.get(key) ?? 0;
+  for (const [key, { path, code, message, count: was }] of base) {
+    const now = current.get(key)?.count ?? 0;
     if (now >= was) continue;
-    const [path, code, message] = JSON.parse(key);
     fixed.push(`fixed: ${path || "(no file)"} ${code} ${firstLine(message)}${was > 1 ? `  [${was} -> ${now}]` : ""}`);
   }
 
@@ -155,4 +265,5 @@ function main() {
   return newCount ? 1 : 0;
 }
 
-process.exitCode = main();
+// Run as a script, not when a test imports the helpers above.
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) process.exitCode = main();
