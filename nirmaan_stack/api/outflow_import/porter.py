@@ -57,6 +57,10 @@ from nirmaan_stack.api.outflow_import.porter_upload import (
     stage,
 )
 from nirmaan_stack.api.outflow_import.porter_validation import enqueue_validation, validation_job_id
+from nirmaan_stack.services.outflow_import.parser import (
+    PORTER_ORDER_COMPLETED,
+    PORTER_STATEMENT_COLUMNS,
+)
 from nirmaan_stack.services.outflow_import.porter import INVOICE_DOCTYPE
 from nirmaan_stack.services.outflow_import.porter_state import (
     CREATE_LINE_STATUSES,
@@ -120,6 +124,18 @@ def upload_porter_statement():
     frappe.db.commit()
     enqueue_validation(batch, user)
     return porter_status(batch)
+
+
+@frappe.whitelist(methods=["GET"])
+def get_porter_statement_rules() -> dict:
+    """What the upload screen checks a chosen file against before upload (#1555). Read-only.
+
+    The parser's own required columns and its completed-order status, so the screen keeps no copy of
+    either. The parser stays the authority: the upload re-reads the file and its refusals still show.
+    URL: /api/method/nirmaan_stack.api.outflow_import.porter.get_porter_statement_rules
+    """
+    require_outflow_access()
+    return {"columns": list(PORTER_STATEMENT_COLUMNS), "completed_status": PORTER_ORDER_COMPLETED}
 
 
 @frappe.whitelist(methods=["POST"])
