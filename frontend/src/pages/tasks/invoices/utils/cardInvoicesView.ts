@@ -51,14 +51,15 @@ export const statementMonthLabel = (month: string): string => {
     return year && name ? `${name} ${year}` : "";
 };
 
-/** A statement's months as one range: "Oct 2026", "Sep – Oct 2026", "Dec 2026 – Jan 2027". */
+/** A statement's months (oldest first, as the server sends them) as one range: "Oct 2026", "Sep – Oct 2026",
+ * "Dec 2026 – Jan 2027". */
 export const statementMonthsLabel = (months: string[]): string => {
     if (months.length === 0) return "";
-    const first = statementMonthLabel(months[0]);
-    const last = statementMonthLabel(months[months.length - 1]);
-    if (first === last) return first;
-    const [firstName, firstYear] = first.split(" ");
-    return firstYear === last.split(" ")[1] ? `${firstName} – ${last}` : `${first} – ${last}`;
+    const first = months[0];
+    const last = months[months.length - 1];
+    if (first === last) return statementMonthLabel(first);
+    const firstLabel = first.slice(0, 4) === last.slice(0, 4) ? MONTHS[Number(first.slice(5, 7)) - 1] : statementMonthLabel(first);
+    return `${firstLabel} – ${statementMonthLabel(last)}`;
 };
 
 /** The holder and month choices: each once; holders by name, months newest first. */

@@ -39,13 +39,12 @@ def card_line_details(payment_ref: str | None) -> str:
     return ref
 
 
-def statement_months(period_from, period_to, statement_date) -> list[str]:
-    """Every "YYYY-MM" the statement belongs to (GLOSSARY *Statement month*): each month its period overlaps,
-    oldest first. With no period, the month of the statement date. Dates may be `date`s or ISO strings."""
-    start, end = period_from or statement_date, period_to or statement_date
+def statement_months(start, end) -> list[str]:
+    """Every "YYYY-MM" from the month of `start` to the month of `end`, oldest first: the Statement months
+    (GLOSSARY) of a statement whose period is those days. A reversed pair is read in order."""
     if not start or not end:
         return []
-    first, last = datetime.date.fromisoformat(str(start)[:10]), datetime.date.fromisoformat(str(end)[:10])
+    first, last = sorted(datetime.date.fromisoformat(str(day)[:10]) for day in (start, end))
     months, year, month = [], first.year, first.month
     while (year, month) <= (last.year, last.month):
         months.append(f"{year}-{month:02d}")

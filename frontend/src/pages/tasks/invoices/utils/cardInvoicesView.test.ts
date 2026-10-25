@@ -9,7 +9,8 @@ import {
     type CardInvoiceRow,
 } from "./cardInvoicesView";
 
-const row = (name: string, holder: string, statement_month: string, statement_months = [statement_month]): CardInvoiceRow => ({
+/** A spend on a statement covering `statement_months` (oldest first), as `get_card_invoice_queue` returns it. */
+const row = (name: string, holder: string, ...statement_months: string[]): CardInvoiceRow => ({
     name,
     payment_date: "2026-09-10",
     amount: 100,
@@ -17,10 +18,10 @@ const row = (name: string, holder: string, statement_month: string, statement_mo
     details: "Swiggy Limited Bangalore IN",
     merchant: "SWIGGY",
     holder,
-    credit_card_statement: `CCS-${holder}-${statement_month}`,
-    statement_date: `${statement_month}-01`,
-    period_from: "2026-09-02",
-    period_to: `${statement_month}-01`,
+    credit_card_statement: `CCS-${holder}-${statement_months.join("-")}`,
+    statement_date: `${statement_months[statement_months.length - 1]}-28`,
+    period_from: `${statement_months[0]}-01`,
+    period_to: `${statement_months[statement_months.length - 1]}-28`,
     statement_months,
 });
 
@@ -44,7 +45,7 @@ describe("which card spends show", () => {
     });
 
     it("finds a statement under every month its period overlaps", () => {
-        const across = [row("NPE-4", "ARJUN TESTHOLDER", "2026-10", ["2026-09", "2026-10"])];
+        const across = [row("NPE-4", "ARJUN TESTHOLDER", "2026-09", "2026-10")];
         expect(filterCardInvoices(across, { holder: ALL, month: "2026-09" }).map((r) => r.name)).toEqual(["NPE-4"]);
         expect(filterCardInvoices(across, { holder: ALL, month: "2026-10" }).map((r) => r.name)).toEqual(["NPE-4"]);
         expect(filterCardInvoices(across, { holder: ALL, month: "2026-08" })).toEqual([]);
@@ -66,7 +67,7 @@ describe("the filter choices", () => {
     });
 
     it("offers every month a statement overlaps", () => {
-        const { months } = cardInvoiceFilterOptions([row("NPE-4", "ARJUN TESTHOLDER", "2026-10", ["2026-09", "2026-10"])]);
+        const { months } = cardInvoiceFilterOptions([row("NPE-4", "ARJUN TESTHOLDER", "2026-09", "2026-10")]);
         expect(months.map((m) => m.value)).toEqual(["2026-10", "2026-09"]);
     });
 

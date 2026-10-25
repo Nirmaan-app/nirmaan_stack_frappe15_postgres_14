@@ -29,20 +29,22 @@ class TestTheLineDetails(unittest.TestCase):
 
 
 class TestTheStatementMonths(unittest.TestCase):
-    """GLOSSARY *Statement month*: every month the statement's period overlaps."""
+    """GLOSSARY *Statement month*: every month the statement covers."""
 
     def test_a_period_across_two_months_belongs_to_both(self):
-        self.assertEqual(statement_months("2026-09-02", "2026-10-01", "2026-10-01"), ["2026-09", "2026-10"])
+        self.assertEqual(statement_months("2026-09-02", "2026-10-01"), ["2026-09", "2026-10"])
 
     def test_a_period_inside_one_month_belongs_to_that_month(self):
-        self.assertEqual(statement_months("2026-09-01", "2026-09-30", "2026-10-01"), ["2026-09"])
+        self.assertEqual(statement_months("2026-09-01", "2026-09-30"), ["2026-09"])
 
     def test_a_period_across_a_year_end_names_both_years(self):
-        self.assertEqual(statement_months("2026-12-02", "2027-01-01", None), ["2026-12", "2027-01"])
+        self.assertEqual(statement_months("2026-12-02", "2027-01-01"), ["2026-12", "2027-01"])
 
-    def test_with_no_period_the_statement_date_decides(self):
-        self.assertEqual(statement_months(None, None, "2026-10-01"), ["2026-10"])
-        self.assertEqual(statement_months(None, None, None), [])
+    def test_a_reversed_period_is_read_in_order(self):
+        self.assertEqual(statement_months("2026-10-01", "2026-09-02"), ["2026-09", "2026-10"])
+
+    def test_no_days_give_no_months(self):
+        self.assertEqual(statement_months(None, None), [])
 
 
 class TestMarkingNoInvoice(unittest.TestCase):

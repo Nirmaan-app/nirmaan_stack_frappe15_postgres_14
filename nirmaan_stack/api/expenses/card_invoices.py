@@ -50,8 +50,8 @@ def get_card_invoice_queue() -> list[dict]:
 
     Each row: `name`, `payment_date`, `amount`, `expense_type`, `details` (the statement line), `merchant` (its
     merchant key), `holder`, `credit_card_statement`, `statement_date`, `period_from`, `period_to` and
-    `statement_months` (every "YYYY-MM" the statement's period overlaps, GLOSSARY *Statement month*). The screen
-    filters by holder and statement month itself: the list is one or two statements' worth of spends.
+    `statement_months` (every "YYYY-MM" its period overlaps, GLOSSARY *Statement month*; a statement always
+    has both period dates, the doctype requires them). The screen filters by holder and statement month itself: the list is one or two statements' worth of spends.
     """
     _require_upload_access()
     rows = frappe.db.sql(
@@ -69,7 +69,7 @@ def get_card_invoice_queue() -> list[dict]:
     for row in rows:
         row["details"] = card_line_details(row.pop("payment_ref"))
         row["merchant"] = merchant_key(row["details"]) if row["details"] else ""
-        row["statement_months"] = statement_months(row["period_from"], row["period_to"], row["statement_date"])
+        row["statement_months"] = statement_months(row["period_from"], row["period_to"])
     return rows
 
 
