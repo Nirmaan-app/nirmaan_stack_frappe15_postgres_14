@@ -178,6 +178,19 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 - **Rectify (an imported Porter order)** — moving a completed Porter Order's Expense to where it belongs after the import: from Non-Project to a project, from one project to another, or from a project to Non-Project. It **replaces** the Expense with one identical in money, date, reference and invoice, and the import's record of the old placement is kept as reversed, with the typed reason. The Porter Order itself never changes. Offered wherever an imported line can be unreconciled, to the same people. (Owner, 2026-10-15.)
   *Avoid*: unreconcile (which takes the Expense away and leaves the line open), re-import, edit project.
 
+## Company credit cards
+
+- **Credit Card Statement** — the bank's monthly statement for one company credit card, listing every spend and every credit on that card in its billing period. It is the record of what the card spent: the bank statement only shows the card's bill being paid, never what the card bought. A Credit Card Statement is known by its **card holder** and its billing period; the company receives one per card per month, and each card has one holder. Only a statement issued to the company (Stratos Infra Technologies) is a company card's statement. (Owner, 2026-10-25.)
+  *Avoid*: card bill, CC statement.
+
+- **Card spend** — a line of a Credit Card Statement that is money the card paid out (a line not marked CR). Each one is recorded as exactly one *Paid* **Non-Project** Expense (a card never pays for a project's work), with no vendor, and then waits for its invoice. (Owner, 2026-10-25.)
+
+- **Card payment (a statement credit)** — money paid *into* the card to settle its bill (auto-debit, UPI or any other payment received), or a cashback. It is not a spend and not a refund, so it is skipped by rule, with its reason shown. (Owner, 2026-10-25.)
+
+- **Paired card refund** — a credit from a merchant on the same Credit Card Statement as a spend from that same merchant of exactly the same amount. Both lines are skipped, each naming the other: the money came back, so nothing was spent. One credit cancels one spend, the latest one before it. (Owner, 2026-10-25.)
+
+- **Unpaired card credit** — a merchant credit with no spend of the same amount on the same statement (a partial refund, or a refund of an earlier month). It is never skipped silently: it is kept as an open line for someone to decide. (Owner, 2026-10-25.)
+
 ## Vendor invoices & credit notes
 
 - **Vendor Invoice** — a recorded vendor bill entered against a Purchase Order or a Work Order (Service Request). Distinct from a *Project Invoice*, which bills the Customer.
