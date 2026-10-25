@@ -7167,8 +7167,8 @@ refusals: not a Porter line, not Settled, not exactly one live leg that the impo
 4. the old expense deleted through `unreconcile_created.delete_created` (series counter kept);
 5. a new Settled match: `match_basis` `porter statement`, `created_by_import` 1, `settlement_origin`
    Suggestion overridden, `target_project` snapshot;
-6. the line follows: `suggested_doctype`, `resolved_project`, `suggested_name`, `outcome_note` "Rectified to
-   …", `decided_at/by`, `settlement_origin`; status stays Settled (no rollup). So a later Unreconcile + Create
+6. the line follows: `suggested_doctype`, `resolved_project`, `suggested_name`, `outcome_note` "Moved to
+   …" (the screen's word for Rectify; #1554 review), `decided_at/by`, `settlement_origin`; status stays Settled (no rollup). So a later Unreconcile + Create
    re-creates it where it was rectified to. A comment on the line: "Rectified by <user>: <reason> (<old> on A
    -> <new> on B)";
 7. `resync_cashflow_hold` for BOTH projects (the insert / delete hooks' check is de-duplicated per request).
@@ -7317,10 +7317,10 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
 ### As built — #1560: Choose projects lists only the orders that need a person (spec #1554, 2026-10-25)
 
 - ⚠️ **ONE needs-a-person rule: `porter_state.placement_kinds`** (pure), read through
-  `porter_records.porter_placements(batches)` (one query). Review's filter (`needs_person` on each line of
-  `get_porter_review`), Create's refusal (`orders_needing_a_person`) and the progress bar's
-  `projects.needs_person` all come from it; never write a second copy (the screen reads `needs_person`, it
-  does not recompute it). An open order (Create would still write it) needs a person when no person chose it
+  `porter_records.porter_placements(batches)` (one query). Review's filter (each line of `get_porter_review`
+  carries its `placement` kind: `placed_automatically` / `placed_by_person` / `needs_person`), Create's refusal (`orders_needing_a_person`) and the progress bar's
+  `projects.needs_person` all come from it; never write a second copy (the screen reads `placement` through
+  `porterReview.needsPerson` / `placedByPerson`; it never re-derives "chosen by a person" from `reason`). An open order (Create would still write it) needs a person when no person chose it
   and it is not Strong, or its remark group is in doubt: any open order of the group is Check or unplaced,
   or the group's open orders go to different destinations. Strong placements, Strong Non-Project from
   history included, need no one. A created order never needs a person and casts no doubt on its group.
@@ -7391,10 +7391,13 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
   `set_porter_placement`, which leaves the line in Error) turns its fix to `retry` with nothing else written.
 - The screen (`porterResult.porterResult`, `components/PorterResult.tsx`) shows nothing before Create and while
   its job runs; then "N orders couldn't be created" with a CRN / Why / fix table ("Choose project" opens a Won
-  project picker for that one line; "Try again" presses Create again), or "All N expenses created.". Both
-  links ("View the N expenses", "Move an order to another project") close the dialog on Bulk Import pinned to
-  the import, on its Settled tab: no expense list filters by import, and each Settled line opens its Expense
-  and carries the Move button. ⚠️ They go through the page's own pin (`onImported` with the Porter source,
+  project picker for that one line; "Try again" presses Create again), or "All N expenses created.". "View
+  the N expenses" opens the created Expenses in their own lists: `get_porter_status.created_expenses` names the
+  import's Porter Orders that have an Expense, by the doctype each is on now (`porter_records.created_expenses`),
+  and `utils/porterExpense.createdExpenseLinks` opens each list's Paid tab with a `porter_order` column filter
+  in the list's own URL state (one link per list the expenses are on). "Move an order to another project"
+  closes the dialog on Bulk Import pinned to the import, on its Settled tab, where each line carries Move. ⚠️ It
+  goes through the page's own pin (`onImported` with the Porter source,
   `postImportTab` maps it to `matchedOutflow`), not a `navigate` of their own: the index and `:id` routes
   render the same page without remounting it, so a tab carried in router state alone was ignored (walked).
   The Move link shows only to those the lines' Move button shows to (`canUndoOutflow`: Admin, Accountant
