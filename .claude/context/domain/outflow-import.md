@@ -6653,7 +6653,8 @@ that rule skips the wallet top-ups and stays unchanged.
      and read by polling. Only download or Gemini errors are retryable.
    - **Create:** order by order, Cashbook-style, so it can resume.
    - **What exists before Create:** only the batch, its rows, the Porter Invoices and their PDFs. A failed
-     or abandoned import is Discarded (Admin and Accountant Lead; refused once Create has started).
+     or abandoned import is Discarded, whole, by any module user: Accountant, Accountant Lead or Admin
+     (#1557); refused for everyone once Create has created anything, and while a job of it runs.
    - **Re-uploads:** an uncreated import blocks a re-upload of its invoices.
 5. **Identity is the invoice number.** Already-imported invoices are left out and counted (ADR-0031
    shape). An already-imported invoice now listing different orders BLOCKS the upload.
@@ -7087,8 +7088,10 @@ the Porter Invoice's name, so a number is held by at most one import. Per invoic
   OFI-…. Nothing in this file is new, so nothing was saved."
 Every blocking invoice is named in one refusal (re-issued first). Title "Already imported".
 
-**Discard.** `has_outflow_undo_access` (Admin, Accountant Lead; "Only an Admin or an Accountant Lead can
-discard a Porter import."). Locks the batch row, then every line `FOR UPDATE` (a Create line in flight
+**Discard.** Who may: every module user, `require_outflow_access` (Accountant, Accountant Lead, Admin;
+widened from Admin/Accountant Lead at #1557, spec #1554 stories 23-25, so a failed check is no dead end
+for an Accountant). Nothing settled exists before Create, so it is not an undo action. Whole import only:
+there is no per-invoice or per-line discard. Locks the batch row, then every line `FOR UPDATE` (a Create line in flight
 commits first), then refuses: not a Porter import; `created_anything` ("… Correct its lines with Rectify
 or Unreconcile instead."); any job of the import queued or running — `porter.create_job_id`,
 `porter_validation.validation_job_id(batch)` and the per-invoice Retry ids (`validation_job_id(batch,
@@ -7105,9 +7108,9 @@ another File shares the `content_hash`. Then commits. The statement can be uploa
 discard is the screen's question).
 
 **Screen.** `PorterDiscardButton` in the Porter dialog's footer (left), shown when
-`porterDiscard.canDiscardPorter`: `canUndoOutflow` and `discardable` and the Create job not running — in
-Validating too. It confirms with `discardConfirmation` ("Discard OFI-…? This deletes its 12 orders, its 4
-Porter invoices and their PDFs. …"), posts, then closes the dialog like Done. `PorterImportSummary` shows
+`porterDiscard.canDiscardPorter`: `discardable` and the Create job not running (no role check; #1557) — in
+Validating too. Its label is "Discard this import". It confirms with `discardConfirmation` ("Discard OFI-…? This removes the whole import: its 12
+orders, its 4 Porter invoices and their PDFs. …"), posts, then closes the dialog like Done. `PorterImportSummary` shows
 `repeatsLeftOutNote` ("9 orders on invoices already created were left out: they are not saved again.").
 A refused upload shows the server's sentence in the dialog's error box; "open it" means Import History →
 Porter Statement tab.
@@ -7116,7 +7119,8 @@ Porter Statement tab.
 one refusal naming every block); `api/outflow_import/test_porter_reupload.py` (bench: created import →
 left out + counted + not read again, re-issued invoice blocked, nothing new refused; uncreated import
 blocked; Discard removes exactly its records and Files, keeps bytes another File shares, refused once
-created / for a plain Accountant / while its validation job runs, works on an import stuck Validating, and
+created (an Accountant too, with the same message) / while a job of it runs (Accountant too) / for a
+user outside the module, allowed for an Accountant and an Accountant Lead, works on an import stuck Validating, and
 the same statement uploads again); `frontend/.../porterDiscard.test.ts`.
 
 ### As built — #1449: Rectify (and Unreconcile) a Porter expense (2026-10-15)
