@@ -175,6 +175,9 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 - **Porter fare** — what Porter charges for an order, before GST; it is the amount the Porter wallet pays and therefore the **amount of the Expense**. Porter's GST is charged under **reverse charge**: the company, not Porter, pays it to the government, so it is never part of what Porter is paid and never part of the Expense's amount. It is kept on the Porter Order as the order's *reverse-charge GST*. (Owner, 2026-10-15.)
   *Avoid*: amount incl. GST, invoice amount (for the fare alone, which is ambiguous).
 
+- **Not a project (a Porter Order)** — a person's deliberate choice, made while choosing projects for a Porter import, that a completed Porter Order belongs to no project, so it becomes a Non-Project Expense. It is recorded like any other choice a person makes there. A Porter Order becomes a Non-Project Expense only because a person chose Not a project for it, or because an earlier import taught a sure (Strong) Non-Project placement for the same remark and city; an order the system could not place is never made Non-Project by default, and Create waits until someone chooses. (Owner, 2026-10-25, spec #1554.)
+  *Avoid*: blank project, no project found (that is the system's doubt, not a choice).
+
 - **Rectify (an imported Porter order)** — moving a completed Porter Order's Expense to where it belongs after the import: from Non-Project to a project, from one project to another, or from a project to Non-Project. It **replaces** the Expense with one identical in money, date, reference and invoice, and the import's record of the old placement is kept as reversed, with the typed reason. The Porter Order itself never changes. Offered wherever an imported line can be unreconciled, to the same people. (Owner, 2026-10-15.)
   *Avoid*: unreconcile (which takes the Expense away and leaves the line open), re-import, edit project.
 
