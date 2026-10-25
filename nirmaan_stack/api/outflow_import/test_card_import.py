@@ -183,7 +183,7 @@ class TestUploadingAStatement(CardImportCase):
         self.assertEqual(statement.statement_file, files[0].file_url)
         self.assertEqual(frappe.db.count("File", {"attached_to_doctype": BATCH_DOCTYPE, "attached_to_name": self.batch}), 0)
 
-    def test_every_line_is_staged_spends_waiting_for_create_and_credits_open(self):
+    def test_every_line_is_staged_spends_waiting_for_create_and_credits_sorted(self):
         rows = self._rows(self.batch)
         self.assertEqual(len(rows), 47)
         self.assertEqual({row.source for row in rows}, {SOURCE})
@@ -193,7 +193,8 @@ class TestUploadingAStatement(CardImportCase):
         self.assertEqual({row.row_status for row in spends}, {"Pending match run"})
         self.assertEqual({row.match_basis for row in spends}, {"card statement"})
         self.assertEqual({row.suggested_doctype for row in spends}, {"Non Project Expenses"})
-        self.assertEqual({row.row_status for row in credits}, {"Mismatched"})
+        # Sorted at upload (#1567): six skipped by rule, the unpaired MakeMyTrip credit open.
+        self.assertEqual(sorted(row.row_status for row in credits), ["Mismatched"] + ["Skipped"] * 6)
 
     def test_a_line_keeps_its_date_amount_details_and_reference(self):
         row = next(row for row in self._rows(self.batch) if row.remarks == "PARK RESIDENCY Cochin IN")
@@ -227,14 +228,17 @@ class TestUploadingAStatement(CardImportCase):
 
 
 class TestCardLinesAreNotBankLines(CardImportCase):
-    def test_total_unreconciled_outflow_and_still_open_do_not_move_on_upload(self):
-        from nirmaan_stack.api.outflow_import.review import get_outflow_summary, not_matched_totals
+    def test_total_unreconciled_outflow_does_not_move_on_upload(self):
+        """The spends wait for the card's own Create. The one unpaired credit (MakeMyTrip ₹801.50) is open
+        work on the main table (#1567, README ruling 4), so Unreconciled Inflow gains exactly it."""
+        from nirmaan_stack.api.outflow_import.review import not_matched_totals
 
         before = not_matched_totals()
-        summary_before = get_outflow_summary()
         self._upload(pdf_from_text(self._text()))
-        self.assertEqual(not_matched_totals(), before)
-        self.assertEqual(get_outflow_summary(), summary_before)
+        after = not_matched_totals()
+        self.assertEqual(after["outflow"], before["outflow"])
+        self.assertEqual(after["inflow"]["rows"], before["inflow"]["rows"] + 1)
+        self.assertAlmostEqual(after["inflow"]["amount"], before["inflow"]["amount"] + 801.50, places=2)
 
 
 class TestRefusalsSaveNothing(CardImportCase):

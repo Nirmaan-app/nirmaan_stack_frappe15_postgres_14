@@ -13,6 +13,11 @@ export const SKIP_KIND_INFLOW_RECORDED = "Inflow Already Recorded";
 export const SKIP_KIND_BY_HAND = "Skipped by hand";
 /** A Porter Statement line whose order Porter cancelled (#1443). Locked: never unskipped. */
 export const SKIP_KIND_PORTER_CANCELLED = "Porter order cancelled";
+/** A Credit Card Statement's credits, sorted at upload (#1567). Payments and cashback are locked. */
+export const SKIP_KIND_CARD_PAYMENT = "Card payment received";
+export const SKIP_KIND_CARD_CASHBACK = "Card cashback";
+/** A merchant credit and the card spend it cancels. Unskippable: both lines come back together. */
+export const SKIP_KIND_CARD_REFUND_PAIR = "Card refund pair";
 
 /**
  * The kinds a bank-statement rule decided: the line was read as money moving inside the bank or between
@@ -41,4 +46,6 @@ export const UNSKIP_LOCKED_KINDS: Readonly<Record<string, string>> = {
     [SKIP_KIND_NO_AMOUNT]: "No money moved on this line.",
     [SKIP_KIND_BANK_REFUSED]: "The bank never moved this money.",
     [SKIP_KIND_PORTER_CANCELLED]: "Porter cancelled this order and never billed it.",
+    [SKIP_KIND_CARD_PAYMENT]: "A payment into the card is never a spend or a receipt.",
+    [SKIP_KIND_CARD_CASHBACK]: "Card cashback is not recorded as anything.",
 };

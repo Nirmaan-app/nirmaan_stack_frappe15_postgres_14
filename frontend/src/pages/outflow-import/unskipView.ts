@@ -7,9 +7,19 @@ import { NEVER_MATCHED_SOURCES, ROW_MATCHED, ROW_SKIPPED } from "./outflowImport
 import {
     BANK_RULE_SKIP_KINDS,
     SKIP_KIND_BY_HAND,
+    SKIP_KIND_CARD_CASHBACK,
+    SKIP_KIND_CARD_PAYMENT,
+    SKIP_KIND_CARD_REFUND_PAIR,
     SKIP_KIND_PORTER_CANCELLED,
     UNSKIP_LOCKED_KINDS,
 } from "./skipKinds";
+
+/** Kinds a source of its own locks, asked before the never-matched rule (as `skip_origin` asks them). */
+const SOURCE_OWN_LOCKED_KINDS: ReadonlySet<string> = new Set([
+    SKIP_KIND_PORTER_CANCELLED,
+    SKIP_KIND_CARD_PAYMENT,
+    SKIP_KIND_CARD_CASHBACK,
+]);
 
 export const UNSKIP_BLOCK_NOT_SKIPPED = "This transfer is not skipped.";
 export const UNSKIP_BLOCK_CASHBOOK = "Only a Cashbook line skipped by hand can be unskipped.";
@@ -35,13 +45,20 @@ export const unskipBlockReason = (row: {
     if (row.row_status !== ROW_SKIPPED) return UNSKIP_BLOCK_NOT_SKIPPED;
     const kind = (row.skip_kind ?? "").trim();
     // Asked before the Cashbook rule, which would otherwise answer for every never-matched source.
-    if (kind === SKIP_KIND_PORTER_CANCELLED) return UNSKIP_LOCKED_KINDS[kind];
+    if (SOURCE_OWN_LOCKED_KINDS.has(kind)) return UNSKIP_LOCKED_KINDS[kind];
+    // A card refund pair comes back, both lines together (#1567).
+    if (kind === SKIP_KIND_CARD_REFUND_PAIR) return null;
     if (NEVER_MATCHED_SOURCES.has((row.source ?? "").trim()) && kind !== SKIP_KIND_BY_HAND) {
         return UNSKIP_BLOCK_CASHBOOK;
     }
     if (!kind) return UNSKIP_BLOCK_NO_KIND;
     return UNSKIP_LOCKED_KINDS[kind] ?? null;
 };
+
+/** A card refund pair comes back whole (#1567): the box says so before either line is unskipped. */
+export const CARD_REFUND_PAIR_UNSKIP_WARNING =
+    "This line is half of a card refund pair. Unskipping it brings back both lines: the merchant credit as " +
+    "open work here, and the card spend it cancelled as work for the card import's Create.";
 
 /**
  * The warning the Unskip box shows before a bank-rule line goes back to work, or `null` for any other.
@@ -51,7 +68,9 @@ export const unskipBlockReason = (row: {
  * comes back as work, and booking it would count money the Cashfree statement already holds.
  */
 export const unskipWarning = (row: { skip_kind?: string | null }): string | null =>
-    BANK_RULE_SKIP_KINDS.has((row.skip_kind ?? "").trim())
+    (row.skip_kind ?? "").trim() === SKIP_KIND_CARD_REFUND_PAIR
+        ? CARD_REFUND_PAIR_UNSKIP_WARNING
+        : BANK_RULE_SKIP_KINDS.has((row.skip_kind ?? "").trim())
         ? `A bank rule read this line as money moving between our own accounts (${row.skip_kind}), not a ` +
           "spend or a receipt. It comes back as open work -- check that its money is not already counted " +
           "somewhere else before you record it."

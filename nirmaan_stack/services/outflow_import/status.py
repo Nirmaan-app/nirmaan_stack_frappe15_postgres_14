@@ -194,6 +194,10 @@ __all__ = [
     "SKIP_REASON_ALREADY_LINKED",
     "SKIP_REASON_EXCLUDED_AT_INGEST",
     "SKIP_REASON_PORTER_CANCELLED",
+    "SKIP_REASON_CARD_PAYMENT",
+    "SKIP_REASON_CARD_CASHBACK",
+    "SKIP_REASON_CARD_REFUND",
+    "SKIP_REASON_CARD_REFUNDED_SPEND",
     "STAGED_NOTE_NO_SETTLEMENT_PATH",
     "SKIP_ORIGIN_SYSTEM",
     "SKIP_ORIGIN_MANUAL",
@@ -361,6 +365,20 @@ SKIP_REASON_EXCLUDED_AT_INGEST = (
 # beside its skip kind (`skip_kinds.SKIP_KIND_PORTER_CANCELLED`). Porter's invoice never bills it.
 SKIP_REASON_PORTER_CANCELLED = "Porter order cancelled. Porter does not bill it, so it becomes no expense."
 
+# A Credit Card Statement's credits, sorted at upload (#1567, ADR-0037 decision 4), each beside its skip kind
+# (`skip_kinds.SKIP_KIND_CARD_*`). A refund pair's two sentences name the other line (`{partner}`: its SerNo,
+# date and amount), so each line of the pair can be found from the other.
+SKIP_REASON_CARD_PAYMENT = (
+    "Card payment received. Money paid into the card to clear its bill: no spend, no income, no refund."
+)
+SKIP_REASON_CARD_CASHBACK = "Card cashback from the bank. It is not recorded as anything."
+SKIP_REASON_CARD_REFUND = (
+    "Card refund pair: this merchant credit cancels the spend {partner}. Neither line becomes a record."
+)
+SKIP_REASON_CARD_REFUNDED_SPEND = (
+    "Card refund pair: this spend is cancelled by the merchant credit {partner}. Neither line becomes a record."
+)
+
 # The landing note for a source that stages straight to `Mismatched` (slice B3, owner ruling Q31).
 #
 # ⚠️ IT SAYS "NO SETTLEMENT PATH", NOT "THE MATCHER NEVER RUNS", AND THE DIFFERENCE IS DELIBERATE.
@@ -390,6 +408,10 @@ SYSTEM_SKIP_SENTENCES = (
     _SKIP_REASON_ALREADY_RECORDED,
     SKIP_REASON_EXCLUDED_AT_INGEST,
     SKIP_REASON_PORTER_CANCELLED,
+    SKIP_REASON_CARD_PAYMENT,
+    SKIP_REASON_CARD_CASHBACK,
+    SKIP_REASON_CARD_REFUND,
+    SKIP_REASON_CARD_REFUNDED_SPEND,
 )
 
 
