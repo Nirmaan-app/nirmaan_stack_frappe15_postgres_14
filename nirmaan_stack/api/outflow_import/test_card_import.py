@@ -30,6 +30,7 @@ from nirmaan_stack.api.outflow_import.test_porter_validation import _no_bucket_u
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, ACCOUNTANT_LEAD, OUTSIDER, _Users
 from nirmaan_stack.services.outflow_import.card_memory import MEMORY_DOCTYPE
 from nirmaan_stack.services.outflow_import.card_statement import read_card_statement
+from nirmaan_stack.services.outflow_import.sources import CARD_STATEMENT_SOURCE
 from nirmaan_stack.services.outflow_import.tests.card_pdf_builder import pdf_from_text
 
 FIXTURE = (
@@ -43,8 +44,23 @@ FIXTURE = (
 BATCH_DOCTYPE = "Outflow Import Batch"
 ROW_DOCTYPE = "Outflow Import Row"
 STATEMENT_DOCTYPE = "Credit Card Statement"
-SOURCE = "ICICI Credit Card Statement"
+SOURCE = CARD_STATEMENT_SOURCE
 _LINE_START = re.compile(r"^(\d{2}/\d{2}/\d{4}) (\d{11}) ", re.MULTILINE)
+
+
+def purge_records(doctype: str, names: list[str]) -> None:
+    """Discard's delete loop, for a test: the records' Version and Comment rows, then the records. Raw, one
+    scope, committed; a failure is rolled back and reported, never left to strand the next scope."""
+    if not names:
+        return
+    try:
+        frappe.db.delete("Version", {"ref_doctype": doctype, "docname": ["in", names]})
+        frappe.db.delete("Comment", {"reference_doctype": doctype, "reference_name": ["in", names]})
+        frappe.db.delete(doctype, {"name": ["in", names]})
+        frappe.db.commit()
+    except Exception:
+        frappe.db.rollback()
+        print(f"card test purge: could not delete {doctype} {', '.join(names[:3])}")
 
 
 def _purge(holder: str) -> None:
@@ -61,13 +77,14 @@ def _purge(holder: str) -> None:
                 if (file.file_url or "").startswith("/private/files/") and os.path.exists(path):
                     os.remove(path)
                 frappe.db.delete("File", {"name": file.name})
-            frappe.db.delete(ROW_DOCTYPE, {"import_batch": statement.import_batch})
-            frappe.db.delete(STATEMENT_DOCTYPE, {"name": statement.name})
-            frappe.db.delete(BATCH_DOCTYPE, {"name": statement.import_batch})
             frappe.db.commit()
         except Exception:
             frappe.db.rollback()
-            print(f"card test purge: could not delete {statement.name}")
+            print(f"card test purge: could not delete the files of {statement.name}")
+        rows = frappe.get_all(ROW_DOCTYPE, filters={"import_batch": statement.import_batch}, pluck="name")
+        purge_records(ROW_DOCTYPE, rows)
+        purge_records(STATEMENT_DOCTYPE, [statement.name])
+        purge_records(BATCH_DOCTYPE, [statement.import_batch])
 
 
 def _fixture_merchants() -> list[str]:
@@ -415,3 +432,23 @@ class TestItHasItsOwnImport(CardImportCase):
             with self.subTest(module=module.__name__):
                 self.assertEqual(guard.forbidden_imports(module), [])
                 self.assertEqual(guard.forbidden_calls(module), [])
+
+
+class TestDeskPermissions(CardImportCase):
+    """Only the card import's own code writes a statement or the merchant memory: in Desk an Accountant and an
+    Accountant Lead may read them, never create, edit or delete them."""
+
+    def test_accountants_only_read_the_statement_and_the_merchant_memory(self):
+        for profile, role in ((ACCOUNTANT, "Nirmaan Accountant"), (ACCOUNTANT_LEAD, "Nirmaan Accountant Lead")):
+            user = self.users.make(profile)
+            frappe.get_doc("User", user).add_roles(role)
+            frappe.db.commit()
+            for doctype in (STATEMENT_DOCTYPE, MEMORY_DOCTYPE):
+                with self.subTest(role=role, doctype=doctype):
+                    self.assertTrue(frappe.has_permission(doctype, "read", user=user))
+                    for ptype in ("create", "write", "delete"):
+                        self.assertFalse(frappe.has_permission(doctype, ptype, user=user), ptype)
+
+    def test_an_accountant_upload_still_writes_the_statement(self):
+        self._upload(pdf_from_text(self._text()), user=self.users.make(ACCOUNTANT))
+        self.assertEqual(len(self._statements()), 1)

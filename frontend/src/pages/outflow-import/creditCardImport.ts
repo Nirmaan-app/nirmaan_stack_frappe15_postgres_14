@@ -6,6 +6,8 @@
 
 import { format, parseISO } from "date-fns";
 
+import { plural } from "./plural";
+
 /** The source string. The parser adapter key and the batch Select option, pinned by test. */
 export const CARD_SOURCE = "ICICI Credit Card Statement";
 
@@ -96,8 +98,6 @@ export interface CardImport {
     expense_types: string[];
     lines: CardImportLine[];
 }
-
-const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 const day = (value: string | null | undefined) => (value ? format(parseISO(value), "dd-MMM-yyyy") : "—");
 

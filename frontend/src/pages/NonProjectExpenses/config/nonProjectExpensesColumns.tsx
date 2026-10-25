@@ -52,6 +52,7 @@ import { NonProjectExpenses } from "@/types/NirmaanStack/NonProjectExpenses";
 import { isProcurementProfile } from "@/constants/roles";
 import { PorterBadge } from "@/components/common/PorterExpense";
 import { invoiceAttachmentUrl } from "@/utils/porterExpense";
+import { noInvoiceNote } from "./noInvoiceView";
 
 export interface GetNonProjectExpenseColumnsOptions {
   statusTab: string;
@@ -272,6 +273,16 @@ export const getNonProjectExpenseColumns = ({
           </a>
         );
       }
+      // A card spend marked No invoice: who, when and why, instead of the ref (#1570, story 45).
+      const noInvoice = !ref && noInvoiceNote(row.original, getUserName);
+      if (noInvoice) {
+        return (
+          <div className="min-w-0" title={noInvoice.detail}>
+            <div className="font-medium text-amber-700">{noInvoice.label}</div>
+            <div className="truncate text-[11px] text-muted-foreground">{noInvoice.detail}</div>
+          </div>
+        );
+      }
       return (
         <div className="font-medium truncate" title={ref}>
           {ref || "--"}
@@ -280,7 +291,10 @@ export const getNonProjectExpenseColumns = ({
     },
     meta: {
       exportHeaderName: "Invoice Ref",
-      exportValue: (row: NonProjectExpenses) => row.invoice_ref || "--",
+      exportValue: (row: NonProjectExpenses) => {
+        const noInvoice = !row.invoice_ref && noInvoiceNote(row, getUserName);
+        return noInvoice ? `${noInvoice.label} (${noInvoice.detail})` : row.invoice_ref || "--";
+      },
     },
   };
 

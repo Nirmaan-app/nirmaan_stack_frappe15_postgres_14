@@ -101,7 +101,7 @@ TRANSFER_ID_REFERENCE_SOURCES = frozenset({"Cashbook", "Porter Statement"})
 #:
 #: The Credit Card Statement joins it (#1566, ADR-0037): it creates one Non-Project Expense per card spend
 #: and settles nothing.
-NEVER_MATCHED_SOURCES = frozenset({"Cashbook", "Porter Statement", "ICICI Credit Card Statement"})
+NEVER_MATCHED_SOURCES = frozenset({"Cashbook", "Porter Statement", CARD_STATEMENT_SOURCE})
 
 #: Sources whose OPEN lines wait for their own import's Create, and are NOT bank lines until then (#1443).
 #:
@@ -119,13 +119,14 @@ NEVER_MATCHED_SOURCES = frozenset({"Cashbook", "Porter Statement", "ICICI Credit
 #: The Credit Card Statement joins it (#1566): a card line is not a bank line, so a card upload moves
 #: neither *Still open* nor *Total Unreconciled Outflow*. ⚠️ Only its SPENDS wait (#1567): its credits are
 #: `CREDITS_DECIDED_ON_THE_MAIN_TABLE`, so ask `line_waits_for_its_own_create` about a LINE.
-CREATE_GATED_SOURCES = frozenset({"Porter Statement", "ICICI Credit Card Statement"})
+CREATE_GATED_SOURCES = frozenset({"Porter Statement", CARD_STATEMENT_SOURCE})
 
 #: Create-gated sources whose open CREDITS are NOT gated: they are decided on the main table, with the
 #: choices a bank credit has (#1567, README ruling 4). A card's unpaired merchant credit is money that came
 #: back to the company, and its own import has nothing to create from it. Its spends still wait.
-CREDITS_DECIDED_ON_THE_MAIN_TABLE = frozenset({"ICICI Credit Card Statement"})
+CREDITS_DECIDED_ON_THE_MAIN_TABLE = frozenset({CARD_STATEMENT_SOURCE})
 
+# `parser.DIRECTION_CREDIT`, spelled here because this leaf imports nothing (the parser imports it).
 _CREDIT = "Credit"
 
 

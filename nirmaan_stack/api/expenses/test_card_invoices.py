@@ -7,9 +7,8 @@ DB tests: `DEVENV test --module nirmaan_stack.api.expenses.test_card_invoices`. 
 statement (a unique holder) and expenses, and purges them and its users after itself.
 """
 
-import unittest
-
 import frappe
+from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, nowdate
 
 from nirmaan_stack.api.expenses.card_invoices import (
@@ -17,6 +16,7 @@ from nirmaan_stack.api.expenses.card_invoices import (
     get_card_invoice_queue,
     mark_card_no_invoice,
 )
+from nirmaan_stack.api.outflow_import.test_card_import import purge_records
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, ACCOUNTANT_LEAD, ADMIN, OUTSIDER, _Users
 from nirmaan_stack.api.tds.test_submit import _cloud_url
 from nirmaan_stack.services.outflow_import.card_types import FALLBACK_EXPENSE_TYPE
@@ -27,8 +27,9 @@ NPE = "Non Project Expenses"
 STATEMENT = "Credit Card Statement"
 
 
-class CardInvoiceCase(unittest.TestCase):
+class CardInvoiceCase(FrappeTestCase):
     def setUp(self):
+        super().setUp()
         frappe.set_user("Administrator")
         self.users = _Users()
         self.expenses, self.statements = [], []
@@ -37,25 +38,17 @@ class CardInvoiceCase(unittest.TestCase):
         self.statement = self._statement(self.holder, "2026-09-02", "2026-10-01", "2026-10-01")
 
     def _purge(self):
+        """Raw, per scope, with the records' Version and Comment rows (`test_card_import.purge_records`): a
+        `delete_doc` would leave Deleted Document rows behind."""
         frappe.db.rollback()
         frappe.set_user("Administrator")
-        failures = []
-        for doctype, names in ((NPE, self.expenses), (STATEMENT, self.statements)):
-            for name in names:
-                try:
-                    if frappe.db.exists(doctype, name):
-                        frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
-                    frappe.db.commit()
-                except Exception as exc:  # report, never strand the rest
-                    frappe.db.rollback()
-                    failures.append(f"{doctype} {name}: {exc}")
+        purge_records(NPE, self.expenses)
+        purge_records(STATEMENT, self.statements)
         try:
             self.users.purge()
         except Exception as exc:
             frappe.db.rollback()
-            failures.append(f"users: {exc}")
-        if failures:
-            raise AssertionError("purge failed: " + "; ".join(failures))
+            raise AssertionError(f"purge failed: users: {exc}") from exc
 
     def _statement(self, holder, period_from, period_to, statement_date):
         doc = frappe.get_doc(

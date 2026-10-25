@@ -58,6 +58,7 @@ const cardImport = (overrides: Partial<CardImport> = {}): CardImport => ({
     failed: 0,
     to_create: 40,
     create_running: false,
+    suggest_running: false,
     expense_types: ["Misc. Expenses"],
     lines: [],
     ...overrides,

@@ -17,7 +17,7 @@ PURE: no Frappe, no DB. `sort_card_lines(lines)` answers, for every line the rea
 
 ⚠️ ONE CREDIT CANCELS ONE SPEND: the latest spend before it (by date, then as printed), and a spend is
 cancelled at most once. So two identical bookings with one refund leave one spend open. A spend dated after
-the credit is never its partner. Credits are paired in date order, then as printed.
+the credit, or dated the same day but printed after it, is never its partner. Credits are paired in date order, then as printed.
 
 ⚠️ PAYMENTS AND CASHBACK ARE KNOWN BY THEIR WORDS, and only on a credit. A spend's details are never read
 for them: every debit stays a spend.
@@ -129,7 +129,7 @@ def sort_card_lines(lines: Iterable[CardLine]) -> dict[str, LineSort]:
             for spend_position, spend in open_spends
             if spend.merchant_key == credit.merchant_key
             and spend.amount == credit.amount
-            and spend.date <= credit.date
+            and (spend.date, spend_position) < (credit.date, position)
         ]
         if not candidates:
             result[credit.serno] = LineSort(UNPAIRED_CREDIT)

@@ -4,6 +4,8 @@
 // `PorterImportSummary` renders it; `porterImport.test.ts` pins it. Later slices of spec #1442
 // (validation progress, review, create) extend THIS module.
 
+import { plural } from "./plural";
+
 /** The source string. The parser adapter key and the batch Select option, pinned by test. */
 export const PORTER_SOURCE = "Porter Statement";
 
@@ -105,8 +107,6 @@ export interface PorterStatus {
     /** The Create job is queued or running on the server. */
     create_running: boolean;
 }
-
-const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 /**
  * The one line that tells the accountant at once whether this is the month they meant (story 3):

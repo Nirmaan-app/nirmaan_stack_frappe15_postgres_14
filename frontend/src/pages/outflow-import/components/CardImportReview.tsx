@@ -1,6 +1,6 @@
 // src/pages/outflow-import/components/CardImportReview.tsx
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { CheckCircle2, FileText, Loader2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +12,7 @@ import {
     cardCreateProgress,
     cardSuggestNote,
     merchantRetype,
+    merchantScope,
     typeChoiceLabel,
     typeSourceTitle,
 } from "../cardCreate";
@@ -44,6 +45,8 @@ const TYPE_SEARCH: TokenSearchConfig = {
  * Review changes while Create would still write the spend (#1568): `onRetype` saves it at once, and the
  * fallback nobody has chosen is marked "Check". The type arrives from the suggestion job (#1569): its badge
  * names its source (earlier statement, AI, fallback), and one link gives it to every spend of the merchant.
+ * Where a merchant has more than one retypable spend, the picker first asks whether a choice is for this spend
+ * or all of them (story 29), so ten lines of one merchant take one choice, even all still at "Check".
  * Rendered by `ImportStatementDialog`, which holds Create and
  * Discard in its footer.
  */
@@ -148,6 +151,7 @@ export const CardImportReview = ({
                                     <SpendType
                                         line={line}
                                         forMerchant={merchantRetype(card.lines, line)}
+                                        merchantSpends={merchantScope(card.lines, line)}
                                         options={options}
                                         saving={retyping === line.name}
                                         disabled={retyping !== null || card.create_running || !onRetype}
@@ -169,6 +173,7 @@ export const CardImportReview = ({
 const SpendType = ({
     line,
     forMerchant,
+    merchantSpends,
     options,
     saving,
     disabled,
@@ -177,11 +182,14 @@ const SpendType = ({
     line: CardImportLine;
     /** Give this spend's type to every retypable spend of its merchant (#1569); null when not offered. */
     forMerchant: ReturnType<typeof merchantRetype>;
+    /** Every retypable spend of its merchant, when more than one: the picker may type them all at once. */
+    merchantSpends: ReturnType<typeof merchantScope>;
     options: TypeOption[];
     saving: boolean;
     disabled: boolean;
     onChange: (expenseType: string, rows?: string[]) => void;
 }) => {
+    const [forAll, setForAll] = useState(false);
     if (line.is_credit) return <span className="text-muted-foreground">—</span>;
     const badge = typeChoiceLabel(line);
     const chip = badge && (
@@ -217,7 +225,11 @@ const SpendType = ({
                         allOptions={options}
                         tokenSearchConfig={TYPE_SEARCH}
                         value={line.expense_type ? { value: line.expense_type, label: line.expense_type } : null}
-                        onChange={(option) => option && option.value !== line.expense_type && onChange(option.value)}
+                        onChange={(option) => {
+                            if (!option) return;
+                            if (forAll && merchantSpends) onChange(option.value, merchantSpends.rows);
+                            else if (option.value !== line.expense_type) onChange(option.value);
+                        }}
                         placeholder="Choose a type"
                         isDisabled={disabled}
                         menuPortalTarget={document.body}
@@ -226,7 +238,30 @@ const SpendType = ({
                 </div>
                 {saving ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" /> : chip}
             </div>
-            {forMerchant && (
+            {merchantSpends && (
+                <div className="flex items-center gap-1 text-[11px]" role="group" aria-label="Apply the type to">
+                    {[
+                        { all: false, label: "This spend" },
+                        { all: true, label: merchantSpends.label },
+                    ].map((choice) => (
+                        <button
+                            key={choice.label}
+                            type="button"
+                            aria-pressed={forAll === choice.all}
+                            disabled={disabled}
+                            onClick={() => setForAll(choice.all)}
+                            className={
+                                forAll === choice.all
+                                    ? "rounded border border-primary/40 bg-primary/10 px-1.5 py-0.5 font-medium text-primary"
+                                    : "rounded border border-transparent px-1.5 py-0.5 text-muted-foreground hover:text-foreground"
+                            }
+                        >
+                            {choice.label}
+                        </button>
+                    ))}
+                </div>
+            )}
+            {forMerchant && !forAll && (
                 <Button
                     type="button"
                     variant="link"

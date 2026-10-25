@@ -36,11 +36,19 @@ const pyFile = (relative: string) =>
 const permissionsSource = pyFile("api/outflow_import/permissions.py");
 const sourcesSource = pyFile("services/outflow_import/sources.py");
 
-/** The quoted strings inside `NAME = frozenset({ ... })`, or `null` when the assignment is absent. */
+/** The strings inside `NAME = frozenset({ ... })`, quoted or named by a `CONSTANT = "..."` of the same file
+ * (`CARD_STATEMENT_SOURCE`), or `null` when the assignment is absent. A name with no such constant throws. */
 const frozensetStrings = (source: string, name: string): Set<string> | null => {
     const match = source.match(new RegExp(`^${name} = frozenset\\(\\s*\\{([^}]*)\\}`, "m"));
     if (!match) return null;
-    return new Set([...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]));
+    const constant = (id: string) => {
+        const found = source.match(new RegExp(`^${id} = "([^"]+)"`, "m"));
+        if (!found) throw new Error(`${name} names ${id}, which is not a string constant of this file`);
+        return found[1];
+    };
+    return new Set(
+        [...match[1].matchAll(/"([^"]+)"|\b([A-Z][A-Z0-9_]*)\b/g)].map((m) => m[1] ?? constant(m[2])),
+    );
 };
 
 describe("undo access parity -- the screen hides exactly what the server refuses", () => {

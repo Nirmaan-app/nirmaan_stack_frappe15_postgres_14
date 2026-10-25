@@ -5,6 +5,7 @@
 // (`card_review.py`, `card_create.py`) asks every rule again.
 
 import type { CardImport, CardImportLine } from "./creditCardImport";
+import { plural } from "./plural";
 
 export const CARD_CREATE_METHOD = "nirmaan_stack.api.outflow_import.card_create.create_card_expenses";
 export const CARD_SET_TYPE_METHOD = "nirmaan_stack.api.outflow_import.card_review.set_card_expense_type";
@@ -16,8 +17,6 @@ export type CardCreateProgress = Pick<
     CardImport,
     "spends" | "created" | "failed" | "to_create" | "create_running" | "suggest_running" | "discardable"
 >;
-
-const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 /** Create has started: its job is queued or running, or it has written (Discard is gone from then on). */
 export const cardCreateStarted = (card: CardCreateProgress | null | undefined): boolean =>
@@ -72,6 +71,22 @@ export const typeSourceTitle = (line: Pick<CardImportLine, "type_source">): stri
     (line.type_source && TYPE_SOURCE_TITLES[line.type_source]) || null;
 
 /**
+ * Every spend of `line`'s merchant Review may still retype, `line` included, when there is more than one
+ * (story 29): Review's type picker then offers "this spend" or all of them, so ten lines of one merchant take
+ * one choice, the fallback ("Check") ones too. Null on a credit, a spend Create has written, or a merchant
+ * with one retypable spend.
+ */
+export const merchantScope = (
+    lines: readonly CardImportLine[],
+    line: CardImportLine,
+): { rows: string[]; label: string } | null => {
+    if (!line.editable || line.is_credit || !line.merchant) return null;
+    const same = lines.filter((other) => other.editable && !other.is_credit && other.merchant === line.merchant);
+    if (same.length < 2) return null;
+    return { rows: same.map((other) => other.name), label: `All ${same.length} ${line.merchant} spends` };
+};
+
+/**
  * Give `line`'s type to every spend of its merchant Review may still retype (#1569): offered on a retypable
  * spend whose type is not the unchosen fallback ("Check") and whose merchant has another retypable spend of
  * a different type. `rows` includes `line` itself.
@@ -80,12 +95,13 @@ export const merchantRetype = (
     lines: readonly CardImportLine[],
     line: CardImportLine,
 ): { rows: string[]; expenseType: string; label: string } | null => {
-    if (!line.editable || line.is_credit || line.check || !line.merchant || !line.expense_type) return null;
-    const same = lines.filter((other) => other.editable && !other.is_credit && other.merchant === line.merchant);
-    if (!same.some((other) => other.expense_type !== line.expense_type)) return null;
+    const scope = merchantScope(lines, line);
+    if (!scope || line.check || !line.expense_type) return null;
+    const byName = new Map(lines.map((other) => [other.name, other]));
+    if (scope.rows.every((name) => byName.get(name)?.expense_type === line.expense_type)) return null;
     return {
-        rows: same.map((other) => other.name),
+        rows: scope.rows,
         expenseType: line.expense_type,
-        label: `Use for all ${same.length} ${line.merchant} spends`,
+        label: `Use for all ${scope.rows.length} ${line.merchant} spends`,
     };
 };

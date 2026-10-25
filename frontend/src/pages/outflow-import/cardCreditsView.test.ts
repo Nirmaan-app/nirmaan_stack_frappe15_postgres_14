@@ -10,6 +10,7 @@ const line = (over: Partial<CardImportLine>): CardImportLine => ({
     serno: "14099237561",
     date: "2026-09-02",
     details: "MAKEMYTRIP INDIA PVT NEW DELHI IN",
+    merchant: "MAKEMYTRIP",
     amount: 11935,
     is_credit: false,
     row_status: "Pending match run",

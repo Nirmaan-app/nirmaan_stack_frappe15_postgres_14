@@ -11,6 +11,7 @@ import {
     cardPolling,
     cardSuggestNote,
     merchantRetype,
+    merchantScope,
     typeChoiceLabel,
     typeSourceTitle,
     type CardCreateProgress,
@@ -166,5 +167,29 @@ describe("retyping every spend of one merchant (#1569)", () => {
 
     it("is not offered from a spend still at the fallback: there is no choice to spread", () => {
         expect(merchantRetype(lines, lines[1])).toBeNull();
+    });
+});
+
+describe("choosing a type for every spend of one merchant in one step (story 29)", () => {
+    // Ten MakeMyTrip lines, all still at the fallback: one choice types them all.
+    const lines = [
+        ...Array.from({ length: 10 }, (_, i) => spend(`m${i}`, "MAKEMYTRIP")),
+        spend("s", "SWIGGY"),
+        spend("done", "MAKEMYTRIP", { editable: false, row_status: "Settled" }),
+        spend("cr", "MAKEMYTRIP", { is_credit: true, merchant: null, expense_type: null, editable: false }),
+    ];
+
+    it("offers every retypable spend of the merchant, from any of them, all at Check too", () => {
+        const scope = merchantScope(lines, lines[3]);
+        expect(scope).toEqual({
+            rows: ["m0", "m1", "m2", "m3", "m4", "m5", "m6", "m7", "m8", "m9"],
+            label: "All 10 MAKEMYTRIP spends",
+        });
+    });
+
+    it("is not offered for a merchant with one retypable spend, a credit, or a spend Create has written", () => {
+        expect(merchantScope(lines, lines[10])).toBeNull();
+        expect(merchantScope(lines, lines[11])).toBeNull();
+        expect(merchantScope(lines, lines[12])).toBeNull();
     });
 });

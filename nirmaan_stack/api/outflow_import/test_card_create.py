@@ -21,7 +21,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.outflow_import import card_create, card_import, card_review
-from nirmaan_stack.api.outflow_import.test_card_import import CardImportCase
+from nirmaan_stack.api.outflow_import.test_card_import import CardImportCase, purge_records
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, ACCOUNTANT_LEAD, OUTSIDER
 from nirmaan_stack.services.outflow_import.tests.card_pdf_builder import pdf_from_text
 
@@ -35,18 +35,31 @@ PROJECT_ONLY = "Scaffolding Rent"
 
 
 def _purge_created(batch: str) -> None:
-    """The batch's match records and the Expenses they name. Raw, per scope; rolls back first."""
+    """The batch's match records and the Expenses they name, with their Version and Comment rows. Raw, per
+    scope (`test_card_import.purge_records`); rolls back first."""
     frappe.db.rollback()
-    expenses = frappe.get_all(
-        MATCH_DOCTYPE, filters={"import_batch": batch, "target_doctype": EXPENSE}, pluck="target_name"
+    matches = frappe.get_all(
+        MATCH_DOCTYPE, filters={"import_batch": batch}, fields=["name", "target_doctype", "target_name"]
     )
-    for doctype, filters in ((EXPENSE, {"name": ["in", expenses or [""]]}), (MATCH_DOCTYPE, {"import_batch": batch})):
-        try:
-            frappe.db.delete(doctype, filters)
-            frappe.db.commit()
-        except Exception:
-            frappe.db.rollback()
-            print(f"card create test purge: could not delete {doctype} of {batch}")
+    purge_records(EXPENSE, [m.target_name for m in matches if m.target_doctype == EXPENSE])
+    purge_records(MATCH_DOCTYPE, [m.name for m in matches])
+
+
+def _purge_what_the_delete_left(expense: str) -> None:
+    """A real delete (Unreconcile's) leaves a `Nirmaan Versions` copy, a `Deleted Document` row and a Deleted
+    feed Comment behind, besides the Expense's own Version and Comment rows."""
+    frappe.db.rollback()
+    try:
+        frappe.db.delete("Nirmaan Versions", {"ref_doctype": EXPENSE, "docname": expense})
+        frappe.db.delete("Deleted Document", {"deleted_doctype": EXPENSE, "deleted_name": expense})
+        frappe.db.delete(
+            "Comment", {"comment_type": "Deleted", "reference_doctype": EXPENSE, "subject": f"{EXPENSE} {expense}"}
+        )
+        frappe.db.commit()
+    except Exception:
+        frappe.db.rollback()
+        print(f"card create test purge: could not delete what deleting {expense} left")
+    purge_records(EXPENSE, [expense])
 
 
 class CardCreateCase(CardImportCase):
@@ -269,6 +282,7 @@ class TestUnreconcilingACreatedSpend(CardCreateCase):
         line = self._line("PARK RESIDENCY Cochin IN")
         first = line.suggested_name
         unreconcile_row(row=line.name, legs="all", reason="wrong card line")
+        self.addCleanup(_purge_what_the_delete_left, first)
 
         self.assertFalse(frappe.db.exists(EXPENSE, first))
         reopened = self._line("PARK RESIDENCY Cochin IN")

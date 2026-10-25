@@ -16,12 +16,12 @@ from decimal import Decimal
 from pathlib import Path
 
 from nirmaan_stack.services.outflow_import.card_pdf import statement_text
-from nirmaan_stack.services.outflow_import.tests.card_pdf_builder import pdf_from_text
 from nirmaan_stack.services.outflow_import.card_statement import (
     CardStatementError,
     merchant_key,
     read_card_statement,
 )
+from nirmaan_stack.services.outflow_import.tests.card_pdf_builder import pdf_from_text
 
 FIXTURE = Path(__file__).parent / "tests" / "fixtures" / "icici_card_statement.txt"
 
@@ -185,6 +185,16 @@ class TestReadingThePdf(unittest.TestCase):
         with self.assertRaises(CardStatementError) as caught:
             statement_text(pdf_from_text(_text(), password="secret"))
         self.assertEqual(str(caught.exception), "This PDF is password-locked. Unlock it and upload again.")
+
+    def test_a_pdf_with_a_user_password_and_an_owner_password_is_refused(self):
+        with self.assertRaises(CardStatementError) as caught:
+            statement_text(pdf_from_text(_text(), password="secret", owner_password="owner"))
+        self.assertEqual(str(caught.exception), "This PDF is password-locked. Unlock it and upload again.")
+
+    def test_a_pdf_encrypted_with_an_empty_user_password_is_read(self):
+        statement = read_card_statement(statement_text(pdf_from_text(_text(), owner_password="owner")))
+        self.assertEqual(statement.holder, "ARJUN TESTHOLDER")
+        self.assertEqual(len(statement.lines), 47)
 
     def test_bytes_that_are_not_a_pdf_are_refused(self):
         with self.assertRaises(CardStatementError) as caught:

@@ -383,7 +383,7 @@
    "read_only": 1
   },
   {
-   "description": "Credit Card Statement spends only: where suggested_expense_type came from. Fallback (Misc. Expenses) is shown as Check. Pinned to card_review.TYPE_SOURCES by test.",
+   "description": "Credit Card Statement spends only: where suggested_expense_type came from. Fallback (Misc. Expenses) is shown as Check. Pinned to card_types.TYPE_SOURCES by test.",
    "fieldname": "type_source",
    "fieldtype": "Select",
    "label": "Type Source",
@@ -402,7 +402,7 @@
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-10-25 16:23:59.853781",
+ "modified": "2026-10-25 19:54:04.331794",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Outflow Import Row",

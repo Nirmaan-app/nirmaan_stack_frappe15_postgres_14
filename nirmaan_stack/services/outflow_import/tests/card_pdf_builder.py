@@ -5,7 +5,8 @@
 
 The real statement PDF never enters the repo. This writes the fixture's text, one PDF text line per
 line, in Helvetica with WinAnsi encoding (the fixture's only non-ASCII characters, `Á` and `©`, are
-Latin-1), so `pypdf` reads the same lines back. `password` locks it, as the bank's own file is locked.
+Latin-1), so `pypdf` reads the same lines back. `password` locks it, as the bank's own file is locked;
+`owner_password` alone encrypts it with an empty user password (it opens without one, as some banks send).
 """
 
 import io
@@ -20,7 +21,7 @@ def _escape(line: str) -> bytes:
     return raw.replace(b"\\", b"\\\\").replace(b"(", b"\\(").replace(b")", b"\\)")
 
 
-def pdf_from_text(text: str, password: str | None = None) -> bytes:
+def pdf_from_text(text: str, password: str | None = None, owner_password: str | None = None) -> bytes:
     lines = text.replace("\f", "\n").split("\n")
     pages = [lines[i : i + _LINES_PER_PAGE] for i in range(0, len(lines), _LINES_PER_PAGE)] or [[]]
     objects: list[bytes] = []
@@ -60,10 +61,10 @@ def pdf_from_text(text: str, password: str | None = None) -> bytes:
         out.write(b"%010d 00000 n \n" % offset)
     out.write(b"trailer\n<< /Size %d /Root %d 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objects) + 1, catalog, xref))
     content = out.getvalue()
-    if not password:
+    if not password and not owner_password:
         return content
     writer = PdfWriter(clone_from=PdfReader(io.BytesIO(content)))
-    writer.encrypt(password)
+    writer.encrypt(password or "", owner_password=owner_password)
     locked = io.BytesIO()
     writer.write(locked)
     return locked.getvalue()

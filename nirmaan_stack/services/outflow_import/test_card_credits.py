@@ -110,6 +110,21 @@ class TestRefundPairs(unittest.TestCase):
         # The latest before it: the later of the two as printed.
         self.assertEqual(result[refund.serno].partner, two)
 
+    def test_on_a_same_day_tie_a_spend_printed_after_the_credit_is_not_its_partner(self):
+        before = _line(5, "SWIGGY BANGALORE IN", "420.00")
+        refund = _line(5, "SWIGGY BANGALORE IN", "420.00", credit=True)
+        after = _line(5, "SWIGGY BANGALORE IN", "420.00")
+        result = sort_card_lines([before, refund, after])
+        self.assertEqual(result[refund.serno].partner, before)
+        self.assertEqual(result[after.serno].kind, SPEND)
+
+    def test_a_same_day_spend_printed_only_after_the_credit_leaves_it_open(self):
+        refund = _line(5, "SWIGGY BANGALORE IN", "420.00", credit=True)
+        after = _line(5, "SWIGGY BANGALORE IN", "420.00")
+        result = sort_card_lines([refund, after])
+        self.assertEqual(result[refund.serno].kind, UNPAIRED_CREDIT)
+        self.assertEqual(result[after.serno].kind, SPEND)
+
     def test_two_credits_cancel_two_spends(self):
         one = _line(5, "SWIGGY BANGALORE IN", "420.00")
         two = _line(7, "SWIGGY BANGALORE IN", "420.00")

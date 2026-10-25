@@ -7257,7 +7257,8 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
    drops PVT / PRIVATE / P / LTD / LIMITED, so "PVT LTD" == "Private Limited"), a non-zero *Cash Advances*,
    and spends != *Purchases / Charges* or credits != *Payments / Credits* to the paisa (both figures in the
    message, `amounts.rupees(paise=True)`). A locked PDF: "This PDF is password-locked. Unlock it and upload
-   again." No override exists.
+   again." No override exists. A PDF encrypted with an EMPTY user password (an owner password only) opens
+   without one, so `statement_text` tries `decrypt("")` first and refuses only if that fails.
 2. **Layout, measured on the 2026-10-01 statement** (fixture `services/outflow_import/tests/fixtures/icici_card_statement.txt`,
    names faked): pypdf reads the rupee sign as `Á`. Holder and company are the two lines under `State Code:`
    (the address block), holder with its honorific dropped. The summary is the line under `Previous Balance
@@ -7343,7 +7344,7 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
     or starting `AUTO DR RETN` is a payment; `CASHBACK` / `CASH BACK` is cashback. Any other credit pairs with
     an open spend of the SAME merchant key and EXACTLY the same amount dated on or before it, the latest one
     (date, then print order); credits pair in date order; a spend is cancelled at most once; a spend after the
-    credit never pairs. ⚠️ Sorting runs over the lines STAGED in this import (`new.lines`), not the whole
+    credit never pairs, nor one dated the same day but printed after it. ⚠️ Sorting runs over the lines STAGED in this import (`new.lines`), not the whole
     statement: a refund never pairs with a spend left out as an earlier import's repeat. `card_credits.skip_values`
     stages each skip as `Skipped` / `System` with its kind and sentence (both `skip_reason` and `outcome_note`):
     kinds `Card payment received`, `Card cashback`, `Card refund pair` (new `skip_kind` options), sentences
@@ -7401,12 +7402,19 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
     (`credit_card_statement` set) is saved with a different `type` (the insert is not an edit), with the
     session user. The Expense's merchant is read back through its Settled match record
     (`card_memory.merchant_of_expense`).
+    Desk: `Credit Card Statement` and `Card Merchant Memory` are READ-ONLY to Accountant and Accountant Lead
+    (System Manager full): only the import's code writes them, with `ignore_permissions` or raw SQL.
 18. **Screens (#1569).** `cardCreate.ts`: `cardPolling` also while `suggest_running`, `cardSuggestNote`,
     `canCreateCard` false while suggesting, `typeSourceTitle` (the badge's title names the source; the fallback
     badge reads "Check"), `merchantRetype(lines, line)` — the link "Use for all N {MERCHANT} spends" under a
     retypable spend not at "Check" (a chosen, remembered or AI type; there is nothing to spread from the fallback)
     whose merchant has another retypable spend of a different type; it calls the existing
     `card_review.set_card_expense_type` with every such line (`useCardImport.retype(line, type, rows)`).
+    Story 29 in one choice: `merchantScope(lines, line)` (every retypable spend of the merchant, when more than
+    one) puts a "This spend" / "All N {MERCHANT} spends" toggle under the picker of ANY of them, "Check" ones
+    included; with "All" chosen, the type picked is saved on all of them in one call.
+    The Non Project Expenses table's Invoice Ref column shows a marked spend (#1570) as "No invoice" with
+    "{who}, {date}: {reason}" (`pages/NonProjectExpenses/config/noInvoiceView.noInvoiceNote`).
 
 **Tests.** `services/outflow_import/test_card_statement` (unit, the fixture and a PDF built from it by
 `tests/card_pdf_builder.pdf_from_text`), `api/outflow_import/test_card_import` (DB: upload, refusals, repeats,

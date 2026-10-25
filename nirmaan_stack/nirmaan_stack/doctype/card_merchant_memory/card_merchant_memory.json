@@ -50,7 +50,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-25 16:56:52.818477",
+ "modified": "2026-10-25 19:54:04.263892",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Card Merchant Memory",
@@ -70,28 +70,18 @@
    "write": 1
   },
   {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Nirmaan Accountant",
-   "share": 1,
-   "write": 1
+   "role": "Nirmaan Accountant"
   },
   {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Nirmaan Accountant Lead",
-   "share": 1,
-   "write": 1
+   "role": "Nirmaan Accountant Lead"
   }
  ],
  "row_format": "Dynamic",
