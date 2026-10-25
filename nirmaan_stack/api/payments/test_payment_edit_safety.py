@@ -515,7 +515,7 @@ class TestTheEndStateHolds(EditSafetyCase):
         self.assertEqual(frappe.db.get_value(PAYMENT, pay, "mode_of_payment") or "Online", "Online")
 
     def test_settled_money_on_no_live_cheque_is_not_rejected_by_hand(self):
-        """The cheque exemption is for a payment a live (Pending or Issued) Cheque still holds: one marked
+        """The cheque exemption is for a payment a live (Approval Pending or Issued) Cheque still holds: one marked
         Cheque whose Cheque is Cancelled is money gone like any other."""
         pay = self._po_payment(WITHIN_L1, "Reconciliation Pending")
         cancelled = self._cheque_row("Cancelled")

@@ -16,6 +16,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt, nowdate
 
+from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
 from nirmaan_stack.api.outflow_import.expenses import settle_row_partial
 from nirmaan_stack.api.outflow_import.test_settle_payment import PartialSettlementFixture
 from nirmaan_stack.api.outflow_import.unreconcile import unreconcile_row
@@ -402,7 +403,8 @@ class TestTheSystemsOwnMoves(PaymentStepCase):
         pay = self._plant(WITHIN_L1, "Approved")
         frappe.db.set_value(PAYMENT, pay, {"mode_of_payment": "Cheque", "cheque_no": "004521",
             "cheque_date": nowdate()}, update_modified=False)
-        frappe.db.commit()
+        # A payment in Cheque mode always has its cheque (#1552): planted raw, it goes on one by hand.
+        ChequeFixture.attach(self).put_on_old_type_cheque(pay)
         self.assertTrue(self._as(self._user(PROCUREMENT_EXECUTIVE_PROFILE), move_to_reconciliation, pay))
         self.assertEqual(self._status(pay), "Reconciliation Pending")
 

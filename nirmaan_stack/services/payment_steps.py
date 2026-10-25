@@ -237,7 +237,7 @@ SETTLED_BACK_REFUSAL = (
 def _rejects_settled_money(before, doc) -> bool:
     """A move from Reconciliation Pending or Paid to Rejected. A cheque payment at Reconciliation Pending
     is not money gone yet: its cheque waits to clear, and rejecting it cancels the cheque (#1481). It is one
-    only while a live (Pending or Issued) Cheque holds it (review round 5, AA1), its mode read BEFORE the
+    only while a live (Approval Pending or Issued) Cheque holds it (review round 5, AA1), its mode read BEFORE the
     save (round 4, X6): a mode and `cheque` link a save wrote by hand, onto a Cancelled cheque, are not that."""
     was, now = before.status, doc.status
     if now != REJECTED or was not in settlement.SETTLED_STATUSES:

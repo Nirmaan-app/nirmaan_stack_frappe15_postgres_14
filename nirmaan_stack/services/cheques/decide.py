@@ -102,7 +102,7 @@ def live_cheque_of(payment_name: str) -> str | None:
 
 
 def held_by_a_live_cheque(payment_name: str) -> bool:
-    """Is `payment_name` a line of a Pending or Issued Cheque, of any type? Such a payment's money has not
+    """Is `payment_name` a line of an Approval Pending or Issued Cheque, of any type? Such a payment's money has not
     left the bank: its cheque waits to clear (`payment_steps`, the reject of one at Reconciliation Pending)."""
     return bool(frappe.db.sql(
         f"""SELECT 1 FROM "tabCheque Line" l JOIN "tab{CHEQUES}" c ON c.name = l.parent
