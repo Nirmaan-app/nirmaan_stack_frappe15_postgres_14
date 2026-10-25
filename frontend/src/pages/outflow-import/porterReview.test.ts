@@ -6,6 +6,9 @@ import { describe, expect, it } from "vitest";
 
 import { PORTER_STEPS, currentStepIndex } from "./importWizard";
 import {
+    choiceItems,
+    choiceSummary,
+    nextConfirmLabel,
     keepShownOrder,
     placementLabel,
     porterReviewOffered,
@@ -35,6 +38,7 @@ const line = (over: Partial<PorterReviewLine>): PorterReviewLine => {
         reason: null,
         strength: null,
         editable: true,
+        needs_person: false,
         ...over,
     };
 };
@@ -202,6 +206,74 @@ describe("when review is offered", () => {
         expect(currentStepIndex("Porter Statement", uploaded)).toBe(1);
         expect(currentStepIndex("Porter Statement", { ...uploaded, validated: true })).toBe(2);
         expect(PORTER_STEPS[2].key).toBe("review");
+    });
+});
+
+describe("which orders Choose projects lists (#1560)", () => {
+    // The server decides who needs a person (`porter_state.placement_kinds`): a remark group with a Check,
+    // an order with no placement, a group placed differently. The screen lists exactly those, and keeps a
+    // group a person already chose on screen so the choice can be seen and changed.
+    it("lists a group that needs a person and leaves a sure one out", () => {
+        const strong = [zephyr(), zephyr()];
+        const doubt = [
+            line({ remarks: "misc", group_key: "bangalore|misc", needs_person: true }),
+            line({ remarks: "misc", group_key: "bangalore|misc", needs_person: true }),
+        ];
+        const blank = line({ needs_person: true });
+        const listed = choiceItems([...strong, ...doubt, blank]);
+        expect(listed.map((item) => item.key).sort()).toEqual(["group:bangalore|misc", `order:${blank.name}`].sort());
+    });
+
+    it("keeps a group a person chose, Not a project included", () => {
+        const chosen = line({ reason: "review", ledger: "Non Project Expenses" });
+        expect(choiceItems([chosen, zephyr()]).map((item) => item.key)).toEqual([`order:${chosen.name}`]);
+    });
+
+    it("never lists a created order", () => {
+        const created = line({ reason: "review", editable: false });
+        expect(choiceItems([created])).toEqual([]);
+    });
+});
+
+describe("what Choose projects says (#1560)", () => {
+    it("counts the orders that need a project and the ones placed automatically", () => {
+        const lines = [
+            zephyr(),
+            zephyr(),
+            zephyr({ remarks: "x", group_key: "bangalore|x" }),
+            line({ needs_person: true }),
+            line({ needs_person: true }),
+        ];
+        expect(choiceSummary(lines)).toEqual({
+            heading: "2 orders need a project",
+            note: "3 orders were placed automatically. You'll see them on the next screen.",
+        });
+    });
+
+    it("says one order in the singular", () => {
+        expect(choiceSummary([zephyr(), line({ needs_person: true })])).toEqual({
+            heading: "1 order needs a project",
+            note: "1 order was placed automatically. You'll see it on the next screen.",
+        });
+    });
+
+    it("reads 0 once a person has placed every one", () => {
+        const chosen = line({ reason: "review" });
+        expect(choiceSummary([zephyr(), chosen]).heading).toBe("0 orders need a project");
+        // Nothing was placed automatically: no note about it.
+        expect(choiceSummary([line({ needs_person: true })]).note).toBeNull();
+    });
+
+    it("says all were placed automatically when nothing needed a person", () => {
+        expect(choiceSummary([zephyr(), zephyr(), zephyr()])).toEqual({
+            heading: "All 3 orders placed automatically.",
+            note: null,
+        });
+    });
+
+    it("labels Next with how many are left", () => {
+        expect(nextConfirmLabel(5)).toBe("Next: confirm (5 left)");
+        expect(nextConfirmLabel(0)).toBe("Next: confirm");
     });
 });
 

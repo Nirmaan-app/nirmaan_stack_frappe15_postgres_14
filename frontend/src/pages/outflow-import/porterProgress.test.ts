@@ -13,6 +13,7 @@ const summary = (over: {
     check: {
         invoices: 10,
         passed: 10,
+        passed_with_warnings: 0,
         in_progress: 0,
         to_retry: 0,
         not_matching: 0,
@@ -52,6 +53,17 @@ describe("progressPhases", () => {
             "8 passed · 1 to retry · 1 doesn't match",
         ]);
         expect(shown(summary({ check: { passed: 7, not_matching: 3 } }))[1][2]).toBe("7 passed · 3 don't match");
+    });
+
+    it("counts the invoices that passed with warnings, without making them anyone's turn", () => {
+        expect(shown(summary({ check: { passed_with_warnings: 2 } }))[1]).toEqual([
+            "Check invoices",
+            "done",
+            "10 of 10 passed · 2 with warnings",
+        ]);
+        expect(shown(summary({ check: { passed: 8, passed_with_warnings: 1, not_matching: 2 } }))[1][2]).toBe(
+            "8 passed · 1 with warnings · 2 don't match",
+        );
     });
 
     it("an invoice to retry, and nothing that doesn't match, is the person's turn", () => {

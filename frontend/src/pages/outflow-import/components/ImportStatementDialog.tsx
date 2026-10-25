@@ -86,7 +86,7 @@ import {
     type PorterFileCheck,
     type PorterFileRules,
 } from "../porterPrecheck";
-import { porterReviewOffered } from "../porterReview";
+import { nextConfirmLabel, porterReviewOffered } from "../porterReview";
 import { CashbookReviewTree } from "./CashbookReviewTree";
 import { ConfirmMatchedPanel } from "./ConfirmMatchedPanel";
 import { PorterDiscardButton } from "./PorterDiscardButton";
@@ -317,6 +317,8 @@ export const ImportStatementDialog = ({
         { refreshInterval: (latest) => (porterPolling(latest?.message) ? PORTER_STATUS_POLL_MS : 0) }
     );
     const porterStatus = porterBatch ? porterData?.message ?? null : null;
+    /** Orders that still need a person in Choose projects: the server's one rule (#1560), re-read on each choice. */
+    const porterNeedsPerson = porterStatus?.progress?.projects.needs_person ?? 0;
     const { mutate: seedCache } = useSWRConfig();
     const { call: retryPorterInvoice } = useFrappePostCall<{ message: PorterStatus }>(PORTER_RETRY_METHOD);
     /** The invoice whose Retry is in flight, so its button can say so. */
@@ -1264,18 +1266,39 @@ export const ImportStatementDialog = ({
                     <div className="flex shrink-0 items-center justify-end gap-2 border-t px-6 py-3">
                         {/* Discard (#1447, #1557): any module user, until Create has written anything. */}
                         <PorterDiscardButton status={porterStatus} onDiscarded={handlePorterDone} />
-                        {canCreatePorter(porterStatus) && (
-                            <Button onClick={handlePorterCreate} disabled={startingCreate}>
-                                {startingCreate && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-                                {createButtonLabel(porterStatus)}
-                            </Button>
+                        {porterStatus.state === "Validated" && canCreatePorter(porterStatus) ? (
+                            <>
+                                {/* Choose projects (#1560): choices are already saved, so closing loses
+                                    nothing; Next stays locked while the server counts an order that needs
+                                    a person (it refuses Create then too). Until the confirm step exists
+                                    (#1564), Next runs Create. */}
+                                <Button variant="ghost" onClick={handlePorterDone}>
+                                    Save and close
+                                </Button>
+                                <Button
+                                    onClick={handlePorterCreate}
+                                    disabled={startingCreate || porterNeedsPerson > 0}
+                                >
+                                    {startingCreate && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                                    {nextConfirmLabel(porterNeedsPerson)}
+                                </Button>
+                            </>
+                        ) : (
+                            <>
+                                {canCreatePorter(porterStatus) && (
+                                    <Button onClick={handlePorterCreate} disabled={startingCreate}>
+                                        {startingCreate && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                                        {createButtonLabel(porterStatus)}
+                                    </Button>
+                                )}
+                                <Button
+                                    variant={canCreatePorter(porterStatus) ? "outline" : "default"}
+                                    onClick={handlePorterDone}
+                                >
+                                    Done
+                                </Button>
+                            </>
                         )}
-                        <Button
-                            variant={canCreatePorter(porterStatus) ? "outline" : "default"}
-                            onClick={handlePorterDone}
-                        >
-                            Done
-                        </Button>
                     </div>
                 )}
 

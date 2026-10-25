@@ -6642,8 +6642,14 @@ that rule skips the wallet top-ups and stays unchanged.
    order column. The expense points at its order through one `porter_order` Link. No marker fields on the
    expense doctypes.
 3. **The validation gate is all or nothing, with NO override.**
-   - Checked per invoice: invoice number, Porter GSTIN, customer GSTIN, fare and tax, fare and tax
-     within ₹1.
+   - **Only the Porter fare and the invoice date decide (#1559, spec #1554).** Failed: the fare is more
+     than ₹1 off, or the PDF's invoice date is outside [first order date, last order date +
+     `porter_verdict.INVOICE_DATE_SLACK_DAYS` (7)], the period being the batch's `period_from` /
+     `period_to`. Error: the PDF was not downloaded or read, or the fare or the date was not read.
+     Passed otherwise.
+   - Invoice number, Porter GSTIN, customer GSTIN and tax (±₹1) differences, and unreadable values for
+     them, are **warnings only**, stored on `Porter Invoice.validation_warnings`: the GST on a Porter Order
+     comes from the statement whatever the PDF says.
    - Compared against the statement's **completed** orders only. A cancelled order is a skipped row and
      counts toward nothing.
    - Measured on the 2026-09 file: all 10 invoices pass. The tax rounding gap was at most ₹0.18.
@@ -6669,7 +6675,9 @@ that rule skips the wallet top-ups and stays unchanged.
      - Site-address match. It overrides a name only when most of a remark group's orders agree.
      - Earlier confirmed or rectified Porter Orders.
    - **How suggestions are shown:** weak ones are marked "Check". Orders with no remark are reviewed one
-     by one. Blank means Non-Project.
+     by one. Since #1560 only the orders that need a person are listed, and a blank is no longer
+     Non-Project: a person chooses **Not a project**, and Create is refused until every order is placed
+     (see "As built — #1560").
    - **Measured on the 2026-09 file:** 144 of 158 placed.
    - ⚠️ Index **Won projects only**, as Cashbook's `_build_plan` does. Indexing every project makes the
      Tendering duplicate "EXL KOCHI" hide the Won "EXL Kochi".
@@ -7257,8 +7265,9 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
   invoices, cancelled), `check` (invoices, passed, in_progress, to_retry = Error, not_matching = Failed,
   seconds_left), `projects` (orders, placed_automatically, placed_by_person, needs_person), `create` (orders,
   created, waiting, failed, reopened, running). Each phase is a flat dict: later tickets ADD keys, never reshape.
-- **Placement kinds** (`porter_state.placement_kind`): `review` reason = by a person; Strong = automatic;
-  anything else (Check, or no placement) = needs a person. #1560 widens needs-a-person to mixed remark groups.
+- **Placement kinds** (`porter_state.placement_kinds`): `review` reason = by a person; Strong = automatic;
+  anything else (Check, or no placement) = needs a person. #1560 widens needs-a-person to remark groups in
+  doubt (below).
 - **`seconds_left`** is a rough estimate: in-progress invoices ÷ `VALIDATION_CONCURRENCY` ×
   `CHECK_SECONDS_PER_INVOICE` (60 s), None once nothing is in progress.
 - ⚠️ **"Creating" only while a Create job is queued or running** (`create.running`). The stored-state word
@@ -7267,6 +7276,52 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
   badge in the dialog and Import History shows `porterProgress.shownPorterState` ("Needs you").
 - The review panel's `onPlaced` re-reads the status, so a placement moves the Choose-projects count at once.
 - The bar replaces `WizardSteps` for Porter only; `importSteps`/`currentStepIndex` still decide the body.
+
+### As built — #1559: only the fare and the date can fail an invoice (spec #1554, 2026-10-25)
+
+- **The verdict** (`services/outflow_import/porter_verdict.judge_invoice`, pure) takes `InvoiceFigures`, now
+  with `first_order_date` / `last_order_date`, and returns `InvoiceVerdict(status, message, warnings)`. It
+  needs no download, so an invoice can be judged again from its stored `read_*` fields (#1562). A None
+  period leaves the date unchecked. `invoice_date_window` is the one place the window is computed.
+- **Warnings** (`InvoiceWarning(figure, statement, read)`, `read` None = not read) are stored by the job's
+  final `_move` on `Porter Invoice.validation_warnings` (JSON, `{"warnings": [...]}`, NULL when none;
+  `stored_warnings` / `warnings_from_stored`). Every other move clears them. `get_porter_status` returns
+  them per invoice as `warnings`, plus `invoice_date_window` {from, to}, so the screen marks a failing date
+  without a copy of the 7 days.
+- **Progress:** `check.passed_with_warnings` = Passed invoices whose `validation_warnings IS NOT NULL`.
+- `porter_validation._read_invoice` now turns the read date into a `date` (`normalize_date` answers a string).
+- **Screen** (`porterImport.ts`, `PorterImportSummary.tsx`): badges "Couldn't read the PDF" (Error, amber) /
+  "Doesn't match" (Failed, red) / "Passed"; a red banner per Failed invoice naming the fare or date (statement
+  vs PDF) and the next step; a Fare / Invoice date table on Failed and read Error cards, the failing row
+  highlighted; one grey "GST taken from the statement. …" line on a Passed card with warnings; plain Passed
+  cards folded under "N more invoices passed". Retry is still Error-only until #1562.
+
+### As built — #1560: Choose projects lists only the orders that need a person (spec #1554, 2026-10-25)
+
+- ⚠️ **ONE needs-a-person rule: `porter_state.placement_kinds`** (pure), read through
+  `porter_records.porter_placements(batches)` (one query). Review's filter (`needs_person` on each line of
+  `get_porter_review`), Create's refusal (`orders_needing_a_person`) and the progress bar's
+  `projects.needs_person` all come from it; never write a second copy (the screen reads `needs_person`, it
+  does not recompute it). An open order (Create would still write it) needs a person when no person chose it
+  and it is not Strong, or its remark group is in doubt: any open order of the group is Check or unplaced,
+  or the group's open orders go to different destinations. Strong placements, Strong Non-Project from
+  history included, need no one. A created order never needs a person and casts no doubt on its group.
+- **Not a project** (GLOSSARY) is `set_porter_placement` with a blank project: reason `review`, no project,
+  Non-Project ledger. The screen offers it as its own button; the project picker lists Won projects only.
+- ⚠️ **Create is refused while any order needs a person** ("N orders still need a project. …"). This
+  replaces "a blank becomes Non-Project at Create": upload still stages an unplaced order on the
+  Non-Project ledger, but no such order reaches Create unless a person chose it. Old imports already
+  Validated with Check or unplaced orders now need those orders chosen before Create.
+- **Screen.** `PorterReviewPanel` lists `porterReview.choiceItems` (groups with an order that needs a person,
+  plus groups a person already chose and can still change); heading and note from `choiceSummary` ("N orders
+  need a project" / "M orders were placed automatically. …", or "All N orders placed automatically."). The
+  footer on a Validated import reads "Save and close" and `nextConfirmLabel` ("Next: confirm (N left)"),
+  N = `progress.projects.needs_person`, disabled until 0; until the confirm step (#1564) Next runs Create.
+  A Creating import (re-run after Error / Unreconcile) keeps the old Create button.
+- Tests: `services/outflow_import/test_porter.TestWhichOrdersNeedAPerson` (pure), DB
+  `test_porter_review.TestWhichOrdersNeedAPerson`, `test_porter_create.TestCreateWaitsForEveryOrderThatNeedsAPerson`;
+  `PorterCreateCase._press_create` confirms every order that needs a person first (`confirm_first=False` to
+  test the refusal). Vitest: `porterReview.test.ts`.
 
 ### As built — #1561: the orders Create could not create (spec #1554, 2026-10-25)
 
