@@ -5,6 +5,8 @@
 // `historyChips` as one line per Porter row. Both read the server's per-phase summary
 // (`porter_state.import_progress`), `progress` on `get_porter_status` and on `list_imports`.
 
+import { plural } from "./porterWords";
+
 /**
  * The server's per-phase summary. Each phase is a flat set of counts, so a later ticket adds one (warnings,
  * a mixed remark group needing a person) without reshaping it.
@@ -55,8 +57,6 @@ export interface PhaseView {
     /** The phase on one Import History chip. */
     chip: string;
 }
-
-const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 const NOT_STARTED = "Not started";
 const AFTER_CHECK = "After the check";

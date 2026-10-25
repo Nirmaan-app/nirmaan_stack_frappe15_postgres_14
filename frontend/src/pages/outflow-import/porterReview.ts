@@ -6,10 +6,15 @@
 // ⚠️ THE SERVER DECIDES WHICH GROUP AN ORDER IS IN (`porter.remark_group_key`: normalised remark and city;
 // blank when the order has no remark). This module only lays the groups out and orders them.
 
+import { orders } from "./porterWords";
+
 export const PORTER_REVIEW_METHOD = "nirmaan_stack.api.outflow_import.porter_review.get_porter_review";
 export const PORTER_PLACE_METHOD = "nirmaan_stack.api.outflow_import.porter_review.set_porter_placement";
 
 const PROJECT_LEDGER = "Project Expenses";
+
+/** Where an order stands in Choose projects, as `porter_state.placement_kinds` names it. */
+export type PlacementKind = "placed_automatically" | "placed_by_person" | "needs_person";
 
 /** One completed order as `get_porter_review` reports it. */
 export interface PorterReviewLine {
@@ -32,11 +37,12 @@ export interface PorterReviewLine {
     /** Create would still write it (waiting, in Error, or reopened), so its placement can still change. */
     editable: boolean;
     /**
-     * THE SERVER'S needs-a-person rule (`porter_state.placement_kinds`, #1560): a remark group with a Check
-     * order, an order with no placement, or a remark group placed differently. Create is refused while any
-     * line has it, and the progress bar counts the same lines.
+     * THE SERVER'S placement rule (`porter_state.placement_kinds`, #1560): placed automatically, placed by a
+     * person, or needs a person (a remark group with a Check order, an order with no placement, or a remark
+     * group placed differently). Create is refused while any line needs a person, and the progress bar
+     * counts the same lines. Read through `needsPerson` / `placedByPerson`, never re-derived from `reason`.
      */
-    needs_person: boolean;
+    placement: PlacementKind;
     /**
      * For an order whose remark group needs a person, the projects the placement signals named
      * (`porter_placement.Placement.likely`, #1563): the remark's first, then the addresses'. Else empty.
@@ -77,6 +83,19 @@ export interface ReviewItem {
 const placementOf = (line: PorterReviewLine) =>
     line.ledger === PROJECT_LEDGER && line.project ? line.project : null;
 
+/** The order still needs a person to choose its project (the server's rule). */
+export const needsPerson = (line: PorterReviewLine): boolean => line.placement === "needs_person";
+
+/** A person chose the order's project, "Not a project" included (the server's rule). */
+export const placedByPerson = (line: PorterReviewLine): boolean => line.placement === "placed_by_person";
+
+/**
+ * The project a picker shows as chosen for one order: none while it needs a person, else its project, or
+ * blank for Not a project.
+ */
+export const chosenProject = (line: PorterReviewLine): string | null =>
+    needsPerson(line) ? null : placementOf(line) ?? "";
+
 const toItem = (key: string, kind: ReviewItem["kind"], lines: PorterReviewLine[]): ReviewItem => {
     const placements = new Set(lines.map(placementOf));
     const mixed = placements.size > 1;
@@ -104,7 +123,7 @@ const toItem = (key: string, kind: ReviewItem["kind"], lines: PorterReviewLine[]
  */
 const tierOf = (item: ReviewItem): number => {
     if (item.needsCheck) return 0;
-    if (!item.project && item.lines.some((line) => line.reason !== "review")) return 1;
+    if (!item.project && item.lines.some((line) => !placedByPerson(line))) return 1;
     return 2;
 };
 
@@ -147,7 +166,7 @@ export const keepShownOrder = (items: ReviewItem[], shownKeys: readonly string[]
     return [...seen, ...items.filter((item) => !at.has(item.key))];
 };
 
-const chosenByPerson = (line: PorterReviewLine) => line.editable && line.reason === "review";
+const chosenByPerson = (line: PorterReviewLine) => line.editable && placedByPerson(line);
 
 /**
  * Choose projects (#1560): only the items a person has to decide -- any order of it needs a person -- and
@@ -155,15 +174,13 @@ const chosenByPerson = (line: PorterReviewLine) => line.editable && line.reason 
  * is left out: it is shown on the next screen.
  */
 export const choiceItems = (lines: PorterReviewLine[]): ReviewItem[] =>
-    reviewItems(lines).filter((item) => item.lines.some((line) => line.needs_person || chosenByPerson(line)));
-
-const orders = (count: number) => `${count} ${count === 1 ? "order" : "orders"}`;
+    reviewItems(lines).filter((item) => item.lines.some((line) => needsPerson(line) || chosenByPerson(line)));
 
 /** The step's heading and the note under it. "All N placed automatically" only when nobody had to choose. */
 export const choiceSummary = (lines: PorterReviewLine[]): { heading: string; note: string | null } => {
     const listed = new Set(choiceItems(lines).flatMap((item) => item.lines.map((line) => line.name)));
     if (listed.size === 0) return { heading: `All ${orders(lines.length)} placed automatically.`, note: null };
-    const left = lines.filter((line) => line.needs_person).length;
+    const left = lines.filter(needsPerson).length;
     const automatic = lines.length - listed.size;
     return {
         heading: `${orders(left)} ${left === 1 ? "needs" : "need"} a project`,
@@ -221,7 +238,7 @@ export const confirmSummary = (
  * written, not waiting on a person, and not chosen by one (those were on Choose projects).
  */
 export const automaticLines = (lines: PorterReviewLine[]): PorterReviewLine[] =>
-    lines.filter((line) => line.editable && !line.needs_person && line.reason !== "review");
+    lines.filter((line) => line.editable && line.placement === "placed_automatically");
 
 /** Where the item's orders would go: its project, Non-Project, or how a disagreeing group splits. */
 export const placementLabel = (item: ReviewItem): string => {
@@ -259,7 +276,7 @@ export const reasonLabel = (reason: string | null | undefined): string => {
  * needs a person (a person already chose). Never a bare "Check".
  */
 export const listedBecause = (item: ReviewItem): string | null => {
-    const undecided = item.lines.filter((line) => line.needs_person);
+    const undecided = item.lines.filter(needsPerson);
     if (undecided.length === 0) return null;
     if (item.lines.some((line) => line.reason === "conflict")) return "Name and address disagree";
     if (item.mixed) return "Orders placed differently";

@@ -9,6 +9,7 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 
 import type { PorterProgress } from "./porterProgress";
 import type { PorterFailedLine } from "./porterResult";
+import { plural } from "./porterWords";
 
 /** The source string. The parser adapter key and the batch Select option, pinned by test. */
 export const PORTER_SOURCE = "Porter Statement";
@@ -132,8 +133,6 @@ export interface PorterStatus {
     /** Null when the statement has no period (no order dates). */
     invoice_date_window?: InvoiceDateWindow | null;
 }
-
-const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 /**
  * The one line that tells the accountant at once whether this is the month they meant (story 3):

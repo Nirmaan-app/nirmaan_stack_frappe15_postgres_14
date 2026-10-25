@@ -21,6 +21,11 @@ from nirmaan_stack.api.outflow_import.test_porter_import import (
     _fresh_fixture,
 )
 from nirmaan_stack.services.outflow_import.porter import EXPENSE_TYPE
+from nirmaan_stack.services.outflow_import.porter_state import (
+    NEEDS_PERSON,
+    PLACED_AUTOMATICALLY,
+    PLACED_BY_PERSON,
+)
 
 PLAN_FIELDS = [
     "suggested_doctype",
@@ -277,8 +282,11 @@ class TestWhichOrdersNeedAPerson(PorterReviewCase):
         super().setUp()
         self._set_invoices("Passed")
 
+    def _placements(self):
+        return {line["crn"][-3:]: line["placement"] for line in self._review()["lines"]}
+
     def _needs(self):
-        return {line["crn"][-3:]: line["needs_person"] for line in self._review()["lines"]}
+        return {crn: kind == NEEDS_PERSON for crn, kind in self._placements().items()}
 
     def test_a_strong_group_needs_no_one_a_check_and_an_unplaced_order_do(self):
         needs = self._needs()
@@ -302,6 +310,14 @@ class TestWhichOrdersNeedAPerson(PorterReviewCase):
             ("Non Project Expenses", None, "review"),
         )
         self.assertFalse(self._needs()["003"])
+
+    def test_each_line_says_who_placed_it(self):
+        # The screen reads "placed by a person" from here, never from the stored reason (#1554 review).
+        self._assign([self._row("002")], self.quillon)
+        kinds = self._placements()
+        self.assertEqual(kinds["002"], PLACED_BY_PERSON)
+        self.assertEqual(kinds["001"], PLACED_AUTOMATICALLY)
+        self.assertEqual(kinds["003"], NEEDS_PERSON)
 
     def test_the_progress_count_is_the_same_set(self):
         from nirmaan_stack.api.outflow_import.porter import get_porter_status
@@ -333,11 +349,11 @@ class TestChoosingPerOrder(PorterReviewCase):
 
     def test_a_group_split_by_a_person_needs_no_one_once_each_order_is_chosen(self):
         porter_review.set_porter_placement(self.batch, self.group[1].name, self.quillon)
-        needs = {line["name"]: line["needs_person"] for line in self._review()["lines"]}
+        needs = {line["name"]: line["placement"] == NEEDS_PERSON for line in self._review()["lines"]}
         # The other two are still the matcher's Strong zephyr: the group now disagrees.
         self.assertEqual([needs[row.name] for row in self.group], [True, False, True])
         self._assign([self.group[0], self.group[2]], self.zephyr)
-        needs = {line["name"]: line["needs_person"] for line in self._review()["lines"]}
+        needs = {line["name"]: line["placement"] == NEEDS_PERSON for line in self._review()["lines"]}
         self.assertEqual([needs[row.name] for row in self.group], [False, False, False])
 
 

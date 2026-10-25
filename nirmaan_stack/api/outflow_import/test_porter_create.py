@@ -27,6 +27,7 @@ from nirmaan_stack.api.outflow_import.test_porter_validation import PorterValida
 from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import _compute_cashflow_gap
 from nirmaan_stack.services.ceo_hold import core as ceo_hold
 from nirmaan_stack.services.outflow_import.porter import EXPENSE_TYPE, MATCH_BASIS
+from nirmaan_stack.services.outflow_import.porter_state import NEEDS_PERSON
 
 MATCH_DOCTYPE = "Outflow Row Match"
 ORDER_DOCTYPE = "Porter Order"
@@ -84,7 +85,7 @@ class PorterCreateCase(PorterValidationCase):
 
         by_destination: dict[str | None, list[str]] = {}
         for line in get_porter_review(self.batch)["lines"]:
-            if line["needs_person"]:
+            if line["placement"] == NEEDS_PERSON:
                 destination = line["project"] if line["ledger"] == PROJECT_EXPENSE else None
                 by_destination.setdefault(destination, []).append(line["name"])
         for destination, names in by_destination.items():
@@ -182,7 +183,7 @@ class TestCreateWaitsForEveryOrderThatNeedsAPerson(PorterCreateCase):
     def _needing(self):
         from nirmaan_stack.api.outflow_import.porter_review import get_porter_review
 
-        return [line for line in get_porter_review(self.batch)["lines"] if line["needs_person"]]
+        return [line for line in get_porter_review(self.batch)["lines"] if line["placement"] == NEEDS_PERSON]
 
     def test_create_is_refused_naming_how_many_orders_are_left_and_queues_nothing(self):
         left = len(self._needing())

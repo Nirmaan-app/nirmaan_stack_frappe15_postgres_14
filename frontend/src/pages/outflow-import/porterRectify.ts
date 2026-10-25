@@ -12,6 +12,7 @@ import { MOVE_ORDER_LABEL } from "@/utils/porterExpense";
 import { offPageTicks } from "./offPageTicks";
 import { ROW_SETTLED } from "./outflowImportStatus";
 import { PORTER_SOURCE } from "./porterImport";
+import { orders } from "./porterWords";
 
 export const RECTIFY_PLAN_METHOD = "nirmaan_stack.api.outflow_import.porter_rectify.get_porter_rectify_plan";
 export const RECTIFY_METHOD = "nirmaan_stack.api.outflow_import.porter_rectify.rectify_porter_rows";
@@ -20,8 +21,6 @@ const PROJECT_EXPENSE = "Project Expenses";
 
 /** On screen Rectify is "Move to another project" (#1558); the code and the domain keep the name Rectify. */
 export { MOVE_ORDER_LABEL };
-
-const orders = (n: number) => `${n} ${n === 1 ? "order" : "orders"}`;
 
 /** The toolbar's button over ticked lines, and the dialog's run button. */
 export const moveOrdersLabel = (n: number): string => `Move ${orders(n)}`;

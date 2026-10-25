@@ -1,7 +1,6 @@
 // src/pages/outflow-import/components/PorterConfirmPanel.tsx
 
-import { useCallback, useMemo, useRef, useState } from "react";
-import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
+import { useCallback, useMemo, useState } from "react";
 import { AlertTriangle, Loader2 } from "lucide-react";
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -9,18 +8,16 @@ import { Button } from "@/components/ui/button";
 import formatToIndianRupee from "@/utils/FormatPrice";
 
 import { describeFrappeError } from "../outflowTableModel";
+import { usePorterPlacement } from "../hooks/usePorterPlacement";
 import {
-    PORTER_PLACE_METHOD,
-    PORTER_REVIEW_METHOD,
     automaticLines,
     confirmSummary,
+    needsPerson,
     placedOn,
-    type PorterReview,
     type PorterReviewLine,
 } from "../porterReview";
 import { NON_PROJECT, PorterProjectSelect, projectOptions, type ProjectOption } from "./PorterProjectSelect";
-
-const orders = (count: number) => `${count} ${count === 1 ? "order" : "orders"}`;
+import { orders } from "../porterWords";
 
 /**
  * Confirm & create (#1564): a pause before Create writes anything. What Create would write, per project and
@@ -36,45 +33,28 @@ export const PorterConfirmPanel = ({
     /** A placement was saved: the dialog re-reads the import's status (the bar, and Create's gate). */
     onPlaced?: () => void;
 }) => {
-    // ⚠️ THE SAME SWR KEY AS `PorterReviewPanel`: the choices made one screen back are already here.
-    const { data, error, mutate } = useFrappeGetCall<{ message: PorterReview }>(
-        PORTER_REVIEW_METHOD,
-        { batch },
-        `porter-review::${batch}`,
-    );
-    const { call: place } = useFrappePostCall<{ message: PorterReview }>(PORTER_PLACE_METHOD);
-    const [saving, setSaving] = useState<string | null>(null);
-    const [saveError, setSaveError] = useState<string | null>(null);
+    // ⚠️ THE SAME CACHE AS `PorterReviewPanel` (`usePorterPlacement`): the choices made one screen back are here.
+    const { review, error, place, saving, saveError } = usePorterPlacement(batch, onPlaced);
 
-    const lines = useMemo(() => data?.message.lines ?? [], [data]);
+    const lines = useMemo(() => review?.lines ?? [], [review]);
     const options = useMemo(
-        () => projectOptions(data?.message.projects ?? []).filter((option) => option !== NON_PROJECT),
-        [data],
+        () => projectOptions(review?.projects ?? []).filter((option) => option !== NON_PROJECT),
+        [review],
     );
 
     // A changed order is no longer automatic, but it stays in the accordion (and in its count) so it does
-    // not vanish from under the reader's cursor: the accordion lists what was automatic on arrival.
-    const shown = useRef<Set<string>>(new Set());
-    const listed = useMemo(() => {
-        for (const line of automaticLines(lines)) shown.current.add(line.name);
-        return lines.filter((line) => shown.current.has(line.name) && line.editable);
-    }, [lines]);
+    // not vanish from under the reader's cursor: the accordion lists every order automatic since arrival.
+    // Kept in state, widened while rendering when a new automatic order arrives (no ref written in a memo).
+    const automatic = useMemo(() => automaticLines(lines).map((line) => line.name), [lines]);
+    const [shown, setShown] = useState<ReadonlySet<string>>(() => new Set());
+    if (automatic.some((name) => !shown.has(name))) setShown(new Set([...shown, ...automatic]));
+    const listed = useMemo(() => lines.filter((line) => shown.has(line.name) && line.editable), [lines, shown]);
 
     const handlePlace = useCallback(
         async (line: PorterReviewLine, project: string) => {
-            setSaving(line.name);
-            setSaveError(null);
-            try {
-                const response = await place({ batch, rows: [line.name], project });
-                await mutate(response, { revalidate: false });
-                onPlaced?.();
-            } catch (err) {
-                setSaveError(describeFrappeError(err, "The change was not saved."));
-            } finally {
-                setSaving(null);
-            }
+            await place(line.name, [line.name], project);
         },
-        [batch, place, mutate, onPlaced],
+        [place],
     );
 
     if (error) {
@@ -84,7 +64,7 @@ export const PorterConfirmPanel = ({
             </p>
         );
     }
-    if (!data) {
+    if (!review) {
         return (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" /> Loading the orders…
@@ -93,7 +73,7 @@ export const PorterConfirmPanel = ({
     }
 
     const { rows, total } = confirmSummary(lines);
-    const left = lines.filter((line) => line.needs_person).length;
+    const left = lines.filter(needsPerson).length;
     return (
         <section className="space-y-3" data-testid="porter-confirm">
             <h3 className="text-sm font-semibold">

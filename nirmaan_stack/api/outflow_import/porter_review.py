@@ -59,8 +59,8 @@ def get_porter_review(batch: str):
     `completed_on`, `fare`, `remarks`, `city`, `from_address`, `to_address`, `booked_by`, `group_key`
     (blank: no remark, reviewed on its own), `ledger`, `project`, `project_name`, `reason`, `strength`,
     `editable` (Create would still write it: waiting, in Error, or reopened by Unreconcile),
-    `needs_person` (`porter_records.porter_placements`, #1560: Choose projects lists it, and Create is
-    refused while any line has it), `likely_projects` (#1563: for a line whose remark group needs a
+    `placement` (`porter_records.porter_placements`, #1560: `placed_automatically`, `placed_by_person` or
+    `needs_person` -- Choose projects lists the last, and Create is refused while any line has it), `likely_projects` (#1563: for a line whose remark group needs a
     person, the projects the placement signals named, the remark's first; else empty).
     `failed_lines`: each order Create could not create, as `porter_records.failed_lines` (#1561).
     """
@@ -162,7 +162,7 @@ def porter_review(batch: str) -> dict:
                 "reason": row.placement_reason or None,
                 "strength": row.placement_strength or None,
                 "editable": row.row_status in CREATE_LINE_STATUSES,
-                "needs_person": kinds.get(row.name) == NEEDS_PERSON,
+                "placement": kinds.get(row.name),
                 "likely_projects": list(likely.get(row.name, ())),
             }
         )

@@ -5,7 +5,14 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { PORTER_STEPS } from "./importWizard";
-import { PORTER_WRONG_TYPE, checkPorterFile, porterFileCheckLines, type PorterFileRules } from "./porterPrecheck";
+import {
+    PORTER_CHECK_SKIPPED,
+    PORTER_WRONG_TYPE,
+    checkPorterFile,
+    porterFileCheckLines,
+    porterUploadAllowed,
+    type PorterFileRules,
+} from "./porterPrecheck";
 
 const repoFile = (relative: string) =>
     readFileSync(fileURLToPath(new URL(`../../../../${relative}`, import.meta.url)), "utf8");
@@ -37,6 +44,9 @@ const RULES: PorterFileRules = {
         "invoice_link",
     ],
     completed_status: "completed",
+    status_column: "order_status",
+    completed_at_column: "order_completion_time",
+    invoice_column: "invoice_link",
 };
 
 const file = (name: string, text: string) => ({ name, text: async () => text });
@@ -144,5 +154,34 @@ describe("the second step's name", () => {
         expect(second.title).toBe("Check invoices");
         expect(second.shortTitle ?? second.title).toBe("Check invoices");
         for (const step of PORTER_STEPS) expect(`${step.title} ${step.shortTitle ?? ""}`).not.toMatch(/validat/i);
+    });
+});
+
+describe("the columns it counts by are the server's, never names typed here (#1554 review)", () => {
+    it("reads the status, completion time and invoice link from the columns the rules name", async () => {
+        const renamed: PorterFileRules = {
+            ...RULES,
+            columns: RULES.columns.map((column) => (column === "order_status" ? "trip_state" : column)),
+            status_column: "trip_state",
+        };
+        const check = await checkPorterFile(file("sep.csv", SAMPLE.replace("order_status", "trip_state")), renamed);
+        expect(check).toMatchObject({ kind: "ok", orders: 12, cancelled: 1 });
+    });
+});
+
+describe("when the rules could not be fetched (#1555)", () => {
+    it("skips the browser check with a short note, and the upload goes to the server", async () => {
+        const check = await checkPorterFile(file("porter_sep_2026.csv", SAMPLE), null);
+        expect(check).toEqual({ kind: "skipped", message: PORTER_CHECK_SKIPPED });
+        expect(porterUploadAllowed(check)).toBe(true);
+    });
+
+    it("still refuses a PDF or Excel file, which needs no rules", async () => {
+        expect(await checkPorterFile(file("statement.pdf", ""), null)).toEqual({ kind: "refused", message: PORTER_WRONG_TYPE });
+    });
+
+    it("lets an upload go only for an accepted or a skipped check", () => {
+        expect(porterUploadAllowed(null)).toBe(false);
+        expect(porterUploadAllowed({ kind: "refused", message: "no" })).toBe(false);
     });
 });

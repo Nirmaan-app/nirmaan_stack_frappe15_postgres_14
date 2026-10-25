@@ -42,7 +42,7 @@ const line = (over: Partial<PorterReviewLine>): PorterReviewLine => {
         reason: null,
         strength: null,
         editable: true,
-        needs_person: false,
+        placement: "placed_automatically",
         likely_projects: [],
         ...over,
     };
@@ -128,35 +128,35 @@ describe("why a group is listed (#1563)", () => {
     const unplaced = { ledger: "Non Project Expenses", project: null, project_name: null };
 
     it("names the disagreement between the remark and the addresses", () => {
-        expect(badge([zephyr({ ...unplaced, reason: "conflict", strength: "Check", needs_person: true })])).toBe(
+        expect(badge([zephyr({ ...unplaced, reason: "conflict", strength: "Check", placement: "needs_person" })])).toBe(
             "Name and address disagree",
         );
     });
 
     it("says only the address matched for an address-only suggestion", () => {
-        expect(badge([line({ ledger: "Project Expenses", project: "P-1", reason: "address", strength: "Check", needs_person: true })])).toBe(
+        expect(badge([line({ ledger: "Project Expenses", project: "P-1", reason: "address", strength: "Check", placement: "needs_person" })])).toBe(
             "Only the address matched",
         );
     });
 
     it("says the name match was loose for a single word, a typo or initials", () => {
         for (const reason of ["name", "typo", "initials"]) {
-            expect(badge([zephyr({ reason, strength: "Check", needs_person: true })])).toBe("Loose name match");
+            expect(badge([zephyr({ reason, strength: "Check", placement: "needs_person" })])).toBe("Loose name match");
         }
     });
 
     it("says nothing matched when no project was found", () => {
-        expect(badge([line({ needs_person: true })])).toBe("No match");
+        expect(badge([line({ placement: "needs_person" })])).toBe("No match");
     });
 
     it("says the orders were placed differently when a group splits", () => {
         expect(
-            badge([zephyr({ needs_person: true }), zephyr({ project: "P-2", project_name: "Quillon Park", needs_person: true })]),
+            badge([zephyr({ placement: "needs_person" }), zephyr({ project: "P-2", project_name: "Quillon Park", placement: "needs_person" })]),
         ).toBe("Orders placed differently");
     });
 
     it("never says a bare Check, and says nothing once a person has decided", () => {
-        expect(badge([zephyr({ reason: "review", strength: null })])).toBeNull();
+        expect(badge([zephyr({ reason: "review", placement: "placed_by_person", strength: null })])).toBeNull();
     });
 });
 
@@ -167,7 +167,7 @@ describe("the two likely projects (#1563)", () => {
         { name: "P-3", project_name: "Orion Mall" },
     ];
     const choices = (likely: string[]) =>
-        likelyChoices(reviewItems([zephyr({ needs_person: true, likely_projects: likely })])[0], projects);
+        likelyChoices(reviewItems([zephyr({ placement: "needs_person", likely_projects: likely })])[0], projects);
 
     it("offers each as a one-click choice when the placement names two", () => {
         expect(choices(["P-1", "P-3"])).toEqual([
@@ -200,7 +200,7 @@ describe("which come first", () => {
             reason: "name",
             strength: "Check",
         });
-        const chosen = line({ reason: "review" });
+        const chosen = line({ reason: "review", placement: "placed_by_person" });
         const keys = reviewItems([strong, chosen, blank, weak]).map((item) => item.lines[0].name);
         expect(keys).toEqual([weak.name, blank.name, strong.name, chosen.name]);
     });
@@ -227,7 +227,7 @@ describe("which come first", () => {
         const blank = line({});
         const shown = reviewItems([weak, blank]).map((item) => item.key);
         // The weak group was just confirmed: its tier drops, but it stays where the reader left it.
-        const after = reviewItems([{ ...weak, reason: "review", strength: null }, blank]);
+        const after = reviewItems([{ ...weak, reason: "review", placement: "placed_by_person", strength: null }, blank]);
         expect(keepShownOrder(after, shown).map((item) => item.key)).toEqual(shown);
         // A key never shown before goes after the ones that were.
         const added = line({});
@@ -286,21 +286,21 @@ describe("which orders Choose projects lists (#1560)", () => {
     it("lists a group that needs a person and leaves a sure one out", () => {
         const strong = [zephyr(), zephyr()];
         const doubt = [
-            line({ remarks: "misc", group_key: "bangalore|misc", needs_person: true }),
-            line({ remarks: "misc", group_key: "bangalore|misc", needs_person: true }),
+            line({ remarks: "misc", group_key: "bangalore|misc", placement: "needs_person" }),
+            line({ remarks: "misc", group_key: "bangalore|misc", placement: "needs_person" }),
         ];
-        const blank = line({ needs_person: true });
+        const blank = line({ placement: "needs_person" });
         const listed = choiceItems([...strong, ...doubt, blank]);
         expect(listed.map((item) => item.key).sort()).toEqual(["group:bangalore|misc", `order:${blank.name}`].sort());
     });
 
     it("keeps a group a person chose, Not a project included", () => {
-        const chosen = line({ reason: "review", ledger: "Non Project Expenses" });
+        const chosen = line({ reason: "review", placement: "placed_by_person", ledger: "Non Project Expenses" });
         expect(choiceItems([chosen, zephyr()]).map((item) => item.key)).toEqual([`order:${chosen.name}`]);
     });
 
     it("never lists a created order", () => {
-        const created = line({ reason: "review", editable: false });
+        const created = line({ reason: "review", placement: "placed_by_person", editable: false });
         expect(choiceItems([created])).toEqual([]);
     });
 });
@@ -311,8 +311,8 @@ describe("what Choose projects says (#1560)", () => {
             zephyr(),
             zephyr(),
             zephyr({ remarks: "x", group_key: "bangalore|x" }),
-            line({ needs_person: true }),
-            line({ needs_person: true }),
+            line({ placement: "needs_person" }),
+            line({ placement: "needs_person" }),
         ];
         expect(choiceSummary(lines)).toEqual({
             heading: "2 orders need a project",
@@ -321,17 +321,17 @@ describe("what Choose projects says (#1560)", () => {
     });
 
     it("says one order in the singular", () => {
-        expect(choiceSummary([zephyr(), line({ needs_person: true })])).toEqual({
+        expect(choiceSummary([zephyr(), line({ placement: "needs_person" })])).toEqual({
             heading: "1 order needs a project",
             note: "1 order was placed automatically. You'll see it on the next screen.",
         });
     });
 
     it("reads 0 once a person has placed every one", () => {
-        const chosen = line({ reason: "review" });
+        const chosen = line({ reason: "review", placement: "placed_by_person" });
         expect(choiceSummary([zephyr(), chosen]).heading).toBe("0 orders need a project");
         // Nothing was placed automatically: no note about it.
-        expect(choiceSummary([line({ needs_person: true })]).note).toBeNull();
+        expect(choiceSummary([line({ placement: "needs_person" })]).note).toBeNull();
     });
 
     it("says all were placed automatically when nothing needed a person", () => {
@@ -362,9 +362,9 @@ describe("what Confirm & create totals (#1564)", () => {
         const summary = confirmSummary([
             zephyr({ fare: 100 }),
             kharadi({ fare: 500 }),
-            line({ fare: 40, reason: "review" }),
+            line({ fare: 40, reason: "review", placement: "placed_by_person" }),
             kharadi({ fare: 250 }),
-            line({ fare: 60, reason: "review" }),
+            line({ fare: 60, reason: "review", placement: "placed_by_person" }),
         ]);
         expect(summary.rows).toEqual([
             { key: "PROJ-2", label: "Kharadi Tower B", orders: 2, fare: 750 },
@@ -388,8 +388,8 @@ describe("what Confirm & create totals (#1564)", () => {
 describe("which orders Confirm & create folds away (#1564)", () => {
     it("lists the orders placed automatically, never one a person chose or one still to decide", () => {
         const sure = zephyr();
-        const chosen = line({ reason: "review" });
-        const undecided = line({ reason: null, needs_person: true });
+        const chosen = line({ reason: "review", placement: "placed_by_person" });
+        const undecided = line({ reason: null, placement: "needs_person" });
         const created = zephyr({ editable: false });
         expect(automaticLines([sure, chosen, undecided, created]).map((l) => l.name)).toEqual([sure.name]);
     });

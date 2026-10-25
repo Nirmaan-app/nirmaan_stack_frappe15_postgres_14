@@ -1,17 +1,16 @@
 // src/pages/outflow-import/components/PorterResult.tsx
 
 import { useCallback, useMemo, useState } from "react";
-import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import { AlertTriangle, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useUserData } from "@/hooks/useUserData";
 
+import { usePorterPlacement } from "../hooks/usePorterPlacement";
 import { canUndoOutflow } from "../outflowImportStatus";
 import { describeFrappeError } from "../outflowTableModel";
 import type { PorterStatus } from "../porterImport";
 import { porterResult, type FailedRow } from "../porterResult";
-import { PORTER_PLACE_METHOD, PORTER_REVIEW_METHOD, type PorterReview } from "../porterReview";
 import { PorterProjectSelect, projectOptions } from "./PorterProjectSelect";
 
 /**
@@ -150,33 +149,10 @@ const FailedOrder = ({
 
 /** The project picker for one failed order: saved through Review's placement call, as soon as it is chosen. */
 const PlaceAgain = ({ line, batch, onPlaced }: { line: string; batch: string; onPlaced: () => void }) => {
-    // The review's cache key: the projects come with it, and the review panel sees the placement too.
-    const { data, error, mutate } = useFrappeGetCall<{ message: PorterReview }>(
-        PORTER_REVIEW_METHOD,
-        { batch },
-        `porter-review::${batch}`,
-    );
-    const { call: place } = useFrappePostCall<{ message: PorterReview }>(PORTER_PLACE_METHOD);
-    const [saving, setSaving] = useState(false);
-    const [saveError, setSaveError] = useState<string | null>(null);
-    const options = useMemo(() => projectOptions(data?.message.projects ?? []), [data]);
-
-    const handleChoose = useCallback(
-        async (project: string) => {
-            setSaving(true);
-            setSaveError(null);
-            try {
-                const response = await place({ batch, rows: [line], project });
-                await mutate(response, { revalidate: false });
-                onPlaced();
-            } catch (err) {
-                setSaveError(describeFrappeError(err, "The project was not saved."));
-            } finally {
-                setSaving(false);
-            }
-        },
-        [batch, line, place, mutate, onPlaced],
-    );
+    // Review's own fetch and placement call: the projects come with it, and the review panel sees the placement.
+    const { review, error, place, saving, saveError } = usePorterPlacement(batch, onPlaced);
+    const options = useMemo(() => projectOptions(review?.projects ?? []), [review]);
+    const handleChoose = useCallback((project: string) => void place(line, [line], project), [place, line]);
 
     if (error) {
         return <p className="text-xs text-destructive">{describeFrappeError(error, "Could not load the projects.")}</p>;
@@ -188,12 +164,12 @@ const PlaceAgain = ({ line, batch, onPlaced }: { line: string; batch: string; on
                     <PorterProjectSelect
                         options={options}
                         value={null}
-                        onChange={(option) => option && void handleChoose(option.value)}
-                        placeholder={data ? "Choose a Won project…" : "Loading the projects…"}
-                        isDisabled={!data || saving}
+                        onChange={(option) => option && handleChoose(option.value)}
+                        placeholder={review ? "Choose a Won project…" : "Loading the projects…"}
+                        isDisabled={!review || saving !== null}
                     />
                 </div>
-                {saving && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />}
+                {saving !== null && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />}
             </div>
             <p className="text-xs text-muted-foreground">Only Won projects can take expenses. Then press Try again.</p>
             {saveError && <p className="text-xs text-destructive">{saveError}</p>}

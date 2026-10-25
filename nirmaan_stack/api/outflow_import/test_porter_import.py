@@ -426,6 +426,10 @@ class TestTheScreenChecksAFileByTheParsersRules(FrappeTestCase):
         self.assertEqual(rules["columns"], list(PORTER_STATEMENT_COLUMNS))
         self.assertEqual(len(rules["columns"]), 22)
         self.assertEqual(rules["completed_status"], PORTER_ORDER_COMPLETED)
+        # The three columns the screen counts by, each one the parser requires (#1554 review).
+        named = (rules["status_column"], rules["completed_at_column"], rules["invoice_column"])
+        self.assertEqual(named, ("order_status", "order_completion_time", "invoice_link"))
+        self.assertTrue(set(named) <= set(rules["columns"]))
 
     def test_a_user_without_bulk_import_access_is_refused(self):
         frappe.set_user("Guest")

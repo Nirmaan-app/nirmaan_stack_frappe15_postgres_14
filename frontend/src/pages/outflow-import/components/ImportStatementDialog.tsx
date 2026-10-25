@@ -83,6 +83,7 @@ import {
     PORTER_RULES_METHOD,
     PORTER_WRONG_TYPE,
     checkPorterFile,
+    porterUploadAllowed,
     type PorterFileCheck,
     type PorterFileRules,
 } from "../porterPrecheck";
@@ -353,30 +354,39 @@ export const ImportStatementDialog = ({
     const isPorter = source === PORTER_SOURCE;
 
     /**
-     * The chosen Porter file, read in the browser before upload (#1555): accepted with its counts, or
-     * refused. Null while it is being read, or before the parser's rules have arrived.
+     * The chosen Porter file, read in the browser before upload (#1555): accepted with its counts, refused,
+     * or skipped when the parser's rules could not be fetched (the upload then goes to the server unchecked).
+     * Null while it is being read. Run from the file-pick handler (`acceptFile`), never an effect.
      *
      * ⚠️ THE RULES COME FROM THE SERVER PARSER, NEVER A COPY HERE, and the parser stays the authority:
      * the upload re-reads the file and its own refusals still show.
      */
-    const { data: porterRulesData } = useFrappeGetCall<{ message: PorterFileRules }>(
+    const { data: porterRulesData, mutate: fetchPorterRules } = useFrappeGetCall<{ message: PorterFileRules }>(
         PORTER_RULES_METHOD,
         undefined,
         isPorter && !porterBatch ? "porter-statement-rules" : null
     );
-    const porterRules = porterRulesData?.message;
     const [porterCheck, setPorterCheck] = useState<PorterFileCheck | null>(null);
-    useEffect(() => {
-        setPorterCheck(null);
-        if (!isPorter || !file || !porterRules) return;
-        let current = true;
-        checkPorterFile(file, porterRules)
-            .then((result) => current && setPorterCheck(result))
-            .catch(() => current && setPorterCheck({ kind: "refused", message: "This file could not be read." }));
-        return () => {
-            current = false;
-        };
-    }, [isPorter, file, porterRules]);
+    /** Which pick the check under way is for: a later pick, or a source switch, makes an older one stale. */
+    const porterCheckFor = useRef(0);
+    const checkPorterChoice = useCallback(
+        async (candidate: File) => {
+            const pick = ++porterCheckFor.current;
+            setPorterCheck(null);
+            let rules = porterRulesData?.message ?? null;
+            if (!rules) {
+                // Not loaded yet, or the first fetch failed: ask once more; a failure skips the check.
+                rules = await fetchPorterRules()
+                    .then((fresh) => fresh?.message ?? null)
+                    .catch(() => null);
+            }
+            const result = await checkPorterFile(candidate, rules).catch(
+                (): PorterFileCheck => ({ kind: "refused", message: "This file could not be read." })
+            );
+            if (porterCheckFor.current === pick) setPorterCheck(result);
+        },
+        [porterRulesData, fetchPorterRules]
+    );
 
     const { call: runMatch } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.review.match_batch"
@@ -411,6 +421,8 @@ export const ImportStatementDialog = ({
         setCashbookStatus(null);
         setHeaderRow(null);
         setPorterConfirmAsked(false);
+        porterCheckFor.current += 1;
+        setPorterCheck(null);
     }, [open]);
 
     // Switching source mid-dialog must drop whatever the other one produced, or the tree from a
@@ -418,6 +430,8 @@ export const ImportStatementDialog = ({
     useEffect(() => {
         // The chosen file goes too (#1555): a bank file must never be uploaded as a Porter Statement.
         setFile(null);
+        porterCheckFor.current += 1;
+        setPorterCheck(null);
         setPreview(null);
         setStaged(null);
         setMatched(false);
@@ -439,6 +453,8 @@ export const ImportStatementDialog = ({
         // A different file is a different sheet; see the note on `headerRow`. Cleared BEFORE the
         // extension and size checks, so even a rejected file leaves no stale row behind.
         setHeaderRow(null);
+        porterCheckFor.current += 1;
+        setPorterCheck(null);
         if (!candidate) return;
 
         const lower = candidate.name.toLowerCase();
@@ -462,7 +478,8 @@ export const ImportStatementDialog = ({
             return;
         }
         setFile(candidate);
-    }, [source]);
+        if (source === PORTER_SOURCE) void checkPorterChoice(candidate);
+    }, [source, checkPorterChoice]);
 
     /**
      * POST the statement to `url`.
@@ -1042,7 +1059,7 @@ export const ImportStatementDialog = ({
                                     </div>
                                     <Button
                                         onClick={handlePorterUpload}
-                                        disabled={!file || porterCheck?.kind !== "ok" || isBusy !== null}
+                                        disabled={!file || !porterUploadAllowed(porterCheck) || isBusy !== null}
                                     >
                                         {isBusy === "upload" && (
                                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />

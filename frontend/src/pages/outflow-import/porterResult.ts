@@ -4,6 +4,8 @@
 // `PorterResult` renders it under the import's summary: each order Create could not create, named with the
 // reason Create stored and its fix on the same row, then links to the created expenses and to Move.
 
+import { plural } from "./porterWords";
+
 /**
  * How a failed order is fixed: placed on a Won project again (its project is no longer Won), or Create run
  * again as it stands. The server decides it from the line as it stands now (`porter_records.failed_lines`).
@@ -43,8 +45,6 @@ export interface PorterResultView {
 }
 
 const FIX_ACTION: Record<FailedLineFix, string> = { "re-place": "Choose project", retry: "Try again" };
-
-const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 /**
  * What the result shows once Create has run, or null: before Create has started, and while its job is queued

@@ -4,10 +4,9 @@
 // `PorterDiscardButton` and `PorterImportSummary` render it; `porterDiscard.test.ts` pins it.
 
 import type { PorterStatus } from "./porterImport";
+import { plural } from "./porterWords";
 
 export const PORTER_DISCARD_METHOD = "nirmaan_stack.api.outflow_import.porter_discard.discard_porter_import";
-
-const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 /**
  * Discard is offered to every module user — Accountant, Accountant Lead and Admin (#1557) — on an import

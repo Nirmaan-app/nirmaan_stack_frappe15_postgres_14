@@ -1,7 +1,6 @@
 // src/pages/outflow-import/components/PorterReviewPanel.tsx
 
-import { useCallback, useMemo, useRef, useState } from "react";
-import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
+import { useCallback, useMemo, useState } from "react";
 import { AlertTriangle, Info, Loader2, MapPin, User } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -9,21 +8,22 @@ import { Button } from "@/components/ui/button";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 
+import { usePorterPlacement } from "../hooks/usePorterPlacement";
 import { describeFrappeError } from "../outflowTableModel";
 import {
-    PORTER_PLACE_METHOD,
-    PORTER_REVIEW_METHOD,
+    chosenProject,
     choiceItems,
     choiceSummary,
     keepShownOrder,
     likelyChoices,
     listedBecause,
+    needsPerson,
     placementLabel,
     reasonLabel,
-    type PorterReview,
     type PorterReviewLine,
     type ReviewItem,
 } from "../porterReview";
+import { orders } from "../porterWords";
 import { NON_PROJECT, PorterProjectSelect, projectOptions, type ProjectOption } from "./PorterProjectSelect";
 
 /** Saves one choice: `rows` (a whole group, or one order of it) onto `project`, or Not a project (""). */
@@ -44,47 +44,25 @@ export const PorterReviewPanel = ({
     /** A placement was saved: the dialog re-reads the import's status, so the progress bar counts it (#1556). */
     onPlaced?: () => void;
 }) => {
-    const { data, error, mutate } = useFrappeGetCall<{ message: PorterReview }>(
-        PORTER_REVIEW_METHOD,
-        { batch },
-        `porter-review::${batch}`,
-    );
-    const { call: place } = useFrappePostCall<{ message: PorterReview }>(PORTER_PLACE_METHOD);
-    /** The group or order whose placement is being saved. */
-    const [saving, setSaving] = useState<string | null>(null);
-    const [saveError, setSaveError] = useState<string | null>(null);
+    const { review, error, place, saving, saveError } = usePorterPlacement(batch, onPlaced);
 
     // The order the items were first shown in: an edit changes an item's tier, and moving it then would
-    // pull it from under the reader's cursor.
-    const shown = useRef<string[]>([]);
-    const items = useMemo(() => {
-        const ordered = keepShownOrder(choiceItems(data?.message.lines ?? []), shown.current);
-        shown.current = ordered.map((item) => item.key);
-        return ordered;
-    }, [data]);
+    // pull it from under the reader's cursor. Kept in state, updated while rendering when the list changes.
+    const [shownKeys, setShownKeys] = useState<string[]>([]);
+    const items = useMemo(
+        () => keepShownOrder(choiceItems(review?.lines ?? []), shownKeys),
+        [review, shownKeys],
+    );
+    const itemKeys = items.map((item) => item.key);
+    if (itemKeys.join("\n") !== shownKeys.join("\n")) setShownKeys(itemKeys);
 
     // Not a project is its own button, never a pick in the list (#1560).
     const options = useMemo(
-        () => projectOptions(data?.message.projects ?? []).filter((option) => option !== NON_PROJECT),
-        [data],
+        () => projectOptions(review?.projects ?? []).filter((option) => option !== NON_PROJECT),
+        [review],
     );
 
-    const handlePlace = useCallback<OnPlace>(
-        async (key, rows, project) => {
-            setSaving(key);
-            setSaveError(null);
-            try {
-                const response = await place({ batch, rows, project });
-                await mutate(response, { revalidate: false });
-                onPlaced?.();
-            } catch (err) {
-                setSaveError(describeFrappeError(err, "The change was not saved."));
-            } finally {
-                setSaving(null);
-            }
-        },
-        [batch, place, mutate, onPlaced],
-    );
+    const handlePlace = useCallback<OnPlace>((key, rows, project) => void place(key, rows, project), [place]);
 
     if (error) {
         return (
@@ -93,7 +71,7 @@ export const PorterReviewPanel = ({
             </p>
         );
     }
-    if (!data) {
+    if (!review) {
         return (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" /> Loading the orders…
@@ -101,7 +79,7 @@ export const PorterReviewPanel = ({
         );
     }
 
-    const summary = choiceSummary(data.message.lines);
+    const summary = choiceSummary(review.lines);
     return (
         <section className="space-y-3">
             <div>
@@ -125,7 +103,7 @@ export const PorterReviewPanel = ({
                         key={item.key}
                         item={item}
                         options={options}
-                        quick={likelyChoices(item, data.message.projects)}
+                        quick={likelyChoices(item, review.projects)}
                         saving={saving}
                         onPlace={handlePlace}
                     />
@@ -156,7 +134,7 @@ const ReviewCard = ({
     onPlace: OnPlace;
 }) => {
     const [perOrder, setPerOrder] = useState(false);
-    const undecided = item.lines.some((line) => line.needs_person);
+    const undecided = item.lines.some(needsPerson);
     // A suggestion that needs a person is not shown as chosen: picking it is the person's choice.
     const chosen = undecided || item.mixed ? null : item.project ?? "";
     const badge = listedBecause(item);
@@ -169,7 +147,7 @@ const ReviewCard = ({
                         <div className="font-medium">
                             “{item.remark}”
                             <span className="ml-2 text-xs font-normal text-muted-foreground">
-                                {item.city} · {count} order{count === 1 ? "" : "s"} · {formatToIndianRupee(item.fare)}
+                                {item.city} · {orders(count)} · {formatToIndianRupee(item.fare)}
                             </span>
                         </div>
                     ) : (
@@ -224,7 +202,7 @@ const ReviewCard = ({
                                     <PlaceControl
                                         id={`order:${line.name}`}
                                         rows={[line.name]}
-                                        chosen={line.needs_person ? null : line.ledger === "Project Expenses" ? line.project ?? "" : ""}
+                                        chosen={chosenProject(line)}
                                         options={options}
                                         quick={quick}
                                         placeholder="Choose a project…"
