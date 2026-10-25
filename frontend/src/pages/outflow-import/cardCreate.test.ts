@@ -109,23 +109,28 @@ describe("suggesting types (#1569)", () => {
     });
 });
 
-const spend = (name: string, merchant: string, overrides: Partial<CardImportLine> = {}): CardImportLine => ({
-    name,
-    serno: name,
-    date: "2026-09-10",
-    details: merchant,
-    merchant,
-    amount: 100,
-    is_credit: false,
-    row_status: "Pending match run",
-    expense_type: "Misc. Expenses",
-    type_source: "Fallback",
-    check: true,
-    editable: true,
-    expense: null,
-    outcome_note: null,
-    ...overrides,
-});
+const spend = (name: string, merchant: string, overrides: Partial<CardImportLine> = {}): CardImportLine =>
+    Object.assign(
+        {
+            name,
+            serno: name,
+            date: "2026-09-10",
+            details: merchant,
+            merchant,
+            amount: 100,
+            is_credit: false,
+            row_status: "Pending match run",
+            skip_kind: null,
+            skip_reason: null,
+            expense_type: "Misc. Expenses",
+            type_source: "Fallback",
+            check: true,
+            editable: true,
+            expense: null,
+            outcome_note: null,
+        },
+        overrides,
+    );
 
 describe("retyping every spend of one merchant (#1569)", () => {
     const lines = [
