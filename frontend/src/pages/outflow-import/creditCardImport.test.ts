@@ -54,6 +54,11 @@ const cardImport = (overrides: Partial<CardImport> = {}): CardImport => ({
     spends_total: 137584.99,
     repeats_not_saved: 0,
     discardable: true,
+    created: 0,
+    failed: 0,
+    to_create: 40,
+    create_running: false,
+    expense_types: ["Misc. Expenses"],
     lines: [],
     ...overrides,
 });

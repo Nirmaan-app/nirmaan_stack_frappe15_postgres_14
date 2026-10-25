@@ -39,6 +39,7 @@
   "porter_line",
   "placement_reason",
   "placement_strength",
+  "type_source",
   "suggested_refunds",
   "suggested_expense_type",
   "source",
@@ -379,12 +380,20 @@
    "label": "Placement Strength",
    "options": "\nStrong\nCheck",
    "read_only": 1
+  },
+  {
+   "description": "Credit Card Statement spends only: where suggested_expense_type came from. Fallback (Misc. Expenses) is shown as Check. Pinned to card_review.TYPE_SOURCES by test.",
+   "fieldname": "type_source",
+   "fieldtype": "Select",
+   "label": "Type Source",
+   "options": "\nEarlier statement\nAI\nFallback\nChosen on Review",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-10-15 19:35:41.908376",
+ "modified": "2026-10-25 16:22:04.721378",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Outflow Import Row",
