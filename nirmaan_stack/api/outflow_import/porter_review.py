@@ -25,6 +25,7 @@ import frappe
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.porter_records import (
     ROW_DOCTYPE,
+    failed_lines,
     is_validated,
     line_names,
     porter_placements,
@@ -61,6 +62,7 @@ def get_porter_review(batch: str):
     `needs_person` (`porter_records.porter_placements`, #1560: Choose projects lists it, and Create is
     refused while any line has it), `likely_projects` (#1563: for a line whose remark group needs a
     person, the projects the placement signals named, the remark's first; else empty).
+    `failed_lines`: each order Create could not create, as `porter_records.failed_lines` (#1561).
     """
     require_outflow_access()
     _refuse_unless_validated(batch)
@@ -164,7 +166,7 @@ def porter_review(batch: str) -> dict:
                 "likely_projects": list(likely.get(row.name, ())),
             }
         )
-    return {"batch": batch, "lines": lines, "projects": won_projects()}
+    return {"batch": batch, "lines": lines, "projects": won_projects(), "failed_lines": failed_lines(batch)}
 
 
 def _likely_projects(

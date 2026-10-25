@@ -6,8 +6,11 @@ import { describe, expect, it } from "vitest";
 
 import { PORTER_STEPS, currentStepIndex } from "./importWizard";
 import {
+    automaticLines,
     choiceItems,
     choiceSummary,
+    confirmSummary,
+    placedOn,
     nextConfirmLabel,
     keepShownOrder,
     likelyChoices,
@@ -258,6 +261,10 @@ describe("when review is offered", () => {
         expect(porterReviewOffered(null)).toBe(false);
     });
 
+    it("not while a Create job just started still has every line waiting (#1564)", () => {
+        expect(porterReviewOffered({ state: "Validated", create_running: true, to_create: 11 })).toBe(false);
+    });
+
     it("again on a stopped Create with orders still to create, so a line in Error can be re-placed", () => {
         expect(porterReviewOffered({ state: "Creating", to_create: 2, create_running: false })).toBe(true);
         expect(porterReviewOffered({ state: "Creating", to_create: 2, create_running: true })).toBe(false);
@@ -337,6 +344,59 @@ describe("what Choose projects says (#1560)", () => {
     it("labels Next with how many are left", () => {
         expect(nextConfirmLabel(5)).toBe("Next: confirm (5 left)");
         expect(nextConfirmLabel(0)).toBe("Next: confirm");
+    });
+});
+
+describe("what Confirm & create totals (#1564)", () => {
+    const kharadi = (over: Partial<PorterReviewLine> = {}) =>
+        line({
+            ledger: "Project Expenses",
+            project: "PROJ-2",
+            project_name: "Kharadi Tower B",
+            reason: "name",
+            strength: "Strong",
+            ...over,
+        });
+
+    it("sums orders and fare per project, then Not a project, then a total", () => {
+        const summary = confirmSummary([
+            zephyr({ fare: 100 }),
+            kharadi({ fare: 500 }),
+            line({ fare: 40, reason: "review" }),
+            kharadi({ fare: 250 }),
+            line({ fare: 60, reason: "review" }),
+        ]);
+        expect(summary.rows).toEqual([
+            { key: "PROJ-2", label: "Kharadi Tower B", orders: 2, fare: 750 },
+            { key: "PROJ-1", label: "Zephyr Tower", orders: 1, fare: 100 },
+            { key: "", label: "Not a project", orders: 2, fare: 100 },
+        ]);
+        expect(summary.total).toEqual({ orders: 5, fare: 950 });
+    });
+
+    it("counts only the orders Create would still write", () => {
+        const summary = confirmSummary([zephyr({ fare: 100 }), zephyr({ fare: 300, editable: false })]);
+        expect(summary.rows).toEqual([{ key: "PROJ-1", label: "Zephyr Tower", orders: 1, fare: 100 }]);
+        expect(summary.total).toEqual({ orders: 1, fare: 100 });
+    });
+
+    it("leaves Not a project out when every order is on a project", () => {
+        expect(confirmSummary([zephyr()]).rows.map((row) => row.label)).toEqual(["Zephyr Tower"]);
+    });
+});
+
+describe("which orders Confirm & create folds away (#1564)", () => {
+    it("lists the orders placed automatically, never one a person chose or one still to decide", () => {
+        const sure = zephyr();
+        const chosen = line({ reason: "review" });
+        const undecided = line({ reason: null, needs_person: true });
+        const created = zephyr({ editable: false });
+        expect(automaticLines([sure, chosen, undecided, created]).map((l) => l.name)).toEqual([sure.name]);
+    });
+
+    it("says where each one is placed", () => {
+        expect(placedOn(zephyr())).toBe("Zephyr Tower");
+        expect(placedOn(line({ reason: "history", strength: "Strong" }))).toBe("Not a project");
     });
 });
 

@@ -89,10 +89,12 @@ import {
 import { nextConfirmLabel, porterReviewOffered } from "../porterReview";
 import { CashbookReviewTree } from "./CashbookReviewTree";
 import { ConfirmMatchedPanel } from "./ConfirmMatchedPanel";
+import { PorterConfirmPanel } from "./PorterConfirmPanel";
 import { PorterDiscardButton } from "./PorterDiscardButton";
 import { PorterFileChecks } from "./PorterFileChecks";
 import { PorterImportSummary } from "./PorterImportSummary";
 import { PorterProgressBar } from "./PorterProgressBar";
+import { PorterResult } from "./PorterResult";
 import { PorterReviewPanel } from "./PorterReviewPanel";
 import { SheetHeaderPicker } from "./SheetHeaderPicker";
 
@@ -325,6 +327,14 @@ export const ImportStatementDialog = ({
     const { call: startPorterCreate } = useFrappePostCall<{ message: PorterStatus }>(PORTER_CREATE_METHOD);
     /** The Create request is in flight (the job itself runs on the server; the poll follows it). */
     const [startingCreate, setStartingCreate] = useState(false);
+    /** Next was pressed on Choose projects: show Confirm & create (#1564). Back clears it. */
+    const [porterConfirmAsked, setPorterConfirmAsked] = useState(false);
+    /**
+     * ⚠️ THE CONFIRM SCREEN ALSO NEEDS THE SERVER'S SAY-SO: a Validated import Create may still run. A
+     * Create started elsewhere, or a discard, takes it away whatever was pressed here.
+     */
+    const onPorterConfirm =
+        porterConfirmAsked && porterStatus?.state === "Validated" && canCreatePorter(porterStatus);
 
     /**
      * The Cashfree match has FINISHED, which is not the same as "not running" (slice CF/S7).
@@ -400,6 +410,7 @@ export const ImportStatementDialog = ({
         setCashbookBatch(null);
         setCashbookStatus(null);
         setHeaderRow(null);
+        setPorterConfirmAsked(false);
     }, [open]);
 
     // Switching source mid-dialog must drop whatever the other one produced, or the tree from a
@@ -674,8 +685,8 @@ export const ImportStatementDialog = ({
     }, [file, isBusy, post, seedCache, onPorterBatch]);
 
     /**
-     * Retry one Porter Invoice that hit an Error (#1444). The server refuses anything else -- a Failed
-     * invoice is final -- and answers with the import, which restarts the poll.
+     * Retry one Porter Invoice that doesn't match or couldn't be read (#1444, #1562): the server downloads,
+     * reads and judges it again, and answers with the import (Validating again), which restarts the poll.
      */
     const handlePorterRetry = useCallback(
         async (invoice: string) => {
@@ -721,6 +732,18 @@ export const ImportStatementDialog = ({
         await onRefresh?.();
     }, [onOpenChange, onRefresh]);
 
+
+    /**
+     * The result's links (#1561): close on Bulk Import pinned to this import, on the tab its created lines are
+     * in (`postImportTab`). ⚠️ THROUGH `onImported`, THE PAGE'S OWN PIN: it fires on the close and sets the tab
+     * even where the page does not remount. Offered only once Create has made lines Settled, so the table
+     * shows them (the reason `handlePorterDone` does not pin).
+     */
+    const handlePorterOpenLines = useCallback(() => {
+        if (!porterBatch) return;
+        onImported(porterBatch, undefined, PORTER_SOURCE);
+        onOpenChange(false);
+    }, [porterBatch, onImported, onOpenChange]);
 
     const handleConfirm = useCallback(async () => {
         if (!file || isBusy) return;
@@ -1073,14 +1096,32 @@ export const ImportStatementDialog = ({
                             status={porterStatus}
                             onRetry={handlePorterRetry}
                             retrying={retrying}
-                            collapseInvoices={porterReviewOffered(porterStatus)}
+                            collapseInvoices={porterReviewOffered(porterStatus) || porterCreateStarted(porterStatus)}
                         />
                     )}
 
-                    {/* PORTER, STEP 3 -- every invoice passed: place each order before Create (#1446). */}
-                    {isPorter && porterStatus && porterReviewOffered(porterStatus) && (
-                        <PorterReviewPanel batch={porterStatus.batch} onPlaced={() => void setPorterData()} />
+                    {/* PORTER, AFTER CREATE -- every order it could not create, named with its fix, or
+                        "All N expenses created."; and the links to the expenses and to Move (#1561). */}
+                    {isPorter && porterStatus && (
+                        <PorterResult
+                            status={porterStatus}
+                            onCreate={handlePorterCreate}
+                            creating={startingCreate}
+                            onPlaced={() => void setPorterData()}
+                            onOpenLines={handlePorterOpenLines}
+                        />
                     )}
+
+                    {/* PORTER, STEP 3 -- every invoice passed: place each order before Create (#1446);
+                        STEP 4 -- Next pressed: confirm before Create writes anything (#1564). */}
+                    {isPorter &&
+                        porterStatus &&
+                        porterReviewOffered(porterStatus) &&
+                        (onPorterConfirm ? (
+                            <PorterConfirmPanel batch={porterStatus.batch} onPlaced={() => void setPorterData()} />
+                        ) : (
+                            <PorterReviewPanel batch={porterStatus.batch} onPlaced={() => void setPorterData()} />
+                        ))}
 
                     {/* STEP 2 -- what importing this statement WOULD do. Nothing is written yet. */}
                     {stepIndex === 1 &&
@@ -1241,20 +1282,30 @@ export const ImportStatementDialog = ({
                     <div className="flex shrink-0 items-center justify-end gap-2 border-t px-6 py-3">
                         {/* Discard (#1447, #1557): any module user, until Create has written anything. */}
                         <PorterDiscardButton status={porterStatus} onDiscarded={handlePorterDone} />
-                        {porterStatus.state === "Validated" && canCreatePorter(porterStatus) ? (
+                        {onPorterConfirm ? (
                             <>
-                                {/* Choose projects (#1560): choices are already saved, so closing loses
-                                    nothing; Next stays locked while the server counts an order that needs
-                                    a person (it refuses Create then too). Until the confirm step exists
-                                    (#1564), Next runs Create. */}
-                                <Button variant="ghost" onClick={handlePorterDone}>
-                                    Save and close
+                                {/* Confirm & create (#1564): Back to Choose projects, or Create. Create
+                                    stays locked while a change made here left an order needing a person. */}
+                                <Button variant="ghost" onClick={() => setPorterConfirmAsked(false)}>
+                                    Back
                                 </Button>
                                 <Button
                                     onClick={handlePorterCreate}
                                     disabled={startingCreate || porterNeedsPerson > 0}
                                 >
                                     {startingCreate && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                                    {createButtonLabel(porterStatus)}
+                                </Button>
+                            </>
+                        ) : porterStatus.state === "Validated" && canCreatePorter(porterStatus) ? (
+                            <>
+                                {/* Choose projects (#1560): choices are already saved, so closing loses
+                                    nothing; Next stays locked while the server counts an order that needs
+                                    a person (it refuses Create then too), and opens Confirm & create. */}
+                                <Button variant="ghost" onClick={handlePorterDone}>
+                                    Save and close
+                                </Button>
+                                <Button onClick={() => setPorterConfirmAsked(true)} disabled={porterNeedsPerson > 0}>
                                     {nextConfirmLabel(porterNeedsPerson)}
                                 </Button>
                             </>

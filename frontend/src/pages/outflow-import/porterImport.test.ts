@@ -20,7 +20,7 @@ import {
     PORTER_INVOICE_STATES,
     PORTER_SOURCE,
     canCreatePorter,
-    canRetryInvoice,
+    retryLabel,
     createButtonLabel,
     createProgress,
     invoiceFigureRows,
@@ -348,11 +348,18 @@ describe("validating against Porter's invoices (#1444)", () => {
         expect(foldPassedInvoices([invoiceAt("Failed", "F")], false).foldLabel).toBeNull();
     });
 
-    it("offers Retry only on an invoice that hit an Error", () => {
-        expect(canRetryInvoice({ validation_status: "Error" })).toBe(true);
-        for (const state of ["Failed", "Passed", "Queued", "Reading"]) {
-            expect(canRetryInvoice({ validation_status: state })).toBe(false);
+    it("offers to read a mismatched PDF again and to try an unread one again, and nothing else", () => {
+        expect(retryLabel({ validation_status: "Failed" })).toBe("Read the PDF again");
+        expect(retryLabel({ validation_status: "Error" })).toBe("Try again");
+        for (const state of ["Passed", "Queued", "Downloading", "Reading", "Comparing"]) {
+            expect(retryLabel({ validation_status: state })).toBeNull();
         }
+    });
+
+    it("tells a failed import that a mismatched invoice can be read again", () => {
+        expect(porterStateNote("Validation failed")).toBe(
+            "Nothing will be created from this import: every invoice has to agree with Porter's PDF on the fare and the invoice date. Read a mismatched PDF again, or try again on one that couldn't be read.",
+        );
     });
 
     it("says what each import state means for Create", () => {
@@ -411,15 +418,12 @@ describe("creating the expenses (#1445)", () => {
         expect(createProgress(status({ state: "Creating", create_running: true, created: 4, to_create: 7 }))).toBe(
             "Creating… 4 of 11 created.",
         );
-        expect(createProgress(status({ state: "Creating", created: 10, to_create: 1, failed: 1 }))).toBe(
-            "10 of 11 created. 1 could not be created: press Create again to retry it.",
-        );
         expect(createProgress(status({ state: "Creating", created: 10, to_create: 1 }))).toBe(
             "10 of 11 created. 1 is waiting: press Create again to create it.",
         );
-        expect(createProgress(status({ state: "Created", created: 11, to_create: 0 }))).toBe(
-            "All 11 expenses created, at Paid.",
-        );
+        // A failed order, and every order created, are the result's to say (`porterResult`, #1561).
+        expect(createProgress(status({ state: "Creating", created: 10, to_create: 1, failed: 1 }))).toBeNull();
+        expect(createProgress(status({ state: "Created", created: 11, to_create: 0 }))).toBeNull();
     });
 
     it("says what Creating and Created mean, and tones Created as done", () => {

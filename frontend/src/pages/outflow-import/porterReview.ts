@@ -176,6 +176,53 @@ export const choiceSummary = (lines: PorterReviewLine[]): { heading: string; not
 /** The footer's Next: locked, and counting down, while any order needs a person. */
 export const nextConfirmLabel = (left: number): string => (left > 0 ? `Next: confirm (${left} left)` : "Next: confirm");
 
+const NOT_A_PROJECT = "Not a project";
+
+/** Where one order is placed, as Confirm & create names it: its project, or Not a project. */
+export const placedOn = (line: PorterReviewLine): string =>
+    placementOf(line) ? line.project_name ?? line.project! : NOT_A_PROJECT;
+
+/** One line of Confirm & create's table: a project (`key` its name), or Not a project (`key` blank). */
+export interface ConfirmRow {
+    key: string;
+    label: string;
+    orders: number;
+    fare: number;
+}
+
+/**
+ * Confirm & create (#1564): what Create would write, per project (largest fare first), then Not a project,
+ * then the total. Only the orders Create would still write count; a created one is behind the import.
+ */
+export const confirmSummary = (
+    lines: PorterReviewLine[],
+): { rows: ConfirmRow[]; total: { orders: number; fare: number } } => {
+    const byKey = new Map<string, ConfirmRow>();
+    const total = { orders: 0, fare: 0 };
+    for (const line of lines) {
+        if (!line.editable) continue;
+        const key = placementOf(line) ?? "";
+        const row = byKey.get(key) ?? { key, label: placedOn(line), orders: 0, fare: 0 };
+        row.orders += 1;
+        row.fare += line.fare;
+        byKey.set(key, row);
+        total.orders += 1;
+        total.fare += line.fare;
+    }
+    const projects = [...byKey.values()]
+        .filter((row) => row.key)
+        .sort((a, b) => b.fare - a.fare || a.label.localeCompare(b.label));
+    const notAProject = byKey.get("");
+    return { rows: notAProject ? [...projects, notAProject] : projects, total };
+};
+
+/**
+ * The orders placed automatically, which Confirm & create folds into a closed accordion: still to be
+ * written, not waiting on a person, and not chosen by one (those were on Choose projects).
+ */
+export const automaticLines = (lines: PorterReviewLine[]): PorterReviewLine[] =>
+    lines.filter((line) => line.editable && !line.needs_person && line.reason !== "review");
+
 /** Where the item's orders would go: its project, Non-Project, or how a disagreeing group splits. */
 export const placementLabel = (item: ReviewItem): string => {
     const nameOf = (line: PorterReviewLine) => (placementOf(line) ? line.project_name ?? line.project! : "Non-Project");
@@ -241,10 +288,11 @@ export const likelyChoices = (
 /**
  * Review is offered once every invoice has passed (the server refuses it otherwise too), and again while a
  * stopped Create still has orders to write: a line in Error, or one Unreconcile reopened, can be re-placed
- * before Create runs again (the server accepts exactly those lines). Not while the Create job runs.
+ * before Create runs again (the server accepts exactly those lines). Not while the Create job runs -- even
+ * one just queued, whose import still reads Validated because no line is written yet (#1564).
  */
 export const porterReviewOffered = (
     status: { state: string; to_create?: number; create_running?: boolean } | null | undefined,
 ): boolean =>
-    status?.state === "Validated" ||
-    (status?.state === "Creating" && !status.create_running && (status.to_create ?? 0) > 0);
+    !status?.create_running &&
+    (status?.state === "Validated" || (status?.state === "Creating" && (status.to_create ?? 0) > 0));

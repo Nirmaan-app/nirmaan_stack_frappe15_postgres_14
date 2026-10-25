@@ -9,7 +9,6 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 
 import { repeatsLeftOutNote } from "../porterDiscard";
 import {
-    canRetryInvoice,
     createProgress,
     foldPassedInvoices,
     invoiceFigureRows,
@@ -20,6 +19,7 @@ import {
     porterCountsLine,
     porterStateNote,
     porterStateTone,
+    retryLabel,
     warningLine,
     type InvoiceDateWindow,
     type PorterInvoiceStatus,
@@ -38,8 +38,8 @@ const TONE_CLASS: Record<ReturnType<typeof invoiceStateTone>, string> = {
 /**
  * A Porter import once it is in (#1443), and its check against Porter's own invoices (#1444, #1559): what
  * the file held, the import's state, a red banner naming each invoice that doesn't match and the next step,
- * then one card per invoice with something to say — still being checked, couldn't be read (with Retry),
- * doesn't match (its fare and date against the PDF's, the failing one highlighted), or passed with a quiet
+ * then one card per invoice with something to say — still being checked, couldn't be read ("Try again"),
+ * doesn't match ("Read the PDF again", #1562; its fare and date against the PDF's, the failing one highlighted), or passed with a quiet
  * warning line — and the invoices that simply passed folded under one line; then Create's progress (#1445).
  * Rendered by `ImportStatementDialog`, which polls the status while it is Validating or the Create job
  * runs, and holds the Create button in its footer.
@@ -157,6 +157,7 @@ const InvoiceCard = ({
 }) => {
     const state = invoice.validation_status;
     const tone = invoiceStateTone(state);
+    const retry = retryLabel(invoice);
     const warning = state === "Passed" ? warningLine(invoice.warnings) : null;
     // The figures matter once something is wrong: a mismatch, or a reading that could not decide.
     const showFigures = state === "Failed" || (state === "Error" && Boolean(invoice.read));
@@ -171,7 +172,7 @@ const InvoiceCard = ({
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    {canRetryInvoice(invoice) && onRetry && (
+                    {retry && onRetry && (
                         <Button
                             size="sm"
                             variant="outline"
@@ -183,7 +184,7 @@ const InvoiceCard = ({
                             ) : (
                                 <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
                             )}
-                            Retry
+                            {retry}
                         </Button>
                     )}
                     <Badge variant="outline" className={TONE_CLASS[tone]}>
