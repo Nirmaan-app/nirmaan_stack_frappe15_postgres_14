@@ -30,7 +30,10 @@
   "invoice_details_section",
   "invoice_attachment",
   "invoice_ref",
-  "invoice_date"
+  "invoice_date",
+  "no_invoice_reason",
+  "no_invoice_by",
+  "no_invoice_at"
  ],
  "fields": [
   {
@@ -182,12 +185,32 @@
    "options": "Credit Card Statement",
    "read_only": 1,
    "search_index": 1
+  },
+  {
+   "description": "Set when an Admin or Accountant Lead marks a card spend No invoice (ADR-0037 ruling 8): why it will never have one. Written only by api/expenses/card_invoices.mark_card_no_invoice, with no_invoice_by and no_invoice_at.",
+   "fieldname": "no_invoice_reason",
+   "fieldtype": "Small Text",
+   "label": "No Invoice Reason",
+   "read_only": 1
+  },
+  {
+   "fieldname": "no_invoice_by",
+   "fieldtype": "Link",
+   "label": "No Invoice By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "no_invoice_at",
+   "fieldtype": "Datetime",
+   "label": "No Invoice At",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-25 16:22:02.496372",
+ "modified": "2026-10-25 16:56:33.554599",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Non Project Expenses",
