@@ -10,21 +10,20 @@ export const PORTER_DISCARD_METHOD = "nirmaan_stack.api.outflow_import.porter_di
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 /**
- * Discard is offered to an Admin or Accountant Lead (`canUndo`, the undo-access check) on an import Create
- * has written nothing to — `discardable`, the server's own verdict — and not while the Create job runs.
+ * Discard is offered to every module user — Accountant, Accountant Lead and Admin (#1557) — on an import
+ * Create has written nothing to (`discardable`, the server's own verdict), and not while the Create job runs.
  * A Validating import qualifies: Discard is the way out of one whose check never finished. The server
  * asks every rule again, and also refuses while a validation job is still running.
  */
 export const canDiscardPorter = (
     status: Pick<PorterStatus, "state" | "create_running" | "discardable">,
-    canUndo: boolean,
-): boolean => canUndo && status.discardable === true && !status.create_running;
+): boolean => status.discardable === true && !status.create_running;
 
-/** The confirmation: the import, what goes with it, and that the statement can be uploaded again. */
+/** The confirmation: the whole import goes, what goes with it, and that the statement can be uploaded again. */
 export const discardConfirmation = (status: { batch: string; orders: number; invoices: unknown[] }): string => {
     const invoices = status.invoices.length;
     return (
-        `Discard ${status.batch}? This deletes its ${plural(status.orders, "order", "orders")}, ` +
+        `Discard ${status.batch}? This removes the whole import: its ${plural(status.orders, "order", "orders")}, ` +
         `its ${plural(invoices, "Porter invoice", "Porter invoices")} and ${invoices === 1 ? "its PDF" : "their PDFs"}. ` +
         "Nothing was created from it, so nothing else changes. You can upload the statement again afterwards."
     );

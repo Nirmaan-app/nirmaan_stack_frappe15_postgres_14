@@ -1,11 +1,13 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Discard a Porter import that was never created (#1447, spec #1442 stories 68-69, ADR-0032).
+"""Discard a Porter import that was never created (#1447, spec #1442 stories 68-69, ADR-0032; #1557).
 
 Before Create, a Porter import is only its batch, its lines, its Porter Invoices and their PDFs (plus the
 CSV). Discard removes exactly those, so a bad upload -- one that failed validation, one stuck Validating
-because its worker died, or one simply abandoned -- can be cleared and the statement uploaded again.
+because its worker died, or one simply abandoned -- can be cleared and the statement uploaded again. Every module user may discard (Accountant, Accountant
+Lead, Admin, #1557): until Create, nothing settled exists, so this undoes no recorded money. Discard is
+whole-import only; there is no per-invoice or per-line discard.
 
 ⚠️ REFUSED ONCE CREATE HAS CREATED ANYTHING (`created_anything`): a half-created import is corrected
 with Rectify / Unreconcile, never wiped, because its expenses are real spend with live matches.
@@ -17,7 +19,7 @@ leaves no job behind, so a stuck import passes this check.
 import frappe
 from frappe.utils.background_jobs import is_job_enqueued
 
-from nirmaan_stack.api.outflow_import.permissions import has_outflow_undo_access, require_outflow_access
+from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.porter_records import (
     BATCH_DOCTYPE,
     ROW_DOCTYPE,
@@ -36,7 +38,8 @@ def discard_porter_import(batch: str):
 
     URL: /api/method/nirmaan_stack.api.outflow_import.porter_discard.discard_porter_import  (POST `batch`)
 
-    Admin and Accountant Lead only (the undo-access check). Returns `{"batch": <name>}`.
+    Any module user: Accountant, Accountant Lead or Admin (`require_outflow_access`, #1557). Returns
+    `{"batch": <name>}`.
 
     Refused, with nothing deleted: not a Porter import; Create has created anything; a validation or
     Create job of the import is still queued or running.
@@ -46,13 +49,7 @@ def discard_porter_import(batch: str):
     would also trash each record's attached Files through the document layer, deleting stored bytes
     another File may share; the Files go last, through `stored_files.delete_files`, which never does.
     """
-    user = require_outflow_access()
-    if not has_outflow_undo_access(user):
-        frappe.throw(
-            "Only an Admin or an Accountant Lead can discard a Porter import.",
-            frappe.PermissionError,
-            title="Not permitted",
-        )
+    require_outflow_access()
 
     # The batch row lock serialises two Discards; the line locks wait for a Create line in flight, so
     # what `created_anything` reads below is what that line committed.

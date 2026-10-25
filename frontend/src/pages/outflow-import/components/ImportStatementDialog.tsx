@@ -1160,7 +1160,7 @@ export const ImportStatementDialog = ({
                     to be scrolled, so the way OUT has to stay put while you scroll it. */}
                 {isPorter && porterStatus && (
                     <div className="flex shrink-0 items-center justify-end gap-2 border-t px-6 py-3">
-                        {/* Discard (#1447): Admin / Accountant Lead, until Create has written anything. */}
+                        {/* Discard (#1447, #1557): any module user, until Create has written anything. */}
                         <PorterDiscardButton status={porterStatus} onDiscarded={handlePorterDone} />
                         {canCreatePorter(porterStatus) && (
                             <Button onClick={handlePorterCreate} disabled={startingCreate}>
