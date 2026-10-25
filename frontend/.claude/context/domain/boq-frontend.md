@@ -2921,7 +2921,7 @@ The hub's THIRD export item, "Download priced tender with BCS". Backend as-built
   limitation `PricingRoute` has. Hiding a control from someone the server would admit is a UX
   bug; showing one to someone it would refuse is a broken promise. Err toward the refusal that
   never happens.
-  ⚠️ The `"Loading"` / `"Error"` guard is load-bearing, exactly as on `canAdminOverride`:
+  ⚠️ The `"Loading"` / `"Error"` guard is load-bearing, exactly as on `isNirmaanAdmin`:
   `useUserData` returns those literals in flight, and without it an entitled user watches the
   item flash in and vanish.
 - **`CommittedSheetState.bcs_enabled`** (BCS-EXP-3, additive) drives the per-sheet badge.
@@ -2993,7 +2993,7 @@ test) · `FREEZE_COPY` (four DRAFT strings, marked awaiting owner approval) · `
 `canManageRateMasterFreeze` · `frozenSinceText` · `freezeBannerDetail` · `isRateMasterWriteBlocked` ·
 `UNFROZEN`.
 
-- **`canManageRateMasterFreeze` DELEGATES to `isRateMasterAdmin`** -- owner ruling R5 is that the
+- **`canManageRateMasterFreeze` DELEGATES to `isNirmaanAdmin`** -- owner ruling R5 is that the
   freeze population IS the rate-master edit population, so this must never become a second predicate
   that could drift. Pinned across 15 role/user combinations.
 - `frozenSinceText` uses `formatDistanceToNow` and swaps the space in Frappe's naive
