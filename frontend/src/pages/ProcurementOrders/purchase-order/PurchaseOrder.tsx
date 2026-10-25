@@ -324,7 +324,7 @@ export const PurchaseOrder = () => {
           ],
           limit: 1000,
         }
-        : null // This `null` is what pauses the hook, preventing the error.
+        : undefined
     );
 
   const { call: fetchFullPoDetails, loading: fullPoDetailsLoading } =
