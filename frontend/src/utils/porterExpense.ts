@@ -7,6 +7,7 @@
 
 import { NPE_DEFAULT_URL_CONTEXT, NPE_LIST_PATH, NPE_STATUS_TAB_PARAM, npeListUrlSyncKey } from "@/pages/NonProjectExpenses/config/nonProjectExpensesUrl";
 import { PE_LIST_PATH, PE_STATUS_TAB_PARAM, peListUrlSyncKey } from "@/pages/ProjectExpenses/config/projectExpensesUrl";
+import { encodeFiltersForUrl } from "@/hooks/useServerDataTable";
 import { plural } from "@/pages/outflow-import/porterWords";
 import formatToIndianRupee, { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 
@@ -96,13 +97,14 @@ const EXPENSE_LISTS = [
 export const createdExpenseLinks = (
 	created: Record<string, string[]> | null | undefined
 ): { label: string; to: string }[] => {
-	const lists = EXPENSE_LISTS.filter((list) => (created?.[list.doctype] ?? []).length > 0);
-	return lists.map((list) => {
-		const crns = created![list.doctype];
+	const lists = EXPENSE_LISTS.map((list) => ({ list, crns: created?.[list.doctype] ?? [] })).filter(
+		({ crns }) => crns.length > 0
+	);
+	return lists.map(({ list, crns }) => {
 		const [one, many] = lists.length > 1 ? list.noun : ["expense", "expenses"];
 		const params = new URLSearchParams({
 			[list.statusParam]: PAID,
-			[list.filtersParam]: btoa(JSON.stringify([{ id: "porter_order", value: crns }])),
+			[list.filtersParam]: encodeFiltersForUrl([{ id: "porter_order", value: crns }]) ?? "",
 		});
 		return { label: `View the ${plural(crns.length, one, many)}`, to: `${list.path}?${params}` };
 	});

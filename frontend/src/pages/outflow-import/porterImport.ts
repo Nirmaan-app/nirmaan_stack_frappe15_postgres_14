@@ -7,7 +7,7 @@
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 
-import type { PorterProgress } from "./porterProgress";
+import { NEEDS_YOU_STATE, type PorterProgress } from "./porterProgress";
 import type { PorterFailedLine } from "./porterResult";
 import { plural } from "./porterWords";
 
@@ -346,7 +346,7 @@ export const porterStateNote = (state: string): string => {
     if (state === "Created")
         return "Done: one expense per completed order, at Paid, each with its Porter invoice attached.";
     // A partly created import with no Create job running (`porterProgress.shownPorterState`, #1556).
-    if (state === "Needs you")
+    if (state === NEEDS_YOU_STATE)
         return "Not every order is created yet, and nothing is running: press Create again for the rest.";
     if (state === "Creating")
         return "Creating the expenses, one order at a time. You can close this — it carries on, and Import History reopens it.";
@@ -361,8 +361,8 @@ export const porterStateNote = (state: string): string => {
 export const porterStateTone = (state: string): "passed" | "failed" | "attention" | "pending" => {
     if (state === "Validated" || state === "Created") return "passed";
     if (state === "Validation failed") return "failed";
-    // A partly created import with no Create running: a person's turn (`porterProgress.NEEDS_YOU_STATE`).
-    if (state === "Needs you") return "attention";
+    // A partly created import with no Create running: a person's turn.
+    if (state === NEEDS_YOU_STATE) return "attention";
     return "pending";
 };
 
