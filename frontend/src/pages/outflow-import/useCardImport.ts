@@ -12,7 +12,7 @@ export const cardImportKey = (batch: string) => `card-import::${batch}`;
 
 /**
  * The card import on screen, as the server reports it, and its two Review actions (#1568): retype a spend
- * and start Create. READ FROM THE SERVER BY BATCH, never held as local state, and polled while the Create
+ * and start Create. READ FROM THE SERVER BY BATCH, never held as local state, and polled while the type suggestion (#1569) or the Create
  * job is queued or running, so a reload or a reopen shows exactly where Create stands. Every action's reply
  * is the import as `get_card_import` reports it, and replaces the cached copy.
  */
@@ -31,13 +31,14 @@ export const useCardImport = (batch: string | null) => {
     const [startingCreate, setStartingCreate] = useState(false);
     const [actionError, setActionError] = useState<string | null>(null);
 
+    /** Save `expenseType` on `rows` (default: `line` alone; every spend of its merchant, #1569). */
     const retype = useCallback(
-        async (line: string, expenseType: string) => {
+        async (line: string, expenseType: string, rows: string[] = [line]) => {
             if (!batch) return;
             setRetyping(line);
             setActionError(null);
             try {
-                const response = await setType({ batch, rows: JSON.stringify([line]), expense_type: expenseType });
+                const response = await setType({ batch, rows: JSON.stringify(rows), expense_type: expenseType });
                 await mutate(response, { revalidate: false });
             } catch (err) {
                 setActionError(describeFrappeError(err, "The type was not saved."));

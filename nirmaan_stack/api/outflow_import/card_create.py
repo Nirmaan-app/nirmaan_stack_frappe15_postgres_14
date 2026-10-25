@@ -15,6 +15,7 @@ EACH SPEND, IN ONE TRANSACTION, COMMITTED BEFORE THE NEXT
        `credit_card_statement` link. No vendor; the type's extra form fields are left empty.
     2. a Settled `Outflow Row Match`: `card_upload.MATCH_BASIS`, `created_by_import`
     3. the line -> Settled
+    4. the merchant's memory: this type, confirmed by the actor (`card_memory.remember`, #1569)
 
 ⚠️ NO PAID BY. Non Project Expenses has no such field (README ruling 1): the holder is carried by the
 `credit_card_statement` link and named in the description.
@@ -38,6 +39,7 @@ from nirmaan_stack.api.outflow_import.card_import import (
     card_import,
     create_job_id,
     refuse_unless_card_import,
+    suggest_running,
 )
 from nirmaan_stack.api.outflow_import.card_upload import (
     MATCH_BASIS,
@@ -49,6 +51,8 @@ from nirmaan_stack.api.outflow_import.expenses import MATCH_DOCTYPE
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.review import StagedRow
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
+from nirmaan_stack.services.outflow_import.card_memory import remember
+from nirmaan_stack.services.outflow_import.card_statement import merchant_key
 from nirmaan_stack.services.outflow_import.card_types import CREATE_LINE_STATUSES, spend_description
 from nirmaan_stack.services.outflow_import.import_comment import import_comment
 from nirmaan_stack.services.outflow_import.parser import DIRECTION_DEBIT
@@ -71,10 +75,16 @@ def create_card_expenses(batch: str):
     Admin, Accountant Lead and Accountant (the Bulk Import gate). Refused once no spend is left to create.
     Otherwise enqueues the job, de-duplicated per import (`card-create-<batch>`, which Discard waits for):
     pressing it twice, or while it runs, queues it once. Pressing it again after a run that left a spend in
-    Error, or after a spend was unreconciled, creates only those.
+    Error, or after a spend was unreconciled, creates only those. Refused while the type suggestion (#1569)
+    is still queued or running.
     """
     user = require_outflow_access()
     refuse_unless_card_import(batch)
+    if suggest_running(batch):
+        frappe.throw(
+            f"Expense types for {batch} are still being suggested. Create when Review shows them.",
+            title="Types not ready",
+        )
     if not _spends_to_create(batch):
         frappe.throw(f"Every spend of {batch} is already created.", title="Already created")
     frappe.enqueue(
@@ -168,6 +178,9 @@ def _create_one(name: str, batch: str, actor: str, statement) -> None:
         }
     )
     match.insert(ignore_permissions=True)
+
+    # The type is confirmed by Create: next month's statement suggests it for this merchant (#1569).
+    remember(merchant_key(row.remarks), row.suggested_expense_type, actor)
 
     # Raw: `Outflow Import Row` has no doc_events; the batch rollup is recomputed from the rows at the end.
     frappe.db.set_value(

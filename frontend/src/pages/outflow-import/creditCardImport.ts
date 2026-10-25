@@ -35,6 +35,8 @@ export interface CardImportLine {
     serno: string;
     date: string | null;
     details: string;
+    /** The cleaned merchant name (one per merchant, whatever the bank's spelling); null on a credit. */
+    merchant: string | null;
     amount: number;
     is_credit: boolean;
     row_status: string;
@@ -85,6 +87,8 @@ export interface CardImport {
     failed: number;
     to_create: number;
     create_running: boolean;
+    /** The type suggestion (#1569) is queued or running: Review polls, and Create waits. */
+    suggest_running: boolean;
     /** The live Non-Project expense types, the only ones Review offers. */
     expense_types: string[];
     lines: CardImportLine[];

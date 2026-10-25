@@ -399,6 +399,8 @@ doc_events = {
         "on_update": [
             "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_paid",
             "nirmaan_stack.integrations.controllers.expense_request_notify.on_expense_update",
+            # A card spend's type edited: remembered for its merchant (#1569). Exits unless both hold.
+            "nirmaan_stack.integrations.controllers.card_merchant_memory.on_expense_update",
         ],
         "on_trash": [
             "nirmaan_stack.integrations.controllers.expense_bank_links.on_trash",

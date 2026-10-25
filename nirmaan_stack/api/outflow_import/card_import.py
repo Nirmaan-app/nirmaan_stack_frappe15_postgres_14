@@ -13,7 +13,8 @@ THE STEPS
                                                                                  Credit Card Statement
     review    `get_card_import`         the statement's header, totals and lines   reads only
     retype    `card_review.set_card_expense_type`   a spend's expense type, on Review (#1568)
-    suggest   (#1569)  expense type per spend, in the background
+    suggest   `card_suggest.suggest_card_types`   expense type per spend, in the background after
+                                                    upload (#1569); Review polls while it runs
     create    `card_create.create_card_expenses`    one Paid Non-Project Expense per spend, in the
                                                     background (#1568)
     discard   `discard_card_import`     an import Create has not written to; Admin and Accountant Lead
@@ -45,6 +46,7 @@ from nirmaan_stack.api.outflow_import.card_upload import (
     stage,
 )
 from nirmaan_stack.api.outflow_import.permissions import has_outflow_undo_access, require_outflow_access
+from nirmaan_stack.services.outflow_import.card_statement import merchant_key
 from nirmaan_stack.services.outflow_import.card_types import CREATE_LINE_STATUSES, needs_check
 from nirmaan_stack.services.outflow_import.status import ROW_ERROR, ROW_SETTLED
 from nirmaan_stack.services.stored_files import delete_files
@@ -58,6 +60,14 @@ def suggest_job_id(batch: str) -> str:
 def create_job_id(batch: str) -> str:
     """The Create job's id (#1568): one per import, so pressing Create twice queues it once."""
     return f"card-create-{batch}"
+
+
+_SUGGEST_JOB = "nirmaan_stack.api.outflow_import.card_suggest.suggest_card_types"
+
+
+def suggest_running(batch: str) -> bool:
+    """The type suggestion job is queued or running: Review polls, and Create waits."""
+    return is_job_enqueued(suggest_job_id(batch))
 
 
 def job_ids(batch: str) -> list[str]:
@@ -82,7 +92,8 @@ def upload_card_statement():
 
     Saves: the PDF (private, one File, attached to the Credit Card Statement); the batch over the statement's
     billing period; the Credit Card Statement (header, totals); one line per new statement line -- a spend
-    waiting for Create (`Pending match run`), a credit open (`Mismatched`).
+    waiting for Create (`Pending match run`), a credit open (`Mismatched`). Then queues the type suggestion
+    (`card_suggest`, #1569), de-duplicated per import.
     """
     user = require_outflow_access()
     filename, content = read_upload()
@@ -104,6 +115,10 @@ def upload_card_statement():
         update_modified=False,
     )
     frappe.db.commit()
+    # After the commit: the job reads the lines this request staged.
+    frappe.enqueue(
+        _SUGGEST_JOB, queue="long", timeout=1800, batch=batch, job_id=suggest_job_id(batch), deduplicate=True
+    )
     return card_import(batch)
 
 
@@ -256,6 +271,8 @@ def card_import(batch: str) -> dict:
         "failed": statuses.count(ROW_ERROR),
         "to_create": sum(1 for status in statuses if status in CREATE_LINE_STATUSES),
         "create_running": is_job_enqueued(create_job_id(batch)),
+        # The type suggestion (#1569) is queued or running: Review polls until it is done, Create waits.
+        "suggest_running": suggest_running(batch),
         # The live Non-Project types: the only ones Review offers and Create accepts.
         "expense_types": non_project_expense_types(),
         "lines": [_line(line, _date(line.added_on)) for line in lines],
@@ -270,6 +287,8 @@ def _line(line, date: str | None) -> dict:
         "serno": line.transfer_id,
         "date": date,
         "details": line.remarks,
+        # The cleaned merchant name: Review retypes every spend of one merchant at once (#1569).
+        "merchant": None if is_credit else merchant_key(line.remarks),
         "amount": float(line.amount or 0),
         "is_credit": is_credit,
         "row_status": line.row_status,

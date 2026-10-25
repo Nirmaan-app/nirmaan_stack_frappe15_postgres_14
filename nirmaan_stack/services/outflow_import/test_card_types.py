@@ -12,9 +12,13 @@ from pathlib import Path
 
 from nirmaan_stack.services.outflow_import.card_types import (
     FALLBACK_EXPENSE_TYPE,
+    TYPE_SOURCE_AI,
     TYPE_SOURCE_FALLBACK,
+    TYPE_SOURCE_MEMORY,
     TYPE_SOURCE_REVIEW,
     TYPE_SOURCES,
+    AiAnswer,
+    choose_type,
     needs_check,
     spend_description,
 )
@@ -44,6 +48,39 @@ class TestTheCheckMark(unittest.TestCase):
 
     def test_the_fallback_type_is_misc_expenses(self):
         self.assertEqual(FALLBACK_EXPENSE_TYPE, "Misc. Expenses")
+
+
+LIVE = ("Hotel Expenses", "Staff Welfare Expenses", "Misc. Expenses")
+
+
+class TestChoosingASpendsType(unittest.TestCase):
+    """Memory first, then a confident AI answer on the live list, else the fallback (ADR-0037 ruling 5)."""
+
+    def test_a_remembered_type_wins_over_the_ai(self):
+        self.assertEqual(
+            choose_type("Hotel Expenses", AiAnswer("Staff Welfare Expenses", 0.99), LIVE),
+            ("Hotel Expenses", TYPE_SOURCE_MEMORY),
+        )
+
+    def test_a_remembered_type_no_longer_live_is_ignored(self):
+        self.assertEqual(
+            choose_type("Old Type", AiAnswer("Hotel Expenses", 0.9), LIVE), ("Hotel Expenses", TYPE_SOURCE_AI)
+        )
+
+    def test_a_confident_answer_on_the_list_is_taken(self):
+        self.assertEqual(choose_type(None, AiAnswer("Hotel Expenses", 0.7), LIVE), ("Hotel Expenses", TYPE_SOURCE_AI))
+
+    def test_an_answer_off_the_list_is_the_fallback(self):
+        self.assertEqual(choose_type(None, AiAnswer("Scaffolding Rent", 1.0), LIVE), (FALLBACK_EXPENSE_TYPE, TYPE_SOURCE_FALLBACK))
+
+    def test_a_low_confidence_answer_is_the_fallback(self):
+        self.assertEqual(choose_type(None, AiAnswer("Hotel Expenses", 0.69), LIVE), (FALLBACK_EXPENSE_TYPE, TYPE_SOURCE_FALLBACK))
+
+    def test_no_answer_is_the_fallback(self):
+        self.assertEqual(choose_type(None, None, LIVE), (FALLBACK_EXPENSE_TYPE, TYPE_SOURCE_FALLBACK))
+
+    def test_the_ai_naming_the_fallback_itself_is_still_marked_check(self):
+        self.assertEqual(choose_type(None, AiAnswer(FALLBACK_EXPENSE_TYPE, 0.95), LIVE), (FALLBACK_EXPENSE_TYPE, TYPE_SOURCE_FALLBACK))
 
 
 class TestTheFixtureAndTheSchemaAgree(unittest.TestCase):

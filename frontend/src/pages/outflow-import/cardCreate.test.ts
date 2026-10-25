@@ -9,10 +9,13 @@ import {
     cardCreateProgress,
     cardCreateStarted,
     cardPolling,
+    cardSuggestNote,
+    merchantRetype,
     typeChoiceLabel,
+    typeSourceTitle,
     type CardCreateProgress,
 } from "./cardCreate";
-import { CARD_SOURCE } from "./creditCardImport";
+import { CARD_SOURCE, type CardImportLine } from "./creditCardImport";
 import { CARD_STEPS, currentStepIndex } from "./importWizard";
 
 const progress = (overrides: Partial<CardCreateProgress> = {}): CardCreateProgress => ({
@@ -21,6 +24,7 @@ const progress = (overrides: Partial<CardCreateProgress> = {}): CardCreateProgre
     failed: 0,
     to_create: 40,
     create_running: false,
+    suggest_running: false,
     discardable: true,
     ...overrides,
 });
@@ -29,6 +33,8 @@ describe("Create is offered", () => {
     it("while spends are left to create and the job is not running", () => {
         expect(canCreateCard(progress())).toBe(true);
         expect(canCreateCard(progress({ create_running: true }))).toBe(false);
+        // Not while the types are still being suggested (#1569).
+        expect(canCreateCard(progress({ suggest_running: true }))).toBe(false);
         expect(canCreateCard(progress({ created: 40, to_create: 0, discardable: false }))).toBe(false);
     });
 
@@ -78,5 +84,82 @@ describe("a spend's type", () => {
         expect(typeChoiceLabel({ type_source: "Fallback", check: true })).toBe("Check");
         expect(typeChoiceLabel({ type_source: "Chosen on Review", check: false })).toBe("Chosen on Review");
         expect(typeChoiceLabel({ type_source: null, check: false })).toBeNull();
+    });
+
+    it("names the fallback's source in its title, and every other source", () => {
+        expect(typeSourceTitle({ type_source: "Fallback" })).toBe(
+            "Fallback: nothing better was known for this merchant. Check it.",
+        );
+        expect(typeSourceTitle({ type_source: "Earlier statement" })).toBe(
+            "Confirmed for this merchant on an earlier statement.",
+        );
+        expect(typeSourceTitle({ type_source: "AI" })).toBe("Suggested by AI from the live type list.");
+        expect(typeSourceTitle({ type_source: null })).toBeNull();
+    });
+});
+
+describe("suggesting types (#1569)", () => {
+    it("polls and says so while the suggestion runs", () => {
+        expect(cardPolling({ create_running: false, suggest_running: true })).toBe(true);
+        expect(cardSuggestNote({ suggest_running: true })).toBe(
+            "Suggesting expense types… Review updates when it is done.",
+        );
+        expect(cardPolling({ create_running: false, suggest_running: false })).toBe(false);
+        expect(cardSuggestNote({ suggest_running: false })).toBeNull();
+    });
+});
+
+const spend = (name: string, merchant: string, overrides: Partial<CardImportLine> = {}): CardImportLine => ({
+    name,
+    serno: name,
+    date: "2026-09-10",
+    details: merchant,
+    merchant,
+    amount: 100,
+    is_credit: false,
+    row_status: "Pending match run",
+    expense_type: "Misc. Expenses",
+    type_source: "Fallback",
+    check: true,
+    editable: true,
+    expense: null,
+    outcome_note: null,
+    ...overrides,
+});
+
+describe("retyping every spend of one merchant (#1569)", () => {
+    const lines = [
+        spend("a", "MAKEMYTRIP", {
+            expense_type: "Travel Expenses (Flight)",
+            type_source: "Chosen on Review",
+            check: false,
+        }),
+        spend("b", "MAKEMYTRIP"),
+        spend("c", "MAKEMYTRIP"),
+        spend("d", "SWIGGY"),
+        spend("e", "MAKEMYTRIP", { editable: false, row_status: "Settled" }),
+        spend("f", "MAKEMYTRIP", { is_credit: true, merchant: null, expense_type: null, editable: false }),
+    ];
+
+    it("offers the line's type to the merchant's other spends Create would still write", () => {
+        expect(merchantRetype(lines, lines[0])).toEqual({
+            rows: ["a", "b", "c"],
+            expenseType: "Travel Expenses (Flight)",
+            label: "Use for all 3 MAKEMYTRIP spends",
+        });
+    });
+
+    it("is not offered once they all have the type, or for a merchant with one spend", () => {
+        const same = lines.map((line) => ({ ...line, expense_type: "Travel Expenses (Flight)" }));
+        expect(merchantRetype(same, same[0])).toBeNull();
+        expect(merchantRetype(lines, lines[3])).toBeNull();
+    });
+
+    it("is not offered on a spend that can no longer be retyped", () => {
+        expect(merchantRetype(lines, lines[4])).toBeNull();
+    });
+
+    it("is not offered from a spend still at the fallback: there is no choice to spread", () => {
+        expect(merchantRetype(lines, lines[1])).toBeNull();
     });
 });

@@ -7240,7 +7240,7 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
   is the project saved.
 
 
-## Credit Card Statement — the fifth source (spec #1565; upload, Review and Discard built at #1566, type edit and Create at #1568, the rest NOT BUILT YET)
+## Credit Card Statement — the fifth source (spec #1565; upload, Review and Discard built at #1566, type edit and Create at #1568, type suggestion and merchant memory at #1569, the rest NOT BUILT YET)
 
 Decisions: **[ADR-0037](../../../docs/adr/0037-credit-card-statement-import.md)**. Terms: `GLOSSARY.md`
 § *Company credit cards*. Source string `ICICI Credit Card Statement` (`sources.CARD_STATEMENT_SOURCE`).
@@ -7281,8 +7281,8 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
    File to the batch and then COPY it for the statement — two Files for one PDF.
 6. **Staging.** Spend: `Pending match run`, `direction` Debit, `match_basis` `card statement` (a new
    `Outflow Row Match.match_basis` option), `suggested_doctype` `Non Project Expenses`, `auto_matched` 1,
-   `suggested_expense_type` *Misc. Expenses* with `type_source` Fallback (#1568; #1569's suggestion replaces
-   it). Credit: `Mismatched`, Credit (an open line; #1567 sorts them). Every line: `status_raw` SUCCESS,
+   `suggested_expense_type` *Misc. Expenses* with `type_source` Fallback (#1568; #1569's suggestion job
+   replaces it, invariant 14). Credit: `Mismatched`, Credit (an open line; #1567 sorts them). Every line: `status_raw` SUCCESS,
    `remarks` = details, `settlement_reference` = "{details} - {SerNo}" (`card_statement.line_reference`,
    the Expense's payment_ref, ADR-0037 decision 6). Batch `gross_amount` = the staged spends.
 7. **Not bank lines.** The source is in `CREATE_GATED_SOURCES`, so `review._row_filters` keeps every open
@@ -7330,11 +7330,46 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
     the import, polls every 2 s while `create_running`, retype + Create). The dialog footer holds Create beside
     Discard and Done.
 
+14. **Type suggestion and merchant memory** (#1569, ADR-0037 ruling 5). The upload, after its commit, enqueues
+    `card_suggest.suggest_card_types` on `long`, job id `card-suggest-<batch>` (deduplicated; Discard waits for
+    it). Per merchant key, every spend of it alike: `card_memory.recall` first (`Earlier statement`), else ONE
+    Gemini call for every merchant memory lacks, given the live Non-Project list
+    (`services/extraction/merchant_types.gemini_type_merchants`, text-only, beside `mapping.py`; it builds its
+    client through `GeminiExtractor._build_client` and calls `_generate`, so tests fake it there), else the
+    fallback. The choice is pure: `card_types.choose_type` — a remembered type no longer live is ignored; an AI
+    answer counts only when on the live list, not the fallback itself, and at confidence >= `AI_MIN_CONFIDENCE`
+    (0.7). ⚠️ AI off (`get_extraction_settings().enabled` false), a failed call or a malformed reply is "no
+    answer": spends stay Fallback ("Check"), and nothing blocks. ⚠️ The job writes only Debit lines still at
+    `type_source` Fallback and not Settled, and its raw UPDATE re-asks that in the WHERE, so a type chosen on
+    Review meanwhile is never overwritten; Skipped spends (a paired refund, #1567) are typed too, so an
+    unskipped one reaches Create typed. `get_card_import` returns `suggest_running` (Review polls while it
+    is set; Create is refused while it is) and each spend's `merchant` (credit: null).
+    **Memory** is the new doctype `Card Merchant Memory` (name = merchant key; `expense_type`,
+    `confirmed_by`, `confirmed_at`; all read-only; System Manager full, Accountant / Accountant Lead read),
+    written only by `services/outflow_import/card_memory.remember` (latest confirmation wins; a racing insert
+    falls back to update): by `card_create._create_one` for EVERY created spend (the fallback too — Create is
+    the confirmation), with the Create actor; and by the `Non Project Expenses` on_update hook
+    `integrations/controllers/card_merchant_memory.on_expense_update` when a card Expense
+    (`credit_card_statement` set) is saved with a different `type` (the insert is not an edit), with the
+    session user. The Expense's merchant is read back through its Settled match record
+    (`card_memory.merchant_of_expense`).
+15. **Screens (#1569).** `cardCreate.ts`: `cardPolling` also while `suggest_running`, `cardSuggestNote`,
+    `canCreateCard` false while suggesting, `typeSourceTitle` (the badge's title names the source; the fallback
+    badge reads "Check"), `merchantRetype(lines, line)` — the link "Use for all N {MERCHANT} spends" under a
+    retypable spend not at "Check" (a chosen, remembered or AI type; there is nothing to spread from the fallback)
+    whose merchant has another retypable spend of a different type; it calls the existing
+    `card_review.set_card_expense_type` with every such line (`useCardImport.retype(line, type, rows)`).
+
 **Tests.** `services/outflow_import/test_card_statement` (unit, the fixture and a PDF built from it by
 `tests/card_pdf_builder.pdf_from_text`), `api/outflow_import/test_card_import` (DB: upload, refusals, repeats,
 Review, History, not-matched totals, Discard, the matcher AST guard), `services/outflow_import/test_card_types`
 (unit), `api/outflow_import/test_card_create` (DB: types on Review, retype refusals, Create fields, permissions,
-resume, Unreconcile and re-create, Discard refused after Create, the AST guard over every card module).
+resume, Unreconcile and re-create, Discard refused after Create, the AST guard over every card module),
+`api/outflow_import/test_card_suggest` (DB, Gemini faked at `GeminiExtractor._build_client`: the job queued at
+upload, AI answer, one call with the live list, off-list / low-confidence / failed / AI-off -> fallback, Review
+choice kept, memory hit and no call when all known, memory on Create, next month typed from it, memory on an
+Expense type edit and not on another edit). `CardImportCase` records the upload's enqueue (`self.enqueued`)
+and clears + restores the fixture merchants' memory per test.
 
 
 ## #1485 (2026-10-17) — an ICICI cheque line clears its Payment cheque (spec #1477, ADR-0035)
