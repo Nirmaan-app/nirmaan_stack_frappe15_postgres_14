@@ -43,7 +43,7 @@ interface WriteOffDialogProps {
  * came to sit at +144.00 while its own rows summed to −144.67.
  *
  * So this writes a single ledger entry with a name and a reason against it, and moves no
- * money at all. The caller gates visibility on `canWriteOffAdjustment`; the server re-gates
+ * money at all. The caller gates visibility on `isNirmaanAdmin`; the server re-gates
  * and is authoritative.
  */
 export function WriteOffDialog({

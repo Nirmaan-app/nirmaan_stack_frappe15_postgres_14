@@ -89,11 +89,32 @@ export const useDeleteSRRemark = () => {
   return { deleteRemark, isLoading: loading, error, reset };
 };
 
+interface GetSRRecentRemarksResponse {
+  message: {
+    remarks: SRRemarkData[];
+    total: number;
+  };
+}
+
+/** The latest three remarks and the total, for the remarks popover and hover card in tables. */
+export const useSRRecentRemarks = (srId: string | undefined, enabled: boolean = true) => {
+  const { data, isLoading, error, mutate } = useFrappeGetCall<GetSRRecentRemarksResponse>(
+    "nirmaan_stack.api.sr_remarks.get_sr_recent_remarks",
+    { sr_id: srId, limit: 3 },
+    enabled && srId ? `sr_recent_remarks_${srId}` : null
+  );
+
+  const remarks = useMemo(() => data?.message?.remarks || [], [data]);
+  const total = useMemo(() => data?.message?.total || 0, [data]);
+
+  return { remarks, total, isLoading, error, mutate };
+};
+
 export const getSubjectBadgeClass = (subject: RemarkSubject): string => {
   switch (subject) {
-    case "accountant_remark": return "bg-blue-100 text-blue-800";
-    case "procurement_remark": return "bg-green-100 text-green-800";
-    case "admin_remark": return "bg-purple-100 text-purple-800";
-    default: return "bg-gray-100 text-gray-800";
+    case "accountant_remark": return "bg-blue-100 text-blue-800 hover:bg-blue-100";
+    case "procurement_remark": return "bg-green-100 text-green-800 hover:bg-green-100";
+    case "admin_remark": return "bg-purple-100 text-purple-800 hover:bg-purple-100";
+    default: return "bg-gray-100 text-gray-800 hover:bg-gray-100";
   }
 };

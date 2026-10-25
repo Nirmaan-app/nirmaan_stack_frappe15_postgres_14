@@ -55,7 +55,8 @@ describe("linkedProgress", () => {
 
         const short = linkedProgress(figures(1000, 1000 - LINK_TOLERANCE - 0.01, 2));
         expect(short.complete).toBe(false);
-        expect(short.stillToLink).toBe("₹6 still to link");
+        // ₹5.01 short, rounded to the nearest rupee (#1543).
+        expect(short.stillToLink).toBe("₹5 still to link");
     });
 
     // ⚠️ THE SERVER'S `remaining` GOVERNS, not `amount - linked_total` recomputed here. Proven by
@@ -66,7 +67,8 @@ describe("linkedProgress", () => {
             amount: 160113,
             linked_total: 138633,
             line_count: 25,
-            remaining: 21480.004,
+            // amount - linked_total is 21,480; the server says 21,480.60, which rounds to 21,481 (#1543).
+            remaining: 21480.6,
         });
         expect(p.stillToLink).toBe("₹21,481 still to link");
     });

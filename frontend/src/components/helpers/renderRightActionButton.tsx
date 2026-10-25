@@ -14,8 +14,9 @@ import { Badge } from "../ui/badge";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { canManageTendering } from "@/pages/projects/tendering/tenderingAuth";
 import { PROCUREMENT_PROFILES, canManagePayees } from "@/constants/roles";
-import { canAddExpense } from "@/pages/ProjectPayments/config/addExpenseGate";
 import { canCreateNonProjectInflow } from "@/pages/non-project-inflows/nonProjectInflowModel";
+import { useExpenseAccess } from "@/hooks/useExpenseAccess";
+import { offersNewExpense } from "@/utils/expenseAccess";
 
 interface RenderActionButtonProps {
   locationPath: string;
@@ -54,7 +55,9 @@ export const RenderRightActionButton = ({
   const { role, user_id } = useUserData()
   const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
   const { selectedProject } = useContext(UserContext);
-  const { toggleNewInflowDialog, toggleNewNonProjectInflowDialog, toggleNewPayeeDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewNonProjectExpenseDialog, toggleNewProjectExpenseDialog, toggleNewExpenseRequestDialog, toggleNewWODialog, setNewReminderDialog, setEditReminderScheduleName } = useDialogStore()
+  // Shared through SWR with the sidebar item, so it costs no extra request.
+  const { access: expenseAccess } = useExpenseAccess();
+  const { toggleNewInflowDialog, toggleNewNonProjectInflowDialog, toggleNewPayeeDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewExpenseRequestDialog, toggleNewWODialog, setNewReminderDialog, setEditReminderScheduleName } = useDialogStore()
 
   if (newButtonRoutes[locationPath]) {
     // "Add New Project" uses the shared canManageTendering gate (Admin / PMO /
@@ -155,68 +158,18 @@ export const RenderRightActionButton = ({
         Add <span className="hidden md:flex pl-1">New Project Invoice</span>
       </Button>
     );
-  } else if (locationPath === "/project-payments") {
-    // "Expense Request" — one entry point on the unified money-out queue for raising
-    // either kind of expense, so a payment-facing user does not have to go find the
-    // Expense module.
-    //
-    // ⚠️ THE TOGGLES ONLY FLIP A ZUSTAND FLAG. Both creation dialogs are bare
-    // controlled AlertDialogs that render no trigger of their own, and each is
-    // mounted ONLY on its own list page. `RenderProjectPaymentsComponent` must ALSO
-    // mount them or this button silently does nothing.
-    //
-    // A DROPDOWN, not a modal chooser: it is this file's own idiom for one button with
-    // two creation targets (see "Add New PR" above), and it avoids opening a Radix
-    // modal from inside another Radix modal — both creation dialogs are AlertDialogs.
-    //
-    // ROLE GATE: `canAddExpense` (`pages/ProjectPayments/config/addExpenseGate.ts`), the one
-    // tested rule -- PMO Executive in (#1475), HR Lead, Project Lead and Project Manager out.
-    // ⚠️ COSMETIC ONLY: the doctype `create` permission, checked by the Direct Expense
-    // endpoint, is the real boundary.
-    if (!canAddExpense({ role, userId: user_id })) return null;
-    return (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button className="sm:mr-4 mr-2">
-            <CirclePlus className="w-5 h-5 pr-1" />
-            Add <span className="hidden md:flex pl-1">Expense</span>
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent className="mr-16">
-          <DropdownMenuItem onClick={toggleNewProjectExpenseDialog}>
-            Project Expense
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={toggleNewNonProjectExpenseDialog}>
-            Non-Project Expense
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    );
-  } else if (locationPath === "/expense/non-project") {
-    // return (
-    //   <Button onClick={toggleNewNonProjectExpenseDialog} className="sm:mr-4 mr-2">
-    //     <CirclePlus className="w-5 h-5 pr-1" />
-    //     Add <span className="hidden md:flex pl-1">New Expense</span>
-    //   </Button>
-    // );
-  } else if (locationPath === "/expense/requests") {
-    // No role gate: anyone who can reach the Expense module may RAISE a request. The
-    // approval side is what is gated, and it is gated on the SERVER.
+  } else if (locationPath === "/expense/requests" || locationPath === "/project-payments") {
+    // The one door for every expense (spec #1494): the same New Expense dialog on the Expenses page
+    // and on Project Payment & Expense, which each mount it. Shown to someone who can raise at least
+    // one type (`useExpenseAccess`, the server's `can_raise`); a reviewer who raises nothing gets the
+    // page, not the button. The server refuses a type the raiser may not raise.
+    if (!offersNewExpense(expenseAccess)) return null;
     return (
       <Button onClick={toggleNewExpenseRequestDialog} className="sm:mr-4 mr-2">
         <CirclePlus className="w-5 h-5 pr-1" />
-        Raise <span className="hidden md:flex pl-1">Expense Request</span>
+        New <span className="hidden md:flex pl-1">Expense</span>
       </Button>
     );
-  } else if (locationPath === "/expense/project") {
-    // Same access as the Non-Project button: no role gate, shown to everyone
-    // with Expense-module access.
-    // return (
-    //   <Button onClick={toggleNewProjectExpenseDialog} className="sm:mr-4 mr-2">
-    //     <CirclePlus className="w-5 h-5 pr-1" />
-    //     Add <span className="hidden md:flex pl-1">New Project Expense</span>
-    //   </Button>
-    // );
   } else if (locationPath === "/reminders") {
     // Reminders are Admin-only to manage (owner ruling): Add, Edit and Delete all share
     // one gate. Every other role with sidebar access sees the table read-only.

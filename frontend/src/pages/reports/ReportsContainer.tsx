@@ -36,8 +36,9 @@ const PaymentTDSDeductions = React.lazy(() => import('@/pages/PaymentTDSDeductio
 const projectReportOptions: { label: string; value: ProjectReportType }[] = [
     { label: 'Cash Sheet', value: 'Cash Sheet' },
     { label: 'Inflow Report', value: 'Inflow Report' },
-    { label: 'Outflow Report(Project)', value: 'Outflow Report(Project)' },
-    { label: 'Outflow Report(Non-Project)', value: 'Outflow Report(Non-Project)' },
+    // Labels only (story 62: "outflow" means Project outflow alone); the values stay, as URL and store keys.
+    { label: 'Payments Report (Project)', value: 'Outflow Report(Project)' },
+    { label: 'Payments Report (Non-Project)', value: 'Outflow Report(Non-Project)' },
     { label: 'Project Invoices', value: 'Project Invoices' },
     { label: 'Project Progress Report', value: 'Project Progress Report' },
     { label: 'Inventory Report', value: 'Inventory Report' },

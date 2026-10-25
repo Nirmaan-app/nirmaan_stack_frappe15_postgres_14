@@ -8,11 +8,12 @@ on the parent's `modified` timestamp, dedupes the template snapshot via
 content-addressed storage, and re-validates assignee/role permission server-side.
 """
 
-import hashlib
 import json
 
 import frappe
 from frappe.utils import now_datetime, now
+
+from nirmaan_stack.services.template_snapshots import get_or_create_snapshot
 
 CONCURRENCY_ERROR = "CommissionReportConcurrencyError"
 EVIDENCE_DOCTYPE = "Commission Report Template Snapshot"
@@ -30,19 +31,6 @@ _EDIT_ROLES = {
 }
 
 
-def _canonical_json(payload: dict) -> str:
-    """Stable byte-for-byte serialization for hashing.
-
-    Python's `json.dumps(sort_keys=True, separators=(',', ':'), ensure_ascii=False)`
-    matches a normalized JS `JSON.stringify` with a sorting-key replacer, which
-    is what the frontend uses before sending."""
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-
-
-def _sha256_hex(s: str) -> str:
-    return hashlib.sha256(s.encode("utf-8")).hexdigest()
-
-
 def _get_or_create_snapshot(snapshot_payload) -> str:
     """Upsert a Commission Report Template Snapshot, return its docname (= hash)."""
     if isinstance(snapshot_payload, str):
@@ -55,21 +43,7 @@ def _get_or_create_snapshot(snapshot_payload) -> str:
     else:
         frappe.throw("snapshot_payload must be a JSON string or object.")
 
-    canonical = _canonical_json(parsed)
-    payload_hash = _sha256_hex(canonical)
-
-    if frappe.db.exists(EVIDENCE_DOCTYPE, payload_hash):
-        return payload_hash
-
-    snapshot = frappe.new_doc(EVIDENCE_DOCTYPE)
-    snapshot.payload_hash = payload_hash
-    snapshot.template_id = parsed.get("templateId") or ""
-    snapshot.template_version = parsed.get("templateVersion") or 1
-    snapshot.template_title = parsed.get("title") or ""
-    snapshot.first_seen_at = now_datetime()
-    snapshot.payload = canonical
-    snapshot.insert(ignore_permissions=True)
-    return snapshot.name
+    return get_or_create_snapshot(EVIDENCE_DOCTYPE, parsed)
 
 
 def _user_can_edit_task(task_row) -> bool:

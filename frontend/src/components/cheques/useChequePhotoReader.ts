@@ -20,7 +20,7 @@ const MATCH_PAYEE_API = "nirmaan_stack.api.payment_autofill.match_payee_to_vendo
  * Reads a cheque photo into the cheque form (spec #1407, #1409). The rules live in
  * `utils/cheques/chequePhoto.ts`; this hook only calls the reader and hands the values to the form.
  *
- * `getValues` and `setValues` are the form's: Add Cheque's, or the Request Payment dialog's Cheque
+ * `getValues` and `setValues` are the form's: the Security Deposit cheque form's, or the Request Payment dialog's Cheque
  * mode (#1414), which passes the `fields` it has. Read results that arrive after a newer photo was
  * picked (or the form was closed) are dropped.
  */

@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""What a cheque photo says, as the Add Cheque form needs it (spec #1407, #1409). Pure: no `frappe.db`.
+"""What a cheque photo says, as the cheque forms need it (spec #1407, #1409). Pure: no `frappe.db`.
 
 The photo reader (`api/payment_autofill.extract_payment_fields(mode="cheque")`) asks Gemini to copy
 what is printed on the cheque. This module turns those copies into form values. A value it cannot
@@ -68,7 +68,7 @@ def amount_from_figures(figures) -> float | None:
 
 
 def cheque_photo_fields(*, bank_name, micr_line, cheque_date, amount_in_figures, payee) -> dict:
-    """The Add Cheque form's values from what the model copied off the photo. Unsure is empty."""
+    """A cheque form's values from what the model copied off the photo. Unsure is empty."""
     bank, other_bank_name = bank_from_printed_name(bank_name)
     return {
         "bank": bank,

@@ -56,7 +56,6 @@ Filters out Halted/Completed projects from the dropdown by default.
 | DC & MIRs | `pages/DeliveryChallansAndMirs/DeliveryChallansAndMirs.tsx:397` | Project filter on DC/MIR list |
 | ManPower Report | `components/ManPowerReport.tsx:302` | Project filter for report |
 | Edit Invoice | `pages/ProjectInvoices/components/ProjectInvoiceDialog.tsx:154` | Project selector in edit dialog |
-| New Expense | `pages/ProjectExpenses/components/NewProjectExpenseDialog.tsx:170` | Project selector for new expense |
 
 **Without filter (`all={true}`, all projects shown):**
 
@@ -74,7 +73,6 @@ These pages have their own project selection logic and do **not** use `ProjectSe
 | Page | File | Status Guard |
 |------|------|-------------|
 | New PR creation | `pages/ProcurementRequests/NewPR/NewProcurementRequestPage.tsx` | None |
-| New SR/WO creation | `pages/ServiceRequests/service-request/new-service-request.tsx` | None |
 
 PR and SR creation is **not blocked** for Halted/Completed projects — there is no frontend or backend guard.
 

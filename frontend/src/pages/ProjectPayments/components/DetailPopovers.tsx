@@ -29,6 +29,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useVendorAccount } from "@/components/payees/vendorPayeeAccount";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { documentBalance } from "./documentBalance";
 import { poLinkFor, routeName } from "./poRoute";
 
 /**
@@ -144,9 +145,7 @@ export const DocumentDetailPopover: React.FC<DocumentDetailPopoverProps> = ({
           <Field label="Created" value={data?.creation ? formatDate(data.creation) : ""} />
           <Field label={isPO ? "PO Value" : "WO Value"} value={formatToRoundedIndianRupee(total)} />
           <Field label="Total Paid" value={formatToRoundedIndianRupee(paid)} />
-          {/* Balance is DERIVED here rather than read from `amount_due`, which is a
-              stored field on both doctypes and can sit stale behind a revision. */}
-          <Field label="Balance" value={formatToRoundedIndianRupee(total - paid)} />
+          <Field label="Balance" value={formatToRoundedIndianRupee(documentBalance(doctype, data))} />
           {/* Delivered value only means something for a PO — a WO has no delivery. */}
           {isPO && (
             <Field

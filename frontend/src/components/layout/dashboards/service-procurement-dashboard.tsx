@@ -18,6 +18,8 @@ import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { useCounts } from "@/hooks/useCounts";
 import { getProjectStaticFilters } from "@/pages/projects/config/projectTable.config";
 import { MetricCard, Section, getNestedCount } from "./procurement-dashboard";
+import { useExpenseAccess } from "@/hooks/useExpenseAccess";
+import { showsExpenses } from "@/utils/expenseAccess";
 
 // ============================================================================
 // Configuration
@@ -80,9 +82,10 @@ const SERVICE_SECTIONS: ServiceSection[] = [
         Icon: CircleDollarSign,
       },
       {
-        id: "expense-request",
-        title: "Expense Request",
-        description: "Raise and track expense requests",
+        // Shown only to a viewer who gets the Expenses page (`useExpenseAccess`), like the sidebar item.
+        id: "expenses",
+        title: "Expenses",
+        description: "Raise and track expenses",
         linkTo: "/expense",
         Icon: Landmark,
       },
@@ -169,6 +172,7 @@ const SERVICE_SECTIONS: ServiceSection[] = [
 /** Dashboard for the Service Procurement Executive profile: its sidebar, as cards. */
 export default function ServiceProcurementDashboard() {
   const { counts } = useDocCountStore();
+  const { access: expenseAccess } = useExpenseAccess();
 
   // One batched round-trip. Projects carries the same static filter as the
   // /projects table (Won only), so the card number matches the list it opens.
@@ -200,7 +204,7 @@ export default function ServiceProcurementDashboard() {
       {/* Sections */}
       {SERVICE_SECTIONS.map((section) => (
         <Section key={section.id} title={section.title}>
-          {section.metrics.map((metric) => {
+          {section.metrics.filter((metric) => metric.id !== "expenses" || showsExpenses(expenseAccess)).map((metric) => {
             const hasCount = !!(metric.storeKey || metric.countKey);
             const count = metric.storeKey
               ? getNestedCount(counts, metric.storeKey) || 0

@@ -20,8 +20,7 @@ import {
 } from "./approvalTiers";
 
 // The Python module is the authority; this mirror exists only to describe the outcome to
-// the user. The PARITY block below reads that file so the two cannot drift silently --
-// which is what `expenseApproval.test.ts` claims to do in its header but never actually did.
+// the user. The PARITY block below reads that file so the two cannot drift silently.
 const PY_SOURCE = readFileSync(
   resolve(__dirname, "../../../nirmaan_stack/services/approval_tiers.py"),
   "utf-8"
@@ -213,7 +212,7 @@ describe("raiser level (owner, 2026-09-21)", () => {
     expect(raiserLevelOf("Nirmaan Admin Profile", CEO, CEO)).toBe(RAISER_LEVELS.ceo);
     expect(raiserLevelOf("Nirmaan Admin Profile", "someone@nirmaan.app", CEO)).toBe(RAISER_LEVELS.l1);
     expect(raiserLevelOf("Nirmaan Admin Profile", "Administrator", CEO)).toBe(RAISER_LEVELS.l1);
-    // Accountants are NOT L1 here, even though the bulk endpoint admits them.
+    // Accountants are NOT L1, here or on any payment step (server: services/payment_steps.py).
     expect(raiserLevelOf("Nirmaan Accountant Profile", "acc@nirmaan.app", CEO)).toBeNull();
     expect(raiserLevelOf("Nirmaan Procurement Executive Profile", "p@nirmaan.app", CEO)).toBeNull();
   });

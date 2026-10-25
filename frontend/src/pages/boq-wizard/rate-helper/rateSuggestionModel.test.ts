@@ -134,6 +134,60 @@ describe("buildSuggestions", () => {
   });
 });
 
+describe("buildSuggestions prices a row once, and again only when it can change (BOQ-26-00393: 2-4 s freezes)", () => {
+  const descriptors = [supplyDesc, installDesc, amountDesc];
+  /** The mock helper, recording the excel row of every compute. */
+  const countingHelpers = () => {
+    const computed: number[] = [];
+    const helper: RateHelper = { ...mockHelper, compute: (c, o) => { computed.push(c.excelRow); return mockHelper.compute(c, o); } };
+    return { helpers: [helper], computed };
+  };
+  const categories = new Map<number, SheetCategoryRow>([[7, cat("earthing")], [8, cat("wiring_cabling")], [9, cat("panels")]]);
+
+  it("one compute per row, not one per rate column", () => {
+    const { helpers, computed } = countingHelpers();
+    buildSuggestions([row(7, "Line Item"), row(8, "Line Item")], descriptors, false, categories, helpers);
+    expect(computed).toEqual([7, 8]);
+  });
+  it("a rate save (one new row object, the others the same) prices only that row again", () => {
+    const { helpers, computed } = countingHelpers();
+    const rows = [row(7, "Line Item"), row(8, "Line Item"), row(9, "Line Item")];
+    const before = buildSuggestions(rows, descriptors, false, categories, helpers);
+    computed.length = 0;
+    const saved = [rows[0], { ...rows[1] }, rows[2]];
+    const after = buildSuggestions(saved, descriptors, false, categories, helpers);
+    expect(computed).toEqual([8]);
+    expect(after).toEqual(before);
+  });
+  it("new helpers (a new run, configs or catalogue) price every row again", () => {
+    const rows = [row(7, "Line Item"), row(8, "Line Item")];
+    const first = countingHelpers();
+    buildSuggestions(rows, descriptors, false, categories, first.helpers);
+    const second = countingHelpers();
+    buildSuggestions(rows, descriptors, false, categories, second.helpers);
+    expect(second.computed).toEqual([7, 8]);
+  });
+  it("a row whose category changed is priced again and badged by its new category", () => {
+    const { helpers, computed } = countingHelpers();
+    const rows = [row(7, "Line Item"), row(8, "Line Item")];
+    buildSuggestions(rows, descriptors, false, categories, helpers);
+    computed.length = 0;
+    const recategorised = new Map(categories).set(7, cat("wiring_cabling"));
+    const map = buildSuggestions(rows, descriptors, false, recategorised, helpers);
+    expect(computed).toEqual([7]);
+    expect(Object.keys(map.get(7)!.byCol)).toEqual(["E"]);
+  });
+  it("new rate columns price every row again and badge the new columns", () => {
+    const { helpers, computed } = countingHelpers();
+    const rows = [row(7, "Line Item")];
+    buildSuggestions(rows, [supplyDesc], false, categories, helpers);
+    computed.length = 0;
+    const map = buildSuggestions(rows, descriptors, false, categories, helpers);
+    expect(computed).toEqual([7]);
+    expect(Object.keys(map.get(7)!.byCol)).toEqual(["E", "G"]);
+  });
+});
+
 describe("markSuggestionUsed (memo-shield friendly)", () => {
   it("flips the one cell to used, preserves the count, and keeps OTHER entries' identity", () => {
     const base = buildSuggestions(

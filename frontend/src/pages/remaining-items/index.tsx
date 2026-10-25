@@ -59,27 +59,10 @@ function UpdateInventoryContent({ projectId, projectName }: { projectId: string;
 
   const todayExists = todayReport?.message?.exists ?? false;
 
-  const lastReportDate = latestReport?.message?.report_date;
-  const daysSinceLastReport = lastReportDate
-    ? Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(lastReportDate + "T00:00:00").getTime()) / 86400000)
-    : Infinity;
-  const isWithinCooldown = !todayExists && daysSinceLastReport < 3;
-  const daysUntilNextUpdate = isWithinCooldown ? 3 - daysSinceLastReport : 0;
-
   const [editOverride, setEditOverride] = useState(false);
-  const mode: Mode = editOverride ? "edit" : (todayExists || isWithinCooldown) ? "summary" : "create";
+  const mode: Mode = editOverride ? "edit" : todayExists ? "summary" : "create";
 
   const isLoading = itemsLoading || todayLoading || latestLoading;
-
-  const cooldownReport = isWithinCooldown ? {
-    exists: true,
-    status: "Submitted",
-    submitted_by: latestReport?.message?.submitted_by_full_name || latestReport?.message?.submitted_by || "",
-    modified: latestReport?.message?.report_date || "",
-    items: Object.values(latestReport?.message?.items || {}).map((item: any) => ({
-      remaining_quantity: item.remaining_quantity,
-    })),
-  } : null;
 
   if (isLoading) return <LoadingFallback />;
 
@@ -113,12 +96,9 @@ function UpdateInventoryContent({ projectId, projectName }: { projectId: string;
       />
       {mode === "summary" ? (
         <ReportSummaryCard
-          report={isWithinCooldown ? cooldownReport : todayReport?.message}
+          report={todayReport?.message}
           totalItems={eligibleItems.length}
-          onEdit={isWithinCooldown ? undefined : () => setEditOverride(true)}
-          cooldownMessage={isWithinCooldown
-            ? `Next update available in ${daysUntilNextUpdate} day${daysUntilNextUpdate !== 1 ? "s" : ""}`
-            : undefined}
+          onEdit={() => setEditOverride(true)}
         />
       ) : (
         <RemainingItemsFormWrapper

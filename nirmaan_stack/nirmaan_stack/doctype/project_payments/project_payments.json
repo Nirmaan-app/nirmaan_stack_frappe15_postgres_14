@@ -110,7 +110,8 @@
   {
    "fieldname": "tds",
    "fieldtype": "Data",
-   "label": "TDS"
+   "label": "TDS",
+   "read_only": 1
   },
   {
    "fieldname": "payment_date",
@@ -219,7 +220,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-15 12:26:41.160593",
+ "modified": "2026-10-22 06:03:36.895714",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Payments",

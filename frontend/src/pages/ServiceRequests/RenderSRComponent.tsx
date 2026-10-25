@@ -19,7 +19,6 @@ export const RenderSRComponent : React.FC = () => {
   const SelectServiceVendor = React.lazy(() => import("./service-request/select-service-vendor"));
 
   const ApprovedSR = React.lazy(() => import("./service-request/approved-sr"));
-  // const ApprovedSRPage = React.lazy(() => import("./approved-sr/ApprovedSRPage"));
 
   const ApproveSR = React.lazy(() => import("./service-request/approve-service-request"));
 

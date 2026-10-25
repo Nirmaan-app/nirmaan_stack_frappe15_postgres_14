@@ -11,7 +11,7 @@ import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/comp
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { CHEQUE_BANK } from "@/types/NirmaanStack/Cheques";
+import { CHEQUE_BANK, CHEQUE_PAYMENT_DATE_LABEL, type ChequeBank } from "@/types/NirmaanStack/Cheques";
 import { isFromPhoto, type ChequePhotoField } from "@/utils/cheques/chequePhoto";
 
 /** The red asterisk on a required field's label. */
@@ -26,13 +26,20 @@ interface ChequeHeaderFieldsProps<T extends ChequeHeaderInput, V extends FieldVa
     locked: (field: string) => boolean;
     /** While the Cheque saves: no new photo. */
     saving: boolean;
+    /**
+     * The banks offered (`utils/cheques/chequeEdit.chequeBankOptions`). With ICICI Bank alone, as for a Payment
+     * cheque (#1516), the bank is shown fixed, not chosen.
+     */
+    banks?: readonly ChequeBank[];
     /** Further boxes in the same grid, after the amount (the deposit's issue date). */
     children?: ReactNode;
 }
 
+const ALL_BANKS: readonly ChequeBank[] = [CHEQUE_BANK.ICICI, CHEQUE_BANK.OTHERS];
+
 /**
- * The photo, bank, number, date and amount of a Cheque form (spec #1407, #1477): Add Cheque's Payment form
- * and the Security Deposit form. A box the photo filled carries the "From photo" tag while it still holds
+ * The photo, bank, number, date and amount of a Cheque form (spec #1407, #1477): a Payment cheque's Edit
+ * (spec #1514) and the Security Deposit form. A box the photo filled carries the "From photo" tag while it still holds
  * what the photo said. Renders inside the form's `<Form>` provider.
  */
 export const ChequeHeaderFields = <T extends ChequeHeaderInput, V extends FieldValues>({
@@ -41,11 +48,13 @@ export const ChequeHeaderFields = <T extends ChequeHeaderInput, V extends FieldV
     upload,
     locked,
     saving,
+    banks = ALL_BANKS,
     children,
 }: ChequeHeaderFieldsProps<T, V>) => {
     const header = asHeaderForm(form);
     const values = header.watch();
     const fromPhoto = (field: ChequePhotoField) => isFromPhoto(field, values, upload.reader.photo);
+    const offersOthers = banks.includes(CHEQUE_BANK.OTHERS);
 
     return (
         <>
@@ -81,46 +90,63 @@ export const ChequeHeaderFields = <T extends ChequeHeaderInput, V extends FieldV
                 )}
             />
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <FormField
-                    control={header.control}
-                    name="bank"
-                    render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>Bank<Required />{fromPhoto("bank") && <FromPhotoTag />}</FormLabel>
-                            <Select value={field.value} onValueChange={field.onChange} disabled={locked("bank")}>
-                                <FormControl>
-                                    <SelectTrigger className={cn(fromPhoto("bank") && FROM_PHOTO_INPUT)}>
-                                        <SelectValue placeholder="Choose the bank" />
-                                    </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                    <SelectItem value={CHEQUE_BANK.ICICI}>ICICI Bank</SelectItem>
-                                    <SelectItem value={CHEQUE_BANK.OTHERS}>Others</SelectItem>
-                                </SelectContent>
-                            </Select>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-                {values.bank === CHEQUE_BANK.OTHERS && (
-                    <FormField
-                        control={header.control}
-                        name="bank_name"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>Bank name<Required />{fromPhoto("bank") && <FromPhotoTag />}</FormLabel>
-                                <FormControl>
-                                    <Input
-                                        placeholder="e.g. HDFC Bank"
-                                        disabled={locked("bank_name")}
-                                        className={cn(fromPhoto("bank") && FROM_PHOTO_INPUT)}
-                                        {...field}
-                                    />
-                                </FormControl>
-                                <FormMessage />
-                            </FormItem>
+                {offersOthers ? (
+                    <>
+                        <FormField
+                            control={header.control}
+                            name="bank"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Bank<Required />{fromPhoto("bank") && <FromPhotoTag />}</FormLabel>
+                                    <Select value={field.value} onValueChange={field.onChange} disabled={locked("bank")}>
+                                        <FormControl>
+                                            <SelectTrigger className={cn(fromPhoto("bank") && FROM_PHOTO_INPUT)}>
+                                                <SelectValue placeholder="Choose the bank" />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                            <SelectItem value={CHEQUE_BANK.ICICI}>ICICI Bank</SelectItem>
+                                            <SelectItem value={CHEQUE_BANK.OTHERS}>Others</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        {values.bank === CHEQUE_BANK.OTHERS && (
+                            <FormField
+                                control={header.control}
+                                name="bank_name"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Bank name<Required />{fromPhoto("bank") && <FromPhotoTag />}</FormLabel>
+                                        <FormControl>
+                                            <Input
+                                                placeholder="e.g. HDFC Bank"
+                                                disabled={locked("bank_name")}
+                                                className={cn(fromPhoto("bank") && FROM_PHOTO_INPUT)}
+                                                {...field}
+                                            />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
                         )}
-                    />
+                    </>
+                ) : (
+                    <FormItem>
+                        <FormLabel>Bank</FormLabel>
+                        {/* A Payment cheque on Others recorded before #1516 shows as recorded: cancelling closes it. */}
+                        <Input
+                            value={values.bank === CHEQUE_BANK.OTHERS ? values.bank_name || CHEQUE_BANK.OTHERS : CHEQUE_BANK.ICICI}
+                            readOnly
+                            disabled
+                        />
+                        <p className="text-[0.8rem] text-muted-foreground">
+                            A Payment cheque is drawn on ICICI Bank: only its statement clears the cheque.
+                        </p>
+                    </FormItem>
                 )}
                 <FormField
                     control={header.control}
@@ -146,7 +172,7 @@ export const ChequeHeaderFields = <T extends ChequeHeaderInput, V extends FieldV
                     name="cheque_date"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>Cheque date<Required />{fromPhoto("cheque_date") && <FromPhotoTag />}</FormLabel>
+                            <FormLabel>{CHEQUE_PAYMENT_DATE_LABEL}<Required />{fromPhoto("cheque_date") && <FromPhotoTag />}</FormLabel>
                             <FormControl>
                                 <Input
                                     type="date"

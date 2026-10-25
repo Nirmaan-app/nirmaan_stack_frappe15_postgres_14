@@ -42,7 +42,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
-import { SRRemarksPopover } from "@/pages/ServiceRequests/approved-sr/components/SRRemarksPopover";
+import { SRRemarksPopover } from "@/pages/ServiceRequests/service-request/components/SRRemarksPopover";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { parseNumber } from "@/utils/parseNumber";
 import {
@@ -175,7 +175,6 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         "service_category_list",
         "total_amount",
         "amount_paid",
-        "total_tds",
         "gst",
         "amount_invoiced",
         "amount_due",
@@ -423,26 +422,6 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         },
       },
       {
-        // Tax withheld from this order's PAID payments. Sits beside Amt. Paid because the two
-        // are recomputed together server-side and always describe the same set of payments;
-        // an SR payment's own amount is stored NET, so this is the rest of that figure.
-        accessorKey: "total_tds",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Total TDS" />
-        ),
-        cell: ({ row }) => (
-          <div className="font-medium pr-2">
-            {formatToRoundedIndianRupee(parseNumber(row.original.total_tds) || 0)}
-          </div>
-        ),
-        enableSorting: true,
-        size: 120,
-        meta: {
-          exportHeaderName: "Total TDS",
-          exportValue: (row: ServiceRequests) => parseNumber(row.total_tds) || 0,
-        },
-      },
-      {
         // A stored SR field (total_amount - amount_paid, maintained by the same events
         // that write its operands), so the database orders the whole set.
         accessorKey: "amount_due",
@@ -607,7 +586,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
           <Alert className="bg-blue-50 border-blue-200 mb-2">
             <Info className="h-4 w-4 text-blue-600" />
             <AlertDescription className="text-blue-800 text-sm">
-              <strong>Note:</strong> Amount Due = Total WO Value − Amt Paid − TDS withheld from the vendor (TDS the company pays on top is not taken off)
+              <strong>Note:</strong> Amount Due = Total WO Value − Amt Paid
             </AlertDescription>
           </Alert>
           <DataTable<ServiceRequests>

@@ -4,6 +4,8 @@ from frappe.utils import flt
 
 from nirmaan_stack.nirmaan_stack.doctype.projects.projects import CEO_HOLD_SYSTEM_USER
 from nirmaan_stack.services.ceo_hold import core
+from nirmaan_stack.services.ceo_hold.rules import over_cashflow_limit, watches_cashflow_gap
+from nirmaan_stack.services.caller_transaction import caller_owns_the_commit
 from nirmaan_stack.services.project_money import project_money_of
 from nirmaan_stack.services.amount_paid import paid_money
 from ..Notifications.pr_notifications import PrNotification
@@ -46,16 +48,10 @@ def sync_cashflow_reason(project_id: str) -> None:
 		return  # scheduled-recheck mode — only tasks.ceo_hold_recheck may decide.
 
 	limit = flt(row.cashflow_gap_limit)
-	over_limit = False
-	if row.status != "Completed" and limit > 0:
-		gap = _compute_cashflow_gap(project_id)
-		over_limit = gap > limit
-		if over_limit:
-			core.set_reason(
-				project_id, core.SOURCE_CASHFLOW, core.cashflow_reason_text(gap, limit)
-			)
-		else:
-			core.clear_reason(project_id, core.SOURCE_CASHFLOW)
+	gap = _compute_cashflow_gap(project_id) if watches_cashflow_gap(row.status, limit) else 0.0
+	over_limit = over_cashflow_limit(row.status, limit, gap)
+	if over_limit:
+		core.set_reason(project_id, core.SOURCE_CASHFLOW, core.cashflow_reason_text(gap, limit))
 	else:
 		core.clear_reason(project_id, core.SOURCE_CASHFLOW)
 
@@ -111,7 +107,8 @@ def _notify_manual_hold_releasable(project_id: str, holder_user: str) -> None:
 	# cleared in a `finally`. It covers BOTH ledgers: this module is wired to `Project Payments`
 	# on_update AND `Project Expenses` on_update, so the payment path was exposed to this same
 	# commit before the expense path ever reached it.
-	if frappe.flags.get("outflow_import_settling"):
+	# `expense_decision.decide` saves inside its caller's per-row savepoint too, so the same holds.
+	if caller_owns_the_commit():
 		return
 
 	if frappe.db.exists(

@@ -1,7 +1,8 @@
 // src/pages/ExpenseRequests/components/NewExpenseRequestDialog.tsx
 //
 // Raise an expense request. This creates an `Expense Request`, NOT an expense — the ledger
-// row only exists once a reviewer approves.
+// row only exists once a reviewer approves, or at once for a raiser on Records without review
+// (#1498: the button then reads "Record expense" and says who approves next).
 //
 // The type list comes from the backend (`get_request_catalog`) rather than a TS mirror, so
 // the picker can never offer a type the create endpoint would then refuse. The catalog also
@@ -10,18 +11,33 @@
 //   non-project only -> hidden entirely
 //   both             -> shown and optional; the choice picks the ledger
 //
-// The type's "Enable Source" switch decides the rest of the form. ON: the type's own
-// format. OFF (or no format): the STANDARD fields a directly-entered expense needs --
-// a required Description, a required Vendor once a project is chosen, and optional invoice
-// details that reach the ledger row's invoice columns at approval.
+// The New Expense form (spec #1494, #1501) asks, in order: Type, Amount, Project (as above),
+// an optional Vendor (searchable, once a project is chosen), Who gets paid (below), then the
+// details, "Do you have the invoice?" and a Comment (optional). The type's "Enable Source" switch
+// decides the details. ON: the type's own format. OFF (or no format): a required Description.
+// Which fields show is `utils/newExpenseForm.newExpenseFields`.
+//
+// The invoice (#1502) is asked the same way for every type (`InvoiceSection`): Yes uploads it and
+// Gemini fills its date and number; No adds it later from the request's page. Its notes are
+// warnings and never block submit; the server returns the same ones (`flatten.invoice_warnings`).
+//
+// A staff stay that overlaps another for the same person (#1504) is flagged while the form is
+// filled: in bold with the matches for a raiser on Records without review, as a quiet note for
+// anyone else. It never blocks submit (`api/expense_requests/duplicates`).
 //
 // Who gets paid (ADR-0033, #1429, #1436): when the type's `payee_rule` asks (Required / Optional), the
 // "Who gets paid" section picks or adds a Payee -- or, with a vendor picked, shows that vendor's
 // account read-only. The server COPIES the account into the request's own pay-to fields
 // (`services/payees/pay_to`) and refuses nothing: Required is this screen's rule.
+//
+// Office Rent (spec #1522, #1524): the raiser types the full rent, and the line under the Amount
+// shows the 10% TDS and what the landlord gets (`utils/expenses/expenseTds`). A form's PAN answer
+// not shaped like ABCPK1234D, or month answer not a month and year, blocks submit, and the server
+// refuses it too. Office Rent's Who gets paid is Required: the landlord's account.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFrappeFileUpload, useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
+import { useNavigate } from "react-router-dom";
 import { TailSpin } from "react-loader-spinner";
 
 import {
@@ -33,12 +49,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import { Checkbox } from "@/components/ui/checkbox";
-import { CustomAttachment, AcceptedFileType } from "@/components/helpers/CustomAttachment";
 import {
     FuzzySearchSelect, FuzzyOptionType, TokenSearchConfig,
 } from "@/components/ui/fuzzy-search-select";
 import { useToast } from "@/components/ui/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import ProjectSelect from "@/components/custom-select/project-select";
 import VendorSelect, { OTHERS_VENDOR_VALUE } from "@/components/custom-select/vendor-select";
 
@@ -52,22 +67,31 @@ import {
 } from "@/utils/payees/expensePayee";
 import { payToSave } from "@/utils/payees/payToChoice";
 
+import { invoiceNotes, newExpenseFields, newExpenseSubmit, whatHappensNext } from "@/utils/newExpenseForm";
+import { raiserLevelOf } from "@/utils/approvalTiers";
+import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useUserData } from "@/hooks/useUserData";
 import { parseNumber } from "@/utils/parseNumber";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import type {
-    ExpenseRequest, GetRequestCatalogResponse, RequestCatalogType,
+    ExpenseRequest, GetRequestCatalogResponse, RequestCatalogType, SaveExpenseRequestResponse,
+    StayDuplicate,
 } from "@/types/NirmaanStack/ExpenseRequest";
 import {
-    answersFromSourceData, NATIVE_INVOICE_SECTION, NATIVE_INVOICE_SLOT, parseFormat,
+    answersFromSourceData, invalidMonthKeys, invalidPanKeys, NATIVE_INVOICE_SECTION, parseFormat,
     readDetailDescription, readNativeInvoice, seedAnswers,
 } from "@/utils/expenseFormat";
+import { expenseTdsSplit, tdsPreviewLine } from "@/utils/expenses/expenseTds";
 import FormatFieldsRenderer, {
     FormatAnswers, FormatFiles, requiredKeys, toResponses,
 } from "./FormatFieldsRenderer";
+import InvoiceQuestion, {
+    checksLine, EMPTY_INVOICE, invoiceSourceData, InvoiceValue,
+} from "./InvoiceSection";
 import WhoGetsPaidSection from "./WhoGetsPaidSection";
+import DuplicateStayNote from "@/components/common/DuplicateStayNote";
 
 /** One option per expense type.
  *
@@ -105,40 +129,38 @@ interface Props {
 interface FormState {
     expense_type: string;
     projects: string;
-    // Holds the SENTINEL for "Others (No Vendor)", never "" -- see `vendor-select`. The
-    // payload maps it back to nothing, so the sentinel never leaves this file.
+    // "" for no vendor chosen, or the SENTINEL once "Others (No Vendor)" is picked -- see
+    // `vendor-select`. The payload maps both to nothing, so the sentinel never leaves this file.
     vendor: string;
     amount: string;
     description: string;
     comment: string;
-    // Standard-request invoice details (form OFF only).
-    recordInvoice: boolean;
-    invoice_date: string;
-    invoice_ref: string;
-    /** The file already on a request being edited; kept unless replaced or removed. */
-    existingInvoiceUrl: string;
 }
 
 const EMPTY: FormState = {
     expense_type: "", projects: "", vendor: "", amount: "", description: "", comment: "",
-    recordInvoice: false, invoice_date: "", invoice_ref: "", existingInvoiceUrl: "",
 };
 
-const INVOICE_ACCEPTED_TYPES: AcceptedFileType[] = ["image/*", "application/pdf"];
 
 export const NewExpenseRequestDialog: React.FC<Props> = ({
     onSuccess, editing = null, onEditingChange,
 }) => {
     const { newExpenseRequestDialog, setNewExpenseRequestDialog } = useDialogStore();
     const { toast } = useToast();
-    const { full_name, user_id } = useUserData();
+    const navigate = useNavigate();
+    const { full_name, user_id, role } = useUserData();
 
     const [form, setForm] = useState<FormState>(EMPTY);
     const [answers, setAnswers] = useState<FormatAnswers>({});
     // Files are held, not uploaded, until submit -- a cancelled dialog then cannot orphan one.
     const [files, setFiles] = useState<FormatFiles>({});
-    const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
+    // The invoice belongs to the expense, not to its type, so a type change keeps it.
+    const [invoice, setInvoice] = useState<InvoiceValue>(EMPTY_INVOICE);
+    const patchInvoice = useCallback(
+        (patch: Partial<InvoiceValue>) => setInvoice((v) => ({ ...v, ...patch })), []
+    );
     const [submitting, setSubmitting] = useState(false);
+    const amountRef = useRef<HTMLInputElement>(null);
     // Edit-only: the requester has asked to swap the project, so hand them the picker.
     const [changingProject, setChangingProject] = useState(false);
     // Who gets paid when no vendor is picked: an existing Payee, or a new one added on send. On an
@@ -156,10 +178,10 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
             editing?.type ? `expense_request_catalog_${editing.type}` : "expense_request_catalog"
         );
 
-    const { call: updateRequest } = useFrappePostCall(
+    const { call: updateRequest } = useFrappePostCall<{ message?: SaveExpenseRequestResponse }>(
         "nirmaan_stack.api.expense_requests.update.update_expense_request"
     );
-    const { call: createRequest } = useFrappePostCall(
+    const { call: createRequest } = useFrappePostCall<{ message?: SaveExpenseRequestResponse }>(
         "nirmaan_stack.api.expense_requests.create.create_expense_request"
     );
     const { upload } = useFrappeFileUpload();
@@ -228,14 +250,22 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         : "";
 
     const selected = form.expense_type ? typesById.get(form.expense_type) : undefined;
-    const showProject = !!selected?.project_allowed;
-    const projectRequired = !!selected?.project_required;
-
-    // Vendor is a PROJECT-ONLY field, and the gate is the project being CHOSEN, not merely
-    // offered: `Non Project Expenses` has no vendor column at all, so a vendor recorded on a
-    // non-project request would be silently dropped at approval. Asking for it only once a
-    // project is on screen is what keeps the request and the ledger row able to agree.
-    const showVendor = showProject && !!form.projects;
+    // Which fields the type asks (`utils/newExpenseForm`). The Vendor is optional and PROJECT-ONLY,
+    // shown once a project is CHOSEN: `Non Project Expenses` has no vendor column, so a vendor on a
+    // non-project request would be dropped at approval. A type whose form is switched off (or
+    // unwritten, or unparseable) asks a Description instead; while a form is still loading neither
+    // is shown, so the Description never flashes up and vanishes.
+    const fields = newExpenseFields({
+        type: selected,
+        projectChosen: !!form.projects,
+        formatLoading,
+        formatReady: !!parsedFormat,
+    });
+    const showProject = fields.project !== "hidden";
+    const projectRequired = fields.project === "required";
+    const showVendor = fields.vendor;
+    const formatPending = fields.details === "loading";
+    const isStandard = fields.details === "description";
     const vendorChosen = showVendor && !!form.vendor && form.vendor !== OTHERS_VENDOR_VALUE;
 
     // Who gets paid: asked unless the type says Not asked. With a vendor picked it is the vendor's
@@ -270,13 +300,6 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         setForm((f) => ({ ...f, vendor: value }));
     };
 
-    // STANDARD mode: the type's form is switched off (or unwritten, or unparseable), so the
-    // dialog asks what a directly-entered expense needs. While a switched-on format is still
-    // loading neither mode is shown, so the standard fields never flash up and vanish.
-    const formatPending = !!selected?.has_format && formatLoading;
-    const isStandard = !!selected && !parsedFormat && !formatPending;
-    const showDescription = isStandard;
-
     const set = useCallback(
         <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((f) => ({ ...f, [k]: v })),
         []
@@ -287,7 +310,6 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     const handleTypeChange = (value: string) => {
         setAnswers({});
         setFiles({});
-        setInvoiceFile(null);
         // Clear the project: a stale value on a type that just became non-project would be
         // refused by the server, which reads as the form ignoring what was typed. The vendor
         // hangs off the project, so it goes with it -- a vendor left behind on a now
@@ -303,32 +325,73 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         setForm((f) => ({ ...f, projects: projectId, vendor: "" }));
     };
 
+    // DUPLICATE STAY (#1504): asked of the server while the form is filled, never blocking. The
+    // answers go in the same envelope submit sends; the server knows which forms it checks, so no
+    // field name lives here. On an edit the server answers only once the stay itself has changed.
+    // Debounced, so typing is not a call.
+    const stayQueryNow = useMemo(
+        () => (parsedFormat
+            ? JSON.stringify({
+                templateId: parsedFormat.templateId,
+                templateVersion: parsedFormat.templateVersion,
+                responses: toResponses(answers),
+            })
+            : ""),
+        [parsedFormat, answers]
+    );
+    const [stayQuery, setStayQuery] = useState("");
+    useEffect(() => {
+        const t = setTimeout(() => setStayQuery(stayQueryNow), 500);
+        return () => clearTimeout(t);
+    }, [stayQueryNow]);
+    const { data: stayRes } = useFrappeGetCall<{ message: { matches: StayDuplicate[] } }>(
+        "nirmaan_stack.api.expense_requests.duplicates.check_duplicate_stay",
+        { source_data: stayQuery, ...(isEdit ? { exclude: editing!.name } : {}) },
+        stayQuery ? `exr_stay_${editing?.name ?? ""}_${stayQuery}` : null
+    );
+    // Only an answer about what is on screen NOW: a stale one would warn over changed dates.
+    const stayMatches = stayQuery === stayQueryNow ? stayRes?.message?.matches ?? [] : [];
+
     const amountValue = parseNumber(form.amount);
     const missingFormatAnswers = useMemo(
         () => requiredKeys(parsedFormat).filter((k) => !(answers[k] || "").trim()),
         [parsedFormat, answers]
     );
-    // The standard request's own requirements -- the SAME rules the server's
-    // `guard_request_form` applies, plus the vendor pick, which only this screen can see
-    // ("Others (No Vendor)" and an untouched field both reach the server as nothing).
-    const hasInvoiceFile = !!invoiceFile || !!form.existingInvoiceUrl;
-    const standardComplete =
-        !isStandard || (
-            !!form.description.trim() &&
-            (!showVendor || !!form.vendor) &&
-            (!form.recordInvoice || (
-                !!form.invoice_date && (!hasInvoiceFile || !!form.invoice_ref.trim())
-            ))
-        );
+    // A PAN not shaped like one is refused here and by the server (`create.guard_pan_answers`, #1524).
+    const badPanAnswers = useMemo(() => invalidPanKeys(parsedFormat, answers), [parsedFormat, answers]);
+    // A month not given as month and year (`YYYY-MM`) likewise (`create.guard_month_answers`).
+    const badMonthAnswers = useMemo(() => invalidMonthKeys(parsedFormat, answers), [parsedFormat, answers]);
+    // Office Rent withholds 10% (#1524): the raiser types the full rent and sees the split under it.
+    const tdsLine = tdsPreviewLine(expenseTdsSplit(form.expense_type, amountValue));
+    // The standard request's own requirement: the SAME rule the server's `guard_request_form`
+    // applies. The vendor is optional (#1501) and the invoice only warns (#1502).
+    const standardComplete = !isStandard || !!form.description.trim();
+    const notes = invoiceNotes({
+        hasFile: invoice.has === "yes" && !!invoice.file_url,
+        read: invoice.read,
+        invoice_date: invoice.invoice_date,
+        invoice_ref: invoice.invoice_ref,
+        typedAmount: amountValue,
+    });
+    // Records without review (#1498): the server says whether this raiser's request is approved on
+    // submit; the button then reads "Record expense" and says who approves the Expense next.
+    const submitWording = newExpenseSubmit({
+        recordsWithoutReview: !!catalogRes?.message?.records_without_review,
+        amount: amountValue,
+        level: raiserLevelOf(role, user_id, CEO_AUTHORIZED_USER),
+    });
     const canSubmit =
         !!form.expense_type &&
         amountValue > 0 &&
         (!projectRequired || !!form.projects) &&
         !formatPending &&
         missingFormatAnswers.length === 0 &&
+        badPanAnswers.length === 0 &&
+        badMonthAnswers.length === 0 &&
         standardComplete &&
         payeeReady &&
         !payeeChoice.adding &&
+        !invoice.busy &&
         !submitting;
 
     const close = useCallback(() => {
@@ -336,7 +399,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         setChangingProject(false);
         setAnswers({});
         setFiles({});
-        setInvoiceFile(null);
+        setInvoice(EMPTY_INVOICE);
         payeeChoice.reset();
         setNewExpenseRequestDialog(false);
         onEditingChange?.(null);
@@ -347,26 +410,27 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     // requester mid-edit and discard what they had typed.
     useEffect(() => {
         if (!editing) return;
-        const invoice = readNativeInvoice(editing.source_data);
+        const stored = readNativeInvoice(editing.source_data);
         setForm({
             expense_type: editing.type ?? "",
             projects: editing.projects ?? "",
-            // "Others (No Vendor)" is a UI-ONLY sentinel that submit strips, so a request
-            // saved with it is stored exactly like one whose Vendor field was never touched
-            // -- both hold an empty `vendor`, and nothing records which happened. On a SAVED
-            // request there is no undecided state left to represent: an empty vendor IS "no
-            // vendor on record", so seed the sentinel back and the field reads as the
-            // requester left it instead of as an untouched prompt.
-            vendor: editing.vendor || OTHERS_VENDOR_VALUE,
+            // A saved request with no vendor shows the Vendor field EMPTY (spec #1494): the Vendor is
+            // optional (#1501), so empty is how "no vendor" reads on a new request too. "Others (No
+            // Vendor)" is a UI-only sentinel submit strips, so seeding it back named a choice the
+            // requester may never have made.
+            vendor: editing.vendor || "",
             amount: String(editing.amount ?? ""),
             // A format-less request keeps its typed text under the synthetic `detail`
             // key -- the doctype has no `description` column to read it back from.
             description: readDetailDescription(editing.source_data),
             comment: editing.comment ?? "",
-            recordInvoice: !!(invoice.invoice_date || invoice.invoice_ref || invoice.invoice_attachment),
-            invoice_date: invoice.invoice_date,
-            invoice_ref: invoice.invoice_ref,
-            existingInvoiceUrl: invoice.invoice_attachment,
+        });
+        setInvoice({
+            ...EMPTY_INVOICE,
+            has: stored.invoice_date || stored.invoice_ref || stored.invoice_attachment ? "yes" : "no",
+            file_url: stored.invoice_attachment,
+            invoice_date: stored.invoice_date,
+            invoice_ref: stored.invoice_ref,
         });
         setChangingProject(false);
         // The request's own account (`pay_to`), seeded as the pick when it was picked rather than
@@ -375,7 +439,6 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         skipNextSeed.current = true;
         setAnswers(answersFromSourceData(editing.source_data));
         setFiles({});
-        setInvoiceFile(null);
     }, [editing?.name]);   // eslint-disable-line react-hooks/exhaustive-deps
 
     const handleSubmit = useCallback(async () => {
@@ -401,19 +464,12 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                 attachments[slotKey] = [uploaded.file_url];
             }
 
-            // A standard request's invoice file: a new pick replaces the one already on the
-            // request; unticking "Add invoice details" drops both.
-            let invoiceUrl = "";
-            if (isStandard && form.recordInvoice) {
-                if (invoiceFile) {
-                    const uploaded = await upload(invoiceFile, {
-                        doctype: "Expense Request", fieldname: "source_data", isPrivate: true,
-                    });
-                    invoiceUrl = uploaded.file_url;
-                } else {
-                    invoiceUrl = form.existingInvoiceUrl;
-                }
-            }
+            // The invoice, already uploaded when it was picked (so Gemini could read it), under
+            // the same native keys for every type. It REPLACES any the edited request held: its
+            // seeded answers carry the old one under the same section.
+            const inv = invoiceSourceData(invoice);
+            const { [NATIVE_INVOICE_SECTION]: _storedInvoice, ...formResponses } = toResponses(answers);
+            const allAttachments = { ...attachments, ...inv.attachments };
 
             const submit = isEdit ? updateRequest : createRequest;
             const res = await submit({
@@ -451,35 +507,49 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                     ? {
                         templateId: parsedFormat.templateId,
                         templateVersion: parsedFormat.templateVersion,
-                        responses: toResponses(answers),
-                        ...(Object.keys(attachments).length ? { attachments } : {}),
+                        responses: { ...formResponses, ...inv.responses },
+                        ...(Object.keys(allAttachments).length ? { attachments: allAttachments } : {}),
                     }
                     : isStandard
                         ? {
                             responses: {
                                 detail: { description: form.description.trim() },
-                                ...(form.recordInvoice ? {
-                                    [NATIVE_INVOICE_SECTION]: {
-                                        invoice_date: form.invoice_date,
-                                        ...(form.invoice_ref.trim()
-                                            ? { invoice_ref: form.invoice_ref.trim() } : {}),
-                                    },
-                                } : {}),
+                                ...inv.responses,
                             },
-                            ...(invoiceUrl
-                                ? { attachments: { [NATIVE_INVOICE_SLOT]: [invoiceUrl] } } : {}),
+                            ...(inv.attachments ? { attachments: inv.attachments } : {}),
                         }
                         : undefined,
             });
-            const created = (res as any)?.message;
-            toast({
-                title: "Sent for approval",
-                description: `${created?.name} is now pending review.`,
-                variant: "success",
-            });
+            const created = res?.message;
+            // The server's own invoice warnings: a submit is never refused for them.
+            const warnings = created?.warnings ?? [];
+            if (isEdit) {
+                toast({
+                    title: "Changes saved",
+                    description: [`${created?.name} is saved.`, ...warnings].join(" "),
+                    variant: "success",
+                });
+            } else if (created) {
+                // What happens next (`whatHappensNext`): the same message on every page that opens this
+                // dialog. The Toaster sits outside the router, so the link navigates from here.
+                const said = whatHappensNext(created, amountValue);
+                const requestPath = said.requestPath;
+                toast({
+                    title: said.title,
+                    description: [`${created.name}: ${said.next}`, ...warnings].join(" "),
+                    variant: "success",
+                    ...(requestPath ? {
+                        action: (
+                            <ToastAction altText="Open the request" onClick={() => navigate(requestPath)}>
+                                Open request
+                            </ToastAction>
+                        ),
+                    } : {}),
+                });
+            }
             close();
             onSuccess?.();
-        } catch (e: any) {
+        } catch (e) {
             if (e instanceof DuplicatePayeeError) {
                 toast({ title: "This account is already a payee", description: e.message, variant: "destructive" });
                 return;
@@ -496,8 +566,8 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
             setSubmitting(false);
         }
     }, [canSubmit, createRequest, updateRequest, isEdit, editing, upload, files, form,
-        amountValue, showProject, showVendor, isStandard, invoiceFile,
-        parsedFormat, answers, toast, close, onSuccess,
+        amountValue, showProject, showVendor, isStandard, invoice,
+        parsedFormat, answers, toast, navigate, close, onSuccess,
         asksPayee, vendorChosen, payeeChoice.resolve]);
 
     return (
@@ -505,97 +575,134 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
             open={newExpenseRequestDialog || isEdit}
             onOpenChange={(o) => { if (!o) close(); else setNewExpenseRequestDialog(true); }}
         >
-            <AlertDialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+            {/* Pinned to the top, not centred: picking a type adds the Project, Who gets paid, the
+                form and the invoice, and a centred dialog then slid the Amount up from under the
+                pointer (#1494 review S4; the focus half is on the type picker below). */}
+            <AlertDialogContent className="top-[5vh] translate-y-0 max-w-2xl max-h-[90vh] overflow-y-auto">
                 <AlertDialogHeader>
-                    <AlertDialogTitle>{isEdit ? `Edit ${editing!.name}` : "Raise Expense Request"}</AlertDialogTitle>
+                    <AlertDialogTitle>{isEdit ? `Edit ${editing!.name}` : "New Expense"}</AlertDialogTitle>
                 </AlertDialogHeader>
                 <Separator />
 
+                {/* The spec's order (#1501): Type, Amount, Project, Vendor, Who gets paid, then the
+                    type's own questions or a Description, then the invoice and the Comment. */}
                 <div className="space-y-4 py-2">
-                    <div className="space-y-1.5">
-                        <Label>Expense Type <span className="text-destructive">*</span></Label>
-                        <FuzzySearchSelect<ExpenseTypeOption, false>
-                            allOptions={typeOptions}
-                            tokenSearchConfig={EXPENSE_TYPE_SEARCH}
-                            isLoading={catalogLoading}
-                            value={selectedTypeOption}
-                            onChange={(o) => handleTypeChange(o?.value ?? "")}
-                            placeholder={catalogLoading ? "Loading…" : "Search or select a type…"}
-                            // Scope rides the menu rows only; the chosen value stays a clean name
-                            // -- the `VendorSelect` convention.
-                            formatOptionLabel={(o, meta) => meta.context === "value" ? o.label : (
-                                <span className="flex items-center justify-between gap-2 w-full">
-                                    <span className="truncate">{o.label}</span>
-                                    <span className="text-xs text-muted-foreground whitespace-nowrap">
-                                        {o.scope}
-                                    </span>
-                                </span>
-                            )}
-                            // The menu renders in the body -- REQUIRED inside a dialog or it
-                            // clips at the dialog's edge, the same reason VendorSelect portals.
-                            menuPortalTarget={document.body}
-                            menuPosition="fixed"
-                            // Clearing the type would leave the form with a format and no type
-                            // to file it under; switching to another type is the way out.
-                            isClearable={false}
-                        />
-                    </div>
-
-                    {showProject && (
+                    <div className="grid gap-4 sm:grid-cols-2">
                         <div className="space-y-1.5">
-                            <Label>
-                                Project {projectRequired && <span className="text-destructive">*</span>}
-                            </Label>
-                            {chosenProjectLabel ? (
-                                // ⚠️ `ProjectSelect` keeps its selection in INTERNAL state and
-                                // takes no `value`, so it CANNOT display a project the user did
-                                // not pick in this session -- on an edit it renders its
-                                // placeholder over a required field that IS set, which reads as
-                                // unset. It is shared across many screens, so the fix stays
-                                // HERE: show what the request already carries, and mount the
-                                // untouched picker only once the requester asks to change it.
-                                <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2">
-                                    <span className="truncate text-sm">{chosenProjectLabel}</span>
-                                    <Button
-                                        type="button" variant="ghost" size="sm"
-                                        className="h-7 shrink-0 text-xs"
-                                        onClick={() => setChangingProject(true)}
-                                    >
-                                        Change
-                                    </Button>
-                                </div>
-                            ) : (
-                                <ProjectSelect
-                                    universal={false}
-                                    usePortal
-                                    onChange={(o) => handleProjectChange(o?.value ?? "")}
-                                />
-                            )}
-                            {!projectRequired && (
+                            <Label htmlFor="new_expense_type">Expense Type <span className="text-destructive">*</span></Label>
+                            <FuzzySearchSelect<ExpenseTypeOption, false>
+                                inputId="new_expense_type"
+                                allOptions={typeOptions}
+                                tokenSearchConfig={EXPENSE_TYPE_SEARCH}
+                                isLoading={catalogLoading}
+                                value={selectedTypeOption}
+                                onChange={(o) => {
+                                    handleTypeChange(o?.value ?? "");
+                                    // Hand focus to the Amount, the next field (#1494 review S4). Left in
+                                    // the picker, the first click on the Amount was lost: the picker's
+                                    // blur re-renders it, and while nothing holds focus the dialog's focus
+                                    // trap takes it, so the Amount never got the click or the typing.
+                                    // ⚠️ IN THIS EVENT, never from a timer: the pick re-renders
+                                    // the whole form, and the browser dispatches keys typed meanwhile
+                                    // before a timer runs, so they went to the picker and Amount stayed empty.
+                                    amountRef.current?.focus();
+                                }}
+                                placeholder={catalogLoading ? "Loading…" : "Search or select a type…"}
+                                // Scope rides the menu rows only; the chosen value stays a clean name
+                                // -- the `VendorSelect` convention.
+                                formatOptionLabel={(o, meta) => meta.context === "value" ? o.label : (
+                                    <span className="flex items-center justify-between gap-2 w-full">
+                                        <span className="truncate">{o.label}</span>
+                                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                            {o.scope}
+                                        </span>
+                                    </span>
+                                )}
+                                // The menu renders in the body -- REQUIRED inside a dialog or it
+                                // clips at the dialog's edge, the same reason VendorSelect portals.
+                                menuPortalTarget={document.body}
+                                menuPosition="fixed"
+                                // Clearing the type would leave the form with a format and no type
+                                // to file it under; switching to another type is the way out.
+                                isClearable={false}
+                            />
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <Label htmlFor="new_expense_amount">Amount <span className="text-destructive">*</span></Label>
+                            <Input
+                                id="new_expense_amount"
+                                ref={amountRef}
+                                type="number" placeholder="0" value={form.amount}
+                                onChange={(e) => set("amount", e.target.value)}
+                            />
+                            {tdsLine ? (
+                                <p className="text-xs text-muted-foreground">{tdsLine}</p>
+                            ) : amountValue > 0 && (
                                 <p className="text-xs text-muted-foreground">
-                                    Optional. Pick a project to charge it there; leave blank for a
-                                    company-wide expense.
+                                    {formatToRoundedIndianRupee(amountValue)}
                                 </p>
                             )}
                         </div>
-                    )}
+                    </div>
 
-                    {showVendor && (
-                        <div className="space-y-1.5">
-                            <Label>
-                                Vendor {isStandard && <span className="text-destructive">*</span>}
-                            </Label>
-                            <VendorSelect
-                                usePortal
-                                value={form.vendor}
-                                onChange={(o) => handleVendorChange(o?.value ?? "")}
-                            />
-                            <p className="text-xs text-muted-foreground">
-                                {isStandard ? "" : "Optional. "}
-                                {asksPayee
-                                    ? "Pick a vendor and its bank account fills in below."
-                                    : 'Choose "Others (No Vendor)" if the payee is not on record.'}
-                            </p>
+                    {showProject && (
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            <div className="space-y-1.5">
+                                <Label>
+                                    Project {projectRequired && <span className="text-destructive">*</span>}
+                                </Label>
+                                {chosenProjectLabel ? (
+                                    // ⚠️ `ProjectSelect` keeps its selection in INTERNAL state and
+                                    // takes no `value`, so it CANNOT display a project the user did
+                                    // not pick in this session -- on an edit it renders its
+                                    // placeholder over a required field that IS set, which reads as
+                                    // unset. It is shared across many screens, so the fix stays
+                                    // HERE: show what the request already carries, and mount the
+                                    // untouched picker only once the requester asks to change it.
+                                    <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2">
+                                        <span className="truncate text-sm">{chosenProjectLabel}</span>
+                                        <Button
+                                            type="button" variant="ghost" size="sm"
+                                            className="h-7 shrink-0 text-xs"
+                                            onClick={() => setChangingProject(true)}
+                                        >
+                                            Change
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <ProjectSelect
+                                        universal={false}
+                                        usePortal
+                                        onChange={(o) => handleProjectChange(o?.value ?? "")}
+                                    />
+                                )}
+                                {!projectRequired && (
+                                    <p className="text-xs text-muted-foreground">
+                                        Optional. Pick a project to charge it there; leave blank for a
+                                        company-wide expense.
+                                    </p>
+                                )}
+                            </div>
+
+                            {showVendor && (
+                                <div className="space-y-1.5">
+                                    <Label>
+                                        Vendor <span className="text-xs font-normal text-muted-foreground">optional</span>
+                                    </Label>
+                                    <VendorSelect
+                                        usePortal
+                                        value={form.vendor}
+                                        placeholder="Search vendors…"
+                                        onChange={(o) => handleVendorChange(o?.value ?? "")}
+                                    />
+                                    {asksPayee && (
+                                        <p className="text-xs text-muted-foreground">
+                                            A vendor is paid into its own bank account.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -611,93 +718,6 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                             problem={payeeProblem}
                             disabled={submitting}
                         />
-                    )}
-
-                    <div className="space-y-1.5">
-                        <Label>Amount <span className="text-destructive">*</span></Label>
-                        <Input
-                            type="number" placeholder="0" value={form.amount}
-                            onChange={(e) => set("amount", e.target.value)}
-                        />
-                        {amountValue > 0 && (
-                            <p className="text-xs text-muted-foreground">
-                                {formatToRoundedIndianRupee(amountValue)}
-                            </p>
-                        )}
-                    </div>
-
-                    {showDescription && (
-                        <div className="space-y-1.5">
-                            <Label>Description <span className="text-destructive">*</span></Label>
-                            <Textarea
-                                placeholder="What is this for?"
-                                value={form.description}
-                                onChange={(e) => set("description", e.target.value)}
-                            />
-                        </div>
-                    )}
-
-                    {isStandard && (
-                        <div className="space-y-3">
-                            <label className="flex items-center gap-2 text-sm font-medium">
-                                <Checkbox
-                                    checked={form.recordInvoice}
-                                    onCheckedChange={(v) => set("recordInvoice", !!v)}
-                                    disabled={submitting}
-                                />
-                                Add invoice details
-                            </label>
-                            {form.recordInvoice && (
-                                <div className="ml-2 space-y-3 border-l-2 border-dashed pl-4">
-                                    <div className="space-y-1.5">
-                                        <Label>Invoice Date <span className="text-destructive">*</span></Label>
-                                        <Input
-                                            type="date"
-                                            value={form.invoice_date}
-                                            onChange={(e) => set("invoice_date", e.target.value)}
-                                        />
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <Label>
-                                            Invoice Ref {hasInvoiceFile && <span className="text-destructive">*</span>}
-                                        </Label>
-                                        <Input
-                                            value={form.invoice_ref}
-                                            onChange={(e) => set("invoice_ref", e.target.value)}
-                                        />
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <Label>Invoice Attachment</Label>
-                                        {form.existingInvoiceUrl && !invoiceFile ? (
-                                            <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2">
-                                                <span className="truncate text-sm">
-                                                    {form.existingInvoiceUrl.split("/").pop()}
-                                                </span>
-                                                <Button
-                                                    type="button" variant="ghost" size="sm"
-                                                    className="h-7 shrink-0 text-xs"
-                                                    onClick={() => set("existingInvoiceUrl", "")}
-                                                >
-                                                    Remove
-                                                </Button>
-                                            </div>
-                                        ) : (
-                                            <CustomAttachment
-                                                label="Upload Invoice Document"
-                                                selectedFile={invoiceFile}
-                                                onFileSelect={setInvoiceFile}
-                                                onError={({ message }) =>
-                                                    toast({ title: "Attachment", description: message, variant: "destructive" })
-                                                }
-                                                maxFileSize={5 * 1024 * 1024}
-                                                acceptedTypes={INVOICE_ACCEPTED_TYPES}
-                                                disabled={submitting}
-                                            />
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
                     )}
 
                     {parsedFormat && (
@@ -719,9 +739,43 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                         />
                     )}
 
+                    {/* Bold with the matches for a raiser on Records without review, who acts as
+                        their own reviewer; a quiet note for anyone else (#1504). Never blocks. */}
+                    <DuplicateStayNote
+                        matches={stayMatches}
+                        variant={catalogRes?.message?.records_without_review ? "warning" : "note"}
+                    />
+
+                    {isStandard && (
+                        <div className="space-y-1.5">
+                            <Label>Description <span className="text-destructive">*</span></Label>
+                            <Textarea
+                                placeholder="What is this for?"
+                                value={form.description}
+                                onChange={(e) => set("description", e.target.value)}
+                            />
+                        </div>
+                    )}
+
+                    {selected && (
+                        <InvoiceQuestion
+                            value={invoice}
+                            onChange={patchInvoice}
+                            notes={notes}
+                            docname={editing?.name}
+                            onError={(title, description) =>
+                                toast({ title, description, variant: "destructive" })
+                            }
+                            disabled={submitting}
+                        />
+                    )}
+
                     <div className="space-y-1.5">
-                        <Label>Comment</Label>
-                        <Input
+                        <Label>
+                            Comment <span className="text-xs font-normal text-muted-foreground">optional</span>
+                        </Label>
+                        <Textarea
+                            rows={2}
                             placeholder="Anything the reviewer should know"
                             value={form.comment}
                             onChange={(e) => set("comment", e.target.value)}
@@ -730,12 +784,22 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                 </div>
 
                 <Separator />
-                <AlertDialogFooter className="gap-2">
+                {!isEdit && submitWording.nextApprover && (
+                    <p className="text-sm text-muted-foreground text-right">
+                        {submitWording.nextApprover}
+                    </p>
+                )}
+                <AlertDialogFooter className="flex-wrap items-center gap-2">
+                    {notes.count > 0 && (
+                        <span className="mr-auto text-sm text-muted-foreground">
+                            {checksLine(notes.count)}
+                        </span>
+                    )}
                     <AlertDialogCancel onClick={close} disabled={submitting}>Cancel</AlertDialogCancel>
                     <Button onClick={handleSubmit} disabled={!canSubmit}>
                         {submitting
                             ? <TailSpin color="white" height={20} width={20} />
-                            : isEdit ? "Save changes" : "Send for Approval"}
+                            : isEdit ? "Save changes" : submitWording.label}
                     </Button>
                 </AlertDialogFooter>
             </AlertDialogContent>

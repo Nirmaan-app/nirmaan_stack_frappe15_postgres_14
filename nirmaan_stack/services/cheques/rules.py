@@ -35,7 +35,7 @@ from nirmaan_stack.services.settlement import (
 
 # -- statuses ------------------------------------------------------------------------------------
 #: A Payment cheque whose payments still wait for approval (spec #1477).
-PENDING = "Pending"
+PENDING = "Approval Pending"
 ISSUED = "Issued"
 CLEARED = "Cleared"
 CANCELLED = "Cancelled"
@@ -72,8 +72,8 @@ MADE_FROM = (MADE_FROM_REPORT, MADE_FROM_PO_WO_PAGE)
 LINE_PO_WO_PAYMENT = "PO/WO Payment"
 LINE_PROJECT_EXPENSE = "Project Expense"
 LINE_NON_PROJECT_EXPENSE = "Non-project Expense"
-#: A Security Deposit cheque's line (#1486, spec #1477): a PO or Work Order the deposit secures. A record
-#: only: no payment, no amount.
+#: A Security Deposit cheque's line (#1486, spec #1477): a PO the deposit secures (never a Work Order, spec
+#: #1514). A record only: no payment, no amount.
 LINE_SECURED_RECORD = "Secured PO/WO"
 #: Pinned to the `Cheque Line.line_type` Select options by test.
 LINE_TYPES = (LINE_PO_WO_PAYMENT, LINE_PROJECT_EXPENSE, LINE_NON_PROJECT_EXPENSE, LINE_SECURED_RECORD)
@@ -150,6 +150,7 @@ def header_problem(
     photo_required: bool,
     cancelled: bool = False,
     cheque_type: str = CHEQUE_TYPE_PAYMENT,
+    drawn_anew: bool = True,
 ) -> str | None:
     """Why this header cannot be saved, or None.
 
@@ -158,15 +159,23 @@ def header_problem(
     (#1413). A Security Deposit cheque pays nothing, so it needs no line and no description (#1486).
     `photo_required` is True for every new Cheque except a backfilled one.
     A post-dated cheque date is allowed.
+
+    A Payment cheque is drawn on ICICI Bank, the only bank whose statement the import reads, so nothing
+    else can clear it (#1516, ADR-0035 Amendment A). `drawn_anew` is True for a new Cheque and for a save
+    that changes its bank or number; a Payment cheque on Others made before the rule keeps saving while
+    both stay, since cancelling it, the only way to close it, saves it. A Security Deposit cheque is never
+    cleared, so it may be on any bank.
     """
     if header.bank not in BANKS:
         return "Choose the bank the cheque is drawn on: ICICI Bank or Others."
+    if cheque_type == CHEQUE_TYPE_PAYMENT and header.bank != ICICI_BANK and drawn_anew:
+        return "A Payment cheque is drawn on ICICI Bank, the only bank whose statement clears it."
     if header.bank == OTHER_BANK and not header.bank_name:
         return "Type the name of the bank the cheque is drawn on."
     if not header.cheque_no:
         return "Enter the cheque number."
     if not header.cheque_date:
-        return "Enter the cheque date."
+        return "Enter the Cheque/Payment Date."
     if header.amount <= 0:
         return "Enter a cheque amount greater than 0."
     if header.vendor and header.payee_name:
@@ -308,27 +317,30 @@ def line_kind_problem(line: ChequeLineInput, *, cheque_type: str = CHEQUE_TYPE_P
     if line.line_type not in LINE_TYPES:
         return f"choose the kind of line: {', '.join(LINE_TYPES)}."
     if cheque_type == CHEQUE_TYPE_SECURITY_DEPOSIT and line.line_type != LINE_SECURED_RECORD:
-        return "a Security Deposit cheque pays nothing: its lines only name the POs and Work Orders it secures."
+        return "a Security Deposit cheque pays nothing: its lines only name the POs it secures."
     if cheque_type != CHEQUE_TYPE_SECURITY_DEPOSIT and line.line_type == LINE_SECURED_RECORD:
-        return "only a Security Deposit cheque names a PO or Work Order it secures."
+        return "only a Security Deposit cheque names a PO it secures."
     return None
 
 
 def secured_line_problem(line: ChequeLineInput, *, cheque_vendor: str | None, record: dict | None) -> str | None:
     """Why a Secured PO/WO line cannot be saved, or None. The caller prefixes "Line N: " (#1486).
 
-    `record` is the PO / Work Order's `{project, vendor}` (None when it does not exist). The line names one
-    of the cheque's Vendor's POs or Work Orders, so a cheque made out to a typed payee names none. Its
-    project is the record's own (the caller fills it in when the form sent none).
+    `record` is the PO's `{project, vendor}` (None when it does not exist). The line names one of the
+    cheque's Vendor's POs, so a cheque made out to a typed payee names none, and never a Work Order: Work
+    Orders are never paid by cheque (spec #1514, ADR-0035 Amendment A). Its project is the record's own (the
+    caller fills it in when the form sent none).
     """
     if not cheque_vendor:
-        return "a cheque made out to a typed payee names no PO or Work Order."
-    if line.record_doctype not in RECORD_DOCTYPES or not line.record_name:
-        return "pick the PO or Work Order."
+        return "a cheque made out to a typed payee names no PO."
+    if line.record_doctype == WORK_ORDER_DOCTYPE and line.record_name:
+        return f"{line.record_name} is a Work Order: a Security Deposit cheque secures POs only."
+    if line.record_doctype != PO_DOCTYPE or not line.record_name:
+        return "pick the PO."
     if record is None:
         return f"{line.record_name} was not found."
     if record.get("vendor") != cheque_vendor:
-        return f"{line.record_name} is not a PO or Work Order of this cheque's Vendor."
+        return f"{line.record_name} is not a PO of this cheque's Vendor."
     if line.project and record.get("project") != line.project:
         return f"{line.record_name} is not in project {line.project}."
     return None
@@ -419,10 +431,10 @@ def status_from_payments(payment_statuses: Sequence[str | None]) -> str | None:
 
 
 def ready_to_issue(payment_statuses: Sequence[str | None]) -> bool:
-    """May a Pending Payment cheque be Issued now? Pure. One entry per line, as `status_from_payments`.
+    """May an Approval Pending Payment cheque be Issued now? Pure. One entry per line, as `status_from_payments`.
 
     Only once EVERY line's payment has been approved and moved on to Reconciliation Pending (#1479): a
-    payment still at Approved holds the cheque at Pending, because the move that follows the approval
+    payment still at Approved holds the cheque at Approval Pending, because the move that follows the approval
     can still fail, and the cheque and its payments must never disagree. A line with no payment yet, a
     payment waiting for approval or a Rejected one holds it too.
     """
@@ -442,7 +454,8 @@ def old_type_reason(*, vendor: str | None, payee_name: str | None, line_types: S
     """Why a Cheque recorded before spec #1477 is an Old-type cheque, or None. Pure.
 
     It is one when it pays Expenses, has no lines (an Ad-hoc cheque), or is made out to a typed payee
-    (GLOSSARY.md). An Old-type cheque keeps its status; it is cleared or cancelled by hand only.
+    (GLOSSARY.md). An Old-type cheque keeps its status; it is cleared by its bank line like any other
+    (#1516, every line paid in full) and may be cancelled by hand.
     """
     if any(t in EXPENSE_LINE_TYPES for t in line_types):
         return "pays expenses"

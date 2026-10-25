@@ -265,7 +265,7 @@ export const getNonProjectExpenseListOptions = (): NonProjectExpenseListParams =
 
 export const getProjectExpenseTypeListOptions = (): ExpenseTypeListParams => ({
   fields: [...EXPENSE_TYPE_MINIMAL_FIELDS, "payee_rule"],
-  filters: [['project', '=', 1]], // Only fetch non-project expense types
+  filters: [['project', '=', 1]], // Project-flagged types only: a Project Expense refuses any other (#1496)
   limit: 100000, // Default to a high limit for dropdowns
   orderBy: { field: "expense_name", order: "asc" }, // Default sort by name
 });

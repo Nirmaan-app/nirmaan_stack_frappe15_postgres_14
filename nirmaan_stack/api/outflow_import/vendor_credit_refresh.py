@@ -30,6 +30,8 @@ import frappe
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 
 PO_DOCTYPE = "Procurement Orders"
+#: `Vendor Credit Ledger.po_id` is a Data field: at most this many characters.
+PO_ID_LENGTH = 140
 
 #: The ledger entry a SETTLE writes. The same words the manual fulfil path uses
 #: (`controllers/project_payments.on_update`), because it is the same event seen from a bank
@@ -55,7 +57,10 @@ def recompute_vendor_credit(po_names, entry_type: str) -> None:
         recalculate_vendor_credit(
             vendor,
             entry_type,
-            po_id=po_ids,
+            # The entry's `po_id` is a 140-character Data field; a longer list (a recount across one
+            # vendor's 43 POs) is refused on save, so it is named by count there and kept whole in the
+            # description, a Small Text.
+            po_id=po_ids if len(po_ids) <= PO_ID_LENGTH else f"{len(pos)} POs",
             project=projects.pop() if len(projects) == 1 else None,
             description=f"{entry_type} for {po_ids}",
         )

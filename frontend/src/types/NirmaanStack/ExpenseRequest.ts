@@ -2,12 +2,70 @@
 // Project Expenses / Non Project Expenses row, which carries `request_id` back to it; the
 // request itself never appears in any financial rollup.
 //
-// `Paid` is set by the LEDGER, through the on_update hook that fires when the expense row is
-// paid — never by a reviewer, and there is no endpoint that sets it.
+// Once a request has an Expense, its `status` MIRRORS that Expense (`expense_request_status`,
+// #1500): Rejected when the Expense is rejected, Paid when it is paid, Approved otherwise. The
+// finer step and the live amount are read from the Expense through `get_request_standing`.
 
 import type { PayToAccount } from "./Payee";
+import type { WithheldTds } from "@/utils/expenses/expenseTds";
 
 export type ExpenseRequestStatus = "Pending Approval" | "Approved" | "Rejected" | "Paid";
+
+/** One step of the request page's "Where it stands" (`services/expense_standing.where_it_stands`). */
+export interface StandingStep {
+  key: "raised" | "review" | "admin" | "ceo" | "paid";
+  label: string;
+  state: "done" | "current" | "upcoming" | "rejected";
+  /** A user id, or null. */
+  by: string | null;
+  /** A date or datetime string, or null. */
+  on: string | null;
+  note: string | null;
+}
+
+/** The Expense a request created, as `standing.expenses_of` reads it. */
+export interface RequestExpense {
+  doctype: "Project Expenses" | "Non Project Expenses";
+  name: string;
+  status: string;
+  amount: number;
+}
+
+/** Where one request stands, LIVE from its Expense (`api/expense_requests/standing`). */
+export interface RequestStanding {
+  /** The label to show: the Expense's status ("Waiting for Admin", "CEO Pending", ...) once it
+   *  exists, else the request's own. */
+  status: string;
+  /** The Expense's amount once it exists (Accounts may have corrected it), else the request's. */
+  amount: number;
+  expense: RequestExpense | null;
+  steps: StandingStep[];
+  /** The Expense's tax record once an Office Rent expense is approved (#1527); null before approval,
+   *  when the screen forecasts from `amount`, and for every other type. */
+  withheld_tds: WithheldTds | null;
+}
+
+export type GetRequestStandingResponse = Record<string, RequestStanding>;
+
+/** Another stay for the same person on overlapping dates (`duplicates.find_stay_duplicates`, #1504).
+ *  One per request; `expense` is the Expense it became, if any. Never a refusal. */
+export interface StayDuplicate {
+  request: string;
+  /** The live label: the Expense's status once there is one, else the request's. */
+  status: string;
+  expense: { doctype: string; name: string; status: string } | null;
+  type: string;
+  projects: string | null;
+  project_name: string | null;
+  amount: number;
+  /** The name as it was typed on that request. */
+  person: string;
+  period_from: string;
+  period_to: string;
+  owner_name: string;
+  creation: string;
+  detail: { label: string; value: string }[];
+}
 
 export interface ExpenseRequest {
   name: string;
@@ -28,6 +86,8 @@ export interface ExpenseRequest {
   reviewed_by?: string | null;
   reviewed_on?: string | null;
   review_comment?: string | null;
+  /** 1 when its raiser records without review (#1498): approved on submit, with no Reviewer. */
+  approved_on_submit?: 0 | 1;
   owner: string;
   creation: string;
   modified: string;
@@ -40,19 +100,81 @@ export interface ExpenseRequest {
   /** Whether THIS caller may edit THIS row — server-computed, and DISJOINT from
    *  `can_review`. Never re-derive it. */
   can_edit?: boolean;
+  /** Whether THIS caller may delete THIS row: Rejected, its raiser or an Admin, and no Expense
+   *  linked. Server-computed (`delete.can_delete`). Never re-derive it. */
+  can_delete?: boolean;
   /** The format answers, labelled. Built by the SAME walk that writes the ledger
    *  description, so the approval screen and the expense cannot describe it differently. */
   detail?: { label: string; value: string }[];
   /** Which ledger approval will write to. Resolved server-side, not re-derived here. */
   target_doctype?: string;
-  /** What status the ledger row will be BORN at — server-resolved, because it depends on the
-   *  amount and the threshold lives on the ledger doctypes. Never re-derive it here. */
-  target_status?: "Approved" | "Requested";
+  /** What status the ledger row will be BORN at if THIS caller approves it — server-resolved,
+   *  because it depends on the amount, the raiser and whether the caller is L1 (an Admin's review
+   *  is the L1 step, #1499). Never re-derive it here. */
+  target_status?: "Approved" | "Requested" | "CEO Pending";
   /** Who gets paid (ADR-0033, #1436): the request's own pay-to account, copied from the Payee picked
    *  or the vendor's Payee; approval copies it onto the Expense as it is. Null when it has none. */
   pay_to?: PayToAccount | null;
   /** Its type's Who gets paid: Required / Optional / Not asked (`utils/payees/expensePayee`). */
   payee_rule?: string;
+}
+
+/** An expense's invoice (#1502): only the parts given. */
+export interface ExpenseRequestInvoice {
+  invoice_attachment?: string;
+  invoice_date?: string;
+  invoice_ref?: string;
+}
+
+/** `invoice.add_request_invoice`'s reply: the invoice now held, the Expense it was copied to. */
+export interface AddRequestInvoiceResponse {
+  name: string;
+  invoice: ExpenseRequestInvoice;
+  expense: string | null;
+  warnings: string[];
+}
+
+/** `create.create_expense_request` and `update.update_expense_request`'s reply. The three expense
+ *  fields come from create only, and are null while the request waits for review. */
+export interface SaveExpenseRequestResponse {
+  name: string;
+  status: ExpenseRequestStatus;
+  projects: string | null;
+  created_expense?: string | null;
+  created_expense_doctype?: string | null;
+  expense_status?: string | null;
+  warnings: string[];
+  duplicates: StayDuplicate[];
+}
+
+/** One request, for its page (`read.get_expense_request`). */
+export interface ExpenseRequestDetail {
+  name: string;
+  type: string;
+  projects?: string | null;
+  projects_name?: string | null;
+  amount: number;
+  vendor?: string | null;
+  comment?: string | null;
+  source_data?: string | null;
+  status: ExpenseRequestStatus;
+  owner: string;
+  owner_name: string;
+  creation: string;
+  review_comment?: string | null;
+  /** The answers, labelled by the request's form; the invoice is in `invoice`. */
+  detail: { label: string; value: string }[];
+  pay_to?: PayToAccount | null;
+  /** The Expense created from it; null before approval. */
+  expense: { doctype: string; name: string; status: string } | null;
+  invoice: ExpenseRequestInvoice;
+  /** Server-computed (`invoice.invoice_refusal`): the raiser or an Admin, until the Expense is Paid. */
+  can_add_invoice: boolean;
+  /** Why the caller may not add it now, or null when they may (`invoice.invoice_refusal`). */
+  invoice_refusal: string | null;
+  can_edit: boolean;
+  /** Live from the Expense (#1500): the status label and amount to show, and "Where it stands". */
+  standing: Omit<RequestStanding, "expense">;
 }
 
 export interface GetMyExpenseRequestsResponse {
@@ -83,4 +205,6 @@ export interface RequestCatalogCategory {
 
 export interface GetRequestCatalogResponse {
   categories: RequestCatalogCategory[];
+  /** The caller records without review (#1498): their request is approved on submit. */
+  records_without_review?: boolean;
 }

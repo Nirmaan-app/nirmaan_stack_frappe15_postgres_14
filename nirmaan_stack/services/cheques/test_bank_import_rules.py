@@ -6,7 +6,7 @@ review says about it (#1485, spec #1477, ADR-0035).
 
 An ICICI statement DEBIT whose cheque column is filled is a cheque line; a credit never is. It clears the
 one Payment cheque carrying its number (leading zeros ignored) and amount (within ₹5); the bank import may
-start from Issued, Pending (it approves the payments first) or Cancelled (it revives them).
+start from Issued, Approval Pending (it approves the payments first) or Cancelled (it revives them).
 
 No database. Run with `devenv.sh unit nirmaan_stack.services.cheques.test_bank_import_rules`.
 """
@@ -63,8 +63,8 @@ class TestWhichChequeALineClears(unittest.TestCase):
         self.assertIsNone(cheque)
         self.assertEqual(
             hint,
-            "Cheques 000747 and 747 both carry this number and amount. Nothing was settled. Clear the right "
-            "one by hand from the Cheque Tracker.",
+            "Cheques 000747 and 747 both carry this number and amount. Nothing was settled. Cancel the one the "
+            "bank did not pay, then run the match again.",
         )
 
     def test_of_two_with_the_number_the_one_with_the_amount_is_cleared(self):
@@ -73,12 +73,12 @@ class TestWhichChequeALineClears(unittest.TestCase):
 
 
 class TestTheBankImportStartsFromMoreStatuses(unittest.TestCase):
-    def problem(self, status, payments, *, cleared_by=rules.CLEARED_BY_BANK_IMPORT, bank_line=True):
-        return clear_rules.clear_problem(status=status, cheque_type="Payment", old_type=False, cleared_by=cleared_by,
-                                   payments=list(payments), bank_line=bank_line)
+    def problem(self, status, payments, *, bank_line=True):
+        return clear_rules.clear_problem(status=status, cheque_type="Payment", old_type=False,
+                                         payments=[clear_rules.ClearPayment(*p) for p in payments], bank_line=bank_line)
 
     def test_a_pending_cheque_whose_payments_wait_for_approval_may_be_cleared_by_the_bank(self):
-        self.assertIsNone(self.problem("Pending", [("PAY-1", "Requested"), ("PAY-2", "CEO Pending")]))
+        self.assertIsNone(self.problem("Approval Pending", [("PAY-1", "Requested"), ("PAY-2", "CEO Pending")]))
 
     def test_a_cancelled_cheque_whose_payments_are_rejected_may_be_cleared_by_the_bank(self):
         self.assertIsNone(self.problem("Cancelled", [("PAY-1", "Rejected"), ("PAY-2", "Rejected")]))
@@ -86,20 +86,38 @@ class TestTheBankImportStartsFromMoreStatuses(unittest.TestCase):
     def test_a_paid_payment_still_refuses_the_bank_line(self):
         self.assertEqual(self.problem("Cancelled", [("PAY-1", "Paid")]), "payment PAY-1 is already Paid")
 
-    def test_by_hand_they_are_still_refused(self):
+    def test_without_a_bank_line_they_are_still_refused(self):
         self.assertEqual(
-            self.problem("Pending", [("PAY-1", "Requested")], cleared_by=rules.CLEARED_BY_HAND, bank_line=False),
-            "it is Pending: its payments are not approved yet",
+            self.problem("Approval Pending", [("PAY-1", "Requested")], bank_line=False),
+            "only a bank-statement line with its number and amount clears a cheque",
         )
 
     def test_an_issued_cheque_still_needs_every_payment_waiting_for_the_bank(self):
         self.assertEqual(self.problem("Issued", [("PAY-1", RP), ("PAY-2", "Approved")]), "payment PAY-2 is Approved")
 
 
+class TestTheImportsApprovalIsInTheHistory(unittest.TestCase):
+    def test_the_note_names_the_payments_the_import_approved_and_those_it_only_moved_on(self):
+        self.assertEqual(
+            bank_import_rules.bank_approval_note([("PAY-1", "Requested"), ("PAY-2", "Approved"), ("PAY-3", "CEO Pending")]),
+            "approved by bank import: PAY-1 (was Requested) and PAY-3 (was CEO Pending); moved on from Approved by "
+            "bank import: PAY-2",
+        )
+
+    def test_an_approved_payment_alone_was_only_moved_on(self):
+        self.assertEqual(bank_import_rules.bank_approval_note([("PAY-2", "Approved")]),
+                         "moved on from Approved by bank import: PAY-2")
+
+
 class TestWhatTheReviewSays(unittest.TestCase):
-    def note(self, started, payments=2, suspects=()):
-        return bank_import_rules.bank_cleared_note(cheque_no="000747", started=started, payments=payments, day="2026-10-14",
-                                       suspects=suspects)
+    def note(self, started, payments=2, suspects=(), *, was=None, moved=None):
+        if started == "Cleared":  # a hand-cleared cheque's line is only linked: nothing moves
+            return bank_import_rules.bank_cleared_note(cheque_no="000747", started=started, moved=[], linked=payments,
+                                                       day="2026-10-14")
+        was = was or {"Approval Pending": "Requested", "Cancelled": "Rejected"}.get(started, RP)
+        moved = [("payment", was)] * payments if moved is None else moved
+        return bank_import_rules.bank_cleared_note(cheque_no="000747", started=started, moved=moved, day="2026-10-14",
+                                                   suspects=suspects)
 
     def test_an_issued_cheque(self):
         self.assertEqual(
@@ -109,9 +127,9 @@ class TestWhatTheReviewSays(unittest.TestCase):
 
     def test_a_pending_cheque_says_the_import_approved_it(self):
         self.assertEqual(
-            self.note("Pending", payments=1),
-            "Cheque 000747 was Pending: the bank paid it before approval. Its 1 payment was approved by bank "
-            "import (approval date 14-10-2026), then Paid.",
+            self.note("Approval Pending", payments=1),
+            "Cheque 000747 was Approval Pending: the bank paid it before approval, so it was approved by bank import "
+            "(approval date 14-10-2026): 1 payment Requested → Paid.",
         )
 
     def test_a_cancelled_cheque_says_the_bank_paid_it_and_names_a_possible_double_payment(self):
@@ -121,6 +139,33 @@ class TestWhatTheReviewSays(unittest.TestCase):
             "Cheque 000747 was cancelled, but the bank paid it: 3 payments Rejected → Paid, payment date "
             "14-10-2026. Check for double payment: PO/077/00071/26-27 has PAY-00071-019 (₹40,273, Approved), "
             "raised after the cheque was cancelled.",
+        )
+
+    def test_an_old_type_cheque_says_where_each_record_started_and_counts_its_expenses(self):
+        self.assertEqual(
+            self.note("Issued", moved=[("payment", "Requested"), ("payment", RP), ("expense", RP), ("payment", RP)]),
+            "Cheque 000747 cleared: 1 payment Requested → Paid, 2 payments Reconciliation Pending → Paid and 1 "
+            "expense Reconciliation Pending → Paid, payment date 14-10-2026.",
+        )
+
+    def test_an_old_type_cheque_that_pays_only_expenses_names_them(self):
+        self.assertEqual(
+            self.note("Issued", moved=[("expense", RP)]),
+            "Cheque 000747 cleared: 1 expense Reconciliation Pending → Paid, payment date 14-10-2026.",
+        )
+
+    def test_an_old_type_cheque_whose_every_line_was_already_paid_says_so(self):
+        self.assertEqual(
+            self.note("Issued", moved=[]),
+            "Cheque 000747 cleared: every line was already Paid, so nothing was paid again.",
+        )
+
+    def test_an_old_type_approval_pending_cheque_names_where_each_record_started(self):
+        self.assertEqual(
+            self.note("Approval Pending", moved=[("payment", "Requested"), ("payment", RP), ("expense", RP)]),
+            "Cheque 000747 was Approval Pending: the bank paid it before approval, so it was approved by bank import "
+            "(approval date 14-10-2026): 1 payment Requested → Paid, 1 payment Reconciliation Pending → Paid and 1 "
+            "expense Reconciliation Pending → Paid.",
         )
 
     def test_a_cheque_cleared_by_hand_is_only_linked(self):
@@ -155,15 +200,15 @@ class TestWhereABankClearedChequeStarted(unittest.TestCase):
 
     def test_from_issued(self):
         self.assertEqual(
-            self.start("Bank import", (None, "Pending", None), ("Pending", "Issued", None), ("Issued", "Cleared", "x")),
+            self.start("Bank import", (None, "Approval Pending", None), ("Approval Pending", "Issued", None), ("Issued", "Cleared", "x")),
             "Issued",
         )
 
     def test_from_pending_when_the_import_approved_it(self):
         self.assertEqual(
-            self.start("Bank import", (None, "Pending", None), ("Pending", "Issued", bank_import_rules.BANK_APPROVAL_NOTE),
+            self.start("Bank import", (None, "Approval Pending", None), ("Approval Pending", "Issued", bank_import_rules.BANK_APPROVAL_NOTE),
                        ("Issued", "Cleared", "x")),
-            "Pending",
+            "Approval Pending",
         )
 
     def test_from_cancelled(self):

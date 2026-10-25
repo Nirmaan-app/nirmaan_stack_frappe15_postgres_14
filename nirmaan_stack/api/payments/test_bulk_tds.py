@@ -173,6 +173,15 @@ class TestBulkApproveTDS(FrappeTestCase):
 	def test_bulk_approve_never_taxes_a_gst_payment(self):
 		"""A mixed batch (ADR-0030): the GST payment keeps its full amount and gets no row; the base
 		payment beside it on the same Work Order is taxed exactly as before."""
+		# The Work Order turned GST-on with GST released, for this test only: the approval re-checks its
+		# payment limit, which refuses a GST payment on a Work Order without GST.
+		frappe.db.set_value(SR, self.sr, {"gst": "true", "gst_invoiced": 10000000}, update_modified=False)
+		frappe.db.commit()
+
+		def restore():
+			frappe.db.set_value(SR, self.sr, {"gst": "false", "gst_invoiced": 0}, update_modified=False)
+			frappe.db.commit()
+		self.addCleanup(restore)
 		gst, base = self._pay(10000, gst=True), self._pay(10000)
 
 		res = bulk_actions.bulk_ceo_approve_payments([gst, base], "approve")["data"]

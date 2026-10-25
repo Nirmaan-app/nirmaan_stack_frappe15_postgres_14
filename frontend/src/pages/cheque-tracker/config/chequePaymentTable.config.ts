@@ -3,7 +3,6 @@ import {
     CHEQUE_STATUS,
     CHEQUE_TYPE,
     type ChequeBank,
-    type ChequeClearedBy,
     type ChequeLineType,
     type ChequeMadeFrom,
     type ChequeStatus,
@@ -46,12 +45,10 @@ export interface ChequeRow {
     bank_name?: string | null;
     /** The typed name for an Others bank, else the bank. */
     bank_label: string;
+    /** The Cheque/Payment Date: the paper date, then the day the bank paid it (#1520). */
     cheque_date: string;
-    /** The day it became Issued; blank while Pending. */
+    /** The day it became Issued; blank while Approval Pending. */
     issue_date?: string | null;
-    /** The day the bank paid it (a Payment cheque only). */
-    clearance_date?: string | null;
-    cleared_by?: ChequeClearedBy | null;
     bank_line?: string | null;
     /** 1 for a Cheque from before cheque types that no longer fits them (GLOSSARY.md, Old-type cheque). */
     old_type?: 0 | 1;
@@ -69,6 +66,8 @@ export interface ChequeRow {
     status_changed_at?: string | null;
     /** Empty for an Ad-hoc cheque. */
     lines: ChequeRowLine[];
+    /** With a `record_name` filter: what the lines put on the PO/WOs asked for (#1521); else null. */
+    record_amount?: number | null;
 }
 
 /** Nominal: the endpoint fixes the row shape. */
@@ -81,7 +80,7 @@ export const CHEQUE_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "description", label: "Description" },
 ];
 
-export const CHEQUE_DATE_COLUMNS = ["cheque_date", "issue_date", "clearance_date", "creation"];
+export const CHEQUE_DATE_COLUMNS = ["cheque_date", "issue_date", "creation"];
 
 /**
  * The facet filters, by column id. Each id is also the endpoint's filter field: `project` and
@@ -113,7 +112,7 @@ const num = (v: unknown) => {
 };
 
 /**
- * The summary strip: count and amount for All, Pending, Issued, Cleared and Cancelled, from `get_cheques`'s
+ * The summary strip: count and amount for All, Approval Pending, Issued, Cleared and Cancelled, from `get_cheques`'s
  * `aggregates` (`count`, `total_amount`, `<status>_count`, `<status>_amount`). Each matching Cheque
  * counts once, at its full amount.
  */
@@ -184,7 +183,8 @@ type IssueDates = Pick<ChequeRow, "status" | "cheque_date"> & Partial<Pick<Chequ
 /**
  * Days since a Payment cheque was issued, while it is Issued; null otherwise, and for a Security Deposit, which
  * is held, not waiting for the bank (#1486). An old cheque with no issue date (made before issue dates) counts
- * from its cheque date, which can be in the future (negative: post-dated).
+ * from its Cheque/Payment Date, which on an Issued cheque is still the paper date and can be in the future
+ * (negative: post-dated).
  */
 export const daysSinceIssue = (row: IssueDates, today: Date = new Date()): number | null => {
     const from = row.issue_date || row.cheque_date;
@@ -205,13 +205,6 @@ export const paymentCount = (row: Pick<ChequeRow, "lines">): number => row.lines
 /** The Type cell: "Payment cheque" or "Security Deposit" (spec #1477). */
 export const chequeTypeLabel = (type: ChequeType): string =>
     type === CHEQUE_TYPE.SECURITY_DEPOSIT ? "Security Deposit" : "Payment cheque";
-
-/** The Clearance / Payment Date cell as text: "10-Sep-2026 (Bank import)"; blank until the bank pays it. */
-export const clearanceText = (row: Pick<ChequeRow, "clearance_date" | "cleared_by">): string => {
-    if (!row.clearance_date) return "";
-    const date = formatDate(row.clearance_date);
-    return row.cleared_by ? `${date} (${row.cleared_by})` : date;
-};
 
 /** A Cheque without a photo: only a backfilled one can be. */
 export const hasNoPhoto = (row: Pick<ChequeRow, "attachment">): boolean => !row.attachment;

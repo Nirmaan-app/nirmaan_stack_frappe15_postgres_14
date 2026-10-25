@@ -88,10 +88,10 @@ export const SelectServiceVendorList: React.FC = () => {
   );
 
   // --- Static Filters for this View ---
-  // This view shows SRs in "Created", "Rejected", or "Edit" status for vendor selection
+  // Pending WO: waiting for approval (Vendor Selected) or sent back for changes (Rejected)
   const staticFilters = useMemo(
     () => [
-      ["status", "in", ["Created", "Rejected", "Edit", "Vendor Selected"]],
+      ["status", "in", ["Rejected", "Vendor Selected"]],
     ],
     []
   );
@@ -289,17 +289,9 @@ export const SelectServiceVendorList: React.FC = () => {
         ),
         cell: ({ row }) => {
           const status = row.getValue("status") as string;
-          let variant: "red" | "yellow" | "orange" | "default" = "default";
-          let ShowStatus =
-            status == "Created"
-              ? "InProgress"
-              : status == "Vendor Selected"
-              ? "Pending Approval"
-              : status;
-          if (status === "Rejected") variant = "red";
-          else if (status === "Created") variant = "yellow";
-          else if (status === "Edit") variant = "orange";
-          return <Badge variant={variant}>{ShowStatus}</Badge>;
+          const variant = status === "Rejected" ? "red" : "default";
+          const shown = status === "Vendor Selected" ? "Pending Approval" : status;
+          return <Badge variant={variant}>{shown}</Badge>;
         },
         size: 120,
         enableColumnFilter: true,
@@ -400,9 +392,7 @@ export const SelectServiceVendorList: React.FC = () => {
   // Status options are static, no need to dynamic fetch unless we want dynamic counts
   const statusOptions = useMemo(
     () => [
-      { label: "Created", value: "Created" },
       { label: "Rejected", value: "Rejected" },
-      { label: "Edit", value: "Edit" },
       { label: "Vendor Selected", value: "Vendor Selected" },
     ],
     []
