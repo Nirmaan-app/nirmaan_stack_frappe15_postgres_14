@@ -5,6 +5,7 @@ import {
     AlertTriangle,
     CheckCircle2,
     FileSpreadsheet,
+    Info,
     Loader2,
     RefreshCw,
     Upload,
@@ -73,12 +74,23 @@ import {
     createButtonLabel,
     porterCreateStarted,
     porterPolling,
+    PORTER_UPLOADED_NOTE,
     type PorterStatus,
 } from "../porterImport";
+import {
+    PORTER_BEFORE_UPLOAD_NOTE,
+    PORTER_FILE_GUIDE,
+    PORTER_RULES_METHOD,
+    PORTER_WRONG_TYPE,
+    checkPorterFile,
+    type PorterFileCheck,
+    type PorterFileRules,
+} from "../porterPrecheck";
 import { porterReviewOffered } from "../porterReview";
 import { CashbookReviewTree } from "./CashbookReviewTree";
 import { ConfirmMatchedPanel } from "./ConfirmMatchedPanel";
 import { PorterDiscardButton } from "./PorterDiscardButton";
+import { PorterFileChecks } from "./PorterFileChecks";
 import { PorterImportSummary } from "./PorterImportSummary";
 import { PorterProgressBar } from "./PorterProgressBar";
 import { PorterReviewPanel } from "./PorterReviewPanel";
@@ -328,6 +340,32 @@ export const ImportStatementDialog = ({
     const isCashbook = source === "Cashbook";
     const isPorter = source === PORTER_SOURCE;
 
+    /**
+     * The chosen Porter file, read in the browser before upload (#1555): accepted with its counts, or
+     * refused. Null while it is being read, or before the parser's rules have arrived.
+     *
+     * ⚠️ THE RULES COME FROM THE SERVER PARSER, NEVER A COPY HERE, and the parser stays the authority:
+     * the upload re-reads the file and its own refusals still show.
+     */
+    const { data: porterRulesData } = useFrappeGetCall<{ message: PorterFileRules }>(
+        PORTER_RULES_METHOD,
+        undefined,
+        isPorter && !porterBatch ? "porter-statement-rules" : null
+    );
+    const porterRules = porterRulesData?.message;
+    const [porterCheck, setPorterCheck] = useState<PorterFileCheck | null>(null);
+    useEffect(() => {
+        setPorterCheck(null);
+        if (!isPorter || !file || !porterRules) return;
+        let current = true;
+        checkPorterFile(file, porterRules)
+            .then((result) => current && setPorterCheck(result))
+            .catch(() => current && setPorterCheck({ kind: "refused", message: "This file could not be read." }));
+        return () => {
+            current = false;
+        };
+    }, [isPorter, file, porterRules]);
+
     const { call: runMatch } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.review.match_batch"
     );
@@ -365,6 +403,8 @@ export const ImportStatementDialog = ({
     // Switching source mid-dialog must drop whatever the other one produced, or the tree from a
     // Cashbook read stays on screen under a Cashfree heading.
     useEffect(() => {
+        // The chosen file goes too (#1555): a bank file must never be uploaded as a Porter Statement.
+        setFile(null);
         setPreview(null);
         setStaged(null);
         setMatched(false);
@@ -391,7 +431,13 @@ export const ImportStatementDialog = ({
         const lower = candidate.name.toLowerCase();
         const extensions = acceptedExtensions(source);
         if (!extensions.some((ext) => lower.endsWith(ext))) {
-            setError(`We support ${extensions.join(" and ")} statements.`);
+            // A refused file leaves no earlier choice behind to upload by mistake.
+            setFile(null);
+            setError(
+                source === PORTER_SOURCE
+                    ? PORTER_WRONG_TYPE
+                    : `We support ${extensions.join(" and ")} statements.`
+            );
             return;
         }
         if (candidate.size > MAX_FILE_BYTES) {
@@ -901,6 +947,17 @@ export const ImportStatementDialog = ({
                         </Select>
                     </div>
 
+                    {isPorter && (
+                        <div className="space-y-1 rounded-md bg-muted p-3">
+                            <p className="text-sm font-medium">Get the file from Porter</p>
+                            <ol className="list-inside list-decimal text-xs text-muted-foreground">
+                                {PORTER_FILE_GUIDE.map((step) => (
+                                    <li key={step}>{step}</li>
+                                ))}
+                            </ol>
+                        </div>
+                    )}
+
                     <div
                         onDragOver={(e) => {
                             e.preventDefault();
@@ -952,15 +1009,22 @@ export const ImportStatementDialog = ({
                     </div>
 
                             {isPorter ? (
-                                <Button
-                                    onClick={handlePorterUpload}
-                                    disabled={!file || isBusy !== null}
-                                >
-                                    {isBusy === "upload" && (
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    )}
-                                    {isBusy === "upload" ? "Uploading statement…" : "Upload statement"}
-                                </Button>
+                                <>
+                                    {file && <PorterFileChecks check={porterCheck} />}
+                                    <div className="flex items-start gap-2 rounded-md bg-blue-50 p-3 text-sm text-blue-800 dark:bg-blue-950/40 dark:text-blue-200">
+                                        <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                                        <span>{PORTER_BEFORE_UPLOAD_NOTE}</span>
+                                    </div>
+                                    <Button
+                                        onClick={handlePorterUpload}
+                                        disabled={!file || porterCheck?.kind !== "ok" || isBusy !== null}
+                                    >
+                                        {isBusy === "upload" && (
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        )}
+                                        {isBusy === "upload" ? "Uploading…" : "Upload and check invoices"}
+                                    </Button>
+                                </>
                             ) : (
                                 <Button onClick={handlePreview} disabled={!file || isBusy !== null}>
                                     {isBusy === "preview" && (
@@ -993,6 +1057,11 @@ export const ImportStatementDialog = ({
                             <span className="truncate font-medium text-foreground">{file.name}</span>
                             <span className="shrink-0">· {source}</span>
                         </div>
+                    )}
+
+                    {/* PORTER, STEP 2 -- uploaded, and nothing created yet (#1555). */}
+                    {isPorter && porterStatus && stepIndex === 1 && (
+                        <p className="text-sm text-muted-foreground">{PORTER_UPLOADED_NOTE}</p>
                     )}
 
                     {/* PORTER, FROM STEP 2 ON -- the import is IN: its orders, its invoices and where
