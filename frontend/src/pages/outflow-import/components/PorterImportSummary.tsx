@@ -11,13 +11,17 @@ import { repeatsLeftOutNote } from "../porterDiscard";
 import {
     canRetryInvoice,
     createProgress,
+    foldPassedInvoices,
     invoiceFigureRows,
     invoiceProgress,
+    invoiceStateLabel,
     invoiceStateTone,
+    notMatchingBanner,
     porterCountsLine,
     porterStateNote,
     porterStateTone,
-    type InvoiceFigureRow,
+    warningLine,
+    type InvoiceDateWindow,
     type PorterInvoiceStatus,
     type PorterStatus,
     type ProgressMark,
@@ -27,15 +31,18 @@ import { shownPorterState } from "../porterProgress";
 const TONE_CLASS: Record<ReturnType<typeof invoiceStateTone>, string> = {
     passed: "border-emerald-200 bg-emerald-50 text-emerald-700",
     failed: "border-destructive/30 bg-destructive/5 text-destructive",
+    retry: "border-amber-300 bg-amber-50 text-amber-800",
     pending: "border-muted-foreground/20 bg-muted text-muted-foreground",
 };
 
 /**
- * A Porter import once it is in (#1443), and its check against Porter's own invoices (#1444): what the
- * file held, the import's state, and one card per Porter Invoice showing Downloading → Reading →
- * Comparing → Passed / Failed / Error, the statement's figures beside what Gemini read, and Retry on
- * an Error; then Create's progress (#1445). Rendered by `ImportStatementDialog`, which polls the status while
- * it is Validating or the Create job runs, and holds the Create button in its footer.
+ * A Porter import once it is in (#1443), and its check against Porter's own invoices (#1444, #1559): what
+ * the file held, the import's state, a red banner naming each invoice that doesn't match and the next step,
+ * then one card per invoice with something to say — still being checked, couldn't be read (with Retry),
+ * doesn't match (its fare and date against the PDF's, the failing one highlighted), or passed with a quiet
+ * warning line — and the invoices that simply passed folded under one line; then Create's progress (#1445).
+ * Rendered by `ImportStatementDialog`, which polls the status while it is Validating or the Create job
+ * runs, and holds the Create button in its footer.
  */
 export const PorterImportSummary = ({
     status,
@@ -58,12 +65,16 @@ export const PorterImportSummary = ({
     const progress = createProgress(status);
     // "Creating" only while the Create job runs; a partly created import with none reads "Needs you" (#1556).
     const shown = shownPorterState(status);
-    const invoiceCards = (
+    const dateWindow = status.invoice_date_window;
+    const { shown: shownInvoices, folded, foldLabel } = foldPassedInvoices(status.invoices, collapseInvoices);
+    const banner = notMatchingBanner(status.invoices, dateWindow);
+    const cards = (invoices: PorterInvoiceStatus[]) => (
         <ul className="space-y-3">
-            {status.invoices.map((invoice) => (
+            {invoices.map((invoice) => (
                 <InvoiceCard
                     key={invoice.name}
                     invoice={invoice}
+                    dateWindow={dateWindow}
                     onRetry={onRetry}
                     retrying={retrying === invoice.name}
                 />
@@ -104,15 +115,22 @@ export const PorterImportSummary = ({
                 )}
             </div>
 
-            {collapseInvoices ? (
+            {banner && (
+                <div role="alert" className="space-y-1 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                    <p className="font-semibold">{banner.title}</p>
+                    {banner.lines.map((line) => (
+                        <p key={line}>{line}</p>
+                    ))}
+                    <p>{banner.next}</p>
+                </div>
+            )}
+
+            {shownInvoices.length > 0 && cards(shownInvoices)}
+            {foldLabel && (
                 <details>
-                    <summary className="cursor-pointer text-xs text-muted-foreground">
-                        Show the {status.invoices.length} invoice{status.invoices.length === 1 ? "" : "s"} checked
-                    </summary>
-                    <div className="mt-2">{invoiceCards}</div>
+                    <summary className="cursor-pointer text-xs text-muted-foreground">{foldLabel}</summary>
+                    <div className="mt-2">{cards(folded)}</div>
                 </details>
-            ) : (
-                invoiceCards
             )}
         </div>
     );
@@ -128,14 +146,20 @@ const MARK_ICON: Record<ProgressMark, JSX.Element> = {
 
 const InvoiceCard = ({
     invoice,
+    dateWindow,
     onRetry,
     retrying,
 }: {
     invoice: PorterInvoiceStatus;
+    dateWindow: InvoiceDateWindow | null | undefined;
     onRetry?: (invoice: string) => void;
     retrying: boolean;
 }) => {
-    const tone = invoiceStateTone(invoice.validation_status);
+    const state = invoice.validation_status;
+    const tone = invoiceStateTone(state);
+    const warning = state === "Passed" ? warningLine(invoice.warnings) : null;
+    // The figures matter once something is wrong: a mismatch, or a reading that could not decide.
+    const showFigures = state === "Failed" || (state === "Error" && Boolean(invoice.read));
     return (
         <li className="space-y-3 rounded-md border p-3">
             <div className="flex flex-wrap items-start justify-between gap-2">
@@ -163,65 +187,56 @@ const InvoiceCard = ({
                         </Button>
                     )}
                     <Badge variant="outline" className={TONE_CLASS[tone]}>
-                        {invoice.validation_status}
+                        {invoiceStateLabel(state)}
                     </Badge>
                 </div>
             </div>
 
-            <ol className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                {invoiceProgress(invoice).map((step, index) => (
-                    <li key={step.label} className="flex items-center gap-1">
-                        {index > 0 && <span className="mr-2 text-muted-foreground/40">→</span>}
-                        {MARK_ICON[step.mark]}
-                        <span className={step.mark === "todo" ? "text-muted-foreground" : ""}>{step.label}</span>
-                    </li>
-                ))}
-            </ol>
+            {tone !== "passed" && tone !== "failed" && (
+                <ol className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                    {invoiceProgress(invoice).map((step, index) => (
+                        <li key={step.label} className="flex items-center gap-1">
+                            {index > 0 && <span className="mr-2 text-muted-foreground/40">→</span>}
+                            {MARK_ICON[step.mark]}
+                            <span className={step.mark === "todo" ? "text-muted-foreground" : ""}>{step.label}</span>
+                        </li>
+                    ))}
+                </ol>
+            )}
 
-            {invoice.validation_message && (
-                <div
-                    className={`flex items-start gap-2 rounded-md p-2 text-xs ${
-                        tone === "failed" ? "bg-destructive/5 text-destructive" : "bg-muted text-muted-foreground"
-                    }`}
-                >
+            {state === "Error" && invoice.validation_message && (
+                <div className="flex items-start gap-2 rounded-md bg-amber-50 p-2 text-xs text-amber-800">
                     <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     <span>{invoice.validation_message}</span>
                 </div>
             )}
 
-            <table className="w-full text-xs">
-                <thead>
-                    <tr className="text-muted-foreground">
-                        <th className="w-1/3 py-1 text-left font-normal" />
-                        <th className="py-1 text-left font-normal">Statement</th>
-                        <th className="py-1 text-left font-normal">Invoice (as read)</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {invoiceFigureRows(invoice).map((row) => (
-                        <FigureRow key={row.label} row={row} />
-                    ))}
-                </tbody>
-            </table>
-            {invoice.read?.invoice_date && (
-                <p className="text-xs text-muted-foreground">
-                    Invoice dated {formatDate(invoice.read.invoice_date)}
-                </p>
+            {showFigures && (
+                <table className="w-full text-xs">
+                    <thead>
+                        <tr className="text-muted-foreground">
+                            <th className="w-1/3 py-1 text-left font-normal" />
+                            <th className="py-1 text-left font-normal">Statement</th>
+                            <th className="py-1 text-left font-normal">PDF</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {invoiceFigureRows(invoice, dateWindow).map((row) => (
+                            <tr key={row.label} className={row.differs ? "text-destructive" : ""}>
+                                <td className={`py-0.5 ${row.differs ? "font-medium" : "text-muted-foreground"}`}>
+                                    {row.label}
+                                </td>
+                                <td className="whitespace-nowrap py-0.5 tabular-nums">{row.statement}</td>
+                                <td className={`whitespace-nowrap py-0.5 tabular-nums ${row.differs ? "font-semibold" : ""}`}>
+                                    {row.read ?? "—"}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
             )}
-        </li>
-    );
-};
 
-const FigureRow = ({ row }: { row: InvoiceFigureRow }) => {
-    const show = (value: string | number | null) =>
-        value === null || value === "" ? "—" : row.money ? formatToIndianRupee(Number(value)) : String(value);
-    return (
-        <tr className={row.differs ? "text-destructive" : ""}>
-            <td className="py-0.5 text-muted-foreground">{row.label}</td>
-            <td className="whitespace-nowrap py-0.5 tabular-nums">{show(row.statement)}</td>
-            <td className={`whitespace-nowrap py-0.5 tabular-nums ${row.differs ? "font-medium" : ""}`}>
-                {show(row.read)}
-            </td>
-        </tr>
+            {warning && <p className="border-l-2 pl-2 text-xs text-muted-foreground">{warning}</p>}
+        </li>
     );
 };

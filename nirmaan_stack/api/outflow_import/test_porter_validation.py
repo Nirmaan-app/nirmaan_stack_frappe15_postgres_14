@@ -210,15 +210,16 @@ class TestOneInvoiceDisagrees(PorterValidationCase):
     def setUp(self):
         super().setUp()
         self.hyderabad = self.numbers["36SM27A0900004"]
-        self.replies[self.hyderabad]["igst_amount"] = 31.66  # statement Rs 30.65: Rs 1.01 out
+        statement_fare = float(self.invoices["36SM27A0900004"].fare_total)
+        self.replies[self.hyderabad]["net_amount"] = statement_fare + 1.01  # Rs 1.01 out
         self._run_job()
 
-    def test_it_fails_naming_the_invoice_and_the_figure(self):
+    def test_it_fails_naming_the_invoice_and_the_fare(self):
         invoice = self._invoice("36SM27A0900004")
         self.assertEqual(invoice.validation_status, "Failed")
-        self.assertEqual(
+        self.assertRegex(
             invoice.validation_message,
-            f"Invoice {self.hyderabad} disagrees with the statement. Tax: invoice ₹31.66, statement ₹30.65.",
+            rf"^Invoice {self.hyderabad} disagrees with the statement\. Fare: invoice ₹[\d,]+\.\d\d, statement ₹[\d,]+\.\d\d\.$",
         )
 
     def test_the_others_still_pass_and_the_whole_import_fails(self):
@@ -242,6 +243,63 @@ class TestOneInvoiceDisagrees(PorterValidationCase):
         self._run_job()
         self.assertEqual(self._invoice("36SM27A0900004").validation_status, "Failed")
         self.assertEqual(self._status()["state"], "Validation failed")
+
+
+class TestOnlyTheFareAndTheDateDecide(PorterValidationCase):
+    """#1559: a GSTIN, tax or invoice-number difference is a warning on a Passed invoice."""
+
+    def _shown(self, old_number: str) -> dict:
+        return next(i for i in self._status()["invoices"] if i["name"] == self.numbers[old_number])
+
+    def test_a_tax_and_gstin_difference_passes_with_warnings_returned_with_the_import(self):
+        hyderabad = self.numbers["36SM27A0900004"]
+        self.replies[hyderabad]["igst_amount"] = 31.66  # statement Rs 30.65: Rs 1.01 out
+        self.replies[hyderabad]["receiver_gstin"] = "36AAACN9999X1Z9"
+        self._run_job()
+
+        status = self._status()
+        self.assertEqual(status["state"], "Validated")
+        shown = self._shown("36SM27A0900004")
+        self.assertEqual((shown["validation_status"], shown["validation_message"]), ("Passed", None))
+        self.assertEqual(
+            shown["warnings"],
+            [
+                {"figure": "Customer GSTIN", "statement": shown["customer_gstin"], "read": "36AAACN9999X1Z9"},
+                {"figure": "Tax", "statement": "₹30.65", "read": "₹31.66"},
+            ],
+        )
+        self.assertEqual(self._shown("29SS27A0900001")["warnings"], [])
+        self.assertEqual(status["progress"]["check"]["passed"], 4)
+        self.assertEqual(status["progress"]["check"]["passed_with_warnings"], 1)
+
+    def test_a_tax_it_could_not_read_passes_with_a_warning(self):
+        del self.replies[self.numbers["24SS27A0900002"]]["igst_amount"]
+        self._run_job()
+        shown = self._shown("24SS27A0900002")
+        self.assertEqual(shown["validation_status"], "Passed")
+        self.assertEqual(shown["warnings"], [{"figure": "Tax", "statement": "₹38.95", "read": None}])
+        self.assertIsNone(shown["read"]["tax"])
+
+    def test_an_invoice_dated_after_the_statement_plus_seven_days_fails(self):
+        status = self._status()
+        self.assertEqual(status["period_to"], "2026-09-30")
+        self.assertEqual(status["invoice_date_window"], {"from": status["period_from"], "to": "2026-10-07"})
+        self.replies[self.numbers["29SS27A0900001"]]["invoice_date"] = "2026-10-08"
+        self._run_job()
+        invoice = self._invoice("29SS27A0900001")
+        self.assertEqual(invoice.validation_status, "Failed")
+        self.assertIn("Invoice date: invoice 08-Oct-2026", invoice.validation_message)
+
+    def test_a_fare_it_could_not_read_is_an_error_to_retry(self):
+        ahmedabad = self.numbers["24SS27A0900002"]
+        del self.replies[ahmedabad]["net_amount"]
+        self._run_job()
+        invoice = self._invoice("24SS27A0900002")
+        self.assertEqual(invoice.validation_status, "Error")
+        self.assertEqual(
+            invoice.validation_message, f"Invoice {ahmedabad}: could not read the fare off the PDF. Retry it."
+        )
+        self.assertTrue(self._shown("24SS27A0900002")["can_retry"])
 
 
 class TestAnErrorIsRetriedForThatInvoiceAlone(PorterValidationCase):
@@ -276,21 +334,6 @@ class TestAnErrorIsRetriedForThatInvoiceAlone(PorterValidationCase):
             len(frappe.get_all("File", filters={"attached_to_doctype": INVOICE_DOCTYPE, "attached_to_name": bangalore})),
             1,
         )
-
-    def test_a_figure_gemini_could_not_read_is_an_error_naming_it_and_shown_as_unread(self):
-        ahmedabad = self.numbers["24SS27A0900002"]
-        del self.replies[ahmedabad]["igst_amount"]
-        self._run_job()
-        invoice = self._invoice("24SS27A0900002")
-        self.assertEqual(invoice.validation_status, "Error")
-        self.assertEqual(
-            invoice.validation_message, f"Invoice {ahmedabad}: could not read the tax off the PDF. Retry it."
-        )
-        shown = next(i for i in self._status()["invoices"] if i["name"] == ahmedabad)
-        self.assertTrue(shown["can_retry"])
-        self.assertEqual(shown["read"]["invoice_number"], ahmedabad)
-        self.assertEqual(shown["read"]["fare"], 779.0)
-        self.assertIsNone(shown["read"]["tax"])
 
     def test_nothing_is_shown_as_read_before_gemini_has_read_it(self):
         shown = self._status()["invoices"][0]

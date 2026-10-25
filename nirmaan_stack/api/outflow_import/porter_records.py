@@ -27,6 +27,7 @@ from frappe.utils.background_jobs import is_job_enqueued
 
 from nirmaan_stack.services.outflow_import.porter_state import (
     IMPORT_VALIDATED,
+    INVOICE_PASSED,
     import_progress,
     import_state,
     placement_kind,
@@ -128,15 +129,27 @@ def _invoice_statuses(batches: list[str]) -> dict[str, list[str]]:
 
 def porter_progress(batches: list[str]) -> dict[str, dict]:
     """Each Porter import's per-phase progress summary (`porter_state.import_progress`, #1556): what the
-    import dialog's progress bar and Import History's chips show. Three grouped queries for any number
+    import dialog's progress bar and Import History's chips show. Four grouped queries for any number
     of imports, plus one queue lookup each for a running Create job. Reads only."""
     from nirmaan_stack.api.outflow_import.porter_validation import VALIDATION_CONCURRENCY
 
     invoices = _invoice_statuses(batches)
+    warned: dict[str, int] = {batch: 0 for batch in batches}
     lines: dict[str, dict[str, int]] = {batch: {} for batch in batches}
     cancelled: dict[str, int] = {batch: 0 for batch in batches}
     placements: dict[str, dict[str, int]] = {batch: {} for batch in batches}
     if batches:
+        # A Passed invoice whose PDF read a GSTIN, tax or invoice number differently (#1559).
+        warned.update(
+            frappe.db.sql(
+                """
+                SELECT import_batch, COUNT(*) FROM "tabPorter Invoice"
+                WHERE import_batch IN %s AND validation_status = %s AND validation_warnings IS NOT NULL
+                GROUP BY import_batch
+                """,
+                (tuple(batches), INVOICE_PASSED),
+            )
+        )
         for row in frappe.db.sql(
             """
             SELECT import_batch, row_status, skip_kind, placement_reason, placement_strength,
@@ -161,6 +174,7 @@ def porter_progress(batches: list[str]) -> dict[str, dict]:
             orders=sum(lines[batch].values()),
             cancelled=cancelled[batch],
             invoice_statuses=invoices[batch],
+            passed_with_warnings=warned[batch],
             line_statuses=lines[batch],
             placements=placements[batch],
             create_running=is_job_enqueued(create_job_id(batch)),
