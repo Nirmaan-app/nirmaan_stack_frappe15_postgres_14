@@ -55,6 +55,9 @@ describe("unskipBlockReason -- keyed on Skip Type", () => {
                 "No amount",
                 "Repeated in same file",
                 "Porter order cancelled",
+                // #1567 (ADR-0037 decision 4): a payment into the card and cashback are never work.
+                "Card payment received",
+                "Card cashback",
             ].sort(),
         );
         for (const [skip_kind, sentence] of Object.entries(UNSKIP_LOCKED_KINDS)) {
@@ -71,6 +74,18 @@ describe("unskipBlockReason -- keyed on Skip Type", () => {
             expect(unskipBlockReason(skipped({ source: " Cashbook ", skip_kind }))).toBe(UNSKIP_BLOCK_CASHBOOK);
         }
         expect(UNSKIP_BLOCK_CASHBOOK).toBe("Only a Cashbook line skipped by hand can be unskipped.");
+    });
+
+    it("★ a card refund pair may be unskipped; card payments and cashback never, in their own words (#1567)", () => {
+        const source = "ICICI Credit Card Statement";
+        expect(unskipBlockReason(skipped({ source, skip_kind: "Card refund pair" }))).toBeNull();
+        expect(unskipBlockReason(skipped({ source, skip_kind: "Skipped by hand" }))).toBeNull();
+        for (const skip_kind of ["Card payment received", "Card cashback"]) {
+            expect(unskipBlockReason(skipped({ source, skip_kind }))).toBe(UNSKIP_LOCKED_KINDS[skip_kind]);
+        }
+        expect(unskipBlockReason(skipped({ source, skip_kind: "Outflow Already Recorded" }))).toBe(
+            UNSKIP_BLOCK_CASHBOOK,
+        );
     });
 
     it("a line with no kind is refused", () => {
@@ -101,6 +116,10 @@ describe("unskipWarning -- a bank-rule line warns before it goes back to work", 
         for (const skip_kind of BANK_RULE_SKIP_KINDS) {
             expect(unskipWarning({ skip_kind })).toContain(skip_kind);
         }
+    });
+
+    it("★ a card refund pair says both lines come back (#1567)", () => {
+        expect(unskipWarning({ skip_kind: "Card refund pair" })).toMatch(/brings back both lines/);
     });
 
     it("no other kind warns", () => {
