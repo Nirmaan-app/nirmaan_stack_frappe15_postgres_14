@@ -35,7 +35,7 @@ from nirmaan_stack.api.outflow_import.test_porter_validation import (
     _no_bucket_upload,
     _pdf,
 )
-from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, ACCOUNTANT_LEAD, _Users
+from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, ACCOUNTANT_LEAD, OUTSIDER, _Users
 
 
 class _SameStatement:
@@ -142,6 +142,19 @@ class TestReuploadingACreatedImport(_SameStatement, PorterCreateCase):
         self.assertEqual(len(self._expenses()), 11)
         self.assertFalse(self._status()["discardable"])
 
+    def test_an_accountant_is_refused_too_with_the_same_message(self):
+        users = _Users()
+        self.addCleanup(users.purge)
+        frappe.set_user(users.make(ACCOUNTANT))
+        with self.assertRaises(frappe.ValidationError) as caught:
+            porter_discard.discard_porter_import(self.batch)
+        frappe.db.rollback()
+        frappe.set_user("Administrator")
+        self.assertNotIsInstance(caught.exception, frappe.PermissionError)
+        self.assertIn("Create has already created expenses from it", str(caught.exception))
+        self.assertTrue(frappe.db.exists(BATCH_DOCTYPE, self.batch))
+        self.assertEqual(len(self._expenses()), 11)
+
 
 class TestReuploadingAnImportNeverCreated(_SameStatement, PorterValidationCase):
     def test_the_same_statement_is_blocked_with_open_it_or_discard_it(self):
@@ -166,10 +179,13 @@ class DiscardCase(_SameStatement, PorterValidationCase):
         self.users = _Users()
         self.addCleanup(self.users.purge)
 
-    def _discard(self, batch: str | None = None):
-        frappe.set_user("Administrator")
-        with _storage_deletes() as (gcs, _s3), _no_bucket_upload():
-            result = porter_discard.discard_porter_import(batch or self.batch)
+    def _discard(self, batch: str | None = None, user: str = "Administrator"):
+        frappe.set_user(user)
+        try:
+            with _storage_deletes() as (gcs, _s3), _no_bucket_upload():
+                result = porter_discard.discard_porter_import(batch or self.batch)
+        finally:
+            frappe.set_user("Administrator")
         self.cloud_deletes = gcs.call_count
         return result
 
@@ -235,21 +251,20 @@ class TestDiscardingAValidatedImport(DiscardCase):
         self.assertEqual(again["orders"], 12)
         self.assertEqual(sorted(invoice["name"] for invoice in again["invoices"]), sorted(self.numbers.values()))
 
-    def test_a_plain_accountant_is_refused_and_an_accountant_lead_may(self):
-        frappe.set_user(self.users.make(ACCOUNTANT))
-        with self.assertRaises(frappe.PermissionError) as caught:
-            porter_discard.discard_porter_import(self.batch)
-        frappe.db.rollback()
-        frappe.set_user("Administrator")
-        self.assertIn("discard", str(caught.exception))
-        self.assertTrue(frappe.db.exists(BATCH_DOCTYPE, self.batch))
-
-        lead = self.users.make(ACCOUNTANT_LEAD)
-        frappe.set_user(lead)
-        with _storage_deletes(), _no_bucket_upload():
-            porter_discard.discard_porter_import(self.batch)
-        frappe.set_user("Administrator")
+    def test_an_accountant_may_discard_it(self):
+        self._discard(user=self.users.make(ACCOUNTANT))
         self.assertFalse(frappe.db.exists(BATCH_DOCTYPE, self.batch))
+        self.assertEqual(frappe.db.count(INVOICE_DOCTYPE, {"import_batch": self.batch}), 0)
+
+    def test_an_accountant_lead_may_discard_it(self):
+        self._discard(user=self.users.make(ACCOUNTANT_LEAD))
+        self.assertFalse(frappe.db.exists(BATCH_DOCTYPE, self.batch))
+
+    def test_someone_without_outflow_access_is_refused(self):
+        with self.assertRaises(frappe.PermissionError):
+            self._discard(user=self.users.make(OUTSIDER))
+        frappe.db.rollback()
+        self.assertTrue(frappe.db.exists(BATCH_DOCTYPE, self.batch))
 
 
 class TestDiscardingAnImportStuckValidating(DiscardCase):
@@ -266,6 +281,16 @@ class TestDiscardingAnImportStuckValidating(DiscardCase):
                 self._discard()
         frappe.db.rollback()
         self.assertIn("still", str(caught.exception))
+        self.assertTrue(frappe.db.exists(BATCH_DOCTYPE, self.batch))
+
+    def test_an_accountant_is_refused_while_a_job_of_it_runs(self):
+        accountant = self.users.make(ACCOUNTANT)
+        with patch.object(porter_discard, "is_job_enqueued", side_effect=lambda job: job == f"porter-create-{self.batch}"):
+            with self.assertRaises(frappe.ValidationError) as caught:
+                self._discard(user=accountant)
+        frappe.db.rollback()
+        self.assertNotIsInstance(caught.exception, frappe.PermissionError)
+        self.assertIn("still being worked on", str(caught.exception))
         self.assertTrue(frappe.db.exists(BATCH_DOCTYPE, self.batch))
 
     def test_a_batch_that_is_not_a_porter_import_is_refused(self):
