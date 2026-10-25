@@ -1,4 +1,4 @@
-// Discard on a Porter import (#1447): who is offered it, when, and what the confirmation says it deletes.
+// Discard on a Porter import (#1447, #1557): who is offered it, when, and what the confirmation says it deletes.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -16,24 +16,20 @@ const status = (overrides: Partial<Parameters<typeof canDiscardPorter>[0]> = {})
 });
 
 describe("canDiscardPorter", () => {
-    it("is offered to an Admin or Accountant Lead on an import Create has not written to", () => {
+    it("is offered on an import Create has not written to, to every module user (Accountant included)", () => {
         for (const state of ["Validating", "Validated", "Validation failed"]) {
-            expect(canDiscardPorter(status({ state }), true)).toBe(true);
+            expect(canDiscardPorter(status({ state }))).toBe(true);
         }
     });
 
-    it("is never offered to a plain Accountant", () => {
-        expect(canDiscardPorter(status(), false)).toBe(false);
-    });
-
     it("is not offered once Create has written anything, or while its job runs", () => {
-        expect(canDiscardPorter(status({ state: "Creating", discardable: false }), true)).toBe(false);
-        expect(canDiscardPorter(status({ state: "Created", discardable: false }), true)).toBe(false);
-        expect(canDiscardPorter(status({ state: "Validated", create_running: true }), true)).toBe(false);
+        expect(canDiscardPorter(status({ state: "Creating", discardable: false }))).toBe(false);
+        expect(canDiscardPorter(status({ state: "Created", discardable: false }))).toBe(false);
+        expect(canDiscardPorter(status({ state: "Validated", create_running: true }))).toBe(false);
     });
 
     it("reads a server that does not say as not discardable", () => {
-        expect(canDiscardPorter({ state: "Validated", create_running: false }, true)).toBe(false);
+        expect(canDiscardPorter({ state: "Validated", create_running: false })).toBe(false);
     });
 });
 
@@ -45,7 +41,7 @@ describe("discardConfirmation", () => {
             invoices: [{}, {}, {}, {}],
         });
         expect(text).toBe(
-            "Discard OFI-26-00042? This deletes its 12 orders, its 4 Porter invoices and their PDFs. " +
+            "Discard OFI-26-00042? This removes the whole import: its 12 orders, its 4 Porter invoices and their PDFs. " +
                 "Nothing was created from it, so nothing else changes. You can upload the statement again afterwards.",
         );
     });
@@ -77,8 +73,9 @@ describe("the Discard endpoint is the server's", () => {
         expect(source).toMatch(new RegExp(`@frappe\\.whitelist\\(methods=\\["POST"\\]\\)\\ndef ${method}\\(`));
     });
 
-    it("is gated by the same undo profiles the screen asks", () => {
+    it("is gated by the module access alone, as the screen is, not by the undo profiles", () => {
         const source = repoFile("nirmaan_stack/api/outflow_import/porter_discard.py");
-        expect(source).toContain("has_outflow_undo_access(user)");
+        expect(source).toContain("require_outflow_access()");
+        expect(source).not.toContain("has_outflow_undo_access");
     });
 });

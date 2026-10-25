@@ -14,16 +14,14 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { useUserData } from "@/hooks/useUserData";
 
-import { canUndoOutflow } from "../outflowImportStatus";
 import { describeFrappeError } from "../outflowTableModel";
 import { PORTER_DISCARD_METHOD, canDiscardPorter, discardConfirmation } from "../porterDiscard";
 import type { PorterStatus } from "../porterImport";
 
 /**
- * Discard a Porter import Create has not written to (#1447): its batch, lines, Porter Invoices and PDFs.
- * Admin and Accountant Lead only; renders nothing for anyone else, or once Create has written anything.
+ * Discard a whole Porter import Create has not written to (#1447): its batch, lines, Porter Invoices and
+ * PDFs. Any module user, Accountant included (#1557); renders nothing once Create has written anything.
  * Asks first, then posts; `onDiscarded` runs once the server has deleted it.
  */
 export const PorterDiscardButton = ({
@@ -33,13 +31,12 @@ export const PorterDiscardButton = ({
     status: PorterStatus;
     onDiscarded: () => void | Promise<void>;
 }) => {
-    const { role, user_id } = useUserData();
     const { call: discard } = useFrappePostCall(PORTER_DISCARD_METHOD);
     const [asking, setAsking] = useState(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    if (!canDiscardPorter(status, canUndoOutflow(role, user_id))) return null;
+    if (!canDiscardPorter(status)) return null;
 
     const handleDiscard = async () => {
         setBusy(true);
@@ -66,7 +63,7 @@ export const PorterDiscardButton = ({
                 }}
             >
                 <Trash2 className="mr-1.5 h-4 w-4" />
-                Discard import
+                Discard this import
             </Button>
             <AlertDialog open={asking} onOpenChange={(open) => !busy && setAsking(open)}>
                 <AlertDialogContent>

@@ -4,6 +4,8 @@
 // `PorterImportSummary` renders it; `porterImport.test.ts` pins it. Later slices of spec #1442
 // (validation progress, review, create) extend THIS module.
 
+import type { PorterProgress } from "./porterProgress";
+
 /** The source string. The parser adapter key and the batch Select option, pinned by test. */
 export const PORTER_SOURCE = "Porter Statement";
 
@@ -104,6 +106,8 @@ export interface PorterStatus {
     failed: number;
     /** The Create job is queued or running on the server. */
     create_running: boolean;
+    /** Per phase: what is done, what is waiting and what needs a person (#1556). The progress bar reads it. */
+    progress?: PorterProgress;
 }
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
@@ -231,6 +235,9 @@ export const canRetryInvoice = (invoice: Pick<PorterInvoiceStatus, "validation_s
 export const porterStateNote = (state: string): string => {
     if (state === "Created")
         return "Done: one expense per completed order, at Paid, each with its Porter invoice attached.";
+    // A partly created import with no Create job running (`porterProgress.shownPorterState`, #1556).
+    if (state === "Needs you")
+        return "Not every order is created yet, and nothing is running: press Create again for the rest.";
     if (state === "Creating")
         return "Creating the expenses, one order at a time. You can close this — it carries on, and Import History reopens it.";
     if (state === "Validated")

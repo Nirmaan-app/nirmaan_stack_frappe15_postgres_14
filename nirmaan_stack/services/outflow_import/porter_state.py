@@ -15,8 +15,10 @@ committed at every step so the dialog can show it. Comparing is `porter_verdict.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+import math
+from collections.abc import Iterable, Mapping
 
+from nirmaan_stack.services.outflow_import.porter import REASON_REVIEW, STRENGTH_STRONG
 from nirmaan_stack.services.outflow_import.status import (
     ROW_ERROR,
     ROW_MISMATCHED,
@@ -26,6 +28,7 @@ from nirmaan_stack.services.outflow_import.status import (
 )
 
 __all__ = [
+    "CHECK_SECONDS_PER_INVOICE",
     "CREATE_LINE_STATUSES",
     "IMPORT_CREATED",
     "IMPORT_CREATING",
@@ -40,7 +43,12 @@ __all__ = [
     "INVOICE_PASSED",
     "INVOICE_QUEUED",
     "INVOICE_READING",
+    "NEEDS_PERSON",
+    "PLACED_AUTOMATICALLY",
+    "PLACED_BY_PERSON",
+    "import_progress",
     "import_state",
+    "placement_kind",
 ]
 
 #: `Porter Invoice.validation_status`, in the order an invoice moves through them.
@@ -99,3 +107,87 @@ def import_state(invoice_statuses: Iterable[str], line_statuses: Iterable[str] =
     if any(status != ROW_PENDING_MATCH for status in completed):
         return IMPORT_CREATING
     return IMPORT_VALIDATED
+
+
+# --- the per-phase progress summary (#1556) --------------------------------------------------------
+
+#: How long one Porter Invoice's check takes, for the time-left estimate only. Gemini takes 30 s to
+#: minutes per invoice (#1444); a minute each keeps the estimate on the safe side.
+CHECK_SECONDS_PER_INVOICE = 60
+
+#: Where a completed order stands in the Choose-projects phase (`placement_kind`).
+PLACED_AUTOMATICALLY = "placed_automatically"
+PLACED_BY_PERSON = "placed_by_person"
+NEEDS_PERSON = "needs_person"
+
+
+def placement_kind(reason: str | None, strength: str | None) -> str:
+    """Where a completed order stands in Choose projects: placed by a person (Review wrote `review`),
+    placed automatically (a Strong placement, a Strong Non-Project from history included), or still
+    needing a person (a Check placement, or none at all)."""
+    if reason == REASON_REVIEW:
+        return PLACED_BY_PERSON
+    if strength == STRENGTH_STRONG:
+        return PLACED_AUTOMATICALLY
+    return NEEDS_PERSON
+
+
+def import_progress(
+    *,
+    orders: int,
+    cancelled: int,
+    invoice_statuses: Iterable[str],
+    line_statuses: Mapping[str, int],
+    placements: Mapping[str, int],
+    create_running: bool,
+    check_concurrency: int,
+) -> dict:
+    """THE per-phase summary of one Porter import (spec #1554, "Progress contract"), from counts.
+
+    `line_statuses` counts every line by `row_status`; `placements` counts the completed lines by
+    `placement_kind`. Each phase is a flat dict of counts, so a later ticket adds a key (warnings,
+    a mixed remark group needing a person) without reshaping it:
+
+      upload    orders, invoices, cancelled (Cancelled Porter orders, skipped)
+      check     invoices, passed, in_progress, to_retry (Error), not_matching (Failed), seconds_left
+                (None once nothing is in progress; a rough estimate, `CHECK_SECONDS_PER_INVOICE`)
+      projects  orders (completed), placed_automatically, placed_by_person, needs_person
+      create    orders (completed), created, waiting, failed, reopened (unreconciled after Create),
+                running (a Create job is queued or running)
+    """
+    statuses = list(invoice_statuses)
+    in_progress = sum(1 for status in statuses if status in INVOICE_IN_FLIGHT)
+    completed = orders - cancelled
+
+    def lines(status: str) -> int:
+        return int(line_statuses.get(status) or 0)
+
+    return {
+        "upload": {"orders": orders, "invoices": len(statuses), "cancelled": cancelled},
+        "check": {
+            "invoices": len(statuses),
+            "passed": statuses.count(INVOICE_PASSED),
+            "in_progress": in_progress,
+            "to_retry": statuses.count(INVOICE_ERROR),
+            "not_matching": statuses.count(INVOICE_FAILED),
+            "seconds_left": (
+                math.ceil(in_progress / max(1, check_concurrency)) * CHECK_SECONDS_PER_INVOICE
+                if in_progress
+                else None
+            ),
+        },
+        "projects": {
+            "orders": completed,
+            PLACED_AUTOMATICALLY: int(placements.get(PLACED_AUTOMATICALLY) or 0),
+            PLACED_BY_PERSON: int(placements.get(PLACED_BY_PERSON) or 0),
+            NEEDS_PERSON: int(placements.get(NEEDS_PERSON) or 0),
+        },
+        "create": {
+            "orders": completed,
+            "created": lines(ROW_SETTLED),
+            "waiting": lines(ROW_PENDING_MATCH),
+            "failed": lines(ROW_ERROR),
+            "reopened": lines(ROW_MISMATCHED),
+            "running": bool(create_running),
+        },
+    }

@@ -25,6 +25,8 @@ import type { OutflowImportOption } from "@/types/NirmaanStack/OutflowImportBatc
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import { isPorterImport } from "../porterImport";
+import { shownPorterState } from "../porterProgress";
+import { PorterProgressChips } from "./PorterProgressBar";
 
 import {
     historyEmptyLabel,
@@ -365,6 +367,11 @@ const HistoryRow = ({
     const uploader = importUploaderLabel(option);
     /** ADR-0031: the lines this import left out as already imported. Not saved, so only counted. */
     const repeats = repeatsNotSavedLabel(option.repeats_not_saved);
+    /** A Porter import reads "Creating" only while its Create job runs (#1556). */
+    const status =
+        isPorterImport(option.source) && option.status
+            ? shownPorterState({ state: option.status, create_running: option.progress?.create.running })
+            : option.status;
 
     return (
         <li>
@@ -404,6 +411,10 @@ const HistoryRow = ({
                     {repeats && (
                         <div className="truncate text-xs text-muted-foreground">{repeats}</div>
                     )}
+                    {/* A Porter import's progress, phase by phase, as its dialog's bar shows it (#1556). */}
+                    {isPorterImport(option.source) && option.progress && (
+                        <PorterProgressChips progress={option.progress} />
+                    )}
                 </div>
 
                 <div className="flex items-center gap-4">
@@ -420,10 +431,10 @@ const HistoryRow = ({
                     </div>
                     <span
                         className={`w-[92px] shrink-0 rounded-full px-2 py-0.5 text-center text-[11px] ${importStatusTone(
-                            option.status
+                            status
                         )}`}
                     >
-                        {option.status || "—"}
+                        {status || "—"}
                     </span>
                 </div>
             </button>
