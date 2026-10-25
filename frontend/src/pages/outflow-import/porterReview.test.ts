@@ -99,6 +99,14 @@ describe("what a suggestion says", () => {
         expect(placementLabel(mixed)).toBe("Mixed: 1 Zephyr Tower, 1 Non-Project");
     });
 
+    it("calls an order nobody has chosen yet not chosen, never Non-Project", () => {
+        const [split] = reviewItems([
+            zephyr({ reason: "review", placement: "placed_by_person" }),
+            zephyr({ ledger: "Non Project Expenses", project: null, project_name: null, reason: null, placement: "needs_person" }),
+        ]);
+        expect(placementLabel(split)).toBe("Mixed: 1 Zephyr Tower, 1 not chosen yet");
+    });
+
     it("names its reason, and shows a reason it does not know as it is", () => {
         expect(reasonLabel("name")).toBe("Project name in the remark");
         expect(reasonLabel("review")).toBe("Chosen in review");
@@ -176,8 +184,11 @@ describe("the two likely projects (#1563)", () => {
         ]);
     });
 
-    it("offers none when it names one, or more than two", () => {
-        expect(choices(["P-1"])).toEqual([]);
+    it("offers the one suggestion as a one-click choice when the placement names one", () => {
+        expect(choices(["P-2"])).toEqual([{ value: "P-2", label: "Quillon Park" }]);
+    });
+
+    it("offers none when it names more than two, or none", () => {
         expect(choices(["P-1", "P-2", "P-3"])).toEqual([]);
         expect(choices([])).toEqual([]);
     });
@@ -332,6 +343,19 @@ describe("what Choose projects says (#1560)", () => {
         expect(choiceSummary([zephyr(), chosen]).heading).toBe("0 orders need a project");
         // Nothing was placed automatically: no note about it.
         expect(choiceSummary([line({ placement: "needs_person" })]).note).toBeNull();
+    });
+
+    it("does not call orders a person chose automatic once they are created", () => {
+        const created = { editable: false };
+        const lines = [
+            zephyr(created),
+            zephyr(created),
+            line({ ...created, reason: "review", placement: "placed_by_person" }),
+        ];
+        expect(choiceSummary(lines)).toEqual({
+            heading: "All 3 orders placed.",
+            note: "1 chosen by a person, 2 placed automatically.",
+        });
     });
 
     it("says all were placed automatically when nothing needed a person", () => {

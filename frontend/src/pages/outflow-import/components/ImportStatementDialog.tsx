@@ -1334,11 +1334,13 @@ export const ImportStatementDialog = ({
                                         {createButtonLabel(porterStatus)}
                                     </Button>
                                 )}
+                                {/* "Done" only once every expense is created; before that nothing is
+                                    finished, so the way out is a plain Close, never the red main button. */}
                                 <Button
-                                    variant={canCreatePorter(porterStatus) ? "outline" : "default"}
+                                    variant={porterStatus.state === "Created" ? "default" : "outline"}
                                     onClick={handlePorterDone}
                                 >
-                                    Done
+                                    {porterStatus.state === "Created" ? "Done" : "Close"}
                                 </Button>
                             </>
                         )}

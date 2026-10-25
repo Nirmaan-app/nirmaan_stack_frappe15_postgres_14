@@ -176,10 +176,20 @@ const chosenByPerson = (line: PorterReviewLine) => line.editable && placedByPers
 export const choiceItems = (lines: PorterReviewLine[]): ReviewItem[] =>
     reviewItems(lines).filter((item) => item.lines.some((line) => needsPerson(line) || chosenByPerson(line)));
 
-/** The step's heading and the note under it. "All N placed automatically" only when nobody had to choose. */
+/**
+ * The step's heading and the note under it. "All N placed automatically" only when no person chose any:
+ * once Create has written them, the orders a person chose are no longer listed, but still theirs.
+ */
 export const choiceSummary = (lines: PorterReviewLine[]): { heading: string; note: string | null } => {
     const listed = new Set(choiceItems(lines).flatMap((item) => item.lines.map((line) => line.name)));
-    if (listed.size === 0) return { heading: `All ${orders(lines.length)} placed automatically.`, note: null };
+    if (listed.size === 0) {
+        const byPerson = lines.filter(placedByPerson).length;
+        if (byPerson === 0) return { heading: `All ${orders(lines.length)} placed automatically.`, note: null };
+        return {
+            heading: `All ${orders(lines.length)} placed.`,
+            note: `${byPerson} chosen by a person, ${lines.length - byPerson} placed automatically.`,
+        };
+    }
     const left = lines.filter(needsPerson).length;
     const automatic = lines.length - listed.size;
     return {
@@ -240,9 +250,13 @@ export const confirmSummary = (
 export const automaticLines = (lines: PorterReviewLine[]): PorterReviewLine[] =>
     lines.filter((line) => line.editable && line.placement === "placed_automatically");
 
-/** Where the item's orders would go: its project, Non-Project, or how a disagreeing group splits. */
+/**
+ * Where the item's orders would go: its project, Non-Project, or how a disagreeing group splits. An order
+ * that still needs a person and has no project is "not chosen yet": a blank is never Non-Project (#1560).
+ */
 export const placementLabel = (item: ReviewItem): string => {
-    const nameOf = (line: PorterReviewLine) => (placementOf(line) ? line.project_name ?? line.project! : "Non-Project");
+    const nameOf = (line: PorterReviewLine) =>
+        placementOf(line) ? line.project_name ?? line.project! : needsPerson(line) ? "not chosen yet" : "Non-Project";
     if (!item.mixed) return nameOf(item.lines[0]);
     const counts = new Map<string, number>();
     for (const line of item.lines) counts.set(nameOf(line), (counts.get(nameOf(line)) ?? 0) + 1);
@@ -286,7 +300,7 @@ export const listedBecause = (item: ReviewItem): string | null => {
 };
 
 /**
- * The one-click choices (#1563): when the placement named exactly two likely projects for the item, both
+ * The one-click choices (#1563): when the placement named one or two likely projects for the item, each
  * still offered (Won), in the order named. Otherwise none, and the full picker is the choice.
  */
 export const likelyChoices = (
@@ -294,12 +308,12 @@ export const likelyChoices = (
     projects: readonly { name: string; project_name: string }[],
 ): { value: string; label: string }[] => {
     const likely = [...new Set(item.lines.flatMap((line) => line.likely_projects ?? []))];
-    if (likely.length !== 2) return [];
+    if (likely.length < 1 || likely.length > 2) return [];
     const offered = likely.flatMap((name) => {
         const project = projects.find((p) => p.name === name);
         return project ? [{ value: project.name, label: project.project_name }] : [];
     });
-    return offered.length === 2 ? offered : [];
+    return offered.length === likely.length ? offered : [];
 };
 
 /**

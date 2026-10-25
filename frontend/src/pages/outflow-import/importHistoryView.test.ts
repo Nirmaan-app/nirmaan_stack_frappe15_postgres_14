@@ -126,7 +126,13 @@ describe("matchesEveryToken", () => {
 describe("dialog text", () => {
     it("states the source and the month", () => {
         expect(historySubtitle(ICICI, "2026-10")).toBe(
-            "ICICI Bank Statement statements covering October 2026. Select one to open it."
+            "ICICI Bank statements covering October 2026. Select one to open it."
+        );
+        expect(historySubtitle("Porter Statement", "2026-09")).toBe(
+            "Porter statements covering September 2026. Select one to open it."
+        );
+        expect(historySubtitle("Cashfree", "2026-09")).toBe(
+            "Cashfree statements covering September 2026. Select one to open it."
         );
     });
 

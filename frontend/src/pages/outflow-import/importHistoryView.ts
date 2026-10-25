@@ -145,9 +145,12 @@ export const matchesEveryToken = (haystack: string, search: string): boolean => 
     return tokens.every((token) => text.includes(token));
 };
 
+/** A source as it reads before "statements": "Porter Statement" is "Porter", never "Porter Statement statements". */
+const statementsOf = (source: string): string => source.replace(/\s+statement$/i, "");
+
 /** The dialog's subtitle: what is listed, then what to do. */
 export const historySubtitle = (source: string, month: MonthKey): string =>
-    `${source} statements covering ${monthLabel(month)}. Select one to open it.`;
+    `${statementsOf(source)} statements covering ${monthLabel(month)}. Select one to open it.`;
 
 /** A row's count: a Porter import's lines are orders (#1558), a bank import's are transfers. */
 export const importCountLabel = (source: string | null | undefined, n: number): string => {
@@ -158,8 +161,8 @@ export const importCountLabel = (source: string | null | undefined, n: number): 
 /** What an empty tab says. A search that matched nothing is a different fact from an empty month. */
 export const historyEmptyLabel = (source: string, month: MonthKey, search: string): string =>
     search.trim()
-        ? `No ${source} statements covering ${monthLabel(month)} match that.`
-        : `No ${source} statements cover ${monthLabel(month)}.`;
+        ? `No ${statementsOf(source)} statements covering ${monthLabel(month)} match that.`
+        : `No ${statementsOf(source)} statements cover ${monthLabel(month)}.`;
 
 /**
  * Are the summary card's three controls — Source, Import, Period — all at their defaults? The Reset
