@@ -39,6 +39,7 @@
   "porter_line",
   "placement_reason",
   "placement_strength",
+  "type_source",
   "suggested_refunds",
   "suggested_expense_type",
   "source",
@@ -379,6 +380,14 @@
    "fieldtype": "Select",
    "label": "Placement Strength",
    "options": "\nStrong\nCheck",
+   "read_only": 1
+  },
+  {
+   "description": "Credit Card Statement spends only: where suggested_expense_type came from. Fallback (Misc. Expenses) is shown as Check. Pinned to card_review.TYPE_SOURCES by test.",
+   "fieldname": "type_source",
+   "fieldtype": "Select",
+   "label": "Type Source",
+   "options": "\nEarlier statement\nAI\nFallback\nChosen on Review",
    "read_only": 1
   },
   {

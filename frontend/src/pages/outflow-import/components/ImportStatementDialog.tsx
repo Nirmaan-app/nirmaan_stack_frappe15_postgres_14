@@ -78,13 +78,14 @@ import {
 import { porterReviewOffered } from "../porterReview";
 import {
     CARD_DISCARD_METHOD,
-    CARD_IMPORT_METHOD,
     CARD_SOURCE,
     CARD_UPLOAD_URL,
     canDiscardCard,
     cardDiscardConfirmation,
     type CardImport,
 } from "../creditCardImport";
+import { canCreateCard, cardCreateButtonLabel, cardCreateStarted } from "../cardCreate";
+import { cardImportKey, useCardImport } from "../useCardImport";
 import { CardImportReview } from "./CardImportReview";
 import { CashbookReviewTree } from "./CashbookReviewTree";
 import { ConfirmMatchedPanel } from "./ConfirmMatchedPanel";
@@ -330,14 +331,9 @@ export const ImportStatementDialog = ({
         { refreshInterval: (latest) => (porterPolling(latest?.message) ? PORTER_STATUS_POLL_MS : 0) }
     );
     const porterStatus = porterBatch ? porterData?.message ?? null : null;
-    /** The card import as the server reports it (#1566): read by batch, never held as local state. */
-    const cardKey = cardBatch ? `card-import::${cardBatch}` : null;
-    const { data: cardData } = useFrappeGetCall<{ message: CardImport }>(
-        CARD_IMPORT_METHOD,
-        { batch: cardBatch },
-        cardKey
-    );
-    const cardImport = cardBatch ? cardData?.message ?? null : null;
+    /** The card import as the server reports it (#1566), with Review's retype and Create (#1568). */
+    const card = useCardImport(cardBatch);
+    const cardImport = card.cardImport;
     const { mutate: seedCache } = useSWRConfig();
     const { call: retryPorterInvoice } = useFrappePostCall<{ message: PorterStatus }>(PORTER_RETRY_METHOD);
     /** The invoice whose Retry is in flight, so its button can say so. */
@@ -674,7 +670,7 @@ export const ImportStatementDialog = ({
                 setError("The server accepted the file but returned no import.");
                 return;
             }
-            await seedCache(`card-import::${message.batch}`, { message }, { revalidate: false });
+            await seedCache(cardImportKey(message.batch), { message }, { revalidate: false });
             onCardBatch?.(message.batch);
         } catch (err: unknown) {
             setError(describeFrappeError(err, "The upload failed."));
@@ -846,7 +842,7 @@ export const ImportStatementDialog = ({
                 : Boolean(staged),
         matched,
         validated: isPorter && porterReviewOffered(porterStatus),
-        createStarted: isPorter && porterCreateStarted(porterStatus),
+        createStarted: isPorter ? porterCreateStarted(porterStatus) : isCard && cardCreateStarted(cardImport),
     };
     const steps = importSteps(source);
     const stepIndex = currentStepIndex(source, flow);
@@ -1072,7 +1068,16 @@ export const ImportStatementDialog = ({
 
                     {/* CREDIT CARD, FROM STEP 2 ON -- the statement is IN: its header, totals and lines,
                         read-only (#1566). Nothing has been created. */}
-                    {isCard && cardImport && <CardImportReview card={cardImport} />}
+                    {isCard && cardImport && (
+                        <>
+                            {card.actionError && (
+                                <p className="rounded-md bg-destructive/5 p-3 text-sm text-destructive">
+                                    {card.actionError}
+                                </p>
+                            )}
+                            <CardImportReview card={cardImport} onRetype={card.retype} retyping={card.retyping} />
+                        </>
+                    )}
 
                     {/* STEP 2 -- what importing this statement WOULD do. Nothing is written yet. */}
                     {stepIndex === 1 &&
@@ -1260,7 +1265,19 @@ export const ImportStatementDialog = ({
                             confirmation={cardDiscardConfirmation(cardImport)}
                             onDiscarded={handleOwnImportDone}
                         />
-                        <Button onClick={handleOwnImportDone}>Done</Button>
+                        {/* Create (#1568): the Bulk Import gate, so every user of this dialog. */}
+                        {canCreateCard(cardImport) && (
+                            <Button onClick={card.create} disabled={card.startingCreate || card.retyping !== null}>
+                                {card.startingCreate && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                                {cardCreateButtonLabel(cardImport)}
+                            </Button>
+                        )}
+                        <Button
+                            variant={canCreateCard(cardImport) ? "outline" : "default"}
+                            onClick={handleOwnImportDone}
+                        >
+                            Done
+                        </Button>
                     </div>
                 )}
 

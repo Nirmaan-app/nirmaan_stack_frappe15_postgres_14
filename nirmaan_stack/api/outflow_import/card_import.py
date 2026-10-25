@@ -12,8 +12,10 @@ THE STEPS
     upload    `upload_card_statement`   read, gate, refuse, save the PDF, stage   batch + lines +
                                                                                  Credit Card Statement
     review    `get_card_import`         the statement's header, totals and lines   reads only
-    suggest   (#1568)  expense type per spend, in the background
-    create    (#1569)  one Non-Project Expense per spend
+    retype    `card_review.set_card_expense_type`   a spend's expense type, on Review (#1568)
+    suggest   (#1569)  expense type per spend, in the background
+    create    `card_create.create_card_expenses`    one Paid Non-Project Expense per spend, in the
+                                                    background (#1568)
     discard   `discard_card_import`     an import Create has not written to; Admin and Accountant Lead
 
 ⚠️ IT NEVER RUNS THE MATCHER (`sources.NEVER_MATCHED_SOURCES`). The generic upload refuses this source.
@@ -43,13 +45,25 @@ from nirmaan_stack.api.outflow_import.card_upload import (
     stage,
 )
 from nirmaan_stack.api.outflow_import.permissions import has_outflow_undo_access, require_outflow_access
+from nirmaan_stack.services.outflow_import.card_types import CREATE_LINE_STATUSES, needs_check
+from nirmaan_stack.services.outflow_import.status import ROW_ERROR, ROW_SETTLED
 from nirmaan_stack.services.stored_files import delete_files
 
 
+def suggest_job_id(batch: str) -> str:
+    """The type suggestion job's id (#1569): one per import."""
+    return f"card-suggest-{batch}"
+
+
+def create_job_id(batch: str) -> str:
+    """The Create job's id (#1568): one per import, so pressing Create twice queues it once."""
+    return f"card-create-{batch}"
+
+
 def job_ids(batch: str) -> list[str]:
-    """The background jobs a card import may have queued: the type suggestion (#1568) and Create (#1569).
-    Discard waits for both. One id per import, so a second press queues nothing."""
-    return [f"card-suggest-{batch}", f"card-create-{batch}"]
+    """The background jobs a card import may have queued: the type suggestion (#1569) and Create (#1568).
+    Discard waits for both."""
+    return [suggest_job_id(batch), create_job_id(batch)]
 
 
 @frappe.whitelist(methods=["POST"])
@@ -101,7 +115,7 @@ def get_card_import(batch: str):
     URL: /api/method/nirmaan_stack.api.outflow_import.card_import.get_card_import?batch=OFI-...
     """
     require_outflow_access()
-    _refuse_unless_card_import(batch)
+    refuse_unless_card_import(batch)
     return card_import(batch)
 
 
@@ -125,7 +139,7 @@ def discard_card_import(batch: str):
             title="Not permitted",
         )
     # The batch row lock serialises two Discards; the line locks wait for a Create line in flight.
-    _refuse_unless_card_import(batch, for_update=True)
+    refuse_unless_card_import(batch, for_update=True)
     rows = frappe.db.sql(
         """SELECT name FROM "tabOutflow Import Row" WHERE import_batch = %s FOR UPDATE""", (batch,), pluck=True
     )
@@ -162,7 +176,8 @@ def created_anything(batch: str) -> bool:
     return bool(frappe.db.exists("Outflow Row Match", {"import_batch": batch}))
 
 
-def _refuse_unless_card_import(batch: str, *, for_update: bool = False) -> None:
+def refuse_unless_card_import(batch: str, *, for_update: bool = False) -> None:
+    """Refuse a batch that does not exist or is not a card import. `for_update` locks the batch row."""
     if frappe.db.get_value(BATCH_DOCTYPE, batch, "source", for_update=for_update) != SOURCE:
         frappe.throw(f"{batch} is not an {SOURCE} import.", title="Not a card import")
 
@@ -194,7 +209,8 @@ def card_import(batch: str) -> dict:
     ) or frappe._dict()
     lines = frappe.db.sql(
         """
-        SELECT name, transfer_id, added_on, remarks, amount, direction, row_status, skip_kind, skip_reason
+        SELECT name, transfer_id, added_on, remarks, amount, direction, row_status, suggested_expense_type,
+               type_source, suggested_name, outcome_note, skip_kind, skip_reason
         FROM "tabOutflow Import Row" WHERE import_batch = %s
         ORDER BY creation ASC, name ASC
         """,
@@ -202,6 +218,7 @@ def card_import(batch: str) -> dict:
         as_dict=True,
     )
     spends = [line for line in lines if line.direction != "Credit"]
+    statuses = [line.row_status for line in spends]
 
     def _date(value):
         return str(value)[:10] if value else None
@@ -234,19 +251,43 @@ def card_import(batch: str) -> dict:
         "repeats_not_saved": int(meta.repeats_not_saved or 0),
         # Discard is still possible: Create has written nothing. Who may discard is not asked here.
         "discardable": not created_anything(batch),
-        "lines": [
-            {
-                "name": line.name,
-                "serno": line.transfer_id,
-                "date": _date(line.added_on),
-                "details": line.remarks,
-                "amount": float(line.amount or 0),
-                "is_credit": line.direction == "Credit",
-                "row_status": line.row_status,
-                # A skipped line's kind and reason, for Review's skipped list (#1567); blank otherwise.
-                "skip_kind": line.skip_kind or None,
-                "skip_reason": line.skip_reason or None,
-            }
-            for line in lines
-        ],
+        # Create (#1568): spends created, failed on the last run, and still to create (waiting, failed, or
+        # reopened by Unreconcile); whether its job is queued or running.
+        "created": statuses.count(ROW_SETTLED),
+        "failed": statuses.count(ROW_ERROR),
+        "to_create": sum(1 for status in statuses if status in CREATE_LINE_STATUSES),
+        "create_running": is_job_enqueued(create_job_id(batch)),
+        # The live Non-Project types: the only ones Review offers and Create accepts.
+        "expense_types": non_project_expense_types(),
+        "lines": [_line(line, _date(line.added_on)) for line in lines],
     }
+
+
+def _line(line, date: str | None) -> dict:
+    """One statement line as Review lists it."""
+    is_credit = line.direction == "Credit"
+    return {
+        "name": line.name,
+        "serno": line.transfer_id,
+        "date": date,
+        "details": line.remarks,
+        "amount": float(line.amount or 0),
+        "is_credit": is_credit,
+        "row_status": line.row_status,
+        # A spend's type and where it came from; "Check" while nobody has chosen it. Blank on a credit.
+        "expense_type": None if is_credit else line.suggested_expense_type or None,
+        "type_source": None if is_credit else line.type_source or None,
+        "check": not is_credit and needs_check(line.type_source),
+        # Review may still retype it: a spend Create would still write.
+        "editable": not is_credit and line.row_status in CREATE_LINE_STATUSES,
+        "expense": line.suggested_name if line.row_status == ROW_SETTLED else None,
+        "outcome_note": line.outcome_note or None,
+        # A skipped line's kind and reason, for Review's skipped list (#1567); blank otherwise.
+        "skip_kind": line.skip_kind or None,
+        "skip_reason": line.skip_reason or None,
+    }
+
+
+def non_project_expense_types() -> list[str]:
+    """Every live Expense Type a Non-Project Expense may take, by name."""
+    return frappe.get_all("Expense Type", filters={"non_project": 1}, pluck="name", order_by="name asc")

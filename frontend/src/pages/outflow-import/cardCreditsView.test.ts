@@ -15,6 +15,12 @@ const line = (over: Partial<CardImportLine>): CardImportLine => ({
     row_status: "Pending match run",
     skip_kind: null,
     skip_reason: null,
+    expense_type: null,
+    type_source: null,
+    check: false,
+    editable: false,
+    expense: null,
+    outcome_note: null,
     ...over,
 });
 

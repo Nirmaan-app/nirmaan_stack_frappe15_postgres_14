@@ -41,6 +41,17 @@ export interface CardImportLine {
     /** A skipped line's Skip Type and the server's reason (#1567); null on a line still to work. */
     skip_kind: string | null;
     skip_reason: string | null;
+    /** A spend's expense type (#1568); null on a credit. */
+    expense_type: string | null;
+    /** Where the type came from: Earlier statement, AI, Fallback, Chosen on Review; null on a credit. */
+    type_source: string | null;
+    /** The fallback type nobody has chosen yet: Review marks it "Check". */
+    check: boolean;
+    /** A spend Create would still write, so Review may still retype it. */
+    editable: boolean;
+    /** The Non Project Expense Create made, once it has. */
+    expense: string | null;
+    outcome_note: string | null;
 }
 
 /** The statement's own summary, as `Credit Card Statement` stores it. */
@@ -72,6 +83,13 @@ export interface CardImport {
     repeats_not_saved: number;
     /** Create has written nothing, so Discard is possible. Who may discard is the screen's question. */
     discardable: boolean;
+    /** Create (#1568): spends created, failed on the last run, still to create; its job queued or running. */
+    created: number;
+    failed: number;
+    to_create: number;
+    create_running: boolean;
+    /** The live Non-Project expense types, the only ones Review offers. */
+    expense_types: string[];
     lines: CardImportLine[];
 }
 
