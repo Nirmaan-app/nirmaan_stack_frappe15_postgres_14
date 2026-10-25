@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Unskipping a *Card refund pair* (#1567, spec #1565, ADR-0037 decision 4, README ruling 5).
+"""Unskipping a *Card refund pair* (#1567, spec #1565, ADR-0039 decision 4, README ruling 5).
 
 A merchant credit on a Credit Card Statement that cancels a spend of the same merchant and amount is staged
 with that spend as a pair: both lines Skipped, kind *Card refund pair*, each linking the other through

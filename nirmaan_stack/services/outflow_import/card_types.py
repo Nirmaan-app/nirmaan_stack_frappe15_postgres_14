@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""A card spend's expense type and the words on its Expense (ADR-0037 rulings 5 and 6, spec #1565). Pure.
+"""A card spend's expense type and the words on its Expense (ADR-0039 rulings 5 and 6, spec #1565). Pure.
 
 Every card spend is one Non-Project Expense. Its type is held on the line (`suggested_expense_type`) with
 where it came from (`type_source`, options = `TYPE_SOURCES`, pinned by test). Every spend is staged at the
@@ -47,7 +47,7 @@ class AiAnswer(NamedTuple):
 def choose_type(
     remembered: str | None, answer: AiAnswer | None, live_types: Sequence[str]
 ) -> tuple[str, str]:
-    """A spend's type and its `type_source` (ADR-0037 ruling 5): the type a person confirmed for the merchant
+    """A spend's type and its `type_source` (ADR-0039 ruling 5): the type a person confirmed for the merchant
     before, else a confident AI answer on the live Non-Project list, else the fallback (marked "Check").
 
     A remembered type that is no longer a live Non-Project type is ignored, as is an AI answer off the list.
@@ -71,5 +71,5 @@ def needs_check(type_source: str | None) -> bool:
 
 
 def spend_description(details: str, holder: str) -> str:
-    """The Expense's description: "Card spend at {merchant}, {holder}'s card" (ADR-0037 ruling 6)."""
+    """The Expense's description: "Card spend at {merchant}, {holder}'s card" (ADR-0039 ruling 6)."""
     return f"Card spend at {merchant_key(details)}, {holder}'s card"

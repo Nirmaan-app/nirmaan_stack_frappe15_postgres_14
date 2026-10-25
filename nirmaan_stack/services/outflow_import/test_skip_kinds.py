@@ -110,7 +110,7 @@ class TestVocabulary(unittest.TestCase):
                 "Skipped by hand",
                 # #1443 (ADR-0032): a Porter Statement line whose order Porter cancelled.
                 "Porter order cancelled",
-                # #1567 (ADR-0037 decision 4): the card statement's credits, sorted at upload.
+                # #1567 (ADR-0039 decision 4): the card statement's credits, sorted at upload.
                 "Card payment received",
                 "Card cashback",
                 "Card refund pair",

@@ -2,7 +2,7 @@
 # For license information, please see license.txt
 
 """The Credit Card Statement import's Suggest step: an expense type for every card spend, in the background
-after upload (#1569, spec #1565, ADR-0037 ruling 5).
+after upload (#1569, spec #1565, ADR-0039 ruling 5).
 
     upload ─▶ (this job: card_import.suggest_job_id = `card-suggest-<batch>`) ─▶ Review ─▶ Create
 

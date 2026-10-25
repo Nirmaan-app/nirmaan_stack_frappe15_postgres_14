@@ -1032,7 +1032,7 @@ def create_expense_from_row(
     A URL is copied, never a `File` row made: the invoice's one File stays attached to its Porter Invoice.
     `blank_payment_by_is_actor=False` (Porter, spec #1442 story 47) leaves Paid by blank when the statement
     names nobody: Paid by is who booked the order, and the importer did not.
-    `credit_card_statement` is the card import's (#1568, ADR-0037): the `Non Project Expenses` link that
+    `credit_card_statement` is the card import's (#1568, ADR-0039): the `Non Project Expenses` link that
     marks the expense a card spend.
 
     ⚠️ THE `payment_ref` OVERRIDE IS GONE, AND ITS REMOVAL IS THE POINT (ADR-0020 B9). It existed so

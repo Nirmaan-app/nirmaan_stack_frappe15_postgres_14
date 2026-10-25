@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""A card statement's credits, sorted at upload and worked afterwards (#1567, spec #1565, ADR-0037 decision 4).
+"""A card statement's credits, sorted at upload and worked afterwards (#1567, spec #1565, ADR-0039 decision 4).
 
     devenv.sh test --module nirmaan_stack.api.outflow_import.test_card_credits
 

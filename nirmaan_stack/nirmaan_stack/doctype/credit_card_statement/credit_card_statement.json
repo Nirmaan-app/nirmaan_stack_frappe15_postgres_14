@@ -31,7 +31,7 @@
    "label": "Statement"
   },
   {
-   "description": "The card holder, as the statement's address block prints it (honorific dropped). With the billing period, the statement's identity (ADR-0037): unique on holder + period.",
+   "description": "The card holder, as the statement's address block prints it (honorific dropped). With the billing period, the statement's identity (ADR-0039): unique on holder + period.",
    "fieldname": "holder",
    "fieldtype": "Data",
    "in_list_view": 1,

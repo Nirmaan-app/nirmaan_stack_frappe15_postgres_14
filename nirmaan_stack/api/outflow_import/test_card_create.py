@@ -2,7 +2,7 @@
 # For license information, please see license.txt
 
 """Review the card spends' types, then Create: one Paid Non-Project Expense per spend (#1568, spec #1565,
-ADR-0037 rulings 1, 6, 7).
+ADR-0039 rulings 1, 6, 7).
 
     devenv.sh test --module nirmaan_stack.api.outflow_import.test_card_create
 

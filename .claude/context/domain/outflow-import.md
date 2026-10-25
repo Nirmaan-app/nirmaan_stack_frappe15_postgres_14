@@ -7417,7 +7417,7 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
 
 ## Credit Card Statement — the fifth source (spec #1565; upload, Review and Discard built at #1566, credit sorting at #1567, type edit and Create at #1568, type suggestion and merchant memory at #1569, invoices at #1570, the rest NOT BUILT YET)
 
-Decisions: **[ADR-0037](../../../docs/adr/0037-credit-card-statement-import.md)**. Terms: `GLOSSARY.md`
+Decisions: **[ADR-0039](../../../docs/adr/0039-credit-card-statement-import.md)**. Terms: `GLOSSARY.md`
 § *Company credit cards*. Source string `ICICI Credit Card Statement` (`sources.CARD_STATEMENT_SOURCE`).
 
 **What it is.** A company card's monthly ICICI PDF. Each *Card spend* becomes ONE *Paid* `Non Project
@@ -7460,7 +7460,7 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
    `suggested_expense_type` *Misc. Expenses* with `type_source` Fallback (#1568; #1569's suggestion job
    replaces it, invariant 17). Credit: sorted at upload (invariant 14); an unpaired one is `Mismatched`. Every line: `status_raw` SUCCESS,
    `remarks` = details, `settlement_reference` = "{details} - {SerNo}" (`card_statement.line_reference`,
-   the Expense's payment_ref, ADR-0037 decision 6). Batch `gross_amount` = the staged spends.
+   the Expense's payment_ref, ADR-0039 decision 6). Batch `gross_amount` = the staged spends.
 7. **Spends are not bank lines; open credits are (#1567, README ruling 4).** The gate is PER LINE:
    `sources.line_waits_for_its_own_create(source, direction)` is True for every Porter line and for a card
    SPEND, False for a card CREDIT (`CREDITS_DECIDED_ON_THE_MAIN_TABLE`). `review._row_filters` states the same
@@ -7483,7 +7483,7 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
    `components/ImportDiscardButton.tsx` (Porter's button wraps it too). Review lists the lines still to work
    (`cardCreditsView.cardWorkLines`) and, beneath, the skipped lines with kind and reason
    (`components/CardSkippedLines.tsx`); `get_card_import` returns `skip_kind` / `skip_reason` per line.
-10. **A spend's type** (#1568, ADR-0037 ruling 5) lives on the line: `suggested_expense_type` and
+10. **A spend's type** (#1568, ADR-0039 ruling 5) lives on the line: `suggested_expense_type` and
     `type_source` (new read-only Select, options = `services/outflow_import/card_types.TYPE_SOURCES`, pinned by
     `test_card_types`: Earlier statement / AI / Fallback / Chosen on Review). "Check" on Review is
     `card_types.needs_check` = Fallback. *Misc. Expenses* (`card_types.FALLBACK_EXPENSE_TYPE`) is in
@@ -7513,7 +7513,7 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
     offered / label / progress, stepper on Create once started, "Check" badge) and `useCardImport.ts` (reads
     the import, polls every 2 s while `create_running`, retype + Create). The dialog footer holds Create beside
     Discard and Done.
-14. **Credit sorting (#1567, ADR-0037 decision 4).** Pure: `services/outflow_import/card_credits.sort_card_lines(lines)`
+14. **Credit sorting (#1567, ADR-0039 decision 4).** Pure: `services/outflow_import/card_credits.sort_card_lines(lines)`
     → `{serno: LineSort(kind, partner)}`, kinds SPEND, CARD_PAYMENT, CASHBACK, REFUND, REFUNDED_SPEND,
     UNPAIRED_CREDIT. Only CREDITS are read for words: a merchant key matching `PAYMENT RECD|PAYMENT RECEIVED`
     or starting `AUTO DR RETN` is a payment; `CASHBACK` / `CASH BACK` is cashback. Any other credit pairs with
@@ -7536,7 +7536,7 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
     saves each with a Version row and a comment, one commit. A card credit skipped by hand unskips through the
     Cashbook path (`_unskip_cashbook_line`, reopens `Mismatched`). The frontend mirror is `unskipView.ts` +
     `skipKinds.ts` (pinned to the Python by `skipKinds.test.ts`).
-16. **Invoices (#1570, ADR-0037 ruling 8).** A card Expense waits in Vendor Invoice Recon -> *Pending Invoices
+16. **Invoices (#1570, ADR-0039 ruling 8).** A card Expense waits in Vendor Invoice Recon -> *Pending Invoices
     Upload* -> **Credit Card** (`?upload_tab=card`, `components/CardInvoiceUploads.tsx`; its own table, NOT the
     Reports "Pending Invoices" report the PO / WO sub-tabs mount) while `credit_card_statement` is set,
     `invoice_attachment` is blank and `no_invoice_by` is blank. Endpoints `api/expenses/card_invoices.py`:
@@ -7554,7 +7554,7 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
     against the Expense (`attached_to_*`), so it stays one `File`. An invoice attached anywhere else (the Non
     Project Expenses page) also takes the spend off the list. No undo of *No invoice* exists.
 
-17. **Type suggestion and merchant memory** (#1569, ADR-0037 ruling 5). The upload, after its commit, enqueues
+17. **Type suggestion and merchant memory** (#1569, ADR-0039 ruling 5). The upload, after its commit, enqueues
     `card_suggest.suggest_card_types` on `long`, job id `card-suggest-<batch>` (deduplicated; Discard waits for
     it). Per merchant key, every spend of it alike: `card_memory.recall` first (`Earlier statement`), else ONE
     Gemini call for every merchant memory lacks, given the live Non-Project list

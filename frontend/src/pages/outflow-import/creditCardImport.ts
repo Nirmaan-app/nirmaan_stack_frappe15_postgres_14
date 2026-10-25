@@ -1,6 +1,6 @@
 // src/pages/outflow-import/creditCardImport.ts
 //
-// The Credit Card Statement import's view logic, as pure data (#1566, spec #1565, ADR-0037). No React, no
+// The Credit Card Statement import's view logic, as pure data (#1566, spec #1565, ADR-0039). No React, no
 // fetch, no DOM. `CardImportReview` renders it; `creditCardImport.test.ts` pins it. Later slices of spec
 // #1565 (credit sorting, type suggestion, create) extend THIS module.
 

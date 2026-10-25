@@ -219,7 +219,7 @@ const SOURCE_SHAPE: Record<string, SourceShape> = {
             "Porter deliveries the wallet already paid for. Each completed order becomes one expense — but only after every Porter invoice in the file agrees with Porter's own PDF.",
         wide: true,
     },
-    // ⚠️ IT PROMISES THE TOTALS GATE (ADR-0037): nothing is imported unless every line adds up to the
+    // ⚠️ IT PROMISES THE TOTALS GATE (ADR-0039): nothing is imported unless every line adds up to the
     // statement's own totals.
     [CARD_SOURCE]: {
         title: "Import a Credit Card Statement",

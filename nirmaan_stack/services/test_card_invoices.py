@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The rules of a card spend's invoice (#1570, ADR-0037 ruling 8). Pure: `DEVENV unit`."""
+"""The rules of a card spend's invoice (#1570, ADR-0039 ruling 8). Pure: `DEVENV unit`."""
 
 import unittest
 

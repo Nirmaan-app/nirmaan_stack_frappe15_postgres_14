@@ -861,7 +861,7 @@ def _porter_derive(raw: Callable[[str], str]) -> dict[str, str]:
     }
 
 
-# The ICICI Credit Card Statement (#1566, ADR-0037) is a PDF, read by `card_statement.read_card_statement`,
+# The ICICI Credit Card Statement (#1566, ADR-0039) is a PDF, read by `card_statement.read_card_statement`,
 # never by `parse_statement`: its upload (`api/outflow_import/card_upload`) stages the reader's lines
 # directly. This entry is the source's place in the registry every pinned spelling is tested against,
 # and it states what a card line is in this module's vocabulary: a spend (Debit) or a CR line (Credit),

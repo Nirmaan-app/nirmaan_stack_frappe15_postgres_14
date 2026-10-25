@@ -11,7 +11,7 @@
  * `ReportsContainer`, and the bodies read only `useReportStore.selectedReportType`.
  * Pinning that store is the whole integration.
  *
- * Credit Card (#1570, ADR-0037 ruling 8) is the exception: its own table of card spends waiting for an
+ * Credit Card (#1570, ADR-0039 ruling 8) is the exception: its own table of card spends waiting for an
  * invoice (`CardInvoiceUploads`), not a report. It needs no report pin; the pin below is harmless to it.
  *
  * The sub-tab rides its OWN url param (`?upload_tab=`) so the parent tab strip stays flat

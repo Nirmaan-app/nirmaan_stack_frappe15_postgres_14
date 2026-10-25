@@ -1,6 +1,6 @@
 // src/pages/outflow-import/cardCreditsView.ts
 //
-// Review's split of a Credit Card Statement's lines (#1567, spec #1565, ADR-0037 decision 4). Pure: no React.
+// Review's split of a Credit Card Statement's lines (#1567, spec #1565, ADR-0039 decision 4). Pure: no React.
 // At upload the server sorts the credits: payments into the card and cashback are skipped by rule, a refund
 // pair (a merchant credit and the spend it cancels) is skipped together, and any other credit stays open.
 // `CardImportReview` lists the work and, beneath it, the skipped lines with the server's own reasons.

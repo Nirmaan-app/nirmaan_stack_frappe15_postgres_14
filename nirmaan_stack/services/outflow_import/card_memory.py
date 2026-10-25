@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Merchant memory: the expense type a person last confirmed for a card merchant (#1569, ADR-0037 ruling 5).
+"""Merchant memory: the expense type a person last confirmed for a card merchant (#1569, ADR-0039 ruling 5).
 
 One `Card Merchant Memory` record per merchant key (`card_statement.merchant_key`, the record's name): its
 type, who confirmed it last and when. The type suggestion reads it first (`recall`); it is written when Create

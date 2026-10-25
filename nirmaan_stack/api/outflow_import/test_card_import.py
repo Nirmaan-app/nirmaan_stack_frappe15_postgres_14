@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The Credit Card Statement import, through its own endpoints (#1566, spec #1565, ADR-0037).
+"""The Credit Card Statement import, through its own endpoints (#1566, spec #1565, ADR-0039).
 
     devenv.sh test --module nirmaan_stack.api.outflow_import.test_card_import
 

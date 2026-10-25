@@ -1245,7 +1245,7 @@ export const SOURCE_OPTIONS: readonly string[] = [
 
 /**
  * What a source is CALLED on screen, where that differs from its stored string (#1566): the card source is
- * "Credit Card" (its Import History tab, ADR-0037). Every other source reads as its own string.
+ * "Credit Card" (its Import History tab, ADR-0039). Every other source reads as its own string.
  */
 const SOURCE_LABELS: Readonly<Record<string, string>> = {
     "ICICI Credit Card Statement": "Credit Card",

@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""A card spend's invoice (spec #1565, #1570, ADR-0037 ruling 8). Pure: no `frappe.db`, no request.
+"""A card spend's invoice (spec #1565, #1570, ADR-0039 ruling 8). Pure: no `frappe.db`, no request.
 
 Every card spend is a Paid `Non Project Expenses` row carrying `credit_card_statement`. It waits in Vendor
 Invoice Recon -> Pending Invoices Upload -> Credit Card until either its invoice file is attached

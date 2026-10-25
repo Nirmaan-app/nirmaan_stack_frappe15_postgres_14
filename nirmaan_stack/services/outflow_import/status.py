@@ -365,7 +365,7 @@ SKIP_REASON_EXCLUDED_AT_INGEST = (
 # beside its skip kind (`skip_kinds.SKIP_KIND_PORTER_CANCELLED`). Porter's invoice never bills it.
 SKIP_REASON_PORTER_CANCELLED = "Porter order cancelled. Porter does not bill it, so it becomes no expense."
 
-# A Credit Card Statement's credits, sorted at upload (#1567, ADR-0037 decision 4), each beside its skip kind
+# A Credit Card Statement's credits, sorted at upload (#1567, ADR-0039 decision 4), each beside its skip kind
 # (`skip_kinds.SKIP_KIND_CARD_*`). A refund pair's two sentences name the other line (`{partner}`: its SerNo,
 # date and amount), so each line of the pair can be found from the other.
 SKIP_REASON_CARD_PAYMENT = (

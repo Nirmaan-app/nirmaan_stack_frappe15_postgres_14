@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The Credit Card sub-tab of Vendor Invoice Recon -> Pending Invoices Upload (spec #1565, #1570, ADR-0037 ruling 8).
+"""The Credit Card sub-tab of Vendor Invoice Recon -> Pending Invoices Upload (spec #1565, #1570, ADR-0039 ruling 8).
 
 URLs: /api/method/nirmaan_stack.api.expenses.card_invoices.<get_card_invoice_queue | attach_card_invoice |
 mark_card_no_invoice>

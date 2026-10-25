@@ -40,7 +40,7 @@ SKIP_KIND_BY_HAND = "Skipped by hand"
 # A Porter Statement line whose order did not complete (#1443, ADR-0032). Porter does not bill it, so it
 # counts toward no Porter Invoice and becomes no Expense. LOCKED: it can never be unskipped.
 SKIP_KIND_PORTER_CANCELLED = "Porter order cancelled"
-# A Credit Card Statement's credits, sorted at upload (#1567, ADR-0037 decision 4). A payment into the card
+# A Credit Card Statement's credits, sorted at upload (#1567, ADR-0039 decision 4). A payment into the card
 # and the bank's cashback are never work, so both are LOCKED. A refund pair (a merchant credit and the spend
 # it cancels) may be unskipped, and both lines come back together.
 SKIP_KIND_CARD_PAYMENT = "Card payment received"

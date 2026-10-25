@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Gemini picks an expense type for each card merchant, from a list it is given (#1569, ADR-0037 ruling 5).
+"""Gemini picks an expense type for each card merchant, from a list it is given (#1569, ADR-0039 ruling 5).
 
 A text-only call, separate from the document reader (as `mapping.gemini_map_residue` is): one request for
 every merchant of a card statement that merchant memory does not know. It only PROPOSES: the caller

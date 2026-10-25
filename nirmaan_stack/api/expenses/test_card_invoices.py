@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The Credit Card sub-tab of Pending Invoices Upload (#1570, ADR-0037 ruling 8): the list, attach, No invoice.
+"""The Credit Card sub-tab of Pending Invoices Upload (#1570, ADR-0039 ruling 8): the list, attach, No invoice.
 
 DB tests: `DEVENV test --module nirmaan_stack.api.expenses.test_card_invoices`. Each test makes its own
 statement (a unique holder) and expenses, and purges them and its users after itself.

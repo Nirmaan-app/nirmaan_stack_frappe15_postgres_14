@@ -51,7 +51,7 @@ __all__ = [
 #: together by test like `ICICI Bank Statement`.
 PORTER_STATEMENT_SOURCE = "Porter Statement"
 
-#: A company credit card's monthly ICICI statement, read from its PDF (#1566, ADR-0037). Spelled ONCE here
+#: A company credit card's monthly ICICI statement, read from its PDF (#1566, ADR-0039). Spelled ONCE here
 #: for the reason `PORTER_STATEMENT_SOURCE` is: the parser adapter key, the batch Select option and the
 #: frontend's `SOURCE_OPTIONS` entry are the same string, pinned together by test. It names the BANK, as
 #: `ICICI Bank Statement` does: a second card issuer needs its own reader and its own string.
@@ -99,7 +99,7 @@ TRANSFER_ID_REFERENCE_SOURCES = frozenset({"Cashbook", "Porter Statement"})
 #: Porter joins it (#1443, ADR-0032): a create-only source whose lines carry the plan its own import
 #: writes from, exactly like Cashbook's.
 #:
-#: The Credit Card Statement joins it (#1566, ADR-0037): it creates one Non-Project Expense per card spend
+#: The Credit Card Statement joins it (#1566, ADR-0039): it creates one Non-Project Expense per card spend
 #: and settles nothing.
 NEVER_MATCHED_SOURCES = frozenset({"Cashbook", "Porter Statement", CARD_STATEMENT_SOURCE})
 

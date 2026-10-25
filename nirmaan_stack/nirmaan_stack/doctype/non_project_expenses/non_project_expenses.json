@@ -178,7 +178,7 @@
    "read_only": 1
   },
   {
-   "description": "The Credit Card Statement this expense is a card spend of, written once by the card import's Create (ADR-0037). Blank on every other expense: it is the marker that an expense is a card spend.",
+   "description": "The Credit Card Statement this expense is a card spend of, written once by the card import's Create (ADR-0039). Blank on every other expense: it is the marker that an expense is a card spend.",
    "fieldname": "credit_card_statement",
    "fieldtype": "Link",
    "label": "Credit Card Statement",
@@ -187,7 +187,7 @@
    "search_index": 1
   },
   {
-   "description": "Set when an Admin or Accountant Lead marks a card spend No invoice (ADR-0037 ruling 8): why it will never have one. Written only by api/expenses/card_invoices.mark_card_no_invoice, with no_invoice_by and no_invoice_at.",
+   "description": "Set when an Admin or Accountant Lead marks a card spend No invoice (ADR-0039 ruling 8): why it will never have one. Written only by api/expenses/card_invoices.mark_card_no_invoice, with no_invoice_by and no_invoice_at.",
    "fieldname": "no_invoice_reason",
    "fieldtype": "Small Text",
    "label": "No Invoice Reason",

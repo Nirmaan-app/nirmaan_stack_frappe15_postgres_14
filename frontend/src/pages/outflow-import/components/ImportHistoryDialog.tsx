@@ -392,7 +392,7 @@ const HistoryRow = ({
             >
                 <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                        {/* A card statement is known by its holder and period (#1566, ADR-0037). */}
+                        {/* A card statement is known by its holder and period (#1566, ADR-0039). */}
                         <span className="truncate text-sm font-medium">
                             {isCardImport(option.source)
                                 ? cardHistoryTitle(option)

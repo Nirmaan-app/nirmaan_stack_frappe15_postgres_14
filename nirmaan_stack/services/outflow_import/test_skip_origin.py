@@ -326,7 +326,7 @@ class TestUnskipRefusal(unittest.TestCase):
                 "No amount",
                 "Bank refused",
                 "Porter order cancelled",
-                # #1567 (ADR-0037 decision 4): a payment into the card and cashback are never work.
+                # #1567 (ADR-0039 decision 4): a payment into the card and cashback are never work.
                 "Card payment received",
                 "Card cashback",
             },

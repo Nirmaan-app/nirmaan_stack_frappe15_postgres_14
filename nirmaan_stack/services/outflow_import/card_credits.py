@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Sorting a card statement's lines so only real work stays open (#1567, spec #1565, ADR-0037 decision 4).
+"""Sorting a card statement's lines so only real work stays open (#1567, spec #1565, ADR-0039 decision 4).
 
 PURE: no Frappe, no DB. `sort_card_lines(lines)` answers, for every line the reader returned, what it is:
 

@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""A card Expense's type, changed by an edit, becomes its merchant's remembered type (#1569, ADR-0037 ruling 5).
+"""A card Expense's type, changed by an edit, becomes its merchant's remembered type (#1569, ADR-0039 ruling 5).
 
 `Non Project Expenses` on_update. Exits at once unless the Expense is a card spend (`credit_card_statement`
 set) whose saved type differs from the one before the save. The insert itself is not an edit: Create

@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Sorting a card statement's credits (#1567, spec #1565, ADR-0037 decision 4). Pure.
+"""Sorting a card statement's credits (#1567, spec #1565, ADR-0039 decision 4). Pure.
 
     devenv.sh unit nirmaan_stack.services.outflow_import.test_card_credits
 """

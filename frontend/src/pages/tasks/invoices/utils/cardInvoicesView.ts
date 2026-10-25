@@ -1,5 +1,5 @@
 /**
- * Pending Invoices Upload -> Credit Card (#1570, ADR-0037 ruling 8): the pure rules of the sub-tab.
+ * Pending Invoices Upload -> Credit Card (#1570, ADR-0039 ruling 8): the pure rules of the sub-tab.
  *
  * The server (`api/expenses/card_invoices.get_card_invoice_queue`) decides which card spends are waiting
  * (no invoice file, not marked No invoice); this filters them by holder and statement month and says which

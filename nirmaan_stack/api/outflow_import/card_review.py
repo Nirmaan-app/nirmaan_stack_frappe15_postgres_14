@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Review a Credit Card Statement import's spend types before Create (#1568, spec #1565, ADR-0037 ruling 5).
+"""Review a Credit Card Statement import's spend types before Create (#1568, spec #1565, ADR-0039 ruling 5).
 
 Review lists every line (`card_import.get_card_import`); this module writes the one thing Review changes: a
 spend's expense type, chosen from the live Non-Project list.

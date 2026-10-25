@@ -421,7 +421,7 @@ export const CUSTOMERS_ACCESS: readonly string[] = [
 ];
 
 /**
- * May mark a card spend "No invoice" on Pending Invoices Upload -> Credit Card (ADR-0037 ruling 8):
+ * May mark a card spend "No invoice" on Pending Invoices Upload -> Credit Card (ADR-0039 ruling 8):
  * Admin and Accountant Lead. Mirrors `role_profiles.CARD_NO_INVOICE_PROFILES`, the enforcement boundary
  * (pinned by `cardInvoiceAccessParity.test.ts`); this only decides whether the button renders. Declared
  * after `ACCOUNTANT_LEAD_PROFILE`, which a module-level array may not read before its declaration.

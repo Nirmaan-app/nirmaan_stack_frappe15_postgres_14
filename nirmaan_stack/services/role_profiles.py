@@ -110,7 +110,7 @@ INVOICE_APPROVAL_PROFILES = (
 # ENFORCEMENT boundary of the Credit Card sub-tab's endpoints (`api/expenses/card_invoices`: list, attach).
 PENDING_INVOICE_UPLOAD_PROFILES = INVOICE_APPROVAL_PROFILES + (PMO_EXECUTIVE_PROFILE,) + PROCUREMENT_PROFILES
 
-# May mark a card spend *No invoice* (ADR-0037 ruling 8): Admin and Accountant Lead. ENFORCEMENT boundary of
+# May mark a card spend *No invoice* (ADR-0039 ruling 8): Admin and Accountant Lead. ENFORCEMENT boundary of
 # `api/expenses/card_invoices.mark_card_no_invoice`; mirrored by `canMarkCardNoInvoice` in `constants/roles.ts`.
 CARD_NO_INVOICE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 

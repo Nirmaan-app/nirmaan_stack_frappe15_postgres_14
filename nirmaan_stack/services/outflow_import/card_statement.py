@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The ICICI Credit Card Statement reader (#1566, spec #1565, ADR-0037). Pure: no Frappe, no DB.
+"""The ICICI Credit Card Statement reader (#1566, spec #1565, ADR-0039). Pure: no Frappe, no DB.
 
 `read_card_statement(text)` takes the text `pypdf` extracts from the card's monthly PDF
 (`card_pdf.statement_text` turns the bytes into it) and returns the statement: the holder and company
@@ -11,7 +11,7 @@ transaction line, as printed. It refuses, with `CardStatementError`, anything it
   * text that is not this statement's layout (no period, no summary, no address block, no lines);
   * a statement not issued to Stratos Infra Technologies ("PVT LTD" and "Private Limited" are one name);
   * a non-zero *Cash Advances*;
-  * THE TOTALS GATE (ADR-0037 decision 3): the spends read must equal *Purchases / Charges* and the
+  * THE TOTALS GATE (ADR-0039 decision 3): the spends read must equal *Purchases / Charges* and the
     credits read *Payments / Credits*, to the paisa. Plain code reads the PDF; the gate keeps it honest.
 
 THE LAYOUT, measured on the 2026-10-01 statement (`tests/fixtures/icici_card_statement.txt`):
@@ -27,7 +27,7 @@ THE LAYOUT, measured on the 2026-10-01 statement (`tests/fixtures/icici_card_sta
 
 A line is `DD/MM/YYYY`, an 11-digit SerNo, the transaction details, the reward points, an optional
 international amount, the amount and an optional `CR`. A line dated before the period, or out of date
-order, is kept as printed. The card numbers printed as headings in the list are not read (ADR-0037).
+order, is kept as printed. The card numbers printed as headings in the list are not read (ADR-0039).
 """
 
 from __future__ import annotations
@@ -162,7 +162,7 @@ def merchant_key(details: str) -> str:
 
 
 def line_reference(line: CardLine) -> str:
-    """What a card line's Expense carries as its payment reference (ADR-0037 decision 6): the
+    """What a card line's Expense carries as its payment reference (ADR-0039 decision 6): the
     transaction details and the SerNo. Written at staging as the line's `settlement_reference`."""
     return f"{line.details} - {line.serno}"
 
@@ -251,7 +251,7 @@ def _lines(rows: list[str]):
 
 
 def _gate(statement: CardStatement) -> None:
-    """ADR-0037 decision 3: all or nothing, to the paisa, no override."""
+    """ADR-0039 decision 3: all or nothing, to the paisa, no override."""
     totals = statement.totals
     if totals.cash_advances != 0:
         raise CardStatementError(

@@ -2,7 +2,7 @@
 # For license information, please see license.txt
 
 """Suggest each card spend's expense type, and remember the types people confirm (#1569, spec #1565,
-ADR-0037 ruling 5).
+ADR-0039 ruling 5).
 
     devenv.sh test --module nirmaan_stack.api.outflow_import.test_card_suggest
 

@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The Credit Card Statement reader, the pure half of the card import (#1566, spec #1565, ADR-0037).
+"""The Credit Card Statement reader, the pure half of the card import (#1566, spec #1565, ADR-0039).
 
     devenv.sh unit nirmaan_stack.services.outflow_import.test_card_statement
 

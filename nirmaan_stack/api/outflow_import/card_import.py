@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The Credit Card Statement import: its own pipeline, beside Cashbook's and Porter's (ADR-0037, spec #1565).
+"""The Credit Card Statement import: its own pipeline, beside Cashbook's and Porter's (ADR-0039, spec #1565).
 
 A company card's monthly ICICI PDF becomes one *Paid* Non-Project Expense per card spend. The pure reader
 is `services/outflow_import/card_statement.py`; the upload's steps are `card_upload`'s. This module holds

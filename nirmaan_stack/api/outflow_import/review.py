@@ -4062,7 +4062,7 @@ def list_imports(limit=60, sources=None, month=None):
         if row["name"] in states:
             row["status"] = states[row["name"]]
             row["progress"] = progress[row["name"]]
-    # A Credit Card Statement import is listed by its card holder and billing period (#1566, ADR-0037).
+    # A Credit Card Statement import is listed by its card holder and billing period (#1566, ADR-0039).
     cards = [row["name"] for row in imports if (row.get("source") or "").strip() == CARD_STATEMENT_SOURCE]
     holders = (
         dict(

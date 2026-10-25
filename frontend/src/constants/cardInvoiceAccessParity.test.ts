@@ -1,4 +1,4 @@
-// Who may work the Credit Card sub-tab of Pending Invoices Upload (#1570, ADR-0037 ruling 8) -- spelled in two
+// Who may work the Credit Card sub-tab of Pending Invoices Upload (#1570, ADR-0039 ruling 8) -- spelled in two
 // languages. `services/role_profiles.py` is the boundary (`api/expenses/card_invoices`); `roles.ts` only hides
 // the tab and the No invoice button. Neither side can import the other, so this reads the Python file as text
 // (the `outflowUndoAccessParity.test.ts` shape). A profile added on one side only would show a control the

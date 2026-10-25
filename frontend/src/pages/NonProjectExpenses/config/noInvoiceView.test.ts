@@ -1,4 +1,4 @@
-// A card spend marked "No invoice" (#1570, ADR-0037 ruling 8, story 45): the Non Project Expenses table shows
+// A card spend marked "No invoice" (#1570, ADR-0039 ruling 8, story 45): the Non Project Expenses table shows
 // who marked it, when and why, where the invoice would show. Nothing on any other expense.
 import { describe, expect, it } from "vitest";
 

@@ -1,6 +1,6 @@
 // src/pages/outflow-import/cardCreate.ts
 //
-// Review the card spends' types, then Create (#1568, spec #1565, ADR-0037): pure view logic. No React, no
+// Review the card spends' types, then Create (#1568, spec #1565, ADR-0039): pure view logic. No React, no
 // fetch. `CardImportReview` and `ImportStatementDialog` render it; `cardCreate.test.ts` pins it. The server
 // (`card_review.py`, `card_create.py`) asks every rule again.
 

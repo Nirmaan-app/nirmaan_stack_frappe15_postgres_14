@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""A card spend's expense type and description (#1568, ADR-0037 rulings 5 and 6). Pure.
+"""A card spend's expense type and description (#1568, ADR-0039 rulings 5 and 6). Pure.
 
     devenv.sh unit nirmaan_stack.services.outflow_import.test_card_types
 """
@@ -54,7 +54,7 @@ LIVE = ("Hotel Expenses", "Staff Welfare Expenses", "Misc. Expenses")
 
 
 class TestChoosingASpendsType(unittest.TestCase):
-    """Memory first, then a confident AI answer on the live list, else the fallback (ADR-0037 ruling 5)."""
+    """Memory first, then a confident AI answer on the live list, else the fallback (ADR-0039 ruling 5)."""
 
     def test_a_remembered_type_wins_over_the_ai(self):
         self.assertEqual(

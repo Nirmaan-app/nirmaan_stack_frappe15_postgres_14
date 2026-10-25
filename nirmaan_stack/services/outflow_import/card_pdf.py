@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The card statement PDF's text, for `card_statement.read_card_statement` (#1566, ADR-0037). No DB.
+"""The card statement PDF's text, for `card_statement.read_card_statement` (#1566, ADR-0039). No DB.
 
 A password-locked PDF is refused, never opened: the system never asks for or keeps a card password
 (spec #1565 story 3). A PDF encrypted with an empty user password (an owner password only) opens without

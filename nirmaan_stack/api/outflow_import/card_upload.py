@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The Credit Card Statement upload, step by step (#1566, spec #1565, ADR-0037): what
+"""The Credit Card Statement upload, step by step (#1566, spec #1565, ADR-0039): what
 `card_import.upload_card_statement` calls, in order.
 
     read_upload        the posted PDF's name and bytes (refuses anything but a .pdf)
@@ -47,7 +47,7 @@ SOURCE = CARD_STATEMENT_SOURCE
 
 #: The basis a card spend's match record carries (`Outflow Row Match.match_basis`).
 MATCH_BASIS = "card statement"
-#: Every card spend becomes a Non-Project Expense (ADR-0037 decision 1).
+#: Every card spend becomes a Non-Project Expense (ADR-0039 decision 1).
 SPEND_DOCTYPE = "Non Project Expenses"
 
 _MAX_FILE_BYTES = 5 * 1024 * 1024
@@ -93,7 +93,7 @@ def read_statement(content: bytes) -> CardStatement:
 
 
 def refuse_same_period(statement: CardStatement) -> None:
-    """One statement per holder per billing period (ADR-0037 decision 2)."""
+    """One statement per holder per billing period (ADR-0039 decision 2)."""
     earlier = frappe.db.get_value(
         STATEMENT_DOCTYPE,
         {"holder": statement.holder, "period_from": statement.period_from, "period_to": statement.period_to},
@@ -194,7 +194,7 @@ def stage(statement: CardStatement, new: NewLines, file_url: str, filename: str,
             "direction": DIRECTION_CREDIT if line.is_credit else DIRECTION_DEBIT,
             "beneficiary_name": line.details[:140],
             "remarks": line.details,
-            # The Expense's payment reference (ADR-0037 decision 6), resolved once, here (README ruling 6).
+            # The Expense's payment reference (ADR-0039 decision 6), resolved once, here (README ruling 6).
             "settlement_reference": line_reference(line),
         }
         if line.is_credit:

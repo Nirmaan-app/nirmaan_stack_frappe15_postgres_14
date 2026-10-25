@@ -1,5 +1,5 @@
 /**
- * Pending Invoices Upload -> Credit Card (#1570, ADR-0037 ruling 8): every card spend still waiting for its
+ * Pending Invoices Upload -> Credit Card (#1570, ADR-0039 ruling 8): every card spend still waiting for its
  * invoice. Its own table, not the Reports "Pending Invoices" report the PO and WO sub-tabs mount.
  *
  * The server lists the waiting spends (`api/expenses/card_invoices.get_card_invoice_queue`); the rules of the

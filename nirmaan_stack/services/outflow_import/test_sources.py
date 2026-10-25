@@ -199,7 +199,7 @@ class TestThePorterStatementSource(unittest.TestCase):
 
 
 class TestTheCreditCardStatementSource(unittest.TestCase):
-    """#1566 (ADR-0037): the fifth source, create-only and never matched; its lines wait for its own Create."""
+    """#1566 (ADR-0039): the fifth source, create-only and never matched; its lines wait for its own Create."""
 
     def test_its_string_is_spelled_once_and_the_parser_knows_it(self):
         from nirmaan_stack.services.outflow_import.sources import CARD_STATEMENT_SOURCE

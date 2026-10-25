@@ -6,12 +6,12 @@ from frappe.model.document import Document
 
 
 class CreditCardStatement(Document):
-	# Written only by the card upload (api/outflow_import/card_upload.py); ADR-0037.
+	# Written only by the card upload (api/outflow_import/card_upload.py); ADR-0039.
 	pass
 
 
 def on_doctype_update():
-	# One statement per holder per billing period (ADR-0037 decision 2): the backstop under the upload's
+	# One statement per holder per billing period (ADR-0039 decision 2): the backstop under the upload's
 	# own refusal, for two uploads racing. Postgres index names are schema-wide, so the name is explicit.
 	frappe.db.add_unique(
 		"Credit Card Statement",

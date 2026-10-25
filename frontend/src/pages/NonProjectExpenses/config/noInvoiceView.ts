@@ -1,6 +1,6 @@
 // src/pages/NonProjectExpenses/config/noInvoiceView.ts
 //
-// A card spend marked "No invoice" on Pending Invoices Upload -> Credit Card (#1570, ADR-0037 ruling 8): who
+// A card spend marked "No invoice" on Pending Invoices Upload -> Credit Card (#1570, ADR-0039 ruling 8): who
 // marked it, when and why, for the Non Project Expenses table's invoice column (story 45). Pure.
 
 import { format, parseISO } from "date-fns";

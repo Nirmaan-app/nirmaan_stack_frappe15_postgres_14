@@ -2,7 +2,7 @@
 # For license information, please see license.txt
 
 """The Credit Card Statement import's Create step: one *Paid* Non-Project Expense per card spend (#1568,
-spec #1565, ADR-0037 rulings 1, 6, 7).
+spec #1565, ADR-0039 rulings 1, 6, 7).
 
 Cashbook's and Porter's job are the prior art (`cashbook._write_one`, `porter_create._create_one`): the same
 per-line transaction, the same writer (`settle.create_expense_from_row`).
