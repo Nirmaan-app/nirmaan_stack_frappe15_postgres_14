@@ -76,8 +76,19 @@ import {
     type PorterStatus,
 } from "../porterImport";
 import { porterReviewOffered } from "../porterReview";
+import {
+    CARD_DISCARD_METHOD,
+    CARD_IMPORT_METHOD,
+    CARD_SOURCE,
+    CARD_UPLOAD_URL,
+    canDiscardCard,
+    cardDiscardConfirmation,
+    type CardImport,
+} from "../creditCardImport";
+import { CardImportReview } from "./CardImportReview";
 import { CashbookReviewTree } from "./CashbookReviewTree";
 import { ConfirmMatchedPanel } from "./ConfirmMatchedPanel";
+import { ImportDiscardButton } from "./ImportDiscardButton";
 import { PorterDiscardButton } from "./PorterDiscardButton";
 import { PorterImportSummary } from "./PorterImportSummary";
 import { PorterReviewPanel } from "./PorterReviewPanel";
@@ -128,6 +139,8 @@ const SOURCE_REPORT: Record<string, string> = {
     // Porter's monthly CSV, one line per delivery order (#1443). Not a Cashfree report: its menu path
     // is `importWizard.sourceExportPath`'s.
     [PORTER_SOURCE]: "Porter Statement",
+    // The card's monthly PDF from ICICI (#1566). Its path is `importWizard.sourceExportPath`'s.
+    [CARD_SOURCE]: "Credit Card Statement PDF",
 };
 // Mirrors the server's own limit (api/outflow_import/upload.py). Client-side is a courtesy so a wrong
 // file fails instantly; the endpoint is the boundary. Which extensions each source takes is
@@ -189,6 +202,14 @@ const SOURCE_SHAPE: Record<string, SourceShape> = {
             "Porter deliveries the wallet already paid for. Each completed order becomes one expense — but only after every Porter invoice in the file agrees with Porter's own PDF.",
         wide: true,
     },
+    // ⚠️ IT PROMISES THE TOTALS GATE (ADR-0037): nothing is imported unless every line adds up to the
+    // statement's own totals.
+    [CARD_SOURCE]: {
+        title: "Import a Credit Card Statement",
+        description:
+            "A company card's monthly ICICI statement. Every spend becomes one Non-Project expense — and nothing is imported unless the lines add up to the statement's own totals, to the paisa.",
+        wide: true,
+    },
 };
 
 const sourceShape = (source: string): SourceShape =>
@@ -227,6 +248,10 @@ interface Props {
     porterBatch?: string | null;
     /** The upload staged a Porter import: the page holds its batch from here on. */
     onPorterBatch?: (batch: string) => void;
+    /** The Credit Card Statement import on screen (#1566), held by the page in the URL like `porterBatch`. */
+    cardBatch?: string | null;
+    /** The upload staged a card import: the page holds its batch from here on. */
+    onCardBatch?: (batch: string) => void;
 }
 
 /**
@@ -251,12 +276,14 @@ export const ImportStatementDialog = ({
     onRefresh,
     porterBatch = null,
     onPorterBatch,
+    cardBatch = null,
+    onCardBatch,
 }: Props) => {
     const inputRef = useRef<HTMLInputElement>(null);
 
     const [chosenSource, setSource] = useState("Cashfree");
-    // A Porter import on screen (a reload, or Import History) IS the source: there is nothing to pick.
-    const source = porterBatch ? PORTER_SOURCE : chosenSource;
+    // A Porter or card import on screen (a reload, or Import History) IS the source: there is nothing to pick.
+    const source = porterBatch ? PORTER_SOURCE : cardBatch ? CARD_SOURCE : chosenSource;
     const [file, setFile] = useState<File | null>(null);
     const [isBusy, setIsBusy] = useState<"preview" | "upload" | "match" | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -303,6 +330,14 @@ export const ImportStatementDialog = ({
         { refreshInterval: (latest) => (porterPolling(latest?.message) ? PORTER_STATUS_POLL_MS : 0) }
     );
     const porterStatus = porterBatch ? porterData?.message ?? null : null;
+    /** The card import as the server reports it (#1566): read by batch, never held as local state. */
+    const cardKey = cardBatch ? `card-import::${cardBatch}` : null;
+    const { data: cardData } = useFrappeGetCall<{ message: CardImport }>(
+        CARD_IMPORT_METHOD,
+        { batch: cardBatch },
+        cardKey
+    );
+    const cardImport = cardBatch ? cardData?.message ?? null : null;
     const { mutate: seedCache } = useSWRConfig();
     const { call: retryPorterInvoice } = useFrappePostCall<{ message: PorterStatus }>(PORTER_RETRY_METHOD);
     /** The invoice whose Retry is in flight, so its button can say so. */
@@ -326,6 +361,7 @@ export const ImportStatementDialog = ({
 
     const isCashbook = source === "Cashbook";
     const isPorter = source === PORTER_SOURCE;
+    const isCard = source === CARD_SOURCE;
 
     const { call: runMatch } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.review.match_batch"
@@ -625,6 +661,29 @@ export const ImportStatementDialog = ({
     }, [file, isBusy, post, seedCache, onPorterBatch]);
 
     /**
+     * Upload a Credit Card Statement PDF (#1566). ONE request reads, gates, refuses or stages the whole
+     * statement, as Porter's does: a refused file (locked, another company, totals that disagree) saves nothing.
+     */
+    const handleCardUpload = useCallback(async () => {
+        if (!file || isBusy) return;
+        setIsBusy("upload");
+        setError(null);
+        try {
+            const message = (await post(CARD_UPLOAD_URL, null)) as CardImport | undefined;
+            if (!message?.batch) {
+                setError("The server accepted the file but returned no import.");
+                return;
+            }
+            await seedCache(`card-import::${message.batch}`, { message }, { revalidate: false });
+            onCardBatch?.(message.batch);
+        } catch (err: unknown) {
+            setError(describeFrappeError(err, "The upload failed."));
+        } finally {
+            setIsBusy(null);
+        }
+    }, [file, isBusy, post, seedCache, onCardBatch]);
+
+    /**
      * Retry one Porter Invoice that hit an Error (#1444). The server refuses anything else -- a Failed
      * invoice is final -- and answers with the import, which restarts the poll.
      */
@@ -663,11 +722,11 @@ export const ImportStatementDialog = ({
     }, [porterBatch, startPorterCreate, setPorterData]);
 
     /**
-     * Close a Porter import. ⚠️ NOT `onImported`: its lines are not bank lines and the main table does
+     * Close a Porter or Credit Card import. ⚠️ NOT `onImported`: its lines are not bank lines and the main table does
      * not show them until they are created, so pinning the table to this import would show an empty
      * screen. The screen behind is refreshed so Import History lists it.
      */
-    const handlePorterDone = useCallback(async () => {
+    const handleOwnImportDone = useCallback(async () => {
         onOpenChange(false);
         await onRefresh?.();
     }, [onOpenChange, onRefresh]);
@@ -773,10 +832,18 @@ export const ImportStatementDialog = ({
     const flow = {
         previewed: isPorter
             ? Boolean(porterStatus)
-            : isCashbook
-              ? Boolean(cashbookPreview)
-              : Boolean(preview),
-        staged: isPorter ? Boolean(porterStatus) : isCashbook ? Boolean(cashbookBatch) : Boolean(staged),
+            : isCard
+              ? Boolean(cardImport)
+              : isCashbook
+                ? Boolean(cashbookPreview)
+                : Boolean(preview),
+        staged: isPorter
+            ? Boolean(porterStatus)
+            : isCard
+              ? Boolean(cardImport)
+              : isCashbook
+                ? Boolean(cashbookBatch)
+                : Boolean(staged),
         matched,
         validated: isPorter && porterReviewOffered(porterStatus),
         createStarted: isPorter && porterCreateStarted(porterStatus),
@@ -943,9 +1010,9 @@ export const ImportStatementDialog = ({
                         )}
                     </div>
 
-                            {isPorter ? (
+                            {isPorter || isCard ? (
                                 <Button
-                                    onClick={handlePorterUpload}
+                                    onClick={isCard ? handleCardUpload : handlePorterUpload}
                                     disabled={!file || isBusy !== null}
                                 >
                                     {isBusy === "upload" && (
@@ -1003,9 +1070,14 @@ export const ImportStatementDialog = ({
                         <PorterReviewPanel batch={porterStatus.batch} />
                     )}
 
+                    {/* CREDIT CARD, FROM STEP 2 ON -- the statement is IN: its header, totals and lines,
+                        read-only (#1566). Nothing has been created. */}
+                    {isCard && cardImport && <CardImportReview card={cardImport} />}
+
                     {/* STEP 2 -- what importing this statement WOULD do. Nothing is written yet. */}
                     {stepIndex === 1 &&
                         !isPorter &&
+                        !isCard &&
                         (isCashbook ? (
                             cashbookPreview && <CashbookReviewTree preview={cashbookPreview} />
                         ) : (
@@ -1161,7 +1233,7 @@ export const ImportStatementDialog = ({
                 {isPorter && porterStatus && (
                     <div className="flex shrink-0 items-center justify-end gap-2 border-t px-6 py-3">
                         {/* Discard (#1447): Admin / Accountant Lead, until Create has written anything. */}
-                        <PorterDiscardButton status={porterStatus} onDiscarded={handlePorterDone} />
+                        <PorterDiscardButton status={porterStatus} onDiscarded={handleOwnImportDone} />
                         {canCreatePorter(porterStatus) && (
                             <Button onClick={handlePorterCreate} disabled={startingCreate}>
                                 {startingCreate && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
@@ -1170,14 +1242,29 @@ export const ImportStatementDialog = ({
                         )}
                         <Button
                             variant={canCreatePorter(porterStatus) ? "outline" : "default"}
-                            onClick={handlePorterDone}
+                            onClick={handleOwnImportDone}
                         >
                             Done
                         </Button>
                     </div>
                 )}
 
-                {!isCashbook && !isPorter && stepIndex >= 2 && (
+                {isCard && cardImport && (
+                    <div className="flex shrink-0 items-center justify-end gap-2 border-t px-6 py-3">
+                        {/* Discard: Admin / Accountant Lead, until Create has written anything. */}
+                        <ImportDiscardButton
+                            method={CARD_DISCARD_METHOD}
+                            batch={cardImport.batch}
+                            offered={(canUndo) => canDiscardCard(cardImport, canUndo)}
+                            title="Discard this Credit Card Statement import?"
+                            confirmation={cardDiscardConfirmation(cardImport)}
+                            onDiscarded={handleOwnImportDone}
+                        />
+                        <Button onClick={handleOwnImportDone}>Done</Button>
+                    </div>
+                )}
+
+                {!isCashbook && !isPorter && !isCard && stepIndex >= 2 && (
                     <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t px-6 py-3">
                         {/* ⚠️ IT SAYS THE ROWS ARE ALREADY IN. By this point closing loses nothing,
                             and a reviewer who cannot tell that will sit through an 800-row confirm

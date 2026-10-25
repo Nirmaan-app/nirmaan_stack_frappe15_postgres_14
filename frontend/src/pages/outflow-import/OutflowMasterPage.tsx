@@ -95,6 +95,7 @@ import {
     visibleTabs,
 } from "./outflowTableModel";
 import { PORTER_URL_KEY, opensPorterDialog } from "./porterImport";
+import { CARD_URL_KEY, opensCardDialog } from "./creditCardImport";
 import { WAITING_REFUNDS_KEY_PREFIX, waitingRefundNames } from "./waitingRefundMatch";
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
@@ -246,6 +247,14 @@ export const OutflowMasterPage = () => {
     const setPorterBatch = useCallback((batch: string | null) => {
         urlStateManager.updateParam(PORTER_URL_KEY, batch);
         setPorterBatchState(batch);
+    }, []);
+    /** The Credit Card Statement import the dialog is showing (#1566), as `?card=OFI-…`, for the same reason. */
+    const [cardBatch, setCardBatchState] = useState<string | null>(
+        () => urlStateManager.getParam(CARD_URL_KEY) || null
+    );
+    const setCardBatch = useCallback((batch: string | null) => {
+        urlStateManager.updateParam(CARD_URL_KEY, batch);
+        setCardBatchState(batch);
     }, []);
     const [showingHistory, setShowingHistory] = useState(false);
     const [confirmingAll, setConfirmingAll] = useState(false);
@@ -435,13 +444,14 @@ export const OutflowMasterPage = () => {
 
     const importOptions = useMemo(() => importsData?.message ?? [], [importsData]);
 
-    /** The Import selector's choice: a Porter import opens its own dialog, any other is pinned. */
+    /** The Import selector's choice: a Porter or card import opens its own dialog, any other is pinned. */
     const handlePickImport = useCallback(
         (batch?: string) => {
             if (batch && opensPorterDialog(batch, importOptions)) setPorterBatch(batch);
+            else if (batch && opensCardDialog(batch, importOptions)) setCardBatch(batch);
             else handleSelectImport(batch);
         },
-        [importOptions, setPorterBatch, handleSelectImport]
+        [importOptions, setPorterBatch, setCardBatch, handleSelectImport]
     );
 
     /**
@@ -1256,11 +1266,12 @@ export const OutflowMasterPage = () => {
             setImporting(open);
             if (open) return;
             setPorterBatch(null);
+            setCardBatch(null);
             const pending = pendingPinRef.current;
             pendingPinRef.current = null;
             if (pending) handleSelectImport(pending.batch, pending.tab);
         },
-        [handleSelectImport, setPorterBatch]
+        [handleSelectImport, setPorterBatch, setCardBatch]
     );
 
     return (
@@ -1657,12 +1668,14 @@ export const OutflowMasterPage = () => {
                 also moving the period and the tab — `handleImported` does both, correctly, but only
                 once, when the statement arrives. */}
             <ImportStatementDialog
-                open={importing || Boolean(porterBatch)}
+                open={importing || Boolean(porterBatch) || Boolean(cardBatch)}
                 onOpenChange={handleImportDialogOpenChange}
                 onImported={handleImported}
                 onRefresh={refreshAll}
                 porterBatch={porterBatch}
                 onPorterBatch={setPorterBatch}
+                cardBatch={cardBatch}
+                onCardBatch={setCardBatch}
             />
 
             {/* ⚠️ IT READS `list_imports` ITSELF, A MONTH AT A TIME (owner ruling 2026-10-14) — the
@@ -1676,6 +1689,7 @@ export const OutflowMasterPage = () => {
                 selected={historySelection}
                 onSelectImport={handleSelectImport}
                 onOpenPorterImport={setPorterBatch}
+                onOpenCardImport={setCardBatch}
             />
 
             {/* ⚠️ BOTH TAKE THE PERIOD'S FILTERS, NOT A BATCH (slice P1). The confirm dialog acts on

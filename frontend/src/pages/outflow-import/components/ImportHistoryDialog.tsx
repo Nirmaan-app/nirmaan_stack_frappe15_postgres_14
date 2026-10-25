@@ -24,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { OutflowImportOption } from "@/types/NirmaanStack/OutflowImportBatch";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
+import { cardHistoryTitle, isCardImport } from "../creditCardImport";
 import { isPorterImport } from "../porterImport";
 
 import {
@@ -46,6 +47,7 @@ import {
     importUploaderLabel,
     repeatsNotSavedLabel,
     SOURCE_OPTIONS,
+    sourceLabel,
 } from "../outflowTableModel";
 
 /**
@@ -83,6 +85,8 @@ interface Props {
      * table to it would show nothing; its invoices' check is what a reader comes back for.
      */
     onOpenPorterImport?: (batch: string) => void;
+    /** Open a Credit Card Statement import's own dialog instead (#1566), for the same reason. */
+    onOpenCardImport?: (batch: string) => void;
 }
 
 /**
@@ -116,6 +120,7 @@ export const ImportHistoryDialog = ({
     selected,
     onSelectImport,
     onOpenPorterImport,
+    onOpenCardImport,
 }: Props) => (
     <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-2xl">
@@ -128,6 +133,7 @@ export const ImportHistoryDialog = ({
                 selected={selected}
                 onSelect={(batch, source) => {
                     if (onOpenPorterImport && isPorterImport(source)) onOpenPorterImport(batch);
+                    else if (onOpenCardImport && isCardImport(source)) onOpenCardImport(batch);
                     else onSelectImport(batch);
                     onOpenChange(false);
                 }}
@@ -237,7 +243,7 @@ const HistoryBody = ({
                 <TabsList className="h-auto w-full flex-wrap justify-start">
                     {SOURCE_OPTIONS.map((source) => (
                         <TabsTrigger key={source} value={source}>
-                            {source}
+                            {sourceLabel(source)}
                             <span className="ml-1.5 tabular-nums text-muted-foreground">
                                 ({counts[source] ?? 0})
                             </span>
@@ -292,6 +298,7 @@ const HistoryList = ({
                 matchesEveryToken(
                     [
                         option.original_filename || option.name,
+                        option.card_holder ?? "",
                         option.uploaded_by ?? "",
                         importUploaderLabel(option),
                         importPeriodLabel(option),
@@ -377,14 +384,17 @@ const HistoryRow = ({
             >
                 <div className="min-w-0">
                     <div className="flex items-center gap-2">
+                        {/* A card statement is known by its holder and period (#1566, ADR-0037). */}
                         <span className="truncate text-sm font-medium">
-                            {option.original_filename || option.name}
+                            {isCardImport(option.source)
+                                ? cardHistoryTitle(option)
+                                : option.original_filename || option.name}
                         </span>
                         {/* The source is a KIND, not a status — a quiet micro-label rather than a
                             second chip competing with the one that carries the actionable fact. */}
                         {option.source && (
                             <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
-                                {option.source}
+                                {sourceLabel(option.source)}
                             </span>
                         )}
                         {current && (

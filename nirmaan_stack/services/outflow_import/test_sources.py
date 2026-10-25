@@ -196,3 +196,33 @@ class TestThePorterStatementSource(unittest.TestCase):
     def test_it_is_neither_a_passbook_nor_a_spender_named_source(self):
         self.assertFalse(source_has_preamble("Porter Statement"))
         self.assertFalse(source_names_its_spender("Porter Statement"))
+
+
+class TestTheCreditCardStatementSource(unittest.TestCase):
+    """#1566 (ADR-0037): the fifth source, create-only and never matched; its lines wait for its own Create."""
+
+    def test_its_string_is_spelled_once_and_the_parser_knows_it(self):
+        from nirmaan_stack.services.outflow_import.sources import CARD_STATEMENT_SOURCE
+
+        self.assertEqual(CARD_STATEMENT_SOURCE, "ICICI Credit Card Statement")
+        self.assertIn(CARD_STATEMENT_SOURCE, SUPPORTED_SOURCES)
+
+    def test_it_is_never_matched(self):
+        from nirmaan_stack.services.outflow_import.sources import source_runs_the_matcher
+
+        self.assertFalse(source_runs_the_matcher("ICICI Credit Card Statement"))
+
+    def test_its_lines_wait_for_their_own_create(self):
+        from nirmaan_stack.services.outflow_import.sources import source_waits_for_its_own_create
+
+        self.assertTrue(source_waits_for_its_own_create("ICICI Credit Card Statement"))
+
+    def test_it_can_carry_a_credit(self):
+        from nirmaan_stack.services.outflow_import.parser import source_can_carry_credit
+
+        self.assertTrue(source_can_carry_credit("ICICI Credit Card Statement"))
+
+    def test_it_is_not_a_passbook_and_names_no_spender_column(self):
+        self.assertFalse(source_has_preamble("ICICI Credit Card Statement"))
+        self.assertTrue(source_has_settlement_path("ICICI Credit Card Statement"))
+        self.assertFalse(source_names_its_spender("ICICI Credit Card Statement"))

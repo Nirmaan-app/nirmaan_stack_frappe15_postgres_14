@@ -611,6 +611,7 @@ describe("the source scope", () => {
             "Cashbook",
             "ICICI Bank Statement",
             "Porter Statement",
+            "ICICI Credit Card Statement",
         ]);
     });
 

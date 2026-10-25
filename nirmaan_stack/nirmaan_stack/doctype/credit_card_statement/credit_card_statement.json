@@ -1,0 +1,187 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "CCS-.YY.-.#####",
+ "creation": "2026-10-25 15:25:39.905844",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "statement_section",
+  "holder",
+  "company",
+  "statement_date",
+  "column_break_period",
+  "period_from",
+  "period_to",
+  "import_batch",
+  "statement_file",
+  "totals_section",
+  "previous_balance",
+  "purchases_charges",
+  "cash_advances",
+  "column_break_totals",
+  "payments_credits",
+  "total_amount_due"
+ ],
+ "fields": [
+  {
+   "fieldname": "statement_section",
+   "fieldtype": "Section Break",
+   "label": "Statement"
+  },
+  {
+   "description": "The card holder, as the statement's address block prints it (honorific dropped). With the billing period, the statement's identity (ADR-0037): unique on holder + period.",
+   "fieldname": "holder",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Card Holder",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "description": "The company line of the address block. The upload refuses a statement not issued to Stratos Infra Technologies.",
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "label": "Company",
+   "read_only": 1
+  },
+  {
+   "fieldname": "statement_date",
+   "fieldtype": "Date",
+   "label": "Statement Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_period",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "period_from",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Period From",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "period_to",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Period To",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "description": "The Bulk Import batch (ICICI Credit Card Statement) that staged this statement's lines.",
+   "fieldname": "import_batch",
+   "fieldtype": "Link",
+   "label": "Import Batch",
+   "options": "Outflow Import Batch",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "description": "The statement PDF, stored once as a File on this record, never one per Expense (ADR-0032 ruling 6).",
+   "fieldname": "statement_file",
+   "fieldtype": "Attach",
+   "label": "Statement PDF",
+   "read_only": 1
+  },
+  {
+   "fieldname": "totals_section",
+   "fieldtype": "Section Break",
+   "label": "Summary totals"
+  },
+  {
+   "fieldname": "previous_balance",
+   "fieldtype": "Currency",
+   "label": "Previous Balance",
+   "read_only": 1
+  },
+  {
+   "description": "The statement's own total of spends. The upload refuses a file whose spends do not add up to it, to the paisa.",
+   "fieldname": "purchases_charges",
+   "fieldtype": "Currency",
+   "label": "Purchases / Charges",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cash_advances",
+   "fieldtype": "Currency",
+   "label": "Cash Advances",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_totals",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "The statement's own total of credits (CR lines). The upload refuses a file whose credits do not add up to it, to the paisa.",
+   "fieldname": "payments_credits",
+   "fieldtype": "Currency",
+   "label": "Payments / Credits",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_amount_due",
+   "fieldtype": "Currency",
+   "label": "Total Amount Due",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-10-25 15:25:39.905844",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Credit Card Statement",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant Lead",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "holder"
+}

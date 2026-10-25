@@ -7240,6 +7240,70 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
   is the project saved.
 
 
+## Credit Card Statement — the fifth source (spec #1565; upload, Review and Discard built at #1566, the rest NOT BUILT YET)
+
+Decisions: **[ADR-0037](../../../docs/adr/0037-credit-card-statement-import.md)**. Terms: `GLOSSARY.md`
+§ *Company credit cards*. Source string `ICICI Credit Card Statement` (`sources.CARD_STATEMENT_SOURCE`).
+
+**What it is.** A company card's monthly ICICI PDF. Each *Card spend* becomes ONE *Paid* `Non Project
+Expenses` row (Create, #1569). It creates and never settles: it is in `NEVER_MATCHED_SOURCES`. It is the
+other half of `bank_exclusions`' card-bill rules, which stay unchanged.
+
+**Load-bearing invariants (each one breaks something silently if "tidied"):**
+
+1. **The reader is pure and the gate is all or nothing.** `services/outflow_import/card_statement.read_card_statement`
+   takes the text `card_pdf.statement_text` extracts (pypdf; pages joined by a newline) and refuses with
+   `CardStatementError`: not this layout, a company other than Stratos Infra Technologies (`company_key`
+   drops PVT / PRIVATE / P / LTD / LIMITED, so "PVT LTD" == "Private Limited"), a non-zero *Cash Advances*,
+   and spends != *Purchases / Charges* or credits != *Payments / Credits* to the paisa (both figures in the
+   message, `amounts.rupees(paise=True)`). A locked PDF: "This PDF is password-locked. Unlock it and upload
+   again." No override exists.
+2. **Layout, measured on the 2026-10-01 statement** (fixture `services/outflow_import/tests/fixtures/icici_card_statement.txt`,
+   names faked): pypdf reads the rupee sign as `Á`. Holder and company are the two lines under `State Code:`
+   (the address block), holder with its honorific dropped. The summary is the line under `Previous Balance
+   Purchases / Charges Cash Advances Payments / Credits`. *Total Amount Due* is the larger of the two
+   standalone money lines on page 1 (the other is the minimum due). Statement date is the earlier of the two
+   standalone long dates. A line is `DD/MM/YYYY SerNo(11) details points [intl] amount [CR]`; lines dated
+   before the period or out of order are kept as printed. The card-number headings are never read.
+3. **Merchant key** (`card_statement.merchant_key`): drop a trailing 2-letter country code AND the city
+   before it (and `NEW` / `NAVI` before that), then punctuation, then trailing PVT / P / LTD / LIMITED /
+   INDIA / PRIVATE (never to nothing). The three MakeMyTrip spellings give `MAKEMYTRIP`. A line with no
+   country code (a payment received, a cashback) keeps every word. #1567 pairs refunds on it; #1568 keys
+   merchant memory on it.
+4. **Identity.** One `Credit Card Statement` per holder + period (`refuse_same_period`, backed by the unique
+   index `credit_card_statement_holder_period_unique` in the doctype's `on_doctype_update`). A line is its
+   SerNo, scoped to this source: a SerNo already staged is left out and counted in the batch's
+   `repeats_not_saved`; a file with nothing new is refused naming the import that holds it.
+5. **Nothing is saved before the whole file is read** (`card_import.upload_card_statement`): every refusal
+   runs before `save_file`. The PDF is ONE private `File`, attached to the `Credit Card Statement`
+   (`statement_file`). ⚠️ `card_upload.stage` inserts the batch WITHOUT `source_file` and writes it raw after
+   the statement is inserted: Frappe's Attach hook (`attach_files_to_document`) would otherwise attach the
+   File to the batch and then COPY it for the statement — two Files for one PDF.
+6. **Staging.** Spend: `Pending match run`, `direction` Debit, `match_basis` `card statement` (a new
+   `Outflow Row Match.match_basis` option), `suggested_doctype` `Non Project Expenses`, `auto_matched` 1.
+   Credit: `Mismatched`, Credit (an open line; #1567 sorts them). Every line: `status_raw` SUCCESS,
+   `remarks` = details, `settlement_reference` = "{details} - {SerNo}" (`card_statement.line_reference`,
+   the Expense's payment_ref, ADR-0037 decision 6). Batch `gross_amount` = the staged spends.
+7. **Not bank lines.** The source is in `CREATE_GATED_SOURCES`, so `review._row_filters` keeps every open
+   card line out of every tab, *Still open* and *Total Unreconciled Outflow*. ⚠️ For now the credits too;
+   #1567 splits it per line (an unpaired credit must be decidable in the main table). The generic upload
+   refuses the source ("imported through its own import").
+8. **Discard** (`card_import.discard_card_import`): Admin and Accountant Lead; refused once any `Outflow Row
+   Match` names the batch (`created_anything`) or a job in `card_import.job_ids` (`card-suggest-<batch>`,
+   `card-create-<batch>`) is queued. Raw deletes of lines, statement and batch, then
+   `stored_files.delete_files` last.
+9. **Screens.** `frontend/src/pages/outflow-import/creditCardImport.ts` (pure, pinned by
+   `creditCardImport.test.ts`). The import dialog takes `.pdf` only and has three steps (Upload → Review →
+   Create); Review is `components/CardImportReview.tsx`, read-only. The page holds the open import as
+   `?card=OFI-…`. Import History's tab reads **Credit Card** (`outflowTableModel.sourceLabel`) and lists each
+   statement by its holder (`list_imports` returns `card_holder`) and period. Discard uses the shared
+   `components/ImportDiscardButton.tsx` (Porter's button wraps it too).
+
+**Tests.** `services/outflow_import/test_card_statement` (unit, the fixture and a PDF built from it by
+`tests/card_pdf_builder.pdf_from_text`), `api/outflow_import/test_card_import` (DB: upload, refusals, repeats,
+Review, History, not-matched totals, Discard, the matcher AST guard).
+
+
 ## #1485 (2026-10-17) — an ICICI cheque line clears its Payment cheque (spec #1477, ADR-0035)
 
 **What.** In the ICICI match run (`review._guard_duplicates_only`), BEFORE the contains-guard, every line
