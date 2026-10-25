@@ -28,7 +28,14 @@ import { PorterProjectSelect, projectOptions, type ProjectOption } from "./Porte
  * once for the group) or one by one where the order has no remark. Each choice is saved to the import's
  * lines as it is made — the plan Create reads — so closing the dialog loses nothing.
  */
-export const PorterReviewPanel = ({ batch }: { batch: string }) => {
+export const PorterReviewPanel = ({
+    batch,
+    onPlaced,
+}: {
+    batch: string;
+    /** A placement was saved: the dialog re-reads the import's status, so the progress bar counts it (#1556). */
+    onPlaced?: () => void;
+}) => {
     const { data, error, mutate } = useFrappeGetCall<{ message: PorterReview }>(
         PORTER_REVIEW_METHOD,
         { batch },
@@ -57,13 +64,14 @@ export const PorterReviewPanel = ({ batch }: { batch: string }) => {
             try {
                 const response = await place({ batch, rows: item.toPlace, project });
                 await mutate(response, { revalidate: false });
+                onPlaced?.();
             } catch (err) {
                 setSaveError(describeFrappeError(err, "The change was not saved."));
             } finally {
                 setSaving(null);
             }
         },
-        [batch, place, mutate],
+        [batch, place, mutate, onPlaced],
     );
 
     if (error) {

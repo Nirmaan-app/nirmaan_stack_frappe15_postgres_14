@@ -346,6 +346,9 @@ describe("creating the expenses (#1445)", () => {
     it("says what Creating and Created mean, and tones Created as done", () => {
         expect(porterStateNote("Creating")).toMatch(/Creating the expenses/);
         expect(porterStateNote("Created")).toMatch(/one expense per completed order/);
+        expect(porterStateNote("Needs you")).toBe(
+            "Not every order is created yet, and nothing is running: press Create again for the rest.",
+        );
         expect(porterStateTone("Created")).toBe("passed");
         expect(porterStateTone("Creating")).toBe("pending");
     });
