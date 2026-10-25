@@ -80,10 +80,10 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     settleable_statuses,
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
-from nirmaan_stack.services.outflow_import.porter import OWN_IMPORT_LINE_REFUSAL
+from nirmaan_stack.services.outflow_import.skip_origin import own_import_line_refusal
 from nirmaan_stack.services.outflow_import.sources import (
+    line_waits_for_its_own_create,
     source_names_its_spender,
-    source_waits_for_its_own_create,
 )
 from nirmaan_stack.services.outflow_import.amounts import to_decimal
 from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
@@ -1135,8 +1135,11 @@ def guard_not_an_own_import_line(doc) -> None:
     here would bypass that gate, which must never be bypassable -- so every main-table loader asks this
     first, whatever the line's status. The sentence points to the import that owns the line.
     """
-    if source_waits_for_its_own_create(doc.get("source")):
-        frappe.throw(OWN_IMPORT_LINE_REFUSAL, ExpenseSettlementError, title="Porter line")
+    # Per line (#1567): a card spend waits for the card import's Create; a card credit is decided here.
+    if line_waits_for_its_own_create(doc.get("source"), doc.get("direction")):
+        frappe.throw(
+            own_import_line_refusal(doc.get("source")), ExpenseSettlementError, title="Not a main-table line"
+        )
 
 
 def _guard_is_a_debit(doc) -> None:

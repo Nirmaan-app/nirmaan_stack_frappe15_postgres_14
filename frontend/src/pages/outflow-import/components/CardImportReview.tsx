@@ -17,6 +17,8 @@ import {
     type CardImport,
     type CardImportLine,
 } from "../creditCardImport";
+import { cardWorkLines } from "../cardCreditsView";
+import { CardSkippedLines } from "./CardSkippedLines";
 
 interface TypeOption {
     value: string;
@@ -115,7 +117,7 @@ export const CardImportReview = ({
                         </tr>
                     </thead>
                     <tbody className="divide-y">
-                        {card.lines.map((line) => (
+                        {cardWorkLines(card).map((line) => (
                             <tr key={line.name}>
                                 <td className="whitespace-nowrap px-3 py-1.5 tabular-nums">{cardDay(line.date)}</td>
                                 <td className="whitespace-nowrap px-3 py-1.5 tabular-nums text-muted-foreground">
@@ -147,6 +149,8 @@ export const CardImportReview = ({
                     </tbody>
                 </table>
             </div>
+
+            <CardSkippedLines card={card} />
         </div>
     );
 };
