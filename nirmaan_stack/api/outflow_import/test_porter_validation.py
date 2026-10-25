@@ -230,18 +230,47 @@ class TestOneInvoiceDisagrees(PorterValidationCase):
         self.assertEqual(status["state"], "Validation failed")
         self.assertFalse(porter_records.is_validated(self.batch))
 
-    def test_there_is_no_way_past_a_failed_invoice(self):
-        # Not even the Administrator: the only path an invoice has back is Retry, and it refuses.
-        frappe.set_user("Administrator")
-        with self.assertRaises(frappe.ValidationError) as caught:
-            porter_api.retry_porter_invoice(self.hyderabad)
-        self.assertIn("cannot be retried or overridden", str(caught.exception))
-        frappe.db.rollback()
-        self.assertEqual(self._invoice("36SM27A0900004").validation_status, "Failed")
-        self.assertEqual(self.enqueued[1:], [])
-        # Running the job again changes nothing: only Queued invoices are picked up.
+    def test_running_the_job_again_leaves_a_failed_invoice_failed(self):
+        # Only Queued invoices are picked up: the one way back is Retry.
         self._run_job()
         self.assertEqual(self._invoice("36SM27A0900004").validation_status, "Failed")
+        self.assertEqual(self._status()["state"], "Validation failed")
+
+    def _retry(self):
+        with patch.object(frappe, "enqueue", side_effect=lambda *a, **k: self.enqueued.append(k)):
+            return porter_api.retry_porter_invoice(self.hyderabad)
+
+    def test_a_failed_invoice_is_retried_and_the_import_is_checking_meanwhile(self):
+        shown = next(i for i in self._status()["invoices"] if i["name"] == self.hyderabad)
+        self.assertTrue(shown["can_retry"])
+
+        status = self._retry()
+        self.assertEqual(self._invoice("36SM27A0900004").validation_status, "Queued")
+        self.assertEqual(status["state"], "Validating")
+        self.assertEqual(status["progress"]["check"]["in_progress"], 1)
+        self.assertEqual(status["progress"]["check"]["not_matching"], 0)
+        self.assertEqual(self.enqueued[-1]["job_id"], f"porter-validate-{self.batch}-{self.hyderabad}")
+
+    def test_a_retry_downloads_and_reads_the_pdf_again_and_passes_once_it_agrees(self):
+        self._retry()
+        self.replies[self.hyderabad]["net_amount"] = float(self.invoices["36SM27A0900004"].fare_total)
+        self.downloads.clear()
+        models = self._run_job()
+
+        self.assertEqual(len(self.downloads), 1)
+        self.assertEqual(models.calls, 1)
+        invoice = self._invoice("36SM27A0900004")
+        self.assertEqual((invoice.validation_status, invoice.validation_message), ("Passed", None))
+        self.assertEqual(self._status()["state"], "Validated")
+        files = frappe.get_all("File", filters={"attached_to_doctype": INVOICE_DOCTYPE, "attached_to_name": self.hyderabad}, pluck="file_url")
+        self.assertEqual(files, [invoice.invoice_file])
+
+    def test_a_retry_where_the_fare_still_disagrees_stays_failed(self):
+        self._retry()
+        self._run_job()
+        invoice = self._invoice("36SM27A0900004")
+        self.assertEqual(invoice.validation_status, "Failed")
+        self.assertIn("Fare: invoice", invoice.validation_message)
         self.assertEqual(self._status()["state"], "Validation failed")
 
 
@@ -303,7 +332,7 @@ class TestOnlyTheFareAndTheDateDecide(PorterValidationCase):
 
 
 class TestAnErrorIsRetriedForThatInvoiceAlone(PorterValidationCase):
-    def test_a_gemini_failure_is_an_error_that_a_retry_clears_without_downloading_again(self):
+    def test_a_gemini_failure_is_an_error_that_a_retry_clears_by_downloading_and_reading_again(self):
         bangalore = self.numbers["29SS27A0900001"]
         self.gemini_fails.add(bangalore)
         self._run_job()
@@ -326,7 +355,7 @@ class TestAnErrorIsRetriedForThatInvoiceAlone(PorterValidationCase):
         self.gemini_fails.clear()
         self.downloads.clear()
         models = self._run_job()
-        self.assertEqual(self.downloads, [], "a stored PDF is never downloaded twice")
+        self.assertEqual(self.downloads, [failed.invoice_link], "a retry downloads the PDF again")
         self.assertEqual(models.calls, 1, "only the retried invoice is read again")
         self.assertEqual(self._invoice("29SS27A0900001").validation_status, "Passed")
         self.assertEqual(self._status()["state"], "Validated")
@@ -334,6 +363,24 @@ class TestAnErrorIsRetriedForThatInvoiceAlone(PorterValidationCase):
             len(frappe.get_all("File", filters={"attached_to_doctype": INVOICE_DOCTYPE, "attached_to_name": bangalore})),
             1,
         )
+
+    def test_a_retry_whose_link_no_longer_serves_the_pdf_reads_the_copy_kept(self):
+        bangalore = self.numbers["29SS27A0900001"]
+        self.gemini_fails.add(bangalore)
+        self._run_job()
+        kept = self._invoice("29SS27A0900001").invoice_file
+
+        with patch.object(frappe, "enqueue"):
+            porter_api.retry_porter_invoice(bangalore)
+        self.gemini_fails.clear()
+
+        def _gone(url):
+            raise porter_validation.InvoiceDownloadError("the request failed (HTTPError)")
+
+        self._run_job(download=_gone)
+        invoice = self._invoice("29SS27A0900001")
+        self.assertEqual(invoice.validation_status, "Passed")
+        self.assertEqual(invoice.invoice_file, kept)
 
     def test_nothing_is_shown_as_read_before_gemini_has_read_it(self):
         shown = self._status()["invoices"][0]

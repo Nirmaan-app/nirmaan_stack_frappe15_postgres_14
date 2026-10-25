@@ -6656,7 +6656,8 @@ that rule skips the wallet top-ups and stays unchanged.
 4. **Steps:** Upload (sync) → Validate (background, 3 invoices at a time) → Review (editable) → Create
    (a button, then background).
    - **Validate:** each invoice goes Downloading → Reading → Comparing. Progress is committed per invoice
-     and read by polling. Only download or Gemini errors are retryable.
+     and read by polling. A Failed or Error invoice can be retried: it is downloaded, read and judged
+     again (#1562). There is still no override.
    - **Create:** order by order, Cashbook-style, so it can resume.
    - **What exists before Create:** only the batch, its rows, the Porter Invoices and their PDFs. A failed
      or abandoned import is Discarded, whole, by any module user: Accountant, Accountant Lead or Admin
@@ -7295,6 +7296,23 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
   vs PDF) and the next step; a Fare / Invoice date table on Failed and read Error cards, the failing row
   highlighted; one grey "GST taken from the statement. …" line on a Passed card with warnings; plain Passed
   cards folded under "N more invoices passed". Retry is still Error-only until #1562.
+
+### As built — #1562: retry a Failed invoice, re-judge old ones (spec #1554, 2026-10-25)
+
+- **Retry takes Failed and Error** (`porter_state.INVOICE_RETRYABLE`; `retry_porter_invoice`,
+  `can_retry`). It queues the invoice (warnings cleared), so the import is Validating and the bar counts
+  it in progress until the job decides it. A fare or date that still disagrees stays Failed.
+- ⚠️ **Every attempt downloads the PDF** (`porter_validation._download_pdf`), a retry included: the new
+  copy replaces the stored one (same bytes = the same File; a different one deletes the old through
+  `stored_files.delete_files`, after the commit). Safe because a Failed or Error invoice blocks Create,
+  so no Expense shares its URL yet. If the link no longer serves the PDF, the copy kept is read, so an
+  expired link never strands an invoice downloaded once.
+- **Patch `v3_0.rejudge_failed_porter_invoices`** re-judges every Failed invoice from its stored reading
+  (`porter_validation.rejudge_from_stored`: 0 in `read_fare`/`read_tax` = not read), no download. Imports
+  in `porter_records.created_imports` are skipped. Raw `_move`, no recount: `Porter Invoice` has no
+  `doc_events` and the import state is derived on read. A never-read date becomes Error (retryable).
+- **Screen:** the card button reads "Read the PDF again" on Failed and "Try again" on Error
+  (`porterImport.retryLabel`, replacing `canRetryInvoice`).
 
 ### As built — #1560: Choose projects lists only the orders that need a person (spec #1554, 2026-10-25)
 

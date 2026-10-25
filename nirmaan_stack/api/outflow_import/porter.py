@@ -14,8 +14,8 @@ THE STEPS
                                                                                      Porter Invoices
     status    `get_porter_status`         the import and its Porter Invoices          reads only
     validate  (#1444)  started by upload; `porter_validation.validate_porter_import` downloads each
-              invoice PDF, reads it with Gemini and compares; `retry_porter_invoice` re-queues an
-              Error invoice. `porter_records.is_validated(batch)` is the gate Review and Create ask.
+              invoice PDF, reads it with Gemini and compares; `retry_porter_invoice` re-queues a
+              Failed or Error invoice. `porter_records.is_validated(batch)` is the gate Review and Create ask.
     review    (#1446)  `porter_review.get_porter_review` / `set_porter_placement`: correct each
               completed order's project on a Validated import; the edit is the line's stored plan
     create    `porter_create.create_porter_expenses` (#1445): one Porter Order and one Expense per
@@ -69,10 +69,10 @@ from nirmaan_stack.services.outflow_import.porter import INVOICE_DOCTYPE
 from nirmaan_stack.services.outflow_import.porter_state import (
     CREATE_LINE_STATUSES,
     INVOICE_COMPARING,
-    INVOICE_ERROR,
     INVOICE_FAILED,
     INVOICE_PASSED,
     INVOICE_QUEUED,
+    INVOICE_RETRYABLE,
     import_state,
 )
 from nirmaan_stack.services.outflow_import.porter_verdict import invoice_date_window, warnings_from_stored
@@ -145,15 +145,15 @@ def get_porter_statement_rules() -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def retry_porter_invoice(invoice: str):
-    """Validate one Porter Invoice again after an *Error* (a download or Gemini failure). Returns the import.
+    """Validate one *Failed* or *Error* Porter Invoice again (#1444, #1562). Returns the import.
 
     URL: /api/method/nirmaan_stack.api.outflow_import.porter.retry_porter_invoice  (POST `invoice`)
 
-    ⚠️ ONLY AN ERROR IS RETRIED. A *Failed* invoice disagrees with the statement, and that is final for
-    this import -- there is no override, for anyone (ADR-0032); a Passed or in-hand one has nothing to
-    retry. The status is read again under the row lock, so two clicks queue it once.
-
-    The PDF already stored is reused: the job reads it again without downloading.
+    The job downloads the PDF again, reads it again and judges it again, so a one-off misreading -- or a
+    download or Gemini failure -- is corrected; a fare or date that still disagrees stays Failed. There
+    is no override (ADR-0032): only the PDF's own reading can pass an invoice. A Passed or in-hand one has
+    nothing to retry. The status is read again under the row lock, so two clicks queue it once. While
+    it is queued the import is Validating again (`import_state`).
     """
     user = require_outflow_access()
     rows = frappe.db.sql(
@@ -164,23 +164,17 @@ def retry_porter_invoice(invoice: str):
     if not rows:
         frappe.throw(f"Porter Invoice {invoice} does not exist.", title="Not found")
     row = rows[0]
-    if row.validation_status != INVOICE_ERROR:
-        if row.validation_status == INVOICE_FAILED:
-            reason = (
-                f"Invoice {invoice} Failed: its PDF disagrees with the statement. A Failed invoice is "
-                "final and cannot be retried or overridden."
-            )
-        else:
-            reason = (
-                f"Invoice {invoice} is {row.validation_status}. Only an invoice that hit an Error can "
-                "be retried."
-            )
-        frappe.throw(reason, title="Cannot retry")
+    if row.validation_status not in INVOICE_RETRYABLE:
+        frappe.throw(
+            f"Invoice {invoice} is {row.validation_status}. Only an invoice that does not match or could "
+            "not be read can be retried.",
+            title="Cannot retry",
+        )
     # Raw: `Porter Invoice` has no doc_events, and its status is read, never derived from.
     frappe.db.set_value(
         INVOICE_DOCTYPE,
         invoice,
-        {"validation_status": INVOICE_QUEUED, "validation_message": None},
+        {"validation_status": INVOICE_QUEUED, "validation_message": None, "validation_warnings": None},
         update_modified=False,
     )
     frappe.db.commit()
@@ -298,7 +292,7 @@ def porter_status(batch: str) -> dict:
                 "validation_message": invoice.validation_message,
                 "porter_gstin": invoice.porter_gstin,
                 "customer_gstin": invoice.customer_gstin,
-                "can_retry": invoice.validation_status == INVOICE_ERROR,
+                "can_retry": invoice.validation_status in INVOICE_RETRYABLE,
                 "has_pdf": bool(invoice.invoice_file),
                 # What Gemini read, beside the statement's figures above (None until it has read).
                 "read": what_gemini_read(invoice),

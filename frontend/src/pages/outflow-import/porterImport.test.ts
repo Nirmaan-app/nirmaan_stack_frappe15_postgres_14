@@ -20,7 +20,7 @@ import {
     PORTER_INVOICE_STATES,
     PORTER_SOURCE,
     canCreatePorter,
-    canRetryInvoice,
+    retryLabel,
     createButtonLabel,
     createProgress,
     invoiceFigureRows,
@@ -348,11 +348,18 @@ describe("validating against Porter's invoices (#1444)", () => {
         expect(foldPassedInvoices([invoiceAt("Failed", "F")], false).foldLabel).toBeNull();
     });
 
-    it("offers Retry only on an invoice that hit an Error", () => {
-        expect(canRetryInvoice({ validation_status: "Error" })).toBe(true);
-        for (const state of ["Failed", "Passed", "Queued", "Reading"]) {
-            expect(canRetryInvoice({ validation_status: state })).toBe(false);
+    it("offers to read a mismatched PDF again and to try an unread one again, and nothing else", () => {
+        expect(retryLabel({ validation_status: "Failed" })).toBe("Read the PDF again");
+        expect(retryLabel({ validation_status: "Error" })).toBe("Try again");
+        for (const state of ["Passed", "Queued", "Downloading", "Reading", "Comparing"]) {
+            expect(retryLabel({ validation_status: state })).toBeNull();
         }
+    });
+
+    it("tells a failed import that a mismatched invoice can be read again", () => {
+        expect(porterStateNote("Validation failed")).toBe(
+            "Nothing will be created from this import: every invoice has to agree with Porter's PDF on the fare and the invoice date. Read a mismatched PDF again, or try again on one that couldn't be read.",
+        );
     });
 
     it("says what each import state means for Create", () => {

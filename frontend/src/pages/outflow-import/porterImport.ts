@@ -329,11 +329,16 @@ export const foldPassedInvoices = <T extends Pick<PorterInvoiceStatus, "validati
 };
 
 /**
- * Retry is offered on an *Error* only — a download or Gemini failure decided nothing. A *Failed* invoice
- * disagrees with the statement and is final: there is no override, for anyone (ADR-0032).
+ * The retry button's label, or null when the invoice has nothing to retry (#1562). Both download, read and
+ * judge the invoice again: a *Failed* one in case Gemini misread it ("Read the PDF again"), an *Error* one
+ * because nothing was decided ("Try again"). There is still no override (ADR-0032).
  */
-export const canRetryInvoice = (invoice: Pick<PorterInvoiceStatus, "validation_status">): boolean =>
-    invoice.validation_status === "Error";
+export const retryLabel = (invoice: Pick<PorterInvoiceStatus, "validation_status">): string | null =>
+    invoice.validation_status === "Failed"
+        ? "Read the PDF again"
+        : invoice.validation_status === "Error"
+          ? "Try again"
+          : null;
 
 /** What the import's state means for the accountant, in one sentence. */
 export const porterStateNote = (state: string): string => {
@@ -347,7 +352,7 @@ export const porterStateNote = (state: string): string => {
     if (state === "Validated")
         return "Every invoice agrees with Porter's own PDF. Nothing has been created yet.";
     if (state === "Validation failed")
-        return "Nothing will be created from this import: every invoice has to agree with Porter's PDF on the fare and the invoice date. Retry an invoice whose PDF couldn't be read.";
+        return "Nothing will be created from this import: every invoice has to agree with Porter's PDF on the fare and the invoice date. Read a mismatched PDF again, or try again on one that couldn't be read.";
     return "Checking each invoice against Porter's own PDF. You can close this — it carries on, and Import History reopens it.";
 };
 
