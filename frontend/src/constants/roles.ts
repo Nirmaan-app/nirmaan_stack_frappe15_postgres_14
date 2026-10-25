@@ -661,9 +661,14 @@ export const reviewsExpenseRequests = (
 // ENFORCEMENT boundary (`api/vendor_refunds/waiting_refunds`); these only decide which controls render.
 // ---------------------------------------------------------------------------
 
-/** The Admin user or an Admin profile: `role_profiles.is_nirmaan_admin`. */
+/**
+ * The Admin user or an Admin profile: the server's `role_profiles.is_nirmaan_admin` (and
+ * `pricing._is_nirmaan_admin`). False while `useUserData` still reports the role as "Loading", so an
+ * admin-only control never flashes in. Decides only what renders: every admin-only endpoint re-checks on
+ * the server, which is authoritative.
+ */
 export const isNirmaanAdmin = (role?: string | null, userId?: string | null): boolean =>
-  userId === "Administrator" || role === ADMIN_PROFILE;
+  role !== "Loading" && (userId === "Administrator" || role === ADMIN_PROFILE);
 
 /** `REFUND_ACCOUNTANT_PROFILES`: "an Accountant" for a waiting refund. Besides its creator, may correct its
  *  amount or PO while it waits, or cancel it. */

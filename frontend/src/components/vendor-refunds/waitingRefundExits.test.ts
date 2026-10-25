@@ -112,7 +112,9 @@ describe("canDeleteRefund", () => {
 describe("canMarkReceivedWithoutBankLine", () => {
     it("lets only an Admin mark a waiting refund", () => {
         expect(canMarkReceivedWithoutBankLine(refund(), "admin@nirmaan.app", "Nirmaan Admin Profile")).toBe(true);
-        expect(canMarkReceivedWithoutBankLine(refund(), "Administrator", "Loading")).toBe(true);
+        expect(canMarkReceivedWithoutBankLine(refund(), "Administrator", "")).toBe(true);
+        // isNirmaanAdmin answers false while the role is still "Loading" (useUserData never reports it for Administrator).
+        expect(canMarkReceivedWithoutBankLine(refund(), "admin@nirmaan.app", "Loading")).toBe(false);
         expect(canMarkReceivedWithoutBankLine(refund(), "buyer@nirmaan.app", "Nirmaan Accountant Profile")).toBe(false);
         expect(
             canMarkReceivedWithoutBankLine(refund({ status: "Cancelled" }), "admin@nirmaan.app", "Nirmaan Admin Profile")

@@ -263,6 +263,65 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     cheque photo check (`match_payee_to_vendor`) still reads the vendor's current Payee: a cheque has
     no copy.
 
+## Ways money leaves
+
+Every path that pays a payment or an expense, or sends it to the bank. A rule about whether something may
+be paid (a hold, *Ineligible*, *Kept out of the bank file*, a new flag) holds only where it is enforced,
+so a change to such a rule checks every line below (`CODING_STANDARDS.md` § Writing backend Python,
+*Rules about whether money may be paid*). Lifecycle: `Approved -> Reconciliation Pending -> Paid`
+(`services/settlement.py`); money is gone from Reconciliation Pending on. Paths are under `frontend/src/`
+and `nirmaan_stack/`. As of 2026-10-25:
+
+1. **Mark as Paid, row and bulk** ("Payment need to paid" tab): `pages/ProjectPayments/update-payment/AccountantTabs.tsx`
+   (`openMarkPaid`, `handleMarkPaid`). A payment goes `Approved -> Reconciliation Pending` by a REST `updateDoc`;
+   an expense by `api/approvals/expense_actions.decide_expenses` (`mark_done`). Rules: payments get
+   `payment_hold.validate_hold`, the cheque validators and `take_vendor_accounts` on the server; expenses get
+   `expense_decision.can_mark_paid` (roles) only. *Ineligible* and held rows are refused in the browser only
+   (`config/queueRowActions.canPayQueueRow`, `utils/payees/paidTo.rowEligibility`).
+2. **Fulfil Payment** (a payment): `pages/ProjectPayments/update-payment/UpdatePaymentDialog.tsx` ->
+   `api/payments/project_payments.update_payment_request` (`_fulfil_payment`). `Approved` or `Reconciliation Pending
+   -> Paid` with a UTR. Rules: status gate, `services/cheques/decide.pay_alone_problem`, UTR uniqueness, `validate_hold`
+   on save. No *Ineligible* check; it still accepts `Approved`, skipping Reconciliation Pending.
+3. **Record Payment / Mark as Paid** (an expense): `pages/ProjectExpenses/components/UpdatePaymentDetailsDialog.tsx`,
+   `pages/NonProjectExpenses/components/UpdatePaymentDetailsDialog.tsx` -> `expense_decision.decide` (`mark_paid`).
+   `Approved` or `Reconciliation Pending -> Paid`. Rules: `can_mark_paid`, required date, reference and proof. No
+   cheque, hold or *Ineligible* check.
+4. **Export for Payment** (ICICI / Cashfree file): `pages/ProjectPayments/bankUploadFile.ts` (`buildBankFile`),
+   from AccountantTabs. No status change; writes each PO / WO payment's vendor account through
+   `take_vendor_accounts` (skips one no longer Approved), then builds the file. Rules: `rowEligibility` leaves out
+   *Ineligible*, `by_cheque` and card / cash rows, in the browser; a held row is kept out only because it cannot be
+   ticked (`buildBankFile` does not check the hold).
+5. **Bulk Import settle** (a bank line settles a record): `api/outflow_import/expenses.py` (`settle_row`,
+   `allocate_row`, `settle_row_partial`, `settle_expense`), `api/outflow_import/link_lines.py` ->
+   `services/outflow_import/settle.py` (`settle_payment`, `link_lines_to_expense`). `Reconciliation Pending -> Paid`
+   only (`ledgers.SETTLEABLE_STATUSES`). Rules: `require_outflow_access`, status re-read under the lock,
+   `pay_alone_problem`, the amount window. The hold cannot apply (a payment is held only while Approved).
+6. **Bulk Import creates a Paid expense**: `settle.create_expense_from_row`, from `expenses.create_expense`,
+   `cashbook.confirm_cashbook_import`, `porter_create.create_porter_expenses`, `porter_rectify.rectify_porter_rows`.
+   Inserts an expense at `Paid`. Rules: `require_outflow_access` only.
+7. **Cheque cleared by the bank import**: `api/outflow_import/review.py` -> `services/cheques/bank_import.clear_from_line`
+   -> `services/cheques/status.clear` (`_pay`; old-type cheques also `old_type_clear.settle_lines`). The cheque's
+   payments go `Reconciliation Pending -> Paid`, first brought forward from Requested / CEO Pending / Rejected. Rules:
+   `clear_problem` refuses a held payment, the bank line must match, `validate_paid_by_clear`.
+8. **Cheque payment approved**: `services/cheque_payments.move_to_reconciliation` / `to_reconciliation` (from the
+   payment create and approve endpoints, `bulk_actions`, `cheques/decide.py`, and `set_payment_hold` on release).
+   `Approved -> Reconciliation Pending` with no Mark as Paid. Rules: skips a held payment; `refuse_lone_approval`.
+9. **Pay TDS**: `api/tds_challan/pay_tds.py` (`pay_tds`, `create_challan_and_pay` -> `_apply`). Payment TDS
+   Deduction `Pending -> Paid` by `db.set_value` (no `validate`). Rules: write permission on both doctypes.
+10. **PO Adjustment / credit transfer** (book entries): `api/po_adjustments/adjustment_logic.execute_adjustment`,
+    `_payment_utils._transfer_credit` / `_create_project_payment`. Inserts Project Payments at `Paid` (an Ad-hoc
+    entry also a Paid Project Expense, `ignore_permissions`). Rules: no role check on the server; Vendor Hold in the
+    browser only.
+11. **Desk / REST edit, and an "Add Payment" created as Paid**: Project Payments' `status` is free text and many
+    roles hold write, so a hand edit or REST insert can set `Paid` directly; only `validate_hold`, the cheque
+    validators, `before_insert`'s over-total check and the Work Order limit apply. The SPA's old Add Payment
+    dialogs that insert at `Paid` (`project-payments-list.tsx`, `approved-sr.tsx`, `TransactionDetailsCard.tsx`,
+    `approved-sr/hooks/useSRPaymentManager.ts`) have no live trigger. Expenses: `guard_hand_save` refuses a hand
+    status change or a non-Requested insert.
+
+Not exits: Expense Request approval (`expense_requests/convert.create_ledger_row` never sets Paid), Vendor Refunds
+(money in), payment splits (the paid half goes through line 5), Revert to Approved and Unreconcile (money back).
+
 ## Where things are
 
 | What | Where |

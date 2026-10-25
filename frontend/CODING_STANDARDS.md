@@ -276,9 +276,10 @@ committing).
 
 ## Writing a test
 
-- **`yarn test` runs vitest with `environment: "node"`** over `src/**/*.test.{ts,tsx}` — unit tests only. The
-  Frontend CI job (`.github/workflows/frontend.yml`) runs it and `yarn typecheck` on every PR; run both yourself
-  first. `yarn typecheck` reports only errors new against `tsc-baseline.json`; re-baseline only to lock in old
+- **`yarn test` runs vitest with `environment: "node"`** over `src/**/*.test.{ts,tsx}` and the tooling's
+  `scripts/**/*.test.mjs` — unit tests only. The Frontend CI job (`.github/workflows/frontend.yml`) runs it and
+  `yarn typecheck` on every PR; run both yourself first. `yarn typecheck` reports only errors new against
+  `tsc-baseline.json` (the order tsc prints a union's members in does not count); re-baseline only to lock in old
   errors you fixed, never to hide a new one.
 - **The DOM environment is opt-in per file, and the global stays `node`.** `jsdom` is a devDependency;
   `vitest.config.ts` still declares `environment: "node"`, so every suite that does not ask for a DOM runs exactly

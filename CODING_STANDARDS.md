@@ -6,12 +6,12 @@ section for the task in hand:
 - [Stack](#stack) — what the app is built on, and the limits on adding to it
 - [Where code goes](#where-code-goes) — module map, lifecycle hooks, API modules, naming
 - [Module residence (ADR-0010)](#module-residence-adr-0010) — which module owns a concept
-- [Writing backend Python](#writing-backend-python) — transactions, endpoints, status transitions, uploaded files (reading and deleting), Frappe gotchas, style
+- [Writing backend Python](#writing-backend-python) — transactions, endpoints, status transitions, rules about whether money may be paid, uploaded files (reading and deleting), Frappe gotchas, style
 - [Writing raw SQL, `set_value` or a bulk write](#writing-raw-sql-set_value-or-a-bulk-write) — the `doc_events` bypass and PostgreSQL gotchas
 - [Writing a migration or patch](#writing-a-migration-or-patch)
 - [Changing a doctype schema](#changing-a-doctype-schema)
 - [Writing frontend TypeScript](#writing-frontend-typescript) — pointer to `frontend/CODING_STANDARDS.md`
-- [Writing tests](#writing-tests)
+- [Writing tests](#writing-tests) — including the known failing tests
 - [Don't touch](#dont-touch) — generated and append-only paths, and the sanctioned doctype-JSON exceptions
 - [Before committing](#before-committing)
 - [Commands](#commands)
@@ -130,6 +130,13 @@ cached copy, the reply carries that outcome as a structured field the browser ac
 marks a row `needs_datasheet_choice` and returns the sheet to choose against), not only as error text. The
 browser's copy may offer the choice up front, but the reply is what the next step reads.
 
+**Rules about whether money may be paid:** a change that adds or changes a rule on whether a payment or an
+expense may be paid (a hold, an *Ineligible* state, a "don't pay this" flag, a bank-file exclusion) enforces it
+at every exit point listed in `.claude/context/domain/payees.md` § Ways money leaves: the Mark as Paid buttons,
+the Fulfil and Record Payment dialogs, the bank-file export, the Bulk Import settle and create paths, cheque
+clearing, and Desk. A rule enforced at some of them still lets money out through the others. The reviewer
+checks the diff against that list, and a change that adds a new exit point adds its line there.
+
 **Frappe framework gotchas:**
 - **Child-table serialization depth:** `frappe.get_doc` / the REST resource API hydrate child tables one level deep only. A child-of-a-child (grandchild) Table field is NOT returned. When a doctype has a child table that itself has a child table, the grandchild needs an explicit read path (a whitelisted endpoint querying the grandchild doctype directly via `frappe.db.get_all`). Example: BoQ Sheet Draft.work_packages required `get_boq_work_packages` (`api/boq/wizard/update_sheet_draft.py`).
 - **Child table filtering:** `frappe.get_all()` filters at the **parent** level — if any child row matches, all rows of that parent are returned. For row-level filtering, use SQL JOINs. See `api/credits/get_credits_list.py`.
@@ -242,6 +249,10 @@ effects, `dd-MMM-yyyy` dates, realtime event naming, role checks, F1–F5, vites
 - **Frontend tests** (vitest, node-only, run with `yarn typecheck` by the Frontend CI job; Cypress): `frontend/CODING_STANDARDS.md` § Writing a test.
 - **Running:** use the bench runner, in-container; the exact invocation and the `python -m unittest` import
   failure are in root `CLAUDE.md` § Commands.
+- **Known failing tests:** these fail on `master` for a reason unrelated to recent work. A red run that shows
+  only these is not caused by your change. Remove an entry once its issue fixes it.
+  - `nirmaan_stack.api.payments.test_bulk_tds` `TestBulkApproveTDS.test_lead_bulk_approve_records_nothing`
+    (`'Approved' != 'CEO Pending'`): a stale expectation from before the 15k/50k approval tiers ([#1571](https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14/issues/1571)).
 
 **A test removes every record it creates, and its clean-up must survive a poisoned transaction:** these suites
 run against the live site database, so a stranded row is permanent dev data. The trap is not a missing
