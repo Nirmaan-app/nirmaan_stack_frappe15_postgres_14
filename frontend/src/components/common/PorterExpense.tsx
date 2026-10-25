@@ -140,12 +140,22 @@ export const PorterSectionBlock: React.FC<{
 /**
  * The block, fetching its own data: for a detail card that knows only the expense's name. A viewer who may
  * Rectify (Admin, Accountant Lead: `canUndoOutflow`) also gets the Move link -- the way an Accountant Lead
- * reaches it, since a Paid expense's edit dialog stays Admin-only.
+ * reaches it, since a Paid expense's edit dialog stays Admin-only. `offerMove` false leaves it off where the
+ * reader is already on Bulk Import, whose line carries Move (the link would land on the same page).
  */
-export const PorterSection: React.FC<{ doctype: string; name: string }> = ({ doctype, name }) => {
+export const PorterSection: React.FC<{ doctype: string; name: string; offerMove?: boolean }> = ({
+	doctype,
+	name,
+	offerMove = true,
+}) => {
 	const { section, error, isLoading } = usePorterExpense(doctype, name, true);
 	const { role, user_id } = useUserData();
 	return (
-		<PorterSectionBlock section={section} isLoading={isLoading} error={error} canMove={canUndoOutflow(role, user_id)} />
+		<PorterSectionBlock
+			section={section}
+			isLoading={isLoading}
+			error={error}
+			canMove={offerMove && canUndoOutflow(role, user_id)}
+		/>
 	);
 };

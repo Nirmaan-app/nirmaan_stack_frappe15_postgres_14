@@ -176,7 +176,7 @@ const ExpenseDetailsBlock: React.FC<{
  * in the file docstring holds for both: a closed card costs nothing.
  */
 const ExpenseBankLinesCard: React.FC<
-  ExpenseBankLinesCardProps & { enabled: boolean; footer: React.ReactNode }
+  ExpenseBankLinesCardProps & { enabled: boolean; footer: React.ReactNode; offerMove?: boolean }
 > = ({
   doctype,
   name,
@@ -187,6 +187,7 @@ const ExpenseBankLinesCard: React.FC<
   lineCount,
   enabled,
   footer,
+  offerMove = true,
 }) => {
   const { data, isLoading, error } = useFrappeGetCall<{
     message: ExpenseBankLines;
@@ -232,7 +233,7 @@ const ExpenseBankLinesCard: React.FC<
       />
 
       {/* A Porter Expense's delivery facts and invoice PDF, read-only (#1450). */}
-      {card?.details?.porter_order && <PorterSection doctype={doctype} name={name} />}
+      {card?.details?.porter_order && <PorterSection doctype={doctype} name={name} offerMove={offerMove} />}
 
       {isLoading && (
         <div className="space-y-1.5 border-t pt-2">
@@ -392,6 +393,8 @@ export const ExpenseBankLinesDialog: React.FC<
       <ExpenseBankLinesCard
         {...card}
         enabled={open}
+        // On Bulk Import the line's own Move button is beside it; a link would land on this same page.
+        offerMove={false}
         footer={
           <p className="text-[11px] text-muted-foreground">
             Read only. To take a line off, use Unreconcile on that line's row.
