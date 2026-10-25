@@ -156,17 +156,31 @@ Each role sees a different dashboard (`src/pages/dashboard.tsx`):
 
 ---
 
-## Project Requirement Exemptions
+## Project Requirement
 
-Roles that don't require `has_project === "true"`:
-- Nirmaan Admin Profile
-- Nirmaan PMO Executive Profile
-- Nirmaan Estimates Executive Profile
-- Nirmaan Billing Executive Profile
-- Nirmaan Design Lead Profile
-- Nirmaan Design Executive Profile
-- Nirmaan HR Executive Profile
-- Nirmaan Service Procurement Executive Profile
+Only these profiles need a project (`PROJECT_REQUIRED_PROFILES` in `src/constants/roles.ts`; owner, 2026-10-22):
+- Nirmaan Project Manager Profile
+- Nirmaan Project Lead Profile
+- Nirmaan Procurement Executive Profile, Procurement Lead Profile, Material Procurement Executive Profile
+  (`MATERIAL_PROCUREMENT_PROFILES`)
+
+While `Nirmaan Users.has_project` is "false" the **app access gate** locks the app for them: the sidebar shows only
+Dashboard, every other page goes back to `/`, and `/` shows the "No project assigned" card with Log out. Every other
+profile -- Admin, PMO, Estimates, Billing (Executive and Lead), Design, HR (Executive and Lead), Accountant, Sales,
+Service Procurement -- is never locked for having no project. This replaced the dashboard's inline "You are not
+Assigned to any project" alert (an exempt list that also caught HR Lead and Billing Lead).
+The profile page uses the same list: only these 5 profiles get the Projects tab and project count on a person's
+profile (`pages/users/user-profile.tsx`, code review #10). Everyone else's profile shows Overview and Assets only.
+
+**The app access gate** (`src/utils/appAccess.ts`, read through `useAppAccess()`) is the one place that answers "may
+this person use the app now". Each reason is one entry in its `RULES`: no project (above) and pending asset tasks
+(`../../.claude/context/domain/assets.md`). `AppAccessGate` (in `main-layout.tsx`, around every routed page),
+`NewSidebar`, `user-nav` and `AccessBlockedCard` only read its answer. A new reason is one more rule and one more card
+section. Screens only: the APIs are unchanged. The `Administrator` login is never locked.
+First load (code review #5, option A): the browser keeps the last real answer per person
+(`localStorage["nirmaan:app-access:last"]`, only "open"/"locked" + user ID). A person who was open last time gets the
+page at once while the check runs; if it now finds a lock, that page finishes under the amber bar and the lock applies
+at the next page change. A remembered "locked", another person's note, or none: the "Checking access…" spinner.
 
 **"All projects" is several pieces that must agree, not one switch.** A profile in this list
 must also have zero `User Permission` rows on Projects (Frappe list queries filter only when a

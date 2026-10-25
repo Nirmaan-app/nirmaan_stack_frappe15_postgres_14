@@ -3,7 +3,7 @@ import { ArrowRightLeft, ChevronDown, ClipboardCheck, ClipboardList, ClipboardX,
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
-import { countAuditIssues } from '@/utils/assetAudit';
+import { auditAnswerCount, auditChecksLabel, countAuditIssues } from '@/utils/assetAudit';
 import { AssetHistoryRow, AuditKind, HistoryEntry, HistoryTone, describeHistory } from '@/utils/assetHistory';
 import { AuditAnswersList } from './AuditAnswers';
 import { useAssetHistoryPeople } from '../hooks/useAssetHistoryPeople';
@@ -142,12 +142,13 @@ export const AssetHistoryCard: React.FC<AssetHistoryCardProps> = ({ rows }) => {
 
 /**
  * An audit entry under its title, in at most two more lines (owner, 2026-10-15): the month and, for the runs,
- * who opened it -- then View photo and "4 answers · 1 issue" on the same line -- and the holder's remarks. The
+ * who opened it -- then View photo and "1 answer · 1 issue" on the same line -- and the holder's remarks. The
  * answers open below only when asked for.
  */
 const AuditEntryDetails: React.FC<{ entry: HistoryEntry }> = ({ entry }) => {
     const [open, setOpen] = useState(false);
     const issues = countAuditIssues(entry.answers);
+    const checks = auditChecksLabel(entry.answers);
     const parts: React.ReactNode[] = [];
     if (entry.auditLine) parts.push(<span key="line">{entry.auditLine}</span>);
     // A sent audit names its holder in the title; the others say who opened or recorded them.
@@ -175,7 +176,8 @@ const AuditEntryDetails: React.FC<{ entry: HistoryEntry }> = ({ entry }) => {
                 onClick={() => setOpen((value) => !value)}
                 className={cn('inline-flex items-center gap-1 font-medium hover:underline', issues ? 'text-red-700' : 'text-teal-700')}
             >
-                {entry.answers.length} answers{issues ? ` · ${issues} ${issues === 1 ? 'issue' : 'issues'}` : ' · all OK'}
+                {/* The same words as the History tab (code review #15): one helper, `auditChecksLabel`. */}
+                {auditAnswerCount(entry.answers.length)} · {checks === 'All OK' ? 'all OK' : checks}
                 <ChevronDown className={cn('h-3 w-3 transition-transform', open && 'rotate-180')} />
             </button>
         );

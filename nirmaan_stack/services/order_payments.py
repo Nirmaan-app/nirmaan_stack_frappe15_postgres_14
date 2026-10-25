@@ -20,9 +20,14 @@ from nirmaan_stack.services import payment_tds
 from nirmaan_stack.services.approval_raiser import raiser_level
 from nirmaan_stack.services.work_order_payment_limit import request_refusal, work_order_limit
 
-#: How a refusal names the action: the request endpoint asks for money, every other path pays it.
-PaymentAction = Literal["request", "pay"]
-_VERBS: dict[str, tuple[str, str]] = {"request": ("request", "requested"), "pay": ("pay", "made")}
+#: How a refusal names the action: the request endpoint asks for money, an insert anywhere else pays it,
+#: and an edit of a saved payment raises it (#1536).
+PaymentAction = Literal["request", "pay", "edit"]
+_VERBS: dict[str, tuple[str, str]] = {
+	"request": ("request", "requested"),
+	"pay": ("pay", "made"),
+	"edit": ("raise this payment to", "made"),
+}
 
 
 def load_payments(document_type: str, document_name: str):
@@ -31,7 +36,8 @@ def load_payments(document_type: str, document_name: str):
 	`tds_by_payment` holds only the tax WITHHELD FROM THE VENDOR (`borne_by` = Vendor): that tax was cut
 	out of the payment's `amount`, so the summary adds it back to count what was requested. A
 	deduction the company bore left its payment whole and is not added (#1451). Read off each row, so
-	a Work Order with both kinds counts each payment right.
+	a Work Order with both kinds counts each payment right. A PO's recorded tax is added the same way
+	once its payment is netted (ADR-0034 Amendment B); one still stored gross has none to add.
 	"""
 	payments = frappe.get_all(
 		"Project Payments",
@@ -41,22 +47,13 @@ def load_payments(document_type: str, document_name: str):
 		limit_page_length=0,
 	)
 
-	tds_by_payment = {}
-	if document_type in payment_tds.DEDUCTIBLE_PARENTS:
-		# One query for every deduction on this order, joined through the payment rather than an
-		# `["in", names]` filter.
-		for row in frappe.db.sql(
-			"""
-			SELECT t.project_payment, t.tds_amount
-			FROM "tabPayment TDS Deduction" t
-			JOIN "tabProject Payments" p ON p.name = t.project_payment
-			WHERE p.document_type = %s AND p.document_name = %s
-			  AND t.borne_by IS DISTINCT FROM %s
-			""",
-			(document_type, document_name, payment_tds.BORNE_BY_COMPANY),
-			as_dict=True,
-		):
-			tds_by_payment[row.project_payment] = row.tds_amount
+	# The order's counted deductions (`payment_tds.order_deductions`, a PO's too, ADR-0034 Amendment B), in
+	# one query joined through the payment rather than an `["in", names]` filter.
+	tds_by_payment = {
+		payment: row["tds_amount"]
+		for payment, row in payment_tds.order_deductions(document_type, document_name).items()
+		if row["borne_by"] != payment_tds.BORNE_BY_COMPANY
+	}
 	return payments, tds_by_payment
 
 
@@ -74,16 +71,21 @@ def skips_invoice_check(user: str | None) -> bool:
 	return raiser_level(user) is not None
 
 
-def assert_within_work_order_limit(sr, amount, gst_payment: bool, action: PaymentAction = "request") -> None:
+def assert_within_work_order_limit(
+	sr, amount, gst_payment: bool, action: PaymentAction = "request", exclude_payment: str | None = None
+) -> None:
 	"""Refuse `amount` on Work Order `sr` when it breaks the Work Order payment limit (ADR-0030), when
 	the Work Order fails the invoice check and the session user does not skip it, or when it is
 	negative (#1488).
 
-	Payments count GROSS of TDS, as the dialogs and the payment summary count them. Two callers:
-	`create_payment_request_for_service` (`action="request"`) and the `Project Payments` insert
-	validation (`action="pay"`), which covers the Accountant's paid entry and any Desk / REST insert.
+	Payments count GROSS of TDS, as the dialogs and the payment summary count them. Three callers:
+	`create_payment_request_for_service` (`action="request"`), the `Project Payments` insert
+	validation (`action="pay"`), which covers the Accountant's paid entry and any Desk / REST insert,
+	and the same validation on an edit that raises a saved payment (`action="edit"`, #1536), which
+	passes that payment as `exclude_payment` and its new gross as `amount`: the edit is measured as
+	if the payment were requested anew at its new figure.
 	"""
-	limit = work_order_summary(sr)["limit"]
+	limit = work_order_summary(sr, exclude_payment)["limit"]
 	refusal = request_refusal(limit, amount, gst_payment, not skips_invoice_check(frappe.session.user))
 	if not refusal:
 		return

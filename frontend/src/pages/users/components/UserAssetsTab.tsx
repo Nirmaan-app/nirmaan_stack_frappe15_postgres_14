@@ -423,10 +423,12 @@ export function UserAssetsTab({
   const { projectAssignments, itAssignments } = useMemo(() => {
     const project: AssetManagementRecord[] = [];
     const it: AssetManagementRecord[] = [];
+    // An assignment whose category type can't be read (its asset or category didn't load) goes under Project: the
+    // app access gate counts its declaration and audit, so its card -- with Sign / Submit audit -- must show
+    // somewhere, never in neither tab (code review #3).
     (assetManagementList ?? []).forEach((a) => {
-      const t = getAssignmentType(a);
-      if (t === "Project") project.push(a);
-      else if (t === "IT") it.push(a);
+      if (getAssignmentType(a) === "IT") it.push(a);
+      else project.push(a);
     });
     return { projectAssignments: project, itAssignments: it };
   }, [assetManagementList, getAssignmentType]);
@@ -447,7 +449,7 @@ export function UserAssetsTab({
   const itOverdueAudits = itAssignments.filter((a) => isAuditOverdue(a)).length;
 
   // Open on the tab that needs attention: when the assignments first load, and again on every
-  // navigation here -- the sidebar's pending-declaration icon navigates even when this profile is
+  // navigation here -- the app access gate's "Open my assets" navigates even when this profile is
   // already open, so it switches tabs too. A tab the user picks stays until the next navigation.
   const location = useLocation();
   const subTabDecidedFor = useRef<string | null>(null);
@@ -714,7 +716,6 @@ export function UserAssetsTab({
           assignmentId={auditingAssignment.name}
           assetName={getAssetDetails(auditingAssignment.asset)?.asset_name || auditingAssignment.asset}
           auditMonth={auditingAssignment.audit_month}
-          categoryType={getAssignmentType(auditingAssignment)}
           onSubmitted={onMutate}
         />
       )}

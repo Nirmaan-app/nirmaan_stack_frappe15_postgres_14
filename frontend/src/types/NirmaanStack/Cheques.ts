@@ -10,7 +10,7 @@ export const CHEQUES_CHANGED_EVENT = "cheques:changed";
 
 export const CHEQUE_STATUS = {
     /** A Payment cheque whose payments still wait for approval (spec #1477). */
-    PENDING: "Pending",
+    PENDING: "Approval Pending",
     ISSUED: "Issued",
     CLEARED: "Cleared",
     CANCELLED: "Cancelled",
@@ -26,8 +26,15 @@ export const CHEQUE_TYPE = {
 
 export type ChequeType = (typeof CHEQUE_TYPE)[keyof typeof CHEQUE_TYPE];
 
-/** How a Payment cheque was cleared (`rules.CLEARED_BY`). */
+/** How a Payment cheque was cleared (`rules.CLEARED_BY`). History only, never shown (#1520). */
 export type ChequeClearedBy = "By hand" | "Bank import";
+
+/**
+ * The one date a Cheque carries besides its issue date (`cheque_date`, #1520, ADR-0035 Amendment A): the date
+ * written on the paper until the bank import clears a Payment cheque, then the day the bank paid it. Every
+ * screen labels it this way.
+ */
+export const CHEQUE_PAYMENT_DATE_LABEL = "Cheque/Payment Date";
 
 export const CHEQUE_BANK = {
     ICICI: "ICICI Bank",
@@ -39,7 +46,7 @@ export type ChequeBank = (typeof CHEQUE_BANK)[keyof typeof CHEQUE_BANK];
 /** Where a Cheque was made; a PO/WO Page Cheque keeps its number, date and amount (#1418). */
 export type ChequeMadeFrom = "Report" | "PO/WO Page";
 
-/** "Secured PO/WO" is a Security Deposit cheque's line: a PO or Work Order it secures, no payment, no amount (#1486). */
+/** "Secured PO/WO" is a Security Deposit cheque's line: a PO it secures, no payment, no amount (#1486; never a Work Order, spec #1514). */
 export type ChequeLineType = "PO/WO Payment" | "Project Expense" | "Non-project Expense" | "Secured PO/WO";
 
 /** One thing a Cheque pays (`Cheque Line`). */
@@ -78,6 +85,7 @@ export interface Cheques {
     bank_key: string;
     /** The first six-digit group of the magnetic strip; leading zeros kept. */
     cheque_no: string;
+    /** The Cheque/Payment Date (`CHEQUE_PAYMENT_DATE_LABEL`): the paper date, then the day the bank paid it. */
     cheque_date: string;
     amount: number;
     /** Exactly one of vendor or payee_name is set. */
@@ -87,8 +95,7 @@ export interface Cheques {
     made_from: ChequeMadeFrom;
     /** The day it became Issued: a Payment cheque's payments were approved, a deposit cheque handed over. */
     issue_date?: string | null;
-    /** The day the bank paid a Payment cheque; each payment's payment date. */
-    clearance_date?: string | null;
+    /** History only, never shown (#1520). */
     cleared_by?: ChequeClearedBy | null;
     /** The imported bank-statement line (`Outflow Import Row`) that cleared it. */
     bank_line?: string | null;

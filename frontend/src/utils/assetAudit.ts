@@ -79,7 +79,7 @@ export function sentLate(forMonth: string | null | undefined, sentOn: string | n
 /**
  * An open audit that is red (overdue): a month was recorded Missed on the 7th and nothing has been sent since
  * (`audit_overdue_since`, cleared by the server when an audit is sent). The grace days (to the 7th) are never
- * red. The badge, the sidebar icon and the Project / IT tab marks.
+ * red. The audit badge, the app access gate's "Overdue" label and the Project / IT tab marks.
  */
 export function isAuditOverdue(row: AuditRowFields): boolean {
   return row.audit_status === AUDIT_PENDING && !!row.audit_overdue_since;
@@ -178,7 +178,7 @@ export function canSubmitAudit({ viewerId, assignedTo, currentAssignee, auditSta
 }
 
 /**
- * The audits the viewer can send now -- the sidebar badge, beside declarations to sign.
+ * The audits the viewer can send now -- the app access gate's count, beside declarations to sign.
  *
  * @param heldAssets the assets whose `current_assignee` is `viewerId`.
  */
@@ -231,12 +231,12 @@ export function parseFulfilledText(reason: string | null | undefined): Fulfilled
 
 
 // ---------------------------------------------------------------------------------------------------------------
-// The audit questions (owner, 2026-10-15) live in `assetAuditQuestions.ts`, one fixed set per category type; the
-// dialog shows them with no request. Here: their shape, the dialog's check, what it sends (each answer with its
+// The audit question (owner, 2026-10-15; one question for every asset since 2026-10-21) lives in
+// `assetAuditQuestions.ts`; the dialog shows it with no request. Here: their shape, the dialog's check, what it sends (each answer with its
 // question and choice text -- the server checks only the shape, `services/asset_audit.clean_answers`) and the one
 // reader of the saved answers.
 
-/** One choice of a question; a `flag` choice is a red answer that opens an optional text box. */
+/** One choice of a question; a `flag` choice is a red answer that needs a description of the problem. */
 export interface AuditChoice {
   id: string;
   label: string;
@@ -248,7 +248,7 @@ export interface AuditQuestion {
   id: string;
   question: string;
   hint: string | null;
-  /** The prompt over the text box a red answer opens: "What's damaged?". */
+  /** The label of the description box a red answer opens: "Describe the problem". */
   text_prompt: string;
   choices: AuditChoice[];
 }
@@ -259,7 +259,7 @@ export interface PickedAnswer {
   text?: string;
 }
 
-/** A saved answer: the question and the choice as they were asked, the red mark, and the optional text. */
+/** A saved answer: the question and the choice as they were asked, the red mark, and the description under it. */
 export interface AuditAnswer {
   id: string;
   q: string;
@@ -268,15 +268,36 @@ export interface AuditAnswer {
   text?: string;
 }
 
-/** Why the questions block isn't done yet, or null. */
-export function auditAnswersProblem(questions: readonly AuditQuestion[], picked: Readonly<Record<string, PickedAnswer>>): string | null {
-  const left = questions.filter((q) => !picked[q.id]?.choice).length;
-  return left ? `Answer all ${questions.length} questions (${left} left).` : null;
+/** The choice picked for `question`, if any. */
+function pickedChoice(question: AuditQuestion, picked: Readonly<Record<string, PickedAnswer>>): AuditChoice | undefined {
+  return question.choices.find((choice) => choice.id === picked[question.id]?.choice);
+}
+
+/** Whether any picked answer is red ("No, it is not working"): the dialog then offers an image, not remarks. */
+export function hasRedPick(questions: readonly AuditQuestion[], picked: Readonly<Record<string, PickedAnswer>>): boolean {
+  return questions.some((question) => pickedChoice(question, picked)?.flag);
 }
 
 /**
+ * Why the questions block isn't done yet, or null: a question left unanswered, or a red answer without its
+ * description (owner, 2026-10-21: "not working" needs one; the server refuses it too, `clean_answers`).
+ */
+export function auditAnswersProblem(questions: readonly AuditQuestion[], picked: Readonly<Record<string, PickedAnswer>>): string | null {
+  const left = questions.filter((q) => !pickedChoice(q, picked)).length;
+  if (left) return questions.length === 1 ? "Answer the question." : `Answer all ${questions.length} questions (${left} left).`;
+  const undescribed = questions.find((q) => pickedChoice(q, picked)?.flag && !(picked[q.id]?.text ?? "").trim());
+  if (!undescribed) return null;
+  const prompt = undescribed.text_prompt.trim();
+  return /[.?!]$/.test(prompt) ? prompt : `${prompt}.`;
+}
+
+/** "1 answer", "4 answers": the count beside an audit's answers in the history. */
+export const auditAnswerCount = (count: number): string => `${count} ${count === 1 ? "answer" : "answers"}`;
+
+/**
  * The `answers` argument of `submit_audit`: each answered question with its question and choice text as shown,
- * `flag: 1` on a red answer, and the note typed under a red answer (trimmed; left out when empty).
+ * `flag: 1` on a red answer, and ALWAYS the description typed under a red answer, trimmed (code review #13: no
+ * second shape without it). `auditAnswersProblem` stops an empty one first; the server refuses it too.
  */
 export function auditAnswersPayload(
   questions: readonly AuditQuestion[],
@@ -287,8 +308,7 @@ export function auditAnswersPayload(
     const choice = q.choices.find((c) => c.id === answer?.choice);
     if (!choice) return [];
     if (!choice.flag) return [{ id: q.id, q: q.question, a: choice.label }];
-    const text = (answer?.text ?? "").trim();
-    return [text ? { id: q.id, q: q.question, a: choice.label, flag: 1 as const, text } : { id: q.id, q: q.question, a: choice.label, flag: 1 as const }];
+    return [{ id: q.id, q: q.question, a: choice.label, flag: 1 as const, text: (answer?.text ?? "").trim() }];
   });
 }
 

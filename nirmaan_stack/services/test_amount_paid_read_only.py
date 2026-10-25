@@ -29,6 +29,11 @@ class AmountPaidIsReadOnlyInDesk(PaidPaymentFixture):
 
         self.assertEqual(set(read_only.values()), {1}, read_only)
 
+    def test_the_legacy_tds_box_on_a_payment_is_read_only(self):
+        """A PO payment's tax counts from its deduction record, and a filled legacy `tds` box marks it as
+        stored gross (spec #1528 story 53): a hand edit of the box would change PO tax counting."""
+        self.assertEqual(frappe.get_meta("Project Payments").get_field("tds").read_only, 1)
+
     def test_the_single_writer_still_writes_a_po_and_a_work_order(self):
         po = self._po(stored_paid=0, payments=[500])
         wo = self._wo(stored_paid=0, payments=[400])

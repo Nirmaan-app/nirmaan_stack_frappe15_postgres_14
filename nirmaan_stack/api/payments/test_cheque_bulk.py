@@ -61,7 +61,7 @@ class TestBulkDecidesAChequeAsOne(PendingChequeCase):
         # The cheque total (₹60,000) sends both to the CEO, though each is under ₹50,000.
         self.assertEqual(sorted(res["succeeded"]), sorted([a, b]))
         self.assertEqual(self._statuses(a, b), ["CEO Pending"] * 2)
-        self.assertEqual(self._cheque_status(cheque), "Pending")
+        self.assertEqual(self._cheque_status(cheque), "Approval Pending")
 
     def test_a_cheque_that_cannot_be_approved_fails_once_and_the_rest_goes_through(self):
         a, b = self._payment(20000), self._payment(25000)
@@ -97,7 +97,7 @@ class TestBulkDecidesAChequeAsOne(PendingChequeCase):
         self.assertEqual(len(res["failed"]), 1)
         self.assertEqual(self._statuses(a, b, c), ["Requested"] * 3)
         self.assertEqual(self._terms(a, b, c), ["Requested"] * 3)
-        self.assertEqual(self._cheque_state(cheque), ("Pending", None, [(None, "Pending")]))
+        self.assertEqual(self._cheque_state(cheque), ("Approval Pending", None, [(None, "Approval Pending")]))
         self.assertEqual(self._statuses(online), ["Approved"])
 
     def test_the_ceo_approves_a_cheques_payments_together(self):
@@ -126,7 +126,7 @@ class TestBulkDecidesAChequeAsOne(PendingChequeCase):
             "Cheque Status History", filters={"parent": cheque}, fields=["from_status", "to_status", "note"],
             order_by="idx asc",
         )
-        self.assertEqual((history[-1].from_status, history[-1].to_status, history[-1].note), ("Pending", "Cancelled", REASON))
+        self.assertEqual((history[-1].from_status, history[-1].to_status, history[-1].note), ("Approval Pending", "Cancelled", REASON))
         for p in (a, b, online):  # the reason once on each, not twice on the cheque's payments
             self.assertEqual(
                 frappe.get_all(

@@ -415,9 +415,10 @@ class TestAmountPaidKeepsAmountDueTrue(FrappeTestCase):
         # create a payment against a pre-Won project stub (_tendering_guard).
         self.PROJ = _raw("Projects", project_name="T-" + frappe.generate_hash(length=6),
                          tendering_status="Won")
-        self.PO = _raw("Procurement Orders", project=self.PROJ,
+        # `amount` is the PO's value: a payment moving into Paid must fit its available balance.
+        self.PO = _raw("Procurement Orders", project=self.PROJ, amount=100000, tax_amount=0,
                        total_amount=100000, amount_invoiced=50000, amount_paid=0)
-        self.PO2 = _raw("Procurement Orders", project=self.PROJ,
+        self.PO2 = _raw("Procurement Orders", project=self.PROJ, amount=100000, tax_amount=0,
                         total_amount=100000, amount_invoiced=0, amount_paid=0)
 
     def tearDown(self):

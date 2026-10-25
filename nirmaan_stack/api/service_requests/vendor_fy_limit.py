@@ -107,10 +107,11 @@ def get_vendor_fy_wo_total(vendor: str) -> dict:
 
 
 def validate_vendor_gst_hold(doc) -> None:
-    """Refuse a NEW Work Order for a vendor on GST Hold. Caller guards is_new()."""
+    """Refuse giving a Work Order to a vendor on GST Hold. The caller calls it for a new Work Order and
+    for a save that changes an existing one's vendor."""
     if not doc.vendor or not frappe.db.get_value("Vendors", doc.vendor, "gst_hold"):
         return
     frappe.throw(
-        _("This vendor is on GST Hold, so a new Work Order can't be created for it. Contact Admin to remove the GST Hold."),
+        _("This vendor is on GST Hold, so it can't be given a Work Order. Contact Admin to remove the GST Hold."),
         title=_("Vendor on GST Hold"),
     )

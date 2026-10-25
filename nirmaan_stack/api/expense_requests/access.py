@@ -11,6 +11,7 @@ own ask into money. Every gate lives here rather than being restated at each end
 
 import frappe
 
+from nirmaan_stack.services.expense_decision import is_l1
 from nirmaan_stack.services.expense_request_routing import (
 	allowed_roles_for_type,
 	is_requestable,
@@ -18,7 +19,6 @@ from nirmaan_stack.services.expense_request_routing import (
 	reviewer_role_for_type,
 	types_reviewed_by,
 )
-from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 
 ADMIN_PROFILE = "Nirmaan Admin Profile"
 PM_PROFILE = "Nirmaan Project Manager Profile"
@@ -33,12 +33,6 @@ PM_REQUEST_REVIEWERS = frozenset({
 	"Nirmaan HR Executive Profile",
 	"Nirmaan HR Lead Profile",
 })
-
-PENDING = "Pending Approval"
-APPROVED = "Approved"
-REJECTED = "Rejected"
-# Set by the LEDGER, never by a reviewer -- see `expense_request_status`.
-PAID = "Paid"
 
 
 def caller_role_profile(user: str | None = None) -> str | None:
@@ -59,7 +53,16 @@ def caller_role_profile(user: str | None = None) -> str | None:
 
 
 def is_admin(user: str | None = None) -> bool:
-	return caller_role_profile(user) == ADMIN_PROFILE
+	"""Is the caller an Admin: `expense_decision.is_l1`, the one answer to "who is L1"."""
+	return is_l1(user or frappe.session.user)
+
+
+def is_raiser_or_admin(req, user: str | None = None, admin: bool | None = None) -> bool:
+	"""Is the caller the request's raiser, or an Admin? The one answer behind who may edit a
+	pending request (`update`), delete a rejected one (`delete`) and add its invoice (`invoice`).
+	A list caller passes `admin`, looked up once for the page."""
+	user = user or frappe.session.user
+	return req.get("owner") == user or (is_admin(user) if admin is None else admin)
 
 
 def can_request_type(expense_type: str, user: str | None = None) -> bool:
@@ -99,30 +102,88 @@ def guard_requestable(expense_type: str, check_visibility: bool = True) -> None:
 		)
 
 
-def can_raise_requests(user: str | None = None) -> bool:
-	"""May the caller raise an expense request at all: is any requestable type visible to them?"""
-	profile = caller_role_profile(user)
+def profile_can_raise(profile: str | None) -> bool:
+	"""May a role profile raise at least one requestable type? Admin always may."""
 	if profile == ADMIN_PROFILE:
 		return True
 	return bool(profile) and any(profile in allowed_roles_for_type(t) for t in requestable_types())
 
 
-def can_name_expense_payee(user: str | None = None) -> bool:
-	"""May the caller name who gets paid on an expense: raise an expense request, or record a Direct
-	Expense (Frappe's create right on `Project Expenses` or `Non Project Expenses`, #1471)?"""
-	user = user or frappe.session.user
-	return can_raise_requests(user) or any(
-		frappe.has_permission(doctype, "create", user=user) for doctype in EXPENSE_DOCTYPES
+def can_raise_requests(user: str | None = None) -> bool:
+	"""May the caller raise an expense request at all: is any requestable type visible to them?"""
+	return profile_can_raise(caller_role_profile(user))
+
+
+# Records without review (spec #1494, #1498; GLOSSARY): the role profiles listed on the single
+# `Expense Settings`, as `Expense Type Role` rows. Admin is implicit and never stored.
+EXPENSE_SETTINGS = "Expense Settings"
+RECORDS_WITHOUT_REVIEW_FIELD = "records_without_review"
+
+
+def listed_records_without_review() -> list[str]:
+	"""The profiles stored on the list, in order. Admin is never among them."""
+	return frappe.get_all(
+		"Expense Type Role",
+		filters={"parenttype": EXPENSE_SETTINGS, "parentfield": RECORDS_WITHOUT_REVIEW_FIELD},
+		pluck="role_profile",
+		order_by="idx asc",
 	)
 
 
+def records_without_review(user: str | None = None) -> bool:
+	"""Does the caller record without review: is their Expense Request approved on submit?
+
+	Admin (and `Administrator`) always does; anyone else when their profile is listed on
+	Expense Settings AND can still raise a type (story 28: a profile that lost every type is off
+	the list, even while its row has not been pruned). It skips the Reviewer, never the amount rule.
+	"""
+	profile = caller_role_profile(user)
+	if profile == ADMIN_PROFILE:
+		return True
+	return bool(profile) and profile in listed_records_without_review() and profile_can_raise(profile)
+
+
+def prune_records_without_review() -> None:
+	"""Take off the list every profile that can no longer raise a type (story 28), so one given a
+	type again later does not come back ticked. Called by `integrations/controllers/expense_type`
+	when a save changes a type's `allowed_roles` (Expense Packages, Desk, REST), when a type is
+	deleted, and once after a migrate's fixture sync."""
+	listed = listed_records_without_review()
+	keep = [p for p in listed if profile_can_raise(p)]
+	if keep == listed:
+		return
+	doc = frappe.get_single(EXPENSE_SETTINGS)
+	doc.set(RECORDS_WITHOUT_REVIEW_FIELD, [{"role_profile": p} for p in keep])
+	doc.save(ignore_permissions=True)
+
+
+def reviews_requests(profile: str | None) -> bool:
+	"""Does this role profile review expense requests: Admin every one, Accountant / HR a Project
+	Manager's (`PM_REQUEST_REVIEWERS`)? Mirrored client-side by `EXPENSE_REQUEST_REVIEW_PROFILES`."""
+	return profile == ADMIN_PROFILE or profile in PM_REQUEST_REVIEWERS
+
+
+def opens_expenses(user: str | None = None) -> bool:
+	"""Does the caller get the Expenses page (sidebar item and route, spec #1494 #1506): can they
+	raise at least one type, or do they review?"""
+	profile = caller_role_profile(user)
+	return profile_can_raise(profile) or reviews_requests(profile)
+
+
+def can_name_expense_payee(user: str | None = None) -> bool:
+	"""May the caller name who gets paid on an expense: can they raise at least one type?
+
+	Since no person creates a ledger row directly (spec #1494, #1506), raising a request is the
+	only way anyone names who gets paid, so the ledgers' create right no longer counts."""
+	return can_raise_requests(user)
+
+
 def guard_can_name_expense_payee() -> None:
-	"""Refuse a caller who can neither raise an expense request nor record an expense. Gates the
-	Payee search / check / add that the request dialog and the Add Expense dialogs share
-	(`api/expense_requests/payees`)."""
+	"""Refuse a caller who can raise no expense type. Gates the Payee search / check / add of the
+	New Expense dialog and the expense edit dialogs (`api/expense_requests/payees`)."""
 	if not can_name_expense_payee():
 		frappe.throw(
-			"Only someone who can raise an expense request or record an expense may do this.",
+			"Only someone who can raise an expense may do this.",
 			frappe.PermissionError,
 			title="Not a requester",
 		)
@@ -150,30 +211,33 @@ def guard_reviewer(req) -> None:
 	A caller passes the role check as the type's routed reviewer (always Admin today), or
 	as Accountant / HR on a request a Project Manager raised -- see `reviews_pm_request`.
 
-	An Admin passes both. They are the configured fallback reviewer for every unrouted
-	category, so blocking Admin self-review would strand any request an Admin raised with
-	nobody able to action it.
+	NOBODY reviews their own request, an Admin included (spec #1494, story 35). An Admin's own
+	request is approved on submit (Records without review), so the only one that waits is one
+	raised before that, and another Admin reviews it.
 	"""
 	user = frappe.session.user
-	profile = caller_role_profile(user)
-
-	if profile == ADMIN_PROFILE:
-		return
-
-	expected = reviewer_role_for_type(req.type)
-	if profile != expected and not reviews_pm_request(profile, caller_role_profile(req.owner)):
+	if not may_review(req, user, caller_role_profile(user), caller_role_profile(req.owner)):
+		if req.owner == user:
+			frappe.throw(
+				"You cannot approve or reject your own expense request.",
+				frappe.PermissionError,
+				title="Self-review",
+			)
 		frappe.throw(
-			f"Expense requests of type '{req.type}' are reviewed by {expected}.",
+			f"Expense requests of type '{req.type}' are reviewed by {reviewer_role_for_type(req.type)}.",
 			frappe.PermissionError,
 			title="Not your review",
 		)
 
-	if req.owner == user:
-		frappe.throw(
-			"You cannot approve or reject your own expense request.",
-			frappe.PermissionError,
-			title="Self-review",
-		)
+
+def may_review(req, user: str, profile: str | None, requester_profile: str | None) -> bool:
+	"""May `user` (holding `profile`) decide this request? The one rule behind `guard_reviewer`
+	and the list's `can_review`: never their own; an Admin any other; the type's reviewer; or
+	Accountant / HR on a Project Manager's request (`reviews_pm_request`)."""
+	if req.get("owner") == user:
+		return False
+	return (profile == ADMIN_PROFILE or profile == reviewer_role_for_type(req.get("type"))
+	        or reviews_pm_request(profile, requester_profile))
 
 
 def get_permission_query_conditions(user: str | None = None) -> str:

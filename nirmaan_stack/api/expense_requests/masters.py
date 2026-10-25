@@ -177,11 +177,13 @@ def create_expense_type(expense_name: str, project=0, non_project=0, expense_cat
 
 @frappe.whitelist(methods=["POST"])
 def update_expense_type(name: str, project=0, non_project=0, expense_category=None,
-                        allowed_roles=None, payee_rule=None):
-	"""Change a type's scope, its category, the roles that see it and who gets paid.
+                        allowed_roles=None, payee_rule=None, confirmed_as_request=None):
+	"""Change a type's scope, its category, the roles that see it, who gets paid, and its
+	"Confirmed as Expense Request" label.
 
 	`allowed_roles` REPLACES the list when sent; omitted, the list is left as it is. The same
-	goes for `payee_rule` (Required / Optional / Not asked).
+	goes for `payee_rule` (Required / Optional / Not asked) and `confirmed_as_request` (0 / 1, a
+	label only: it changes no behaviour).
 
 	The NAME is deliberately not editable HERE. It is the docname, so changing it is a
 	`rename_doc` operation rather than a field write -- that is `rename_expense_type`, its own
@@ -203,13 +205,18 @@ def update_expense_type(name: str, project=0, non_project=0, expense_category=No
 	doc.expense_category = category
 	if rule:
 		doc.payee_rule = rule
+	if confirmed_as_request is not None:
+		doc.confirmed_as_request = 1 if frappe.utils.cint(confirmed_as_request) else 0
 	_set_roles(doc, profiles)
+	# A profile this takes off its last type leaves Records without review (story 28): the
+	# Expense Type's `on_update` prunes the list.
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()
 	return {"name": name, "project": project, "non_project": non_project,
 	        "expense_category": category,
 	        "allowed_roles": [r.role_profile for r in doc.allowed_roles],
-	        "payee_rule": doc.payee_rule}
+	        "payee_rule": doc.payee_rule,
+	        "confirmed_as_request": doc.confirmed_as_request}
 
 
 def names_referenced_in_code() -> set[str]:

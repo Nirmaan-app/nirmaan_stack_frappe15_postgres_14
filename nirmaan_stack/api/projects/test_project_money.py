@@ -4,7 +4,8 @@
 """A project's outflow, Current Liabilities, inflow and cashflow gap: one server figure (#1456, ADR-0034).
 
 `GLOSSARY.md` *Project outflow* and *Current Liabilities*: outflow is cash (every Paid payment on the
-project by its payment date, less Received Vendor Refunds by the refund's own date, plus Paid expenses);
+project by its payment date, less Received Vendor Refunds by the refund's own date, plus Paid expenses,
+plus the TDS on Paid Work Order payments by the payment's date, ADR-0034 Amendment A);
 liabilities are max(0, delivered - Amount Paid) over the project's POs except Merged, Cancelled and
 Inactive. CEO Hold and the Projects list read the same function, so their gaps agree.
 
@@ -23,6 +24,7 @@ from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import 
     sync_cashflow_reason,
 )
 from nirmaan_stack.services.ceo_hold import core as ceo_hold
+from nirmaan_stack.services.payment_tds import BORNE_BY_COMPANY, BORNE_BY_VENDOR
 
 PO = "Procurement Orders"
 
@@ -107,7 +109,8 @@ class TestProjectMoney(FrappeTestCase):
         self.assertEqual(
             _rounded(get_project_money(self.P)),
             {"po_outflow": 600.0, "wo_outflow": 0.0, "expense_outflow": 70.0,
-             "outflow": 670.0, "liabilities": 700.0, "inflow": 800.0, "cashflow_gap": 570.0},
+             "outflow": 670.0, "liabilities": 700.0, "inflow": 800.0, "cashflow_gap": 570.0,
+             "refunds": 100.0, "tds": 0.0},
         )
 
     def test_a_refund_counts_on_its_own_date(self):
@@ -115,7 +118,8 @@ class TestProjectMoney(FrappeTestCase):
         self.assertEqual(
             _rounded(get_project_money(self.P, from_date="2026-05-01", to_date="2026-06-30")),
             {"po_outflow": 200.0, "wo_outflow": 0.0, "expense_outflow": 0.0,
-             "outflow": 200.0, "liabilities": 700.0, "inflow": 800.0, "cashflow_gap": 100.0},
+             "outflow": 200.0, "liabilities": 700.0, "inflow": 800.0, "cashflow_gap": 100.0,
+             "refunds": 100.0, "tds": 0.0},
         )
         # April-May: both payments and the expense, but not the 15-Jun refund on the same PO.
         self.assertEqual(
@@ -129,7 +133,8 @@ class TestProjectMoney(FrappeTestCase):
         self.assertEqual(
             _rounded(money["TEST-1456-NO-SUCH-PROJECT"]),
             {"po_outflow": 0.0, "wo_outflow": 0.0, "expense_outflow": 0.0,
-             "outflow": 0.0, "liabilities": 0.0, "inflow": 0.0, "cashflow_gap": 0.0},
+             "outflow": 0.0, "liabilities": 0.0, "inflow": 0.0, "cashflow_gap": 0.0,
+             "refunds": 0.0, "tds": 0.0},
         )
 
     def test_ceo_hold_and_the_projects_list_agree(self):
@@ -157,3 +162,93 @@ class TestProjectMoney(FrappeTestCase):
                 get_projects_money([self.P])
         finally:
             frappe.set_user("Administrator")
+
+
+WO = "Service Requests"
+
+
+class TestProjectOutflowCountsWorkOrderTds(FrappeTestCase):
+    """Project outflow counts the TDS on the project's Paid Work Order payments, both kinds, on the
+    payment's own date (ADR-0034 Amendment A, `GLOSSARY.md` *Project outflow*, #1510):
+
+    - WO V (vendor-borne): a Paid payment on 10-Apr, ₹10,000 gross cut to ₹9,800 with ₹200 withheld.
+    - WO C (company-borne): a Paid payment on 10-Jun of ₹800 kept whole, ₹16 paid by the company on top.
+    - WO V: an Approved payment of ₹4,900 with ₹100 recorded: not Paid, so neither it nor its tax counts.
+    - a Paid *TDS Payment* Non-Project Expense of ₹216 on 07-Jul (the challan): not project outflow.
+
+    The deductions name no project of their own: the payment says whose they are.
+
+    All time: wo_outflow = 9,800 + 200 + 800 + 16 = 10,816, the whole outflow and the gap.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.P = _raw("Projects", project_name="TEST-1510-WO-TDS", status="WIP")
+        cls.payments = []
+        for order, amount, status, date, tds, borne_by in (
+            ("TEST-1510-WO-V", 9800, "Paid", "2026-04-10", 200, BORNE_BY_VENDOR),
+            ("TEST-1510-WO-C", 800, "Paid", "2026-06-10", 16, BORNE_BY_COMPANY),
+            ("TEST-1510-WO-V", 4900, "Approved", "2026-05-12", 100, BORNE_BY_VENDOR),
+        ):
+            payment = _raw("Project Payments", project=cls.P, document_type=WO, document_name=order,
+                           amount=amount, status=status, payment_date=date)
+            cls.payments.append(payment)
+            gross = amount + tds if borne_by == BORNE_BY_VENDOR else amount
+            _raw("Payment TDS Deduction", project_payment=payment, document_type=WO, document_name=order,
+                 gross_amount=gross, tds_percentage=2, tds_amount=tds, borne_by=borne_by, status="Pending")
+        cls.challan = _raw("Non Project Expenses", type="TDS Payment", amount=216, status="Paid",
+                           payment_date="2026-07-07")
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.rollback()
+        failures = []
+        for doctype, filters in (
+            ("Payment TDS Deduction", {"project_payment": ["in", cls.payments]}),
+            ("Project Payments", {"project": cls.P}),
+            ("Non Project Expenses", {"name": cls.challan}),
+            ("CEO Hold Reason", {"project": cls.P}),
+            ("Projects", {"name": cls.P}),
+        ):
+            try:
+                frappe.db.delete(doctype, filters)
+                frappe.db.commit()
+            except Exception as error:  # noqa: BLE001 - report every scope, strand none silently
+                frappe.db.rollback()
+                failures.append(f"{doctype}: {error}")
+        super().tearDownClass()
+        if failures:
+            raise AssertionError(f"test_project_money left rows behind: {failures}")
+
+    def test_outflow_counts_both_kinds_of_tax_once(self):
+        self.assertEqual(
+            _rounded(get_project_money(self.P)),
+            {"po_outflow": 0.0, "wo_outflow": 10816.0, "expense_outflow": 0.0,
+             "outflow": 10816.0, "liabilities": 0.0, "inflow": 0.0, "cashflow_gap": 10816.0,
+             "refunds": 0.0, "tds": 216.0},
+        )
+
+    def test_the_tax_counts_on_its_payments_date(self):
+        # April: the vendor-borne payment and its withheld ₹200.
+        self.assertEqual(
+            _rounded(get_project_money(self.P, from_date="2026-04-01", to_date="2026-04-30"))["wo_outflow"],
+            10000.0,
+        )
+        # May: only the Approved payment, which adds neither cash nor tax.
+        self.assertEqual(
+            _rounded(get_project_money(self.P, from_date="2026-05-01", to_date="2026-05-31"))["wo_outflow"],
+            0.0,
+        )
+        # June-July: the company-borne payment and its ₹16; the July challan expense is not project outflow.
+        self.assertEqual(
+            _rounded(get_project_money(self.P, from_date="2026-06-01", to_date="2026-07-31"))["outflow"],
+            816.0,
+        )
+
+    def test_ceo_hold_and_the_projects_list_agree(self):
+        rollup = get_projects_financial_rollup()[self.P]
+        self.assertEqual(flt(_compute_cashflow_gap(self.P), 2), 10816.0)
+        self.assertEqual(flt(rollup["cashflow_gap"], 2), 10816.0)
+        self.assertEqual(flt(rollup["outflow"], 2), 10816.0)

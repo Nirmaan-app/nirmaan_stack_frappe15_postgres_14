@@ -4,8 +4,6 @@ import { useUserData } from "@/hooks/useUserData";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { APPROVAL_COUNTS_API, APPROVAL_COUNTS_SWR_KEY, APPROVAL_STATUS } from "./config/approvalsTable.config";
-import { NewProjectExpenseDialog } from "../ProjectExpenses/components/NewProjectExpenseDialog";
-import { NewNonProjectExpense } from "../NonProjectExpenses/components/NewNonProjectExpense";
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFrappeDocTypeEventListener, useFrappeGetCall } from "frappe-react-sdk";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -19,6 +17,9 @@ import {
 // viewers outside its audience (#1476).
 import { paymentsTabSet, resolvePaymentsTab } from "./config/paymentsTabSet";
 import { ChequeTrackerNote } from "./components/ChequeTrackerNote";
+import NewExpenseRequestDialog from "@/pages/ExpenseRequests/components/NewExpenseRequestDialog";
+import { useExpenseAccess } from "@/hooks/useExpenseAccess";
+import { offersNewExpense } from "@/utils/expenseAccess";
 
 const ApprovePayments = React.lazy(() => import("./approve-payments/ApprovePayments"));
 const AccountantTabs = React.lazy(() => import("./update-payment/AccountantTabs"));
@@ -67,6 +68,17 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
     useEffect(() => () => {
         if (countsDebounceRef.current) clearTimeout(countsDebounceRef.current);
     }, []);
+
+    // ── + New Expense (spec #1494): the Expenses page's dialog, opened by the header button under the
+    // same gate (`offersNewExpense`, the server's `can_raise`). The submit handler refetches the open
+    // tab's rows (the tab publishes its refetch here, `usePublishRefetch`; it stays mounted, so its
+    // filters and page stay), so any Expense the submit created shows at once, and the badges refetch.
+    const { access: expenseAccess } = useExpenseAccess();
+    const listRefetchRef = useRef<(() => void) | null>(null);
+    const refreshLists = useCallback(() => {
+        listRefetchRef.current?.();
+        mutateQueueCounts();
+    }, [mutateQueueCounts]);
 
     const unionCount = useCallback(
         (status: string, fallback: number | string) => {
@@ -155,21 +167,6 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         [PP_TABS.ALL_PAYMENTS]: { ...PP_ALL_TAB_OPTIONS[0], countValue: queueCounts?.message?.all },
     }), [withUnionCount, unionCount, counts, queueCounts]);
 
-    /**
-     * Refresh after an expense is created from this page.
-     *
-     * A new expense lands in one of THESE tabs, so leaving the screen stale would show
-     * a queue that does not contain the row the user just created. The badges are ours
-     * to refresh; the ledger tables are owned by the lazy children, so they are
-     * invalidated by SWR key prefix rather than through a lifted handle.
-     */
-    const handleExpenseCreated = useCallback(() => {
-        mutateQueueCounts();
-        // The three queue TABLES refresh themselves: each now listens for realtime
-        // events on both expense doctypes (see the listeners in ApprovePayments /
-        // AllPayments / AccountantTabs). Only the badges are ours.
-    }, [mutateQueueCounts]);
-
     // Render a single tab button
     const renderTabButton = (option: PPTabOption | { label: string, value: string, countValue: number | string }) => {
         // Resolve count either straight from passed value or via dot notation from countKey
@@ -232,7 +229,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                 {
                     tab === PP_TABS.APPROVE_PAYMENTS ? (
                         canApprovePayments ? (
-                            <ApprovePayments />
+                            <ApprovePayments refetchRef={listRefetchRef} />
                         ) : (
                             // Reachable only via a hand-edited / bookmarked `?tab=Approve Payments`
                             // URL -- the tab button is not rendered for these roles.
@@ -244,7 +241,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                             </Alert>
                         )
                     ) : tab === PP_TABS.CEO_PENDING ? (
-                        <ApprovePayments mode="ceo" readOnly={!isCEO} />
+                        <ApprovePayments mode="ceo" readOnly={!isCEO} refetchRef={listRefetchRef} />
                     ) : ((tab === PP_TABS.NEW_PAYMENTS && !canSettlePayments) || (tab === PP_TABS.RECONCILIATION_PENDING && !canViewReconciliation)) ? (
                         // Reachable only via a hand-edited / bookmarked `?tab=` URL -- the tab
                         // buttons are not rendered for these roles (PMO removed 2026-09-17).
@@ -260,13 +257,13 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
 
                         [PP_TABS.NEW_PAYMENTS].includes(tab as any) ?
                             (
-                                <AccountantTabs />
+                                <AccountantTabs refetchRef={listRefetchRef} />
                             ) : [PP_TABS.PAYMENTS_PENDING, PP_TABS.PAYMENTS_DONE, PP_TABS.ALL_PAYMENTS, PP_TABS.RECONCILIATION_PENDING, PP_TABS.PAYMENT_BY_ME].includes(tab as any) ? (
                                 <>
                                     {tab === PP_TABS.RECONCILIATION_PENDING && (
                                         <ChequeTrackerNote role={role} waiting={queueCounts?.message?.cheque_tracker} />
                                     )}
-                                    <AllPayments tab={tab} />
+                                    <AllPayments tab={tab} refetchRef={listRefetchRef} />
                                 </>
                             )
                                 : (
@@ -274,21 +271,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                                 )
                 }
             </Suspense >
-
-            {/*
-              The "Expense Request" dropdown in the top bar (renderRightActionButton.tsx)
-              only flips these two zustand flags. Both dialogs are bare controlled
-              AlertDialogs that render no trigger of their own and were mounted ONLY on
-              their own list pages -- so without these two lines the button would look
-              wired and do nothing.
-
-              `projectId` is deliberately OMITTED: this page has no project in scope, and
-              with it absent the dialog renders its own ProjectSelect. The two take
-              differently-named callbacks (`onSuccess` vs `refetchList`), so they cannot
-              share one prop even though both point at the same refresh.
-            */}
-            <NewProjectExpenseDialog onSuccess={handleExpenseCreated} />
-            <NewNonProjectExpense refetchList={handleExpenseCreated} />
+            {offersNewExpense(expenseAccess) && <NewExpenseRequestDialog onSuccess={refreshLists} />}
         </div >
     );
 };

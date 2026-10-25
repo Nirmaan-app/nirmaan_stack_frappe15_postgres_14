@@ -14,8 +14,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { useCompanyBorneTds, useVendorTdsRate } from "../../hooks/useVendorTdsRates";
-import { forecastTdsTotals, withholdsOnApproval } from "../../tdsForecast";
+import { usePaymentTdsForecasts } from "../../hooks/usePaymentTdsForecasts";
+import { withholdsOnApproval } from "../../tdsForecast";
+import { forecastTotals } from "../../tdsPreview";
 import { parseNumber } from "@/utils/parseNumber";
 // Same superset row as BulkActionBar — every field this dialog reads is carried
 // under its payment name, so only the type widened.
@@ -225,17 +226,24 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
    * Approve Payments tab — and always the case for an expense, which has no vendor and never
    * withholds tax.
    */
-  const rateFor = useVendorTdsRate();
-  // Miscellaneous / Transportation-only Work Orders keep their payment whole; the tax is paid on top.
-  const companyBorneFor = useCompanyBorneTds();
+  // The server works out each payment's tax (story 59): the vendor's rate today and the rule approval
+  // uses, Miscellaneous / Transportation-only Work Orders kept whole with the tax paid on top.
+  const forecastAsks = useMemo(
+    () => {
+      // Only a vendor payment can carry tax; an expense never does.
+      const payments = others.filter((p) => p.source === "Vendor Payment");
+      return open && payments.length ? payments.map((p) => ({ name: p.name })) : null;
+    },
+    [open, others]
+  );
+  const { forecasts } = usePaymentTdsForecasts(forecastAsks);
   //
   // ⚠️ ONLY THE ROWS THIS CLICK FINISHES. An L1 approval above 50,000 only forwards the payment to
   // the CEO and withholds nothing yet; counting it here overstated the tax and understated what
   // the vendors receive. Forwarded rows -- of every ledger -- get their own note below.
   const { tdsTotals, forwardedNote } = useMemo(() => {
     const finishes = others.filter((p) => withholdsOnApproval(mode, p.amount));
-    const totals = (rows: ApprovalQueueRow[]) =>
-      forecastTdsTotals(rows, (p) => rateFor(p.vendor), (p) => companyBorneFor(p.document_name));
+    const totals = (rows: ApprovalQueueRow[]) => forecastTotals(rows, forecasts);
     // What this L1 click FORWARDS to the CEO instead of finishing -- every ledger, each on its own
     // CEO line, exactly as the bulk endpoints route them. The CEO's own click forwards nothing.
     const forwards =
@@ -250,7 +258,7 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
       totals(forwards).count
     );
     return { tdsTotals: totals(finishes), forwardedNote: note };
-  }, [others, mode, rateFor, companyBorneFor]);
+  }, [others, mode, forecasts]);
 
   // Every payment of a cheque group is a cheque payment, ticked or not.
   const modes = useMemo(() => {

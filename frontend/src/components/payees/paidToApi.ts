@@ -20,7 +20,7 @@ export const PAID_TO_API = `${API}.get_paid_to`;
 export const TAKE_VENDOR_ACCOUNTS_API = `${API}.take_vendor_accounts`;
 /** Record Payment's "Pay ₹X to" box, for an expense or a PO / WO payment. */
 export const PAY_TO_BOX_API = `${API}.get_pay_to_box`;
-/** Change account on an expense: the server asks write permission; the screen offers it to Accounts. */
+/** Change account on an expense: the server asks its edit rule for the pay-to fields (`assert_may_edit`). */
 export const CHANGE_EXPENSE_ACCOUNT_API = `${API}.change_expense_account`;
 export const ACCOUNTS_SEARCH_PAYEES_API = `${API}.search_payees`;
 /** New bank details in Change account go through the Payees page's own endpoints (Accounts only). */
@@ -70,6 +70,8 @@ export interface PayToBox extends PaidTo {
     vendor_name: string | null;
     /** An expense with a vendor is paid into that vendor's account: Change account can't pick another. */
     vendor_fixed: boolean;
+    /** The row's status: Change account asks the server's edit answer at it. */
+    status: string | null;
     /** Money has left Approved: the account is read-only. */
     paid: boolean;
     named_by: NamedBy | null;

@@ -40,6 +40,8 @@ export interface ProjectPaymentUpdateFields {
         document_name : string;
         document_type : string;
         amount        : number;
+        /** The full bill (`requested_amount` of the queue row): `amount` plus any tax cut from it. */
+        requested_amount ?: number;
         status        : string;
         /** A cheque payment's number: the reference its reconciliation starts from. */
         cheque_no    ?: string;
@@ -292,7 +294,11 @@ export default function UpdatePaymentRequestDialog({
           <Row label="Project"  val={payment.project_label} />
           <Row label="Vendor"   val={payment.vendor_label} />
           <Row label="Doc #"    val={payment.document_name} />
-          <Row label="Req. Amt" val={fmt(payment.amount)} labelClass="font-bold" valClass="font-bold" />
+          {/* Req. Amt is the full bill (story 60, walk W5); what is paid, the stored amount, under it. */}
+          <Row label="Req. Amt" val={fmt(payment.requested_amount ?? payment.amount)} labelClass="font-bold" valClass="font-bold" />
+          {payment.requested_amount !== undefined && payment.requested_amount !== payment.amount && (
+            <Row label="To be paid" val={fmt(payment.amount)} />
+          )}
           <Row label={payment.document_type === "Service Requests" ? "WO Value" : "PO Value"} val={fmt(getTotalAmount(payment.document_name, payment.document_type).totalWithTax)} />
           <Row label="Total Paid" val={fmt(getAmountPaid(payment.document_name, payment.document_type))} />
         </div>

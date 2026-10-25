@@ -77,7 +77,7 @@ class TestPartiallyReconciled(unittest.TestCase):
         frappe.db.commit()
         return row.name
 
-    def _expense(self, doctype, amount, status="Reconciliation Pending"):
+    def _expense(self, doctype, amount, status="Reconciliation Pending", vendor=None):
         name = f"{self.PREFIX}-{frappe.generate_hash(length=12)}"
         expense_type = (
             self.non_project_type if doctype == NON_PROJECT_EXPENSE else self.project_type
@@ -89,6 +89,8 @@ class TestPartiallyReconciled(unittest.TestCase):
             (name, "Administrator", "Administrator", float(amount), status,
              "Partially Reconciled report test", expense_type),
         )
+        if vendor:  # Project Expenses only: the Non-Project ledger has no vendor
+            frappe.db.sql(f'UPDATE "tab{doctype}" SET vendor = %s WHERE name = %s', (vendor, name))
         self.planted.append((doctype, name))
         frappe.db.commit()
         return name
@@ -204,6 +206,20 @@ class TestPartiallyReconciled(unittest.TestCase):
         self.assertAlmostEqual(mine[0]["amount"], 15000)
         self.assertIsNone(mine[0]["document_type"])
         self.assertIsNone(mine[0]["document_name"])
+
+    def test_a_project_item_carries_what_the_report_filters_on(self):
+        """The Outflow Report filters its total by vendor and expense type (#1542), the part-reconciled
+        money too, so each item names its vendor and its expense type by the name the table shows."""
+        expense = self._expense(PROJECT_EXPENSE, 40000, vendor=f"{self.PREFIX}-VENDOR")
+        self._slip(self._line(15000, today()), PROJECT_EXPENSE, expense, 15000)
+        mine = [i for i in get_partially_reconciled()["project"]["items"] if i["name"] == expense]
+
+        self.assertEqual(len(mine), 1)
+        self.assertEqual(mine[0]["vendor"], f"{self.PREFIX}-VENDOR")
+        self.assertEqual(
+            mine[0]["expense_type_name"],
+            frappe.db.get_value("Expense Type", self.project_type, "expense_name"),
+        )
 
     def test_items_add_up_to_the_amount(self):
         """The two are one reading, so a caller splitting `items` can never miss money."""

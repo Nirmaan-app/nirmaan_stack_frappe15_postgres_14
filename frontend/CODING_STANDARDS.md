@@ -205,6 +205,13 @@ Before writing an effect: if it calls `setState` on something in its own depende
 page-specific `formatDeadlineShort()` where one exists, or the date-fns pattern `dd-MMM-yyyy`. That one format
 covers every user-facing date, including ones that might read naturally as `MM/dd/yyyy`, `yyyy-MM-dd` or "15th Jan".
 
+## Displaying money
+
+**A whole-rupee figure rounds to the nearest rupee:** `formatToRoundedIndianRupee()` (export: `formatForReport()`)
+from `src/utils/FormatPrice.ts`, never `Math.ceil` or `Math.floor` on money for display (owner ruling, #1543): a
+ceiling turned a ₹0.30 Due into "₹1 due". **Show an order's stored figures** (`total_amount`, `amount_paid`,
+`amount_due`), never a total worked out again in the browser (`items × 1.18`).
+
 ---
 
 ## Writing TypeScript and styling
@@ -269,8 +276,11 @@ committing).
 
 ## Writing a test
 
-- **`yarn test` runs vitest with `environment: "node"`** over `src/**/*.test.{ts,tsx}` — unit tests only. CI
-  (`.github/workflows/ci.yml`) runs the Python bench suite only, so vitest is a local gate: run it yourself.
+- **`yarn test` runs vitest with `environment: "node"`** over `src/**/*.test.{ts,tsx}` and the tooling's
+  `scripts/**/*.test.mjs` — unit tests only. The Frontend CI job (`.github/workflows/frontend.yml`) runs it and
+  `yarn typecheck` on every PR; run both yourself first. `yarn typecheck` reports only errors new against
+  `tsc-baseline.json` (the order tsc prints a union's members in does not count); re-baseline only to lock in old
+  errors you fixed, never to hide a new one.
 - **The DOM environment is opt-in per file, and the global stays `node`.** `jsdom` is a devDependency;
   `vitest.config.ts` still declares `environment: "node"`, so every suite that does not ask for a DOM runs exactly
   as it always did. A file that needs one says so in its own first line: `// @vitest-environment jsdom`.

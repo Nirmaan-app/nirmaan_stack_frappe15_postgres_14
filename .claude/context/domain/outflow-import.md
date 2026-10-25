@@ -918,6 +918,16 @@ needs one vocabulary rather than one per writer.
     - ⚠️ **A typed comment is stored WITH the import note, never instead of it**, and the composed
       text must fit the 140-character `comment` field: `create_expense` refuses an over-long one
       before writing. The screen's cap is joined to the server's text by `commentCapParity.test.ts`.
+18. **A cheque payment is Paid only when its cheque clears** (#1552, ADR-0035 Amendment B). The import's hand
+    settle and the payments screen's fulfil refuse every Cheque-mode payment, Old-type cheques' included
+    (`cheques/decide.pay_alone_problem`). Under them, the payment's own `validate` refuses a move into Paid
+    unless the save carries `payment_rules.CLEARING_FLAG` naming a cheque that lists it (set only by
+    `cheques/status._pay`, the cheque pass), and any move out of Paid (`payment_mode.validate_paid_by_clear`).
+    A Cheque-mode payment no cheque lists is refused at save unless Rejected or Paid, and inserted only by
+    Request Payment (`CHEQUE_FOLLOWS_FLAG`, `payment_mode.validate_on_a_cheque`). Unreconcile refuses a Paid
+    cheque payment up front in its verdict ("Paid by cheque", `unreconcile.leg_verdict`), so one paid by hand
+    before #1552 is never offered as revertible. ⚠️ A new settle path that skips `pay_alone_problem` still
+    fails at the save, with the save's message: ask the service first.
 
 ---
 

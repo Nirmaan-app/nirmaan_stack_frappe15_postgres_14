@@ -18,6 +18,8 @@ import {
 import { NotificationType } from "@/zustand/useNotificationStore";
 // import { useDataRefetchStore } from "@/zustand/useDataRefetchStore";
 
+const SR_DECISION_EVENTS = ["sr:rejected", "sr:amendmentAccepted", "sr:amendmentReverted", "sr:finalized"] as const;
+
 // --- Define Explicit Action Interfaces ---
 // These interfaces describe the shape of the action objects we expect.
 
@@ -133,6 +135,9 @@ export const initializeSocketListeners = ({
     socket.on("sr:approved", onSrApproved);
     socket.on("sr:delete", onSrDelete);
     socket.on("sr:amended", onSrAmended);
+    // Told on a status move only (#1533): the creator on reject and amendment accept/revert; the
+    // approval audience on finalize. Each carries the bell row's notificationId, like sr:approved.
+    for (const event of SR_DECISION_EVENTS) socket.on(event, onSrApproved);
 
     // Payment Events
     const onPaymentNew = safeHandler(async (event: any) => handlePONewEvent(db, event, notificationActions.add_new_notification)); // Adapt handler if needed
@@ -179,6 +184,7 @@ export const initializeSocketListeners = ({
         socket.off("sr:approved", onSrApproved);
         socket.off("sr:delete", onSrDelete);
         socket.off("sr:amended", onSrAmended);
+        for (const event of SR_DECISION_EVENTS) socket.off(event, onSrApproved);
 
         socket.off("payment:new", onPaymentNew);
         socket.off("payment:approved", onPaymentApproved);

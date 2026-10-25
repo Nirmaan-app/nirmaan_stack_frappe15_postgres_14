@@ -16,8 +16,9 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, nowdate
 
 from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
-from nirmaan_stack.api.cheques.cheque_status import cancel_cheque, clear_cheque
+from nirmaan_stack.api.cheques.cheque_status import cancel_cheque
 from nirmaan_stack.api.cheques.list_cheques import get_cheque_facets, get_cheques
+from nirmaan_stack.api.cheques.save_cheque import save_cheque
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 
 U = "Administrator"
@@ -30,7 +31,16 @@ PROCUREMENT = (
 )
 PHOTO = "https://storage.example.invalid/private/files/cheque-test.jpg"
 SR = "Service Requests"
+PO = "Procurement Orders"
 LINE = "PO/WO Payment"
+
+
+def _cleared(cheque):
+    """Mark `cheque` Cleared, as a hand clear left it before #1516. Raw, test setup only: these cheques have
+    no payments for a bank line to pay, and only the list is under test."""
+    frappe.db.set_value("Cheques", cheque, {"status": "Cleared", "cleared_by": "By hand"},
+                        update_modified=False)
+    frappe.db.commit()
 
 
 class TestListCheques(FrappeTestCase):
@@ -78,7 +88,8 @@ class TestListCheques(FrappeTestCase):
         return get_cheques(search_term=number, current_search_fields='["cheque_no"]', **kwargs)
 
     def test_a_cheque_is_one_row_with_what_the_report_shows(self):
-        name, number = self._save(bank="Others", bank_name="HDFC Bank")
+        name, number = self._save()
+        ChequeFixture.move_to_other_bank(name, "HDFC Bank")  # recorded on Others before #1516
 
         result = self._search(number)
 
@@ -217,7 +228,7 @@ class TestChequeReportFiltersAndSummary(FrappeTestCase):
         issued = self._save(25000)
         cleared = self._save(10000)
         cancelled = self._save(5000)
-        clear_cheque(cleared, nowdate())
+        _cleared(cleared)
         cancel_cheque(cancelled, "Torn up")
 
         summary = self._list()["aggregates"]
@@ -249,7 +260,7 @@ class TestChequeReportFiltersAndSummary(FrappeTestCase):
     def test_facets_name_what_the_filtered_rows_hold(self):
         self._two_project_cheque()
         cleared = self._save(10000, lines=[self._wo_line(self.project_a, self.wo_a, 10000)])
-        clear_cheque(cleared, nowdate())
+        _cleared(cleared)
         vendor_only = json.dumps([["vendor", "=", self.vendor]])
 
         projects = get_cheque_facets("project", filters=vendor_only)["values"]
@@ -275,8 +286,9 @@ class TestChequeReportFiltersAndSummary(FrappeTestCase):
 
 
 class TestChequeTypeAndDates(FrappeTestCase):
-    """#1478: each row carries its cheque type, issue and clearance dates, how it cleared and the Old-type
-    flag; the list filters on type and both dates, and the strip counts Pending."""
+    """#1478: each row carries its cheque type, its Cheque/Payment Date and issue date (#1520: no clearance date,
+    and how it cleared is not shown) and the Old-type flag; the list filters on type and both dates, and the strip
+    counts Approval Pending."""
 
     def setUp(self):
         frappe.set_user(U)
@@ -306,16 +318,18 @@ class TestChequeTypeAndDates(FrappeTestCase):
         name = self._save()
         self.assertEqual(frappe.db.get_value("Cheques", name, "cheque_type"), "Payment")
 
-    def test_a_row_carries_type_dates_how_it_cleared_and_old_type(self):
+    def test_a_row_carries_type_its_two_dates_and_old_type(self):
         name = self._save(cheque_type="Payment", status="Cleared", issue_date="2026-09-02",
-                          clearance_date="2026-09-10", cleared_by="Bank import", old_type=1)
+                          cheque_date="2026-09-10", cleared_by="Bank import", old_type=1)
 
         row = get_cheques(filters=json.dumps([["name", "=", name]]))["data"][0]
 
         self.assertEqual(
-            (row["cheque_type"], str(row["issue_date"]), str(row["clearance_date"]), row["cleared_by"], row["old_type"]),
-            ("Payment", "2026-09-02", "2026-09-10", "Bank import", 1),
+            (row["cheque_type"], str(row["issue_date"]), str(row["cheque_date"]), row["old_type"]),
+            ("Payment", "2026-09-02", "2026-09-10", 1),
         )
+        self.assertNotIn("clearance_date", row)
+        self.assertNotIn("cleared_by", row)  # history only, no longer shown
 
     def test_the_list_filters_on_cheque_type(self):
         payment = self._save()
@@ -326,17 +340,19 @@ class TestChequeTypeAndDates(FrappeTestCase):
         types = get_cheque_facets("cheque_type", filters=json.dumps([["vendor", "=", self.vendor]]))["values"]
         self.assertEqual(sorted((v["value"], v["count"]) for v in types), [("Payment", 1), ("Security Deposit", 1)])
 
-    def test_the_list_filters_on_issue_and_clearance_dates(self):
-        early = self._save(issue_date="2026-09-02", clearance_date="2026-09-20")
+    def test_the_list_filters_on_issue_and_cheque_payment_dates(self):
+        early = self._save(issue_date="2026-09-02", cheque_date="2026-09-20")
         late = self._save(issue_date="2026-09-15")
         self._save()  # never issued
 
         self.assertEqual(self._names(["issue_date", "between", ["2026-09-01", "2026-09-05"]]), [early])
         self.assertEqual(self._names(["issue_date", ">=", "2026-09-01"]), sorted([early, late]))
-        self.assertEqual(self._names(["clearance_date", "between", ["2026-09-19", "2026-09-21"]]), [early])
+        self.assertEqual(self._names(["cheque_date", "between", ["2026-09-19", "2026-09-21"]]), [early])
+        with self.assertRaisesRegex(frappe.ValidationError, "Unsupported filter field: clearance_date"):
+            self._names(["clearance_date", "between", ["2026-09-19", "2026-09-21"]])
 
     def test_the_summary_counts_pending_cheques(self):
-        self._save(10000, status="Pending")
+        self._save(10000, status="Approval Pending")
         self._save(25000)
 
         summary = get_cheques(filters=json.dumps([["vendor", "=", self.vendor]]))["aggregates"]
@@ -378,8 +394,8 @@ class TestTheChequeTrackerTabs(FrappeTestCase):
 
     def test_the_issued_tab_lists_only_issued_payment_cheques(self):
         issued = self._cheque(issue_date=nowdate())
-        self._cheque(status="Pending")
-        self._cheque(status="Cleared", clearance_date=nowdate())
+        self._cheque(status="Approval Pending")
+        self._cheque(status="Cleared")
         self._cheque(status="Cancelled")
         self._cheque(cheque_type="Security Deposit", issue_date=nowdate())
 
@@ -416,3 +432,63 @@ class TestTheChequeTrackerTabs(FrappeTestCase):
         frappe.set_user(pm)
         with self.assertRaises(frappe.PermissionError):
             self._issued_tab()
+
+
+class TestTheChequesOfOnePo(FrappeTestCase):
+    """#1521 (spec #1514, stories 21 and 23): the PO page's "Cheques issued for this PO" card asks the list
+    for `record_name = <its PO>`. That lists the Payment cheques with a line on the PO and the deposit cheques
+    securing it, and each row carries `record_amount`: what its lines put on that PO."""
+
+    def setUp(self):
+        frappe.set_user(U)
+        self.fx = TaxedWorkOrderFixture.attach(self)
+        self.cheques = ChequeFixture.attach(self)
+        self.vendor = self.fx.vendor()
+        self.project = self.fx.project()
+        self.po = ChequeFixture.plant_po(self, self.fx, project=self.project, vendor=self.vendor)
+        self.other_po = ChequeFixture.plant_po(self, self.fx, project=self.project, vendor=self.vendor)
+        frappe.db.commit()
+
+    def tearDown(self):
+        frappe.set_user(U)
+
+    def _payment_cheque(self, *lines):
+        """A Payment cheque with one PO/WO Payment line per `(po, amount)`, for their total."""
+        return self.cheques.plant_cheque(
+            bank="ICICI Bank", cheque_no=self.cheques.number(), cheque_date=nowdate(),
+            amount=sum(amount for _, amount in lines), vendor=self.vendor, attachment=PHOTO,
+            lines=[{"line_type": LINE, "project": self.project, "record_doctype": PO, "record_name": po,
+                    "amount": amount} for po, amount in lines],
+        )
+
+    def _deposit_cheque(self, *pos):
+        return self.cheques.track(save_cheque(
+            cheque_type="Security Deposit", bank="Others", bank_name="HDFC Bank", cheque_no=self.cheques.number(),
+            cheque_date=nowdate(), issue_date=nowdate(), amount=200000, vendor=self.vendor, attachment=PHOTO,
+            lines=[{"line_type": "Secured PO/WO", "record_doctype": PO, "record_name": po} for po in pos],
+        )["cheque"])
+
+    def _of_po(self, po):
+        rows = get_cheques(filters=json.dumps([["record_name", "=", po]]), limit_page_length=500)["data"]
+        return {r["name"]: (r["cheque_type"], r["amount"], r["record_amount"]) for r in rows}
+
+    def test_it_lists_the_po_s_payment_and_deposit_cheques_with_what_each_puts_on_the_po(self):
+        one_line = self._payment_cheque((self.po, 30000))
+        shared = self._payment_cheque((self.po, 20000), (self.other_po, 15000))
+        deposit = self._deposit_cheque(self.po, self.other_po)
+        self._payment_cheque((self.other_po, 40000))  # another PO's cheques are not listed
+        self._deposit_cheque(self.other_po)
+
+        self.assertEqual(self._of_po(self.po), {
+            one_line: ("Payment", 30000, 30000),
+            shared: ("Payment", 35000, 20000),
+            # A deposit secures the PO and pays nothing on it: no line amount.
+            deposit: ("Security Deposit", 200000, 0),
+        })
+
+    def test_a_row_carries_no_po_amount_when_no_po_is_asked_for(self):
+        name = self._payment_cheque((self.po, 30000))
+
+        row = get_cheques(filters=json.dumps([["name", "=", name]]))["data"][0]
+
+        self.assertIsNone(row["record_amount"])

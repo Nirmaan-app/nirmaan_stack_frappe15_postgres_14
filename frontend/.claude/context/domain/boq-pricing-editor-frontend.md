@@ -235,8 +235,8 @@ _Moved verbatim from `frontend/CLAUDE.md` when it was cut down to material every
   declares the payload keys (`eligible_blank_category_count`, `categories_complete`,
   `category_gate_override`/`_by`/`_at`/`_reason`). **The admin set/clear override control** is
   two contextual buttons IN the banner (SET = `Override the check` -> a reason `Popover`, OPTIONAL reason +
-  `N/250` counter, no confirmation; CLEAR = `Remove override`), both gated on the pure exported
-  `canAdminOverride(role, userId)` (role-resolved AND admin, MIRRORS `_is_nirmaan_admin` by construction --
+  `N/250` counter, no confirmation; CLEAR = `Remove override`), both gated on the shared
+  `isNirmaanAdmin(role, userId)` in `src/constants/roles.ts` (role-resolved AND admin, MIRRORS `_is_nirmaan_admin` by construction --
   CONVENIENCE ONLY, server authoritative; the `role !== "Loading"` guard prevents a flash). Reason is
   normalised by the pure exported `normalizeOverrideReason` (client cap 250 + blank->null). Banners render
   for everyone; controls are admin-only. Override is TEMPORARY -- every G3b block carries a delete marker

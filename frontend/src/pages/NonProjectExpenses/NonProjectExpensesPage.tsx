@@ -1,6 +1,5 @@
 // src/pages/non-project-expenses/NonProjectExpensesPage.tsx
 
-import { statusAfterL1, TIER_L2_ABOVE_EXPENSES } from "@/utils/approvalTiers";
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { DateRange } from "react-day-picker";
@@ -8,7 +7,6 @@ import memoize from "lodash/memoize";
 
 import {
   useFrappeDeleteDoc,
-  useFrappeUpdateDoc,
   useFrappeGetDocList,
 } from "frappe-react-sdk";
 import { useCounts } from "@/hooks/useCounts";
@@ -19,6 +17,7 @@ import { DataTable } from "@/components/data-table/new-data-table";
 import { StandaloneDateFilter } from "@/components/ui/StandaloneDateFilter";
 import { useSharedReportDateRange } from "@/pages/reports/store/useReportDateStore";
 import { usePartiallyReconciled } from "@/pages/reports/hooks/usePartiallyReconciled";
+import { nonProjectReconciledInFilters } from "./utils/nonProjectReconciledInFilters";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import {
   AlertDialog,
@@ -44,6 +43,7 @@ import {
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { useUserData } from "@/hooks/useUserData";
+import { useExpenseDecision, useExpenseEditAccess } from "@/hooks/useExpenseDecision";
 import { parse, formatISO, startOfDay, endOfDay } from "date-fns";
 
 // --- Types ---
@@ -59,12 +59,12 @@ import { getNonProjectExpenseColumns } from "./config/nonProjectExpensesColumns"
 import { NPE_DEFAULT_URL_CONTEXT, NPE_STATUS_TAB_PARAM, npeListUrlSyncKey } from "./config/nonProjectExpensesUrl";
 
 // --- Child Components ---
-import { NewNonProjectExpense } from "./components/NewNonProjectExpense";
 import { EditNonProjectExpense } from "./components/EditNonProjectExpense";
 import { UpdatePaymentDetailsDialog } from "./components/UpdatePaymentDetailsDialog";
 import { UpdateInvoiceDetailsDialog } from "./components/UpdateInvoiceDetailsDialog";
 import { NonProjectExpenseSummaryCard } from "./components/NonProjectExpenseSummaryCard";
 import { getFrappeError } from "@/utils/frappeErrors";
+import { officeRentNames, useWithheldTds, WithheldTdsContext } from "@/hooks/useWithheldTds";
 
 const DOCTYPE = "Non Project Expenses";
 
@@ -104,7 +104,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
   const { toast } = useToast();
   const { role } = useUserData();
   const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc(); // For delete operation
-  const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
+  const { decideOne, loading: updateLoading } = useExpenseDecision();
 
   // --- Status workflow tab (URL-synced, role-based default) ---
   // Accountant lands on Approved (their action = Record Payment + Mark as Paid);
@@ -318,31 +318,9 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
   const confirmStatusChange = async () => {
     if (!statusAction) return;
     try {
-      // ⚠️ AN L1 APPROVAL DOES NOT ALWAYS MEAN "Approved".
-      //
-      // Above the L2 threshold, L1's click FORWARDS to the CEO rather than
-      // finishing the approval — so the status written depends on the AMOUNT, and
-      // `statusAfterL1` is the one place that decides it (shared with Python by a
-      // parity test). Writing "Approved" unconditionally, as this did, let a
-      // >Rs 50,000 expense skip the CEO gate entirely. (That line read 30,000
-      // until the owner moved the expense CEO threshold on 16 Sep 2026; the code
-      // never carried the number, only `TIER_L2_ABOVE_EXPENSES`.)
-      const nextStatus =
-        statusAction.next === "Approved"
-          ? statusAfterL1(statusAction.expense.amount, TIER_L2_ABOVE_EXPENSES)
-          : statusAction.next;
-
-      await updateDoc(DOCTYPE, statusAction.expense.name, {
-        status: nextStatus,
-        // Stamp the approval date the way Project Payments does, so an expense
-        // approved by a person is dated and the dashboard's L1 counter (which
-        // reads `approval_date AND NOT auto_approved`) can see it. Stamped on
-        // BOTH outcomes of an L1 click — forwarding to the CEO is still an L1
-        // approval, and payments date it the same way.
-        ...(statusAction.next === "Approved"
-          ? { approval_date: new Date().toISOString().slice(0, 10) }
-          : {}),
-      });
+      // The server decides where an L1 approval lands (Approved, or CEO Pending above the CEO
+      // line) and who may give one (`expense_decision`, #1497); the toast names what it decided.
+      const nextStatus = await decideOne(statusAction.expense.name, "l1_approve");
       toast({
         title: "Success",
         description: `Expense marked ${nextStatus}.`,
@@ -353,7 +331,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message || "Failed to update status.",
+        description: getFrappeError(error) || "Failed to update status.",
         variant: "destructive",
       });
     } finally {
@@ -377,11 +355,13 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
 
   // Columns live in ./config/nonProjectExpensesColumns (tab-aware + role-gated).
   // In report mode (DisableAction) show the full "All" column set with no actions.
+  const editableStatuses = useExpenseEditAccess();
   const columnsDefinition = useMemo(
     () =>
       getNonProjectExpenseColumns({
         statusTab: DisableAction ? "All" : statusTab,
         role,
+        editableStatuses,
         getUserName,
         disableActions: DisableAction,
         onEdit: handleOpenEditDialog,
@@ -394,6 +374,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
       statusTab,
       DisableAction,
       role,
+      editableStatuses,
       getUserName,
       handleOpenEditDialog,
       handleOpenApprove,
@@ -434,15 +415,26 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
     additionalFilters: additionalFilters, // date range + active status tab
   });
 
+  // The add-on follows the report's filters and search, as its rows do (walk W7, story 65).
+  const partiallyReconciledShown = useMemo(
+    () => nonProjectReconciledInFilters(partiallyReconciled.items, columnFilters, searchTerm || "", selectedSearchField || "description"),
+    [partiallyReconciled.items, columnFilters, searchTerm, selectedSearchField]
+  );
+
  const handleClearDateFilter = useCallback(() => {
     onDateClear(); // Reset to "ALL" (no date filtering)
   }, [onDateClear]);
+
+  // Office Rent rows' tax records (#1527), for the Amount cells (`WithheldTdsContext`).
+  const officeRent = useMemo(() => officeRentNames(data), [data]);
+  const withheldTds = useWithheldTds(officeRent);
 
   if (error && !data?.length) {
     return <AlertDestructive error={error} className="m-4" />;
   }
 
   return (
+    <WithheldTdsContext.Provider value={withheldTds}>
     <div
       className={cn(
         "flex flex-col gap-2 overflow-hidden",
@@ -518,7 +510,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
           <NonProjectExpenseSummaryCard
             /* Report mode only -- see the prop's own note. The standalone page's figure follows
                the status tab, which this sum is not true of. */
-            partiallyReconciled={DisableAction ? partiallyReconciled : undefined}
+            partiallyReconciled={DisableAction ? partiallyReconciledShown : undefined}
             aggregates={aggregates}
             isAggregatesLoading={isAggregatesLoading}
             totalCount={totalCount}
@@ -529,13 +521,6 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
         }
       // errorMessage="Could not load expenses. Please try again." // Already handled by main error display
       />
-      <NewNonProjectExpense
-        refetchList={() => {
-          refetch();
-          mutateCounts();
-        }}
-      />
-
       {selectedExpenseForEdit && ( // NEW: Render Edit Dialog
         <EditNonProjectExpense
           expenseToEdit={selectedExpenseForEdit}
@@ -634,6 +619,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
         </AlertDialog>
       )}
     </div>
+    </WithheldTdsContext.Provider>
   );
 };
 

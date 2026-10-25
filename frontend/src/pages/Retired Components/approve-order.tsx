@@ -257,7 +257,7 @@ const ApprovePRListPage : React.FC<ApprovePRListPageProps> = ({ pr_data, project
     setEditItemDialog((prevState) => !prevState);
   }, [editItemDialog]);
 
-  const [fuzzyMatches, setFuzzyMatches] = useState([]);
+  const [fuzzyMatches, setFuzzyMatches] = useState<(Items & { matchPercentage: number })[]>([]);
 
   const managersIdList = useMemo(() => usersList?.map((user) => user?.name) || [], [usersList])
 

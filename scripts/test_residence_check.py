@@ -16,6 +16,7 @@ from residence_check import (  # noqa: E402
     payment_sum_lines_py,
     payment_sum_lines_ts,
     rupee_formatter_lines,
+    tds_added_to_amount_paid_lines,
 )
 
 
@@ -168,6 +169,35 @@ class WhatAFailurePrints(unittest.TestCase):
         shown = locations_to_show(where, set())
         self.assertEqual(len(shown), 21)
         self.assertEqual(shown[-1], "... 5 more (--list prints them all)")
+
+class TaxAddedOntoAmountPaid(unittest.TestCase):
+    """A Work Order's `amount_paid` already holds the TDS withheld from the vendor (ADR-0034 Amendment A),
+    so adding `total_tds` or a deduction's `tds_amount` onto it counts the tax twice."""
+
+    def test_a_screen_adding_the_stored_tds_back_onto_amount_paid_is_a_copy(self):
+        src = (
+            "const paid = parseNumber(orderData?.amount_paid);\n"
+            "const gross = parseNumber(orderData?.amount_paid) + parseNumber(orderData?.total_tds);\n"
+            "const g2 = (wo.total_tds || 0) + (wo.amount_paid || 0);\n"
+        )
+        self.assertEqual(tds_added_to_amount_paid_lines(src), [2, 3])
+
+    def test_a_deductions_tax_added_onto_amount_paid_is_a_copy(self):
+        src = "    paid = flt(row.amount_paid) + flt(d.tds_amount)\n"
+        self.assertEqual(tds_added_to_amount_paid_lines(src), [1])
+
+    def test_sql_adding_the_stored_tds_onto_amount_paid_is_a_copy(self):
+        src = '        SELECT o.amount_paid + o.total_tds AS gross FROM "tabService Requests" o\n'
+        self.assertEqual(tds_added_to_amount_paid_lines(src), [1])
+
+    def test_a_comment_or_a_subtraction_or_another_sum_is_not_a_copy(self):
+        src = (
+            "// Gross paid used to be amount_paid + total_tds.\n"
+            "    # amount_paid + total_tds counts the tax twice\n"
+            "const toVendor = parseNumber(orderData?.amount_paid) - parseNumber(tds?.withheld);\n"
+            "const t = parseNumber(row.total_amount) + parseNumber(row.total_tds);\n"
+        )
+        self.assertEqual(tds_added_to_amount_paid_lines(src), [])
 
 
 if __name__ == "__main__":

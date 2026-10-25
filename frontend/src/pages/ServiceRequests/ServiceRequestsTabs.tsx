@@ -12,6 +12,8 @@ import {
     SRTabOption,
 } from "./config/srTabs.constants";
 import { NewWODialog } from "./components/NewWODialog";
+import { useGstMismatchList } from "./hooks/useMatchGstToVendor";
+import { canMatchGstToVendor } from "@/constants/roles";
 
 const ApproveSelectSR = React.lazy(() => import("./service-request/approve-service-request-list"));
 const ApproveSelectAmendSR = React.lazy(() => import("./service-request/approve-amend-sr-list"));
@@ -19,10 +21,15 @@ const SelectServiceVendorList = React.lazy(() => import("./service-request/selec
 const ApprovedSRList = React.lazy(() => import("./service-request/approved-sr-list"));
 const FinalizedSRList = React.lazy(() => import("./service-request/finalized-sr-list"));
 const AllSRList = React.lazy(() => import("./service-request/all-sr-list"));
+const GstMismatchList = React.lazy(() => import("./service-request/gst-mismatch-list"));
+
+type AllWOSubTab = "All" | "Approved" | "Finalized" | "GstMismatch";
 
 export const ServiceRequestsTabs: React.FC = () => {
-    const { role } = useUserData();
+    const { role, user_id } = useUserData();
     const { counts } = useDocCountStore();
+    const canMatchGst = canMatchGstToVendor(role, user_id);
+    const { rows: gstMismatches } = useGstMismatchList(canMatchGst);
 
     const isAdmin = useMemo(() => SR_ADMIN_ROLES.includes(role), [role]);
     // Estimates Executive + Billing Executive see ONLY the "All WO" tab.
@@ -42,15 +49,16 @@ export const ServiceRequestsTabs: React.FC = () => {
         // top-level tabs -- dashboards deep-link to them. Map such a link onto the
         // All WO tab so a tab actually gets selected; the sub-tab is pre-selected
         // from `initialAllWOSubTab` below.
-        if (raw === SR_TABS.APPROVED || raw === SR_TABS.FINALIZED) return SR_TABS.ALL;
+        if (raw === SR_TABS.APPROVED || raw === SR_TABS.FINALIZED || raw === SR_TABS.GST_MISMATCH) return SR_TABS.ALL;
         return raw;
     }, [isAdmin, isAllWoOnly]);
 
-    // Which "All WO" sub-tab to open, derived from an approved-sr / finalized-sr deep link.
-    const initialAllWOSubTab = useMemo<"All" | "Approved" | "Finalized">(() => {
+    // Which "All WO" sub-tab to open, derived from an approved-sr / finalized-sr / gst-mismatch deep link.
+    const initialAllWOSubTab = useMemo<AllWOSubTab>(() => {
         const raw = getUrlStringParam("tab", "");
         if (raw === SR_TABS.APPROVED) return "Approved";
         if (raw === SR_TABS.FINALIZED) return "Finalized";
+        if (raw === SR_TABS.GST_MISMATCH) return "GstMismatch";
         return "All";
     }, []);
 
@@ -81,7 +89,7 @@ export const ServiceRequestsTabs: React.FC = () => {
         [isAllWoOnly]
     );
 
-    const [allWOTab, setAllWOTab] = useState<"All" | "Approved" | "Finalized">(initialAllWOSubTab);
+    const [allWOTab, setAllWOTab] = useState<AllWOSubTab>(initialAllWOSubTab);
 
     // --- Tab Change Handler ---
     const handleTabClick = useCallback((value: string) => {
@@ -92,10 +100,11 @@ export const ServiceRequestsTabs: React.FC = () => {
 
     // Render All WO Sub-tabs
     const renderAllWOSubTabs = () => {
-        const subTabs = [
+        const subTabs: { label: string; value: AllWOSubTab; count: number }[] = [
             { label: "All", value: "All", count: counts.sr.all },
             { label: "Approved WO", value: "Approved", count: counts.sr.approved },
             { label: "Finalized WO", value: "Finalized", count: counts.sr.finalized },
+            ...(canMatchGst ? [{ label: "GST mismatch", value: "GstMismatch" as const, count: gstMismatches.length }] : []),
         ];
 
         return (
@@ -107,7 +116,7 @@ export const ServiceRequestsTabs: React.FC = () => {
                             <button
                                 key={sTab.value}
                                 type="button"
-                                onClick={() => setAllWOTab(sTab.value as any)}
+                                onClick={() => setAllWOTab(sTab.value)}
                                 className={`px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm rounded
                                     transition-colors flex items-center gap-1.5 whitespace-nowrap
                                     ${isActive
@@ -190,6 +199,7 @@ export const ServiceRequestsTabs: React.FC = () => {
                         {allWOTab === "All" && <AllSRList />}
                         {allWOTab === "Approved" && <ApprovedSRList />}
                         {allWOTab === "Finalized" && <FinalizedSRList />}
+                        {allWOTab === "GstMismatch" && canMatchGst && <GstMismatchList />}
                     </div>
                 )}
             </Suspense>

@@ -1,12 +1,12 @@
 // src/pages/ProjectExpenses/ProjectExpensesList.tsx
 
-import { statusAfterL1, TIER_L2_ABOVE_EXPENSES } from "@/utils/approvalTiers";
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 import { ColumnDef, Row } from "@tanstack/react-table";
-import { useFrappeDeleteDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeDeleteDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useUserData } from "@/hooks/useUserData";
+import { useExpenseDecision, useExpenseEditAccess } from "@/hooks/useExpenseDecision";
 import { useCounts } from "@/hooks/useCounts";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import {
@@ -37,7 +37,6 @@ import {
 } from "./config/projectExpensesTable.config";
 import { getProjectExpenseColumns } from "./config/projectExpensesColumns";
 import { PE_STATUS_TAB_PARAM, peListUrlSyncKey } from "./config/projectExpensesUrl";
-import { NewProjectExpenseDialog } from "./components/NewProjectExpenseDialog";
 import { EditProjectExpenseDialog } from "./components/EditProjectExpenseDialog";
 import { UpdatePaymentDetailsDialog } from "./components/UpdatePaymentDetailsDialog";
 import { ProjectExpenseSummaryCard } from "./components/ProjectExpenseSummaryCard";
@@ -86,7 +85,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
   const { toast } = useToast();
   const { role } = useUserData();
   const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc();
-  const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
+  const { decideOne, loading: updateLoading } = useExpenseDecision();
   const { ceoHoldProjectIds } = useCEOHoldProjects();
 
   // CEO Hold row highlighting
@@ -261,31 +260,9 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
   const confirmStatusChange = async () => {
     if (!statusAction) return;
     try {
-      // ⚠️ AN L1 APPROVAL DOES NOT ALWAYS MEAN "Approved".
-      //
-      // Above the L2 threshold, L1's click FORWARDS to the CEO rather than
-      // finishing the approval — so the status written depends on the AMOUNT, and
-      // `statusAfterL1` is the one place that decides it (shared with Python by a
-      // parity test). Writing "Approved" unconditionally, as this did, let a
-      // >Rs 50,000 expense skip the CEO gate entirely. (That line read 30,000
-      // until the owner moved the expense CEO threshold on 16 Sep 2026; the code
-      // never carried the number, only `TIER_L2_ABOVE_EXPENSES`.)
-      const nextStatus =
-        statusAction.next === "Approved"
-          ? statusAfterL1(statusAction.expense.amount, TIER_L2_ABOVE_EXPENSES)
-          : statusAction.next;
-
-      await updateDoc(DOCTYPE, statusAction.expense.name, {
-        status: nextStatus,
-        // Stamp the approval date the way Project Payments does, so an expense
-        // approved by a person is dated and the dashboard's L1 counter (which
-        // reads `approval_date AND NOT auto_approved`) can see it. Stamped on
-        // BOTH outcomes of an L1 click — forwarding to the CEO is still an L1
-        // approval, and payments date it the same way.
-        ...(statusAction.next === "Approved"
-          ? { approval_date: new Date().toISOString().slice(0, 10) }
-          : {}),
-      });
+      // The server decides where an L1 approval lands (Approved, or CEO Pending above the CEO
+      // line) and who may give one (`expense_decision`, #1497); the toast names what it decided.
+      const nextStatus = await decideOne(statusAction.expense.name, "l1_approve");
       toast({
         title: "Success",
         description: `Expense marked ${nextStatus}.`,
@@ -296,7 +273,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message || "Failed to update status.",
+        description: getFrappeError(error) || "Failed to update status.",
         variant: "destructive",
       });
     } finally {
@@ -304,12 +281,14 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
     }
   };
 
+  const editableStatuses = useExpenseEditAccess();
   const columns = useMemo<ColumnDef<ProjectExpenses>[]>(
     () =>
       getProjectExpenseColumns({
         statusTab: effectiveStatusTab,
         projectId,
         role,
+        editableStatuses,
         disableActions: isEmbedded,
         getProjectName,
         getVendorName,
@@ -324,6 +303,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
       projectId,
       isEmbedded,
       role,
+      editableStatuses,
       getProjectName,
       getVendorName,
       getUserName,
@@ -501,15 +481,9 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
             groupByResult={groupByResult}
             getExpenseTypeName={getExpenseTypeName}
             projectName={projectId ? getProjectName(projectId) : undefined}
+            statusTab={effectiveStatusTab}
           />
         }
-      />
-      <NewProjectExpenseDialog
-        projectId={projectId}
-        onSuccess={() => {
-          refetch();
-          mutateCounts();
-        }}
       />
       {expenseToEdit && (
         <EditProjectExpenseDialog

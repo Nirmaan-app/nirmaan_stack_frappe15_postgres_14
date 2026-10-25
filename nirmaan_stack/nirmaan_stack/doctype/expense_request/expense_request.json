@@ -22,6 +22,7 @@
   "source_data",
   "review_section",
   "status",
+  "approved_on_submit",
   "reviewed_by",
   "reviewed_on",
   "review_comment"
@@ -155,12 +156,20 @@
    "fieldtype": "Data",
    "label": "Pay-to Branch",
    "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Its raiser records without review (Expense Settings), so it was approved the moment it was raised, with no Reviewer.",
+   "fieldname": "approved_on_submit",
+   "fieldtype": "Check",
+   "label": "Approved on submit (no review)",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-15 12:48:44.686978",
+ "modified": "2026-10-20 01:16:51.359185",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Expense Request",

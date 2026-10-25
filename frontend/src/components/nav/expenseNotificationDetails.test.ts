@@ -15,7 +15,7 @@ const resolve = (id: string) => NAMES[id];
 
 const paid = { document: "Expense Request", docname: "EXR-26-00601", sender: "acc@x.com", event_id: "expense_request:paid" };
 const rejected = { document: "Expense Request", docname: "EXR-26-00602", sender: "pm@x.com", event_id: "expense_request:rejected" };
-const req = { name: "EXR-26-00601", type: "Staff Accommodation Rent", projects: "GURGAON-PROJ-00085", reviewed_by: "pm@x.com" };
+const req = { name: "EXR-26-00601", type: "Rent/PG for Staff", projects: "GURGAON-PROJ-00085", reviewed_by: "pm@x.com" };
 
 describe("isExpenseNotification", () => {
     it("keys on the doctype it was raised against, not the wording", () => {
@@ -38,7 +38,7 @@ describe("expenseDetailLines", () => {
         expect(expenseDetailLines(paid, req, resolve)).toEqual([
             { label: "Request", value: "EXR-26-00601" },
             { label: "Expense", value: "Project Expenses" },
-            { label: "Expense Type", value: "Staff Accommodation Rent" },
+            { label: "Expense Type", value: "Rent/PG for Staff" },
             { label: "Paid By", value: "Asha Accountant" },
             { label: "Approved By", value: "Priya Manager" },
         ]);

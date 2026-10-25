@@ -40,6 +40,8 @@ const errorMessage = (e: unknown) => {
  */
 export default function AmountPaidMismatchReport({ doctype }: AmountPaidMismatchReportProps) {
   const label = ORDER_LABEL[doctype];
+  // A WO's Amount Paid holds the TDS withheld from the vendor, and its stored Total TDS is judged too.
+  const taxed = doctype === "Service Requests";
   const { rows, isLoading, isRefreshing, error, refresh, recount } = useAmountPaidMismatch(doctype);
   const [recounting, setRecounting] = useState<string | null>(null);
 
@@ -68,8 +70,10 @@ export default function AmountPaidMismatchReport({ doctype }: AmountPaidMismatch
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <p className="max-w-3xl text-sm text-muted-foreground">
-          {label}s whose stored Amount Paid or Amount Due differs by ₹1 or more from their Paid payments
-          less Received refunds. If a payment is wrong, fix the payment: the {label} then recounts by itself.
+          {taxed
+            ? "WOs whose stored Amount Paid, Amount Due or Total TDS differs by ₹1 or more from their Paid payments plus the TDS withheld from the vendor, less Received refunds."
+            : `${label}s whose stored Amount Paid or Amount Due differs by ₹1 or more from their Paid payments less Received refunds.`}{" "}
+          If a payment is wrong, fix the payment: the {label} then recounts by itself.
           Recount sets the {label} from its payments and refunds.
         </p>
         <Button variant="outline" size="sm" onClick={() => refresh()} disabled={isRefreshing}>
@@ -101,6 +105,8 @@ export default function AmountPaidMismatchReport({ doctype }: AmountPaidMismatch
                   <TableHead className="text-right">Difference</TableHead>
                   <TableHead className="text-right">Amount Due</TableHead>
                   <TableHead className="text-right">Correct Amount Due</TableHead>
+                  {taxed && <TableHead className="text-right">Total TDS</TableHead>}
+                  {taxed && <TableHead className="text-right">Correct Total TDS</TableHead>}
                   <TableHead />
                 </TableRow>
               </TableHeader>
@@ -134,6 +140,16 @@ export default function AmountPaidMismatchReport({ doctype }: AmountPaidMismatch
                     <TableCell className="whitespace-nowrap text-right tabular-nums">
                       {rupees(row.correct_due)}
                     </TableCell>
+                    {taxed && (
+                      <TableCell className="whitespace-nowrap text-right tabular-nums">
+                        {rupees(row.stored_tds)}
+                      </TableCell>
+                    )}
+                    {taxed && (
+                      <TableCell className="whitespace-nowrap text-right tabular-nums">
+                        {rupees(row.correct_tds)}
+                      </TableCell>
+                    )}
                     <TableCell className="text-right">
                       <Button
                         size="sm"

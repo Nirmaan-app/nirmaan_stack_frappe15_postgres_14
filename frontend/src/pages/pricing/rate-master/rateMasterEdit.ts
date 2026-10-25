@@ -1,17 +1,6 @@
 // RM-4a: pure helpers for the admin-only rate-master editors (Derivation param edit + Data editor).
 // No React, no I/O -- unit-tested. Owner option (a): non-admins get a READ-ONLY surface; callers HIDE
-// (never disable) the edit affordances when isRateMasterAdmin is false.
-
-/**
- * May the current user edit the rate master? MIRRORS SheetPricingPage.canAdminOverride and the server
- * pricing._is_nirmaan_admin (Administrator OR role_profile "Nirmaan Admin Profile"). False while the
- * role is still "Loading" so an admin never flashes read-only controls, and false for "Error".
- * CONVENIENCE ONLY -- the four write endpoints re-gate server-side and are authoritative.
- */
-export function isRateMasterAdmin(role: string, userId: string): boolean {
-  if (role === "Loading") return false;
-  return userId === "Administrator" || role === "Nirmaan Admin Profile";
-}
+// (never disable) the edit affordances when isNirmaanAdmin (constants/roles) is false.
 
 /**
  * The index of the condition (in a config step's `conditions` array) that the interpreter matched for
