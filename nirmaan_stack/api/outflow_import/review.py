@@ -122,6 +122,7 @@ from nirmaan_stack.services.outflow_import.similarity import (
 )
 from nirmaan_stack.services.outflow_import.sources import (
     BANK_STATEMENT_SOURCES,
+    CARD_STATEMENT_SOURCE,
     CREATE_GATED_SOURCES,
     PORTER_STATEMENT_SOURCE,
     source_has_settlement_path,
@@ -4033,6 +4034,21 @@ def list_imports(limit=60, sources=None, month=None):
     for row in imports:
         if row["name"] in states:
             row["status"] = states[row["name"]]
+    # A Credit Card Statement import is listed by its card holder and billing period (#1566, ADR-0037).
+    cards = [row["name"] for row in imports if (row.get("source") or "").strip() == CARD_STATEMENT_SOURCE]
+    holders = (
+        dict(
+            frappe.db.sql(
+                """SELECT import_batch, holder FROM "tabCredit Card Statement" WHERE import_batch IN %s""",
+                (tuple(cards),),
+            )
+        )
+        if cards
+        else {}
+    )
+    for row in imports:
+        if row["name"] in holders:
+            row["card_holder"] = holders[row["name"]]
     return imports
 
 

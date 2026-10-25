@@ -29,6 +29,7 @@ need the wide identity without being a passbook, or the reverse.
 
 __all__ = [
     "BANK_STATEMENT_SOURCES",
+    "CARD_STATEMENT_SOURCE",
     "CREATE_GATED_SOURCES",
     "NEVER_MATCHED_SOURCES",
     "PORTER_STATEMENT_SOURCE",
@@ -47,6 +48,12 @@ __all__ = [
 #: KEY, THE `Outflow Import Batch.source` SELECT OPTION AND THE FRONTEND'S `SOURCE_OPTIONS` ENTRY, pinned
 #: together by test like `ICICI Bank Statement`.
 PORTER_STATEMENT_SOURCE = "Porter Statement"
+
+#: A company credit card's monthly ICICI statement, read from its PDF (#1566, ADR-0037). Spelled ONCE here
+#: for the reason `PORTER_STATEMENT_SOURCE` is: the parser adapter key, the batch Select option and the
+#: frontend's `SOURCE_OPTIONS` entry are the same string, pinned together by test. It names the BANK, as
+#: `ICICI Bank Statement` does: a second card issuer needs its own reader and its own string.
+CARD_STATEMENT_SOURCE = "ICICI Credit Card Statement"
 
 #: Sources that are a BANK PASSBOOK rather than a payout gateway.
 #:
@@ -89,7 +96,10 @@ TRANSFER_ID_REFERENCE_SOURCES = frozenset({"Cashbook", "Porter Statement"})
 #:
 #: Porter joins it (#1443, ADR-0032): a create-only source whose lines carry the plan its own import
 #: writes from, exactly like Cashbook's.
-NEVER_MATCHED_SOURCES = frozenset({"Cashbook", "Porter Statement"})
+#:
+#: The Credit Card Statement joins it (#1566, ADR-0037): it creates one Non-Project Expense per card spend
+#: and settles nothing.
+NEVER_MATCHED_SOURCES = frozenset({"Cashbook", "Porter Statement", "ICICI Credit Card Statement"})
 
 #: Sources whose OPEN lines wait for their own import's Create, and are NOT bank lines until then (#1443).
 #:
@@ -103,7 +113,11 @@ NEVER_MATCHED_SOURCES = frozenset({"Cashbook", "Porter Statement"})
 #: ⚠️ A DIFFERENT SET FROM `NEVER_MATCHED_SOURCES`, NOT TO BE MERGED WITH IT. That one answers "may the
 #: matcher write these rows?" and holds Cashbook too, whose open lines ARE worked from the main table
 #: (#1314).
-CREATE_GATED_SOURCES = frozenset({"Porter Statement"})
+#:
+#: The Credit Card Statement joins it (#1566): a card line is not a bank line, so a card upload moves
+#: neither *Still open* nor *Total Unreconciled Outflow*. ⚠️ For now EVERY open card line waits, its
+#: credits too; #1567 splits it per line, so an unpaired card credit is decided on the main table.
+CREATE_GATED_SOURCES = frozenset({"Porter Statement", "ICICI Credit Card Statement"})
 
 
 def source_waits_for_its_own_create(source: str) -> bool:

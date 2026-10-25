@@ -3,7 +3,7 @@
 import type { DateFilterValue } from "@/components/data-table/date-filter-popover";
 
 import { DEFAULT_PERIOD } from "./outflowPeriod";
-import { SOURCE_OPTIONS } from "./outflowTableModel";
+import { SOURCE_OPTIONS, sourceLabel } from "./outflowTableModel";
 
 /**
  * The Import History dialog's rules, and the summary card's Reset rule — pure (F4).
@@ -146,13 +146,13 @@ export const matchesEveryToken = (haystack: string, search: string): boolean => 
 
 /** The dialog's subtitle: what is listed, then what to do. */
 export const historySubtitle = (source: string, month: MonthKey): string =>
-    `${source} statements covering ${monthLabel(month)}. Select one to open it.`;
+    `${sourceLabel(source)} statements covering ${monthLabel(month)}. Select one to open it.`;
 
 /** What an empty tab says. A search that matched nothing is a different fact from an empty month. */
 export const historyEmptyLabel = (source: string, month: MonthKey, search: string): string =>
     search.trim()
-        ? `No ${source} statements covering ${monthLabel(month)} match that.`
-        : `No ${source} statements cover ${monthLabel(month)}.`;
+        ? `No ${sourceLabel(source)} statements covering ${monthLabel(month)} match that.`
+        : `No ${sourceLabel(source)} statements cover ${monthLabel(month)}.`;
 
 /**
  * Are the summary card's three controls — Source, Import, Period — all at their defaults? The Reset

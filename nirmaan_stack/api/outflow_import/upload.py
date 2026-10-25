@@ -294,7 +294,7 @@ def _read_and_parse():
     # lines open to the matcher and to every main-table action, with no invoice check in front of them.
     if source_waits_for_its_own_create(source):
         frappe.throw(
-            f"A {source} is imported through its own Porter import, not this upload.",
+            f"A {source} is imported through its own import, not this upload.",
             title="Unsupported source",
         )
 
