@@ -102,6 +102,16 @@ INVOICE_APPROVAL_PROFILES = (
     ACCOUNTANT_LEAD_PROFILE,
 )
 
+# May see Vendor Invoice Recon -> "Pending Invoices Upload": the approvers plus PMO and every procurement
+# profile, who chase the missing invoices (owner ruling 2026-09-24). Mirrors `PENDING_INVOICE_UPLOAD_PROFILES`
+# in `frontend/src/constants/roles.ts`. The PO and WO sub-tabs are read-only reports; this list is the
+# ENFORCEMENT boundary of the Credit Card sub-tab's endpoints (`api/expenses/card_invoices`: list, attach).
+PENDING_INVOICE_UPLOAD_PROFILES = INVOICE_APPROVAL_PROFILES + (PMO_EXECUTIVE_PROFILE,) + PROCUREMENT_PROFILES
+
+# May mark a card spend *No invoice* (ADR-0037 ruling 8): Admin and Accountant Lead. ENFORCEMENT boundary of
+# `api/expenses/card_invoices.mark_card_no_invoice`; mirrored by `canMarkCardNoInvoice` in `constants/roles.ts`.
+CARD_NO_INVOICE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
 # Work the settled end of the Payments queue (owner, 2026-09-21): send a Reconciliation Pending
 # payment back to Approved, and edit a project / non-project expense on the queue's tabs.
 # Also hold / release an Approved payment (owner, 2026-09-22; `services/payment_hold.py`).

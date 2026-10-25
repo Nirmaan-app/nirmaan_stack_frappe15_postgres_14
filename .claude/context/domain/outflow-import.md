@@ -7240,7 +7240,7 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
   is the project saved.
 
 
-## Credit Card Statement — the fifth source (spec #1565; upload, Review and Discard built at #1566, credit sorting at #1567, type edit and Create at #1568, type suggestion and merchant memory at #1569, the rest NOT BUILT YET)
+## Credit Card Statement — the fifth source (spec #1565; upload, Review and Discard built at #1566, credit sorting at #1567, type edit and Create at #1568, type suggestion and merchant memory at #1569, invoices at #1570, the rest NOT BUILT YET)
 
 Decisions: **[ADR-0037](../../../docs/adr/0037-credit-card-statement-import.md)**. Terms: `GLOSSARY.md`
 § *Company credit cards*. Source string `ICICI Credit Card Statement` (`sources.CARD_STATEMENT_SOURCE`).
@@ -7282,7 +7282,7 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
 6. **Staging.** Spend: `Pending match run`, `direction` Debit, `match_basis` `card statement` (a new
    `Outflow Row Match.match_basis` option), `suggested_doctype` `Non Project Expenses`, `auto_matched` 1,
    `suggested_expense_type` *Misc. Expenses* with `type_source` Fallback (#1568; #1569's suggestion job
-   replaces it, invariant 16). Credit: sorted at upload (invariant 14); an unpaired one is `Mismatched`. Every line: `status_raw` SUCCESS,
+   replaces it, invariant 17). Credit: sorted at upload (invariant 14); an unpaired one is `Mismatched`. Every line: `status_raw` SUCCESS,
    `remarks` = details, `settlement_reference` = "{details} - {SerNo}" (`card_statement.line_reference`,
    the Expense's payment_ref, ADR-0037 decision 6). Batch `gross_amount` = the staged spends.
 7. **Spends are not bank lines; open credits are (#1567, README ruling 4).** The gate is PER LINE:
@@ -7360,8 +7360,25 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
     saves each with a Version row and a comment, one commit. A card credit skipped by hand unskips through the
     Cashbook path (`_unskip_cashbook_line`, reopens `Mismatched`). The frontend mirror is `unskipView.ts` +
     `skipKinds.ts` (pinned to the Python by `skipKinds.test.ts`).
+16. **Invoices (#1570, ADR-0037 ruling 8).** A card Expense waits in Vendor Invoice Recon -> *Pending Invoices
+    Upload* -> **Credit Card** (`?upload_tab=card`, `components/CardInvoiceUploads.tsx`; its own table, NOT the
+    Reports "Pending Invoices" report the PO / WO sub-tabs mount) while `credit_card_statement` is set,
+    `invoice_attachment` is blank and `no_invoice_by` is blank. Endpoints `api/expenses/card_invoices.py`:
+    `get_card_invoice_queue` (rows with date, `merchant` = `merchant_key` of the line details, `details`
+    = payment_ref with " - SerNo" taken off by `services/card_invoices.card_line_details`, amount, type, holder,
+    statement, `statement_month` "YYYY-MM" of the statement date) and `attach_card_invoice` (file required,
+    number and date optional) are gated by `role_profiles.PENDING_INVOICE_UPLOAD_PROFILES` (the tab's own
+    set: approvers + PMO + procurement); `mark_card_no_invoice` by `CARD_NO_INVOICE_PROFILES` (Admin, Accountant
+    Lead), a typed reason required, writing the new read-only `Non Project Expenses.no_invoice_reason` /
+    `no_invoice_by` (Link User) / `no_invoice_at`. Both writes re-read the Expense `FOR UPDATE`, refuse by
+    `services/card_invoices` (`attach_problem`, `no_invoice_problem`: not a card spend, already invoiced, already
+    marked) and save through the document layer (Version row kept). Holder and month filters are client-side
+    (`pages/tasks/invoices/utils/cardInvoicesView.ts`). Attach reuses `UpdateInvoiceDetailsDialog` with its
+    `cardSave` prop (file required, ref and date optional, saved through the endpoint). The file is uploaded
+    against the Expense (`attached_to_*`), so it stays one `File`. An invoice attached anywhere else (the Non
+    Project Expenses page) also takes the spend off the list. No undo of *No invoice* exists.
 
-16. **Type suggestion and merchant memory** (#1569, ADR-0037 ruling 5). The upload, after its commit, enqueues
+17. **Type suggestion and merchant memory** (#1569, ADR-0037 ruling 5). The upload, after its commit, enqueues
     `card_suggest.suggest_card_types` on `long`, job id `card-suggest-<batch>` (deduplicated; Discard waits for
     it). Per merchant key, every spend of it alike: `card_memory.recall` first (`Earlier statement`), else ONE
     Gemini call for every merchant memory lacks, given the live Non-Project list
@@ -7384,7 +7401,7 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
     (`credit_card_statement` set) is saved with a different `type` (the insert is not an edit), with the
     session user. The Expense's merchant is read back through its Settled match record
     (`card_memory.merchant_of_expense`).
-17. **Screens (#1569).** `cardCreate.ts`: `cardPolling` also while `suggest_running`, `cardSuggestNote`,
+18. **Screens (#1569).** `cardCreate.ts`: `cardPolling` also while `suggest_running`, `cardSuggestNote`,
     `canCreateCard` false while suggesting, `typeSourceTitle` (the badge's title names the source; the fallback
     badge reads "Check"), `merchantRetype(lines, line)` — the link "Use for all N {MERCHANT} spends" under a
     retypable spend not at "Check" (a chosen, remembered or AI type; there is nothing to spread from the fallback)
@@ -7399,7 +7416,9 @@ resume, Unreconcile and re-create, Discard refused after Create, the AST guard o
 `services/outflow_import/test_card_credits` (unit: the fixture's 7 credits, pairs, the two identical spends),
 `api/outflow_import/test_card_credits` (DB: staging kinds and reasons, Review's skipped list, payments/cashback
 never unskip, an open credit on the main table and skippable, a spend refused, a pair skipped / unskipped from
-either line), frontend `cardCreditsView.test.ts`, `unskipView.test.ts`.
+either line), frontend `cardCreditsView.test.ts`, `unskipView.test.ts`,
+`services/test_card_invoices` (unit) and `api/expenses/test_card_invoices` (DB: the list, attach, No invoice and
+their permissions), vitest `pages/tasks/invoices/utils/cardInvoicesView.test.ts`,
 `api/outflow_import/test_card_suggest` (DB, Gemini faked at `GeminiExtractor._build_client`: the job queued at
 upload, AI answer, one call with the live list, off-list / low-confidence / failed / AI-off -> fallback, Review
 choice kept, memory hit and no call when all known, memory on Create, next month typed from it, memory on an

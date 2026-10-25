@@ -273,6 +273,24 @@ export const canViewPendingInvoiceUploads = (
   (!!role && PENDING_INVOICE_UPLOAD_PROFILES.includes(role));
 
 /**
+ * May mark a card spend "No invoice" on Pending Invoices Upload -> Credit Card (ADR-0037 ruling 8):
+ * Admin and Accountant Lead. Mirrors `role_profiles.CARD_NO_INVOICE_PROFILES`, the enforcement boundary;
+ * this only decides whether the button renders.
+ */
+const CARD_NO_INVOICE_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  "Nirmaan Accountant Lead Profile",
+];
+
+/** True when `role` (a role PROFILE) may mark a card spend No invoice. */
+export const canMarkCardNoInvoice = (
+  role?: string | null,
+  userId?: string | null
+): boolean =>
+  userId === "Administrator" ||
+  (!!role && CARD_NO_INVOICE_PROFILES.includes(role));
+
+/**
  * May see the "Payment Summary" card atop the payments tables (Approve Payments,
  * Accountant tabs, All Payments) — Admin + Accountant + Accountant Lead (owner
  * ruling). UI-only: `get_payment_dashboard_stats` has no role check, so this
