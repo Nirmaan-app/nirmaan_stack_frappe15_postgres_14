@@ -9,7 +9,13 @@
 import { describe, it, expect } from "vitest";
 import { UPLOAD_BOQ_ACCESS } from "@/constants/roles";
 import { ROLE_OPTIONS } from "@/utils/roleColors";
-import { canOpenBoqHub, canOpenBoqWizard, canSeeBoqCommercials } from "./boqAccess";
+import {
+  canAddBoqToWonProject,
+  canManageWonProjectBoqs,
+  canOpenBoqHub,
+  canOpenBoqWizard,
+  canSeeBoqCommercials,
+} from "./boqAccess";
 
 describe("canOpenBoqWizard", () => {
   it("admits the Admin profile", () => {
@@ -207,5 +213,53 @@ describe("canSeeBoqCommercials", () => {
     // half that must never break; the properness was only ever a fact about the roster.
     expect(canSeeBoqCommercials("Nirmaan Billing Executive Profile", "x@y.z")).toBe(true);
     expect(canOpenBoqWizard("Nirmaan Billing Executive Profile", "x@y.z")).toBe(true);
+  });
+});
+
+describe("canAddBoqToWonProject", () => {
+  it("admits Administrator and the Admin profile", () => {
+    expect(canAddBoqToWonProject(undefined, "Administrator")).toBe(true);
+    expect(canAddBoqToWonProject("Nirmaan Admin Profile", "someone@nirmaan.app")).toBe(true);
+  });
+
+  it("refuses every other profile, including the other wizard profiles", () => {
+    for (const role of [
+      "Nirmaan PMO Executive Profile",
+      "Nirmaan Estimates Executive Profile",
+      "Nirmaan Billing Executive Profile",
+      "Nirmaan Project Lead Profile",
+    ]) {
+      expect(canAddBoqToWonProject(role, "someone@nirmaan.app")).toBe(false);
+    }
+  });
+
+  it("refuses while the role is still loading", () => {
+    expect(canAddBoqToWonProject("Loading", "someone@nirmaan.app")).toBe(false);
+    expect(canAddBoqToWonProject(undefined, undefined)).toBe(false);
+  });
+});
+
+describe("canManageWonProjectBoqs", () => {
+  it("admits Administrator and the Admin profile", () => {
+    expect(canManageWonProjectBoqs(undefined, "Administrator")).toBe(true);
+    expect(canManageWonProjectBoqs("Nirmaan Admin Profile", "someone@nirmaan.app")).toBe(true);
+  });
+
+  it("refuses every other profile, including the wizard profiles that edit Selected BoQs", () => {
+    for (const role of [
+      "Nirmaan PMO Executive Profile",
+      "Nirmaan Estimates Executive Profile",
+      "Nirmaan Billing Executive Profile",
+      "Nirmaan Project Lead Profile",
+      "Nirmaan Project Manager Profile",
+    ]) {
+      expect(canManageWonProjectBoqs(role, "someone@nirmaan.app")).toBe(false);
+    }
+  });
+
+  it("refuses while the role is still loading, and on a failed read", () => {
+    expect(canManageWonProjectBoqs("Loading", "someone@nirmaan.app")).toBe(false);
+    expect(canManageWonProjectBoqs("Error", "someone@nirmaan.app")).toBe(false);
+    expect(canManageWonProjectBoqs(undefined, undefined)).toBe(false);
   });
 });

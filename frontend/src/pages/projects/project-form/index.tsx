@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useCreateProjectWithAddress, useConvertTenderingToWon, useCreateProjectChildDoc, useUpdateProjectDoc } from "@/pages/projects/data/project-form/useProjectFormMutations";
+import { useConvertBoqOptions } from "@/pages/projects/data/project-form/useProjectFormQueries";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetDoc } from "frappe-react-sdk";
 import { format } from "date-fns";
@@ -19,13 +20,22 @@ import { useToast } from "@/components/ui/use-toast";
 import { useProjectDraftManager } from "@/hooks/useProjectDraftManager";
 
 import { projectFormSchema, ProjectFormValues, defaultFormValues, sectionFields } from "./schema";
-import { wizardStepsConfig, sections, SectionKey, getNextSection, getPreviousSection } from "./constants";
+import { getSections, getWizardStepsConfig, SectionKey, getNextSection, getPreviousSection } from "./constants";
 import { useProjectFormData } from "./hooks/useProjectFormData";
+import {
+    applyBoqPickChange,
+    combineBoqScope,
+    tickedBoqScopes,
+    wizardBoqCounts,
+    type MergeSource,
+} from "./boqPackageSeed";
+import { OptionalSections, readOptionalSections, sectionSetupProblems, syncSectionsWithPackages } from "./packageSectionSync";
 import {
     ProjectDetailsStep,
     ProjectAddressStep,
     ProjectTimelineStep,
     ProjectAssigneesStep,
+    BoqSelectionStep,
     PackageSelectionStep,
     ReviewStep,
 } from "./steps";
@@ -65,6 +75,43 @@ export const ProjectForm = () => {
 
     // Fetch all form data
     const formData = useProjectFormData();
+
+    // Both modes show the BOQ step (ADR-0038): convert ticks the stub's own BoQs there, and both
+    // can add BoQs from other Tendering projects.
+    const activeSections = useMemo(() => getSections(), []);
+    const stepsConfig = useMemo(() => getWizardStepsConfig(), []);
+
+    // Convert mode: the stub's open BoQs (no fetch in create mode).
+    const {
+        data: boqOptionsData,
+        isLoading: boqOptionsLoading,
+        error: boqOptionsError,
+    } = useConvertBoqOptions(convertProjectId);
+    const boqOptions = useMemo(() => boqOptionsData?.message?.boqs ?? [], [boqOptionsData]);
+    // The ticked BoQs (own and added) the Packages step was last pre-ticked from, with what they
+    // covered then. Re-seeding happens only when the ticks change, so going back and forward
+    // without changing them keeps manual edits; and the old scope is kept as it was, because an
+    // added project removed since has left the form.
+    const [seeded, setSeeded] = useState<{ names: string[]; packages: string[]; unmappedHeaders: string[] }>({
+        names: [],
+        packages: [],
+        unmappedHeaders: [],
+    });
+
+    // Masters the Packages step's optional sections are filled from, by package.
+    const sectionMasters = useMemo(
+        () => ({
+            workHeaders: formData.workHeaders ?? [],
+            designCategories: formData.designCategories ?? [],
+            criticalPOCategories: formData.criticalPOCategories ?? [],
+        }),
+        [formData.workHeaders, formData.designCategories, formData.criticalPOCategories]
+    );
+    const writeSections = (next: OptionalSections) => {
+        form.setValue("daily_progress_setup", next.daily_progress_setup);
+        form.setValue("design_packages_setup", next.design_packages_setup);
+        form.setValue("critical_po_setup", next.critical_po_setup);
+    };
 
     // Wizard state
     const [section, setSection] = useState<SectionKey>("projectDetails");
@@ -128,6 +175,8 @@ export const ProjectForm = () => {
         setSection,
         // Convert mode is a one-shot, pre-filled flow — disable draft autosave/resume.
         disabled: isConvertMode,
+        // A resumed draft lands on its saved section, whatever step number it was saved under.
+        sections: activeSections,
     });
 
     // Calculate duration when dates change
@@ -169,6 +218,59 @@ export const ProjectForm = () => {
             return;
         }
 
+        // BoQ selection: at least one tick overall (own or added) whenever any BoQ is involved,
+        // and the ticked BoQs pre-tick the Packages step. No status changes here — that happens
+        // on the server only when the project is created.
+        if (section === "boqSelection") {
+            const selectedBoqs = form.getValues("selected_boqs") ?? [];
+            const mergeSources = (form.getValues("merge_sources") ?? []) as MergeSource[];
+            const counts = wizardBoqCounts(boqOptions.length, selectedBoqs, mergeSources);
+            if (counts.boqs > 0 && counts.ticked === 0) {
+                toast({
+                    title: "Failed!",
+                    description: "Tick at least one BoQ, from this project or from another Tendering project.",
+                    variant: "destructive",
+                });
+                return;
+            }
+            const ticked = tickedBoqScopes(boqOptions, selectedBoqs, mergeSources);
+            const tickedNames = ticked.map((boq) => boq.name);
+            const picksChanged =
+                tickedNames.length !== seeded.names.length ||
+                tickedNames.some((name) => !seeded.names.includes(name));
+            if (picksChanged) {
+                // Only the DIFFERENCE between the old and new picks moves (owner 2026-10-21,
+                // option a): packages ticked or unticked by hand stay as the user left them.
+                const newScope = combineBoqScope(ticked);
+                const oldScope = { packages: seeded.packages, unmappedHeaders: seeded.unmappedHeaders };
+                const { workPackages, added, removed } = applyBoqPickChange(
+                    form.getValues("project_work_packages.work_packages"),
+                    oldScope.packages,
+                    newScope.packages,
+                    formData.workPackages,
+                    formData.categories ?? []
+                );
+                form.setValue("project_work_packages.work_packages", workPackages);
+                // The packages' headers and categories follow into Daily Progress, Design and
+                // Critical PO; the BoQs' package-less headers (ELV System) go to Daily Progress too,
+                // and also move only by the difference.
+                writeSections(
+                    syncSectionsWithPackages(readOptionalSections(form.getValues()), sectionMasters, {
+                        added,
+                        removed,
+                        ticked: workPackages.map((wp) => wp.work_package_name),
+                        addHeaders: newScope.unmappedHeaders.filter(
+                            (header) => !oldScope.unmappedHeaders.includes(header)
+                        ),
+                        removeHeaders: oldScope.unmappedHeaders.filter(
+                            (header) => !newScope.unmappedHeaders.includes(header)
+                        ),
+                    })
+                );
+                setSeeded({ names: tickedNames, ...newScope });
+            }
+        }
+
         // Work packages validation
         if (
             section === "packageSelection" &&
@@ -182,31 +284,47 @@ export const ProjectForm = () => {
             return;
         }
 
+        // A switched-on Daily Progress / Design / Critical PO section must not be empty.
+        if (section === "packageSelection") {
+            const problems = sectionSetupProblems(readOptionalSections(form.getValues()));
+            if (problems.length > 0) {
+                toast({ title: "Failed!", description: problems.join(" "), variant: "destructive" });
+                return;
+            }
+        }
+
         if (isValid) {
-            const nextSec = getNextSection(section);
+            const nextSec = getNextSection(section, activeSections);
             const nextIndex = currentStep + 1;
             setSection(nextSec);
-            if (sections[nextIndex] === nextSec) {
+            if (activeSections[nextIndex] === nextSec) {
                 setCurrentStep(nextIndex);
             }
         }
     };
 
     const goToPreviousSection = () => {
-        const prevSec = getPreviousSection(section);
+        const prevSec = getPreviousSection(section, activeSections);
         setSection(prevSec);
         setCurrentStep((prev) => Math.max(0, prev - 1));
     };
 
     const navigateToSection = (sectionKey: SectionKey) => {
         setSection(sectionKey);
-        const index = sections.findIndex((val) => val === sectionKey);
+        const index = activeSections.findIndex((val) => val === sectionKey);
         setCurrentStep(index);
     };
 
     // Form submission
     const handleSubmit = async () => {
         const values = form.getValues();
+
+        // Backstop for the Packages step's check: never save a switched-on section empty.
+        const sectionProblems = sectionSetupProblems(readOptionalSections(values));
+        if (sectionProblems.length > 0) {
+            toast({ title: "Failed!", description: sectionProblems.join(" "), variant: "destructive" });
+            return;
+        }
 
         try {
             // Validation
@@ -232,8 +350,17 @@ export const ProjectForm = () => {
                 design_lead,
                 procurement_lead,
                 estimates_exec,
+                // Added back to the convert / create payload below
+                selected_boqs,
+                merge_sources,
                 ...projectValues
             } = values;
+
+            // BoQs from other Tendering projects: the server needs only each project and its ticks.
+            const mergeSourcesPayload = (merge_sources ?? []).map((source) => ({
+                project: source.project,
+                selected_boqs: source.selected_boqs,
+            }));
 
             // PO-driven mode (default): never send a project value — Projects.before_save derives it
             // from the Customer PO rows. Only manual mode keeps the entered values.
@@ -271,9 +398,19 @@ export const ProjectForm = () => {
             // Step 1: Create the project (create mode) OR convert the existing
             // Tendering stub in place (convert mode). Everything downstream
             // (Steps 2-5) runs identically against the returned project name.
+            // Convert also marks `selected_boqs` Selected (the stub's other BoQs stay
+            // Draft), and both modes merge in the added Tendering projects, in the same server
+            // transaction as the conversion / creation.
             const response = isConvertMode
-                ? await convertProject(convertProjectId!, { ...projectValues, areaNames })
-                : await createProjectAndAddress({ values: { ...projectValues, areaNames } });
+                ? await convertProject(convertProjectId!, {
+                      ...projectValues,
+                      areaNames,
+                      selected_boqs: selected_boqs ?? [],
+                      merge_sources: mergeSourcesPayload,
+                  })
+                : await createProjectAndAddress({
+                      values: { ...projectValues, areaNames, merge_sources: mergeSourcesPayload },
+                  });
 
             if (response.message.status !== 200) {
                 throw new Error(
@@ -573,11 +710,11 @@ export const ProjectForm = () => {
 
             {/* Wizard Steps */}
             <WizardSteps
-                steps={wizardStepsConfig}
+                steps={stepsConfig}
                 currentStep={currentStep}
                 onStepClick={(stepIndex) => {
                     if (currentStep >= stepIndex) {
-                        setSection(sections[stepIndex]);
+                        setSection(activeSections[stepIndex]);
                         setCurrentStep(stepIndex);
                     }
                 }}
@@ -628,12 +765,32 @@ export const ProjectForm = () => {
                             />
                         )}
 
+                        {section === "boqSelection" && (
+                            <BoqSelectionStep
+                                form={form}
+                                isConvertMode={isConvertMode}
+                                currentProjectId={convertProjectId}
+                                boqOptions={boqOptions}
+                                isLoading={boqOptionsLoading}
+                                error={boqOptionsError}
+                                canContinue={
+                                    !formData.isPackageDataLoading &&
+                                    !formData.isWorkHeadersLoading &&
+                                    !formData.isDesignCategoriesLoading &&
+                                    !formData.isCriticalPOCategoriesLoading
+                                }
+                                onNext={goToNextSection}
+                                onPrevious={goToPreviousSection}
+                            />
+                        )}
+
                         {section === "packageSelection" && (
                             <PackageSelectionStep
                                 form={form}
                                 formData={formData}
                                 onNext={goToNextSection}
                                 onPrevious={goToPreviousSection}
+                                seededBoqs={seeded}
                             />
                         )}
 
@@ -646,6 +803,12 @@ export const ProjectForm = () => {
                                 onPrevious={goToPreviousSection}
                                 onSubmit={handleSubmit}
                                 onNavigateToSection={navigateToSection}
+                                ownBoqs={
+                                    isConvertMode && boqOptions.length > 0
+                                        ? { boqs: boqOptions, selected: form.getValues("selected_boqs") ?? [] }
+                                        : undefined
+                                }
+                                mergeSources={(form.getValues("merge_sources") ?? []) as MergeSource[]}
                             />
                         )}
                     </div>
@@ -661,7 +824,7 @@ export const ProjectForm = () => {
                 draftDate={draftLastSavedAt}
                 projectName={draftProjectName}
                 currentStep={currentStep}
-                totalSteps={sections.length}
+                totalSteps={activeSections.length}
             />
 
             {/* Draft Cancel Dialog */}
@@ -679,7 +842,7 @@ export const ProjectForm = () => {
                 }}
                 onCancel={() => setShowCancelDialog(false)}
                 currentStep={currentStep + 1}
-                totalSteps={sections.length}
+                totalSteps={activeSections.length}
             />
 
             {/* Project Creation Progress Dialog */}
