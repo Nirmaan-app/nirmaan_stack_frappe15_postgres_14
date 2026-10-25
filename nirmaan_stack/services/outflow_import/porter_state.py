@@ -137,6 +137,7 @@ def import_progress(
     orders: int,
     cancelled: int,
     invoice_statuses: Iterable[str],
+    passed_with_warnings: int,
     line_statuses: Mapping[str, int],
     placements: Mapping[str, int],
     create_running: bool,
@@ -149,7 +150,9 @@ def import_progress(
     a mixed remark group needing a person) without reshaping it:
 
       upload    orders, invoices, cancelled (Cancelled Porter orders, skipped)
-      check     invoices, passed, in_progress, to_retry (Error), not_matching (Failed), seconds_left
+      check     invoices, passed, passed_with_warnings (of the passed, those whose PDF read a GSTIN, tax
+                or invoice number differently, #1559), in_progress, to_retry (Error), not_matching
+                (Failed), seconds_left
                 (None once nothing is in progress; a rough estimate, `CHECK_SECONDS_PER_INVOICE`)
       projects  orders (completed), placed_automatically, placed_by_person, needs_person
       create    orders (completed), created, waiting, failed, reopened (unreconciled after Create),
@@ -167,6 +170,7 @@ def import_progress(
         "check": {
             "invoices": len(statuses),
             "passed": statuses.count(INVOICE_PASSED),
+            "passed_with_warnings": int(passed_with_warnings),
             "in_progress": in_progress,
             "to_retry": statuses.count(INVOICE_ERROR),
             "not_matching": statuses.count(INVOICE_FAILED),

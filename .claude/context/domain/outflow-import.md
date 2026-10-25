@@ -6642,8 +6642,14 @@ that rule skips the wallet top-ups and stays unchanged.
    order column. The expense points at its order through one `porter_order` Link. No marker fields on the
    expense doctypes.
 3. **The validation gate is all or nothing, with NO override.**
-   - Checked per invoice: invoice number, Porter GSTIN, customer GSTIN, fare and tax, fare and tax
-     within ₹1.
+   - **Only the Porter fare and the invoice date decide (#1559, spec #1554).** Failed: the fare is more
+     than ₹1 off, or the PDF's invoice date is outside [first order date, last order date +
+     `porter_verdict.INVOICE_DATE_SLACK_DAYS` (7)], the period being the batch's `period_from` /
+     `period_to`. Error: the PDF was not downloaded or read, or the fare or the date was not read.
+     Passed otherwise.
+   - Invoice number, Porter GSTIN, customer GSTIN and tax (±₹1) differences, and unreadable values for
+     them, are **warnings only**, stored on `Porter Invoice.validation_warnings`: the GST on a Porter Order
+     comes from the statement whatever the PDF says.
    - Compared against the statement's **completed** orders only. A cancelled order is a skipped row and
      counts toward nothing.
    - Measured on the 2026-09 file: all 10 invoices pass. The tax rounding gap was at most ₹0.18.
@@ -7267,6 +7273,25 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
   badge in the dialog and Import History shows `porterProgress.shownPorterState` ("Needs you").
 - The review panel's `onPlaced` re-reads the status, so a placement moves the Choose-projects count at once.
 - The bar replaces `WizardSteps` for Porter only; `importSteps`/`currentStepIndex` still decide the body.
+
+### As built — #1559: only the fare and the date can fail an invoice (spec #1554, 2026-10-25)
+
+- **The verdict** (`services/outflow_import/porter_verdict.judge_invoice`, pure) takes `InvoiceFigures`, now
+  with `first_order_date` / `last_order_date`, and returns `InvoiceVerdict(status, message, warnings)`. It
+  needs no download, so an invoice can be judged again from its stored `read_*` fields (#1562). A None
+  period leaves the date unchecked. `invoice_date_window` is the one place the window is computed.
+- **Warnings** (`InvoiceWarning(figure, statement, read)`, `read` None = not read) are stored by the job's
+  final `_move` on `Porter Invoice.validation_warnings` (JSON, `{"warnings": [...]}`, NULL when none;
+  `stored_warnings` / `warnings_from_stored`). Every other move clears them. `get_porter_status` returns
+  them per invoice as `warnings`, plus `invoice_date_window` {from, to}, so the screen marks a failing date
+  without a copy of the 7 days.
+- **Progress:** `check.passed_with_warnings` = Passed invoices whose `validation_warnings IS NOT NULL`.
+- `porter_validation._read_invoice` now turns the read date into a `date` (`normalize_date` answers a string).
+- **Screen** (`porterImport.ts`, `PorterImportSummary.tsx`): badges "Couldn't read the PDF" (Error, amber) /
+  "Doesn't match" (Failed, red) / "Passed"; a red banner per Failed invoice naming the fare or date (statement
+  vs PDF) and the next step; a Fare / Invoice date table on Failed and read Error cards, the failing row
+  highlighted; one grey "GST taken from the statement. …" line on a Passed card with warnings; plain Passed
+  cards folded under "N more invoices passed". Retry is still Error-only until #1562.
 
 
 ## #1485 (2026-10-17) — an ICICI cheque line clears its Payment cheque (spec #1477, ADR-0035)

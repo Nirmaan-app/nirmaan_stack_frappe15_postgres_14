@@ -77,6 +77,7 @@ class TestWhenValidationFailed(ProgressCase):
             {
                 "invoices": INVOICES,
                 "passed": 2,
+                "passed_with_warnings": 0,
                 "in_progress": 0,
                 "to_retry": 1,
                 "not_matching": 1,

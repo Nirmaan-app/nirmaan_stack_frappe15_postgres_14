@@ -37,7 +37,11 @@ population (`review._row_filters`), so they are in no tab, not in *Still open* a
 Unreconciled Outflow*; and every main-table action refuses them (`sources.CREATE_GATED_SOURCES`).
 """
 
+import json
+from dataclasses import asdict
+
 import frappe
+from frappe.utils import getdate
 from frappe.utils.file_manager import save_file
 
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
@@ -70,6 +74,7 @@ from nirmaan_stack.services.outflow_import.porter_state import (
     INVOICE_QUEUED,
     import_state,
 )
+from nirmaan_stack.services.outflow_import.porter_verdict import invoice_date_window, warnings_from_stored
 from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_PORTER_CANCELLED
 from nirmaan_stack.services.outflow_import.status import ROW_ERROR, ROW_SETTLED
 
@@ -235,6 +240,7 @@ def porter_status(batch: str) -> dict:
             "tax_total",
             "validation_status",
             "validation_message",
+            "validation_warnings",
             "invoice_file",
             "read_invoice_number",
             "read_invoice_date",
@@ -293,10 +299,28 @@ def porter_status(batch: str) -> dict:
                 "has_pdf": bool(invoice.invoice_file),
                 # What Gemini read, beside the statement's figures above (None until it has read).
                 "read": what_gemini_read(invoice),
+                # Figures the PDF read differently that decide nothing (GSTINs, tax, invoice number, #1559).
+                "warnings": [
+                    asdict(warning) for warning in warnings_from_stored(_json(invoice.validation_warnings))
+                ],
             }
             for invoice in invoices
         ],
+        # The dates an invoice of this statement may carry (`porter_verdict.invoice_date_window`), so the
+        # screen can mark a date that failed without a copy of the rule.
+        "invoice_date_window": _date_window(meta.period_from, meta.period_to),
     }
+
+
+def _json(value):
+    return json.loads(value) if isinstance(value, str) else value
+
+
+def _date_window(period_from, period_to) -> dict | None:
+    if not (period_from and period_to):
+        return None
+    start, end = invoice_date_window(getdate(period_from), getdate(period_to))
+    return {"from": str(start), "to": str(end)}
 
 
 def what_gemini_read(invoice) -> dict | None:

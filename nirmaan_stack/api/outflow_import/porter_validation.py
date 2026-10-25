@@ -31,11 +31,13 @@ its own (`_validate_on_own_connection`), as a second worker would. Each touches 
 
 from __future__ import annotations
 
+import json
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal, InvalidOperation
 
 import frappe
 import requests
+from frappe.utils import getdate
 from frappe.utils.file_manager import save_file
 
 from nirmaan_stack.api.invoice_autofill import (
@@ -62,6 +64,7 @@ from nirmaan_stack.services.outflow_import.porter_verdict import (
     InvoiceFigures,
     InvoiceRead,
     judge_invoice,
+    stored_warnings,
 )
 
 #: How many invoices are worked on at once (spec #1442: a month's ten in minutes, not an hour).
@@ -183,6 +186,9 @@ def validate_invoice(name: str) -> None:
         _store_read(name, read)
         _move(name, INVOICE_COMPARING)
 
+        period = frappe.db.get_value(
+            "Outflow Import Batch", invoice.import_batch, ["period_from", "period_to"], as_dict=True
+        )
         verdict = judge_invoice(
             InvoiceFigures(
                 invoice_number=invoice.invoice_number,
@@ -190,10 +196,12 @@ def validate_invoice(name: str) -> None:
                 customer_gstin=invoice.customer_gstin or "",
                 fare=_decimal(invoice.fare_total) or Decimal("0"),
                 tax=_decimal(invoice.tax_total) or Decimal("0"),
+                first_order_date=getdate(period.period_from) if period and period.period_from else None,
+                last_order_date=getdate(period.period_to) if period and period.period_to else None,
             ),
             read,
         )
-        _move(name, verdict.status, verdict.message)
+        _move(name, verdict.status, verdict.message, stored_warnings(verdict.warnings))
     except Exception as exc:
         frappe.db.rollback()
         frappe.local.message_log = []
@@ -214,7 +222,7 @@ def _claim(name: str) -> frappe._dict | None:
     """Take a `Queued` invoice, under its row lock, and move it on. None if it is not Queued."""
     rows = frappe.db.sql(
         """
-        SELECT name, invoice_number, invoice_link, invoice_file, porter_gstin, customer_gstin,
+        SELECT name, import_batch, invoice_number, invoice_link, invoice_file, porter_gstin, customer_gstin,
                fare_total, tax_total, validation_status
         FROM "tabPorter Invoice" WHERE name = %s FOR UPDATE
         """,
@@ -251,11 +259,17 @@ def _store_read(name: str, read: InvoiceRead) -> None:
     )
 
 
-def _move(name: str, status: str, message: str = "") -> None:
+def _move(name: str, status: str, message: str = "", warnings: dict | None = None) -> None:
+    """Move the invoice on. Its warnings are the verdict's (`porter_verdict.stored_warnings`), and every
+    other move clears them, so they always belong to the latest attempt."""
     frappe.db.set_value(
         INVOICE_DOCTYPE,
         name,
-        {"validation_status": status, "validation_message": message or None},
+        {
+            "validation_status": status,
+            "validation_message": message or None,
+            "validation_warnings": json.dumps(warnings) if warnings else None,
+        },
         update_modified=False,
     )
     frappe.db.commit()
@@ -315,7 +329,8 @@ def _read_invoice(content: bytes) -> InvoiceRead:
     )
     return InvoiceRead(
         invoice_number=_pick(INVOICE_NO_KEYS),
-        invoice_date=normalize_date(_pick(INVOICE_DATE_KEYS, True)) or None,
+        # `normalize_date` answers an ISO string, or "" when it cannot parse one.
+        invoice_date=getdate(read_date) if (read_date := normalize_date(_pick(INVOICE_DATE_KEYS, True))) else None,
         supplier_gstin=_pick(("supplier_gstin",)),
         receiver_gstin=_pick(("receiver_gstin",)),
         fare=_decimal(_pick(NET_AMOUNT_KEYS, True)),

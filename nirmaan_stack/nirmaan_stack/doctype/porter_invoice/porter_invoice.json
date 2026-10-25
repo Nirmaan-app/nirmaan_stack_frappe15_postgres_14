@@ -1,6 +1,5 @@
 {
  "actions": [],
- "allow_rename": 0,
  "autoname": "field:invoice_number",
  "creation": "2026-10-15 19:35:41.171803",
  "doctype": "DocType",
@@ -15,6 +14,7 @@
   "column_break_status",
   "validation_status",
   "validation_message",
+  "validation_warnings",
   "statement_section",
   "porter_gstin",
   "customer_gstin",
@@ -193,12 +193,19 @@
    "fieldtype": "Currency",
    "label": "Tax (read)",
    "read_only": 1
+  },
+  {
+   "description": "Figures the PDF read differently from the statement that do not stop the invoice agreeing (Porter GSTIN, customer GSTIN, tax, invoice number; #1559), as {warnings: [{figure, statement, read}]}, read null when it could not be read. Written with the verdict by the validation job only (services/outflow_import/porter_verdict.stored_warnings); blank when there are none.",
+   "fieldname": "validation_warnings",
+   "fieldtype": "JSON",
+   "label": "Validation Warnings",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-15 19:40:00.000000",
+ "modified": "2026-10-25 14:51:11.463355",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Porter Invoice",

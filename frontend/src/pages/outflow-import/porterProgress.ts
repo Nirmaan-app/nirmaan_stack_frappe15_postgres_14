@@ -14,6 +14,8 @@ export interface PorterProgress {
     check: {
         invoices: number;
         passed: number;
+        /** Of the passed, those whose PDF read a GSTIN, tax or invoice number differently (#1559). */
+        passed_with_warnings: number;
         in_progress: number;
         /** Error: the PDF could not be read. */
         to_retry: number;
@@ -59,14 +61,20 @@ const plural = (count: number, one: string, many: string) => `${count} ${count =
 const NOT_STARTED = "Not started";
 const AFTER_CHECK = "After the check";
 
-const checkProblems = ({ passed, to_retry, not_matching }: PorterProgress["check"]): string =>
-    [
+const withWarnings = ({ passed_with_warnings }: PorterProgress["check"]) =>
+    passed_with_warnings > 0 ? `${passed_with_warnings} with warnings` : null;
+
+const checkProblems = (check: PorterProgress["check"]): string => {
+    const { passed, to_retry, not_matching } = check;
+    return [
         `${passed} passed`,
+        withWarnings(check),
         to_retry > 0 ? `${to_retry} to retry` : null,
         not_matching > 0 ? `${not_matching} ${not_matching === 1 ? "doesn't" : "don't"} match` : null,
     ]
         .filter(Boolean)
         .join(" · ");
+};
 
 const uploadPhase = (progress: PorterProgress | null): PhaseView => {
     if (!progress) return { key: "upload", title: "Upload", tone: "current", counts: "Choose the file", chip: "Upload" };
@@ -92,7 +100,7 @@ const checkPhase = (check: PorterProgress["check"]): PhaseView => {
     return {
         ...base,
         tone: "done",
-        counts: `${check.passed} of ${check.invoices} passed`,
+        counts: [`${check.passed} of ${check.invoices} passed`, withWarnings(check)].filter(Boolean).join(" · "),
         chip: `${plural(check.invoices, "invoice", "invoices")} checked`,
     };
 };
