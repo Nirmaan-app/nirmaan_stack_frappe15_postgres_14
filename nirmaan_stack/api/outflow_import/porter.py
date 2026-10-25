@@ -38,15 +38,14 @@ Unreconciled Outflow*; and every main-table action refuses them (`sources.CREATE
 """
 
 import frappe
-from frappe.utils.background_jobs import is_job_enqueued
 from frappe.utils.file_manager import save_file
 
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.porter_records import (
     BATCH_DOCTYPE,
     SOURCE,
-    create_job_id,
     created_anything,
+    porter_progress,
     refuse_unless_porter_import,
 )
 from nirmaan_stack.api.outflow_import.porter_upload import (
@@ -250,6 +249,7 @@ def porter_status(batch: str) -> dict:
     )
     orders = int(lines["orders"] or 0)
     cancelled = int(lines["cancelled"] or 0)
+    progress = porter_progress([batch])[batch]
     return {
         "batch": meta.name,
         "source": SOURCE,
@@ -272,7 +272,10 @@ def porter_status(batch: str) -> dict:
         "created": int(by_status.get(ROW_SETTLED) or 0),
         "failed": int(by_status.get(ROW_ERROR) or 0),
         # The Create job is queued or running: the dialog polls while it is.
-        "create_running": is_job_enqueued(create_job_id(batch)),
+        "create_running": progress["create"]["running"],
+        # Per phase: what is done, what is waiting and what needs a person (#1556). Import History
+        # gets the same summary per Porter import (`review.list_imports`).
+        "progress": progress,
         "invoices": [
             {
                 "name": invoice.name,

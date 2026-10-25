@@ -92,6 +92,7 @@ import { ConfirmMatchedPanel } from "./ConfirmMatchedPanel";
 import { PorterDiscardButton } from "./PorterDiscardButton";
 import { PorterFileChecks } from "./PorterFileChecks";
 import { PorterImportSummary } from "./PorterImportSummary";
+import { PorterProgressBar } from "./PorterProgressBar";
 import { PorterReviewPanel } from "./PorterReviewPanel";
 import { SheetHeaderPicker } from "./SheetHeaderPicker";
 
@@ -906,14 +907,21 @@ export const ImportStatementDialog = ({
                         ⚠️ CLICKING A CIRCLE ONLY WORKS BEFORE ANYTHING IS WRITTEN. `clickableStepIndex`
                         allows a completed step, and only while `canStepBack` -- from step 2 on the
                         rows are staged and there is nothing to go back to. */}
-                    <WizardSteps
-                        steps={steps}
-                        currentStep={stepIndex}
-                        onStepClick={(target) => {
-                            if (clickableStepIndex(source, flow, target)) goBackToUpload();
-                        }}
-                        allowForwardNavigation={false}
-                    />
+                    {/* ⚠️ PORTER SHOWS ITS PROGRESS BAR INSTEAD (#1556): each phase's counts and whose
+                        turn it is, from the server's summary, re-read by the status poll while a job
+                        runs. Its steps are still `importSteps(source)`, which the body keys off. */}
+                    {isPorter ? (
+                        <PorterProgressBar progress={porterStatus?.progress} />
+                    ) : (
+                        <WizardSteps
+                            steps={steps}
+                            currentStep={stepIndex}
+                            onStepClick={(target) => {
+                                if (clickableStepIndex(source, flow, target)) goBackToUpload();
+                            }}
+                            allowForwardNavigation={false}
+                        />
+                    )}
                 </DialogHeader>
 
                 <div className="min-h-0 space-y-5 overflow-y-auto px-6 py-4">
@@ -1069,7 +1077,7 @@ export const ImportStatementDialog = ({
 
                     {/* PORTER, STEP 3 -- every invoice passed: place each order before Create (#1446). */}
                     {isPorter && porterStatus && porterReviewOffered(porterStatus) && (
-                        <PorterReviewPanel batch={porterStatus.batch} />
+                        <PorterReviewPanel batch={porterStatus.batch} onPlaced={() => void setPorterData()} />
                     )}
 
                     {/* STEP 2 -- what importing this statement WOULD do. Nothing is written yet. */}
