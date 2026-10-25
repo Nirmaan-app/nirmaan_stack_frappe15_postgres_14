@@ -18,6 +18,7 @@ import io
 import os
 import re
 from pathlib import Path
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -27,6 +28,8 @@ from nirmaan_stack.api.outflow_import import card_import
 from nirmaan_stack.api.outflow_import.test_porter_reupload import _storage_deletes
 from nirmaan_stack.api.outflow_import.test_porter_validation import _no_bucket_upload
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, ACCOUNTANT_LEAD, OUTSIDER, _Users
+from nirmaan_stack.services.outflow_import.card_memory import MEMORY_DOCTYPE
+from nirmaan_stack.services.outflow_import.card_statement import read_card_statement
 from nirmaan_stack.services.outflow_import.tests.card_pdf_builder import pdf_from_text
 
 FIXTURE = (
@@ -67,6 +70,35 @@ def _purge(holder: str) -> None:
             print(f"card test purge: could not delete {statement.name}")
 
 
+def _fixture_merchants() -> list[str]:
+    text = FIXTURE.read_text(encoding="utf-8")
+    return sorted({line.merchant_key for line in read_card_statement(text).lines})
+
+
+def _forget_fixture_merchants(case) -> None:
+    """Clear the merchant memory of every fixture merchant for this test, and restore it afterwards."""
+    merchants = _fixture_merchants()
+    kept = frappe.get_all(MEMORY_DOCTYPE, filters={"name": ["in", merchants]}, fields=["*"])
+
+    def _clear():
+        frappe.db.delete(MEMORY_DOCTYPE, {"name": ["in", merchants]})
+        frappe.db.commit()
+
+    def _restore():
+        frappe.db.rollback()
+        try:
+            _clear()
+            for row in kept:
+                frappe.get_doc({**row, "doctype": MEMORY_DOCTYPE}).db_insert()
+            frappe.db.commit()
+        except Exception:
+            frappe.db.rollback()
+            print("card test purge: could not restore the merchant memory")
+
+    _clear()
+    case.addCleanup(_restore)
+
+
 class CardImportCase(FrappeTestCase):
     def setUp(self):
         super().setUp()
@@ -76,6 +108,10 @@ class CardImportCase(FrappeTestCase):
         self.addCleanup(_purge, self.holder)
         self.users = _Users()
         self.addCleanup(self.users.purge)
+        self.enqueued = []
+        # Create and an Expense edit remember a type per merchant (#1569): the fixture's merchants start
+        # with no memory, and whatever was there before is put back.
+        _forget_fixture_merchants(self)
 
     def _text(self, *, serno_base: int | None = None, holder: str | None = None) -> str:
         """The fixture with this test's holder and SerNos (each line's own, kept distinct)."""
@@ -93,7 +129,8 @@ class CardImportCase(FrappeTestCase):
         frappe.set_user(user)
         frappe.local.request = _Request()
         try:
-            with _no_bucket_upload():
+            # The type suggestion job is RECORDED, never queued: the Redis queue is shared (#1569).
+            with _no_bucket_upload(), patch.object(frappe, "enqueue", side_effect=lambda *a, **kw: self.enqueued.append(kw)):
                 return card_import.upload_card_statement()
         finally:
             frappe.local.request = previous_request

@@ -4,10 +4,17 @@ import { useMemo } from "react";
 import { CheckCircle2, FileText, Loader2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { FuzzySearchSelect, type TokenSearchConfig } from "@/components/ui/fuzzy-search-select";
 import formatToIndianRupee from "@/utils/FormatPrice";
 
-import { cardCreateProgress, typeChoiceLabel } from "../cardCreate";
+import {
+    cardCreateProgress,
+    cardSuggestNote,
+    merchantRetype,
+    typeChoiceLabel,
+    typeSourceTitle,
+} from "../cardCreate";
 import {
     CARD_UPLOADED_NOTE,
     cardCountsLine,
@@ -35,7 +42,9 @@ const TYPE_SEARCH: TokenSearchConfig = {
  * A Credit Card Statement import once it is in: the statement's header (holder, company, statement date,
  * billing period), its five summary totals and every line (#1566). Each spend shows its expense type, which
  * Review changes while Create would still write the spend (#1568): `onRetype` saves it at once, and the
- * fallback nobody has chosen is marked "Check". Rendered by `ImportStatementDialog`, which holds Create and
+ * fallback nobody has chosen is marked "Check". The type arrives from the suggestion job (#1569): its badge
+ * names its source (earlier statement, AI, fallback), and one link gives it to every spend of the merchant.
+ * Rendered by `ImportStatementDialog`, which holds Create and
  * Discard in its footer.
  */
 export const CardImportReview = ({
@@ -44,8 +53,8 @@ export const CardImportReview = ({
     retyping = null,
 }: {
     card: CardImport;
-    /** Save `expenseType` on one spend. */
-    onRetype?: (line: string, expenseType: string) => void;
+    /** Save `expenseType` on `rows` (default: `line` alone). */
+    onRetype?: (line: string, expenseType: string, rows?: string[]) => void;
     /** The spend whose type is being saved. */
     retyping?: string | null;
 }) => {
@@ -53,7 +62,7 @@ export const CardImportReview = ({
         () => card.expense_types.map((name) => ({ value: name, label: name })),
         [card.expense_types],
     );
-    const progress = cardCreateProgress(card);
+    const progress = cardCreateProgress(card) ?? cardSuggestNote(card);
 
     return (
         <div className="space-y-4">
@@ -138,10 +147,11 @@ export const CardImportReview = ({
                                 <td className="px-3 py-1">
                                     <SpendType
                                         line={line}
+                                        forMerchant={merchantRetype(card.lines, line)}
                                         options={options}
                                         saving={retyping === line.name}
                                         disabled={retyping !== null || card.create_running || !onRetype}
-                                        onChange={(type) => onRetype?.(line.name, type)}
+                                        onChange={(type, rows) => onRetype?.(line.name, type, rows)}
                                     />
                                 </td>
                             </tr>
@@ -158,22 +168,26 @@ export const CardImportReview = ({
 /** A spend's type: a picker while Create would still write it, else the type and its Expense. */
 const SpendType = ({
     line,
+    forMerchant,
     options,
     saving,
     disabled,
     onChange,
 }: {
     line: CardImportLine;
+    /** Give this spend's type to every retypable spend of its merchant (#1569); null when not offered. */
+    forMerchant: ReturnType<typeof merchantRetype>;
     options: TypeOption[];
     saving: boolean;
     disabled: boolean;
-    onChange: (expenseType: string) => void;
+    onChange: (expenseType: string, rows?: string[]) => void;
 }) => {
     if (line.is_credit) return <span className="text-muted-foreground">—</span>;
     const badge = typeChoiceLabel(line);
     const chip = badge && (
         <Badge
             variant="outline"
+            title={typeSourceTitle(line) ?? undefined}
             className={
                 line.check
                     ? "shrink-0 border-amber-300 bg-amber-50 px-1 py-0 text-[10px] text-amber-800"
@@ -212,6 +226,18 @@ const SpendType = ({
                 </div>
                 {saving ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" /> : chip}
             </div>
+            {forMerchant && (
+                <Button
+                    type="button"
+                    variant="link"
+                    size="sm"
+                    className="h-auto self-start p-0 text-[11px]"
+                    disabled={disabled}
+                    onClick={() => onChange(forMerchant.expenseType, forMerchant.rows)}
+                >
+                    {forMerchant.label}
+                </Button>
+            )}
             {/* A spend a Create run could not write says why; Create retries it. */}
             {line.row_status === "Error" && line.outcome_note && (
                 <span className="text-[11px] text-destructive">{line.outcome_note}</span>
