@@ -13,6 +13,8 @@ screens (`porter_expense.py`) each ask these, never a copy of them:
     `refuse_unless_won` -- and `won_projects`, the only projects a Porter order can be placed on;
   * the import's DERIVED state, `porter_import_states` (never stored: `Outflow Import Batch.status` keeps
     its own meaning), over the pure `porter_state.import_state`;
+  * the import's per-phase progress summary, `porter_progress`, over the pure `porter_state.import_progress`
+    (the dialog's progress bar and Import History's chips, #1556);
   * `line_names` -- the posted line names an endpoint was sent.
 
 Reads only; nothing here writes.
@@ -21,8 +23,15 @@ Reads only; nothing here writes.
 from __future__ import annotations
 
 import frappe
+from frappe.utils.background_jobs import is_job_enqueued
 
-from nirmaan_stack.services.outflow_import.porter_state import IMPORT_VALIDATED, import_state
+from nirmaan_stack.services.outflow_import.porter_state import (
+    IMPORT_VALIDATED,
+    import_progress,
+    import_state,
+    placement_kind,
+)
+from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_PORTER_CANCELLED
 from nirmaan_stack.services.outflow_import.sources import PORTER_STATEMENT_SOURCE
 
 BATCH_DOCTYPE = "Outflow Import Batch"
@@ -115,6 +124,50 @@ def _invoice_statuses(batches: list[str]) -> dict[str, list[str]]:
     ):
         statuses[row.import_batch].append(row.validation_status)
     return statuses
+
+
+def porter_progress(batches: list[str]) -> dict[str, dict]:
+    """Each Porter import's per-phase progress summary (`porter_state.import_progress`, #1556): what the
+    import dialog's progress bar and Import History's chips show. Three grouped queries for any number
+    of imports, plus one queue lookup each for a running Create job. Reads only."""
+    from nirmaan_stack.api.outflow_import.porter_validation import VALIDATION_CONCURRENCY
+
+    invoices = _invoice_statuses(batches)
+    lines: dict[str, dict[str, int]] = {batch: {} for batch in batches}
+    cancelled: dict[str, int] = {batch: 0 for batch in batches}
+    placements: dict[str, dict[str, int]] = {batch: {} for batch in batches}
+    if batches:
+        for row in frappe.db.sql(
+            """
+            SELECT import_batch, row_status, skip_kind, placement_reason, placement_strength,
+                   COUNT(*) AS lines
+            FROM "tabOutflow Import Row"
+            WHERE import_batch IN %s
+            GROUP BY import_batch, row_status, skip_kind, placement_reason, placement_strength
+            """,
+            (tuple(batches),),
+            as_dict=True,
+        ):
+            count = int(row.lines)
+            by_status = lines[row.import_batch]
+            by_status[row.row_status] = by_status.get(row.row_status, 0) + count
+            if row.skip_kind == SKIP_KIND_PORTER_CANCELLED:
+                cancelled[row.import_batch] += count
+                continue
+            kind = placement_kind(row.placement_reason, row.placement_strength)
+            placements[row.import_batch][kind] = placements[row.import_batch].get(kind, 0) + count
+    return {
+        batch: import_progress(
+            orders=sum(lines[batch].values()),
+            cancelled=cancelled[batch],
+            invoice_statuses=invoices[batch],
+            line_statuses=lines[batch],
+            placements=placements[batch],
+            create_running=is_job_enqueued(create_job_id(batch)),
+            check_concurrency=VALIDATION_CONCURRENCY,
+        )
+        for batch in batches
+    }
 
 
 def is_validated(batch: str) -> bool:

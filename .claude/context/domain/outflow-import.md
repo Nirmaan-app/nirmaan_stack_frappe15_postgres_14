@@ -7243,6 +7243,25 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
   portal `zIndex` 9999 and `pointerEvents: "auto"` (no styles of its own). Walked on both: the option clicked
   is the project saved.
 
+### As built — #1556: the progress bar (spec #1554, 2026-10-25)
+
+- **One summary, one reader.** `porter_records.porter_progress(batches)` (grouped queries over the pure
+  `porter_state.import_progress`) is `progress` on `get_porter_status` and on each Porter row of
+  `review.list_imports`; the dialog's bar and Import History's chips read only it. Phases: `upload` (orders,
+  invoices, cancelled), `check` (invoices, passed, in_progress, to_retry = Error, not_matching = Failed,
+  seconds_left), `projects` (orders, placed_automatically, placed_by_person, needs_person), `create` (orders,
+  created, waiting, failed, reopened, running). Each phase is a flat dict: later tickets ADD keys, never reshape.
+- **Placement kinds** (`porter_state.placement_kind`): `review` reason = by a person; Strong = automatic;
+  anything else (Check, or no placement) = needs a person. #1560 widens needs-a-person to mixed remark groups.
+- **`seconds_left`** is a rough estimate: in-progress invoices ÷ `VALIDATION_CONCURRENCY` ×
+  `CHECK_SECONDS_PER_INVOICE` (60 s), None once nothing is in progress.
+- ⚠️ **"Creating" only while a Create job is queued or running** (`create.running`). The stored-state word
+  `state` still reads Creating for a partly created import (the gates use it); the bar
+  (`porterProgress.progressPhases`) shows such an import's Create phase as needing a person, and the state
+  badge in the dialog and Import History shows `porterProgress.shownPorterState` ("Needs you").
+- The review panel's `onPlaced` re-reads the status, so a placement moves the Choose-projects count at once.
+- The bar replaces `WizardSteps` for Porter only; `importSteps`/`currentStepIndex` still decide the body.
+
 
 ## #1485 (2026-10-17) — an ICICI cheque line clears its Payment cheque (spec #1477, ADR-0035)
 

@@ -22,6 +22,7 @@ import {
     type PorterStatus,
     type ProgressMark,
 } from "../porterImport";
+import { shownPorterState } from "../porterProgress";
 
 const TONE_CLASS: Record<ReturnType<typeof invoiceStateTone>, string> = {
     passed: "border-emerald-200 bg-emerald-50 text-emerald-700",
@@ -55,6 +56,8 @@ export const PorterImportSummary = ({
               ? formatDate(status.period_from)
               : "not dated";
     const progress = createProgress(status);
+    // "Creating" only while the Create job runs; a partly created import with none reads "Needs you" (#1556).
+    const shown = shownPorterState(status);
     const invoiceCards = (
         <ul className="space-y-3">
             {status.invoices.map((invoice) => (
@@ -81,13 +84,13 @@ export const PorterImportSummary = ({
                     </span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="outline" className={TONE_CLASS[porterStateTone(status.state)]}>
+                    <Badge variant="outline" className={TONE_CLASS[porterStateTone(shown)]}>
                         {(status.state === "Validating" || status.create_running) && (
                             <Loader2 className="mr-1 h-3 w-3 animate-spin" />
                         )}
-                        {status.state}
+                        {shown}
                     </Badge>
-                    <p className="text-xs text-muted-foreground">{porterStateNote(status.state)}</p>
+                    <p className="text-xs text-muted-foreground">{porterStateNote(shown)}</p>
                 </div>
                 {repeatsLeftOutNote(status.repeats_not_saved) && (
                     <p className="text-xs text-muted-foreground">{repeatsLeftOutNote(status.repeats_not_saved)}</p>
