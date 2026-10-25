@@ -23,7 +23,7 @@
 {%- set target = ns.target -%}
 
 {# Per-task signature top-margin (a CSS value). Tasks not listed fall back to the 30px CSS default. #}
-{%- set SIG_MARGINS = {"CCTV Commissioning Report": "120px", "Nitrogen Pressure Testing Report": "0px", "Access Control Commissioning Report": "100px", "Gas Supression System Commissioning Report": "12px", "RR Commissioning Report": "100px", "WLD Commissioning Report": "100px", "DX Commissioning Report": "0px", "VRF Commissioning Report": "0px", "FA Commissioning Report": "12px"} -%}
+{%- set SIG_MARGINS = {"CCTV Commissioning Report": "120px", "Nitrogen Pressure Testing Report": "5px", "Pipe Pressure Testing Report": "5px","Access Control Commissioning Report": "100px", "Gas Supression System Commissioning Report": "12px", "RR Commissioning Report": "100px", "WLD Commissioning Report": "100px", "DX Commissioning Report": "0px", "VRF Commissioning Report": "0px", "FA Commissioning Report": "12px"} -%}
 
 <style>
 @page { size: A4 portrait; margin-left: 12mm; margin-right: 12mm; margin-top:1mm; }
@@ -1449,7 +1449,7 @@ thead { display: table-header-group; }
                 </td></tr>
             </table>
 
-        {% elif tpl.templateId == "nitrogen-pressure-testing-report" %}
+        {% elif tpl.templateId in ["nitrogen-pressure-testing-report", "pipe-pressure-testing-report"] %}
 
             {%- set details_section  = (tpl.sections | selectattr("id", "equalto", "details")  | list | first) -%}
             {%- set evidence_section = (tpl.sections | selectattr("id", "equalto", "evidence") | list | first) -%}
@@ -1556,8 +1556,8 @@ thead { display: table-header-group; }
                         </table>
                     {% endif %}
 
-                </td></tr>
-                <tr><td class="cv-bottom-cell">
+                    {# Signature inside the content cell (flows after the photos) — a separate
+                       cv-bottom-cell row is force-broken onto its own page by wkhtmltopdf. #}
                     {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, sig_nirmaan, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
