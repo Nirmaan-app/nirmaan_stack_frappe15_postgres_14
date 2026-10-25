@@ -15,6 +15,7 @@ screens (`porter_expense.py`) each ask these, never a copy of them:
     its own meaning), over the pure `porter_state.import_state`;
   * the import's per-phase progress summary, `porter_progress`, over the pure `porter_state.import_progress`
     (the dialog's progress bar and Import History's chips, #1556);
+  * `failed_lines` -- the lines Create could not create, each with its note and fix (#1561);
   * which orders need a person, `porter_placements` / `orders_needing_a_person`, over the pure
     `porter_state.placement_kinds` (#1560): Review's filter, Create's refusal and the progress count;
   * `line_names` -- the posted line names an endpoint was sent.
@@ -39,6 +40,7 @@ from nirmaan_stack.services.outflow_import.porter_state import (
 from nirmaan_stack.services.outflow_import.ledgers import PROJECT_EXPENSE_DOCTYPE
 from nirmaan_stack.services.outflow_import.porter import remark_group_key
 from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_PORTER_CANCELLED
+from nirmaan_stack.services.outflow_import.status import ROW_ERROR
 from nirmaan_stack.services.outflow_import.sources import PORTER_STATEMENT_SOURCE
 
 BATCH_DOCTYPE = "Outflow Import Batch"
@@ -224,6 +226,49 @@ def porter_progress(batches: list[str]) -> dict[str, dict]:
         )
         for batch in batches
     }
+
+
+#: A failed line's fix (#1561): place it on a Won project again (its project is no longer Won, or gone).
+FIX_REPLACE = "re-place"
+#: A failed line's fix: run Create again as it stands.
+FIX_RETRY = "retry"
+
+
+def failed_lines(batch: str) -> list[dict]:
+    """Every line Create could not create (Error), by line name: `name`, `crn` (its Porter Order),
+    `note` (the sentence Create stored), `fix` and the line's `project` / `project_name`.
+
+    ⚠️ THE FIX IS READ FROM THE LINE AS IT STANDS NOW, NOT FROM THE NOTE: a line on a project that is not
+    Won (or no longer exists) is re-placed; any other is retried. So once a person places a refused line on
+    a Won project, its fix becomes retry without anything else being written.
+    """
+    rows = frappe.db.sql(
+        """
+        SELECT r.name, r.transfer_id, r.outcome_note, r.suggested_doctype, r.resolved_project,
+               p.name AS found_project, p.project_name, p.tendering_status
+        FROM "tabOutflow Import Row" r
+        LEFT JOIN "tabProjects" p ON p.name = r.resolved_project
+        WHERE r.import_batch = %s AND r.row_status = %s
+        ORDER BY r.name
+        """,
+        (batch, ROW_ERROR),
+        as_dict=True,
+    )
+    lines = []
+    for row in rows:
+        project = row.resolved_project if row.suggested_doctype == PROJECT_EXPENSE_DOCTYPE else None
+        not_won = bool(project) and (not row.found_project or row.tendering_status != WON)
+        lines.append(
+            {
+                "name": row.name,
+                "crn": row.transfer_id,
+                "note": row.outcome_note,
+                "fix": FIX_REPLACE if not_won else FIX_RETRY,
+                "project": project or None,
+                "project_name": (row.project_name or project) if project else None,
+            }
+        )
+    return lines
 
 
 def is_validated(batch: str) -> bool:

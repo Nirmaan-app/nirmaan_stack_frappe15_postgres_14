@@ -411,15 +411,12 @@ describe("creating the expenses (#1445)", () => {
         expect(createProgress(status({ state: "Creating", create_running: true, created: 4, to_create: 7 }))).toBe(
             "Creating… 4 of 11 created.",
         );
-        expect(createProgress(status({ state: "Creating", created: 10, to_create: 1, failed: 1 }))).toBe(
-            "10 of 11 created. 1 could not be created: press Create again to retry it.",
-        );
         expect(createProgress(status({ state: "Creating", created: 10, to_create: 1 }))).toBe(
             "10 of 11 created. 1 is waiting: press Create again to create it.",
         );
-        expect(createProgress(status({ state: "Created", created: 11, to_create: 0 }))).toBe(
-            "All 11 expenses created, at Paid.",
-        );
+        // A failed order, and every order created, are the result's to say (`porterResult`, #1561).
+        expect(createProgress(status({ state: "Creating", created: 10, to_create: 1, failed: 1 }))).toBeNull();
+        expect(createProgress(status({ state: "Created", created: 11, to_create: 0 }))).toBeNull();
     });
 
     it("says what Creating and Created mean, and tones Created as done", () => {
