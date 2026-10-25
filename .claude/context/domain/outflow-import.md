@@ -7240,7 +7240,7 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
   is the project saved.
 
 
-## Credit Card Statement — the fifth source (spec #1565; upload, Review and Discard built at #1566, type edit and Create at #1568, the rest NOT BUILT YET)
+## Credit Card Statement — the fifth source (spec #1565; upload, Review and Discard built at #1566, type edit and Create at #1568, invoices at #1570, the rest NOT BUILT YET)
 
 Decisions: **[ADR-0037](../../../docs/adr/0037-credit-card-statement-import.md)**. Terms: `GLOSSARY.md`
 § *Company credit cards*. Source string `ICICI Credit Card Statement` (`sources.CARD_STATEMENT_SOURCE`).
@@ -7329,12 +7329,31 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
     offered / label / progress, stepper on Create once started, "Check" badge) and `useCardImport.ts` (reads
     the import, polls every 2 s while `create_running`, retype + Create). The dialog footer holds Create beside
     Discard and Done.
+14. **Invoices (#1570, ADR-0037 ruling 8).** A card Expense waits in Vendor Invoice Recon -> *Pending Invoices
+    Upload* -> **Credit Card** (`?upload_tab=card`, `components/CardInvoiceUploads.tsx`; its own table, NOT the
+    Reports "Pending Invoices" report the PO / WO sub-tabs mount) while `credit_card_statement` is set,
+    `invoice_attachment` is blank and `no_invoice_by` is blank. Endpoints `api/expenses/card_invoices.py`:
+    `get_card_invoice_queue` (rows with date, `merchant` = `merchant_key` of the line details, `details`
+    = payment_ref with " - SerNo" taken off by `services/card_invoices.card_line_details`, amount, type, holder,
+    statement, `statement_month` "YYYY-MM" of the statement date) and `attach_card_invoice` (file required,
+    number and date optional) are gated by `role_profiles.PENDING_INVOICE_UPLOAD_PROFILES` (the tab's own
+    set: approvers + PMO + procurement); `mark_card_no_invoice` by `CARD_NO_INVOICE_PROFILES` (Admin, Accountant
+    Lead), a typed reason required, writing the new read-only `Non Project Expenses.no_invoice_reason` /
+    `no_invoice_by` (Link User) / `no_invoice_at`. Both writes re-read the Expense `FOR UPDATE`, refuse by
+    `services/card_invoices` (`attach_problem`, `no_invoice_problem`: not a card spend, already invoiced, already
+    marked) and save through the document layer (Version row kept). Holder and month filters are client-side
+    (`pages/tasks/invoices/utils/cardInvoicesView.ts`). Attach reuses `UpdateInvoiceDetailsDialog` with its
+    `cardSave` prop (file required, ref and date optional, saved through the endpoint). The file is uploaded
+    against the Expense (`attached_to_*`), so it stays one `File`. An invoice attached anywhere else (the Non
+    Project Expenses page) also takes the spend off the list. No undo of *No invoice* exists.
 
 **Tests.** `services/outflow_import/test_card_statement` (unit, the fixture and a PDF built from it by
 `tests/card_pdf_builder.pdf_from_text`), `api/outflow_import/test_card_import` (DB: upload, refusals, repeats,
 Review, History, not-matched totals, Discard, the matcher AST guard), `services/outflow_import/test_card_types`
 (unit), `api/outflow_import/test_card_create` (DB: types on Review, retype refusals, Create fields, permissions,
-resume, Unreconcile and re-create, Discard refused after Create, the AST guard over every card module).
+resume, Unreconcile and re-create, Discard refused after Create, the AST guard over every card module),
+`services/test_card_invoices` (unit) and `api/expenses/test_card_invoices` (DB: the list, attach, No invoice and
+their permissions), vitest `pages/tasks/invoices/utils/cardInvoicesView.test.ts`.
 
 
 ## #1485 (2026-10-17) — an ICICI cheque line clears its Payment cheque (spec #1477, ADR-0035)
