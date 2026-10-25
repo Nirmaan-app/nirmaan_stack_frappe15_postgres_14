@@ -7,8 +7,8 @@ import {
 	isPorterExpense,
 	PORTER_INVOICE_PDF_METHOD,
 	porterSectionRows,
+	moveOrderLink,
 	projectField,
-	RECTIFY_HINT,
 } from "./porterExpense";
 
 describe("isPorterExpense (the Porter badge)", () => {
@@ -26,17 +26,37 @@ describe("isPorterExpense (the Porter badge)", () => {
 });
 
 describe("projectField (the edit dialog's project lock)", () => {
-	it("locks the project of a Porter Expense and points to Rectify", () => {
+	it("locks the project of a Porter Expense and points to Move to another project", () => {
 		expect(projectField({ porter_order: "CRN1234567890" })).toEqual({
 			locked: true,
-			hint: "Use Rectify in Bulk Import",
+			hint: "Move to another project",
 		});
-		expect(RECTIFY_HINT).toBe("Use Rectify in Bulk Import");
 	});
 
 	it("leaves any other expense as it was: no project row", () => {
 		expect(projectField({ porter_order: "" })).toEqual({ locked: false });
 		expect(projectField({})).toEqual({ locked: false });
+	});
+});
+
+describe("moveOrderLink (the hint, as a link to the order's line)", () => {
+	it("opens Bulk Import at the order's import, on the Settled tab, searched to its CRN, with the move dialog open", () => {
+		expect(moveOrderLink({ crn: "CRN1234567890", import_batch: "OFI-26-00042", import_row: "OFR-0007" })).toEqual({
+			to: "/bulk-import-transactions/OFI-26-00042?move=OFR-0007",
+			state: { outflowTab: "matchedOutflow", outflowSearch: "CRN1234567890" },
+		});
+	});
+
+	it("escapes the names it puts in the URL", () => {
+		expect(moveOrderLink({ crn: "C", import_batch: "OFI 1/2", import_row: "R&1" })?.to).toBe(
+			"/bulk-import-transactions/OFI%201%2F2?move=R%261"
+		);
+	});
+
+	it("is null when the order's import line is not known, so the hint stays plain text", () => {
+		expect(moveOrderLink({ crn: "C", import_batch: null, import_row: "R" })).toBeNull();
+		expect(moveOrderLink({ crn: "C", import_batch: "B", import_row: null })).toBeNull();
+		expect(moveOrderLink(null)).toBeNull();
 	});
 });
 
@@ -54,6 +74,8 @@ describe("porterSectionRows (the read-only Porter section)", () => {
 		pdf_url: "/api/method/x?doctype=Project%20Expenses&name=PE-1",
 		project: "PROJ-1",
 		project_name: "Zephyr Tower",
+		import_batch: "OFI-1",
+		import_row: "OFR-1",
 	};
 
 	it("shows the order's facts in the order the spec names them", () => {

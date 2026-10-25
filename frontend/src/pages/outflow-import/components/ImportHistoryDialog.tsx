@@ -28,6 +28,7 @@ import { isPorterImport } from "../porterImport";
 
 import {
     historyEmptyLabel,
+    importCountLabel,
     historySubtitle,
     importsInTab,
     initialHistoryMonth,
@@ -414,7 +415,7 @@ const HistoryRow = ({
                             {formatToRoundedIndianRupee(option.gross_amount ?? 0)}
                         </div>
                         <div className="text-xs text-muted-foreground tabular-nums">
-                            {transfers} transfer{transfers === 1 ? "" : "s"}
+                            {importCountLabel(option.source, transfers)}
                         </div>
                     </div>
                     <span

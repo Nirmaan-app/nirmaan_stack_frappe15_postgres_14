@@ -36,7 +36,7 @@ import {
 import { cn } from "@/lib/utils";
 import SITEURL from "@/constants/siteURL";
 import { projectField } from "@/utils/porterExpense";
-import { PorterSectionBlock, usePorterExpense } from "@/components/common/PorterExpense";
+import { MoveOrderHint, PorterSectionBlock, usePorterExpense } from "@/components/common/PorterExpense";
 
 // --- Types ---
 import { NonProjectExpenses as NonProjectExpensesType } from "@/types/NirmaanStack/NonProjectExpenses";
@@ -378,7 +378,12 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                         <div className="grid grid-cols-4 items-center gap-3">
                             <Label htmlFor="project_edit_npe" className="text-right col-span-1">Project</Label>
                             <Input id="project_edit_npe" value="Non-Project" className="col-span-3" disabled readOnly />
-                            <p className="col-span-3 col-start-2 text-xs text-muted-foreground mt-0.5">{project.hint}</p>
+                            <MoveOrderHint
+                                hint={project.hint}
+                                section={porter.section}
+                                onFollow={() => setEditNonProjectExpenseDialog(false)}
+                                className="col-span-3 col-start-2 text-xs text-muted-foreground mt-0.5"
+                            />
                         </div>
                     )}
                     {/* Core Details: Type, Description, Amount - Similar to NewNonProjectExpense */}

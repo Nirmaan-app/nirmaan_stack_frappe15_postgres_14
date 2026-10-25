@@ -7,6 +7,8 @@
 // ⚠️ NO RULE OF ITS OWN ABOUT A LINE. Whether a line can move is the server's (`porter_rectify.get_porter_rectify_plan`
 // `refusal`); the write re-asks under its locks. This only decides what to offer and how to word it.
 
+import { MOVE_ORDER_LABEL } from "@/utils/porterExpense";
+
 import { offPageTicks } from "./offPageTicks";
 import { ROW_SETTLED } from "./outflowImportStatus";
 import { PORTER_SOURCE } from "./porterImport";
@@ -15,6 +17,17 @@ export const RECTIFY_PLAN_METHOD = "nirmaan_stack.api.outflow_import.porter_rect
 export const RECTIFY_METHOD = "nirmaan_stack.api.outflow_import.porter_rectify.rectify_porter_rows";
 
 const PROJECT_EXPENSE = "Project Expenses";
+
+/** On screen Rectify is "Move to another project" (#1558); the code and the domain keep the name Rectify. */
+export { MOVE_ORDER_LABEL };
+
+const orders = (n: number) => `${n} ${n === 1 ? "order" : "orders"}`;
+
+/** The toolbar's button over ticked lines, and the dialog's run button. */
+export const moveOrdersLabel = (n: number): string => `Move ${orders(n)}`;
+
+export const moveDialogTitle = (n: number): string =>
+    n === 1 ? "Move this Porter order to another project" : `Move ${n} Porter orders to another project`;
 
 /** One ticked line, as the plan reads it. Every field past `refusal` is absent on a refused line. */
 export interface RectifyPlanLine {
@@ -70,7 +83,7 @@ export interface RectifyButtonState {
 }
 
 /**
- * "Rectify N" in the Settled-lines toolbar, beside "Unreconcile N". On only when every ticked line is a Settled
+ * "Move N orders" (Rectify) in the Settled-lines toolbar, beside "Unreconcile N". On only when every ticked line is a Settled
  * Porter line on this page: the run moves every line to ONE placement, which means nothing for a bank line.
  */
 export const rectifyButtonState = (
@@ -82,7 +95,7 @@ export const rectifyButtonState = (
     const count = selected.size;
     const porterTicked = rows.filter((row) => selected.has(row.name) && isPorterSettled(row)).length;
     if (!porterTicked) return { visible: false, enabled: false, count, note: null };
-    const away = offPageTicks(rows, selected, tickedOnPage, currentPage, "Rectify");
+    const away = offPageTicks(rows, selected, tickedOnPage, currentPage, "Moving");
     if (away) return { visible: true, enabled: false, count, note: away.note };
     const others = count - porterTicked;
     if (others) {
@@ -90,7 +103,7 @@ export const rectifyButtonState = (
             visible: true,
             enabled: false,
             count,
-            note: `Rectify works on Porter orders only: untick the ${others} other ${others === 1 ? "line" : "lines"}.`,
+            note: `Moving works on Porter orders only: untick the ${others} other ${others === 1 ? "line" : "lines"}.`,
         };
     }
     return { visible: true, enabled: true, count, note: null };
@@ -112,8 +125,6 @@ export const linesToMove = (lines: readonly RectifyPlanLine[], target: string): 
 /** Why a line will not move to `target`, or `null` when it will. */
 export const staysNote = (line: RectifyPlanLine, target: string): string | null =>
     line.refusal ?? (alreadyThere(line, target) ? "Already there, so it stays as it is." : null);
-
-const orders = (n: number) => `${n} ${n === 1 ? "order" : "orders"}`;
 
 export interface RectifyOutcome {
     moved: number;
