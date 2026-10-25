@@ -8,6 +8,7 @@ import frappe
 from frappe import _
 
 from nirmaan_stack.api.invoices._item_billing_sync import recompute_po_invoice_qty
+from nirmaan_stack.services.work_order_invoice_access import may_reject_approved
 
 
 @frappe.whitelist()
@@ -56,11 +57,16 @@ def approve_vendor_invoice(invoice_id: str, action: str, rejection_reason: str =
         # --- Start Transaction ---
         frappe.db.begin()
 
-        # 1. Get the Vendor Invoice document
-        invoice = frappe.get_doc("Vendor Invoices", invoice_id)
+        # 1. Get the Vendor Invoice document, locked so two decisions cannot cross
+        invoice = frappe.get_doc("Vendor Invoices", invoice_id, for_update=True)
 
-        # 2. Validate current status
-        if invoice.status != "Pending":
+        # 2. Validate current status. A Pending invoice is decided; an Approved Work Order invoice
+        # may also be rejected, the way to correct it for anyone but an Admin (ADR-0014 Amendment A).
+        # WHO may decide a Work Order invoice is the Vendor Invoices validate hook's check
+        # (`services/work_order_invoice_access`), which the save below runs.
+        if invoice.status != "Pending" and not may_reject_approved(
+            invoice.document_type, invoice.status, action
+        ):
             frappe.throw(_("Invoice {0} is not in 'Pending' status. Current status: {1}").format(
                 invoice_id, invoice.status
             ))

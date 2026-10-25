@@ -82,7 +82,7 @@ export const selectionBreakdown = (mix: SelectionMix, poSrCount: number): string
  * `""` when nothing does. Every ledger counts -- PO payments, work order payments and both expense
  * ledgers all forward above the CEO line (owner, 2026-09-19) -- and only the work order part has
  * tax, so TDS is mentioned for those alone. `tdsCount` is how many of the forwarded rows carry a
- * TDS forecast (`forecastTdsTotals(...).count`); `ceoLine` is the formatted line, e.g. "₹50,000".
+ * TDS forecast (`tdsPreview.forecastTotals(...).count`, from the server's forecasts); `ceoLine` is the formatted line, e.g. "₹50,000".
  */
 export const forwardedToCeoNote = (
   rows: readonly Pick<ApprovalQueueRow, "source" | "source_type">[],
@@ -112,9 +112,16 @@ export const forwardedToCeoNote = (
 };
 
 /**
- * The money a selection adds up to — the one sum rule behind every "Req. Amt" total on
- * the queue (the approval bulk bar, the Mark-as-Paid bar and its confirm dialog), so no
- * two screens can total the same ticks differently.
+ * The money a selection pays out: the stored amounts, already cut by any TDS withheld. The Mark-as-Paid
+ * confirm dialog's "Total" (the money recorded as gone out).
  */
 export const selectionTotal = (rows: readonly Pick<ApprovalQueueRow, "amount">[]): number =>
   rows.reduce((sum, r) => sum + parseNumber(r.amount), 0);
+
+/**
+ * The full bills a selection adds up to — the one sum rule behind every "Req. Amt" total on the queue
+ * (the approval bulk bar and the Mark-as-Paid bar), so "Req." means the full bill everywhere (#1541,
+ * story 60): `requested_amount`, read as `amount` on a row without it.
+ */
+export const requestedTotal = (rows: readonly Pick<ApprovalQueueRow, "amount" | "requested_amount">[]): number =>
+  rows.reduce((sum, r) => sum + parseNumber(r.requested_amount ?? r.amount), 0);

@@ -3,8 +3,8 @@
 
 """Expense lines and typed-payee cheques (#1411, spec #1407): the rules every write still holds.
 
-Since #1482 (spec #1477) the Cheque Tracker makes Payment cheques only, so no new cheque takes an
-expense line or a typed payee (`test_save_cheque` covers that refusal). The cheques recorded before
+Since #1482 (spec #1477) no new Payment cheque takes an expense line or a typed payee, and since spec
+#1514 the Cheque Tracker makes no cheque at all (`test_save_cheque`). The cheques recorded before
 stay readable as Old-type cheques, and every save of one still runs the `validate` controller's
 expense-line rules. This suite plants such cheques through the Cheque document
 (`ChequeFixture.plant_cheque`) and reads back what a user sees: the Cheque's lines, the expense

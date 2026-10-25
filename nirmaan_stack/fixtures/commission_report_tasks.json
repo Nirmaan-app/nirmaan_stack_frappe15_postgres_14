@@ -1,5 +1,17 @@
 [
  {
+  "category_link": "Fire Sprinkler System",
+  "deadline_offset": 1,
+  "docstatus": 0,
+  "doctype": "Commission Report Tasks",
+  "is_active": 1,
+  "modified": "2026-03-17 18:46:47.600620",
+  "name": "ijs5loao5f",
+  "report_type": "Field",
+  "source_format": null,
+  "task_name": "Flow Switch Testing Report"
+ },
+ {
   "category_link": "Electrical",
   "deadline_offset": 1,
   "docstatus": 0,
@@ -316,11 +328,11 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
-  "is_active": 0,
-  "modified": "2026-03-17 18:44:11.659595",
+  "is_active": 1,
+  "modified": "2026-10-23 16:16:32.370523",
   "name": "75a0j4gr5b",
   "report_type": "Field",
-  "source_format": null,
+  "source_format": "{\n  \"templateId\": \"pipe-pressure-testing-report\",\n  \"templateVersion\": 1,\n  \"zone_wise_enable\": \"YES\",\n  \"title\": \"Pipe Pressure Testing Report\",\n  \"wizardSteps\": [\n    { \"key\": \"header\",         \"title\": \"Header\",         \"sections\": [\"hdr\"] },\n    { \"key\": \"testing_report\", \"title\": \"Testing Report\", \"sections\": [\"chk\"] },\n    { \"key\": \"details\",        \"title\": \"Test Details\",   \"sections\": [\"evidence\", \"details\"] },\n    { \"key\": \"signatures\",     \"title\": \"Signatures\",     \"sections\": [\"sigs\"] },\n    { \"key\": \"review\",         \"title\": \"Review\",         \"sections\": [] }\n  ],\n  \"sections\": [\n    {\n      \"id\": \"hdr\",\n      \"type\": \"header\",\n      \"title\": \"CHILLED WATER PRESSURE TESTING REPORT\",\n      \"fields\": [\n        { \"key\": \"vendor\",        \"label\": \"VENDOR\",                \"type\": \"text\",\n          \"default\": \"Nirmaan (Stratos Infra Technologies Pvt. Ltd.)\", \"readonly\": true },\n        { \"key\": \"project\",       \"label\": \"PROJECT\",               \"type\": \"text\",\n          \"bind\": \"project.project_name\", \"readonly\": true },\n        { \"key\": \"location\",      \"label\": \"LOCATION\",              \"type\": \"text\",\n          \"bind\": \"project.location.full\", \"readonly\": true },\n        { \"key\": \"date\",          \"label\": \"DATE\",                  \"type\": \"date\", \"required\": true },\n        { \"key\": \"test_pressure\", \"label\": \"TEST PRESSURE (in PSI)\", \"type\": \"number\",\n          \"unit\": \"PSI\", \"required\": true, \"min\": 0 },\n        { \"key\": \"area\",          \"label\": \"AREA\",                  \"type\": \"text\", \"required\": true }\n      ]\n    },\n    {\n      \"id\": \"chk\",\n      \"type\": \"checklist\",\n      \"title\": \"Testing Report:\",\n      \"columns\": [\n        { \"key\": \"slno\",       \"label\": \"Sl No\" },\n        { \"key\": \"particular\", \"label\": \"Particulars\" },\n        { \"key\": \"result\",     \"label\": \"Results\" },\n        { \"key\": \"remarks\",    \"label\": \"Remarks\" }\n      ],\n      \"items\": [\n        { \"id\": \"q1\", \"particular\": \"The system maintained the specified pressure levels throughout the testing duration.\",\n          \"result\": { \"type\": \"select\", \"options\": [\"Yes\", \"No\", \"N/A\"], \"default\": \"Yes\" },\n          \"remarks\": { \"type\": \"text\" } },\n        { \"id\": \"q2\", \"particular\": \"No visible leaks were detected during the visual inspection.\",\n          \"result\": { \"type\": \"select\", \"options\": [\"Yes\", \"No\", \"N/A\"], \"default\": \"Yes\" },\n          \"remarks\": { \"type\": \"text\" } },\n        { \"id\": \"q3\", \"particular\": \"Pressure gauge readings confirmed that no pressure drop occurred during the holding period.\",\n          \"result\": { \"type\": \"select\", \"options\": [\"Yes\", \"No\", \"N/A\"], \"default\": \"Yes\" },\n          \"remarks\": { \"type\": \"text\" } },\n        { \"id\": \"q4\", \"particular\": \"All tested components were found satisfactory.\",\n          \"result\": { \"type\": \"select\", \"options\": [\"Yes\", \"No\", \"N/A\"], \"default\": \"Yes\" },\n          \"remarks\": { \"type\": \"text\" } }\n      ]\n    },\n    {\n      \"id\": \"evidence\",\n      \"type\": \"image_attachments\",\n      \"title\": \"Test Photos / Evidence\",\n      \"columns\": 2,\n      \"slots\": [\n        { \"key\": \"test_photo_1\", \"label\": \"Test Photo 1\", \"multi\": false,\n          \"accept\": \"image/*\", \"maxSizeMb\": 5, \"required\": false },\n        { \"key\": \"test_photo_2\", \"label\": \"Test Photo 2\", \"multi\": false,\n          \"accept\": \"image/*\", \"maxSizeMb\": 5, \"required\": false }\n      ]\n    },\n    {\n      \"id\": \"details\",\n      \"type\": \"fields\",\n      \"title\": \"Test Details\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        { \"key\": \"test_start_date\",   \"label\": \"Test Start Date\", \"type\": \"date\", \"required\": true },\n        { \"key\": \"test_end_date\",     \"label\": \"Test End Date\",   \"type\": \"date\", \"required\": true },\n        { \"key\": \"measured_pressure\", \"label\": \"The measured pressure rating is\",\n          \"type\": \"number\", \"unit\": \"PSI\", \"required\": true, \"min\": 0 }\n      ]\n    },\n    {\n      \"id\": \"sigs\",\n      \"type\": \"signatures\",\n      \"blocks\": [\n        { \"key\": \"tested_by\",       \"label\": \"TESTED BY\" },\n        { \"key\": \"hvac_consultant\", \"label\": \"HVAC CONSULTANT\" },\n        { \"key\": \"client\",          \"label\": \"CLIENT\" }\n      ]\n    }\n  ]\n}",
   "task_name": "Pipe Pressure Testing Report"
  },
  {

@@ -9,7 +9,7 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { Button } from "@/components/ui/button";
 import SITEURL from "@/constants/siteURL";
 import { cn } from "@/lib/utils";
-import { CHEQUE_TYPE } from "@/types/NirmaanStack/Cheques";
+import { CHEQUE_PAYMENT_DATE_LABEL, CHEQUE_TYPE } from "@/types/NirmaanStack/Cheques";
 import { chequeDateText } from "@/utils/cheques/chequeChip";
 import { securedRecords } from "@/utils/cheques/chequeDeposit";
 import type { ChequeRowAction } from "@/utils/cheques/chequeRowActions";
@@ -18,7 +18,6 @@ import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice
 import {
     ChequeRow,
     chequeTypeLabel,
-    clearanceText,
     daysSinceIssue,
     firstWithMore,
     hasNoPhoto,
@@ -71,22 +70,21 @@ export interface ChequeColumnActions {
     onOpen: (cheque: string) => void;
     /** Opens Edit for one Cheque (#1418). */
     onEdit: (row: ChequeRow) => void;
-    /** Clear and Cancel (#1483); they open today's Change status dialog until #1484 gives them their own. */
-    onClear: (row: ChequeRow) => void;
+    /** Opens the Cancel dialog (#1484). There is no Clear: only a bank-statement line clears a cheque (#1516). */
     onCancel: (row: ChequeRow) => void;
 }
 
 /**
  * The Cheque Tracker's All Cheques columns (spec #1407, #1483): one row per Cheque. The cheque number and View
- * open the detail view; Edit opens the Edit dialog (#1418); Clear and Cancel show by type, status and role
+ * open the detail view; Edit opens the Edit dialog (#1418); Cancel shows by type, status and role
  * (`chequeRowActions`). The chevron beside the number expands the row into its lines (#1417; the page passes
  * `renderExpandedRow` to DataTable).
  *
  * The facet columns' ids (`cheque_type`, `status`, `bank_label`, `vendor`, `project`, `record_name`) are
- * the endpoint's filter fields, and so are the date columns (`cheque_date`, `issue_date`,
- * `clearance_date`). An Old-type cheque carries an "Old type" tag under its type (#1478).
+ * the endpoint's filter fields, and so are the date columns (`cheque_date`, the Cheque/Payment Date, and
+ * `issue_date`; #1520). An Old-type cheque carries an "Old type" tag under its type (#1478).
  */
-export const getChequePaymentColumns = ({ actionsOf, onOpen, onEdit, onClear, onCancel }: ChequeColumnActions): ColumnDef<ChequeRow>[] => [
+export const getChequePaymentColumns = ({ actionsOf, onOpen, onEdit, onCancel }: ChequeColumnActions): ColumnDef<ChequeRow>[] => [
     {
         accessorKey: "cheque_no",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Cheque No" className={WRAP_HEADER} />,
@@ -136,7 +134,7 @@ export const getChequePaymentColumns = ({ actionsOf, onOpen, onEdit, onClear, on
                 {row.original.old_type ? (
                     <span
                         className="whitespace-nowrap rounded border border-dashed border-gray-400 bg-gray-50 px-1.5 text-[11px] font-medium text-gray-600"
-                        title="Recorded before cheque types: it pays Expenses, has no lines or names a typed payee. It is cleared or cancelled by hand."
+                        title="Recorded before cheque types: it pays Expenses, has no lines or names a typed payee. Its bank line clears it, every line paid in full; it may be cancelled."
                     >
                         Old type
                     </span>
@@ -158,10 +156,12 @@ export const getChequePaymentColumns = ({ actionsOf, onOpen, onEdit, onClear, on
     },
     {
         accessorKey: "cheque_date",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Cheque Date" className={WRAP_HEADER} />,
+        header: ({ column }) => (
+            <DataTableColumnHeader column={column} title={CHEQUE_PAYMENT_DATE_LABEL} className={WRAP_HEADER} />
+        ),
         cell: ({ row }) => <div className="whitespace-nowrap">{chequeDateText(row.original.cheque_date) || "--"}</div>,
-        size: 115,
-        meta: { exportHeaderName: "Cheque Date", exportValue: (r: ChequeRow) => chequeDateText(r.cheque_date) },
+        size: 125,
+        meta: { exportHeaderName: CHEQUE_PAYMENT_DATE_LABEL, exportValue: (r: ChequeRow) => chequeDateText(r.cheque_date) },
     },
     {
         accessorKey: "issue_date",
@@ -169,25 +169,6 @@ export const getChequePaymentColumns = ({ actionsOf, onOpen, onEdit, onClear, on
         cell: ({ row }) => <div className="whitespace-nowrap">{chequeDateText(row.original.issue_date) || "--"}</div>,
         size: 115,
         meta: { exportHeaderName: "Issue Date", exportValue: (r: ChequeRow) => chequeDateText(r.issue_date) },
-    },
-    {
-        accessorKey: "clearance_date",
-        header: ({ column }) => (
-            <DataTableColumnHeader column={column} title="Clearance / Payment Date" className={WRAP_HEADER} />
-        ),
-        cell: ({ row }) =>
-            row.original.clearance_date ? (
-                <div className="flex flex-col">
-                    <span className="whitespace-nowrap">{chequeDateText(row.original.clearance_date)}</span>
-                    {row.original.cleared_by && (
-                        <span className="text-[11px] text-muted-foreground">{row.original.cleared_by}</span>
-                    )}
-                </div>
-            ) : (
-                <span className="text-muted-foreground">--</span>
-            ),
-        size: 125,
-        meta: { exportHeaderName: "Clearance / Payment Date", exportValue: (r: ChequeRow) => clearanceText(r) },
     },
     {
         accessorKey: "status",
@@ -337,7 +318,7 @@ export const getChequePaymentColumns = ({ actionsOf, onOpen, onEdit, onClear, on
     {
         id: "actions",
         header: "Actions",
-        cell: ({ row }) => <ChequeRowButtons row={row.original} actions={{ actionsOf, onOpen, onEdit, onClear, onCancel }} />,
+        cell: ({ row }) => <ChequeRowButtons row={row.original} actions={{ actionsOf, onOpen, onEdit, onCancel }} />,
         size: 110,
         enableSorting: false,
         enableHiding: false,
@@ -345,7 +326,7 @@ export const getChequePaymentColumns = ({ actionsOf, onOpen, onEdit, onClear, on
     },
 ];
 
-const ACTION_LABEL: Record<ChequeRowAction, string> = { view: "View", edit: "Edit", clear: "Clear", cancel: "Cancel" };
+const ACTION_LABEL: Record<ChequeRowAction, string> = { view: "View", edit: "Edit", cancel: "Cancel" };
 
 /** A row's button text: a Security Deposit is "marked returned" rather than cancelled (#1486). */
 const actionLabel = (action: ChequeRowAction, row: ChequeRow) =>
@@ -356,7 +337,6 @@ const ChequeRowButtons = ({ row, actions }: { row: ChequeRow; actions: ChequeCol
     const handler: Record<ChequeRowAction, () => void> = {
         view: () => actions.onOpen(row.name),
         edit: () => actions.onEdit(row),
-        clear: () => actions.onClear(row),
         cancel: () => actions.onCancel(row),
     };
     return (
@@ -368,7 +348,6 @@ const ChequeRowButtons = ({ row, actions }: { row: ChequeRow; actions: ChequeCol
                     variant="outline"
                     className={cn(
                         "h-7 px-2",
-                        action === "clear" && "border-green-200 bg-green-50 text-green-800 hover:bg-green-100",
                         action === "cancel" && "text-red-700 hover:text-red-800",
                     )}
                     onClick={handler[action]}
@@ -410,7 +389,7 @@ const projectNames = (r: ChequeRow) => [...new Set(r.lines.map((l) => l.project_
 
 const securesText = (r: ChequeRow) => securedRecords(r.lines).join(", ") || "Nothing named";
 
-/** The Secures cell of the Security Deposits tab: the POs and Work Orders the deposit names, and their projects. */
+/** The Secures cell of the Security Deposits tab: the POs the deposit names, and their projects. */
 const securesColumn: ColumnDef<ChequeRow> = {
     id: "secures",
     accessorFn: (r) => securesText(r),

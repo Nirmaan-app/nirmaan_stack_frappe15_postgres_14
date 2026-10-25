@@ -366,7 +366,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
         mutate();
         mutateAssignments();
         refreshSummaryCards();
-        refreshUserAssignments(userData.user_id); // the sidebar's pending-declaration badge
+        refreshUserAssignments(userData.user_id); // the app access gate's count
     };
 
     // Real-time updates

@@ -1762,7 +1762,7 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   `.conditions[j].params` path must ALREADY exist — adding/removing a param, editing conditions, or
   attribute definitions is RM-4b → validation error, no write). A manual `create` stamps provenance
   `import_batch="manual-"+hash` / `source_sheet="Manual entry"` / `source_row=0`; `deactivate` sets
-  `active=0` (RETAINED, never deleted). Frontend HIDES every affordance for non-admins (`isRateMasterAdmin`;
+  `active=0` (RETAINED, never deleted). Frontend HIDES every affordance for non-admins (`isNirmaanAdmin`;
   the server is authoritative). The first `Version` docs for the two rate-master doctypes now exist.
 - **RM-4b structure editor (ADMIN-ONLY; full as-built in the plan doc's "Build slice RM-4b").** ONE
   `@frappe.whitelist(methods=["POST"])` write `update_rate_config(name, config)` in `api/boq/rate_master.py`

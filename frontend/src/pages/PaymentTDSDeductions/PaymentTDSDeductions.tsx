@@ -50,7 +50,9 @@ import {
     PAYMENT_TDS_SEARCHABLE_FIELDS,
     getPaymentTdsColumns,
     PaymentTDSDeductionRow,
+    PaymentStatusContext,
 } from "./config/paymentTdsDeductions.config";
+import { canPayDeduction } from "./payableDeduction";
 import { PaymentTDSSummaryCard } from "./components/PaymentTDSSummaryCard";
 import { PayTdsDialog } from "./components/PayTdsDialog";
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
@@ -116,6 +118,9 @@ const PaymentTDSLedgerTable: React.FC<PaymentTDSLedgerTableProps> = ({
     onPaid,
 }) => {
     const isPendingTab = tab === "Pending";
+    // The page's payments' statuses (walk W9), set once the page's rows are read below; the selection
+    // predicate and the Payment Status column read them.
+    const [paymentStatuses, setPaymentStatuses] = useState<Record<string, string>>({});
 
     const additionalFilters = useMemo(
         () => [...staticFilters, tabStatusFilter(tab)],
@@ -152,8 +157,9 @@ const PaymentTDSLedgerTable: React.FC<PaymentTDSLedgerTableProps> = ({
         // ⚠️ ONLY A `Pending` DEDUCTION IS SELECTABLE. The Paid tab cannot contain one, so its
         // selection is off entirely (see `showRowSelection` below); the predicate stays on the
         // Pending tab as the belt-and-braces gate, because a blank status lands there too.
+        // ...and only one Pay TDS will take: its payment Paid, or an Office Rent row (`canPayDeduction`).
         enableRowSelection: isPendingTab
-            ? (row) => (row.original.status || "Pending") === "Pending"
+            ? (row) => canPayDeduction(row.original, paymentStatuses[row.original.project_payment || ""])
             : false,
         initialState: {
             // 100 rows, not the hook's default 50 -- a TDS run is read in bulk, and this is a
@@ -171,6 +177,19 @@ const PaymentTDSLedgerTable: React.FC<PaymentTDSLedgerTableProps> = ({
             columnVisibility: { ...PAYMENT_TDS_HIDDEN_COLUMNS, status: false },
         },
     });
+
+    const pagePayments = useMemo(
+        () => [...new Set((data || []).map((row) => row.project_payment).filter((p): p is string => !!p))].sort(),
+        [data]
+    );
+    const { data: paymentRows } = useFrappeGetDocList<{ name: string; status: string }>(
+        "Project Payments",
+        { fields: ["name", "status"], filters: [["name", "in", pagePayments]], limit: pagePayments.length || 1 },
+        pagePayments.length ? `tds-register-payment-status-${pagePayments.join(",")}` : null
+    );
+    useEffect(() => {
+        setPaymentStatuses(Object.fromEntries((paymentRows || []).map((p) => [p.name, p.status])));
+    }, [paymentRows]);
 
     // After a successful payment the ticked rows are no longer Pending, so the selection would be
     // stale: clear it, then re-read so they drop out of this tab and into Paid.
@@ -206,7 +225,7 @@ const PaymentTDSLedgerTable: React.FC<PaymentTDSLedgerTableProps> = ({
     }
 
     return (
-        <>
+        <PaymentStatusContext.Provider value={paymentStatuses}>
             <DataTable<PaymentTDSDeductionRow>
                 table={table}
                 columns={columns}
@@ -273,7 +292,7 @@ const PaymentTDSLedgerTable: React.FC<PaymentTDSLedgerTableProps> = ({
                     onPaid={handlePaid}
                 />
             )}
-        </>
+        </PaymentStatusContext.Provider>
     );
 };
 

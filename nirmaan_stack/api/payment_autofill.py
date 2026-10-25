@@ -54,7 +54,7 @@ def extract_payment_fields(file_url, mode=RECEIPT_MODE):
     amount. Called from the New Payments → Pay dialog when the user selects an attachment.
 
     `mode="cheque"` reads a photo of one of our paper cheques (spec #1407): bank, bank name,
-    cheque number, cheque date, amount and payee, for the Add Cheque form and the PO/WO Request
+    cheque number, cheque date, amount and payee, for the Security Deposit cheque form and the PO Request
     Payment dialog. The photo may be attached to nothing yet.
 
     Only fields the model could read are returned populated; everything else comes back empty
@@ -137,7 +137,7 @@ def _read_file(file_url):
 
 
 def _cheque_fields(content, file_ext, settings):
-    """The Add Cheque form's values read off a cheque photo; empty where the photo is unsure."""
+    """A cheque form's values read off a cheque photo; empty where the photo is unsure."""
     _, entities, _ = extract(content, file_ext, settings, doc_kind=CHEQUE)
 
     def read(key):

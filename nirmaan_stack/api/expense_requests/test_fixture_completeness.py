@@ -77,6 +77,13 @@ class TestFixtureCompleteness(FrappeTestCase):
 					f"Fix: bench --site <site> export-fixtures --app nirmaan_stack",
 				)
 
+	def test_every_expense_type_row_carries_its_confirmed_mark(self):
+		"""The "Confirmed as Expense Request" mark (spec #1494): a row without the key is reset on
+		migrate, so every row carries it, as 0 or 1."""
+		rows = json.load(open(_fixture_path("Expense Type")))
+		missing = [r["name"] for r in rows if r.get("confirmed_as_request") not in (0, 1)]
+		self.assertFalse(missing, f"no confirmed_as_request (0 or 1) on: {missing}")
+
 	def test_the_shipped_formats_are_in_the_fixture_not_only_the_database(self):
 		"""A format that exists only in the DB is one migrate away from gone."""
 		rows = json.load(open(_fixture_path("Expense Type")))

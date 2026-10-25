@@ -1,6 +1,5 @@
 import type { ChequeLineType } from "@/types/NirmaanStack/Cheques";
 import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
-import { securedLabel } from "@/utils/cheques/chequeDeposit";
 import { LINE_TYPE } from "@/utils/cheques/chequeLines";
 
 /** One line as a read-only view shows it. `payment_status` only where the caller has it (the detail view). */
@@ -41,7 +40,7 @@ export function ChequeLinesView({ lines }: { lines: ChequeLineViewRow[] }) {
                                 <td className="px-3 py-2 whitespace-nowrap">{line.line_type}</td>
                                 <td className="px-3 py-2">{line.project_name || line.project || "--"}</td>
                                 <td className="px-3 py-2">
-                                    {(secured ? securedLabel(line.record_doctype, line.record_name) : line.record_name) || "--"}
+                                    {line.record_name || "--"}
                                 </td>
                                 <td className="px-3 py-2">
                                     {secured ? (

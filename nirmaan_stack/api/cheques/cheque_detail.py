@@ -1,8 +1,8 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The Cheque detail view: photo, header (type, cheque, issue and clearance dates, how it was cleared and the
-bank line, #1484), lines and full status history (#1412, spec #1407).
+"""The Cheque detail view: photo, header (type, cheque, Cheque/Payment Date and issue date, #1520, and the
+bank line that cleared it, #1484), lines and full status history (#1412, spec #1407).
 
 Read-only. Who: `CHEQUE_ACCESS_PROFILES` (Project Managers are refused).
 """
@@ -15,7 +15,7 @@ from nirmaan_stack.services.role_profiles import assert_cheque_access
 
 _HEADER = ("name", "creation", "owner", "cheque_no", "bank", "bank_name", "cheque_date", "amount", "status",
            "vendor", "payee_name", "description", "attachment", "made_from", "cheque_type", "old_type",
-           "issue_date", "clearance_date", "cleared_by", "bank_line")
+           "issue_date", "bank_line")
 
 
 def _name_map(doctype: str, field: str, names) -> dict:

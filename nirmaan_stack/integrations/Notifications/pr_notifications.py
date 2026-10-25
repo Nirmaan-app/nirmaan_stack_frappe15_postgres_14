@@ -83,6 +83,24 @@ def get_allowed_procurement_users(doc):
 
         return proc_users
 
+NOTIFIED_USER_FIELDS = ['fcm_token', 'name', 'full_name', 'role_profile', 'push_notification']
+
+
+def get_users_who_see_project(project, profiles):
+    """The Nirmaan Users of `profiles` who can see `project`: put on it, or on no project at all.
+
+    Frappe's User Permission rule: a user with no Projects permission sees every project. That is how
+    company-wide desks are set up (Service Procurement Executives are never put on a project, and most
+    Accountants are not), so a project-permission filter alone would never reach them."""
+    users = frappe.get_all('Nirmaan Users', fields=NOTIFIED_USER_FIELDS,
+                           filters={'role_profile': ('in', list(profiles))})
+    scoped = {}
+    for perm in frappe.get_all('User Permission', fields=['user', 'for_value'], filters={
+            'allow': 'Projects', 'user': ('in', [u.name for u in users] or [''])}):
+        scoped.setdefault(perm.user, set()).add(perm.for_value)
+    return [u for u in users if u.name not in scoped or project in scoped[u.name]]
+
+
 def get_allowed_manager_users(doc):
         """Retrieves all Allowed Manager users for a given project."""
         allowed_users = frappe.db.get_list(

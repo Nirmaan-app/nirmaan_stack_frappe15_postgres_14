@@ -7,9 +7,9 @@
  *
  * Reuses the request's `PayeePicker` / `usePayeeChoice`, on the Accounts endpoints
  * (`ACCOUNTS_PAYEE_APIS`), and saves through `useChangeExpenseAccount`, as the expense Edit dialogs'
- * Who gets paid does (#1465): Change account is Admin, Accountant and Accountant Lead only. The opener
- * holds the choice and resets it in the handler that opens this dialog. Which expenses may change is
- * a screen rule (`canChangeExpenseAccount`); the save records who changed it and when.
+ * Who gets paid does (#1465). The opener holds the choice and resets it in the handler that opens this
+ * dialog. Which expenses may change is the server's edit answer (`canChangeExpenseAccount`: Accounts,
+ * until the expense is paid); the save records who changed it and when.
  */
 
 import { Loader2 } from "lucide-react";

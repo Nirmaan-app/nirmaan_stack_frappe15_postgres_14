@@ -18,6 +18,7 @@ from nirmaan_stack.api.outflow_import.unreconcile_created import (
     restore_series_counters,
     series_counters_for,
 )
+from nirmaan_stack.services.cheque_payments import is_cheque
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE
 from nirmaan_stack.services.outflow_import.settle import outflow_import_write
@@ -49,7 +50,7 @@ def read_payment_facts(leg, base: dict, *, for_update: bool) -> LegFacts:
     payment = frappe.db.get_value(
         PAYMENT_DOCTYPE,
         leg.target_name,
-        ["status", "utr", "amount", "split_from", "creation"],
+        ["status", "utr", "amount", "split_from", "creation", "mode_of_payment"],
         as_dict=True,
         for_update=for_update,
     )
@@ -62,6 +63,7 @@ def read_payment_facts(leg, base: dict, *, for_update: bool) -> LegFacts:
         **base,
         target_exists=True,
         cleared_cheque=cleared_cheque_of(leg.target_name),
+        cheque_payment=is_cheque(payment),
         target_status=payment.status,
         target_amount=payment.amount,
         target_reference=payment.utr,

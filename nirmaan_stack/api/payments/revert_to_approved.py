@@ -33,6 +33,7 @@ from nirmaan_stack.services.cheque_payments import is_cheque
 from nirmaan_stack.services.cheques.payment_rules import CHEQUE_REFUSES_REVERT, cheque_payment_problem
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.role_profiles import PAYMENT_SETTLE_PROFILES
+from nirmaan_stack.services.payment_steps import REVERT_TO_APPROVED
 
 PAYMENT = "Project Payments"
 
@@ -80,6 +81,7 @@ def revert_payment_to_approved(name: str) -> dict:
 
 	doc = frappe.get_doc(PAYMENT, name)
 	doc.status = settlement.STATUS_APPROVED
+	doc.flags[REVERT_TO_APPROVED] = True   # the sanctioned way back (`payment_steps.SETTLED_BACK_REFUSAL`)
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()
 

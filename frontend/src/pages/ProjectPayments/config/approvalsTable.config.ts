@@ -10,6 +10,7 @@ import { SearchFieldOption } from "@/components/data-table/new-data-table";
 import type { ChequeStatus } from "@/types/NirmaanStack/Cheques";
 import { RECONCILIATION_PENDING_LEAVES_OUT } from "@/utils/cheques/chequeTabs";
 import type { PaidTo } from "@/utils/payees/paidTo";
+import type { WithheldTds } from "@/utils/expenses/expenseTds";
 import { PP_TABS, PPTabValue } from "./ppTabs.constants";
 
 export const APPROVAL_QUEUE_API =
@@ -70,7 +71,14 @@ export interface ApprovalQueueRow {
   source_type: "PO Payment" | "SR Payment" | "Vendor Payment" | "Project Expense" | "Non-Project";
   doctype: "Project Payments" | "Project Expenses" | "Non Project Expenses";
   status: string;
+  /** The stored amount: what is paid. On a PO / WO payment with TDS withheld, already cut by the tax. */
   amount: number;
+  /**
+   * The full bill ("Req. Amount", owner ruling X4-A, #1541): `amount` plus the TDS withheld from it;
+   * `amount` itself on an expense or a payment with none. Display only: every action reads `amount`.
+   * Absent on a row not built by the queue endpoint; read it as `amount` then.
+   */
+  requested_amount?: number;
   against_primary: string;
   /** Line 2 under Against — the expense TYPE. Blank on a payment. */
   against_secondary: string;
@@ -150,6 +158,9 @@ export interface ApprovalQueueRow {
   /** Who the row is paid to: its own pay-to account, copied when it was raised (ADR-0033, #1438).
    *  Read by the server's Payee module (`services/payees/paid_to`). */
   paid_to?: PaidTo;
+  /** An Office Rent expense's tax record once approved (#1527), served past the record's own permission
+   *  (`services/expense_tds.withheld_tds_of`); null before approval and on every other row. */
+  withheld_tds: WithheldTds | null;
 }
 
 /**

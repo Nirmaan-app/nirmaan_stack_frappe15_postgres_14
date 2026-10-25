@@ -8,20 +8,22 @@ Matches the data-table contract (`useServerDataTable`'s `apiEndpoint`): it takes
 `{data, total_count, aggregates, group_by_result}`. Prior art: `api/approvals/get_approval_queue.py`.
 
 Each row is a Cheque with what the table shows: number, cheque type, bank (`bank_label`: the typed name
-for Others), date, issue and clearance dates, how it was cleared, status, amount, description, Vendor or
+for Others), its Cheque/Payment Date (`cheque_date`: the paper date until the bank import clears it, then
+the day the bank paid, #1520), issue date, status, amount, description, Vendor or
 typed payee, who made it, the photo, the Old-type flag, and the last status change ("by <user> . <date>",
 from the Cheque's history).
 
 Each row also carries its `lines` (kind, project and its name, PO/WO, payment, amount), oldest first,
 so the table can expand a row and show "+N" without a second read.
 
-The summary strip (`aggregates`: count and amount for All, Pending, Issued, Cleared, Cancelled, and the stale
+The summary strip (`aggregates`: count and amount for All, Approval Pending, Issued, Cleared, Cancelled, and the stale
 Issued ones), the rows and the facets (`get_cheque_facets`) all read the same WHERE, so they always agree.
 
 The tracker's tabs are filters on this list, sent by the page (`frontend/src/utils/cheques/chequeTabs.ts`):
 Cheque Issued - Reconciliation Pending is `status = Issued` and `cheque_type = Payment`; Security Deposits is
-`cheque_type = Security Deposit` (#1486), and the PO / Work Order page's deposit card adds `record_name = <its
-record>`, which matches a deposit's Secured PO/WO lines. The project and PO/WO
+`cheque_type = Security Deposit` (#1486). The PO page's "Cheques issued for this PO" card sends `record_name =
+<its PO>` alone (#1521): the Payment cheques with a line on it and the deposit cheques securing it, each row with
+`record_amount`, what its lines put on that PO. The project and PO/WO
 filters match a Cheque when ANY of its lines matches (EXISTS on `Cheque Line`), and the Cheque is
 still counted once, at its full amount (#1417).
 
@@ -46,7 +48,7 @@ _BASE = """
     SELECT c.name, c.creation, c.owner, owner_user.full_name AS owner_name,
            c.cheque_no, c.cheque_type, c.bank, c.bank_name,
            CASE WHEN c.bank = 'Others' THEN c.bank_name ELSE c.bank END AS bank_label,
-           c.cheque_date, c.issue_date, c.clearance_date, c.cleared_by, c.bank_line, c.old_type,
+           c.cheque_date, c.issue_date, c.bank_line, c.old_type,
            c.status, c.amount, c.description,
            c.vendor, v.vendor_name, c.payee_name, c.attachment, c.made_from,
            last.changed_by AS status_changed_by, changer.full_name AS status_changed_by_name,
@@ -82,7 +84,8 @@ _LINES = """
 SUMMARY_STATUSES = {"pending": PENDING, "issued": ISSUED, "cleared": CLEARED, "cancelled": CANCELLED}
 
 #: An Issued cheque issued longer ago than this is stale (`stale_count` / `stale_amount`): a cheque is good for
-#: 3 months. A cheque from before issue dates counts from its cheque date. The frontend's `CHEQUE_STALE_DAYS`
+#: 3 months. A cheque from before issue dates counts from its Cheque/Payment Date (an Issued cheque's is still
+#: the paper date). The frontend's `CHEQUE_STALE_DAYS`
 #: (`pages/cheque-tracker/config/chequePaymentTable.config.ts`) flags rows on the same line.
 STALE_AFTER_DAYS = 90
 
@@ -90,11 +93,11 @@ STALE_AFTER_DAYS = 90
 LINE_FILTERS = {"project", "record_name"}
 
 FILTERABLE = {"name", "status", "cheque_type", "bank", "bank_label", "vendor", "payee_name", "made_from", "owner",
-              "cheque_date", "issue_date", "clearance_date", "creation"} | LINE_FILTERS
-DATE_FIELDS = {"cheque_date", "issue_date", "clearance_date", "creation"}
+              "cheque_date", "issue_date", "creation"} | LINE_FILTERS
+DATE_FIELDS = {"cheque_date", "issue_date", "creation"}
 SEARCHABLE = {"cheque_no", "name", "bank_label", "vendor_name", "payee_name", "description"}
 SORTABLE = {"name", "creation", "cheque_no", "cheque_type", "bank_label", "cheque_date", "issue_date",
-            "clearance_date", "status", "amount", "vendor_name",
+            "status", "amount", "vendor_name",
             "payee_name", "owner_name", "status_changed_at"}
 
 _OPERATORS = {"=": "=", "!=": "!=", "like": "ILIKE", "not like": "NOT ILIKE", ">": ">", "<": "<", ">=": ">=",
@@ -200,15 +203,31 @@ def _build_order(order_by):
     return f'q."{col}" {direction} NULLS LAST, q."name" ASC'
 
 
-def _where(filters, search_term, current_search_fields):
-    """The WHERE the rows, the summary and the facets share."""
+def _filter_list(filters) -> list:
+    """The caller's filters as `[field, op, value]` rows, from JSON, a list or a `{field: value}` dict."""
     filters = _coerce(filters) or []
     if isinstance(filters, dict):
         filters = [[k, "=", v] for k, v in filters.items()]
+    return filters
+
+
+def _where(filters, search_term, current_search_fields):
+    """The WHERE the rows, the summary and the facets share."""
     search_fields = _coerce(current_search_fields) or []
     if isinstance(search_fields, str):
         search_fields = [search_fields]
-    return _build_where(filters, search_term, search_fields)
+    return _build_where(_filter_list(filters), search_term, search_fields)
+
+
+def _asked_records(filters) -> set | None:
+    """The PO/WOs a `record_name` filter asks for, or None when no filter names one. The PO page's card asks
+    for its own PO (#1521)."""
+    asked = None
+    for f in _filter_list(filters):
+        if isinstance(f, (list, tuple)) and len(f) >= 3 and f[0] == "record_name":
+            value = f[2]
+            asked = (asked or set()) | {v for v in (value if isinstance(value, (list, tuple)) else [value]) if v}
+    return asked
 
 
 def _summary(where, params) -> dict:
@@ -251,6 +270,9 @@ def get_cheques(
     `doctype`, `fields` and the hook's other arguments are accepted and ignored: the row shape is
     fixed here. `aggregates` is the summary strip over the whole filtered set: `count`,
     `total_amount`, and `<pending|issued|cleared|cancelled|stale>_count` / `_amount`.
+
+    When `filters` name PO/WOs (`record_name`), each row's `record_amount` is what its lines put on them: a
+    multi-PO Payment cheque's share of one PO, 0 for a deposit (its lines carry no amount). Otherwise it is None.
     """
     assert_cheque_access(frappe.session.user)
 
@@ -269,9 +291,14 @@ def get_cheques(
         tuple(params) + (page_length, max(cint(limit_start), 0)),
         as_dict=True,
     )
+    asked = _asked_records(filters)
     for row in rows:
         row["amount"] = flt(row.get("amount"))
         row["lines"] = [{**line, "amount": flt(line.get("amount"))} for line in (row.get("lines") or [])]
+        row["record_amount"] = (
+            None if asked is None
+            else flt(sum(line["amount"] for line in row["lines"] if line.get("record_name") in asked))
+        )
 
     return {
         "data": rows,

@@ -2,18 +2,21 @@ import { describe, expect, it } from "vitest";
 
 import {
   type AuditQuestion,
+  auditAnswerCount,
   auditAnswersPayload,
   auditHistorySummary,
   auditMonthName,
   auditAnswersProblem,
   auditChecksLabel,
   countAuditIssues,
+  hasRedPick,
   parseAuditAnswers,
 } from "./assetAudit";
-import { AUDIT_QUESTIONS, auditQuestionsFor } from "./assetAuditQuestions";
+import { AUDIT_QUESTIONS } from "./assetAuditQuestions";
 import { describeHistory } from "./assetHistory";
 
-// A cut-down IT set, in the shape of `assetAuditQuestions.ts`.
+// A four-question set like the one used before 2026-10-21, in the shape of `assetAuditQuestions.ts`: the helpers
+// stay general, so old audits read back and a longer list would still work.
 const IT: AuditQuestion[] = [
   { id: "who", question: "Who is using this device?", hint: null, text_prompt: "Where is it, and who has it?",
     choices: [{ id: "me", label: "Only me, for work", flag: false }, { id: "not_with_me", label: "I don't have it right now", flag: true }] },
@@ -33,15 +36,59 @@ const SAVED = {
   ],
 };
 
-describe("the questions block of the Submit audit dialog", () => {
+describe("the Submit audit dialog's one question (owner, 2026-10-21)", () => {
+  const WORKING = AUDIT_QUESTIONS;
+
+  it("asks for the answer first", () => {
+    expect(auditAnswersProblem(WORKING, {})).toBe("Answer the question.");
+    expect(auditAnswersProblem(WORKING, { working: { choice: "" } })).toBe("Answer the question.");
+  });
+
+  it("is done on Yes, with nothing typed", () => {
+    expect(auditAnswersProblem(WORKING, { working: { choice: "yes" } })).toBeNull();
+    expect(hasRedPick(WORKING, { working: { choice: "yes" } })).toBe(false);
+  });
+
+  it("needs a description on No -- blanks don't count", () => {
+    for (const text of [undefined, "", "   ", "\n\t"]) {
+      expect(auditAnswersProblem(WORKING, { working: { choice: "no", text } })).toBe("Describe the problem.");
+    }
+    expect(auditAnswersProblem(WORKING, { working: { choice: "no", text: "Screen stays black" } })).toBeNull();
+    expect(hasRedPick(WORKING, { working: { choice: "no" } })).toBe(true);
+  });
+
+  it("sends No with its description, trimmed, and Yes without any", () => {
+    expect(auditAnswersPayload(WORKING, { working: { choice: "no", text: "  Screen stays black " } })).toEqual([
+      { id: "working", q: "Is it working?", a: "No, it is not working", flag: 1, text: "Screen stays black" },
+    ]);
+    // a description typed under No, then switched to Yes, is not sent
+    expect(auditAnswersPayload(WORKING, { working: { choice: "yes", text: "typed under No" } })).toEqual([
+      { id: "working", q: "Is it working?", a: "Yes, it is working" },
+    ]);
+  });
+
+  it("ignores a pick that isn't one of the choices", () => {
+    expect(auditAnswersProblem(WORKING, { working: { choice: "maybe" } })).toBe("Answer the question.");
+    expect(hasRedPick(WORKING, { working: { choice: "maybe" } })).toBe(false);
+    expect(auditAnswersPayload(WORKING, { working: { choice: "maybe" } })).toEqual([]);
+  });
+});
+
+describe("the answer helpers with several questions", () => {
   it("counts the questions left, in the server's words", () => {
     expect(auditAnswersProblem(IT, {})).toBe("Answer all 4 questions (4 left).");
     expect(auditAnswersProblem(IT, { who: { choice: "me" }, works: { choice: "" } })).toBe("Answer all 4 questions (3 left).");
     expect(auditAnswersProblem(IT, { who: { choice: "me" }, works: { choice: "fine" }, damage: { choice: "none" }, charger: { choice: "have" } })).toBeNull();
-    expect(auditAnswersProblem([], {})).toBeNull(); // a category type with no questions
+    expect(auditAnswersProblem([], {})).toBeNull();
   });
 
-  it("sends each answer with its question and choice text, red ones flagged, the note only under a red one", () => {
+  it("names the first red answer left without its description, ending the prompt once", () => {
+    const allFine = { who: { choice: "me" }, works: { choice: "fine" }, damage: { choice: "none" }, charger: { choice: "have" } };
+    expect(auditAnswersProblem(IT, { ...allFine, works: { choice: "problem", text: " " } })).toBe("What's the problem?");
+    expect(auditAnswersProblem(IT, { ...allFine, works: { choice: "problem", text: "Slow" } })).toBeNull();
+  });
+
+  it("sends each answer with its question and choice text, red ones flagged and always with their (trimmed) text", () => {
     const payload = auditAnswersPayload(IT, {
       who: { choice: "me", text: "typed before switching back" },
       works: { choice: "problem", text: "  Slow to start  " },
@@ -51,11 +98,12 @@ describe("the questions block of the Submit audit dialog", () => {
     expect(payload).toEqual([
       { id: "who", q: "Who is using this device?", a: "Only me, for work" },
       { id: "works", q: "Does it work properly?", a: "It works, but has a problem", flag: 1, text: "Slow to start" },
-      { id: "damage", q: "Is it damaged anywhere?", a: "Small damage: scratches or dents", flag: 1 },
+      { id: "damage", q: "Is it damaged anywhere?", a: "Small damage: scratches or dents", flag: 1, text: "" },
       { id: "charger", q: "Do you have its charger and cables?", a: "Yes, I have them" },
     ]);
-    // what the server saves is read back the same way
-    expect(parseAuditAnswers({ answers: payload })).toEqual(payload);
+    // what the server saves (it refuses an empty description) is read back the same way
+    const sent = payload.filter((answer) => !answer.flag || answer.text);
+    expect(parseAuditAnswers({ answers: sent })).toEqual(sent);
   });
 
   it("leaves out a question with no pick (Submit stays off until every one is answered)", () => {
@@ -78,6 +126,12 @@ describe("reading saved answers", () => {
   it("drops a broken item and keeps the rest", () => {
     const answers = parseAuditAnswers({ answers: [null, { q: "Q?" }, { id: "x", q: "Q?", a: "A", flag: 0, text: " " }] });
     expect(answers).toEqual([{ id: "x", q: "Q?", a: "A" }]);
+  });
+
+  it("counts answers in words for the history", () => {
+    expect(auditAnswerCount(1)).toBe("1 answer");
+    expect(auditAnswerCount(4)).toBe("4 answers");
+    expect(auditAnswerCount(0)).toBe("0 answers");
   });
 
   it("labels the checks for the Fulfilled list", () => {
@@ -137,32 +191,23 @@ describe("audit history rows in words", () => {
   });
 });
 
-describe("the question sets", () => {
-  it("asks four questions per type, in a fixed order", () => {
-    expect(auditQuestionsFor("Project").map((q) => q.id)).toEqual(["where", "works", "damage", "parts"]);
-    expect(auditQuestionsFor("IT").map((q) => q.id)).toEqual(["who", "works", "damage", "charger"]);
-    for (const other of [null, undefined, "", "Furniture"]) expect(auditQuestionsFor(other)).toEqual([]);
-  });
-
-  it("gives every question a good answer, a red answer and a prompt, with no id twice", () => {
-    for (const [type, questions] of Object.entries(AUDIT_QUESTIONS)) {
-      expect(new Set(questions.map((q) => q.id)).size, type).toBe(questions.length);
-      for (const q of questions) {
-        expect(new Set(q.choices.map((c) => c.id)).size, q.id).toBe(q.choices.length);
-        expect(q.choices.some((c) => !c.flag), q.id).toBe(true);
-        expect(q.choices.some((c) => c.flag), q.id).toBe(true);
-        expect(q.text_prompt, q.id).toBeTruthy();
-      }
-    }
+describe("the question", () => {
+  it("is one question for every asset: Is it working? Yes / No, No red", () => {
+    expect(AUDIT_QUESTIONS.map((q) => q.id)).toEqual(["working"]);
+    const [working] = AUDIT_QUESTIONS;
+    expect(working.question).toBe("Is it working?");
+    expect(working.choices).toEqual([
+      { id: "yes", label: "Yes, it is working", flag: false },
+      { id: "no", label: "No, it is not working", flag: true },
+    ]);
+    expect(working.text_prompt).toBe("Describe the problem");
   });
 
   it("fits what the server accepts: at most 10 answers, every text under 300 characters", () => {
-    for (const questions of Object.values(AUDIT_QUESTIONS)) {
-      expect(questions.length).toBeLessThanOrEqual(10);
-      for (const q of questions) {
-        expect(q.question.length).toBeLessThanOrEqual(300);
-        for (const c of q.choices) expect(c.label.length).toBeLessThanOrEqual(300);
-      }
+    expect(AUDIT_QUESTIONS.length).toBeLessThanOrEqual(10);
+    for (const q of AUDIT_QUESTIONS) {
+      expect(q.question.length).toBeLessThanOrEqual(300);
+      for (const c of q.choices) expect(c.label.length).toBeLessThanOrEqual(300);
     }
   });
 });

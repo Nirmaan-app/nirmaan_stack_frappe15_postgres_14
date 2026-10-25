@@ -40,7 +40,7 @@ const Loading = ({ loading }: { loading?: boolean }) =>
     loading ? <Loader2 className="absolute right-2 top-2 h-3 w-3 animate-spin text-muted-foreground" /> : null;
 
 /**
- * All Cheques' summary strip (#1417, #1483): count and amount for All, Pending, Issued, Cleared and Cancelled
+ * All Cheques' summary strip (#1417, #1483): count and amount for All, Approval Pending, Issued, Cleared and Cancelled
  * over the table's current filters and search. Each matching Cheque counts once, at its full amount, so the
  * figures are cheque amounts, not line amounts.
  */

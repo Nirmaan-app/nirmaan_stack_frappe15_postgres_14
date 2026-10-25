@@ -38,17 +38,19 @@ INDIVIDUAL_HUF_RATE = 1.0
 DEFAULT_RATE = 2.0
 
 
-def _clean_pan(pan) -> str:
+def clean_pan(pan) -> str:
+	"""A PAN as stored: trimmed and uppercased. Also used for a request form's PAN answers
+	(`api/expense_requests/pan_answers`)."""
 	return str(pan or "").strip().upper()
 
 
 def is_valid_pan(pan) -> bool:
-	return bool(PAN_RE.match(_clean_pan(pan)))
+	return bool(PAN_RE.match(clean_pan(pan)))
 
 
 def is_individual_huf_pan(pan) -> bool:
 	"""True for a valid PAN whose 4th character is P or H: its rate is always 1%."""
-	pan = _clean_pan(pan)
+	pan = clean_pan(pan)
 	return bool(PAN_RE.match(pan)) and pan[3] in INDIVIDUAL_HUF_HOLDER_TYPES
 
 

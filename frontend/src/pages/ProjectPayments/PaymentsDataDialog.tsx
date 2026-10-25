@@ -2,6 +2,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import SITEURL from "@/constants/siteURL";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
@@ -9,12 +10,15 @@ import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useFrappeGetDocList } from "frappe-react-sdk";
+import { TriangleAlert } from "lucide-react";
 import { useMemo } from "react";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { NoBankProofBadge } from "@/components/vendor-refunds/NoBankProofBadge";
 import { useVendorRefunds } from "@/components/vendor-refunds/useVendorRefunds";
 import { GstPaymentTag } from "./components/GstPaymentTag";
-import { paymentsDialogRows } from "./paymentsDialogRows";
+import { usePurchaseOrderTds } from "./hooks/usePurchaseOrderTds";
+import { useWorkOrderTds } from "./hooks/useWorkOrderTds";
+import { amountPaidLine, paymentsDialogRows } from "./paymentsDialogRows";
 
 interface PaymentsDataDialogProps {
   open: boolean;
@@ -71,7 +75,29 @@ export const PaymentsDataDialog = ({
           return { project, vendor, document_name: data?.name, gst }
   }, [projects, vendors, data])
 
-  const { rows, total } = useMemo(() => paymentsDialogRows(fetchedPayments, refunds), [fetchedPayments, refunds])
+  // An order's Amount Paid holds the TDS withheld from the vendor on each payment (ADR-0034 Amendments A
+  // and B: a Work Order's, and a PO's recorded tax once its payment is netted), so its rows show it. Asked
+  // of the server, which checks read on the order: `Payment TDS Deduction` is readable by the accountants
+  // only (#1451). A Work Order reads the Work Order page's own cache entry, so its refresh after a payment
+  // change reaches this pop-up too.
+  const { workOrderTds, error: woTdsError } = useWorkOrderTds(data?.name, open && !isPO);
+  const { purchaseOrderTds, error: poTdsError } = usePurchaseOrderTds(data?.name, open && !!isPO);
+  const deductions = isPO ? purchaseOrderTds?.payments : workOrderTds?.payments;
+  const tdsError = isPO ? poTdsError : woTdsError;
+  // Until it answers, the TDS column and the total wait: a total without the tax is not the Amount Paid.
+  const tdsPending = !deductions;
+
+  const { rows, total: rowsTotal } = useMemo(
+    () => paymentsDialogRows(fetchedPayments, refunds, deductions, tdsPending),
+    [fetchedPayments, refunds, deductions, tdsPending]
+  )
+  // The Total is the order's SAVED Amount Paid, the figure that was clicked (#1543); the rows are only
+  // checked against it, once all of them have loaded.
+  const totalLine = amountPaidLine(data?.amount_paid, fetchedPayments ? rowsTotal : undefined);
+
+  const tdsPendingCell = tdsError
+    ? <span className="text-xs text-muted-foreground">Unavailable</span>
+    : <Skeleton className="h-4 w-16" />;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -105,6 +131,7 @@ export const PaymentsDataDialog = ({
                 <TableRow>
                   <TableHead>Payment Date</TableHead>
                   <TableHead>Amount</TableHead>
+                  <TableHead>TDS</TableHead>
                   <TableHead>UTR No.</TableHead>
                 </TableRow>
               </TableHeader>
@@ -124,6 +151,7 @@ export const PaymentsDataDialog = ({
                           <NoBankProofBadge refund={row.refund} />
                         </span>
                       </TableCell>
+                      <TableCell>--</TableCell>
                       <TableCell className="font-semibold overflow-hidden truncate max-w-28"><TruncatedText text={row.refund.utr} fallback="--" className="max-w-28" /></TableCell>
                     </TableRow>
                   ) : (
@@ -134,6 +162,9 @@ export const PaymentsDataDialog = ({
                       <TableCell>
                         {formatToRoundedIndianRupee(row.payment.amount)}
                         <GstPaymentTag payment={row.payment} />
+                      </TableCell>
+                      <TableCell>
+                        {row.tds === undefined ? tdsPendingCell : row.tds ? formatToRoundedIndianRupee(row.tds) : "--"}
                       </TableCell>
                       {row.payment.payment_attachment ? (
                           <TableCell className="font-semibold text-blue-500 underline overflow-hidden truncate max-w-28">
@@ -159,8 +190,24 @@ export const PaymentsDataDialog = ({
                 <TableFooter>
                   <TableRow>
                     <TableCell className="font-semibold">Total</TableCell>
-                    <TableCell className="font-semibold" colSpan={2}>{formatToRoundedIndianRupee(total)}</TableCell>
+                    <TableCell className="font-semibold" colSpan={3}>
+                      {formatToRoundedIndianRupee(totalLine.amountPaid)}
+                    </TableCell>
                   </TableRow>
+                  {totalLine.mismatch && totalLine.rowsTotal !== undefined && (
+                    <TableRow>
+                      <TableCell colSpan={4} className="bg-amber-50 text-amber-800 text-xs font-normal">
+                        <span className="flex items-start gap-1.5" role="alert">
+                          <TriangleAlert className="h-4 w-4 shrink-0" />
+                          <span>
+                            The rows above add up to {formatToRoundedIndianRupee(totalLine.rowsTotal)}, not the saved
+                            Amount Paid of {formatToRoundedIndianRupee(totalLine.amountPaid)}. The saved figure may be
+                            wrong: see Reports → Amount Paid Mismatch.
+                          </span>
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableFooter>
               )}
             </Table>

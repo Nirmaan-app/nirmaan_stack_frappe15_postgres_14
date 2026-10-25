@@ -102,7 +102,8 @@ export const useSRReportsData = (): UseSRReportsDataResult => {
             // already includes GST when sr.gst === "true".
             totalAmount: parseNumber(sr.total_amount),
             invoiceAmount: parseNumber(sr.amount_invoiced),
-            // The stored Amount Paid: Paid payments less Received refunds; TDS withheld is not part of it.
+            // The stored Amount Paid: Paid payments plus the TDS withheld from the vendor, less Received
+            // refunds (ADR-0034 Amendment A). Tax the company paid on top is not part of it.
             amountPaid: parseNumber(sr.amount_paid),
             originalDoc: sr,
         }));

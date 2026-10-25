@@ -21,7 +21,8 @@ the NET figure, yet the tax was still part of what was requested; the Work Order
 Payment balance has always added it back (`approved-sr.tsx`, `grossRequested`), and this follows
 it. `tds_by_payment` therefore holds only the tax WITHHELD from each payment: a deduction the company
 bore on top left its payment whole, and adding it would count it twice. The loader picks them off
-each deduction's `borne_by` (`services/order_payments.load_payments`). A PO carries no TDS.
+each deduction's `borne_by` (`services/order_payments.load_payments`). A PO's payments are counted
+the same way: the tax recorded on an old one is added back once it is netted (ADR-0034 Amendment B).
 """
 
 from frappe.utils import flt
