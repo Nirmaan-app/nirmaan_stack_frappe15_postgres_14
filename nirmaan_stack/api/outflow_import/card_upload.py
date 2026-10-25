@@ -29,6 +29,7 @@ from nirmaan_stack.services.outflow_import.card_statement import (
     line_reference,
     read_card_statement,
 )
+from nirmaan_stack.services.outflow_import.card_types import FALLBACK_EXPENSE_TYPE, TYPE_SOURCE_FALLBACK
 from nirmaan_stack.services.outflow_import.parser import (
     BANK_SUCCESS_STATUS,
     DIRECTION_CREDIT,
@@ -202,6 +203,9 @@ def stage(statement: CardStatement, new: NewLines, file_url: str, filename: str,
                     "suggested_doctype": SPEND_DOCTYPE,
                     "match_basis": MATCH_BASIS,
                     "auto_matched": 1,
+                    # Misc. Expenses, marked Check, until suggestion (#1569) or a person on Review says better.
+                    "suggested_expense_type": FALLBACK_EXPENSE_TYPE,
+                    "type_source": TYPE_SOURCE_FALLBACK,
                 }
             )
         doc = frappe.new_doc(ROW_DOCTYPE)
