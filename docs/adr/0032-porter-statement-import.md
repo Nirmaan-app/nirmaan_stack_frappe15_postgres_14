@@ -59,6 +59,8 @@ Like Cashbook (ADR-0015), this source creates and never settles.
   - **What counts:** the comparison is against the statement's *completed* orders only.
   - **When it fails:** one failing invoice blocks the whole file. Nobody can force Create, Admin
     included. The import can only be Discarded, and the statement corrected at source.
+    *Amended by spec #1554 (#1562):* a Failed invoice can be retried, which downloads and reads its PDF
+    again, in case it was misread. Only that reading can pass it: there is still no override.
 - **Project placement uses no curated list and no AI.** In order:
   1. The existing Won-only name matcher (`project_match`).
   2. Tolerance for typos and initials.

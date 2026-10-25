@@ -672,8 +672,8 @@ export const ImportStatementDialog = ({
     }, [file, isBusy, post, seedCache, onPorterBatch]);
 
     /**
-     * Retry one Porter Invoice that hit an Error (#1444). The server refuses anything else -- a Failed
-     * invoice is final -- and answers with the import, which restarts the poll.
+     * Retry one Porter Invoice that doesn't match or couldn't be read (#1444, #1562): the server downloads,
+     * reads and judges it again, and answers with the import (Validating again), which restarts the poll.
      */
     const handlePorterRetry = useCallback(
         async (invoice: string) => {

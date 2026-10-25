@@ -9,16 +9,17 @@ Part of the Porter pipeline (`api/outflow_import/porter.py` holds its endpoints;
 EACH PORTER INVOICE, UP TO `VALIDATION_CONCURRENCY` AT ONCE
 -----------------------------------------------------------
     Queued -> Downloading   the PDF is fetched from the statement's link (`fetch_invoice_pdf`: timeout,
-                            size cap, must be a PDF) and stored ONCE as a private File on the invoice
+                            size cap, must be a PDF) and stored as the invoice's one private File
            -> Reading       the shared Gemini extraction reads number, date, both GSTINs, fare, tax;
                             what it read is stored on the invoice
            -> Comparing     `porter_verdict.judge_invoice` against the statement's completed orders
            -> Passed / Failed / Error
 
 Every step is COMMITTED, so the dialog's poll (`get_porter_status`) shows where each invoice stands, and
-a worker restart loses at most the invoice in hand. A download or Gemini failure is *Error* and keeps any
-PDF already stored, so a Retry (`porter.retry_porter_invoice`) reads it again without re-downloading.
-A *Failed* invoice is final: nothing here, or anywhere, moves it on (no override, ADR-0032).
+a worker restart loses at most the invoice in hand. A download or Gemini failure is *Error*. A Retry
+(`porter.retry_porter_invoice`) of an Error or a *Failed* invoice queues it again: it is downloaded,
+read and judged again (#1562), reading the copy kept if its link no longer serves the PDF. Nothing
+else moves a Failed invoice on (no override, ADR-0032).
 
 ⚠️ AN INVOICE IS CLAIMED BEFORE IT IS WORKED ON. Only a `Queued` invoice is picked up, and the claim
 moves it on under a row lock -- so the upload's job and a Retry's job can overlap without reading one
@@ -66,6 +67,7 @@ from nirmaan_stack.services.outflow_import.porter_verdict import (
     judge_invoice,
     stored_warnings,
 )
+from nirmaan_stack.services.stored_files import delete_files
 
 #: How many invoices are worked on at once (spec #1442: a month's ten in minutes, not an hour).
 VALIDATION_CONCURRENCY = 3
@@ -164,43 +166,15 @@ def validate_invoice(name: str) -> None:
 
     stage = "download"
     try:
-        if invoice.invoice_file:
-            content = _stored_pdf(invoice.invoice_file)
-        else:
-            content = fetch_invoice_pdf(invoice.invoice_link or "")
-            # ⚠️ STORED ONCE, attached to its invoice AT INSERT -- the storage key is derived from the
-            # attachment then. Every Porter Expense of this invoice will share this URL (#1445).
-            saved = save_file(
-                fname=f"{name}.pdf",
-                content=content,
-                dt=INVOICE_DOCTYPE,
-                dn=name,
-                df="invoice_file",
-                is_private=1,
-            )
-            frappe.db.set_value(INVOICE_DOCTYPE, name, "invoice_file", saved.file_url, update_modified=False)
-            _move(name, INVOICE_READING)
+        content = _download_pdf(invoice)
+        _move(name, INVOICE_READING)
 
         stage = "read"
         read = _read_invoice(content)
         _store_read(name, read)
         _move(name, INVOICE_COMPARING)
 
-        period = frappe.db.get_value(
-            "Outflow Import Batch", invoice.import_batch, ["period_from", "period_to"], as_dict=True
-        )
-        verdict = judge_invoice(
-            InvoiceFigures(
-                invoice_number=invoice.invoice_number,
-                porter_gstin=invoice.porter_gstin or "",
-                customer_gstin=invoice.customer_gstin or "",
-                fare=_decimal(invoice.fare_total) or Decimal("0"),
-                tax=_decimal(invoice.tax_total) or Decimal("0"),
-                first_order_date=getdate(period.period_from) if period and period.period_from else None,
-                last_order_date=getdate(period.period_to) if period and period.period_to else None,
-            ),
-            read,
-        )
+        verdict = judge_invoice(_statement_figures(invoice), read)
         _move(name, verdict.status, verdict.message, stored_warnings(verdict.warnings))
     except Exception as exc:
         frappe.db.rollback()
@@ -235,9 +209,97 @@ def _claim(name: str) -> frappe._dict | None:
     invoice = rows[0]
     # A fresh attempt: what an earlier attempt read must not show beside this one's outcome.
     _store_read(name, InvoiceRead("", None, "", "", None, None))
-    # A Retry reuses the PDF already stored, so it goes straight to Reading.
-    _move(name, INVOICE_READING if invoice.invoice_file else INVOICE_DOWNLOADING)
+    _move(name, INVOICE_DOWNLOADING)
     return invoice
+
+
+def _download_pdf(invoice) -> bytes:
+    """The invoice's PDF, downloaded from its link -- on a Retry too (#1562), so a PDF Porter has since
+    corrected is the one read.
+
+    ⚠️ STORED ONCE PER INVOICE, attached to it AT INSERT -- the storage key is derived from the attachment
+    then. Every Porter Expense of this invoice will share this URL (#1445). A Retry's download replaces
+    the copy an earlier attempt kept (the same bytes stay the same File); nothing has been created from
+    it yet, since a Failed or Error invoice blocks Create. If the link no longer serves the PDF, the copy
+    kept is read instead, so an expired link never strands an invoice that was downloaded once.
+    """
+    try:
+        content = fetch_invoice_pdf(invoice.invoice_link or "")
+    except InvoiceDownloadError:
+        if not invoice.invoice_file:
+            raise
+        return _stored_pdf(invoice.invoice_file)
+    saved = save_file(
+        fname=f"{invoice.name}.pdf",
+        content=content,
+        dt=INVOICE_DOCTYPE,
+        dn=invoice.name,
+        df="invoice_file",
+        is_private=1,
+    )
+    frappe.db.set_value(INVOICE_DOCTYPE, invoice.name, "invoice_file", saved.file_url, update_modified=False)
+    frappe.db.commit()
+    # LAST, after the commit: no rollback restores a stored object (`stored_files.delete_files`).
+    delete_files(
+        {"attached_to_doctype": INVOICE_DOCTYPE, "attached_to_name": invoice.name, "name": ["!=", saved.name]}
+    )
+    return content
+
+
+def _statement_figures(invoice) -> InvoiceFigures:
+    """The statement's side of the verdict for this invoice, with its import's period."""
+    period = frappe.db.get_value(
+        "Outflow Import Batch", invoice.import_batch, ["period_from", "period_to"], as_dict=True
+    )
+    return InvoiceFigures(
+        invoice_number=invoice.invoice_number,
+        porter_gstin=invoice.porter_gstin or "",
+        customer_gstin=invoice.customer_gstin or "",
+        fare=_decimal(invoice.fare_total) or Decimal("0"),
+        tax=_decimal(invoice.tax_total) or Decimal("0"),
+        first_order_date=getdate(period.period_from) if period and period.period_from else None,
+        last_order_date=getdate(period.period_to) if period and period.period_to else None,
+    )
+
+
+def rejudge_from_stored(name: str) -> str:
+    """Judge one decided Porter Invoice again from what Gemini already read: no download, no Gemini
+    call. Returns its new status. Used by the patch `v3_0.rejudge_failed_porter_invoices` (#1562).
+
+    The stored reading is `_store_read`'s: 0 in `read_fare` / `read_tax` is "not read", as
+    `porter.what_gemini_read` reads it back.
+    """
+    invoice = frappe.db.get_value(
+        INVOICE_DOCTYPE,
+        name,
+        [
+            "name",
+            "import_batch",
+            "invoice_number",
+            "porter_gstin",
+            "customer_gstin",
+            "fare_total",
+            "tax_total",
+            "read_invoice_number",
+            "read_invoice_date",
+            "read_supplier_gstin",
+            "read_receiver_gstin",
+            "read_fare",
+            "read_tax",
+        ],
+        as_dict=True,
+    )
+    read = InvoiceRead(
+        invoice_number=invoice.read_invoice_number or "",
+        invoice_date=getdate(invoice.read_invoice_date) if invoice.read_invoice_date else None,
+        supplier_gstin=invoice.read_supplier_gstin or "",
+        receiver_gstin=invoice.read_receiver_gstin or "",
+        fare=_decimal(invoice.read_fare) or None,
+        tax=_decimal(invoice.read_tax) or None,
+    )
+    verdict = judge_invoice(_statement_figures(invoice), read)
+    _move(name, verdict.status, verdict.message, stored_warnings(verdict.warnings))
+    return verdict.status
 
 
 def _store_read(name: str, read: InvoiceRead) -> None:

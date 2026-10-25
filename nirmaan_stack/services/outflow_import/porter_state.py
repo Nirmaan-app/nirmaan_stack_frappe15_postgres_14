@@ -43,6 +43,7 @@ __all__ = [
     "INVOICE_PASSED",
     "INVOICE_QUEUED",
     "INVOICE_READING",
+    "INVOICE_RETRYABLE",
     "NEEDS_PERSON",
     "PLACED_AUTOMATICALLY",
     "PLACED_BY_PERSON",
@@ -57,10 +58,13 @@ INVOICE_DOWNLOADING = "Downloading"
 INVOICE_READING = "Reading"
 INVOICE_COMPARING = "Comparing"
 INVOICE_PASSED = "Passed"
-#: The PDF disagrees with the statement. FINAL: no retry and no override, for anyone (ADR-0032).
+#: The PDF disagrees with the statement on the fare or the date. No override, for anyone (ADR-0032); a
+#: Retry reads the PDF again, in case the reading was wrong (#1562).
 INVOICE_FAILED = "Failed"
 #: The download or the read went wrong, so nothing was decided. Retryable, for that invoice alone.
 INVOICE_ERROR = "Error"
+#: What `porter.retry_porter_invoice` accepts: it downloads, reads and judges the invoice again (#1562).
+INVOICE_RETRYABLE = frozenset({INVOICE_FAILED, INVOICE_ERROR})
 
 #: The invoice is still being worked on: the import is not decided yet.
 INVOICE_IN_FLIGHT = frozenset({INVOICE_QUEUED, INVOICE_DOWNLOADING, INVOICE_READING, INVOICE_COMPARING})
@@ -85,8 +89,8 @@ def import_state(invoice_statuses: Iterable[str], line_statuses: Iterable[str] =
     """The import's state, from its Porter Invoices' statuses and (once validated) its lines'.
 
     Validation, from the invoices: Validating while any invoice is still in hand; Validated only when
-    there are invoices and every one Passed; otherwise Validation failed (a Failed invoice is final, an
-    Error one waits for its Retry). Nothing about the lines can outrank this.
+    there are invoices and every one Passed; otherwise Validation failed (a Failed or an Error invoice
+    waits for its Retry, or for a new upload). Nothing about the lines can outrank this.
 
     Create (#1445), from the lines of a validated import, a cancelled (Skipped) line aside:
       * Validated -- no line has been touched by Create yet;
