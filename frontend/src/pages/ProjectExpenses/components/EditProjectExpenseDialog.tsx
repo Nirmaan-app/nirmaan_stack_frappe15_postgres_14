@@ -36,7 +36,7 @@ import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { isPaidExpense } from "@/pages/ProjectPayments/config/queueRowActions";
 import SITEURL from "@/constants/siteURL";
 import { invoiceAttachmentUrl, projectField } from "@/utils/porterExpense";
-import { MoveOrderHint, PorterSectionBlock, usePorterExpense } from "@/components/common/PorterExpense";
+import { PorterProjectLock, PorterSectionBlock, usePorterExpense } from "@/components/common/PorterExpense";
 import { ExpenseEditPayToSection, useExpenseEditPayTo } from "@/components/payees/ExpenseEditPayTo";
 import { expenseAccountSaveError } from "@/components/payees/useChangeExpenseAccount";
 
@@ -259,18 +259,12 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                 </AlertDialogHeader>
                 <div className="space-y-4 py-2 max-h-[70vh] overflow-y-auto pr-2">
                     {project.locked && (
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="project_edit" className="text-right">Project</Label>
-                            <div className="col-span-3">
-                                <Input id="project_edit" value={porter.section?.project_name || expenseToEdit.projects || ""} disabled readOnly />
-                                <MoveOrderHint
-                                    hint={project.hint}
-                                    section={porter.section}
-                                    onFollow={() => setEditProjectExpenseDialog(false)}
-                                    className="text-xs text-muted-foreground mt-1"
-                                />
-                            </div>
-                        </div>
+                        <PorterProjectLock
+                            id="project_edit"
+                            value={porter.section?.project_name || expenseToEdit.projects || ""}
+                            section={porter.section}
+                            onFollow={() => setEditProjectExpenseDialog(false)}
+                        />
                     )}
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="type_edit" className="text-right">Type <sup className="text-destructive">*</sup></Label>
