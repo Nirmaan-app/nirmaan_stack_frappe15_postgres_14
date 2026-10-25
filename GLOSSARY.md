@@ -443,9 +443,10 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
 - **Return Request** — the holder saying "I've given this back". The asset stays assigned until a manager
   approves (it becomes unassigned) or rejects (the holder keeps it). *Avoid*: return by.
 
-- **Monthly audit** — once a month, the holder of an asset whose category needs it answers a few questions and
-  sends a photo, to show the asset still exists and how it is. Only assigned assets with a signed declaration
-  owe one.
+- **Monthly audit** — once a month, the holder of an asset whose category needs it answers "Is it working?" -- with
+  optional remarks if it is, a description and an optional image if it isn't -- to show the asset still exists and
+  how it is. Only assigned assets with a signed declaration owe one. Until it is sent, the app is locked (the app
+  access gate).
 
 - **Audit month** — the month an audit is FOR, written `MM/YYYY`. From the 28th, a new audit is for the next
   month; an audit sent late is still for the month it belonged to.
@@ -459,9 +460,14 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
 - **Overdue (audit)** — the holder has missed at least one month in a row; shown as "overdue since" the first
   missed month, and cleared when an audit is sent. There is deliberately no count of missed months.
 
-- **Red answer / issue** — an audit answer that points to a problem (not with me, not working, damaged, missing
-  parts). It may carry a short note. "2 issues" means two red answers. The audit never changes the asset's
-  condition; people read the answers.
+- **Red answer / issue** — an audit answer that points to a problem: today "No, it is not working" (older audits:
+  not with me, damaged, missing parts). It must carry a description (since 2026-10-21; older ones may have none).
+  "2 issues" means two red answers. The audit never changes the asset's condition; people read the answers.
+
+- **App access gate / locked app** — while a person has asset tasks pending, or (Project Manager, Project Lead and
+  material procurement) no project assigned, the app shows them only the dashboard card that says what to do;
+  the sidebar and every other page come back when it is done. *Avoid*: blocked user (that is Frappe's disabled
+  user).
 
 - **Asset history** — the permanent, append-only record of everything that happened to an asset. Seen by Admin
   and HR only.

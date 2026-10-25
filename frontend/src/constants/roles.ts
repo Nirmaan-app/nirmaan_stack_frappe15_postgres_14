@@ -18,8 +18,8 @@ export const MATERIAL_PROCUREMENT_EXECUTIVE_PROFILE =
 /**
  * A company-wide WO desk, like Estimates: NEVER assigned projects, sees all of them.
  * That rests on every piece agreeing -- no Assign button (`UserProjectsTab`), absent from
- * the project assignee picker (`ProjectOverviewTab`), exempt from the dashboard's
- * `has_project` alert (`pages/dashboard.tsx`), plus the backend full-access lists
+ * the project assignee picker (`ProjectOverviewTab`), outside `PROJECT_REQUIRED_PROFILES` (the app
+ * access gate's no-project lock and the profile's Projects tab), plus the backend full-access lists
  * (`services/role_profiles.py` names them). One project assigned by mistake shrinks the
  * user's Frappe lists to that project while their counts still cover all projects.
  */
@@ -117,6 +117,18 @@ export const HR_EXECUTIVE_PROFILE = "Nirmaan HR Executive Profile";
 export const HR_LEAD_PROFILE = "Nirmaan HR Lead Profile";
 export const PROJECT_LEAD_PROFILE = "Nirmaan Project Lead Profile";
 export const PROJECT_MANAGER_PROFILE = "Nirmaan Project Manager Profile";
+
+/**
+ * Profiles that can't use the app until a project is assigned (owner, 2026-10-22): while
+ * `Nirmaan Users.has_project` is "false" the app access gate (`utils/appAccess.ts`) shows them only the
+ * dashboard card. HR Lead and Billing Lead follow their Executives and are never locked for it; Service
+ * Procurement is company-wide and never assigned projects.
+ */
+export const PROJECT_REQUIRED_PROFILES: readonly string[] = [
+  PROJECT_MANAGER_PROFILE,
+  PROJECT_LEAD_PROFILE,
+  ...MATERIAL_PROCUREMENT_PROFILES,
+];
 
 /**
  * Client billing tracker (owner, 2026-10-03): Admin, PMO and billing profiles see

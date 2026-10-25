@@ -5,8 +5,8 @@ import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 /**
- * The hover text everywhere the icon shows -- the sidebar's wording. "Click to sign" only for the
- * person themself: anyone else viewing their profile (Admin, HR) can't sign it.
+ * The icon's hover text. "Click to sign" only for the person themself: anyone else viewing their
+ * profile (Admin, HR) can't sign it.
  */
 export const pendingDeclarationLabel = (count: number, canSign = true) => {
   const pending = count === 1 ? "Asset declaration pending." : `${count} asset declarations pending.`;
@@ -39,39 +39,36 @@ export const pendingAssetActionsLabel = (declarations: number, audits: number, c
 };
 
 interface PendingDeclarationIconProps extends React.HTMLAttributes<HTMLSpanElement> {
-  /** "md" beside the sidebar's name, "sm" in a menu item or a tab. */
-  size?: "sm" | "md";
   /** A monthly audit is waiting to be sent (owner, 2026-10-14): red instead of amber. */
   auditPending?: boolean;
 }
 
 /**
- * The amber info mark for asset declarations still to sign: the sidebar beside the person's name,
- * the Profile menu item, and the Project / IT tabs on the profile's Assets tab -- one look
- * everywhere. Red while a monthly audit is waiting to be sent. Forwards its ref and props so the sidebar
- * can make it a Tooltip trigger and a button.
+ * The amber info mark on the Project / IT tabs of the profile's Assets tab, for asset declarations
+ * still to sign; red while a monthly audit is waiting to be sent. (The sidebar and Profile menu marks
+ * were removed on 2026-10-21: the app access gate replaced them.) Forwards its ref and props so it can
+ * be a Tooltip trigger.
  */
 export const PendingDeclarationIcon = forwardRef<HTMLSpanElement, PendingDeclarationIconProps>(
-  ({ size = "sm", auditPending = false, className, ...props }, ref) => (
+  ({ auditPending = false, className, ...props }, ref) => (
     <span
       ref={ref}
       className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-full ring-1",
+        "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full ring-1",
         auditPending ? "bg-red-100 text-red-600 ring-red-300" : "bg-amber-100 text-amber-600 ring-amber-300",
-        size === "md" ? "h-6 w-6" : "h-5 w-5",
         className
       )}
       {...props}
     >
-      <Info className={size === "md" ? "h-4 w-4" : "h-3.5 w-3.5"} />
+      <Info className="h-3.5 w-3.5" />
     </span>
   )
 );
 PendingDeclarationIcon.displayName = "PendingDeclarationIcon";
 
 /**
- * The icon with the sidebar's hover tooltip (same look and timing), for the Profile menu item and
- * the Project / IT tabs: hovering it says what is pending or overdue.
+ * The icon with its hover tooltip, for the Project / IT tabs: hovering it says what is pending or
+ * overdue.
  */
 export function PendingDeclarationTooltip({
   label,

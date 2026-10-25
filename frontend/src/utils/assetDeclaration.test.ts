@@ -33,7 +33,7 @@ describe("canSignDeclaration", () => {
   });
 });
 
-describe("countDeclarationsToSign (the sidebar badge)", () => {
+describe("countDeclarationsToSign (the app access gate's count)", () => {
   const me = "sharook@nirmaan.app";
   const row = (asset: string, declaration: string | null = null) => ({
     asset,
