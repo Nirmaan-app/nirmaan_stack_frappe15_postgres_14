@@ -37,6 +37,11 @@ export interface PorterReviewLine {
      * line has it, and the progress bar counts the same lines.
      */
     needs_person: boolean;
+    /**
+     * For an order whose remark group needs a person, the projects the placement signals named
+     * (`porter_placement.Placement.likely`, #1563): the remark's first, then the addresses'. Else empty.
+     */
+    likely_projects: string[];
 }
 
 export interface PorterReview {
@@ -249,9 +254,36 @@ export const reasonLabel = (reason: string | null | undefined): string => {
     return [REASON_LABELS[first] ?? first, ...agreeing.map((part) => AGREEING_LABELS[part] ?? part)].join(", and ");
 };
 
-/** A strong suggestion is shown plain; a weak one says "Check". */
-export const strengthLabel = (strength: string | null | undefined): string | null =>
-    strength === "Check" ? "Check" : null;
+/**
+ * The badge saying why an item is listed (#1563): why the system is not sure. Null when no order of it
+ * needs a person (a person already chose). Never a bare "Check".
+ */
+export const listedBecause = (item: ReviewItem): string | null => {
+    const undecided = item.lines.filter((line) => line.needs_person);
+    if (undecided.length === 0) return null;
+    if (item.lines.some((line) => line.reason === "conflict")) return "Name and address disagree";
+    if (item.mixed) return "Orders placed differently";
+    if (undecided.every((line) => !line.reason)) return "No match";
+    if (undecided.some((line) => line.reason === "address")) return "Only the address matched";
+    return "Loose name match";
+};
+
+/**
+ * The one-click choices (#1563): when the placement named exactly two likely projects for the item, both
+ * still offered (Won), in the order named. Otherwise none, and the full picker is the choice.
+ */
+export const likelyChoices = (
+    item: ReviewItem,
+    projects: readonly { name: string; project_name: string }[],
+): { value: string; label: string }[] => {
+    const likely = [...new Set(item.lines.flatMap((line) => line.likely_projects ?? []))];
+    if (likely.length !== 2) return [];
+    const offered = likely.flatMap((name) => {
+        const project = projects.find((p) => p.name === name);
+        return project ? [{ value: project.name, label: project.project_name }] : [];
+    });
+    return offered.length === 2 ? offered : [];
+};
 
 /**
  * Review is offered once every invoice has passed (the server refuses it otherwise too), and again while a

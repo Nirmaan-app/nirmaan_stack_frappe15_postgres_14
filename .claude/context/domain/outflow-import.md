@@ -7341,6 +7341,26 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
   `PorterCreateCase._press_create` confirms every order that needs a person first (`confirm_first=False` to
   test the refusal). Vitest: `porterReview.test.ts`.
 
+### As built — #1563: faster project picking (spec #1554, 2026-10-25)
+
+- **Per-order choice.** `set_porter_placement` already takes any set of line names, so one order inside a
+  remark group is placed on its own with `rows` = that one name (no second endpoint). Splitting a group
+  makes it "placed differently", so its other open orders need a person until each is chosen
+  (`placement_kinds`). The screen's "Choose per order" (groups of 2+) gives each order its own control.
+- **Two likely projects.** `porter_placement.Placement.likely`: every project the signals named for the
+  remark group, the remark's (or history's) project first, then the address votes, most voted first.
+  ⚠️ Never stored: `get_porter_review` re-runs `place_orders` over the CURRENT master
+  (`porter_upload.placement_master`) on the whole remark group of each order that needs a person, and
+  returns it as `likely_projects` (empty otherwise; no master read when nobody is needed). The screen
+  (`porterReview.likelyChoices`) shows one-click buttons only when exactly two are named and both still
+  Won, plus "Other…" for the picker.
+- **Badges** (`porterReview.listedBecause`), first that applies: a `conflict` reason → "Name and address
+  disagree"; a mixed group → "Orders placed differently"; no reason on any undecided order → "No match";
+  an `address` reason → "Only the address matched"; else "Loose name match". No bare "Check".
+- Note under the list: "Only Won projects can take expenses. If a project is missing, check its status."
+- Tests: pure `test_porter_placement.TestTheLikelyProjects`; DB `test_porter_review.TestChoosingPerOrder`,
+  `TestTheLikelyProjects`; vitest `porterReview.test.ts` (badges, two likely projects).
+
 ### As built — #1564: Confirm & create before Create (spec #1554, 2026-10-25)
 
 - **Next opens Confirm & create** (`PorterConfirmPanel`); its footer is "Back" (to Choose projects) and

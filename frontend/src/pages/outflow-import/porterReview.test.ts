@@ -13,11 +13,12 @@ import {
     placedOn,
     nextConfirmLabel,
     keepShownOrder,
+    likelyChoices,
+    listedBecause,
     placementLabel,
     porterReviewOffered,
     reasonLabel,
     reviewItems,
-    strengthLabel,
     type PorterReviewLine,
 } from "./porterReview";
 
@@ -42,6 +43,7 @@ const line = (over: Partial<PorterReviewLine>): PorterReviewLine => {
         strength: null,
         editable: true,
         needs_person: false,
+        likely_projects: [],
         ...over,
     };
 };
@@ -114,13 +116,74 @@ describe("what a suggestion says", () => {
         expect(reasonLabel("name+someday")).toBe("Project name in the remark, and someday");
     });
 
-    it("is plain when strong, and says Check when weak", () => {
-        expect(strengthLabel("Strong")).toBeNull();
-        expect(strengthLabel(null)).toBeNull();
-        expect(strengthLabel("Check")).toBe("Check");
+    it("marks a group with a weak order as one to check", () => {
         const [group] = reviewItems([zephyr(), zephyr({ strength: "Check" })]);
         expect(group.needsCheck).toBe(true);
         expect(group.reasons).toEqual(["name"]);
+    });
+});
+
+describe("why a group is listed (#1563)", () => {
+    const badge = (lines: PorterReviewLine[]) => listedBecause(reviewItems(lines)[0]);
+    const unplaced = { ledger: "Non Project Expenses", project: null, project_name: null };
+
+    it("names the disagreement between the remark and the addresses", () => {
+        expect(badge([zephyr({ ...unplaced, reason: "conflict", strength: "Check", needs_person: true })])).toBe(
+            "Name and address disagree",
+        );
+    });
+
+    it("says only the address matched for an address-only suggestion", () => {
+        expect(badge([line({ ledger: "Project Expenses", project: "P-1", reason: "address", strength: "Check", needs_person: true })])).toBe(
+            "Only the address matched",
+        );
+    });
+
+    it("says the name match was loose for a single word, a typo or initials", () => {
+        for (const reason of ["name", "typo", "initials"]) {
+            expect(badge([zephyr({ reason, strength: "Check", needs_person: true })])).toBe("Loose name match");
+        }
+    });
+
+    it("says nothing matched when no project was found", () => {
+        expect(badge([line({ needs_person: true })])).toBe("No match");
+    });
+
+    it("says the orders were placed differently when a group splits", () => {
+        expect(
+            badge([zephyr({ needs_person: true }), zephyr({ project: "P-2", project_name: "Quillon Park", needs_person: true })]),
+        ).toBe("Orders placed differently");
+    });
+
+    it("never says a bare Check, and says nothing once a person has decided", () => {
+        expect(badge([zephyr({ reason: "review", strength: null })])).toBeNull();
+    });
+});
+
+describe("the two likely projects (#1563)", () => {
+    const projects = [
+        { name: "P-1", project_name: "Zephyr Tower" },
+        { name: "P-2", project_name: "Quillon Park" },
+        { name: "P-3", project_name: "Orion Mall" },
+    ];
+    const choices = (likely: string[]) =>
+        likelyChoices(reviewItems([zephyr({ needs_person: true, likely_projects: likely })])[0], projects);
+
+    it("offers each as a one-click choice when the placement names two", () => {
+        expect(choices(["P-1", "P-3"])).toEqual([
+            { value: "P-1", label: "Zephyr Tower" },
+            { value: "P-3", label: "Orion Mall" },
+        ]);
+    });
+
+    it("offers none when it names one, or more than two", () => {
+        expect(choices(["P-1"])).toEqual([]);
+        expect(choices(["P-1", "P-2", "P-3"])).toEqual([]);
+        expect(choices([])).toEqual([]);
+    });
+
+    it("leaves out a project that is no longer offered (not Won)", () => {
+        expect(choices(["P-1", "P-GONE"])).toEqual([]);
     });
 });
 

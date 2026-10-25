@@ -31,7 +31,7 @@ import math
 import re
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from nirmaan_stack.services.outflow_import.ledgers import (
     NON_PROJECT_EXPENSE_DOCTYPE,
@@ -105,6 +105,10 @@ class Placement:
     expense_type: str
     reason: str
     strength: str
+    likely: tuple[str, ...] = ()
+    """Every project the signals named for the order's remark group (#1563), the same for each order of
+    it: the remark's project first, then the addresses', most voted first. Choose projects offers two
+    of them as one-click choices. Never stored: the review asks `place_orders` again."""
 
 
 @dataclass(frozen=True)
@@ -285,7 +289,19 @@ class _Reading:
 def _place_group(members: Sequence[OrderFacts], master: PlacementMaster) -> dict[str, Placement]:
     reading = _read_remark(members[0], master)
     votes = {order.name: address_project(order, master) for order in members}
-    majority = _majority(list(votes.values()), len(members))
+    named = [reading.project] if reading and reading.project else []
+    named += [project for project, _ in Counter(filter(None, votes.values())).most_common()]
+    likely = tuple(dict.fromkeys(named))
+    return {
+        name: replace(placement, likely=likely)
+        for name, placement in _placements(reading, votes, master).items()
+    }
+
+
+def _placements(
+    reading: _Reading | None, votes: Mapping[str, str | None], master: PlacementMaster
+) -> dict[str, Placement]:
+    majority = _majority(list(votes.values()), len(votes))
 
     if reading is None:
         return {

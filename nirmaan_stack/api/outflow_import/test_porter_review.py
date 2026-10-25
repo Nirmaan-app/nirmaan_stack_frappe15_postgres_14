@@ -309,3 +309,51 @@ class TestWhichOrdersNeedAPerson(PorterReviewCase):
         needing = sum(self._needs().values())
         self.assertGreater(needing, 0)
         self.assertEqual(get_porter_status(self.batch)["progress"]["projects"]["needs_person"], needing)
+
+
+class TestChoosingPerOrder(PorterReviewCase):
+    """#1563: one order inside a remark group can be placed on its own, as the whole group can."""
+
+    def setUp(self):
+        super().setUp()
+        self._set_invoices("Passed")
+        self.group = [self._row(suffix) for suffix in ("001", "004", "008")]
+
+    def test_setting_one_order_of_a_group_changes_only_that_order(self):
+        before = {plan.name: plan for plan in self._plans()}
+        porter_review.set_porter_placement(self.batch, self.group[1].name, self.quillon)
+        after = {plan.name: plan for plan in self._plans()}
+        moved = after.pop(self.group[1].name)
+        self.assertEqual(
+            (moved.resolved_project, moved.placement_reason, moved.placement_strength),
+            (self.quillon, "review", None),
+        )
+        del before[self.group[1].name]
+        self.assertEqual(after, before)
+
+    def test_a_group_split_by_a_person_needs_no_one_once_each_order_is_chosen(self):
+        porter_review.set_porter_placement(self.batch, self.group[1].name, self.quillon)
+        needs = {line["name"]: line["needs_person"] for line in self._review()["lines"]}
+        # The other two are still the matcher's Strong zephyr: the group now disagrees.
+        self.assertEqual([needs[row.name] for row in self.group], [True, False, True])
+        self._assign([self.group[0], self.group[2]], self.zephyr)
+        needs = {line["name"]: line["needs_person"] for line in self._review()["lines"]}
+        self.assertEqual([needs[row.name] for row in self.group], [False, False, False])
+
+
+class TestTheLikelyProjects(PorterReviewCase):
+    """#1563: an order that needs a person names the projects the placement signals pointed to."""
+
+    def setUp(self):
+        super().setUp()
+        self._set_invoices("Passed")
+        self.lines = {line["crn"][-3:]: line for line in self._review()["lines"]}
+
+    def test_a_loose_name_names_its_project(self):
+        self.assertEqual(self.lines["002"]["likely_projects"], [self.quillon])
+
+    def test_nothing_found_names_none(self):
+        self.assertEqual(self.lines["003"]["likely_projects"], [])
+
+    def test_an_order_that_needs_no_one_is_not_asked(self):
+        self.assertEqual(self.lines["001"]["likely_projects"], [])
