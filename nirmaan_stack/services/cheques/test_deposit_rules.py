@@ -3,9 +3,9 @@
 
 """Pure: a Security Deposit cheque's rules (#1486, spec #1477, ADR-0035).
 
-A deposit cheque is held as a guarantee: it pays nothing, may name the Vendor's POs and Work Orders it
-secures (a "Secured PO/WO" line, record only), is Issued when recorded on a typed issue date and is
-Cancelled only by hand with a note. It is never cleared, by hand or by the bank import.
+A deposit cheque is held as a guarantee: it pays nothing, may name the Vendor's POs it secures (a
+"Secured PO/WO" line, record only; never a Work Order, spec #1514), is Issued when recorded on a typed issue date and is
+Cancelled only by hand with a note. It is never cleared.
 
 No database. Run with `devenv.sh unit nirmaan_stack.services.cheques.test_deposit_rules`.
 """
@@ -36,7 +36,7 @@ def _header(**values):
 
 
 class TestASecuredLineIsARecordOnly(unittest.TestCase):
-    def test_it_names_a_po_or_work_order_and_carries_no_payment_and_no_amount(self):
+    def test_it_names_a_po_and_carries_no_payment_and_no_amount(self):
         line = _secured(payment_name="PAY-1", amount=500)
         self.assertEqual(line.line_type, rules.LINE_SECURED_RECORD)
         self.assertEqual((line.record_doctype, line.record_name, line.project), (PO, "PO/1/00012/26-27", "PROJ-1"))
@@ -44,16 +44,22 @@ class TestASecuredLineIsARecordOnly(unittest.TestCase):
         self.assertIsNone(line.payment_doctype)
         self.assertEqual(line.amount, 0)
 
-    def test_the_vendor_s_po_or_work_order_in_its_project_is_accepted(self):
+    def test_the_vendor_s_po_in_its_project_is_accepted(self):
         record = {"vendor": "VEN-1", "project": "PROJ-1"}
         self.assertIsNone(rules.secured_line_problem(_secured(), cheque_vendor="VEN-1", record=record))
-        self.assertIsNone(rules.secured_line_problem(_secured(WO, "SR/1/00004/26-27"), cheque_vendor="VEN-1",
-                                                     record=record))
+
+    def test_a_work_order_is_refused_even_the_vendor_s_own(self):
+        # Spec #1514 story 18, ADR-0035 Amendment A: Work Orders are never paid by cheque, so no deposit names one.
+        self.assertEqual(
+            rules.secured_line_problem(_secured(WO, "SR/1/00004/26-27"), cheque_vendor="VEN-1",
+                                       record={"vendor": "VEN-1", "project": "PROJ-1"}),
+            "SR/1/00004/26-27 is a Work Order: a Security Deposit cheque secures POs only.",
+        )
 
     def test_a_typed_payee_secures_nothing(self):
         self.assertEqual(
             rules.secured_line_problem(_secured(), cheque_vendor=None, record={"vendor": "VEN-1", "project": "PROJ-1"}),
-            "a cheque made out to a typed payee names no PO or Work Order.",
+            "a cheque made out to a typed payee names no PO.",
         )
 
     def test_another_vendor_s_record_or_a_missing_one_is_refused(self):
@@ -61,11 +67,11 @@ class TestASecuredLineIsARecordOnly(unittest.TestCase):
                          "PO/1/00012/26-27 was not found.")
         self.assertEqual(
             rules.secured_line_problem(_secured(), cheque_vendor="VEN-1", record={"vendor": "VEN-2", "project": "PROJ-1"}),
-            "PO/1/00012/26-27 is not a PO or Work Order of this cheque's Vendor.",
+            "PO/1/00012/26-27 is not a PO of this cheque's Vendor.",
         )
         self.assertEqual(
             rules.secured_line_problem(_secured(record_doctype=None), cheque_vendor="VEN-1", record=None),
-            "pick the PO or Work Order.",
+            "pick the PO.",
         )
 
 
@@ -76,13 +82,13 @@ class TestWhichLinesEachTypeTakes(unittest.TestCase):
                                          "project": "PROJ-1", "payment_name": "PAY-1", "amount": 10})
         self.assertEqual(
             rules.line_kind_problem(payment_line, cheque_type=SD),
-            "a Security Deposit cheque pays nothing: its lines only name the POs and Work Orders it secures.",
+            "a Security Deposit cheque pays nothing: its lines only name the POs it secures.",
         )
 
     def test_a_payment_cheque_takes_no_secured_line(self):
         self.assertEqual(
             rules.line_kind_problem(_secured(), cheque_type=PAY),
-            "only a Security Deposit cheque names a PO or Work Order it secures.",
+            "only a Security Deposit cheque names a PO it secures.",
         )
 
 
@@ -106,6 +112,31 @@ class TestADepositCheque_sHeader(unittest.TestCase):
         self.assertIsNone(clear_rules.issue_date_problem("2026-01-02", today="2026-10-16"))
 
 
+class TestWhichBankEachTypeIsDrawnOn(unittest.TestCase):
+    """A Payment cheque is drawn on ICICI Bank, the only bank whose statement clears it; a deposit, never
+    cleared, may be on any bank (#1516, ADR-0035 Amendment A)."""
+
+    OTHERS = {"bank": "Others", "bank_name": "HDFC Bank"}
+
+    def test_a_payment_cheque_on_others_is_refused(self):
+        self.assertEqual(
+            rules.header_problem(_header(**self.OTHERS), line_count=1, photo_required=True, cheque_type=PAY),
+            "A Payment cheque is drawn on ICICI Bank, the only bank whose statement clears it.",
+        )
+
+    def test_a_payment_cheque_on_icici_bank_is_accepted(self):
+        self.assertIsNone(rules.header_problem(_header(), line_count=1, photo_required=True, cheque_type=PAY))
+
+    def test_a_deposit_cheque_on_others_is_accepted(self):
+        self.assertIsNone(rules.header_problem(_header(**self.OTHERS), line_count=0, photo_required=True,
+                                               cheque_type=SD))
+
+    def test_an_old_payment_cheque_on_others_still_saves_when_its_bank_and_number_stay(self):
+        # Cancelling it, the only way to close it now, saves it again.
+        self.assertIsNone(rules.header_problem(_header(**self.OTHERS), line_count=1, photo_required=False,
+                                               cheque_type=PAY, drawn_anew=False))
+
+
 class TestEditingADepositCheque(unittest.TestCase):
     def test_procurement_edits_its_own_deposit_while_issued(self):
         own = {"owner": "p@x", "user": "p@x", "any_cheque": False, "cheque_type": SD}
@@ -115,21 +146,21 @@ class TestEditingADepositCheque(unittest.TestCase):
 
     def test_procurement_edits_its_own_payment_cheque_only_while_pending(self):
         own = {"owner": "p@x", "user": "p@x", "any_cheque": False, "cheque_type": PAY}
-        self.assertIsNone(edit_rules.edit_access_problem(status="Pending", **own))
+        self.assertIsNone(edit_rules.edit_access_problem(status="Approval Pending", **own))
         self.assertIsNotNone(edit_rules.edit_access_problem(status="Issued", **own))
 
     def test_an_issued_deposit_changes_in_full_and_a_cancelled_one_only_its_photo(self):
         before, after = _header(), _header(amount=150000, attachment="/private/files/new.jpg")
         lines = [_secured()]
-        self.assertIsNone(edit_rules.edit_problem(before, after, status="Issued", made_from="Report", lines_before=[],
+        self.assertIsNone(edit_rules.edit_problem(before, after, status="Issued", lines_before=[],
                                              lines_after=lines, cheque_type=SD))
         self.assertEqual(
-            edit_rules.edit_problem(before, after, status="Cancelled", made_from="Report", lines_before=[],
+            edit_rules.edit_problem(before, after, status="Cancelled", lines_before=[],
                                lines_after=[], cheque_type=SD),
             "Cheque 000760 is Cancelled: only its photo can change.",
         )
         photo_only = _header(attachment="/private/files/new.jpg")
-        self.assertIsNone(edit_rules.edit_problem(before, photo_only, status="Cancelled", made_from="Report",
+        self.assertIsNone(edit_rules.edit_problem(before, photo_only, status="Cancelled",
                                              lines_before=lines, lines_after=lines, cheque_type=SD))
 
 
@@ -142,16 +173,16 @@ class TestCancellingADepositCheque(unittest.TestCase):
 
 
 class TestADepositIsNeverCleared(unittest.TestCase):
-    """Story 57: the bank import never matches a deposit; neither does a hand clear."""
+    """Story 57: the bank import never matches a deposit."""
 
-    def test_no_way_of_clearing_starts_from_any_deposit_status(self):
-        for cleared_by in rules.CLEARED_BY:
+    def test_no_clear_starts_from_any_deposit_status(self):
+        for bank_line in (True, False):
             for status in rules.CHEQUE_STATUSES:
                 self.assertEqual(
-                    clear_rules.clear_problem(status=status, cheque_type=SD, old_type=False, cleared_by=cleared_by,
-                                        payments=[], bank_line=cleared_by == rules.CLEARED_BY_BANK_IMPORT),
+                    clear_rules.clear_problem(status=status, cheque_type=SD, old_type=False, payments=[],
+                                              bank_line=bank_line),
                     "a Security Deposit cheque is never cashed",
-                    (cleared_by, status),
+                    (bank_line, status),
                 )
 
     def test_a_bank_line_with_its_number_and_amount_still_clears_nothing(self):
@@ -159,8 +190,7 @@ class TestADepositIsNeverCleared(unittest.TestCase):
                               row_status="Mismatched", reference_id="760", amount=200000)
         self.assertTrue(clear_rules.bank_line_matches(line, cheque_no="000760", amount=200000))
         self.assertEqual(
-            clear_rules.clear_problem(status="Issued", cheque_type=SD, old_type=False,
-                                cleared_by=rules.CLEARED_BY_BANK_IMPORT, payments=[], bank_line=True),
+            clear_rules.clear_problem(status="Issued", cheque_type=SD, old_type=False, payments=[], bank_line=True),
             "a Security Deposit cheque is never cashed",
         )
 

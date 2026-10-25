@@ -726,7 +726,9 @@ class TestACeoSplitKeepsThePaymentKind(unittest.TestCase):
         self.fx = TaxedWorkOrderFixture.attach(self)
         self.project = self.fx.project()
         self.vendor = self.fx.vendor(2.0)
-        self.sr = self.fx.service_request(self.project, self.vendor)
+        # GST-on with GST released: an approval re-checks the Work Order's payment limit, which refuses a
+        # GST payment on a Work Order without GST.
+        self.sr = self.fx.service_request(self.project, self.vendor, gst=True, gst_invoiced=10000000)
 
     def _plant(self, amount, *, gst):
         name = self.fx._name("PAY")

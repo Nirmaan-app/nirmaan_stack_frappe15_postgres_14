@@ -13,6 +13,12 @@ screens (`porter_expense.py`) each ask these, never a copy of them:
     `refuse_unless_won` -- and `won_projects`, the only projects a Porter order can be placed on;
   * the import's DERIVED state, `porter_import_states` (never stored: `Outflow Import Batch.status` keeps
     its own meaning), over the pure `porter_state.import_state`;
+  * the import's per-phase progress summary, `porter_progress`, over the pure `porter_state.import_progress`
+    (the dialog's progress bar and Import History's chips, #1556);
+  * `failed_lines` -- the lines Create could not create, each with its note and fix (#1561);
+  * `created_expenses` -- the import's Porter Orders that have an Expense, by expense doctype (#1561);
+  * which orders need a person, `porter_placements` / `orders_needing_a_person`, over the pure
+    `porter_state.placement_kinds` (#1560): Review's filter, Create's refusal and the progress count;
   * `line_names` -- the posted line names an endpoint was sent.
 
 Reads only; nothing here writes.
@@ -21,9 +27,22 @@ Reads only; nothing here writes.
 from __future__ import annotations
 
 import frappe
+from frappe.utils.background_jobs import is_job_enqueued
 
-from nirmaan_stack.services.outflow_import.porter_state import IMPORT_VALIDATED, import_state
+from nirmaan_stack.services.outflow_import.ledgers import NON_PROJECT_EXPENSE_DOCTYPE, PROJECT_EXPENSE_DOCTYPE
+from nirmaan_stack.services.outflow_import.porter import remark_group_key, statement_line
+from nirmaan_stack.services.outflow_import.porter_state import (
+    CREATE_LINE_STATUSES,
+    IMPORT_VALIDATED,
+    INVOICE_PASSED,
+    NEEDS_PERSON,
+    import_progress,
+    import_state,
+    placement_kinds,
+)
+from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_PORTER_CANCELLED
 from nirmaan_stack.services.outflow_import.sources import PORTER_STATEMENT_SOURCE
+from nirmaan_stack.services.outflow_import.status import ROW_ERROR
 
 BATCH_DOCTYPE = "Outflow Import Batch"
 ROW_DOCTYPE = "Outflow Import Row"
@@ -115,6 +134,163 @@ def _invoice_statuses(batches: list[str]) -> dict[str, list[str]]:
     ):
         statuses[row.import_batch].append(row.validation_status)
     return statuses
+
+
+def porter_placements(batches: list[str]) -> dict[str, dict[str, str]]:
+    """Each Porter import's completed orders, by line name, with where each stands in Choose projects
+    (`porter_state.placement_kinds`: placed automatically, placed by a person, or needs a person). THE
+    one read of that rule (#1560): Review's filter, Create's refusal and the progress count all ask it.
+    One query for any number of imports."""
+    placed: dict[str, list[dict]] = {batch: [] for batch in batches}
+    if batches:
+        for row in frappe.db.sql(
+            """
+            SELECT name, import_batch, row_status, remarks, porter_line,
+                   placement_reason, placement_strength, suggested_doctype, resolved_project
+            FROM "tabOutflow Import Row"
+            WHERE import_batch IN %s AND COALESCE(skip_kind, '') <> %s
+            """,
+            (tuple(batches), SKIP_KIND_PORTER_CANCELLED),
+            as_dict=True,
+        ):
+            placed[row.import_batch].append(
+                {
+                    "name": row.name,
+                    "group_key": remark_group_key(row.remarks, statement_line(row.porter_line).get("city")),
+                    "reason": row.placement_reason,
+                    "strength": row.placement_strength,
+                    "destination": (
+                        row.resolved_project if row.suggested_doctype == PROJECT_EXPENSE_DOCTYPE else None
+                    ),
+                    "open": row.row_status in CREATE_LINE_STATUSES,
+                }
+            )
+    return {batch: placement_kinds(placed[batch]) for batch in batches}
+
+
+def orders_needing_a_person(batch: str) -> int:
+    """How many of the import's completed orders still need a person (#1560): Create is refused until 0."""
+    return sum(1 for kind in porter_placements([batch])[batch].values() if kind == NEEDS_PERSON)
+
+
+def porter_progress(batches: list[str]) -> dict[str, dict]:
+    """Each Porter import's per-phase progress summary (`porter_state.import_progress`, #1556): what the
+    import dialog's progress bar and Import History's chips show. Four queries for any number of
+    imports, plus one queue lookup each for a running Create job. Reads only."""
+    from nirmaan_stack.api.outflow_import.porter_validation import VALIDATION_CONCURRENCY
+
+    invoices = _invoice_statuses(batches)
+    warned: dict[str, int] = {batch: 0 for batch in batches}
+    lines: dict[str, dict[str, int]] = {batch: {} for batch in batches}
+    cancelled: dict[str, int] = {batch: 0 for batch in batches}
+    placements: dict[str, dict[str, int]] = {batch: {} for batch in batches}
+    if batches:
+        # A Passed invoice whose PDF read a GSTIN, tax or invoice number differently (#1559).
+        warned.update(
+            frappe.db.sql(
+                """
+                SELECT import_batch, COUNT(*) FROM "tabPorter Invoice"
+                WHERE import_batch IN %s AND validation_status = %s AND validation_warnings IS NOT NULL
+                GROUP BY import_batch
+                """,
+                (tuple(batches), INVOICE_PASSED),
+            )
+        )
+        for row in frappe.db.sql(
+            """
+            SELECT import_batch, row_status, skip_kind, COUNT(*) AS lines
+            FROM "tabOutflow Import Row"
+            WHERE import_batch IN %s
+            GROUP BY import_batch, row_status, skip_kind
+            """,
+            (tuple(batches),),
+            as_dict=True,
+        ):
+            count = int(row.lines)
+            by_status = lines[row.import_batch]
+            by_status[row.row_status] = by_status.get(row.row_status, 0) + count
+            if row.skip_kind == SKIP_KIND_PORTER_CANCELLED:
+                cancelled[row.import_batch] += count
+        for batch, kinds in porter_placements(batches).items():
+            for kind in kinds.values():
+                placements[batch][kind] = placements[batch].get(kind, 0) + 1
+    return {
+        batch: import_progress(
+            orders=sum(lines[batch].values()),
+            cancelled=cancelled[batch],
+            invoice_statuses=invoices[batch],
+            passed_with_warnings=warned[batch],
+            line_statuses=lines[batch],
+            placements=placements[batch],
+            create_running=is_job_enqueued(create_job_id(batch)),
+            check_concurrency=VALIDATION_CONCURRENCY,
+        )
+        for batch in batches
+    }
+
+
+#: A failed line's fix (#1561): place it on a Won project again (its project is no longer Won, or gone).
+FIX_REPLACE = "re-place"
+#: A failed line's fix: run Create again as it stands.
+FIX_RETRY = "retry"
+
+
+def failed_lines(batch: str) -> list[dict]:
+    """Every line Create could not create (Error), by line name: `name`, `crn` (its Porter Order),
+    `note` (the sentence Create stored), `fix` and the line's `project` / `project_name`.
+
+    ⚠️ THE FIX IS READ FROM THE LINE AS IT STANDS NOW, NOT FROM THE NOTE: a line on a project that is not
+    Won (or no longer exists) is re-placed; any other is retried. So once a person places a refused line on
+    a Won project, its fix becomes retry without anything else being written.
+    """
+    rows = frappe.db.sql(
+        """
+        SELECT r.name, r.transfer_id, r.outcome_note, r.suggested_doctype, r.resolved_project,
+               p.name AS found_project, p.project_name, p.tendering_status
+        FROM "tabOutflow Import Row" r
+        LEFT JOIN "tabProjects" p ON p.name = r.resolved_project
+        WHERE r.import_batch = %s AND r.row_status = %s
+        ORDER BY r.name
+        """,
+        (batch, ROW_ERROR),
+        as_dict=True,
+    )
+    lines = []
+    for row in rows:
+        project = row.resolved_project if row.suggested_doctype == PROJECT_EXPENSE_DOCTYPE else None
+        not_won = bool(project) and (not row.found_project or row.tendering_status != WON)
+        lines.append(
+            {
+                "name": row.name,
+                "crn": row.transfer_id,
+                "note": row.outcome_note,
+                "fix": FIX_REPLACE if not_won else FIX_RETRY,
+                "project": project or None,
+                "project_name": (row.project_name or project) if project else None,
+            }
+        )
+    return lines
+
+
+def created_expenses(batch: str) -> dict[str, list[str]]:
+    """The import's Porter Orders (CRNs) that have an Expense, by the doctype the Expense is on NOW (a
+    Rectify can move one across), each list sorted; a doctype with none is left out. What the result's
+    "View the N expenses" opens: each expense list filtered to these orders (#1561). Two queries."""
+    created: dict[str, list[str]] = {}
+    for doctype in (PROJECT_EXPENSE_DOCTYPE, NON_PROJECT_EXPENSE_DOCTYPE):
+        crns = frappe.db.sql_list(
+            f"""
+            SELECT e.porter_order FROM "tab{doctype}" e
+            JOIN "tabPorter Order" o ON o.name = e.porter_order
+            JOIN "tabOutflow Import Row" r ON r.name = o.import_row
+            WHERE r.import_batch = %s
+            ORDER BY e.porter_order
+            """,
+            (batch,),
+        )
+        if crns:
+            created[doctype] = crns
+    return created
 
 
 def is_validated(batch: str) -> bool:

@@ -44,7 +44,7 @@ export const getProjectStaticFilters = (
 // narrows further via a Tendering/Lost sub-toggle on top of these filters.
 export const getTenderingStaticFilters = (
     customerId?: string,
-    tenderingStatus: "Tendering" | "Lost" = "Tendering"
+    tenderingStatus: "Tendering" | "Lost" | "Merged" = "Tendering"
 ): Array<[string, string, any]> => {
     const filters: Array<[string, string, any]> = [
         ["tendering_status", "=", tenderingStatus],

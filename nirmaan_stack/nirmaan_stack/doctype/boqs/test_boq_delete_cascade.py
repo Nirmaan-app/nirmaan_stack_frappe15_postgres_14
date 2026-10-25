@@ -15,7 +15,7 @@ TAG = "TEST_CUA_CASCADE"
 
 
 def _work_header():
-    return frappe.db.get_value("Work Headers", {}, "name")
+    return frappe.db.get_value("Work Headers", {"work_header_name": ["is", "set"]}, "name", order_by="name asc")
 
 
 def _make_boq(suffix, with_links):

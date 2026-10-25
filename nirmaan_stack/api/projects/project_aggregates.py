@@ -57,8 +57,9 @@ def get_project_sr_summary_aggregates(project_id: str):
     total_sr_value_inc_gst = total_sr_value_excl_gst = total_notional_gst = 0.0
     total_amount_paid_for_srs = total_amount_due_for_srs = 0.0
     for sr in service_requests:
-        # The WOs' stored Amount Paid / Amount Due (ADR-0034): refunds are already taken off, TDS
-        # withheld is in Amount Due. Never add up the WOs' payments again.
+        # The WOs' stored Amount Paid / Amount Due (ADR-0034): refunds are already taken off, and the
+        # TDS withheld from the vendor is in Amount Paid (Amendment A). Never add up the WOs' payments
+        # or tax again.
         total_amount_paid_for_srs += flt(sr.get("amount_paid"))
         total_amount_due_for_srs += flt(sr.get("amount_due"))
         totals = _calculate_sr_totals(frappe._dict(sr))

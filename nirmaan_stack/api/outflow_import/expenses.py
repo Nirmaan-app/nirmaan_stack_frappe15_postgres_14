@@ -75,6 +75,7 @@ from nirmaan_stack.api.outflow_import.review import (
 from nirmaan_stack.api.outflow_import.vendor_credit_refresh import (
     recompute_for_settled_payment,
 )
+from nirmaan_stack.services.expense_type_ledger import LEDGER_TYPE_FLAG
 from nirmaan_stack.services.outflow_import.ledgers import (
     PAYMENT_DOCTYPE,
     settleable_statuses,
@@ -1068,7 +1069,7 @@ def get_expense_types(doctype: str):
     require_outflow_access()
     if doctype not in (PROJECT_EXPENSE, NON_PROJECT_EXPENSE):
         frappe.throw(f"'{doctype}' is not an expense doctype.", title="Not an expense")
-    field = "project" if doctype == PROJECT_EXPENSE else "non_project"
+    field = LEDGER_TYPE_FLAG[doctype]
     return frappe.db.sql(
         f"""SELECT name FROM "tabExpense Type" WHERE {field} = 1 ORDER BY name""",
         as_dict=True,

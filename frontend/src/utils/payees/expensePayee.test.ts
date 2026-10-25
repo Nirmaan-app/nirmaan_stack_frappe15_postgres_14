@@ -13,7 +13,6 @@ import {
     showsWhoGetsPaid,
     whoGetsPaidHelp,
     whoGetsPaidProblem,
-    whoGetsPaidView,
 } from "./expensePayee";
 import { bankLine } from "./payeeForm";
 
@@ -160,61 +159,3 @@ describe("noAccountReviewLine", () => {
     });
 });
 
-/** The Add Expense dialogs (a Direct Expense, spec #1470): what "Who gets paid" shows and sends. */
-describe("whoGetsPaidView", () => {
-    const base = {
-        rule: "Not asked", expenseType: "Food", typeChosen: true,
-        vendor: null, vendorHasAccount: false, vendorAccountLoading: false,
-        choice: { hasChoice: false, problem: null, adding: false },
-    };
-
-    it("a Not asked type with no vendor shows nothing, sends no payee and saves", () => {
-        expect(whoGetsPaidView(base)).toEqual({ shows: false, sendsPayee: false, problem: null, ready: true });
-    });
-
-    it("shows nothing until a type is picked", () => {
-        expect(whoGetsPaidView({ ...base, rule: "Required", typeChosen: false })).toEqual(
-            { shows: false, sendsPayee: false, problem: null, ready: true },
-        );
-    });
-
-    it("a vendor with an account shows it on any type, sends no payee, and waits for the read", () => {
-        const vendor = { ...base, vendor: "Shree Balaji", vendorHasAccount: true };
-        expect(whoGetsPaidView(vendor)).toEqual({ shows: true, sendsPayee: false, problem: null, ready: true });
-        expect(whoGetsPaidView({ ...vendor, rule: "Required" }).ready).toBe(true);
-        expect(whoGetsPaidView({ ...vendor, vendorHasAccount: false, vendorAccountLoading: true }).ready).toBe(false);
-    });
-
-    it("a vendor with no account blocks a Required type until the vendor is set to Others", () => {
-        const vendor = { ...base, rule: "Required", vendor: "Shree Balaji" };
-        expect(whoGetsPaidView(vendor)).toEqual({
-            shows: true, sendsPayee: false, ready: false,
-            problem: "Shree Balaji has no bank account on record. Add it on the vendor's page, or set Vendor to Others (No Vendor) and pick a payee.",
-        });
-        // A pick made under Others does not count while the vendor is named: the server ignores it.
-        expect(whoGetsPaidView({ ...vendor, choice: { ...base.choice, hasChoice: true } }).ready).toBe(false);
-        expect(whoGetsPaidView({ ...vendor, rule: "Optional" })).toMatchObject({ problem: null, ready: true });
-    });
-
-    it("with no vendor a Required type needs a pick, and the save sends it", () => {
-        const others = { ...base, rule: "Required" };
-        expect(whoGetsPaidView(others)).toEqual({
-            shows: true, sendsPayee: true, ready: false, problem: "Pick who gets paid, or add a new payee.",
-        });
-        expect(whoGetsPaidView({ ...others, choice: { ...base.choice, hasChoice: true } })).toEqual(
-            { shows: true, sendsPayee: true, problem: null, ready: true },
-        );
-    });
-
-    it("an Optional type saves with nobody picked", () => {
-        expect(whoGetsPaidView({ ...base, rule: "Optional" })).toEqual(
-            { shows: true, sendsPayee: true, problem: null, ready: true },
-        );
-    });
-
-    it("half-typed new payee details, or a payee being added, hold the save", () => {
-        const optional = { ...base, rule: "Optional" };
-        expect(whoGetsPaidView({ ...optional, choice: { ...base.choice, problem: "Type the account number again." } }).ready).toBe(false);
-        expect(whoGetsPaidView({ ...optional, choice: { ...base.choice, hasChoice: true, adding: true } }).ready).toBe(false);
-    });
-});

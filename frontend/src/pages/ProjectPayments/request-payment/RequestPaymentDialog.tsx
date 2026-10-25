@@ -26,11 +26,12 @@ import { PayForChoice } from "../components/PayForChoice";
 import { raiserLandingNote, raiserLevelOf, TIER_L2_ABOVE } from "@/utils/approvalTiers";
 import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
 import { useUserData } from "@/hooks/useUserData";
-import { useVendorTdsRates } from "../hooks/useVendorTdsRates";
+import { useTdsForecast } from "../hooks/useTdsForecast";
 import {
   chequeModeOffered, EMPTY_PAYMENT_MODE, isPaymentModeComplete, paymentModeArgs, PAYMENT_MODE_CHEQUE, PaymentModeValue,
 } from "../paymentMode";
-import { forecastTds } from "../tdsForecast";
+import { requestPreviewLines, toTdsForecast } from "../tdsPreview";
+import { TDS_BORNE_BY } from "@/types/NirmaanStack/PaymentTDSDeduction";
 
 interface Props {
   totalIncGST : number;
@@ -127,16 +128,16 @@ export default function RequestPaymentDialog(p:Props){
     else setWarn("");
   },[amount,max,cap,gstWO,balanceLoaded,isWO,invoiceBlock]);
 
-  /* A cheque is written for the figure AFTER TDS, so the dialog says what that is. Fetched only
-     while a cheque is being requested: the dialog is mounted on every PO / WO page. */
+  /* The TDS approval will withhold, as the server works it out (#1541): the line under "Requesting",
+     and the figure a cheque is written for (after TDS). Asked only while the dialog is open on a Work
+     Order: the dialog is mounted on every PO / WO page, and a PO payment is never taxed. */
   const isCheque = payMode.mode === PAYMENT_MODE_CHEQUE;
-  const tdsRows = useMemo(
-    () => (open && isCheque ? [{ vendor: p.vendor, document_type: p.docType, document_name: p.docName }] : []),
-    [open, isCheque, p.vendor, p.docType, p.docName]
+  const { forecast: serverForecast, cutNow, isLoading: tdsLoading } = useTdsForecast(
+    open && isWO ? p.docName : null, amount, gstPayment, isCheque ? parseNumber(payMode.amount) : undefined
   );
-  const { rateFor, companyBorneFor, isLoading: tdsLoading } = useVendorTdsRates(tdsRows);
-  const companyBorne = companyBorneFor(p.docName);
-  const tds = forecastTds(p.docType, amount, rateFor(p.vendor), companyBorne, gstPayment);
+  const tds = toTdsForecast(serverForecast);
+  const companyBorne = serverForecast?.borne_by === TDS_BORNE_BY.COMPANY;
+  const previewLines = requestPreviewLines(serverForecast, cutNow);
 
   const { trigger, isMutating } = useRequestPayment();
 
@@ -238,6 +239,9 @@ export default function RequestPaymentDialog(p:Props){
       <p className="mt-2 text-center font-semibold">
         Requesting: <span className="text-primary">{formatToIndianRupee(amount)}</span>
       </p>
+      {previewLines.map((line) => (
+        <p key={line} className="text-center text-xs text-muted-foreground">{line}</p>
+      ))}
       {(() => {
         const note = raiserLandingNote(amount, TIER_L2_ABOVE, raiserLevelOf(role, user_id, CEO_AUTHORIZED_USER));
         return note ? <p className="text-center text-xs text-sky-700 dark:text-sky-400">{note}</p> : null;

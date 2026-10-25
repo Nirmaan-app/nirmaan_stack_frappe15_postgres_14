@@ -53,10 +53,14 @@ Like Cashbook (ADR-0015), this source creates and never settles.
   against "a field only exists if the system reads it" (ADR-0016, expense-request-vs-expense).
 - **The gate is all or nothing, and it cannot be overridden.**
   - **What each invoice is checked on:** invoice number, Porter GSTIN, customer GSTIN, fare and tax.
-    Fare and tax must agree within ₹1.
+    Fare and tax must agree within ₹1. *Amended by spec #1554 (#1559):* only the fare (within ₹1) and the
+    invoice date (from the first order to 7 days after the last) can fail an invoice; a GSTIN, tax or
+    invoice-number difference is a warning, because the GST is taken from the statement anyway.
   - **What counts:** the comparison is against the statement's *completed* orders only.
   - **When it fails:** one failing invoice blocks the whole file. Nobody can force Create, Admin
     included. The import can only be Discarded, and the statement corrected at source.
+    *Amended by spec #1554 (#1562):* a Failed invoice can be retried, which downloads and reads its PDF
+    again, in case it was misread. Only that reading can pass it: there is still no override.
 - **Project placement uses no curated list and no AI.** In order:
   1. The existing Won-only name matcher (`project_match`).
   2. Tolerance for typos and initials.

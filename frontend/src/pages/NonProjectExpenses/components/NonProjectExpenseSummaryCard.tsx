@@ -71,6 +71,10 @@ export const NonProjectExpenseSummaryCard: React.FC<NonProjectExpenseSummaryCard
     groupByResult,
 }) => {
     const hasFilters = columnFilters.length > 0 || !!searchTerm;
+    // The TOTAL, the same at every width (story 65): when report mode supplies a Partially Reconciled
+    // figure, the Paid rows plus the confirmed part of records still Reconciliation Pending. Elsewhere it
+    // is the plain list total.
+    const totalExpense = (aggregates?.sum_of_amount || 0) + (partiallyReconciled?.amount || 0);
 
     if (isAggregatesLoading) {
         return (
@@ -99,7 +103,7 @@ export const NonProjectExpenseSummaryCard: React.FC<NonProjectExpenseSummaryCard
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-baseline gap-2">
                                     <span className="text-lg font-bold text-rose-700 dark:text-rose-400 tabular-nums">
-                                        {formatToRoundedIndianRupee(aggregates.sum_of_amount || 0)}
+                                        {formatToRoundedIndianRupee(totalExpense)}
                                     </span>
                                     <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase">
                                         Total Expense
@@ -170,11 +174,8 @@ export const NonProjectExpenseSummaryCard: React.FC<NonProjectExpenseSummaryCard
                                     <TrendingDown className="h-3 w-3" />
                                     Total Expense Amount
                                 </dt>
-                                {/* The TOTAL when report mode supplies a Partially Reconciled figure:
-                                    the Paid rows plus the confirmed part of records still
-                                    Reconciliation Pending. Elsewhere it is the plain list total. */}
                                 <dd className="text-2xl font-bold text-rose-700 dark:text-rose-400 tabular-nums">
-                                    {formatToRoundedIndianRupee((aggregates.sum_of_amount || 0) + (partiallyReconciled?.amount || 0))}
+                                    {formatToRoundedIndianRupee(totalExpense)}
                                 </dd>
                                 <span className="text-[10px] text-rose-500/70 dark:text-rose-500/60 mt-1 block">
                                     {totalCount > 0

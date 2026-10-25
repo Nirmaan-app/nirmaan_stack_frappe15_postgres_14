@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { ArrowLeft, GitMerge } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { getUrlStringParam } from "@/hooks/useServerDataTable";
@@ -137,7 +137,24 @@ const TenderingProjectView = ({ data, onRefresh }: TenderingProjectViewProps) =>
       </div>
 
       {/* Active tab content */}
-      {activePage === TENDERING_TABS.BOQ ? (
+      {activePage === TENDERING_TABS.BOQ && data.tendering_status === "Merged" ? (
+        /* A Merged project holds no BoQs and takes none (ADR-0038 D6): say where they went,
+           rather than an empty list with an Upload button the server would refuse. */
+        <div className="flex flex-col items-center justify-center py-16 gap-2 text-center">
+          <GitMerge className="h-10 w-10 text-violet-400" />
+          <p className="text-sm font-medium text-foreground">
+            This project's BoQs were merged into another project.
+          </p>
+          {data.merged_into && (
+            <Link
+              to={`/projects/${data.merged_into}?page=boq`}
+              className="text-sm text-violet-700 underline underline-offset-2 hover:text-violet-900"
+            >
+              Open {data.merged_into}
+            </Link>
+          )}
+        </div>
+      ) : activePage === TENDERING_TABS.BOQ ? (
         /* "pre-won" is what makes a row click open the wizard HUB here rather than the
            read-only preview it opens on the Won page (owner ruling). This shell only ever
            renders for tendering_status !== "Won", so the value is a fact about the caller. */

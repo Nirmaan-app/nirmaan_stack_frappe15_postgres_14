@@ -6,7 +6,7 @@ import {
     HoverCardTrigger,
 } from "@/components/ui/hover-card";
 import { Badge } from "@/components/ui/badge";
-import { useSRRecentRemarks, getSubjectBadgeClass, SRRemarkData } from "@/pages/ServiceRequests/approved-sr/hooks/useSRRemarks";
+import { useSRRecentRemarks, getSubjectBadgeClass, SRRemarkData } from "@/pages/ServiceRequests/service-request/hooks/useSRRemarks";
 
 interface SRRemarksHoverCardProps {
     srId: string;

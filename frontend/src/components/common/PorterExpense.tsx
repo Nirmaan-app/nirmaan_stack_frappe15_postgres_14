@@ -10,9 +10,20 @@
 import React from "react";
 import { useFrappeGetCall } from "frappe-react-sdk";
 import { Paperclip } from "lucide-react";
+import { Link } from "react-router-dom";
 
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import SITEURL from "@/constants/siteURL";
-import { isPorterExpense, porterSectionRows, type PorterExpenseSection } from "@/utils/porterExpense";
+import { useUserData } from "@/hooks/useUserData";
+import { canUndoOutflow } from "@/pages/outflow-import/outflowImportStatus";
+import {
+	MOVE_ORDER_LABEL,
+	isPorterExpense,
+	moveOrderLink,
+	porterSectionRows,
+	type PorterExpenseSection,
+} from "@/utils/porterExpense";
 
 const PORTER_EXPENSE_METHOD = "nirmaan_stack.api.outflow_import.porter_expense.get_porter_expense";
 
@@ -27,6 +38,47 @@ export const PorterBadge = ({ expense }: { expense: { porter_order?: string | nu
 		</span>
 	) : null;
 
+/**
+ * The locked project's hint, "Move to another project" (#1558): a link to the order's line in Bulk Import with
+ * the move dialog open, or plain text while the line is not known. `onFollow` closes the edit dialog, whose
+ * open flag lives in a global store and would otherwise reopen it on the way back.
+ */
+export const MoveOrderHint: React.FC<{
+	hint: string;
+	section: PorterExpenseSection | null;
+	onFollow: () => void;
+	className?: string;
+}> = ({ hint, section, onFollow, className }) => {
+	const link = moveOrderLink(section);
+	if (!link) return <p className={className}>{hint}</p>;
+	return (
+		<p className={className}>
+			<Link to={link.to} state={link.state} onClick={onFollow} className="text-primary underline underline-offset-2">
+				{hint}
+			</Link>
+		</p>
+	);
+};
+
+/**
+ * An edit dialog's locked Project row on a Porter Expense (#1558): the project it is on, read-only, and under
+ * it the Move hint. Shared by the Project and Non-Project Expense edit dialogs.
+ */
+export const PorterProjectLock: React.FC<{
+	id: string;
+	value: string;
+	section: PorterExpenseSection | null;
+	onFollow: () => void;
+}> = ({ id, value, section, onFollow }) => (
+	<div className="grid grid-cols-4 items-center gap-4">
+		<Label htmlFor={id} className="text-right">Project</Label>
+		<div className="col-span-3">
+			<Input id={id} value={value} disabled readOnly />
+			<MoveOrderHint hint={MOVE_ORDER_LABEL} section={section} onFollow={onFollow} className="mt-1 text-xs text-muted-foreground" />
+		</div>
+	</div>
+);
+
 /** The Porter section's data. `enabled` false fetches nothing (SWR key null). */
 export const usePorterExpense = (doctype: string, name: string | undefined, enabled: boolean) => {
 	const { data, error, isLoading } = useFrappeGetCall<{ message: PorterExpenseSection | null }>(
@@ -37,12 +89,16 @@ export const usePorterExpense = (doctype: string, name: string | undefined, enab
 	return { section: data?.message ?? null, error, isLoading };
 };
 
-/** The read-only block itself, for a caller that already holds the data. */
+/**
+ * The read-only block itself, for a caller that already holds the data. `canMove` adds the Move link (story
+ * 54) for a viewer who may Rectify; the edit dialogs leave it off, since their Project row carries it.
+ */
 export const PorterSectionBlock: React.FC<{
 	section: PorterExpenseSection | null;
 	isLoading?: boolean;
 	error?: unknown;
-}> = ({ section, isLoading, error }) => (
+	canMove?: boolean;
+}> = ({ section, isLoading, error, canMove = false }) => (
 	<div className="rounded-md border border-orange-200 bg-orange-50/40 px-3 py-2 text-sm dark:border-orange-900 dark:bg-orange-950/20">
 		<p className="pb-1 text-xs font-semibold uppercase tracking-wide text-orange-800 dark:text-orange-300">
 			Porter
@@ -75,11 +131,31 @@ export const PorterSectionBlock: React.FC<{
 				</dd>
 			</dl>
 		)}
+		{canMove && moveOrderLink(section) && (
+			<MoveOrderHint hint={MOVE_ORDER_LABEL} section={section} onFollow={() => {}} className="pt-1 text-xs" />
+		)}
 	</div>
 );
 
-/** The block, fetching its own data: for a detail card that knows only the expense's name. */
-export const PorterSection: React.FC<{ doctype: string; name: string }> = ({ doctype, name }) => {
+/**
+ * The block, fetching its own data: for a detail card that knows only the expense's name. A viewer who may
+ * Rectify (Admin, Accountant Lead: `canUndoOutflow`) also gets the Move link -- the way an Accountant Lead
+ * reaches it, since a Paid expense's edit dialog stays Admin-only. `offerMove` false leaves it off where the
+ * reader is already on Bulk Import, whose line carries Move (the link would land on the same page).
+ */
+export const PorterSection: React.FC<{ doctype: string; name: string; offerMove?: boolean }> = ({
+	doctype,
+	name,
+	offerMove = true,
+}) => {
 	const { section, error, isLoading } = usePorterExpense(doctype, name, true);
-	return <PorterSectionBlock section={section} isLoading={isLoading} error={error} />;
+	const { role, user_id } = useUserData();
+	return (
+		<PorterSectionBlock
+			section={section}
+			isLoading={isLoading}
+			error={error}
+			canMove={offerMove && canUndoOutflow(role, user_id)}
+		/>
+	);
 };

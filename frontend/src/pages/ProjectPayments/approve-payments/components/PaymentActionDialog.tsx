@@ -9,20 +9,21 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments"; // Assuming type path
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { TailSpin } from 'react-loader-spinner';
 import { DIALOG_ACTION_TYPES, DialogActionType } from '../constants';
 import { computeSplit, isAmountKeystroke, isSplittable } from '../paymentSplit';
-import { useCompanyBorneTds, useVendorTdsRate } from '../../hooks/useVendorTdsRates';
-import { forecastTds } from '../../tdsForecast';
-import { isGstPayment } from '../../paymentKind';
+import { usePaymentTdsForecasts } from '../../hooks/usePaymentTdsForecasts';
+import { toTdsForecast } from '../../tdsPreview';
+import { TDS_BORNE_BY } from '@/types/NirmaanStack/PaymentTDSDeduction';
 import { isChequePayment } from '../../paymentMode';
 import { formatDate } from '@/utils/FormatDate';
 import { PaymentSummaryBlock, usePaymentSummary } from '../../components/PaymentSummaryBlock';
-import { ExpenseApprovalDetails } from './ExpenseApprovalDetails';
-import type { ApprovalStage } from '../expenseApprovalDetail';
+import { ExpenseApprovalDetails, useExpenseApprovalDetail } from './ExpenseApprovalDetails';
+import { approvalBlocked, type ApprovalStage } from '../expenseApprovalDetail';
 import { approveAllLabel, rejectAllLabel, rejectTitle, type ChequeApproval } from '@/utils/cheques/chequeApproval';
 import { ChequeApprovalBlock } from './ChequeApprovalBlock';
 import { ChequeRejectBlock } from './ChequeRejectBlock';
@@ -33,7 +34,7 @@ interface PaymentActionDialogProps {
     type: DialogActionType;
     paymentData: ProjectPayments | null;
     vendorName?: string; // Pass pre-fetched vendor name
-    /** `reason` is sent only by a cheque reject (#1481), which requires one. */
+    /** `reason` is sent by a cheque reject (#1481) and an expense reject (#1497); both require one. */
     onSubmit: (actionType: DialogActionType, amount: number, reason?: string) => Promise<void>;
     isLoading: boolean; // Loading state passed from parent
     /**
@@ -80,9 +81,6 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
     chequeApprovalLoading = false,
 }) => {
     const [amountInput, setAmountInput] = useState<string>("");
-    const rateFor = useVendorTdsRate();
-    // Miscellaneous / Transportation-only Work Order: the tax is paid on top, the payment stays whole.
-    const companyBorne = useCompanyBorneTds()(paymentData?.document_name);
 
     const requestedAmount = parseNumber(paymentData?.amount);
     // `isSplittable` is what keeps a REFUND approvable. A negative payment (a credit raised after
@@ -114,8 +112,15 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
     const throughCheque = type === DIALOG_ACTION_TYPES.APPROVE && !!chequeApproval;
     const rejectsCheque = type === DIALOG_ACTION_TYPES.REJECT && !!chequeApproval;
     const [reason, setReason] = useState("");
+    // An expense reject needs a reason too: the decision call refuses one without (#1497).
+    const rejectsExpense = type === DIALOG_ACTION_TYPES.REJECT && isExpense;
+    const needsReason = rejectsCheque || rejectsExpense;
     const chequeBlocked =
-        chequeLoading || (throughCheque && !!chequeApproval?.problem) || (rejectsCheque && !reason.trim());
+        chequeLoading || (throughCheque && !!chequeApproval?.problem) || (needsReason && !reason.trim());
+    // An Office Rent expense whose request does not name the landlord cannot be approved (the server
+    // refuses it); the details block says so, and Confirm is disabled (spec #1522 review batch 2).
+    const { data: expenseDetail } = useExpenseApprovalDetail(isExpense ? ledger : null, paymentData?.name, isOpen);
+    const expenseBlocked = !!approvalBlocked(expenseDetail?.message, type === DIALOG_ACTION_TYPES.APPROVE);
 
     // Reset amount input when payment data changes or dialog opens/closes
     useEffect(() => {
@@ -144,11 +149,19 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
      * renders no tax lines at all rather than a row of zeroes.
      */
     const approvingAmount = isPartialApprove && split.valid ? split.approved : requestedAmount;
-    const tds = useMemo(
-        // A GST payment is never taxed (ADR-0030), so it gets no forecast at all.
-        () => forecastTds(paymentData?.document_type, approvingAmount, rateFor(paymentData?.vendor), companyBorne, isGstPayment(paymentData)),
-        [paymentData, approvingAmount, rateFor, companyBorne]
+    // The server works the forecast out (story 59): the vendor's rate today and the rule approval uses.
+    // A GST payment, a PO payment and a vendor with no rate get none.
+    const forecastAsks = useMemo(
+        () => (isOpen && paymentData?.name && approvingAmount > 0
+            ? [{ name: paymentData.name, amount: approvingAmount }]
+            : null),
+        [isOpen, paymentData?.name, approvingAmount]
     );
+    const { forecasts } = usePaymentTdsForecasts(forecastAsks);
+    const serverForecast = paymentData ? forecasts[paymentData.name] : undefined;
+    const tds = toTdsForecast(serverForecast);
+    // Miscellaneous / Transportation-only Work Order: the tax is paid on top, the payment stays whole.
+    const companyBorne = serverForecast?.borne_by === TDS_BORNE_BY.COMPANY;
 
     const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (isAmountKeystroke(e.target.value)) {
@@ -162,10 +175,10 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
         if (chequeBlocked) return;
 
         // Non-partial paths send the untouched requested amount, exactly as before.
-        await onSubmit(type, isPartialApprove ? split.approved : requestedAmount, rejectsCheque ? reason.trim() : undefined);
+        await onSubmit(type, isPartialApprove ? split.approved : requestedAmount, needsReason ? reason.trim() : undefined);
         // Parent component will handle closing the dialog via onOpenChange after successful submission if needed
 
-    }, [paymentData, type, isPartialApprove, split, requestedAmount, onSubmit, chequeBlocked, rejectsCheque, reason]);
+    }, [paymentData, type, isPartialApprove, split, requestedAmount, onSubmit, chequeBlocked, needsReason, reason]);
 
     const renderTitle = () => {
         if (!paymentData) return null;
@@ -255,6 +268,21 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
                         stage={stage}
                         approving={type === DIALOG_ACTION_TYPES.APPROVE}
                     />
+                )}
+                {paymentData && rejectsExpense && (
+                    <div>
+                        <label htmlFor="expense-reject-reason" className="text-xs font-medium text-muted-foreground">
+                            Reason <span className="text-red-600">*</span>
+                        </label>
+                        <Textarea
+                            id="expense-reject-reason"
+                            rows={3}
+                            value={reason}
+                            onChange={(e) => setReason(e.target.value)}
+                            disabled={isLoading}
+                            required
+                        />
+                    </div>
                 )}
                 {paymentData && showMode && type === DIALOG_ACTION_TYPES.APPROVE && !throughCheque && !chequeLoading && (
                     <div className="rounded-md border divide-y text-sm">
@@ -394,9 +422,9 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
                         <>
                             <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
                             <Button
-                                disabled={isLoading || chequeBlocked || (isPartialApprove && !split.valid)}
+                                disabled={isLoading || chequeBlocked || expenseBlocked || (isPartialApprove && !split.valid)}
                                 onClick={handleConfirm}
-                                variant={rejectsCheque ? "destructive" : "default"}
+                                variant={needsReason ? "destructive" : "default"}
                             >
                                 {throughCheque && chequeApproval
                                     ? approveAllLabel(chequeApproval)

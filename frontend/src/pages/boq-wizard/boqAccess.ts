@@ -20,7 +20,7 @@
  * right if that ever stops being true.
  */
 
-import { UPLOAD_BOQ_ACCESS } from "@/constants/roles";
+import { isNirmaanAdmin, UPLOAD_BOQ_ACCESS } from "@/constants/roles";
 
 /**
  * Admins + PMO + estimation + billing.
@@ -92,6 +92,32 @@ export function canOpenBoqWizard(role: string | undefined, userId: string | unde
 export function canOpenBoqHub(role: string | undefined, userId: string | undefined): boolean {
   if (userId === "Administrator") return true;
   return !!role && UPLOAD_BOQ_ACCESS.includes(role);
+}
+
+/**
+ * May add a BoQ to a WON project (owner ruling 2026-09-18): Admin only. Before Won, anyone the
+ * page already offers the Upload button to may upload.
+ *
+ * Convenience only -- the server's `controllers/boqs.assert_can_add_boq` is the boundary (same
+ * test: Administrator or the Nirmaan Admin Profile).
+ */
+export function canAddBoqToWonProject(role: string | undefined, userId: string | undefined): boolean {
+  return isNirmaanAdmin(role, userId);
+}
+
+/**
+ * May act on a Won project's OTHER BoQs (the pencil) and move BoQs between Selected and Other
+ * (the checkboxes, "Mark as Selected" / "Move to Draft") -- ADR-0037 D6/D7: Admin only. Everyone
+ * else sees Other BoQs without a pencil; a row still opens the read-only viewer.
+ *
+ * The move itself is refused server-side for a non-Admin (`controllers/boqs.change_boq_selection`).
+ * Editing an Other BoQ is NOT (ADR-0037 D8, screen only): hiding the pencil is all that stops it.
+ */
+export function canManageWonProjectBoqs(
+  role: string | undefined,
+  userId: string | undefined,
+): boolean {
+  return isNirmaanAdmin(role, userId);
 }
 
 /**

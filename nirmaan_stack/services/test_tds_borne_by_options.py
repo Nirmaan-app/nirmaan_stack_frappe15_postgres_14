@@ -4,7 +4,7 @@
 """`Payment TDS Deduction.borne_by`'s Select options are the code's constants (#1451).
 
 Every reader compares the stored value to `payment_tds.BORNE_BY_VENDOR` / `BORNE_BY_COMPANY`
-(`company_borne_tds_sql` in SQL, the request cap, the page label), so an option renamed in the
+(`borne_tds_by_order_sql` in SQL, the request cap, the page's Amount Paid hover), so an option renamed in the
 doctype JSON alone would make every deduction read as withheld, silently. Pure: reads the JSON file.
 """
 

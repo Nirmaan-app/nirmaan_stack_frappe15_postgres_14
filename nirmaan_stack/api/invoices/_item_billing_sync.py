@@ -170,6 +170,24 @@ def _project_is_completed(po_name: str) -> bool:
 _TOTAL_PARENT_DOCTYPES = ("Procurement Orders", "Service Requests")
 
 
+def invoiced_of(document_type: str, document_name: str) -> tuple[float, float]:
+    """`(amount_invoiced, gst_invoiced)` of one order, from source: the SUM of its Approved Vendor Invoices'
+    `invoice_amount` and `invoice_gst_amount` (credit notes are negative, so they net off). The one rule
+    behind the stored cache (`recompute_document_amount_invoiced`) and the amendment floor."""
+    total, gst = frappe.db.sql(
+        """
+        SELECT COALESCE(SUM(COALESCE(vi.invoice_amount, 0)), 0),
+               COALESCE(SUM(COALESCE(vi.invoice_gst_amount, 0)), 0)
+        FROM "tabVendor Invoices" vi
+        WHERE vi.document_type = %(dt)s
+          AND vi.document_name = %(dn)s
+          AND vi.status = 'Approved'
+        """,
+        {"dt": document_type, "dn": document_name},
+    )[0]
+    return flt(total), flt(gst)
+
+
 def recompute_document_amount_invoiced(document_type: str, document_name: str) -> None:
     """Re-derive `amount_invoiced` on ONE Procurement Order / Service Request, and on a
     Service Request also `gst_invoiced` (SUM of `invoice_gst_amount`, same approved set).
@@ -198,17 +216,7 @@ def recompute_document_amount_invoiced(document_type: str, document_name: str) -
     if document_type not in _TOTAL_PARENT_DOCTYPES or not document_name:
         return
 
-    total, gst = frappe.db.sql(
-        """
-        SELECT COALESCE(SUM(COALESCE(vi.invoice_amount, 0)), 0),
-               COALESCE(SUM(COALESCE(vi.invoice_gst_amount, 0)), 0)
-        FROM "tabVendor Invoices" vi
-        WHERE vi.document_type = %(dt)s
-          AND vi.document_name = %(dn)s
-          AND vi.status = 'Approved'
-        """,
-        {"dt": document_type, "dn": document_name},
-    )[0]
+    total, gst = invoiced_of(document_type, document_name)
 
     values = {"amount_invoiced": flt(total)}
     # GST Invoiced (ADR-0030): the GST twin of amount_invoiced, over the SAME approved

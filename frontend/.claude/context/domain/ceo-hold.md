@@ -81,9 +81,7 @@ This status was added in commit `7c691bff` (2026-02-03) alongside "Created", "WI
 | New SR | `sr-form/index.tsx` | `useCEOHoldGuard` | Create SR/WO |
 | Approve SR | `service-request/approve-service-request.tsx` | `useCEOHoldGuard` | Approve, reject SR |
 | SR Lists | `*-sr-list.tsx` files | `useCEOHoldProjects` | Row highlighting |
-| SR Workflow | `approved-sr/hooks/useSRWorkflowActions.ts` | `useCEOHoldGuard` | Delete, amend SR |
 | SR Finalize | `hooks/useSRFinalize.ts` | `useCEOHoldGuard` | Finalize, revert |
-| SR Payment | `approved-sr/hooks/useSRPaymentManager.ts` | `useCEOHoldGuard` | Add payment terms |
 
 ### Payments & Financials
 
@@ -101,7 +99,6 @@ This status was added in commit `7c691bff` (2026-02-03) alongside "Created", "WI
 
 | Page | File | Guard Hook | Actions Blocked |
 |------|------|------------|-----------------|
-| New Expense | `ProjectExpenses/components/NewProjectExpenseDialog.tsx` | `useCEOHoldGuard` | Create expense |
 | Edit Expense | `ProjectExpenses/components/EditProjectExpenseDialog.tsx` | `useCEOHoldGuard` | Update expense |
 | Expense List | `ProjectExpenses/ProjectExpensesList.tsx` | `useCEOHoldProjects` | Row highlighting |
 | Invoice Lists | `tasks/invoices/components/PoInvoices.tsx`, `SrInvoices.tsx` | `useCEOHoldProjects` | Row highlighting |

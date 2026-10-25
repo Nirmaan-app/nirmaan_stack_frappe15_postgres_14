@@ -5,6 +5,7 @@ import {
     AlertTriangle,
     CheckCircle2,
     FileSpreadsheet,
+    Info,
     Loader2,
     RefreshCw,
     Upload,
@@ -73,9 +74,23 @@ import {
     createButtonLabel,
     porterCreateStarted,
     porterPolling,
+    PORTER_UPLOADED_NOTE,
     type PorterStatus,
 } from "../porterImport";
-import { porterReviewOffered } from "../porterReview";
+import {
+    PORTER_BEFORE_UPLOAD_NOTE,
+    PORTER_FILE_GUIDE,
+    PORTER_RULES_METHOD,
+    PORTER_WRONG_TYPE,
+    checkPorterFile,
+    porterUploadAllowed,
+    type PorterFileCheck,
+    type PorterFileRules,
+} from "../porterPrecheck";
+import { nextConfirmLabel, porterReviewOffered } from "../porterReview";
+import { CashbookReviewTree } from "./CashbookReviewTree";
+import { ConfirmMatchedPanel } from "./ConfirmMatchedPanel";
+import { PorterConfirmPanel } from "./PorterConfirmPanel";
 import {
     CARD_DISCARD_METHOD,
     CARD_SOURCE,
@@ -87,11 +102,12 @@ import {
 import { canCreateCard, cardCreateButtonLabel, cardCreateStarted } from "../cardCreate";
 import { cardImportKey, useCardImport } from "../useCardImport";
 import { CardImportReview } from "./CardImportReview";
-import { CashbookReviewTree } from "./CashbookReviewTree";
-import { ConfirmMatchedPanel } from "./ConfirmMatchedPanel";
 import { ImportDiscardButton } from "./ImportDiscardButton";
 import { PorterDiscardButton } from "./PorterDiscardButton";
+import { PorterFileChecks } from "./PorterFileChecks";
 import { PorterImportSummary } from "./PorterImportSummary";
+import { PorterProgressBar } from "./PorterProgressBar";
+import { PorterResult } from "./PorterResult";
 import { PorterReviewPanel } from "./PorterReviewPanel";
 import { SheetHeaderPicker } from "./SheetHeaderPicker";
 
@@ -334,6 +350,8 @@ export const ImportStatementDialog = ({
     /** The card import as the server reports it (#1566), with Review's retype and Create (#1568). */
     const card = useCardImport(cardBatch);
     const cardImport = card.cardImport;
+    /** Orders that still need a person in Choose projects: the server's one rule (#1560), re-read on each choice. */
+    const porterNeedsPerson = porterStatus?.progress?.projects.needs_person ?? 0;
     const { mutate: seedCache } = useSWRConfig();
     const { call: retryPorterInvoice } = useFrappePostCall<{ message: PorterStatus }>(PORTER_RETRY_METHOD);
     /** The invoice whose Retry is in flight, so its button can say so. */
@@ -341,6 +359,14 @@ export const ImportStatementDialog = ({
     const { call: startPorterCreate } = useFrappePostCall<{ message: PorterStatus }>(PORTER_CREATE_METHOD);
     /** The Create request is in flight (the job itself runs on the server; the poll follows it). */
     const [startingCreate, setStartingCreate] = useState(false);
+    /** Next was pressed on Choose projects: show Confirm & create (#1564). Back clears it. */
+    const [porterConfirmAsked, setPorterConfirmAsked] = useState(false);
+    /**
+     * ⚠️ THE CONFIRM SCREEN ALSO NEEDS THE SERVER'S SAY-SO: a Validated import Create may still run. A
+     * Create started elsewhere, or a discard, takes it away whatever was pressed here.
+     */
+    const onPorterConfirm =
+        porterConfirmAsked && porterStatus?.state === "Validated" && canCreatePorter(porterStatus);
 
     /**
      * The Cashfree match has FINISHED, which is not the same as "not running" (slice CF/S7).
@@ -358,6 +384,41 @@ export const ImportStatementDialog = ({
     const isCashbook = source === "Cashbook";
     const isPorter = source === PORTER_SOURCE;
     const isCard = source === CARD_SOURCE;
+
+    /**
+     * The chosen Porter file, read in the browser before upload (#1555): accepted with its counts, refused,
+     * or skipped when the parser's rules could not be fetched (the upload then goes to the server unchecked).
+     * Null while it is being read. Run from the file-pick handler (`acceptFile`), never an effect.
+     *
+     * ⚠️ THE RULES COME FROM THE SERVER PARSER, NEVER A COPY HERE, and the parser stays the authority:
+     * the upload re-reads the file and its own refusals still show.
+     */
+    const { data: porterRulesData, mutate: fetchPorterRules } = useFrappeGetCall<{ message: PorterFileRules }>(
+        PORTER_RULES_METHOD,
+        undefined,
+        isPorter && !porterBatch ? "porter-statement-rules" : null
+    );
+    const [porterCheck, setPorterCheck] = useState<PorterFileCheck | null>(null);
+    /** Which pick the check under way is for: a later pick, or a source switch, makes an older one stale. */
+    const porterCheckFor = useRef(0);
+    const checkPorterChoice = useCallback(
+        async (candidate: File) => {
+            const pick = ++porterCheckFor.current;
+            setPorterCheck(null);
+            let rules = porterRulesData?.message ?? null;
+            if (!rules) {
+                // Not loaded yet, or the first fetch failed: ask once more; a failure skips the check.
+                rules = await fetchPorterRules()
+                    .then((fresh) => fresh?.message ?? null)
+                    .catch(() => null);
+            }
+            const result = await checkPorterFile(candidate, rules).catch(
+                (): PorterFileCheck => ({ kind: "refused", message: "This file could not be read." })
+            );
+            if (porterCheckFor.current === pick) setPorterCheck(result);
+        },
+        [porterRulesData, fetchPorterRules]
+    );
 
     const { call: runMatch } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.review.match_batch"
@@ -391,11 +452,18 @@ export const ImportStatementDialog = ({
         setCashbookBatch(null);
         setCashbookStatus(null);
         setHeaderRow(null);
+        setPorterConfirmAsked(false);
+        porterCheckFor.current += 1;
+        setPorterCheck(null);
     }, [open]);
 
     // Switching source mid-dialog must drop whatever the other one produced, or the tree from a
     // Cashbook read stays on screen under a Cashfree heading.
     useEffect(() => {
+        // The chosen file goes too (#1555): a bank file must never be uploaded as a Porter Statement.
+        setFile(null);
+        porterCheckFor.current += 1;
+        setPorterCheck(null);
         setPreview(null);
         setStaged(null);
         setMatched(false);
@@ -417,12 +485,20 @@ export const ImportStatementDialog = ({
         // A different file is a different sheet; see the note on `headerRow`. Cleared BEFORE the
         // extension and size checks, so even a rejected file leaves no stale row behind.
         setHeaderRow(null);
+        porterCheckFor.current += 1;
+        setPorterCheck(null);
         if (!candidate) return;
 
         const lower = candidate.name.toLowerCase();
         const extensions = acceptedExtensions(source);
         if (!extensions.some((ext) => lower.endsWith(ext))) {
-            setError(`We support ${extensions.join(" and ")} statements.`);
+            // A refused file leaves no earlier choice behind to upload by mistake.
+            setFile(null);
+            setError(
+                source === PORTER_SOURCE
+                    ? PORTER_WRONG_TYPE
+                    : `We support ${extensions.join(" and ")} statements.`
+            );
             return;
         }
         if (candidate.size > MAX_FILE_BYTES) {
@@ -434,7 +510,8 @@ export const ImportStatementDialog = ({
             return;
         }
         setFile(candidate);
-    }, [source]);
+        if (source === PORTER_SOURCE) void checkPorterChoice(candidate);
+    }, [source, checkPorterChoice]);
 
     /**
      * POST the statement to `url`.
@@ -680,8 +757,8 @@ export const ImportStatementDialog = ({
     }, [file, isBusy, post, seedCache, onCardBatch]);
 
     /**
-     * Retry one Porter Invoice that hit an Error (#1444). The server refuses anything else -- a Failed
-     * invoice is final -- and answers with the import, which restarts the poll.
+     * Retry one Porter Invoice that doesn't match or couldn't be read (#1444, #1562): the server downloads,
+     * reads and judges it again, and answers with the import (Validating again), which restarts the poll.
      */
     const handlePorterRetry = useCallback(
         async (invoice: string) => {
@@ -727,6 +804,18 @@ export const ImportStatementDialog = ({
         await onRefresh?.();
     }, [onOpenChange, onRefresh]);
 
+
+    /**
+     * The result's links (#1561): close on Bulk Import pinned to this import, on the tab its created lines are
+     * in (`postImportTab`). ⚠️ THROUGH `onImported`, THE PAGE'S OWN PIN: it fires on the close and sets the tab
+     * even where the page does not remount. Offered only once Create has made lines Settled, so the table
+     * shows them (the reason `handleOwnImportDone` does not pin).
+     */
+    const handlePorterOpenLines = useCallback(() => {
+        if (!porterBatch) return;
+        onImported(porterBatch, undefined, PORTER_SOURCE);
+        onOpenChange(false);
+    }, [porterBatch, onImported, onOpenChange]);
 
     const handleConfirm = useCallback(async () => {
         if (!file || isBusy) return;
@@ -923,14 +1012,21 @@ export const ImportStatementDialog = ({
                         ⚠️ CLICKING A CIRCLE ONLY WORKS BEFORE ANYTHING IS WRITTEN. `clickableStepIndex`
                         allows a completed step, and only while `canStepBack` -- from step 2 on the
                         rows are staged and there is nothing to go back to. */}
-                    <WizardSteps
-                        steps={steps}
-                        currentStep={stepIndex}
-                        onStepClick={(target) => {
-                            if (clickableStepIndex(source, flow, target)) goBackToUpload();
-                        }}
-                        allowForwardNavigation={false}
-                    />
+                    {/* ⚠️ PORTER SHOWS ITS PROGRESS BAR INSTEAD (#1556): each phase's counts and whose
+                        turn it is, from the server's summary, re-read by the status poll while a job
+                        runs. Its steps are still `importSteps(source)`, which the body keys off. */}
+                    {isPorter ? (
+                        <PorterProgressBar progress={porterStatus?.progress} />
+                    ) : (
+                        <WizardSteps
+                            steps={steps}
+                            currentStep={stepIndex}
+                            onStepClick={(target) => {
+                                if (clickableStepIndex(source, flow, target)) goBackToUpload();
+                            }}
+                            allowForwardNavigation={false}
+                        />
+                    )}
                 </DialogHeader>
 
                 <div className="min-h-0 space-y-5 overflow-y-auto px-6 py-4">
@@ -955,6 +1051,17 @@ export const ImportStatementDialog = ({
                             </SelectContent>
                         </Select>
                     </div>
+
+                    {isPorter && (
+                        <div className="space-y-1 rounded-md bg-muted p-3">
+                            <p className="text-sm font-medium">Get the file from Porter</p>
+                            <ol className="list-inside list-decimal text-xs text-muted-foreground">
+                                {PORTER_FILE_GUIDE.map((step) => (
+                                    <li key={step}>{step}</li>
+                                ))}
+                            </ol>
+                        </div>
+                    )}
 
                     <div
                         onDragOver={(e) => {
@@ -1006,11 +1113,25 @@ export const ImportStatementDialog = ({
                         )}
                     </div>
 
-                            {isPorter || isCard ? (
-                                <Button
-                                    onClick={isCard ? handleCardUpload : handlePorterUpload}
-                                    disabled={!file || isBusy !== null}
-                                >
+                            {isPorter ? (
+                                <>
+                                    {file && <PorterFileChecks check={porterCheck} />}
+                                    <div className="flex items-start gap-2 rounded-md bg-blue-50 p-3 text-sm text-blue-800 dark:bg-blue-950/40 dark:text-blue-200">
+                                        <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                                        <span>{PORTER_BEFORE_UPLOAD_NOTE}</span>
+                                    </div>
+                                    <Button
+                                        onClick={handlePorterUpload}
+                                        disabled={!file || !porterUploadAllowed(porterCheck) || isBusy !== null}
+                                    >
+                                        {isBusy === "upload" && (
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        )}
+                                        {isBusy === "upload" ? "Uploading…" : "Upload and check invoices"}
+                                    </Button>
+                                </>
+                            ) : isCard ? (
+                                <Button onClick={handleCardUpload} disabled={!file || isBusy !== null}>
                                     {isBusy === "upload" && (
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                     )}
@@ -1050,6 +1171,11 @@ export const ImportStatementDialog = ({
                         </div>
                     )}
 
+                    {/* PORTER, STEP 2 -- uploaded, and nothing created yet (#1555). */}
+                    {isPorter && porterStatus && stepIndex === 1 && (
+                        <p className="text-sm text-muted-foreground">{PORTER_UPLOADED_NOTE}</p>
+                    )}
+
                     {/* PORTER, FROM STEP 2 ON -- the import is IN: its orders, its invoices and where
                         each invoice's check stands. Nothing has been created. */}
                     {isPorter && porterStatus && (
@@ -1057,14 +1183,32 @@ export const ImportStatementDialog = ({
                             status={porterStatus}
                             onRetry={handlePorterRetry}
                             retrying={retrying}
-                            collapseInvoices={porterReviewOffered(porterStatus)}
+                            collapseInvoices={porterReviewOffered(porterStatus) || porterCreateStarted(porterStatus)}
                         />
                     )}
 
-                    {/* PORTER, STEP 3 -- every invoice passed: place each order before Create (#1446). */}
-                    {isPorter && porterStatus && porterReviewOffered(porterStatus) && (
-                        <PorterReviewPanel batch={porterStatus.batch} />
+                    {/* PORTER, AFTER CREATE -- every order it could not create, named with its fix, or
+                        "All N expenses created."; and the links to the expenses and to Move (#1561). */}
+                    {isPorter && porterStatus && (
+                        <PorterResult
+                            status={porterStatus}
+                            onCreate={handlePorterCreate}
+                            creating={startingCreate}
+                            onPlaced={() => void setPorterData()}
+                            onOpenLines={handlePorterOpenLines}
+                        />
                     )}
+
+                    {/* PORTER, STEP 3 -- every invoice passed: place each order before Create (#1446);
+                        STEP 4 -- Next pressed: confirm before Create writes anything (#1564). */}
+                    {isPorter &&
+                        porterStatus &&
+                        porterReviewOffered(porterStatus) &&
+                        (onPorterConfirm ? (
+                            <PorterConfirmPanel batch={porterStatus.batch} onPlaced={() => void setPorterData()} />
+                        ) : (
+                            <PorterReviewPanel batch={porterStatus.batch} onPlaced={() => void setPorterData()} />
+                        ))}
 
                     {/* CREDIT CARD, FROM STEP 2 ON -- the statement is IN: its header, totals and lines,
                         read-only (#1566). Nothing has been created. */}
@@ -1237,20 +1381,53 @@ export const ImportStatementDialog = ({
                     to be scrolled, so the way OUT has to stay put while you scroll it. */}
                 {isPorter && porterStatus && (
                     <div className="flex shrink-0 items-center justify-end gap-2 border-t px-6 py-3">
-                        {/* Discard (#1447): Admin / Accountant Lead, until Create has written anything. */}
+                        {/* Discard (#1447, #1557): any module user, until Create has written anything. */}
                         <PorterDiscardButton status={porterStatus} onDiscarded={handleOwnImportDone} />
-                        {canCreatePorter(porterStatus) && (
-                            <Button onClick={handlePorterCreate} disabled={startingCreate}>
-                                {startingCreate && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-                                {createButtonLabel(porterStatus)}
-                            </Button>
+                        {onPorterConfirm ? (
+                            <>
+                                {/* Confirm & create (#1564): Back to Choose projects, or Create. Create
+                                    stays locked while a change made here left an order needing a person. */}
+                                <Button variant="ghost" onClick={() => setPorterConfirmAsked(false)}>
+                                    Back
+                                </Button>
+                                <Button
+                                    onClick={handlePorterCreate}
+                                    disabled={startingCreate || porterNeedsPerson > 0}
+                                >
+                                    {startingCreate && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                                    {createButtonLabel(porterStatus)}
+                                </Button>
+                            </>
+                        ) : porterStatus.state === "Validated" && canCreatePorter(porterStatus) ? (
+                            <>
+                                {/* Choose projects (#1560): choices are already saved, so closing loses
+                                    nothing; Next stays locked while the server counts an order that needs
+                                    a person (it refuses Create then too), and opens Confirm & create. */}
+                                <Button variant="ghost" onClick={handleOwnImportDone}>
+                                    Save and close
+                                </Button>
+                                <Button onClick={() => setPorterConfirmAsked(true)} disabled={porterNeedsPerson > 0}>
+                                    {nextConfirmLabel(porterNeedsPerson)}
+                                </Button>
+                            </>
+                        ) : (
+                            <>
+                                {canCreatePorter(porterStatus) && (
+                                    <Button onClick={handlePorterCreate} disabled={startingCreate}>
+                                        {startingCreate && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                                        {createButtonLabel(porterStatus)}
+                                    </Button>
+                                )}
+                                {/* "Done" only once every expense is created; before that nothing is
+                                    finished, so the way out is a plain Close, never the red main button. */}
+                                <Button
+                                    variant={porterStatus.state === "Created" ? "default" : "outline"}
+                                    onClick={handleOwnImportDone}
+                                >
+                                    {porterStatus.state === "Created" ? "Done" : "Close"}
+                                </Button>
+                            </>
                         )}
-                        <Button
-                            variant={canCreatePorter(porterStatus) ? "outline" : "default"}
-                            onClick={handleOwnImportDone}
-                        >
-                            Done
-                        </Button>
                     </div>
                 )}
 

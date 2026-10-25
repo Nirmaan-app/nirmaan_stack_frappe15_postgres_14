@@ -19,7 +19,8 @@
   "attachment_section",
   "challan_attachment",
   "column_break_attachment",
-  "reconciled_amount"
+  "reconciled_amount",
+  "tds_payment_expense"
  ],
  "fields": [
   {
@@ -115,11 +116,20 @@
    "fieldtype": "Currency",
    "label": "Reconciled Amount",
    "read_only": 1
+  },
+  {
+   "description": "The non-project TDS Payment expense that records this deposit. Linked by hand; nothing creates it. One expense belongs to one challan. While blank, the challan list warns that the deposit is not in the expenses.",
+   "fieldname": "tds_payment_expense",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "TDS Payment Expense",
+   "options": "Non Project Expenses",
+   "unique": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-12 09:56:08.862625",
+ "modified": "2026-10-22 04:48:51.006190",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "TDS Challan Attachment",

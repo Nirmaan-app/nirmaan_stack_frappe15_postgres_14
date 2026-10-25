@@ -90,8 +90,10 @@ export interface Projects {
 	estimates_exec?: string
 	/**	Status : Data	*/
 	status: string
-	/** Tendering Status : Select (Tendering / Won / Lost) */
-	tendering_status?: "Tendering" | "Won" | "Lost"
+	/** Tendering Status : Select (Tendering / Won / Lost / Merged) */
+	tendering_status?: "Tendering" | "Won" | "Lost" | "Merged"
+	/** Merged Into : Link -> Projects (read_only) -- the Won project a Merged project's BoQs went into (ADR-0038) */
+	merged_into?: string
 	/** CEO Hold Set By : Data (read_only, hidden) */
 	ceo_hold_by?: string
 	/**

@@ -1021,6 +1021,8 @@ export const tabFromCarried = (carried: unknown): OutflowTab => {
  */
 const POST_IMPORT_TAB: Record<string, OutflowTab> = {
     Cashbook: "matchedOutflow",
+    // A Porter import is pinned only from its result's links (#1561), once Create has made its lines Settled.
+    "Porter Statement": "matchedOutflow",
 };
 
 export const postImportTab = (source: string | undefined, current: OutflowTab): OutflowTab =>

@@ -7,11 +7,16 @@
  *
  * `remaining` is DERIVED here (`amount - reconciled_amount`), never a stored column — the same
  * arithmetic the server does when it decides whether a challan can absorb a payment.
+ *
+ * EXPENSE (#1544). Each challan is a deposit already made, so each should be linked to the non-project
+ * TDS Payment expense that books it. A challan with none carries a warning and a Link action; nothing is
+ * linked or created automatically. The server decides what may be linked (`set_challan_expense`).
  */
 
 import React, { useMemo, useState } from "react";
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import { ExternalLink, Loader2 } from "lucide-react";
+import ReactSelect from "react-select";
+import { AlertTriangle, ExternalLink, Link2, Loader2, Unlink } from "lucide-react";
 
 import {
     Dialog,
@@ -20,24 +25,58 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { toast } from "@/components/ui/use-toast";
+import { getSelectStyles } from "@/config/selectTheme";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { getFrappeError } from "@/utils/frappeErrors";
 import { TDSChallanAttachment } from "@/types/NirmaanStack/TDSChallanAttachment";
+import { lacksExpense, linkableExpenses } from "../challanExpense";
+import { TdsPaymentExpense, useChallanExpenseLink } from "../hooks/useChallanExpenseLink";
 
 const CHALLAN_DOCTYPE = "TDS Challan Attachment";
 
 interface ChallanListDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
+    /** A challan's expense was linked or unlinked: the strip's warning count is stale. */
+    onExpenseChanged?: () => void;
 }
 
-export const ChallanListDialog: React.FC<ChallanListDialogProps> = ({ open, onOpenChange }) => {
+interface ExpenseOption {
+    value: string;
+    label: string;
+}
+
+const expenseOption = (expense: TdsPaymentExpense): ExpenseOption => ({
+    value: expense.name,
+    label: [
+        expense.name,
+        formatToIndianRupee(expense.amount),
+        expense.payment_date ? formatDate(expense.payment_date) : null,
+        expense.status && expense.status !== "Paid" ? expense.status : null,
+        expense.description || null,
+    ]
+        .filter(Boolean)
+        .join(" · "),
+});
+
+export const ChallanListDialog: React.FC<ChallanListDialogProps> = ({
+    open,
+    onOpenChange,
+    onExpenseChanged,
+}) => {
     const [search, setSearch] = useState("");
+    // The challan's NAME, not the row: the row is re-read after each link (frontend/CODING_STANDARDS.md).
+    const [linkingChallan, setLinkingChallan] = useState<string | null>(null);
+    const [pickedExpense, setPickedExpense] = useState<ExpenseOption | null>(null);
+    const { expenses, isExpensesLoading, setChallanExpense, isSaving } = useChallanExpenseLink(open);
 
     // Third arg is the swrKey, never an options object: nothing is fetched while closed.
-    const { data: challans, isLoading } = useFrappeGetDocList<TDSChallanAttachment>(
+    const { data: challans, isLoading, mutate } = useFrappeGetDocList<TDSChallanAttachment>(
         CHALLAN_DOCTYPE,
         {
             fields: [
@@ -49,6 +88,7 @@ export const ChallanListDialog: React.FC<ChallanListDialogProps> = ({ open, onOp
                 "amount",
                 "reconciled_amount",
                 "challan_attachment",
+                "tds_payment_expense",
             ],
             limit: 500,
             orderBy: { field: "date_of_deposit", order: "desc" },
@@ -84,15 +124,57 @@ export const ChallanListDialog: React.FC<ChallanListDialogProps> = ({ open, onOp
         [rows]
     );
 
+    const withoutExpense = useMemo(() => (challans || []).filter(lacksExpense).length, [challans]);
+
+    const expenseOptions = useMemo(
+        () =>
+            linkingChallan
+                ? linkableExpenses(expenses, challans || [], linkingChallan).map(expenseOption)
+                : [],
+        [expenses, challans, linkingChallan]
+    );
+
+    const closePicker = () => {
+        setLinkingChallan(null);
+        setPickedExpense(null);
+    };
+
+    const saveExpense = async (challan: string, expense: string | null) => {
+        try {
+            await setChallanExpense(challan, expense);
+            toast({
+                title: expense ? "Expense linked" : "Expense unlinked",
+                description: expense
+                    ? `${expense} records challan ${challan}.`
+                    : `Challan ${challan} has no expense now.`,
+                variant: "success",
+            });
+            closePicker();
+            await mutate();
+            onExpenseChanged?.();
+        } catch (e) {
+            toast({
+                title: "Couldn't save the expense",
+                description: getFrappeError(e),
+                variant: "destructive",
+            });
+        }
+    };
+
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-hidden">
+            <DialogContent className="sm:max-w-4xl max-h-[85vh] overflow-hidden">
                 <DialogHeader>
                     <DialogTitle>TDS Challans</DialogTitle>
                     <DialogDescription>
                         {rows.length} challan{rows.length === 1 ? "" : "s"} ·{" "}
                         {formatToIndianRupee(totals.amount)} paid ·{" "}
                         {formatToIndianRupee(totals.remaining)} unreconciled
+                        {withoutExpense > 0 && (
+                            <span className="ml-1 font-medium text-amber-700 dark:text-amber-400">
+                                · {withoutExpense} without a TDS Payment expense
+                            </span>
+                        )}
                     </DialogDescription>
                 </DialogHeader>
 
@@ -128,11 +210,13 @@ export const ChallanListDialog: React.FC<ChallanListDialogProps> = ({ open, onOp
                                     <th className="p-2 text-right font-medium">Amount Recon</th>
                                     <th className="p-2 text-right font-medium">Amount Unrecon</th>
                                     <th className="p-2 text-center font-medium">Receipt</th>
+                                    <th className="p-2 text-left font-medium">Expense</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {rows.map((challan) => (
-                                    <tr key={challan.name} className="border-t">
+                                    <React.Fragment key={challan.name}>
+                                    <tr className="border-t">
                                         <td className="p-2 font-medium tabular-nums whitespace-nowrap">
                                             {challan.challan_no}
                                         </td>
@@ -172,7 +256,94 @@ export const ChallanListDialog: React.FC<ChallanListDialogProps> = ({ open, onOp
                                                 <span className="text-muted-foreground">--</span>
                                             )}
                                         </td>
+                                        <td className="p-2 whitespace-nowrap">
+                                            {lacksExpense(challan) ? (
+                                                <div className="flex items-center gap-1.5">
+                                                    <span
+                                                        className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400"
+                                                        title="This deposit isn't in the expenses until its TDS Payment expense is linked."
+                                                    >
+                                                        <AlertTriangle className="h-3.5 w-3.5" />
+                                                        No expense
+                                                    </span>
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-6 px-2 text-[11px]"
+                                                        disabled={isSaving}
+                                                        onClick={() => {
+                                                            setLinkingChallan(challan.name);
+                                                            setPickedExpense(null);
+                                                        }}
+                                                    >
+                                                        <Link2 className="mr-1 h-3 w-3" />
+                                                        Link
+                                                    </Button>
+                                                </div>
+                                            ) : (
+                                                <div className="flex items-center gap-1">
+                                                    <span className="tabular-nums">{challan.tds_payment_expense}</span>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-6 w-6 p-0 text-muted-foreground"
+                                                        disabled={isSaving}
+                                                        aria-label={`Unlink expense from challan ${challan.challan_no}`}
+                                                        title="Unlink this expense"
+                                                        onClick={() => saveExpense(challan.name, null)}
+                                                    >
+                                                        <Unlink className="h-3 w-3" />
+                                                    </Button>
+                                                </div>
+                                            )}
+                                        </td>
                                     </tr>
+                                    {linkingChallan === challan.name && (
+                                        <tr className="bg-muted/30">
+                                            <td colSpan={9} className="p-2">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <div className="min-w-[280px] flex-1">
+                                                        <ReactSelect<ExpenseOption>
+                                                            inputId={`challan-expense-${challan.name}`}
+                                                            aria-label={`TDS Payment expense for challan ${challan.challan_no}`}
+                                                            placeholder="Pick the TDS Payment expense…"
+                                                            options={expenseOptions}
+                                                            value={pickedExpense}
+                                                            onChange={(option) => setPickedExpense(option)}
+                                                            isLoading={isExpensesLoading}
+                                                            noOptionsMessage={() =>
+                                                                "No unlinked TDS Payment expense. Record it under Expenses first."
+                                                            }
+                                                            styles={getSelectStyles<ExpenseOption>()}
+                                                            menuPortalTarget={document.body}
+                                                            menuPosition="fixed"
+                                                            isDisabled={isSaving}
+                                                        />
+                                                    </div>
+                                                    <Button
+                                                        size="sm"
+                                                        className="h-8"
+                                                        disabled={!pickedExpense || isSaving}
+                                                        onClick={() =>
+                                                            pickedExpense && saveExpense(challan.name, pickedExpense.value)
+                                                        }
+                                                    >
+                                                        {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-8"
+                                                        disabled={isSaving}
+                                                        onClick={closePicker}
+                                                    >
+                                                        Cancel
+                                                    </Button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    )}
+                                    </React.Fragment>
                                 ))}
                             </tbody>
                         </table>

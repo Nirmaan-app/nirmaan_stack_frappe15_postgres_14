@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useFrappeUpdateDoc, useFrappeCreateDoc } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
 import { toast } from "@/components/ui/use-toast";
+import { getFrappeErrorText } from "@/utils/frappeErrors";
 
 import {
     srFormSchema,
@@ -364,14 +365,17 @@ export const useSRAmendForm = ({
             }
         } catch (error: any) {
             console.error("SR amendment error:", error);
+            // The server's own reason (a GST Hold vendor, money in flight, a total below what was paid),
+            // read out of the Frappe error; the SDK's `message` is a generic "error while updating".
+            const reason = getFrappeErrorText(error) || "Failed to update Work Order";
             setSubmissionState({
                 stage: "error",
-                error: error?.message || "Failed to update Work Order",
+                error: reason,
             });
 
             toast({
                 title: "Update Failed!",
-                description: error?.message || "Failed to update Work Order",
+                description: reason,
                 variant: "destructive",
             });
         }

@@ -89,7 +89,12 @@ pdf_generator = ["nirmaan_stack.api.pdf_helper.keep_links.keep_links_pdf"]
 # CU-A: after every migrate, create any missing index of the index manifest under its own
 # table-unique name. Frappe's model sync can drop a bare-name index of ANOTHER table; this puts the
 # named one back in the same migrate. It never drops anything.
-after_migrate = ["nirmaan_stack.services.index_manifest.ensure_indexes"]
+after_migrate = [
+    "nirmaan_stack.services.index_manifest.ensure_indexes",
+    # Records without review drops a profile that raises no type, judged on the types the fixture
+    # sync ends with (the sync deletes and re-inserts each type, so its own hooks stand down).
+    "nirmaan_stack.integrations.controllers.expense_type.after_migrate",
+]
 
 # Uninstallation
 # ------------
@@ -139,21 +144,30 @@ has_permission = {
     # Billing (2026-10-03): Admin, PMO and billing profiles only, read included.
     "Project Billing Tracker": "nirmaan_stack.integrations.controllers.project_billing.has_permission",
     "Project Billing": "nirmaan_stack.integrations.controllers.project_billing.has_permission",
+    # A Work Order's remarks need read on that Work Order (spec #1528 story 4); other remarks as before.
+    "Nirmaan Comments": "nirmaan_stack.integrations.controllers.nirmaan_comments.has_permission",
+    # A Work Order's amendment snapshots need read on that Work Order (review round 4, X4).
+    "Nirmaan Versions": "nirmaan_stack.integrations.controllers.nirmaan_versions.has_permission",
 }
 
 permission_query_conditions = {
     "Non Project Inflows": "nirmaan_stack.integrations.controllers.non_project_inflows.get_permission_query_conditions",
     "Project Billing Tracker": "nirmaan_stack.integrations.controllers.project_billing.get_permission_query_conditions",
     "Project Billing": "nirmaan_stack.integrations.controllers.project_billing.get_permission_query_conditions",
+    "Nirmaan Comments": "nirmaan_stack.integrations.controllers.nirmaan_comments.get_permission_query_conditions",
+    # A Work Order's item rows need read on that Work Order (story 4, walk W1).
+    "Work Order Items": "nirmaan_stack.integrations.controllers.work_order_items.get_permission_query_conditions",
+    "Nirmaan Versions": "nirmaan_stack.integrations.controllers.nirmaan_versions.get_permission_query_conditions",
 }
 
 # DocType Class
 # ---------------
 # Override standard doctype classes
 
-# override_doctype_class = {
-# 	"ToDo": "custom_app.overrides.CustomToDo"
-# }
+override_doctype_class = {
+    # A PDF that can't be read is refused with a readable message, not a raw 500 (spec #1528 walk 3).
+    "File": "nirmaan_stack.integrations.controllers.file.NirmaanFile",
+}
 
 # Document Events
 # ---------------
@@ -212,6 +226,11 @@ doc_events = {
         "after_insert": "nirmaan_stack.integrations.controllers.asset_master.after_insert",
         "on_update": "nirmaan_stack.integrations.controllers.asset_master.on_update",
     },
+    "Expense Type": {
+        # A profile a change takes off its last type leaves Records without review (story 28).
+        "on_update": "nirmaan_stack.integrations.controllers.expense_type.on_update",
+        "after_delete": "nirmaan_stack.integrations.controllers.expense_type.after_delete",
+    },
     "Asset Category": {
         # Monthly asset audit: ticking "Monthly audit required" opens the cycle month's audits of its assets.
         "on_update": "nirmaan_stack.integrations.controllers.asset_category.on_update",
@@ -268,12 +287,18 @@ doc_events = {
         # Client Status (ADR-0025 Amendment B). Doc-layer deletes only, which includes REST.
         "on_trash": "nirmaan_stack.integrations.controllers.project_tds_item_list.on_trash",
     },
-    # TAX DEDUCTED AT SOURCE (not the Technical Data Sheet family above). A challan's
-    # `reconciled_amount` is the sum of the deductions pointing at it, so a deleted deduction has
-    # to stop being counted as spent. Covers a DOC-LAYER delete only; the payment cascade deletes
-    # with raw SQL and recomputes explicitly in `project_payments.on_trash`.
+    # TAX DEDUCTED AT SOURCE (not the Technical Data Sheet family above). Doc-layer saves and
+    # deletes only; the payment cascade deletes with raw SQL and handles its own recount and challan
+    # rules in `project_payments.on_trash`.
     "Payment TDS Deduction": {
-        "on_trash": "nirmaan_stack.integrations.controllers.payment_tds_deduction.on_trash"
+        # A row names exactly one of a Project Payment and a Non-Project Expense (#1523); it is
+        # locked, and its delete refused, once its tax is in a challan; a correction before that
+        # recounts the order (#1535).
+        "validate": "nirmaan_stack.integrations.controllers.payment_tds_deduction.validate",
+        "on_update": "nirmaan_stack.integrations.controllers.payment_tds_deduction.on_update",
+        "on_trash": "nirmaan_stack.integrations.controllers.payment_tds_deduction.on_trash",
+        # after_delete, never on_trash: the Work Order recount must read the deduction gone.
+        "after_delete": "nirmaan_stack.integrations.controllers.payment_tds_deduction.after_delete",
     },
     "Critical PO Items": {
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.critical_po_items.critical_po_items.after_insert",
@@ -324,13 +349,41 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.nirmaan_versions.generate_sr_amend_version"
             ]
     },
+    # A Work Order's item row is saved only with its Work Order: the REST child-row PUT would slip past its
+    # locks (spec #1528 review 3, V6).
+    "Work Order Items": {
+        "validate": "nirmaan_stack.integrations.controllers.work_order_items.refuse_saving_an_item_row_alone",
+        "on_trash": "nirmaan_stack.integrations.controllers.work_order_items.refuse_deleting_an_item_row_alone",
+    },
+    # A generated invoice is made only by Generate and never deleted (#1546).
+    "WO Generated Invoice": {
+        "before_insert": "nirmaan_stack.integrations.controllers.wo_generated_invoice.refuse_insert_outside_generate",
+        "on_trash": "nirmaan_stack.integrations.controllers.wo_generated_invoice.refuse_delete",
+    },
+    # A Work Order's amendment snapshot is kept, unchanged, as its audit record (spec #1528 story 25).
+    "Nirmaan Versions": {
+        "validate": "nirmaan_stack.integrations.controllers.nirmaan_versions.keep_amendment_snapshot",
+        "on_trash": "nirmaan_stack.integrations.controllers.nirmaan_versions.keep_amendment_snapshot",
+    },
     "Service Requests": {
-        "validate": "nirmaan_stack.integrations.controllers.service_requests.validate",
+        "validate": [
+            # What an approving or amendment-deciding save sets (GST from the vendor, Nirmaan GST, the
+            # approval stamp, the amendment's outcome); first, so the guards below see it.
+            "nirmaan_stack.integrations.controllers.service_requests.apply_approval",
+            # Who may move a Work Order (#1529); the one home of the WO status-move rules.
+            "nirmaan_stack.integrations.controllers.service_requests.guard_lifecycle",
+            "nirmaan_stack.integrations.controllers.service_requests.validate",
+        ],
         "on_trash": [
+            # A Finalized Work Order is not deleted (#1539); first, so nothing is cleared before it refuses.
+            "nirmaan_stack.integrations.controllers.service_requests.guard_delete",
             "nirmaan_stack.integrations.controllers.service_requests.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions"
         ],
-        "on_update": "nirmaan_stack.integrations.controllers.service_requests.on_update"
+        "on_update": [
+            "nirmaan_stack.integrations.controllers.service_requests.mark_amendment_snapshots",
+            "nirmaan_stack.integrations.controllers.service_requests.on_update",
+        ]
     },
     "Project Estimates" : {
         "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
@@ -344,7 +397,14 @@ doc_events = {
         # No `after_insert`: Document.insert() runs after_insert AND then
         # run_post_save_methods() -> on_update, so binding both fired the recompute
         # TWICE per saved invoice. on_update alone covers insert.
-        "on_update": "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
+        # Who may approve, reject or edit a Work Order invoice (#1531, ADR-0014 Amendment A).
+        "validate": "nirmaan_stack.integrations.controllers.vendor_invoices.guard_work_order_invoice",
+        # A generated invoice's Vendor Invoice moves its record, and is never deleted (#1547).
+        "on_update": [
+            "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
+            "nirmaan_stack.integrations.controllers.vendor_invoices.follow_generated_invoice",
+        ],
+        "on_trash": "nirmaan_stack.integrations.controllers.vendor_invoices.refuse_deleting_generated_invoice",
         "after_delete": "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
     },
     # A refund lowers its PO's / WO's `amount_paid` (Paid payments LESS refunds). `on_update` covers
@@ -392,18 +452,35 @@ doc_events = {
     "Non Project Expenses": {
         # Carry the match records to the new name (ADR-0022 Amendment G).
         "after_rename": "nirmaan_stack.integrations.controllers.settled_targets.after_rename",
-        "validate": "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
-        # Both exit immediately unless the row is transitioning INTO Paid, so the ~700
+        # Office Rent's locks (#1526, spec #1522 review): a withheld amount, and the type to or from
+        # Office Rent once approved. `before_validate`, so they refuse BEFORE the doctype's own
+        # `validate` (the edit rules, `expense_decision.guard_hand_save`) says something vaguer;
+        # a `validate` hook here would run after it.
+        "before_validate": "nirmaan_stack.integrations.controllers.expense_tds.before_validate",
+        "validate": [
+            "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
+            # An approval that would withhold Office Rent's tax is refused without the landlord,
+            # before the row is written. After the doctype's `validate`, which sets a new row's status.
+            "nirmaan_stack.integrations.controllers.expense_tds.validate",
+        ],
+        # Office Rent withholds 10% TDS when approved (#1525): a row born Approved here, an
+        # approval from an earlier step in `on_update`.
+        "after_insert": "nirmaan_stack.integrations.controllers.expense_tds.after_insert",
+        # The request hooks exit immediately unless the row is transitioning INTO Paid, so the ~700
         # ordinary saves cost one field comparison each. STATE FIRST, then the telling:
         # the request must already read Paid by the time the requester is notified.
         "on_update": [
-            "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_paid",
+            "nirmaan_stack.integrations.controllers.expense_tds.on_update",
+            "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_status_changed",
             "nirmaan_stack.integrations.controllers.expense_request_notify.on_expense_update",
             # A card spend's type edited: remembered for its merchant (#1569). Exits unless both hold.
             "nirmaan_stack.integrations.controllers.card_merchant_memory.on_expense_update",
         ],
         "on_trash": [
             "nirmaan_stack.integrations.controllers.expense_bank_links.on_trash",
+            # Its Office Rent tax record goes with it, or the delete is refused while that tax is on a
+            # challan (#1526). Before Frappe's link check, which would refuse it outright.
+            "nirmaan_stack.integrations.controllers.expense_tds.on_trash",
             # Drops the expense off its Cheque (#1413) before Frappe's link check refuses the delete.
             "nirmaan_stack.integrations.controllers.cheques.on_expense_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
@@ -428,7 +505,7 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
             # Carries Paid back onto the originating request, then tells the requester.
             # STATE FIRST -- the request must already read Paid when the message goes out.
-            "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_paid",
+            "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_status_changed",
             "nirmaan_stack.integrations.controllers.expense_request_notify.on_expense_update",
         ],
         # generate_versions needs the pre-delete data, so it stays on on_trash.
@@ -449,9 +526,14 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.expense_files.delete_attached_files",
         ],
     },
-    # No expense ever owns a File for a Porter invoice PDF: that one File is its Porter Invoice's (#1442).
+    # ONE "File" key: a second one in this dict silently replaces this one (#1548).
     "File": {
-        "before_insert": "nirmaan_stack.integrations.controllers.expense_files.refuse_invoice_pdf_copy",
+        "before_insert": [
+            # No expense ever owns a File for a Porter invoice PDF: that one File is its Porter Invoice's (#1442).
+            "nirmaan_stack.integrations.controllers.expense_files.refuse_invoice_pdf_copy",
+            # CU-A: the dev-only cloud-upload off-switch (site config `disable_cloud_upload`; never on prod).
+            "nirmaan_stack.integrations.controllers.file.before_insert",
+        ],
     },
     "Project Inflows": {
         # Carry the match records to the new name (ADR-0022 Amendment G).
@@ -534,10 +616,6 @@ doc_events = {
         # CU-A: the delete cascade. after_delete, never on_trash -- on_trash runs before the link
         # check, so a refused delete would already have removed the sheet / grid rows.
         "after_delete": "nirmaan_stack.integrations.controllers.boqs.after_delete",
-    },
-    # CU-A: the dev-only cloud-upload off-switch (site config `disable_cloud_upload`; never on prod).
-    "File": {
-        "before_insert": "nirmaan_stack.integrations.controllers.file.before_insert",
     },
     "BOQ Nodes": {
         "validate": "nirmaan_stack.integrations.controllers.boq_nodes.validate",

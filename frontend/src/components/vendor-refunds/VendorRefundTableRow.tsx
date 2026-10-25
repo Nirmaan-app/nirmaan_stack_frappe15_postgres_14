@@ -37,7 +37,7 @@ export const mergePaymentsAndRefunds = <P extends { name: string; payment_date?:
  * with the "No bank proof" badge under a Received one an Admin marked with no bank line (#1403).
  * No voucher. `actions` fills the last cell (the PO table's Cancel / Mark Received, #1403, and Delete for a
  * Cancelled refund).
- * `tdsColumn` adds the empty TDS cell the WO table has.
+ * `tdsColumn` adds the empty TDS and To be paid cells the WO table has.
  */
 export const VendorRefundTableRow = ({
     refund,
@@ -57,7 +57,7 @@ export const VendorRefundTableRow = ({
                 <Badge variant="outline" className="border-red-500 px-1 py-0 text-[9px] leading-3 text-red-600">Refund</Badge>
             </span>
         </TableCell>
-        {tdsColumn && <TableCell>--</TableCell>}
+        {tdsColumn && <><TableCell>--</TableCell><TableCell>--</TableCell></>}
         <TableCell className="overflow-hidden truncate max-w-28">
             <TruncatedText text={refund.utr} fallback="--" className="max-w-28" />
         </TableCell>

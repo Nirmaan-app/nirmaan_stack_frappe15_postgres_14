@@ -79,12 +79,12 @@ export const BANK_STEPS: (WizardStep & { key: BankStepKey })[] = [
  *
  * ⚠️ UPLOAD WRITES, SO THERE IS NO CHECK STEP BEFORE IT. The upload reads the whole file and refuses it
  * before anything is saved, then stages the lines and the Porter Invoices in the same request; what the
- * accountant checks comes AFTER, against Porter's own invoices (Validate). Nothing is created until the
+ * accountant checks comes AFTER, against Porter's own invoices (Check invoices). Nothing is created until the
  * last step, and only when every invoice has passed.
  */
 export const PORTER_STEPS: (WizardStep & { key: PorterStepKey })[] = [
     { key: "upload", title: "Upload", shortTitle: "Upload" },
-    { key: "validate", title: "Check invoices", shortTitle: "Validate" },
+    { key: "validate", title: "Check invoices", shortTitle: "Check invoices" },
     { key: "review", title: "Review projects", shortTitle: "Review" },
     { key: "create", title: "Create", shortTitle: "Create" },
 ];
@@ -162,7 +162,7 @@ const SOURCE_FLOWS: Record<string, SourceFlow> = {
     },
     [PORTER_SOURCE]: {
         steps: PORTER_STEPS,
-        // Staged = uploaded, which lands on Validate; every invoice Passed lands on Review (#1446); once
+        // Staged = uploaded, which lands on Check invoices; every invoice Passed lands on Review (#1446); once
         // Create has started (Creating / Created, #1445) it is on Create.
         stepIndex: (state) => (state.createStarted ? 3 : state.validated ? 2 : state.staged ? 1 : 0),
         // Porter's own export, and nothing else: `porter_upload.read_upload` refuses any other file.

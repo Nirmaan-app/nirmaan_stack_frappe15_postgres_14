@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
     linesToMove,
+    MOVE_ORDER_LABEL,
+    moveDialogTitle,
+    moveOrdersLabel,
     placementText,
     rectifyAffordance,
     rectifyButtonState,
@@ -69,13 +72,29 @@ describe("Rectify N on ticked lines", () => {
     it("is off while a bank line is ticked with them, and says why", () => {
         const state = rectifyButtonState(page, new Set(["a", "c"]), new Map(), 1);
         expect(state).toMatchObject({ visible: true, enabled: false, count: 2 });
-        expect(state.note).toBe("Rectify works on Porter orders only: untick the 1 other line.");
+        expect(state.note).toBe("Moving works on Porter orders only: untick the 1 other line.");
     });
 
     it("is off while a ticked line is on another page", () => {
         const state = rectifyButtonState(page, new Set(["a", "z"]), new Map([["z", 2]]), 1);
         expect(state.enabled).toBe(false);
-        expect(state.note).toContain("Rectify works on one page at a time");
+        expect(state.note).toContain("Moving works on one page at a time");
+    });
+});
+
+describe("The screen names Rectify Move to another project", () => {
+    it("labels the line's button with the plain name", () => {
+        expect(MOVE_ORDER_LABEL).toBe("Move to another project");
+    });
+
+    it("counts the orders on the toolbar and the dialog's run button", () => {
+        expect(moveOrdersLabel(1)).toBe("Move 1 order");
+        expect(moveOrdersLabel(3)).toBe("Move 3 orders");
+    });
+
+    it("titles the dialog for one order or several", () => {
+        expect(moveDialogTitle(1)).toBe("Move this Porter order to another project");
+        expect(moveDialogTitle(4)).toBe("Move 4 Porter orders to another project");
     });
 });
 

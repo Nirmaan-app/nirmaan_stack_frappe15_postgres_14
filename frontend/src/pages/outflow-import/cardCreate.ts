@@ -5,7 +5,7 @@
 // (`card_review.py`, `card_create.py`) asks every rule again.
 
 import type { CardImport, CardImportLine } from "./creditCardImport";
-import { plural } from "./plural";
+import { plural } from "./porterWords";
 
 export const CARD_CREATE_METHOD = "nirmaan_stack.api.outflow_import.card_create.create_card_expenses";
 export const CARD_SET_TYPE_METHOD = "nirmaan_stack.api.outflow_import.card_review.set_card_expense_type";

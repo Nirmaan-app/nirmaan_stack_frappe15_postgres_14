@@ -6,7 +6,7 @@
 
 import { format, parseISO } from "date-fns";
 
-import { plural } from "./plural";
+import { plural } from "./porterWords";
 
 /** The source string. The parser adapter key and the batch Select option, pinned by test. */
 export const CARD_SOURCE = "ICICI Credit Card Statement";

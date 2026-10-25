@@ -818,18 +818,24 @@ PORTER_STATEMENT_COLUMNS = (
 # The order status Porter writes on an order it completed, and therefore bills.
 PORTER_ORDER_COMPLETED = "completed"
 
+# The columns the pre-check and the adapter read by name, beyond the generic fields: the order's status,
+# when it was completed, and the invoice it is billed on.
+PORTER_ORDER_STATUS_COLUMN = "order_status"
+PORTER_COMPLETED_AT_COLUMN = "order_completion_time"
+PORTER_INVOICE_LINK_COLUMN = "invoice_link"
+
 _PORTER_COLUMNS = {
     # Capability 7: every column under its own name, kept verbatim in `RawRow.extra` -- the generic fields
     # below read some of the same cells again, which is harmless and keeps the statement line whole.
     **{column: column for column in PORTER_STATEMENT_COLUMNS},
     "transfer_id": "crn",
-    "added_on": "order_completion_time",
+    "added_on": PORTER_COMPLETED_AT_COLUMN,
     # The Porter fare, before GST: the Expense amount (ADR-0032). The tax is reverse charge and is never
     # part of what Porter is paid.
     "amount": _StatesWhenPopulated(
         column="invoice_order_fare", label=DIRECTION_DEBIT, label_field="direction"
     ),
-    "status_raw": "order_status",
+    "status_raw": PORTER_ORDER_STATUS_COLUMN,
     # Who was paid: the Porter entity that bills the order.
     "beneficiary_name": "billing_entity",
     # Who booked the order. The Porter Expense's Paid by.

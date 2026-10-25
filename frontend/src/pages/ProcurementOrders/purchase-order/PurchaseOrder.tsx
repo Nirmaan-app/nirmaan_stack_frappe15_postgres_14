@@ -83,7 +83,7 @@ import { InvoiceDialog } from "../invoices-and-dcs/components/InvoiceDialog";
 import POAttachments from "./components/POAttachments";
 import POPaymentTermsCard from "./components/POPaymentTermsCard";
 import TransactionDetailsCard from "./components/TransactionDetailsCard";
-import { SecurityDepositChequesCard } from "@/components/cheques/SecurityDepositChequesCard";
+import { PoChequesCard } from "@/components/cheques/PoChequesCard";
 import PORemarks from "./components/PORemarks";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog"; // Import the dialog component
 import { DocumentAttachments } from "../invoices-and-dcs/DocumentAttachments";
@@ -324,7 +324,7 @@ export const PurchaseOrder = () => {
           ],
           limit: 1000,
         }
-        : null // This `null` is what pauses the hook, preventing the error.
+        : undefined
     );
 
   const { call: fetchFullPoDetails, loading: fullPoDetailsLoading } =
@@ -1223,8 +1223,8 @@ export const PurchaseOrder = () => {
                     isLocked={isPaymentLocked}
                   />
 
-                  {/* Security Deposit cheques that name this PO (#1486); renders only for cheque users. */}
-                  <SecurityDepositChequesCard
+                  {/* Cheques issued for this PO: Payment and Security Deposit (#1521); renders only for cheque users. */}
+                  <PoChequesCard
                     record={{ doctype: "Procurement Orders", name: PO?.name, project: PO?.project, vendor: PO?.vendor }}
                   />
                 </div>

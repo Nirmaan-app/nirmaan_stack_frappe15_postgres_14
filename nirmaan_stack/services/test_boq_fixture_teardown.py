@@ -12,7 +12,7 @@ SERIES = re.compile(r"^BOQ-\d{2}-\d{5}$")
 
 
 def _make(tag):
-    wh = frappe.db.get_value("Work Headers", {}, "name")
+    wh = frappe.db.get_value("Work Headers", {"work_header_name": ["is", "set"]}, "name", order_by="name asc")
     boq = frappe.get_doc({"doctype": "BOQs", "is_template_source": 1, "boq_name": tag,
                           "sheet_drafts": [{"sheet_name": "A", "sheet_order": 1, "wizard_status": "Pending"}]})
     boq.insert(ignore_permissions=True, set_name=fixture_boq_name(tag))

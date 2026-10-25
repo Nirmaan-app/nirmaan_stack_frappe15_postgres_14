@@ -23,7 +23,7 @@ export interface ChequeOutcomeChip {
 
 const TONES: Record<ChequeOutcome["started"], ChequeOutcomeTone> = {
     Issued: "cleared",
-    Pending: "approved",
+    [CHEQUE_STATUS.PENDING]: "approved",
     Cancelled: "revived",
     Cleared: "linked",
 };

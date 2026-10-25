@@ -161,7 +161,8 @@ def sidebar_counts(user: str) -> str:
         "approved": simple("Service Requests", {**sr_filters, "status": "Approved", "is_finalized": 0}),
         "finalized": simple("Service Requests", {**sr_filters, "status": "Approved", "is_finalized": 1}),
         "amended":  simple("Service Requests", {**sr_filters, "status": "Amendment"}),
-        "all":      simple("Service Requests", {**sr_filters, "status": "Approved"}),
+        # All WO lists a Work Order under amendment too (story 21), so its count does.
+        "all":      simple("Service Requests", {**sr_filters, "status": ["in", ["Approved", "Amendment"]]}),
         "pending":  simple("Service Requests", {**sr_filters, "status": ["not in", ["Approved", "Amendment"]]}),
     }
     pay_filters = {} if is_full_access else {"project": ["in", user_projects]}

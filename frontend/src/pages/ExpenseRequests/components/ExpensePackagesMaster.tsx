@@ -15,12 +15,19 @@
 //
 // "Who gets paid" (ADR-0033, #1429): each type is Required / Optional / Not asked (the default),
 // shown in the Payee column and set in the Add / Edit dialog.
+//
+// "Confirmed as Expense Request" (spec #1494, owner 2026-10-20): a LABEL ONLY, shown in the Confirmed
+// column and ticked in the Edit dialog by Admin alone. It changes nothing about raising, intake or the
+// catalog. The fixture ships it, so a mark made here survives a migrate only once exported.
+//
+// The search and the Scope / Payee / Role Access / Confirmed filters (in their column headers, like
+// the app's other tables) narrow the loaded rows together (`utils/expenses/expensePackagesFilter`).
 
 import React, { useMemo, useState } from "react";
-import { useFrappeGetCall, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDocList, useFrappePostCall, useSWRConfig } from "frappe-react-sdk";
 import ReactSelect from "react-select";
 import { TailSpin } from "react-loader-spinner";
-import { Braces, Pencil, PlusCircle, Search, TextCursorInput } from "lucide-react";
+import { BadgeCheck, Braces, Pencil, PlusCircle, Search, TextCursorInput, X } from "lucide-react";
 
 import {
     Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -44,19 +51,17 @@ import type { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 import {
     PAYEE_RULE, PAYEE_RULES, PAYEE_RULE_HELP, asPayeeRule, countAskingWhoGetsPaid, type PayeeRule,
 } from "@/utils/payees/expensePayee";
+import {
+    ADMIN_ONLY, CONFIRMED_CHOICES, NO_PACKAGE_FILTERS, SCOPES, filterExpenseTypes, hasActiveFilters, scopeOf,
+    type PackageFilters, type ScopeLabel,
+} from "@/utils/expenses/expensePackagesFilter";
+import { SimpleFacetedFilter } from "@/pages/projects/components/SimpleFacetedFilter";
 
 // Where none of the named categories fit, a type belongs to "Uncategorized". The category is
 // no longer picked on this screen, so every new type lands here.
 const FALLBACK_CATEGORY = "Uncategorized";
 import { ExpenseFormatDialog } from "./ExpenseFormatDialog";
-
-type ScopeLabel = "Project" | "Non-Project" | "Both" | "Unusable";
-
-const scopeOf = (t: ExpenseType): ScopeLabel =>
-    t.project && t.non_project ? "Both"
-        : t.project ? "Project"
-            : t.non_project ? "Non-Project"
-                : "Unusable";
+import { RECORDS_WITHOUT_REVIEW_KEY, RecordsWithoutReviewSection } from "./RecordsWithoutReviewSection";
 
 const SCOPE_STYLE: Record<ScopeLabel, string> = {
     Project: "bg-sky-100 text-sky-800",
@@ -83,6 +88,14 @@ interface ExpenseTypeAccess {
 
 interface RoleOption { value: string; label: string }
 
+const SCOPE_OPTIONS = SCOPES.map((s) => ({ value: s, label: s }));
+const PAYEE_OPTIONS = PAYEE_RULES.map((r) => ({ value: r, label: r }));
+const CONFIRMED_OPTIONS = CONFIRMED_CHOICES.map((c) => ({ value: c, label: c }));
+
+/** The picks of a filter popover, kept to the values that filter knows. */
+const picked = <T extends string>(known: readonly T[], values: Set<string>): Set<T> =>
+    new Set(known.filter((k) => values.has(k)));
+
 interface EditState {
     open: boolean;
     /** null = adding a new type */
@@ -95,15 +108,19 @@ interface EditState {
     allowed_roles: string[];
     /** Who gets paid on a request of this type. */
     payee_rule: PayeeRule;
+    /** "Confirmed as Expense Request": a label only, Admin alone may change it. */
+    confirmed_as_request: boolean;
 }
 
 const BLANK: EditState = {
     open: false, target: null, expense_name: "", project: false, non_project: false,
     expense_category: FALLBACK_CATEGORY, allowed_roles: [], payee_rule: PAYEE_RULE.NOT_ASKED,
+    confirmed_as_request: false,
 };
 
 export const ExpensePackagesMaster: React.FC = () => {
     const [search, setSearch] = useState("");
+    const [filters, setFilters] = useState<PackageFilters>(NO_PACKAGE_FILTERS);
     const [edit, setEdit] = useState<EditState>(BLANK);
     const [formatFor, setFormatFor] = useState<ExpenseType | null>(null);
     const [toggling, setToggling] = useState<string | null>(null);
@@ -116,10 +133,13 @@ export const ExpensePackagesMaster: React.FC = () => {
     // Rename is ADMIN ONLY. This hides the button; `rename_expense_type` is the real gate.
     const { role, user_id } = useUserData();
     const isAdmin = user_id === "Administrator" || role === "Nirmaan Admin Profile";
+    // Records without review offers only profiles that can raise a type, so a type's roles changing
+    // refreshes it.
+    const { mutate: mutateKey } = useSWRConfig();
 
     const { data, isLoading, error, mutate } = useFrappeGetDocList<ExpenseType>("Expense Type", {
         fields: ["name", "expense_name", "project", "non_project", "source_format",
-                 "source_format_enabled", "expense_category", "payee_rule"],
+                 "source_format_enabled", "expense_category", "payee_rule", "confirmed_as_request"],
         limit: 0,
         orderBy: { field: "expense_name", order: "asc" },
     });
@@ -131,10 +151,14 @@ export const ExpensePackagesMaster: React.FC = () => {
         undefined,
         "expense_type_access"
     );
-    const allowedByType = accessRes?.message?.allowed_roles ?? {};
+    const allowedByType = useMemo(() => accessRes?.message?.allowed_roles ?? {}, [accessRes]);
     const roleOptions: RoleOption[] = useMemo(
         () => (accessRes?.message?.role_profiles ?? []).map((p) => ({ value: p, label: shortProfile(p) })),
         [accessRes]
+    );
+    const roleFilterOptions: RoleOption[] = useMemo(
+        () => [{ value: ADMIN_ONLY, label: "Admin only (empty list)" }, ...roleOptions],
+        [roleOptions]
     );
 
     // ADMIN-GATED endpoints, not raw doc writes: `Expense Type` carries write for ~15 roles
@@ -149,11 +173,11 @@ export const ExpensePackagesMaster: React.FC = () => {
         "nirmaan_stack.api.expense_requests.masters.rename_expense_type");
     const busy = creating || updating;
 
-    const rows = useMemo(() => {
-        const q = search.trim().toLowerCase();
-        const all = data ?? [];
-        return q ? all.filter((t) => t.name.toLowerCase().includes(q)) : all;
-    }, [data, search]);
+    const rows = useMemo(
+        () => filterExpenseTypes(data ?? [], { search, filters, allowedByType }),
+        [data, search, filters, allowedByType]
+    );
+    const filtering = hasActiveFilters(filters) || !!search.trim();
 
     const formsOn = useMemo(
         () => (data ?? []).filter((t) => !!t.source_format_enabled && (t.source_format || "").trim()).length,
@@ -232,6 +256,8 @@ export const ExpensePackagesMaster: React.FC = () => {
                     expense_category: edit.expense_category,
                     allowed_roles: edit.allowed_roles,
                     payee_rule: edit.payee_rule,
+                    // Sent only by Admin: the server refuses anyone else changing it.
+                    ...(isAdmin ? { confirmed_as_request: edit.confirmed_as_request ? 1 : 0 } : {}),
                 });
                 toast({ title: "Updated", description: edit.target.name, variant: "success" });
             } else {
@@ -248,6 +274,7 @@ export const ExpensePackagesMaster: React.FC = () => {
             setEdit(BLANK);
             mutate();
             mutateAccess();
+            mutateKey(RECORDS_WITHOUT_REVIEW_KEY);
         } catch (e) {
             toast({ title: "Could not save", description: getFrappeError(e), variant: "destructive" });
         }
@@ -278,14 +305,32 @@ export const ExpensePackagesMaster: React.FC = () => {
                 </Button>
             </div>
 
-            <div className="relative max-w-sm">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                    className="pl-8"
-                    placeholder="Search expense types…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                />
+            {/* Admin only: the endpoint behind it is admin-gated. */}
+            {isAdmin && <RecordsWithoutReviewSection />}
+
+            <div className="flex flex-wrap items-center gap-2">
+                <div className="relative w-full max-w-sm">
+                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                        className="pl-8"
+                        placeholder="Search expense types…"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                    />
+                </div>
+                {filtering && (
+                    <Button
+                        variant="ghost" size="sm"
+                        onClick={() => { setFilters(NO_PACKAGE_FILTERS); setSearch(""); }}
+                    >
+                        <X className="mr-1 h-3.5 w-3.5" /> Clear filters
+                    </Button>
+                )}
+                {filtering && (
+                    <span className="text-xs text-muted-foreground">
+                        {rows.length} of {data?.length ?? 0} shown
+                    </span>
+                )}
             </div>
 
             <div className="overflow-x-auto rounded border">
@@ -293,9 +338,51 @@ export const ExpensePackagesMaster: React.FC = () => {
                     <TableHeader>
                         <TableRow>
                             <TableHead>Expense Type</TableHead>
-                            <TableHead>Scope</TableHead>
-                            <TableHead>Payee</TableHead>
-                            <TableHead>Role Access</TableHead>
+                            <TableHead>
+                                <div className="flex items-center gap-1">
+                                    <SimpleFacetedFilter
+                                        title="Scope"
+                                        options={SCOPE_OPTIONS}
+                                        selectedValues={new Set<string>(filters.scopes)}
+                                        onSelectedValuesChange={(v) => setFilters((f) => ({ ...f, scopes: picked(SCOPES, v) }))}
+                                    />
+                                    <span>Scope</span>
+                                </div>
+                            </TableHead>
+                            <TableHead>
+                                <div className="flex items-center gap-1">
+                                    <SimpleFacetedFilter
+                                        title="Payee"
+                                        options={PAYEE_OPTIONS}
+                                        selectedValues={new Set<string>(filters.payeeRules)}
+                                        onSelectedValuesChange={(v) => setFilters((f) => ({ ...f, payeeRules: picked(PAYEE_RULES, v) }))}
+                                    />
+                                    <span>Payee</span>
+                                </div>
+                            </TableHead>
+                            <TableHead>
+                                <div className="flex items-center gap-1">
+                                    <SimpleFacetedFilter
+                                        title="Role Access"
+                                        options={roleFilterOptions}
+                                        selectedValues={new Set<string>(filters.roles)}
+                                        onSelectedValuesChange={(v) => setFilters((f) => ({ ...f, roles: v }))}
+                                        contentClassName="w-[260px]"
+                                    />
+                                    <span>Role Access</span>
+                                </div>
+                            </TableHead>
+                            <TableHead>
+                                <div className="flex items-center gap-1">
+                                    <SimpleFacetedFilter
+                                        title="Confirmed"
+                                        options={CONFIRMED_OPTIONS}
+                                        selectedValues={new Set<string>(filters.confirmed)}
+                                        onSelectedValuesChange={(v) => setFilters((f) => ({ ...f, confirmed: picked(CONFIRMED_CHOICES, v) }))}
+                                    />
+                                    <span>Confirmed</span>
+                                </div>
+                            </TableHead>
                             <TableHead>JSON Format</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
@@ -346,6 +433,18 @@ export const ExpensePackagesMaster: React.FC = () => {
                                         </div>
                                     </TableCell>
                                     <TableCell>
+                                        {t.confirmed_as_request ? (
+                                            <Badge
+                                                title="Confirmed as Expense Request (a label only)"
+                                                className="whitespace-nowrap bg-emerald-100 text-emerald-800 hover:bg-emerald-100"
+                                            >
+                                                <BadgeCheck className="mr-1 h-3.5 w-3.5" /> Confirmed
+                                            </Badge>
+                                        ) : (
+                                            <span className="text-xs text-muted-foreground">—</span>
+                                        )}
+                                    </TableCell>
+                                    <TableCell>
                                         <div className="flex flex-col gap-1">
                                             <label
                                                 className="flex items-center gap-2"
@@ -376,6 +475,7 @@ export const ExpensePackagesMaster: React.FC = () => {
                                                 expense_category: t.expense_category || FALLBACK_CATEGORY,
                                                 allowed_roles: roles,
                                                 payee_rule: payeeRule,
+                                                confirmed_as_request: !!t.confirmed_as_request,
                                             })}
                                         >
                                             <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
@@ -397,8 +497,10 @@ export const ExpensePackagesMaster: React.FC = () => {
                         })}
                         {rows.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
-                                    No expense types match “{search}”.
+                                <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
+                                    {filtering
+                                        ? "No expense types match the search and filters."
+                                        : "No expense types yet."}
                                 </TableCell>
                             </TableRow>
                         )}
@@ -513,6 +615,24 @@ export const ExpensePackagesMaster: React.FC = () => {
                                 ))}
                             </RadioGroup>
                         </fieldset>
+
+                        {/* Admin only: the server refuses anyone else changing it. */}
+                        {edit.target && isAdmin && (
+                            <label className="flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-sm leading-snug">
+                                <Checkbox
+                                    className="mt-0.5"
+                                    checked={edit.confirmed_as_request}
+                                    onCheckedChange={(v) => setEdit((s) => ({ ...s, confirmed_as_request: !!v }))}
+                                />
+                                <span>
+                                    <span className="font-semibold">Confirmed as Expense Request</span>
+                                    <span className="block text-[13px] text-muted-foreground">
+                                        A label only: it changes nothing about raising or approving
+                                        requests. Export the fixture to keep it past a deployment.
+                                    </span>
+                                </span>
+                            </label>
+                        )}
                     </div>
 
                     <DialogFooter>

@@ -20,8 +20,9 @@ import { canUndoOutflow } from "../outflowImportStatus";
 import { describeFrappeError } from "../outflowTableModel";
 
 /**
- * Discard an import its own Create has not written to: Porter (#1447) and Credit Card (#1566). Admin and
- * Accountant Lead only (`canUndoOutflow`); renders nothing when `offered` says no. Asks first, then posts
+ * Discard an import its own Create has not written to: Porter (#1447) and Credit Card (#1566). `offered` gets
+ * whether the user is Admin or Accountant Lead (`canUndoOutflow`) and decides: a Credit Card import asks for
+ * that, a Porter import does not (#1557). Renders nothing when `offered` says no. Asks first, then posts
  * `{batch}` to `method`; `onDiscarded` runs once the server has deleted it. The server asks every rule again.
  */
 export const ImportDiscardButton = ({

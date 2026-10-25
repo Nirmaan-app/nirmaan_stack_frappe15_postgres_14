@@ -55,9 +55,12 @@ const ACCOUNTANT_PROFILES: readonly string[] = [
  * Who may delete a PO payment (owner, 2026-09-29). Paid: nobody. Admin: every other status.
  * Accountants: Approved only. Admin, PMO, Project Lead and procurement: Requested,
  * Reconciliation Pending and Rejected. Design, HR, Sales, Estimates and Billing: never.
+ * Reconciliation Pending only for a cheque payment, whose money waits on its cheque: an Online one's has
+ * left the bank, and the server refuses its delete (`project_payments.refuse_deleting_settled_money`).
  */
-const canDeletePayment = (status: string | undefined, role: string): boolean => {
+const canDeletePayment = (status: string | undefined, role: string, mode?: string): boolean => {
   if (status === "Paid") return false;
+  if (status === "Reconciliation Pending" && mode !== "Cheque") return false;
   if (role === ADMIN_PROFILE) return true;
   if (ACCOUNTANT_PROFILES.includes(role)) return status === "Approved";
   if (status === "Approved" || status === "CEO Pending") return false;
@@ -81,6 +84,7 @@ import { mergePaymentsAndRefunds, VendorRefundTableRow } from "@/components/vend
 import { WaitingRefundActions } from "@/components/vendor-refunds/WaitingRefundActions";
 import { PaymentUtrOrCheque } from "@/components/cheques/PaymentUtrOrCheque";
 import { useChequeChips } from "@/components/cheques/useChequeChips";
+import { listedInTransactionDetails } from "@/utils/cheques/transactionDetails";
 // import RequestPaymentDialog from "../ProjectPayments/request-payment-dialog";
 
 interface TransactionDetailsCardProps {
@@ -124,9 +128,11 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
 
   // Refunds against this PO sit in the payments table as their own rows (badge "Vendor Refund").
   const { refunds } = useVendorRefunds(poRefundsTarget(PO?.name ?? ""));
-  const transactionRows = useMemo(() => mergePaymentsAndRefunds(poPayments, refunds), [poPayments, refunds]);
+  // A cheque payment is listed only once it is Paid (#1519); the PO's cheque card shows it before that.
+  const listedPayments = useMemo(() => (poPayments || []).filter(listedInTransactionDetails), [poPayments]);
+  const transactionRows = useMemo(() => mergePaymentsAndRefunds(listedPayments, refunds), [listedPayments, refunds]);
   // The cheque chip's number and status for every payment on a Cheque: one call for the card (#1416).
-  const chequeChips = useChequeChips((poPayments || []).map((p) => p.cheque));
+  const chequeChips = useChequeChips(listedPayments.map((p) => p.cheque));
 
   const [newPaymentDialog, setNewPaymentDialog] = useState(false);
   const toggleNewPaymentDialog = useCallback(() => {
@@ -273,7 +279,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                   </div>
                   <div className="flex items-center justify-between">
                     <Label className=" text-red-700">PO Amt incl. Tax:</Label>
-                    <span className="">{formatToRoundedIndianRupee(Math.floor(getTotal?.totalWithTax || 0))}</span>
+                    <span className="">{formatToRoundedIndianRupee(getTotal?.totalWithTax || 0)}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <Label className=" text-red-700">Amt Paid Till Now:</Label>
@@ -430,7 +436,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                     <TableCell className="text-red-500 text-end w-[5%]">
                       {/* The row's status and the reader's role decide (`canDeletePayment`), the same on
                           every route that opens the PO. */}
-                      {canDeletePayment(payment?.status, role) &&
+                      {canDeletePayment(payment?.status, role, payment?.mode_of_payment) &&
                         <Button
                           variant="ghost"
                           size="icon"

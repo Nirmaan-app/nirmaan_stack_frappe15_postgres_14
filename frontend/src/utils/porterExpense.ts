@@ -5,9 +5,20 @@
 // nothing else marks it. Its project is changed by Rectify in Bulk Import, never by the edit dialog,
 // because the import's match record has to follow the move.
 
+import { NPE_DEFAULT_URL_CONTEXT, NPE_LIST_PATH, NPE_STATUS_TAB_PARAM, npeListUrlSyncKey } from "@/pages/NonProjectExpenses/config/nonProjectExpensesUrl";
+import { PE_LIST_PATH, PE_STATUS_TAB_PARAM, peListUrlSyncKey } from "@/pages/ProjectExpenses/config/projectExpensesUrl";
+import { encodeFiltersForUrl } from "@/hooks/useServerDataTable";
+import { plural } from "@/pages/outflow-import/porterWords";
 import formatToIndianRupee, { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 
-export const RECTIFY_HINT = "Use Rectify in Bulk Import";
+/**
+ * Rectify's name on screen (#1558): the Bulk Import line's button, and the locked-project hint on an expense.
+ * The domain term stays Rectify (GLOSSARY.md).
+ */
+export const MOVE_ORDER_LABEL = "Move to another project";
+
+/** The Bulk Import URL parameter naming the Outflow Import Row whose move dialog opens on arrival. */
+export const MOVE_URL_KEY = "move";
 
 /** What `api/outflow_import/porter_expense.get_porter_expense` returns for a Porter Expense. */
 export interface PorterExpenseSection {
@@ -24,6 +35,9 @@ export interface PorterExpenseSection {
 	pdf_url: string;
 	project: string | null;
 	project_name: string | null;
+	/** The import and the line the order came from; null when the Porter Order has no line. */
+	import_batch: string | null;
+	import_row: string | null;
 }
 
 /** Whether the expense came from a Porter Statement import (the badge, and every lock below). */
@@ -34,7 +48,67 @@ export const isPorterExpense = (expense: { porter_order?: string | null } | null
 export const projectField = (
 	expense: { porter_order?: string | null } | null | undefined
 ): { locked: false } | { locked: true; hint: string } =>
-	isPorterExpense(expense) ? { locked: true, hint: RECTIFY_HINT } : { locked: false };
+	isPorterExpense(expense) ? { locked: true, hint: MOVE_ORDER_LABEL } : { locked: false };
+
+/**
+ * Where the hint links: Bulk Import on the order's import, the Settled tab searched to its CRN, with the move
+ * dialog open on its line (`OutflowMasterPage` reads `MOVE_URL_KEY` and the router state). Null, so the hint
+ * stays plain text, while the line is not known.
+ */
+export const moveOrderLink = (
+	section: Pick<PorterExpenseSection, "crn" | "import_batch" | "import_row"> | null
+): { to: string; state: { outflowTab: "matchedOutflow"; outflowSearch: string } } | null => {
+	if (!section?.import_batch || !section.import_row) return null;
+	return {
+		to: `/bulk-import-transactions/${encodeURIComponent(section.import_batch)}?${MOVE_URL_KEY}=${encodeURIComponent(section.import_row)}`,
+		state: { outflowTab: "matchedOutflow", outflowSearch: section.crn },
+	};
+};
+
+const PAID = "Paid";
+
+/** Each expense list Create's result links to: where it lives, and the URL keys it reads its state from. */
+const EXPENSE_LISTS = [
+	{
+		doctype: "Project Expenses",
+		path: PE_LIST_PATH,
+		statusParam: PE_STATUS_TAB_PARAM,
+		filtersParam: `${peListUrlSyncKey(undefined, PAID)}_filters`,
+		noun: ["project expense", "project expenses"],
+	},
+	{
+		doctype: "Non Project Expenses",
+		path: NPE_LIST_PATH,
+		statusParam: NPE_STATUS_TAB_PARAM,
+		filtersParam: `${npeListUrlSyncKey(NPE_DEFAULT_URL_CONTEXT)}_filters`,
+		noun: ["non-project expense", "non-project expenses"],
+	},
+] as const;
+
+/**
+ * Create's "View the N expenses" (#1561): one link per expense list the import's expenses are on, opening its
+ * Paid tab filtered to those Porter Orders (`created` is `get_porter_status`'s `created_expenses`: CRNs by
+ * doctype). One list reads "View the N expenses"; both name which. Empty before any expense exists.
+ *
+ * ⚠️ THE FILTER RIDES THE LIST'S OWN URL STATE (`useServerDataTable`'s `<key>_filters`, base64 JSON of the
+ * column filters, as its `encodeFiltersForUrl` writes it): a column filter on `porter_order` becomes a Frappe
+ * `in` filter, and the list's Reset clears it.
+ */
+export const createdExpenseLinks = (
+	created: Record<string, string[]> | null | undefined
+): { label: string; to: string }[] => {
+	const lists = EXPENSE_LISTS.map((list) => ({ list, crns: created?.[list.doctype] ?? [] })).filter(
+		({ crns }) => crns.length > 0
+	);
+	return lists.map(({ list, crns }) => {
+		const [one, many] = lists.length > 1 ? list.noun : ["expense", "expenses"];
+		const params = new URLSearchParams({
+			[list.statusParam]: PAID,
+			[list.filtersParam]: encodeFiltersForUrl([{ id: "porter_order", value: crns }]) ?? "",
+		});
+		return { label: `View the ${plural(crns.length, one, many)}`, to: `${list.path}?${params}` };
+	});
+};
 
 /** Serves a Porter Expense's invoice PDF (`api/outflow_import/porter_expense.porter_invoice_pdf`). */
 export const PORTER_INVOICE_PDF_METHOD = "nirmaan_stack.api.outflow_import.porter_expense.porter_invoice_pdf";

@@ -32,11 +32,10 @@ import {
   usePOAdjustment,
   type POAdjustmentDoc,
 } from "@/pages/POAdjustment/data/usePOAdjustmentQueries";
-import { canWriteOffAdjustment } from "@/pages/POAdjustment/data/usePOAdjustmentMutations";
 import { WriteOffDialog } from "@/pages/POAdjustment/WriteOffDialog";
 import { writableOnWriteOff } from "@/pages/POAdjustment/adjustmentOffer";
 import { useUserData } from "@/hooks/useUserData";
-import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES, isNirmaanAdmin } from "@/constants/roles";
 
 interface PORevisionsAndAdjustmentsProps {
   poId: string;
@@ -192,7 +191,7 @@ export const PORevisionsAndAdjustments: React.FC<
               {hasAdjustments && (
                 <AdjustmentsList
                   adjustment={adjustment!}
-                  canWriteOff={canWriteOffAdjustment(role, user_id)}
+                  canWriteOff={isNirmaanAdmin(role, user_id)}
                   onWrittenOff={mutateAdjustment}
                 />
               )}

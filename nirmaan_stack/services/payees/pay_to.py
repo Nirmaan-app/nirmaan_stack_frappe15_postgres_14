@@ -10,7 +10,7 @@ copy as it was.
 * `copy_payee_account(doc, payee)` -- THE copy: a Payee's account into `doc`'s pay-to fields (None
   clears them). Every copier calls it.
 * `apply_picked_payee(doc, payee)` -- the Payee picked in Who gets paid, unless a vendor is named (the
-  request endpoints and the Direct Expense create, `api/expenses/direct_expense`).
+  request endpoints).
 * `copy_vendor_account(doc)` -- the same, from `doc.vendor`'s Payee.
 * `set_pay_to(doc, account)` -- an account already read into `doc`'s pay-to fields (paying a PO / WO
   payment into the vendor account its answer named, `take_vendor_account`).
@@ -22,8 +22,9 @@ copy as it was.
   Payee, copied on insert only (`integrations/controllers/project_payments.validate`).
 * `pay_to_account(row)` -- the copy in a Payee's field names, for a screen; None when blank.
 
-The server enforces no edit rule on a copy (owner, 2026-10-15): who may change it, and when, are screen
-rules.
+The server enforces no edit rule on a copy here (owner, 2026-10-15), with one exception: an Expense's
+copy is payment information, so who may change it and when is `expense_decision.assert_may_edit`
+(Accounts until Reconciliation Pending, then nobody; ADR-0033 Amendment A).
 """
 
 from __future__ import annotations
@@ -57,7 +58,7 @@ def set_pay_to(doc, account: dict | None) -> None:
 
 
 def apply_picked_payee(doc, payee: str | None) -> None:
-    """The rule of a record raised with Who gets paid (an Expense Request, a Direct Expense): copy the
+    """The rule of a record raised with Who gets paid (an Expense Request): copy the
     Payee picked into its pay-to account (None clears it), unless it names a vendor: then the save
     copies the vendor's Payee (`fill_from_vendor`) and the Payee sent is ignored. A Payee that does not
     exist is refused (`frappe.DoesNotExistError`), so a stale pick never saves a record with no

@@ -19,6 +19,10 @@ EACH COMPLETED LINE, IN ONE TRANSACTION, COMMITTED BEFORE THE NEXT
 ⚠️ ONLY A VALIDATED IMPORT IS CREATED. The endpoint refuses anything else, and the job asks again before
 it writes (`porter_records.is_validated`): every Porter Invoice must have Passed, and there is no override.
 
+⚠️ ONLY ONCE NO ORDER NEEDS A PERSON (#1560). The endpoint refuses while any order is a Check, unplaced, or
+in a remark group placed differently (`porter_state.placement_kinds`). A blank no longer becomes
+Non-Project here: an order is Non-Project because a Strong placement (history) or a person put it there.
+
 ⚠️ IT RESUMES, AND IT RE-CREATES WHAT WAS UNRECONCILED. The job writes every line whose status is in
 `porter_state.CREATE_LINE_STATUSES` -- waiting, failed on an earlier run (Error), or reopened by Unreconcile
 (Mismatched, #1449) -- and nothing else. A Settled line is never written twice: each line is re-read
@@ -48,6 +52,7 @@ from nirmaan_stack.api.outflow_import.porter_records import (
     ROW_DOCTYPE,
     create_job_id,
     is_validated,
+    orders_needing_a_person,
     porter_import_states,
     refuse_unless_porter_import,
     won_refusal,
@@ -88,7 +93,9 @@ def create_porter_expenses(batch: str):
     URL: /api/method/nirmaan_stack.api.outflow_import.porter_create.create_porter_expenses  (POST `batch`)
 
     Refused unless every Porter Invoice of the import has Passed (Validating and Validation failed name
-    themselves), and once every completed order is created. Otherwise enqueues the job, de-duplicated
+    themselves), once every completed order is created, and while any order still needs a person
+    (`porter_records.orders_needing_a_person`, #1560): no order becomes a Non-Project Expense unless
+    someone chose Not a project for it. Otherwise enqueues the job, de-duplicated
     per import (`porter-create-<batch>`): pressing it twice, or while it runs, queues it once. Pressing it
     again after a run that left a line in Error, or after a line was unreconciled, creates only those.
     """
@@ -103,6 +110,13 @@ def create_porter_expenses(batch: str):
         )
     if state == IMPORT_CREATED:
         frappe.throw(f"Every order of {batch} is already created.", title="Already created")
+    left = orders_needing_a_person(batch)
+    if left:
+        frappe.throw(
+            f"{left} order{' still needs' if left == 1 else 's still need'} a project. In Choose projects, "
+            "choose a project or Not a project for each, then create.",
+            title="Orders need a project",
+        )
     frappe.enqueue(
         _JOB,
         queue="long",
@@ -203,7 +217,8 @@ def _create_one(name: str, batch: str, actor: str, invoices: dict[str, ExpenseIn
     # line to Non-Project behind the reviewer's back. A person re-places it in Review, then re-runs.
     refusal = project and won_refusal(project)
     if refusal:
-        raise _LineRefused(f"{refusal} Place this order again in Review, then run Create again.")
+        # The result names this line with this sentence and a "Choose project" fix (#1561).
+        raise _LineRefused(f"{refusal} Choose a Won project for this order, then try again.")
     statement = statement_line(row.porter_line)
     order = _porter_order(row, statement)
     project_name = frappe.db.get_value("Projects", project, "project_name") if project else ""

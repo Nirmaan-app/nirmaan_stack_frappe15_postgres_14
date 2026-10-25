@@ -23,18 +23,41 @@ export interface DesignTaskTemplate {
 
 export interface DesignCategory {
     category_name: string;
+    /** Work Package this design category belongs to; empty until set on the category. */
+    work_package?: string | null;
     tasks: DesignTaskTemplate[];
 }
 
 export interface CriticalPOCategoryType {
     name: string;
     category_name: string;
+    work_package?: string | null;
+}
+
+/** One row of `get_convert_boq_options` — a BoQ the convert wizard's BOQ step can offer. */
+export interface ConvertBoqOption {
+    name: string;
+    boq_name: string;
+    version: number;
+    origin: string;
+    source_boq: string | null;
+    status: string;
+    uploaded_at: string | null;
+    uploaded_by_name: string | null;
+    /** Highest version among the offered BoQs sharing this boq_name. */
+    is_latest: boolean;
+    committed_sheets: number;
+    /** Work Packages derived from the BoQ's current committed sheets. */
+    packages: string[];
+    /** Work Headers on those sheets with no package link (e.g. ELV System). */
+    unmapped_headers: string[];
 }
 
 export interface DesignMasterDataResponse {
     message: {
         categories: Array<{
             category_name: string;
+            work_package?: string | null;
             tasks: Array<{
                 task_name: string;
                 deadline_offset?: number;
@@ -54,6 +77,7 @@ export const projectFormKeys = {
     workHeaders: () => ["project-form", "work-headers"] as const,
     designMasterData: () => ["project-form", "design-master-data"] as const,
     criticalPOCategories: () => ["project-form", "critical-po-categories"] as const,
+    convertBoqOptions: (projectId: string) => ["project-form", "convert-boq-options", projectId] as const,
     pincode: (pincode: string) => ["project-form", "pincode", pincode] as const
 };
 
@@ -213,11 +237,28 @@ export const useProjectFormDesignMasterData = () => {
     return response;
 };
 
+/** Convert mode only: the stub's open BoQs. Pass no projectId to skip the fetch. */
+export const useConvertBoqOptions = (projectId?: string) => {
+    const response = useFrappeGetCall<{ message: { boqs: ConvertBoqOption[] } }>(
+        "nirmaan_stack.api.projects.convert_boq_options.get_convert_boq_options",
+        { project: projectId },
+        projectId ? projectFormKeys.convertBoqOptions(projectId) : null
+    );
+
+    useApiErrorLogger(response.error, {
+        hook: "useConvertBoqOptions",
+        api: "get_convert_boq_options",
+        feature: "project-form",
+    });
+
+    return response;
+};
+
 export const useProjectFormCriticalPOCategories = () => {
     const response = useFrappeGetDocList<CriticalPOCategoryType>(
         "Critical PO Category",
         {
-            fields: ["name", "category_name"],
+            fields: ["name", "category_name", "work_package"],
             limit: 0,
         },
         projectFormKeys.criticalPOCategories()
