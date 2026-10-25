@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { useUserData } from "@/hooks/useUserData";
@@ -16,8 +17,8 @@ import { PorterProjectSelect, projectOptions } from "./PorterProjectSelect";
 /**
  * The result of Create (#1561): each order it could not create, named with the reason it stored and the fix
  * on the same row -- "Choose project" places that order again (Review's own placement call), "Try again"
- * runs Create for what is left -- or "All N expenses created."; then the links to the created expenses and
- * to Move. Renders nothing before Create has run, or while its job runs.
+ * runs Create for what is left -- or "All N expenses created."; then the links to the created Expenses (in
+ * the Expense lists) and to Move. Renders nothing before Create has run, or while its job runs.
  */
 export const PorterResult = ({
     status,
@@ -32,7 +33,7 @@ export const PorterResult = ({
     creating: boolean;
     /** A failed order was placed again: the dialog re-reads the import, so its fix turns to Try again. */
     onPlaced: () => void;
-    /** Close the dialog on Bulk Import pinned to this import's created lines (the Settled tab). */
+    /** Close the dialog on Bulk Import pinned to this import's created lines (the Settled tab): Move. */
     onOpenLines: () => void;
 }) => {
     const { role, user_id } = useUserData();
@@ -82,12 +83,15 @@ export const PorterResult = ({
                     </table>
                 </div>
             )}
-            {/* Both open the import's created lines in Bulk Import: each opens its Expense and carries Move. */}
-            {result.expensesLabel && (
+            {/* The created Expenses open in their own lists, filtered to this import's orders; Move opens the
+                import's created lines in Bulk Import, where each line carries Move. */}
+            {(result.expenseLinks.length > 0 || result.moveLabel) && (
                 <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" size="sm" onClick={onOpenLines}>
-                        {result.expensesLabel}
-                    </Button>
+                    {result.expenseLinks.map((link) => (
+                        <Button key={link.to} variant="outline" size="sm" asChild>
+                            <Link to={link.to}>{link.label}</Link>
+                        </Button>
+                    ))}
                     {result.moveLabel && (
                         <Button variant="outline" size="sm" onClick={onOpenLines}>
                             {result.moveLabel}

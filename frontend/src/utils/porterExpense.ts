@@ -5,6 +5,9 @@
 // nothing else marks it. Its project is changed by Rectify in Bulk Import, never by the edit dialog,
 // because the import's match record has to follow the move.
 
+import { NPE_DEFAULT_URL_CONTEXT, NPE_LIST_PATH, NPE_STATUS_TAB_PARAM, npeListUrlSyncKey } from "@/pages/NonProjectExpenses/config/nonProjectExpensesUrl";
+import { PE_LIST_PATH, PE_STATUS_TAB_PARAM, peListUrlSyncKey } from "@/pages/ProjectExpenses/config/projectExpensesUrl";
+import { plural } from "@/pages/outflow-import/porterWords";
 import formatToIndianRupee, { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 
 /**
@@ -59,6 +62,50 @@ export const moveOrderLink = (
 		to: `/bulk-import-transactions/${encodeURIComponent(section.import_batch)}?${MOVE_URL_KEY}=${encodeURIComponent(section.import_row)}`,
 		state: { outflowTab: "matchedOutflow", outflowSearch: section.crn },
 	};
+};
+
+const PAID = "Paid";
+
+/** Each expense list Create's result links to: where it lives, and the URL keys it reads its state from. */
+const EXPENSE_LISTS = [
+	{
+		doctype: "Project Expenses",
+		path: PE_LIST_PATH,
+		statusParam: PE_STATUS_TAB_PARAM,
+		filtersParam: `${peListUrlSyncKey(undefined, PAID)}_filters`,
+		noun: ["project expense", "project expenses"],
+	},
+	{
+		doctype: "Non Project Expenses",
+		path: NPE_LIST_PATH,
+		statusParam: NPE_STATUS_TAB_PARAM,
+		filtersParam: `${npeListUrlSyncKey(NPE_DEFAULT_URL_CONTEXT)}_filters`,
+		noun: ["non-project expense", "non-project expenses"],
+	},
+] as const;
+
+/**
+ * Create's "View the N expenses" (#1561): one link per expense list the import's expenses are on, opening its
+ * Paid tab filtered to those Porter Orders (`created` is `get_porter_status`'s `created_expenses`: CRNs by
+ * doctype). One list reads "View the N expenses"; both name which. Empty before any expense exists.
+ *
+ * ⚠️ THE FILTER RIDES THE LIST'S OWN URL STATE (`useServerDataTable`'s `<key>_filters`, base64 JSON of the
+ * column filters, as its `encodeFiltersForUrl` writes it): a column filter on `porter_order` becomes a Frappe
+ * `in` filter, and the list's Reset clears it.
+ */
+export const createdExpenseLinks = (
+	created: Record<string, string[]> | null | undefined
+): { label: string; to: string }[] => {
+	const lists = EXPENSE_LISTS.filter((list) => (created?.[list.doctype] ?? []).length > 0);
+	return lists.map((list) => {
+		const crns = created![list.doctype];
+		const [one, many] = lists.length > 1 ? list.noun : ["expense", "expenses"];
+		const params = new URLSearchParams({
+			[list.statusParam]: PAID,
+			[list.filtersParam]: btoa(JSON.stringify([{ id: "porter_order", value: crns }])),
+		});
+		return { label: `View the ${plural(crns.length, one, many)}`, to: `${list.path}?${params}` };
+	});
 };
 
 /** Serves a Porter Expense's invoice PDF (`api/outflow_import/porter_expense.porter_invoice_pdf`). */

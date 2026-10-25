@@ -49,6 +49,7 @@ from nirmaan_stack.api.outflow_import.porter_records import (
     BATCH_DOCTYPE,
     SOURCE,
     created_anything,
+    created_expenses,
     failed_lines,
     porter_progress,
     refuse_unless_porter_import,
@@ -289,6 +290,8 @@ def porter_status(batch: str) -> dict:
         "progress": progress,
         # Each line Create could not create: its CRN, the note it stored and its fix (#1561).
         "failed_lines": failed_lines(batch),
+        # The Porter Orders that have an Expense, by expense doctype: "View the N expenses" (#1561).
+        "created_expenses": created_expenses(batch) if by_status.get(ROW_SETTLED) else {},
         "invoices": [
             {
                 "name": invoice.name,

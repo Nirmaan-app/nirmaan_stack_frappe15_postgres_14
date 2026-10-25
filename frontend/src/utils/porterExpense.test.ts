@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+	createdExpenseLinks,
 	invoiceAttachmentUrl,
 	isPorterExpense,
 	PORTER_INVOICE_PDF_METHOD,
@@ -130,5 +131,39 @@ describe("invoiceAttachmentUrl (the list pages' invoice link)", () => {
 	it("is null when there is no attachment, Porter or not", () => {
 		expect(invoiceAttachmentUrl("Project Expenses", { name: "PE-1", porter_order: "CRN1" })).toBeNull();
 		expect(invoiceAttachmentUrl("Project Expenses", { name: "PE-1", invoice_attachment: "" })).toBeNull();
+	});
+});
+
+describe("createdExpenseLinks (Create's \"View the N expenses\", #1561)", () => {
+	const filtersOf = (to: string, key: string) => {
+		const url = new URL(to, "https://x.test");
+		return { path: url.pathname, url, filters: JSON.parse(atob(url.searchParams.get(key) ?? "")) };
+	};
+
+	it("opens the Paid Project Expenses list filtered to the import's orders when all are on projects", () => {
+		const [link, ...rest] = createdExpenseLinks({ "Project Expenses": ["CRN1", "CRN2"] });
+		expect(rest).toEqual([]);
+		expect(link.label).toBe("View the 2 expenses");
+		const { path, url, filters } = filtersOf(link.to, "project_expenses_list_all_paid_filters");
+		expect(path).toBe("/expense/project");
+		expect(url.searchParams.get("pe_status")).toBe("Paid");
+		expect(filters).toEqual([{ id: "porter_order", value: ["CRN1", "CRN2"] }]);
+	});
+
+	it("gives one link per list when the import's expenses span both", () => {
+		const links = createdExpenseLinks({ "Project Expenses": ["CRN1", "CRN2"], "Non Project Expenses": ["CRN3"] });
+		expect(links.map((link) => link.label)).toEqual([
+			"View the 2 project expenses",
+			"View the 1 non-project expense",
+		]);
+		const { path, url, filters } = filtersOf(links[1].to, "npe_npe_default_filters");
+		expect(path).toBe("/expense/non-project");
+		expect(url.searchParams.get("npe_status")).toBe("Paid");
+		expect(filters).toEqual([{ id: "porter_order", value: ["CRN3"] }]);
+	});
+
+	it("gives none before any expense exists", () => {
+		expect(createdExpenseLinks({})).toEqual([]);
+		expect(createdExpenseLinks(undefined)).toEqual([]);
 	});
 });

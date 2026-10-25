@@ -2,7 +2,10 @@
 //
 // The Porter import's result after Create (#1561, spec #1554 stories 47-52), as pure data. No React, no fetch.
 // `PorterResult` renders it under the import's summary: each order Create could not create, named with the
-// reason Create stored and its fix on the same row, then links to the created expenses and to Move.
+// reason Create stored and its fix on the same row, then links to the created Expenses (their own lists,
+// filtered to the import's orders) and to Move.
+
+import { createdExpenseLinks } from "@/utils/porterExpense";
 
 import { plural } from "./porterWords";
 
@@ -38,8 +41,8 @@ export interface PorterResultView {
     /** "N orders couldn't be created" or "All N expenses created."; null when neither is true yet. */
     heading: string | null;
     failed: FailedRow[];
-    /** Null until an expense exists. */
-    expensesLabel: string | null;
+    /** "View the N expenses": one link per expense list the created expenses are on; empty until one exists. */
+    expenseLinks: { label: string; to: string }[];
     /** Null until an expense exists, and for anyone who may not move an order. */
     moveLabel: string | null;
 }
@@ -57,6 +60,7 @@ export const porterResult = (
               created: number;
               create_running: boolean;
               failed_lines?: PorterFailedLine[];
+              created_expenses?: Record<string, string[]>;
           }
         | null
         | undefined,
@@ -81,7 +85,7 @@ export const porterResult = (
     return {
         heading,
         failed,
-        expensesLabel: created ? `View the ${plural(status.created, "expense", "expenses")}` : null,
+        expenseLinks: createdExpenseLinks(status.created_expenses),
         // Move (Rectify) is Admin and Accountant Lead only, as the lines' Move button is (`canUndoOutflow`).
         moveLabel: created && canMove ? "Move an order to another project" : null,
     };

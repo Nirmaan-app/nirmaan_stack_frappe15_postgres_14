@@ -2,6 +2,8 @@
 // with its reason and its fix, and the two links.
 import { describe, expect, it } from "vitest";
 
+import { createdExpenseLinks } from "@/utils/porterExpense";
+
 import { type PorterFailedLine, porterResult } from "./porterResult";
 
 const line = (over: Partial<PorterFailedLine> = {}): PorterFailedLine => ({
@@ -20,6 +22,7 @@ const status = (over: Partial<NonNullable<Parameters<typeof porterResult>[0]>> =
     created: 158,
     create_running: false,
     failed_lines: [line(), line({ name: "OIR-0002", crn: "CRN88530", note: "Could not create this expense. Run Create again.", fix: "retry", project: null, project_name: null })],
+    created_expenses: { "Project Expenses": ["CRN1", "CRN2"] },
     ...over,
 });
 
@@ -46,7 +49,7 @@ describe("porterResult", () => {
                     action: "Try again",
                 },
             ],
-            expensesLabel: "View the 158 expenses",
+            expenseLinks: createdExpenseLinks({ "Project Expenses": ["CRN1", "CRN2"] }),
             moveLabel: "Move an order to another project",
         });
         expect(porterResult(status({ failed_lines: [line()], created: 159 }), LEAD)?.heading).toBe(
@@ -58,7 +61,7 @@ describe("porterResult", () => {
         expect(porterResult(status({ state: "Created", created: 160, failed_lines: [] }), LEAD)).toEqual({
             heading: "All 160 expenses created.",
             failed: [],
-            expensesLabel: "View the 160 expenses",
+            expenseLinks: createdExpenseLinks({ "Project Expenses": ["CRN1", "CRN2"] }),
             moveLabel: "Move an order to another project",
         });
         expect(porterResult(status({ state: "Created", created: 1, failed_lines: [] }), LEAD)?.heading).toBe(
@@ -76,18 +79,30 @@ describe("porterResult", () => {
         expect(porterResult(status({ created: 159, failed_lines: [] }), LEAD)).toEqual({
             heading: null,
             failed: [],
-            expensesLabel: "View the 159 expenses",
+            expenseLinks: createdExpenseLinks({ "Project Expenses": ["CRN1", "CRN2"] }),
             moveLabel: "Move an order to another project",
         });
     });
 
     it("offers neither link before any expense exists", () => {
-        const result = porterResult(status({ created: 0 }), LEAD);
-        expect([result?.expensesLabel, result?.moveLabel]).toEqual([null, null]);
+        const result = porterResult(status({ created: 0, created_expenses: {} }), LEAD);
+        expect([result?.expenseLinks, result?.moveLabel]).toEqual([[], null]);
     });
 
     it("offers Move only to someone who may move an order", () => {
         const result = porterResult(status(), { canMove: false });
-        expect([result?.expensesLabel, result?.moveLabel]).toEqual(["View the 158 expenses", null]);
+        expect(result?.expenseLinks.map((link) => link.label)).toEqual(["View the 2 expenses"]);
+        expect(result?.moveLabel).toBeNull();
+    });
+
+    it("opens the created Expenses, one link per expense list they are on (#1561)", () => {
+        const both = porterResult(
+            status({ created_expenses: { "Project Expenses": ["CRN1"], "Non Project Expenses": ["CRN2", "CRN3"] } }),
+            LEAD,
+        );
+        expect(both?.expenseLinks.map((link) => [link.label, link.to.split("?")[0]])).toEqual([
+            ["View the 1 project expense", "/expense/project"],
+            ["View the 2 non-project expenses", "/expense/non-project"],
+        ]);
     });
 });

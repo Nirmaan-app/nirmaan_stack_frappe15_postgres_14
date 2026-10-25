@@ -56,6 +56,7 @@ import {
   NPE_DATE_COLUMNS,
 } from "./config/nonProjectExpensesTable.config";
 import { getNonProjectExpenseColumns } from "./config/nonProjectExpensesColumns";
+import { NPE_DEFAULT_URL_CONTEXT, NPE_STATUS_TAB_PARAM, npeListUrlSyncKey } from "./config/nonProjectExpensesUrl";
 
 // --- Child Components ---
 import { NewNonProjectExpense } from "./components/NewNonProjectExpense";
@@ -67,9 +68,6 @@ import { getFrappeError } from "@/utils/frappeErrors";
 
 const DOCTYPE = "Non Project Expenses";
 
-// URL param key for the active status workflow tab (namespaced to avoid collision
-// with the page's own date-range params).
-const NPE_STATUS_TAB_PARAM = "npe_status";
 
 // NEW: Configuration for the summary card aggregations
 const NPE_AGGREGATES_CONFIG: AggregationConfig[] = [
@@ -92,7 +90,7 @@ interface NonProjectExpensesPageProps {
 }
 
 export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
-  urlContext = "npe_default",
+  urlContext = NPE_DEFAULT_URL_CONTEXT,
   DisableAction = false,
 }) => {
   // Standalone page grows to natural height for a single page scroll; the report
@@ -173,7 +171,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
     [requestedCount, approvedCount, paidCount, allCount]
   );
 
-  const urlSyncKey = useMemo(() => `npe_${urlContext}`, [urlContext]);
+  const urlSyncKey = useMemo(() => npeListUrlSyncKey(urlContext), [urlContext]);
 
   // 1. Date range.
   //    - As the "Outflow (Non-Project)" REPORT (DisableAction), use the SHARED

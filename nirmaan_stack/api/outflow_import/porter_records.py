@@ -16,6 +16,7 @@ screens (`porter_expense.py`) each ask these, never a copy of them:
   * the import's per-phase progress summary, `porter_progress`, over the pure `porter_state.import_progress`
     (the dialog's progress bar and Import History's chips, #1556);
   * `failed_lines` -- the lines Create could not create, each with its note and fix (#1561);
+  * `created_expenses` -- the import's Porter Orders that have an Expense, by expense doctype (#1561);
   * which orders need a person, `porter_placements` / `orders_needing_a_person`, over the pure
     `porter_state.placement_kinds` (#1560): Review's filter, Create's refusal and the progress count;
   * `line_names` -- the posted line names an endpoint was sent.
@@ -28,7 +29,7 @@ from __future__ import annotations
 import frappe
 from frappe.utils.background_jobs import is_job_enqueued
 
-from nirmaan_stack.services.outflow_import.ledgers import PROJECT_EXPENSE_DOCTYPE
+from nirmaan_stack.services.outflow_import.ledgers import NON_PROJECT_EXPENSE_DOCTYPE, PROJECT_EXPENSE_DOCTYPE
 from nirmaan_stack.services.outflow_import.porter import remark_group_key, statement_line
 from nirmaan_stack.services.outflow_import.porter_state import (
     CREATE_LINE_STATUSES,
@@ -269,6 +270,27 @@ def failed_lines(batch: str) -> list[dict]:
             }
         )
     return lines
+
+
+def created_expenses(batch: str) -> dict[str, list[str]]:
+    """The import's Porter Orders (CRNs) that have an Expense, by the doctype the Expense is on NOW (a
+    Rectify can move one across), each list sorted; a doctype with none is left out. What the result's
+    "View the N expenses" opens: each expense list filtered to these orders (#1561). Two queries."""
+    created: dict[str, list[str]] = {}
+    for doctype in (PROJECT_EXPENSE_DOCTYPE, NON_PROJECT_EXPENSE_DOCTYPE):
+        crns = frappe.db.sql_list(
+            f"""
+            SELECT e.porter_order FROM "tab{doctype}" e
+            JOIN "tabPorter Order" o ON o.name = e.porter_order
+            JOIN "tabOutflow Import Row" r ON r.name = o.import_row
+            WHERE r.import_batch = %s
+            ORDER BY e.porter_order
+            """,
+            (batch,),
+        )
+        if crns:
+            created[doctype] = crns
+    return created
 
 
 def is_validated(batch: str) -> bool:

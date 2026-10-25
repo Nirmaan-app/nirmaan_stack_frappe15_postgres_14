@@ -18,6 +18,7 @@ from nirmaan_stack.api.outflow_import import porter_create
 from nirmaan_stack.api.outflow_import import porter_review
 from nirmaan_stack.api.outflow_import.test_porter_create import PorterCreateCase
 from nirmaan_stack.api.outflow_import.test_porter_import import ROW_DOCTYPE
+from nirmaan_stack.services.outflow_import.status import ROW_SETTLED
 
 
 class TestTheOrdersCreateCouldNotCreateAreNamed(PorterCreateCase):
@@ -92,3 +93,28 @@ class TestTheOrdersCreateCouldNotCreateAreNamed(PorterCreateCase):
         self._press_create()
         self._run_create()
         self.assertEqual(porter_api.get_porter_status(self.batch)["failed_lines"], [])
+
+
+class TestTheCreatedExpensesAreNamed(PorterCreateCase):
+    """#1561 "View the N expenses": the status names the Porter Orders that have an Expense, by the expense
+    doctype each is on now, so the result can open those lists filtered to them."""
+
+    def test_nothing_is_named_before_create(self):
+        self._validate()
+        self.assertEqual(porter_api.get_porter_status(self.batch)["created_expenses"], {})
+
+    def test_each_created_order_is_named_under_the_doctype_its_expense_is_on(self):
+        self._validate()
+        self._press_create()
+        self._run_create()
+        expected: dict[str, list[str]] = {}
+        for line in self._lines().values():
+            if line.row_status == ROW_SETTLED:
+                expected.setdefault(line.suggested_doctype, []).append(line.transfer_id)
+        named = porter_api.get_porter_status(self.batch)["created_expenses"]
+        self.assertEqual({doctype: sorted(crns) for doctype, crns in named.items()}, {
+            doctype: sorted(crns) for doctype, crns in expected.items()
+        })
+        for doctype, crns in named.items():
+            for crn in crns:
+                self.assertTrue(frappe.db.exists(doctype, {"porter_order": crn}))

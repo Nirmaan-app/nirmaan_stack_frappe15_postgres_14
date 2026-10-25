@@ -130,6 +130,8 @@ export interface PorterStatus {
     progress?: PorterProgress;
     /** Each line Create could not create: its CRN, the note it stored and its fix (#1561). */
     failed_lines?: PorterFailedLine[];
+    /** The Porter Orders that have an Expense, by expense doctype (`porter_records.created_expenses`, #1561). */
+    created_expenses?: Record<string, string[]>;
     /** Null when the statement has no period (no order dates). */
     invoice_date_window?: InvoiceDateWindow | null;
 }
