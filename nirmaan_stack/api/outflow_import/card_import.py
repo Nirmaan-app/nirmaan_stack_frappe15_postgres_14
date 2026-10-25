@@ -22,9 +22,9 @@ THE STEPS
 attachment hook), so every refusal -- a locked PDF, another company, the totals gate, a cash advance, the
 same holder and period, nothing new -- happens before it.
 
-⚠️ ITS LINES ARE NOT BANK LINES. Until Create settles them they are outside the main table's population
-(`sources.CREATE_GATED_SOURCES`, `review._row_filters`): in no tab, not in *Still open*, not in *Total
-Unreconciled Outflow*.
+⚠️ ITS SPENDS ARE NOT BANK LINES. Until Create settles them they are outside the main table's population
+(`sources.line_waits_for_its_own_create`, `review._row_filters`): in no tab, not in *Total Unreconciled
+Outflow*. An unpaired card CREDIT is decided on the main table, like a bank credit (#1567).
 """
 
 import frappe
@@ -68,7 +68,8 @@ def upload_card_statement():
 
     Saves: the PDF (private, one File, attached to the Credit Card Statement); the batch over the statement's
     billing period; the Credit Card Statement (header, totals); one line per new statement line -- a spend
-    waiting for Create (`Pending match run`), a credit open (`Mismatched`).
+    waiting for Create (`Pending match run`); a credit sorted (#1567, `card_credits`): a payment into the card,
+    cashback and both lines of a refund pair skipped by rule, any other credit open (`Mismatched`).
     """
     user = require_outflow_access()
     filename, content = read_upload()
@@ -193,7 +194,7 @@ def card_import(batch: str) -> dict:
     ) or frappe._dict()
     lines = frappe.db.sql(
         """
-        SELECT name, transfer_id, added_on, remarks, amount, direction, row_status
+        SELECT name, transfer_id, added_on, remarks, amount, direction, row_status, skip_kind, skip_reason
         FROM "tabOutflow Import Row" WHERE import_batch = %s
         ORDER BY creation ASC, name ASC
         """,
@@ -242,6 +243,9 @@ def card_import(batch: str) -> dict:
                 "amount": float(line.amount or 0),
                 "is_credit": line.direction == "Credit",
                 "row_status": line.row_status,
+                # A skipped line's kind and reason, for Review's skipped list (#1567); blank otherwise.
+                "skip_kind": line.skip_kind or None,
+                "skip_reason": line.skip_reason or None,
             }
             for line in lines
         ],

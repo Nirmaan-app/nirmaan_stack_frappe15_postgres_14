@@ -31,6 +31,7 @@ __all__ = [
     "BANK_STATEMENT_SOURCES",
     "CARD_STATEMENT_SOURCE",
     "CREATE_GATED_SOURCES",
+    "CREDITS_DECIDED_ON_THE_MAIN_TABLE",
     "NEVER_MATCHED_SOURCES",
     "PORTER_STATEMENT_SOURCE",
     "TRANSFER_ID_REFERENCE_SOURCES",
@@ -40,6 +41,7 @@ __all__ = [
     "source_names_its_spender",
     "source_transfer_id_is_its_reference",
     "source_waits_for_its_own_create",
+    "line_waits_for_its_own_create",
     "source_writes_its_match_surface",
 ]
 
@@ -115,9 +117,16 @@ NEVER_MATCHED_SOURCES = frozenset({"Cashbook", "Porter Statement", "ICICI Credit
 #: (#1314).
 #:
 #: The Credit Card Statement joins it (#1566): a card line is not a bank line, so a card upload moves
-#: neither *Still open* nor *Total Unreconciled Outflow*. ⚠️ For now EVERY open card line waits, its
-#: credits too; #1567 splits it per line, so an unpaired card credit is decided on the main table.
+#: neither *Still open* nor *Total Unreconciled Outflow*. ⚠️ Only its SPENDS wait (#1567): its credits are
+#: `CREDITS_DECIDED_ON_THE_MAIN_TABLE`, so ask `line_waits_for_its_own_create` about a LINE.
 CREATE_GATED_SOURCES = frozenset({"Porter Statement", "ICICI Credit Card Statement"})
+
+#: Create-gated sources whose open CREDITS are NOT gated: they are decided on the main table, with the
+#: choices a bank credit has (#1567, README ruling 4). A card's unpaired merchant credit is money that came
+#: back to the company, and its own import has nothing to create from it. Its spends still wait.
+CREDITS_DECIDED_ON_THE_MAIN_TABLE = frozenset({"ICICI Credit Card Statement"})
+
+_CREDIT = "Credit"
 
 
 def source_waits_for_its_own_create(source: str) -> bool:
@@ -127,6 +136,19 @@ def source_waits_for_its_own_create(source: str) -> bool:
     on the main table, where it has always been.
     """
     return (source or "").strip() in CREATE_GATED_SOURCES
+
+
+def line_waits_for_its_own_create(source: str, direction: str) -> bool:
+    """Is this LINE worked only by its own import, never from the main table? (#1443, #1567)
+
+    Per line, not per source: a Porter line always waits; a card spend waits, a card credit does not.
+    Every main-table guard asks this (`expenses.guard_not_an_own_import_line`,
+    `skip_origin.manual_skip_refusal`), and `review._row_filters` states the same split in SQL.
+    """
+    source = (source or "").strip()
+    if source not in CREATE_GATED_SOURCES:
+        return False
+    return not (source in CREDITS_DECIDED_ON_THE_MAIN_TABLE and (direction or "").strip() == _CREDIT)
 
 
 def source_has_settlement_path(source: str) -> bool:

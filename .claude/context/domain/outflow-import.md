@@ -7240,7 +7240,7 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
   is the project saved.
 
 
-## Credit Card Statement — the fifth source (spec #1565; upload, Review and Discard built at #1566, the rest NOT BUILT YET)
+## Credit Card Statement — the fifth source (spec #1565; upload, Review and Discard built at #1566, credit sorting at #1567, the rest NOT BUILT YET)
 
 Decisions: **[ADR-0037](../../../docs/adr/0037-credit-card-statement-import.md)**. Terms: `GLOSSARY.md`
 § *Company credit cards*. Source string `ICICI Credit Card Statement` (`sources.CARD_STATEMENT_SOURCE`).
@@ -7281,13 +7281,19 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
    File to the batch and then COPY it for the statement — two Files for one PDF.
 6. **Staging.** Spend: `Pending match run`, `direction` Debit, `match_basis` `card statement` (a new
    `Outflow Row Match.match_basis` option), `suggested_doctype` `Non Project Expenses`, `auto_matched` 1.
-   Credit: `Mismatched`, Credit (an open line; #1567 sorts them). Every line: `status_raw` SUCCESS,
+   Credit: sorted at upload (invariant 10); an unpaired one is `Mismatched`. Every line: `status_raw` SUCCESS,
    `remarks` = details, `settlement_reference` = "{details} - {SerNo}" (`card_statement.line_reference`,
    the Expense's payment_ref, ADR-0037 decision 6). Batch `gross_amount` = the staged spends.
-7. **Not bank lines.** The source is in `CREATE_GATED_SOURCES`, so `review._row_filters` keeps every open
-   card line out of every tab, *Still open* and *Total Unreconciled Outflow*. ⚠️ For now the credits too;
-   #1567 splits it per line (an unpaired credit must be decidable in the main table). The generic upload
-   refuses the source ("imported through its own import").
+7. **Spends are not bank lines; open credits are (#1567, README ruling 4).** The gate is PER LINE:
+   `sources.line_waits_for_its_own_create(source, direction)` is True for every Porter line and for a card
+   SPEND, False for a card CREDIT (`CREDITS_DECIDED_ON_THE_MAIN_TABLE`). `review._row_filters` states the same
+   split in SQL, so an open card spend is in no tab and not in *Total Unreconciled Outflow*, while an unpaired
+   card credit is in *Not Matched – Inflow* and *Total Unreconciled Inflow*, with the bank-credit choices
+   (Project Inflow, Non-Project Inflow, Waiting refund / Vendor Refund, Skip by hand). The guards
+   `expenses.guard_not_an_own_import_line` and `skip_origin.manual_skip_refusal(direction=)` ask the same
+   predicate; a card spend is refused with `card_credits.CARD_SPEND_REFUSAL` (`skip_origin.own_import_line_refusal`
+   picks Porter's or the card's sentence). The generic upload still refuses the source ("imported through its
+   own import").
 8. **Discard** (`card_import.discard_card_import`): Admin and Accountant Lead; refused once any `Outflow Row
    Match` names the batch (`created_anything`) or a job in `card_import.job_ids` (`card-suggest-<batch>`,
    `card-create-<batch>`) is queued. Raw deletes of lines, statement and batch, then
@@ -7297,11 +7303,40 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
    Create); Review is `components/CardImportReview.tsx`, read-only. The page holds the open import as
    `?card=OFI-…`. Import History's tab reads **Credit Card** (`outflowTableModel.sourceLabel`) and lists each
    statement by its holder (`list_imports` returns `card_holder`) and period. Discard uses the shared
-   `components/ImportDiscardButton.tsx` (Porter's button wraps it too).
+   `components/ImportDiscardButton.tsx` (Porter's button wraps it too). Review lists the lines still to work
+   (`cardCreditsView.cardWorkLines`) and, beneath, the skipped lines with kind and reason
+   (`components/CardSkippedLines.tsx`); `get_card_import` returns `skip_kind` / `skip_reason` per line.
+10. **Credit sorting (#1567, ADR-0037 decision 4).** Pure: `services/outflow_import/card_credits.sort_card_lines(lines)`
+    → `{serno: LineSort(kind, partner)}`, kinds SPEND, CARD_PAYMENT, CASHBACK, REFUND, REFUNDED_SPEND,
+    UNPAIRED_CREDIT. Only CREDITS are read for words: a merchant key matching `PAYMENT RECD|PAYMENT RECEIVED`
+    or starting `AUTO DR RETN` is a payment; `CASHBACK` / `CASH BACK` is cashback. Any other credit pairs with
+    an open spend of the SAME merchant key and EXACTLY the same amount dated on or before it, the latest one
+    (date, then print order); credits pair in date order; a spend is cancelled at most once; a spend after the
+    credit never pairs. ⚠️ Sorting runs over the lines STAGED in this import (`new.lines`), not the whole
+    statement: a refund never pairs with a spend left out as an earlier import's repeat. `card_credits.skip_values`
+    stages each skip as `Skipped` / `System` with its kind and sentence (both `skip_reason` and `outcome_note`):
+    kinds `Card payment received`, `Card cashback`, `Card refund pair` (new `skip_kind` options), sentences
+    `status.SKIP_REASON_CARD_*` (in `SYSTEM_SKIP_SENTENCES` and taught to `skip_kind_backfill`). A paired spend
+    keeps its Create plan (`Pending match run` fields) underneath the skip. Each line of a pair names the
+    other in its sentence (`partner_label`: SerNo, date, amount) AND links it through the new read-only
+    `Outflow Import Row.card_refund_partner` (Link to the row), written raw after both rows exist.
+11. **Unskip (#1567, README ruling 5).** `skip_origin.unskip_refusal` asks the card kinds BEFORE the
+    never-matched "only by hand" rule: `Card payment received` / `Card cashback` are in `UNSKIP_LOCKED_KINDS`
+    (own sentences), `Card refund pair` is allowed. `review.unskip_row` routes a pair to
+    `api/outflow_import/card_refund_pairs.unskip_refund_pair` before the Cashbook path: it locks the partner,
+    refuses unless the partner is still Skipped as the pair and links back, then reopens BOTH lines (credit
+    → `Mismatched`, spend → `Pending match run`), clears kind / origin / reason / note / decided / partner,
+    saves each with a Version row and a comment, one commit. A card credit skipped by hand unskips through the
+    Cashbook path (`_unskip_cashbook_line`, reopens `Mismatched`). The frontend mirror is `unskipView.ts` +
+    `skipKinds.ts` (pinned to the Python by `skipKinds.test.ts`).
 
 **Tests.** `services/outflow_import/test_card_statement` (unit, the fixture and a PDF built from it by
-`tests/card_pdf_builder.pdf_from_text`), `api/outflow_import/test_card_import` (DB: upload, refusals, repeats,
-Review, History, not-matched totals, Discard, the matcher AST guard).
+`tests/card_pdf_builder.pdf_from_text`), `services/outflow_import/test_card_credits` (unit: the fixture's 7
+credits, pairs, the two identical spends), `api/outflow_import/test_card_import` (DB: upload, refusals,
+repeats, Review, History, not-matched totals, Discard, the matcher AST guard), `api/outflow_import/test_card_credits`
+(DB: staging kinds and reasons, Review's skipped list, payments/cashback never unskip, an open credit on the
+main table and skippable, a spend refused, a pair skipped / unskipped from either line), frontend
+`cardCreditsView.test.ts`, `unskipView.test.ts`.
 
 
 ## #1485 (2026-10-17) — an ICICI cheque line clears its Payment cheque (spec #1477, ADR-0035)

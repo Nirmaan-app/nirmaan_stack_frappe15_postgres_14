@@ -37,6 +37,7 @@ from nirmaan_stack.services.outflow_import.parser import (
 from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup
 from nirmaan_stack.services.outflow_import.sources import CARD_STATEMENT_SOURCE
 from nirmaan_stack.services.outflow_import.status import ROW_MISMATCHED, ROW_PENDING_MATCH
+from nirmaan_stack.services.outflow_import.card_credits import skip_values, sort_card_lines
 
 BATCH_DOCTYPE = "Outflow Import Batch"
 ROW_DOCTYPE = "Outflow Import Row"
@@ -178,6 +179,9 @@ def stage(statement: CardStatement, new: NewLines, file_url: str, filename: str,
     # Raw, and safe: the batch has no doc_events, and its stored URL is only the PDF the statement holds.
     frappe.db.set_value(BATCH_DOCTYPE, batch.name, "source_file", file_url, update_modified=False)
 
+    # The credits are sorted over THIS import's lines (#1567): a refund pairs only with a spend staged here.
+    sorts = sort_card_lines(new.lines)
+    names: dict[str, str] = {}
     for line in new.lines:
         values = {
             "import_batch": batch.name,
@@ -193,9 +197,11 @@ def stage(statement: CardStatement, new: NewLines, file_url: str, filename: str,
             "settlement_reference": line_reference(line),
         }
         if line.is_credit:
-            # ⚠️ Every credit is an open line for now: sorting payments, cashback and refunds is #1567's.
+            # An unpaired credit is open work on the main table (README ruling 4).
             values["row_status"] = ROW_MISMATCHED
         else:
+            # A spend keeps its Create plan even when a refund cancels it, so an unskipped pair brings it
+            # straight back as Create's work.
             values.update(
                 {
                     "row_status": ROW_PENDING_MATCH,
@@ -204,9 +210,20 @@ def stage(statement: CardStatement, new: NewLines, file_url: str, filename: str,
                     "auto_matched": 1,
                 }
             )
+        # A payment into the card, cashback and both lines of a refund pair are system skips.
+        values.update(skip_values(sorts[line.serno]))
         doc = frappe.new_doc(ROW_DOCTYPE)
         doc.update(values)
         doc.insert(ignore_permissions=True)
+        names[line.serno] = doc.name
+
+    # Each line of a refund pair links the other, once both exist. Raw, and safe: the row has no doc_events,
+    # and the link is written once here and cleared only by the pair's unskip.
+    for serno, sort in sorts.items():
+        if sort.partner is not None:
+            frappe.db.set_value(
+                ROW_DOCTYPE, names[serno], "card_refund_partner", names[sort.partner.serno], update_modified=False
+            )
 
     refresh_batch_rollup(batch.name)
     return batch.name, record.name

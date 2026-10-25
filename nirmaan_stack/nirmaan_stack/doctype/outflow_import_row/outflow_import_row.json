@@ -47,6 +47,7 @@
   "skip_reason",
   "skip_origin",
   "skip_kind",
+  "card_refund_partner",
   "outcome_note",
   "duplicate_basis",
   "decided_at",
@@ -278,7 +279,7 @@
    "fieldname": "skip_kind",
    "fieldtype": "Select",
    "label": "Skip Kind",
-   "options": "\nAlready imported\nRepeated in same file\nBank refused\nNo amount\nOutflow Already Recorded\nInflow Already Recorded\nCashfree wallet top-up\nCashbook wallet top-up\nPorter wallet top-up\nWallet money returned\nBank internal transfer\nFailed payment bounced back\nBank card rounding (₹2)\nCredit card bill payment\nCredit card auto-debit\nCashbook internal movement\nSkipped by hand\nPorter order cancelled",
+   "options": "\nAlready imported\nRepeated in same file\nBank refused\nNo amount\nOutflow Already Recorded\nInflow Already Recorded\nCashfree wallet top-up\nCashbook wallet top-up\nPorter wallet top-up\nWallet money returned\nBank internal transfer\nFailed payment bounced back\nBank card rounding (₹2)\nCredit card bill payment\nCredit card auto-debit\nCashbook internal movement\nSkipped by hand\nPorter order cancelled\nCard payment received\nCard cashback\nCard refund pair",
    "read_only": 1
   },
   {
@@ -379,12 +380,20 @@
    "label": "Placement Strength",
    "options": "\nStrong\nCheck",
    "read_only": 1
+  },
+  {
+   "description": "A Credit Card Statement line skipped as a Card refund pair: the other line of the pair (the spend a merchant credit cancels, or the credit that cancels this spend). Written at upload, cleared when the pair is unskipped (#1567).",
+   "fieldname": "card_refund_partner",
+   "fieldtype": "Link",
+   "label": "Card Refund Partner",
+   "options": "Outflow Import Row",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-10-15 19:35:41.908376",
+ "modified": "2026-10-25 16:23:59.853781",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Outflow Import Row",

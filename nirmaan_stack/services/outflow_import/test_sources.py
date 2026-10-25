@@ -217,6 +217,19 @@ class TestTheCreditCardStatementSource(unittest.TestCase):
 
         self.assertTrue(source_waits_for_its_own_create("ICICI Credit Card Statement"))
 
+    def test_its_spends_wait_for_its_create_and_its_credits_are_decided_on_the_main_table(self):
+        """#1567 (README ruling 4): split per line, by direction, not per source."""
+        from nirmaan_stack.services.outflow_import.sources import line_waits_for_its_own_create
+
+        self.assertTrue(line_waits_for_its_own_create("ICICI Credit Card Statement", "Debit"))
+        self.assertFalse(line_waits_for_its_own_create("ICICI Credit Card Statement", "Credit"))
+        self.assertFalse(line_waits_for_its_own_create(" ICICI Credit Card Statement ", " Credit "))
+        # Porter waits whatever the direction; every other source never does.
+        for direction in ("Debit", "Credit", "", None):
+            self.assertTrue(line_waits_for_its_own_create("Porter Statement", direction), repr(direction))
+            for source in ("Cashfree", "Cashbook", "ICICI Bank Statement", "", None):
+                self.assertFalse(line_waits_for_its_own_create(source, direction), repr((source, direction)))
+
     def test_it_can_carry_a_credit(self):
         from nirmaan_stack.services.outflow_import.parser import source_can_carry_credit
 

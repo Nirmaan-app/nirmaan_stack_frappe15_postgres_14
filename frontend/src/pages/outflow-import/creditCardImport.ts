@@ -38,6 +38,9 @@ export interface CardImportLine {
     amount: number;
     is_credit: boolean;
     row_status: string;
+    /** A skipped line's Skip Type and the server's reason (#1567); null on a line still to work. */
+    skip_kind: string | null;
+    skip_reason: string | null;
 }
 
 /** The statement's own summary, as `Credit Card Statement` stores it. */
