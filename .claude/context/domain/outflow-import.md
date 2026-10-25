@@ -7316,12 +7316,31 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
   plus groups a person already chose and can still change); heading and note from `choiceSummary` ("N orders
   need a project" / "M orders were placed automatically. …", or "All N orders placed automatically."). The
   footer on a Validated import reads "Save and close" and `nextConfirmLabel` ("Next: confirm (N left)"),
-  N = `progress.projects.needs_person`, disabled until 0; until the confirm step (#1564) Next runs Create.
+  N = `progress.projects.needs_person`, disabled until 0; Next opens Confirm & create (#1564).
   A Creating import (re-run after Error / Unreconcile) keeps the old Create button.
 - Tests: `services/outflow_import/test_porter.TestWhichOrdersNeedAPerson` (pure), DB
   `test_porter_review.TestWhichOrdersNeedAPerson`, `test_porter_create.TestCreateWaitsForEveryOrderThatNeedsAPerson`;
   `PorterCreateCase._press_create` confirms every order that needs a person first (`confirm_first=False` to
   test the refusal). Vitest: `porterReview.test.ts`.
+
+### As built — #1564: Confirm & create before Create (spec #1554, 2026-10-25)
+
+- **Next opens Confirm & create** (`PorterConfirmPanel`); its footer is "Back" (to Choose projects) and
+  `createButtonLabel` ("Create N expenses"), which runs the existing Create. Screen-only: no endpoint changed.
+  The screen is view state in the dialog (`porterConfirmAsked`), shown only while the server still says
+  Validated and `canCreatePorter`, so a Create started elsewhere, or a discard, takes it away.
+- **The table** is `porterReview.confirmSummary(lines)`: orders and fare per project (largest fare first),
+  then Not a project, then the total; only lines Create would still write (`editable`). The closed accordion
+  lists `automaticLines` (open, not `needs_person`, reason not `review`) with CRN, remark and `placedOn`; its
+  Change places that one order through `set_porter_placement`, the call Choose projects uses. A changed order
+  stays listed until the screen is left.
+- ⚠️ **Changing one order of a remark group splits the group**, so the server marks the rest as needing a
+  person (`placement_kinds`). The screen then says "N orders now need a project. Go Back to choose." and
+  Create stays disabled until `progress.projects.needs_person` is 0 (the server refuses it too).
+- ⚠️ **`porterReviewOffered` is false while a Create job is queued or running**, Validated included: a job
+  just queued writes no line yet, so the import still reads Validated, and offering placements then would let
+  a person edit lines the job is about to write.
+- Vitest: `porterReview.test.ts` ("what Confirm & create totals", "which orders Confirm & create folds away").
 
 
 ## #1485 (2026-10-17) — an ICICI cheque line clears its Payment cheque (spec #1477, ADR-0035)
