@@ -22,8 +22,8 @@ export interface CardInvoiceRow {
     statement_date: string | null;
     period_from: string;
     period_to: string;
-    /** "YYYY-MM" of the statement date. */
-    statement_month: string;
+    /** Every "YYYY-MM" the statement's period overlaps, oldest first (GLOSSARY *Statement month*). */
+    statement_months: string[];
 }
 
 /** The filter value that means "any". */
@@ -39,7 +39,7 @@ export const filterCardInvoices = (rows: CardInvoiceRow[], filters: CardInvoiceF
     rows.filter(
         (r) =>
             (filters.holder === ALL || r.holder === filters.holder) &&
-            (filters.month === ALL || r.statement_month === filters.month),
+            (filters.month === ALL || r.statement_months.includes(filters.month)),
     );
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -51,10 +51,20 @@ export const statementMonthLabel = (month: string): string => {
     return year && name ? `${name} ${year}` : "";
 };
 
+/** A statement's months as one range: "Oct 2026", "Sep – Oct 2026", "Dec 2026 – Jan 2027". */
+export const statementMonthsLabel = (months: string[]): string => {
+    if (months.length === 0) return "";
+    const first = statementMonthLabel(months[0]);
+    const last = statementMonthLabel(months[months.length - 1]);
+    if (first === last) return first;
+    const [firstName, firstYear] = first.split(" ");
+    return firstYear === last.split(" ")[1] ? `${firstName} – ${last}` : `${first} – ${last}`;
+};
+
 /** The holder and month choices: each once; holders by name, months newest first. */
 export const cardInvoiceFilterOptions = (rows: CardInvoiceRow[]) => {
     const holders = [...new Set(rows.map((r) => r.holder))].sort();
-    const months = [...new Set(rows.map((r) => r.statement_month).filter(Boolean))]
+    const months = [...new Set(rows.flatMap((r) => r.statement_months))]
         .sort()
         .reverse()
         .map((value) => ({ value, label: statementMonthLabel(value) }));

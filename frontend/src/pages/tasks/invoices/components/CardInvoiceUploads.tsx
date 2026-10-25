@@ -37,7 +37,7 @@ import {
     cardInvoiceActions,
     cardInvoiceFilterOptions,
     filterCardInvoices,
-    statementMonthLabel,
+    statementMonthsLabel,
 } from "../utils/cardInvoicesView";
 
 const API = "nirmaan_stack.api.expenses.card_invoices";
@@ -161,7 +161,7 @@ export const CardInvoiceUploads: React.FC = () => {
                                 <TableCell>{r.expense_type}</TableCell>
                                 <TableCell className="whitespace-nowrap">{r.holder}</TableCell>
                                 <TableCell className="whitespace-nowrap">
-                                    <div>{statementMonthLabel(r.statement_month)}</div>
+                                    <div>{statementMonthsLabel(r.statement_months)}</div>
                                     <div className="text-xs text-muted-foreground">{r.credit_card_statement}</div>
                                 </TableCell>
                                 <TableCell className="text-right whitespace-nowrap">

@@ -12,6 +12,7 @@ The endpoints are `api/expenses/card_invoices.py`.
 
 from __future__ import annotations
 
+import datetime
 from typing import NamedTuple
 
 
@@ -36,6 +37,20 @@ def card_line_details(payment_ref: str | None) -> str:
     if sep and tail.isdigit():
         return head
     return ref
+
+
+def statement_months(period_from, period_to, statement_date) -> list[str]:
+    """Every "YYYY-MM" the statement belongs to (GLOSSARY *Statement month*): each month its period overlaps,
+    oldest first. With no period, the month of the statement date. Dates may be `date`s or ISO strings."""
+    start, end = period_from or statement_date, period_to or statement_date
+    if not start or not end:
+        return []
+    first, last = datetime.date.fromisoformat(str(start)[:10]), datetime.date.fromisoformat(str(end)[:10])
+    months, year, month = [], first.year, first.month
+    while (year, month) <= (last.year, last.month):
+        months.append(f"{year}-{month:02d}")
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+    return months
 
 
 def _still_waiting_problem(facts: CardExpenseFacts) -> str | None:

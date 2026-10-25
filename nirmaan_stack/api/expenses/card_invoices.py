@@ -21,6 +21,7 @@ from nirmaan_stack.services.card_invoices import (
     attach_problem,
     card_line_details,
     no_invoice_problem,
+    statement_months,
 )
 from nirmaan_stack.services.outflow_import.card_statement import merchant_key
 from nirmaan_stack.services.role_profiles import (
@@ -49,8 +50,8 @@ def get_card_invoice_queue() -> list[dict]:
 
     Each row: `name`, `payment_date`, `amount`, `expense_type`, `details` (the statement line), `merchant` (its
     merchant key), `holder`, `credit_card_statement`, `statement_date`, `period_from`, `period_to` and
-    `statement_month` ("YYYY-MM" of the statement date, else of the period end). The screen filters by holder
-    and statement month itself: the list is one or two statements' worth of spends.
+    `statement_months` (every "YYYY-MM" the statement's period overlaps, GLOSSARY *Statement month*). The screen
+    filters by holder and statement month itself: the list is one or two statements' worth of spends.
     """
     _require_upload_access()
     rows = frappe.db.sql(
@@ -68,8 +69,7 @@ def get_card_invoice_queue() -> list[dict]:
     for row in rows:
         row["details"] = card_line_details(row.pop("payment_ref"))
         row["merchant"] = merchant_key(row["details"]) if row["details"] else ""
-        month_of = row["statement_date"] or row["period_to"]
-        row["statement_month"] = str(month_of)[:7] if month_of else ""
+        row["statement_months"] = statement_months(row["period_from"], row["period_to"], row["statement_date"])
     return rows
 
 

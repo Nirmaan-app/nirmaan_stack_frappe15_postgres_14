@@ -110,7 +110,7 @@ class TestTheList(CardInvoiceCase):
         self.assertEqual(float(row["amount"]), 412.5)
         self.assertEqual(row["expense_type"], FALLBACK_EXPENSE_TYPE)
         self.assertEqual(row["holder"], self.holder)
-        self.assertEqual(row["statement_month"], "2026-10")
+        self.assertEqual(row["statement_months"], ["2026-09", "2026-10"])
         self.assertEqual(str(row["period_from"]), "2026-09-02")
         self.assertEqual(str(row["period_to"]), "2026-10-01")
 

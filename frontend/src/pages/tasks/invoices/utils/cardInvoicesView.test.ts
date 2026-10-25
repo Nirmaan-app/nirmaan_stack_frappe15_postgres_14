@@ -5,10 +5,11 @@ import {
     cardInvoiceFilterOptions,
     filterCardInvoices,
     statementMonthLabel,
+    statementMonthsLabel,
     type CardInvoiceRow,
 } from "./cardInvoicesView";
 
-const row = (name: string, holder: string, statement_month: string): CardInvoiceRow => ({
+const row = (name: string, holder: string, statement_month: string, statement_months = [statement_month]): CardInvoiceRow => ({
     name,
     payment_date: "2026-09-10",
     amount: 100,
@@ -20,7 +21,7 @@ const row = (name: string, holder: string, statement_month: string): CardInvoice
     statement_date: `${statement_month}-01`,
     period_from: "2026-09-02",
     period_to: `${statement_month}-01`,
-    statement_month,
+    statement_months,
 });
 
 const ROWS = [
@@ -42,6 +43,13 @@ describe("which card spends show", () => {
         expect(filterCardInvoices(ROWS, { holder: ALL, month: "2026-10" }).map((r) => r.name)).toEqual(["NPE-1", "NPE-2"]);
     });
 
+    it("finds a statement under every month its period overlaps", () => {
+        const across = [row("NPE-4", "ARJUN TESTHOLDER", "2026-10", ["2026-09", "2026-10"])];
+        expect(filterCardInvoices(across, { holder: ALL, month: "2026-09" }).map((r) => r.name)).toEqual(["NPE-4"]);
+        expect(filterCardInvoices(across, { holder: ALL, month: "2026-10" }).map((r) => r.name)).toEqual(["NPE-4"]);
+        expect(filterCardInvoices(across, { holder: ALL, month: "2026-08" })).toEqual([]);
+    });
+
     it("narrows by both at once", () => {
         expect(filterCardInvoices(ROWS, { holder: "ARJUN TESTHOLDER", month: "2026-09" }).map((r) => r.name)).toEqual(["NPE-3"]);
     });
@@ -55,6 +63,18 @@ describe("the filter choices", () => {
             { value: "2026-10", label: "Oct 2026" },
             { value: "2026-09", label: "Sep 2026" },
         ]);
+    });
+
+    it("offers every month a statement overlaps", () => {
+        const { months } = cardInvoiceFilterOptions([row("NPE-4", "ARJUN TESTHOLDER", "2026-10", ["2026-09", "2026-10"])]);
+        expect(months.map((m) => m.value)).toEqual(["2026-10", "2026-09"]);
+    });
+
+    it("names a statement's months as a range", () => {
+        expect(statementMonthsLabel(["2026-10"])).toBe("Oct 2026");
+        expect(statementMonthsLabel(["2026-09", "2026-10"])).toBe("Sep – Oct 2026");
+        expect(statementMonthsLabel(["2026-12", "2027-01"])).toBe("Dec 2026 – Jan 2027");
+        expect(statementMonthsLabel([])).toBe("");
     });
 
     it("names a month the way the screen shows it", () => {

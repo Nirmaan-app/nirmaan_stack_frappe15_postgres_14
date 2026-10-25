@@ -10,6 +10,7 @@ from nirmaan_stack.services.card_invoices import (
     attach_problem,
     card_line_details,
     no_invoice_problem,
+    statement_months,
 )
 
 OPEN = CardExpenseFacts(name="NPE-1", is_card=True, invoice_attachment=None, no_invoice_by=None)
@@ -25,6 +26,23 @@ class TestTheLineDetails(unittest.TestCase):
     def test_a_ref_with_no_serno_is_kept_whole(self):
         self.assertEqual(card_line_details("ZOMATO GURGAON IN"), "ZOMATO GURGAON IN")
         self.assertEqual(card_line_details(None), "")
+
+
+class TestTheStatementMonths(unittest.TestCase):
+    """GLOSSARY *Statement month*: every month the statement's period overlaps."""
+
+    def test_a_period_across_two_months_belongs_to_both(self):
+        self.assertEqual(statement_months("2026-09-02", "2026-10-01", "2026-10-01"), ["2026-09", "2026-10"])
+
+    def test_a_period_inside_one_month_belongs_to_that_month(self):
+        self.assertEqual(statement_months("2026-09-01", "2026-09-30", "2026-10-01"), ["2026-09"])
+
+    def test_a_period_across_a_year_end_names_both_years(self):
+        self.assertEqual(statement_months("2026-12-02", "2027-01-01", None), ["2026-12", "2027-01"])
+
+    def test_with_no_period_the_statement_date_decides(self):
+        self.assertEqual(statement_months(None, None, "2026-10-01"), ["2026-10"])
+        self.assertEqual(statement_months(None, None, None), [])
 
 
 class TestMarkingNoInvoice(unittest.TestCase):
