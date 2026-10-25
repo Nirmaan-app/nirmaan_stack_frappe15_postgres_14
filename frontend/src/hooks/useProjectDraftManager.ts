@@ -8,6 +8,7 @@ import {
   AreaName,
 } from '@/zustand/useProjectDraftStore';
 import { ProjectFormValues } from '@/pages/projects/project-form/schema';
+import { resumeStepIndex } from '@/pages/projects/project-form/constants';
 
 interface UseProjectDraftManagerOptions {
   form: UseFormReturn<ProjectFormValues>;
@@ -25,6 +26,12 @@ interface UseProjectDraftManagerOptions {
    * false so the normal create flow is unchanged.
    */
   disabled?: boolean;
+  /**
+   * The wizard's sections in order. A resumed draft lands on its saved section's index in this
+   * list (`resumeStepIndex`), so a draft saved before the BOQ step joined Create still opens on
+   * the right step.
+   */
+  sections?: readonly string[];
 }
 
 interface UseProjectDraftManagerReturn {
@@ -104,6 +111,7 @@ export function useProjectDraftManager({
   setCurrentStep,
   setSection,
   disabled = false,
+  sections,
 }: UseProjectDraftManagerOptions): UseProjectDraftManagerReturn {
   // Zustand store
   const {
@@ -280,8 +288,11 @@ export function useProjectDraftManager({
       setAreaNames(draft.areaNames);
     }
 
-    // Restore step/section
-    if (draft.currentStep !== undefined) {
+    // Restore step/section. The step comes from the section NAME, not the saved number: the
+    // number of a draft saved before the BOQ step joined Create points one step too early.
+    if (sections) {
+      setCurrentStep(resumeStepIndex(sections, draft.section, draft.currentStep));
+    } else if (draft.currentStep !== undefined) {
       setCurrentStep(draft.currentStep);
     }
     if (draft.section) {
@@ -297,6 +308,7 @@ export function useProjectDraftManager({
     setCurrentStep,
     setSection,
     updateRelativeTime,
+    sections,
   ]);
 
   /**

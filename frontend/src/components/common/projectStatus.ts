@@ -45,12 +45,14 @@ export const DEFAULT_PROJECT_STATUS_FILTER: ExecutionStatus[] = ["WIP", "Handove
 
 // ---- Bid dimension (the `tendering_status` field) -------------------------
 
-export type TenderingStatus = "Tendering" | "Won" | "Lost";
+/** "Merged": its BoQs were moved into an existing Won project; undoable (ADR-0038). */
+export type TenderingStatus = "Tendering" | "Won" | "Lost" | "Merged";
 
 export const TENDERING_STATUS_OPTIONS: TenderingStatus[] = [
   "Tendering",
   "Won",
   "Lost",
+  "Merged",
 ];
 
 // ---- Backwards-compatibility shims ----------------------------------------
@@ -78,6 +80,9 @@ export const isTenderingStub = (tendering_status?: string | null): boolean =>
 export const isLost = (tendering_status?: string | null): boolean =>
   tendering_status === "Lost";
 
+export const isMerged = (tendering_status?: string | null): boolean =>
+  tendering_status === "Merged";
+
 export const isPreWon = (tendering_status?: string | null): boolean =>
   tendering_status !== "Won";
 
@@ -101,4 +106,5 @@ export const PROJECT_STATUS_BADGE_CLASSES: Record<string, string> = {
   Tendering: "bg-slate-100 text-slate-700 border-slate-400",
   Won: "bg-indigo-100 text-indigo-800 border-indigo-400",
   Lost: "bg-rose-100 text-rose-800 border-rose-400",
+  Merged: "bg-violet-100 text-violet-800 border-violet-400",
 };

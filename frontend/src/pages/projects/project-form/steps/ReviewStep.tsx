@@ -1,5 +1,5 @@
 import { UseFormReturn } from "react-hook-form";
-import { Building2, MapPin, Calendar, Users, Package, ListChecks, ClipboardList, PenTool, AlertCircle } from "lucide-react";
+import { Building2, MapPin, Calendar, Users, Package, ListChecks, ClipboardList, PenTool, AlertCircle, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ButtonLoading } from "@/components/ui/button-loading";
 import {
@@ -11,7 +11,14 @@ import { PackagesReviewGrid } from "@/components/ui/package-review-card";
 import { ProjectFormValues } from "../schema";
 import { ProjectFormData } from "../hooks/useProjectFormData";
 import { SectionKey } from "../constants";
+import type { MergeSource } from "../boqPackageSeed";
 import { useGstOptions } from "@/hooks/useGstOptions";
+
+interface ReviewBoq {
+    name: string;
+    boq_name: string;
+    version: number;
+}
 
 interface ReviewStepProps {
     form: UseFormReturn<ProjectFormValues>;
@@ -21,7 +28,57 @@ interface ReviewStepProps {
     onPrevious: () => void;
     onSubmit: () => void;
     onNavigateToSection: (section: SectionKey) => void;
+    /** Convert mode, stub with a BoQ: its BoQs and the ticked ones (they become Selected). */
+    ownBoqs?: { boqs: ReviewBoq[]; selected: string[] };
+    /** BoQs added from other Tendering projects (ADR-0038); merged in on Create. */
+    mergeSources?: MergeSource[];
 }
+
+/** One project's BoQs: ticked ones become Selected on Create, the rest stay Draft. */
+const BoqPickList: React.FC<{ title: string; subtitle?: string; boqs: ReviewBoq[]; selected: string[] }> = ({
+    title,
+    subtitle,
+    boqs,
+    selected,
+}) => {
+    const selectedCount = boqs.filter((boq) => selected.includes(boq.name)).length;
+    return (
+        <div>
+            <p className="text-xs font-medium text-gray-500 mb-2">
+                {title}
+                {subtitle && <span className="ml-1 font-normal text-gray-400">({subtitle})</span>}
+                <span className="ml-2 font-normal text-gray-400">
+                    {selectedCount} Selected · {boqs.length - selectedCount} Draft
+                </span>
+            </p>
+            <ul className="divide-y divide-gray-100 rounded-md border border-gray-200">
+                {boqs.map((boq) => {
+                    const isSelected = selected.includes(boq.name);
+                    return (
+                        <li key={boq.name} className="flex items-center justify-between gap-3 px-3 py-2">
+                            <div className="min-w-0">
+                                <p className="truncate text-sm font-medium text-gray-900">
+                                    {boq.boq_name}
+                                    <span className="ml-1 text-xs font-normal text-gray-400">v{boq.version}</span>
+                                </p>
+                                <p className="truncate text-xs text-gray-400">{boq.name}</p>
+                            </div>
+                            <span
+                                className={
+                                    isSelected
+                                        ? "shrink-0 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700"
+                                        : "shrink-0 rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs font-medium text-gray-500"
+                                }
+                            >
+                                {isSelected ? "Selected" : "Draft"}
+                            </span>
+                        </li>
+                    );
+                })}
+            </ul>
+        </div>
+    );
+};
 
 export const ReviewStep: React.FC<ReviewStepProps> = ({
     form,
@@ -31,6 +88,8 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
     onPrevious,
     onSubmit,
     onNavigateToSection,
+    ownBoqs,
+    mergeSources = [],
 }) => {
     const { customers } = formData;
     const { gstOptions } = useGstOptions();
@@ -199,6 +258,37 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
                         </div>
                     </div>
                 </ReviewSection>
+
+                {/* BOQ Section: the stub's own BoQs (convert) and BoQs from other Tendering projects */}
+                {(ownBoqs || mergeSources.length > 0) && (
+                    <ReviewSection
+                        title="BOQ"
+                        icon={FileSpreadsheet}
+                        onEdit={() => onNavigateToSection("boqSelection")}
+                        iconColorClass="bg-sky-500/10 text-sky-600 dark:text-sky-400"
+                        columns={1}
+                    >
+                        <div className="col-span-full space-y-4">
+                            {ownBoqs && (
+                                <BoqPickList
+                                    title={form.getValues("project_name") || "This project"}
+                                    subtitle="this project"
+                                    boqs={ownBoqs.boqs}
+                                    selected={ownBoqs.selected}
+                                />
+                            )}
+                            {mergeSources.map((source) => (
+                                <BoqPickList
+                                    key={source.project}
+                                    title={source.project_name}
+                                    subtitle={source.project}
+                                    boqs={source.boqs}
+                                    selected={source.selected_boqs}
+                                />
+                            ))}
+                        </div>
+                    </ReviewSection>
+                )}
 
                 {/* Packages Section */}
                 <ReviewSection
