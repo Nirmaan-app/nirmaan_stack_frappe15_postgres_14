@@ -267,3 +267,45 @@ class TestWhatReviewRefuses(PorterReviewCase):
             frappe.set_user("Administrator")
         frappe.db.rollback()
         self.assertEqual(self._plans(), self.before)
+
+
+class TestWhichOrdersNeedAPerson(PorterReviewCase):
+    """#1560: each line says whether it needs a person -- a remark group with a Check order, an order
+    with no placement, or a remark group placed differently. A Strong placement needs no one."""
+
+    def setUp(self):
+        super().setUp()
+        self._set_invoices("Passed")
+
+    def _needs(self):
+        return {line["crn"][-3:]: line["needs_person"] for line in self._review()["lines"]}
+
+    def test_a_strong_group_needs_no_one_a_check_and_an_unplaced_order_do(self):
+        needs = self._needs()
+        # 001/004/008: "zephyr tower project", Strong. 002: a Check. 003: no remark, no project found.
+        self.assertEqual((needs["001"], needs["004"], needs["008"]), (False, False, False))
+        self.assertTrue(needs["002"])
+        self.assertTrue(needs["003"])
+
+    def test_a_remark_group_placed_differently_needs_a_person(self):
+        # One order of the Strong zephyr group is suggested elsewhere, as a stray address vote would.
+        frappe.db.set_value(ROW_DOCTYPE, self._row("004").name, "resolved_project", self.quillon)
+        frappe.db.commit()
+        needs = self._needs()
+        self.assertEqual((needs["001"], needs["004"], needs["008"]), (True, True, True))
+
+    def test_not_a_project_is_a_persons_choice_and_needs_no_one_after(self):
+        self._assign([self._row("003")], None)
+        plan = self._row("003")
+        self.assertEqual(
+            (plan.suggested_doctype, plan.resolved_project, plan.placement_reason),
+            ("Non Project Expenses", None, "review"),
+        )
+        self.assertFalse(self._needs()["003"])
+
+    def test_the_progress_count_is_the_same_set(self):
+        from nirmaan_stack.api.outflow_import.porter import get_porter_status
+
+        needing = sum(self._needs().values())
+        self.assertGreater(needing, 0)
+        self.assertEqual(get_porter_status(self.batch)["progress"]["projects"]["needs_person"], needing)

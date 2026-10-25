@@ -31,6 +31,12 @@ export interface PorterReviewLine {
     strength: string | null;
     /** Create would still write it (waiting, in Error, or reopened), so its placement can still change. */
     editable: boolean;
+    /**
+     * THE SERVER'S needs-a-person rule (`porter_state.placement_kinds`, #1560): a remark group with a Check
+     * order, an order with no placement, or a remark group placed differently. Create is refused while any
+     * line has it, and the progress bar counts the same lines.
+     */
+    needs_person: boolean;
 }
 
 export interface PorterReview {
@@ -135,6 +141,35 @@ export const keepShownOrder = (items: ReviewItem[], shownKeys: readonly string[]
     const seen = items.filter((item) => at.has(item.key)).sort((a, b) => at.get(a.key)! - at.get(b.key)!);
     return [...seen, ...items.filter((item) => !at.has(item.key))];
 };
+
+const chosenByPerson = (line: PorterReviewLine) => line.editable && line.reason === "review";
+
+/**
+ * Choose projects (#1560): only the items a person has to decide -- any order of it needs a person -- and
+ * the ones a person already decided and could still change, so a choice stays on screen. A sure placement
+ * is left out: it is shown on the next screen.
+ */
+export const choiceItems = (lines: PorterReviewLine[]): ReviewItem[] =>
+    reviewItems(lines).filter((item) => item.lines.some((line) => line.needs_person || chosenByPerson(line)));
+
+const orders = (count: number) => `${count} ${count === 1 ? "order" : "orders"}`;
+
+/** The step's heading and the note under it. "All N placed automatically" only when nobody had to choose. */
+export const choiceSummary = (lines: PorterReviewLine[]): { heading: string; note: string | null } => {
+    const listed = new Set(choiceItems(lines).flatMap((item) => item.lines.map((line) => line.name)));
+    if (listed.size === 0) return { heading: `All ${orders(lines.length)} placed automatically.`, note: null };
+    const left = lines.filter((line) => line.needs_person).length;
+    const automatic = lines.length - listed.size;
+    return {
+        heading: `${orders(left)} ${left === 1 ? "needs" : "need"} a project`,
+        note: automatic === 0 ? null : `${orders(automatic)} ${automatic === 1 ? "was" : "were"} placed automatically. You'll see ${
+            automatic === 1 ? "it" : "them"
+        } on the next screen.`,
+    };
+};
+
+/** The footer's Next: locked, and counting down, while any order needs a person. */
+export const nextConfirmLabel = (left: number): string => (left > 0 ? `Next: confirm (${left} left)` : "Next: confirm");
 
 /** Where the item's orders would go: its project, Non-Project, or how a disagreeing group splits. */
 export const placementLabel = (item: ReviewItem): string => {

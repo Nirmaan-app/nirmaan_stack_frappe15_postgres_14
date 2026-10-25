@@ -465,7 +465,8 @@ def _off(reason: str, strength: str) -> Placement:
     )
 
 
-#: Nothing placed it: a Non-Project Expense unless a person places it.
+#: Nothing placed it: it needs a person, and Create is refused until one chooses a project or Not a
+#: project (#1560).
 _NON_PROJECT = _off("", "")
 #: The name and most of the group's addresses disagree: no suggestion, looked at first.
 _CONFLICT = _off(REASON_CONFLICT, STRENGTH_CHECK)

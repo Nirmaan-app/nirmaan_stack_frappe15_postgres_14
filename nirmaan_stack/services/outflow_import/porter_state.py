@@ -50,6 +50,7 @@ __all__ = [
     "import_progress",
     "import_state",
     "placement_kind",
+    "placement_kinds",
 ]
 
 #: `Porter Invoice.validation_status`, in the order an invoice moves through them.
@@ -119,21 +120,59 @@ def import_state(invoice_statuses: Iterable[str], line_statuses: Iterable[str] =
 #: minutes per invoice (#1444); a minute each keeps the estimate on the safe side.
 CHECK_SECONDS_PER_INVOICE = 60
 
-#: Where a completed order stands in the Choose-projects phase (`placement_kind`).
+#: Where a completed order stands in the Choose-projects phase (`placement_kinds`).
 PLACED_AUTOMATICALLY = "placed_automatically"
 PLACED_BY_PERSON = "placed_by_person"
 NEEDS_PERSON = "needs_person"
 
 
 def placement_kind(reason: str | None, strength: str | None) -> str:
-    """Where a completed order stands in Choose projects: placed by a person (Review wrote `review`),
-    placed automatically (a Strong placement, a Strong Non-Project from history included), or still
-    needing a person (a Check placement, or none at all)."""
+    """Where ONE order stands on its own: placed by a person (Review wrote `review`; "Not a project"
+    included), placed automatically (a Strong placement, a Strong Non-Project from history included), or
+    needing a person (a Check placement, or none at all). Its remark group can still put a Strong order
+    before a person: `placement_kinds` is the rule every caller asks."""
     if reason == REASON_REVIEW:
         return PLACED_BY_PERSON
     if strength == STRENGTH_STRONG:
         return PLACED_AUTOMATICALLY
     return NEEDS_PERSON
+
+
+def placement_kinds(lines: Iterable[Mapping]) -> dict[str, str]:
+    """THE needs-a-person rule (#1560, spec #1554): each completed order's `placement_kind`, by name.
+
+    Choose projects lists the orders that need a person, Create is refused while any is left, and the
+    progress bar counts them -- all from this. Each line is a mapping of `name`, `group_key` (blank: no
+    remark, a group of its own), `reason`, `strength`, `destination` (the project, or None for
+    Non-Project) and `open` (Create would still write it: `CREATE_LINE_STATUSES`).
+
+    An open order needs a person when no person chose it and either it is not Strong on its own, or
+    its remark group is in doubt: any open order of the group is Check or unplaced, or the group's open
+    orders are placed differently. An order already created is decided: it never needs a person, and
+    it puts no doubt on its group.
+    """
+    lines = list(lines)
+    alone = {line["name"]: placement_kind(line.get("reason"), line.get("strength")) for line in lines}
+    groups: dict[str, list[Mapping]] = {}
+    for line in lines:
+        if line.get("open") and line.get("group_key"):
+            groups.setdefault(line["group_key"], []).append(line)
+    in_doubt = {
+        key
+        for key, members in groups.items()
+        if any(alone[m["name"]] == NEEDS_PERSON for m in members)
+        or len({m.get("destination") or None for m in members}) > 1
+    }
+
+    def kind(line: Mapping) -> str:
+        own = alone[line["name"]]
+        if not line.get("open"):
+            return PLACED_BY_PERSON if own == PLACED_BY_PERSON else PLACED_AUTOMATICALLY
+        if own == PLACED_AUTOMATICALLY and line.get("group_key") in in_doubt:
+            return NEEDS_PERSON
+        return own
+
+    return {line["name"]: kind(line) for line in lines}
 
 
 def import_progress(
@@ -150,8 +189,8 @@ def import_progress(
     """THE per-phase summary of one Porter import (spec #1554, "Progress contract"), from counts.
 
     `line_statuses` counts every line by `row_status`; `placements` counts the completed lines by
-    `placement_kind`. Each phase is a flat dict of counts, so a later ticket adds a key (warnings,
-    a mixed remark group needing a person) without reshaping it:
+    `placement_kinds`. Each phase is a flat dict of counts, so a later ticket adds a key (warnings, say)
+    without reshaping it:
 
       upload    orders, invoices, cancelled (Cancelled Porter orders, skipped)
       check     invoices, passed, passed_with_warnings (of the passed, those whose PDF read a GSTIN, tax
