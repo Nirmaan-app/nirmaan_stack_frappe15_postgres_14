@@ -139,6 +139,19 @@ class TestThePorterSection(PorterExpenseCase):
         self.assertIsNone(section["project"])
         self.assertIsNone(section["project_name"])
 
+    def test_it_names_the_import_line_the_move_link_opens(self):
+        """#1558: the locked-project hint links to the order's line in Bulk Import, with the move dialog open."""
+        expense = self._expense_of("004")
+        line = frappe.db.get_value(
+            "Outflow Import Row", {"import_batch": self.batch, "transfer_id": self._crn("004")}, "name"
+        )
+        self.assertTrue(line)
+
+        section = porter_expense.get_porter_expense(PROJECT_EXPENSE, expense.name)
+
+        self.assertEqual(section["import_batch"], self.batch)
+        self.assertEqual(section["import_row"], line)
+
     def test_an_expense_keyed_in_by_hand_has_no_porter_section(self):
         expense = self._hand_keyed()
 

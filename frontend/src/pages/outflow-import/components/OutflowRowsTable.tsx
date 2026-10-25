@@ -48,7 +48,7 @@ import {
     confirmByHandNote,
     unreconcileAffordance,
 } from "../unreconcileView";
-import { rectifyAffordance } from "../porterRectify";
+import { MOVE_ORDER_LABEL, rectifyAffordance } from "../porterRectify";
 import { chequeOutcomeChip, type ChequeOutcomeTone } from "../chequeOutcomeView";
 
 interface Props {
@@ -877,7 +877,7 @@ const OutcomeButton = ({
                                 Unreconcile
                             </Button>
                         )}
-                        {/* #1449: a created Porter order moves to another project with Rectify. */}
+                        {/* #1449: a created Porter order moves to another project with Rectify (#1558: its screen name). */}
                         {rectify && onRectify && (
                             <Button
                                 type="button"
@@ -887,7 +887,7 @@ const OutcomeButton = ({
                                 onClick={() => onRectify(row)}
                             >
                                 <ArrowRightLeft className="h-3.5 w-3.5 shrink-0" />
-                                Rectify
+                                {MOVE_ORDER_LABEL}
                             </Button>
                         )}
                     </div>

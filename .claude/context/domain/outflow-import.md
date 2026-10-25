@@ -6694,6 +6694,12 @@ that rule skips the wallet top-ups and stays unchanged.
       Expense it is just "Porter Delivery raised by {customer_name}".
 11. **Import period** = the first to the last order completion date (the CSV declares no period). It
     gets its own *Porter* tab in Import History.
+12. **The upload screen checks the CSV in the browser first, by the parser's own rules** (#1555).
+    `porterPrecheck.checkPorterFile` reads the header and rows and counts orders, invoices, order dates
+    and Cancelled Porter orders. It takes the required columns and the completed status from
+    `porter.get_porter_statement_rules`, which returns `parser.PORTER_STATEMENT_COLUMNS` and
+    `PORTER_ORDER_COMPLETED`. ⚠️ **Never copy the column list into the frontend.** The parser stays the
+    authority: the upload re-reads the file, and its refusals still show.
 
 **Every place the new source string must be added** (pinned together by test, like `ICICI Bank Statement`):
 - `parser._ADAPTERS`
