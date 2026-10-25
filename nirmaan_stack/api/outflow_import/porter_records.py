@@ -15,6 +15,8 @@ screens (`porter_expense.py`) each ask these, never a copy of them:
     its own meaning), over the pure `porter_state.import_state`;
   * the import's per-phase progress summary, `porter_progress`, over the pure `porter_state.import_progress`
     (the dialog's progress bar and Import History's chips, #1556);
+  * which orders need a person, `porter_placements` / `orders_needing_a_person`, over the pure
+    `porter_state.placement_kinds` (#1560): Review's filter, Create's refusal and the progress count;
   * `line_names` -- the posted line names an endpoint was sent.
 
 Reads only; nothing here writes.
@@ -27,11 +29,15 @@ from frappe.utils.background_jobs import is_job_enqueued
 
 from nirmaan_stack.services.outflow_import.porter_state import (
     IMPORT_VALIDATED,
+    CREATE_LINE_STATUSES,
     INVOICE_PASSED,
+    NEEDS_PERSON,
     import_progress,
     import_state,
-    placement_kind,
+    placement_kinds,
 )
+from nirmaan_stack.services.outflow_import.ledgers import PROJECT_EXPENSE_DOCTYPE
+from nirmaan_stack.services.outflow_import.porter import remark_group_key
 from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_PORTER_CANCELLED
 from nirmaan_stack.services.outflow_import.sources import PORTER_STATEMENT_SOURCE
 
@@ -127,10 +133,47 @@ def _invoice_statuses(batches: list[str]) -> dict[str, list[str]]:
     return statuses
 
 
+def porter_placements(batches: list[str]) -> dict[str, dict[str, str]]:
+    """Each Porter import's completed orders, by line name, with where each stands in Choose projects
+    (`porter_state.placement_kinds`: placed automatically, placed by a person, or needs a person). THE
+    one read of that rule (#1560): Review's filter, Create's refusal and the progress count all ask it.
+    One query for any number of imports."""
+    placed: dict[str, list[dict]] = {batch: [] for batch in batches}
+    if batches:
+        for row in frappe.db.sql(
+            """
+            SELECT name, import_batch, row_status, remarks, porter_line ->> 'city' AS city,
+                   placement_reason, placement_strength, suggested_doctype, resolved_project
+            FROM "tabOutflow Import Row"
+            WHERE import_batch IN %s AND COALESCE(skip_kind, '') <> %s
+            """,
+            (tuple(batches), SKIP_KIND_PORTER_CANCELLED),
+            as_dict=True,
+        ):
+            placed[row.import_batch].append(
+                {
+                    "name": row.name,
+                    "group_key": remark_group_key(row.remarks, row.city),
+                    "reason": row.placement_reason,
+                    "strength": row.placement_strength,
+                    "destination": (
+                        row.resolved_project if row.suggested_doctype == PROJECT_EXPENSE_DOCTYPE else None
+                    ),
+                    "open": row.row_status in CREATE_LINE_STATUSES,
+                }
+            )
+    return {batch: placement_kinds(placed[batch]) for batch in batches}
+
+
+def orders_needing_a_person(batch: str) -> int:
+    """How many of the import's completed orders still need a person (#1560): Create is refused until 0."""
+    return sum(1 for kind in porter_placements([batch])[batch].values() if kind == NEEDS_PERSON)
+
+
 def porter_progress(batches: list[str]) -> dict[str, dict]:
     """Each Porter import's per-phase progress summary (`porter_state.import_progress`, #1556): what the
-    import dialog's progress bar and Import History's chips show. Four grouped queries for any number
-    of imports, plus one queue lookup each for a running Create job. Reads only."""
+    import dialog's progress bar and Import History's chips show. Four queries for any number of
+    imports, plus one queue lookup each for a running Create job. Reads only."""
     from nirmaan_stack.api.outflow_import.porter_validation import VALIDATION_CONCURRENCY
 
     invoices = _invoice_statuses(batches)
@@ -152,11 +195,10 @@ def porter_progress(batches: list[str]) -> dict[str, dict]:
         )
         for row in frappe.db.sql(
             """
-            SELECT import_batch, row_status, skip_kind, placement_reason, placement_strength,
-                   COUNT(*) AS lines
+            SELECT import_batch, row_status, skip_kind, COUNT(*) AS lines
             FROM "tabOutflow Import Row"
             WHERE import_batch IN %s
-            GROUP BY import_batch, row_status, skip_kind, placement_reason, placement_strength
+            GROUP BY import_batch, row_status, skip_kind
             """,
             (tuple(batches),),
             as_dict=True,
@@ -166,9 +208,9 @@ def porter_progress(batches: list[str]) -> dict[str, dict]:
             by_status[row.row_status] = by_status.get(row.row_status, 0) + count
             if row.skip_kind == SKIP_KIND_PORTER_CANCELLED:
                 cancelled[row.import_batch] += count
-                continue
-            kind = placement_kind(row.placement_reason, row.placement_strength)
-            placements[row.import_batch][kind] = placements[row.import_batch].get(kind, 0) + count
+        for batch, kinds in porter_placements(batches).items():
+            for kind in kinds.values():
+                placements[batch][kind] = placements[batch].get(kind, 0) + 1
     return {
         batch: import_progress(
             orders=sum(lines[batch].values()),

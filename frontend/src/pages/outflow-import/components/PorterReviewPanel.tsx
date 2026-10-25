@@ -5,6 +5,7 @@ import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import { AlertTriangle, Loader2, MapPin, User } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 
@@ -12,21 +13,23 @@ import { describeFrappeError } from "../outflowTableModel";
 import {
     PORTER_PLACE_METHOD,
     PORTER_REVIEW_METHOD,
+    choiceItems,
+    choiceSummary,
     keepShownOrder,
     placementLabel,
     reasonLabel,
-    reviewItems,
     strengthLabel,
     type PorterReview,
     type PorterReviewLine,
     type ReviewItem,
 } from "../porterReview";
-import { PorterProjectSelect, projectOptions, type ProjectOption } from "./PorterProjectSelect";
+import { NON_PROJECT, PorterProjectSelect, projectOptions, type ProjectOption } from "./PorterProjectSelect";
 
 /**
- * Review projects (#1446): every completed order of a Validated Porter import, by remark group (assigned
- * once for the group) or one by one where the order has no remark. Each choice is saved to the import's
- * lines as it is made — the plan Create reads — so closing the dialog loses nothing.
+ * Choose projects (#1446, #1560): the orders of a Validated Porter import that need a person, by remark
+ * group (assigned once for the group) or one by one where the order has no remark. Sure placements are not
+ * listed (`choiceItems`). Each choice — a Won project, or Not a project — is saved to the import's lines as
+ * it is made, the plan Create reads, so closing the dialog loses nothing.
  */
 export const PorterReviewPanel = ({
     batch,
@@ -50,12 +53,16 @@ export const PorterReviewPanel = ({
     // pull it from under the reader's cursor.
     const shown = useRef<string[]>([]);
     const items = useMemo(() => {
-        const ordered = keepShownOrder(reviewItems(data?.message.lines ?? []), shown.current);
+        const ordered = keepShownOrder(choiceItems(data?.message.lines ?? []), shown.current);
         shown.current = ordered.map((item) => item.key);
         return ordered;
     }, [data]);
 
-    const options = useMemo(() => projectOptions(data?.message.projects ?? []), [data]);
+    // Not a project is its own button, never a pick in the list (#1560).
+    const options = useMemo(
+        () => projectOptions(data?.message.projects ?? []).filter((option) => option !== NON_PROJECT),
+        [data],
+    );
 
     const handlePlace = useCallback(
         async (item: ReviewItem, project: string) => {
@@ -89,16 +96,17 @@ export const PorterReviewPanel = ({
         );
     }
 
-    const toCheck = items.filter((item) => item.needsCheck).length;
+    const summary = choiceSummary(data.message.lines);
     return (
         <section className="space-y-3">
             <div>
-                <h3 className="text-sm font-semibold">Review projects</h3>
-                <p className="text-xs text-muted-foreground">
-                    {data.message.lines.length} orders · {toCheck} to check. Orders with the same remark are placed
-                    together. Each change is saved as you make it; an order with no project becomes a Non-Project
-                    expense.
-                </p>
+                <h3 className="text-sm font-semibold">{summary.heading}</h3>
+                {summary.note && <p className="text-xs text-muted-foreground">{summary.note}</p>}
+                {items.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                        Orders with the same remark are placed together. Each choice is saved as you make it.
+                    </p>
+                )}
             </div>
             {saveError && (
                 <p className="flex items-start gap-2 rounded-md bg-destructive/5 p-2 text-xs text-destructive">
@@ -132,11 +140,14 @@ const ReviewCard = ({
     saving: boolean;
     onPlace: (item: ReviewItem, project: string) => void;
 }) => {
-    const value = item.mixed ? null : options.find((option) => option.value === (item.project ?? "")) ?? null;
+    const undecided = item.lines.some((line) => line.needs_person);
+    // A suggestion that needs a person is not shown as chosen: picking it is the person's choice.
+    const value = undecided || item.mixed ? null : options.find((option) => option.value === item.project) ?? null;
+    const notAProject = !undecided && !item.mixed && !item.project;
     const strength = item.mixed ? "Check" : strengthLabel(item.lines.find((line) => line.strength === "Check")?.strength);
     const count = item.lines.length;
     return (
-        <li className={`space-y-2 rounded-md border p-3 ${item.needsCheck ? "border-amber-300 bg-amber-50/40" : ""}`}>
+        <li className={`space-y-2 rounded-md border p-3 ${undecided ? "border-amber-300 bg-amber-50/40" : ""}`}>
             <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                     {item.kind === "group" ? (
@@ -150,27 +161,40 @@ const ReviewCard = ({
                         <OrderFacts line={item.lines[0]} />
                     )}
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        {strength && (
+                        {undecided && strength && (
                             <Badge variant="outline" className="border-amber-300 bg-amber-100 text-amber-800">
                                 {strength}
                             </Badge>
                         )}
                         <span>
-                            {placementLabel(item)} — {item.reasons.length ? item.reasons.map(reasonLabel).join("; ") : reasonLabel(null)}
+                            {/* No project suggested: the reason alone ("No project found"), never "Non-Project". */}
+                            {undecided && !item.project && !item.mixed
+                                ? ""
+                                : `${undecided ? "Suggested: " : ""}${notAProject ? "Not a project" : placementLabel(item)} — `}
+                            {item.reasons.length ? item.reasons.map(reasonLabel).join("; ") : reasonLabel(null)}
                         </span>
                     </div>
                 </div>
-                <div className="flex w-full items-center gap-2 sm:w-72">
+                <div className="flex w-full items-center gap-2 sm:w-96">
                     <div className="min-w-0 flex-1">
                         <PorterProjectSelect
                             options={options}
                             value={value}
-                            onChange={(option) => onPlace(item, option?.value ?? "")}
+                            onChange={(option) => option && onPlace(item, option.value)}
                             placeholder={item.mixed ? `Choose one for all ${count}` : "Choose a project…"}
-                            isClearable={Boolean(item.project)}
                             isDisabled={saving || !item.editable}
                         />
                     </div>
+                    <Button
+                        type="button"
+                        size="sm"
+                        variant={notAProject ? "default" : "outline"}
+                        aria-pressed={notAProject}
+                        disabled={saving || !item.editable}
+                        onClick={() => onPlace(item, "")}
+                    >
+                        Not a project
+                    </Button>
                     {saving && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />}
                 </div>
             </div>

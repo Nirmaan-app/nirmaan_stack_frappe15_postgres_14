@@ -41,6 +41,7 @@ from nirmaan_stack.services.outflow_import.porter_state import (
     INVOICE_IN_FLIGHT,
     INVOICE_PASSED,
     import_state,
+    placement_kinds,
 )
 from nirmaan_stack.services.outflow_import.porter_verdict import (
     INVOICE_DATE_SLACK_DAYS,
@@ -619,6 +620,77 @@ class TestTheDescriptionARectifyWrites(unittest.TestCase):
         self.assertEqual(
             rectified_description("", "Arjun Pillai", "Quillon Park", "Zephyr Tower"),
             "Porter Delivery raised by Arjun Pillai for Zephyr Tower",
+        )
+
+
+class TestWhichOrdersNeedAPerson(unittest.TestCase):
+    """Choose projects (#1560): the ONE needs-a-person rule. Review lists these, Create refuses while any
+    is left, and the progress bar counts them."""
+
+    @staticmethod
+    def _line(name, group="", reason="name", strength="Strong", destination="P1", open=True):
+        return {
+            "name": name,
+            "group_key": group,
+            "reason": reason,
+            "strength": strength,
+            "destination": destination,
+            "open": open,
+        }
+
+    def test_a_strong_placement_needs_no_person(self):
+        self.assertEqual(placement_kinds([self._line("a")]), {"a": "placed_automatically"})
+
+    def test_a_strong_non_project_from_history_needs_no_person(self):
+        line = self._line("a", reason="history", destination=None)
+        self.assertEqual(placement_kinds([line]), {"a": "placed_automatically"})
+
+    def test_a_check_order_and_an_order_with_no_placement_need_a_person(self):
+        lines = [
+            self._line("check", strength="Check"),
+            self._line("blank", reason=None, strength=None, destination=None),
+        ]
+        self.assertEqual(placement_kinds(lines), {"check": "needs_person", "blank": "needs_person"})
+
+    def test_one_check_order_puts_its_whole_remark_group_before_a_person(self):
+        lines = [
+            self._line("a", group="g"),
+            self._line("b", group="g", strength="Check"),
+            self._line("other", group="h"),
+        ]
+        self.assertEqual(
+            placement_kinds(lines), {"a": "needs_person", "b": "needs_person", "other": "placed_automatically"}
+        )
+
+    def test_a_remark_group_placed_differently_needs_a_person(self):
+        lines = [self._line("a", group="g"), self._line("b", group="g", destination="P2")]
+        self.assertEqual(placement_kinds(lines), {"a": "needs_person", "b": "needs_person"})
+
+    def test_orders_with_no_remark_are_never_one_group(self):
+        lines = [self._line("a"), self._line("b", destination="P2")]
+        self.assertEqual(placement_kinds(lines), {"a": "placed_automatically", "b": "placed_automatically"})
+
+    def test_a_persons_choice_needs_no_person_and_not_a_project_is_one(self):
+        lines = [
+            self._line("a", group="g", reason="review", strength=None, destination=None),
+            self._line("b", group="g", reason="review", strength=None, destination="P2"),
+        ]
+        self.assertEqual(placement_kinds(lines), {"a": "placed_by_person", "b": "placed_by_person"})
+
+    def test_a_split_group_still_asks_about_the_orders_no_person_chose(self):
+        lines = [
+            self._line("chosen", group="g", reason="review", strength=None, destination="P2"),
+            self._line("auto", group="g"),
+        ]
+        self.assertEqual(placement_kinds(lines), {"chosen": "placed_by_person", "auto": "needs_person"})
+
+    def test_an_order_already_created_needs_no_person_and_leaves_its_group_alone(self):
+        lines = [
+            self._line("created", group="g", strength="Check", open=False),
+            self._line("open", group="g", destination="P2"),
+        ]
+        self.assertEqual(
+            placement_kinds(lines), {"created": "placed_automatically", "open": "placed_automatically"}
         )
 
 

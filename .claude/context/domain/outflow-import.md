@@ -6675,7 +6675,9 @@ that rule skips the wallet top-ups and stays unchanged.
      - Site-address match. It overrides a name only when most of a remark group's orders agree.
      - Earlier confirmed or rectified Porter Orders.
    - **How suggestions are shown:** weak ones are marked "Check". Orders with no remark are reviewed one
-     by one. Blank means Non-Project.
+     by one. Since #1560 only the orders that need a person are listed, and a blank is no longer
+     Non-Project: a person chooses **Not a project**, and Create is refused until every order is placed
+     (see "As built — #1560").
    - **Measured on the 2026-09 file:** 144 of 158 placed.
    - ⚠️ Index **Won projects only**, as Cashbook's `_build_plan` does. Indexing every project makes the
      Tendering duplicate "EXL KOCHI" hide the Won "EXL Kochi".
@@ -7263,8 +7265,9 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
   invoices, cancelled), `check` (invoices, passed, in_progress, to_retry = Error, not_matching = Failed,
   seconds_left), `projects` (orders, placed_automatically, placed_by_person, needs_person), `create` (orders,
   created, waiting, failed, reopened, running). Each phase is a flat dict: later tickets ADD keys, never reshape.
-- **Placement kinds** (`porter_state.placement_kind`): `review` reason = by a person; Strong = automatic;
-  anything else (Check, or no placement) = needs a person. #1560 widens needs-a-person to mixed remark groups.
+- **Placement kinds** (`porter_state.placement_kinds`): `review` reason = by a person; Strong = automatic;
+  anything else (Check, or no placement) = needs a person. #1560 widens needs-a-person to remark groups in
+  doubt (below).
 - **`seconds_left`** is a rough estimate: in-progress invoices ÷ `VALIDATION_CONCURRENCY` ×
   `CHECK_SECONDS_PER_INVOICE` (60 s), None once nothing is in progress.
 - ⚠️ **"Creating" only while a Create job is queued or running** (`create.running`). The stored-state word
@@ -7292,6 +7295,33 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
   vs PDF) and the next step; a Fare / Invoice date table on Failed and read Error cards, the failing row
   highlighted; one grey "GST taken from the statement. …" line on a Passed card with warnings; plain Passed
   cards folded under "N more invoices passed". Retry is still Error-only until #1562.
+
+### As built — #1560: Choose projects lists only the orders that need a person (spec #1554, 2026-10-25)
+
+- ⚠️ **ONE needs-a-person rule: `porter_state.placement_kinds`** (pure), read through
+  `porter_records.porter_placements(batches)` (one query). Review's filter (`needs_person` on each line of
+  `get_porter_review`), Create's refusal (`orders_needing_a_person`) and the progress bar's
+  `projects.needs_person` all come from it; never write a second copy (the screen reads `needs_person`, it
+  does not recompute it). An open order (Create would still write it) needs a person when no person chose it
+  and it is not Strong, or its remark group is in doubt: any open order of the group is Check or unplaced,
+  or the group's open orders go to different destinations. Strong placements, Strong Non-Project from
+  history included, need no one. A created order never needs a person and casts no doubt on its group.
+- **Not a project** (GLOSSARY) is `set_porter_placement` with a blank project: reason `review`, no project,
+  Non-Project ledger. The screen offers it as its own button; the project picker lists Won projects only.
+- ⚠️ **Create is refused while any order needs a person** ("N orders still need a project. …"). This
+  replaces "a blank becomes Non-Project at Create": upload still stages an unplaced order on the
+  Non-Project ledger, but no such order reaches Create unless a person chose it. Old imports already
+  Validated with Check or unplaced orders now need those orders chosen before Create.
+- **Screen.** `PorterReviewPanel` lists `porterReview.choiceItems` (groups with an order that needs a person,
+  plus groups a person already chose and can still change); heading and note from `choiceSummary` ("N orders
+  need a project" / "M orders were placed automatically. …", or "All N orders placed automatically."). The
+  footer on a Validated import reads "Save and close" and `nextConfirmLabel` ("Next: confirm (N left)"),
+  N = `progress.projects.needs_person`, disabled until 0; until the confirm step (#1564) Next runs Create.
+  A Creating import (re-run after Error / Unreconcile) keeps the old Create button.
+- Tests: `services/outflow_import/test_porter.TestWhichOrdersNeedAPerson` (pure), DB
+  `test_porter_review.TestWhichOrdersNeedAPerson`, `test_porter_create.TestCreateWaitsForEveryOrderThatNeedsAPerson`;
+  `PorterCreateCase._press_create` confirms every order that needs a person first (`confirm_first=False` to
+  test the refusal). Vitest: `porterReview.test.ts`.
 
 
 ## #1485 (2026-10-17) — an ICICI cheque line clears its Payment cheque (spec #1477, ADR-0035)

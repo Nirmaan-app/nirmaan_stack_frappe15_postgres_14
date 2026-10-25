@@ -6,7 +6,8 @@
 Once every Porter Invoice of an import has Passed (`porter_records.is_validated`), the Accountant checks each
 completed order's suggested project and corrects it: by remark group, or order by order where an order
 has no remark. Grouping and ordering are the screen's (`frontend/.../porterReview.ts`); this module
-reports the lines with their group key and writes the corrections.
+reports the lines with their group key and whether each needs a person (#1560), and writes the
+corrections. The screen lists only the groups that need a person (or that a person already chose).
 
 ⚠️ AN EDIT IS THE PLAN CREATE READS. It writes the line's `suggested_doctype`, `resolved_project` and
 `suggested_expense_type` -- the same fields upload wrote and the Create job (#1445) turns into the
@@ -26,6 +27,7 @@ from nirmaan_stack.api.outflow_import.porter_records import (
     ROW_DOCTYPE,
     is_validated,
     line_names,
+    porter_placements,
     refuse_unless_porter_import,
     refuse_unless_won,
     won_projects,
@@ -40,7 +42,7 @@ from nirmaan_stack.services.outflow_import.porter import (
     remark_group_key,
     statement_line,
 )
-from nirmaan_stack.services.outflow_import.porter_state import CREATE_LINE_STATUSES
+from nirmaan_stack.services.outflow_import.porter_state import CREATE_LINE_STATUSES, NEEDS_PERSON
 from nirmaan_stack.services.outflow_import.status import ROW_SKIPPED
 
 
@@ -53,7 +55,9 @@ def get_porter_review(batch: str):
     Returns `{batch, lines: [...], projects: [{name, project_name}]}`. Each line: `name`, `crn`,
     `completed_on`, `fare`, `remarks`, `city`, `from_address`, `to_address`, `booked_by`, `group_key`
     (blank: no remark, reviewed on its own), `ledger`, `project`, `project_name`, `reason`, `strength`,
-    `editable` (Create would still write it: waiting, in Error, or reopened by Unreconcile).
+    `editable` (Create would still write it: waiting, in Error, or reopened by Unreconcile),
+    `needs_person` (`porter_records.porter_placements`, #1560: Choose projects lists it, and Create is
+    refused while any line has it).
     """
     require_outflow_access()
     _refuse_unless_validated(batch)
@@ -62,11 +66,12 @@ def get_porter_review(batch: str):
 
 @frappe.whitelist(methods=["POST"])
 def set_porter_placement(batch: str, rows, project: str | None = None):
-    """Place one or more orders of a Validated Porter import: on a Won project, or Non-Project.
+    """Place one or more orders of a Validated Porter import: on a Won project, or Not a project.
 
     URL: /api/method/nirmaan_stack.api.outflow_import.porter_review.set_porter_placement
     Body: `batch`, `rows` (the line names: a remark group, or one order), `project` (blank or absent:
-    Non-Project). Returns the review as `get_porter_review` does.
+    Not a project -- a person's deliberate choice, recorded like any other, that makes the orders
+    Non-Project Expenses, GLOSSARY). Returns the review as `get_porter_review` does.
 
     Writes, on every line, the ledger, the project and the expense type (Material Transportation Charges
     on both ledgers), and marks the placement as chosen in review (`placement_reason` "review", no
@@ -127,6 +132,7 @@ def porter_review(batch: str) -> dict:
         (batch, ROW_SKIPPED),
         as_dict=True,
     )
+    kinds = porter_placements([batch])[batch]
     lines = []
     for row in rows:
         line = statement_line(row.porter_line)
@@ -148,6 +154,7 @@ def porter_review(batch: str) -> dict:
                 "reason": row.placement_reason or None,
                 "strength": row.placement_strength or None,
                 "editable": row.row_status in CREATE_LINE_STATUSES,
+                "needs_person": kinds.get(row.name) == NEEDS_PERSON,
             }
         )
     return {"batch": batch, "lines": lines, "projects": won_projects()}
