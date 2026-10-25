@@ -28,10 +28,11 @@ import {
 } from "../porterImport";
 import { shownPorterState } from "../porterProgress";
 
-const TONE_CLASS: Record<ReturnType<typeof invoiceStateTone>, string> = {
+const TONE_CLASS: Record<ReturnType<typeof invoiceStateTone> | ReturnType<typeof porterStateTone>, string> = {
     passed: "border-emerald-200 bg-emerald-50 text-emerald-700",
     failed: "border-destructive/30 bg-destructive/5 text-destructive",
     retry: "border-amber-300 bg-amber-50 text-amber-800",
+    attention: "border-amber-300 bg-amber-50 text-amber-800",
     pending: "border-muted-foreground/20 bg-muted text-muted-foreground",
 };
 

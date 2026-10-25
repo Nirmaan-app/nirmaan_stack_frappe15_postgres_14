@@ -13,7 +13,7 @@ import {
     importSteps,
 } from "./importWizard";
 import { NEVER_MATCHED_SOURCES } from "./outflowImportStatus";
-import { SOURCE_OPTIONS } from "./outflowTableModel";
+import { SOURCE_OPTIONS, importStatusTone } from "./outflowTableModel";
 import {
     PORTER_CREATE_METHOD,
     PORTER_IMPORT_STATES,
@@ -434,5 +434,10 @@ describe("creating the expenses (#1445)", () => {
         );
         expect(porterStateTone("Created")).toBe("passed");
         expect(porterStateTone("Creating")).toBe("pending");
+    });
+
+    it("tones a partly created import that needs a person amber, never grey (#1556)", () => {
+        expect(porterStateTone("Needs you")).toBe("attention");
+        expect(importStatusTone("Needs you")).toBe("bg-amber-50 text-amber-700");
     });
 });

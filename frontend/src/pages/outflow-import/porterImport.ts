@@ -356,8 +356,13 @@ export const porterStateNote = (state: string): string => {
 };
 
 /** The tone of the import's state chip. */
-export const porterStateTone = (state: string): "passed" | "failed" | "pending" =>
-    state === "Validated" || state === "Created" ? "passed" : state === "Validation failed" ? "failed" : "pending";
+export const porterStateTone = (state: string): "passed" | "failed" | "attention" | "pending" => {
+    if (state === "Validated" || state === "Created") return "passed";
+    if (state === "Validation failed") return "failed";
+    // A partly created import with no Create running: a person's turn (`porterProgress.NEEDS_YOU_STATE`).
+    if (state === "Needs you") return "attention";
+    return "pending";
+};
 
 // --- create (#1445) -------------------------------------------------------------------------------
 
