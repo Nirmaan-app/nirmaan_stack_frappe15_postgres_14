@@ -23,7 +23,7 @@ export interface AssetHistoryRow {
   audit_answers?: unknown;
 }
 
-export type HistoryTone = "added" | "assigned" | "declaration" | "unassigned" | "department" | "return" | "audit";
+export type HistoryTone = "added" | "assigned" | "declaration" | "unassigned" | "department" | "audit";
 
 export interface HistoryEntry {
   key: string;
@@ -65,8 +65,6 @@ const TONES: Record<string, HistoryTone> = {
   "Declaration Uploaded": "declaration",
   Unassigned: "unassigned",
   "Department Set": "department",
-  "Return Requested": "return",
-  "Return Rejected": "return",
   "Audit Requested": "audit",
   "Audit Fulfilled": "audit",
   "Audit Missed": "audit",
@@ -94,10 +92,6 @@ function titleFor(row: AssetHistoryRow, nameOf: (id?: string | null) => string):
       return `Unassigned from ${nameOf(row.assigned_to)}`;
     case "Department Set":
       return row.from_department ? "Department changed" : `Department set to ${row.to_department ?? ""}`.trim();
-    case "Return Requested":
-      return `Returned by ${nameOf(row.assigned_to)}, waiting for approval`;
-    case "Return Rejected":
-      return `Return rejected, ${nameOf(row.assigned_to)} keeps it`;
     case "Audit Requested":
       return `Audit Requested for ${nameOf(row.assigned_to)}`;
     case "Audit Missed":

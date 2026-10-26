@@ -111,7 +111,7 @@ const ViewChip: React.FC<{
 );
 
 const PendingAudits: React.FC<{ assetType: AssetCategoryType }> = ({ assetType }) => {
-    // Wait for the tab's asset list, so the first fetch is never scoped to nothing (see ReturnRequestsList).
+    // Wait for the tab's asset list, so the first fetch is never scoped to nothing.
     const { masterNames, isLoading } = useAssetMasterNamesByType(assetType);
     if (isLoading) return <Skeleton className="h-96 w-full bg-gray-100" />;
     return <PendingAuditsTable assetType={assetType} masterNames={masterNames} />;

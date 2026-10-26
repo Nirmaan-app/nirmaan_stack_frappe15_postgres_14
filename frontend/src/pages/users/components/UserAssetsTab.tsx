@@ -47,7 +47,6 @@ import {
   parseAuditAnswers,
 } from "@/utils/assetAudit";
 import { PendingDeclarationTooltip, pendingAssetActionsLabel } from "@/components/helpers/PendingDeclarationIcon";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AssignAssetToUserDialog } from "./AssignAssetToUserDialog";
 import { SignDeclarationDialog } from "@/pages/Assets/components/SignDeclarationDialog";
 import { SubmitAuditDialog } from "@/pages/Assets/components/SubmitAuditDialog";
@@ -67,9 +66,6 @@ interface AssetManagementRecord {
   /** Ticked by the server when the declaration arrives (signed or uploaded). */
   received?: 0 | 1;
   received_on?: string | null;
-  /** Ticked when the holder returns it; cleared if Admin / HR / PMO reject the return. */
-  returned?: 0 | 1;
-  returned_on?: string | null;
   /** Monthly asset audit (owner, 2026-10-14), written by the server. */
   audit_status?: string | null;
   audit_month?: string | null;
@@ -148,14 +144,11 @@ function AssetCard({
   asset,
   isAdmin,
   canSign,
-  canReturn = false,
-  returnBlockedByAudit = false,
   hasPage = true,
   audit = null,
   canAudit = false,
   onUnassign,
   onSign,
-  onReturn,
   onAudit,
 }: {
   assignment: AssetManagementRecord;
@@ -166,17 +159,12 @@ function AssetCard({
   /** The viewer is the assignee and the declaration is still pending. Everyone signs their own, Admin too:
    * there is no scanned-declaration upload (owner, 2026-10-15). */
   canSign: boolean;
-  /** The viewer holds it, the declaration is on file and no return is waiting: show Return. */
-  canReturn?: boolean;
-  /** Return would be allowed but the monthly audit is open: Return shows greyed out (owner, 2026-10-14). */
-  returnBlockedByAudit?: boolean;
   /** The audit line, or null when there is nothing to show (a category that isn't audited). */
   audit?: AuditBadge | null;
   /** The viewer holds it and its audit is open: show Submit audit. */
   canAudit?: boolean;
   onUnassign: () => void;
   onSign: () => void;
-  onReturn?: () => void;
   onAudit?: () => void;
 }) {
   const isPendingDeclaration = !assignment.asset_declaration_attachment;
@@ -270,30 +258,6 @@ function AssetCard({
 
           {/* Action Buttons */}
           <div className="flex items-center gap-1">
-            {canReturn && (
-              <Button
-                size="sm"
-                onClick={onReturn}
-                className="h-7 px-2.5 text-xs gap-1 bg-red-600 text-white hover:bg-red-700"
-              >
-                <Undo2 className="h-3.5 w-3.5" />
-                Return
-              </Button>
-            )}
-            {returnBlockedByAudit && (
-              // A disabled button gets no hover, so the tooltip hangs on a wrapper (focusable for keyboard).
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span tabIndex={0} className="inline-flex cursor-not-allowed rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                    <Button size="sm" disabled className="pointer-events-none h-7 px-2.5 text-xs gap-1">
-                      <Undo2 className="h-3.5 w-3.5" />
-                      Return
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top">Submit the pending audit first, then return it.</TooltipContent>
-              </Tooltip>
-            )}
             {canSign && (
               <Button
                 size="sm"
@@ -330,14 +294,6 @@ function AssetCard({
             answersTitle={`${asset?.asset_name || assignment.asset} · audit for ${assignment.audit_month ?? ""}`}
           />
         )}
-
-        {/* Returned, waiting for approval (owner, 2026-10-13) */}
-        {!!assignment.returned && (
-          <span className="inline-flex w-fit items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-600">
-            <Undo2 className="h-3 w-3" />
-            Returned {assignment.returned_on ? formatDate(assignment.returned_on) : ""} · waiting for approval
-          </span>
-        )}
       </CardContent>
     </Card>
   );
@@ -368,11 +324,6 @@ export function UserAssetsTab({
   const [subTab, setSubTab] = useState<AssetSubTab>("Project");
   // The dialog holds the row's name; the live row is read from the refetched list.
   const [signingAssignmentName, setSigningAssignmentName] = useState<string | null>(null);
-  // Return (owner, 2026-10-13): the holder tells HR / Admin they gave the asset back; it stays
-  // assigned until one of them approves it on the Assets page's Return Request tab.
-  const [returningAssignment, setReturningAssignment] = useState<AssetManagementRecord | null>(null);
-  const [isReturning, setIsReturning] = useState(false);
-  const { call: requestReturn } = useFrappePostCall("nirmaan_stack.api.assets.returns.request_return");
   // Monthly audit (owner, 2026-10-14): the dialog holds the row's name; the live row comes from the list.
   const [auditingAssignmentName, setAuditingAssignmentName] = useState<string | null>(null);
 
@@ -624,14 +575,6 @@ export function UserAssetsTab({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {visibleAssignments.map((assignment) => {
             const asset = getAssetDetails(assignment.asset);
-            // The holder, own profile, declaration on file, no return waiting. An open audit greys
-            // Return out until it is sent (owner, 2026-10-14).
-            const returnable =
-              isOwnProfile &&
-              assignment.asset_assigned_to === userData?.user_id &&
-              asset?.current_assignee === userData?.user_id &&
-              !!assignment.asset_declaration_attachment &&
-              !assignment.returned;
             return (
               <AssetCard
                 key={assignment.name}
@@ -655,9 +598,6 @@ export function UserAssetsTab({
                   setUnassignDialogOpen(true);
                 }}
                 onSign={() => setSigningAssignmentName(assignment.name)}
-                canReturn={returnable && assignment.audit_status !== AUDIT_PENDING}
-                returnBlockedByAudit={returnable && assignment.audit_status === AUDIT_PENDING}
-                onReturn={() => setReturningAssignment(assignment)}
                 audit={getAuditBadge(assignment)}
                 canAudit={
                   isOwnProfile &&
@@ -719,54 +659,6 @@ export function UserAssetsTab({
           onSubmitted={onMutate}
         />
       )}
-
-      {/* Return Asset Dialog (the holder, own profile) */}
-      <Dialog open={!!returningAssignment} onOpenChange={(open) => !open && !isReturning && setReturningAssignment(null)}>
-        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-amber-50">
-              <Undo2 className="h-6 w-6 text-amber-600" />
-            </div>
-            <DialogTitle className="text-center">
-              Return {getAssetDetails(returningAssignment?.asset || "")?.asset_name || returningAssignment?.asset}?
-            </DialogTitle>
-            <DialogDescription className="text-center">
-              This tells HR / Admin that you gave the asset back today, {formatDate(new Date())}.
-            </DialogDescription>
-          </DialogHeader>
-          <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-            It stays assigned to you until they approve the return.
-          </p>
-          <DialogFooter className="gap-2 sm:justify-center">
-            <DialogClose asChild>
-              <Button variant="outline" disabled={isReturning}>Cancel</Button>
-            </DialogClose>
-            <Button
-              disabled={isReturning}
-              onClick={async () => {
-                if (!returningAssignment) return;
-                setIsReturning(true);
-                try {
-                  await requestReturn({ assignment: returningAssignment.name });
-                  toast({
-                    title: "Return sent",
-                    description: "HR / Admin will approve it. The asset stays with you until then.",
-                    variant: "success",
-                  });
-                  setReturningAssignment(null);
-                  onMutate();
-                } catch (error) {
-                  toast({ title: "Couldn't return the asset", description: getFrappeError(error), variant: "destructive" });
-                } finally {
-                  setIsReturning(false);
-                }
-              }}
-            >
-              {isReturning ? "Sending…" : "Yes, I returned it"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Unassign Asset Dialog */}
       <Dialog open={unassignDialogOpen} onOpenChange={setUnassignDialogOpen}>

@@ -200,3 +200,4 @@ nirmaan_stack.patches.v3_0.pmo_write_on_work_orders
 nirmaan_stack.patches.v3_0.backfill_work_order_approval
 nirmaan_stack.patches.v3_0.rejudge_failed_porter_invoices
 nirmaan_stack.patches.v3_0.select_boqs_on_legacy_won_projects
+nirmaan_stack.patches.v3_0.remove_asset_returns

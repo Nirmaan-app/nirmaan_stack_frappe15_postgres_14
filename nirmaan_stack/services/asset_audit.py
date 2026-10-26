@@ -29,7 +29,6 @@ GRACE_LAST_DAY = 7
 # Why an audit opened outside the scheduled runs, written after the month on its history row.
 NOTE_HANDOVER = "handover"
 NOTE_CATEGORY_ON = "category audit switched on"
-NOTE_RETURN_REJECTED = "return rejected"
 
 # The audit question lives in the dialog only (owner, 2026-10-15; one question since 2026-10-21):
 # `frontend/src/utils/assetAuditQuestions.ts`. Each answer arrives with the question and the choice as the holder saw

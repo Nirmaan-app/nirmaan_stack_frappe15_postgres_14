@@ -1,19 +1,18 @@
-"""Monthly asset audit (owner, 2026-10-14) -- opening, sending, returns, the category switch, who sees what.
+"""Monthly asset audit (owner, 2026-10-14) -- opening, sending, the category switch, who sees what.
 
 - An audit opens for an assigned asset whose category needs one: on the 28th (next month's, for everyone up
   to date), on the 7th (this month's, for whoever sent last month's in the grace days), at handover
-  (declaration arrives), when a return is rejected, and when its category is ticked -- from the 28th, for
-  the next month.
+  (declaration arrives), and when its category is ticked -- from the 28th, for the next month.
 - The 7th records last month's unsent audit Missed and moves it to this month (`audit_overdue_since` keeps the
   first missed month until an audit is sent), or closes it when the category is no longer audited.
 - One open audit at a time; never twice for a month; not again after handover when the asset was already
-  audited for that month (the month it was for, not the day sent); a leftover row or a waiting return is
-  never audited.
+  audited for that month (the month it was for, not the day sent); a leftover row is never audited. A
+  `returned` flag left on a row (returns were removed, 2026-10-26) no longer stops it.
 - Only the holder sends it: "Is it working?" (owner, 2026-10-21) -- "Yes" with optional remarks and no photo, "No"
   with a required description and an optional image, which must be their own unattached upload. The answers are
   saved on the assignment (latest only) and on the history row; the asset's condition is left alone (the answers
   show any issue).
-- The holder can't return while an audit is Pending; Admin / HR unassign always.
+- Admin / HR unassign always, even while an audit is Pending.
 - Only Admin switches a category; unticking keeps open audits.
 - PMO and procurement read the audit rows from the history, nothing else there.
 
@@ -34,7 +33,7 @@ from frappe.utils import add_months, getdate, now_datetime, today
 from nirmaan_stack.api.assets import audits as audits_api
 from nirmaan_stack.api.assets.assign import unassign_asset
 from nirmaan_stack.api.assets.history import get_asset_history
-from nirmaan_stack.api.assets.returns import reject_return, request_return
+from nirmaan_stack.patches.v3_0.remove_asset_returns import remove_returns
 from nirmaan_stack.nirmaan_stack.doctype.asset_management.test_asset_management import (
     CATEGORY_PREFIX,
     FAKE_FILE_URL,
@@ -280,9 +279,6 @@ class TestMonthlyAssetAudit(FrappeTestCase):
             ("Audit Missed", self.month),
             ("Audit Requested", self.next_month),
         ])
-        frappe.set_user(self.holder)
-        with self.assertRaisesRegex(frappe.ValidationError, "Submit the pending audit"):
-            request_return(assignment)  # still open, so Return stays blocked
 
     def test_a_grace_day_sender_gets_this_months_audit_on_the_7th(self):
         asset, assignment = self._assign()
@@ -335,8 +331,6 @@ class TestMonthlyAssetAudit(FrappeTestCase):
         row = self._row(assignment)
         self.assertEqual((row.audit_status, row.audit_overdue_since), (None, None))
         self.assertEqual([r.event for r in self._history(asset) if r.event.startswith("Audit")][-1], "Audit Missed")
-        frappe.set_user(self.holder)
-        self.assertEqual(request_return(assignment)["assignment"], assignment)  # Return works again
 
     def test_sent_this_month_is_not_opened_again_this_month_but_is_next_month(self):
         asset, assignment = self._assign()
@@ -348,17 +342,48 @@ class TestMonthlyAssetAudit(FrappeTestCase):
         self.assertEqual((row.audit_status, row.audit_month), ("Pending", audit_month_label(self.next_month_day)))
         self.assertEqual(self._history(asset, "Audit Requested")[-1].reason, audit_month_label(self.next_month_day))
 
-    def test_a_waiting_return_is_skipped_and_rejecting_it_opens_the_audit(self):
+    def _old_history_row(self, asset, event, assigned_to, reason=None):
+        """A history row as the removed return feature (or its rejection's audit) left it."""
+        frappe.get_doc({
+            "doctype": "Asset History", "name": frappe.generate_hash(length=10), "parent": asset,
+            "parenttype": "Asset Master", "parentfield": "asset_history", "idx": 900 + len(self._history(asset)),
+            "event": event, "assigned_to": assigned_to, "done_by": assigned_to, "done_on": now_datetime(),
+            "reason": reason,
+        }).db_insert()
+
+    def test_the_patch_removes_returns_and_their_history(self):
+        """Returns were removed (2026-10-26): a waiting return is cancelled (the person keeps the asset, an owed
+        audit opens), every return history row goes, and an audit's "return rejected" note is dropped."""
         asset, assignment = self._assign("chair")
-        frappe.set_user(self.holder)
-        request_return(assignment)
-        frappe.set_user(self.admin)
-        self.assertEqual(audits_api.set_category_audit(self.categories["chair"], 1)["opened"], 0)
-        self.assertFalse(self._row(assignment).audit_status)
-        frappe.set_user("Administrator")
-        reject_return(assignment)
+        unaudited_asset, unaudited = self._assign("project", person=self.holder2)
+        frappe.db.set_value("Asset Category", self.categories["chair"], "audit_required", 1)  # no hook: nothing opened
+        frappe.db.set_value("Asset Category", self.categories["project"], "audit_required", 0)
+        for row in (assignment, unaudited):
+            frappe.db.set_value("Asset Management", row, {"returned": 1, "returned_on": "2026-10-14", "audit_status": None})
+        self._old_history_row(asset, "Return Requested", self.holder)
+        self._old_history_row(asset, "Return Rejected", self.holder, "Return of 13-10-2026")
+        self._old_history_row(unaudited_asset, "Return Requested", self.holder2)
+        self._old_history_row(unaudited_asset, "Audit Requested", self.holder2, "09/2026 · return rejected")
+        self._old_history_row(unaudited_asset, "Unassigned", self.holder2, "Returned – no longer needed")  # an approval
+        kept = [(r.event, r.reason) for r in self._history(asset) if not r.event.startswith("Return")]
+
+        result = remove_returns(assets=[asset, unaudited_asset])
+        self.assertEqual(result, {
+            "cancelled": sorted([assignment, unaudited]), "audits_opened": [assignment],
+            "history_deleted": 3, "notes_trimmed": 1,
+        })
+        for row, held, person in ((assignment, asset, self.holder), (unaudited, unaudited_asset, self.holder2)):
+            self.assertEqual(frappe.db.get_value("Asset Management", row, ["returned", "returned_on"]), (0, None))
+            self.assertEqual(frappe.db.get_value("Asset Master", held, "current_assignee"), person)
+            self.assertEqual([r for r in self._history(held) if r.event.startswith("Return")], [])
         self.assertEqual(self._row(assignment).audit_status, "Pending")
-        self.assertEqual(self._history(asset, "Audit Requested")[-1].reason, f"{self.month} · return rejected")
+        self.assertEqual(self._history(asset, "Audit Requested")[-1].reason, self.month)  # no note mentions a return
+        self.assertFalse(self._row(unaudited).audit_status)  # its category isn't audited
+        self.assertEqual(self._history(unaudited_asset, "Audit Requested")[-1].reason, "09/2026")
+        self.assertEqual(self._history(unaudited_asset, "Unassigned")[-1].reason, "Returned – no longer needed")
+        self.assertEqual([(r.event, r.reason) for r in self._history(asset)][: len(kept)], kept)  # the rest untouched
+        again = remove_returns(assets=[asset, unaudited_asset])  # twice: once
+        self.assertEqual((again["cancelled"], again["history_deleted"], again["notes_trimmed"]), ([], 0, 0))
 
     def test_a_leftover_row_for_someone_else_is_never_audited(self):
         asset, _ = self._assign("chair")  # held by holder
@@ -531,8 +556,6 @@ class TestMonthlyAssetAudit(FrappeTestCase):
         doc = frappe.get_doc("Asset Master", asset)
         doc.asset_description = "edited after an audit"
         doc.save(ignore_permissions=True)
-        frappe.set_user(self.holder)
-        self.assertEqual(request_return(assignment)["assignment"], assignment)
 
     def test_the_next_audit_replaces_the_latest_answers_and_the_history_keeps_both(self):
         asset, assignment = self._assign()
@@ -592,19 +615,17 @@ class TestMonthlyAssetAudit(FrappeTestCase):
         self.assertEqual(self._row(other).audit_status, "Fulfilled")
 
     def test_an_audit_sent_before_the_questions_still_saves_until_its_audit_fields_change(self):
-        """Older Fulfilled rows have a photo but no answers: a return or a declaration saves them as before."""
+        """Older Fulfilled rows have a photo but no answers: a declaration saves them as before."""
         _, assignment = self._assign()
         photo = self._photo()
         frappe.db.set_value("Asset Management", assignment, {"audit_status": "Fulfilled", "audit_proof": photo})
         self._save_audit(assignment)  # nothing about the audit changes
-        frappe.set_user(self.holder)
-        self.assertEqual(request_return(assignment)["assignment"], assignment)
         with self.assertRaisesRegex(frappe.ValidationError, "answers"):
             self._save_audit(assignment, audit_proof="")
         self.assertEqual(self._row(assignment).audit_proof, photo)
 
     def test_an_older_red_answer_without_a_note_still_saves_until_its_audit_fields_change(self):
-        """Before 2026-10-21 a red answer's note was optional; such an audit must not block a return or a declaration."""
+        """Before 2026-10-21 a red answer's note was optional; such an audit must not block a declaration."""
         _, assignment = self._assign()
         old = {"answers": [{"id": "damage", "q": "Is it damaged anywhere?", "a": "Small damage: scratches or dents", "flag": 1}]}
         frappe.db.set_value(
@@ -612,19 +633,9 @@ class TestMonthlyAssetAudit(FrappeTestCase):
             {"audit_status": "Fulfilled", "audit_proof": self._photo(), "audit_answers": json.dumps(old)},
         )
         self._save_audit(assignment)  # nothing about the audit changes
-        frappe.set_user(self.holder)
-        self.assertEqual(request_return(assignment)["assignment"], assignment)
+        self.assertEqual(self._row(assignment).audit_status, "Fulfilled")
 
-    # -- returns and unassign -------------------------------------------------------------------
-
-    def test_return_is_blocked_while_the_audit_is_pending(self):
-        _, assignment = self._assign()
-        frappe.set_user(self.holder)
-        with self.assertRaisesRegex(frappe.ValidationError, "Submit the pending audit"):
-            request_return(assignment)
-        self._submit(assignment)
-        frappe.set_user(self.holder)
-        self.assertEqual(request_return(assignment)["assignment"], assignment)
+    # -- unassign -------------------------------------------------------------------------------
 
     def test_admin_unassign_is_never_blocked_and_keeps_the_photo(self):
         asset, assignment = self._assign()
@@ -711,15 +722,15 @@ class TestMonthlyAssetAudit(FrappeTestCase):
 
     # -- the runs ---------------------------------------------------------------------------------
 
-    def test_the_28th_run_opens_what_is_due_and_skips_a_waiting_return(self):
+    def test_the_28th_run_opens_what_is_due_even_with_a_leftover_returned_flag(self):
         _, due = self._assign("chair")
-        _, returning = self._assign("chair", person=self.holder2)
+        _, flagged = self._assign("chair", person=self.holder2)
         frappe.db.set_value("Asset Category", self.categories["chair"], "audit_required", 1)  # no hook: nothing opened
-        frappe.db.set_value("Asset Management", returning, "returned", 1)
+        frappe.db.set_value("Asset Management", flagged, "returned", 1)  # returns were removed: the flag means nothing
         with self._scoped():
             open_next_month_audits(day=self.the_28th)
             self.assertEqual((self._row(due).audit_status, self._row(due).audit_month), ("Pending", self.next_month))
-            self.assertFalse(self._row(returning).audit_status)
+            self.assertEqual(self._row(flagged).audit_status, "Pending")
             open_next_month_audits(day=self.the_28th)  # a second run opens nothing more
             self.assertEqual(len(self._history(self._row_asset(due), "Audit Requested")), 1)
 
