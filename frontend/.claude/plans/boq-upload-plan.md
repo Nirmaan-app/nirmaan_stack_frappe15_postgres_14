@@ -49042,3 +49042,135 @@ existing -> ... 2 x 288 = 576"); C7 HVAC = v53 by content, Electrical v66.
 - 00087 r28 / r29 (the foil facing read as glass cloth), the C6 canvas side effect (00302 r53), the motorised VCD accessories
   (00231 r214-216), 00231 r211 aluminium blades: owner rulings for a follow-up slice.
 - A composed (two-layer) Insulation row shows the coating note once per layer (the existing `read_notes` mechanism).
+
+## Slice ADP-5d - the owner's rulings on ADP-5c's 22 moved rows (HVAC v54), four pricer mechanisms, and a re-read of the affected rows - as built 2026-10-24 / 2026-10-26
+
+**Owner rulings built:**
+- 2026-10-23 22:20-23:48, R1-R23. The Phase A stop rulings (2026-10-24):
+  - Q1 (B): R6b ring fence, 4 movers.
+  - Q2 (a): R22 no change; the drain-pipe tree defect is recorded.
+  - Q3: R4 companion grille, 3,635 accepted.
+  - Q4: text notes; R9 reach tight.
+  - Q5 (b): `rule_by_family`.
+  - Q6: 00088 r121's named refusal accepted.
+  - Q7: the wording approved, not R7 / R23.
+  - Q8: the population.
+- The B4 stop rulings (2026-10-24, delivered 2026-10-26 after an unplanned reboot):
+  - Q9 (a): 00247 BOQ r78 is out of Phase C.
+  - Q10 (a): 00140 PAC Works r68 and 00231 r211 are out of Phase C.
+- Standing from this slice (owner 2026-10-24): SCOPED suites replace the full suites. From 2026-10-26: a laptop code + data
+  sync HOLD after every commit.
+
+Built on the desktop (DESKTOP-4RMALAH).
+
+**Commits (unpushed at the time of writing):**
+- `6020fdb54` feat(rate-helper), itemListPricing.ts:
+  - `stream_heading_default` (R6b): the heading directly above names supply and return air, the row names neither stream
+    and no damper, and that heading gives its damper to neither both streams nor no stream. The model's damper answer is
+    then set aside for the family default, recorded as an override (the field shows the value priced, with the line).
+  - `companion_items` (R4): a cross-talk item whose row's OWN text says "return air baffle" also pays for one 300 x 300
+    linear grille without damper, return, per row unit, on the per-number path.
+  - `text_notes` (R9 / R13): a working line drawn from the row's text, with `from_text`, `unit_classes` and `when`.
+  - `number_defaults.rule_by_family` (R21).
+  - The row's headings reach `priceOneItem` as one optional argument (pricingSheetHelper.ts:3151).
+  - config_validation.py: the three keys + rule_by_family shape-checked.
+  - Tests: adp5d.test.ts (30, v53 config + only these keys, stored rows, the panel entry point) and
+    test_config_validation_adp5d.py (7).
+  - Vacuity V1-V13 red, restores sha-equal.
+  - The test_rate_master test_p01 key-set pin extended (mechanical).
+  - **Design note:** the R9 / R13 lines sit in `text_notes`, a sibling of `read_notes`. The Rate Master Derivation tab
+    (itemListRuleOrder.ts) builds a line per `read_notes` entry and would word a text entry wrongly. The three new keys add
+    no Derivation line (the existing_work precedent).
+- `dd1dadc00` feat(rate-master): HVAC v54.
+  - Export = v53 by content; ONLY the approved wording and keys; no item change; configs changed `hvac_adp` and
+    `hvac_insulation`.
+  - Items-spec shas: ADP `72712eb4` -> `39f2e4d7`, Insulation `66639b0c` -> `3fbc3b78`, Piping `ee6848a5` -> `bbdbf548` (its
+    insulation section only).
+  - Mint gate PASS; backup 20261024_012623; pre-load snapshot `BRMS-26-02579`; batch `rmbulk-e9ad45732dd4`. Live == file:
+    HVAC configs `e9d3689a9b670bd4`, items `31631135edffdf23` (unchanged); Electrical v66 unchanged.
+  - test_adp5d_question.py (6).
+  - Current-asset pins inverted, BEFORE kept: test_piping_v34 (14 + 3 + 3), test_rate_master (the constant + 6),
+    test_extraction_coercion (1). The readdir "latest asset" readers all pass on v54.
+- The docs commit that carries this entry.
+
+Desktop:
+- `2026-10-24_ADP-5d_Report.md` (ledger first), `_Ledger.md`, `_PhaseA.xlsx`, `_Expected.xlsx` (v2), `_Rows.xlsx`.
+- `_python_scoped.log`, `_frontend_scoped.log`, `_tsc_full.log`.
+- `ADP-5d Payload Archive\` (AB_resend\B4, Phase_C) and `Capture log backup\2026-10-24_ADP-5d_*`.
+
+### 1. Phase A (read-only; full record in the report and _PhaseA.xlsx)
+Every stored HVAC row was counted with the payload the next Suggest would send (3,903 rows / 109 sheets); expected figures
+were priced by the tracked harness on scratch copies.
+
+Corrections the owner ruled on:
+- **R22's premise does not hold.** 00140 "HVAC Lowside Works " r542-546 are GI class B DRAIN pipes and r550 a CPVC drain.
+  Their sub-headings (r540-541, r548-549) were committed as NOTE rows, and every row is parented to r421 "Chilled Water
+  Cassette Unit", whose notes carry about 40 sub-headings, so the model leaves the type out by its own rule. The
+  chilled-water = MS / refrigerant = Copper rule already works elsewhere (33 / 33, 1 / 1).
+- **R6b as quoted** reached 5 rows whose heading gives the damper to both streams or to none.
+- **R4's grille** is 435 + 80 = 515 (each half rounded up): 3,635 per sq.m, not 3,634.
+- **R23** was already built (12e-6 R1).
+
+### 2. Phase B
+- **B3:**
+  - Stub over the 17 sheets (112 requests): the 67 ADP / Insulation / Piping requests differ ONLY in ITEMS_SPEC, 45 are
+    identical, 0 capture writes.
+  - Tracked replay v54 vs START by key: exactly the 15 declared movers, 0 others:
+
+    | Ruling | Rows and figures |
+    |---|---|
+    | R6b | 00066 r638, 00148 6.HVAC r65 / r70 12,428 -> 5,709; 00073 r15 9,285 -> 6,195 |
+    | R21 | 00315 r42 -> 1,824 |
+    | R13 | the shape note on 00133 r106 / r108 and 00329 r215 / r217 |
+    | R9 | the "not included" line on 00231 / 00243 r214-216 |
+
+- **Scoped suites (after commit 2):** Python 86 modules / 4,456 tests, all OK, capture log unchanged. vitest
+  boq-wizard + pricing 128 files / 5,628 and related 59 / 3,623, with only the known 5 s timeouts. tsc 3,170 = ADP-5c's
+  set.
+- **B4:** ADP-5c's archived Phase C requests for the 22 rows + twins re-sent 3 times on v54, only ITEMS_SPEC changed (48
+  calls, 643,466 tokens).
+  - 22 / 25 ruled checks 3 / 3, including every end-to-end proof row.
+  - 00140 PAC r68 2 / 3 (door grille once) and 00231 r211 2 / 3 (GI once): KEEP rows with no approved wording.
+  - 00247 BOQ r78 0 / 3: the R22 tree defect again. r76 / r77 were committed as notes and r78 hangs under "HVAC SYSTEM".
+  - Q9 / Q10: all three left out of Phase C; their stored answers stand.
+
+### 3. Phase C - the re-read (17 sheets, 80 rows; population v2 = v1 less exactly the 3 rows)
+- **Interruptions:** an unplanned reboot on 2026-10-26 11:47 IST. Postgres ran a clean automatic WAL recovery, and the
+  state equalled the B4 end. Then the owner's HOLD for the laptop's code + data sync (IN_SYNC / SAME).
+- **Before the first call:** expected table v2 (rows sha256 `dd91ad3b...`, beside v1 `21f1b841...`). Server guards
+  17 / 17 ALLOWED.
+- **The run:** `start_suggest` in-process as Administrator, one sheet at a time. **18 calls (= the estimate), 207,664
+  tokens**, 0 retries, every run complete, carried rows byte-identical on 17 / 17 sheets.
+- **C-P8:** 25 rows differ, all re-read rows, 0 outside. New replay baseline: ac7 `2148a730d3237986` / ac7v2
+  `ce5009cc4c048b18` (17,918 rows).
+- **Classification: EXPECTED 70, NEUTRAL 8 (wording only), REPORT 2**, QUESTION-EFFECT 0, UNEXPLAINED 0, RUN-VARIATION 0.
+  Payload == logged 80 / 80; EA-7 PASS 80 / 80; the three specs sent = v54's.
+- **Met:**
+
+  | Row | Result |
+  |---|---|
+  | 00087 r28 / r29 | Aluminium Foil 712 / 581 supply |
+  | 00302 r53 | plenum + canvas 4,514 |
+  | 00066 r638 | 5,709 |
+  | 00144 r224 / 00114 r220 | cross-talk + grille 3,635 |
+  | 00100 r94 / r96 | square 9,285 / 6,195 with the note |
+  | 00140 r39 | 654 |
+  | 00197 r83 | 12,428 |
+  | 00215 r42 | floor grille 1,824 |
+  | 00243 r214-216 | the motorised VCD alone, 7,123 / 14,245 / 21,368 + the line |
+  | 00088 r121 | the collar-damper refusal |
+  | 00191 r37 | 4,695 |
+  | 00140 r542-546 / r550 | refusals |
+
+- **Report:** 00197 r137 cross-talk 3,120 (allowed); 00329 r257 Thermal 748 (Acoustic ruled; no heading rule, as ADP-5c).
+- **Slice total:** 66 calls, 851,130 tokens.
+
+### 4. Browser cert
+Run after this commit and the laptop's sync HOLD; the results are in the Desktop report (section C1-C10).
+
+### 5. Open
+- **The TREE defect:** sub-headings committed as note rows under one sheet-level parent (00140 "HVAC Lowside Works " from
+  r421; 00247 "BOQ" under row 8). It makes the payload unable to place a row (R22's six drain pipes, R19's r78); a
+  separate slice.
+- 00329 r257 Acoustic vs Thermal (unstable on both v53 and v54).
+- The parent-heading match for `existing_work` (ADP-5c Q1 (b)).

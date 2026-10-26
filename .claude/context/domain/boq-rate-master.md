@@ -1693,6 +1693,63 @@ r29 now read "aluminum cladding / reinforced foil facing" as 24G Aluminium with 
 712 / 581) -- the v53 note moved a 0.4-confidence answer; 00302 r53's canvas connection is dropped as a plenum "accessory"
 (C6 reached it, against the canvas ruling); 00231 r214-216 motorised VCDs no longer return their control panel / actuator as
 items and now price. Rows, payloads and both replies: the plan doc's ADP-5c entry and the Desktop `2026-10-23_ADP-5c_Rows.xlsx`.
+**RESOLVED in ADP-5d (HVAC v54):** 00087 r28 / r29 712 / 581, 00302 r53 4,514, 00231 / 00243 r214-216 the motorised VCD alone
+with the "not included" line.
+
+**ADP-5d: THE DAMPER A ROW'S AIR STREAM CANNOT DECIDE (owner R6b 2026-10-23 23:24; ring fence Q1 (B) 2026-10-24; HVAC v54).**
+`list_spec.pricing.stream_heading_default` ({attr, streams_attr, families, words, line, rule}, ADP only). A MODEL damper answer
+that differs from the family's ruled default (`defaults.damper.by_family`) is set aside for that default, recorded as an
+override, so the field shows the value priced with the line "heading names supply and return air, this row names neither ->
+damper as default (without)". It applies ONLY when all of these hold:
+- the row's OWN text (description + own notes) names neither supply nor return air (`airStreamsNamed`) and no damper word;
+- the heading DIRECTLY above (HN-3: the last heading + its notes) names both streams;
+- that heading's damper sentences name no sentence with BOTH streams and at least one with exactly one. A heading naming no
+  damper qualifies; "supply & return air grilles with vcd" and "damper should be operable" do not.
+
+A grandparent naming both streams never counts. A pricer's pick and a "not mentioned" answer are untouched, and the
+calculator never fires it. Movers: 00066 r638 and 00148 6.HVAC r65 / r70 -> 5,709; 00073 r15 -> 6,195.
+
+**ADP-5d: A RETURN AIR BAFFLE IS A Z-PIECE PLUS ONE GRILLE (owner R4 2026-10-23 23:28 / 23:29; Q3; HVAC v54).** The question
+answers 'cross-talk'. `list_spec.pricing.companion_items` ({families, words, unit_class, item, line, rule}) then adds, where
+the row's OWN text names "return air baffle", one linear grille (without damper, return, 300 x 300), priced through
+`priceOneItem` on the `count` path (sq.m rate x W x H = 435 + 80 = 515) and added to the item's supply and install, one per
+row unit. That gives 2,320 + 435 / 800 + 80 = 3,635 per sq.m (the owner accepted 3,635 over 3,634: each half is rounded up), or
+per number 1,124 + 515. A companion that does not price leaves a line saying so.
+
+**ADP-5d: LINES DRAWN FROM THE ROW'S TEXT (owner R9 / R13; Q4; HVAC v54).** `list_spec.pricing.text_notes` ({families,
+from_text "headings" | "own_and_headings", pattern, unit_classes?, when {attr, equals}?, line, rule}) adds a working line;
+display only. It is deliberately NOT inside `read_notes`, whose every entry the Rate Master Derivation tab turns into a line.
+- R9: a VCD with variant 'motorised' under a heading naming a control panel gets "control panel, actuator and cabling named
+  in the heading: not included - add by hand". Reach is tight: the heading must name a control panel, which today means
+  00231 / 00243 r214-216.
+- R13: a square diffuser on an AREA row whose texts do not settle the shape (no shape word, or round and square both) gets
+  "shape not stated (or round/square offered): priced as square diffuser - change if round". The question answers 'square
+  diffuser' there (R13). A per-number row never gets it.
+
+**ADP-5d: THE FLOOR GRILLE'S 300 x 300 (owner R21 2026-10-23 23:43; Q5 (b); HVAC v54).** `number_defaults.face_w_mm` /
+`face_h_mm` families gain 'floor grille', with `rule_by_family` (new, the `defaults` precedent): "size not stated: priced at
+300 x 300 - change if different". The cross-talk rows keep their own line byte for byte. 00315 / 00215 PAC WORKS r42 -> 1,824.
+
+**ADP-5d: THE WORDING (owner R1 / R2 / R4 / R9 / R12 / R13 / R17-R19 / R21; Q7; HVAC v54).** The exact old -> new texts are in
+`test_adp5d_question.py` and the plan doc.
+- ADP family note: a canvas connection is NOT a plenum accessory (its own item); a return air baffle is 'cross-talk'; a
+  motorised VCD's heading control panel / actuator / cabling are not items; on a per-sq.m row an unsettled diffuser shape is
+  'square diffuser'; a double deflection grille is 'linear grille' (a curved grille stays curved); a grille damper is
+  'collar damper'; a floor tile / rigid floor / rigid tile grille is 'floor grille'; a discrete grille is 'grille, type not
+  stated'; a size-only row buys its heading's item.
+- Insulation cladding note: a FOIL facing is 'Aluminium Foil', never glass cloth, and aluminium cladding / foil facing
+  offered as alternatives is 'Aluminium Foil' (R2). "Exposed insulation material with <cladding>" describes the insulation's
+  own face, not a place, and Al Foil / GC cloth is 'Aluminium Foil' (R12). Piping's insulation section moves with it.
+- R22 needs no wording: chilled water = MS and refrigerant = Copper already live in the Piping pipe_type note. R23 needs none
+  either: the stocked alternative is already priced (12e-6 R1).
+
+**ADP-5d OPEN: THE TREE DEFECT (owner Q2 (a) / Q9 (a)).** Sub-headings committed as NOTE rows under one sheet-level parent give
+the payload a flat list of every sub-heading. The model cannot place the row:
+- 00140 "HVAC Lowside Works " r542-546 (GI class B drain) and r550 (CPVC drain), under r421 "Chilled Water Cassette Unit";
+- 00247 "BOQ" r78, under row 8 "HVAC SYSTEM".
+
+They stay refusals until a separate tree slice. 00140 PAC Works r68 and 00231 r211 keep their stored ruled answers (2,056 /
+10,533; their B4 re-sends flipped 1 in 3).
 
 **ADP-5a: "A x B-C depth" IS THREE BOX SIDES (owner 2026-10-22 10:49 item 6).** `readBoxSides` splits a two-part size whose
 second part is "B-C" followed by a height label ("1200x150-300 depth", "600x600-300 depth") into length A, width B, height C.
