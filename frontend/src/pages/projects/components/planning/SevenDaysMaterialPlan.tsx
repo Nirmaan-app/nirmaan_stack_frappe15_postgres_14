@@ -434,8 +434,8 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                                     >
                                         Plan {planNum}
                                     </Badge>
-                                    {isPartiallyDelivered && plan.remarks && (<span className="text-gray-300 shrink-0">|</span>)}
-                                    {isPartiallyDelivered && plan.remarks && (
+                                    {plan.remarks && (<span className="text-gray-300 shrink-0">|</span>)}
+                                    {plan.remarks && (
                                         <span
                                             className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium truncate min-w-0"
                                             title={plan.remarks}

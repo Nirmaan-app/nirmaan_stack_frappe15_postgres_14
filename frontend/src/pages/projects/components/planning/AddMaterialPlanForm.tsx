@@ -13,6 +13,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { CategoryTaskSelector } from "./CategoryTaskSelector";
 import { AllPOsModal } from "./AllPOsModal";
 import { ReviewPlansPage } from "./ReviewPlansPage";
+import { remarksToSave } from "@/utils/materialPlan/planRemarks";
 
 // Types
 interface Task {
@@ -44,6 +45,8 @@ interface POPlan {
     items: any[];
     selectedItems: Set<string>;
     deliveryDate: string;
+    /** Optional; typed per plan on the review step. */
+    remarks?: string;
     isCritical: boolean;
     category?: string;
     task?: string;
@@ -96,6 +99,7 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
     // New PO Mode State
     const [manualItemsText, setManualItemsText] = useState<string>("");
     const [deliveryDate, setDeliveryDate] = useState<string>("");
+    const [newPORemarks, setNewPORemarks] = useState<string>("");
     
     // Item Search State
     const [poSearchInput, setPoSearchInput] = useState("");
@@ -409,7 +413,8 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                     critical_po_sub_category: plan.isCritical ? finalSubCategory : null,
                     delivery_date: plan.deliveryDate,
                     po_type: "Existing PO",
-                    mp_items: JSON.stringify({ list: minimalItems })
+                    mp_items: JSON.stringify({ list: minimalItems }),
+                    remarks: remarksToSave(plan.remarks)
                 });
                 successCount++;
             } catch (e) {
@@ -480,7 +485,8 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                 critical_po_sub_category: selectedTaskDoc?.sub_category || null,
                 delivery_date: deliveryDate,
                 po_type: "New PO",
-                mp_items: JSON.stringify({ list: manualItems })
+                mp_items: JSON.stringify({ list: manualItems }),
+                remarks: remarksToSave(newPORemarks)
             });
             toast({
                 title: "Success",
@@ -915,7 +921,20 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                                     className="w-full p-2 border rounded-md cursor-pointer"
                                 />
                             </div>
-                            
+
+                            <div className="mb-4">
+                                <Label htmlFor="new-po-remarks" className="mb-2 block">
+                                    Remarks <span className="font-normal text-muted-foreground">(optional)</span>
+                                </Label>
+                                <Textarea
+                                    id="new-po-remarks"
+                                    placeholder="Any note for this plan"
+                                    value={newPORemarks}
+                                    onChange={(e) => setNewPORemarks(e.target.value)}
+                                    rows={2}
+                                />
+                            </div>
+
                             <div className="flex justify-end gap-2">
                                 <Button variant="outline" onClick={onClose}>Cancel</Button>
                                 <Button onClick={handleSubmitNewPO} disabled={isCreating}>

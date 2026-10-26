@@ -10,6 +10,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MATERIAL_PROCUREMENT_PROFILES, PMO_EXECUTIVE_PROFILE } from "@/constants/roles";
+import { REMARKS_REQUIRED_MESSAGE, remarksMissing, remarksRequired as isRemarksRequired, remarksToSave } from "@/utils/materialPlan/planRemarks";
 
 const ADMIN_ROLE = "Nirmaan Admin Profile";
 const DELIVERY_STATUS_AUTHORIZED_ROLES = [ADMIN_ROLE, PMO_EXECUTIVE_PROFILE, ...MATERIAL_PROCUREMENT_PROFILES];
@@ -54,8 +55,8 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
                 : "Not Delivered"
     );
     const [remarks, setRemarks] = useState<string>(plan.remarks || "");
-    const remarksRequired = deliveryStatus === "Partially Delivered";
-    const remarksInvalid = remarksRequired && !remarks.trim();
+    const remarksRequired = isRemarksRequired(deliveryStatus);
+    const remarksInvalid = remarksMissing(deliveryStatus, remarks);
     
     // --- Existing PO State ---
     // Map of item_name -> boolean (for selection)
@@ -134,7 +135,7 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
             if (remarksInvalid) {
                 toast({
                     title: "Validation Error",
-                    description: "Remarks are required when status is Partially Delivered.",
+                    description: REMARKS_REQUIRED_MESSAGE,
                     variant: "destructive",
                 });
                 return;
@@ -142,7 +143,7 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
             try {
                 await updateMaterialPlan(plan.name, {
                     delivery_status: deliveryStatus,
-                    remarks: deliveryStatus === "Partially Delivered" ? remarks.trim() : "",
+                    remarks: remarksToSave(remarks),
                 });
                 toast({
                     title: "Success",
@@ -229,13 +230,13 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
                 if (remarksInvalid) {
                     toast({
                         title: "Validation Error",
-                        description: "Remarks are required when status is Partially Delivered.",
+                        description: REMARKS_REQUIRED_MESSAGE,
                         variant: "destructive",
                     });
                     return;
                 }
                 updatePayload.delivery_status = deliveryStatus;
-                updatePayload.remarks = deliveryStatus === "Partially Delivered" ? remarks.trim() : "";
+                updatePayload.remarks = remarksToSave(remarks);
             }
             await updateMaterialPlan(plan.name, updatePayload);
             toast({
@@ -373,42 +374,48 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
                         </p>
                     </div>
 
-                    {/* Remarks — only when Partially Delivered (required) */}
-                    {remarksRequired && (
-                        <div className="space-y-2">
-                            <Label className="flex items-center gap-2 font-bold text-gray-700">
-                                Remarks
+                    {/* Remarks — always shown; required only when Partially Delivered */}
+                    <div className="space-y-2">
+                        <Label className="flex items-center gap-2 font-bold text-gray-700">
+                            Remarks
+                            {remarksRequired ? (
                                 <span className="text-red-600">*</span>
-                                {!canEditDeliveryStatus && (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider">
-                                        <Lock className="w-3 h-3" /> Read-only
-                                    </span>
-                                )}
-                            </Label>
-                            <textarea
-                                placeholder="Describe what was delivered and what is still pending…"
-                                value={remarks}
-                                onChange={(e) => setRemarks(e.target.value)}
-                                disabled={!canEditDeliveryStatus}
-                                className={`w-full h-24 p-3 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none ${
-                                    !canEditDeliveryStatus
-                                        ? "bg-gray-50 text-gray-500 cursor-not-allowed border-gray-300"
-                                        : remarksInvalid
-                                            ? "border-red-300 focus:ring-red-500"
-                                            : "border-gray-300"
-                                }`}
-                            />
-                            {canEditDeliveryStatus && remarksInvalid ? (
-                                <p className="text-[11px] text-red-600 font-medium">
-                                    Remarks are required when status is Partially Delivered.
-                                </p>
                             ) : (
-                                <p className="text-[10px] text-gray-500">
-                                    Mention the items / quantities that were delivered vs. still pending.
-                                </p>
+                                <span className="font-normal text-gray-400">(optional)</span>
                             )}
-                        </div>
-                    )}
+                            {!canEditDeliveryStatus && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider">
+                                    <Lock className="w-3 h-3" /> Read-only
+                                </span>
+                            )}
+                        </Label>
+                        <textarea
+                            placeholder={
+                                remarksRequired
+                                    ? "Describe what was delivered and what is still pending…"
+                                    : "Any note for this plan"
+                            }
+                            value={remarks}
+                            onChange={(e) => setRemarks(e.target.value)}
+                            disabled={!canEditDeliveryStatus}
+                            className={`w-full h-24 p-3 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none ${
+                                !canEditDeliveryStatus
+                                    ? "bg-gray-50 text-gray-500 cursor-not-allowed border-gray-300"
+                                    : remarksInvalid
+                                        ? "border-red-300 focus:ring-red-500"
+                                        : "border-gray-300"
+                            }`}
+                        />
+                        {canEditDeliveryStatus && remarksInvalid ? (
+                            <p className="text-[11px] text-red-600 font-medium">
+                                {REMARKS_REQUIRED_MESSAGE}
+                            </p>
+                        ) : remarksRequired ? (
+                            <p className="text-[10px] text-gray-500">
+                                Mention the items / quantities that were delivered vs. still pending.
+                            </p>
+                        ) : null}
+                    </div>
 
                     <div className="h-px bg-gray-100" />
 
