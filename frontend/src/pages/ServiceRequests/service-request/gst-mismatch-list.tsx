@@ -2,11 +2,13 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { TailSpin } from "react-loader-spinner";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 import { getFrappeError } from "@/utils/frappeErrors";
+import { pendingInvoiceAmount } from "@/utils/workOrderPendingInvoice";
 import { MatchGstToVendorDialog } from "../components/MatchGstToVendorDialog";
 import { useGstMismatchList } from "../hooks/useMatchGstToVendor";
 
@@ -47,6 +49,8 @@ const GstMismatchList: React.FC = () => {
                                 <TableHead className={AMOUNT}>Total</TableHead>
                                 <TableHead className={AMOUNT}>Amount Paid</TableHead>
                                 <TableHead className={AMOUNT}>Amount Due</TableHead>
+                                <TableHead className={AMOUNT}>Total Invoiced</TableHead>
+                                <TableHead className={AMOUNT}>Pending Invoices</TableHead>
                                 <TableHead />
                             </TableRow>
                         </TableHeader>
@@ -77,6 +81,8 @@ const GstMismatchList: React.FC = () => {
                                     <TableCell className={AMOUNT}>{formatToIndianRupeeOrZero(row.total_amount)}</TableCell>
                                     <TableCell className={AMOUNT}>{formatToIndianRupeeOrZero(row.amount_paid)}</TableCell>
                                     <TableCell className={AMOUNT}>{formatToIndianRupeeOrZero(row.amount_due)}</TableCell>
+                                    <TableCell className={AMOUNT}>{formatToIndianRupeeOrZero(row.amount_invoiced)}</TableCell>
+                                    <TableCell className={cn(AMOUNT, pendingInvoiceAmount(row) > 0 && "font-medium text-red-600")}>{formatToIndianRupeeOrZero(pendingInvoiceAmount(row))}</TableCell>
                                     <TableCell>
                                         <Button size="sm" variant="outline" onClick={() => setMatching(row.name)}>Match GST</Button>
                                     </TableCell>
