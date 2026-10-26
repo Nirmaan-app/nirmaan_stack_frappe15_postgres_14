@@ -1,0 +1,42 @@
+# Bulk Import Transactions
+
+An accountant imports a bank, card, cashbook, Cashfree or Porter statement, and each statement line is matched to
+the payment or expense it settles, or skipped. The page lists every line by match state; Import history lists the
+past imports by source and month.
+
+## Sub-features
+
+- `bit-tabs` the line tabs, each with a count: `All`, `Not Matched – Outflow`, `Not Matched – Inflow`,
+  `Matched / Settled – Outflow`, `Skipped`, `Awaiting Bank Line`.
+- `bit-filter` the column filters (`Filter Source`, `Filter Status`, `Filter Amount`, …) and the date range
+  (`All time`).
+- `bit-import` `Import statement` opens the dialog `Import a bank statement` with a `Source` combobox.
+- `bit-history` `Import history` opens a dialog with one tab per source (`Cashfree`, `Credit Card`,
+  `ICICI Bank Statement`, `Cashbook`, `Porter Statement`) and a `Statement month` combobox.
+- `bit-confirm` `Confirm <n> matched` settles the ticked matches (disabled at 0).
+
+## How to get to it (user POV)
+
+- The sidebar entry `Bulk Import Transactions` (Admin, Accountant Lead, Accountant).
+
+## Driving it with drive.py
+
+Preconditions:
+
+- An Accountant that `free_users.py` lists (on the 2026-10-08 template: `urgouroji@gmail.com`; every Accountant
+  Lead there is locked).
+
+- **Open the page.** `sidebar(page, "Bulk Import Transactions")`. The URL is `/bulk-import-transactions` and
+  `heading "Bulk Import Transactions"` shows.
+- **Choose a tab.** Click `get_by_role("button", name=re.compile(r"^Not Matched – Outflow \d+$"))`. The URL does not
+  change: prove the tab by the rows.
+- **Import dialog.** Click `Import statement`. `dialog "Import a bank statement"` opens with `combobox "Source"`.
+  Close it with `Escape`.
+- **History.** Click `Import history`. `dialog "Import history"` opens with the source tabs.
+
+## Gotchas
+
+- The tab names hold an en dash (`–`), not a hyphen.
+- The tab is not in the URL, so a reload returns to the default tab.
+- A real import needs a statement file. Use a fixture with names changed (see `api/outflow_import` tests), never a
+  real statement in the evidence folder.
