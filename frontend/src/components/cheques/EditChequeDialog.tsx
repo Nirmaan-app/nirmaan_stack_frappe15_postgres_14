@@ -130,7 +130,7 @@ const PaymentChequeEditForm = ({ edit, onDone, onCancel }: PaymentChequeEditForm
                 <div className="space-y-1.5">
                     <p className="text-sm font-medium">What it pays</p>
                     {edit.lines.length ? (
-                        <ChequeLinesView lines={edit.lines} />
+                        <ChequeLinesView lines={edit.lines} linkRecords={false} />
                     ) : (
                         <p className="text-sm text-muted-foreground">No lines.</p>
                     )}

@@ -1,6 +1,10 @@
+import { Info } from "lucide-react";
+import { Link } from "react-router-dom";
+
 import type { ChequeLineType } from "@/types/NirmaanStack/Cheques";
 import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 import { LINE_TYPE } from "@/utils/cheques/chequeLines";
+import { recordPagePath } from "@/utils/cheques/chequeRecordLink";
 
 /** One line as a read-only view shows it. `payment_status` only where the caller has it (the detail view). */
 export interface ChequeLineViewRow {
@@ -18,8 +22,11 @@ export interface ChequeLineViewRow {
  * A Cheque's lines, read-only (spec #1407): type, project, PO/WO, payment, amount. Shared by the detail
  * view and the report's expanded row. The caller says what to show for an Ad-hoc cheque (no lines). A Security
  * Deposit's Secured PO/WO line is a record only: no payment, no amount (#1486).
+ *
+ * The ⓘ beside a PO / WO opens its page (`recordPagePath`), as the tracker's Vendor / Payee ⓘ opens the vendor.
+ * `linkRecords={false}` drops it where leaving the page would lose work (Edit cheque).
  */
-export function ChequeLinesView({ lines }: { lines: ChequeLineViewRow[] }) {
+export function ChequeLinesView({ lines, linkRecords = true }: { lines: ChequeLineViewRow[]; linkRecords?: boolean }) {
     return (
         <div className="overflow-x-auto rounded border bg-background">
             <table className="w-full text-sm">
@@ -35,12 +42,25 @@ export function ChequeLinesView({ lines }: { lines: ChequeLineViewRow[] }) {
                 <tbody>
                     {lines.map((line, i) => {
                         const secured = line.line_type === LINE_TYPE.SECURED;
+                        const recordPath = linkRecords ? recordPagePath(line.record_doctype, line.record_name) : null;
                         return (
                             <tr key={i} className="border-t">
                                 <td className="px-3 py-2 whitespace-nowrap">{line.line_type}</td>
                                 <td className="px-3 py-2">{line.project_name || line.project || "--"}</td>
                                 <td className="px-3 py-2">
-                                    {line.record_name || "--"}
+                                    <div className="flex items-center gap-1">
+                                        {line.record_name || "--"}
+                                        {recordPath && (
+                                            <Link
+                                                to={recordPath}
+                                                title={`Open ${line.record_name}`}
+                                                aria-label={`Open ${line.record_name}`}
+                                                className="shrink-0"
+                                            >
+                                                <Info className="h-3.5 w-3.5 text-blue-500" />
+                                            </Link>
+                                        )}
+                                    </div>
                                 </td>
                                 <td className="px-3 py-2">
                                     {secured ? (
