@@ -493,7 +493,7 @@ class TestARefusedFileSavesNothing(PorterImportCase):
         finally:
             frappe.local.request = previous_request
             frappe.local.form_dict = frappe._dict(previous_form)
-        self.assertIn("Porter import", str(caught.exception))
+        self.assertIn("Porter Statement is imported through its own import", str(caught.exception))
         self.assertEqual(self._batches(), [])
 
 

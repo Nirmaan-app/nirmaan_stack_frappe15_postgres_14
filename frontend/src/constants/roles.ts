@@ -317,9 +317,11 @@ export const canMatchGstToVendor = (role?: string | null, userId?: string | null
  * May see the "Pending Invoices Upload" tab (orders still owed a vendor invoice).
  * Wider than the approval set: the invoice approvers plus PMO and every procurement
  * profile, who chase the missing invoices with vendors (owner ruling 2026-09-24).
- * The tab is a read-only report, so no approve/reject control rides on it.
+ * The tab is a read-only report, so no approve/reject control rides on it. Mirrors
+ * `role_profiles.PENDING_INVOICE_UPLOAD_PROFILES`, the Credit Card sub-tab's enforcement boundary (pinned by
+ * `cardInvoiceAccessParity.test.ts`).
  */
-const PENDING_INVOICE_UPLOAD_PROFILES: readonly string[] = [
+export const PENDING_INVOICE_UPLOAD_PROFILES: readonly string[] = [
   ...INVOICE_APPROVAL_PROFILES,
   PMO_EXECUTIVE_PROFILE,
   ...PROCUREMENT_PROFILES,
@@ -417,6 +419,25 @@ export const CUSTOMERS_ACCESS: readonly string[] = [
   ACCOUNTANT_PROFILE,
   ACCOUNTANT_LEAD_PROFILE,
 ];
+
+/**
+ * May mark a card spend "No invoice" on Pending Invoices Upload -> Credit Card (ADR-0039 ruling 8):
+ * Admin and Accountant Lead. Mirrors `role_profiles.CARD_NO_INVOICE_PROFILES`, the enforcement boundary
+ * (pinned by `cardInvoiceAccessParity.test.ts`); this only decides whether the button renders. Declared
+ * after `ACCOUNTANT_LEAD_PROFILE`, which a module-level array may not read before its declaration.
+ */
+export const CARD_NO_INVOICE_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+];
+
+/** True when `role` (a role PROFILE) may mark a card spend No invoice. */
+export const canMarkCardNoInvoice = (
+  role?: string | null,
+  userId?: string | null
+): boolean =>
+  userId === "Administrator" ||
+  (!!role && CARD_NO_INVOICE_PROFILES.includes(role));
 
 /**
  * `/upload-boq` and its hub / revision / sheet children.

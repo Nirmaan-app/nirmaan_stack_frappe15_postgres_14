@@ -107,8 +107,15 @@ describe("importsInTab and tabCounts", () => {
     });
 
     it("counts each tab by the same rule it lists by", () => {
-        // The blank-source statement is in every tab, the Porter Statement tab (#1443) included.
-        expect(tabCounts(imports)).toEqual({ Cashfree: 3, Cashbook: 1, [ICICI]: 2, "Porter Statement": 1 });
+        // The blank-source statement is in every tab, the Porter Statement (#1443) and Credit Card (#1566)
+        // tabs included.
+        expect(tabCounts(imports)).toEqual({
+            Cashfree: 3,
+            Cashbook: 1,
+            [ICICI]: 2,
+            "Porter Statement": 1,
+            "ICICI Credit Card Statement": 1,
+        });
     });
 });
 

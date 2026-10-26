@@ -35,11 +35,15 @@ database that shape does not occur (all seven decided skips carry a non-skip mat
 prints what it classified so production can be checked.
 """
 
+from nirmaan_stack.services.outflow_import.card_credits import CARD_SPEND_REFUSAL
 from nirmaan_stack.services.outflow_import.parser import BANK_SUCCESS_STATUS
 from nirmaan_stack.services.outflow_import.skip_kinds import (
     SKIP_KIND_ALREADY_IMPORTED,
     SKIP_KIND_BY_HAND,
     SKIP_KIND_BANK_REFUSED,
+    SKIP_KIND_CARD_CASHBACK,
+    SKIP_KIND_CARD_PAYMENT,
+    SKIP_KIND_CARD_REFUND_PAIR,
     SKIP_KIND_NO_AMOUNT,
     SKIP_KIND_PORTER_CANCELLED,
     SKIP_KIND_REPEATED_IN_FILE,
@@ -47,8 +51,9 @@ from nirmaan_stack.services.outflow_import.skip_kinds import (
 )
 from nirmaan_stack.services.outflow_import.porter import OWN_IMPORT_LINE_REFUSAL
 from nirmaan_stack.services.outflow_import.sources import (
+    CARD_STATEMENT_SOURCE,
+    line_waits_for_its_own_create,
     source_runs_the_matcher,
-    source_waits_for_its_own_create,
 )
 from nirmaan_stack.services.outflow_import.status import (
     OPEN_ROW_STATUSES,
@@ -81,7 +86,14 @@ SKIP_REFUSED_CASHBOOK_PENDING = (
 )
 
 
-def manual_skip_refusal(*, row_status: str | None, source: str | None) -> str | None:
+def own_import_line_refusal(source: str | None) -> str:
+    """The sentence a main-table action on a line waiting for its own import's Create is refused with."""
+    return CARD_SPEND_REFUSAL if (source or "").strip() == CARD_STATEMENT_SOURCE else OWN_IMPORT_LINE_REFUSAL
+
+
+def manual_skip_refusal(
+    *, row_status: str | None, source: str | None, direction: str | None = None
+) -> str | None:
     """Why a person may NOT skip this line, as the sentence to show -- or `None` when they may (#1273).
 
     ⚠️ OPEN LINES ONLY, AND "ALREADY SKIPPED" IS REFUSED TOO. The old endpoint accepted a Skipped
@@ -105,9 +117,9 @@ def manual_skip_refusal(*, row_status: str | None, source: str | None) -> str | 
         return SKIP_REFUSED_NOT_OPEN.format(status=status or "in no known state")
     # ⚠️ A PORTER LINE IS NEVER SKIPPED FROM THE MAIN TABLE (#1443). It is created by its own import once
     # Porter's invoices agree; a hand skip would let one order quietly drop out of an import whose
-    # validation is all or nothing.
-    if source_waits_for_its_own_create(source or ""):
-        return OWN_IMPORT_LINE_REFUSAL
+    # validation is all or nothing. A card SPEND waits the same way; a card CREDIT does not (#1567).
+    if line_waits_for_its_own_create(source or "", direction or ""):
+        return own_import_line_refusal(source)
     if not source_runs_the_matcher(source or "") and status == ROW_PENDING_MATCH:
         return SKIP_REFUSED_CASHBOOK_PENDING
     return None
@@ -130,7 +142,13 @@ UNSKIP_LOCKED_KINDS: dict[str, str] = {
     SKIP_KIND_NO_AMOUNT: "No money moved on this line.",
     SKIP_KIND_BANK_REFUSED: "The bank never moved this money.",
     SKIP_KIND_PORTER_CANCELLED: "Porter cancelled this order and never billed it.",
+    SKIP_KIND_CARD_PAYMENT: "A payment into the card is never a spend or a receipt.",
+    SKIP_KIND_CARD_CASHBACK: "Card cashback is not recorded as anything.",
 }
+
+# Kinds a source of its own decides, asked before the never-matched "only by hand" rule, which would
+# otherwise answer for every Cashbook, Porter and card line with the Cashbook sentence.
+_SOURCE_OWN_LOCKED_KINDS = frozenset({SKIP_KIND_PORTER_CANCELLED, SKIP_KIND_CARD_PAYMENT, SKIP_KIND_CARD_CASHBACK})
 
 
 def unskip_refusal(
@@ -157,8 +175,12 @@ def unskip_refusal(
         return UNSKIP_REFUSED_NOT_SKIPPED
     kind = (skip_kind or "").strip()
     # Asked before the Cashbook rule, which would otherwise answer for every never-matched source.
-    if kind == SKIP_KIND_PORTER_CANCELLED:
+    if kind in _SOURCE_OWN_LOCKED_KINDS:
         return UNSKIP_LOCKED_KINDS[kind]
+    # A card refund pair comes back, both lines together (#1567, README ruling 5;
+    # `card_refund_pairs.unskip_refund_pair`). The re-check is the pairing itself, undone by a person.
+    if kind == SKIP_KIND_CARD_REFUND_PAIR:
+        return None
     if not source_runs_the_matcher(source or "") and kind != SKIP_KIND_BY_HAND:
         return UNSKIP_REFUSED_CASHBOOK
     if kind in UNSKIP_LOCKED_KINDS:

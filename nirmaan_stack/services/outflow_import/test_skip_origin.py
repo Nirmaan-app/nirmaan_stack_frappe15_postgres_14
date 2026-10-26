@@ -23,6 +23,8 @@ from nirmaan_stack.services.outflow_import.matcher import (
     TargetRef,
     VendorResolution,
 )
+from nirmaan_stack.services.outflow_import.card_credits import CARD_SPEND_REFUSAL
+from nirmaan_stack.services.outflow_import.porter import OWN_IMPORT_LINE_REFUSAL
 from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KINDS
 from nirmaan_stack.services.outflow_import.skip_origin import (
     SKIP_REFUSED_ALREADY_SKIPPED,
@@ -278,6 +280,20 @@ class TestManualSkipRefusal(unittest.TestCase):
             SKIP_REFUSED_CASHBOOK_PENDING,
         )
 
+    def test_an_open_card_credit_may_be_skipped_and_a_card_spend_may_not(self):
+        """#1567 (README ruling 4): an unpaired card credit is decided on the main table; a spend waits
+        for the card import's own Create."""
+        card = "ICICI Credit Card Statement"
+        self.assertIsNone(manual_skip_refusal(row_status=ROW_MISMATCHED, source=card, direction="Credit"))
+        self.assertEqual(
+            manual_skip_refusal(row_status=ROW_PENDING_MATCH, source=card, direction="Debit"),
+            CARD_SPEND_REFUSAL,
+        )
+        self.assertEqual(
+            manual_skip_refusal(row_status=ROW_MISMATCHED, source="Porter Statement", direction="Credit"),
+            OWN_IMPORT_LINE_REFUSAL,
+        )
+
     def test_an_unknown_status_is_refused_and_named(self):
         refusal = manual_skip_refusal(row_status="Unmatched", source="Cashfree")
         self.assertIn("Unmatched", refusal)
@@ -310,6 +326,9 @@ class TestUnskipRefusal(unittest.TestCase):
                 "No amount",
                 "Bank refused",
                 "Porter order cancelled",
+                # #1567 (ADR-0039 decision 4): a payment into the card and cashback are never work.
+                "Card payment received",
+                "Card cashback",
             },
         )
         for kind, sentence in UNSKIP_LOCKED_KINDS.items():
@@ -339,10 +358,33 @@ class TestUnskipRefusal(unittest.TestCase):
             unskip_refusal(row_status=ROW_SKIPPED, skip_kind="Skipped by hand", source=" Cashbook ")
         )
 
+    def test_card_kinds_are_asked_before_the_never_matched_rule(self):
+        """#1567 (README ruling 5): a card refund pair comes back; payments and cashback never, each in
+        its own words rather than the Cashbook sentence."""
+        card = "ICICI Credit Card Statement"
+        self.assertIsNone(unskip_refusal(row_status=ROW_SKIPPED, skip_kind="Card refund pair", source=card))
+        for kind in ("Card payment received", "Card cashback"):
+            with self.subTest(kind=kind):
+                self.assertEqual(
+                    unskip_refusal(row_status=ROW_SKIPPED, skip_kind=kind, source=card),
+                    UNSKIP_LOCKED_KINDS[kind],
+                )
+        self.assertIsNone(unskip_refusal(row_status=ROW_SKIPPED, skip_kind="Skipped by hand", source=card))
+        self.assertEqual(
+            unskip_refusal(row_status=ROW_SKIPPED, skip_kind="Outflow Already Recorded", source=card),
+            UNSKIP_REFUSED_CASHBOOK,
+        )
+
     def test_every_other_cashbook_kind_stays_locked(self):
         for kind in SKIP_KINDS:
-            # A Porter kind answers with its own locked sentence, on any source (#1443).
-            if kind in ("Skipped by hand", "Porter order cancelled"):
+            # A Porter or card kind answers by its own rule, on any source (#1443, #1567).
+            if kind in (
+                "Skipped by hand",
+                "Porter order cancelled",
+                "Card payment received",
+                "Card cashback",
+                "Card refund pair",
+            ):
                 continue
             with self.subTest(kind=kind):
                 self.assertEqual(

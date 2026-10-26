@@ -1,7 +1,7 @@
 /**
  * "Pending Invoices Upload" -- the orders whose vendor invoice has not arrived yet.
  *
- * This is a SHELL, not a second implementation. Both sub-tabs mount the Reports screen's
+ * PO and WO are a SHELL, not a second implementation. Both sub-tabs mount the Reports screen's
  * own bodies (`POReports` / `SRReports`) with the report type pinned to "Pending
  * Invoices", so this tab and `/reports?report=Pending Invoices` can never quote
  * different numbers -- they are literally the same component, columns, export and rules.
@@ -10,6 +10,9 @@
  * Those two take no props: the tab strip and the "Report Type" dropdown live in
  * `ReportsContainer`, and the bodies read only `useReportStore.selectedReportType`.
  * Pinning that store is the whole integration.
+ *
+ * Credit Card (#1570, ADR-0039 ruling 8) is the exception: its own table of card spends waiting for an
+ * invoice (`CardInvoiceUploads`), not a report. It needs no report pin; the pin below is harmless to it.
  *
  * The sub-tab rides its OWN url param (`?upload_tab=`) so the parent tab strip stays flat
  * on `?tab=` and every existing invoice-reconciliation link keeps working. It never
@@ -24,15 +27,17 @@ import { useReportStore } from "@/pages/reports/store/useReportStore";
 
 const POReports = React.lazy(() => import("@/pages/reports/components/POReports"));
 const SRReports = React.lazy(() => import("@/pages/reports/components/SRReports"));
+const CardInvoiceUploads = React.lazy(() => import("./CardInvoiceUploads"));
 
 const URL_PARAM = "upload_tab";
 
-/** The one report both sub-tabs show. */
+/** The one report the PO and WO sub-tabs show. */
 const REPORT_TYPE = "Pending Invoices" as const;
 
 const PENDING_UPLOAD_TABS = [
     { key: "po", label: "PO" },
     { key: "wo", label: "WO" },
+    { key: "card", label: "Credit Card" },
 ] as const;
 
 type PendingUploadTab = typeof PENDING_UPLOAD_TABS[number]["key"];
@@ -114,9 +119,9 @@ export const PendingInvoiceUploads: React.FC = () => {
                     PO measures delivered instead of paid, and both sides list only the
                     current financial year. Reports renders the same components with the
                     flag absent and is byte-unchanged. */}
-                {tab === "po"
-                    ? <POReports pendingUploadMode />
-                    : <SRReports pendingUploadMode />}
+                {tab === "po" ? <POReports pendingUploadMode />
+                    : tab === "wo" ? <SRReports pendingUploadMode />
+                    : <CardInvoiceUploads />}
             </Suspense>
         </div>
     );

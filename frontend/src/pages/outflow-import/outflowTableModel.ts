@@ -1240,7 +1240,18 @@ export const SOURCE_OPTIONS: readonly string[] = [
     "Cashbook",
     "ICICI Bank Statement",
     "Porter Statement",
+    "ICICI Credit Card Statement",
 ];
+
+/**
+ * What a source is CALLED on screen, where that differs from its stored string (#1566): the card source is
+ * "Credit Card" (its Import History tab, ADR-0039). Every other source reads as its own string.
+ */
+const SOURCE_LABELS: Readonly<Record<string, string>> = {
+    "ICICI Credit Card Statement": "Credit Card",
+};
+
+export const sourceLabel = (source: string): string => SOURCE_LABELS[source] ?? source;
 
 /**
  * What the Source dropdown displays for a given selection.

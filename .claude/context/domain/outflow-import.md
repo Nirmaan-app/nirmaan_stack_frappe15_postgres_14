@@ -7415,6 +7415,200 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
   cases; the result does.
 
 
+## Credit Card Statement — the fifth source (spec #1565; upload, Review and Discard built at #1566, credit sorting at #1567, type edit and Create at #1568, type suggestion and merchant memory at #1569, invoices at #1570, the rest NOT BUILT YET)
+
+Decisions: **[ADR-0039](../../../docs/adr/0039-credit-card-statement-import.md)**. Terms: `GLOSSARY.md`
+§ *Company credit cards*. Source string `ICICI Credit Card Statement` (`sources.CARD_STATEMENT_SOURCE`).
+
+**What it is.** A company card's monthly ICICI PDF. Each *Card spend* becomes ONE *Paid* `Non Project
+Expenses` row (Create, #1568). It creates and never settles: it is in `NEVER_MATCHED_SOURCES`. It is the
+other half of `bank_exclusions`' card-bill rules, which stay unchanged.
+
+**Load-bearing invariants (each one breaks something silently if "tidied"):**
+
+1. **The reader is pure and the gate is all or nothing.** `services/outflow_import/card_statement.read_card_statement`
+   takes the text `card_pdf.statement_text` extracts (pypdf; pages joined by a newline) and refuses with
+   `CardStatementError`: not this layout, a company other than Stratos Infra Technologies (`company_key`
+   drops PVT / PRIVATE / P / LTD / LIMITED, so "PVT LTD" == "Private Limited"), a non-zero *Cash Advances*,
+   and spends != *Purchases / Charges* or credits != *Payments / Credits* to the paisa (both figures in the
+   message, `amounts.rupees(paise=True)`). A locked PDF: "This PDF is password-locked. Unlock it and upload
+   again." No override exists. A PDF encrypted with an EMPTY user password (an owner password only) opens
+   without one, so `statement_text` tries `decrypt("")` first and refuses only if that fails.
+2. **Layout, measured on the 2026-10-01 statement** (fixture `services/outflow_import/tests/fixtures/icici_card_statement.txt`,
+   names faked): pypdf reads the rupee sign as `Á`. Holder and company are the two lines under `State Code:`
+   (the address block), holder with its honorific dropped. The summary is the line under `Previous Balance
+   Purchases / Charges Cash Advances Payments / Credits`. *Total Amount Due* is the larger of the two
+   standalone money lines on page 1 (the other is the minimum due). Statement date is the earlier of the two
+   standalone long dates. A line is `DD/MM/YYYY SerNo(11) details points [intl] amount [CR]`; lines dated
+   before the period or out of order are kept as printed. The card-number headings are never read.
+3. **Merchant key** (`card_statement.merchant_key`): drop a trailing 2-letter country code AND the city
+   before it (and `NEW` / `NAVI` before that), then punctuation, then trailing PVT / P / LTD / LIMITED /
+   INDIA / PRIVATE (never to nothing). The three MakeMyTrip spellings give `MAKEMYTRIP`. A line with no
+   country code (a payment received, a cashback) keeps every word. #1567 pairs refunds on it; #1568 keys
+   merchant memory on it.
+4. **Identity.** One `Credit Card Statement` per holder + period (`refuse_same_period`, backed by the unique
+   index `credit_card_statement_holder_period_unique` in the doctype's `on_doctype_update`). A line is its
+   SerNo, scoped to this source: a SerNo already staged is left out and counted in the batch's
+   `repeats_not_saved`; a file with nothing new is refused naming the import that holds it.
+5. **Nothing is saved before the whole file is read** (`card_import.upload_card_statement`): every refusal
+   runs before `save_file`. The PDF is ONE private `File`, attached to the `Credit Card Statement`
+   (`statement_file`). ⚠️ `card_upload.stage` inserts the batch WITHOUT `source_file` and writes it raw after
+   the statement is inserted: Frappe's Attach hook (`attach_files_to_document`) would otherwise attach the
+   File to the batch and then COPY it for the statement — two Files for one PDF.
+6. **Staging.** Spend: `Pending match run`, `direction` Debit, `match_basis` `card statement` (a new
+   `Outflow Row Match.match_basis` option), `suggested_doctype` `Non Project Expenses`, `auto_matched` 1,
+   `suggested_expense_type` *Misc. Expenses* with `type_source` Fallback (#1568; #1569's suggestion job
+   replaces it, invariant 17). Credit: sorted at upload (invariant 14); an unpaired one is `Mismatched`. Every line: `status_raw` SUCCESS,
+   `remarks` = details, `settlement_reference` = "{details} - {SerNo}" (`card_statement.line_reference`,
+   the Expense's payment_ref, ADR-0039 decision 6). Batch `gross_amount` = the staged spends.
+7. **Spends are not bank lines; open credits are (#1567, README ruling 4).** The gate is PER LINE:
+   `sources.line_waits_for_its_own_create(source, direction)` is True for every Porter line and for a card
+   SPEND, False for a card CREDIT (`CREDITS_DECIDED_ON_THE_MAIN_TABLE`). `review._row_filters` states the same
+   split in SQL, so an open card spend is in no tab and not in *Total Unreconciled Outflow*, while an unpaired
+   card credit is in *Not Matched – Inflow* and *Total Unreconciled Inflow*, with the bank-credit choices
+   (Project Inflow, Non-Project Inflow, Waiting refund / Vendor Refund, Skip by hand). The guards
+   `expenses.guard_not_an_own_import_line` and `skip_origin.manual_skip_refusal(direction=)` ask the same
+   predicate; a card spend is refused with `card_credits.CARD_SPEND_REFUSAL` (`skip_origin.own_import_line_refusal`
+   picks Porter's or the card's sentence). The generic upload still refuses the source ("imported through its
+   own import").
+8. **Discard** (`card_import.discard_card_import`): Admin and Accountant Lead; refused once any `Outflow Row
+   Match` names the batch (`created_anything`) or a job in `card_import.job_ids` (`card-suggest-<batch>`,
+   `card-create-<batch>`) is queued. Raw deletes of lines, statement and batch, then
+   `stored_files.delete_files` last.
+9. **Screens.** `frontend/src/pages/outflow-import/creditCardImport.ts` (pure, pinned by
+   `creditCardImport.test.ts`). The import dialog takes `.pdf` only and has three steps (Upload → Review →
+   Create); Review is `components/CardImportReview.tsx` (each spend's type editable, #1568). The page holds the open import as
+   `?card=OFI-…`. Import History's tab reads **Credit Card** (`outflowTableModel.sourceLabel`) and lists each
+   statement by its holder (`list_imports` returns `card_holder`) and period. Discard uses the shared
+   `components/ImportDiscardButton.tsx` (Porter's button wraps it too). Review lists the lines still to work
+   (`cardCreditsView.cardWorkLines`) and, beneath, the skipped lines with kind and reason
+   (`components/CardSkippedLines.tsx`); `get_card_import` returns `skip_kind` / `skip_reason` per line.
+10. **A spend's type** (#1568, ADR-0039 ruling 5) lives on the line: `suggested_expense_type` and
+    `type_source` (new read-only Select, options = `services/outflow_import/card_types.TYPE_SOURCES`, pinned by
+    `test_card_types`: Earlier statement / AI / Fallback / Chosen on Review). "Check" on Review is
+    `card_types.needs_check` = Fallback. *Misc. Expenses* (`card_types.FALLBACK_EXPENSE_TYPE`) is in
+    `fixtures/expense_type.json` (it existed live only; a migrate re-imports the fixture). Review retypes through
+    `card_review.set_card_expense_type` (Bulk Import gate; a live `non_project` type only; refuses a credit,
+    another import's line, or a spend not in `card_types.CREATE_LINE_STATUSES`), writing `type_source`
+    Chosen on Review. `get_card_import` returns per line `expense_type`, `type_source`, `check`, `editable`,
+    `expense`, `outcome_note`, and per import `created` / `failed` / `to_create` / `create_running` and
+    `expense_types` (the live Non-Project list, the only one offered).
+11. **Create** (`api/outflow_import/card_create.py`, #1568): `create_card_expenses` (Bulk Import gate: Admin,
+    Accountant Lead, Accountant) enqueues `create_card_import` on `long`, job id `card_import.create_job_id` =
+    `card-create-<batch>` (deduplicated; Discard waits for it); refused once no spend is left. The job is
+    Porter's shape: each SPEND (direction Debit, ⚠️ never a credit, which is open at `Mismatched` too) in
+    `CREATE_LINE_STATUSES`, re-read `FOR UPDATE`, one transaction each: `settle.create_expense_from_row`
+    (Paid; amount; `payment_date` = transaction date; `payment_ref` = `settlement_reference`; type as the line
+    holds it; description `card_types.spend_description` "Card spend at {merchant_key}, {holder}'s card";
+    no vendor; no attachment — the PDF stays the statement's one File; the new `credit_card_statement=` kwarg
+    sets `Non Project Expenses.credit_card_statement`, a new read-only indexed Link) → a Settled `Outflow Row
+    Match` (`card statement`, `created_by_import`) → line Settled. A failing line rolls back and goes to Error
+    ("Could not create this expense. Run Create again."); a re-press creates only Error / reopened lines.
+    ⚠️ NO PAID BY: Non Project Expenses has no such field (spec ruling 1); the holder is in the description
+    and behind the link. Discard is refused from the first match (`created_anything`).
+12. **Unreconcile** of a created spend is the generic path (`unreconcile.unreconcile_row`): the Expense is
+    deleted, the line reopens (`Mismatched`, Confirm by hand), Review offers it editable again and Create
+    re-creates it. It stays out of the main table (gated source).
+13. **Screens (#1568).** `pages/outflow-import/cardCreate.ts` (pure, pinned by `cardCreate.test.ts`: Create
+    offered / label / progress, stepper on Create once started, "Check" badge) and `useCardImport.ts` (reads
+    the import, polls every 2 s while `create_running`, retype + Create). The dialog footer holds Create beside
+    Discard and Done.
+14. **Credit sorting (#1567, ADR-0039 decision 4).** Pure: `services/outflow_import/card_credits.sort_card_lines(lines)`
+    → `{serno: LineSort(kind, partner)}`, kinds SPEND, CARD_PAYMENT, CASHBACK, REFUND, REFUNDED_SPEND,
+    UNPAIRED_CREDIT. Only CREDITS are read for words: a merchant key matching `PAYMENT RECD|PAYMENT RECEIVED`
+    or starting `AUTO DR RETN` is a payment; `CASHBACK` / `CASH BACK` is cashback. Any other credit pairs with
+    an open spend of the SAME merchant key and EXACTLY the same amount dated on or before it, the latest one
+    (date, then print order); credits pair in date order; a spend is cancelled at most once; a spend after the
+    credit never pairs, nor one dated the same day but printed after it. ⚠️ Sorting runs over the lines STAGED in this import (`new.lines`), not the whole
+    statement: a refund never pairs with a spend left out as an earlier import's repeat. `card_credits.skip_values`
+    stages each skip as `Skipped` / `System` with its kind and sentence (both `skip_reason` and `outcome_note`):
+    kinds `Card payment received`, `Card cashback`, `Card refund pair` (new `skip_kind` options), sentences
+    `status.SKIP_REASON_CARD_*` (in `SYSTEM_SKIP_SENTENCES` and taught to `skip_kind_backfill`). A paired spend
+    keeps its Create plan (`Pending match run` fields) underneath the skip. Each line of a pair names the
+    other in its sentence (`partner_label`: SerNo, date, amount) AND links it through the new read-only
+    `Outflow Import Row.card_refund_partner` (Link to the row), written raw after both rows exist.
+15. **Unskip (#1567, README ruling 5).** `skip_origin.unskip_refusal` asks the card kinds BEFORE the
+    never-matched "only by hand" rule: `Card payment received` / `Card cashback` are in `UNSKIP_LOCKED_KINDS`
+    (own sentences), `Card refund pair` is allowed. `review.unskip_row` routes a pair to
+    `api/outflow_import/card_refund_pairs.unskip_refund_pair` before the Cashbook path: it locks the partner,
+    refuses unless the partner is still Skipped as the pair and links back, then reopens BOTH lines (credit
+    → `Mismatched`, spend → `Pending match run`), clears kind / origin / reason / note / decided / partner,
+    saves each with a Version row and a comment, one commit. A card credit skipped by hand unskips through the
+    Cashbook path (`_unskip_cashbook_line`, reopens `Mismatched`). The frontend mirror is `unskipView.ts` +
+    `skipKinds.ts` (pinned to the Python by `skipKinds.test.ts`).
+16. **Invoices (#1570, ADR-0039 ruling 8).** A card Expense waits in Vendor Invoice Recon -> *Pending Invoices
+    Upload* -> **Credit Card** (`?upload_tab=card`, `components/CardInvoiceUploads.tsx`; its own table, NOT the
+    Reports "Pending Invoices" report the PO / WO sub-tabs mount) while `credit_card_statement` is set,
+    `invoice_attachment` is blank and `no_invoice_by` is blank. Endpoints `api/expenses/card_invoices.py`:
+    `get_card_invoice_queue` (rows with date, `merchant` = `merchant_key` of the line details, `details`
+    = payment_ref with " - SerNo" taken off by `services/card_invoices.card_line_details`, amount, type, holder,
+    statement, `statement_month` "YYYY-MM" of the statement date) and `attach_card_invoice` (file required,
+    number and date optional) are gated by `role_profiles.PENDING_INVOICE_UPLOAD_PROFILES` (the tab's own
+    set: approvers + PMO + procurement); `mark_card_no_invoice` by `CARD_NO_INVOICE_PROFILES` (Admin, Accountant
+    Lead), a typed reason required, writing the new read-only `Non Project Expenses.no_invoice_reason` /
+    `no_invoice_by` (Link User) / `no_invoice_at`. Both writes re-read the Expense `FOR UPDATE`, refuse by
+    `services/card_invoices` (`attach_problem`, `no_invoice_problem`: not a card spend, already invoiced, already
+    marked) and save through the document layer (Version row kept). Holder and month filters are client-side
+    (`pages/tasks/invoices/utils/cardInvoicesView.ts`). Attach reuses `UpdateInvoiceDetailsDialog` with its
+    `cardSave` prop (file required, ref and date optional, saved through the endpoint). The file is uploaded
+    against the Expense (`attached_to_*`), so it stays one `File`. An invoice attached anywhere else (the Non
+    Project Expenses page) also takes the spend off the list. No undo of *No invoice* exists.
+
+17. **Type suggestion and merchant memory** (#1569, ADR-0039 ruling 5). The upload, after its commit, enqueues
+    `card_suggest.suggest_card_types` on `long`, job id `card-suggest-<batch>` (deduplicated; Discard waits for
+    it). Per merchant key, every spend of it alike: `card_memory.recall` first (`Earlier statement`), else ONE
+    Gemini call for every merchant memory lacks, given the live Non-Project list
+    (`services/extraction/merchant_types.gemini_type_merchants`, text-only, beside `mapping.py`; it builds its
+    client through `GeminiExtractor._build_client` and calls `_generate`, so tests fake it there), else the
+    fallback. The choice is pure: `card_types.choose_type` — a remembered type no longer live is ignored; an AI
+    answer counts only when on the live list, not the fallback itself, and at confidence >= `AI_MIN_CONFIDENCE`
+    (0.7). ⚠️ AI off (`get_extraction_settings().enabled` false), a failed call or a malformed reply is "no
+    answer": spends stay Fallback ("Check"), and nothing blocks. ⚠️ The job writes only Debit lines still at
+    `type_source` Fallback and not Settled, and its raw UPDATE re-asks that in the WHERE, so a type chosen on
+    Review meanwhile is never overwritten; Skipped spends (a paired refund, #1567) are typed too, so an
+    unskipped one reaches Create typed. `get_card_import` returns `suggest_running` (Review polls while it
+    is set; Create is refused while it is) and each spend's `merchant` (credit: null).
+    **Memory** is the new doctype `Card Merchant Memory` (name = merchant key; `expense_type`,
+    `confirmed_by`, `confirmed_at`; all read-only; System Manager full, Accountant / Accountant Lead read),
+    written only by `services/outflow_import/card_memory.remember` (latest confirmation wins; a racing insert
+    falls back to update): by `card_create._create_one` for EVERY created spend (the fallback too — Create is
+    the confirmation), with the Create actor; and by the `Non Project Expenses` on_update hook
+    `integrations/controllers/card_merchant_memory.on_expense_update` when a card Expense
+    (`credit_card_statement` set) is saved with a different `type` (the insert is not an edit), with the
+    session user. The Expense's merchant is read back through its Settled match record
+    (`card_memory.merchant_of_expense`).
+    Desk: `Credit Card Statement` and `Card Merchant Memory` are READ-ONLY to Accountant and Accountant Lead
+    (System Manager full): only the import's code writes them, with `ignore_permissions` or raw SQL.
+18. **Screens (#1569).** `cardCreate.ts`: `cardPolling` also while `suggest_running`, `cardSuggestNote`,
+    `canCreateCard` false while suggesting, `typeSourceTitle` (the badge's title names the source; the fallback
+    badge reads "Check"), `merchantRetype(lines, line)` — the link "Use for all N {MERCHANT} spends" under a
+    retypable spend not at "Check" (a chosen, remembered or AI type; there is nothing to spread from the fallback)
+    whose merchant has another retypable spend of a different type; it calls the existing
+    `card_review.set_card_expense_type` with every such line (`useCardImport.retype(line, type, rows)`).
+    Story 29 in one choice: `merchantScope(lines, line)` (every retypable spend of the merchant, when more than
+    one) puts a "This spend" / "All N {MERCHANT} spends" toggle under the picker of ANY of them, "Check" ones
+    included; with "All" chosen, the type picked is saved on all of them in one call.
+    The Non Project Expenses table's Invoice Ref column shows a marked spend (#1570) as "No invoice" with
+    "{who}, {date}: {reason}" (`pages/NonProjectExpenses/config/noInvoiceView.noInvoiceNote`).
+
+**Tests.** `services/outflow_import/test_card_statement` (unit, the fixture and a PDF built from it by
+`tests/card_pdf_builder.pdf_from_text`), `api/outflow_import/test_card_import` (DB: upload, refusals, repeats,
+Review, History, not-matched totals, Discard, the matcher AST guard), `services/outflow_import/test_card_types`
+(unit), `api/outflow_import/test_card_create` (DB: types on Review, retype refusals, Create fields, permissions,
+resume, Unreconcile and re-create, Discard refused after Create, the AST guard over every card module),
+`services/outflow_import/test_card_credits` (unit: the fixture's 7 credits, pairs, the two identical spends),
+`api/outflow_import/test_card_credits` (DB: staging kinds and reasons, Review's skipped list, payments/cashback
+never unskip, an open credit on the main table and skippable, a spend refused, a pair skipped / unskipped from
+either line), frontend `cardCreditsView.test.ts`, `unskipView.test.ts`,
+`services/test_card_invoices` (unit) and `api/expenses/test_card_invoices` (DB: the list, attach, No invoice and
+their permissions), vitest `pages/tasks/invoices/utils/cardInvoicesView.test.ts`,
+`api/outflow_import/test_card_suggest` (DB, Gemini faked at `GeminiExtractor._build_client`: the job queued at
+upload, AI answer, one call with the live list, off-list / low-confidence / failed / AI-off -> fallback, Review
+choice kept, memory hit and no call when all known, memory on Create, next month typed from it, memory on an
+Expense type edit and not on another edit). `CardImportCase` records the upload's enqueue (`self.enqueued`)
+and clears + restores the fixture merchants' memory per test.
+
+
 ## #1485 (2026-10-17) — an ICICI cheque line clears its Payment cheque (spec #1477, ADR-0035)
 
 **What.** In the ICICI match run (`review._guard_duplicates_only`), BEFORE the contains-guard, every line

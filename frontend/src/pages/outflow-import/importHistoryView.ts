@@ -3,7 +3,7 @@
 import type { DateFilterValue } from "@/components/data-table/date-filter-popover";
 
 import { DEFAULT_PERIOD } from "./outflowPeriod";
-import { SOURCE_OPTIONS } from "./outflowTableModel";
+import { SOURCE_OPTIONS, sourceLabel } from "./outflowTableModel";
 import { isPorterImport } from "./porterImport";
 
 /**
@@ -150,7 +150,7 @@ const statementsOf = (source: string): string => source.replace(/\s+statement$/i
 
 /** The dialog's subtitle: what is listed, then what to do. */
 export const historySubtitle = (source: string, month: MonthKey): string =>
-    `${statementsOf(source)} statements covering ${monthLabel(month)}. Select one to open it.`;
+    `${statementsOf(sourceLabel(source))} statements covering ${monthLabel(month)}. Select one to open it.`;
 
 /** A row's count: a Porter import's lines are orders (#1558), a bank import's are transfers. */
 export const importCountLabel = (source: string | null | undefined, n: number): string => {
@@ -161,8 +161,8 @@ export const importCountLabel = (source: string | null | undefined, n: number): 
 /** What an empty tab says. A search that matched nothing is a different fact from an empty month. */
 export const historyEmptyLabel = (source: string, month: MonthKey, search: string): string =>
     search.trim()
-        ? `No ${statementsOf(source)} statements covering ${monthLabel(month)} match that.`
-        : `No ${statementsOf(source)} statements cover ${monthLabel(month)}.`;
+        ? `No ${statementsOf(sourceLabel(source))} statements covering ${monthLabel(month)} match that.`
+        : `No ${statementsOf(sourceLabel(source))} statements cover ${monthLabel(month)}.`;
 
 /**
  * Are the summary card's three controls — Source, Import, Period — all at their defaults? The Reset

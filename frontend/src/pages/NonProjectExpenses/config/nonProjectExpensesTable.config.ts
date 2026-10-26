@@ -23,6 +23,10 @@ export const DEFAULT_NPE_FIELDS_TO_FETCH: (keyof NonProjectExpenses | 'name' | '
     "invoice_attachment",
     // The Porter badge and the edit dialog's Porter section (#1450).
     "porter_order",
+    // A card spend marked "No invoice": who, when and why show in the Invoice Ref column (#1570, story 45).
+    "no_invoice_reason",
+    "no_invoice_by",
+    "no_invoice_at",
 ];
 
 export const NPE_SEARCHABLE_FIELDS: SearchFieldOption[] = [

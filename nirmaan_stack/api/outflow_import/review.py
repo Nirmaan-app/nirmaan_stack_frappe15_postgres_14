@@ -44,6 +44,7 @@ from typing import Sequence
 
 import frappe
 
+from nirmaan_stack.api.outflow_import.card_refund_pairs import unskip_refund_pair
 from nirmaan_stack.api.outflow_import.skip_sources import skip_sources
 from nirmaan_stack.api.outflow_import.permissions import (
     require_outflow_access,
@@ -104,6 +105,7 @@ from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.refund_suggestion import encode_suggestion, suggestion_note
 from nirmaan_stack.services.outflow_import.parser import (
     BANK_SUCCESS_STATUS,
+    DIRECTION_CREDIT,
     DIRECTION_DEBIT,
     source_can_carry_credit,
 )
@@ -122,12 +124,14 @@ from nirmaan_stack.services.outflow_import.similarity import (
 )
 from nirmaan_stack.services.outflow_import.sources import (
     BANK_STATEMENT_SOURCES,
+    CARD_STATEMENT_SOURCE,
     CREATE_GATED_SOURCES,
+    CREDITS_DECIDED_ON_THE_MAIN_TABLE,
     PORTER_STATEMENT_SOURCE,
     source_has_settlement_path,
     source_runs_the_matcher,
 )
-from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_BY_HAND
+from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_BY_HAND, SKIP_KIND_CARD_REFUND_PAIR
 from nirmaan_stack.services.outflow_import.stacks import (
     Stack,
     group_into_stacks,
@@ -1458,13 +1462,16 @@ def skip_row(row: str, reason: str):
 
     with concurrent_writer_refusal_as_sentence("skip_row", row):
         current = frappe.db.get_value(
-            ROW_DOCTYPE, row, ["name", "import_batch", "row_status"], as_dict=True, for_update=True
+            ROW_DOCTYPE, row, ["name", "import_batch", "row_status", "direction"], as_dict=True, for_update=True
         )
         if not current:
             frappe.throw(f"Import row '{row}' not found.", title="Not found")
         # The BATCH's source, as `match_line` reads it -- the run-level fact, not the denormalised copy.
+        # The direction: a card credit may be skipped here, a card spend may not (#1567).
         refusal = manual_skip_refusal(
-            row_status=current.row_status, source=_batch_source(current.import_batch)
+            row_status=current.row_status,
+            source=_batch_source(current.import_batch),
+            direction=current.direction,
         )
         if refusal:
             frappe.throw(refusal, title="Cannot skip this transfer")
@@ -1565,6 +1572,11 @@ def unskip_row(row: str, reason: str):
         )
         if refusal:
             frappe.throw(refusal, title="Cannot unskip this transfer")
+
+        # ⚠️ ASKED BEFORE THE NEVER-MATCHED PATH (#1567, README ruling 5): a card refund pair comes back
+        # whole, both lines in this transaction.
+        if current.skip_kind == SKIP_KIND_CARD_REFUND_PAIR:
+            return unskip_refund_pair(row, current.import_batch, actor, reason)
 
         if not source_runs_the_matcher(_batch_source(current.import_batch)):
             return _unskip_cashbook_line(row, current.import_batch, actor, reason)
@@ -3090,8 +3102,21 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
     # the facets, the summary panel's *Still open* and the Payments card's *Total Unreconciled Outflow*
     # (`not_matched_totals`). One clause here keeps all of them equal to each other. A Porter line comes
     # back once it is decided -- Settled by its Create, or Skipped as a cancelled order.
-    where.append("NOT (TRIM(COALESCE(r.source, '')) IN %s AND r.row_status NOT IN %s)")
-    params.extend([tuple(sorted(CREATE_GATED_SOURCES)), (ROW_SETTLED, ROW_SKIPPED)])
+    # ⚠️ PER LINE, NOT PER SOURCE (#1567, README ruling 4): a card CREDIT is decided here, so an open one is
+    # in the population; a card spend waits like a Porter line. `sources.line_waits_for_its_own_create`
+    # is the same rule in Python.
+    where.append(
+        "NOT (TRIM(COALESCE(r.source, '')) IN %s AND r.row_status NOT IN %s"
+        " AND NOT (TRIM(COALESCE(r.source, '')) IN %s AND r.direction = %s))"
+    )
+    params.extend(
+        [
+            tuple(sorted(CREATE_GATED_SOURCES)),
+            (ROW_SETTLED, ROW_SKIPPED),
+            tuple(sorted(CREDITS_DECIDED_ON_THE_MAIN_TABLE)),
+            DIRECTION_CREDIT,
+        ]
+    )
 
     if batch:
         where.append("r.import_batch = %s")
@@ -4037,6 +4062,21 @@ def list_imports(limit=60, sources=None, month=None):
         if row["name"] in states:
             row["status"] = states[row["name"]]
             row["progress"] = progress[row["name"]]
+    # A Credit Card Statement import is listed by its card holder and billing period (#1566, ADR-0039).
+    cards = [row["name"] for row in imports if (row.get("source") or "").strip() == CARD_STATEMENT_SOURCE]
+    holders = (
+        dict(
+            frappe.db.sql(
+                """SELECT import_batch, holder FROM "tabCredit Card Statement" WHERE import_batch IN %s""",
+                (tuple(cards),),
+            )
+        )
+        if cards
+        else {}
+    )
+    for row in imports:
+        if row["name"] in holders:
+            row["card_holder"] = holders[row["name"]]
     return imports
 
 

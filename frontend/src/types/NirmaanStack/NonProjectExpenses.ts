@@ -26,6 +26,12 @@ export interface NonProjectExpenses {
 
     // Set only by the Porter Statement import (#1445): the Porter Order this expense pays for.
     porter_order?: string | null;
+    // Set only by the Credit Card Statement import's Create (#1568): the statement this card spend is on.
+    credit_card_statement?: string | null;
+    // A card spend marked "No invoice" (#1570): why, who and when. Set only by api/expenses/card_invoices.
+    no_invoice_reason?: string | null;
+    no_invoice_by?: string | null;
+    no_invoice_at?: string | null;
 
     // The Expense Request this expense was created from, written by its approval; blank on a Direct Expense.
     request_id?: string | null;
