@@ -243,9 +243,23 @@ effects, `dd-MMM-yyyy` dates, realtime event naming, role checks, F1–F5, vites
 ## Writing tests
 
 - **Framework:** `frappe.tests.utils.FrappeTestCase` (Python unittest subclass).
-- **Location:** `nirmaan_stack/nirmaan_stack/doctype/<name>/test_<name>.py` — co-located with each doctype.
-- **Existing tests:** Nearly all are empty stubs. Don't rely on them to catch regressions.
+- **Location:** beside the module it tests, in the same package: `api/<feature>/test_<x>.py`,
+  `services/<area>/test_<x>.py`. A doctype folder's `test_<name>.py` holds tests of that doctype's controller only.
+  A ticket runs the test modules of each changed package (root `CLAUDE.md` § Session workflow, "affected"), so a
+  test kept elsewhere can miss the change it guards.
+- **Doctype stubs:** Frappe writes an empty `test_<name>.py` into each new doctype folder, and most doctype folders
+  still hold only that stub. A doctype with no other test has nothing guarding it.
 - **New code:** Pure-Python modules (parsers, services) must have real unit tests with fixture files. No stubs for logic-bearing code. Test both the accepted and the refused path.
+- **Bug fixes:** every fix comes with a test that fails without it. Run it both ways: revert the fix and see the
+  test fail for the bug's reason, then restore the fix and see it pass.
+- **Changing an existing test:** editing an existing assertion so a change passes is a red flag, because the old
+  test may guard a real workflow. Change it only when the required behaviour itself changed, and say so in the
+  commit message.
+- **Repeatable:** a test's result never depends on a random value, on the order tests run, or on records another
+  test left. A random suffix that only keeps a name unique (`frappe.generate_hash`) is fine. Logic that reads
+  today's date runs under `self.freeze_time(...)` (a `FrappeTestCase` method).
+- **Data patches:** run a patch on a copy of the dev DB, never only on an empty test DB: an empty table migrates
+  cleanly even when the patch is wrong. Run it twice; a patch must be safe to re-run.
 - **Frontend tests** (vitest, node-only, run with `yarn typecheck` by the Frontend CI job; Cypress): `frontend/CODING_STANDARDS.md` § Writing a test.
 - **Running:** use the bench runner, in-container; the exact invocation and the `python -m unittest` import
   failure are in root `CLAUDE.md` § Commands.
