@@ -49174,3 +49174,80 @@ Run after this commit and the laptop's sync HOLD; the results are in the Desktop
   separate slice.
 - 00329 r257 Acoustic vs Thermal (unstable on both v53 and v54).
 - The parent-heading match for `existing_work` (ADP-5c Q1 (b)).
+
+## Step DB-PUSH - one command to copy the laptop's data back to the desktop, and the desktop scheduler switched on - as built 2026-10-26
+
+Run by the LAPTOP session (tooling runs from the laptop; no delegated desktop session). Owner rulings: 2026-10-26 16:21
+(if the desktop drops, all work continues on the laptop, which is then the master; on reconnect the desktop is brought up
+for code and data first), 17:18 "One-command copy back : do it" and "Desktop scheduler is off: switch on", 17:26 (D9)
+"keep it on" for the laptop after each pull, after its guards are proved. Built on SYNC-R (same day), which proved the hand
+procedure (laptop Desktop: `2026-10-26_SYNC-R_Report.md`, `2026-10-26_Desktop_Drop_Runbook.md`).
+
+### 1. Built (commit 1, `7b1b8f5a8`)
+- `scripts/env_sync/env_sync.sh db-push --yes [--discard-desktop-writes]`: the laptop -> desktop twin of `db-pull`. It
+  refuses without `--yes` and unless the code is `IN_SYNC`. It also refuses when the desktop's fingerprint differs from
+  the one recorded at the laptop's last `db-pull`, naming both (only `--discard-desktop-writes` overrides). Then:
+  1. It backs up the desktop FIRST and proves the backup: sizes and sha256, `gzip -t`, and a test restore into a
+     scratch database with the table count and key row counts equal to live.
+  2. It proves the laptop backup and copies it across, checking sha and size.
+  3. It re-reads both fingerprints, and refuses if either has moved.
+  4. It stops the desktop bench and restores the laptop's backup, keeping the old desktop database as
+     `<db>_envsync_prev`. It runs files and migrate, starts bench and waits for ping.
+  5. It prints the before and after fingerprints, writes a run record to the laptop's Desktop, and refreshes the pull
+     record.
+- New helpers: `remote/prove_backup.sh` and `remote/scratch_check.sh`.
+- `db-pull` now records the pulled fingerprint (`frappe-bench/envsync/last_pull_fingerprint.txt`; override
+  `ENV_SYNC_PULL_RECORD`).
+- `status` now names the master machine.
+- `docs/agents/environments.md`: the desktop-drop exception in Rules, a "Desktop drop" section (the steps, the refusals,
+  proofs against the laptop's values, the rollback), `db-push` in Commands, and Recovery.
+- No test reads `env_sync` or `environments.md` (searched every `test_*.py` and `*.test.ts(x)`), so no suite ran. The
+  residence check is unchanged (F5 120 / 117, F2 221 / 217, the same failures as before this step).
+
+### 2. Proved (live, both machines)
+- **Guard tests, no live write:** each refused with exit 2, and the desktop wrote no backup:
+  - no `--yes`;
+  - no pull record yet;
+  - a throwaway branch `dbpush-probe` on the laptop (BRANCH_MISMATCH; deleted afterwards);
+  - an edited COPY of the record (`ENV_SYNC_PULL_RECORD`, versions 458000 vs 458059), where both values were named.
+- **Real run:** `db-push --yes` 17:34:06-17:45:43, **697 s**, exit 0.
+  - Desktop safety backup `20261026_173428` proved: the scratch restore had 426 / 426 tables and 8 / 8 key tables
+    equal.
+  - Laptop backup `20261026_173622` copied, with sha equal.
+  - The desktop proof file (v54 / v66 live == file hashes, counts, AI enabled + key presence, dev flags, scheduler,
+    stopped jobs, capture hashes) is `cmp`-identical before and after.
+  - `dev_isolate.py --verify` is unchanged (FAIL on `push_tokens` / `push_on` only, the known login token).
+  - The replay of 17,918 rows is equal BY KEY to the ADP-5d baseline. The file sha `671d90af` / `b553d199` differs from
+    `2148a730` / `ce5009cc` in serialisation only, the same as SYNC-R.
+  - The pull back reads `IN_SYNC` / `SAME`.
+- The restore replaced the older `_envsync_prev` (SYNC-R's pre-copy database), whose content is in backup
+  `20261026_164402`.
+
+### 3. The desktop scheduler (switched on 17:58:45 IST)
+- **Guards before:**
+  - site_config `mute_emails` 1, `disable_push` 1, `disable_cloud_upload` 1, `nirmaan_env` dev;
+  - the 19 stopped Scheduled Job Types (listed by name in the ledger), including `queue.flush` and
+    `email_account.pull`;
+  - the 4 Email Accounts with outgoing and incoming off;
+  - an empty Email Queue.
+- **Switch:** `bench --site localhost enable-scheduler`, which calls `frappe.utils.scheduler.enable_scheduler()` and
+  sets System Settings `enable_scheduler` = 1.
+- **20-minute watch:** 59 job runs, all Complete.
+  - 0 Error Log entries;
+  - Email Queue 0 queued and 0 sent;
+  - 0 Nirmaan Notifications, Notification Log or Communication rows;
+  - capture log unchanged at 258 lines.
+  - Data changes: 1 Version row (Energy Point Settings' allocation date) and −54 Error Log rows (the log clean-up job).
+  - Rate masters, runs and counts unchanged; the replay equal by key.
+- **The laptop (owner D9):**
+  - Its own guards were proved first (the same values; its bench runs `bench schedule`).
+  - Then `db-pull` (scheduler on), `IN_SYNC` / `SAME`.
+  - **10-minute watch:** 14 job runs, all Complete; 0 errors, emails, notifications or Communications.
+  - The setup-table rows created 18:29:19-18:29:39 are `bench migrate`'s fixture sync, which runs on every pull, not the
+    scheduler.
+
+### 4. Open / follow-ups
+- `session-send` can start a second copy of a busy desktop session (PP-1, 2026-10-26). The fix needs the Claude
+  background CLI's stop / resume behaviour, so it is not small; for now, avoid sending to a busy session.
+- The desktop's `/tmp` still holds SYNC-R's and DB-PUSH's scratch (`/tmp/syncr`, `/tmp/dbpush`), because the `rm -rf`
+  clean-up was refused.
