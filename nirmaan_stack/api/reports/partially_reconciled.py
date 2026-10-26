@@ -47,10 +47,15 @@ _REPORTS = {
 
 
 # The fields each ledger lends a row of the report's detail dialog. Project Expenses spell the
-# project `projects`; the other two ledgers use `project` or have none.
+# project `projects`; the other two ledgers use `project` or have none. `vendor` and
+# `expense_type_name` are what the Project Outflow Report's vendor and expense type filters read, so
+# its total can apply them to this money too (#1542).
 _DETAIL_FIELDS = {
-    "Project Payments": ["name", "amount", "project", "document_type", "document_name"],
-    "Project Expenses": ["name", "amount", "projects as project", "type", "description"],
+    "Project Payments": ["name", "amount", "project", "vendor", "document_type", "document_name"],
+    "Project Expenses": [
+        "name", "amount", "projects as project", "vendor", "type", "type.expense_name as expense_type_name",
+        "description",
+    ],
     "Non Project Expenses": ["name", "amount", "type", "description"],
 }
 
@@ -102,7 +107,9 @@ def _done_for(ledgers, from_date=None, to_date=None):
                 "latest_line_date": links.latest_line_date,
                 "line_count": links.line_count,
                 "project": record.get("project"),
+                "vendor": record.get("vendor"),
                 "type": record.get("type"),
+                "expense_type_name": record.get("expense_type_name"),
                 "description": record.get("description"),
                 "document_type": record.get("document_type"),
                 "document_name": record.get("document_name"),

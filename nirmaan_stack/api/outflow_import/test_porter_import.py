@@ -413,6 +413,31 @@ class TestThePorterLinesAreNotBankLines(PorterImportCase):
         self.assertEqual(not_matched_totals(), before)
 
 
+class TestTheScreenChecksAFileByTheParsersRules(FrappeTestCase):
+    """The upload screen's pre-check reads its required columns from the server, never a copy (#1555)."""
+
+    def test_the_rules_are_the_columns_the_parser_requires_and_its_completed_status(self):
+        from nirmaan_stack.services.outflow_import.parser import (
+            PORTER_ORDER_COMPLETED,
+            PORTER_STATEMENT_COLUMNS,
+        )
+
+        rules = porter_api.get_porter_statement_rules()
+        self.assertEqual(rules["columns"], list(PORTER_STATEMENT_COLUMNS))
+        self.assertEqual(len(rules["columns"]), 22)
+        self.assertEqual(rules["completed_status"], PORTER_ORDER_COMPLETED)
+        # The three columns the screen counts by, each one the parser requires (#1554 review).
+        named = (rules["status_column"], rules["completed_at_column"], rules["invoice_column"])
+        self.assertEqual(named, ("order_status", "order_completion_time", "invoice_link"))
+        self.assertTrue(set(named) <= set(rules["columns"]))
+
+    def test_a_user_without_bulk_import_access_is_refused(self):
+        frappe.set_user("Guest")
+        self.addCleanup(frappe.set_user, "Administrator")
+        with self.assertRaises(frappe.PermissionError):
+            porter_api.get_porter_statement_rules()
+
+
 class TestARefusedFileSavesNothing(PorterImportCase):
     def _assert_refused(self, content: bytes, *words: str):
         with self.assertRaises(frappe.ValidationError) as caught:
@@ -468,7 +493,7 @@ class TestARefusedFileSavesNothing(PorterImportCase):
         finally:
             frappe.local.request = previous_request
             frappe.local.form_dict = frappe._dict(previous_form)
-        self.assertIn("Porter import", str(caught.exception))
+        self.assertIn("Porter Statement is imported through its own import", str(caught.exception))
         self.assertEqual(self._batches(), [])
 
 

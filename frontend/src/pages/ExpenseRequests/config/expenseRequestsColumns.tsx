@@ -3,24 +3,35 @@
 // Columns for the Expense Request table. Shaped like the two ledger tables so all three
 // tabs of /expense read as one module.
 //
+// Status and Amount are LIVE (#1500): once a request has an Expense they show that Expense's own
+// status ("Waiting for Admin", "CEO Pending", "Reconciliation Pending", ...) and its amount, as
+// `get_request_standing` reads them. A row the standing read has not answered shows the request's.
+//
 // Tab-driven visibility:
 //   Status                   -> on "All" and on "Raised By Me". Every OTHER tab is a single
 //                               status by definition, so the column would repeat its own
 //                               name on every row; "Raised By Me" is not -- it spans every
 //                               status, so without this its rows carry no status at all.
 //   Reviewed By              -> hidden on "Pending Approval" (nothing to show yet)
-//   Actions                  -> only on "Pending Approval", and only for a reviewer. It
-//                               stays off "Raised By Me" -- those are the viewer's OWN
-//                               requests, and `access.guard_reviewer` refuses self-review.
+//   Actions                  -> "Pending Approval": edit / approve / reject.
+//                               "Raised By Me": EDIT on the viewer's own pending rows
+//                               (`update.can_edit`), DELETE on their rejected ones.
+//                               "All": DELETE on rejected rows the viewer may delete
+//                               (`delete.can_delete`). Approve / reject never leave the
+//                               pending tab: `access.guard_reviewer` refuses self-review.
 //   Description              -> hidden on "Pending Approval". A type WITH a format hides the
 //                               description field entirely (its fields are the description),
 //                               so the column read "--" on every such row -- a column of
 //                               dashes costs width and tells the reviewer nothing.
 
 import { ColumnDef } from "@tanstack/react-table";
+import { Link } from "react-router-dom";
 
 import { EXR_RAISED_BY_ME } from "./expenseRequestsTable.config";
-import { Check, Pencil, X } from "lucide-react";
+import { Check, Pencil, Trash2, X } from "lucide-react";
+
+import LiveStatusBadge from "../components/LiveStatusBadge";
+import RequestHoverCard from "@/components/common/RequestHoverCard";
 
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { facetMeta } from "@/components/data-table/facetConfig";
@@ -28,17 +39,14 @@ import { Button } from "@/components/ui/button";
 import {
     Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import type { ExpenseRequest, ExpenseRequestStatus } from "@/types/NirmaanStack/ExpenseRequest";
+import { ExpenseTdsBreakdown } from "@/components/common/ExpenseTdsBreakdown";
+import { shownExpenseTds } from "@/utils/expenses/expenseTds";
+import type { ExpenseRequest, RequestStanding } from "@/types/NirmaanStack/ExpenseRequest";
 
-const STATUS_BADGE: Record<ExpenseRequestStatus, string> = {
-    "Pending Approval": "bg-amber-100 text-amber-800",
-    Approved: "bg-emerald-100 text-emerald-800",
-    Rejected: "bg-red-100 text-red-800",
-    Paid: "bg-sky-100 text-sky-800",
-};
+/** The mark on a request whose raiser records without review (GLOSSARY, #1498). */
+const APPROVED_ON_SUBMIT = "Approved on submit (no review)";
 
 interface Args {
     statusTab: string;
@@ -51,18 +59,31 @@ interface Args {
     /** Server-computed per row, and DISJOINT from `canReview` by design: a reviewer who could
      *  also edit could rewrite an amount and then approve it. Never re-derive either. */
     canEdit: (name: string) => boolean;
+    /** Server-computed per row: Rejected, raiser or Admin, no Expense linked. Never re-derive it. */
+    canDelete: (name: string) => boolean;
+    /** The row's answers labelled by its form, from the scoped read. Undefined for a row that
+     *  read did not return; the hover card then shows its header alone. */
+    getDetail: (name: string) => { label: string; value: string }[] | undefined;
+    /** The row's live status and amount from its Expense (`get_request_standing`), or undefined
+     *  until that read answers. */
+    getStanding: (name: string) => RequestStanding | undefined;
     onApprove: (r: ExpenseRequest) => void;
     onReject: (r: ExpenseRequest) => void;
     onEdit: (r: ExpenseRequest) => void;
+    onDelete: (r: ExpenseRequest) => void;
 }
 
 export const getExpenseRequestColumns = ({
-    statusTab, getUserName, getCategory, canReview, canEdit, onApprove, onReject, onEdit,
+    statusTab, getUserName, getCategory, canReview, canEdit, canDelete, getDetail, getStanding,
+    onApprove, onReject, onEdit, onDelete,
 }: Args): ColumnDef<ExpenseRequest>[] => {
     const showStatus = statusTab === "All" || statusTab === EXR_RAISED_BY_ME;
     const showReview = statusTab !== "Pending Approval";
-    const showActions = statusTab === "Pending Approval";
+    const isPendingTab = statusTab === "Pending Approval";
+    const showActions = isPendingTab || statusTab === "All" || statusTab === EXR_RAISED_BY_ME;
     const showComment = statusTab !== "Pending Approval";
+    const liveStatus = (r: ExpenseRequest) => getStanding(r.name)?.status ?? r.status;
+    const liveAmount = (r: ExpenseRequest) => getStanding(r.name)?.amount ?? r.amount;
 
     const columns: ColumnDef<ExpenseRequest>[] = [
         {
@@ -71,7 +92,23 @@ export const getExpenseRequestColumns = ({
             header: ({ column }) => <DataTableColumnHeader column={column} title="Request ID" />,
             cell: ({ row }) => (
                 <div>
-                    <div className="font-medium">{row.original.name}</div>
+                    <div className="font-medium">
+                        <RequestHoverCard info={{
+                            name: row.original.name,
+                            status: liveStatus(row.original),
+                            type: row.original.type,
+                            project: row.original.projects_name || row.original.projects,
+                            amount: liveAmount(row.original),
+                            raisedBy: getUserName(row.original.owner),
+                            creation: row.original.creation,
+                            detail: getDetail(row.original.name),
+                        }}>
+                            {/* The request's page: where it stands (#1500), its invoice (#1502). */}
+                            <Link to={`/expense/requests/${row.original.name}`} className="text-primary">
+                                {row.original.name}
+                            </Link>
+                        </RequestHoverCard>
+                    </div>
                     <div className="text-[11px] text-muted-foreground">
                         {getCategory(row.original.type)}
                     </div>
@@ -132,10 +169,24 @@ export const getExpenseRequestColumns = ({
             accessorKey: "amount",
             size: 130,
             header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" />,
-            cell: ({ row }) => (
-                <span className="tabular-nums">{formatToRoundedIndianRupee(row.original.amount)}</span>
-            ),
-            meta: { exportHeaderName: "Amount", exportValue: (r: ExpenseRequest) => r.amount },
+            cell: ({ row }) => {
+                const standing = getStanding(row.original.name);
+                // Office Rent: Rent / TDS / Net (#1527), from the Expense's status, or the request's
+                // while it has none.
+                const tds = shownExpenseTds({
+                    type: row.original.type,
+                    amount: liveAmount(row.original),
+                    status: standing?.expense?.status ?? row.original.status,
+                    withheld: standing?.withheld_tds,
+                });
+                return (
+                    <div className="tabular-nums">
+                        <span>{formatToRoundedIndianRupee(liveAmount(row.original))}</span>
+                        <ExpenseTdsBreakdown shown={tds} />
+                    </div>
+                );
+            },
+            meta: { exportHeaderName: "Amount", exportValue: liveAmount },
         },
         {
             accessorKey: "owner",
@@ -187,18 +238,13 @@ export const getExpenseRequestColumns = ({
             size: 140,
             header: "Status",
             enableColumnFilter: true,
-            cell: ({ row }) => (
-                <span className={cn(
-                    "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                    STATUS_BADGE[row.original.status] || "bg-gray-100 text-gray-700"
-                )}>
-                    {row.original.status}
-                </span>
-            ),
+            cell: ({ row }) => <LiveStatusBadge status={liveStatus(row.original)} />,
             meta: {
+                // The facet filters the REQUEST's own status (Approved spans every step between
+                // review and payment); the cell shows the Expense's live one.
                 ...facetMeta({ field: "status", title: "Status" }),
                 exportHeaderName: "Status",
-                exportValue: (r: ExpenseRequest) => r.status,
+                exportValue: liveStatus,
             },
         });
     }
@@ -211,7 +257,12 @@ export const getExpenseRequestColumns = ({
             enableColumnFilter: true,
             cell: ({ row }) => (
                 <div className="text-sm">
-                    <div>{row.original.reviewed_by ? getUserName(row.original.reviewed_by) : "--"}</div>
+                    {/* Records without review (#1498): nobody reviewed it, and the row says so. */}
+                    <div>
+                        {row.original.approved_on_submit
+                            ? <span className="text-muted-foreground">{APPROVED_ON_SUBMIT}</span>
+                            : row.original.reviewed_by ? getUserName(row.original.reviewed_by) : "--"}
+                    </div>
                     {row.original.reviewed_on && (
                         <div className="text-[11px] text-muted-foreground">
                             {formatDate(row.original.reviewed_on)}
@@ -222,7 +273,8 @@ export const getExpenseRequestColumns = ({
             meta: {
                 ...facetMeta({ field: "reviewed_by", title: "Reviewed By" }),
                 exportHeaderName: "Reviewed By",
-                exportValue: (r: ExpenseRequest) => r.reviewed_by || "",
+                exportValue: (r: ExpenseRequest) =>
+                    r.approved_on_submit ? APPROVED_ON_SUBMIT : r.reviewed_by || "",
             },
         });
     }
@@ -236,10 +288,15 @@ export const getExpenseRequestColumns = ({
             // `can_review` is computed by the SERVER per row (routed reviewer, or Accountant /
             // HR on a Project Manager's request, and not the requester's own). Hiding the
             // buttons is convenience only -- the endpoint refuses regardless.
+            // Review: the pending tab only. Edit: the pending tab and "Raised By Me", so a raiser
+            // without the pending tab can correct their own request. Delete: wherever the
+            // server says so, which is only ever a rejected row.
             cell: ({ row }) => {
-                const mayReview = canReview(row.original.name);
-                const mayEdit = canEdit(row.original.name);
-                if (!mayReview && !mayEdit) {
+                const mayReview = isPendingTab && canReview(row.original.name);
+                const mayEdit = (isPendingTab || statusTab === EXR_RAISED_BY_ME)
+                    && canEdit(row.original.name);
+                const mayDelete = canDelete(row.original.name);
+                if (!mayReview && !mayEdit && !mayDelete) {
                     return <span className="text-xs text-muted-foreground">--</span>;
                 }
                 // Icon-only. The tooltip and `aria-label` carry the meaning -- an icon
@@ -285,6 +342,18 @@ export const getExpenseRequestColumns = ({
                                     </Button>
                                 </TooltipTrigger>
                                 <TooltipContent>Reject</TooltipContent>
+                            </Tooltip>}
+                            {mayDelete && <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        size="icon" variant="ghost" aria-label="Delete request"
+                                        className="h-7 w-7 text-red-700 hover:bg-red-50 hover:text-red-800"
+                                        onClick={() => onDelete(row.original)}
+                                    >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Delete</TooltipContent>
                             </Tooltip>}
                         </div>
                     </TooltipProvider>

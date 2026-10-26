@@ -241,6 +241,35 @@ def release(boq: str, sheet_name: str, version, user: str, is_admin: bool = Fals
     return None
 
 
+def fresh_locks_for_boqs(boq_names, now=None) -> list[dict]:
+    """Every lock on these BoQs that is still FRESH -- someone is editing a sheet right now.
+
+    PURE READ (never acquires/mutates). Used to refuse a Merge / Undo while a BoQ is being edited
+    (ADR-0038). Draft tier (`committed_version` 0) = the Configure / Review screens; 1 and up =
+    the Pricing screen. A stale row (no edit or heartbeat for LOCK_STALE_SECONDS) is someone who
+    left or crashed, so it is skipped. Each row: boq, sheet_name (VERBATIM), committed_version,
+    locked_by, holder_name, seconds_ago.
+    """
+    if not boq_names:
+        return []
+    now = now or now_datetime()
+    rows = frappe.get_all(
+        _LOCK,
+        filters={"boq": ["in", list(boq_names)]},
+        fields=["boq", "sheet_name", "committed_version", "locked_by", "last_edit_at"],
+        order_by="boq asc, sheet_name asc",
+    )
+    return [
+        {
+            **row,
+            "holder_name": _get_user_full_name(row["locked_by"]),
+            "seconds_ago": int((now - get_datetime(row["last_edit_at"])).total_seconds()),
+        }
+        for row in rows
+        if not _is_stale(row, now)
+    ]
+
+
 def read_lock_info(boq: str, sheet_name: str, version, user: str, now) -> dict | None:
     """The structured lock_info for get_priced_rows -- PURE READ (never acquires/mutates).
 

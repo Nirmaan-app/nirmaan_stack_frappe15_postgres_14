@@ -1,4 +1,4 @@
-"""Tests for the P1 rule of residence_check.py: code that adds up Project Payments to show a paid figure.
+"""Tests for the P1, A1 and R1 rules of residence_check.py, and for what a failure prints.
 
 Stdlib only, like the check itself:  python3 scripts/test_residence_check.py
 """
@@ -9,7 +9,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from residence_check import payment_sum_lines_jinja, payment_sum_lines_py, payment_sum_lines_ts  # noqa: E402
+from residence_check import (  # noqa: E402
+    explicit_any_lines_ts,
+    locations_to_show,
+    payment_sum_lines_jinja,
+    payment_sum_lines_py,
+    payment_sum_lines_ts,
+    rupee_formatter_lines,
+    tds_added_to_amount_paid_lines,
+)
 
 
 class FrontendPaymentSums(unittest.TestCase):
@@ -113,6 +121,83 @@ class BackendPaymentSums(unittest.TestCase):
             '    return 0\n'
         )
         self.assertEqual(payment_sum_lines_py(src), [])
+
+
+class ExplicitAny(unittest.TestCase):
+    def test_each_way_of_typing_as_any_is_counted(self):
+        src = (
+            "} catch (err: any) {\n"
+            "const rows = data as any;\n"
+            "const list: any[] = [];\n"
+            "type R = Record<string, any>;\n"
+            "function f(a: any, b: number) {}\n"
+        )
+        self.assertEqual(explicit_any_lines_ts(src), [1, 2, 3, 4, 5])
+
+    def test_unknown_prose_and_comments_are_not_counted(self):
+        src = (
+            "} catch (err: unknown) {\n"
+            'const note = "Note: any value works";\n'
+            "// const rows = data as any;\n"
+            "const company = anyCompany;\n"
+        )
+        self.assertEqual(explicit_any_lines_ts(src), [])
+
+
+class RupeeFormatters(unittest.TestCase):
+    def test_a_python_rupee_function_is_a_formatter(self):
+        src = "def format_rupee(val):\n    pass\ndef rupees(amount, *, paise=False):\n    pass\nlabel = rupees(1)\n"
+        self.assertEqual(rupee_formatter_lines(src, ".py"), [1, 3])
+
+    def test_a_frontend_rupee_function_is_a_formatter_and_a_value_is_not(self):
+        src = (
+            "const rupees = (amount: number) => formatToRoundedIndianRupee(amount);\n"
+            "export function formatRupee(v: number) {}\n"
+            'const rupeeSymbol = "₹";\n'
+            "const total = rupees(5);\n"
+        )
+        self.assertEqual(rupee_formatter_lines(src, ".tsx"), [1, 2])
+
+
+class WhatAFailurePrints(unittest.TestCase):
+    def test_it_prints_the_violations_in_the_files_this_change_touches(self):
+        where = ["a.py (600 lines)", "b.ts:3", "c.ts:9"]
+        self.assertEqual(locations_to_show(where, {"b.ts"}), ["b.ts:3"])
+
+    def test_with_none_in_touched_files_it_caps_a_long_list(self):
+        where = [f"f{i}.ts:1" for i in range(25)]
+        shown = locations_to_show(where, set())
+        self.assertEqual(len(shown), 21)
+        self.assertEqual(shown[-1], "... 5 more (--list prints them all)")
+
+class TaxAddedOntoAmountPaid(unittest.TestCase):
+    """A Work Order's `amount_paid` already holds the TDS withheld from the vendor (ADR-0034 Amendment A),
+    so adding `total_tds` or a deduction's `tds_amount` onto it counts the tax twice."""
+
+    def test_a_screen_adding_the_stored_tds_back_onto_amount_paid_is_a_copy(self):
+        src = (
+            "const paid = parseNumber(orderData?.amount_paid);\n"
+            "const gross = parseNumber(orderData?.amount_paid) + parseNumber(orderData?.total_tds);\n"
+            "const g2 = (wo.total_tds || 0) + (wo.amount_paid || 0);\n"
+        )
+        self.assertEqual(tds_added_to_amount_paid_lines(src), [2, 3])
+
+    def test_a_deductions_tax_added_onto_amount_paid_is_a_copy(self):
+        src = "    paid = flt(row.amount_paid) + flt(d.tds_amount)\n"
+        self.assertEqual(tds_added_to_amount_paid_lines(src), [1])
+
+    def test_sql_adding_the_stored_tds_onto_amount_paid_is_a_copy(self):
+        src = '        SELECT o.amount_paid + o.total_tds AS gross FROM "tabService Requests" o\n'
+        self.assertEqual(tds_added_to_amount_paid_lines(src), [1])
+
+    def test_a_comment_or_a_subtraction_or_another_sum_is_not_a_copy(self):
+        src = (
+            "// Gross paid used to be amount_paid + total_tds.\n"
+            "    # amount_paid + total_tds counts the tax twice\n"
+            "const toVendor = parseNumber(orderData?.amount_paid) - parseNumber(tds?.withheld);\n"
+            "const t = parseNumber(row.total_amount) + parseNumber(row.total_tds);\n"
+        )
+        self.assertEqual(tds_added_to_amount_paid_lines(src), [])
 
 
 if __name__ == "__main__":

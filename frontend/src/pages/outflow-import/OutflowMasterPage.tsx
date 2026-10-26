@@ -35,7 +35,8 @@ import { UnreconcileDialog } from "./components/UnreconcileDialog";
 import { BulkUnreconcileDialog } from "./components/BulkUnreconcileDialog";
 import { unreconcileButtonState } from "./bulkUnreconcileView";
 import { RectifyDialog } from "./components/RectifyDialog";
-import { rectifyButtonState } from "./porterRectify";
+import { moveOrdersLabel, rectifyButtonState } from "./porterRectify";
+import { MOVE_URL_KEY } from "@/utils/porterExpense";
 import { selectionMode, settledTicksAllowed, tickKindOf, tickRules, type TickKind } from "./tickMode";
 import { LinkLinesDialog, type LinkLinesResult } from "./components/LinkLinesDialog";
 import { linkButtonState, linkedNotice, selectedMoneyIn } from "./linkLinesView";
@@ -95,6 +96,7 @@ import {
     visibleTabs,
 } from "./outflowTableModel";
 import { PORTER_URL_KEY, opensPorterDialog } from "./porterImport";
+import { CARD_URL_KEY, opensCardDialog } from "./creditCardImport";
 import { WAITING_REFUNDS_KEY_PREFIX, waitingRefundNames } from "./waitingRefundMatch";
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
@@ -247,6 +249,14 @@ export const OutflowMasterPage = () => {
         urlStateManager.updateParam(PORTER_URL_KEY, batch);
         setPorterBatchState(batch);
     }, []);
+    /** The Credit Card Statement import the dialog is showing (#1566), as `?card=OFI-…`, for the same reason. */
+    const [cardBatch, setCardBatchState] = useState<string | null>(
+        () => urlStateManager.getParam(CARD_URL_KEY) || null
+    );
+    const setCardBatch = useCallback((batch: string | null) => {
+        urlStateManager.updateParam(CARD_URL_KEY, batch);
+        setCardBatchState(batch);
+    }, []);
     const [showingHistory, setShowingHistory] = useState(false);
     const [confirmingAll, setConfirmingAll] = useState(false);
     const [showingSkipped, setShowingSkipped] = useState(false);
@@ -287,8 +297,21 @@ export const OutflowMasterPage = () => {
     const [unreconcilingRow, setUnreconcilingRow] = useState<OutflowImportRow | null>(null);
     /** The ticked Settled lines the bulk Unreconcile check step is open on (#1319), or `null`. A snapshot. */
     const [bulkUnreconcileRows, setBulkUnreconcileRows] = useState<string[] | null>(null);
-    /** The Settled Porter lines the Rectify dialog is open on (#1449) -- one, or the ticked ones -- or `null`. */
-    const [rectifyRows, setRectifyRows] = useState<string[] | null>(null);
+    /**
+     * The Settled Porter lines the Rectify dialog is open on (#1449) -- one, or the ticked ones -- or `null`.
+     *
+     * #1558: seeded from `?move=<line>`, the link an expense's locked-project hint follows
+     * (`utils/porterExpense.moveOrderLink`); the parameter goes when the dialog closes, so a reload does not
+     * reopen it.
+     */
+    const [rectifyRows, setRectifyRowsState] = useState<string[] | null>(() => {
+        const line = urlStateManager.getParam(MOVE_URL_KEY);
+        return line ? [line] : null;
+    });
+    const setRectifyRows = useCallback((lines: string[] | null) => {
+        if (!lines) urlStateManager.updateParam(MOVE_URL_KEY, null);
+        setRectifyRowsState(lines);
+    }, []);
     const { role, user_id } = useUserData();
     const canUndo = canUndoOutflow(role, user_id);
     /**
@@ -313,6 +336,16 @@ export const OutflowMasterPage = () => {
     const table = useOutflowRows({ scope: SCOPE_FOR_TAB[tab], batch: selectedImport });
     const { rows, loading: rowsLoading, mutate: mutateRows } = table;
     const hasLoadedOnce = useHasLoadedOnce(rowsLoading);
+    /**
+     * #1558: an expense's "Move to another project" link arrives searched to its order's CRN, so the table
+     * behind the move dialog shows that line. Read once, on mount, from the history entry's state.
+     */
+    const { setSearch } = table;
+    useEffect(() => {
+        const carried = (location.state as { outflowSearch?: unknown } | null)?.outflowSearch;
+        if (typeof carried === "string" && carried) setSearch(carried);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
+    }, []);
     /**
      * The grid page each ticked line was ticked on (#1298), so "Link N to one expense" can say WHICH
      * page holds a tick that is not on this one (ADR-0027 R2).
@@ -435,13 +468,14 @@ export const OutflowMasterPage = () => {
 
     const importOptions = useMemo(() => importsData?.message ?? [], [importsData]);
 
-    /** The Import selector's choice: a Porter import opens its own dialog, any other is pinned. */
+    /** The Import selector's choice: a Porter or card import opens its own dialog, any other is pinned. */
     const handlePickImport = useCallback(
         (batch?: string) => {
             if (batch && opensPorterDialog(batch, importOptions)) setPorterBatch(batch);
+            else if (batch && opensCardDialog(batch, importOptions)) setCardBatch(batch);
             else handleSelectImport(batch);
         },
-        [importOptions, setPorterBatch, handleSelectImport]
+        [importOptions, setPorterBatch, setCardBatch, handleSelectImport]
     );
 
     /**
@@ -1256,11 +1290,12 @@ export const OutflowMasterPage = () => {
             setImporting(open);
             if (open) return;
             setPorterBatch(null);
+            setCardBatch(null);
             const pending = pendingPinRef.current;
             pendingPinRef.current = null;
             if (pending) handleSelectImport(pending.batch, pending.tab);
         },
-        [handleSelectImport, setPorterBatch]
+        [handleSelectImport, setPorterBatch, setCardBatch]
     );
 
     return (
@@ -1510,7 +1545,7 @@ export const OutflowMasterPage = () => {
                                     <Undo2 className="mr-1.5 h-3.5 w-3.5" />
                                     Unreconcile {unreconcileState.count}
                                 </Button>
-                                {/* #1449: ticked Porter orders move together with Rectify. */}
+                                {/* #1449: ticked Porter orders move together with Rectify ("Move N orders", #1558). */}
                                 {rectifyState.visible && (
                                     <Button
                                         variant="outline"
@@ -1525,7 +1560,7 @@ export const OutflowMasterPage = () => {
                                         }
                                     >
                                         <ArrowRightLeft className="mr-1.5 h-3.5 w-3.5" />
-                                        Rectify {rectifyState.count}
+                                        {moveOrdersLabel(rectifyState.count)}
                                     </Button>
                                 )}
                                 </>
@@ -1657,12 +1692,14 @@ export const OutflowMasterPage = () => {
                 also moving the period and the tab — `handleImported` does both, correctly, but only
                 once, when the statement arrives. */}
             <ImportStatementDialog
-                open={importing || Boolean(porterBatch)}
+                open={importing || Boolean(porterBatch) || Boolean(cardBatch)}
                 onOpenChange={handleImportDialogOpenChange}
                 onImported={handleImported}
                 onRefresh={refreshAll}
                 porterBatch={porterBatch}
                 onPorterBatch={setPorterBatch}
+                cardBatch={cardBatch}
+                onCardBatch={setCardBatch}
             />
 
             {/* ⚠️ IT READS `list_imports` ITSELF, A MONTH AT A TIME (owner ruling 2026-10-14) — the
@@ -1676,6 +1713,7 @@ export const OutflowMasterPage = () => {
                 selected={historySelection}
                 onSelectImport={handleSelectImport}
                 onOpenPorterImport={setPorterBatch}
+                onOpenCardImport={setCardBatch}
             />
 
             {/* ⚠️ BOTH TAKE THE PERIOD'S FILTERS, NOT A BATCH (slice P1). The confirm dialog acts on

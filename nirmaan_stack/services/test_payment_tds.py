@@ -84,8 +84,8 @@ class TestPaymentTDS(FrappeTestCase):
 			)
 		frappe.db.sql(
 			"""INSERT INTO "tabProcurement Orders" (name, creation, modified, modified_by, owner,
-				   docstatus, idx, project, vendor, total_amount, amount_paid, status)
-			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 1000000, 0, 'PO Approved')""",
+				   docstatus, idx, project, vendor, amount, tax_amount, total_amount, amount_paid, status)
+			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 1000000, 0, 1000000, 0, 'PO Approved')""",
 			(cls.po, U, U, cls.project, cls.vendor2),
 		)
 		frappe.db.commit()
@@ -112,6 +112,17 @@ class TestPaymentTDS(FrappeTestCase):
 		super().tearDown()
 
 	# -- helpers ---------------------------------------------------------------------------
+	def _release_gst_on_the_work_order(self):
+		"""The fixture Work Order turned GST-on with GST released, for this test only: an approval re-checks
+		the Work Order's payment limit, which refuses a GST payment on a Work Order without GST."""
+		frappe.db.set_value(SR, self.sr, {"gst": "true", "gst_invoiced": 1000000}, update_modified=False)
+		frappe.db.commit()
+
+		def restore():
+			frappe.db.set_value(SR, self.sr, {"gst": "false", "gst_invoiced": 0}, update_modified=False)
+			frappe.db.commit()
+		self.addCleanup(restore)
+
 	def _pay(self, amount, status="Approved", parent_dt=SR, parent=None, vendor=None, gst=False):
 		name = f"{P}PAY-{frappe.generate_hash(length=8)}"
 		frappe.db.sql(
@@ -508,11 +519,12 @@ class TestPaymentTDS(FrappeTestCase):
 
 		write_amount_paid(SR, self.sr)
 		frappe.db.commit()
-		# amount_paid is the NET sum now; amount_due closes only because total_tds is subtracted too.
-		self.assertEqual(frappe.db.get_value(SR, self.sr, "amount_paid"), 3920)
+		# The payment is NET (3,920); amount_paid adds back the 80 withheld for the vendor (ADR-0034
+		# Amendment A), so amount_due is total - 4,000.
+		self.assertEqual(frappe.db.get_value(SR, self.sr, "amount_paid"), 4000)
 		self.assertEqual(frappe.db.get_value(SR, self.sr, "total_tds"), 80.0)
 		total = frappe.db.get_value(SR, self.sr, "total_amount")
-		self.assertEqual(frappe.db.get_value(SR, self.sr, "amount_due"), total - 3920 - 80)
+		self.assertEqual(frappe.db.get_value(SR, self.sr, "amount_due"), total - 4000)
 
 	# -- company-borne Work Orders (owner ruling 2026-09-17) ---------------------------------
 	def test_company_borne_is_decided_by_all_categories(self):
@@ -608,6 +620,12 @@ class TestPaymentTDS(FrappeTestCase):
 
 	def test_approving_a_gst_payment_from_every_earlier_step_withholds_nothing(self):
 		"""Requested, CEO Pending and Rejected, each through a real save: no row, full amount."""
+		# A Rejected payment brought back must fit its Work Order again (review round 3, V3), and a GST
+		# payment fits only GST released by an invoice: plant a GST-on WO with GST invoiced. A raw write of the
+		# two inputs of the limit; no stored figure hangs off them here.
+		frappe.db.set_value(SR, self.sr, {"gst": "true", "gst_invoiced": 180000}, update_modified=False)
+		frappe.db.commit()
+		self.addCleanup(self._restore_sr_gst)
 		for previous in ("Requested", "CEO Pending", "Rejected"):
 			with self.subTest(previous=previous):
 				doc = self._pay(4000, status=previous, gst=True)
@@ -617,6 +635,11 @@ class TestPaymentTDS(FrappeTestCase):
 				self.assertEqual(frappe.db.count(TDS_DOCTYPE, {"project_payment": doc.name}), 0)
 				self.assertEqual(frappe.db.get_value(PAYMENT, doc.name, "amount"), 4000)
 				self.assertFalse(frappe.db.get_value(PAYMENT, doc.name, "payment_tds"))
+
+	def _restore_sr_gst(self):
+		frappe.db.rollback()
+		frappe.db.set_value(SR, self.sr, {"gst": None, "gst_invoiced": 0}, update_modified=False)
+		frappe.db.commit()
 
 	def test_a_gst_payment_created_already_approved_withholds_nothing(self):
 		"""Auto-approve at insert (`after_insert`). Notification fan-outs patched out, as above."""
@@ -635,18 +658,21 @@ class TestPaymentTDS(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value(PAYMENT, doc.name, "amount"), 4000)
 
 	def test_editing_a_gst_payments_amount_creates_no_deduction(self):
-		doc = self._pay(4000, status="CEO Pending", gst=True)
+		# Lowered, not raised: the fixture's Work Order has no GST released, so a raise is refused by the
+		# Work Order payment limit (#1536) before the tax code is reached.
+		self._release_gst_on_the_work_order()
+		doc = self._pay(5000, status="CEO Pending", gst=True)
 		doc.status = "Approved"
 		doc.save(ignore_permissions=True)
 		frappe.db.commit()
 
 		doc = frappe.get_doc(PAYMENT, doc.name)
-		doc.amount = 5000
+		doc.amount = 4000
 		doc.save(ignore_permissions=True)
 		frappe.db.commit()
 
 		self.assertEqual(frappe.db.count(TDS_DOCTYPE, {"project_payment": doc.name}), 0)
-		self.assertEqual(frappe.db.get_value(PAYMENT, doc.name, "amount"), 5000)
+		self.assertEqual(frappe.db.get_value(PAYMENT, doc.name, "amount"), 4000)
 
 	def test_a_gst_payment_is_never_restated(self):
 		"""A GST payment carrying a deduction cannot arise through the app; if one ever does (a

@@ -1,3 +1,4 @@
+import { ADMIN_PROFILE, PROJECT_LEAD_PROFILE } from "@/constants/roles";
 /**
  * Service Requests tabs configuration
  * Used by ServiceRequestsTabs.tsx for consistent tab values and role-based access
@@ -10,6 +11,8 @@ export const SR_TABS = {
   APPROVED: 'approved-sr',
   FINALIZED: 'finalized-sr',
   ALL: 'all-sr',
+  // A sub-tab of "All WO", like approved-sr / finalized-sr: Admin and Accountants only (#1538).
+  GST_MISMATCH: 'gst-mismatch',
 } as const;
 
 export type SRTabValue = typeof SR_TABS[keyof typeof SR_TABS];
@@ -33,8 +36,6 @@ export const SR_COMMON_TAB_OPTIONS: SRTabOption[] = [
 // WO approval authority — drives the "Approve WO" / "Approve Amended WO" tabs
 // (ServiceRequestsTabs.tsx) and the approve-view URL guard (RenderSRComponent.tsx). PMO
 // Executive was intentionally REMOVED on 2026-09-17 (PMO access review). Do NOT re-add PMO
-// without owner sign-off.
-export const SR_ADMIN_ROLES = [
-  "Nirmaan Admin Profile",
-  "Nirmaan Project Lead Profile",
-];
+// without owner sign-off. The server enforces the same set (`services/role_profiles.WO_DECIDE_PROFILES`,
+// #1529) on every approve / reject / amendment decision; keep the two in sync.
+export const SR_ADMIN_ROLES: string[] = [ADMIN_PROFILE, PROJECT_LEAD_PROFILE];

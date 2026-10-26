@@ -2,7 +2,7 @@
 
 import React, { useCallback, useMemo, useEffect, useState, useRef } from "react";
 import { memoize } from "lodash";
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 
 // --- UI Components ---
 import { DataTable } from '@/components/data-table/new-data-table';
@@ -24,6 +24,8 @@ import { formatISO, startOfDay, endOfDay } from 'date-fns';
 import { useSharedReportDateRange, useReportDateStore } from "../store/useReportDateStore";
 import { usePartiallyReconciled } from "../hooks/usePartiallyReconciled";
 import { PartiallyReconciledLines } from "./PartiallyReconciledLines";
+import { projectOutflowNote, reconciledInReportFilters, singleProjectFilter } from "../utils/outflowReportSummary";
+import { ProjectMoney } from "@/types/NirmaanStack/ProjectMoney";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
@@ -78,8 +80,9 @@ export function OutflowReportTable() {
     //    Relative presets recompute from today on every load — never freezes.
     const { dateRange, onChange: onDateChange, onClear: onDateClear } = useSharedReportDateRange();
     // Money out that the table's `status = "Paid"` filter cannot see: the confirmed part of
-    // records still Reconciliation Pending. SUMMARY ONLY -- the rows stay Paid records.
-    const partiallyReconciled = usePartiallyReconciled("project", dateRange?.from, dateRange?.to);
+    // records still Reconciliation Pending. SUMMARY ONLY -- the rows stay Paid records. Every
+    // record in the date range; the table's other filters are applied below (`reconciledInView`).
+    const partiallyReconciledInRange = usePartiallyReconciled("project", dateRange?.from, dateRange?.to);
     // The PO/WO effective rate, the same reader `useOutflowReportData` uses for the table's rows.
     const { getEffectiveGST } = useOrderTotals();
     const setCustomDateRange = useReportDateStore((s) => s.setCustomRange);
@@ -245,6 +248,30 @@ export function OutflowReportTable() {
         return rowsToSum.reduce((sum, row) => sum + row.original.amount, 0);
     }, [table.getFilteredRowModel().rows]); // Dependency is the array of filtered rows
 
+    // The part-reconciled money the table's filters keep: the same project, vendor, expense type
+    // and search the rows are filtered by, so the total is filtered in every part (#1542).
+    const partiallyReconciled = useMemo(
+        () => reconciledInReportFilters(partiallyReconciledInRange.items, columns, columnFilters, searchTerm),
+        [partiallyReconciledInRange.items, columns, columnFilters, searchTerm]
+    );
+    // The report's total, the same on mobile and desktop.
+    const reportTotal = (totalOutflowAmount || 0) + partiallyReconciled.amount;
+
+    // With one project as the whole filter, the note that walks this list to Project outflow.
+    const noteProject = singleProjectFilter(columnFilters, searchTerm);
+    const noteRange = useMemo(() => {
+        const from = dateRange?.from ? formatISO(dateRange.from, { representation: 'date' }) : undefined;
+        const to = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }) : undefined;
+        return from && to ? { from_date: from, to_date: to } : {};
+    }, [dateRange?.from, dateRange?.to]);
+    const { data: noteMoney } = useFrappeGetCall<{ message: ProjectMoney }>(
+        "nirmaan_stack.api.projects.project_money.get_project_money",
+        { project: noteProject, ...noteRange },
+        noteProject
+            ? `outflow-report-note-${noteProject}-${noteRange.from_date ?? "all"}-${noteRange.to_date ?? "all"}`
+            : null
+    );
+
     // The same Partially Reconciled money with GST taken out, record by record, by the SAME rule
     // the table applies to its own rows: an order's effective rate for a payment, nothing for an
     // expense (`useOutflowReportData` gives every expense row `effective_gst: 0`).
@@ -358,7 +385,7 @@ export function OutflowReportTable() {
                 // onExport={handleCustomExport}
                 onExport={'default'}
                 onExportAll={exportAllRows}
-                exportFileName={'Project_Outflow_Report'}
+                exportFileName={'Project_Payments_Report'}
                 summaryCard={
                     <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
                         {/* ===== COMPACT MOBILE VIEW ===== */}
@@ -373,10 +400,10 @@ export function OutflowReportTable() {
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-baseline gap-2">
                                             <span className="text-lg font-bold text-red-700 dark:text-red-400 tabular-nums">
-                                                {formatToRoundedIndianRupee(totalOutflowAmount || 0)}
+                                                {formatToRoundedIndianRupee(reportTotal)}
                                             </span>
                                             <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase">
-                                                Total Outflow
+                                                Payments + Paid Expenses
                                             </span>
                                         </div>
                                         {/* Filters inline */}
@@ -416,7 +443,7 @@ export function OutflowReportTable() {
                             <CardHeader className="pb-2 pt-4 px-5">
                                 <div className="flex items-center justify-between">
                                     <CardTitle className="text-base font-semibold tracking-tight text-slate-800 dark:text-slate-200">
-                                        Outflow Summary
+                                        Payments + Paid Expenses
                                     </CardTitle>
                                     <div className="flex items-center gap-1.5 text-xs font-medium text-slate-400 dark:text-slate-500">
                                         <TrendingDown className="h-3.5 w-3.5" />
@@ -429,17 +456,17 @@ export function OutflowReportTable() {
                             </CardHeader>
                             <CardContent className="px-5 pb-4 pt-0">
                                 <div className="grid grid-cols-2 gap-4">
-                                    {/* Primary Metric - Total Paid (Incl GST) */}
+                                    {/* Primary Metric - the total, incl. GST */}
                                     <div className="bg-gradient-to-br from-red-50 to-rose-50/50 dark:from-red-950/40 dark:to-rose-950/30 rounded-lg p-4 border border-red-100 dark:border-red-900/50">
                                         <dt className="text-xs font-medium text-red-600/80 dark:text-red-400/80 uppercase tracking-wide mb-1 flex items-center gap-1.5">
                                             <TrendingDown className="h-3 w-3" />
-                                            Total Paid (Incl. GST)
+                                            Total (Incl. GST)
                                         </dt>
                                         {/* The TOTAL: the Paid rows below plus the confirmed part of
-                                            records still Reconciliation Pending. The lines under it
-                                            are what it is made of. */}
+                                            records still Reconciliation Pending, both under the
+                                            table's filters. The lines under it are what it is made of. */}
                                         <dd className="text-2xl font-bold text-red-700 dark:text-red-400 tabular-nums">
-                                            {formatToRoundedIndianRupee((totalOutflowAmount || 0) + partiallyReconciled.amount)}
+                                            {formatToRoundedIndianRupee(reportTotal)}
                                         </dd>
                                         <PartiallyReconciledLines
                                             done={partiallyReconciled}
@@ -473,6 +500,15 @@ export function OutflowReportTable() {
                                 </div>
                             </CardContent>
                         </div>
+
+                        {/* One project is the whole filter: why this list differs from that
+                            project's outflow (the Cash Sheet figure that links here). "This list"
+                            is the Paid rows; part-reconciled money is not Project outflow yet. */}
+                        {noteProject && noteMoney?.message && (
+                            <p className="px-3 sm:px-5 pb-3 text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
+                                {projectOutflowNote(totalOutflowAmount || 0, noteMoney.message)}
+                            </p>
+                        )}
                     </Card>
                 }
             />

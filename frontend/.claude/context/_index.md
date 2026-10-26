@@ -51,7 +51,7 @@ How frontend code is written (data access, state, forms, tables, effects, dates,
 | PO Remarks | `src/pages/purchase-order/` | `hooks/usePORemarks.ts`, `components/PORemarks.tsx` |
 | PR Approve/Edit | `src/pages/ProcurementRequests/ApproveNewPR/` | `hooks/useEditingLock.ts`, `hooks/useApprovePRLogic.ts`, `useApproveNewPRDraftStore.ts` |
 | SR Form Wizard | `src/pages/ServiceRequests/sr-form/` | Step-based wizard: `schema.ts`, `constants.ts`, `steps/`, `amend/` |
-| SR Remarks | `src/pages/ServiceRequests/approved-sr/` | `hooks/useSRRemarks.ts`, `components/SRRemarks.tsx` |
+| SR Remarks | `src/pages/ServiceRequests/service-request/` | `hooks/useSRRemarks.ts`, `components/SRComments.tsx`, `components/SRRemarksPopover.tsx` |
 | DC/MIR Module | `src/pages/DeliveryChallansAndMirs/` | `components/UploadDCMIRDialog.tsx`, `ViewAttachmentsDialog.tsx`, `DCMIRItemSelector.tsx`, `hooks/usePODeliveryDocuments.ts` |
 | Delivery Notes (DN) | `src/pages/DeliveryNotes/` | `deliverynotes.tsx` (hub: dashboard/create/view), `deliverynote.tsx` (detail, `?mode=` support), `components/pivot-table/` (pivot subsystem), `components/DNDetailDialog.tsx`, `hooks/useProjectDeliveryNotes.ts`, `hooks/useReturnSubmit.ts` (return notes) |
 | Design Tracker | `src/pages/ProjectDesignTracker/` | `types/index.ts` for interfaces, `utils.tsx` for styling, `config/taskTableColumns.tsx` for table, `components/FilesCell.tsx` for file/proof icons. Onboarding and Handover phases, filterable in the task-wise and team-summary views; a task needs an approval proof (file attachment) before its status can be set to Approved |

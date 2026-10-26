@@ -1539,23 +1539,3 @@ class TestTheReceiptPathIsGone(unittest.TestCase):
 
     def test_the_receipt_service_no_longer_exists(self):
         self.assertFalse(hasattr(settle_module, "create_non_project_receipt_from_row"))
-
-
-class TestTheIncomeExpenseTypes(unittest.TestCase):
-    """The four `non_project = 1` income Expense Type fixtures (owner ruling Q19).
-
-    Kept at #1266 although the import no longer writes them: they stay in `fixtures/expense_type.json`
-    and are still offered by the manual Non-Project Expense dialog, which Amendment A-D3 leaves
-    untouched. ⚠️ They must carry `non_project = 1` and not `project`, or that dialog cannot offer them.
-    """
-
-    INCOME_TYPES = ("Interest Received", "Fixed Deposit Proceeds", "Loan Received", "Advance Returned")
-
-    def test_each_one_exists_and_is_scoped_non_project(self):
-        for name in self.INCOME_TYPES:
-            scoped = frappe.db.get_value(
-                "Expense Type", name, ["non_project", "project"], as_dict=True
-            )
-            self.assertIsNotNone(scoped, f"{name!r} is missing -- run `bench migrate`")
-            self.assertTrue(scoped.non_project, f"{name!r} must carry non_project = 1")
-            self.assertFalse(scoped.project, f"{name!r} must NOT be offered on the project side")

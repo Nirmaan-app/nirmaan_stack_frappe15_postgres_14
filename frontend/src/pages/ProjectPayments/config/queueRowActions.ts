@@ -7,14 +7,15 @@
  * another for the same row.
  *
  *   PO / WO payment        no edit in any status; Reconciliation Pending → "Revert to Approved"
- *   Project / Non-Project  edit in Requested, CEO Pending, Approved, Reconciliation Pending and
- *   expense                Paid — on a Paid row Amount, Payment Date and Payment Ref are read-only
+ *   Project / Non-Project  edit where the SERVER says the viewer may (`editableStatuses`, from
+ *   expense                `useExpenseEditAccess`): Accounts until paid; a Paid one's details for
+ *                          Admin and the Accountant Lead; never Rejected (story 50, owner
+ *                          2026-10-20; both ledgers' `validate` refuse the rest). Which fields the
+ *                          dialog lets them change is the same answer (`mayEditExpenseField`).
  *
- * ⚠️ EVERY PAID LOCK IS THIS SCREEN'S ONLY (owner, 2026-09-21). The server enforces none of it —
- * the owner still corrects Paid records in Desk. A PO / WO payment gets no pencil at all, so it
- * cannot be edited from the app in any status.
+ * A PO / WO payment gets no pencil at all, so it cannot be edited from the app in any status.
  */
-import { raiserMayChangeAccount, unpayableReason } from "@/utils/payees/paidTo";
+import { unpayableReason } from "@/utils/payees/paidTo";
 
 import { APPROVAL_STATUS, ApprovalQueueRow } from "./approvalsTable.config";
 
@@ -27,18 +28,6 @@ export const QUEUE_EDIT_PROFILES: readonly string[] = [
 
 const EXPENSE_DOCTYPES: readonly string[] = ["Project Expenses", "Non Project Expenses"];
 
-/** Statuses in which an expense row carries the pencil. Rejected is the only one left out. */
-export const EXPENSE_EDITABLE_STATUSES: readonly string[] = [
-  APPROVAL_STATUS.REQUESTED,
-  APPROVAL_STATUS.CEO_PENDING,
-  APPROVAL_STATUS.APPROVED,
-  APPROVAL_STATUS.RECONCILIATION_PENDING,
-  APPROVAL_STATUS.PAID,
-];
-
-/** Read-only in the expense edit dialogs once the expense is Paid. */
-export const EXPENSE_FIELDS_LOCKED_WHEN_PAID = ["amount", "payment_date", "payment_ref"] as const;
-
 type QueueRowLike = Pick<ApprovalQueueRow, "doctype" | "status">;
 
 const statusOf = (row: QueueRowLike) => (row.status || "").trim();
@@ -50,23 +39,9 @@ const statusOf = (row: QueueRowLike) => (row.status || "").trim();
 export const canWorkQueueRows = (role?: string | null): boolean =>
   !!role && QUEUE_EDIT_PROFILES.includes(role);
 
-export const canEditQueueRow = (row: QueueRowLike, role?: string | null): boolean =>
-  canWorkQueueRows(role) &&
-  EXPENSE_DOCTYPES.includes(row.doctype) &&
-  EXPENSE_EDITABLE_STATUSES.includes(statusOf(row));
-
-/**
- * The raiser's pencil on "Payment Raised By Me" (#1472): the viewer's own Direct Expense, while it is
- * Requested, so they can change who gets paid before a reviewer approves it. The Edit dialog's *Who
- * gets paid* asks the same rule (`paidTo.raiserMayChangeAccount`). Independent of the settle-side
- * pencil above, which it leaves as it is.
- */
-export const canRaiserEditQueueRow = (
-  row: Pick<ApprovalQueueRow, "doctype" | "status" | "raised_by" | "request_id">,
-  user?: string | null,
-): boolean =>
-  EXPENSE_DOCTYPES.includes(row.doctype) &&
-  raiserMayChangeAccount({ status: row.status, owner: row.raised_by, request_id: row.request_id }, user);
+/** The expense pencil: an expense row in a status the server lets the viewer edit (`editableStatuses`). */
+export const canEditQueueRow = (row: QueueRowLike, editableStatuses: readonly string[]): boolean =>
+  EXPENSE_DOCTYPES.includes(row.doctype) && editableStatuses.includes(statusOf(row));
 
 export const canRevertQueueRow = (row: QueueRowLike, role?: string | null): boolean =>
   canWorkQueueRows(role) &&
@@ -86,12 +61,16 @@ export const canHoldQueueRow = (row: QueueRowLike, role?: string | null): boolea
 /**
  * Upload / replace the invoice on a Paid expense (either ledger), from "Payment Done / Reconciliation
  * Done" — the same three roles that work the queue. Project Expenses were added 2026-10-07 (owner);
- * a PO / WO payment never: its invoices are Vendor Invoices.
+ * a PO / WO payment never: its invoices are Vendor Invoices. The upload saves the expense, so it also
+ * needs the server's leave to edit a Paid row (`editableStatuses`): Admin and the Accountant Lead
+ * have it (story 50, owner 2026-10-20), an Accountant does not.
  */
-export const canUploadInvoiceRow = (row: QueueRowLike, role?: string | null): boolean =>
+export const canUploadInvoiceRow = (
+  row: QueueRowLike, role: string | null | undefined, editableStatuses: readonly string[],
+): boolean =>
   canWorkQueueRows(role) &&
-  EXPENSE_DOCTYPES.includes(row.doctype) &&
-  isPaidExpense(row.status);
+  isPaidExpense(row.status) &&
+  canEditQueueRow(row, editableStatuses);
 
 /** Is this payment held? It stays Approved but cannot be marked as paid or ticked. */
 export const isHeldQueueRow = (row: Pick<ApprovalQueueRow, "on_hold">): boolean =>

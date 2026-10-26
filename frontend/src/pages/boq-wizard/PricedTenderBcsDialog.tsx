@@ -39,7 +39,7 @@ import { base64ToBytes, downloadBytes } from "./downloadBlob";
  * `PRICING_ACCESS_SET` (admins + estimation). CONVENIENCE ONLY -- the server is the boundary,
  * and it is gated FIRST, before the BoQ is even resolved.
  *
- * ⚠️ THE "Loading" GUARD IS LOAD-BEARING, exactly as it is on `canAdminOverride`: `useUserData`
+ * ⚠️ THE "Loading" GUARD IS LOAD-BEARING, exactly as it is on `isNirmaanAdmin`: `useUserData`
  * returns that literal while the Nirmaan Users doc is in flight, and without the guard an
  * entitled user watches the action flash in and vanish.
  *

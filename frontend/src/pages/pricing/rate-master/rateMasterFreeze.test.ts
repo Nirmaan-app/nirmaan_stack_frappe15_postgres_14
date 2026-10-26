@@ -8,7 +8,7 @@ import {
   isRateMasterWriteBlocked,
   type RateMasterFreezeState,
 } from "./rateMasterFreeze";
-import { isRateMasterAdmin } from "./rateMasterEdit";
+import { isNirmaanAdmin } from "@/constants/roles";
 
 const frozenAt = (msAgo: number) => {
   const d = new Date(Date.now() - msAgo);
@@ -55,7 +55,7 @@ describe("canManageRateMasterFreeze (owner ruling R5: the freeze population IS t
     // spread of inputs rather than by reading the implementation.
     for (const role of ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile", "Loading", "Error", ""]) {
       for (const user of ["Administrator", "a@nirmaan.app", ""]) {
-        expect(canManageRateMasterFreeze(role, user)).toBe(isRateMasterAdmin(role, user));
+        expect(canManageRateMasterFreeze(role, user)).toBe(isNirmaanAdmin(role, user));
       }
     }
   });

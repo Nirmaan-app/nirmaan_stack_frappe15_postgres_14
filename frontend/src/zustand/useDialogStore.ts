@@ -81,27 +81,18 @@ export type DialogStore = {
   newItemDialog: boolean;
   toggleNewItemDialog: () => void; // Consider adding a 'setNewItemDialog' for consistency
 
-  // --- (Indicator) NEW: Non-Project Expense Dialog ---
-  newNonProjectExpenseDialog: boolean;
-  setNewNonProjectExpenseDialog: (open: boolean) => void;
-  toggleNewNonProjectExpenseDialog: () => void;
-
   // --- (Indicator) NEW: Edit Non-Project Expense Dialog ---
   editNonProjectExpenseDialog: boolean;
   setEditNonProjectExpenseDialog: (open: boolean) => void;
   toggleEditNonProjectExpenseDialog: () => void;
 
   // --- (Indicator) NEW: Project Expense Dialogs ---
-  newProjectExpenseDialog: boolean;
-  setNewProjectExpenseDialog: (open: boolean) => void;
-  toggleNewProjectExpenseDialog: () => void;
-
   editProjectExpenseDialog: boolean;
   setEditProjectExpenseDialog: (open: boolean) => void;
   toggleEditProjectExpenseDialog: () => void;
 
-  // Expense Request (the PM-raised ask, NOT an expense -- an approved request is what
-  // mints the ledger row).
+  // New Expense: raises an Expense Request, the one door for every expense (spec #1494). An
+  // approved request is what mints the ledger row.
   newExpenseRequestDialog: boolean;
   setNewExpenseRequestDialog: (open: boolean) => void;
   toggleNewExpenseRequestDialog: () => void;
@@ -123,11 +114,6 @@ export type DialogStore = {
   /** When set, NewReminderDialog opens in EDIT mode for this Reminder Schedule; null = create. */
   editReminderScheduleName: string | null;
   setEditReminderScheduleName: (name: string | null) => void;
-  // --- (Explanation)
-  // Added state and actions for the "New Non-Project Expense" dialog.
-  // - `newNonProjectExpenseDialog`: Boolean to control its visibility.
-  // - `setNewNonProjectExpenseDialog`: Function to explicitly set its state (open/closed).
-  // - `toggleNewNonProjectExpenseDialog`: Function to toggle its current state.
 };
 
 export const useDialogStore = create<DialogStore>((set) => ({
@@ -190,28 +176,12 @@ export const useDialogStore = create<DialogStore>((set) => ({
   // setNewItemDialog: (open: boolean) => set({ newItemDialog: open }),
   toggleNewItemDialog: () => set((state) => ({ newItemDialog: !state.newItemDialog })),
 
-  // --- (Indicator) NEW: Non-Project Expense Dialog Implementation ---
-  newNonProjectExpenseDialog: false,
-  setNewNonProjectExpenseDialog: (open: boolean) => set({ newNonProjectExpenseDialog: open }),
-  toggleNewNonProjectExpenseDialog: () => set((state) => ({ newNonProjectExpenseDialog: !state.newNonProjectExpenseDialog })),
-  // --- (Explanation)
-  // Implemented the new state property and its associated actions.
-  // `newNonProjectExpenseDialog` defaults to `false`.
-  // `setNewNonProjectExpenseDialog` allows direct setting of the dialog's visibility.
-  // `toggleNewNonProjectExpenseDialog` flips the current visibility state.
-  // Note: Using `(state) => ({...})` in the toggle functions is slightly safer as it always uses the latest state,
-  // though `!get().dialogName` is generally fine for simple toggles. I've updated existing toggles to this pattern for consistency.
-
   // --- (Indicator) NEW: Edit Non-Project Expense Dialog Implementation ---
   editNonProjectExpenseDialog: false,
   setEditNonProjectExpenseDialog: (open: boolean) => set({ editNonProjectExpenseDialog: open }),
   toggleEditNonProjectExpenseDialog: () => set((state) => ({ editNonProjectExpenseDialog: !state.editNonProjectExpenseDialog })),
 
   // --- (Indicator) NEW: Project Expense Dialog Implementations ---
-  newProjectExpenseDialog: false,
-  setNewProjectExpenseDialog: (open: boolean) => set({ newProjectExpenseDialog: open }),
-  toggleNewProjectExpenseDialog: () => set((state) => ({ newProjectExpenseDialog: !state.newProjectExpenseDialog })),
-
   editProjectExpenseDialog: false,
   setEditProjectExpenseDialog: (open: boolean) => set({ editProjectExpenseDialog: open }),
   toggleEditProjectExpenseDialog: () => set((state) => ({ editProjectExpenseDialog: !state.editProjectExpenseDialog })),

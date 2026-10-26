@@ -1,12 +1,12 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The expense payee picker (spec #1420 ticket #1429, ADR-0033): the Expense Request dialog's, and
-the Add Expense dialogs' for a Direct Expense (spec #1470 ticket #1471).
+"""The expense payee picker (spec #1420 ticket #1429, ADR-0033): the New Expense dialog's, and the
+expense edit dialogs'.
 
-Thin: check the caller can raise an expense request or record an expense, call the Payee module
-(`services/payees/`), commit. Anyone who can do either creates Payees only through here, and reads
-only what picking one needs. (The Payees page's own endpoints, `api/payees/`, are Accounts only.)
+Thin: check the caller can raise an expense, call the Payee module (`services/payees/`), commit.
+Anyone who can raise one creates Payees only through here, and reads only what picking one needs.
+(The Payees page's own endpoints, `api/payees/`, are Accounts only.)
 
 * `search_payees` -- Payees by holder name or account number, by holder name.
 * `check_request_payee` -- the Payee already holding an account + IFSC, before submit.
@@ -14,7 +14,7 @@ only what picking one needs. (The Payees page's own endpoints, `api/payees/`, ar
   points the raiser at that Payee instead.
 
 Who: `access.can_name_expense_payee`: `can_raise_requests` (any requestable type visible to the
-caller; Admin always), or Frappe's create right on `Project Expenses` or `Non Project Expenses`.
+caller; Admin always). The ledgers' create right no longer counts: no person holds it (spec #1494, #1506).
 The picked vendor's own Payee is read as every screen reads it, through
 `api/payees/vendor_payee.get_vendor_account` (Vendors read, which the request's vendor picker needs too).
 The IFSC's bank and branch come from `api/payees/add_payee.lookup_ifsc`, open to every signed-in user.

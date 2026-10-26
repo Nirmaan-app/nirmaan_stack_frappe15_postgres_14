@@ -12,7 +12,7 @@
 // from the pricing screen's concern: no pricing path writes the rate master.
 
 import { formatDistanceToNow } from "date-fns";
-import { isRateMasterAdmin } from "./rateMasterEdit";
+import { isNirmaanAdmin } from "@/constants/roles";
 
 /** The freeze state as `get_rate_master_freeze` returns it. */
 export type RateMasterFreezeState = {
@@ -54,13 +54,13 @@ export const FREEZE_COPY = {
 } as const;
 
 /**
- * May this user set or lift the freeze? DELEGATES to `isRateMasterAdmin` -- owner ruling R5 is that
+ * May this user set or lift the freeze? DELEGATES to `isNirmaanAdmin` -- owner ruling R5 is that
  * the freeze population IS the rate-master edit population (Administrator or role_profile
  * "Nirmaan Admin Profile"), so this must never become a second predicate that could drift.
  * The server re-gates on `_require_rate_admin` and is authoritative.
  */
 export function canManageRateMasterFreeze(role: string, userId: string): boolean {
-  return isRateMasterAdmin(role, userId);
+  return isNirmaanAdmin(role, userId);
 }
 
 /**

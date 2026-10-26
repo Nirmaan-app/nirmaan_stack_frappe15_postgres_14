@@ -1,4 +1,5 @@
 import { useFrappeGetCall, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
+import { useMemo } from "react";
 
 import { ASSET_MANAGEMENT_AUDIT_ANSWER_FIELDS, ASSET_MANAGEMENT_DOCTYPE } from "@/pages/Assets/assets.constants";
 import { useUserData } from "@/hooks/useUserData";
@@ -31,12 +32,12 @@ export interface UserAssignment {
 
 /**
  * One person's current assignments (Asset Management). The profile page's Assets tab and the
- * sidebar's pending-declaration badge share this query and SWR key, so signing or uploading a
- * declaration on the profile clears the badge at once.
+ * app access gate share this query and SWR key, so signing a declaration or sending an audit on the
+ * profile lifts the gate at once.
  */
 export const userAssignmentsKey = (userId: string) => `asset_management_${userId}`;
 
-/** The signed-in person's own assets (`useMyAssets`), for the badge and their profile. */
+/** The signed-in person's own assets (`useMyAssets`), for the app access gate and their profile. */
 export const heldAssetsKey = (userId: string) => `assets_held_by_${userId}`;
 
 /** What `api/assets/mine.get_my_assets` returns for each asset. */
@@ -54,18 +55,18 @@ export interface MyAsset {
  * The signed-in person's own assets -- the ones they hold and the ones an assignment row names them
  * on -- whatever project they are booked against. A plain Asset Master read follows the person's
  * project User Permissions and hides an asset assigned to them for a project they are not on; this
- * server call does not (owner, 2026-10-13). One SWR key for the badge and the profile, so a sign or an
+ * server call does not (owner, 2026-10-13). One SWR key for the app access gate and the profile, so a sign or an
  * unassign refreshes both (`useRefreshUserAssignments`).
  */
 export function useMyAssets(enabled = true) {
   const { user_id } = useUserData();
   const on = enabled && !!user_id && user_id !== "Administrator";
-  const { data, isLoading } = useFrappeGetCall<{ message: MyAsset[] }>(
+  const { data, isLoading, error } = useFrappeGetCall<{ message: MyAsset[] }>(
     "nirmaan_stack.api.assets.mine.get_my_assets",
     undefined,
     on ? heldAssetsKey(user_id) : null
   );
-  return { data: data?.message, isLoading: on && isLoading };
+  return { data: data?.message, isLoading: on && isLoading, error };
 }
 
 export function useUserAssignments(userId: string | undefined, enabled = true) {
@@ -73,7 +74,7 @@ export function useUserAssignments(userId: string | undefined, enabled = true) {
     ASSET_MANAGEMENT_DOCTYPE,
     {
       // With the receive / return and audit fields: the profile card shows Received, Returned, Return
-      // and the audit row; the sidebar badge counts open audits.
+      // and the audit row; the app access gate counts open audits.
       fields: [...ASSET_MANAGEMENT_AUDIT_ANSWER_FIELDS],
       filters: [["asset_assigned_to", "=", userId ?? ""]],
       limit: 1000,
@@ -83,29 +84,48 @@ export function useUserAssignments(userId: string | undefined, enabled = true) {
   );
 }
 
+export interface MyPendingAssetActions {
+  declarations: number;
+  audits: number;
+  overdueAudits: number;
+  /** The assets the signed-in person holds now; the app access gate keeps their pages open. */
+  held: ReadonlySet<string>;
+  /**
+   * The first answer hasn't arrived yet: either query has neither data nor an error. Not SWR's `isLoading`, which
+   * turns true again on every error retry and focus revalidation while there is no data -- the app access gate
+   * would then swap the page for its spinner over and over (code review #1). A failed query is not loading.
+   */
+  isLoading: boolean;
+}
+
 /**
  * What the signed-in person can do on their assets now (0s for Administrator): declarations to sign
- * and monthly audits to send, and how many of those audits are overdue (the badge turns red). Same
- * rules as the Sign and Submit audit buttons (canSignDeclaration, canSubmitAudit): a leftover row for
- * an asset someone else holds now is never counted, or the badge would ask for something no screen
+ * and monthly audits to send, and how many of those audits are overdue. Same rules as the Sign and
+ * Submit audit buttons (canSignDeclaration, canSubmitAudit): a leftover row for an asset someone else
+ * holds now is never counted, or the app access gate would lock the person on something no screen
  * lets them do.
  */
-export function useMyPendingAssetActions(): { declarations: number; audits: number; overdueAudits: number } {
+export function useMyPendingAssetActions(): MyPendingAssetActions {
   const { user_id } = useUserData();
   const enabled = !!user_id && user_id !== "Administrator";
-  const { data: assignments } = useUserAssignments(user_id, enabled);
+  const { data: assignments, error: assignmentsError } = useUserAssignments(user_id, enabled);
   // Held = their own assets whose holder is them (an asset on a project they are not on included).
-  const { data: mine } = useMyAssets(enabled);
-  const held = new Set((mine ?? []).filter((asset) => asset.current_assignee === user_id).map((asset) => asset.name));
+  const { data: mine, error: mineError } = useMyAssets(enabled);
+  const held = useMemo(
+    () => new Set((mine ?? []).filter((asset) => asset.current_assignee === user_id).map((asset) => asset.name)),
+    [mine, user_id]
+  );
   const audits = auditsToSubmit(user_id, assignments ?? [], held);
   return {
     declarations: countDeclarationsToSign(user_id, assignments ?? [], held),
     audits: audits.length,
     overdueAudits: audits.filter((assignment) => isAuditOverdue(assignment)).length,
+    held,
+    isLoading: enabled && ((assignments === undefined && !assignmentsError) || (mine === undefined && !mineError)),
   };
 }
 
-/** Refetch a person's assignments wherever they are shown (the profile tab and the sidebar badge). */
+/** Refetch a person's assignments wherever they are shown (the profile tab and the app access gate). */
 export function useRefreshUserAssignments() {
   const { mutate } = useSWRConfig();
   return (userId: string | undefined) => {

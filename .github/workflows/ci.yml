@@ -1,99 +1,134 @@
+name: Backend
 
-name: CI
+# The backend test suite on the stack the app runs on: Frappe v15, Python 3.10, PostgreSQL 14, Redis.
+# The frontend checks are in frontend.yml.
 
 on:
-  # push:
-  #   branches:
-  #     - develop
-  # pull_request:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
   workflow_dispatch:
 
 concurrency:
-  group: develop-nirmaan_stack-${{ github.event.number }}
+  group: backend-${{ github.event.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   tests:
+    name: run-tests (Postgres)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-    name: Server
+    # Install takes ~10-15 min and the full suite ~25 min.
+    timeout-minutes: 75
 
     services:
-      redis-cache:
-        image: redis:alpine
-        ports:
-          - 13000:6379
-      redis-queue:
-        image: redis:alpine
-        ports:
-          - 11000:6379
       postgresql:
         image: postgres:14.11
         env:
-          POSTGRES_PASSWORD: 123
+          POSTGRES_PASSWORD: ci-root
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis-cache:
+        image: redis:7-alpine
+        ports:
+          - 13000:6379
+      redis-queue:
+        image: redis:7-alpine
+        ports:
+          - 11000:6379
+
+    env:
+      # Frappe's run-tests exits 0 on failures unless CI is set (GitHub sets it; stated here so it cannot be lost).
+      CI: "true"
+      SITE: test_site
+      BENCH: /home/runner/frappe-bench
+      # Cypress is a frontend dependency that `bench get-app` installs; no step here runs it.
+      CYPRESS_INSTALL_BINARY: "0"
 
     steps:
       - name: Clone
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.10"
 
       - name: Setup Node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: 18
-          check-latest: true
+          node-version: 20
+
+      - name: System packages
+        # psql: Frappe restores its bootstrap SQL into a new Postgres site through the psql client.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client libcups2-dev
+          command -v yarn || npm install -g yarn
 
       - name: Cache pip
-        uses: actions/cache@v2
+        uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/*requirements.txt', '**/pyproject.toml', '**/setup.py', '**/setup.cfg') }}
+          key: ${{ runner.os }}-py3.10-pip-${{ hashFiles('pyproject.toml') }}
           restore-keys: |
-            ${{ runner.os }}-pip-
-            ${{ runner.os }}-
+            ${{ runner.os }}-py3.10-pip-
 
-      - name: Get yarn cache directory path
-        id: yarn-cache-dir-path
-        run: 'echo "dir=$(yarn cache dir)" >> $GITHUB_OUTPUT'
-
-      - uses: actions/cache@v3
-        id: yarn-cache
-        with:
-          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
-          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-yarn-
-
-      - name: Install MariaDB Client
-        run: sudo apt-get install mariadb-client-10.6
-
-      - name: Setup
+      - name: Bench init (Frappe version-15)
+        # version-15 is the branch the production image is built from (build_push.yml FRAPPE_BRANCH).
         run: |
           pip install frappe-bench
-          bench init --skip-redis-config-generation --skip-assets --python "$(which python)" ~/frappe-bench
-          mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL character_set_server = 'utf8mb4'"
-          mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL collation_server = 'utf8mb4_unicode_ci'"
+          bench init --frappe-branch version-15 --skip-redis-config-generation --skip-assets \
+            --python "$(which python)" "$BENCH"
+          cd "$BENCH"
+          bench set-config -g redis_cache redis://127.0.0.1:13000
+          bench set-config -g redis_queue redis://127.0.0.1:11000
+          bench set-config -g redis_socketio redis://127.0.0.1:11000
 
-      - name: Install
+      - name: Get apps
         working-directory: /home/runner/frappe-bench
         run: |
-          bench get-app nirmaan_stack $GITHUB_WORKSPACE
-          bench setup requirements --dev
-          bench new-site --db-root-password root --admin-password admin test_site
-          bench --site test_site install-app nirmaan_stack
-          bench build
-        env:
-          CI: 'Yes'
+          bench get-app --skip-assets nirmaan_stack "$GITHUB_WORKSPACE"
+          # `api/frappe_s3_attachment.py` imports frappe_gcp_attachment, so its code must be importable. It is
+          # NOT installed on the site: installed, its File hook would upload test files to cloud storage.
+          bench get-app --skip-assets --branch main https://github.com/Nirmaan-app/frappe_gcp_attachment.git \
+            || echo "::warning::frappe_gcp_attachment could not be fetched (private?); tests importing it will error"
 
-      - name: Run Tests
+      - name: New Postgres site
         working-directory: /home/runner/frappe-bench
         run: |
-          bench --site test_site set-config allow_tests true
-          bench --site test_site run-tests --app nirmaan_stack
-        env:
-          TYPE: server
+          bench new-site "$SITE" \
+            --db-type postgres --db-host 127.0.0.1 --db-port 5432 \
+            --db-root-username postgres --db-root-password ci-root \
+            --admin-password admin
+          bench --site "$SITE" set-config allow_tests true
+          bench --site "$SITE" set-config mute_emails 1
+          bench --site "$SITE" install-app nirmaan_stack
+
+      - name: Migrate the fresh site
+        # A fresh install marks every patch in patches.txt as done without running it, so this does not run the
+        # patches; it runs the doctype sync, fixtures and after_migrate hooks a second time on a real Postgres
+        # site. The patch-field check (nirmaan_stack/test_patch_fields.py, in the suite below) covers the fields
+        # the patches name.
+        working-directory: /home/runner/frappe-bench
+        run: bench --site "$SITE" migrate
+
+      - name: Run tests
+        working-directory: /home/runner/frappe-bench
+        run: bench --site "$SITE" run-tests --app nirmaan_stack
+
+      - name: Upload bench logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-logs
+          path: |
+            /home/runner/frappe-bench/logs/
+            /home/runner/frappe-bench/sites/test_site/logs/
+          if-no-files-found: ignore

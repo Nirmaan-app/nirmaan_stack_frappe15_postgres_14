@@ -156,6 +156,34 @@ export const projectFormSchema = z.object({
     // GST
     project_gst: z.string().min(1, { message: "Project GST is required" }),
 
+    // Convert mode only: the BoQs the project was won on (BOQs docnames). Ticked ones become
+    // Selected on Create, the rest stay Draft.
+    selected_boqs: z.array(z.string()).optional(),
+
+    // Both modes (ADR-0038): BoQs added from other Tendering projects. On Create each project
+    // is merged in -- ticked BoQs Selected, the rest Draft -- and becomes Merged. At least one
+    // BoQ must be ticked overall (own or added) whenever any BoQ is involved; checked when
+    // leaving the BOQ step and by the server. `boqs` keeps what the step shows and the package
+    // pre-fill reads; the server re-checks every source on Create.
+    merge_sources: z
+        .array(
+            z.object({
+                project: z.string(),
+                project_name: z.string(),
+                boqs: z.array(
+                    z.object({
+                        name: z.string(),
+                        boq_name: z.string(),
+                        version: z.number(),
+                        packages: z.array(z.string()),
+                        unmapped_headers: z.array(z.string()),
+                    })
+                ),
+                selected_boqs: z.array(z.string()),
+            })
+        )
+        .optional(),
+
     // Daily Progress Report Setup (Optional - Phase 5, Section 2)
     daily_progress_setup: z.object({
         enabled: z.boolean().default(false),
@@ -166,6 +194,8 @@ export const projectFormSchema = z.object({
             work_header_display_name: z.string(),
             work_package_link: z.string(),
         })).default([]),
+        // True once the user switches the section off by hand; ticking packages then leaves it off.
+        opted_out: z.boolean().optional(),
     }).optional(),
 
     // Design Packages Setup (Optional - Phase 5, Section 3)
@@ -175,12 +205,14 @@ export const projectFormSchema = z.object({
         zone_type: z.enum(['single', 'multiple']).optional(),
         zones: z.array(z.object({ zone_name: z.string() })).default([]),
         selected_categories: z.array(z.string()).default([]),
+        opted_out: z.boolean().optional(),
     }).optional(),
 
     // Critical PO Categories Setup (Optional - Phase 5, Section 4)
     critical_po_setup: z.object({
         enabled: z.boolean().default(false),
         selected_categories: z.array(z.string()).default([]),
+        opted_out: z.boolean().optional(),
     }).optional(),
 })
     // Manual mode means the value is typed rather than derived, so it must actually be typed.
@@ -218,6 +250,8 @@ export const defaultFormValues: ProjectFormValues = {
         work_packages: []
     },
     project_gst: "29ABFCS9095N1Z9", // Default to Bengaluru GSTIN (the record name)
+    selected_boqs: [],
+    merge_sources: [],
     carpet_area: undefined as unknown as number, // Will be validated on submit
     project_scopes: {
         scopes: []
@@ -273,6 +307,7 @@ export const sectionFields: Record<string, (keyof ProjectFormValues)[]> = {
     projectAddressDetails: ["address_line_1", "address_line_2", "project_city", "project_state", "pin", "email", "phone"],
     projectTimeline: ["project_start_date", "project_end_date"],
     projectAssignees: ["assignees"], // Updated to use new multi-select structure
+    boqSelection: [], // validated in the orchestrator (needs the fetched BoQ list)
     packageSelection: ["project_work_packages", "project_scopes"],
     reviewDetails: [],
 };
@@ -302,6 +337,7 @@ export interface DailyProgressSetup {
     zone_type?: 'single' | 'multiple';
     zones: Array<{ zone_name: string }>;
     work_headers: DailyProgressWorkHeader[];
+    opted_out?: boolean;
 }
 
 /**
@@ -313,6 +349,7 @@ export interface DesignPackagesSetup {
     zone_type?: 'single' | 'multiple';
     zones: Array<{ zone_name: string }>;
     selected_categories: string[];
+    opted_out?: boolean;
 }
 
 /**
@@ -321,4 +358,5 @@ export interface DesignPackagesSetup {
 export interface CriticalPOSetup {
     enabled: boolean;
     selected_categories: string[];
+    opted_out?: boolean;
 }

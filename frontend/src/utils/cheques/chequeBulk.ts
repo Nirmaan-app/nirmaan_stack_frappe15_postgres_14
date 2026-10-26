@@ -11,7 +11,7 @@ import {
 
 /**
  * Bulk approve and reject decide a Payment cheque as one (#1481, spec #1477): ticking one payment on a
- * Pending cheque ticks its siblings, and the bulk dialog shows each cheque as one locked group with every
+ * Approval Pending cheque ticks its siblings, and the bulk dialog shows each cheque as one locked group with every
  * payment on it, ticked or not. Pure, so vitest covers it without React. The server
  * (`api/payments/bulk_actions`, `services/cheques/decide.py`) decides the whole cheque whatever was ticked.
  */

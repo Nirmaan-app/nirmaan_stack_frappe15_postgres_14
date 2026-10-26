@@ -1,11 +1,16 @@
 {
+  "a1_explicit_any": {
+    "count": 1754,
+    "description": "Frontend lines (not tests or components/ui) that type something as `any`.",
+    "rule": "A1"
+  },
   "b1_pure_module_purity": {
     "count": 0,
     "description": "frappe.db/get_all/get_doc/sql usages inside declared PURE_MODULES (a pure module must have none).",
     "rule": "B1"
   },
   "b2_predicate_literal_scatter": {
-    "count": 8,
+    "count": 7,
     "description": "Files hardcoding the \"Vendor Selected\" state literal instead of importing the shared predicate.",
     "rule": "B2"
   },
@@ -15,12 +20,12 @@
     "rule": "B3"
   },
   "f2_inline_json_parse_pages": {
-    "count": 217,
+    "count": 213,
     "description": "Inline JSON.parse occurrences in pages/ (backend shapes should be parsed at one typed accessor).",
     "rule": "F2"
   },
   "f5_raw_updatedoc_files": {
-    "count": 113,
+    "count": 106,
     "description": "Frontend files calling useFrappeUpdateDoc / updateDoc( directly instead of one write-safety seam.",
     "rule": "F5"
   },
@@ -29,8 +34,23 @@
     "description": "Lines that add up Project Payments amounts (frontend, backend, print formats) outside the allowed owners in PAYMENT_SUM_OWNERS: the Amount Paid rule, the payment caps, the bank cash-out lists.",
     "rule": "P1"
   },
+  "p1_tds_added_to_amount_paid": {
+    "count": 0,
+    "description": "Lines adding a Work Order's total_tds (or a deduction's tds_amount) onto amount_paid outside PAYMENT_SUM_OWNERS: amount_paid already holds the TDS withheld from the vendor, so the sum counts it twice.",
+    "rule": "P1"
+  },
+  "r1_rupee_formatters": {
+    "count": 9,
+    "description": "Functions that format rupees outside RUPEE_FORMATTER_HOMES.",
+    "rule": "R1"
+  },
+  "s1_oversized_files": {
+    "count": 338,
+    "description": "Hand-written source files (not tests, patches or components/ui) over 500 lines.",
+    "rule": "S1"
+  },
   "t1_tests_pick_any_row": {
-    "count": 23,
+    "count": 22,
     "description": "Lines in test_*.py fetching a row with empty filters (get_value(doctype, {}...)): the record depends on whatever was modified last.",
     "rule": "T1"
   }

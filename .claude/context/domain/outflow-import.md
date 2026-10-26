@@ -918,6 +918,16 @@ needs one vocabulary rather than one per writer.
     - ⚠️ **A typed comment is stored WITH the import note, never instead of it**, and the composed
       text must fit the 140-character `comment` field: `create_expense` refuses an over-long one
       before writing. The screen's cap is joined to the server's text by `commentCapParity.test.ts`.
+18. **A cheque payment is Paid only when its cheque clears** (#1552, ADR-0035 Amendment B). The import's hand
+    settle and the payments screen's fulfil refuse every Cheque-mode payment, Old-type cheques' included
+    (`cheques/decide.pay_alone_problem`). Under them, the payment's own `validate` refuses a move into Paid
+    unless the save carries `payment_rules.CLEARING_FLAG` naming a cheque that lists it (set only by
+    `cheques/status._pay`, the cheque pass), and any move out of Paid (`payment_mode.validate_paid_by_clear`).
+    A Cheque-mode payment no cheque lists is refused at save unless Rejected or Paid, and inserted only by
+    Request Payment (`CHEQUE_FOLLOWS_FLAG`, `payment_mode.validate_on_a_cheque`). Unreconcile refuses a Paid
+    cheque payment up front in its verdict ("Paid by cheque", `unreconcile.leg_verdict`), so one paid by hand
+    before #1552 is never offered as revertible. ⚠️ A new settle path that skips `pay_alone_problem` still
+    fails at the save, with the save's message: ask the service first.
 
 ---
 
@@ -6642,18 +6652,26 @@ that rule skips the wallet top-ups and stays unchanged.
    order column. The expense points at its order through one `porter_order` Link. No marker fields on the
    expense doctypes.
 3. **The validation gate is all or nothing, with NO override.**
-   - Checked per invoice: invoice number, Porter GSTIN, customer GSTIN, fare and tax, fare and tax
-     within ₹1.
+   - **Only the Porter fare and the invoice date decide (#1559, spec #1554).** Failed: the fare is more
+     than ₹1 off, or the PDF's invoice date is outside [first order date, last order date +
+     `porter_verdict.INVOICE_DATE_SLACK_DAYS` (7)], the period being the batch's `period_from` /
+     `period_to`. Error: the PDF was not downloaded or read, or the fare or the date was not read.
+     Passed otherwise.
+   - Invoice number, Porter GSTIN, customer GSTIN and tax (±₹1) differences, and unreadable values for
+     them, are **warnings only**, stored on `Porter Invoice.validation_warnings`: the GST on a Porter Order
+     comes from the statement whatever the PDF says.
    - Compared against the statement's **completed** orders only. A cancelled order is a skipped row and
      counts toward nothing.
    - Measured on the 2026-09 file: all 10 invoices pass. The tax rounding gap was at most ₹0.18.
 4. **Steps:** Upload (sync) → Validate (background, 3 invoices at a time) → Review (editable) → Create
    (a button, then background).
    - **Validate:** each invoice goes Downloading → Reading → Comparing. Progress is committed per invoice
-     and read by polling. Only download or Gemini errors are retryable.
+     and read by polling. A Failed or Error invoice can be retried: it is downloaded, read and judged
+     again (#1562). There is still no override.
    - **Create:** order by order, Cashbook-style, so it can resume.
    - **What exists before Create:** only the batch, its rows, the Porter Invoices and their PDFs. A failed
-     or abandoned import is Discarded (Admin and Accountant Lead; refused once Create has started).
+     or abandoned import is Discarded, whole, by any module user: Accountant, Accountant Lead or Admin
+     (#1557); refused for everyone once Create has created anything, and while a job of it runs.
    - **Re-uploads:** an uncreated import blocks a re-upload of its invoices.
 5. **Identity is the invoice number.** Already-imported invoices are left out and counted (ADR-0031
    shape). An already-imported invoice now listing different orders BLOCKS the upload.
@@ -6668,7 +6686,9 @@ that rule skips the wallet top-ups and stays unchanged.
      - Site-address match. It overrides a name only when most of a remark group's orders agree.
      - Earlier confirmed or rectified Porter Orders.
    - **How suggestions are shown:** weak ones are marked "Check". Orders with no remark are reviewed one
-     by one. Blank means Non-Project.
+     by one. Since #1560 only the orders that need a person are listed, and a blank is no longer
+     Non-Project: a person chooses **Not a project**, and Create is refused until every order is placed
+     (see "As built — #1560").
    - **Measured on the 2026-09 file:** 144 of 158 placed.
    - ⚠️ Index **Won projects only**, as Cashbook's `_build_plan` does. Indexing every project makes the
      Tendering duplicate "EXL KOCHI" hide the Won "EXL Kochi".
@@ -6691,6 +6711,12 @@ that rule skips the wallet top-ups and stays unchanged.
       Expense it is just "Porter Delivery raised by {customer_name}".
 11. **Import period** = the first to the last order completion date (the CSV declares no period). It
     gets its own *Porter* tab in Import History.
+12. **The upload screen checks the CSV in the browser first, by the parser's own rules** (#1555).
+    `porterPrecheck.checkPorterFile` reads the header and rows and counts orders, invoices, order dates
+    and Cancelled Porter orders. It takes the required columns and the completed status from
+    `porter.get_porter_statement_rules`, which returns `parser.PORTER_STATEMENT_COLUMNS` and
+    `PORTER_ORDER_COMPLETED`. ⚠️ **Never copy the column list into the frontend.** The parser stays the
+    authority: the upload re-reads the file, and its refusals still show.
 
 **Every place the new source string must be added** (pinned together by test, like `ICICI Bank Statement`):
 - `parser._ADAPTERS`
@@ -7087,8 +7113,10 @@ the Porter Invoice's name, so a number is held by at most one import. Per invoic
   OFI-…. Nothing in this file is new, so nothing was saved."
 Every blocking invoice is named in one refusal (re-issued first). Title "Already imported".
 
-**Discard.** `has_outflow_undo_access` (Admin, Accountant Lead; "Only an Admin or an Accountant Lead can
-discard a Porter import."). Locks the batch row, then every line `FOR UPDATE` (a Create line in flight
+**Discard.** Who may: every module user, `require_outflow_access` (Accountant, Accountant Lead, Admin;
+widened from Admin/Accountant Lead at #1557, spec #1554 stories 23-25, so a failed check is no dead end
+for an Accountant). Nothing settled exists before Create, so it is not an undo action. Whole import only:
+there is no per-invoice or per-line discard. Locks the batch row, then every line `FOR UPDATE` (a Create line in flight
 commits first), then refuses: not a Porter import; `created_anything` ("… Correct its lines with Rectify
 or Unreconcile instead."); any job of the import queued or running — `porter.create_job_id`,
 `porter_validation.validation_job_id(batch)` and the per-invoice Retry ids (`validation_job_id(batch,
@@ -7105,9 +7133,9 @@ another File shares the `content_hash`. Then commits. The statement can be uploa
 discard is the screen's question).
 
 **Screen.** `PorterDiscardButton` in the Porter dialog's footer (left), shown when
-`porterDiscard.canDiscardPorter`: `canUndoOutflow` and `discardable` and the Create job not running — in
-Validating too. It confirms with `discardConfirmation` ("Discard OFI-…? This deletes its 12 orders, its 4
-Porter invoices and their PDFs. …"), posts, then closes the dialog like Done. `PorterImportSummary` shows
+`porterDiscard.canDiscardPorter`: `discardable` and the Create job not running (no role check; #1557) — in
+Validating too. Its label is "Discard this import". It confirms with `discardConfirmation` ("Discard OFI-…? This removes the whole import: its 12
+orders, its 4 Porter invoices and their PDFs. …"), posts, then closes the dialog like Done. `PorterImportSummary` shows
 `repeatsLeftOutNote` ("9 orders on invoices already created were left out: they are not saved again.").
 A refused upload shows the server's sentence in the dialog's error box; "open it" means Import History →
 Porter Statement tab.
@@ -7116,7 +7144,8 @@ Porter Statement tab.
 one refusal naming every block); `api/outflow_import/test_porter_reupload.py` (bench: created import →
 left out + counted + not read again, re-issued invoice blocked, nothing new refused; uncreated import
 blocked; Discard removes exactly its records and Files, keeps bytes another File shares, refused once
-created / for a plain Accountant / while its validation job runs, works on an import stuck Validating, and
+created (an Accountant too, with the same message) / while a job of it runs (Accountant too) / for a
+user outside the module, allowed for an Accountant and an Accountant Lead, works on an import stuck Validating, and
 the same statement uploads again); `frontend/.../porterDiscard.test.ts`.
 
 ### As built — #1449: Rectify (and Unreconcile) a Porter expense (2026-10-15)
@@ -7148,8 +7177,8 @@ refusals: not a Porter line, not Settled, not exactly one live leg that the impo
 4. the old expense deleted through `unreconcile_created.delete_created` (series counter kept);
 5. a new Settled match: `match_basis` `porter statement`, `created_by_import` 1, `settlement_origin`
    Suggestion overridden, `target_project` snapshot;
-6. the line follows: `suggested_doctype`, `resolved_project`, `suggested_name`, `outcome_note` "Rectified to
-   …", `decided_at/by`, `settlement_origin`; status stays Settled (no rollup). So a later Unreconcile + Create
+6. the line follows: `suggested_doctype`, `resolved_project`, `suggested_name`, `outcome_note` "Moved to
+   …" (the screen's word for Rectify; #1554 review), `decided_at/by`, `settlement_origin`; status stays Settled (no rollup). So a later Unreconcile + Create
    re-creates it where it was rectified to. A comment on the line: "Rectified by <user>: <reason> (<old> on A
    -> <new> on B)";
 7. `resync_cashflow_hold` for BOTH projects (the insert / delete hooks' check is de-duplicated per request).
@@ -7222,8 +7251,8 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
 - Paid by: a blank booked-by name leaves Paid by blank (`create_expense_from_row(…,
   blank_payment_by_is_actor=False)` from Create and Rectify), never the importer (story 47).
 - Create re-checks every Project line's project with `won_refusal`; a project no longer Won stops that line
-  in Error with "<name> (<id>) is <status>, not Won. Place this order again in Review, then run Create
-  again." Nothing moves it to Non-Project.
+  in Error with "<name> (<id>) is <status>, not Won. Choose a Won project for this order, then try again."
+  (worded for the result's "Choose project" fix since #1561). Nothing moves it to Non-Project.
 - Review accepts every line in `CREATE_LINE_STATUSES` (waiting, Error, reopened `Mismatched`), still refusing
   Settled and cancelled ones. The screen offers Review again on a *Creating* import that is not running and
   has `to_create > 0`; a group's choice places only its still-editable orders (`ReviewItem.toPlace`).
@@ -7238,6 +7267,346 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
   `body` with `menuPosition="fixed"`, and `FuzzySearchSelect`'s shared theme (`getSelectStyles`) gives the
   portal `zIndex` 9999 and `pointerEvents: "auto"` (no styles of its own). Walked on both: the option clicked
   is the project saved.
+
+### As built — #1556: the progress bar (spec #1554, 2026-10-25)
+
+- **One summary, one reader.** `porter_records.porter_progress(batches)` (grouped queries over the pure
+  `porter_state.import_progress`) is `progress` on `get_porter_status` and on each Porter row of
+  `review.list_imports`; the dialog's bar and Import History's chips read only it. Phases: `upload` (orders,
+  invoices, cancelled), `check` (invoices, passed, in_progress, to_retry = Error, not_matching = Failed,
+  seconds_left), `projects` (orders, placed_automatically, placed_by_person, needs_person), `create` (orders,
+  created, waiting, failed, reopened, running). Each phase is a flat dict: later tickets ADD keys, never reshape.
+- **Placement kinds** (`porter_state.placement_kinds`): `review` reason = by a person; Strong = automatic;
+  anything else (Check, or no placement) = needs a person. #1560 widens needs-a-person to remark groups in
+  doubt (below).
+- **`seconds_left`** is a rough estimate: in-progress invoices ÷ `VALIDATION_CONCURRENCY` ×
+  `CHECK_SECONDS_PER_INVOICE` (60 s), None once nothing is in progress.
+- ⚠️ **"Creating" only while a Create job is queued or running** (`create.running`). The stored-state word
+  `state` still reads Creating for a partly created import (the gates use it); the bar
+  (`porterProgress.progressPhases`) shows such an import's Create phase as needing a person, and the state
+  badge in the dialog and Import History shows `porterProgress.shownPorterState` ("Needs you").
+- The review panel's `onPlaced` re-reads the status, so a placement moves the Choose-projects count at once.
+- The bar replaces `WizardSteps` for Porter only; `importSteps`/`currentStepIndex` still decide the body.
+
+### As built — #1559: only the fare and the date can fail an invoice (spec #1554, 2026-10-25)
+
+- **The verdict** (`services/outflow_import/porter_verdict.judge_invoice`, pure) takes `InvoiceFigures`, now
+  with `first_order_date` / `last_order_date`, and returns `InvoiceVerdict(status, message, warnings)`. It
+  needs no download, so an invoice can be judged again from its stored `read_*` fields (#1562). A None
+  period leaves the date unchecked. `invoice_date_window` is the one place the window is computed.
+- **Warnings** (`InvoiceWarning(figure, statement, read)`, `read` None = not read) are stored by the job's
+  final `_move` on `Porter Invoice.validation_warnings` (JSON, `{"warnings": [...]}`, NULL when none;
+  `stored_warnings` / `warnings_from_stored`). Every other move clears them. `get_porter_status` returns
+  them per invoice as `warnings`, plus `invoice_date_window` {from, to}, so the screen marks a failing date
+  without a copy of the 7 days.
+- **Progress:** `check.passed_with_warnings` = Passed invoices whose `validation_warnings IS NOT NULL`.
+- `porter_validation._read_invoice` now turns the read date into a `date` (`normalize_date` answers a string).
+- **Screen** (`porterImport.ts`, `PorterImportSummary.tsx`): badges "Couldn't read the PDF" (Error, amber) /
+  "Doesn't match" (Failed, red) / "Passed"; a red banner per Failed invoice naming the fare or date (statement
+  vs PDF) and the next step; a Fare / Invoice date table on Failed and read Error cards, the failing row
+  highlighted; one grey "GST taken from the statement. …" line on a Passed card with warnings; plain Passed
+  cards folded under "N more invoices passed". Retry is still Error-only until #1562.
+
+### As built — #1562: retry a Failed invoice, re-judge old ones (spec #1554, 2026-10-25)
+
+- **Retry takes Failed and Error** (`porter_state.INVOICE_RETRYABLE`; `retry_porter_invoice`,
+  `can_retry`). It queues the invoice (warnings cleared), so the import is Validating and the bar counts
+  it in progress until the job decides it. A fare or date that still disagrees stays Failed.
+- ⚠️ **Every attempt downloads the PDF** (`porter_validation._download_pdf`), a retry included: the new
+  copy replaces the stored one (same bytes = the same File; a different one deletes the old through
+  `stored_files.delete_files`, after the commit). Safe because a Failed or Error invoice blocks Create,
+  so no Expense shares its URL yet. If the link no longer serves the PDF, the copy kept is read, so an
+  expired link never strands an invoice downloaded once.
+- **Patch `v3_0.rejudge_failed_porter_invoices`** re-judges every Failed invoice from its stored reading
+  (`porter_validation.rejudge_from_stored`: 0 in `read_fare`/`read_tax` = not read), no download. Imports
+  in `porter_records.created_imports` are skipped. Raw `_move`, no recount: `Porter Invoice` has no
+  `doc_events` and the import state is derived on read. A never-read date becomes Error (retryable).
+- **Screen:** the card button reads "Read the PDF again" on Failed and "Try again" on Error
+  (`porterImport.retryLabel`, replacing `canRetryInvoice`).
+
+### As built — #1560: Choose projects lists only the orders that need a person (spec #1554, 2026-10-25)
+
+- ⚠️ **ONE needs-a-person rule: `porter_state.placement_kinds`** (pure), read through
+  `porter_records.porter_placements(batches)` (one query). Review's filter (each line of `get_porter_review`
+  carries its `placement` kind: `placed_automatically` / `placed_by_person` / `needs_person`), Create's refusal (`orders_needing_a_person`) and the progress bar's
+  `projects.needs_person` all come from it; never write a second copy (the screen reads `placement` through
+  `porterReview.needsPerson` / `placedByPerson`; it never re-derives "chosen by a person" from `reason`). An open order (Create would still write it) needs a person when no person chose it
+  and it is not Strong, or its remark group is in doubt: any open order of the group is Check or unplaced,
+  or the group's open orders go to different destinations. Strong placements, Strong Non-Project from
+  history included, need no one. A created order never needs a person and casts no doubt on its group.
+- **Not a project** (GLOSSARY) is `set_porter_placement` with a blank project: reason `review`, no project,
+  Non-Project ledger. The screen offers it as its own button; the project picker lists Won projects only.
+- ⚠️ **Create is refused while any order needs a person** ("N orders still need a project. …"). This
+  replaces "a blank becomes Non-Project at Create": upload still stages an unplaced order on the
+  Non-Project ledger, but no such order reaches Create unless a person chose it. Old imports already
+  Validated with Check or unplaced orders now need those orders chosen before Create.
+- **Screen.** `PorterReviewPanel` lists `porterReview.choiceItems` (groups with an order that needs a person,
+  plus groups a person already chose and can still change); heading and note from `choiceSummary` ("N orders
+  need a project" / "M orders were placed automatically. …", or "All N orders placed automatically."). The
+  footer on a Validated import reads "Save and close" and `nextConfirmLabel` ("Next: confirm (N left)"),
+  N = `progress.projects.needs_person`, disabled until 0; Next opens Confirm & create (#1564).
+  A Creating import (re-run after Error / Unreconcile) keeps the old Create button.
+- Tests: `services/outflow_import/test_porter.TestWhichOrdersNeedAPerson` (pure), DB
+  `test_porter_review.TestWhichOrdersNeedAPerson`, `test_porter_create.TestCreateWaitsForEveryOrderThatNeedsAPerson`;
+  `PorterCreateCase._press_create` confirms every order that needs a person first (`confirm_first=False` to
+  test the refusal). Vitest: `porterReview.test.ts`.
+
+### As built — #1563: faster project picking (spec #1554, 2026-10-25)
+
+- **Per-order choice.** `set_porter_placement` already takes any set of line names, so one order inside a
+  remark group is placed on its own with `rows` = that one name (no second endpoint). Splitting a group
+  makes it "placed differently", so its other open orders need a person until each is chosen
+  (`placement_kinds`). The screen's "Choose per order" (groups of 2+) gives each order its own control.
+- **Two likely projects.** `porter_placement.Placement.likely`: every project the signals named for the
+  remark group, the remark's (or history's) project first, then the address votes, most voted first.
+  ⚠️ Never stored: `get_porter_review` re-runs `place_orders` over the CURRENT master
+  (`porter_upload.placement_master`) on the whole remark group of each order that needs a person, and
+  returns it as `likely_projects` (empty otherwise; no master read when nobody is needed). The screen
+  (`porterReview.likelyChoices`) shows one-click buttons only when exactly two are named and both still
+  Won, plus "Other…" for the picker.
+- **Badges** (`porterReview.listedBecause`), first that applies: a `conflict` reason → "Name and address
+  disagree"; a mixed group → "Orders placed differently"; no reason on any undecided order → "No match";
+  an `address` reason → "Only the address matched"; else "Loose name match". No bare "Check".
+- Note under the list: "Only Won projects can take expenses. If a project is missing, check its status."
+- Tests: pure `test_porter_placement.TestTheLikelyProjects`; DB `test_porter_review.TestChoosingPerOrder`,
+  `TestTheLikelyProjects`; vitest `porterReview.test.ts` (badges, two likely projects).
+
+### As built — #1564: Confirm & create before Create (spec #1554, 2026-10-25)
+
+- **Next opens Confirm & create** (`PorterConfirmPanel`); its footer is "Back" (to Choose projects) and
+  `createButtonLabel` ("Create N expenses"), which runs the existing Create. Screen-only: no endpoint changed.
+  The screen is view state in the dialog (`porterConfirmAsked`), shown only while the server still says
+  Validated and `canCreatePorter`, so a Create started elsewhere, or a discard, takes it away.
+- **The table** is `porterReview.confirmSummary(lines)`: orders and fare per project (largest fare first),
+  then Not a project, then the total; only lines Create would still write (`editable`). The closed accordion
+  lists `automaticLines` (open, not `needs_person`, reason not `review`) with CRN, remark and `placedOn`; its
+  Change places that one order through `set_porter_placement`, the call Choose projects uses. A changed order
+  stays listed until the screen is left.
+- ⚠️ **Changing one order of a remark group splits the group**, so the server marks the rest as needing a
+  person (`placement_kinds`). The screen then says "N orders now need a project. Go Back to choose." and
+  Create stays disabled until `progress.projects.needs_person` is 0 (the server refuses it too).
+- ⚠️ **`porterReviewOffered` is false while a Create job is queued or running**, Validated included: a job
+  just queued writes no line yet, so the import still reads Validated, and offering placements then would let
+  a person edit lines the job is about to write.
+- Vitest: `porterReview.test.ts` ("what Confirm & create totals", "which orders Confirm & create folds away").
+
+### As built — #1561: the orders Create could not create (spec #1554, 2026-10-25)
+
+- **One reader.** `porter_records.failed_lines(batch)` is `failed_lines` on `get_porter_status` (the result) and
+  on `get_porter_review`: each Error line's `name`, `crn`, `note` (its stored `outcome_note`), `fix`, `project`,
+  `project_name`.
+- ⚠️ **The fix is derived from the line as it stands now, never parsed from the note and never stored.**
+  `re-place` (`FIX_REPLACE`) when the line is a Project Expense line whose project is not Won or no longer
+  exists; `retry` (`FIX_RETRY`) otherwise. Placing a refused line on a Won project (Review's
+  `set_porter_placement`, which leaves the line in Error) turns its fix to `retry` with nothing else written.
+- The screen (`porterResult.porterResult`, `components/PorterResult.tsx`) shows nothing before Create and while
+  its job runs; then "N orders couldn't be created" with a CRN / Why / fix table ("Choose project" opens a Won
+  project picker for that one line; "Try again" presses Create again), or "All N expenses created.". "View
+  the N expenses" opens the created Expenses in their own lists: `get_porter_status.created_expenses` names the
+  import's Porter Orders that have an Expense, by the doctype each is on now (`porter_records.created_expenses`),
+  and `utils/porterExpense.createdExpenseLinks` opens each list's Paid tab with a `porter_order` column filter
+  in the list's own URL state (one link per list the expenses are on). "Move an order to another project"
+  closes the dialog on Bulk Import pinned to the import, on its Settled tab, where each line carries Move. ⚠️ It
+  goes through the page's own pin (`onImported` with the Porter source,
+  `postImportTab` maps it to `matchedOutflow`), not a `navigate` of their own: the index and `:id` routes
+  render the same page without remounting it, so a tab carried in router state alone was ignored (walked).
+  The Move link shows only to those the lines' Move button shows to (`canUndoOutflow`: Admin, Accountant
+  Lead); an Accountant gets the expenses link alone. `porterImport.createProgress` no longer words the failed or all-created
+  cases; the result does.
+
+
+## Credit Card Statement — the fifth source (spec #1565; upload, Review and Discard built at #1566, credit sorting at #1567, type edit and Create at #1568, type suggestion and merchant memory at #1569, invoices at #1570, the rest NOT BUILT YET)
+
+Decisions: **[ADR-0039](../../../docs/adr/0039-credit-card-statement-import.md)**. Terms: `GLOSSARY.md`
+§ *Company credit cards*. Source string `ICICI Credit Card Statement` (`sources.CARD_STATEMENT_SOURCE`).
+
+**What it is.** A company card's monthly ICICI PDF. Each *Card spend* becomes ONE *Paid* `Non Project
+Expenses` row (Create, #1568). It creates and never settles: it is in `NEVER_MATCHED_SOURCES`. It is the
+other half of `bank_exclusions`' card-bill rules, which stay unchanged.
+
+**Load-bearing invariants (each one breaks something silently if "tidied"):**
+
+1. **The reader is pure and the gate is all or nothing.** `services/outflow_import/card_statement.read_card_statement`
+   takes the text `card_pdf.statement_text` extracts (pypdf; pages joined by a newline) and refuses with
+   `CardStatementError`: not this layout, a company other than Stratos Infra Technologies (`company_key`
+   drops PVT / PRIVATE / P / LTD / LIMITED, so "PVT LTD" == "Private Limited"), a non-zero *Cash Advances*,
+   and spends != *Purchases / Charges* or credits != *Payments / Credits* to the paisa (both figures in the
+   message, `amounts.rupees(paise=True)`). A locked PDF: "This PDF is password-locked. Unlock it and upload
+   again." No override exists. A PDF encrypted with an EMPTY user password (an owner password only) opens
+   without one, so `statement_text` tries `decrypt("")` first and refuses only if that fails.
+2. **Layout, measured on the 2026-10-01 statement** (fixture `services/outflow_import/tests/fixtures/icici_card_statement.txt`,
+   names faked): pypdf reads the rupee sign as `Á`. Holder and company are the two lines under `State Code:`
+   (the address block), holder with its honorific dropped. The summary is the line under `Previous Balance
+   Purchases / Charges Cash Advances Payments / Credits`. *Total Amount Due* is the larger of the two
+   standalone money lines on page 1 (the other is the minimum due). Statement date is the earlier of the two
+   standalone long dates. A line is `DD/MM/YYYY SerNo(11) details points [intl] amount [CR]`; lines dated
+   before the period or out of order are kept as printed. The card-number headings are never read.
+3. **Merchant key** (`card_statement.merchant_key`): drop a trailing 2-letter country code AND the city
+   before it (and `NEW` / `NAVI` before that), then punctuation, then trailing PVT / P / LTD / LIMITED /
+   INDIA / PRIVATE (never to nothing). The three MakeMyTrip spellings give `MAKEMYTRIP`. A line with no
+   country code (a payment received, a cashback) keeps every word. #1567 pairs refunds on it; #1568 keys
+   merchant memory on it.
+4. **Identity.** One `Credit Card Statement` per holder + period (`refuse_same_period`, backed by the unique
+   index `credit_card_statement_holder_period_unique` in the doctype's `on_doctype_update`). A line is its
+   SerNo, scoped to this source: a SerNo already staged is left out and counted in the batch's
+   `repeats_not_saved`; a file with nothing new is refused naming the import that holds it.
+5. **Nothing is saved before the whole file is read** (`card_import.upload_card_statement`): every refusal
+   runs before `save_file`. The PDF is ONE private `File`, attached to the `Credit Card Statement`
+   (`statement_file`). ⚠️ `card_upload.stage` inserts the batch WITHOUT `source_file` and writes it raw after
+   the statement is inserted: Frappe's Attach hook (`attach_files_to_document`) would otherwise attach the
+   File to the batch and then COPY it for the statement — two Files for one PDF.
+6. **Staging.** Spend: `Pending match run`, `direction` Debit, `match_basis` `card statement` (a new
+   `Outflow Row Match.match_basis` option), `suggested_doctype` `Non Project Expenses`, `auto_matched` 1,
+   `suggested_expense_type` *Misc. Expenses* with `type_source` Fallback (#1568; #1569's suggestion job
+   replaces it, invariant 17). Credit: sorted at upload (invariant 14); an unpaired one is `Mismatched`. Every line: `status_raw` SUCCESS,
+   `remarks` = details, `settlement_reference` = "{details} - {SerNo}" (`card_statement.line_reference`,
+   the Expense's payment_ref, ADR-0039 decision 6). Batch `gross_amount` = the staged spends.
+7. **Spends are not bank lines; open credits are (#1567, README ruling 4).** The gate is PER LINE:
+   `sources.line_waits_for_its_own_create(source, direction)` is True for every Porter line and for a card
+   SPEND, False for a card CREDIT (`CREDITS_DECIDED_ON_THE_MAIN_TABLE`). `review._row_filters` states the same
+   split in SQL, so an open card spend is in no tab and not in *Total Unreconciled Outflow*, while an unpaired
+   card credit is in *Not Matched – Inflow* and *Total Unreconciled Inflow*, with the bank-credit choices
+   (Project Inflow, Non-Project Inflow, Waiting refund / Vendor Refund, Skip by hand). The guards
+   `expenses.guard_not_an_own_import_line` and `skip_origin.manual_skip_refusal(direction=)` ask the same
+   predicate; a card spend is refused with `card_credits.CARD_SPEND_REFUSAL` (`skip_origin.own_import_line_refusal`
+   picks Porter's or the card's sentence). The generic upload still refuses the source ("imported through its
+   own import").
+8. **Discard** (`card_import.discard_card_import`): Admin and Accountant Lead; refused once any `Outflow Row
+   Match` names the batch (`created_anything`) or a job in `card_import.job_ids` (`card-suggest-<batch>`,
+   `card-create-<batch>`) is queued. Raw deletes of lines, statement and batch, then
+   `stored_files.delete_files` last.
+9. **Screens.** `frontend/src/pages/outflow-import/creditCardImport.ts` (pure, pinned by
+   `creditCardImport.test.ts`). The import dialog takes `.pdf` only and has three steps (Upload → Review →
+   Create); Review is `components/CardImportReview.tsx` (each spend's type editable, #1568). The page holds the open import as
+   `?card=OFI-…`. Import History's tab reads **Credit Card** (`outflowTableModel.sourceLabel`) and lists each
+   statement by its holder (`list_imports` returns `card_holder`) and period. Discard uses the shared
+   `components/ImportDiscardButton.tsx` (Porter's button wraps it too). Review lists the lines still to work
+   (`cardCreditsView.cardWorkLines`) and, beneath, the skipped lines with kind and reason
+   (`components/CardSkippedLines.tsx`); `get_card_import` returns `skip_kind` / `skip_reason` per line.
+10. **A spend's type** (#1568, ADR-0039 ruling 5) lives on the line: `suggested_expense_type` and
+    `type_source` (new read-only Select, options = `services/outflow_import/card_types.TYPE_SOURCES`, pinned by
+    `test_card_types`: Earlier statement / AI / Fallback / Chosen on Review). "Check" on Review is
+    `card_types.needs_check` = Fallback. *Misc. Expenses* (`card_types.FALLBACK_EXPENSE_TYPE`) is in
+    `fixtures/expense_type.json` (it existed live only; a migrate re-imports the fixture). Review retypes through
+    `card_review.set_card_expense_type` (Bulk Import gate; a live `non_project` type only; refuses a credit,
+    another import's line, or a spend not in `card_types.CREATE_LINE_STATUSES`), writing `type_source`
+    Chosen on Review. `get_card_import` returns per line `expense_type`, `type_source`, `check`, `editable`,
+    `expense`, `outcome_note`, and per import `created` / `failed` / `to_create` / `create_running` and
+    `expense_types` (the live Non-Project list, the only one offered).
+11. **Create** (`api/outflow_import/card_create.py`, #1568): `create_card_expenses` (Bulk Import gate: Admin,
+    Accountant Lead, Accountant) enqueues `create_card_import` on `long`, job id `card_import.create_job_id` =
+    `card-create-<batch>` (deduplicated; Discard waits for it); refused once no spend is left. The job is
+    Porter's shape: each SPEND (direction Debit, ⚠️ never a credit, which is open at `Mismatched` too) in
+    `CREATE_LINE_STATUSES`, re-read `FOR UPDATE`, one transaction each: `settle.create_expense_from_row`
+    (Paid; amount; `payment_date` = transaction date; `payment_ref` = `settlement_reference`; type as the line
+    holds it; description `card_types.spend_description` "Card spend at {merchant_key}, {holder}'s card";
+    no vendor; no attachment — the PDF stays the statement's one File; the new `credit_card_statement=` kwarg
+    sets `Non Project Expenses.credit_card_statement`, a new read-only indexed Link) → a Settled `Outflow Row
+    Match` (`card statement`, `created_by_import`) → line Settled. A failing line rolls back and goes to Error
+    ("Could not create this expense. Run Create again."); a re-press creates only Error / reopened lines.
+    ⚠️ NO PAID BY: Non Project Expenses has no such field (spec ruling 1); the holder is in the description
+    and behind the link. Discard is refused from the first match (`created_anything`).
+12. **Unreconcile** of a created spend is the generic path (`unreconcile.unreconcile_row`): the Expense is
+    deleted, the line reopens (`Mismatched`, Confirm by hand), Review offers it editable again and Create
+    re-creates it. It stays out of the main table (gated source).
+13. **Screens (#1568).** `pages/outflow-import/cardCreate.ts` (pure, pinned by `cardCreate.test.ts`: Create
+    offered / label / progress, stepper on Create once started, "Check" badge) and `useCardImport.ts` (reads
+    the import, polls every 2 s while `create_running`, retype + Create). The dialog footer holds Create beside
+    Discard and Done.
+14. **Credit sorting (#1567, ADR-0039 decision 4).** Pure: `services/outflow_import/card_credits.sort_card_lines(lines)`
+    → `{serno: LineSort(kind, partner)}`, kinds SPEND, CARD_PAYMENT, CASHBACK, REFUND, REFUNDED_SPEND,
+    UNPAIRED_CREDIT. Only CREDITS are read for words: a merchant key matching `PAYMENT RECD|PAYMENT RECEIVED`
+    or starting `AUTO DR RETN` is a payment; `CASHBACK` / `CASH BACK` is cashback. Any other credit pairs with
+    an open spend of the SAME merchant key and EXACTLY the same amount dated on or before it, the latest one
+    (date, then print order); credits pair in date order; a spend is cancelled at most once; a spend after the
+    credit never pairs, nor one dated the same day but printed after it. ⚠️ Sorting runs over the lines STAGED in this import (`new.lines`), not the whole
+    statement: a refund never pairs with a spend left out as an earlier import's repeat. `card_credits.skip_values`
+    stages each skip as `Skipped` / `System` with its kind and sentence (both `skip_reason` and `outcome_note`):
+    kinds `Card payment received`, `Card cashback`, `Card refund pair` (new `skip_kind` options), sentences
+    `status.SKIP_REASON_CARD_*` (in `SYSTEM_SKIP_SENTENCES` and taught to `skip_kind_backfill`). A paired spend
+    keeps its Create plan (`Pending match run` fields) underneath the skip. Each line of a pair names the
+    other in its sentence (`partner_label`: SerNo, date, amount) AND links it through the new read-only
+    `Outflow Import Row.card_refund_partner` (Link to the row), written raw after both rows exist.
+15. **Unskip (#1567, README ruling 5).** `skip_origin.unskip_refusal` asks the card kinds BEFORE the
+    never-matched "only by hand" rule: `Card payment received` / `Card cashback` are in `UNSKIP_LOCKED_KINDS`
+    (own sentences), `Card refund pair` is allowed. `review.unskip_row` routes a pair to
+    `api/outflow_import/card_refund_pairs.unskip_refund_pair` before the Cashbook path: it locks the partner,
+    refuses unless the partner is still Skipped as the pair and links back, then reopens BOTH lines (credit
+    → `Mismatched`, spend → `Pending match run`), clears kind / origin / reason / note / decided / partner,
+    saves each with a Version row and a comment, one commit. A card credit skipped by hand unskips through the
+    Cashbook path (`_unskip_cashbook_line`, reopens `Mismatched`). The frontend mirror is `unskipView.ts` +
+    `skipKinds.ts` (pinned to the Python by `skipKinds.test.ts`).
+16. **Invoices (#1570, ADR-0039 ruling 8).** A card Expense waits in Vendor Invoice Recon -> *Pending Invoices
+    Upload* -> **Credit Card** (`?upload_tab=card`, `components/CardInvoiceUploads.tsx`; its own table, NOT the
+    Reports "Pending Invoices" report the PO / WO sub-tabs mount) while `credit_card_statement` is set,
+    `invoice_attachment` is blank and `no_invoice_by` is blank. Endpoints `api/expenses/card_invoices.py`:
+    `get_card_invoice_queue` (rows with date, `merchant` = `merchant_key` of the line details, `details`
+    = payment_ref with " - SerNo" taken off by `services/card_invoices.card_line_details`, amount, type, holder,
+    statement, `statement_month` "YYYY-MM" of the statement date) and `attach_card_invoice` (file required,
+    number and date optional) are gated by `role_profiles.PENDING_INVOICE_UPLOAD_PROFILES` (the tab's own
+    set: approvers + PMO + procurement); `mark_card_no_invoice` by `CARD_NO_INVOICE_PROFILES` (Admin, Accountant
+    Lead), a typed reason required, writing the new read-only `Non Project Expenses.no_invoice_reason` /
+    `no_invoice_by` (Link User) / `no_invoice_at`. Both writes re-read the Expense `FOR UPDATE`, refuse by
+    `services/card_invoices` (`attach_problem`, `no_invoice_problem`: not a card spend, already invoiced, already
+    marked) and save through the document layer (Version row kept). Holder and month filters are client-side
+    (`pages/tasks/invoices/utils/cardInvoicesView.ts`). Attach reuses `UpdateInvoiceDetailsDialog` with its
+    `cardSave` prop (file required, ref and date optional, saved through the endpoint). The file is uploaded
+    against the Expense (`attached_to_*`), so it stays one `File`. An invoice attached anywhere else (the Non
+    Project Expenses page) also takes the spend off the list. No undo of *No invoice* exists.
+
+17. **Type suggestion and merchant memory** (#1569, ADR-0039 ruling 5). The upload, after its commit, enqueues
+    `card_suggest.suggest_card_types` on `long`, job id `card-suggest-<batch>` (deduplicated; Discard waits for
+    it). Per merchant key, every spend of it alike: `card_memory.recall` first (`Earlier statement`), else ONE
+    Gemini call for every merchant memory lacks, given the live Non-Project list
+    (`services/extraction/merchant_types.gemini_type_merchants`, text-only, beside `mapping.py`; it builds its
+    client through `GeminiExtractor._build_client` and calls `_generate`, so tests fake it there), else the
+    fallback. The choice is pure: `card_types.choose_type` — a remembered type no longer live is ignored; an AI
+    answer counts only when on the live list, not the fallback itself, and at confidence >= `AI_MIN_CONFIDENCE`
+    (0.7). ⚠️ AI off (`get_extraction_settings().enabled` false), a failed call or a malformed reply is "no
+    answer": spends stay Fallback ("Check"), and nothing blocks. ⚠️ The job writes only Debit lines still at
+    `type_source` Fallback and not Settled, and its raw UPDATE re-asks that in the WHERE, so a type chosen on
+    Review meanwhile is never overwritten; Skipped spends (a paired refund, #1567) are typed too, so an
+    unskipped one reaches Create typed. `get_card_import` returns `suggest_running` (Review polls while it
+    is set; Create is refused while it is) and each spend's `merchant` (credit: null).
+    **Memory** is the new doctype `Card Merchant Memory` (name = merchant key; `expense_type`,
+    `confirmed_by`, `confirmed_at`; all read-only; System Manager full, Accountant / Accountant Lead read),
+    written only by `services/outflow_import/card_memory.remember` (latest confirmation wins; a racing insert
+    falls back to update): by `card_create._create_one` for EVERY created spend (the fallback too — Create is
+    the confirmation), with the Create actor; and by the `Non Project Expenses` on_update hook
+    `integrations/controllers/card_merchant_memory.on_expense_update` when a card Expense
+    (`credit_card_statement` set) is saved with a different `type` (the insert is not an edit), with the
+    session user. The Expense's merchant is read back through its Settled match record
+    (`card_memory.merchant_of_expense`).
+    Desk: `Credit Card Statement` and `Card Merchant Memory` are READ-ONLY to Accountant and Accountant Lead
+    (System Manager full): only the import's code writes them, with `ignore_permissions` or raw SQL.
+18. **Screens (#1569).** `cardCreate.ts`: `cardPolling` also while `suggest_running`, `cardSuggestNote`,
+    `canCreateCard` false while suggesting, `typeSourceTitle` (the badge's title names the source; the fallback
+    badge reads "Check"), `merchantRetype(lines, line)` — the link "Use for all N {MERCHANT} spends" under a
+    retypable spend not at "Check" (a chosen, remembered or AI type; there is nothing to spread from the fallback)
+    whose merchant has another retypable spend of a different type; it calls the existing
+    `card_review.set_card_expense_type` with every such line (`useCardImport.retype(line, type, rows)`).
+    Story 29 in one choice: `merchantScope(lines, line)` (every retypable spend of the merchant, when more than
+    one) puts a "This spend" / "All N {MERCHANT} spends" toggle under the picker of ANY of them, "Check" ones
+    included; with "All" chosen, the type picked is saved on all of them in one call.
+    The Non Project Expenses table's Invoice Ref column shows a marked spend (#1570) as "No invoice" with
+    "{who}, {date}: {reason}" (`pages/NonProjectExpenses/config/noInvoiceView.noInvoiceNote`).
+
+**Tests.** `services/outflow_import/test_card_statement` (unit, the fixture and a PDF built from it by
+`tests/card_pdf_builder.pdf_from_text`), `api/outflow_import/test_card_import` (DB: upload, refusals, repeats,
+Review, History, not-matched totals, Discard, the matcher AST guard), `services/outflow_import/test_card_types`
+(unit), `api/outflow_import/test_card_create` (DB: types on Review, retype refusals, Create fields, permissions,
+resume, Unreconcile and re-create, Discard refused after Create, the AST guard over every card module),
+`services/outflow_import/test_card_credits` (unit: the fixture's 7 credits, pairs, the two identical spends),
+`api/outflow_import/test_card_credits` (DB: staging kinds and reasons, Review's skipped list, payments/cashback
+never unskip, an open credit on the main table and skippable, a spend refused, a pair skipped / unskipped from
+either line), frontend `cardCreditsView.test.ts`, `unskipView.test.ts`,
+`services/test_card_invoices` (unit) and `api/expenses/test_card_invoices` (DB: the list, attach, No invoice and
+their permissions), vitest `pages/tasks/invoices/utils/cardInvoicesView.test.ts`,
+`api/outflow_import/test_card_suggest` (DB, Gemini faked at `GeminiExtractor._build_client`: the job queued at
+upload, AI answer, one call with the live list, off-list / low-confidence / failed / AI-off -> fallback, Review
+choice kept, memory hit and no call when all known, memory on Create, next month typed from it, memory on an
+Expense type edit and not on another edit). `CardImportCase` records the upload's enqueue (`self.enqueued`)
+and clears + restores the fixture merchants' memory per test.
 
 
 ## #1485 (2026-10-17) — an ICICI cheque line clears its Payment cheque (spec #1477, ADR-0035)

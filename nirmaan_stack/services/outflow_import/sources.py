@@ -29,7 +29,9 @@ need the wide identity without being a passbook, or the reverse.
 
 __all__ = [
     "BANK_STATEMENT_SOURCES",
+    "CARD_STATEMENT_SOURCE",
     "CREATE_GATED_SOURCES",
+    "CREDITS_DECIDED_ON_THE_MAIN_TABLE",
     "NEVER_MATCHED_SOURCES",
     "PORTER_STATEMENT_SOURCE",
     "TRANSFER_ID_REFERENCE_SOURCES",
@@ -39,6 +41,7 @@ __all__ = [
     "source_names_its_spender",
     "source_transfer_id_is_its_reference",
     "source_waits_for_its_own_create",
+    "line_waits_for_its_own_create",
     "source_writes_its_match_surface",
 ]
 
@@ -47,6 +50,12 @@ __all__ = [
 #: KEY, THE `Outflow Import Batch.source` SELECT OPTION AND THE FRONTEND'S `SOURCE_OPTIONS` ENTRY, pinned
 #: together by test like `ICICI Bank Statement`.
 PORTER_STATEMENT_SOURCE = "Porter Statement"
+
+#: A company credit card's monthly ICICI statement, read from its PDF (#1566, ADR-0039). Spelled ONCE here
+#: for the reason `PORTER_STATEMENT_SOURCE` is: the parser adapter key, the batch Select option and the
+#: frontend's `SOURCE_OPTIONS` entry are the same string, pinned together by test. It names the BANK, as
+#: `ICICI Bank Statement` does: a second card issuer needs its own reader and its own string.
+CARD_STATEMENT_SOURCE = "ICICI Credit Card Statement"
 
 #: Sources that are a BANK PASSBOOK rather than a payout gateway.
 #:
@@ -89,7 +98,10 @@ TRANSFER_ID_REFERENCE_SOURCES = frozenset({"Cashbook", "Porter Statement"})
 #:
 #: Porter joins it (#1443, ADR-0032): a create-only source whose lines carry the plan its own import
 #: writes from, exactly like Cashbook's.
-NEVER_MATCHED_SOURCES = frozenset({"Cashbook", "Porter Statement"})
+#:
+#: The Credit Card Statement joins it (#1566, ADR-0039): it creates one Non-Project Expense per card spend
+#: and settles nothing.
+NEVER_MATCHED_SOURCES = frozenset({"Cashbook", "Porter Statement", CARD_STATEMENT_SOURCE})
 
 #: Sources whose OPEN lines wait for their own import's Create, and are NOT bank lines until then (#1443).
 #:
@@ -103,7 +115,19 @@ NEVER_MATCHED_SOURCES = frozenset({"Cashbook", "Porter Statement"})
 #: ⚠️ A DIFFERENT SET FROM `NEVER_MATCHED_SOURCES`, NOT TO BE MERGED WITH IT. That one answers "may the
 #: matcher write these rows?" and holds Cashbook too, whose open lines ARE worked from the main table
 #: (#1314).
-CREATE_GATED_SOURCES = frozenset({"Porter Statement"})
+#:
+#: The Credit Card Statement joins it (#1566): a card line is not a bank line, so a card upload moves
+#: neither *Still open* nor *Total Unreconciled Outflow*. ⚠️ Only its SPENDS wait (#1567): its credits are
+#: `CREDITS_DECIDED_ON_THE_MAIN_TABLE`, so ask `line_waits_for_its_own_create` about a LINE.
+CREATE_GATED_SOURCES = frozenset({"Porter Statement", CARD_STATEMENT_SOURCE})
+
+#: Create-gated sources whose open CREDITS are NOT gated: they are decided on the main table, with the
+#: choices a bank credit has (#1567, README ruling 4). A card's unpaired merchant credit is money that came
+#: back to the company, and its own import has nothing to create from it. Its spends still wait.
+CREDITS_DECIDED_ON_THE_MAIN_TABLE = frozenset({CARD_STATEMENT_SOURCE})
+
+# `parser.DIRECTION_CREDIT`, spelled here because this leaf imports nothing (the parser imports it).
+_CREDIT = "Credit"
 
 
 def source_waits_for_its_own_create(source: str) -> bool:
@@ -113,6 +137,19 @@ def source_waits_for_its_own_create(source: str) -> bool:
     on the main table, where it has always been.
     """
     return (source or "").strip() in CREATE_GATED_SOURCES
+
+
+def line_waits_for_its_own_create(source: str, direction: str) -> bool:
+    """Is this LINE worked only by its own import, never from the main table? (#1443, #1567)
+
+    Per line, not per source: a Porter line always waits; a card spend waits, a card credit does not.
+    Every main-table guard asks this (`expenses.guard_not_an_own_import_line`,
+    `skip_origin.manual_skip_refusal`), and `review._row_filters` states the same split in SQL.
+    """
+    source = (source or "").strip()
+    if source not in CREATE_GATED_SOURCES:
+        return False
+    return not (source in CREDITS_DECIDED_ON_THE_MAIN_TABLE and (direction or "").strip() == _CREDIT)
 
 
 def source_has_settlement_path(source: str) -> bool:

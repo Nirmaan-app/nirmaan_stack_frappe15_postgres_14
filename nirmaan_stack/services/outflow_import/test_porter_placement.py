@@ -266,6 +266,38 @@ class TestNameAndAddressTogether(unittest.TestCase):
         self.assertEqual([p.project for p in placed], ["PROJ-ORION", "PROJ-ORION", "PROJ-QUILLON"])
 
 
+class TestTheLikelyProjects(unittest.TestCase):
+    """#1563: the projects the signals named for an order's group, for the one-click choices -- the
+    remark's project first, then the addresses', most voted first. The same for every order of a group."""
+
+    def _likely(self, remark, *addresses):
+        orders = [_order(f"O{i}", remark, to_address=address) for i, address in enumerate(addresses)]
+        return {placed.likely for placed in _place(orders, sites=SITES).values()}
+
+    def test_a_name_and_an_address_majority_that_disagree_name_both(self):
+        self.assertEqual(
+            self._likely("zephyr tower", TO_ORION, TO_ORION, TO_ZEPHYR), {("PROJ-ZEPHYR", "PROJ-ORION")}
+        )
+
+    def test_a_remark_naming_no_project_names_each_address_most_voted_first(self):
+        self.assertEqual(
+            self._likely("site material", TO_QUILLON, TO_ORION, TO_ORION, TO_NOWHERE),
+            {("PROJ-ORION", "PROJ-QUILLON")},
+        )
+
+    def test_a_loose_name_with_no_address_names_one(self):
+        self.assertEqual(self._likely("quillon site", TO_NOWHERE), {("PROJ-QUILLON",)})
+
+    def test_nothing_found_names_none(self):
+        self.assertEqual(self._likely("misc delivery", TO_NOWHERE), {()})
+
+    def test_history_kept_non_project_names_only_the_addresses(self):
+        earlier = [EarlierPlacement("quillon site", "Bangalore", None)]
+        orders = [_order("A", "quillon site", to_address=TO_ORION)]
+        placed = _place(orders, sites=SITES, earlier=earlier)["A"]
+        self.assertEqual(placed.likely, ("PROJ-ORION",))
+
+
 class TestEarlierImports(unittest.TestCase):
     """Signal 5: what a person kept in earlier Porter imports -- the live Expense of an earlier Porter
     Order, which a Rectify replaces -- for the same normalised remark and city."""

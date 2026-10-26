@@ -60,6 +60,8 @@ export interface MutateTenderingResponse {
   message?: string;
   project_name?: string;
   error?: string;
+  /** Merge / Undo only: the BoQs the server actually moved (ADR-0038). */
+  boqs?: string[];
 }
 
 /**
@@ -146,4 +148,63 @@ export const useMarkTenderingProjectLost = () => {
   };
 
   return { markTenderingProjectLost, loading, error };
+};
+
+/**
+ * Wraps `tendering_merge.merge_tendering_boqs` (ADR-0038): moves every BoQ of a Tendering project
+ * into a Won project -- the ticked ones (`selected_boqs`) as Selected, the rest as Draft -- and marks
+ * the project Merged. For users who can create projects; the backend refuses a non-Tendering
+ * project, no ticked BoQ, a BoQ being edited, and a target that is not Won or is Completed.
+ */
+export const useMergeTenderingBoqs = () => {
+  const { call, loading, error } = useFrappePostCall<{
+    message: MutateTenderingResponse;
+  }>("nirmaan_stack.api.projects.tendering_merge.merge_tendering_boqs");
+
+  const mergeTenderingBoqs = async (
+    project_name: string,
+    target_project: string,
+    selected_boqs: string[]
+  ) => {
+    try {
+      return await call({ project_name, target_project, selected_boqs });
+    } catch (err: any) {
+      captureApiError({
+        error: err,
+        hook: "useMergeTenderingBoqs",
+        api: "merge_tendering_boqs",
+        feature: "tendering",
+      });
+      throw err;
+    }
+  };
+
+  return { mergeTenderingBoqs, loading, error };
+};
+
+/**
+ * Wraps `tendering_merge.undo_tendering_merge` (ADR-0038): moves exactly the merged BoQs back as
+ * Draft and returns the project to Tendering. For users who can create projects; refused while a
+ * merged BoQ is being edited, or a revision link would be split across the two projects.
+ */
+export const useUndoTenderingMerge = () => {
+  const { call, loading, error } = useFrappePostCall<{
+    message: MutateTenderingResponse;
+  }>("nirmaan_stack.api.projects.tendering_merge.undo_tendering_merge");
+
+  const undoTenderingMerge = async (project_name: string) => {
+    try {
+      return await call({ project_name });
+    } catch (err: any) {
+      captureApiError({
+        error: err,
+        hook: "useUndoTenderingMerge",
+        api: "undo_tendering_merge",
+        feature: "tendering",
+      });
+      throw err;
+    }
+  };
+
+  return { undoTenderingMerge, loading, error };
 };

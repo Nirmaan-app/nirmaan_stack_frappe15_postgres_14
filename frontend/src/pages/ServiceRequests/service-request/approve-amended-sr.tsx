@@ -20,7 +20,10 @@ import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { NirmaanVersions as NirmaanVersionsType } from "@/types/NirmaanStack/NirmaanVersions";
 import { Textarea } from "@/components/ui/textarea";
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeDocumentEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { formatDate } from "@/utils/FormatDate";
+import { getFrappeErrorText } from "@/utils/frappeErrors";
+import { AMEND_REASON_SUBJECTS } from "../config/workOrderAmendment";
 import { CheckCheck, Undo2, X } from 'lucide-react';
 import { useEffect, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -54,14 +57,21 @@ const ApproveAmendSR = () => {
 
     const { data: usersList, isLoading: usersListLoading, error: usersListError } = useUsersList()
 
-    const { data: versions, isLoading: versionsLoading, error: versionsError } = useFrappeGetDocList<NirmaanVersionsType>("Nirmaan Versions", {
+    // Amendment snapshots, newest first. A decided one is kept, marked Accepted or Reverted (#1540), so
+    // the one under review is the newest with no outcome.
+    const { data: snapshots, isLoading: versionsLoading, error: versionsError } = useFrappeGetDocList<NirmaanVersionsType>("Nirmaan Versions", {
         fields: ["*"],
-        filters: [["ref_doctype", "=", "Service Requests"], ["docname", "=", srId]],
-        limit: 1000,
+        filters: [
+            ["ref_doctype", "=", "Service Requests"],
+            ["docname", "=", srId],
+            ["new_state", "=", "Amendment"],
+        ],
+        limit: 100,
         orderBy: { field: "creation", order: "desc" }
     },
     srId  ? undefined : null
 )
+    const versions = snapshots?.filter((snapshot) => !snapshot.outcome)
 
     const navigate = useNavigate()
 
@@ -122,10 +132,14 @@ const ApproveAmendSOPage = ({ so_data, versionsData, usersList }: ApproveAmendPO
         return usersList?.find((user) => user?.name === name)?.full_name || ""
     }
 
+    // The reason typed in the Amend sheet (#1540), newest first.
     const { data: amendmentComment } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
         fields: ["*"],
-        filters: [["reference_name", "=", so_data?.name], ["subject", "=", "sr amendment"]]
+        filters: [["reference_name", "=", so_data?.name], ["subject", "in", AMEND_REASON_SUBJECTS]],
+        orderBy: { field: "creation", order: "desc" },
+        limit: 100,
     })
+    const latestReason = amendmentComment?.[0]
 
     const {data : vendorsList} = useVendorsList({vendorTypes: ["Service", "Material & Service"]})
 
@@ -137,7 +151,6 @@ const ApproveAmendSOPage = ({ so_data, versionsData, usersList }: ApproveAmendPO
     const [comment, setComment] = useState('');
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [actionType, setActionType] = useState<'approve' | 'revert'>('approve');
-    const [previousCategoryList, setPreviousCategoryList] = useState<any[]>([])
 
     useEffect(() => {
         if (!versionsData) return;
@@ -152,12 +165,6 @@ const ApproveAmendSOPage = ({ so_data, versionsData, usersList }: ApproveAmendPO
         if (vendorChange) {
             setPreviousVendor(vendorChange?.[1]);
             setAmendedVendor(vendorChange?.[2]);
-        }
-
-        // service_category_list is still a JSON field on the parent, still in `changed`
-        const categoryChange = changed.find((i: any) => i[0] === "service_category_list");
-        if (categoryChange) {
-            setPreviousCategoryList(categoryChange?.[1]?.list || []);
         }
 
         // NEW (post-migration): item changes appear as `added`/`removed` entries for
@@ -212,14 +219,16 @@ const ApproveAmendSOPage = ({ so_data, versionsData, usersList }: ApproveAmendPO
 
     const { updateDoc, loading: update_loading } = useFrappeUpdateDoc()
     const { createDoc, loading: create_loading } = useFrappeCreateDoc()
-
-    const {deleteDoc, loading: delete_loading} = useFrappeDeleteDoc()
+    const { call: revertAmendment, loading: revert_loading } = useFrappePostCall(
+        "nirmaan_stack.api.service_requests.amendment.revert_amendment"
+    )
 
     const { toast } = useToast();
 
     const handleAction = async () => {
         try {
             if (actionType === 'approve') {
+                // Accept: the status move. The server marks the snapshot Accepted.
                 await updateDoc("Service Requests", so_data.name, {
                     status: "Approved",
                 })
@@ -234,21 +243,9 @@ const ApproveAmendSOPage = ({ so_data, versionsData, usersList }: ApproveAmendPO
                     })
                 }
             } else {
-                // Revert: rebuild the SR's work_order_items from the previous (pre-amend) state.
-                // Each row is mapped from display shape → child-table write shape.
-                const previousAsChildRows = (previousOrderList || []).map((row: any) => ({
-                    item_name: row?.description,
-                    category: row?.category,
-                    uom: row?.uom,
-                    quantity: row?.quantity || 0,
-                    rate: row?.rate || 0,
-                }));
-                await updateDoc("Service Requests", so_data.name, {
-                    status: "Approved",
-                    service_category_list: previousCategoryList?.length ? {list : previousCategoryList} : safeJsonParse(so_data?.service_category_list),
-                    work_order_items: previousAsChildRows,
-                    vendor: previousVendor ? previousVendor : so_data.vendor
-                })
+                // Revert: the server writes back items, vendor, categories and Nirmaan GST from the
+                // snapshot and marks it Reverted (#1540).
+                await revertAmendment({ work_order: so_data.name })
                 if (comment.length) {
                     await createDoc("Nirmaan Comments", {
                         comment_type: "Comment",
@@ -261,8 +258,6 @@ const ApproveAmendSOPage = ({ so_data, versionsData, usersList }: ApproveAmendPO
                 }
             }
 
-            await deleteDoc("Nirmaan Versions", versionsData?.[0].name)
-
             toast({
                 title: "Success",
                 description: `SO has been successfully ${actionType === 'approve' ? 'approved' : 'reverted'}`,
@@ -274,7 +269,7 @@ const ApproveAmendSOPage = ({ so_data, versionsData, usersList }: ApproveAmendPO
             console.log("error in ApproveAmmendedSOPage", error)
             toast({
                 title: "Error",
-                description: "An error occurred. Please try again.",
+                description: getFrappeErrorText(error),
                 variant: "destructive"
             });
         }
@@ -297,6 +292,22 @@ const ApproveAmendSOPage = ({ so_data, versionsData, usersList }: ApproveAmendPO
                 <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Revert Amendments</h2>
                 <ProcurementActionsHeaderCard orderData={so_data} sr={true} />
             </div>
+
+            {/* The reason typed in the Amend sheet (#1540) */}
+            <Card className="p-4 shadow-sm" data-testid="amend-reason">
+                <h3 className="text-sm font-semibold text-gray-700">Reason for amendment</h3>
+                {latestReason ? (
+                    <div className="mt-1 space-y-1">
+                        <p className="text-sm whitespace-pre-wrap">{latestReason.content}</p>
+                        <p className="text-xs text-gray-500">
+                            {getUserName(latestReason.comment_by) || latestReason.comment_by}
+                            {latestReason.creation ? ` · ${formatDate(latestReason.creation)}` : ""}
+                        </p>
+                    </div>
+                ) : (
+                    <p className="mt-1 text-sm text-gray-500">No reason was given in the Amend sheet.</p>
+                )}
+            </Card>
 
             {/* Item Comparison Table */}
             <Card className="mt-4 p-4 shadow-lg overflow-hidden">
@@ -425,7 +436,7 @@ const ApproveAmendSOPage = ({ so_data, versionsData, usersList }: ApproveAmendPO
                         onChange={(e) => setComment(e.target.value)}
                         placeholder="Add a comment (optional)"
                     />
-                    {(update_loading || create_loading || delete_loading) ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
+                    {(update_loading || create_loading || revert_loading) ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
                         <div className="flex justify-end mt-4">
                             <Button variant="outline" className="flex gap-1 items-center" onClick={() => setIsDialogOpen(false)}>
                                 <X className="h-4 w-4" />

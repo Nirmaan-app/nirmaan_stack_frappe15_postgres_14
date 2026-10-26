@@ -1,104 +1,81 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Has this exact expense already been asked for?
+"""Has this person's stay already been asked for? (spec #1494, #1504)
 
-⚠️ THE RULE LIVES HERE, NOT IN `Expense Type.source_format` (owner ruling, 2026-08-19). The
-format describes the FORM SHAPE and nothing else; which answers make two requests the same
-ask is engineering policy, not something a requester-facing editor should be able to change.
-Changing it is a deploy, deliberately.
+URL: /api/method/nirmaan_stack.api.expense_requests.duplicates.check_duplicate_stay
 
-⚠️ NOTHING HERE REFUSES ANYTHING (owner ruling, 2026-08-20). This module ANSWERS the
-question; both surfaces that ask it -- the create dialog while the form is filled, and the
-review dialog at approval -- render the answer as a warning and let the human decide. The
-earlier submission-time block was removed: a duplicate cannot be told from a legitimate repeat
-with certainty, and a refusal the requester disagrees with has nowhere to go.
+⚠️ NOTHING HERE REFUSES ANYTHING (owner ruling 2026-08-20, kept by ADR-0016's 2026-10-19
+amendment). A second stay can be real, so this only ANSWERS the question, and three surfaces show
+the answer:
+  * the Reviewer, in bold, with every match (`similar.get_similar` -> `stays`);
+  * a raiser on Records without review, in bold, with the matches, before submit (they act as their
+    own reviewer), through `check_duplicate_stay`;
+  * any other raiser, as a quiet note that the reviewer will see it (same call).
+`create_expense_request` and `update_expense_request` also return the matches.
 
-WHAT MAKES A DUPLICATE: the same expense TYPE, the same SUBJECT, and PERIODS THAT OVERLAP.
-Nothing else -- and the three fields it does NOT use are the point:
+WHAT MAKES A DUPLICATE: the same FORM, the same PERSON (case and spacing ignored) and stays that
+OVERLAP BY AT LEAST ONE DAY, on any project, against any request or Expense that is not Rejected.
+A stay is the nights from its first date up to its last, so one that starts the day another ends
+shares no night and is not a match; a stay whose two dates are the same day counts as that one
+night. Amount and project are deliberately not compared: one person cannot live in two rented
+places on the same days, and a repeat is often typed with a different figure.
 
-  amount   the two live August rents for one person are 4,500 and 8,000
-  property one says `Sri Sai Annapoorana PG`, the other `Sri Sai` -- one building, two spellings
-  category one says `PG`, the other `Hotel`
+KEYED ON THE FORM'S `templateId`, which every request's `source_data` carries, NEVER on the
+Expense Type's name: renaming a type must not switch the check off (the name-keyed table this
+replaces was removed for exactly that, 2026-09-19). A form absent from `STAY_FORMS` is never checked.
 
-Every one of those would have MISSED the real duplicate. Person plus overlapping period caught
-it. Free text drifts the moment two people type it, so it is shown as context and never matched.
+EXPENSES are reached through the request they came from: the person and dates live only in that
+request's answers. An Expense's own status decides whether it counts, so a rejected Expense never
+matches even where its request still reads Approved. An Expense with no request (an old Direct
+Expense, an import) carries no person or dates and cannot be matched.
+
+RE-CHECKED ONLY WHEN THE STAY CHANGES (`stay_of`): an edit that keeps the person and dates is not
+flagged again.
 """
 
-import json
+from __future__ import annotations
+
+import datetime
 
 import frappe
 from frappe.utils import getdate
 
-from nirmaan_stack.api.expense_requests.flatten import flat_responses
+from nirmaan_stack.api.expense_requests.flatten import (
+	NATIVE_INVOICE_SECTION,
+	as_dict,
+	detail_rows,
+	flat_responses,
+)
+from nirmaan_stack.api.expense_requests.form_snapshot import governing_forms
+from nirmaan_stack.api.expense_requests.standing import expenses_of
+from nirmaan_stack.services.expense_standing import live_status
+from nirmaan_stack.services.expense_statuses import EXPENSE_REJECTED, REQUEST_REJECTED
 
-REJECTED = "Rejected"
-
-
-# ⚠️ A type ABSENT from this table has NO duplicate rule and is never blocked. That is the
-# safe direction: 34 of 40 types have no form at all, so there are no answers to compare and
-# a guess would refuse real work.
-#
-# `match_on` names the SUBJECT. `period` names the dates -- `from` alone is a point date (a
-# travel departure), which is a period of one day, so one overlap test serves both shapes.
-# `show` is CONTEXT for the message and is never compared.
-RULES: dict[str, dict] = {
-	"Staff Accommodation Rent": {
-		"match_on": ["person_name"],
-		"period": {"from": "rent_period_from", "to": "rent_period_to"},
-		# `building_name` was removed from this form 2026-09-16; `city` took its place.
-		"show": ["accommodation_type", "city"],
-	},
-	# NO person field on this one -- it is a BUILDING-level cost, so the building IS the
-	# subject. Free text and therefore driftable; a miss means a duplicate slips through,
-	# which is the direction to fail in when the alternative is refusing a real request.
-	"Labour Accommodation Rent": {
-		"match_on": ["building_name"],
-		"period": {"from": "rent_period_from", "to": "rent_period_to"},
-		"show": ["city", "no_of_occupants"],
-	},
-	"Hotel Expenses": {
-		"match_on": ["guest_name"],
-		"period": {"from": "check_in", "to": "check_out"},
-		"show": ["hotel_name", "location"],
-	},
-	"Travel Expenses (Bus)": {
-		"match_on": ["traveller_name"],
-		"period": {"from": "depart_date"},
-		"show": ["from_location", "to_location"],
-	},
-	"Travel Expenses (Flight)": {
-		"match_on": ["traveller_name"],
-		"period": {"from": "depart_date"},
-		"show": ["from_location", "to_location"],
-	},
-	"Travel Expenses (Train)": {
-		"match_on": ["traveller_name"],
-		"period": {"from": "depart_date"},
-		"show": ["from_location", "to_location"],
+# templateId -> which answer names the person, and which two name the stay's first and last day.
+STAY_FORMS: dict[str, dict] = {
+	"staff-accommodation": {
+		"person": "person_name",
+		"period": ("rent_period_from", "rent_period_to"),
 	},
 }
 
-
-def rule_for(expense_type: str) -> dict:
-	return RULES.get(expense_type) or {}
+ONE_DAY = datetime.timedelta(days=1)
 
 
-# --- pure helpers ---------------------------------------------------------------------
+# --- pure -----------------------------------------------------------------------------------
+
+
+def template_of(source_data) -> str:
+	return (as_dict(source_data) or {}).get("templateId") or ""
 
 
 def normalise(value) -> str:
-	"""Compare names the way a human reads them, not the way they were typed.
-
-	Live data carries `'Sri Sai Annapoorana Gents PG '` with a trailing space. Casefold plus
-	collapsed whitespace is as far as this goes -- deciding that `Sri Sai` and
-	`Sri Sai Annapoorana PG` are one building is a judgement, not a normalisation.
-	"""
+	"""`'Bittu Kumar '` and `'bittu  kumar'` are one person."""
 	return " ".join(str(value or "").split()).casefold()
 
 
-def to_date(value):
-	"""A stored answer as a date, or None. Never raises -- a malformed answer is just absent."""
+def _to_date(value):
 	if not value:
 		return None
 	try:
@@ -107,93 +84,116 @@ def to_date(value):
 		return None
 
 
-def subject_of(flat: dict, rule: dict):
-	"""The values that make two requests the same ask, or None.
-
-	None when any is blank: two requests that both left the name empty are not thereby the
-	same person, and blocking on that would refuse every unfilled form against every other.
-	"""
-	keys = rule.get("match_on") or []
-	if not keys:
+def stay_of(source_data) -> tuple | None:
+	"""`(template, person, first_day, last_day)`, or None when the form has no stay rule or the
+	person or a date is missing (an unfinished form is never a match). Reversed dates, which old
+	rows can hold, are read the right way round."""
+	template = template_of(source_data)
+	rule = STAY_FORMS.get(template)
+	if not rule:
 		return None
-	values = tuple(normalise(flat.get(k)) for k in keys)
-	return values if all(values) else None
-
-
-def period_of(flat: dict, rule: dict) -> tuple:
-	spec = rule.get("period") or {}
-	start = to_date(flat.get(spec.get("from")))
-	end = to_date(flat.get(spec.get("to"))) if spec.get("to") else start
-	return (start, end or start)
+	answers = flat_responses(source_data)
+	person = normalise(answers.get(rule["person"]))
+	start, end = (_to_date(answers.get(k)) for k in rule["period"])
+	if not (person and start and end):
+		return None
+	start, end = sorted((start, end))
+	return (template, person, start, end)
 
 
 def overlaps(a: tuple, b: tuple) -> bool:
-	"""Do two periods share a day?
+	"""Do two stays (`stay_of`) share at least one night?"""
+	_, _, a1, a2 = a
+	_, _, b1, b2 = b
+	return a1 < max(b2, b1 + ONE_DAY) and b1 < max(a2, a1 + ONE_DAY)
 
-	OVERLAP, not equality: 1--31 Aug against 15 Aug--14 Sep is still a double payment for the
-	shared fortnight. An unknown period on either side is NOT an overlap -- absence is not
-	evidence, and this decides a refusal.
+
+# --- the finder -----------------------------------------------------------------------------
+
+
+def find_stay_duplicates(source_data, exclude: str | None = None) -> list[dict]:
+	"""Every other request, or the Expense it became, for this stay's person on overlapping days.
+
+	Newest first, one per request. `exclude` is the request itself. Each match:
+	`{request, status, expense, type, projects, project_name, amount, person, period_from,
+	period_to, owner_name, creation, detail}`; `status` is the live label (the Expense's once there
+	is one), `expense` is `{doctype, name, status}` or None, and `detail` is that request's answers,
+	labelled by the form it was filled against (its snapshot), for the hover card.
 	"""
-	(a1, a2), (b1, b2) = a, b
-	if not (a1 and a2 and b1 and b2):
-		return False
-	return a1 <= b2 and b1 <= a2
-
-
-def describe(flat: dict, rule: dict) -> str:
-	"""The context line for a message -- the fields we deliberately do NOT match on."""
-	return " · ".join(v for v in (flat.get(k) for k in (rule.get("show") or [])) if v)
-
-
-# --- the finder -----------------------------------------------------------------------
-
-
-def find_overlapping(expense_type: str, source_data, exclude: str | None = None) -> list:
-	"""Requests of this type, same subject, period overlapping. Newest first.
-
-	⚠️ SCOPED TO THE EXPENSE TYPE. An `Accommodation Deposit` and a `Staff Accommodation
-	Rent` for the same August are two different asks about one stay, and blocking the second
-	would refuse a real request.
-
-	A REJECTED request is skipped: it never became money, so it cannot be double-paid.
-
-	⚠️ SEARCHES REQUESTS ONLY. The period lives in `source_data`, which a directly-entered
-	ledger row does not have -- only 5 of 3,302 rows carry a `request_id` today. So an expense
-	keyed in by an accountant is invisible here, and that gap closes only as requests become
-	the way expenses arrive.
-	"""
-	rule = rule_for(expense_type)
-	if not rule:
+	stay = stay_of(source_data)
+	if not stay:
 		return []
+	template, person = stay[0], stay[1]
 
-	flat = flat_responses(source_data)
-	subject = subject_of(flat, rule)
-	period = period_of(flat, rule)
-	if not subject or not period[0]:
-		return []  # nothing to compare -- never block on an unanswered form
-
-	filters = {"type": expense_type, "status": ["!=", REJECTED]}
+	filters = {
+		"status": ["!=", REQUEST_REJECTED],
+		# A coarse pre-filter on the stored JSON; the template is compared exactly below.
+		"source_data": ["like", f"%{template}%"],
+	}
 	if exclude:
 		filters["name"] = ["!=", exclude]
-
-	hits = []
+	candidates = []
 	for r in frappe.get_all(
 		"Expense Request", filters=filters,
-		fields=["name", "amount", "status", "source_data", "owner", "creation"],
+		fields=["name", "type", "projects", "amount", "status", "source_data", "owner", "creation"],
 		order_by="creation desc", limit_page_length=0,
 	):
-		other = flat_responses(r["source_data"])
-		if subject_of(other, rule) != subject:
+		other = stay_of(r.source_data)
+		if other and other[0] == template and other[1] == person and overlaps(stay, other):
+			candidates.append((r, other))
+	if not candidates:
+		return []
+
+	expenses = expenses_of([r.name for r, _ in candidates])
+	forms = governing_forms(r for r, _ in candidates)
+	project_names = dict(frappe.get_all(
+		"Projects", filters={"name": ["in", list({r.projects for r, _ in candidates if r.projects})]},
+		fields=["name", "project_name"], as_list=True,
+	)) if any(r.projects for r, _ in candidates) else {}
+
+	matches = []
+	for r, other in candidates:
+		expense = expenses.get(r.name)
+		if expense and expense["status"] == EXPENSE_REJECTED:
 			continue
-		other_period = period_of(other, rule)
-		if not overlaps(period, other_period):
-			continue
-		hits.append({
-			"name": r["name"],
-			"amount": r["amount"],
-			"status": r["status"],
-			"period_from": str(other_period[0]),
-			"period_to": str(other_period[1]),
-			"context": describe(other, rule),
+		matches.append({
+			"request": r.name,
+			"status": live_status(r.status, expense and expense["status"]),
+			"expense": ({"doctype": expense["doctype"], "name": expense["name"], "status": expense["status"]}
+			            if expense else None),
+			"type": r.type,
+			"projects": r.projects,
+			"project_name": project_names.get(r.projects),
+			"amount": expense["amount"] if expense else r.amount,
+			"person": flat_responses(r.source_data).get(STAY_FORMS[template]["person"]),
+			"period_from": str(other[2]),
+			"period_to": str(other[3]),
+			"owner_name": frappe.utils.get_fullname(r.owner),
+			"creation": str(r.creation),
+			"detail": detail_rows(r.source_data, forms.get(r.name), skip_sections=(NATIVE_INVOICE_SECTION,)),
 		})
-	return hits
+	return matches
+
+
+def stay_changed(before_source_data, after_source_data) -> bool:
+	"""Did an edit change the stay itself (its form, person or dates)?"""
+	return stay_of(before_source_data) != stay_of(after_source_data)
+
+
+@frappe.whitelist()
+def check_duplicate_stay(source_data=None, exclude: str | None = None) -> dict:
+	"""Read-only: the matches for the stay on the New Expense form, while it is filled.
+
+	`exclude` is the request being EDITED: it is never its own match, and while its stay is
+	unchanged nothing is returned (it was checked when that stay was set). Which way the dialog
+	shows the matches is the caller's Records without review answer (`get_request_catalog`).
+	"""
+	# `get_all` reads past permissions, so the door is checked here: only someone who may read
+	# expense requests learns anything about other people's.
+	if not frappe.has_permission("Expense Request", "read"):
+		frappe.throw("Not permitted.", frappe.PermissionError)
+	if exclude:
+		stored = frappe.db.get_value("Expense Request", exclude, "source_data")
+		if not stay_changed(stored, source_data):
+			return {"matches": []}
+	return {"matches": find_stay_duplicates(source_data, exclude=exclude)}

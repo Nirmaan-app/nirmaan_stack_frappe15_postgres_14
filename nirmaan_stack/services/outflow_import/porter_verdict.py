@@ -1,17 +1,22 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Does one Porter Invoice's PDF, as Gemini read it, agree with the statement? (#1444, ADR-0032)
+"""Does one Porter Invoice's PDF, as Gemini read it, agree with the statement? (#1444, #1559, ADR-0032)
 
 PURE MODULE -- no `frappe`, no database. `judge_invoice` is the Comparing step of the validation job
 (`api/outflow_import/porter_validation.py`); its verdict is one of the invoice statuses in
-`porter_state`.
+`porter_state`. It needs only the statement's figures and what was read, so an invoice can be judged
+again from its stored reading, without downloading the PDF.
+
+ONLY THE PORTER FARE AND THE INVOICE DATE DECIDE (spec #1554). The GST on a Porter Order comes from the
+statement whatever the PDF says, and Gemini often misreads a GSTIN, so a GSTIN, tax or invoice-number
+difference -- or one it could not read -- is a WARNING on the verdict, never a failure.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import date
+from dataclasses import asdict, dataclass
+from datetime import date, timedelta
 from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.amounts import PORTER_INVOICE_TOLERANCE, rupees
@@ -21,18 +26,36 @@ from nirmaan_stack.services.outflow_import.porter_state import (
     INVOICE_PASSED,
 )
 
-__all__ = ["InvoiceFigures", "InvoiceRead", "InvoiceVerdict", "judge_invoice"]
+__all__ = [
+    "INVOICE_DATE_SLACK_DAYS",
+    "InvoiceFigures",
+    "InvoiceRead",
+    "InvoiceVerdict",
+    "InvoiceWarning",
+    "invoice_date_window",
+    "judge_invoice",
+    "stored_warnings",
+    "warnings_from_stored",
+]
+
+#: How many days after the statement's last order an invoice may still be dated: Porter issues the
+#: month's invoices just after it ends.
+INVOICE_DATE_SLACK_DAYS = 7
 
 
 @dataclass(frozen=True)
 class InvoiceFigures:
-    """The statement's side of the comparison: one Porter Invoice over its COMPLETED orders."""
+    """The statement's side of the comparison: one Porter Invoice over its COMPLETED orders, and the
+    statement's period (its first and last order completion dates, the import's `period_from` / `period_to`).
+    A period of None leaves the invoice date unchecked."""
 
     invoice_number: str
     porter_gstin: str
     customer_gstin: str
     fare: Decimal
     tax: Decimal
+    first_order_date: date | None
+    last_order_date: date | None
 
 
 @dataclass(frozen=True)
@@ -51,60 +74,112 @@ class InvoiceRead:
 
 
 @dataclass(frozen=True)
+class InvoiceWarning:
+    """A figure the PDF reads differently from the statement, which does not stop the invoice agreeing.
+    `figure` is its label (Invoice number, Porter GSTIN, Customer GSTIN, Tax); `statement` and `read` are
+    as shown, `read` None when Gemini could not read it."""
+
+    figure: str
+    statement: str
+    read: str | None
+
+
+@dataclass(frozen=True)
 class InvoiceVerdict:
-    """`status` is Passed, Failed or Error; `message` names the invoice and why (blank on Passed)."""
+    """`status` is Passed, Failed or Error; `message` names the invoice and why (blank on Passed);
+    `warnings` the figures that differ without deciding anything, whatever the status."""
 
     status: str
     message: str
+    warnings: tuple[InvoiceWarning, ...] = ()
+
+
+def invoice_date_window(first_order_date: date, last_order_date: date) -> tuple[date, date]:
+    """The dates a Porter Invoice of this statement may carry: its first order to its last plus
+    `INVOICE_DATE_SLACK_DAYS`, both ends included."""
+    return first_order_date, last_order_date + timedelta(days=INVOICE_DATE_SLACK_DAYS)
 
 
 def judge_invoice(statement: InvoiceFigures, read: InvoiceRead) -> InvoiceVerdict:
     """Compare what Gemini read with the statement's figures for one Porter Invoice.
 
-    Passes only when ALL agree: the invoice number; the supplier GSTIN is Porter's GSTIN; the receiver
-    GSTIN is the customer GSTIN; fare and tax each within `PORTER_INVOICE_TOLERANCE`. Spacing and letter case
-    in a number or a GSTIN are not a difference.
+    * Failed -- the fare is more than `PORTER_INVOICE_TOLERANCE` off, or the invoice date falls outside
+      `invoice_date_window`. Each is named, fare first.
+    * Error -- nothing failed, but the fare or the date was not read. A read glitch decides nothing, so
+      the invoice can be retried; a failure outweighs it.
+    * Passed -- otherwise.
 
-    * Failed -- at least one figure disagrees. Every disagreeing figure is named, invoice first.
-    * Error -- nothing disagrees but a figure was not read. A read glitch decides nothing, so the invoice
-      can be retried; a disagreement outweighs it.
+    Whatever the status, the invoice number, Porter GSTIN (the supplier's), customer GSTIN (the receiver's)
+    and tax (within the same tolerance) are compared too, and each that differs or was not read is a
+    warning. Spacing and letter case in a number or a GSTIN are not a difference.
     """
-    disagree: list[str] = []
+    failed: list[str] = []
     unread: list[str] = []
+    warnings: list[InvoiceWarning] = []
 
-    def _identity(label: str, read_value: str, statement_value: str) -> None:
-        if not _ident(read_value):
-            unread.append(_UNREAD_NOUN.get(label, label))
-        elif _ident(read_value) != _ident(statement_value):
-            disagree.append(f"{label}: invoice {read_value.strip()}, statement {statement_value.strip()}")
+    if read.fare is None:
+        unread.append("fare")
+    elif _money_differs(read.fare, statement.fare):
+        failed.append(
+            f"Fare: invoice {rupees(read.fare, paise=True)}, statement {rupees(statement.fare, paise=True)}"
+        )
 
-    def _money(label: str, read_value: Decimal | None, statement_value: Decimal) -> None:
-        if read_value is None:
-            unread.append(_UNREAD_NOUN.get(label, label))
-        elif abs(Decimal(read_value) - Decimal(statement_value)) > PORTER_INVOICE_TOLERANCE:
-            disagree.append(f"{label}: invoice {rupees(read_value, paise=True)}, statement {rupees(statement_value, paise=True)}")
+    if read.invoice_date is None:
+        unread.append("invoice date")
+    elif statement.first_order_date and statement.last_order_date:
+        start, end = invoice_date_window(statement.first_order_date, statement.last_order_date)
+        if not start <= read.invoice_date <= end:
+            failed.append(
+                f"Invoice date: invoice {_day(read.invoice_date)}, outside the statement's orders "
+                f"{_day(statement.first_order_date)} to {_day(statement.last_order_date)} plus "
+                f"{INVOICE_DATE_SLACK_DAYS} days"
+            )
 
-    _identity("Invoice number", read.invoice_number, statement.invoice_number)
-    _identity("Porter GSTIN", read.supplier_gstin, statement.porter_gstin)
-    _identity("Customer GSTIN", read.receiver_gstin, statement.customer_gstin)
-    _money("Fare", read.fare, statement.fare)
-    _money("Tax", read.tax, statement.tax)
+    for figure, read_value, statement_value in (
+        ("Invoice number", read.invoice_number, statement.invoice_number),
+        ("Porter GSTIN", read.supplier_gstin, statement.porter_gstin),
+        ("Customer GSTIN", read.receiver_gstin, statement.customer_gstin),
+    ):
+        if not _ident(read_value) or _ident(read_value) != _ident(statement_value):
+            warnings.append(
+                InvoiceWarning(figure, (statement_value or "").strip(), (read_value or "").strip() or None)
+            )
+    if read.tax is None or _money_differs(read.tax, statement.tax):
+        read_tax = None if read.tax is None else rupees(read.tax, paise=True)
+        warnings.append(InvoiceWarning("Tax", rupees(statement.tax, paise=True), read_tax))
 
     number = statement.invoice_number
-    if disagree:
+    if failed:
         return InvoiceVerdict(
-            INVOICE_FAILED, f"Invoice {number} disagrees with the statement. {'; '.join(disagree)}."
+            INVOICE_FAILED, f"Invoice {number} disagrees with the statement. {'; '.join(failed)}.", tuple(warnings)
         )
     if unread:
-        listed = unread[0] if len(unread) == 1 else f"{', '.join(unread[:-1])} and {unread[-1]}"
         return InvoiceVerdict(
-            INVOICE_ERROR, f"Invoice {number}: could not read the {listed} off the PDF. Retry it."
+            INVOICE_ERROR,
+            f"Invoice {number}: could not read the {' and '.join(unread)} off the PDF. Retry it.",
+            tuple(warnings),
         )
-    return InvoiceVerdict(INVOICE_PASSED, "")
+    return InvoiceVerdict(INVOICE_PASSED, "", tuple(warnings))
 
 
-# How a figure Gemini did not read is named mid-sentence ("could not read the invoice number and tax").
-_UNREAD_NOUN = {"Invoice number": "invoice number", "Fare": "fare", "Tax": "tax"}
+def stored_warnings(warnings: tuple[InvoiceWarning, ...]) -> dict | None:
+    """The warnings as `Porter Invoice.validation_warnings` holds them: an object, never a bare list (a
+    JSON field), and None when there are none -- so "has warnings" is `IS NOT NULL`."""
+    return {"warnings": [asdict(warning) for warning in warnings]} if warnings else None
+
+
+def warnings_from_stored(stored: dict | None) -> tuple[InvoiceWarning, ...]:
+    """`stored_warnings` read back."""
+    return tuple(InvoiceWarning(**warning) for warning in (stored or {}).get("warnings") or ())
+
+
+def _money_differs(read_value: Decimal, statement_value: Decimal) -> bool:
+    return abs(Decimal(read_value) - Decimal(statement_value)) > PORTER_INVOICE_TOLERANCE
+
+
+def _day(value: date) -> str:
+    """A date as the screens write it, dd-MMM-yyyy."""
+    return value.strftime("%d-%b-%Y")
 
 
 def _ident(value: str | None) -> str:

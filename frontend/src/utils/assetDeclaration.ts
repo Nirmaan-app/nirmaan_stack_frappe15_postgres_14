@@ -30,7 +30,7 @@ export function canSignDeclaration({
 }
 
 /**
- * How many of a person's assignments they can sign now -- the sidebar badge. Same rule as the Sign
+ * How many of a person's assignments they can sign now -- the app access gate's count. Same rule as the Sign
  * button, so a leftover row for an asset someone else now holds is never counted.
  *
  * @param heldAssets the assets whose `current_assignee` is `viewerId`.

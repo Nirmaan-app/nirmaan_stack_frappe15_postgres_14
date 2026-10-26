@@ -28,6 +28,7 @@ from nirmaan_stack.api.expense_requests.review import (
 	reject_expense_request,
 )
 from nirmaan_stack.services import expense_request_routing as routing
+from nirmaan_stack.services.approval_tiers import TIER_AUTO_APPROVE_BELOW
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 
 PM_USER = "exr_test_pm@example.com"
@@ -36,11 +37,19 @@ HR_USER = "exr_test_hr@example.com"
 ACC_USER = "exr_test_acc@example.com"
 HRL_USER = "exr_test_hrl@example.com"
 
-PROJECT_TYPE = "Staff Accommodation Rent"      # project=1, non_project=0
+PROJECT_TYPE = "Rent/PG for Staff"      # project=1, non_project=0
 NON_PROJECT_TYPE = "Travel Expenses (Bus)"     # project=0, non_project=1
 BOTH_TYPE = "Petty Cash"                       # project=1, non_project=1
 HOTEL_CATEGORY = "Hotel & Accommodation"
 PM_PROFILE = "Nirmaan Project Manager Profile"
+# The answers of a type with no form: its Description.
+STANDARD_ANSWERS = {"responses": {"detail": {"description": "test req"}}}
+
+#: The auto-approve line, read from the rule (services/approval_tiers) so a moved line moves these
+#: tests with it. The rule is a strict `<`: an amount AT the line needs L1, one rupee below it does not.
+AT_THE_LINE = int(TIER_AUTO_APPROVE_BELOW)
+BELOW_THE_LINE = AT_THE_LINE - 1
+ABOVE_THE_LINE = AT_THE_LINE + 5000
 
 
 def _make_user(email: str, profile: str, roles: tuple[str, ...]):
@@ -121,19 +130,22 @@ class TestExpenseRequests(FrappeTestCase):
 		frappe.set_user("Administrator")
 		for n in cls.granted_roles:
 			frappe.db.delete("Expense Type Role", {"name": n})
-		for r in frappe.get_all("Expense Request",
-		                        filters={"owner": ["in", [PM_USER, PM2_USER, HR_USER,
-		                                                  ACC_USER, HRL_USER]]}):
+		requests = frappe.get_all("Expense Request", pluck="name",
+		                          filters={"owner": ["in", [PM_USER, PM2_USER, HR_USER,
+		                                                    ACC_USER, HRL_USER]]})
+		# Only the ledger rows born from this suite's own requests: other rows on the site
+		# (a browser walk's, say) carry the same "[EXR-" description and must survive.
+		# Deleting a row also deletes its request, so the rows go first.
+		for dt in ("Project Expenses", "Non Project Expenses"):
+			for r in frappe.get_all(dt, filters={"request_id": ["in", requests or [""]]}):
+				frappe.delete_doc(dt, r.name, force=True, ignore_permissions=True)
+		for name in requests:
 			for n in frappe.get_all("Nirmaan Notifications",
-			                        filters={"document": "Expense Request", "docname": r.name}):
+			                        filters={"document": "Expense Request", "docname": name}):
 				frappe.delete_doc("Nirmaan Notifications", n.name, force=True,
 				                  ignore_permissions=True)
-			frappe.delete_doc("Expense Request", r.name, force=True, ignore_permissions=True)
-		# Ledger rows are owned by whoever approved, so they are found by the request id the
-		# composed description carries -- the only durable link back on the non-project side.
-		for dt in ("Project Expenses", "Non Project Expenses"):
-			for r in frappe.get_all(dt, filters={"description": ["like", "%[EXR-%"]}):
-				frappe.delete_doc(dt, r.name, force=True, ignore_permissions=True)
+			if frappe.db.exists("Expense Request", name):
+				frappe.delete_doc("Expense Request", name, force=True, ignore_permissions=True)
 		frappe.delete_doc("Projects", cls.project, force=True, ignore_permissions=True)
 		for email in (PM_USER, PM2_USER, HR_USER, ACC_USER, HRL_USER):
 			for dt in ("Nirmaan Users", "User"):
@@ -220,12 +232,16 @@ class TestExpenseRequests(FrappeTestCase):
 		self.assertEqual(b["projects"], self.project)
 
 	def test_source_data_accepts_an_object_and_stores_json(self):
-		res = self._raise_as(PM_USER, source_data={"responses": {"stay": {"nights": 2}}})
+		res = self._raise_as(PM_USER, source_data={
+			"responses": {"detail": {"description": "two nights"}, "stay": {"nights": 2}}})
 		stored = frappe.db.get_value("Expense Request", res["name"], "source_data")
 		self.assertIn('"nights"', stored)
 
 	def test_source_data_is_optional(self):
-		res = self._raise_as(PM_USER, description=None)
+		"""On a type with a form: a type with none needs its Description (#1501)."""
+		formed = self._own_type(fmt=json.dumps({"templateId": "exr-test-opt", "templateVersion": 1,
+		                                        "sections": []}), enabled=1)
+		res = self._raise_as(PM_USER, expense_type=formed, description=None)
 		self.assertIsNone(frappe.db.get_value("Expense Request", res["name"], "source_data"))
 
 	def test_a_format_less_request_stores_its_description_in_source_data(self):
@@ -310,6 +326,16 @@ class TestExpenseRequests(FrappeTestCase):
 				self.assertEqual(
 					frappe.db.get_value("Expense Request", res["name"], "reviewed_by"), reviewer)
 
+	def test_approval_records_the_expense_a_project_manager_may_not_create(self):
+		"""A Project Manager holds no create right on either ledger (#1495), yet approving their
+		request still records its Expense, on both ledgers."""
+		for kw in ({}, {"expense_type": PROJECT_TYPE, "projects": self.project}):
+			res = self._raise_as(PM_USER, **kw)
+			out = approve_expense_request(res["name"])
+			with self.subTest(doctype=out["created_expense_doctype"]):
+				self.assertFalse(frappe.has_permission(out["created_expense_doctype"], "create", user=PM_USER))
+				self.assertTrue(frappe.db.exists(out["created_expense_doctype"], out["created_expense"]))
+
 	def test_accountant_may_reject_a_pm_request(self):
 		res = self._raise_as(PM_USER)
 		frappe.set_user(ACC_USER)
@@ -318,7 +344,14 @@ class TestExpenseRequests(FrappeTestCase):
 		self.assertEqual(out["status"], "Rejected")
 
 	def test_accountant_cannot_review_a_request_a_pm_did_not_raise(self):
-		res = self._raise_as("Administrator")
+		# An Admin's request is approved on submit (#1498), so a pending one an Admin owns is
+		# put in place directly: this tests the review gate, not the intake.
+		doc = frappe.get_doc({
+			"doctype": "Expense Request", "type": NON_PROJECT_TYPE, "amount": 4300,
+			"status": "Pending Approval",
+			"source_data": json.dumps({"responses": {"detail": {"description": "test req"}}}),
+		}).insert(ignore_permissions=True)
+		res = {"name": doc.name}
 		self.addCleanup(frappe.delete_doc, "Expense Request", res["name"],
 		                force=True, ignore_permissions=True)
 		self.assertFalse(self._row_as(ACC_USER, res["name"])["can_review"])
@@ -341,9 +374,9 @@ class TestExpenseRequests(FrappeTestCase):
 	# --- what approval creates ----------------------------------------------
 
 	def test_ledger_row_is_created_at_approved_not_requested(self):
-		"""The load-bearing one. `Approved` is what bypasses the < 15,000 auto-approve AND
+		"""The load-bearing one. `Approved` is what bypasses the auto-approve line AND
 		what keeps the row out of the `Requested` queue nothing drains."""
-		res = self._raise_as(PM_USER, amount=1000)  # deliberately under the limit
+		res = self._raise_as(PM_USER, amount=BELOW_THE_LINE)  # deliberately under the limit
 		out = approve_expense_request(res["name"])
 		self.assertEqual(
 			frappe.db.get_value("Non Project Expenses", out["created_expense"], "status"),
@@ -355,25 +388,34 @@ class TestExpenseRequests(FrappeTestCase):
 		self.assertEqual(out["created_expense_doctype"], "Non Project Expenses")
 
 	def test_a_project_targets_the_project_ledger_and_carries_it(self):
-		res = self._raise_as(PM_USER, expense_type=PROJECT_TYPE, amount=15000,
+		res = self._raise_as(PM_USER, expense_type=PROJECT_TYPE, amount=AT_THE_LINE,
 		                     projects=self.project)
+		# An Accountant reviews: an Admin's review would be the L1 step itself (#1499).
+		frappe.set_user(ACC_USER)
 		out = approve_expense_request(res["name"])
+		frappe.set_user("Administrator")
 		self.assertEqual(out["created_expense_doctype"], "Project Expenses")
 		row = frappe.get_doc("Project Expenses", out["created_expense"])
 		self.assertEqual(row.projects, self.project)
-		# ₹15,000 EXACTLY is not below the limit -- the rule is a strict `<` (services/approval_tiers).
+		# EXACTLY the line is not below it -- the rule is a strict `<` (services/approval_tiers).
 		self.assertEqual(row.status, "Requested")
 
 	def test_the_ledger_rule_decides_the_status_not_the_approval(self):
 		"""Owner ruling 2026-08-20: approval no longer forces `Approved`.
 
 		The row is born at the ledger default and each doctype's own `validate` applies the
-		SAME threshold it applies to a directly-entered row.
+		SAME threshold it applies to a directly-entered row. An Accountant reviews here: an
+		Admin's review is the L1 step (#1499, `test_review_is_l1`).
 		"""
-		for amount, expected in ((900, "Approved"), (14999, "Approved"),
-		                         (15000, "Requested"), (20000, "Requested")):
+		for amount, expected in ((AT_THE_LINE // 10, "Approved"), (BELOW_THE_LINE, "Approved"),
+		                         (AT_THE_LINE, "Requested"), (ABOVE_THE_LINE, "Requested")):
 			with self.subTest(amount=amount):
-				out = approve_expense_request(self._raise_as(PM_USER, amount=amount)["name"])
+				name = self._raise_as(PM_USER, amount=amount)["name"]
+				frappe.set_user(ACC_USER)
+				try:
+					out = approve_expense_request(name)
+				finally:
+					frappe.set_user("Administrator")
 				self.assertEqual(
 					frappe.db.get_value(out["created_expense_doctype"],
 					                    out["created_expense"], "status"),
@@ -485,8 +527,8 @@ class TestExpenseRequests(FrappeTestCase):
 		row.update({"type": NON_PROJECT_TYPE, "status": "Approved", "amount": 900,
 		            "description": "exr_test_ direct expense"})
 		row.insert(ignore_permissions=True)
-		# This row has no request id, so `tearDownClass` (which finds ledger rows by the id in
-		# their description) never sees it -- it leaked one Paid row per run until deleted here.
+		# This row has no request id, so `tearDownClass` (which finds ledger rows by their
+		# `request_id`) never sees it -- it leaked one Paid row per run until deleted here.
 		self.addCleanup(lambda: (frappe.delete_doc("Non Project Expenses", row.name, force=True,
 		                                           ignore_permissions=True), frappe.db.commit()))
 		row.status = "Paid"
@@ -646,7 +688,10 @@ class TestExpenseRequests(FrappeTestCase):
 	def _edit(self, user, res, **kw):
 		frappe.set_user(user)
 		try:
-			payload = {"name": res["name"], "expense_type": NON_PROJECT_TYPE, "amount": 4300}
+			# A type with no form needs its Description on every save, as on create (#1503 took
+			# the form off NON_PROJECT_TYPE).
+			payload = {"name": res["name"], "expense_type": NON_PROJECT_TYPE, "amount": 4300,
+			           "source_data": STANDARD_ANSWERS}
 			payload.update(kw)
 			return update_expense_request(**payload)
 		finally:
@@ -683,7 +728,7 @@ class TestExpenseRequests(FrappeTestCase):
 		res = self._raise_as(PM_USER, amount=4300)
 
 		update_expense_request(name=res["name"], expense_type=NON_PROJECT_TYPE, amount=8800,
-		                       comment="fixed by admin")
+		                       comment="fixed by admin", source_data=STANDARD_ANSWERS)
 		doc = frappe.get_doc("Expense Request", res["name"])
 		self.assertEqual(doc.amount, 8800)
 		self.assertEqual(doc.comment, "fixed by admin")
@@ -1015,26 +1060,22 @@ class TestExpenseRequests(FrappeTestCase):
 		self.assertEqual(get_expense_format(on)["source_format"], fmt)
 		self.assertTrue(self._catalog_types()[on]["has_format"])
 
+	def test_a_type_with_no_form_needs_a_description_and_the_comment_stays_optional(self):
+		"""The short New Expense form (#1501): a type with no per-type form asks only Description
+		(required) and Comment (optional)."""
+		standard = self._own_type()
+		res = self._raise_as(PM_USER, expense_type=standard, description="Diesel for the generator")
+		self.assertEqual(res["status"], "Pending Approval")
+		self.assertFalse(frappe.db.get_value("Expense Request", res["name"], "comment"))
+
+		with self.assertRaises(frappe.ValidationError):
+			self._raise_as(PM_USER, expense_type=standard, description="   ", comment="see bill")
+
 	def test_the_switch_cannot_be_on_without_a_format(self):
 		with self.assertRaises(frappe.ValidationError):
 			self._own_type(enabled=1)
 
-	def test_standard_invoice_details_must_hang_together(self):
-		off = self._own_type()
-
-		def raise_with(invoice=None, files=None):
-			data = {"responses": {"detail": {"description": "cement"}}}
-			if invoice is not None:
-				data["responses"]["invoice"] = invoice
-			if files is not None:
-				data["attachments"] = {"invoice": files}
-			return self._raise_as(PM_USER, expense_type=off, source_data=data)
-
-		with self.assertRaises(frappe.ValidationError):   # a file needs a reference
-			raise_with({"invoice_date": "2026-09-01"}, ["/private/files/exr_test_inv.pdf"])
-		with self.assertRaises(frappe.ValidationError):   # any detail needs a date
-			raise_with({"invoice_ref": "INV-1"})
-		self.assertTrue(raise_with({"invoice_date": "2026-09-01"})["name"])
+	# A missing invoice date or number warns and no longer refuses (#1502): `test_request_invoice`.
 
 	def test_a_standard_request_carries_its_invoice_to_the_ledger(self):
 		off = self._own_type()
@@ -1073,7 +1114,10 @@ class TestExpenseRequests(FrappeTestCase):
 	def test_an_answer_the_form_no_longer_asks_still_reaches_the_description(self):
 		"""#1430 took the free-text bank fields off the forms. A request raised before that and
 		approved after keeps its typed text: the form's sentence no longer names it, so it
-		follows the sentence, labelled."""
+		follows the sentence, labelled.
+
+		The request is stored as one raised before form snapshots (#1503): with its snapshot it
+		would read against the form it was filled with (`test_request_form_snapshot`)."""
 		before = json.dumps({
 			"templateId": "exr-test-dropped", "templateVersion": 1,
 			"description_template": "Stay for {guest}.[[ Pay to {account_holder}.]]",
@@ -1096,6 +1140,9 @@ class TestExpenseRequests(FrappeTestCase):
 			"templateId": "exr-test-dropped", "templateVersion": 1,
 			"responses": {"detail": {"guest": "Asha"},
 			              "payee_bank": {"account_holder": "R Kumar", "ifsc": "HDFC0000123"}}})
+		data = json.loads(frappe.db.get_value("Expense Request", res["name"], "source_data"))
+		data.pop("snapshotHash", None)
+		frappe.db.set_value("Expense Request", res["name"], "source_data", json.dumps(data))
 
 		frappe.db.set_value("Expense Type", typ, "source_format", after)
 		frappe.db.commit()

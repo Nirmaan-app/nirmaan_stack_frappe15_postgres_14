@@ -15,9 +15,10 @@
 // to <Link>s, styled like the status pills below it (active = bg-primary/white). Bring back
 // the useCounts batch with it if the counts are wanted.
 //
-// The right-action button ("Raise Expense Request") is UNAFFECTED: it lives in
+// The right-action button ("New Expense") is UNAFFECTED: it lives in
 // components/helpers/renderRightActionButton.tsx and keys off the sub-route, not off this
-// file. It is the only entry point for creating a request.
+// file. It is the only entry point for raising an expense (spec #1494). Who reaches this
+// layout at all is `ExpenseRoute` (utils/auth/ProtectedRoute.tsx).
 
 import React from "react";
 import { Outlet } from "react-router-dom";

@@ -611,6 +611,7 @@ describe("the source scope", () => {
             "Cashbook",
             "ICICI Bank Statement",
             "Porter Statement",
+            "ICICI Credit Card Statement",
         ]);
     });
 
@@ -1141,6 +1142,10 @@ describe("tabFromCarried -- the tab a history entry carries across a remount", (
 describe("postImportTab", () => {
     it("lands a Cashbook import on Matched / Settled – Outflow, where its created rows are", () => {
         expect(postImportTab("Cashbook", "notMatchedOutflow")).toBe("matchedOutflow");
+    });
+
+    it("lands a Porter import opened from its result on the same tab, where its created lines are (#1561)", () => {
+        expect(postImportTab("Porter Statement", "notMatchedOutflow")).toBe("matchedOutflow");
     });
 
     it("leaves every other source where the reader was", () => {

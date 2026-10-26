@@ -4,6 +4,7 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { TailSpin } from "react-loader-spinner";
 import { ColumnFiltersState } from "@tanstack/react-table";
 import { Receipt, TrendingDown } from "lucide-react";
+import { expenseTotalLabel } from "../expenseTotalLabel";
 
 interface GroupByResultItem {
     group_key: string;
@@ -19,6 +20,8 @@ interface ProjectExpenseSummaryCardProps {
     groupByResult?: GroupByResultItem[] | null;
     getExpenseTypeName: (id?: string) => string;
     projectName?: string;
+    /** The status tab whose expenses the card totals ("Paid" inside a project). */
+    statusTab: string;
 }
 
 // Helper component to display active filters
@@ -67,6 +70,7 @@ export const ProjectExpenseSummaryCard: React.FC<ProjectExpenseSummaryCardProps>
     groupByResult,
     getExpenseTypeName,
     projectName,
+    statusTab,
 }) => {
     const getTitle = () => {
         if (projectName) return `Expense Summary — ${projectName}`;
@@ -105,7 +109,7 @@ export const ProjectExpenseSummaryCard: React.FC<ProjectExpenseSummaryCardProps>
                                         {formatToRoundedIndianRupee(aggregates.sum_of_amount || 0)}
                                     </span>
                                     <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase">
-                                        Total Expense
+                                        {expenseTotalLabel(statusTab)}
                                     </span>
                                 </div>
                                 {/* Filters inline */}
@@ -165,11 +169,11 @@ export const ProjectExpenseSummaryCard: React.FC<ProjectExpenseSummaryCardProps>
                 <CardContent className="px-5 pb-4 pt-0">
                     {aggregates ? (
                         <div className="grid grid-cols-2 gap-4">
-                            {/* Primary Metric - Total Expense Amount */}
+                            {/* Primary Metric - the total of the expenses in view */}
                             <div className="bg-gradient-to-br from-amber-50 to-orange-50/50 dark:from-amber-950/40 dark:to-orange-950/30 rounded-lg p-4 border border-amber-100 dark:border-amber-900/50">
                                 <dt className="text-xs font-medium text-amber-600/80 dark:text-amber-400/80 uppercase tracking-wide mb-1 flex items-center gap-1.5">
                                     <TrendingDown className="h-3 w-3" />
-                                    Total Expense Amount
+                                    {expenseTotalLabel(statusTab)}
                                 </dt>
                                 <dd className="text-2xl font-bold text-amber-700 dark:text-amber-400 tabular-nums">
                                     {formatToRoundedIndianRupee(aggregates.sum_of_amount || 0)}

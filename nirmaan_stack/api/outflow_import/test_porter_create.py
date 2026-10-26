@@ -27,6 +27,7 @@ from nirmaan_stack.api.outflow_import.test_porter_validation import PorterValida
 from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import _compute_cashflow_gap
 from nirmaan_stack.services.ceo_hold import core as ceo_hold
 from nirmaan_stack.services.outflow_import.porter import EXPENSE_TYPE, MATCH_BASIS
+from nirmaan_stack.services.outflow_import.porter_state import NEEDS_PERSON
 
 MATCH_DOCTYPE = "Outflow Row Match"
 ORDER_DOCTYPE = "Porter Order"
@@ -77,7 +78,24 @@ class PorterCreateCase(PorterValidationCase):
     def _validate(self):
         self._run_job()
 
-    def _press_create(self):
+    def _confirm_what_needs_a_person(self):
+        """A person keeps every order that needs one where it is suggested (#1560): its project, or Not a
+        project. Through Review's own endpoint, as the Accountant does before Create."""
+        from nirmaan_stack.api.outflow_import.porter_review import get_porter_review, set_porter_placement
+
+        by_destination: dict[str | None, list[str]] = {}
+        for line in get_porter_review(self.batch)["lines"]:
+            if line["placement"] == NEEDS_PERSON:
+                destination = line["project"] if line["ledger"] == PROJECT_EXPENSE else None
+                by_destination.setdefault(destination, []).append(line["name"])
+        for destination, names in by_destination.items():
+            set_porter_placement(self.batch, json.dumps(names), destination)
+
+    def _press_create(self, *, confirm_first: bool = True):
+        """Press Create. `confirm_first` (the default): a person first confirms every order that needs
+        one, as Create refuses otherwise (#1560)."""
+        if confirm_first and porter_records.is_validated(self.batch):
+            self._confirm_what_needs_a_person()
         jobs = []
         with patch.object(frappe, "enqueue", side_effect=lambda *a, **kw: jobs.append(kw)):
             result = porter_create.create_porter_expenses(self.batch)
@@ -154,6 +172,44 @@ class TestPressingCreate(PorterCreateCase):
         self.assertEqual(result["created"], 0)
 
 
+class TestCreateWaitsForEveryOrderThatNeedsAPerson(PorterCreateCase):
+    """#1560: no order becomes a Non-Project Expense unless someone chose it. Create is refused while
+    any order needs a person (a Check, no placement, a remark group placed differently)."""
+
+    def setUp(self):
+        super().setUp()
+        self._validate()
+
+    def _needing(self):
+        from nirmaan_stack.api.outflow_import.porter_review import get_porter_review
+
+        return [line for line in get_porter_review(self.batch)["lines"] if line["placement"] == NEEDS_PERSON]
+
+    def test_create_is_refused_naming_how_many_orders_are_left_and_queues_nothing(self):
+        left = len(self._needing())
+        self.assertGreater(left, 1)
+        with self.assertRaises(frappe.ValidationError) as caught:
+            self._press_create(confirm_first=False)
+        self.assertIn(f"{left} orders still need a project", str(caught.exception))
+        self.assertEqual(self._expenses(), [])
+
+    def test_one_order_left_is_still_refused(self):
+        from nirmaan_stack.api.outflow_import.porter_review import set_porter_placement
+
+        needing = self._needing()
+        for line in needing[1:]:
+            set_porter_placement(self.batch, json.dumps([line["name"]]), None)
+        with self.assertRaises(frappe.ValidationError) as caught:
+            self._press_create(confirm_first=False)
+        self.assertIn("1 order still needs a project", str(caught.exception))
+
+    def test_create_starts_once_a_person_has_placed_every_one(self):
+        self._confirm_what_needs_a_person()
+        self.assertEqual(self._needing(), [])
+        _, jobs = self._press_create(confirm_first=False)
+        self.assertEqual(len(jobs), 1)
+
+
 class TestAValidatedImportCreated(PorterCreateCase):
     def setUp(self):
         super().setUp()
@@ -194,8 +250,8 @@ class TestAValidatedImportCreated(PorterCreateCase):
         self.assertEqual(expense.comment, f"Imported from {self.batch}")
         self.assertEqual(expense.porter_order, self._crn("002"))
 
-    def test_a_line_with_no_project_becomes_a_non_project_expense(self):
-        expense = self._expense_of("003")  # Ravi Testkumar, no remark
+    def test_a_line_a_person_chose_not_a_project_for_becomes_a_non_project_expense(self):
+        expense = self._expense_of("003")  # Ravi Testkumar, no remark: confirmed Not a project
         self.assertEqual(expense.doctype, NON_PROJECT_EXPENSE)
         self.assertEqual(float(expense.amount), 382.0)
         self.assertEqual(expense.status, "Paid")

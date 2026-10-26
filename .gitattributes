@@ -7,3 +7,7 @@
 *.png binary
 *.pdf binary
 *.jpg binary
+
+# Both sides of a merge append patch lines here; union keeps both instead of conflicting.
+# Patches run top to bottom, so check the order after a merge.
+nirmaan_stack/patches.txt merge=union

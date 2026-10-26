@@ -15,7 +15,7 @@ import {
     DesignCategory,
 } from "@/pages/projects/data/project-form/useProjectFormQueries";
 import { useGstOptions } from "@/hooks/useGstOptions";
-import { isProcurementProfile } from "@/constants/roles";
+import { isMaterialProcurementProfile } from "@/constants/roles";
 
 export interface SelectOption {
     label: string;
@@ -92,6 +92,7 @@ export const useProjectFormData = () => {
             .filter(cat => Array.isArray(cat.tasks) && cat.tasks.length > 0)
             .map(cat => ({
                 category_name: cat.category_name,
+                work_package: cat.work_package ?? null,
                 tasks: cat.tasks.map(t => ({
                     task_name: t.task_name,
                     deadline_offset: t.deadline_offset
@@ -163,8 +164,9 @@ export const useProjectFormData = () => {
         value: item.name
     })) || [];
 
+    // Material procurement only: Service Procurement Executives are not offered on the Team step.
     const procurementLeadOptions: SelectOption[] = users?.filter(
-        item => isProcurementProfile(item.role_profile)
+        item => isMaterialProcurementProfile(item.role_profile)
     ).map(item => ({
         label: item.full_name,
         value: item.name

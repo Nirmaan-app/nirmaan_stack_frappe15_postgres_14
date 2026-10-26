@@ -62,7 +62,8 @@ def get_all_master_data():
     # 3. Fetch Design Categories and Tasks (Grouping logic remains)
     categories = frappe.get_list(
         "Design Tracker Category",
-        fields=["name", "category_name"],
+        # work_package lets the new-project wizard tick a category when its package is ticked.
+        fields=["name", "category_name", "work_package"],
         order_by="category_name asc",
         as_list=False
     )

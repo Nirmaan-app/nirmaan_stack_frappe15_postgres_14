@@ -42,7 +42,9 @@ from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.parser import (
+    PORTER_INVOICE_LINK_COLUMN,
     PORTER_ORDER_COMPLETED,
+    PORTER_ORDER_STATUS_COLUMN,
     PORTER_STATEMENT_COLUMNS,
     ParseResult,
     RawRow,
@@ -137,11 +139,11 @@ class PorterLine:
     @property
     def completed(self) -> bool:
         """Porter completed the order, and therefore bills it. Anything else is a cancelled order."""
-        return self.statement.get("order_status", "").strip().lower() == PORTER_ORDER_COMPLETED
+        return self.statement.get(PORTER_ORDER_STATUS_COLUMN, "").strip().lower() == PORTER_ORDER_COMPLETED
 
     @property
     def invoice_link(self) -> str:
-        return self.statement.get("invoice_link", "")
+        return self.statement.get(PORTER_INVOICE_LINK_COLUMN, "")
 
     @property
     def invoice_number(self) -> str:

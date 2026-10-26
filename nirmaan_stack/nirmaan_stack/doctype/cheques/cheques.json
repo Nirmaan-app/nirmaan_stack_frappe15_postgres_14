@@ -65,11 +65,11 @@
    "reqd": 1
   },
   {
-   "description": "A post-dated cheque is allowed.",
+   "description": "The date written on the cheque, until the bank import clears a Payment cheque: then the day the bank paid it, which is also each payment's payment date.",
    "fieldname": "cheque_date",
    "fieldtype": "Date",
    "in_list_view": 1,
-   "label": "Cheque Date",
+   "label": "Cheque/Payment Date",
    "reqd": 1
   },
   {
@@ -98,13 +98,13 @@
    "label": "Payee Name"
   },
   {
-   "default": "Pending",
+   "default": "Approval Pending",
    "fieldname": "status",
    "fieldtype": "Select",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Pending\nIssued\nCleared\nCancelled",
+   "options": "Approval Pending\nIssued\nCleared\nCancelled",
    "read_only": 1,
    "reqd": 1
   },
@@ -172,14 +172,7 @@
    "read_only": 1
   },
   {
-   "description": "Payment cheques: the day the bank paid it. It becomes each payment's payment date.",
-   "fieldname": "clearance_date",
-   "fieldtype": "Date",
-   "label": "Clearance Date",
-   "read_only": 1
-  },
-  {
-   "description": "How a Payment cheque was cleared: by hand (Accounts or Admin) or by a bank-statement line.",
+   "description": "History only, not shown: how a Payment cheque was cleared. Bank import from #1516 on; By hand on a cheque cleared before it.",
    "fieldname": "cleared_by",
    "fieldtype": "Select",
    "label": "Cleared By",
@@ -201,12 +194,20 @@
    "fieldtype": "Check",
    "label": "Old Type",
    "read_only": 1
+  },
+  {
+   "description": "Not shown, and written by no code since #1520: the clearance date from before the Cheque/Payment Date, kept only so the earlier cheque patches still run on a site that first gets Cheques from this file.",
+   "fieldname": "clearance_date",
+   "fieldtype": "Date",
+   "hidden": 1,
+   "label": "Clearance Date (old)",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-17 08:41:21.394978",
+ "modified": "2026-10-20 21:01:00.852132",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Cheques",

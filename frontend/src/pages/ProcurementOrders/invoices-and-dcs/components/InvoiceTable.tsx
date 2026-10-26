@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Trash2, Pencil, ChevronDown, ChevronRight } from 'lucide-react';
+import { Trash2, Pencil, ChevronDown, ChevronRight, Ban } from 'lucide-react';
 import { formatDate } from 'date-fns';
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
@@ -24,6 +24,11 @@ interface InvoiceTableProps {
     onViewAttachment: (attachmentId: string | undefined) => void;
     /** Function called when the edit button is clicked */
     onEditEntry?: (item: VendorInvoice) => void;
+    /** Whether a specific entry offers Edit (default: every entry, when `onEditEntry` is set) */
+    canEditEntry?: (item: VendorInvoice) => boolean;
+    /** Called when Reject is clicked on an entry `canRejectEntry` allows (an Approved Work Order invoice) */
+    onRejectEntry?: (item: VendorInvoice) => void;
+    canRejectEntry?: (item: VendorInvoice) => boolean;
     /** Function called when the delete button is clicked */
     onDeleteEntry?: (invoiceId: string) => void;
     /** Loading state of the delete button */
@@ -59,6 +64,9 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
     items,
     onViewAttachment,
     onEditEntry,
+    canEditEntry,
+    onRejectEntry,
+    canRejectEntry,
     onDeleteEntry,
     isLoading,
     canDeleteEntry,
@@ -104,7 +112,8 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                             poItemsByRow={poItemsByRow}
                             poItemsById={poItemsById}
                             onViewAttachment={onViewAttachment}
-                            onEditEntry={onEditEntry}
+                            onEditEntry={onEditEntry && (canEditEntry?.(invoice) ?? true) ? onEditEntry : undefined}
+                            onRejectEntry={onRejectEntry && canRejectEntry?.(invoice) ? onRejectEntry : undefined}
                             onDeleteEntry={onDeleteEntry}
                             isLoading={isLoading}
                             showDeleteColumn={showDeleteColumn}
@@ -133,6 +142,7 @@ interface InvoiceTableRowProps {
     poItemsById: Map<string, POItemTotals>;
     onViewAttachment: (attachmentId: string | undefined) => void;
     onEditEntry?: (item: VendorInvoice) => void;
+    onRejectEntry?: (item: VendorInvoice) => void;
     onDeleteEntry?: (invoiceId: string) => void;
     isLoading?: boolean;
     showDeleteColumn: boolean;
@@ -149,6 +159,7 @@ const InvoiceTableRow: React.FC<InvoiceTableRowProps> = ({
     poItemsById,
     onViewAttachment,
     onEditEntry,
+    onRejectEntry,
     onDeleteEntry,
     isLoading,
     showDeleteColumn,
@@ -218,6 +229,17 @@ const InvoiceTableRow: React.FC<InvoiceTableRowProps> = ({
                             <Pencil className="h-4 w-4" />
                         </Button>
                     )}
+                    {onRejectEntry && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-600 hover:text-red-800 px-2"
+                            onClick={() => onRejectEntry(invoice)}
+                            title={`Reject Invoice ${invoice.invoice_no}`}
+                        >
+                            <Ban className="h-4 w-4 mr-1" /> Reject
+                        </Button>
+                    )}
                     {showDeleteButton && (
                         <Dialog>
                             <DialogTrigger asChild>
@@ -251,7 +273,7 @@ const InvoiceTableRow: React.FC<InvoiceTableRowProps> = ({
                             </DialogContent>
                         </Dialog>
                     )}
-                    {!onEditEntry && !showDeleteButton && "--"}
+                    {!onEditEntry && !onRejectEntry && !showDeleteButton && "--"}
                     </div>
                 </TableCell>}
             </TableRow>

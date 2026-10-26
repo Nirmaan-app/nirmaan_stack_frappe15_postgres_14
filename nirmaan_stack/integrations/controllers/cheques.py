@@ -51,6 +51,7 @@ def validate(doc, method=None):
         photo_required=doc.is_new() and not doc.flags.cheque_without_photo,
         cancelled=doc.status == CANCELLED,
         cheque_type=doc.get("cheque_type") or CHEQUE_TYPE_PAYMENT,
+        drawn_anew=_drawn_anew(doc, header),
     )
     if problem:
         frappe.throw(_(problem))
@@ -65,10 +66,22 @@ def validate(doc, method=None):
         frappe.throw(_(duplicate_problem(header, existing)))
 
 
-def drop_off_cheques_of(doc, why: str, *, old_type_only: bool = False) -> None:
+def _drawn_anew(doc, header) -> bool:
+    """Is this save a new paper cheque: a new Cheque, or one whose bank or number changes? The ICICI-only
+    rule for a Payment cheque (#1516) asks it, so a status move on an older Cheque on Others still saves."""
+    before = None if doc.is_new() else doc.get_doc_before_save()
+    if before is None:
+        return True
+    was = parse_header(before.as_dict())
+    return (was.bank_key, was.cheque_no) != (header.bank_key, header.cheque_no)
+
+
+def drop_off_cheques_of(doc, why: str, *, old_type_only: bool = False, keep_on: str | None = None) -> None:
     """Take `doc` (a payment or an expense) off every Cheque that lists it (only Old-type ones when
-    `old_type_only`), as the user acting, and tell open reports once the request commits. Never commits."""
-    changed = drop_off_cheques(doc.doctype, doc.name, why=why, user=frappe.session.user, old_type_only=old_type_only)
+    `old_type_only`), except `keep_on`, as the user acting, and tell open reports once the request commits.
+    Never commits."""
+    changed = drop_off_cheques(doc.doctype, doc.name, why=why, user=frappe.session.user, old_type_only=old_type_only,
+                               keep_on=keep_on)
     if changed:
         frappe.publish_realtime(CHEQUES_CHANGED_EVENT, {"cheques": changed}, after_commit=True)
 
@@ -76,19 +89,20 @@ def drop_off_cheques_of(doc, why: str, *, old_type_only: bool = False) -> None:
 def on_payment_rejected(doc) -> None:
     """A Project Payment was saved to Rejected (#1481, spec #1477). Called from the payment's `on_update`.
 
-    On a live (Pending or Issued) Payment cheque, every other payment on it is rejected too and the cheque
+    On a live (Approval Pending or Issued) Payment cheque, every other payment on it is rejected too and the cheque
     is Cancelled (`decide.reject_cheque`), however this one was rejected: the approval dialog and bulk
     reject go through `decide.reject` and carry `DECIDING_FLAG`, so their saves land here and stop; a
     save made any other way (REST, Desk) starts the cascade, with a note naming this payment. An Old-type
-    cheque still drops the line (#1413); any other cheque keeps it. Inside the caller's savepoint; never
-    commits.
+    cheque still drops the line (#1413), except the one whose own cancel is rejecting it (`DECIDING_FLAG`,
+    spec #1514) and any already Cancelled (`detach.drop_off_cheques`): a cancelled cheque keeps its lines. Any other cheque keeps it. Inside the caller's
+    savepoint; never commits.
     """
     cheque = live_cheque_of(doc.name)
     if cheque:
         if doc.flags.get(DECIDING_FLAG) != cheque:
             reject_cheque(cheque, reason=rejected_alone_note(doc.name), user=frappe.session.user)
         return
-    drop_off_cheques_of(doc, PAYMENT_REJECTED, old_type_only=True)
+    drop_off_cheques_of(doc, PAYMENT_REJECTED, old_type_only=True, keep_on=doc.flags.get(DECIDING_FLAG))
 
 
 def on_expense_trash(doc, method=None):

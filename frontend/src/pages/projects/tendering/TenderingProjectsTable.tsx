@@ -1,4 +1,5 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { createContext, useContext, useMemo, useRef, useState } from "react";
+import { useFrappeGetDocList } from "frappe-react-sdk";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { FilePenLine, Hourglass, MoreHorizontal, Trash2 } from "lucide-react";
@@ -59,10 +60,30 @@ const TENDERING_FIELDS_TO_FETCH: (keyof ProjectsType | "name")[] = [
   "project_state",
   "customer",
   "tendering_status",
+  "merged_into",
   "creation",
 ];
 
-type TenderingSubTab = "Tendering" | "Lost";
+type TenderingSubTab = "Tendering" | "Lost" | "Merged";
+
+const SUB_TABS: TenderingSubTab[] = ["Tendering", "Lost", "Merged"];
+
+/**
+ * Project names of the Won projects the rows on the Merged sub-tab went into, by docname. The
+ * list fetches each row's own fields only, so the names come from one extra read and reach the
+ * cells through context (the columns are built before the rows load).
+ */
+const MergedIntoNames = createContext<Record<string, string>>({});
+
+const MergedIntoCell: React.FC<{ project?: string }> = ({ project }) => {
+  const names = useContext(MergedIntoNames);
+  if (!project) return <div>--</div>;
+  return (
+    <Link to={`/projects/${project}`} title={project} className="text-blue-600 hover:underline">
+      {names[project] || project}
+    </Link>
+  );
+};
 
 interface TenderingProjectsTableProps {
   customerId?: string;
@@ -70,10 +91,11 @@ interface TenderingProjectsTableProps {
 }
 
 /**
- * Per-row actions for a Tendering/Lost stub.
+ * Per-row actions for a Tendering/Lost/Merged stub.
  *
  * - Tendering: Edit (opens detail) + Mark as Lost + Delete.
  * - Lost:      Delete only (terminal, read-only).
+ * - Merged:    Copy link only -- closed until undone, and Undo lives on the detail page (ADR-0038).
  *
  * Gated to Admin / PMO / Administrator. Convert is reachable only from the
  * stub detail view (intentional).
@@ -92,6 +114,7 @@ const TenderingRowActions: React.FC<{
     useMarkTenderingProjectLost();
 
   const isLost = project.tendering_status === "Lost";
+  const isMerged = project.tendering_status === "Merged";
 
   const handleDelete = async () => {
     try {
@@ -170,7 +193,7 @@ const TenderingRowActions: React.FC<{
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          {!isLost && (
+          {!isLost && !isMerged && (
             <DropdownMenuItem
               onClick={() => navigate(`/projects/${project.name}`)}
             >
@@ -179,7 +202,7 @@ const TenderingRowActions: React.FC<{
             </DropdownMenuItem>
           )}
           <CopyProjectLinkMenuItem projectId={project.name} />
-          {!isLost && (
+          {!isLost && !isMerged && (
             <DropdownMenuItem
               className="text-rose-700 focus:text-rose-800"
               onClick={() => setConfirmLostOpen(true)}
@@ -188,13 +211,15 @@ const TenderingRowActions: React.FC<{
               Mark as Lost
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem
-            className="text-destructive focus:text-destructive"
-            onClick={() => setConfirmDeleteOpen(true)}
-          >
-            <Trash2 className="h-4 w-4 mr-2" />
-            Delete
-          </DropdownMenuItem>
+          {!isMerged && (
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={() => setConfirmDeleteOpen(true)}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -264,7 +289,7 @@ const TenderingRowActions: React.FC<{
  * Tendering-tab list (v3 dual-field model).
  *
  * Shows pre-Won stubs filtered to a single `tendering_status` value via the
- * Tendering/Lost sub-toggle on top of the table. URL-synced via the
+ * Tendering/Lost/Merged sub-toggle on top of the table. URL-synced via the
  * `tendering_sub` search param so a sub-tab survives reloads.
  */
 export const TenderingProjectsTable: React.FC<TenderingProjectsTableProps> = ({
@@ -275,13 +300,14 @@ export const TenderingProjectsTable: React.FC<TenderingProjectsTableProps> = ({
   const canManage = canManageTendering(role, user_id);
 
   const [searchParams, setSearchParams] = useSearchParams();
+  const requestedSub = searchParams.get("tendering_sub") as TenderingSubTab | null;
   const subTab: TenderingSubTab =
-    searchParams.get("tendering_sub") === "Lost" ? "Lost" : "Tendering";
+    requestedSub && SUB_TABS.includes(requestedSub) ? requestedSub : "Tendering";
 
   const handleSubTabChange = (next: string) => {
     const params = new URLSearchParams(searchParams);
-    if (next === "Lost") {
-      params.set("tendering_sub", "Lost");
+    if (next === "Lost" || next === "Merged") {
+      params.set("tendering_sub", next);
     } else {
       params.delete("tendering_sub");
     }
@@ -353,6 +379,16 @@ export const TenderingProjectsTable: React.FC<TenderingProjectsTableProps> = ({
         cell: ({ row }) => formatDate(row.original.creation),
         meta: { exportHeaderName: "Created" },
       },
+      ...(subTab === "Merged"
+        ? ([
+            {
+              accessorKey: "merged_into",
+              header: "Merged into",
+              cell: ({ row }) => <MergedIntoCell project={row.original.merged_into} />,
+              meta: { exportHeaderName: "Merged into" },
+            },
+          ] as ColumnDef<ProjectsType>[])
+        : []),
       {
         accessorKey: "tendering_status",
         header: "Status",
@@ -393,7 +429,7 @@ export const TenderingProjectsTable: React.FC<TenderingProjectsTableProps> = ({
           ] as ColumnDef<ProjectsType>[])
         : []),
     ],
-    [canManage]
+    [canManage, subTab]
   );
 
   const {
@@ -423,6 +459,28 @@ export const TenderingProjectsTable: React.FC<TenderingProjectsTableProps> = ({
 
   refetchRef.current = refetch;
 
+  // Merged sub-tab: the names of the Won projects these rows went into, in one read.
+  const mergedIntoIds = useMemo(
+    () =>
+      subTab === "Merged"
+        ? [...new Set((data ?? []).map((row) => row.merged_into).filter((id): id is string => !!id))].sort()
+        : [],
+    [data, subTab]
+  );
+  const { data: mergedIntoProjects } = useFrappeGetDocList<{ name: string; project_name: string }>(
+    "Projects",
+    {
+      fields: ["name", "project_name"],
+      filters: [["name", "in", mergedIntoIds]],
+      limit: mergedIntoIds.length || 1,
+    },
+    mergedIntoIds.length > 0 ? `tendering-merged-into-names-${mergedIntoIds.join(",")}` : null
+  );
+  const mergedIntoNames = useMemo(
+    () => Object.fromEntries((mergedIntoProjects ?? []).map((p) => [p.name, p.project_name || p.name])),
+    [mergedIntoProjects]
+  );
+
   if (error && !data?.length) {
     return <AlertDestructive error={error} />;
   }
@@ -443,6 +501,12 @@ export const TenderingProjectsTable: React.FC<TenderingProjectsTableProps> = ({
           >
             Lost
           </TabsTrigger>
+          <TabsTrigger
+            value="Merged"
+            className="data-[state=active]:bg-violet-100 data-[state=active]:text-violet-800"
+          >
+            Merged
+          </TabsTrigger>
         </TabsList>
       </Tabs>
 
@@ -459,6 +523,7 @@ export const TenderingProjectsTable: React.FC<TenderingProjectsTableProps> = ({
       {!hasLoadedOnce && isLoading && !data?.length ? (
         <TableSkeleton />
       ) : (
+        <MergedIntoNames.Provider value={mergedIntoNames}>
         <DataTable<ProjectsType>
           table={table}
           columns={columns}
@@ -475,10 +540,9 @@ export const TenderingProjectsTable: React.FC<TenderingProjectsTableProps> = ({
           onExport={"default"}
           onExportAll={exportAllRows}
           isExporting={isExporting}
-          exportFileName={
-            subTab === "Lost" ? "Lost_Projects" : "Tendering_Projects"
-          }
+          exportFileName={`${subTab}_Projects`}
         />
+        </MergedIntoNames.Provider>
       )}
       </div>
     </div>

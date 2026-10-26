@@ -36,4 +36,7 @@ export interface TDSChallanAttachment {
 	 *  deductions linked to this challan. The unreconciled balance is `amount - reconciled_amount`,
 	 *  derived at the point of use and never stored. */
 	reconciled_amount?: number;
+	/** Link to Non Project Expenses: the TDS Payment expense that records this deposit (#1544).
+	 *  Linked by hand; unique, so one expense records one challan. Blank shows the challan's warning. */
+	tds_payment_expense?: string | null;
 }

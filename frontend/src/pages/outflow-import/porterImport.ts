@@ -4,6 +4,13 @@
 // `PorterImportSummary` renders it; `porterImport.test.ts` pins it. Later slices of spec #1442
 // (validation progress, review, create) extend THIS module.
 
+import { formatDate } from "@/utils/FormatDate";
+import formatToIndianRupee from "@/utils/FormatPrice";
+
+import { NEEDS_YOU_STATE, type PorterProgress } from "./porterProgress";
+import type { PorterFailedLine } from "./porterResult";
+import { plural } from "./porterWords";
+
 /** The source string. The parser adapter key and the batch Select option, pinned by test. */
 export const PORTER_SOURCE = "Porter Statement";
 
@@ -79,6 +86,21 @@ export interface PorterInvoiceStatus {
     has_pdf?: boolean;
     /** Null until Gemini has read the PDF (`porter.what_gemini_read`). */
     read?: PorterInvoiceRead | null;
+    /** Figures the PDF read differently that decide nothing: GSTINs, tax, invoice number (#1559). */
+    warnings?: PorterInvoiceWarning[];
+}
+
+/** One figure the PDF read differently from the statement (`porter_verdict.InvoiceWarning`); `read` null when unread. */
+export interface PorterInvoiceWarning {
+    figure: string;
+    statement: string;
+    read: string | null;
+}
+
+/** The dates (ISO, both included) an invoice of this statement may carry (`porter_verdict.invoice_date_window`). */
+export interface InvoiceDateWindow {
+    from: string;
+    to: string;
 }
 
 /** What `upload_porter_statement` and `get_porter_status` return: one shape for both. */
@@ -104,9 +126,15 @@ export interface PorterStatus {
     failed: number;
     /** The Create job is queued or running on the server. */
     create_running: boolean;
+    /** Per phase: what is done, what is waiting and what needs a person (#1556). The progress bar reads it. */
+    progress?: PorterProgress;
+    /** Each line Create could not create: its CRN, the note it stored and its fix (#1561). */
+    failed_lines?: PorterFailedLine[];
+    /** The Porter Orders that have an Expense, by expense doctype (`porter_records.created_expenses`, #1561). */
+    created_expenses?: Record<string, string[]>;
+    /** Null when the statement has no period (no order dates). */
+    invoice_date_window?: InvoiceDateWindow | null;
 }
-
-const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 /**
  * The one line that tells the accountant at once whether this is the month they meant (story 3):
@@ -121,9 +149,16 @@ export const porterCountsLine = (status: Pick<PorterStatus, "orders" | "cancelle
     return parts.join(" · ");
 };
 
-/** The badge tone of an invoice's state: settled good, settled bad, or still in hand. */
-export const invoiceStateTone = (state: string): "passed" | "failed" | "pending" =>
-    state === "Passed" ? "passed" : state === "Failed" || state === "Error" ? "failed" : "pending";
+/**
+ * The badge tone of an invoice's state: passed, doesn't match (red), couldn't be read (amber: a retry is
+ * the person's turn), or still in hand.
+ */
+export const invoiceStateTone = (state: string): "passed" | "failed" | "retry" | "pending" =>
+    state === "Passed" ? "passed" : state === "Failed" ? "failed" : state === "Error" ? "retry" : "pending";
+
+/** An invoice's state as a person reads it: the problem states by meaning (story 20). */
+export const invoiceStateLabel = (state: string): string =>
+    state === "Error" ? "Couldn't read the PDF" : state === "Failed" ? "Doesn't match" : state;
 
 /**
  * What the import has done and what it has not, in words.
@@ -166,83 +201,170 @@ export const invoiceProgress = (
         else mark = index < at ? "done" : index === at ? "current" : "todo";
         return { label, mark };
     });
-    return [...steps, outcome ? { label: state, mark: outcome } : { label: "Result", mark: "todo" }];
+    return [...steps, outcome ? { label: invoiceStateLabel(state), mark: outcome } : { label: "Result", mark: "todo" }];
 };
 
-/** An invoice number or GSTIN as the server compares it: no spaces, upper case (`porter._ident`). */
-const ident = (value: string | null | undefined) => (value ?? "").replace(/\s+/g, "").toUpperCase();
-
-/** The server's ±₹1 on fare and tax (`amounts.PORTER_INVOICE_TOLERANCE`). */
+/** The server's ±₹1 on the fare (`amounts.PORTER_INVOICE_TOLERANCE`). */
 const COMPARE_TOLERANCE = 1;
 
 export interface InvoiceFigureRow {
     label: string;
-    statement: string | number;
-    read: string | number | null;
-    money: boolean;
-    /** Gemini read a value and it is not the statement's. Never true before it has read. */
+    statement: string;
+    /** As read off the PDF; null before Gemini has read it, or when it could not. */
+    read: string | null;
+    /** Gemini read a value and it fails the check. Never true before it has read. */
     differs: boolean;
 }
 
+const fareDiffers = (statement: number, read: number | null | undefined) =>
+    read != null && Math.abs(read - statement) > COMPARE_TOLERANCE + 1e-9;
+
+/** ISO dates compare as strings. */
+const dateOutside = (read: string | null | undefined, window: InvoiceDateWindow | null | undefined) =>
+    Boolean(read && window && (read < window.from || read > window.to));
+
+const windowText = (window: InvoiceDateWindow | null | undefined) =>
+    window ? `${formatDate(window.from)} to ${formatDate(window.to)}` : "—";
+
 /**
- * The statement's figures beside what Gemini read, one row per figure the check compares (story 16).
+ * The two figures that decide an invoice (#1559) — the Porter fare, and the invoice date against the dates
+ * this statement's invoices may carry — beside what Gemini read.
  *
- * ⚠️ `differs` ONLY HIGHLIGHTS. The verdict is the server's (`validation_status` and its message), and
- * this mirrors its rule only so the row that broke it stands out.
+ * ⚠️ `differs` ONLY HIGHLIGHTS. The verdict is the server's (`validation_status` and its message): the fare
+ * mirrors its ±₹1 only so the row that broke it stands out, and the date window is the server's own.
  */
 export const invoiceFigureRows = (
-    invoice: Pick<
-        PorterInvoiceStatus,
-        "invoice_number" | "porter_gstin" | "customer_gstin" | "fare_total" | "tax_total" | "read"
-    >,
+    invoice: Pick<PorterInvoiceStatus, "fare_total" | "read">,
+    window: InvoiceDateWindow | null | undefined,
 ): InvoiceFigureRow[] => {
     const read = invoice.read;
-    const text = (label: string, statement: string | undefined, value: string | null | undefined): InvoiceFigureRow => ({
-        label,
-        statement: statement ?? "",
-        read: value || null,
-        money: false,
-        differs: Boolean(value) && ident(value) !== ident(statement),
-    });
-    const money = (label: string, statement: number, value: number | null | undefined): InvoiceFigureRow => ({
-        label,
-        statement,
-        read: value ?? null,
-        money: true,
-        differs: value != null && Math.abs(value - statement) > COMPARE_TOLERANCE + 1e-9,
-    });
     return [
-        text("Invoice number", invoice.invoice_number, read?.invoice_number),
-        text("Porter GSTIN", invoice.porter_gstin, read?.supplier_gstin),
-        text("Customer GSTIN", invoice.customer_gstin, read?.receiver_gstin),
-        money("Fare", invoice.fare_total, read?.fare),
-        money("Tax", invoice.tax_total, read?.tax),
+        {
+            label: "Fare",
+            statement: formatToIndianRupee(invoice.fare_total),
+            read: read?.fare != null ? formatToIndianRupee(read.fare) : null,
+            differs: fareDiffers(invoice.fare_total, read?.fare),
+        },
+        {
+            label: "Invoice date",
+            statement: windowText(window),
+            read: read?.invoice_date ? formatDate(read.invoice_date) : null,
+            differs: dateOutside(read?.invoice_date, window),
+        },
     ];
 };
 
+/** How a warned figure is named mid-sentence. */
+const WARNING_NOUN: Record<string, string> = {
+    "Invoice number": "invoice number",
+    "Porter GSTIN": "Porter GSTIN",
+    "Customer GSTIN": "customer GSTIN",
+    Tax: "tax",
+};
+
 /**
- * Retry is offered on an *Error* only — a download or Gemini failure decided nothing. A *Failed* invoice
- * disagrees with the statement and is final: there is no override, for anyone (ADR-0032).
+ * A Passed invoice's one quiet line (story 17): the GST is the statement's whatever the PDF says, and what
+ * the PDF read differently. Null when nothing differs.
  */
-export const canRetryInvoice = (invoice: Pick<PorterInvoiceStatus, "validation_status">): boolean =>
-    invoice.validation_status === "Error";
+export const warningLine = (warnings: readonly PorterInvoiceWarning[] | null | undefined): string | null => {
+    if (!warnings?.length) return null;
+    const parts = warnings.map(({ figure, statement, read }) => {
+        const noun = WARNING_NOUN[figure] ?? figure;
+        return read === null ? `the PDF's ${noun} couldn't be read` : `the PDF read the ${noun} as ${read}, not ${statement}`;
+    });
+    const sentence = parts.join("; ");
+    return `GST taken from the statement. ${sentence[0].toUpperCase()}${sentence.slice(1)}.`;
+};
+
+/** What to do about an invoice that doesn't match (story 21). */
+export const NOT_MATCHING_NEXT_STEP =
+    "Read it again. If it still differs, ask Porter for a corrected file, then discard this import and upload the new one.";
+
+/**
+ * The red banner over the invoices when any doesn't match: a title, one sentence per invoice naming the
+ * figure (statement vs PDF), and the next step. Null when none is Failed.
+ */
+export const notMatchingBanner = (
+    invoices: readonly PorterInvoiceStatus[],
+    window: InvoiceDateWindow | null | undefined,
+): { title: string; lines: string[]; next: string } | null => {
+    const failed = invoices.filter((invoice) => invoice.validation_status === "Failed");
+    if (failed.length === 0) return null;
+    const lines = failed.flatMap((invoice) => {
+        const read = invoice.read;
+        const said: string[] = [];
+        if (fareDiffers(invoice.fare_total, read?.fare)) {
+            said.push(
+                `Invoice ${invoice.invoice_number}: the fare is ${formatToIndianRupee(invoice.fare_total)} in the statement but ${formatToIndianRupee(read?.fare ?? 0)} on the PDF.`,
+            );
+        }
+        if (read?.invoice_date && dateOutside(read.invoice_date, window)) {
+            said.push(
+                `Invoice ${invoice.invoice_number}: the PDF is dated ${formatDate(read.invoice_date)}, but this statement's invoices must be dated ${windowText(window)}.`,
+            );
+        }
+        // Nothing to name from here (an older reading): the server's own message says it.
+        return said.length ? said : [invoice.validation_message ?? `Invoice ${invoice.invoice_number} doesn't match.`];
+    });
+    const title =
+        failed.length === 1 ? "1 invoice doesn't match Porter's PDF." : `${failed.length} invoices don't match Porter's PDF.`;
+    return { title, lines, next: NOT_MATCHING_NEXT_STEP };
+};
+
+/**
+ * Which invoice cards are in view (story 27): every one with something to say — a problem, a check still
+ * running, a warning — and the ones that simply passed folded under one line. `foldAll` folds every passed
+ * invoice, warned or not (once the review leads). `foldLabel` is null when nothing is folded.
+ */
+export const foldPassedInvoices = <T extends Pick<PorterInvoiceStatus, "validation_status" | "warnings">>(
+    invoices: readonly T[],
+    foldAll: boolean,
+): { shown: T[]; folded: T[]; foldLabel: string | null } => {
+    const folds = (invoice: T) => invoice.validation_status === "Passed" && (foldAll || !invoice.warnings?.length);
+    const shown = invoices.filter((invoice) => !folds(invoice));
+    const folded = invoices.filter(folds);
+    const noun = folded.length === 1 ? "invoice" : "invoices";
+    const foldLabel =
+        folded.length === 0 ? null : `${folded.length} ${shown.length ? "more " : ""}${noun} passed`;
+    return { shown, folded, foldLabel };
+};
+
+/**
+ * The retry button's label, or null when the invoice has nothing to retry (#1562). Both download, read and
+ * judge the invoice again: a *Failed* one in case Gemini misread it ("Read the PDF again"), an *Error* one
+ * because nothing was decided ("Try again"). There is still no override (ADR-0032).
+ */
+export const retryLabel = (invoice: Pick<PorterInvoiceStatus, "validation_status">): string | null =>
+    invoice.validation_status === "Failed"
+        ? "Read the PDF again"
+        : invoice.validation_status === "Error"
+          ? "Try again"
+          : null;
 
 /** What the import's state means for the accountant, in one sentence. */
 export const porterStateNote = (state: string): string => {
     if (state === "Created")
         return "Done: one expense per completed order, at Paid, each with its Porter invoice attached.";
+    // A partly created import with no Create job running (`porterProgress.shownPorterState`, #1556).
+    if (state === NEEDS_YOU_STATE)
+        return "Not every order is created yet, and nothing is running: press Create again for the rest.";
     if (state === "Creating")
         return "Creating the expenses, one order at a time. You can close this — it carries on, and Import History reopens it.";
     if (state === "Validated")
         return "Every invoice agrees with Porter's own PDF. Nothing has been created yet.";
     if (state === "Validation failed")
-        return "Nothing will be created from this import: every invoice has to agree with Porter's PDF. Retry an invoice that hit an Error; a Failed one is final.";
+        return "Nothing will be created from this import: every invoice has to agree with Porter's PDF on the fare and the invoice date. Read a mismatched PDF again, or try again on one that couldn't be read.";
     return "Checking each invoice against Porter's own PDF. You can close this — it carries on, and Import History reopens it.";
 };
 
 /** The tone of the import's state chip. */
-export const porterStateTone = (state: string): "passed" | "failed" | "pending" =>
-    state === "Validated" || state === "Created" ? "passed" : state === "Validation failed" ? "failed" : "pending";
+export const porterStateTone = (state: string): "passed" | "failed" | "attention" | "pending" => {
+    if (state === "Validated" || state === "Created") return "passed";
+    if (state === "Validation failed") return "failed";
+    // A partly created import with no Create running: a person's turn.
+    if (state === NEEDS_YOU_STATE) return "attention";
+    return "pending";
+};
 
 // --- create (#1445) -------------------------------------------------------------------------------
 
@@ -274,14 +396,14 @@ export const createButtonLabel = (status: PorterCreateProgress): string =>
         ? `Create the remaining ${status.to_create}`
         : `Create ${plural(status.to_create, "expense", "expenses")}`;
 
-/** Where Create stands, from the lines; null before it has started. */
+/**
+ * Where Create stands, from the lines; null before it has started. Null too once every order is created, or
+ * when an order failed: the result (`porterResult`, #1561) says so, naming each failed order.
+ */
 export const createProgress = (status: PorterCreateProgress): string | null => {
     const of = `${status.created} of ${status.completed} created.`;
     if (status.create_running) return `Creating… ${of}`;
-    if (status.state === "Created") return `All ${plural(status.created, "expense", "expenses")} created, at Paid.`;
-    if (status.state !== "Creating") return null;
-    if (status.failed > 0)
-        return `${of} ${status.failed} could not be created: press Create again to retry ${status.failed === 1 ? "it" : "them"}.`;
+    if (status.state !== "Creating" || status.failed > 0) return null;
     const waiting = status.to_create;
     return `${of} ${waiting} ${waiting === 1 ? "is" : "are"} waiting: press Create again to create ${waiting === 1 ? "it" : "them"}.`;
 };

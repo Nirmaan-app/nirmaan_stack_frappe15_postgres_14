@@ -8,6 +8,9 @@
  * `services/outflow_import/status.py` -- never recompute them in the client, or the list page and
  * the review screen will disagree about how much of a batch is done.
  */
+import type { ChequeStatus } from "./Cheques";
+import type { PorterProgress } from "@/pages/outflow-import/porterProgress";
+
 export interface OutflowImportBatch {
     name: string;
     creation: string;
@@ -25,7 +28,7 @@ export interface OutflowImportBatch {
      * selects a COLUMN ADAPTER, and a second bank has different columns and a different narration
      * grammar. Adding HDFC later is one more option, not a re-fit of this one.
      */
-    source: "Cashfree" | "Cashbook" | "ICICI Bank Statement" | "Porter Statement";
+    source: "Cashfree" | "Cashbook" | "ICICI Bank Statement" | "Porter Statement" | "ICICI Credit Card Statement";
     /** The stored CSV. Attached to the BATCH and only the batch (owner ruling R3). */
     source_file?: string;
     original_filename?: string;
@@ -116,14 +119,14 @@ export interface ChequeDoublePayment {
 
 /**
  * The Payment cheque a Settled ICICI line cleared, or was linked to (#1485), as both row reads send it.
- * `started` is where the cheque stood before the line: Issued, Pending (the import approved it),
+ * `started` is where the cheque stood before the line: Issued, Approval Pending (the import approved it),
  * Cancelled (the bank paid it anyway), or Cleared (cleared by hand, the line only linked).
  */
 export interface ChequeOutcome {
     cheque: string;
     cheque_no: string;
     status: string;
-    started: "Issued" | "Pending" | "Cancelled" | "Cleared";
+    started: ChequeStatus;
     double_payments: ChequeDoublePayment[];
 }
 
@@ -399,6 +402,8 @@ export interface OutflowImportOption {
      * picker with no control able to bring it back, while its transfers still needed settling.
      */
     source?: string;
+    /** A Credit Card Statement import's card holder (#1566): Import History lists it by holder and period. */
+    card_holder?: string | null;
     total_rows?: number;
     /**
      * How many of this statement's transfers the bank actually moved OUT (slice CF/S4, #1287).
@@ -426,6 +431,8 @@ export interface OutflowImportOption {
     gross_amount?: number;
     uploaded_at?: string;
     uploaded_by?: string;
+    /** A Porter import's per-phase progress summary (#1556), the one its dialog's bar reads. Porter only. */
+    progress?: PorterProgress;
 }
 
 /** `review.get_import_summary` (slice X2). Every money figure crosses the wire as a number. */

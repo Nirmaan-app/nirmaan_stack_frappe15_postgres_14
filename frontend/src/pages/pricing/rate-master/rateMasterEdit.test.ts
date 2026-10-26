@@ -1,27 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
-  isRateMasterAdmin,
   matchedConditionIndex,
   isEditableParam,
   parseFiniteInput,
 } from "./rateMasterEdit";
-
-describe("isRateMasterAdmin (RM-4a admin gate, owner option (a))", () => {
-  it("admits Administrator and the Nirmaan Admin Profile", () => {
-    expect(isRateMasterAdmin("Nirmaan Admin Profile", "Administrator")).toBe(true);
-    expect(isRateMasterAdmin("Nirmaan Admin Profile", "someadmin@nirmaan.app")).toBe(true);
-    expect(isRateMasterAdmin("anything", "Administrator")).toBe(true); // Administrator always
-  });
-  it("denies estimation + other roles (READ-ONLY surface)", () => {
-    expect(isRateMasterAdmin("Nirmaan Estimates Executive Profile", "e@nirmaan.app")).toBe(false);
-    expect(isRateMasterAdmin("Nirmaan Project Manager Profile", "pm@nirmaan.app")).toBe(false);
-    expect(isRateMasterAdmin("", "x@nirmaan.app")).toBe(false);
-  });
-  it("denies while the role is still Loading (no read-only flash) and on Error", () => {
-    expect(isRateMasterAdmin("Loading", "Administrator")).toBe(false);
-    expect(isRateMasterAdmin("Error", "someone@nirmaan.app")).toBe(false);
-  });
-});
 
 describe("matchedConditionIndex (re-derives the interpreter's matched branch)", () => {
   const step = {

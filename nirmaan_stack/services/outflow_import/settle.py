@@ -111,7 +111,10 @@ from typing import Callable
 
 import frappe
 
+from nirmaan_stack.services.caller_transaction import OUTFLOW_IMPORT_SETTLING
 from nirmaan_stack.services.cheques.decide import pay_alone_problem
+from nirmaan_stack.services.expense_tds import BANK_AMOUNT_CORRECTION
+from nirmaan_stack.services.expense_type_ledger import expense_type_problem
 from nirmaan_stack.services.non_project_inflows import inflow_type_problem
 from nirmaan_stack.services.vendor_refunds import (
     RECEIVED,
@@ -340,12 +343,12 @@ def outflow_import_write():
     break a nesting caller. `finally` covers the raise path, which is the one that matters -- a
     settlement that throws is exactly when the caller is about to roll back to its savepoint.
     """
-    previous = frappe.flags.get("outflow_import_settling")
-    frappe.flags.outflow_import_settling = True
+    previous = frappe.flags.get(OUTFLOW_IMPORT_SETTLING)
+    frappe.flags[OUTFLOW_IMPORT_SETTLING] = True
     try:
         yield
     finally:
-        frappe.flags.outflow_import_settling = previous
+        frappe.flags[OUTFLOW_IMPORT_SETTLING] = previous
 
 
 # Every one of the three ledgers happens to spell it the same way. Named once so a fourth ledger
@@ -450,19 +453,14 @@ def format_amount_for(doctype: str, amount: Decimal):
 def _assert_type_scope(doctype: str, expense_type: str) -> None:
     """A Project Expense needs a `project=1` type; a Non-Project one needs `non_project=1`.
 
-    Nothing in the app enforces this today -- the two create dialogs simply query different lists --
-    so an endpoint that accepts a type name has to check it itself.
+    The ledger's own `validate` refuses the same (`services/expense_type_ledger`, #1496); this asks
+    its answer BEFORE anything is built, and refuses a blank type, which the ledger allows.
     """
     if not expense_type:
         frappe.throw("An expense type is required.", ExpenseTypeScopeError, title="Missing type")
-    field = "project" if doctype == PROJECT_EXPENSE else "non_project"
-    allowed = frappe.db.get_value("Expense Type", expense_type, field)
-    if not allowed:
-        frappe.throw(
-            f"'{expense_type}' is not an expense type available for {doctype}.",
-            ExpenseTypeScopeError,
-            title="Wrong expense type",
-        )
+    problem = expense_type_problem(doctype, expense_type)
+    if problem:
+        frappe.throw(problem, ExpenseTypeScopeError, title="Wrong expense type")
 
 
 def _not_settleable_message(name: str, status: str) -> str:
@@ -646,6 +644,9 @@ def link_lines_to_expense(
         exact = rewrite_amount(amount, lines_total)
         if exact is not None:
             doc.amount = format_amount_for(target_doctype, exact)
+            # The one save that may move a withheld Office Rent's amount (#1526): the bank's few
+            # rupees, which leave its tax record as it was (`expense_tds.guard_withheld_amount`).
+            doc.flags[BANK_AMOUNT_CORRECTION] = True
             written = exact
     elif not (doc.get("payment_ref") or "").strip():
         doc.payment_ref = (
@@ -947,11 +948,11 @@ def _assert_reference_is_free(
 
 
 def advance_po_latest_payment_date(doc, payment_date) -> None:
-    """Keep the parent's `latest_payment_date` in step, the way the canonical fulfil does.
+    """Keep the parent's `latest_payment_date` in step, as the canonical fulfil does.
 
-    ⚠️ ADVANCE-ONLY, which the canonical path is not -- it overwrites unconditionally. That is
-    harmless when a human is fulfilling today's payment and wrong here, because a statement can be
-    uploaded weeks late and would drag the parent's latest payment date BACKWARDS.
+    ⚠️ ADVANCE-ONLY, never an overwrite: a statement can be uploaded weeks late and would drag the
+    parent's latest payment date BACKWARDS. (The canonical fulfil recomputes it from the Paid payments,
+    `recompute_latest_payment_date`, since #1536, which comes to the same thing.)
 
     Written with `set_value` rather than `po_doc.save()` to avoid firing the whole Procurement
     Order lifecycle once per settled row.
@@ -1016,6 +1017,7 @@ def create_expense_from_row(
     *,
     invoice: ExpenseInvoice | None = None,
     porter_order: str | None = None,
+    credit_card_statement: str | None = None,
     blank_payment_by_is_actor: bool = True,
 ) -> SettleResult:
     """Create a new expense, already `Paid`, from a bank row that matched nothing.
@@ -1030,6 +1032,8 @@ def create_expense_from_row(
     A URL is copied, never a `File` row made: the invoice's one File stays attached to its Porter Invoice.
     `blank_payment_by_is_actor=False` (Porter, spec #1442 story 47) leaves Paid by blank when the statement
     names nobody: Paid by is who booked the order, and the importer did not.
+    `credit_card_statement` is the card import's (#1568, ADR-0039): the `Non Project Expenses` link that
+    marks the expense a card spend.
 
     ⚠️ THE `payment_ref` OVERRIDE IS GONE, AND ITS REMOVAL IS THE POINT (ADR-0020 B9). It existed so
     the wallet path could pass its own transaction id, because the wallet issues no UTR -- a remedy
@@ -1097,6 +1101,8 @@ def create_expense_from_row(
         doc.invoice_date = invoice.date or None
     if porter_order:
         doc.porter_order = porter_order
+    if credit_card_statement:
+        doc.credit_card_statement = credit_card_statement
 
     # A brand-new expense has no proof of its own, so the blank-only rule always lets this land --
     # which is the point: a record created FROM a statement should carry that statement.

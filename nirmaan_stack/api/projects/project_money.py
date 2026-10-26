@@ -5,13 +5,14 @@
 
 Thin doors onto `services/project_money`, the one figure CEO Hold and the Projects list also read.
 Each returns `{outflow, liabilities, inflow, cashflow_gap}` per project, plus the outflow's three parts
-(`po_outflow`, `wo_outflow`, `expense_outflow`), which add up to `outflow`. Dates are optional and
+(`po_outflow`, `wo_outflow`, `expense_outflow`), which add up to `outflow`, and `refunds` and `tds`, two
+amounts already inside those parts (the Outflow Report's note reads them). Dates are optional and
 inclusive (`YYYY-MM-DD`); in a range each payment, refund, expense and inflow counts on its own date.
 
     nirmaan_stack.api.projects.project_money.get_project_money
         project="PROJ-0001", from_date="2026-04-01", to_date="2027-03-31"
         -> {"po_outflow": 600.0, "wo_outflow": 0.0, "expense_outflow": 70.0, "outflow": 670.0,
-            "liabilities": 700.0, "inflow": 800.0, "cashflow_gap": 570.0}
+            "liabilities": 700.0, "inflow": 800.0, "cashflow_gap": 570.0, "refunds": 100.0, "tds": 0.0}
 
     nirmaan_stack.api.projects.project_money.get_projects_money
         projects=["PROJ-0001", "PROJ-0002"]   (a JSON list from the browser)

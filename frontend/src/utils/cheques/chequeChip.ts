@@ -17,11 +17,11 @@ export const CHEQUE_CHIPS_API = "nirmaan_stack.api.cheques.cheque_chips.get_cheq
 export const chequeChipText = (chequeNo: string, status?: string | null): string =>
     status ? `Cheque ${chequeNo} · ${status}` : `Cheque ${chequeNo}`;
 
-/** A Cheque's date (its cheque date, when it was made, a status change) as shown and exported; blank when unset. */
+/** A Cheque's date (its Cheque/Payment Date, when it was made, a status change) as shown and exported; blank when unset. */
 export const chequeDateText = (v?: string | null): string => (v ? formatDate(v) : "");
 
 const STATUS_TONE: Record<ChequeStatus, string> = {
-    Pending: "border-indigo-300 bg-indigo-50 text-indigo-900",
+    [CHEQUE_STATUS.PENDING]: "border-indigo-300 bg-indigo-50 text-indigo-900",
     Issued: "border-yellow-300 bg-yellow-50 text-yellow-900",
     Cleared: "border-green-300 bg-green-50 text-green-900",
     Cancelled: "border-red-200 bg-red-50 text-red-700",

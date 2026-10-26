@@ -24,10 +24,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { OutflowImportOption } from "@/types/NirmaanStack/OutflowImportBatch";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
+import { cardHistoryTitle, isCardImport } from "../creditCardImport";
 import { isPorterImport } from "../porterImport";
+import { shownPorterState } from "../porterProgress";
+import { PorterProgressChips } from "./PorterProgressBar";
 
 import {
     historyEmptyLabel,
+    importCountLabel,
     historySubtitle,
     importsInTab,
     initialHistoryMonth,
@@ -46,6 +50,7 @@ import {
     importUploaderLabel,
     repeatsNotSavedLabel,
     SOURCE_OPTIONS,
+    sourceLabel,
 } from "../outflowTableModel";
 
 /**
@@ -83,6 +88,8 @@ interface Props {
      * table to it would show nothing; its invoices' check is what a reader comes back for.
      */
     onOpenPorterImport?: (batch: string) => void;
+    /** Open a Credit Card Statement import's own dialog instead (#1566), for the same reason. */
+    onOpenCardImport?: (batch: string) => void;
 }
 
 /**
@@ -116,6 +123,7 @@ export const ImportHistoryDialog = ({
     selected,
     onSelectImport,
     onOpenPorterImport,
+    onOpenCardImport,
 }: Props) => (
     <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-2xl">
@@ -128,6 +136,7 @@ export const ImportHistoryDialog = ({
                 selected={selected}
                 onSelect={(batch, source) => {
                     if (onOpenPorterImport && isPorterImport(source)) onOpenPorterImport(batch);
+                    else if (onOpenCardImport && isCardImport(source)) onOpenCardImport(batch);
                     else onSelectImport(batch);
                     onOpenChange(false);
                 }}
@@ -237,7 +246,7 @@ const HistoryBody = ({
                 <TabsList className="h-auto w-full flex-wrap justify-start">
                     {SOURCE_OPTIONS.map((source) => (
                         <TabsTrigger key={source} value={source}>
-                            {source}
+                            {sourceLabel(source)}
                             <span className="ml-1.5 tabular-nums text-muted-foreground">
                                 ({counts[source] ?? 0})
                             </span>
@@ -292,6 +301,7 @@ const HistoryList = ({
                 matchesEveryToken(
                     [
                         option.original_filename || option.name,
+                        option.card_holder ?? "",
                         option.uploaded_by ?? "",
                         importUploaderLabel(option),
                         importPeriodLabel(option),
@@ -364,6 +374,11 @@ const HistoryRow = ({
     const uploader = importUploaderLabel(option);
     /** ADR-0031: the lines this import left out as already imported. Not saved, so only counted. */
     const repeats = repeatsNotSavedLabel(option.repeats_not_saved);
+    /** A Porter import reads "Creating" only while its Create job runs (#1556). */
+    const status =
+        isPorterImport(option.source) && option.status
+            ? shownPorterState({ state: option.status, create_running: option.progress?.create.running })
+            : option.status;
 
     return (
         <li>
@@ -377,14 +392,17 @@ const HistoryRow = ({
             >
                 <div className="min-w-0">
                     <div className="flex items-center gap-2">
+                        {/* A card statement is known by its holder and period (#1566, ADR-0039). */}
                         <span className="truncate text-sm font-medium">
-                            {option.original_filename || option.name}
+                            {isCardImport(option.source)
+                                ? cardHistoryTitle(option)
+                                : option.original_filename || option.name}
                         </span>
                         {/* The source is a KIND, not a status — a quiet micro-label rather than a
                             second chip competing with the one that carries the actionable fact. */}
                         {option.source && (
                             <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
-                                {option.source}
+                                {sourceLabel(option.source)}
                             </span>
                         )}
                         {current && (
@@ -403,6 +421,10 @@ const HistoryRow = ({
                     {repeats && (
                         <div className="truncate text-xs text-muted-foreground">{repeats}</div>
                     )}
+                    {/* A Porter import's progress, phase by phase, as its dialog's bar shows it (#1556). */}
+                    {isPorterImport(option.source) && option.progress && (
+                        <PorterProgressChips progress={option.progress} />
+                    )}
                 </div>
 
                 <div className="flex items-center gap-4">
@@ -414,15 +436,15 @@ const HistoryRow = ({
                             {formatToRoundedIndianRupee(option.gross_amount ?? 0)}
                         </div>
                         <div className="text-xs text-muted-foreground tabular-nums">
-                            {transfers} transfer{transfers === 1 ? "" : "s"}
+                            {importCountLabel(option.source, transfers)}
                         </div>
                     </div>
                     <span
                         className={`w-[92px] shrink-0 rounded-full px-2 py-0.5 text-center text-[11px] ${importStatusTone(
-                            option.status
+                            status
                         )}`}
                     >
-                        {option.status || "—"}
+                        {status || "—"}
                     </span>
                 </div>
             </button>

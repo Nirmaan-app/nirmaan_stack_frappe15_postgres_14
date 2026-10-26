@@ -69,7 +69,7 @@ const amountsSummaryItems = useMemo(() => [
       onClick: () => toggleInflowPaymentsDialog()
     },
     {
-      label: "Total Amount Paid",
+      label: "Paid to Vendors, All Projects",
       value: customerFinancialsData.message.totals.total_amount_paid,
       style: "text-red-600"
     },
