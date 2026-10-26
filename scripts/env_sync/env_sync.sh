@@ -7,7 +7,10 @@
 #   env_sync.sh to-desktop             fast-forward the desktop to the laptop's commits, then destale it
 #   env_sync.sh from-desktop           fast-forward the laptop to the desktop's commits, then destale it
 #   env_sync.sh db-pull --yes          replace the laptop's database with a fresh backup of the desktop's (the master)
-#   env_sync.sh reports                copy new or newer files from the desktop's Desktop to the laptop's Desktop
+#   env_sync.sh db-push --yes [--discard-desktop-writes]
+#                                      after a desktop drop (the laptop was the master): replace the DESKTOP's database
+#                                      with a fresh backup of the laptop's, after a proved desktop backup
+#   env_sync.sh reports               copy new or newer files from the desktop's Desktop to the laptop's Desktop
 #   env_sync.sh watch [--logs NAME]    one monitoring snapshot: desktop commits, changes, servers, Claude sessions
 #
 # Delegating work to a Claude session on the desktop (the session runs in the owner's console session through Task
@@ -18,7 +21,8 @@
 #   env_sync.sh session-send --name N --message FILE      relay an answer and resume the session
 #   env_sync.sh session-stop --name N
 #
-# Flags: --allow-dirty (transfer although uncommitted tracked changes stay behind), --no-restart (skip the destale).
+# Flags: --allow-dirty (transfer although uncommitted tracked changes stay behind), --no-restart (skip the destale),
+# --discard-desktop-writes (db-push although the desktop changed since the laptop's last pull: those writes are lost).
 # Overrides: .claude/state/env.local (git-ignored) may set the ENV_SYNC_* variables below.
 set -uo pipefail
 
@@ -36,6 +40,8 @@ PG_C="${ENV_SYNC_PG_CONTAINER:-frappe_docker_devcontainer-postgresql-1}"
 C_BENCH=/workspace/development/frappe-bench           # the same path inside both machines' containers
 STAGE=envsync                                          # frappe-bench/envsync: seen by the host and the container
 SDIR="$D_BENCH/$STAGE/sessions"                       # the desktop's brief / message / status / launch files
+# The desktop's fingerprint as of the laptop's last db-pull (db-pull writes it, db-push checks it, db-push refreshes it).
+PULL_RECORD="${ENV_SYNC_PULL_RECORD:-$BENCH_HOST/$STAGE/last_pull_fingerprint.txt}"
 SSH=/c/Windows/System32/OpenSSH/ssh.exe
 SCP=/c/Windows/System32/OpenSSH/scp.exe
 SSHO=(-o BatchMode=yes -o ConnectTimeout=20)
@@ -81,6 +87,27 @@ start_services() {
     sleep 5
   done
   echo "$m: WARNING the servers are not up after 5 minutes; see /tmp/envsync_logs/ in its container"
+}
+
+# fp_of <laptop|desktop>: that machine's data fingerprint, the fp_* lines of db_fingerprint.py.
+fp_of() { rrun "$1" py db_fingerprint.py | grep '^fp_'; }
+
+# wait_ping <laptop|desktop>: wait until bench answers /api/method/ping (not merely listens); 0 on pong.
+wait_ping() {
+  local m="$1" r=""
+  for _ in $(seq 1 60); do
+    if [ "$m" = laptop ]; then r=$(MSYS_NO_PATHCONV=1 docker exec "$FRAPPE_C" curl -s -m 5 http://127.0.0.1:8000/api/method/ping 2>/dev/null)
+    else r=$(dps "docker exec $FRAPPE_C curl -s -m 5 http://127.0.0.1:8000/api/method/ping"); fi
+    case "$r" in *pong*) echo "$m: /api/method/ping answers"; return 0;; esac
+    sleep 5
+  done
+  echo "$m: WARNING /api/method/ping did not answer in 5 minutes"; return 1
+}
+
+# d_cp_to_pg <folder on the desktop host> <file name> <container path>: copy a desktop file into its postgres container.
+# Docker on Windows reads a C:\... source as container:path, so go to the folder and copy ./file.
+d_cp_to_pg() {
+  dps "Set-Location -LiteralPath '$1'; docker cp ./$2 ${PG_C}:$3; if (\$LASTEXITCODE -ne 0) { 'error=docker cp failed' }"
 }
 
 # After new code lands on a machine: migrate when schema-shaped files changed, destale unless only docs changed.
@@ -136,6 +163,7 @@ cmd_status() {
     printf '%s\n' "$df" | sed 's/^fp_/  desktop  /; 1s/$/   (master)/'
     if [ "$lf" = "$df" ]; then echo "  verdict  SAME"
     else echo "  verdict  DIFFERENT: the laptop's copy is not the master's. Run env_sync.sh db-pull --yes before laptop work that needs live data."; fi
+    echo "  master   the desktop; after a desktop drop the laptop, until db-push (docs/agents/environments.md, Desktop drop)"
   fi
   case $VERDICT in IN_SYNC) return 0;; LAPTOP_AHEAD) return 10;; DESKTOP_AHEAD) return 11;; *) return 20;; esac
 }
@@ -191,6 +219,97 @@ cmd_db_pull() {
   MSYS_NO_PATHCONV=1 docker exec "$PG_C" bash /tmp/envsync_restore_db.sh "$db" /tmp/envsync_restore.sql.gz || die "the database restore failed (bench is stopped)"
   rrun laptop bash restore_files.sh "$prefix" || die "files or migrate failed (bench is stopped)"
   start_services laptop
+  # The laptop now holds exactly the desktop's backup: its fingerprint is the desktop's as of this pull. db-push
+  # refuses later if the desktop has moved away from it (writes the laptop never saw).
+  { echo "# desktop fingerprint at the laptop's last db-pull ($(date '+%F %T'), backup $(basename "$prefix"))"; fp_of laptop; } > "$PULL_RECORD"
+  echo "laptop: recorded the pulled fingerprint in $PULL_RECORD"
+  NO_DATA=0; cmd_status > "$TMPD/st" 2>&1; sed -n '/^data/,$p' "$TMPD/st"
+}
+
+# db-push: the laptop -> desktop twin of db-pull, for the owner's desktop-drop rule (2026-10-26): while the desktop was
+# unreachable the laptop was the master, and on reconnect its data goes back BEFORE any desktop work. It wraps the hand
+# procedure proven in SYNC-R (2026-10-26). Every guard runs before anything on the desktop changes.
+cmd_db_push() {
+  [ "${YES:-0}" = 1 ] || die "db-push REPLACES the DESKTOP's database (the master) with a fresh backup of the laptop's.\nUse it only after a desktop drop (docs/agents/environments.md, Desktop drop). Re-run with --yes."
+  local t0 rec dfp lfp dfp2 lfp2 dprefix lprefix db out suf f lh dh run
+  t0=$(date '+%F %T')
+  collect; print_code
+  [ "$VERDICT" = IN_SYNC ] || die "refusing: the code verdict is $VERDICT; bring the code over first (to-desktop) so both machines run the same migrations"
+  dfp=$(fp_of desktop); lfp=$(fp_of laptop)
+  [ -n "$dfp" ] && [ -n "$lfp" ] || die "could not read a fingerprint (laptop:\n$lfp\ndesktop:\n$dfp)"
+  if [ ! -f "$PULL_RECORD" ]; then
+    [ "${DISCARD:-0}" = 1 ] || die "refusing: there is no record of the laptop's last pull ($PULL_RECORD), so desktop writes since then cannot be ruled out.\nthe desktop now:\n$dfp\nIf the owner accepts losing any such writes, re-run with --discard-desktop-writes."
+    echo "WARNING: no pull record; going on because --discard-desktop-writes was given"
+  else
+    rec=$(grep '^fp_' "$PULL_RECORD")
+    if [ "$rec" != "$dfp" ]; then
+      [ "${DISCARD:-0}" = 1 ] || die "refusing: the desktop has changed since the laptop's last pull, and its writes would be lost.\nrecorded at the last pull ($PULL_RECORD):\n$rec\nthe desktop now:\n$dfp\nAsk the owner. To overwrite anyway, re-run with --discard-desktop-writes."
+      echo "WARNING: the desktop changed since the last pull; overwriting it because --discard-desktop-writes was given"
+    fi
+  fi
+  echo "fingerprints before"; printf '%s\n' "$lfp" | sed 's/^fp_/  laptop   /'; printf '%s\n' "$dfp" | sed 's/^fp_/  desktop  /'
+
+  db=$(kv db_name "$(rrun desktop bash get_db_name.sh)"); [ -n "$db" ] || die "cannot read the desktop's database name"
+  echo "desktop: backing up (the safety copy) ..."
+  out=$(rrun desktop bash backup.sh); dprefix=$(kv prefix "$out")
+  [ -n "$dprefix" ] || die "the desktop backup failed; nothing changed:\n$out"
+  out=$(rrun desktop bash prove_backup.sh "$dprefix"); printf '%s\n' "$out" | sed 's/^/  /'
+  [ "$(kv proof "$out")" = ok ] || die "the desktop backup did not prove whole; nothing changed"
+  out=$(d_cp_to_pg "$D_BENCH/sites/$(dirname "$dprefix")" "$(basename "$dprefix")-database.sql.gz" /tmp/envsync_check.sql.gz)
+  printf '%s\n' "$out" | grep -q '^error=' && die "copying the desktop dump into its postgres container failed; nothing changed:\n$out"
+  out=$(d_cp_to_pg "$D_BENCH/$STAGE" scratch_check.sh /tmp/envsync_scratch_check.sh)
+  printf '%s\n' "$out" | grep -q '^error=' && die "copying scratch_check.sh failed; nothing changed:\n$out"
+  echo "desktop: test-restoring the safety copy into a scratch database ..."
+  out=$(dps "docker exec $PG_C bash /tmp/envsync_scratch_check.sh $db /tmp/envsync_check.sql.gz"); printf '%s\n' "$out" | sed 's/^/  /'
+  printf '%s\n' "$out" | grep -qx 'check=PASS' || die "the desktop backup's test restore did not pass; nothing changed"
+
+  echo "laptop: backing up ..."
+  out=$(rrun laptop bash backup.sh); lprefix=$(kv prefix "$out")
+  [ -n "$lprefix" ] || die "the laptop backup failed; nothing changed on the desktop:\n$out"
+  out=$(rrun laptop bash prove_backup.sh "$lprefix")
+  [ "$(kv proof "$out")" = ok ] || die "the laptop backup did not prove whole; nothing changed on the desktop:\n$out"
+  for suf in -database.sql.gz -files.tar -private-files.tar; do
+    f="$BENCH_HOST/sites/$lprefix$suf"
+    "$SCP" -q "${SSHO[@]}" "$f" "$DESKTOP:$D_BENCH/sites/$lprefix$suf" || die "copying $lprefix$suf to the desktop failed; nothing changed on the desktop"
+    lh="$(sha256sum < "$f" | cut -c1-64) $(stat -c %s "$f")"
+    dh=$(dps "\$i = Get-Item -LiteralPath '$D_BENCH/sites/$lprefix$suf'; (Get-FileHash -Algorithm SHA256 -LiteralPath \$i.FullName).Hash.ToLower() + ' ' + \$i.Length")
+    [ "$lh" = "$dh" ] || die "the copy of $lprefix$suf differs on the desktop (laptop $lh, desktop $dh); nothing changed on the desktop"
+    echo "  copied   $(basename "$f")  ${lh:0:16} $(stat -c %s "$f")"
+  done
+
+  [ "$(fp_of desktop)" = "$dfp" ] || die "refusing: the desktop's data changed during the push; nothing changed. Re-run when it is idle."
+  [ "$(fp_of laptop)" = "$lfp" ] || die "refusing: the laptop's data changed during the push; nothing changed on the desktop. Re-run when it is idle."
+
+  echo "desktop: stopping bench and restoring the laptop's backup ..."
+  rrun desktop bash stop_bench.sh > /dev/null
+  out=$(d_cp_to_pg "$D_BENCH/sites/$(dirname "$lprefix")" "$(basename "$lprefix")-database.sql.gz" /tmp/envsync_restore.sql.gz)
+  printf '%s\n' "$out" | grep -q '^error=' && die "copying the laptop dump into the desktop's postgres failed; the desktop database is unchanged (bench is stopped):\n$out"
+  out=$(d_cp_to_pg "$D_BENCH/$STAGE" restore_db.sh /tmp/envsync_restore_db.sh)
+  printf '%s\n' "$out" | grep -q '^error=' && die "copying restore_db.sh failed; the desktop database is unchanged (bench is stopped):\n$out"
+  out=$(dps "docker exec $PG_C bash /tmp/envsync_restore_db.sh $db /tmp/envsync_restore.sql.gz"); printf '%s\n' "$out" | grep -v '^NOTICE' | sed 's/^/  /'
+  printf '%s\n' "$out" | grep -q "^restored $db" || die "the desktop restore failed; bench is stopped. Recover with the runbook rollback (the previous database is ${db}_envsync_prev)."
+  out=$(rrun desktop bash restore_files.sh "$lprefix"); printf '%s\n' "$out" | sed 's/^/  /'
+  printf '%s\n' "$out" | grep -qx 'migrate ok' || die "files or migrate failed on the desktop; bench is stopped. The previous database is ${db}_envsync_prev, the old file folders *.envsync_prev."
+  start_services desktop
+  wait_ping desktop || die "the desktop restored, but bench does not answer; see /tmp/envsync_logs/ in its container"
+
+  dfp2=$(fp_of desktop); lfp2=$(fp_of laptop)
+  echo "fingerprints after"; printf '%s\n' "$lfp2" | sed 's/^fp_/  laptop   /'; printf '%s\n' "$dfp2" | sed 's/^fp_/  desktop  /'
+  [ "$dfp2" = "$lfp2" ] || die "the desktop does not match the laptop after the restore. The previous desktop database is ${db}_envsync_prev; follow the runbook rollback."
+  { echo "# desktop fingerprint after the laptop's db-push ($(date '+%F %T'), backup $(basename "$lprefix"))"; printf '%s\n' "$dfp2"; } > "$PULL_RECORD"
+  run="$L_REPORTS/$(date +%F_%H%M)_env_sync_db-push.md"
+  { echo "# env_sync db-push - $(date '+%F %T')"; echo
+    echo "- started $t0, ended $(date '+%F %T')"
+    echo "- code: IN_SYNC at $(lgit rev-parse --short=9 HEAD) on $L_BRANCH"
+    echo "- desktop safety backup (proved by a scratch restore, kept): $(basename "$dprefix") in sites/localhost/private/backups"
+    echo "- laptop backup restored on the desktop: $(basename "$lprefix")"
+    echo "- the desktop's previous database: ${db}_envsync_prev (file folders *.envsync_prev)"
+    if [ "${DISCARD:-0}" = 1 ]; then echo "- --discard-desktop-writes was given"; fi
+    echo; echo "| | laptop | desktop |"; echo "|---|---|---|"
+    echo "| before | $(printf '%s' "$lfp" | tr '\n' ';') | $(printf '%s' "$dfp" | tr '\n' ';') |"
+    echo "| after | $(printf '%s' "$lfp2" | tr '\n' ';') | $(printf '%s' "$dfp2" | tr '\n' ';') |"
+  } > "$run"
+  echo "run record: $run"
   NO_DATA=0; cmd_status > "$TMPD/st" 2>&1; sed -n '/^data/,$p' "$TMPD/st"
 }
 
@@ -344,6 +463,7 @@ CMD="${1:-}"; [ $# -gt 0 ] && shift
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes) YES=1;; --allow-dirty) ALLOW_DIRTY=1;; --no-restart) NO_RESTART=1;; --no-data) NO_DATA=1;;
+    --discard-desktop-writes) DISCARD=1;;
     --logs) LOGS="${2:-}"; shift;; --lines) LINES_N="${2:-40}"; shift;;
     --name) NAME="${2:-}"; shift;; --brief) BRIEF="${2:-}"; shift;; --message) MESSAGE="${2:-}"; shift;;
     --interval) INTERVAL="${2:-60}"; shift;; --idle-limit) IDLE_LIMIT="${2:-5}"; shift;; --pull-back) PULL_BACK=1;;
@@ -351,11 +471,11 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-case "$CMD" in status|to-desktop|from-desktop|db-pull|watch|session-*) ensure_stage;; esac   # once, outside any $(...)
+case "$CMD" in status|to-desktop|from-desktop|db-pull|db-push|watch|session-*) ensure_stage;; esac   # once, outside any $(...)
 case "$CMD" in
   status) cmd_status;; to-desktop) cmd_to_desktop;; from-desktop) cmd_from_desktop;;
-  db-pull) cmd_db_pull;; reports) cmd_reports;; watch) cmd_watch;;
+  db-pull) cmd_db_pull;; db-push) cmd_db_push;; reports) cmd_reports;; watch) cmd_watch;;
   session-start) cmd_session_start;; session-send) cmd_session_send;;
   session-wait) cmd_session_wait;; session-stop) cmd_session_stop;;
-  *) sed -n "2,25p" "$0" | sed 's/^# \{0,1\}//'; exit 1;;
+  *) sed -n "2,26p" "$0" | sed 's/^# \{0,1\}//'; exit 1;;
 esac

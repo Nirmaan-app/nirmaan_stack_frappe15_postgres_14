@@ -45,8 +45,10 @@ desktop's SSH server (scp + git bundles). Nothing in it talks to GitHub.
 ## Rules
 
 - **Work that writes live data runs on the desktop only:** asset mints, paid AI runs, certification data. The laptop's
-  database is refreshed from the master with `db-pull`, never the other way. Two machines minting would collide on
-  version numbers.
+  database is refreshed from the master with `db-pull`. Two machines minting would collide on version numbers.
+- **The one exception: a desktop drop** (owner 2026-10-26). If the desktop can't be reached, ALL work continues on the
+  laptop, mints and paid runs included, and the laptop is the master. On reconnecting, before any desktop work, the
+  desktop is brought up to the laptop with `to-desktop` and `db-push` (see [Desktop drop](#desktop-drop)).
 - **Transfers only fast-forward.** A transfer that would need a merge or would overwrite uncommitted changes is refused,
   and leaves both machines unchanged.
 - **While the desktop owns the branch, don't commit on the laptop.** That includes other Claude sessions.
@@ -92,6 +94,44 @@ there. The background service and the session then run in that session.
 **Watching by hand:** `watch --logs N` gives the same snapshot at any time. The owner can also `ssh -t desktop` and run
 `claude attach N`. Leaving with ← or Ctrl+Z keeps the session running.
 
+## Desktop drop
+
+When the desktop is unreachable, keep working on the laptop: it is the master until the desktop is back in step.
+Record when the drop began and the laptop's last sync.
+
+On reconnecting, **before any desktop work**:
+
+1. **List what the laptop did since the drop:** commits (`git log <last synced>..HEAD`), asset mints, paid runs and any
+   other database writes.
+2. **Docker on both machines:** the four `frappe_docker_devcontainer-*` containers up, never `frappe_dev2-*`. After a
+   start, wait for `/api/method/ping` and check that Postgres recovered cleanly.
+3. **Code:** `status --no-data` shows `LAPTOP_AHEAD` (or `IN_SYNC`), then run `to-desktop`, then `status` shows `IN_SYNC`.
+   `DIVERGED` means stop and ask the owner.
+4. **Data:** `db-push --yes`. It refuses, changing nothing, when:
+   - `--yes` is missing, or the code isn't `IN_SYNC`;
+   - **the desktop has changed since the laptop's last `db-pull`.** That pull records the desktop's fingerprint in
+     `frappe-bench/envsync/last_pull_fingerprint.txt`. A mismatch means desktop writes the laptop never saw. The refusal
+     names both fingerprints; ask the owner. Only `--discard-desktop-writes` overrides it, and those writes are then lost;
+   - the desktop's safety backup can't be proved: sizes and sha256, `gzip -t`, and a test restore into a scratch
+     database (`remote/scratch_check.sh`; never the live one) with the table count and key row counts equal to live;
+   - the laptop's backup can't be proved, or its copy on the desktop doesn't match by sha256 and size;
+   - either machine's fingerprint moved while the push ran.
+
+   Then it stops the desktop's bench and restores the laptop's backup. The old desktop database is kept as
+   `<db>_envsync_prev` and the old file folders as `*.envsync_prev`. It runs migrate, starts bench, waits for ping, and
+   prints the before and after fingerprints, which must be equal. Last, it writes a run record to the laptop's Desktop
+   (`<date>_<time>_env_sync_db-push.md`) and refreshes the pull record. It takes about 15 minutes.
+5. **Proofs.** Compare the desktop AFTER against the LAPTOP's values: the v54 / v66 live-vs-file content hashes, the row
+   counts, the AI setting and key presence, the replay (equal by key). The site-config flags (`mute_emails`,
+   `disable_push`, `disable_cloud_upload`, `nirmaan_env`) and `dev_isolate.py --verify` belong to each machine, so
+   compare those with the desktop's own values from before the push.
+6. `status` shows `IN_SYNC` / `SAME`. The desktop is the master again.
+
+**Rollback** if a proof fails: stop the desktop's bench, rename the restored database away and `<db>_envsync_prev` back,
+move the `*.envsync_prev` file folders back, start bench and re-prove. If that copy is unusable, restore the proved
+safety backup instead, in the handover block-50 order. The full hand procedure is the SYNC-R runbook
+(`2026-10-26_Desktop_Drop_Runbook.md` on the owner's Desktop).
+
 ## Commands
 
 | Command | Does |
@@ -99,7 +139,8 @@ there. The background service and the session then run in that session.
 | `status [--no-data]` | code + data verdicts (exit code 0 in sync, 10 laptop ahead, 11 desktop ahead, 20 stop) |
 | `to-desktop [--allow-dirty] [--no-restart]` | fast-forward the desktop to the laptop's commits, then migrate and destale it as needed |
 | `from-desktop [--allow-dirty] [--no-restart]` | fast-forward the laptop to the desktop's commits, then migrate and destale it as needed |
-| `db-pull --yes` | back up the desktop, restore the backup on the laptop (the replaced database is kept as `<db>_envsync_prev`) |
+| `db-pull --yes` | back up the desktop, restore the backup on the laptop (the replaced database is kept as `<db>_envsync_prev`), and record the pulled fingerprint for `db-push` |
+| `db-push --yes [--discard-desktop-writes]` | after a desktop drop only: copy the laptop's database and files onto the desktop, behind the guards in [Desktop drop](#desktop-drop) |
 | `reports` | copy files on the desktop's Desktop that are new or newer to the laptop's OneDrive Desktop |
 | `watch [--logs NAME] [--lines N]` | one monitoring snapshot: desktop commits, changes, servers, Claude sessions, a session's recent output |
 | `session-start --brief FILE [--name N]` | hand over the code if needed, then start a delegated desktop session |
@@ -116,3 +157,5 @@ variables at the top of the script).
 - **`DIVERGED`:** stop. Show the owner both logs (`git log` on each machine) and let them rule. Never merge or reset on your own.
 - **A failed `db-pull` restore:** bench is left stopped. The previous database is intact as `<db>_envsync_prev`.
   Rename it back in the postgres container, then start bench (`scripts/env_sync/remote/start_bench.sh`).
+- **A refused `db-push`:** the desktop is unchanged; read the reason. A failure after the restore began leaves the desktop's
+  bench stopped, with the previous database intact as `<db>_envsync_prev`; follow the rollback in [Desktop drop](#desktop-drop).
