@@ -21,16 +21,12 @@ import { NewExpenseRequestDialog } from "./NewExpenseRequestDialog";
 
 const ONLY = { has_format: false, payee_rule: "Not asked" };
 const CATALOG = {
-    categories: [{
-        category: "Staff",
-        reviewer_role: null,
-        types: [
-            { expense_type: "Travel Expenses (Bus)", project: false, non_project: true,
-              project_allowed: false, project_required: false, ...ONLY },
-            { expense_type: "Labour Charges", project: true, non_project: false,
-              project_allowed: true, project_required: true, ...ONLY },
-        ],
-    }],
+    types: [
+        { expense_type: "Travel Expenses (Bus)", project: false, non_project: true,
+          project_allowed: false, project_required: false, ...ONLY },
+        { expense_type: "Labour Charges", project: true, non_project: false,
+          project_allowed: true, project_required: true, ...ONLY },
+    ],
     records_without_review: false,
 } as unknown as GetRequestCatalogResponse;
 

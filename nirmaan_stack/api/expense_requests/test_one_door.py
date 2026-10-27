@@ -87,7 +87,7 @@ class TestOneDoor(FrappeTestCase):
 			doc = frappe.new_doc("Expense Type")
 			doc.update({"expense_name": f"{TAG}_{'pe' if project else 'npe'}_{frappe.generate_hash(length=5)}",
 			            "project": project, "non_project": 1 - project,
-			            "expense_category": "Uncategorized", "payee_rule": "Optional"})
+			            "payee_rule": "Optional"})
 			doc.set("allowed_roles", [{"role_profile": p}
 			                          for p in (ACCOUNTANT_PROFILE, PMO_PROFILE, PROCUREMENT_PROFILE)])
 			doc.insert(ignore_permissions=True)

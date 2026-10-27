@@ -52,7 +52,7 @@ class TestRequestPayees(FrappeTestCase):
 		cls.expense_type = f"exr_test_pye_{frappe.generate_hash(length=6)}"
 		d = frappe.new_doc("Expense Type")
 		d.update({"expense_name": cls.expense_type, "non_project": 1,
-		          "expense_category": "Uncategorized", "payee_rule": "Required"})
+		          "payee_rule": "Required"})
 		d.set("allowed_roles", [{"role_profile": PM_PROFILE}, {"role_profile": PROCUREMENT_PROFILE}])
 		d.insert(ignore_permissions=True)
 		frappe.db.commit()

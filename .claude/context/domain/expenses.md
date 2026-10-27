@@ -586,8 +586,8 @@ PM raises  ->  Pending Approval  ->  routed reviewer
 |---|---|
 | `Expense Request` | NEW — 10 columns: `type` · `type_allows_project` · `projects` · `amount` · `comment` · `source_data` · `status` · `reviewed_by` · `reviewed_on` · `review_comment`. `status` is `Pending Approval` / `Approved` / `Rejected` / **`Paid`** |
 | `Expense Request Template Snapshot` | NEW — freezes the format a request was filled against |
-| `Expense Category` | NEW — `category_name` · `description` (`reviewer_role` REMOVED 2026-09-16) |
-| `Expense Type` | `+source_format` (Long Text, JSON) · `+expense_category` (Link) · `+source_format_enabled` (Check, "Enable Source", 2026-09-16) · `+allowed_roles` (Table → `Expense Type Role`, 2026-09-16) · `+confirmed_as_request` (Check, "Confirmed as Expense Request", 2026-10-20) |
+| `Expense Category` | REMOVED 2026-10-27 (owner; patch `v3_0.drop_expense_category`). Was `category_name` · `description`; `reviewer_role` went 2026-09-16 |
+| `Expense Type` | `+source_format` (Long Text, JSON) · `expense_category` (Link; REMOVED 2026-10-27) · `+source_format_enabled` (Check, "Enable Source", 2026-09-16) · `+allowed_roles` (Table → `Expense Type Role`, 2026-09-16) · `+confirmed_as_request` (Check, "Confirmed as Expense Request", 2026-10-20) |
 | `Expense Type Role` | NEW child table (2026-09-16) — `role_profile` (Link → Role Profile) |
 | `Project Expenses` / `Non Project Expenses` | `+request_id` (Link → Expense Request, read-only, indexed). Otherwise unchanged — approval writes a row through the existing schema |
 
@@ -643,20 +643,26 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   `bench migrate` re-imports each row and RESETS any field the file does not carry. When
   `source_format` and `expense_category` were added and the fixture was not regenerated, ONE
   migrate silently destroyed all 40 request forms and every category assignment — no error,
-  discovered only because tests went red. **After authoring a format or re-categorising a type
-  in the app, run `bench --site <site> export-fixtures --app nirmaan_stack` and commit**, or
-  the next migrate reverts it. `Expense Category` is a fixture too, because it is a Link target
-  and would otherwise dangle. Guarded by
+  discovered only because tests went red. **After authoring a format or changing a type in the
+  app, run `bench --site <site> export-fixtures --app nirmaan_stack` and commit**, or the next
+  migrate reverts it. Guarded by
   `api/expense_requests/test_fixture_completeness.py`, which fails naming the missing field —
   and which was verified by reproducing the bug, not merely by passing.
-- **Every expense request is reviewed by `Nirmaan Admin Profile`.** `Expense Category.reviewer_role`
-  ("Reviewed By") was REMOVED on request 2026-09-16 — every category had it blank, so no live
-  routing changed; categories now only group types. Read through
+- **Every expense request is reviewed by `Nirmaan Admin Profile`.** Read through
   `services/expense_request_routing.py` (which REPLACED the temporary
   `services/expense_request_catalog.py`, deleted 2026-08-18) — it caches per request, because
-  `get_permission_query_conditions` runs on every list read. **Categories are created in Frappe
-  Desk.** Since 2026-09-16 the category is **not shown anywhere in the app** (request picker or
-  Expense Packages): a new type is saved as `Uncategorized`, an edit keeps the current one.
+  `get_permission_query_conditions` runs on every list read.
+- **There are no expense categories** (owner, 2026-10-27). `Expense Category` was added 2026-08-18
+  to route each request to a per-category reviewer; no category ever had one, `reviewer_role` was
+  removed 2026-09-16, and the doctype, `Expense Type.expense_category`, its fixture and its
+  `hooks.py` entry were removed 2026-10-27 (patch `v3_0.drop_expense_category` drops the DocType,
+  its table and the column). `get_request_catalog` returns one flat `types` list by name;
+  request rows carry no `request_category`; a type saves with no category. `fixtures/expense_type.json`
+  still carries an `expense_category` key on each row (owner kept it); the fixture import writes only
+  declared fields, so it sets nothing. Until a site migrates,
+  its `Expense Category` DocType, table and column are still there but nothing reads them. Pinned by
+  `test_expense_requests.test_an_expense_type_has_no_category` and
+  `test_fixture_completeness.test_the_expense_category_is_gone_from_the_fixtures`.
 - **"Enable Source" switch (`Expense Type.source_format_enabled`, 2026-09-16).** ON → the
   request dialog shows the type's `source_format`; OFF → the STANDARD fields a direct expense
   needs: Description (required), Vendor (required once a project is chosen; "Others" allowed —

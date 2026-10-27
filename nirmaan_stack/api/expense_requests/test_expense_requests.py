@@ -12,6 +12,7 @@ Run:
 """
 
 import json
+import os
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -40,7 +41,6 @@ HRL_USER = "exr_test_hrl@example.com"
 PROJECT_TYPE = "Rent/PG for Staff"      # project=1, non_project=0
 NON_PROJECT_TYPE = "Travel Expenses (Bus)"     # project=0, non_project=1
 BOTH_TYPE = "Petty Cash"                       # project=1, non_project=1
-HOTEL_CATEGORY = "Hotel & Accommodation"
 PM_PROFILE = "Nirmaan Project Manager Profile"
 # The answers of a type with no form: its Description.
 STANDARD_ANSWERS = {"responses": {"detail": {"description": "test req"}}}
@@ -287,10 +287,10 @@ class TestExpenseRequests(FrappeTestCase):
 			approve_expense_request(res["name"])
 		frappe.set_user("Administrator")
 
-	def test_a_category_no_longer_routes_to_another_reviewer(self):
-		"""`Expense Category.reviewer_role` was REMOVED 2026-09-16, so a categorised request
-		routes to Admin like every other, and a non-Admin can neither approve nor be offered it.
-		The category itself is still derived for display."""
+	def test_every_type_routes_to_admin(self):
+		"""Per-category reviewers never existed (`Expense Category` was removed 2026-10-27), so a
+		Hotel request routes to Admin like every other, and a non-Admin can neither approve nor be
+		offered it. No category is derived any more."""
 		res = self._raise_as(PM_USER, expense_type="Hotel Expenses", amount=6000)
 		frappe.set_user(PM2_USER)
 		with self.assertRaises(frappe.PermissionError):
@@ -300,7 +300,7 @@ class TestExpenseRequests(FrappeTestCase):
 		row = next(r for r in rows if r["name"] == res["name"])
 		self.assertEqual(row["reviewer_role"], routing.DEFAULT_REVIEWER_ROLE)
 		self.assertFalse(row["can_review"])
-		self.assertEqual(row["request_category"], HOTEL_CATEGORY)
+		self.assertNotIn("request_category", row)
 
 	# --- Accountant / HR on a Project Manager's request (owner, 2026-09-19) ----
 
@@ -943,9 +943,12 @@ class TestExpenseRequests(FrappeTestCase):
 	# --- catalog -------------------------------------------------------------
 
 	def test_catalog_reports_flags_and_format_state(self):
-		cats = {c["category"]: c for c in get_request_catalog()["categories"]}
-		by_type = {t["expense_type"]: t
-		           for c in cats.values() for t in c["types"]}
+		catalog = get_request_catalog()
+		# One flat list, by name: there are no categories to group by (removed 2026-10-27).
+		self.assertNotIn("categories", catalog)
+		names = [t["expense_type"] for t in catalog["types"]]
+		self.assertEqual(names, sorted(names))
+		by_type = {t["expense_type"]: t for t in catalog["types"]}
 		self.assertTrue(by_type[PROJECT_TYPE]["project_required"])
 		self.assertTrue(by_type[PROJECT_TYPE]["project_allowed"])
 		self.assertFalse(by_type[NON_PROJECT_TYPE]["project_allowed"])
@@ -976,7 +979,7 @@ class TestExpenseRequests(FrappeTestCase):
 		name = f"exr_test_et_{frappe.generate_hash(length=6)}"
 		d = frappe.new_doc("Expense Type")
 		d.update({"expense_name": name, "project": project, "non_project": non_project,
-		          "expense_category": "Uncategorized", "source_format": fmt,
+		          "source_format": fmt,
 		          "source_format_enabled": enabled})
 		if payee_rule:
 			d.payee_rule = payee_rule
@@ -994,8 +997,7 @@ class TestExpenseRequests(FrappeTestCase):
 
 	def _catalog_types(self, **kw):
 		routing.clear_cache()
-		return {t["expense_type"]: t
-		        for c in get_request_catalog(**kw)["categories"] for t in c["types"]}
+		return {t["expense_type"]: t for t in get_request_catalog(**kw)["types"]}
 
 	def test_the_catalog_lists_only_types_the_role_may_see(self):
 		seen = self._own_type()
@@ -1420,8 +1422,7 @@ class TestExpenseRequestPayee(FrappeTestCase):
 		routing.clear_cache()
 		frappe.set_user(PM_USER)
 		try:
-			types = {t["expense_type"]: t for c in get_request_catalog()["categories"]
-			         for t in c["types"]}
+			types = {t["expense_type"]: t for t in get_request_catalog()["types"]}
 		finally:
 			frappe.set_user("Administrator")
 		self.assertEqual(types[typ]["payee_rule"], "Optional")
@@ -1465,7 +1466,7 @@ class TestExpenseTypeMasters(FrappeTestCase):
 		from nirmaan_stack.api.expense_requests.masters import create_expense_type
 		frappe.set_user(PM_USER)
 		with self.assertRaises(frappe.PermissionError):
-			create_expense_type(expense_name="exr_test_hack", project=1, expense_category="Uncategorized")
+			create_expense_type(expense_name="exr_test_hack", project=1)
 		frappe.set_user("Administrator")
 		self.assertFalse(frappe.db.exists("Expense Type", "exr_test_hack"))
 
@@ -1489,48 +1490,44 @@ class TestExpenseTypeMasters(FrappeTestCase):
 			create_expense_type, update_expense_type,
 		)
 		name = f"exr_test_type_{frappe.generate_hash(length=5)}"
-		out = create_expense_type(expense_name=name, project=1, non_project=0, expense_category="Uncategorized")
+		out = create_expense_type(expense_name=name, project=1, non_project=0)
 		self.made.append(out["name"])
 		self.assertEqual(frappe.db.get_value("Expense Type", name, "project"), 1)
-		update_expense_type(name=name, project=1, non_project=1, expense_category="Uncategorized")
+		update_expense_type(name=name, project=1, non_project=1)
 		row = frappe.db.get_value("Expense Type", name, ["project", "non_project"], as_dict=True)
 		self.assertEqual((row.project, row.non_project), (1, 1))
 
-		# Category is assignable from the app; categories themselves are created in Desk.
-		update_expense_type(name=name, project=1, non_project=1, expense_category="Travel")
-		self.assertEqual(frappe.db.get_value("Expense Type", name, "expense_category"), "Travel")
-		with self.assertRaises(frappe.ValidationError):
-			update_expense_type(name=name, project=1, expense_category="Not A Category")
+	def test_an_expense_type_has_no_category(self):
+		"""`Expense Category` and `Expense Type.expense_category` were removed (owner, 2026-10-27):
+		the field is gone from the doctype, and the master no longer exists."""
+		self.assertFalse(frappe.get_meta("Expense Type").has_field("expense_category"))
+		# The DocType record itself goes when migrate runs the patch, so this pins the change in the
+		# code -- the doctype's folder is gone and the patch that drops it is registered -- rather
+		# than a database that may not have migrated yet.
+		app = frappe.get_app_path("nirmaan_stack")
+		self.assertFalse(os.path.exists(os.path.join(app, "nirmaan_stack", "doctype", "expense_category")))
+		with open(os.path.join(app, "patches.txt")) as f:
+			self.assertIn("nirmaan_stack.patches.v3_0.drop_expense_category", f.read().split())
 
-	def test_a_type_with_no_category_is_refused(self):
-		"""Every type belongs to a category; 'Uncategorized' is the answer when none of the
-		named ones fit. Blank produced a type that appeared in no category list and routed to
-		a reviewer nobody had chosen."""
-		from nirmaan_stack.api.expense_requests.masters import create_expense_type
-		with self.assertRaises(frappe.ValidationError):
-			create_expense_type(expense_name="exr_test_nocat", project=1)
-		self.assertFalse(frappe.db.exists("Expense Type", "exr_test_nocat"))
-
-	def test_the_runtime_still_tolerates_an_uncategorised_type(self):
-		"""The app REQUIRES a category; the runtime must not. A type created directly in Desk
-		must never become silently un-requestable."""
+	def test_a_type_made_in_desk_is_requestable(self):
+		"""A type created directly in Desk, with nothing but a name and a scope, is requestable
+		and routes to Admin."""
 		from nirmaan_stack.services import expense_request_routing as r
 		name = f"exr_test_desk_{frappe.generate_hash(length=5)}"
 		d = frappe.new_doc("Expense Type")
-		d.update({"expense_name": name, "non_project": 1})  # no category, as Desk allows
+		d.update({"expense_name": name, "non_project": 1})
 		d.insert(ignore_permissions=True)
 		self.made.append(name)
 		frappe.db.commit()
 		r.clear_cache()
 		self.assertTrue(r.is_requestable(name))
-		self.assertIsNone(r.category_for_type(name))
 		self.assertEqual(r.reviewer_role_for_type(name), r.DEFAULT_REVIEWER_ROLE)
 		r.clear_cache()
 
 	def test_a_type_with_neither_scope_is_refused(self):
 		from nirmaan_stack.api.expense_requests.masters import create_expense_type
 		with self.assertRaises(frappe.ValidationError):
-			create_expense_type(expense_name="exr_test_noscope", project=0, non_project=0, expense_category="Uncategorized")
+			create_expense_type(expense_name="exr_test_noscope", project=0, non_project=0)
 		self.assertFalse(frappe.db.exists("Expense Type", "exr_test_noscope"))
 
 	def test_format_must_be_a_json_object_and_empty_clears_it(self):
@@ -1538,7 +1535,7 @@ class TestExpenseTypeMasters(FrappeTestCase):
 			create_expense_type, save_expense_format,
 		)
 		name = f"exr_test_fmt_{frappe.generate_hash(length=5)}"
-		self.made.append(create_expense_type(expense_name=name, non_project=1, expense_category="Uncategorized")["name"])
+		self.made.append(create_expense_type(expense_name=name, non_project=1)["name"])
 
 		with self.assertRaises(frappe.ValidationError):
 			save_expense_format(name=name, source_format="{not json")
@@ -1557,8 +1554,7 @@ class TestExpenseTypeMasters(FrappeTestCase):
 	def _made_type(self, **kw):
 		from nirmaan_stack.api.expense_requests.masters import create_expense_type
 		name = f"exr_test_m_{frappe.generate_hash(length=5)}"
-		self.made.append(create_expense_type(expense_name=name, non_project=1,
-		                                     expense_category="Uncategorized", **kw)["name"])
+		self.made.append(create_expense_type(expense_name=name, non_project=1, **kw)["name"])
 		return name
 
 	def test_the_form_switch_needs_a_format_and_clearing_the_format_turns_it_off(self):
@@ -1589,17 +1585,17 @@ class TestExpenseTypeMasters(FrappeTestCase):
 		self.assertEqual(stored(name), ["Nirmaan Project Manager Profile", "Nirmaan HR Executive Profile"])
 
 		# Omitted leaves the list alone; sent replaces it (a JSON string is what a form posts).
-		update_expense_type(name=name, non_project=1, expense_category="Uncategorized")
+		update_expense_type(name=name, non_project=1)
 		self.assertEqual(len(stored(name)), 2)
-		update_expense_type(name=name, non_project=1, expense_category="Uncategorized",
+		update_expense_type(name=name, non_project=1,
 		                    allowed_roles='["Nirmaan PMO Executive Profile"]')
 		self.assertEqual(stored(name), ["Nirmaan PMO Executive Profile"])
 
 		with self.assertRaises(frappe.ValidationError):
-			update_expense_type(name=name, non_project=1, expense_category="Uncategorized",
+			update_expense_type(name=name, non_project=1,
 			                    allowed_roles=["Nirmaan Admin Profile"])
 		with self.assertRaises(frappe.ValidationError):
-			update_expense_type(name=name, non_project=1, expense_category="Uncategorized",
+			update_expense_type(name=name, non_project=1,
 			                    allowed_roles=["Not A Profile"])
 		self.assertEqual(stored(name), ["Nirmaan PMO Executive Profile"])
 
@@ -1614,13 +1610,13 @@ class TestExpenseTypeMasters(FrappeTestCase):
 		created = self._made_type(payee_rule="Optional")
 		self.assertEqual(rule(created), "Optional")
 
-		update_expense_type(name=name, non_project=1, expense_category="Uncategorized",
+		update_expense_type(name=name, non_project=1,
 		                    payee_rule="Required")
 		self.assertEqual(rule(name), "Required")
-		update_expense_type(name=name, non_project=1, expense_category="Uncategorized")
+		update_expense_type(name=name, non_project=1)
 		self.assertEqual(rule(name), "Required")
 		with self.assertRaises(frappe.ValidationError):
-			update_expense_type(name=name, non_project=1, expense_category="Uncategorized",
+			update_expense_type(name=name, non_project=1,
 			                    payee_rule="Sometimes")
 		self.assertEqual(rule(name), "Required")
 
@@ -1629,7 +1625,7 @@ class TestExpenseTypeMasters(FrappeTestCase):
 		name = self._made_type()
 		frappe.set_user(PM_USER)
 		with self.assertRaises(frappe.PermissionError):
-			update_expense_type(name=name, non_project=1, expense_category="Uncategorized",
+			update_expense_type(name=name, non_project=1,
 			                    payee_rule="Required")
 		frappe.set_user("Administrator")
 		self.assertEqual(frappe.db.get_value("Expense Type", name, "payee_rule"), "Not asked")
@@ -1643,7 +1639,7 @@ class TestExpenseTypeMasters(FrappeTestCase):
 		with self.assertRaises(frappe.PermissionError):
 			set_expense_form_enabled(name=name, enabled=0)
 		with self.assertRaises(frappe.PermissionError):
-			update_expense_type(name=name, non_project=1, expense_category="Uncategorized",
+			update_expense_type(name=name, non_project=1,
 			                    allowed_roles=["Nirmaan Project Manager Profile"])
 		with self.assertRaises(frappe.PermissionError):
 			get_expense_type_access()

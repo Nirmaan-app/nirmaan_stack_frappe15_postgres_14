@@ -60,7 +60,7 @@ def _make_type(fmt):
 	name = f"exr_inv_test_et_{frappe.generate_hash(length=6)}"
 	d = frappe.new_doc("Expense Type")
 	d.update({"expense_name": name, "project": 0, "non_project": 1,
-	          "expense_category": "Uncategorized", "source_format": fmt,
+	          "source_format": fmt,
 	          "source_format_enabled": 1 if fmt else 0})
 	d.set("allowed_roles", [{"role_profile": PM_PROFILE}])
 	d.insert(ignore_permissions=True)

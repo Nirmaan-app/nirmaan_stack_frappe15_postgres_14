@@ -801,9 +801,6 @@ fixtures = [
     "Portal Menu Item",
     "Print Format",
     "Expense Type",
-    # Categories are Link targets of Expense Type, so they must ship with it or the link
-    # dangles on any site seeded from fixtures.
-    "Expense Category",
     "Nirmaan Item Units",
     "Commission Report Category",
     "Commission Report Tasks",
