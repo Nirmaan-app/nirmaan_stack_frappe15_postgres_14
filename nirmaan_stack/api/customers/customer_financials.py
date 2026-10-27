@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import cint, create_batch
+from frappe.utils import cint, create_batch, flt
 from frappe.utils.caching import redis_cache
 
 def get_customer_financial_details(customer_id):
@@ -32,15 +32,18 @@ def get_customer_financial_details(customer_id):
         # project (names are unique PKs), so no row is double-counted, and a single customer's row volume
         # never reaches the per-chunk `limit`, so the merged result is byte-identical to the pre-chunk query.
 
-        # Fetch project payments
-        project_payments = []
-        for chunk in create_batch(project_names, 500):
-            project_payments.extend(frappe.get_all(
-                "Project Payments",
-                fields=["amount"],
-                filters={"project": ("in", list(chunk))},
-                limit=1000
-            ))
+        # What the customer's orders were paid: the stored Amount Paid of every PO and WO on its projects,
+        # whatever their status (a Cancelled or Inactive order's Amount Paid is real money out). Never a
+        # sum of payments (ADR-0034): Amount Paid already counts only Paid payments (on a WO plus the TDS
+        # withheld from the vendor, Amendment A), less Received refunds.
+        total_amount_paid = 0.0
+        for doctype in ("Procurement Orders", "Service Requests"):
+            for chunk in create_batch(project_names, 500):
+                total_amount_paid += flt(frappe.get_all(
+                    doctype,
+                    fields=["sum(amount_paid) as paid"],
+                    filters={"project": ("in", list(chunk))},
+                )[0].paid)
 
         # Fetch project inflows (customer-scoped, not project-scoped -> bounded, no chunking needed)
         project_inflows = frappe.get_all(
@@ -74,7 +77,6 @@ def get_customer_financial_details(customer_id):
             ))
 
         # Calculate totals
-        total_amount_paid = sum(cint(p["amount"]) for p in project_payments)
         total_inflow_amount = sum(cint(i["amount"]) for i in project_inflows)
 
         def get_po_total(order):

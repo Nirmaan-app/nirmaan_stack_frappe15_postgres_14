@@ -1,5 +1,6 @@
 import frappe
 import json
+from frappe.utils import create_batch
 from nirmaan_stack.api.data_table.search import get_list_with_count_enhanced_impl
 
 @frappe.whitelist(allow_guest=False)
@@ -100,34 +101,48 @@ def get_pr_summary_list(
     if not pr_names:
         return result
 
-    # 3. Fetch tags for these PRs
-    tags = frappe.get_all(
-        "PR Tag Child Table",
-        fields=["parent", "tag_header", "tag_package"],
-        filters={"parent": ["in", pr_names], "parenttype": "Procurement Requests"}
-    )
+    # 3. Fetch each PR's packages (its `pr_tag_list` rows)
+    tags_by_parent = _packages_by_pr(pr_names)
 
-    # 4. Map tags to their parent PRs
-    tags_by_parent = {}
-    for tag in tags:
-        parent = tag.get("parent")
-        if parent not in tags_by_parent:
-            tags_by_parent[parent] = []
-        tags_by_parent[parent].append({
-            "tag_header": tag.get("tag_header"),
-            "tag_package": tag.get("tag_package")
-        })
-
-    # 5. Inject tags into the results
+    # 4. Inject them into the results
     for pr in pr_data:
         pr["pr_tag_list"] = tags_by_parent.get(pr.get("name"), [])
 
     return result
 
 
+def _packages_by_pr(pr_names: list[str]) -> dict:
+    """{pr_name: [{tag_package}, ...]}, each package once per PR, sorted.
+
+    PR tags carry only a package (the header was retired, see services/pr_packages.py). Rows
+    written before that can still repeat a package (one per old HVAC header) until the clean-up
+    patch runs, so they are de-duplicated here.
+    """
+    tags = []
+    # Chunked: a whole project's PR names would overrun sqlparse's 10k-token cap.
+    for chunk in create_batch(pr_names, 500):
+        tags += frappe.get_all(
+            "PR Tag Child Table",
+            fields=["parent", "tag_package"],
+            filters={
+                "parent": ["in", list(chunk)],
+                "parenttype": "Procurement Requests",
+                "parentfield": "pr_tag_list",
+            },
+        )
+    packages_by_pr: dict = {}
+    for tag in tags:
+        if tag.get("tag_package"):
+            packages_by_pr.setdefault(tag.get("parent"), set()).add(tag.get("tag_package"))
+    return {
+        parent: [{"tag_package": package} for package in sorted(packages)]
+        for parent, packages in packages_by_pr.items()
+    }
+
+
 @frappe.whitelist(allow_guest=False)
 def get_pr_tags_by_names(pr_names: str | list[str]) -> dict:
-    """Return {pr_name: [{tag_header, tag_package}, ...]} for the given PRs.
+    """Return {pr_name: [{tag_package}, ...]} for the given PRs.
 
     Used by list pages that load PRs via `frappe.client.get_list` (which cannot
     return child tables, and where direct reads on `PR Tag Child Table` are
@@ -142,24 +157,12 @@ def get_pr_tags_by_names(pr_names: str | list[str]) -> dict:
     if not pr_names:
         return {}
 
-    tags = frappe.get_all(
-        "PR Tag Child Table",
-        fields=["parent", "tag_header", "tag_package"],
-        filters={"parent": ["in", pr_names], "parenttype": "Procurement Requests"},
-    )
-
-    tags_by_parent: dict = {}
-    for tag in tags:
-        tags_by_parent.setdefault(tag.get("parent"), []).append({
-            "tag_header": tag.get("tag_header"),
-            "tag_package": tag.get("tag_package"),
-        })
-    return tags_by_parent
+    return _packages_by_pr(pr_names)
 
 
 @frappe.whitelist(allow_guest=False)
 def get_pr_tags_by_project(project: str) -> dict:
-    """Return {pr_name: [{tag_header, tag_package}, ...]} for every PR in a project.
+    """Return {pr_name: [{tag_package}, ...]} for every PR in a project.
 
     The PR-name list is derived server-side so the caller never ships the whole
     list of names in the request URL. Passing all names in a GET query string

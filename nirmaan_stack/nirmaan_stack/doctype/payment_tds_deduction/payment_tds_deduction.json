@@ -7,16 +7,21 @@
  "field_order": [
   "links_section",
   "project_payment",
+  "non_project_expense",
   "document_type",
   "document_name",
   "column_break_links",
   "vendor",
   "project",
+  "deductee_name",
+  "deductee_pan",
   "amounts_section",
   "gross_amount",
   "tds_percentage",
+  "tds_section",
   "column_break_amounts",
   "tds_amount",
+  "borne_by",
   "payment_approved_on",
   "deducted_on",
   "challan_section",
@@ -31,13 +36,12 @@
    "label": "Links"
   },
   {
-   "description": "The payment this tax was withheld from. UNIQUE, and that constraint IS the idempotency guarantee: the Approved transition can fire more than once (a re-save, a retried bulk action) and only the first attempt can write a row - which is also what stops the payment amount being reduced twice. Deleting the payment deletes this row.",
+   "description": "The payment this tax was withheld from, on a Work Order row; empty on a Non-Project Expense row. A row links to exactly one of this and Non-Project Expense, never both and never neither. UNIQUE, and that constraint IS the idempotency guarantee: the Approved transition can fire more than once (a re-save, a retried bulk action) and only the first attempt can write a row - which is also what stops the payment amount being reduced twice. Deleting the payment deletes this row.",
    "fieldname": "project_payment",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Project Payment",
    "options": "Project Payments",
-   "reqd": 1,
    "unique": 1
   },
   {
@@ -144,11 +148,53 @@
    "fieldtype": "Date",
    "label": "Deducted On (retired)",
    "read_only": 1
+  },
+  {
+   "default": "Vendor",
+   "description": "Who bears this tax, set once when the deduction is created and never changed after. Vendor: withheld from the vendor, the payment cut to the net. Company: paid by the company on top, the payment kept whole (a Work Order whose categories were all Miscellaneous / Transportation Services at that moment, services/payment_tds.is_company_borne). Every reader (Amount Due, the mismatch report, an amount edit, the request cap, the Work Order page) reads this, never the Work Order's categories, which may change later (#1451).",
+   "fieldname": "borne_by",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "TDS Borne By",
+   "options": "Vendor\nCompany",
+   "read_only": 1
+  },
+  {
+   "description": "The Non-Project Expense this tax was withheld from (Office Rent, section 194-I); empty on a Work Order row. A row links to exactly one of this and Project Payment, never both and never neither (services/payment_tds.deduction_link_problem, on every save). UNIQUE like Project Payment: that constraint is what lets one expense carry at most one tax record.",
+   "fieldname": "non_project_expense",
+   "fieldtype": "Link",
+   "label": "Non-Project Expense",
+   "options": "Non Project Expenses",
+   "unique": 1
+  },
+  {
+   "description": "Who the tax was withheld from when they are not a Vendor record: the landlord of an Office Rent expense, snapshotted from the request's answers when the tax is withheld. Empty on a Work Order row, which names its Vendor instead.",
+   "fieldname": "deductee_name",
+   "fieldtype": "Data",
+   "label": "Deductee Name",
+   "read_only": 1
+  },
+  {
+   "description": "The deductee's PAN, snapshotted with Deductee Name. Empty on a Work Order row, which reads its Vendor's PAN.",
+   "fieldname": "deductee_pan",
+   "fieldtype": "Data",
+   "label": "Deductee PAN",
+   "read_only": 1
+  },
+  {
+   "default": "194C",
+   "description": "The Income Tax section this tax falls under, set once when the row is created: 194C for a Work Order payment (contractors), 194-I for an Office Rent expense (rent). Rows from before the field were set 194C by the patch v3_0.backfill_payment_tds_section. Options pinned to services/payment_tds.TDS_SECTIONS by test.",
+   "fieldname": "tds_section",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "TDS Section",
+   "options": "194C\n194-I",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-12 11:04:30.881098",
+ "modified": "2026-10-20 19:38:32.578715",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Payment TDS Deduction",

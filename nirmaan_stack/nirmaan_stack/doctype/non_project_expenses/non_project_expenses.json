@@ -9,6 +9,13 @@
   "details_section",
   "type",
   "request_id",
+  "porter_order",
+  "credit_card_statement",
+  "pay_to_account_name",
+  "pay_to_account_number",
+  "pay_to_ifsc",
+  "pay_to_bank_name",
+  "pay_to_bank_branch",
   "status",
   "approval_date",
   "ceo_approval_date",
@@ -23,7 +30,10 @@
   "invoice_details_section",
   "invoice_attachment",
   "invoice_ref",
-  "invoice_date"
+  "invoice_date",
+  "no_invoice_reason",
+  "no_invoice_by",
+  "no_invoice_at"
  ],
  "fields": [
   {
@@ -43,6 +53,15 @@
    "fieldtype": "Link",
    "label": "Request ID",
    "options": "Expense Request",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "description": "The Porter Order this expense was created from, by the Porter Statement import (ADR-0032). Written once at Create; blank on every other expense. The expense owns the link: the Porter Order holds none back.",
+   "fieldname": "porter_order",
+   "fieldtype": "Link",
+   "label": "Porter Order",
+   "options": "Porter Order",
    "read_only": 1,
    "search_index": 1
   },
@@ -126,19 +145,78 @@
    "fieldtype": "Check",
    "label": "Auto Approved",
    "read_only": 1
+  },
+  {
+   "description": "The account holder this is paid into: a copy of a Payee's account, taken when the record is raised (ADR-0033). Never a link, so editing or deleting the Payee leaves it. Written by services/payees/pay_to.",
+   "fieldname": "pay_to_account_name",
+   "fieldtype": "Data",
+   "label": "Pay-to Holder Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pay_to_account_number",
+   "fieldtype": "Data",
+   "label": "Pay-to Account Number",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pay_to_ifsc",
+   "fieldtype": "Data",
+   "label": "Pay-to IFSC",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pay_to_bank_name",
+   "fieldtype": "Data",
+   "label": "Pay-to Bank",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pay_to_bank_branch",
+   "fieldtype": "Data",
+   "label": "Pay-to Branch",
+   "read_only": 1
+  },
+  {
+   "description": "The Credit Card Statement this expense is a card spend of, written once by the card import's Create (ADR-0039). Blank on every other expense: it is the marker that an expense is a card spend.",
+   "fieldname": "credit_card_statement",
+   "fieldtype": "Link",
+   "label": "Credit Card Statement",
+   "options": "Credit Card Statement",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "description": "Set when an Admin or Accountant Lead marks a card spend No invoice (ADR-0039 ruling 8): why it will never have one. Written only by api/expenses/card_invoices.mark_card_no_invoice, with no_invoice_by and no_invoice_at.",
+   "fieldname": "no_invoice_reason",
+   "fieldtype": "Small Text",
+   "label": "No Invoice Reason",
+   "read_only": 1
+  },
+  {
+   "fieldname": "no_invoice_by",
+   "fieldtype": "Link",
+   "label": "No Invoice By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "no_invoice_at",
+   "fieldtype": "Datetime",
+   "label": "No Invoice At",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-15 15:47:51.072596",
+ "modified": "2026-10-25 16:56:33.554599",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Non Project Expenses",
  "owner": "Administrator",
  "permissions": [
   {
-   "create": 1,
    "delete": 1,
    "email": 1,
    "export": 1,
@@ -150,7 +228,6 @@
    "write": 1
   },
   {
-   "create": 1,
    "delete": 1,
    "email": 1,
    "export": 1,
@@ -162,7 +239,6 @@
    "write": 1
   },
   {
-   "create": 1,
    "delete": 1,
    "email": 1,
    "export": 1,
@@ -174,7 +250,6 @@
    "write": 1
   },
   {
-   "create": 1,
    "delete": 1,
    "email": 1,
    "export": 1,
@@ -186,7 +261,6 @@
    "write": 1
   },
   {
-   "create": 1,
    "delete": 1,
    "email": 1,
    "export": 1,
@@ -198,7 +272,6 @@
    "write": 1
   },
   {
-   "create": 1,
    "delete": 1,
    "email": 1,
    "export": 1,
@@ -210,7 +283,6 @@
    "write": 1
   },
   {
-   "create": 1,
    "delete": 1,
    "email": 1,
    "export": 1,
@@ -222,7 +294,6 @@
    "write": 1
   },
   {
-   "create": 1,
    "delete": 1,
    "email": 1,
    "export": 1,
@@ -249,10 +320,10 @@
    "read": 1,
    "report": 1,
    "role": "Nirmaan PMO Executive",
-   "share": 1
+   "share": 1,
+   "write": 1
   },
   {
-   "create": 1,
    "delete": 1,
    "email": 1,
    "export": 1,
@@ -264,7 +335,6 @@
    "write": 1
   },
   {
-   "create": 1,
    "delete": 1,
    "email": 1,
    "export": 1,
@@ -276,7 +346,6 @@
    "write": 1
   },
   {
-   "create": 1,
    "delete": 1,
    "email": 1,
    "export": 1,
@@ -288,7 +357,6 @@
    "write": 1
   },
   {
-   "create": 1,
    "delete": 1,
    "email": 1,
    "export": 1,
@@ -300,7 +368,6 @@
    "write": 1
   },
   {
-   "create": 1,
    "delete": 1,
    "email": 1,
    "export": 1,
@@ -312,7 +379,6 @@
    "write": 1
   },
   {
-   "create": 1,
    "delete": 1,
    "email": 1,
    "export": 1,
@@ -324,7 +390,6 @@
    "write": 1
   },
   {
-   "create": 1,
    "delete": 1,
    "email": 1,
    "export": 1,
@@ -336,7 +401,6 @@
    "write": 1
   },
   {
-   "create": 1,
    "delete": 1,
    "email": 1,
    "export": 1,

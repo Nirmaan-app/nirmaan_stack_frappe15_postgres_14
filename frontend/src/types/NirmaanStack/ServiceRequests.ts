@@ -64,13 +64,16 @@ export interface ServiceRequests {
 	/** GST Invoiced : Currency — derived, sum of Invoice GST Amount over this WO's Approved
 	 * Vendor Invoices, recomputed with amount_invoiced (ADR-0030). GST billed, not GST paid. */
 	gst_invoiced?: number
-	/** Amount Paid : Currency — derived, sum of this SR's Paid payments. NET of tax withheld,
-	 * because Project Payments.amount on an SR is stored net (services/payment_tds.py). */
+	/** Amount Paid : Currency — derived, this SR's Paid payments PLUS the TDS withheld from the vendor
+	 * on them, less its Received Vendor Refunds (ADR-0034 Amendment A). Tax the company paid on top is
+	 * not in it. The one paid figure: screens read it, never re-add payments or tax. */
 	amount_paid?: string
-	/** Total TDS : Currency — derived, tax withheld from this SR's PAID payments. Same population
-	 * as amount_paid, recomputed in the same pass. Gross paid = amount_paid + total_tds. */
+	/** Total TDS : Currency — derived, the tax on this SR's PAID payments' deductions, both kinds
+	 * (withheld from the vendor, and paid by the company on top). The withheld part is already inside
+	 * amount_paid: NEVER add total_tds onto amount_paid (ratchet P1). For the split, ask the server
+	 * (`get_work_order_tds`: withheld, company). */
 	total_tds?: number
-	/** Amount Due : Currency — derived, total_amount - amount_paid - total_tds (NOT amount_invoiced) */
+	/** Amount Due : Currency — derived, total_amount - amount_paid (NOT amount_invoiced) */
 	amount_due?: number
 	/** Is Finalized : Check */
 	is_finalized?: 0 | 1
@@ -78,4 +81,9 @@ export interface ServiceRequests {
 	finalized_by?: string
 	/** Finalized On : Datetime */
 	finalized_on?: string
+	/** Approved On : Datetime — the first approval, stamped by that save and never moved after (#1532).
+	 * Blank on an old WO whose history holds no approval. */
+	approved_on?: string | null
+	/** Approved By : Data — the user id (email) of whoever first approved it */
+	approved_by?: string | null
 }

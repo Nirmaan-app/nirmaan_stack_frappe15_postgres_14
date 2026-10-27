@@ -13,7 +13,10 @@ import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { CreateWorkplantask } from "./CreateWorkplantask";
 import { WorkPlanOverview } from "./WorkPlanOverview";
 import { ProjectManagerEditWorkPlanDialog } from "./ProjectManagerEditWorkPlanDialog";
-import { SevenDayPlanningHeader } from "./SevenDayPlanningHeader";
+import { PlanningDurationFilter } from "./PlanningDurationFilter";
+import { SimpleFacetedFilter } from "@/pages/projects/components/SimpleFacetedFilter";
+import { WORK_PLAN_STATUSES, completedNeedsAllTime, filterActivitiesByStatus } from "@/utils/workPlan/activityStatusFilter";
+import { parseStatusParam, statusParamOf } from "@/utils/statusFilterParam";
 import { DateRange } from "react-day-picker";
 
 
@@ -46,6 +49,9 @@ interface SevendaysWorkPlanProps {
 }
 
 export { type WorkPlanItem, type WorkPlanDoc };
+
+/** The Planned Activities Status filter's options. */
+const STATUS_OPTIONS = WORK_PLAN_STATUSES.map((status) => ({ label: status, value: status }));
 
 export const getColorForProgress = (value: number): string => {
     const val = Math.round(value);
@@ -591,11 +597,43 @@ export const SevendaysWorkPlan = ({
     const { toast } = useToast();
     const { deleteWorkPlan } = useDeleteWorkPlan();
 
+    // --- View Tab State (Activities | Work Milestones) ---
+    const planningViewParam = useUrlParam("planningView");
+    const activeView: "activities" | "milestones" =
+        planningViewParam === "milestones" ? "milestones" : "activities";
+
+    const handleViewChange = (view: "activities" | "milestones") => {
+        urlStateManager.updateParam("planningView", view);
+    };
+
+    // The date and status filters belong to the Planned Activities view (Overview shows only that view).
+    // The Milestones view lists every activity, so it is fetched without dates and never status-filtered.
+    const showActivityFilters = isOverview || activeView === "activities";
+
+    // --- Status Filter (Planned Activities; nothing picked = every status) ---
+    const planningStatusParam = useUrlParam("planningStatus");
+    const selectedStatuses = useMemo(
+        () => new Set<string>(parseStatusParam(planningStatusParam, WORK_PLAN_STATUSES)),
+        [planningStatusParam]
+    );
+    const handleStatusChange = (statuses: Set<string>) => {
+        urlStateManager.updateParam("planningStatus", statusParamOf(statuses, WORK_PLAN_STATUSES));
+    };
+    const statusFilterActive = showActivityFilters && selectedStatuses.size > 0;
+
     const { data: result, error, isLoading: loading, mutate } = useWorkPlanData(
         projectId,
-        startDate ? format(startDate, "yyyy-MM-dd") : undefined,
-        endDate ? format(endDate, "yyyy-MM-dd") : undefined
+        showActivityFilters && startDate ? format(startDate, "yyyy-MM-dd") : undefined,
+        showActivityFilters && endDate ? format(endDate, "yyyy-MM-dd") : undefined
     );
+
+    // What the screen shows: the fetched data, narrowed by the status filter in the Planned Activities view.
+    // Every count (zone badges, header badges, empty states) reads this, so they follow the filter.
+    const workPlanData = useMemo(() => {
+        const data = result?.message?.data;
+        if (!data || !showActivityFilters) return data;
+        return filterActivitiesByStatus(data, selectedStatuses);
+    }, [result, showActivityFilters, selectedStatuses]);
 
     const { data: projectDoc } = useProjectDocForWorkPlan(projectId);
     const zones: string[] = useMemo(() => {
@@ -605,8 +643,8 @@ export const SevendaysWorkPlan = ({
 
     const zoneCounts = useMemo(() => {
         const counts: Record<string, number> = {};
-        if (result?.message?.data) {
-            Object.values(result.message.data).forEach((items) => {
+        if (workPlanData) {
+            Object.values(workPlanData).forEach((items) => {
                 items.forEach((item) => {
                     const zone = item.zone;
                     const count = item.work_plan_doc?.length || 0;
@@ -617,7 +655,7 @@ export const SevendaysWorkPlan = ({
             });
         }
         return counts;
-    }, [result]);
+    }, [workPlanData]);
 
     const urlZone = useUrlParam("planningZone");
 
@@ -645,15 +683,6 @@ export const SevendaysWorkPlan = ({
     const handleZoneChange = (zone: string) => {
         setActiveZone(zone);
         urlStateManager.updateParam("planningZone", zone);
-    };
-
-    // --- View Tab State (Activities | Work Milestones) ---
-    const planningViewParam = useUrlParam("planningView");
-    const activeView: "activities" | "milestones" =
-        planningViewParam === "milestones" ? "milestones" : "activities";
-
-    const handleViewChange = (view: "activities" | "milestones") => {
-        urlStateManager.updateParam("planningView", view);
     };
 
     const [expandedHeaders, setExpandedHeaders] = useState<Record<string, boolean>>({});
@@ -812,6 +841,10 @@ export const SevendaysWorkPlan = ({
     const [isDownloading, setIsDownloading] = useState(false);
     const [isBufferDownloading, setIsBufferDownloading] = useState(false);
 
+    // Downloads follow the Planned Activities filters: the date (as before) and the Status, read by both Work Plan
+    // print formats as `wp_status`. Nothing picked sends nothing, so the PDF holds every status, as before.
+    const downloadStatusParam = statusParamOf(selectedStatuses, WORK_PLAN_STATUSES) ?? "";
+
     // Refactored download logic to accept dates
     const performDownload = async (downloadStartDate: Date | undefined, downloadEndDate: Date | undefined, zone: string | undefined) => {
         setIsDownloading(true);
@@ -824,6 +857,7 @@ export const SevendaysWorkPlan = ({
                 endDate: downloadEndDate ? format(downloadEndDate, "yyyy-MM-dd") : undefined,
                 zone,
                 filePrefix: "WorkPlan",
+                extraParams: { wp_status: downloadStatusParam },
             });
         } catch (error) {
             console.error("Download failed:", error);
@@ -873,6 +907,7 @@ export const SevendaysWorkPlan = ({
                     buffer_days: String(days),
                     add_to_start: String(toStart),
                     add_to_end: String(toEnd),
+                    wp_status: downloadStatusParam,
                 },
             });
         } catch (error) {
@@ -913,12 +948,12 @@ export const SevendaysWorkPlan = ({
         );
     }
 
-    let workHeaders = result?.message?.data ? Object.keys(result.message.data) : [];
+    let workHeaders = workPlanData ? Object.keys(workPlanData) : [];
 
     // Filter headers if isOverview is true OR if user is Project Manager
-    if ((isOverview || isProjectManager) && result?.message?.data) {
+    if ((isOverview || isProjectManager) && workPlanData) {
         workHeaders = workHeaders.filter(header => {
-            const items = result.message.data[header];
+            const items = workPlanData[header];
             // Keep header only if it has at least one item with planned activities
             return items?.some(item => item.work_plan_doc && item.work_plan_doc.length > 0);
         });
@@ -928,9 +963,9 @@ export const SevendaysWorkPlan = ({
 
     // For Project Managers, check if the selected zone has any plan activities
     let hasZoneData = hasData;
-    if (isProjectManager && result?.message?.data && activeZone) {
+    if (isProjectManager && workPlanData && activeZone) {
         hasZoneData = workHeaders.some(header => {
-            const items = result.message.data[header];
+            const items = workPlanData[header];
             return items?.some(item =>
                 item.zone === activeZone &&
                 item.work_plan_doc &&
@@ -940,8 +975,8 @@ export const SevendaysWorkPlan = ({
     }
 
     let totalPlannedActivities = 0;
-    if (result?.message?.data) {
-        Object.values(result.message.data).forEach((items) => {
+    if (workPlanData) {
+        Object.values(workPlanData).forEach((items) => {
             const filteredItems = activeZone
                 ? items.filter(item => item.zone === activeZone)
                 : items;
@@ -952,19 +987,11 @@ export const SevendaysWorkPlan = ({
         });
     }
 
+    // Completed activities never come back for a date range (`get_work_plan`), so picking Completed then needs a word.
+    const showCompletedHint = showActivityFilters && completedNeedsAllTime(selectedStatuses, !!dateRange);
+
     return (
         <div className="space-y-4 md:space-y-6">
-            {/* Header Section */}
-            {setDaysRange && activeDuration && (
-                <div className="mb-6">
-                    <SevenDayPlanningHeader
-                        isOverview={isOverview}
-                        dateRange={dateRange}
-                        activeDuration={activeDuration}
-                        setDaysRange={setDaysRange}
-                    />
-                </div>
-            )}
             <div className="overflow-hidden bg-white">
                 {
                     <div
@@ -1067,9 +1094,10 @@ export const SevendaysWorkPlan = ({
                 </div>
             )}
 
-            {/* View Tabs — connected button group dashboard style (hidden in Overview) */}
+            {/* View Tabs (hidden in Overview) + the Planned Activities filters (date, status) on the right */}
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
             {!isOverview && (
-                <div className="flex border rounded-md w-fit overflow-hidden border-[#D7D7EC] mb-3 shadow-sm">
+                <div className="flex border rounded-md w-fit overflow-hidden border-[#D7D7EC] shadow-sm">
                     <button
                         type="button"
                         onClick={() => handleViewChange("activities")}
@@ -1094,6 +1122,28 @@ export const SevendaysWorkPlan = ({
                     </button>
                 </div>
             )}
+            {showActivityFilters && (
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:ml-auto">
+                    <PlanningDurationFilter
+                        dateRange={dateRange}
+                        activeDuration={activeDuration}
+                        setDaysRange={setDaysRange}
+                    />
+                    <SimpleFacetedFilter
+                        title="Status"
+                        triggerLabel="Status"
+                        options={STATUS_OPTIONS}
+                        selectedValues={selectedStatuses}
+                        onSelectedValuesChange={handleStatusChange}
+                    />
+                </div>
+            )}
+            {showCompletedHint && (
+                <p className="basis-full text-xs text-amber-700 sm:text-right">
+                    Completed activities show only in All Time.
+                </p>
+            )}
+            </div>
 
             {isMainExpanded && (
                 <div className="p-2 space-y-4">
@@ -1101,12 +1151,14 @@ export const SevendaysWorkPlan = ({
                     {isProjectManager && !hasZoneData ? (
                         <div className="rounded-lg border bg-blue-50 p-8 text-center text-gray-600">
                             <div className="text-lg font-medium mb-1">No Plan Activities</div>
-                            <div className="text-sm">There are no planned activities available in <span className="font-semibold">{activeZone}</span> zone.</div>
+                            <div className="text-sm">There are no planned activities{statusFilterActive ? " with the selected status" : ""} available in <span className="font-semibold">{activeZone}</span> zone.</div>
                         </div>
-                    ) : (!isOverview && activeView === "activities" && totalPlannedActivities === 0) ? (
+                    ) : (showActivityFilters && totalPlannedActivities === 0 && (!isOverview || statusFilterActive)) ? (
                         <div className="rounded-lg border bg-gray-50 p-8 text-center text-gray-500">
-                            <div className="text-base font-medium text-gray-700 mb-1">No activities here now</div>
-                            <div className="text-sm">No planned activities found{activeZone ? <> in <span className="font-semibold">{activeZone}</span> zone</> : ""}.</div>
+                            <div className="text-base font-medium text-gray-700 mb-1">
+                                {statusFilterActive ? "No activities match the selected status" : "No activities here now"}
+                            </div>
+                            <div className="text-sm">No planned activities{statusFilterActive ? " with the selected status" : ""} found{activeZone ? <> in <span className="font-semibold">{activeZone}</span> zone</> : ""}.</div>
                         </div>
                     ) : !hasData ? (
                         <div className="rounded-lg border bg-gray-50 p-8 text-center text-gray-500">
@@ -1114,7 +1166,7 @@ export const SevendaysWorkPlan = ({
                         </div>
                     ) : (
                         workHeaders.map((header) => {
-                            let items = result?.message?.data[header] || [];
+                            let items = workPlanData?.[header] || [];
 
                             // Filter to only show milestones with plan activities for overview, PM, or Activities tab
                             if (isOverview || isProjectManager || activeView === "activities") {

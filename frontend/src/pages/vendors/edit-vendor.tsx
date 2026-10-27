@@ -12,12 +12,21 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
-import { ACCOUNT_NUMBER_REGEX, IFSC_REGEX, NAME_REGEX } from "@/constants/vendorFormRegex";
-import { accountNumberDuplicateMessage, findVendorsByPan, vendorNamesLabel } from "./utils/vendorDuplicates";
-import { vendorTaxIdSchemas } from "./utils/vendorTaxIds";
+import { NAME_REGEX } from "@/constants/vendorFormRegex";
+import { findVendorsByPan, vendorNamesLabel } from "./utils/vendorDuplicates";
+import {
+  fallbackTdsRate,
+  isIndividualHufPan,
+  refineTdsRateAgainstPan,
+  tdsRateChangeNote,
+  tdsRateOnPanChange,
+  tdsRateToStore,
+  vendorTaxIdSchemas,
+} from "./utils/vendorTaxIds";
+import { VendorTdsRateHint } from "./components/VendorTdsRateHint";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useEditVendorData, usePincodeData, useBankDetails, useExistingVendors } from './data/useVendorQueries';
+import { useEditVendorData, usePincodeData, useExistingVendors } from './data/useVendorQueries';
 import { useUpdateVendorDoc } from './data/useVendorMutations';
 import { ListChecks, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -25,36 +34,9 @@ import { useForm } from "react-hook-form";
 import { useParams } from "react-router-dom";
 import * as z from "zod";
 
-const getVendorFormSchema = (service: boolean, accountNumber: string | undefined, confirmAccountNumber: string | undefined, existingVendors: Vendors[] | undefined, bank_details: any, pincode_data: any, originalAccountNumber?: string | number | null) => {
-    // Stays OPTIONAL here (legacy vendors hold no bank details), but a number
-  // belonging to ANOTHER vendor is refused. The record's own current number is
-  // always allowed — see accountNumberDuplicateMessage.
-  // Bank details are mandatory on edit, exactly as they already are on create. A vendor
-  // without an account number + IFSC cannot be paid out at all: the Cashfree/ICICI export
-  // needs both, and AccountantTabs greys the payment row out entirely when either is
-  // missing. Leaving edit permissive is what let those unpayable vendors exist.
-  let accountNumberSchema = z
-      .string({ required_error: "Account number is required" })
-      .min(1, { message: "Account number is required" })
-      .regex(ACCOUNT_NUMBER_REGEX, {
-          message: "Account number must be 9 to 18 digits.",
-      })
-      .refine(
-          (value) => !accountNumberDuplicateMessage(existingVendors, value, originalAccountNumber),
-          (value) => ({
-              message: accountNumberDuplicateMessage(existingVendors, value, originalAccountNumber)
-                  ?? "This account number is already registered to another vendor.",
-          })
-      );
-      let confirmAccountNumberSchema = accountNumber ? (confirmAccountNumber !== accountNumber ? z.string(
-          {
-              required_error: "Confirm account number is required",
-          }
-      ).refine((value) => value === accountNumber, {
-          message: "Account numbers do not match.",
-          // path: ["confirm_account_number"],
-      }) : z.string().optional()) : z.string().optional();
-
+// The vendor's bank account is its Payee (spec #1420, ADR-0033): it changes from the vendor page's
+// Account Details card (Edit bank details, Use a different payee), never from this form.
+const getVendorFormSchema = (service: boolean, existingVendors: Vendors[] | undefined, pincode_data: any) => {
     return z.object({
         vendor_contact_person_name: z
             .string({
@@ -157,64 +139,37 @@ const getVendorFormSchema = (service: boolean, accountNumber: string | undefined
                 .min(0, { message: "TDS % cannot be negative." })
                 .max(100, { message: "TDS % cannot exceed 100." })
         ),
-        account_number: accountNumberSchema,
-        confirm_account_number:confirmAccountNumberSchema,
-        account_name: z
-            .string({ required_error: "Account holder name is required" })
-            .min(3, {
-                message: "Must be at least 3 characters.",
-            }),
-        ifsc: z
-                .string({ required_error: "IFSC code is required" })
-                .min(1, { message: "IFSC code is required" })
-                .regex(IFSC_REGEX, {
-                  message: "Invalid IFSC code. Example: SBIN0005943"
-                })
-                .refine((ifsc) => {
-                  if (!ifsc || ifsc.length !== 11) {
-                    return true;
-                  }
-            
-                  if (bank_details && !bank_details.message.error) {
-                    return true;
-                  }
-                  return false;
-                }, {
-                  message: "IFSC Code Not Found",
-                }),
-    })
+    // An Individual / HUF PAN must be at 1%; the server applies the same rule on save. See new-vendor.tsx.
+    }).superRefine(refineTdsRateAgainstPan)
 };
 
 type VendorFormValues = z.infer<ReturnType<typeof getVendorFormSchema>>;
 
-export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEditSheet }) => {
+interface EditVendorProps {
+  toggleEditSheet: () => void;
+  /** Called after a save that changed `vendor_name`: the vendor page then asks what happens to the
+   * vendor's bank account (#1426). */
+  onRenamed?: (rename: { before: string; after: string }) => void;
+}
+
+export const EditVendor: React.FC<EditVendorProps> = ({ toggleEditSheet, onRenamed }) => {
 
   const { vendorId: id } = useParams<{ vendorId: string }>();
   const { data, vendorMutate, vendorAddress, addressMutate } = useEditVendorData(id);
   const { updateDoc, loading } = useUpdateVendorDoc();
   const { toast } = useToast();
   const [vendorChange, setVendorChange] = useState(false)
-  const [bankAndBranch, setBankAndBranch] = useState({
-    bank: "",
-    branch: "",
-  });
 
   const [city, setCity] = useState(vendorAddress?.city || "");
   const [state, setState] = useState(vendorAddress?.state || "");
 
-  const [accountNumber, setAccountNumber] = useState<string>("");
-  const [confirmAccountNumber, setConfirmAccountNumber] = useState<string>("");
-
   const [pincode, setPincode] = useState("");
 
   const { data: pincode_data } = usePincodeData(pincode);
-  const [IFSC, setIFSC] = useState(data?.ifsc || "");
-
-  const { data: bank_details, isLoading: bankDetailsLoading } = useBankDetails(IFSC);
 
   const { data: existingVendors } = useExistingVendors(id);
 
-  const VendorFormSchema = getVendorFormSchema(data?.vendor_type === "Service" && !vendorChange, accountNumber, confirmAccountNumber, existingVendors, bank_details, pincode_data, data?.account_number);
+  const VendorFormSchema = getVendorFormSchema(data?.vendor_type === "Service" && !vendorChange, existingVendors, pincode_data);
 
   const form = useForm<VendorFormValues>({
     resolver: zodResolver(VendorFormSchema),
@@ -227,10 +182,6 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
     //   vendor_email: data?.vendor_email,
     //   vendor_mobile: data?.vendor_mobile,
     //   vendor_gst: data?.vendor_gst,
-    //   account_number: data?.account_number,
-    //   confirm_account_number: data?.confirm_account_number,
-    //   account_name: data?.account_name,
-    //   ifsc: data?.ifsc,
     // },
     defaultValues: {},
     mode: 'all',
@@ -253,21 +204,10 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
         vendor_pan: data?.vendor_pan,
         // `??` (not `||`) so a vendor deliberately on 0% keeps 0 instead of being
         // silently bumped back to 2 the next time anyone opens this form. The
-        // fallback only covers a vendor the backfill patch has not reached.
-        tds_deduction_percentage: data?.tds_deduction_percentage ?? 2,
-        account_number: data?.account_number,
-        confirm_account_number: data?.account_number,
-        account_name: data?.account_name,
-        ifsc: data?.ifsc,
+        // fallback only covers a vendor the backfill patch has not reached. An
+        // Individual / HUF vendor opens at 1%, since the field is locked there.
+        tds_deduction_percentage: tdsRateToStore(data?.vendor_pan, data?.tds_deduction_percentage ?? 2),
       });
-
-      setBankAndBranch({
-        bank: data?.bank_name,
-        branch: data?.bank_branch,
-      });
-
-      setAccountNumber(data?.account_number);
-      setConfirmAccountNumber(data?.account_number);
 
       setPincode(vendorAddress?.pincode);
     }
@@ -295,20 +235,6 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
     const value = event.target.value;
     debouncedFetch(value);
   }, [debouncedFetch]);
-
-  useEffect(() => {
-      if (bank_details && !bank_details.message.error) {
-          setBankAndBranch({
-            bank: bank_details.message.BANK,
-            branch: bank_details.message.BRANCH,
-          });
-          return;
-          }
-      setBankAndBranch({
-        bank: "",
-        branch: "",
-      });
-  }, [bank_details, IFSC]) 
 
   const onSubmit = async (values: VendorFormValues) => {
     try {
@@ -342,11 +268,6 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
         vendor_name: values.vendor_name,
         vendor_nickname: values.vendor_nickname,
         vendor_state: state,
-        account_number: values.account_number,
-        account_name: values.account_name,
-        bank_name: bankAndBranch.bank,
-        bank_branch: bankAndBranch.branch,
-        ifsc: values.ifsc,
       });
 
       await vendorMutate();
@@ -360,6 +281,9 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
       // navigate(`/vendors/${id}`)
 
       toggleEditSheet();
+      if (data?.vendor_name && values.vendor_name !== data.vendor_name) {
+        onRenamed?.({ before: data.vendor_name, after: values.vendor_name });
+      }
     } catch (error) {
       toast({
         title: "Failed!",
@@ -370,8 +294,11 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
     }
   };
 
+  const watchedPan = form.watch("vendor_pan");
+  const tdsLocked = isIndividualHufPan(watchedPan);
+  const tdsChangeNote = tdsRateChangeNote(data?.tds_deduction_percentage, form.watch("tds_deduction_percentage"));
   // A PAN another vendor already holds is allowed — warn, never block.
-  const samePanVendors = findVendorsByPan(existingVendors, form.watch("vendor_pan"));
+  const samePanVendors = findVendorsByPan(existingVendors, watchedPan);
   const gstRequired = vendorChange || ["Material", "Material & Service"].includes(data?.vendor_type);
 
   return (
@@ -474,7 +401,20 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
                 <FormControl>
                   <Input placeholder="enter pan..."
                    {...field}
-                    onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}
+                    onChange={(e) => {
+                      const pan = e.target.value === "" ? undefined : e.target.value;
+                      const prevPan = form.getValues("vendor_pan");
+                      field.onChange(pan);
+                      // An Individual / HUF PAN fixes the TDS rate at 1%; moving off one puts back the
+                      // saved rate (or 2% when the vendor was saved as an Individual / HUF).
+                      const rate = tdsRateOnPanChange(
+                        prevPan,
+                        pan,
+                        form.getValues("tds_deduction_percentage"),
+                        fallbackTdsRate(data?.vendor_pan, data?.tds_deduction_percentage)
+                      );
+                      if (rate !== null) form.setValue("tds_deduction_percentage", rate, { shouldValidate: true });
+                    }}
                    />
                 </FormControl>                <FormMessage />
               </FormItem>
@@ -501,6 +441,9 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
                     max={100}
                     placeholder="2"
                     {...field}
+                    // Locked at 1% for an Individual / HUF PAN (vendorTaxIds.ts).
+                    readOnly={tdsLocked}
+                    className={tdsLocked ? "bg-muted cursor-not-allowed" : undefined}
                     // `??` (not `||`) so a deliberate 0% renders as "0".
                     value={field.value ?? ""}
                     // ⚠️ ALWAYS the raw string, never `undefined` -- RHF reads a
@@ -510,7 +453,8 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
                     onChange={(e) => field.onChange(e.target.value)}
                   />
                 </FormControl>
-                <p className="text-xs text-muted-foreground">Applied to this vendor's payments. Defaults to 2%.</p>
+                <VendorTdsRateHint pan={watchedPan} />
+                {tdsChangeNote && <p className="text-xs text-amber-700">{tdsChangeNote}</p>}
                 <FormMessage />
               </FormItem>
             )}
@@ -635,112 +579,6 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
             )}
           />
 
-        <Separator className="my-3" />
-          <p className="text-sky-600 font-semibold pb-2">
-            Change Vendor Bank Details
-          </p>
-          <FormField
-                                    control={form.control}
-                                    name="account_name"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Account Name<sup className="text-sm text-red-600">*</sup></FormLabel>
-                                            <FormControl>
-                                                <Input 
-                                                    placeholder="Enter Account Name" 
-                                                    {...field}
-                                                    autoComplete="new-password" 
-                                                    autoCorrect="off"
-
-                                                 />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                <FormField
-                                                                    control={form.control}
-                                                                    name="account_number"
-                                                                    render={({ field }) => (
-                                                                        <FormItem>
-                                                                            <FormLabel>Account Number<sup className="text-sm text-red-600">*</sup></FormLabel>
-                                                                            <FormControl>
-                                                                                <Input
-                                                                                  placeholder="Enter Account Number"
-                                                                                  {...field}
-                                                                                  type="password"
-                                                                                  autoComplete="new-password" 
-                                                                                  autoCorrect="off"
-                                                                                  onChange={(e) => {
-                                                                                    setAccountNumber(e.target.value);
-                                                                                    field.onChange(e.target.value === "" ? undefined : e);
-                                                                                    form.trigger("confirm_account_number")
-                                                                                  }}
-                                                                                />
-                                                                            </FormControl>
-                                                                            <FormMessage />
-                                                                        </FormItem>
-                                                                    )}
-                                                                />
-                                                                <FormField
-                                                                  control={form.control}
-                                                                  name="confirm_account_number"
-                                                                  render={({ field }) => (
-                                                                    <FormItem>
-                                                                      <FormLabel>Confirm Account Number<sup className="text-sm text-red-600">*</sup></FormLabel>
-                                                                      <FormControl>
-                                                                        <Input placeholder="Confirm Account Number" 
-                                                                        {...field} 
-                                                                        autoComplete="new-password" 
-                                                                        autoCorrect="off"
-                                                                        onChange={(e) => {
-                                                                          setConfirmAccountNumber(e.target.value);
-                                                                          field.onChange(e.target.value === "" ? undefined : e);
-                                                                        }}
-                                                                        />
-                                                                      </FormControl>
-                                                                      <FormMessage />
-                                                                    </FormItem>
-                                                                  )}
-                                                                />
-                                <FormField
-                                    control={form.control}
-                                    name="ifsc"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>IFSC Code<sup className="text-sm text-red-600">*</sup></FormLabel>
-                                            <FormControl>
-                                                <Input placeholder="Enter IFSC Code" {...field} value={field.value || ""} 
-                                                onChange={(e) => {
-                                                  const value = e.target.value.toUpperCase()
-                                                  setIFSC(value)
-                                                  field.onChange(value === "" ? undefined :  value)
-                                                }}
-                                                />
-                                            </FormControl>
-                                            {IFSC.length === 11 && bankDetailsLoading ? (
-                                              <p className="text-xs text-muted-foreground">Looking up bank details...</p>
-                                            ) : (
-                                              <p className="text-xs text-muted-foreground">Bank Name and Branch fill in automatically from this code.</p>
-                                            )}
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                        <FormItem>
-                                            <FormLabel className="flex items-center gap-1">Bank Name<span className="text-xs font-normal text-muted-foreground">(auto-filled from IFSC)</span></FormLabel>
-                                            <FormControl>
-                                                <Input disabled={true}  placeholder="Fills in from IFSC Code"  value={bankAndBranch.bank} />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                        <FormItem>
-                                            <FormLabel className="flex items-center gap-1">Bank Branch<span className="text-xs font-normal text-muted-foreground">(auto-filled from IFSC)</span></FormLabel>
-                                            <FormControl>
-                                                <Input disabled={true} placeholder="Fills in from IFSC Code" value={bankAndBranch.branch} />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
           <div className="flex justify-end space-x-2">
             <Button
               type="button"

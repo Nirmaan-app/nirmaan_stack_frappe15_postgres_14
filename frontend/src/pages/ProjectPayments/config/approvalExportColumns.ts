@@ -29,7 +29,9 @@
  */
 
 import { ColumnDef } from "@tanstack/react-table";
+import { chequeChipText, showsChequeChip } from "@/utils/cheques/chequeChip";
 import { formatDate } from "@/utils/FormatDate";
+import { paidToExportText } from "@/utils/payees/paidTo";
 
 import {
   ApprovalQueueRow,
@@ -80,6 +82,8 @@ export const buildApprovalExportColumns = (
   col("vendor", "Vendor", (r) =>
     r.vendor ? ctx.vendorLabels.get(r.vendor) || r.vendor : "",
   ),
+  // Where the money goes, or went (#1431, #1438): the row's own account, or why there is none.
+  col("paid_to", "Paid To", (r) => paidToExportText(r.paid_to, r.expense_type, r.status)),
   col("project", "Project", (r) =>
     r.project ? ctx.projectLabels.get(r.project) || r.project : "",
   ),
@@ -87,7 +91,9 @@ export const buildApprovalExportColumns = (
   // A RAW number, deliberately unformatted: `formatToRoundedIndianRupee` returns
   // "₹1,23,456", which a spreadsheet imports as TEXT and will not sum. The screen
   // formats; the file stays arithmetic.
-  col("amount", "Req. Amount", (r) => r.amount),
+  // Req. Amount is the full bill; To be paid the stored amount, already cut by any TDS withheld (#1541).
+  col("amount", "Req. Amount", (r) => r.requested_amount ?? r.amount),
+  col("to_be_paid", "To be paid", (r) => r.amount),
   col("tier", "Tier", (r) => TIER_LABEL[r.tier] ?? r.tier ?? ""),
   col("raised_by", "Raised By", (r) =>
     ctx.userLabels?.get(r.raised_by) || r.raised_by || "",
@@ -107,6 +113,9 @@ export const buildApprovalExportColumns = (
   col("reconciled_on", "Reconciled On", (r) => day(r.reconciled_on)),
 
   col("utr_ref", "UTR / Ref", (r) => r.utr_ref || ""),
+  // The cheque chip's text ("Cheque 004521 · Issued"), on the rows that show the chip: blank on an Online
+  // or Rejected payment and every expense.
+  col("cheque", "Cheque", (r) => (showsChequeChip(r) ? chequeChipText(r.cheque_no, r.cheque_status) : "")),
   // `proof` is a file URL; `has_proof` is the server's own verdict on it. Export the
   // verdict — a reader wants to know WHETHER there is proof, and the URL is useless
   // without a session anyway.

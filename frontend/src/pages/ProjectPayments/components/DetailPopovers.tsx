@@ -26,8 +26,10 @@ import { ExternalLink } from "lucide-react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useVendorAccount } from "@/components/payees/vendorPayeeAccount";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { documentBalance } from "./documentBalance";
 import { poLinkFor, routeName } from "./poRoute";
 
 /**
@@ -143,9 +145,7 @@ export const DocumentDetailPopover: React.FC<DocumentDetailPopoverProps> = ({
           <Field label="Created" value={data?.creation ? formatDate(data.creation) : ""} />
           <Field label={isPO ? "PO Value" : "WO Value"} value={formatToRoundedIndianRupee(total)} />
           <Field label="Total Paid" value={formatToRoundedIndianRupee(paid)} />
-          {/* Balance is DERIVED here rather than read from `amount_due`, which is a
-              stored field on both doctypes and can sit stale behind a revision. */}
-          <Field label="Balance" value={formatToRoundedIndianRupee(total - paid)} />
+          <Field label="Balance" value={formatToRoundedIndianRupee(documentBalance(doctype, data))} />
           {/* Delivered value only means something for a PO — a WO has no delivery. */}
           {isPO && (
             <Field
@@ -178,6 +178,8 @@ export const VendorDetailPopover: React.FC<VendorDetailPopoverProps> = ({
     vendorId,
     open ? undefined : null,
   );
+  const { account, isLoading: payeeLoading } = useVendorAccount(vendorId, open);
+  const payeeAccount = account?.payee;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -186,7 +188,7 @@ export const VendorDetailPopover: React.FC<VendorDetailPopoverProps> = ({
         <CardShell
           title={data?.vendor_name || vendorLabel || vendorId}
           subtitle="Vendor"
-          loading={isLoading}
+          loading={isLoading || payeeLoading}
           to={`/vendors/${vendorId}`}
           linkLabel="Open vendor"
         >
@@ -195,10 +197,11 @@ export const VendorDetailPopover: React.FC<VendorDetailPopoverProps> = ({
           <Field label="Phone" value={data?.vendor_mobile} />
           {/* Bank details, owner 2026-09-16 — these replaced email / city / status.
               This card is read while APPROVING a payment, and the question at that
-              moment is "where is this money going", not "where is this vendor". */}
-          <Field label="A/c No" value={data?.account_number} />
-          <Field label="IFSC" value={data?.ifsc} />
-          <Field label="Bank" value={data?.bank_name} />
+              moment is "where is this money going", not "where is this vendor".
+              The vendor's bank account is its Payee (ADR-0033). */}
+          <Field label="A/c No" value={payeeAccount?.account_number} />
+          <Field label="IFSC" value={payeeAccount?.ifsc} />
+          <Field label="Bank" value={payeeAccount?.bank_name} />
         </CardShell>
       </PopoverContent>
     </Popover>

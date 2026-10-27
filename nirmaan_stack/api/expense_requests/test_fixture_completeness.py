@@ -77,6 +77,13 @@ class TestFixtureCompleteness(FrappeTestCase):
 					f"Fix: bench --site <site> export-fixtures --app nirmaan_stack",
 				)
 
+	def test_every_expense_type_row_carries_its_confirmed_mark(self):
+		"""The "Confirmed as Expense Request" mark (spec #1494): a row without the key is reset on
+		migrate, so every row carries it, as 0 or 1."""
+		rows = json.load(open(_fixture_path("Expense Type")))
+		missing = [r["name"] for r in rows if r.get("confirmed_as_request") not in (0, 1)]
+		self.assertFalse(missing, f"no confirmed_as_request (0 or 1) on: {missing}")
+
 	def test_the_shipped_formats_are_in_the_fixture_not_only_the_database(self):
 		"""A format that exists only in the DB is one migrate away from gone."""
 		rows = json.load(open(_fixture_path("Expense Type")))
@@ -90,6 +97,17 @@ class TestFixtureCompleteness(FrappeTestCase):
 		for name in with_format:
 			live = frappe.db.get_value("Expense Type", name, "source_format")
 			self.assertTrue(live, f"{name}: fixture carries a format but the database has none")
+
+	def test_material_transportation_charges_is_offered_on_both_ledgers(self):
+		"""Every Porter Expense is typed this, Project or Non-Project (ADR-0032, #1445). Create refuses
+		a type whose flag is 0 for its side (`settle._assert_type_scope`), so a migrate that reset
+		`non_project` would fail every Non-Project Porter order."""
+		name = "Material Transportation Charges"
+		shipped = next(r for r in json.load(open(_fixture_path("Expense Type"))) if r["name"] == name)
+		self.assertEqual((shipped["project"], shipped["non_project"]), (1, 1))
+		live = frappe.db.get_value("Expense Type", name, ["project", "non_project"], as_dict=True)
+		self.assertIsNotNone(live, f"{name} is missing -- run `bench migrate`")
+		self.assertEqual((live.project, live.non_project), (1, 1))
 
 	def test_every_categorised_type_points_at_a_category_that_ships(self):
 		"""A Link whose target is not in the fixtures dangles on a fixture-seeded site."""

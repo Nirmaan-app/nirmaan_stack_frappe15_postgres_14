@@ -21,11 +21,14 @@ import {
   useWriteOffAdjustment,
 } from "./data/usePOAdjustmentMutations";
 import { WRITE_OFF_REASON_MAX_LEN } from "./data/poAdjustment.constants";
+import { writableOnWriteOff } from "./adjustmentOffer";
 
 interface WriteOffDialogProps {
   poId: string;
   /** Current signed balance. The control is hidden by the caller when this is 0. */
   remainingImpact: number;
+  /** What waiting Vendor Refunds hold of a negative balance: never written off (owner, 2026-10-13). */
+  heldCredit?: number;
   /** Re-read the adjustment after a successful write-off. */
   onWrittenOff: () => void;
 }
@@ -40,12 +43,13 @@ interface WriteOffDialogProps {
  * came to sit at +144.00 while its own rows summed to −144.67.
  *
  * So this writes a single ledger entry with a name and a reason against it, and moves no
- * money at all. The caller gates visibility on `canWriteOffAdjustment`; the server re-gates
+ * money at all. The caller gates visibility on `isNirmaanAdmin`; the server re-gates
  * and is authoritative.
  */
 export function WriteOffDialog({
   poId,
   remainingImpact,
+  heldCredit = 0,
   onWrittenOff,
 }: WriteOffDialogProps) {
   const [open, setOpen] = useState(false);
@@ -53,7 +57,10 @@ export function WriteOffDialog({
   const [reason, setReason] = useState("");
   const { writeOff, loading } = useWriteOffAdjustment();
 
-  const outstanding = Math.abs(remainingImpact);
+  const balance = Math.abs(remainingImpact);
+  // The unheld part only: a waiting refund settles what it holds once it is Received.
+  const outstanding = writableOnWriteOff(remainingImpact, heldCredit);
+  const held = balance - outstanding;
   // Blank means "all of it" — the common case is clearing the whole balance, and making
   // people retype a figure they can already see invites a typo.
   const amount = amountText.trim() === "" ? outstanding : Number(amountText);
@@ -115,10 +122,21 @@ export function WriteOffDialog({
                 <p>
                   {poId} has{" "}
                   <span className="font-semibold">
-                    {formatToIndianRupee(outstanding)}
+                    {formatToIndianRupee(balance)}
                   </span>{" "}
                   outstanding on its adjustment ledger.
                 </p>
+                {held > 0.005 && (
+                  <p>
+                    {formatToIndianRupee(held)} of it is held for waiting
+                    Vendor Refunds and settles when they are Received, so at
+                    most{" "}
+                    <span className="font-semibold">
+                      {formatToIndianRupee(outstanding)}
+                    </span>{" "}
+                    can be written off.
+                  </p>
+                )}
                 <p className="text-muted-foreground">
                   A write-off records that this balance is not money. It creates
                   no payment and does not change what has been paid. Use it when
@@ -132,7 +150,7 @@ export function WriteOffDialog({
           <div className="space-y-3">
             <div className="space-y-1">
               <Label htmlFor="write-off-amount" className="text-xs">
-                Amount (blank = all of it)
+                Amount (blank = all {formatToIndianRupee(outstanding)})
               </Label>
               <Input
                 id="write-off-amount"

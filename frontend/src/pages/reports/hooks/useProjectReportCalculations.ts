@@ -1,36 +1,29 @@
 // File: frontend/src/pages/reports/hooks/useProjectReportCalculations.ts
-import { useFrappeGetDocList, FrappeDoc, GetDocListArgs } from 'frappe-react-sdk';
-import { useMemo, useCallback,useEffect } from 'react';
+import { useFrappeGetCall, useFrappeGetDocList, FrappeDoc, GetDocListArgs } from 'frappe-react-sdk';
+import { useMemo, useCallback } from 'react';
 import { Projects } from '@/types/NirmaanStack/Projects';
 import { ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
 import { ServiceRequests } from '@/types/NirmaanStack/ServiceRequests';
-import { ProjectInflows } from '@/types/NirmaanStack/ProjectInflows';
-import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
-import { ProjectExpenses } from '@/types/NirmaanStack/ProjectExpenses'; // --- (Indicator) NEW: Import ProjectExpenses type ---
 import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
 import { parseNumber } from '@/utils/parseNumber';
 import {
     queryKeys,
-    // getProjectReportListOptions, // Base projects will be fetched by useServerDataTable
     getPOForProjectInvoiceOptions,
     getSRForProjectInvoiceOptions,
-    getInflowReportListOptions,
     getProjectInvoiceReportListOptions,
-    getPaidPaymentReportListOptions,
 } from '@/config/queryKeys';
 import { ProjectInvoice } from '@/types/NirmaanStack/ProjectInvoice';
+import { ProjectMoney } from '@/types/NirmaanStack/ProjectMoney';
 import { useProjectAllCredits } from '@/pages/projects/hooks/useProjectAllCredits';
+import { format } from 'date-fns';
+import { isDateInPeriod } from './useVendorLedgerCalculations';
 
-// ----- 
-import { parseISO,isWithinInterval } from 'date-fns';
-import {isDateInPeriod,isDateOnOrAfter} from './useVendorLedgerCalculations';
-
-// Define a type for the parameters for better readability
-interface ProjectReportParams { // <--- NEW INTERFACE
+interface ProjectReportParams {
+    /** The Cash Sheet's projects: the server's money figures are asked for these. */
+    projectIds: string[];
     startDate?: Date | null;
     endDate?: Date | null;
 }
-
 
 // Define the structure for the calculated fields
 export interface ProjectCalculatedFields {
@@ -39,12 +32,15 @@ export interface ProjectCalculatedFields {
     notionalGst: number;
     totalPoSrInvoiced: number; // This is the combined invoiced amount for POs and SRs
     totalProjectInvoiced: number;
+    // Inflow, Outflow, Current Liabilities and the Cashflow Gap are the server's project figures for
+    // the chosen dates: the one figure CEO Hold and the Projects list read too.
     totalInflow: number;
     totalOutflow: number;
+    totalLiabilities: number;
+    cashflowGap: number;
     TotalPurchaseOverCredit: number;
     CreditPaidAmount: number;
     CreditDueAmount: number; // Credit terms that are "Due" (Created + due_date <= today)
-    totalLiabilities: number; // Current liabilities
 }
 
 // The hook's return type
@@ -53,41 +49,30 @@ export interface UseProjectReportCalculationsResult {
     isLoadingGlobalDeps: boolean; // Indicates if the underlying data for calculations is loading
     globalDepsError: Error | null;
     // Mutators for cache invalidation if needed from the component using this hook
-    mutatePOs: () => Promise<any>;
-    mutateSRs: () => Promise<any>;
-    mutateInflows: () => Promise<any>;
-    mutateProjectInvoice: () => Promise<any>;
-    mutatePayments: () => Promise<any>;
-    mutatePaymentTerms: () => Promise<any>; // ✨ NEW mutator
-
-    mutateProjectExpenses: () => Promise<any>; // --- (Indicator) NEW: Mutator for Project Expenses ---
+    mutatePOs: () => Promise<unknown>;
+    mutateSRs: () => Promise<unknown>;
+    mutateProjectInvoice: () => Promise<unknown>;
+    mutateProjectMoney: () => Promise<unknown>;
 }
 
+const NO_MONEY: ProjectMoney = {
+    po_outflow: 0, wo_outflow: 0, expense_outflow: 0, outflow: 0, liabilities: 0, inflow: 0, cashflow_gap: 0,
+    refunds: 0, tds: 0,
+};
 
 
-export const useProjectReportCalculations = (params: ProjectReportParams = {}): UseProjectReportCalculationsResult => {
+export const useProjectReportCalculations = (params: ProjectReportParams): UseProjectReportCalculationsResult => {
 
-     const { startDate, endDate } = params; // <--- DESTUCTURE DATES
+    const { projectIds, startDate, endDate } = params;
 
-     useEffect(() => {
-        console.log("useProjectReportCalculations Debug: Date Range", { 
-            startDate: startDate ? startDate.toISOString() : 'None', 
-            endDate: endDate ? endDate.toISOString() : 'None',
-            shouldFilterByDate 
-        });
-     }, [startDate, endDate]);
     // --- Fetch All Underlying Data Needed for Calculations ---
     const poOptions = getPOForProjectInvoiceOptions();
     const srOptions = getSRForProjectInvoiceOptions();
-    const inflowOptions = getInflowReportListOptions();
-    const projectInvoiceOptions = getProjectInvoiceReportListOptions(); // Not used here, but can be useful for other calculations
-    const paymentOptions = getPaidPaymentReportListOptions();
+    const projectInvoiceOptions = getProjectInvoiceReportListOptions();
 
     const poQueryKey = queryKeys.procurementOrders.list(poOptions);
     const srQueryKey = queryKeys.serviceRequests.list(srOptions);
-    const inflowQueryKey = queryKeys.projectInflows.list(inflowOptions);
     const projectInvoiceQueryKey = queryKeys.projectInvoices.list(projectInvoiceOptions);
-    const paymentQueryKey = queryKeys.projectPayments.list(paymentOptions);
 
     const { creditTerms: CreditData } = useProjectAllCredits(undefined);
 
@@ -97,22 +82,8 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
     const { data: serviceRequests, isLoading: isLoadingSRs, error: errorSRs, mutate: mutateSRs } =
         useFrappeGetDocList<ServiceRequests>(srQueryKey[0], srOptions as GetDocListArgs<FrappeDoc<ServiceRequests>>, srQueryKey);
 
-    const { data: inflowsData, isLoading: isLoadingInflows, error: errorInflows, mutate: mutateInflows } =
-        useFrappeGetDocList<ProjectInflows>(inflowQueryKey[0], inflowOptions as GetDocListArgs<FrappeDoc<ProjectInflows>>, inflowQueryKey);
-
     const { data: projectInvoiceData, isLoading: isLoadingProjectInvoice, error: errorProjectInvoice, mutate: mutateProjectInvoice } =
         useFrappeGetDocList<ProjectInvoice>(projectInvoiceQueryKey[0], projectInvoiceOptions as GetDocListArgs<FrappeDoc<ProjectInvoice>>, projectInvoiceQueryKey);
-
-    const { data: paymentsData, isLoading: isLoadingPayments, error: errorPayments, mutate: mutatePayments } =
-        useFrappeGetDocList<ProjectPayments>(paymentQueryKey[0], paymentOptions as GetDocListArgs<FrappeDoc<ProjectPayments>>, paymentQueryKey);
-
-    // --- (Indicator) NEW: Fetch all Project Expenses ---
-    const { data: projectExpensesData, isLoading: isLoadingProjectExpenses, error: errorProjectExpenses, mutate: mutateProjectExpenses } =
-        useFrappeGetDocList<ProjectExpenses>('Project Expenses', {
-            fields: ['projects', 'amount', 'payment_date'], // Only fields needed for this calculation
-            filters: [["status", "=", "Paid"]], // Only Paid expenses count toward the per-project outflow.
-            limit: 0,
-        }, 'AllProjectExpensesForReports');
 
     // --- Fetch all Vendor Invoices for project report calculations ---
     const { data: vendorInvoicesData, isLoading: isLoadingVendorInvoices, error: errorVendorInvoices } =
@@ -122,9 +93,25 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
             limit: 0,
         }, 'AllVendorInvoicesForProjectReports');
 
-    // --- KEY CHANGE: Calculate once in the hook scope ---
-    const shouldFilterByDate = useMemo(() => !!(startDate && endDate), [startDate, endDate]);
-    // ---------------------------------------------------
+    const shouldFilterByDate = !!(startDate && endDate);
+
+    // --- The server's project outflow, Current Liabilities, inflow and cashflow gap (ADR-0034) ---
+    // Each payment, refund, expense and inflow counts on its own date; liabilities cover the POs created
+    // in the range. One POST for every project (a GET with ~300 names would pass nginx's URL limit).
+    const fromDate = shouldFilterByDate ? format(startDate!, 'yyyy-MM-dd') : null;
+    const toDate = shouldFilterByDate ? format(endDate!, 'yyyy-MM-dd') : null;
+    const {
+        data: projectsMoney,
+        isLoading: isLoadingMoney,
+        error: errorMoney,
+        mutate: mutateProjectMoney,
+    } = useFrappeGetCall<{ message: Record<string, ProjectMoney> }>(
+        "nirmaan_stack.api.projects.project_money.get_projects_money",
+        { projects: projectIds, ...(fromDate && { from_date: fromDate, to_date: toDate }) },
+        projectIds.length ? ["CashSheetProjectMoney", fromDate ?? "", toDate ?? "", projectIds.join(",")] : null,
+        undefined,
+        "POST"
+    );
 
     const posByProject = useMemo(() => {
         if (!purchaseOrders) return new Map();
@@ -140,10 +127,7 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
             }
             return acc;
         }, new Map<string, ProcurementOrder[]>());
-    }, [purchaseOrders, startDate, endDate, shouldFilterByDate]); // <--- ADDED shouldFilterByDate
-
-
-    
+    }, [purchaseOrders, startDate, endDate, shouldFilterByDate]);
 
      // --- 2. Conditional Filtering: srsByProject ---
     const srsByProject = useMemo(() => {
@@ -154,7 +138,7 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
                 return isDateInPeriod(sr.creation, startDate, endDate);
             })
             : serviceRequests; // If no dates, use the full list
-        
+
         return docsToProcess.reduce((acc, sr) => {
             if (sr.project) {
                 (acc.get(sr.project) || acc.set(sr.project, []).get(sr.project))!.push(sr);
@@ -162,119 +146,25 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
             return acc;
         }, new Map<string, ServiceRequests[]>());
     }, [serviceRequests, startDate, endDate, shouldFilterByDate]);
-   
 
-     // --- 3. Conditional Filtering: totalInflowByProject ---
-    const totalInflowByProject = useMemo(() => {
-         if (!inflowsData) return new Map();
-
-         const docsToProcess = shouldFilterByDate
-            ? inflowsData.filter(inflow => {
-                // Use payment_date with fallback to creation date
-                const dateToCheck = inflow.payment_date || inflow.creation;
-                return isDateInPeriod(dateToCheck, startDate, endDate);
-            })
-            : inflowsData; // If no dates, use the full list
-
-        const result = docsToProcess.reduce((acc, inflow) => {
-            if (inflow.project) {
-                acc.set(inflow.project, (acc.get(inflow.project) || 0) + parseNumber(inflow.amount));
-            }
-            return acc;
-        }, new Map<string, number>());
-
-        // Debug logging
-        console.log('[totalInflowByProject] Recalculated:', {
-            shouldFilterByDate,
-            startDate,
-            endDate,
-            totalDocs: inflowsData?.length,
-            filteredDocs: docsToProcess.length,
-            projectCount: result.size,
-            totalAmount: Array.from(result.values()).reduce((sum, val) => sum + val, 0)
-        });
-
-        return result;
-    }, [inflowsData, startDate, endDate, shouldFilterByDate]); 
-
-     // --- 4. Conditional Filtering: totalProjectInvoiceByProject ---
+     // --- 3. Conditional Filtering: totalProjectInvoiceByProject ---
      const totalProjectInvoiceByProject = useMemo(() => {
         if (!projectInvoiceData) return new Map();
 
         const docsToProcess = shouldFilterByDate
             ? projectInvoiceData.filter(inv => {
                 // Project Invoices should be filtered by 'invoice_date'
-                return isDateInPeriod(inv.invoice_date, startDate, endDate); 
+                return isDateInPeriod(inv.invoice_date, startDate, endDate);
             })
             : projectInvoiceData; // If no dates, use the full list
-        
+
         return docsToProcess.reduce((acc, inv) => {
             if (inv.project) {
                 acc.set(inv.project, (acc.get(inv.project) || 0) + parseNumber(inv.amount));
             }
             return acc;
         }, new Map<string, number>());
-    }, [projectInvoiceData, startDate, endDate, shouldFilterByDate]); // <--- UPDATED DEPENDENCIES
-
-
-
-    // --- 5. Conditional Filtering: totalOutflowByProject (Project Payments) ---
-     const totalOutflowByProject = useMemo(() => {
-        if (!paymentsData) return new Map();
-
-        const docsToProcess = shouldFilterByDate
-            ? paymentsData.filter(payment => {
-                // Payments should be filtered by 'payment_date' with fallback to 'creation'
-                const dateToCheck = payment.payment_date || payment.creation;
-                return isDateInPeriod(dateToCheck, startDate, endDate);
-            })
-            : paymentsData; // If no dates, use the full list
-
-        const result = docsToProcess.reduce((acc, payment) => {
-            if (payment.project) {
-                acc.set(payment.project, (acc.get(payment.project) || 0) + parseNumber(payment.amount));
-            }
-            return acc;
-        }, new Map<string, number>());
-
-        // Debug logging
-        console.log('[totalOutflowByProject] Recalculated:', {
-            shouldFilterByDate,
-            startDate,
-            endDate,
-            totalDocs: paymentsData?.length,
-            filteredDocs: docsToProcess.length,
-            projectCount: result.size,
-            totalAmount: Array.from(result.values()).reduce((sum, val) => sum + val, 0)
-        });
-
-        return result;
-    }, [paymentsData, startDate, endDate, shouldFilterByDate]); // <--- UPDATED DEPENDENCIES
-
-    // --- 6. Conditional Filtering: totalProjectExpensesByProject ---
-    const totalProjectExpensesByProject = useMemo(() => {
-        if (!projectExpensesData) return new Map();
-
-        const docsToProcess = shouldFilterByDate
-            ? projectExpensesData.filter(expense => {
-                // Project Expenses should be filtered by 'payment_date' (Updated from 'creation' for consistency)
-                // Use payment_date if available, fallback to creation if null/undefined (though it should be there)
-                const dateToCheck = expense.payment_date || expense.creation;
-                return isDateInPeriod(dateToCheck, startDate, endDate); 
-            })
-            : projectExpensesData; // If no dates, use the full list
-        
-        return docsToProcess.reduce((acc, expense) => {
-            if (expense.projects) { 
-                acc.set(expense.projects, (acc.get(expense.projects) || 0) + parseNumber(expense.amount));
-            }
-            return acc;
-        }, new Map<string, number>());
-    }, [projectExpensesData, startDate, endDate, shouldFilterByDate]); // <--- UPDATED DEPENDENCIES
-
-
-    
-
+    }, [projectInvoiceData, startDate, endDate, shouldFilterByDate]);
 
      // Calculate PO/SR invoice totals using Vendor Invoices doctype
     const totalPoSrInvoicedByProject = useMemo(() => {
@@ -296,12 +186,6 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
 
         return projectTotals;
     }, [vendorInvoicesData, startDate, endDate, shouldFilterByDate]);
-    
-
-         // Note: getProjectCreditAndDue's memoization logic:
-
-
-    // ... (rest of the file until getProjectCreditAndDue)
 
      const getProjectCreditAndDue = useCallback(
         (projId: string): { TotalPurchaseOverCredit: number; CreditPaidAmount: number; CreditDueAmount: number } => {
@@ -309,8 +193,6 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
                 return { TotalPurchaseOverCredit: 0, CreditPaidAmount: 0, CreditDueAmount: 0 };
             }
 
-            // The inner logic now just uses the pre-calculated flag
-            // console.log(`Calculating Credits for ${projId} with range:`, { startDate, endDate });
             return CreditData.reduce(
                 (totals, term) => {
                     if (term.project === projId) {
@@ -343,24 +225,24 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
                         if (term.term_status === "Paid" && filterPaid) {
                             totals.CreditPaidAmount += amount;
                         }
-                        
+
                     }
                     return totals;
                 },
                 { TotalPurchaseOverCredit: 0, CreditPaidAmount: 0, CreditDueAmount: 0 }
             );
         },
-        // Include shouldFilterByDate in the dependency array
         [CreditData, startDate, endDate, shouldFilterByDate]
-    ); 
+    );
 
-    
+    const isLoadingGlobalDeps = isLoadingPOs || isLoadingSRs || isLoadingProjectInvoice || isLoadingVendorInvoices || isLoadingMoney;
+
     // --- Memoized Function for Per-Project Calculation ---
     const getProjectCalculatedFields = useCallback(
         (projectId: string): ProjectCalculatedFields | null => {
             // Important: If any of the dependent global data is still loading,
             // we cannot reliably calculate. The component using this should check `isLoadingGlobalDeps`.
-            if (isLoadingPOs || isLoadingSRs || isLoadingInflows || isLoadingProjectInvoice || isLoadingPayments || isLoadingProjectExpenses || isLoadingVendorInvoices) {
+            if (isLoadingGlobalDeps) {
                 return null; // Indicate that data isn't ready for this calculation
             }
 
@@ -384,51 +266,35 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
                 }
             });
 
-            const totalInflow = totalInflowByProject.get(projectId) || 0;
             const totalProjectInvoiced = totalProjectInvoiceByProject.get(projectId) || 0;
-            const poSrPaymentOutflow = totalOutflowByProject.get(projectId) || 0;
-            const projectExpenseOutflow = totalProjectExpensesByProject.get(projectId) || 0;
+            const money = projectsMoney?.message?.[projectId] ?? NO_MONEY;
 
-            // The new combined total
-            const totalOutflow = poSrPaymentOutflow + projectExpenseOutflow;
-
-            // ✨ Call your new memoized function to get the credit/due totals
             const { TotalPurchaseOverCredit, CreditPaidAmount, CreditDueAmount } = getProjectCreditAndDue(projectId);
 
             // Get the newly calculated invoiced amount from our map
             const totalPoSrInvoiced = totalPoSrInvoicedByProject.get(projectId) || 0;
 
-            // Calculate Current Liabilities (Payable Amount Against Delivered - Amount Paid Against Delivered)
-            const totalPayableAgainstDelivered = relatedPOs.reduce((sum, po) => sum + parseNumber(po.po_amount_delivered || 0), 0);
-            const totalPaidAgainstDelivered = relatedPOs.reduce((sum, po) => {
-                const amountPaid = parseNumber(po.amount_paid || 0);
-                const poAmountDelivered = parseNumber(po.po_amount_delivered || 0);
-                return sum + Math.min(amountPaid, poAmountDelivered);
-            }, 0);
-            const totalLiabilities = totalPayableAgainstDelivered - totalPaidAgainstDelivered;
-
             return {
                 totalInvoiced: parseNumber(totalInvoiced),
                 notionalGst: notionalGst,
-                totalPoSrInvoiced: parseNumber(totalPoSrInvoiced), // Add the new value here
+                totalPoSrInvoiced: parseNumber(totalPoSrInvoiced),
                 totalProjectInvoiced: parseNumber(totalProjectInvoiced),
-                totalInflow: parseNumber(totalInflow),
-                totalOutflow: parseNumber(totalOutflow),
-                TotalPurchaseOverCredit: TotalPurchaseOverCredit, // ✨ Add the new value
+                totalInflow: parseNumber(money.inflow),
+                totalOutflow: parseNumber(money.outflow),
+                totalLiabilities: parseNumber(money.liabilities),
+                cashflowGap: parseNumber(money.cashflow_gap),
+                TotalPurchaseOverCredit: TotalPurchaseOverCredit,
                 CreditPaidAmount: CreditPaidAmount,
-                CreditDueAmount: CreditDueAmount, // ✨ NEW
-                totalLiabilities: totalLiabilities,
+                CreditDueAmount: CreditDueAmount,
             };
         },
         [
-            // Add the new map to the dependency array
-            posByProject, srsByProject, totalInflowByProject, totalProjectInvoiceByProject, totalOutflowByProject, totalPoSrInvoicedByProject,
-            isLoadingPOs, isLoadingSRs, isLoadingInflows, isLoadingProjectInvoice, isLoadingPayments, getProjectCreditAndDue, CreditData, startDate, endDate, totalProjectExpensesByProject,
+            posByProject, srsByProject, totalProjectInvoiceByProject, totalPoSrInvoicedByProject, projectsMoney,
+            isLoadingGlobalDeps, getProjectCreditAndDue,
         ]
     );
 
-    const isLoadingGlobalDeps = isLoadingPOs || isLoadingSRs || isLoadingInflows || isLoadingProjectInvoice || isLoadingPayments || isLoadingVendorInvoices;
-    const globalDepsError = errorPOs || errorSRs || errorInflows || errorProjectInvoice || errorPayments || errorProjectExpenses || errorVendorInvoices;
+    const globalDepsError = errorPOs || errorSRs || errorProjectInvoice || errorVendorInvoices || errorMoney;
 
     return {
         getProjectCalculatedFields,
@@ -436,11 +302,8 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
         globalDepsError: globalDepsError instanceof Error ? globalDepsError : null,
         mutatePOs,
         mutateSRs,
-        mutateInflows,
         mutateProjectInvoice,
-        mutatePayments,
-        mutatePaymentTerms: async () => {}, // Placeholder - payment terms are from useProjectAllCredits
-        mutateProjectExpenses
+        mutateProjectMoney,
     };
 };
 

@@ -11,6 +11,12 @@ import { UserProfileSkeleton } from "@/components/ui/skeleton";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
+import { PROJECT_REQUIRED_PROFILES } from "@/constants/roles";
+import { useUrlParam } from "@/hooks/useUrlParam";
+import { useMyAssets, useRefreshUserAssignments, useUserAssignments } from "@/hooks/useUserAssignments";
+import { withOwnAssets } from "@/utils/ownAssets";
+import { useAssetDataRefresh } from "@/pages/Assets/hooks/useAssetDataRefresh";
+import { urlStateManager } from "@/utils/urlStateManager";
 import { useUserSubmitHandlers } from "@/hooks/useUserSubmitHandlers";
 import { NirmaanUserPermissions } from "@/types/NirmaanStack/NirmaanUserPermissions";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
@@ -26,24 +32,10 @@ import {
 } from "./components";
 import {
   ASSET_MASTER_DOCTYPE,
-  ASSET_MANAGEMENT_DOCTYPE,
   ASSET_CATEGORY_DOCTYPE,
   ASSET_MASTER_FIELDS,
-  ASSET_MANAGEMENT_FIELDS,
   ASSET_CATEGORY_FIELDS,
 } from "@/pages/Assets/assets.constants";
-
-// Roles that have access to all projects (no assignment required)
-const PROJECT_EXEMPT_ROLES = [
-  "Nirmaan Admin Profile",
-  "Nirmaan PMO Executive Profile",
-  "Nirmaan HR Executive Profile",
-  "Nirmaan Accountant Profile",
-  "Nirmaan Accountant Lead Profile",
-  "Nirmaan Estimates Executive Profile",
-  "Nirmaan Billing Executive Profile",
-  "Nirmaan Design Lead Profile",
-];
 
 export default function Profile() {
   const { userId: id } = useParams<{ userId: string }>();
@@ -53,6 +45,7 @@ export default function Profile() {
   const userData = useUserData();
   const isAdmin = userData.role === "Nirmaan Admin Profile" || userData.role === "Nirmaan PMO Executive Profile" || userData.role === "Nirmaan HR Executive Profile";
   const isOwnProfile = userData.user_id === id;
+  const tabParam = useUrlParam("tab");
 
   const [editSheetOpen, setEditSheetOpen] = useState(false);
   const toggleEditSheet = useCallback(() => {
@@ -172,24 +165,16 @@ export default function Profile() {
       "Address"
     );
 
-  // Fetch asset management records for this user (for admin OR own profile)
+  // Fetch asset management records for this user (for admin OR own profile). Same query and key as
+  // the app access gate's count, so a signature here lifts the gate too.
   const {
     data: assetManagementList,
     isLoading: assetManagementLoading,
     mutate: assetManagementMutate,
-  } = useFrappeGetDocList(
-    ASSET_MANAGEMENT_DOCTYPE,
-    {
-      fields: ASSET_MANAGEMENT_FIELDS as unknown as string[],
-      filters: [["asset_assigned_to", "=", id]],
-      limit: 1000,
-      orderBy: { field: "creation", order: "desc" },
-    },
-    (isAdmin || isOwnProfile) ? `asset_management_${id}` : null
-  );
+  } = useUserAssignments(id, isAdmin || isOwnProfile);
 
   // Fetch all asset masters (for assignment dialog - admins only)
-  const { data: assetMasterList, isLoading: assetMasterLoading } =
+  const { data: assetMasterList, isLoading: assetMasterLoading, mutate: assetMasterMutate } =
     useFrappeGetDocList(
       ASSET_MASTER_DOCTYPE,
       {
@@ -209,11 +194,34 @@ export default function Profile() {
       ASSET_CATEGORY_DOCTYPE,
       {
         fields: ASSET_CATEGORY_FIELDS as unknown as string[],
-        limit: 100,
+        // Every category (0 = no limit): a category past a cut-off would put its assets in neither tab, while the
+        // app access gate still counts their declarations and audits (code review #3).
+        limit: 0,
         orderBy: { field: "asset_category", order: "asc" },
       },
       (isAdmin || isOwnProfile) ? "asset_categories_for_user_profile" : null
     );
+
+  // On their own profile a person also gets their own assets from the server: the list above follows
+  // their project permissions and misses an asset assigned to them for a project they are not on, so
+  // its card, its Project / IT tab and its Sign button never showed (owner, 2026-10-13).
+  const { data: myAssets } = useMyAssets(isOwnProfile);
+  const { assets: profileAssets, withoutPage: assetsWithoutPage } = useMemo(
+    () => withOwnAssets(assetMasterList, isOwnProfile ? myAssets : undefined),
+    [assetMasterList, myAssets, isOwnProfile]
+  );
+
+  // After an assign, unassign, upload or sign on this tab: the person's assignments, the asset list
+  // the Assign dialog picks free assets from (a freed asset must show up, an assigned one must not),
+  // the app access gate's "held" list, and the Assets page summary counts.
+  const refreshUserAssignments = useRefreshUserAssignments();
+  const { refreshSummaryCards } = useAssetDataRefresh();
+  const handleAssetsChanged = useCallback(() => {
+    assetManagementMutate();
+    assetMasterMutate();
+    refreshUserAssignments(id);
+    refreshSummaryCards();
+  }, [assetManagementMutate, assetMasterMutate, refreshUserAssignments, id, refreshSummaryCards]);
 
   // Asset count for stats
   const assetCount = useMemo(() => {
@@ -251,8 +259,12 @@ export default function Profile() {
     return <AlertDestructive error={new Error("User not found")} />;
   }
 
-  // Check if viewed user's role is exempt from project assignment
-  const isProjectExemptRole = PROJECT_EXEMPT_ROLES.includes(data.role_profile || "");
+  // Only the profiles that need a project get the Projects tab and count -- the same list as the app access gate's
+  // no-project lock, `PROJECT_REQUIRED_PROFILES` (owner, 2026-10-22, code review #10: one list, not two).
+  const isProjectExemptRole = !PROJECT_REQUIRED_PROFILES.includes(data.role_profile || "");
+  // ?tab=assets opens the Assets tab (the app access gate's "Open my assets" links here).
+  const profileTabs = isProjectExemptRole ? ["overview", "assets"] : ["overview", "projects", "assets"];
+  const activeTab = tabParam && profileTabs.includes(tabParam) ? tabParam : "overview";
 
   return (
     <div className="flex-1 space-y-4">
@@ -273,6 +285,7 @@ export default function Profile() {
         {isAdmin && !isOwnProfile && data && (
           <UserProfileActions
             user={data}
+            onEditUser={() => setEditSheetOpen(true)}
             onResetPassword={handlePasswordReset}
             onDeleteUser={handleDeleteUser}
             onRenameEmail={handleRenameEmail}
@@ -283,7 +296,7 @@ export default function Profile() {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="overview" className="w-full">
+      <Tabs value={activeTab} onValueChange={(tab) => urlStateManager.updateParam("tab", tab)} className="w-full">
         <TabsList className={`grid w-full ${isProjectExemptRole ? "grid-cols-2" : "grid-cols-3"} max-w-md`}>
           <TabsTrigger value="overview" className="gap-2">
             <User className="h-4 w-4" />
@@ -353,13 +366,12 @@ export default function Profile() {
           <UserAssetsTab
             user={data}
             assetManagementList={assetManagementList as any}
-            assetMasterList={assetMasterList as any}
+            assetMasterList={profileAssets as any}
+            assetsWithoutPage={assetsWithoutPage}
             categoryList={categoryList as any}
             isAdmin={isAdmin}
             isOwnProfile={isOwnProfile}
-            onMutate={() => {
-              assetManagementMutate();
-            }}
+            onMutate={handleAssetsChanged}
           />
         </TabsContent>
       </Tabs>

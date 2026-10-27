@@ -21,6 +21,8 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import SITEURL from "@/constants/siteURL";
 import { TruncatedText } from "@/components/common/TruncatedText";
+import { ChequeChip } from "@/components/cheques/ChequeChip";
+import { showsChequeChip, utrOrChequeText } from "@/utils/cheques/chequeChip";
 import {
   DocumentDetailPopover,
   ProjectDetailPopover,
@@ -29,6 +31,10 @@ import {
 import { ExpenseBankLinesPopover } from "../components/ExpenseBankLinesPopover";
 import { GstPaymentTag } from "../components/GstPaymentTag";
 import { partReconciled } from "../components/expenseBankLinesView";
+import { ExpenseTdsBreakdown } from "@/components/common/ExpenseTdsBreakdown";
+import { shownExpenseTds } from "@/utils/expenses/expenseTds";
+import { cn } from "@/lib/utils";
+import { paidToCell, paidToExportText, rowEligibility } from "@/utils/payees/paidTo";
 
 import {
   APPROVAL_STATUS,
@@ -43,6 +49,10 @@ import {
 import { PP_TABS } from "./ppTabs.constants";
 import { isHeldQueueRow } from "./queueRowActions";
 
+/** The tabs whose Against cell carries the cheque chip under the PO / WO id (spec #1407). The later tabs
+ *  show it in UTR / Ref instead. */
+const CHEQUE_CHIP_UNDER_AGAINST: ReadonlySet<ApprovalTab> = new Set([PP_TABS.APPROVE_PAYMENTS, PP_TABS.CEO_PENDING]);
+
 export interface ApprovalColumnCtx {
   tab: ApprovalTab;
   /**
@@ -56,7 +66,8 @@ export interface ApprovalColumnCtx {
   userLabels?: Map<string, string>;
   /** PO/SR figures behind the Amount hover — payments only, absent on expenses. */
   getDocumentTotal?: (docName: string, docType: string) => number;
-  getAmountPaid?: (docName: string) => number;
+  /** The order's stored Amount Paid (ADR-0034), never a sum of its payments. */
+  getAmountPaid?: (docName: string, docType: string) => number;
   getPoAmountDelivered?: (docName: string, docType: string) => number;
   /** CEO-tab figures, looked up per project. */
   getProjectValue?: (projectId?: string) => number;
@@ -252,7 +263,11 @@ const REGISTRY: Record<
         //
         // A HELD payment shows "On Hold" in that slot instead: the server refuses to move it
         // out of Approved, so a live button there would only ever fail.
+        //
+        // An INELIGIBLE row (nowhere to send its money, #1464) shows Mark as Paid disabled, with the
+        // reason on hover; the Paid to cell says it too.
         const held = isHeldQueueRow(r);
+        const eligibility = rowEligibility(r.paid_to, r.expense_type);
         return (
           <div className="flex items-center gap-2">
             {held ? (
@@ -260,6 +275,15 @@ const REGISTRY: Record<
                 className="inline-flex h-7 w-[136px] items-center justify-center gap-1 rounded-md border border-orange-300 bg-orange-100 text-xs font-medium text-orange-800 dark:border-orange-800 dark:bg-orange-950/50 dark:text-orange-300">
                 <CirclePause className="h-3.5 w-3.5" />
                 On Hold
+              </span>
+            ) : eligibility.kind === "ineligible" ? (
+              // A disabled button fires no pointer events, so the span carries the hover reason.
+              <span title={eligibility.text} className="inline-flex cursor-not-allowed">
+                <Button size="sm" className="h-7 bg-green-600 hover:bg-green-700" disabled
+                  aria-label={`Mark as Paid: ${eligibility.text}`}>
+                  <IndianRupee className="mr-1 h-3.5 w-3.5" />
+                  Mark as Paid
+                </Button>
               </span>
             ) : (
               <Button size="sm" className="h-7 bg-green-600 hover:bg-green-700"
@@ -427,24 +451,35 @@ const REGISTRY: Record<
             {body}
           </DocumentDetailPopover>
         ) : body;
-        if (r.bank_line_count <= 0) return documentCard;
+        // The cheque chip on the two approval tabs (spec #1407), so an approver knows a payment is a
+        // cheque before approving it. ⚠️ ITS OWN LINE, OUTSIDE THE DOCUMENT CARD'S TRIGGER: the chip
+        // is a button, and a button inside the trigger's button is invalid markup.
+        const chip = CHEQUE_CHIP_UNDER_AGAINST.has(ctx.tab) && showsChequeChip(r) ? (
+          <span className="mt-0.5 block">
+            <ChequeChip cheque={r.cheque} chequeNo={r.cheque_no} status={r.cheque_status} />
+          </span>
+        ) : null;
+        if (r.bank_line_count <= 0 && !chip) return documentCard;
         // A payment bank lines settle gets the same Bank lines card as an expense — on its OWN
         // trigger line, because the PO / WO number already opens the document's card. For a
         // payment a part payment split, the count and the card are the whole request's.
         return (
           <span className="block min-w-0">
             {documentCard}
-            <ExpenseBankLinesPopover
-              doctype={r.doctype}
-              name={r.name}
-              subtitle={r.document_name || undefined}
-              status={r.status}
-              lineCount={r.bank_line_count}
-            >
-              <span className="text-[10px] text-muted-foreground">
-                {r.bank_line_count} bank {r.bank_line_count === 1 ? "line" : "lines"}
-              </span>
-            </ExpenseBankLinesPopover>
+            {r.bank_line_count > 0 && (
+              <ExpenseBankLinesPopover
+                doctype={r.doctype}
+                name={r.name}
+                subtitle={r.document_name || undefined}
+                status={r.status}
+                lineCount={r.bank_line_count}
+              >
+                <span className="text-[10px] text-muted-foreground">
+                  {r.bank_line_count} bank {r.bank_line_count === 1 ? "line" : "lines"}
+                </span>
+              </ExpenseBankLinesPopover>
+            )}
+            {chip}
           </span>
         );
       }
@@ -558,6 +593,44 @@ const REGISTRY: Record<
     },
   }),
 
+  // Where the row's money goes (#1431, #1438, approved mockup screen 11): the row's own pay-to
+  // account, copied when it was raised, or why there is none. An unpaid PO / WO payment whose vendor's
+  // account changed since, or that has none, says it will be paid into the vendor's current account,
+  // naming the old one (#1463): a paid row shows its own account read-only, the one its money went into.
+  paid_to: () => ({
+    id: "paid_to",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Paid to" />,
+    size: 230,
+    enableSorting: false,
+    cell: ({ row }) => {
+      const cell = paidToCell(row.original.paid_to, row.original.expense_type, row.original.status);
+      return (
+        <div className="max-w-[220px]">
+          <span className="flex items-center gap-1.5">
+            <span
+              className={cn(
+                // The switch notice wraps so it reads whole; a holder name stays on one line.
+                cell.tone === "vendor_account" ? "font-medium leading-snug text-blue-700" : "truncate",
+                cell.tone === "no_account" && "text-amber-700",
+                cell.tone === "payment_no_account" && "text-red-700",
+              )}
+              title={cell.title}
+            >
+              {cell.title}
+            </span>
+          </span>
+          <span className="block text-xs font-normal tabular-nums text-muted-foreground" title={cell.detail}>
+            {cell.detail}
+          </span>
+        </div>
+      );
+    },
+    meta: {
+      exportHeaderName: "Paid To",
+      exportValue: (r: ApprovalQueueRow) => paidToExportText(r.paid_to, r.expense_type, r.status),
+    },
+  }),
+
   project: (ctx) => ({
     id: "project",
     accessorKey: "project",
@@ -582,7 +655,8 @@ const REGISTRY: Record<
 
   amount: (ctx) => ({
     id: "amount",
-    accessorKey: "amount",
+    // Sorts and filters on the full bill it shows (#1541, story 60), not the stored, TDS-cut amount.
+    accessorFn: (r: ApprovalQueueRow) => r.requested_amount ?? r.amount,
     header: ({ column }) => <DataTableColumnHeader column={column} title="Req. Amount" className="justify-end" />,
     // 128, not 112: "Req. Amount" plus the sort control needs the extra 16px, and
     // a clipped header on a money column reads as a different column.
@@ -597,9 +671,20 @@ const REGISTRY: Record<
         line_count: r.bank_line_count,
         remaining: r.remaining_amount,
       });
+      // The full bill, whatever the status (#1541): an approved payment's stored amount is already cut
+      // by its TDS, so what is paid is said under it. An Office Rent expense's Rent / TDS / Net (#1527):
+      // forecast while it waits, the stored record after; every other row draws nothing for it.
+      const requested = r.requested_amount ?? r.amount;
+      const tds = shownExpenseTds({ type: r.expense_type, amount: r.amount, status: r.status, withheld: r.withheld_tds });
       const figure = (
         <div className="pr-2 text-right tabular-nums">
-          <div className="font-medium">{formatToRoundedIndianRupee(r.amount)}</div>
+          <div className="font-medium">{formatToRoundedIndianRupee(requested)}</div>
+          {requested !== r.amount && (
+            <div className="text-[10px] leading-tight text-muted-foreground">
+              To be paid {formatToRoundedIndianRupee(r.amount)}
+            </div>
+          )}
+          <ExpenseTdsBreakdown shown={tds} />
           {part && (
             <div className="text-[10px] leading-tight">
               <div className="text-green-700">{part.reconciled} reconciled</div>
@@ -614,7 +699,7 @@ const REGISTRY: Record<
       const isPayment = r.source === "Vendor Payment";
       if (!isPayment || !r.document_name || !ctx.getDocumentTotal) return figure;
       const total = ctx.getDocumentTotal(r.document_name, r.document_type);
-      const paid = ctx.getAmountPaid?.(r.document_name) ?? 0;
+      const paid = ctx.getAmountPaid?.(r.document_name, r.document_type) ?? 0;
       const delivered = ctx.getPoAmountDelivered?.(r.document_name, r.document_type) ?? 0;
       const isPO = r.document_type === "Procurement Orders";
       return (
@@ -634,7 +719,7 @@ const REGISTRY: Record<
         </HoverCard>
       );
     },
-    meta: { exportHeaderName: "Req. Amount", exportValue: (r: ApprovalQueueRow) => r.amount },
+    meta: { exportHeaderName: "Req. Amount", exportValue: (r: ApprovalQueueRow) => r.requested_amount ?? r.amount },
   }),
 
   // What your click DOES: finish the approval, or forward it to the CEO. Without
@@ -701,17 +786,29 @@ const REGISTRY: Record<
     id: "utr_ref",
     accessorKey: "utr_ref",
     header: ({ column }) => <DataTableColumnHeader column={column} title="UTR / Ref" />,
-    size: 150,
-    // A cheque has no UTR until it is reconciled, so until then its number stands in, labelled.
-    cell: ({ row }) =>
-      row.original.utr_ref
-        ? <TruncatedText text={row.original.utr_ref} className="max-w-[9rem] font-mono text-[11px]" />
-        : row.original.cheque_no
-          ? <TruncatedText text={`Cheque ${row.original.cheque_no}`} className="max-w-[9rem] font-mono text-[11px]" />
-          : <Blank />,
+    // Wide enough for a whole cheque chip ("Cheque 004521 · Issued").
+    size: 200,
+    // A cheque payment shows its cheque chip (spec #1407), which opens the Cheque; once reconciled,
+    // its UTR sits under the chip. An Online payment shows its UTR as before.
+    cell: ({ row }) => {
+      const r = row.original;
+      if (!showsChequeChip(r)) {
+        return r.utr_ref
+          ? <TruncatedText text={r.utr_ref} className="max-w-[9rem] font-mono text-[11px]" />
+          : <Blank />;
+      }
+      return (
+        <span className="block min-w-0">
+          <ChequeChip cheque={r.cheque} chequeNo={r.cheque_no} status={r.cheque_status} />
+          {r.utr_ref && (
+            <TruncatedText text={r.utr_ref} className="mt-0.5 block max-w-[9rem] font-mono text-[10px] text-muted-foreground" />
+          )}
+        </span>
+      );
+    },
     meta: {
       exportHeaderName: "UTR / Ref",
-      exportValue: (r: ApprovalQueueRow) => r.utr_ref || (r.cheque_no ? `Cheque ${r.cheque_no}` : ""),
+      exportValue: (r: ApprovalQueueRow) => utrOrChequeText(r),
     },
   }),
 

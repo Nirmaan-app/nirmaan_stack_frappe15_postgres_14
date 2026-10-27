@@ -1,38 +1,26 @@
 import React, { useMemo, useState } from 'react';
 import { ColumnDef } from '@tanstack/react-table';
 import { Link } from 'react-router-dom';
-import { useFrappeGetDocList, useFrappeUpdateDoc, useFrappeFileUpload } from 'frappe-react-sdk';
+import { useFrappeGetDocList } from 'frappe-react-sdk';
 
 import { DataTable } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from '@/components/data-table/data-table-column-header';
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from '@/utils/FormatDate';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from '@/components/ui/dialog';
-import { CustomAttachment } from '@/components/helpers/CustomAttachment';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useToast } from '@/components/ui/use-toast';
-import { Hash, User, Upload, AlertTriangle, FileText, Download } from 'lucide-react';
-import { TailSpin } from 'react-loader-spinner';
+import { Hash, User, AlertTriangle } from 'lucide-react';
 
 import {
     ASSET_MANAGEMENT_DOCTYPE,
     ASSET_MANAGEMENT_FIELDS,
     ASSET_MANAGEMENT_SEARCHABLE_FIELDS,
     ASSET_MANAGEMENT_DATE_COLUMNS,
-    ASSET_MASTER_DOCTYPE,
     AssetCategoryType,
 } from '../assets.constants';
-import { useAssetDataRefresh } from '../hooks/useAssetDataRefresh';
+import { assignmentDepartmentColumn, departmentFacetOptions, matchesDepartmentFilter } from '../utils/departmentColumn';
 import { useAssetMasterNamesByType } from '../hooks/useAssetMasterNamesByType';
+import { AssetLookupFacetFilter } from './AssetLookupFacetFilter';
 
 interface AssetManagement {
     name: string;
@@ -47,6 +35,7 @@ interface AssetMaster {
     name: string;
     asset_name: string;
     asset_category: string;
+    department: string | null;
 }
 
 interface NirmaanUser {
@@ -55,14 +44,13 @@ interface NirmaanUser {
 }
 
 interface PendingActionsListProps {
-    onUploaded?: () => void;
     assetType?: AssetCategoryType;
 }
 
 // Outer guard — blocks the table mount until masterNames-by-type is resolved.
 // Without this guard useServerDataTable would fire an initial fetch with a
 // placeholder filter and the resulting "0 rows" can race past the real fetch.
-export const PendingActionsList: React.FC<PendingActionsListProps> = ({ onUploaded, assetType }) => {
+export const PendingActionsList: React.FC<PendingActionsListProps> = ({ assetType }) => {
     const { masterNames, isLoading: typeMastersLoading } = useAssetMasterNamesByType(assetType);
 
     if (assetType && typeMastersLoading) {
@@ -73,7 +61,6 @@ export const PendingActionsList: React.FC<PendingActionsListProps> = ({ onUpload
         <PendingActionsListInner
             assetType={assetType}
             masterNames={masterNames}
-            onUploaded={onUploaded}
         />
     );
 };
@@ -81,72 +68,17 @@ export const PendingActionsList: React.FC<PendingActionsListProps> = ({ onUpload
 interface PendingActionsListInnerProps {
     assetType?: AssetCategoryType;
     masterNames: string[];
-    onUploaded?: () => void;
 }
 
 const PendingActionsListInner: React.FC<PendingActionsListInnerProps> = ({
     assetType,
     masterNames,
-    onUploaded,
 }) => {
-    const { toast } = useToast();
-    const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
-    const [selectedAssignment, setSelectedAssignment] = useState<AssetManagement | null>(null);
-    const [declarationFile, setDeclarationFile] = useState<File | null>(null);
-    const [isUploading, setIsUploading] = useState(false);
-    const [downloadingAssetId, setDownloadingAssetId] = useState<string | null>(null);
-
-    const { updateDoc } = useFrappeUpdateDoc();
-    const { upload } = useFrappeFileUpload();
-    const { refreshSummaryCards } = useAssetDataRefresh();
-
-    // Handle download declaration form PDF
-    const handleDownloadDeclaration = async (assetId: string, assetName: string) => {
-        setDownloadingAssetId(assetId);
-        try {
-            const params = new URLSearchParams({
-                doctype: ASSET_MASTER_DOCTYPE,
-                name: assetId,
-                format: 'Asset Master Form',
-                no_letterhead: '0',
-                _lang: 'en'
-            });
-
-            const response = await fetch(`/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`);
-            if (!response.ok) throw new Error('PDF generation failed');
-
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `${assetName || assetId}_Declaration_Form.pdf`);
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            window.URL.revokeObjectURL(url);
-
-            toast({
-                title: "Downloaded",
-                description: "Declaration form downloaded successfully.",
-                variant: "success",
-            });
-        } catch (error) {
-            console.error('Download Error:', error);
-            toast({
-                title: "Failed",
-                description: "Failed to download declaration form.",
-                variant: "destructive",
-            });
-        } finally {
-            setDownloadingAssetId(null);
-        }
-    };
-
     // Fetch asset details — scope to typed asset names when filtering
     const { data: assetsList } = useFrappeGetDocList<AssetMaster>(
         'Asset Master',
         {
-            fields: ['name', 'asset_name', 'asset_category'],
+            fields: ['name', 'asset_name', 'asset_category', 'department'],
             filters: assetType ? [['name', 'in', masterNames.length ? masterNames : ['__none__']]] : [],
             limit: 0,
         },
@@ -236,53 +168,38 @@ const PendingActionsListInner: React.FC<PendingActionsListInnerProps> = ({
         return opts.sort((a, b) => a.label.localeCompare(b.label));
     }, [facetCounts, usersMap]);
 
-    const handleUploadClick = (assignment: AssetManagement) => {
-        setSelectedAssignment(assignment);
-        setDeclarationFile(null);
-        setUploadDialogOpen(true);
-    };
+    // Category and Department live on the Asset Master, not on these rows, so they filter as lookups
+    // (AssetLookupFacetFilter): the picked values narrow the `asset` scope below -- as on the Assigned tab.
+    const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
+    const [departmentFilter, setDepartmentFilter] = useState<string[]>([]);
 
-    const handleUploadSubmit = async () => {
-        if (!selectedAssignment || !declarationFile) return;
+    // Options with counts, from the pending rows themselves (not every asset).
+    const pendingLookupOptions = useMemo(() => {
+        const rows = facetSource ?? [];
+        const categories = new Map<string, number>();
+        rows.forEach((row) => {
+            const category = assetsMap[row.asset]?.asset_category;
+            if (category) categories.set(category, (categories.get(category) ?? 0) + 1);
+        });
+        return {
+            category: Array.from(categories.entries())
+                .map(([value, count]) => ({ label: `${value} (${count})`, value }))
+                .sort((a, b) => a.label.localeCompare(b.label)),
+            department: departmentFacetOptions(rows.map((row) => assetsMap[row.asset]?.department)),
+        };
+    }, [facetSource, assetsMap]);
 
-        setIsUploading(true);
-
-        try {
-            // Upload file
-            const fileArgs = {
-                doctype: ASSET_MANAGEMENT_DOCTYPE,
-                docname: selectedAssignment.name,
-                fieldname: 'asset_declaration_attachment',
-                isPrivate: true,
-            };
-            const uploadedFile = await upload(declarationFile, fileArgs);
-
-            // Update the Asset Management document with file URL
-            await updateDoc(ASSET_MANAGEMENT_DOCTYPE, selectedAssignment.name, {
-                asset_declaration_attachment: uploadedFile.file_url,
-            });
-
-            toast({
-                title: 'Declaration Uploaded',
-                description: 'The declaration document has been uploaded successfully.',
-                variant: 'success',
-            });
-
-            setUploadDialogOpen(false);
-            refetchTable();
-            refreshSummaryCards(); // Update pending declaration count in summary cards
-            onUploaded?.();
-        } catch (error: any) {
-            console.error('Failed to upload declaration:', error);
-            toast({
-                title: 'Upload Failed',
-                description: error?.message || 'An error occurred while uploading the declaration.',
-                variant: 'destructive',
-            });
-        } finally {
-            setIsUploading(false);
-        }
-    };
+    // Asset names matching both lookup filters -- null means "no constraint".
+    const lookupScopedAssetNames = useMemo<string[] | null>(() => {
+        if (!categoryFilter.length && !departmentFilter.length) return null;
+        return (assetsList ?? [])
+            .filter((a) => {
+                if (categoryFilter.length && !categoryFilter.includes(a.asset_category || '')) return false;
+                if (departmentFilter.length && !matchesDepartmentFilter(a.department, departmentFilter)) return false;
+                return true;
+            })
+            .map((a) => a.name);
+    }, [assetsList, categoryFilter, departmentFilter]);
 
     const columns = useMemo<ColumnDef<AssetManagement>[]>(() => [
         {
@@ -320,7 +237,17 @@ const PendingActionsListInner: React.FC<PendingActionsListInnerProps> = ({
         },
         {
             id: 'asset_category',
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Category" />,
+            enableSorting: false, // not a field of these rows: the server can't sort on it
+            header: ({ column }) => (
+                <div className="flex items-center gap-1">
+                    <AssetLookupFacetFilter
+                        title="Category"
+                        options={pendingLookupOptions.category}
+                        onChange={setCategoryFilter}
+                    />
+                    <DataTableColumnHeader column={column} title="Category" />
+                </div>
+            ),
             cell: ({ row }) => {
                 const assetData = assetsMap[row.original.asset];
                 return assetData?.asset_category ? (
@@ -333,6 +260,11 @@ const PendingActionsListInner: React.FC<PendingActionsListInnerProps> = ({
             },
             size: 140,
         },
+        // With a filter the column isn't sortable (it isn't a field of these rows), so no dead sort arrow.
+        assignmentDepartmentColumn<AssetManagement>((assetId) => assetsMap[assetId]?.department, {
+            options: pendingLookupOptions.department,
+            onChange: setDepartmentFilter,
+        }),
         {
             accessorKey: 'asset_assigned_to',
             header: ({ column }) => <DataTableColumnHeader column={column} title="Assigned To" />,
@@ -361,65 +293,34 @@ const PendingActionsListInner: React.FC<PendingActionsListInnerProps> = ({
         {
             id: 'status',
             header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+            // Every holder signs their own declaration in the app (owner, 2026-10-15): nothing to download here.
             cell: () => (
-                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
-                    <AlertTriangle className="h-3 w-3 mr-1" />
-                    Pending Declaration
-                </Badge>
+                <div className="flex flex-col items-start gap-1">
+                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                        <AlertTriangle className="h-3 w-3 mr-1" />
+                        Pending Declaration
+                    </Badge>
+                    <span className="text-xs text-gray-500">User has to sign and submit</span>
+                </div>
             ),
-            size: 110,
-        },
-        {
-            id: 'actions',
-            header: () => <span className="sr-only">Actions</span>,
-            cell: ({ row }) => {
-                const assetId = row.original.asset;
-                const assetData = assetsMap[assetId];
-                const isDownloading = downloadingAssetId === assetId;
-
-                return (
-                    <div className="flex items-center gap-1.5">
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8 gap-1.5 text-amber-600 border-amber-200 hover:bg-amber-50 hover:text-amber-700"
-                            onClick={() => handleDownloadDeclaration(assetId, assetData?.asset_name || assetId)}
-                            disabled={isDownloading}
-                        >
-                            {isDownloading ? (
-                                <TailSpin height={14} width={14} color="#d97706" />
-                            ) : (
-                                <Download className="h-3.5 w-3.5" />
-                            )}
-                            <span className="hidden lg:inline">Download</span>
-                        </Button>
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8 gap-1.5"
-                            onClick={() => handleUploadClick(row.original)}
-                        >
-                            <Upload className="h-3.5 w-3.5" />
-                            <span className="hidden lg:inline">Upload</span>
-                        </Button>
-                    </div>
-                );
-            },
             size: 180,
         },
-    ], [assetsMap, usersMap, downloadingAssetId, handleDownloadDeclaration]);
+        // categoryFilter / departmentFilter are deliberately NOT deps: the funnels own their selection, and
+        // rebuilding the columns on every tick would remount the popover and close it after one pick.
+    ], [assetsMap, usersMap, pendingLookupOptions]);
 
     const additionalFilters = useMemo(() => {
         const filters: any[] = [['asset_declaration_attachment', 'is', 'not set']];
-        if (assetType) {
-            if (masterNames.length === 0) {
-                filters.push(['asset', 'in', ['__none__']]);
-            } else {
-                filters.push(['asset', 'in', masterNames]);
-            }
+        // The type scope (Project / IT tab) narrowed by the Category / Department picks. '__none__' matches
+        // nothing: an empty `in` list would be dropped and show every row.
+        let names: string[] | null = assetType ? masterNames : null;
+        if (lookupScopedAssetNames) {
+            const allowed = new Set(lookupScopedAssetNames);
+            names = names ? names.filter((n) => allowed.has(n)) : lookupScopedAssetNames;
         }
+        if (names !== null) filters.push(['asset', 'in', names.length ? names : ['__none__']]);
         return filters;
-    }, [assetType, masterNames]);
+    }, [assetType, masterNames, lookupScopedAssetNames]);
 
     const {
         table,
@@ -430,7 +331,6 @@ const PendingActionsListInner: React.FC<PendingActionsListInnerProps> = ({
         setSearchTerm,
         selectedSearchField,
         setSelectedSearchField,
-        refetch: refetchTable,
     } = useServerDataTable<AssetManagement>({
         doctype: ASSET_MANAGEMENT_DOCTYPE,
         columns,
@@ -471,59 +371,6 @@ const PendingActionsListInner: React.FC<PendingActionsListInnerProps> = ({
                 showExportButton={false}
                 showRowSelection={false}
             />
-
-            {/* Upload Declaration Dialog */}
-            <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-50">
-                            <FileText className="h-6 w-6 text-amber-600" />
-                        </div>
-                        <DialogTitle className="text-center text-lg font-semibold">
-                            Upload Declaration
-                        </DialogTitle>
-                        <DialogDescription className="text-center text-sm text-gray-500">
-                            Upload the declaration document for{' '}
-                            <span className="font-medium text-gray-700">
-                                {selectedAssignment ? assetsMap[selectedAssignment.asset]?.asset_name || selectedAssignment.asset : ''}
-                            </span>
-                        </DialogDescription>
-                    </DialogHeader>
-
-                    <div className="py-4">
-                        <CustomAttachment
-                            selectedFile={declarationFile}
-                            onFileSelect={setDeclarationFile}
-                            acceptedTypes={["image/*", "application/pdf"]}
-                            label="Select Declaration File"
-                            maxFileSize={10 * 1024 * 1024}
-                            onError={(err) => toast({
-                                title: 'File Error',
-                                description: err.message,
-                                variant: 'destructive',
-                            })}
-                        />
-                    </div>
-
-                    <DialogFooter className="gap-2 sm:gap-0">
-                        <Button
-                            variant="outline"
-                            onClick={() => setUploadDialogOpen(false)}
-                            disabled={isUploading}
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            onClick={handleUploadSubmit}
-                            disabled={isUploading || !declarationFile}
-                            className="gap-2"
-                        >
-                            {isUploading ? 'Uploading...' : 'Upload Declaration'}
-                            <Upload className="h-4 w-4" />
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
         </>
     );
 };

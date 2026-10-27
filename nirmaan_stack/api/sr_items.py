@@ -8,16 +8,18 @@ def get_sr_items_for_parents(sr_names=None):
     """
     Return `work_order_items` child rows grouped by parent SR name.
 
-    When `sr_names` is omitted/empty, returns rows for ALL Service Requests
-    in one round-trip — used by frontend hooks (e.g. useOrderTotals) that
-    need every SR's items without exceeding the GET URL size limit.
+    Only Work Orders the user may read are returned (#1529): a name the user
+    may not read is left out. When `sr_names` is omitted/empty, returns rows
+    for every Work Order the user may read, in one round-trip — used by
+    frontend hooks (e.g. useOrderTotals) that need every SR's items without
+    exceeding the GET URL size limit.
 
     Args:
         sr_names: Optional list of SR names (or JSON string of such a list,
-                  or a single name). If None/empty, all SRs are included.
+                  or a single name). If None/empty, every readable SR is included.
 
     Returns:
-        dict mapping `sr_name` -> list of child-row dicts in display order.
+        dict mapping each readable `sr_name` -> list of child-row dicts in display order.
     """
     if isinstance(sr_names, str):
         try:
@@ -29,9 +31,15 @@ def get_sr_items_for_parents(sr_names=None):
     if not frappe.has_permission("Service Requests", "read"):
         frappe.throw(_("Not permitted to read Service Requests."), frappe.PermissionError)
 
-    filters: dict = {"parenttype": "Service Requests"}
-    if sr_names:
-        filters["parent"] = ["in", sr_names]
+    # frappe.get_list applies the user's read permission and project User Permissions.
+    readable = frappe.get_list(
+        "Service Requests",
+        filters={"name": ["in", sr_names]} if sr_names else None,
+        pluck="name",
+        limit_page_length=0,
+    )
+    if not readable:
+        return {}
 
     rows = frappe.get_all(
         "Work Order Items",
@@ -40,12 +48,12 @@ def get_sr_items_for_parents(sr_names=None):
             "item_name", "category", "uom",
             "quantity", "rate",
         ],
-        filters=filters,
+        filters={"parenttype": "Service Requests", "parent": ["in", readable]},
         order_by="parent asc, idx asc",
         limit_page_length=0,
     )
 
-    out = {name: [] for name in (sr_names or [])}
+    out = {name: [] for name in readable}
     for row in rows:
-        out.setdefault(row["parent"], []).append(row)
+        out[row["parent"]].append(row)
     return out

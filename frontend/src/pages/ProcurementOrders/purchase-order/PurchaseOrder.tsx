@@ -83,6 +83,7 @@ import { InvoiceDialog } from "../invoices-and-dcs/components/InvoiceDialog";
 import POAttachments from "./components/POAttachments";
 import POPaymentTermsCard from "./components/POPaymentTermsCard";
 import TransactionDetailsCard from "./components/TransactionDetailsCard";
+import { PoChequesCard } from "@/components/cheques/PoChequesCard";
 import PORemarks from "./components/PORemarks";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog"; // Import the dialog component
 import { DocumentAttachments } from "../invoices-and-dcs/DocumentAttachments";
@@ -97,6 +98,8 @@ import { PORevisionWarning } from "@/pages/PORevision/PORevisionWarning";
 import { usePOLockCheck, useAllLockedPOs } from "@/pages/PORevision/data/usePORevisionQueries";
 import { POAdjustmentDialog } from "@/pages/POAdjustment/POAdjustmentDialog";
 import { VendorCreditSummaryCard } from "@/pages/POAdjustment/VendorCreditSummaryCard";
+import { RefundOverBalanceWarning } from "@/pages/POAdjustment/RefundOverBalanceWarning";
+import { WaitingRefundOverdueWarning } from "@/pages/POAdjustment/WaitingRefundOverdueWarning";
 import { PORevisionsAndAdjustments } from "./components/PORevisionsAndAdjustments";
 import {
   MergePOTable,
@@ -321,7 +324,7 @@ export const PurchaseOrder = () => {
           ],
           limit: 1000,
         }
-        : null // This `null` is what pauses the hook, preventing the error.
+        : undefined
     );
 
   const { call: fetchFullPoDetails, loading: fullPoDetailsLoading } =
@@ -380,6 +383,14 @@ export const PurchaseOrder = () => {
       limit: 0,
       orderBy: { field: "name", order: "desc" },
     });
+
+  // After any Vendor Refund write or adjustment on this PO: refetch what the page shows from the PO and
+  // its payments (paid amount, amount due, payment rows, terms). The refund views refresh themselves
+  // (`useRefreshPORefundViews`).
+  const refreshPOPage = useCallback(
+    () => Promise.all([poMutate(), poPaymentsMutate(), AllPoPaymentsListMutate()]),
+    [poMutate, poPaymentsMutate, AllPoPaymentsListMutate]
+  );
 
 
   useEffect(() => {
@@ -759,6 +770,8 @@ export const PurchaseOrder = () => {
   return (
     <div className="flex-1 space-y-4">
       <PORevisionWarning poId={poId} />
+      <RefundOverBalanceWarning poId={poId} />
+      <WaitingRefundOverdueWarning poId={poId} />
 
       {poId && PO?.vendor && (
         <VendorCreditSummaryCard
@@ -1197,6 +1210,7 @@ export const PurchaseOrder = () => {
                     poPayments={poPayments}
                     poPaymentsMutate={poPaymentsMutate}
                     AllPoPaymentsListMutate={AllPoPaymentsListMutate}
+                    onPOChanged={refreshPOPage}
                   />
 
                   <POPaymentTermsCard
@@ -1207,6 +1221,11 @@ export const PurchaseOrder = () => {
                     poMutate={poMutate}
                     projectPaymentsMutate={poPaymentsMutate}
                     isLocked={isPaymentLocked}
+                  />
+
+                  {/* Cheques issued for this PO: Payment and Security Deposit (#1521); renders only for cheque users. */}
+                  <PoChequesCard
+                    record={{ doctype: "Procurement Orders", name: PO?.name, project: PO?.project, vendor: PO?.vendor }}
                   />
                 </div>
               </AccordionContent>
@@ -1446,6 +1465,7 @@ export const PurchaseOrder = () => {
           vendor={PO.vendor}
           isOpen={isAdjustmentDialogOpen}
           onClose={() => setIsAdjustmentDialogOpen(false)}
+          onSuccess={refreshPOPage}
         />
       )}
     </div>

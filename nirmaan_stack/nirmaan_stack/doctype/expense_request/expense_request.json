@@ -11,12 +11,18 @@
   "type_allows_project",
   "projects",
   "vendor",
+  "pay_to_account_name",
+  "pay_to_account_number",
+  "pay_to_ifsc",
+  "pay_to_bank_name",
+  "pay_to_bank_branch",
   "amount",
   "comment",
   "form_response_section",
   "source_data",
   "review_section",
   "status",
+  "approved_on_submit",
   "reviewed_by",
   "reviewed_on",
   "review_comment"
@@ -119,12 +125,51 @@
    "fieldname": "review_comment",
    "fieldtype": "Small Text",
    "label": "Review Comment"
+  },
+  {
+   "description": "The account holder this is paid into: a copy of a Payee's account, taken when the record is raised (ADR-0033). Never a link, so editing or deleting the Payee leaves it. Written by services/payees/pay_to.",
+   "fieldname": "pay_to_account_name",
+   "fieldtype": "Data",
+   "label": "Pay-to Holder Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pay_to_account_number",
+   "fieldtype": "Data",
+   "label": "Pay-to Account Number",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pay_to_ifsc",
+   "fieldtype": "Data",
+   "label": "Pay-to IFSC",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pay_to_bank_name",
+   "fieldtype": "Data",
+   "label": "Pay-to Bank",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pay_to_bank_branch",
+   "fieldtype": "Data",
+   "label": "Pay-to Branch",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Its raiser records without review (Expense Settings), so it was approved the moment it was raised, with no Reviewer.",
+   "fieldname": "approved_on_submit",
+   "fieldtype": "Check",
+   "label": "Approved on submit (no review)",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-16 16:00:00.000000",
+ "modified": "2026-10-20 01:16:51.359185",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Expense Request",

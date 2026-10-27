@@ -28,12 +28,12 @@ in ONE savepoint, so a failure half way through (a concurrent writer, a hook) ro
 each other instead of deadlocking. Before #1271 the reversal took no row lock at all.
 
 ⚠️ THE CONCURRENT-WRITER REFUSAL IS A SENTENCE HERE TOO, through the same
-`_concurrent_writer_refusal_as_sentence` `settle_row` and `allocate_row` share, and it ends at the
+`concurrent_writer_refusal_as_sentence` `settle_row` and `allocate_row` share, and it ends at the
 commit for the same reason: "nothing was saved" is false after it.
 
 ⚠️ EACH LEG IS STAMPED REVERSED BEFORE ITS VERDICT IS CARRIED OUT (#1278). A record the import created
-is DELETED, and the leg's save validates its Dynamic Link to the target -- stamped after the delete,
-it would refuse a link to a record that is gone. Both happen in the one savepoint either way.
+is DELETED, and its `on_trash` refuses while a LIVE leg names it (ADR-0022 Amendment G) -- stamped
+after the delete, the leg would make the undo refuse itself. Both happen in the one savepoint either way.
 """
 
 from typing import NamedTuple
@@ -41,9 +41,8 @@ from typing import NamedTuple
 import frappe
 
 from nirmaan_stack.api.outflow_import.expenses import (
-    _concurrent_writer_refusal_as_sentence,
-    _live_legs,
-    _refresh_row_allocation,
+    concurrent_writer_refusal_as_sentence,
+    live_legs,
     _statement_file_url,
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_undo_access
@@ -51,10 +50,10 @@ from nirmaan_stack.api.outflow_import.review import (
     MATCH_DOCTYPE,
     ROW_DOCTYPE,
     _batch_source,
-    _refresh_batch_rollup,
 )
 from nirmaan_stack.api.outflow_import.unreconcile_cleanup import restore_derived_state
 from nirmaan_stack.api.outflow_import.unreconcile_created import delete_created, edits_of
+from nirmaan_stack.api.outflow_import.unreconcile_refund import read_refund_facts, unmatch_refund
 from nirmaan_stack.api.outflow_import.unreconcile_split import (
     join_leftover_back,
     read_payment_facts,
@@ -69,12 +68,13 @@ from nirmaan_stack.services.outflow_import.allocation import (
 from nirmaan_stack.services.outflow_import.ledgers import (
     INFLOW_DOCTYPES,
     PAYMENT_DOCTYPE,
+    VENDOR_REFUND_DOCTYPE,
     is_expense_doctype,
     settleable_statuses,
 )
 from nirmaan_stack.services.outflow_import.settle import (
     _derive_status_and_save,
-    _outflow_import_write,
+    outflow_import_write,
     clear_statement_attachment,
 )
 from nirmaan_stack.services.outflow_import.settlement_reference import (
@@ -87,6 +87,7 @@ from nirmaan_stack.services.outflow_import.unreconcile import (
     VERDICT_REVERT_EXPENSE,
     VERDICT_REVERT_PAYMENT,
     VERDICT_UNLINK_EXPENSE_LINE,
+    VERDICT_UNMATCH_REFUND,
     VERDICT_UNSPLIT_PAYMENT,
     WHOLE_LINE_ONLY_REFUSAL,
     WHOLE_LINE_ONLY_TITLE,
@@ -97,6 +98,7 @@ from nirmaan_stack.services.outflow_import.unreconcile import (
     leg_verdict,
     reverse_all_only,
 )
+from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup, refresh_row_allocation
 
 ALL_LEGS = "all"
 
@@ -253,12 +255,12 @@ def unreconcile_line(row: str, legs, reason: str, actor: str, *, bulk_of: int | 
     if not reason:
         frappe.throw(REASON_REQUIRED, title="Missing reason")
 
-    with _concurrent_writer_refusal_as_sentence("unreconcile_row", row):
+    with concurrent_writer_refusal_as_sentence("unreconcile_row", row):
         line = _lock_row(row)
         requested = _lock_legs(line, legs)
         # A vendor refund line is undone whole (`reverse_all_only`): a request naming only some of its
         # live legs is refused before anything is read for writing.
-        live = _live_legs(line.name)
+        live = live_legs(line.name)
         if reverse_all_only(live) and {leg.name for leg in requested} != {leg.name for leg in live}:
             frappe.throw(WHOLE_LINE_ONLY_REFUSAL, title=WHOLE_LINE_ONLY_TITLE)
         references = settlement_references_of_row(line)
@@ -280,8 +282,8 @@ def unreconcile_line(row: str, legs, reason: str, actor: str, *, bulk_of: int | 
             # in the last unreconcile" as the legs sharing the latest `reversed_at`.
             reversed_at = frappe.utils.now_datetime()
             for leg, verdict in zip(requested, verdicts):
-                # Stamp FIRST -- see the module docstring (a deleted target fails the link check).
-                _stamp_reversed(leg.name, actor, reason, reversed_at)
+                # Stamp FIRST -- see the module docstring (a live leg refuses its target's delete).
+                stamp_reversed(leg.name, actor, reason, reversed_at)
                 carried.append(_carry_out(verdict, leg, statement, actor, reason))
             # #1276: vendor credit, CEO Hold, latest payment date and the statement `File` row,
             # once, on the state after EVERY leg -- see `unreconcile_cleanup`.
@@ -289,17 +291,17 @@ def unreconcile_line(row: str, legs, reason: str, actor: str, *, bulk_of: int | 
             _drop_a_pick_that_was_deleted(line.name, carried)
             # #1280: the line keeps its old pick, so it is marked Confirm by hand and a bulk confirm
             # refuses it until a person settles it.
-            new_status = _refresh_row_allocation(line.name, actor, confirm_by_hand=True)
+            new_status = refresh_row_allocation(line.name, actor, confirm_by_hand=True)
             _comment_on_line(line.name, actor, reason, requested, bulk_of=bulk_of)
         except Exception:
             frappe.db.rollback(save_point=savepoint)
             raise
         frappe.db.release_savepoint(savepoint)
 
-        statuses = _refresh_batch_rollup(line.import_batch)
+        statuses = refresh_batch_rollup(line.import_batch)
         frappe.db.commit()
 
-    remaining_legs = _live_legs(line.name)
+    remaining_legs = live_legs(line.name)
     return {
         "row": line.name,
         "row_status": new_status,
@@ -389,6 +391,10 @@ def _carry_out(
     if kind == VERDICT_DELETE_CREATED:
         project = delete_created(leg.target_doctype, leg.target_name, statement_file_url)
         return CarriedOut(leg.target_doctype, leg.target_name, project=project, deleted=True)
+    if kind == VERDICT_UNMATCH_REFUND:
+        # #1401: a matched waiting refund goes back to waiting and is kept; its save runs the PO sync.
+        unmatch_refund(leg, statement_file_url)
+        return CarriedOut(leg.target_doctype, leg.target_name)
     raise NotImplementedError(f"No write for verdict '{kind}' on match record '{leg.name}'.")
 
 
@@ -396,7 +402,7 @@ def _drop_a_pick_that_was_deleted(row: str, carried) -> None:
     """Clear the line's pick when it names a record this unreconcile just DELETED (#1314, trap 1).
 
     ⚠️ THE CASHBOOK JOB STORES ITS OWN CREATED EXPENSE AS THE PICK (`cashbook._write_one` writes
-    `suggested_name = <created expense>`), and `_refresh_row_allocation` falls back to `Matched`
+    `suggested_name = <created expense>`), and `refresh_row_allocation` falls back to `Matched`
     whenever a pick survives. Left alone, an unreconciled Cashbook line would read Matched -- to a
     record that no longer exists -- and a Confirm would settle it against nothing.
 
@@ -443,7 +449,7 @@ def _lock_legs(line, legs) -> list:
     """
     names = _parse_legs(legs)
     if names == ALL_LEGS:
-        names = [leg["name"] for leg in _live_legs(line.name)]
+        names = [leg["name"] for leg in live_legs(line.name)]
         if not names:
             frappe.throw(
                 "Nothing on this line is settled, so there is nothing to reverse.",
@@ -502,6 +508,11 @@ def _read_facts(legs, references, source: str, *, for_update: bool) -> dict:
             continue
         if is_expense_doctype(leg.target_doctype):
             facts[leg.name] = _read_expense_facts(leg, base, for_update=for_update)
+            continue
+        if leg.target_doctype == VENDOR_REFUND_DOCTYPE and not leg.created_by_import:
+            # #1401: a MATCHED waiting refund. Judged on its status, amount and reference, like a
+            # payment; it has no "edited since" question because it is never deleted.
+            facts[leg.name] = LegFacts(**base, **read_refund_facts(leg, for_update=for_update))
             continue
         if leg.target_doctype in INFLOW_DOCTYPES:
             exists = frappe.db.get_value(
@@ -622,7 +633,7 @@ def _revert_expense(doctype: str, name: str, statement_file_url: str | None) -> 
         doc.payment_by = None
     clear_statement_attachment(doc, statement_file_url)
     doc.flags.from_outflow_import = True
-    with _outflow_import_write():
+    with outflow_import_write():
         doc.save(ignore_permissions=True, ignore_version=False)
 
 
@@ -639,7 +650,7 @@ def _revert_payment(name: str, statement_file_url: str | None) -> None:
     lists exactly these: add a field here and check both, they live and die together. The amount is
     NOT restored (Ruling O); an un-split restores it before this runs (#1279).
 
-    `from_outflow_import` + `_outflow_import_write` suppress the hooks that commit mid-save; a commit
+    `from_outflow_import` + `outflow_import_write` suppress the hooks that commit mid-save; a commit
     inside the savepoint would make the all-or-nothing rollback a silent no-op.
     """
     doc = frappe.get_doc(PAYMENT_DOCTYPE, name)
@@ -648,11 +659,11 @@ def _revert_payment(name: str, statement_file_url: str | None) -> None:
     doc.payment_date = None
     clear_statement_attachment(doc, statement_file_url)
     doc.flags.from_outflow_import = True
-    with _outflow_import_write():
+    with outflow_import_write():
         doc.save(ignore_permissions=True, ignore_version=False)
 
 
-def _stamp_reversed(match: str, actor: str, reason: str, reversed_at) -> None:
+def stamp_reversed(match: str, actor: str, reason: str, reversed_at) -> None:
     """SOFT, NOT A DELETE (ADR-0020 D3): the record is kept, so "this was settled and undone" is
     never lost, and a Reversed leg stops holding the partial unique key."""
     doc = frappe.get_doc(MATCH_DOCTYPE, match)

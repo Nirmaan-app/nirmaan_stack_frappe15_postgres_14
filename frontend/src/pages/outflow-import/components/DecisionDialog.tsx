@@ -69,10 +69,22 @@ import {
     INFLOW_TYPES,
 } from "@/pages/non-project-inflows/nonProjectInflowModel";
 import { ROW_PARTIALLY_ALLOCATED, canSkipByHand, canUndoOutflow } from "../outflowImportStatus";
-import { newExpenseSeed, statementSpender } from "../newExpenseSeed";
+import { NEW_EXPENSE_COMMENT_MAX, newExpenseSeed, statementSpender } from "../newExpenseSeed";
 import { useUserData } from "@/hooks/useUserData";
 import type { UnreconcileResult } from "../unreconcileView";
 import { UnreconcilePanel } from "./UnreconcileDialog";
+import {
+    sameWaitingRefunds,
+    suggestedWaitingRefundForm,
+    toggleWaitingRefund,
+    waitingRefundProblem,
+    waitingRefundSuggestionNote,
+    waitingRefundsHeadline,
+    waitingRefundTotals,
+    waitingRefundsKey,
+    withWaitingRefundVendor,
+    type MatchableRefund,
+} from "../waitingRefundMatch";
 import {
     INTENT_PART_PAYMENT,
     amountGapHint,
@@ -85,13 +97,13 @@ import {
     isConfirmable,
     isCreateTarget,
     isCreditRow,
+    settlesAPickedRecord,
     ledgerLabel,
     matcherCandidateLine,
     parseRecordKey,
     partialOffer,
-    nonProjectInflowDescriptionSeed,
     recordKey,
-    referenceValue,
+    referenceToSave,
     settlementLink,
     settleBlockRemedy,
     settleBlockText,
@@ -184,7 +196,7 @@ const NON_PROJECT_EXPENSE = "Non Project Expenses";
  * merely re-enabled: the form below, `RowDecision.newExpense`, the `new` branch of `isConfirmable`
  * (which the bulk bar's `countDecided` reads too), `OutflowMasterPage.settleOne`'s create branch,
  * `expenses.create_expense` / `get_expense_types`, and `settle.create_expense_from_row`. The
- * contract still matches: the client sends doctype + type + project + description only, and every
+ * contract still matches: the client sends doctype + type + project + description + comment only, and every
  * figure -- amount, payment date, reference -- is read SERVER-SIDE off the staged bank row.
  *
  * ⚠️ `SHOW_SKIP_ROW` STAYS OFF (see below). B5 turns on exactly one of the two hidden exits; the
@@ -253,6 +265,27 @@ const CREATE_VENDOR_REFUND_TARGET: { id: DecisionTarget; label: string; hint: st
     // Misc. Expense is hidden from the form for now (owner, 2026-09-18) -- restore "PO, WO or misc.
     // expense" with it.
     hint: "money a vendor paid back — one vendor refund per PO or WO it is against",
+};
+
+/**
+ * Money a vendor paid back that procurement ALREADY recorded as a waiting Vendor Refund (#1401): the line
+ * is matched to it, which turns it Received. Nothing new is created. Offered just above "Create a vendor
+ * refund", so the existing record is the first refund choice the reviewer reads.
+ */
+const MATCH_WAITING_REFUND_TARGET: { id: DecisionTarget; label: string; hint: string } = {
+    id: "waitingRefund",
+    label: "Match a waiting Vendor Refund",
+    hint: "a refund procurement already recorded — it turns Received; nothing new is created",
+};
+
+/** A vendor's waiting refunds (`waiting_refund_match.get_waiting_vendor_refunds`), or nothing until one is chosen. */
+const useWaitingRefunds = (vendor: string | null | undefined) => {
+    const { data, isLoading } = useFrappeGetCall<{ message: MatchableRefund[] }>(
+        "nirmaan_stack.api.outflow_import.waiting_refund_match.get_waiting_vendor_refunds",
+        { vendor },
+        waitingRefundsKey(vendor)
+    );
+    return { refunds: vendor ? (data?.message ?? []) : [], loading: Boolean(vendor) && isLoading };
 };
 
 interface Props {
@@ -605,7 +638,7 @@ export const DecisionDialog = ({
     // merely one the button refuses to send). `isLinkDecision` mirrors the same three-way exclusion
     // `isConfirmable` reads: a "create something new" card in progress must keep the ordinary
     // "Confirm → Paid" wording and must never be blocked by a leftover, dimmed tick-set's `bar`.
-    const isLinkDecision = !isCreateTarget(decision?.target);
+    const isLinkDecision = settlesAPickedRecord(decision?.target);
     // ⚠️ `bar.over` ONLY GATES THE BUTTON, NEVER `isConfirmable` -- see `allocationView.ts` and the
     // picker below. Disabling the ROWS instead would make it a puzzle: the reviewer may want to
     // untick something else first.
@@ -684,7 +717,9 @@ export const DecisionDialog = ({
               // wording for everything that is not a part-linked expense.
               isLinkDecision && effectiveMode === "normal"
               ? decideConfirmLabel(picked, row.amount)
-              : "Confirm → Paid";
+              : decision?.target === "waitingRefund"
+                ? "Match → Received"
+                : "Confirm → Paid";
 
     /**
      * ⚠️ WHICH CARDS THIS ROW GETS IS MEMBERSHIP IN THE ONE PARTITION, NEVER A `direction` TEST
@@ -910,9 +945,9 @@ export const DecisionDialog = ({
                             onChange={onChange}
                             seed={() => ({
                                 target: "nonProjectInflow",
-                                newNonProjectInflow: decision?.newNonProjectInflow ?? {
-                                    description: nonProjectInflowDescriptionSeed(row),
-                                },
+                                // ⚠️ EMPTY (owner ruling): the narration is the inflow's Payment
+                                // reference, and a blank description is filled by the server.
+                                newNonProjectInflow: decision?.newNonProjectInflow ?? { description: "" },
                             })}
                         >
                             <NewNonProjectInflowForm
@@ -920,6 +955,28 @@ export const DecisionDialog = ({
                                 decision={decision!}
                                 onChange={onChange}
                             />
+                        </TargetOption>
+                    )}
+
+                    {/* #1401: money a vendor paid back that procurement already recorded as a waiting
+                        refund. Above the create card, so an existing record is matched rather than a
+                        second one created. */}
+                    {isCreditRow(row) && (
+                        <TargetOption
+                            target={MATCH_WAITING_REFUND_TARGET}
+                            decision={decision}
+                            onChange={onChange}
+                            seed={() => ({
+                                target: "waitingRefund",
+                                // A vendor already chosen on the create card carries over.
+                                waitingRefund:
+                                    decision?.waitingRefund ??
+                                    (decision?.newVendorRefund?.vendor
+                                        ? { vendor: decision.newVendorRefund.vendor, picks: [] }
+                                        : {}),
+                            })}
+                        >
+                            <WaitingRefundMatchForm row={row} decision={decision!} onChange={onChange} />
                         </TargetOption>
                     )}
 
@@ -2317,19 +2374,29 @@ const NewExpenseForm = ({
                 />
             </div>
 
+            <div className="space-y-1.5 sm:col-span-2">
+                <Label className="text-xs">
+                    Comment <span className="font-normal text-muted-foreground">(optional)</span>
+                </Label>
+                <Input
+                    className="h-9"
+                    value={form.comment ?? ""}
+                    maxLength={NEW_EXPENSE_COMMENT_MAX}
+                    placeholder="Anything the accounts team should know"
+                    onChange={(e) => patch({ comment: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">
+                    Saved with “Imported from {row.import_batch}” after it.
+                </p>
+            </div>
+
             {/* Read-only from the bank row -- the statement is the source of truth. */}
             <ReadOnlyField label="Amount" value={formatToRoundedIndianRupee(row.amount)} />
             <ReadOnlyField
                 label="Payment date"
                 value={row.added_on ? formatDate(row.added_on.split(/[ T]/)[0]) : "—"}
             />
-            {/* `referenceValue`, not `bank_reference_no`: a Cashbook line has no bank reference, and
-                its wallet id is what the server writes (#1314 browser walk -- it read "—"). */}
-            <ReadOnlyField
-                label="Payment reference"
-                value={referenceValue(row) || "—"}
-                className="sm:col-span-2"
-            />
+            <PaymentReferenceField row={row} />
             {spender && <ReadOnlyField label="Paid by" value={spender} className="sm:col-span-2" />}
         </div>
     );
@@ -2468,11 +2535,7 @@ const NewInflowForm = ({
                 label="Payment date"
                 value={row.added_on ? formatDate(row.added_on.split(/[ T]/)[0]) : "—"}
             />
-            <ReadOnlyField
-                label="Payment reference"
-                value={row.bank_reference_no || "—"}
-                className="sm:col-span-2"
-            />
+            <PaymentReferenceField row={row} />
         </div>
     );
 };
@@ -2549,14 +2612,7 @@ const NewNonProjectInflowForm = ({
                 label="Payment date"
                 value={row.added_on ? formatDate(row.added_on.split(/[ T]/)[0]) : "—"}
             />
-            {/* `referenceValue`, the table's own Reference cell: an ICICI closure line carries no
-                `bank_reference_no`, so reading that field alone showed "—" beside a table showing
-                the reference. */}
-            <ReadOnlyField
-                label="Payment reference"
-                value={referenceValue(row) || "—"}
-                className="sm:col-span-2"
-            />
+            <PaymentReferenceField row={row} />
         </div>
     );
 };
@@ -2682,6 +2738,8 @@ const NewVendorRefundForm = ({
     }, [documents]);
 
     const suggested = useMemo(() => suggestRefundVendor(row, vendors ?? []), [row, vendors]);
+    // #1401: the same money may already be waiting as a refund procurement recorded.
+    const { refunds: waiting } = useWaitingRefunds(form.vendor);
 
     useEffect(() => {
         if (form.vendor !== undefined || !suggested) return;
@@ -2739,7 +2797,38 @@ const NewVendorRefundForm = ({
                     />
                 </div>
                 */}
+                <PaymentReferenceField row={row} />
             </div>
+
+            {/* #1401: WARN BEFORE A SECOND RECORD. A waiting refund is the same money the vendor said it
+                sent; creating another refund for this line would record it twice. */}
+            {ready && waiting.length > 0 && (
+                <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div className="min-w-0 flex-1 space-y-1">
+                        <p className="font-medium">{waitingRefundsHeadline(waiting.length)}</p>
+                        <p className="text-xs">
+                            If this bank line is one of them, match it instead, so the same money is not
+                            recorded twice. Create a new refund only for money nobody recorded in advance.
+                        </p>
+                        <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7"
+                            onClick={() =>
+                                onChange({
+                                    ...decision,
+                                    target: "waitingRefund",
+                                    waitingRefund: { vendor: form.vendor, picks: [] },
+                                })
+                            }
+                        >
+                            Match a waiting refund instead
+                        </Button>
+                    </div>
+                </div>
+            )}
 
             {/* Nothing below means anything until the vendor is known: the lists are theirs. */}
             {ready && (
@@ -2844,6 +2933,174 @@ const NewVendorRefundForm = ({
                         onRemove={(allocation) => update(toggleRefundAllocation(form, allocation, row.amount))}
                     />
                 </>
+            )}
+        </div>
+    );
+};
+
+/**
+ * "Match a waiting Vendor Refund" (#1401): the vendor, then their waiting refunds with a tick each and the
+ * running balance against the line. The ticked refunds must add up to the line exactly
+ * (`waitingRefundProblem`, the server's rule in the reviewer's words).
+ *
+ * ⚠️ THE VENDOR IS SUGGESTED FROM THE BANK REMARKS ONLY INTO A VENDOR NEVER TOUCHED, as on the create card.
+ * The vendor list shares that card's SWR key, and the pool `useWaitingRefunds`'s, so switching between
+ * the two cards fetches nothing twice.
+ */
+const WaitingRefundMatchForm = ({
+    row,
+    decision,
+    onChange,
+}: {
+    row: OutflowImportRow;
+    decision: RowDecision;
+    onChange: (decision: RowDecision) => void;
+}) => {
+    const form = decision.waitingRefund ?? {};
+    const picks = form.picks ?? [];
+    const update = (next: typeof form) => onChange({ ...decision, waitingRefund: next });
+
+    const { data: vendors, isLoading: vendorsLoading } = useFrappeGetDocList<{
+        name: string;
+        vendor_name: string;
+        vendor_city?: string;
+    }>(
+        "Vendors",
+        {
+            fields: ["name", "vendor_name", "vendor_city"],
+            limit: 0,
+            orderBy: { field: "vendor_name", order: "asc" },
+        },
+        "outflow-vendor-refund-vendors"
+    );
+    const suggested = useMemo(() => suggestRefundVendor(row, vendors ?? []), [row, vendors]);
+    useEffect(() => {
+        if (form.vendor !== undefined || !suggested) return;
+        update(withWaitingRefundVendor(form, suggested));
+        // Keyed on the two values that decide it, as the create card's vendor effect is.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [suggested, form.vendor]);
+
+    const { refunds, loading } = useWaitingRefunds(form.vendor);
+    const { matched, remaining } = waitingRefundTotals(form, row.amount);
+    const problem = picks.length ? waitingRefundProblem(form, row.amount) : null;
+    const isTicked = (name: string) => picks.some((p) => p.name === name);
+    // #1402: the import's suggestion, said while the ticks are still exactly its own.
+    const importSuggestion = row.waiting_refund_suggestion;
+    const showsSuggestion =
+        !!importSuggestion?.refunds?.length &&
+        sameWaitingRefunds(suggestedWaitingRefundForm(importSuggestion), form);
+
+    return (
+        <div className="space-y-3">
+            {showsSuggestion && importSuggestion && (
+                <p className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm">
+                    {waitingRefundSuggestionNote(importSuggestion)}
+                </p>
+            )}
+            <div className="space-y-1.5 sm:max-w-sm">
+                <Label className="text-xs">Vendor</Label>
+                <SearchPicker
+                    value={form.vendor}
+                    onChange={(vendor) => update(withWaitingRefundVendor(form, vendor))}
+                    loading={vendorsLoading}
+                    placeholder="Choose a vendor…"
+                    searchPlaceholder="Search vendors…"
+                    options={(vendors ?? []).map((vendor) => ({
+                        value: vendor.name,
+                        label: vendor.vendor_name,
+                        hint: vendor.vendor_city,
+                    }))}
+                />
+                {suggested && form.vendor === suggested && (
+                    <p className="text-xs text-muted-foreground">
+                        Taken from the bank remarks. Change it if it is wrong.
+                    </p>
+                )}
+            </div>
+
+            {form.vendor && (
+                <div className="space-y-2">
+                    {loading ? (
+                        <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading waiting refunds…
+                        </p>
+                    ) : refunds.length === 0 ? (
+                        <p className="rounded-md border border-muted-foreground/20 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                            This vendor has no waiting refunds. If the vendor sent money nobody recorded in
+                            advance, use Create a vendor refund below.
+                        </p>
+                    ) : (
+                        <>
+                            <p className="text-sm font-medium">{waitingRefundsHeadline(refunds.length)}</p>
+                            <div className="max-h-64 overflow-auto rounded-md border">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-muted/40 text-xs text-muted-foreground">
+                                        <tr>
+                                            <th className="w-8 px-2 py-1.5" />
+                                            <th className="px-2 py-1.5 text-left font-medium">Refund</th>
+                                            <th className="px-2 py-1.5 text-left font-medium">PO</th>
+                                            <th className="px-2 py-1.5 text-left font-medium">Refund date</th>
+                                            <th className="px-2 py-1.5 text-left font-medium">UTR</th>
+                                            <th className="px-2 py-1.5 text-right font-medium">Amount</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {refunds.map((refund) => (
+                                            <tr
+                                                key={refund.name}
+                                                className={`cursor-pointer border-t hover:bg-muted/40 ${
+                                                    isTicked(refund.name) ? "bg-primary/5" : ""
+                                                }`}
+                                                onClick={() => update(toggleWaitingRefund(form, refund))}
+                                            >
+                                                <td className="px-2 py-1.5">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="h-3.5 w-3.5 accent-primary"
+                                                        aria-label={`Match ${refund.name}`}
+                                                        checked={isTicked(refund.name)}
+                                                        onChange={() => update(toggleWaitingRefund(form, refund))}
+                                                        onClick={(event) => event.stopPropagation()}
+                                                    />
+                                                </td>
+                                                <td className="px-2 py-1.5 font-medium">
+                                                    {refund.name}
+                                                    {/* #1403: already counted by an Admin; this line is its bank proof. */}
+                                                    {refund.no_bank_line ? (
+                                                        <span className="block text-[11px] font-normal text-amber-700">
+                                                            No bank proof
+                                                        </span>
+                                                    ) : null}
+                                                </td>
+                                                <td className="px-2 py-1.5">
+                                                    <span className="block">{refund.document_name || "—"}</span>
+                                                    {refund.project_name && (
+                                                        <span className="block text-xs text-muted-foreground">
+                                                            {refund.project_name}
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="px-2 py-1.5">
+                                                    {refund.payment_date ? formatDate(refund.payment_date) : "—"}
+                                                </td>
+                                                <td className="px-2 py-1.5 text-xs">{refund.utr || "—"}</td>
+                                                <td className="px-2 py-1.5 text-right tabular-nums">
+                                                    {formatToIndianRupee(refund.amount)}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                                bank line {formatToIndianRupee(row.amount)} · matched{" "}
+                                {formatToIndianRupee(matched)} · left {formatToIndianRupee(remaining)}
+                            </div>
+                            {problem && <p className="text-xs text-destructive">{problem}</p>}
+                        </>
+                    )}
+                </div>
             )}
         </div>
     );
@@ -3424,5 +3681,20 @@ const ReadOnlyField = ({
     <div className={`space-y-1.5 ${className}`}>
         <Label className="text-xs text-muted-foreground">{label}</Label>
         <Input className="h-9 bg-muted/50" value={value} readOnly tabIndex={-1} />
+    </div>
+);
+
+/**
+ * The read-only "Payment reference" every create form shows: what the server WRITES onto the record
+ * (`referenceToSave`) -- on an ICICI line the whole narration (#1259), on a wallet line its
+ * transaction id (#1314) -- never the table's short reference. It WRAPS rather than clipping, because
+ * a narration runs past any input's width.
+ */
+const PaymentReferenceField = ({ row }: { row: OutflowImportRow }) => (
+    <div className="space-y-1.5 sm:col-span-2">
+        <Label className="text-xs text-muted-foreground">Payment reference</Label>
+        <div className="min-h-9 w-full break-all rounded-md border border-input bg-muted/50 px-3 py-2 font-mono text-sm">
+            {referenceToSave(row) || "—"}
+        </div>
     </div>
 );

@@ -85,3 +85,44 @@ in no financial rollup and can never reach `Paid`. Approval creates the real led
 | A column per detail field | Mostly-NULL wide table; every new expense type becomes a migration. |
 | Reuse `Commission Report Template Snapshot` | Structurally identical but wrongly named for this data, and the two lifecycles are unrelated. Separate table, **shared** hash-and-upsert logic. |
 | Separate doctypes per request category | The taxonomy is provisional; categories are data, not schema. |
+
+## Amendment — 2026-10-19: one door for every raiser
+
+**Why.** Two doors made expenses: "Raise Expense Request" and the "Add Expense" dialogs
+(Direct Expenses). Everyone who had both used the direct one, because it was faster: under
+₹15,000 it was approved at once, while a request of ₹15,000 or more needed a Reviewer *and*
+an Admin. The two doors also asked different questions for the same expense type, applied
+`allowed_roles` on one path only, and the Direct Expense endpoint let any role with create
+permission on a ledger (Project Managers included) skip the request entirely, the exact
+thing this ADR set out to prevent.
+
+**Decision.**
+
+1. **Every expense raised in the app starts as an Expense Request,** whoever raises it. The
+   Add Expense dialogs are removed. Imports and PO adjustments still write ledger rows
+   directly; they are not a person raising an expense.
+2. **Records without review.** A central, Admin-edited list of role profiles (Admin always
+   included) whose requests are approved on submit. The list can only hold profiles that may
+   raise at least one type. It skips the Reviewer, never the amount rule. A per-type list was
+   rejected as 35 lists nobody would keep right.
+3. **An Admin's review is the L1 step** (amends Decision 4 and the *Raiser's own step* rule).
+   A PM's ₹22,000 request reviewed by an Admin lands at `Approved`. Reviewed by HR or Accounts
+   it still waits for an Admin, so "Accountants are not L1" stays true.
+4. **The request mirrors every ledger status**, not only `Paid`: a rejected ledger row or an
+   undone payment shows on the request.
+5. **No human role creates ledger rows directly.** Create permission is removed from the
+   ledgers' human roles; the intake and the system paths are the only writers.
+
+**Consequences.**
+
+- Every Admin, HR and Accounts expense now carries a request record. That doubles the rows,
+  and buys one history, one "my expenses" list, and the type's answers kept in full.
+- Who may raise which type now decides who may record anything at all. The type lists were
+  written for requests only (24 types Admin-only), so they must be refilled before release.
+- Old Direct Expenses are not migrated; they keep no request.
+
+| Alternative | Why not |
+|---|---|
+| Keep a direct path for trusted roles, beside the request | Two paths stay; the type's answers flatten into a description on one of them. |
+| Any Reviewer's approval counts as L1 | Would make Accountants and HR first-level approvers through the back door. |
+| Block a duplicate stay (PR #1331) | Reverses the 2026-08-20 ruling; the Reviewer sees a bold warning instead. |

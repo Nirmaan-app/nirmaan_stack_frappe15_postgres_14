@@ -19,6 +19,7 @@ import json
 import frappe
 
 from nirmaan_stack.api.expense_requests.access import ADMIN_PROFILE, is_admin
+from nirmaan_stack.services.payees.expense_rules import PAYEE_RULES
 
 
 def _require_admin() -> None:
@@ -87,6 +88,19 @@ def _normalise_roles(allowed_roles) -> list[str] | None:
 	return out
 
 
+def _normalise_payee_rule(payee_rule) -> str | None:
+	"""*Who gets paid* (ADR-0033): Required / Optional / Not asked; None means "not sent, leave as
+	is". The options are `services/payees/expense_rules.PAYEE_RULES`."""
+	if payee_rule is None:
+		return None
+	rule = (payee_rule or "").strip()
+	if rule not in PAYEE_RULES:
+		frappe.throw(
+			f"Who gets paid is one of {', '.join(PAYEE_RULES)}.", title="Invalid payee setting"
+		)
+	return rule
+
+
 def _set_roles(doc, profiles: list[str] | None) -> None:
 	if profiles is not None:
 		doc.set("allowed_roles", [{"role_profile": p} for p in profiles])
@@ -130,14 +144,16 @@ def _validate_scope(project: int, non_project: int) -> None:
 
 @frappe.whitelist(methods=["POST"])
 def create_expense_type(expense_name: str, project=0, non_project=0, expense_category=None,
-                        allowed_roles=None):
+                        allowed_roles=None, payee_rule=None):
 	"""Add an Expense Type, assigning it to an existing category and the roles that see it.
 
-	No roles means Admin only -- see `access.can_request_type`.
+	No roles means Admin only -- see `access.can_request_type`. No `payee_rule` means the
+	field's default, Not asked.
 	"""
 	_require_admin()
 	category = _validate_category(expense_category)
 	profiles = _normalise_roles(allowed_roles)
+	rule = _normalise_payee_rule(payee_rule)
 	name = (expense_name or "").strip()
 	if not name:
 		frappe.throw("A name is required.", title="Name required")
@@ -151,6 +167,8 @@ def create_expense_type(expense_name: str, project=0, non_project=0, expense_cat
 	doc = frappe.new_doc("Expense Type")
 	doc.update({"expense_name": name, "project": project, "non_project": non_project,
 	            "expense_category": category})
+	if rule:
+		doc.payee_rule = rule
 	_set_roles(doc, profiles)
 	doc.insert(ignore_permissions=True)
 	frappe.db.commit()
@@ -159,10 +177,13 @@ def create_expense_type(expense_name: str, project=0, non_project=0, expense_cat
 
 @frappe.whitelist(methods=["POST"])
 def update_expense_type(name: str, project=0, non_project=0, expense_category=None,
-                        allowed_roles=None):
-	"""Change a type's scope, its category and the roles that see it.
+                        allowed_roles=None, payee_rule=None, confirmed_as_request=None):
+	"""Change a type's scope, its category, the roles that see it, who gets paid, and its
+	"Confirmed as Expense Request" label.
 
-	`allowed_roles` REPLACES the list when sent; omitted, the list is left as it is.
+	`allowed_roles` REPLACES the list when sent; omitted, the list is left as it is. The same
+	goes for `payee_rule` (Required / Optional / Not asked) and `confirmed_as_request` (0 / 1, a
+	label only: it changes no behaviour).
 
 	The NAME is deliberately not editable HERE. It is the docname, so changing it is a
 	`rename_doc` operation rather than a field write -- that is `rename_expense_type`, its own
@@ -176,17 +197,26 @@ def update_expense_type(name: str, project=0, non_project=0, expense_category=No
 	_validate_scope(project, non_project)
 	category = _validate_category(expense_category)
 	profiles = _normalise_roles(allowed_roles)
+	rule = _normalise_payee_rule(payee_rule)
 
 	doc = frappe.get_doc("Expense Type", name)
 	doc.project = project
 	doc.non_project = non_project
 	doc.expense_category = category
+	if rule:
+		doc.payee_rule = rule
+	if confirmed_as_request is not None:
+		doc.confirmed_as_request = 1 if frappe.utils.cint(confirmed_as_request) else 0
 	_set_roles(doc, profiles)
+	# A profile this takes off its last type leaves Records without review (story 28): the
+	# Expense Type's `on_update` prunes the list.
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()
 	return {"name": name, "project": project, "non_project": non_project,
 	        "expense_category": category,
-	        "allowed_roles": [r.role_profile for r in doc.allowed_roles]}
+	        "allowed_roles": [r.role_profile for r in doc.allowed_roles],
+	        "payee_rule": doc.payee_rule,
+	        "confirmed_as_request": doc.confirmed_as_request}
 
 
 def names_referenced_in_code() -> set[str]:

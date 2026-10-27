@@ -22,6 +22,7 @@ import {
 } from "../ui/sidebar";
 import { BadgeCheck, Bell, ChevronsUpDown, HelpCircle, LogOut } from "lucide-react";
 import { Notifications } from "./notifications";
+import { useAppAccess } from "@/hooks/useAppAccess";
 
 export function UserNav({ isMobileMain = false }) {
   const userData = useUserData();
@@ -30,6 +31,11 @@ export function UserNav({ isMobileMain = false }) {
   const location = useLocation();
 
   const { isMobile, state, toggleSidebar } = useSidebar();
+  // The pending-asset warnings that sat here are gone (owner, 2026-10-21): the app access gate locks the app and
+  // its dashboard card says what to do. While it locks, Help and Notifications hide -- both open pages it blocks.
+  const appAccess = useAppAccess();
+  const locked = appAccess.state !== "open";
+  const assetTasksPending = appAccess.blockers.some((blocker) => blocker.key === "asset_tasks");
 
   const generateFallback = (full_name: string) => {
     let names = full_name.split(" ");
@@ -46,50 +52,55 @@ export function UserNav({ isMobileMain = false }) {
       if (isMobile && !isMobileMain) {
         toggleSidebar();
       }
-      navigate(`/users/${userData.user_id}`);
+      // Asset tasks waiting: open the Assets tab, on the Project / IT tab that has them.
+      navigate(`/users/${userData.user_id}${assetTasksPending ? "?tab=assets" : ""}`);
     }
   };
 
   return (
     <SidebarMenu>
-      <SidebarMenuItem>
-        <SidebarMenuButton
-          size="lg"
-          className={`${location.pathname === "/help-repository" ? "bg-[#FFD3CC]" : ""}`}
-          onClick={() => {
-            if (isMobile && !isMobileMain) toggleSidebar();
-            navigate("/help-repository");
-          }}
-          tooltip="Help"
-        >
-          <div className="flex gap-4 ml-1 items-center">
-            <HelpCircle className="relative max-md:w-5 max-md:h-5" />
-            <span className="font-medium">Help</span>
-          </div>
-        </SidebarMenuButton>
-      </SidebarMenuItem>
-      <SidebarMenuItem>{!isMobileMain && <Notifications />}</SidebarMenuItem>
+      {!locked && (
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            size="lg"
+            className={`${location.pathname === "/help-repository" ? "bg-[#FFD3CC]" : ""}`}
+            onClick={() => {
+              if (isMobile && !isMobileMain) toggleSidebar();
+              navigate("/help-repository");
+            }}
+            tooltip="Help"
+          >
+            <div className="flex gap-4 ml-1 items-center">
+              <HelpCircle className="relative max-md:w-5 max-md:h-5" />
+              <span className="font-medium">Help</span>
+            </div>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      )}
+      {!locked && <SidebarMenuItem>{!isMobileMain && <Notifications />}</SidebarMenuItem>}
       <SidebarMenuItem>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             {/* {!isMobileMain ? ( */}
             <SidebarMenuButton
               size="lg"
-              className={`data-[state=open]:bg-[#FFD3CC] data-[state=open]:text-sidebar-accent-foreground`}
+              className="data-[state=open]:bg-[#FFD3CC] data-[state=open]:text-sidebar-accent-foreground"
             >
-              <Avatar className="h-8 w-8 rounded-lg">
-                <AvatarImage
-                  src={userData.user_image}
-                  alt={userData.full_name}
-                />
-                <AvatarFallback
-                  className={`rounded-lg ${
-                    state === "collapsed" && "bg-transparent"
-                  }`}
-                >
-                  {generateFallback(userData.full_name)}
-                </AvatarFallback>
-              </Avatar>
+              <div className="relative shrink-0">
+                <Avatar className="h-8 w-8 rounded-lg">
+                  <AvatarImage
+                    src={userData.user_image}
+                    alt={userData.full_name}
+                  />
+                  <AvatarFallback
+                    className={`rounded-lg ${
+                      state === "collapsed" && "bg-transparent"
+                    }`}
+                  >
+                    {generateFallback(userData.full_name)}
+                  </AvatarFallback>
+                </Avatar>
+              </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-semibold">
                   {userData.full_name}

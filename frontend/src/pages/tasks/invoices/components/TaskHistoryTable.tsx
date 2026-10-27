@@ -23,7 +23,6 @@ import { DataTable } from "@/components/data-table/new-data-table";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
-import { useOrderPayments } from "@/hooks/useOrderPayments";
 import { useTotalInvoicedByDocument } from "../hooks/useTotalInvoicedByDocument";
 import { useFacetValues } from "@/hooks/useFacetValues";
 import { invoiceRowClassName } from "../utils/invoiceRowStyle";
@@ -44,8 +43,7 @@ export const TaskHistoryTable: React.FC = () => {
 
     const { data: usersList } = useUsersList();
 
-    const { getTotalAmount, getDeliveredAmount, getVendorName } = useOrderTotals();
-    const { getAmount } = useOrderPayments();
+    const { getTotalAmount, getDeliveredAmount, getVendorName, getAmountPaid } = useOrderTotals();
 
     const [attachmentIds, setAttachmentIds] = React.useState<string[]>([]);
     const [attachmentsData, setAttachmentsData] = React.useState<NirmaanAttachment[] | undefined>(undefined);
@@ -138,7 +136,7 @@ export const TaskHistoryTable: React.FC = () => {
                 attachmentsMap,
                 getTotalAmount,
                 getDeliveredAmount,
-                getAmount,
+                getAmountPaid,
                 getVendorName,
                 getTotalInvoiced
             ),
@@ -146,7 +144,7 @@ export const TaskHistoryTable: React.FC = () => {
             getUserName,
             attachmentsMap,
             getTotalAmount,
-            getAmount,
+            getAmountPaid,
             getDeliveredAmount,
             getVendorName,
             getTotalInvoiced,

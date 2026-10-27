@@ -13,6 +13,8 @@
   "work_order_items",
   "service_category_list",
   "status",
+  "approved_on",
+  "approved_by",
   "notes",
   "gst",
   "project_gst",
@@ -120,16 +122,18 @@
   {
    "fieldname": "total_amount",
    "fieldtype": "Currency",
-   "label": "Total Amount"
+   "label": "Total Amount",
+   "read_only": 1
   },
   {
    "fieldname": "amount_paid",
    "fieldtype": "Currency",
-   "label": "Amount Paid"
+   "label": "Amount Paid",
+   "read_only": 1
   },
   {
    "default": "0",
-   "description": "Tax Deducted at Source withheld from this order's PAID payments. Summed from `Payment TDS Deduction` rows in the SAME recompute pass as Amount Paid, so the two always describe the same population - do not edit. NOTE: \"TDS\" here is Tax Deducted at Source, NOT the Technical Data Sheet doctypes (`TDS Items`, `TDS Repository`). Payment amounts stay GROSS, so this figure is already included in Amount Paid rather than being outstanding.",
+   "description": "Tax Deducted at Source on this order's PAID payments, both kinds: withheld from the vendor (Payment TDS Deduction.borne_by = Vendor) and paid by the company on top (borne_by = Company). Summed from `Payment TDS Deduction` rows in the SAME recompute pass as Amount Paid, so the two always describe the same population - do not edit. The withheld part is already included in Amount Paid (ADR-0034 Amendment A): never add this figure to Amount Paid. NOTE: \"TDS\" here is Tax Deducted at Source, NOT the Technical Data Sheet doctypes (`TDS Items`, `TDS Repository`).",
    "fieldname": "total_tds",
    "fieldtype": "Currency",
    "label": "Total TDS",
@@ -145,7 +149,8 @@
    "default": "0",
    "fieldname": "is_finalized",
    "fieldtype": "Check",
-   "label": "Is Finalized"
+   "label": "Is Finalized",
+   "read_only": 1
   },
   {
    "fieldname": "finalized_by",
@@ -179,10 +184,26 @@
   },
   {
    "default": "0",
-   "description": "Total Amount minus Amount Paid - i.e. ordered value not yet paid. Maintained automatically whenever either operand changes - do not edit. NOTE: this deliberately uses Total Amount (the ordered value), NOT Amount Invoiced - unlike Procurement Orders.",
+   "description": "Total Amount minus Amount Paid - i.e. ordered value not yet paid. Amount Paid already includes the TDS withheld from the vendor; TDS the company pays on top (Payment TDS Deduction.borne_by = Company) is in neither. Maintained automatically whenever an operand changes - do not edit. NOTE: this deliberately uses Total Amount (the ordered value), NOT Amount Invoiced - unlike Procurement Orders.",
    "fieldname": "amount_due",
    "fieldtype": "Currency",
    "label": "Amount Due",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "description": "When the Work Order was first approved. Stamped by that save and never moved after (services/work_order_lifecycle.approval_record).",
+   "fieldname": "approved_on",
+   "fieldtype": "Datetime",
+   "label": "Approved On",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "description": "The user id (email) of whoever first approved the Work Order. Data, not a Link: a Link to User would stop that user ever being deleted.",
+   "fieldname": "approved_by",
+   "fieldtype": "Data",
+   "label": "Approved By",
    "no_copy": 1,
    "read_only": 1
   }
@@ -190,7 +211,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-30 12:00:00.000000",
+ "modified": "2026-10-22 01:27:15.833802",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Service Requests",

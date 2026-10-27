@@ -1,0 +1,107 @@
+import { describe, expect, it } from "vitest";
+import {
+    ALL,
+    cardInvoiceActions,
+    cardInvoiceFilterOptions,
+    filterCardInvoices,
+    statementMonthLabel,
+    statementMonthsLabel,
+    type CardInvoiceRow,
+} from "./cardInvoicesView";
+
+/** A spend on a statement covering `statement_months` (oldest first), as `get_card_invoice_queue` returns it. */
+const row = (name: string, holder: string, ...statement_months: string[]): CardInvoiceRow => ({
+    name,
+    payment_date: "2026-09-10",
+    amount: 100,
+    expense_type: "Misc. Expenses",
+    details: "Swiggy Limited Bangalore IN",
+    merchant: "SWIGGY",
+    holder,
+    credit_card_statement: `CCS-${holder}-${statement_months.join("-")}`,
+    statement_date: `${statement_months[statement_months.length - 1]}-28`,
+    period_from: `${statement_months[0]}-01`,
+    period_to: `${statement_months[statement_months.length - 1]}-28`,
+    statement_months,
+});
+
+const ROWS = [
+    row("NPE-1", "ARJUN TESTHOLDER", "2026-10"),
+    row("NPE-2", "MEERA CARDHOLDER", "2026-10"),
+    row("NPE-3", "ARJUN TESTHOLDER", "2026-09"),
+];
+
+describe("which card spends show", () => {
+    it("shows every waiting spend with no filter", () => {
+        expect(filterCardInvoices(ROWS, { holder: ALL, month: ALL }).map((r) => r.name)).toEqual(["NPE-1", "NPE-2", "NPE-3"]);
+    });
+
+    it("narrows to one holder", () => {
+        expect(filterCardInvoices(ROWS, { holder: "ARJUN TESTHOLDER", month: ALL }).map((r) => r.name)).toEqual(["NPE-1", "NPE-3"]);
+    });
+
+    it("narrows to one statement month", () => {
+        expect(filterCardInvoices(ROWS, { holder: ALL, month: "2026-10" }).map((r) => r.name)).toEqual(["NPE-1", "NPE-2"]);
+    });
+
+    it("finds a statement under every month its period overlaps", () => {
+        const across = [row("NPE-4", "ARJUN TESTHOLDER", "2026-09", "2026-10")];
+        expect(filterCardInvoices(across, { holder: ALL, month: "2026-09" }).map((r) => r.name)).toEqual(["NPE-4"]);
+        expect(filterCardInvoices(across, { holder: ALL, month: "2026-10" }).map((r) => r.name)).toEqual(["NPE-4"]);
+        expect(filterCardInvoices(across, { holder: ALL, month: "2026-08" })).toEqual([]);
+    });
+
+    it("narrows by both at once", () => {
+        expect(filterCardInvoices(ROWS, { holder: "ARJUN TESTHOLDER", month: "2026-09" }).map((r) => r.name)).toEqual(["NPE-3"]);
+    });
+});
+
+describe("the filter choices", () => {
+    it("lists each holder once, in name order, and each month once, newest first", () => {
+        const { holders, months } = cardInvoiceFilterOptions(ROWS);
+        expect(holders).toEqual(["ARJUN TESTHOLDER", "MEERA CARDHOLDER"]);
+        expect(months).toEqual([
+            { value: "2026-10", label: "Oct 2026" },
+            { value: "2026-09", label: "Sep 2026" },
+        ]);
+    });
+
+    it("offers every month a statement overlaps", () => {
+        const { months } = cardInvoiceFilterOptions([row("NPE-4", "ARJUN TESTHOLDER", "2026-09", "2026-10")]);
+        expect(months.map((m) => m.value)).toEqual(["2026-10", "2026-09"]);
+    });
+
+    it("names a statement's months as a range", () => {
+        expect(statementMonthsLabel(["2026-10"])).toBe("Oct 2026");
+        expect(statementMonthsLabel(["2026-09", "2026-10"])).toBe("Sep – Oct 2026");
+        expect(statementMonthsLabel(["2026-12", "2027-01"])).toBe("Dec 2026 – Jan 2027");
+        expect(statementMonthsLabel([])).toBe("");
+    });
+
+    it("names a month the way the screen shows it", () => {
+        expect(statementMonthLabel("2026-01")).toBe("Jan 2026");
+        expect(statementMonthLabel("")).toBe("");
+    });
+});
+
+describe("which actions a user gets", () => {
+    it("gives an Accountant Lead and an Admin both Attach and No invoice", () => {
+        expect(cardInvoiceActions("Nirmaan Accountant Lead Profile", "lead@x.com")).toEqual({ attach: true, noInvoice: true });
+        expect(cardInvoiceActions("Nirmaan Admin Profile", "admin@x.com")).toEqual({ attach: true, noInvoice: true });
+        expect(cardInvoiceActions("", "Administrator")).toEqual({ attach: true, noInvoice: true });
+    });
+
+    it("gives an Accountant, PMO and procurement Attach only", () => {
+        for (const role of [
+            "Nirmaan Accountant Profile",
+            "Nirmaan PMO Executive Profile",
+            "Nirmaan Procurement Executive Profile",
+        ]) {
+            expect(cardInvoiceActions(role, "u@x.com")).toEqual({ attach: true, noInvoice: false });
+        }
+    });
+
+    it("gives anyone else nothing", () => {
+        expect(cardInvoiceActions("Nirmaan Project Manager Profile", "pm@x.com")).toEqual({ attach: false, noInvoice: false });
+    });
+});

@@ -9,7 +9,7 @@
 import type { ColumnDescriptor, PricedRow, SheetCategoryRow } from "../boqTypes";
 import { isRateDescriptor, isRateEditableRow } from "../PricingGrid";
 import type { RateHelper, RateHelperRowContext, RowSuggestions } from "./rateHelperTypes";
-import { RATE_HELPERS, suggestionCountForKind } from "./rateHelperRegistry";
+import { RATE_HELPERS, suggestionCountsByKind } from "./rateHelperRegistry";
 
 /** Scalar rate value_field -> rate-kind token (mirrors the grid's / backend's spelling). Per-area
  * rate descriptors already carry the kind in `rate_subkey` (supply_rate/install_rate/combined_rate). */
@@ -139,11 +139,24 @@ export function rowOwnNotes(row: PricedRow, rows: readonly PricedRow[] = []): st
   return out;
 }
 
+/** One row's badge counts per rate kind, and the category and kinds they were priced under. */
+type KeptCounts = { category: string | null; kindsKey: string; counts: Record<string, number> };
+
+/**
+ * The badge counts already priced, per helper list, then per row OBJECT. A rate save gives only the saved row
+ * a new object (`mergeRowsPreservingIdentity` keeps every other row's), and the counts read nothing a save
+ * changes, so after a save only that row is priced again -- pricing every row on every save froze
+ * BOQ-26-00393's HVAC sheets for 2-4 s. A new run, config or catalogue is a new helper list, so it prices
+ * every row again; a changed category or set of rate kinds re-prices the row it touches.
+ */
+const keptCountsByHelpers = new WeakMap<RateHelper[], WeakMap<PricedRow, KeptCounts>>();
+
 /**
  * Evaluate registered helpers over every RATE-EDITABLE row and produce the page-owned
  * suggestionsByExcelRow Map: for each rate cell whose kind has at least one helper suggestion, mark
  * that cell "badge". Rows with no rate-editable cells, non-editable rows, and cells whose kind no
- * helper suggests for are simply absent. Pure.
+ * helper suggests for are simply absent. Pure in its result; a row's counts are reused while they hold
+ * (`keptCountsByHelpers`).
  */
 export function buildSuggestions(
   rows: PricedRow[],
@@ -154,15 +167,26 @@ export function buildSuggestions(
 ): Map<number, RowSuggestions> {
   const rateDescriptors = descriptors.filter(isRateDescriptor);
   const kinds = rateKindsOf(rateDescriptors);
+  const kindsKey = kinds.join("|");
+  let keptByRow = keptCountsByHelpers.get(helpers);
+  if (!keptByRow) {
+    keptByRow = new WeakMap();
+    keptCountsByHelpers.set(helpers, keptByRow);
+  }
   const out = new Map<number, RowSuggestions>();
   for (const row of rows) {
     if (!isRateEditableRow(row, override)) continue;
     const ctx = buildRowContext(row, kinds, categoriesByExcelRow.get(row.source_row_number));
+    let kept = keptByRow.get(row);
+    if (!kept || kept.category !== ctx.category || kept.kindsKey !== kindsKey) {
+      kept = { category: ctx.category, kindsKey, counts: suggestionCountsByKind(ctx, kinds, helpers) };
+      keptByRow.set(row, kept);
+    }
     const byCol: RowSuggestions["byCol"] = {};
     for (const d of rateDescriptors) {
       const kind = rateKindOfDescriptor(d);
       if (!kind) continue;
-      const count = suggestionCountForKind(ctx, kind, helpers);
+      const count = kept.counts[kind];
       if (count > 0) byCol[d.col] = { count, used: false };
     }
     if (Object.keys(byCol).length > 0) out.set(row.source_row_number, { byCol });

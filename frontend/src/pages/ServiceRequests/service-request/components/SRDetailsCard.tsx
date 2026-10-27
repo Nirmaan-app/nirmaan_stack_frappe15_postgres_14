@@ -6,20 +6,20 @@ import { Separator } from "@/components/ui/separator";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
-import { isCompanyBorneWorkOrder } from "@/pages/ProjectPayments/tdsForecast";
+import { amountPaidParts, type WorkOrderTds } from "@/pages/ProjectPayments/tdsForecast";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { parseNumber } from "@/utils/parseNumber";
 import { Eye, FileText, Lock, PencilRuler, Trash2, Unlock } from "lucide-react";
-import { useMemo } from "react";
+import { UNDER_AMENDMENT_PAYMENT_NOTE } from "../../config/workOrderAmendment";
 
 interface SRDetailsCardProps {
   orderData: ServiceRequests | undefined;
+  /** The WO's paid TDS by who bore it, as the server answers it (`get_work_order_tds`); undefined while loading. */
+  workOrderTds?: WorkOrderTds;
   project: Projects | undefined;
   vendor: Vendors | undefined;
   gstEnabled: boolean;
-  getTotal: number;
-  /** Sum of this order's Paid payments. NET of tax withheld on an SR — see `tdsPaid`. */
-  amountPaid: number;
   hideActions?: boolean;
   hideAmounts?: boolean;
   // Action callbacks
@@ -37,6 +37,8 @@ interface SRDetailsCardProps {
   isDeleting?: boolean;
   // GST validation
   missingGst?: boolean;
+  /** Who first approved it, as a name to show (falls back to the user id) */
+  approvedBy?: string | null;
   // Finalization props
   isFinalized?: boolean;
   finalizedBy?: string | null;
@@ -47,6 +49,8 @@ interface SRDetailsCardProps {
   onRevertFinalize?: () => void;
   isProcessingFinalize?: boolean;
   isOwner?: boolean;
+  /** Why Amend can't start (payments in flight, #1540), or null when it may. */
+  amendBlockedReason?: string | null;
 }
 
 /**
@@ -55,17 +59,16 @@ interface SRDetailsCardProps {
  * Sections:
  * 1. Header - Title with Status badge
  * 2. Info - Project, Package, Vendor (with separators)
- * 3. Amounts - Total, Paid, Pending, GST status (color-coded)
- * 4. Timeline - Created, Modified, Approved dates
+ * 3. Amounts - Total, Invoiced, Paid (hover: paid to vendor / TDS withheld), Due, GST status (color-coded)
+ * 4. Timeline - Created, Modified, Approved (the stored approval date and approver) dates
  * 5. Actions - Role-conditional action buttons
  */
 export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
   orderData,
+  workOrderTds,
   project,
   vendor,
   gstEnabled,
-  getTotal,
-  amountPaid,
   hideActions = false,
   hideAmounts = false,
   onDelete,
@@ -80,6 +83,7 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
   isDeleting = false,
   // GST validation
   missingGst = false,
+  approvedBy,
   // Finalization props
   isFinalized = false,
   finalizedBy,
@@ -90,7 +94,14 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
   onRevertFinalize,
   isProcessingFinalize = false,
   isOwner = false,
+  amendBlockedReason = null,
 }) => {
+  const underAmendment = orderData?.status === "Amendment";
+  const showsAmend = !hideActions && !hideAmounts && !!onAmend && !summaryPage && !accountsPage && !isFinalized;
+  const showsRequestPayment = !hideActions && !hideAmounts && !!onRequestPayment && !summaryPage && !accountsPage;
+  const actionNote = underAmendment
+    ? showsRequestPayment ? UNDER_AMENDMENT_PAYMENT_NOTE : null
+    : showsAmend ? amendBlockedReason : null;
   // Get status badge variant
   const getStatusVariant = (status: string | undefined): "green" | "red" | "orange" | "outline" => {
     switch (status) {
@@ -105,36 +116,14 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
     }
   };
 
-  // What actually left the order: paid to the vendor PLUS tax withheld on their behalf.
-  // On an SR the payment amount is stored net, so `amountPaid` alone understates what has been
-  // settled against the order by exactly the tax.
-  //
-  // `total_tds` is read straight off the order rather than recomputed here: the server writes it
-  // in the SAME pass as `amount_paid`, so the two always describe the same set of payments. A
-  // Procurement Order has no such field and reads 0, leaving that screen untouched.
-  const tdsPaid = Number(orderData?.total_tds) || 0;
-  // ⚠️ EXCEPT ON A COMPANY-BORNE WORK ORDER (Miscellaneous / Transportation only): its payments are
-  // never reduced, so `amountPaid` already covers the order and the tax was paid ON TOP. Adding it
-  // here would count it twice. Mirrors `payment_tds.is_company_borne` / the server's `amount_due`.
-  const companyBorneTds = useMemo(
-    () => isCompanyBorneWorkOrder(orderData?.service_category_list),
-    [orderData?.service_category_list]
-  );
-  const grossPaid = useMemo(
-    () => amountPaid + (companyBorneTds ? 0 : tdsPaid),
-    [amountPaid, tdsPaid, companyBorneTds]
-  );
-
-  // Calculate amount pending (total - gross paid)
-  //
-  // ⚠️ IT SUBTRACTS THE TAX TOO, mirroring the server's `amount_due`
-  // (`total_amount - amount_paid - total_tds`). Subtracting only `amountPaid` would report the
-  // withheld tax as still payable to the vendor, on every settled order, forever - and nothing
-  // could ever pay it off, because the vendor is not owed it.
-  const calculatedAmountPending = useMemo(() => {
-    const totalWithGst = gstEnabled ? getTotal * 1.18 : getTotal;
-    return Math.max(0, Math.floor(totalWithGst) - grossPaid);
-  }, [getTotal, gstEnabled, grossPaid]);
+  // The money figures are the WO's stored fields, the same ones the WO list shows (ADR-0034): never
+  // re-added from payments here. `amount_paid` is the Paid payments plus the TDS withheld from the
+  // vendor, less Received refunds (Amendment A); `amount_due` is `total_amount - amount_paid`.
+  const amountPaid = parseNumber(orderData?.amount_paid);
+  const amountDue = parseNumber(orderData?.amount_due);
+  // The hover's split is the server's answer off the WO's deductions (`borne_by`), never its categories
+  // and never the page's own deduction read, which a Procurement user is refused (#1451).
+  const paidParts = amountPaidParts(amountPaid, workOrderTds);
 
   return (
     <Card className="rounded-sm shadow-md overflow-x-auto">
@@ -211,14 +200,16 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
               Amounts
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
               {/* Total Value */}
               <div className="space-y-0.5">
                 <p className="text-xs text-gray-500">
                   Total Value {gstEnabled ? "(Incl. GST)" : "(Excl. GST)"}
                 </p>
                 <p className="text-sm font-semibold text-blue-600">
-                  {formatToIndianRupee(Math.floor(getTotal * (gstEnabled ? 1.18 : 1)))}
+                  {/* The server's stored total (#1543), never items x 1.18 worked out here: the payment
+                      limit and Amount Due measure against it. Every figure here rounds to the nearest rupee. */}
+                  {formatToRoundedIndianRupee(orderData?.total_amount)}
                 </p>
               </div>
 
@@ -226,70 +217,65 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
               <div className="space-y-0.5">
                 <p className="text-xs text-gray-500">Total Amount Invoiced</p>
                 <p className="text-sm font-medium text-blue-600">
-                  {formatToIndianRupee(orderData?.amount_invoiced || 0)}
+                  {formatToRoundedIndianRupee(orderData?.amount_invoiced || 0)}
                 </p>
                 {/* GST Invoiced (ADR-0030): GST on the approved invoices, not GST paid. */}
                 {(gstEnabled || !!orderData?.gst_invoiced) && (
                   <p className="text-[11px] text-gray-500">
                     GST Invoiced{" "}
                     <span className="font-medium text-gray-700 tabular-nums">
-                      {formatToIndianRupee(orderData?.gst_invoiced || 0)}
+                      {formatToRoundedIndianRupee(orderData?.gst_invoiced || 0)}
                     </span>
                   </p>
                 )}
               </div>
 
-              {/* Amount Paid — gross: what left the order, tax included */}
+              {/* Amount Paid: payments + the vendor's TDS - refunds; the hover splits it */}
               <div className="space-y-0.5">
                 <p className="text-xs text-gray-500">Amount Paid</p>
-                <HoverCard openDelay={100}>
-                  <HoverCardTrigger asChild>
-                    <p className="text-sm font-medium text-green-600 underline decoration-dotted underline-offset-4 cursor-help">
-                      {formatToIndianRupee(grossPaid)}
-                    </p>
-                  </HoverCardTrigger>
-                  <HoverCardContent className="w-64" align="start">
-                    <p className="text-xs font-semibold mb-2">Amount Paid</p>
-                    <div className="space-y-1 text-xs">
-                      <div className="flex justify-between gap-4">
-                        <span className="text-gray-500">Paid to vendor</span>
-                        <span className="font-medium tabular-nums">
-                          {formatToIndianRupee(amountPaid || 0)}
-                        </span>
-                      </div>
-                      {!companyBorneTds && (
+                {paidParts ? (
+                  <HoverCard openDelay={100}>
+                    <HoverCardTrigger asChild>
+                      <p className="text-sm font-medium text-green-600 tabular-nums underline decoration-dotted underline-offset-4 cursor-help">
+                        {formatToRoundedIndianRupee(amountPaid)}
+                      </p>
+                    </HoverCardTrigger>
+                    <HoverCardContent className="w-72" align="start">
+                      <p className="text-xs font-semibold mb-2">Amount Paid</p>
+                      <div className="space-y-1 text-xs">
+                        <div className="flex justify-between gap-4">
+                          <span className="text-gray-500">Paid to vendor</span>
+                          <span className="font-medium tabular-nums">{formatToRoundedIndianRupee(paidParts.paidToVendor)}</span>
+                        </div>
                         <div className="flex justify-between gap-4">
                           <span className="text-gray-500">TDS withheld</span>
-                          <span className="font-medium tabular-nums">
-                            {formatToIndianRupee(tdsPaid)}
-                          </span>
+                          <span className="font-medium tabular-nums">{formatToRoundedIndianRupee(paidParts.tdsWithheld)}</span>
                         </div>
-                      )}
-                      <Separator className="my-1" />
-                      <div className="flex justify-between gap-4">
-                        <span className="font-semibold">Total</span>
-                        <span className="font-semibold tabular-nums text-green-600">
-                          {formatToIndianRupee(grossPaid)}
-                        </span>
+                        <div className="flex justify-between gap-4 border-t pt-1">
+                          <span className="font-semibold">Total</span>
+                          <span className="font-semibold tabular-nums">{formatToRoundedIndianRupee(paidParts.total)}</span>
+                        </div>
+                        {paidParts.companyOnTop > 0 && (
+                          <div className="flex justify-between gap-4 pt-2 text-gray-500">
+                            <span>TDS paid by company (on top)</span>
+                            <span className="tabular-nums">{formatToRoundedIndianRupee(paidParts.companyOnTop)}</span>
+                          </div>
+                        )}
                       </div>
-                      {companyBorneTds && (
-                        <div className="flex justify-between gap-4">
-                          <span className="text-gray-500">TDS paid by company (on top)</span>
-                          <span className="font-medium tabular-nums">
-                            {formatToIndianRupee(tdsPaid)}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </HoverCardContent>
-                </HoverCard>
+                    </HoverCardContent>
+                  </HoverCard>
+                ) : (
+                  <p className="text-sm font-medium text-green-600 tabular-nums">
+                    {formatToRoundedIndianRupee(amountPaid)}
+                  </p>
+                )}
               </div>
 
-              {/* Amount Payable */}
+              {/* Amount Due: negative when the WO is overpaid */}
               <div className="space-y-0.5">
-                <p className="text-xs text-gray-500">Amount Payable</p>
-                <p className="text-sm font-medium text-yellow-600">
-                  {formatToIndianRupee(calculatedAmountPending)}
+                <p className="text-xs text-gray-500">Amount Due</p>
+                <p className={`text-sm font-medium tabular-nums ${amountDue < 0 ? "text-red-600" : "text-yellow-600"}`}>
+                  {formatToRoundedIndianRupee(amountDue)}
                 </p>
               </div>
 
@@ -324,11 +310,15 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
               <p className="text-sm">{orderData?.modified ? formatDate(orderData.modified) : "--"}</p>
             </div>
 
-            {/* Approved Date (if applicable) */}
-            {orderData?.status === "Approved"  && (
+            {/* Approved: the stored first approval (#1532), not the last edit; shown whenever there is one,
+                so a Work Order under amendment (or Finalized) still says when and by whom it was approved */}
+            {orderData?.approved_on && (
               <div className="space-y-0.5">
                 <p className="text-xs text-gray-500">Approved</p>
-                <p className="text-sm">{orderData?.modified ? formatDate(orderData.modified) : "--"}</p>
+                <p className="text-sm">{formatDate(orderData.approved_on)}</p>
+                {approvedBy && (
+                  <p className="text-xs text-gray-400">by {approvedBy}</p>
+                )}
               </div>
             )}
 
@@ -414,12 +404,14 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
             )}
 
             {/* Request Payment Button */}
-            {!hideActions && !hideAmounts && onRequestPayment && !summaryPage && !accountsPage && (
+            {showsRequestPayment && (
               <Button
                 variant="outline"
                 size="sm"
+                disabled={underAmendment}
                 onClick={onRequestPayment}
                 className="flex items-center gap-1 border-primary text-primary shrink-0"
+                title={underAmendment ? UNDER_AMENDMENT_PAYMENT_NOTE : undefined}
               >
                 Request Payment
               </Button>
@@ -427,14 +419,14 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
 
             {/* ─── Edit Actions (Hidden when finalized) ─── */}
             {/* Amend Button */}
-            {!hideActions && !hideAmounts && onAmend && !summaryPage && !accountsPage && !isFinalized && (
+            {showsAmend && (
               <Button
                 variant="outline"
                 size="sm"
-                disabled={orderData?.status === "Amendment"}
+                disabled={underAmendment || !!amendBlockedReason}
                 onClick={onAmend}
                 className="flex items-center gap-1 border-primary text-primary shrink-0 transition-opacity"
-                title={orderData?.status === "Amendment" ? "An amendment is already in progress" : undefined}
+                title={underAmendment ? "An amendment is already in progress" : amendBlockedReason || undefined}
               >
                 <PencilRuler className="h-3.5 w-3.5" />
                 Amend
@@ -469,6 +461,11 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
               </Button>
             )}
           </div>
+        )}
+        {actionNote && (
+          <p className="text-xs text-amber-700 sm:text-right" data-testid="sr-amendment-note">
+            {actionNote}
+          </p>
         )}
       </CardContent>
     </Card>

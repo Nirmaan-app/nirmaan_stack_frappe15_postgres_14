@@ -14,6 +14,7 @@ import {
 import { useContext, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Badge } from "../ui/badge";
+import { PRPackageChips } from "./PRPackageChips";
 import { ProcurementRequestsSkeleton } from "../ui/skeleton";
 import {
   Table,
@@ -31,9 +32,9 @@ export default function ListPR() {
 
   const { notifications, mark_seen_notification } = useNotificationStore();
 
-  // Single enriched call: the PR list AND each PR's tag headers come back in ONE
+  // Single enriched call: the PR list AND each PR's packages come back in ONE
   // round trip. get_pr_summary_list embeds `pr_tag_list` on every row (empty array
-  // when a PR has no tags), so there is no separate get_pr_tags call and no PR-name
+  // when a PR has no packages), so there is no separate get_pr_tags call and no PR-name
   // list on the URL. Replaces the old load-PRs-then-fetch-tags-by-project pair.
   const {
     data: prSummaryResponse,
@@ -100,7 +101,7 @@ export default function ListPR() {
                     PR no.
                   </TableHead>
                   <TableHead className="w-[35%] text-center font-extrabold">
-                    Headers
+                    Packages
                   </TableHead>
                   <TableHead className="w-[35%] text-center font-extrabold">
                     Status
@@ -132,7 +133,7 @@ export default function ListPR() {
                           </Link>
                         </TableCell>
                         <TableCell className="text-sm text-center">
-                          <PRHeadersCell item={item} tags={item.pr_tag_list} />
+                          <PRPackagesCell item={item} tags={item.pr_tag_list} />
                         </TableCell>
                         <TableCell className="text-sm text-center">
                           <RenderStatusBadge item={item} selectedProject={selectedProject} />
@@ -158,7 +159,7 @@ export default function ListPR() {
                     PR no.
                   </TableHead>
                   <TableHead className="w-[35%] text-center font-extrabold">
-                    Headers
+                    Packages
                   </TableHead>
                   <TableHead className="w-[35%] text-center font-extrabold">
                     Status
@@ -192,7 +193,7 @@ export default function ListPR() {
                           </Link>
                         </TableCell>
                         <TableCell className="text-sm text-center">
-                          <PRHeadersCell item={item} tags={item.pr_tag_list} />
+                          <PRPackagesCell item={item} tags={item.pr_tag_list} />
                         </TableCell>
                         <TableCell className="text-sm text-center">
                           <RenderStatusBadge item={item} selectedProject={selectedProject} />
@@ -210,28 +211,21 @@ export default function ListPR() {
   );
 }
 
-const PRHeadersCell: React.FC<{
+/** A PR's procurement packages; a PR with none shows its type, as before. */
+const PRPackagesCell: React.FC<{
   item: ProcurementRequest;
-  tags?: { tag_header: string; tag_package: string }[];
-}> = ({ item, tags }) => {
-  const resolved = tags ?? item.pr_tag_list ?? [];
-  if (resolved.length === 0) {
-    return (
+  tags?: { tag_package?: string | null }[];
+}> = ({ item, tags }) => (
+  <PRPackageChips
+    tags={tags ?? item.pr_tag_list}
+    className="justify-center"
+    empty={
       <span className={!item.work_package ? "text-primary" : undefined}>
         {item.work_package || "Custom"}
       </span>
-    );
-  }
-  return (
-    <div className="flex flex-wrap justify-center gap-1">
-      {resolved.map((tag, index) => (
-        <Badge key={index} variant="outline" className="bg-white">
-          {tag.tag_header}
-        </Badge>
-      ))}
-    </div>
-  );
-};
+    }
+  />
+);
 
 
 interface StatusBadgeProps {

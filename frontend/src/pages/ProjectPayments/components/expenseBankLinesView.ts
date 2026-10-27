@@ -73,6 +73,8 @@ export interface ExpenseDetails {
     project_name: string;
     vendor: string;
     vendor_name: string;
+    /** Set on a Porter Expense (blank otherwise): the card then shows its Porter section. */
+    porter_order: string;
 }
 
 export interface LinkedProgress {

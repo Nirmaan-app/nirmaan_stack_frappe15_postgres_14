@@ -187,6 +187,24 @@ const CODE_TOKEN = String.raw`(?:(?:R|D|T|S|Q|H)-?\d+[a-z]?|slice \d+)`;
 const CODE_RUN = String.raw`${CODE_TOKEN}(?:\s*\/\s*${CODE_TOKEN})*`;
 
 /**
+ * A catalogue's Pricing Inputs as `plainPricerText` writes them -- each id's whole-word pattern and its label,
+ * longest id first -- built ONCE per catalogue array. Built per line, it scanned the whole catalogue once per id
+ * on every display string, and the badge pass prices every row of a sheet: 379 HVAC items x 11 inputs per line
+ * froze BOQ-26-00393's sheets for 2-4 s. The catalogue is one array per load (SWR data, never mutated), so the
+ * array is the key; a new catalogue is a new array and gets its own labels.
+ */
+const inputLabelsByCatalogue = new WeakMap<ReadonlyArray<PlainEnglishItem>, ReadonlyArray<{ re: RegExp; label: string }>>();
+function pricingInputReplacements(items: ReadonlyArray<PlainEnglishItem>): ReadonlyArray<{ re: RegExp; label: string }> {
+  if (items.length === 0) return [];
+  let found = inputLabelsByCatalogue.get(items);
+  if (!found) {
+    found = pricingInputIds(items).map((id) => ({ re: new RegExp(String.raw`\b${escapeRe(id)}\b`, "g"), label: pricingInputLabel(id, items) }));
+    inputLabelsByCatalogue.set(items, found);
+  }
+  return found;
+}
+
+/**
  * A pricer-facing line in plain English:
  *   - a leading pipeline id (`item_supply:`) is written as words (`item supply:`);
  *   - every Pricing Input id the items declare is replaced by its label (an undeclared one by its words);
@@ -206,9 +224,7 @@ export function plainPricerText(text: unknown, items: ReadonlyArray<PlainEnglish
   const lead = raw.match(/^\s*/)![0];
   let s = raw.slice(lead.length);
   s = s.replace(/^([A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+):/, (_m, id: string) => `${id.replace(/_/g, " ")}:`);
-  for (const id of pricingInputIds(items)) {
-    s = s.replace(new RegExp(String.raw`\b${escapeRe(id)}\b`, "g"), pricingInputLabel(id, items));
-  }
+  for (const { re, label } of pricingInputReplacements(items)) s = s.replace(re, label);
   // SLICE 12e-3c (F7): a field id reads as its field's label -- longest id first, so `insulation_thickness_mm`
   // is replaced before `thickness_mm`
   for (const id of Object.keys(fieldLabels).filter(isSnakeId).sort((a, b) => b.length - a.length)) {

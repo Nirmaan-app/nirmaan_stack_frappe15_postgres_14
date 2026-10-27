@@ -37,13 +37,12 @@ import {
 // --- Types ---
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
-import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
-import { SRRemarksPopover } from "@/pages/ServiceRequests/approved-sr/components/SRRemarksPopover";
+import { SRRemarksPopover } from "@/pages/ServiceRequests/service-request/components/SRRemarksPopover";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { parseNumber } from "@/utils/parseNumber";
 import {
@@ -113,15 +112,6 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     isLoading: userListLoading,
     error: userError,
   } = useUsersList(); // For owner display
-  const {
-    data: projectPayments,
-    isLoading: projectPaymentsLoading,
-    error: projectPaymentsError,
-  } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
-    fields: ["name", "document_name", "status", "amount"],
-    limit: 100000,
-  });
-
   const { notifications, mark_seen_notification } = useNotificationStore();
 
   // --- Memoized Options & Calculations ---
@@ -154,21 +144,6 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     [vendorsList]
   );
 
-  const getAmountPaidForSR = useMemo(() => {
-    if (!projectPayments) return () => 0;
-    const paymentsMap = new Map<string, number>();
-    projectPayments.forEach((p) => {
-      if (p.document_name && p.status === "Paid") {
-        const currentTotal = paymentsMap.get(p.document_name) || 0;
-        paymentsMap.set(p.document_name, currentTotal + parseNumber(p.amount));
-      }
-    });
-    return memoize(
-      (id: string) => paymentsMap.get(id) || 0,
-      (id: string) => id
-    );
-  }, [projectPayments]);
-
   // --- Notification Handling ---
   const handleNewSRSeen = useCallback(
     (notification: NotificationType | undefined) => {
@@ -200,7 +175,6 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         "service_category_list",
         "total_amount",
         "amount_paid",
-        "total_tds",
         "gst",
         "amount_invoiced",
         "amount_due",
@@ -448,26 +422,6 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         },
       },
       {
-        // Tax withheld from this order's PAID payments. Sits beside Amt. Paid because the two
-        // are recomputed together server-side and always describe the same set of payments;
-        // an SR payment's own amount is stored NET, so this is the rest of that figure.
-        accessorKey: "total_tds",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Total TDS" />
-        ),
-        cell: ({ row }) => (
-          <div className="font-medium pr-2">
-            {formatToRoundedIndianRupee(parseNumber(row.original.total_tds) || 0)}
-          </div>
-        ),
-        enableSorting: true,
-        size: 120,
-        meta: {
-          exportHeaderName: "Total TDS",
-          exportValue: (row: ServiceRequests) => parseNumber(row.total_tds) || 0,
-        },
-      },
-      {
         // A stored SR field (total_amount - amount_paid, maintained by the same events
         // that write its operands), so the database orders the whole set.
         accessorKey: "amount_due",
@@ -524,20 +478,6 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         size: 100,
         enableSorting: false,
       },
-      // {
-      //     id: "amount_paid_sr", header: ({ column }) => <DataTableColumnHeader column={column} title="Amt Paid" />,
-      //     cell: ({ row }) => {
-      //         const amountPaid = getAmountPaidForSR(row.original.name);
-      //         return <div className="font-medium pr-2">{formatToRoundedIndianRupee(amountPaid || 0)}</div>;
-      //     }, size: 150, enableSorting: false,
-      //     meta: {
-      //         exportHeaderName: "Amt Paid",
-      //         exportValue: (row) => {
-      //             const amountPaid = getAmountPaidForSR(row.name);
-      //             return formatForReport(amountPaid || 0);
-      //         }
-      //     }
-      // },
     ],
     [
       notifications,
@@ -548,7 +488,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
       getVendorName,
       for_vendor,
     ]
-  ); //, getTotalAmount, getAmountPaidForSR,
+  ); //, getTotalAmount,
 
   // --- (MOVED UP) Use the Server Data Table Hook ---
   const {
@@ -605,13 +545,11 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
   const isLoading =
     projectsLoading ||
     vendorsLoading ||
-    userListLoading ||
-    projectPaymentsLoading;
+    userListLoading;
   const combinedError =
     projectsError ||
     vendorsError ||
     userError ||
-    projectPaymentsError ||
     listError;
 
   // --- CEO Hold Row Highlighting ---

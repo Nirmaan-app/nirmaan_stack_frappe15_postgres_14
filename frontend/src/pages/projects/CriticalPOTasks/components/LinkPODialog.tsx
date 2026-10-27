@@ -31,7 +31,7 @@ import {
   useAllCriticalPOTasks
 } from "@/pages/projects/data/critical-po/useCriticalPOQueries";
 import { useUpdatePOTaskLinks } from "@/pages/projects/data/critical-po/useCriticalPOMutations";
-import { filterPOsByPackage } from "@/pages/projects/CriticalPOTasks/utils";
+import { buildPackageOptions, filterPOsByPackage } from "@/pages/projects/CriticalPOTasks/utils";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
@@ -85,30 +85,6 @@ export const LinkPODialog: React.FC<LinkPODialogProps> = ({ task, projectId, mut
   // Fetch project data to get work packages
   const { data: projectData } = useProjectDocForCriticalPO(projectId);
 
-  // Extract unique work packages from project_wp_category_makes child table
-  const workPackages = useMemo(() => {
-    if (!projectData?.project_wp_category_makes) return [];
-
-    const uniqueWPDocNames = new Set<string>();
-    projectData.project_wp_category_makes.forEach((item: any) => {
-      if (item.procurement_package) {
-        uniqueWPDocNames.add(item.procurement_package);
-      }
-    });
-
-    return Array.from(uniqueWPDocNames).map((wpDocName) => ({
-      work_package_name: wpDocName,
-    }));
-  }, [projectData]);
-
-  // Create options for react-select
-  const packageOptions = useMemo(() => {
-    const options = workPackages.map((pkg) => ({
-      label: pkg.work_package_name,
-      value: pkg.work_package_name,
-    }));
-    return [...options, { label: "Custom", value: "Custom" }];
-  }, [workPackages]);
 
   // Fetch all POs for the project (we'll filter by work package on the frontend)
   const {
@@ -116,11 +92,17 @@ export const LinkPODialog: React.FC<LinkPODialogProps> = ({ task, projectId, mut
     isLoading: posLoading,
   } = useCriticalPOProcurementOrders(projectId, selectedPackage, !!selectedPackage);
 
-  // Fetch PRs to get work_package information
+  // Fetch the project's PRs with their packages -- on open: the dropdown is built from them
   const {
     data: procurementRequests,
     isLoading: prsLoading,
-  } = useCriticalPOProcurementRequests(projectId, selectedPackage, !!selectedPackage);
+  } = useCriticalPOProcurementRequests(projectId, open);
+
+  // Package dropdown: enabled packages + packages the project's PRs carry, then "Custom"
+  const packageOptions = useMemo(
+    () => buildPackageOptions(projectData?.project_wp_category_makes, procurementRequests),
+    [projectData, procurementRequests]
+  );
 
   // Fetch ALL Critical PO Tasks for the project (for cross-task conflict detection)
   const { data: allProjectTasks } = useAllCriticalPOTasks(projectId, open);

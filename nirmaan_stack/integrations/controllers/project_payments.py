@@ -3,17 +3,69 @@
 import frappe
 from frappe import _
 from frappe.utils import cint, flt, nowdate
+from nirmaan_stack.api.outflow_import.vendor_credit_refresh import recompute_vendor_credit
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.api.projects._tendering_guard import validate_won
 from nirmaan_stack.services import payment_tds
 from nirmaan_stack.services.cheque_payments import is_cheque
+from nirmaan_stack.services.finance import PO_PENDING_STATUSES, po_available_balance, po_balance_refusal
 from nirmaan_stack.services.order_payments import assert_within_work_order_limit
 from nirmaan_stack.services.payment_hold import validate_hold
+from nirmaan_stack.services.payment_steps import PAST_APPROVAL, is_system_move, refuse_step_out_of_tier
+from nirmaan_stack.services.amount_paid import orders_moved_by, write_amount_paid
+from nirmaan_stack.services.payees.pay_to import fill_payment_from_vendor
+from nirmaan_stack.services.work_order_lifecycle import WorkOrderChangeRefused, payment_request_problem
+from nirmaan_stack.integrations.controllers.cheques import drop_off_cheques_of, on_payment_rejected
+from nirmaan_stack.services.cheques.decide import held_by_a_live_cheque, refuse_lone_approval
+from nirmaan_stack.services.cheques.detach import DELETED
+from nirmaan_stack.services.cheques.payment_mode import (
+    validate_cheque_mode,
+    validate_on_a_cheque,
+    validate_paid_by_clear,
+)
+from nirmaan_stack.services.cheques.rules import PAYMENT_REJECTED
 
 # Imports for notification system
 from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_users, get_admin_users, get_allowed_accountants, get_allowed_manager_users, get_allowed_procurement_users
 from .procurement_requests import get_user_name
+
+#: The `Vendor Credit Ledger` entry for a Paid payment whose amount or order changed (#1453).
+PAYMENT_CHANGED_ENTRY = "Payment Changed"
+
+#: A payment saved with one of these flags is saved INSIDE ITS CALLER'S SAVEPOINT, so the recount must
+#: not commit: a commit inside a save ends every savepoint the caller holds.
+#:   from_outflow_import -- Bulk Import Outflow settles a bank statement row by row, each in its own
+#:       savepoint, so that row 3 failing leaves rows 1-2 written and rows 4+ still attempted ("Confirm 8"
+#:       must never leave four written and four not). The recount still runs, in the SAME transaction as
+#:       the payment, the match record and the import row; the import's endpoint commits all of it.
+#:   split_approval, split_child -- a split or un-split (`services/payment_split`). Un-splitting a Paid
+#:       part payment changes its amount while it stays Paid, which recounts since #1453.
+#: Same shape as `from_adjustment`, which skips the recount altogether (that flow recounts itself).
+INSIDE_CALLER_SAVEPOINT_FLAGS = ("from_outflow_import", "split_approval", "split_child")
+
+
+def recount_orders(doc, orders, exclude_payment=None):
+    """Recount `amount_paid` (with the TDS withheld and Amount Due built on it) on each of `orders`
+    (`(document_type, document_name)` pairs) through the one writer `services/amount_paid.write_amount_paid`,
+    committing after each unless `doc` carries an `INSIDE_CALLER_SAVEPOINT_FLAGS` flag.
+
+    `exclude_payment` is a payment being trashed: still in the table while `on_trash` runs. A failure is
+    logged, not raised, so a payment save never fails on its order's recount (the Amount Paid Mismatch
+    report shows the order instead).
+    """
+    for document_type, document_name in orders:
+        if not document_type or not document_name:
+            continue
+        try:
+            write_amount_paid(document_type, document_name, exclude_payment=exclude_payment)
+            if not any(doc.flags.get(flag) for flag in INSIDE_CALLER_SAVEPOINT_FLAGS):
+                frappe.db.commit()
+        except Exception as e:
+            frappe.log_error(
+                message=f"Failed to update amount_paid for {document_type} {document_name}. Error: {str(e)}",
+                title="Project Payment Sync Error",
+            )
 
 # --- HELPER FUNCTION FOR HOOKS ---
 # PO term status mirrors Project Payment status 1:1 (Requested / CEO Pending /
@@ -117,7 +169,7 @@ def _notify_accountants_payment_ready(doc):
         frappe.publish_realtime(event="payment:ceo_approved", message=message, user=user.get('name'))
 
 
-def _notify_ceo_payment_awaiting(doc, how_it_arrived: str):
+def notify_ceo_payment_awaiting(doc, how_it_arrived: str):
     """Tell the CEO a payment is waiting at their gate: after an L1 approval, or created there
     because an L1 approver raised it (owner, 2026-09-21). One helper, so both read the same."""
     ceo_user = _get_ceo_user()
@@ -202,11 +254,191 @@ def validate(doc, method):
 
     Also the payment hold: a held payment cannot leave Approved, and only the
     settle roles may change the flag (`services/payment_hold.py`).
+
+    And the pay-to account (#1437, ADR-0033): a new payment with none copies its
+    vendor's Payee, on every creation path, and is never re-copied
+    (`services/payees/pay_to.fill_payment_from_vendor`).
+
+    And the cheque rules (spec #1477): only a PO payment becomes a Cheque payment
+    (`payment_mode.validate_cheque_mode`), a cheque payment is approved only with
+    its cheque, one cheque one decision (`decide.refuse_lone_approval`), and it moves
+    into Paid only when its cheque clears, never out of it, and always has its cheque
+    (#1552, `payment_mode.validate_paid_by_clear`, `payment_mode.validate_on_a_cheque`).
+
+    And the payment steps (#1530): each status move, and a new payment's status, needs the tier the
+    Payments screens use (`services/payment_steps.py`).
     """
+    refuse_step_out_of_tier(doc, frappe.session.user)
     if doc.is_new():
         validate_won(doc.project, "Project Payment")
+        refuse_while_work_order_under_amendment(doc)
         _validate_work_order_limit(doc)
+        fill_payment_from_vendor(doc)
     validate_hold(doc)
+    validate_cheque_mode(doc)
+    validate_paid_by_clear(doc)
+    validate_on_a_cheque(doc)
+    refuse_lone_approval(doc)
+    refuse_reject_if_deposited(doc)
+    refuse_amount_change_if_deposited(doc)
+    refuse_raise_after_tax_cut(doc)
+    refuse_hand_written_legacy_tds(doc)
+    if not doc.is_new():
+        refuse_moving_an_approved_payment(doc)
+        refuse_changing_the_vendor(doc)
+        _validate_work_order_limit_on_edit(doc)
+        _validate_the_order_it_lands_on(doc)
+
+
+MOVED_ORDER_REFUSAL = (
+    "An approved payment stays on its order: it was approved, and is counted, for this order and its vendor. "
+    "Reject it and request a new payment on the other order."
+)
+VENDOR_KEPT_REFUSAL = (
+    "A payment keeps the vendor it was raised for: its approval, and the order's limit, are for that vendor. "
+    "Reject it and request a new one."
+)
+
+
+def refuse_moving_an_approved_payment(doc):
+    """A user can't move a payment at Approved or later to another order (stories 18-19): moving it away
+    and back would let an amendment swap the vendor or cut the total under paid money. The system's own
+    moves (`SYSTEM_STEP_FLAGS`: PO adjustments, Bulk Import) are its own business, and `Administrator`, the
+    site superuser, passes as it holds every payment step."""
+    before = doc.get_doc_before_save()
+    if (not before or is_system_move(doc) or frappe.session.user == "Administrator"
+            or before.status not in PAST_APPROVAL):
+        return
+    if (before.document_type, before.document_name) != (doc.document_type, doc.document_name):
+        frappe.throw(_(MOVED_ORDER_REFUSAL), title=_("Not allowed"))
+
+
+def refuse_changing_the_vendor(doc):
+    """A payment keeps the vendor it was raised for (review round 4, X1): every later rule (an approval's
+    vendor check, the order's limit) reads its vendor before the save as that raise-time vendor, so no user
+    save moves it, at Requested either (a Rejected payment brought back to Requested would otherwise take
+    the Work Order's new vendor before its approval). One raised with none may get one. System moves pass."""
+    before = doc.get_doc_before_save()
+    if not before or is_system_move(doc) or not before.vendor:
+        return
+    if (before.vendor or None) != (doc.vendor or None):
+        frappe.throw(_(VENDOR_KEPT_REFUSAL), title=_("Not allowed"))
+
+
+def _validate_the_order_it_lands_on(doc):
+    """End-state rules for a user save (review round 4: a rule keyed on one step is dodged by another):
+
+    * a payment moved to another Work Order must fit it: not under amendment, the same vendor (X2(c)); one
+      moved to another PO, the same vendor (round 5, AA3);
+    * a payment moving INTO Approved / Reconciliation Pending / Paid from any status before approval (an
+      approval, or a Rejected one brought back) must fit its order again, as a new request would, since the
+      order may have changed meanwhile: a Work Order not under amendment, still the vendor the payment was
+      raised for (its vendor before the save, which `refuse_changing_the_vendor` keeps), and within its
+      payment limit; a PO within its available balance (X2(a), (e); stories 18, 19, 22);
+    * a Rejected payment brought back to Requested or CEO Pending is a payment request again: not on a Work
+      Order under amendment, nor one whose vendor is no longer the one it was raised for (story 22).
+    System moves skip it."""
+    before = doc.get_doc_before_save()
+    if not before or is_system_move(doc) or not doc.document_name:
+        return
+    moved = (before.document_type, before.document_name) != (doc.document_type, doc.document_name)
+    approving = before.status not in PAST_APPROVAL and doc.status in PAST_APPROVAL
+    reviving = before.status == PAYMENT_REJECTED and doc.status != PAYMENT_REJECTED
+    if not (moved or approving or reviving):
+        return
+    if doc.document_type == "Service Requests":
+        sr = frappe.get_doc("Service Requests", doc.document_name)
+        problem = payment_request_problem(sr.name, sr.status)
+        if problem:
+            frappe.throw(_(problem), WorkOrderChangeRefused, title=_("Not allowed"))
+        if (before.vendor or None) != (sr.vendor or None):
+            frappe.throw(_("{0} was raised for {1}, but {2}'s vendor is {3}. Request a new payment instead.").format(
+                doc.name, before.vendor, sr.name, sr.vendor), title=_("Not allowed"))
+        if approving:
+            assert_within_work_order_limit(sr, flt(doc.amount), bool(cint(doc.get("is_gst_payment"))),
+                                           action="pay", exclude_payment=doc.name)
+    elif doc.document_type == "Procurement Orders":
+        po = frappe.get_doc("Procurement Orders", doc.document_name)
+        if moved and (before.vendor or None) != (po.vendor or None):
+            # A payment is for its vendor (review round 5, AA3): a Work Order's is checked above.
+            frappe.throw(_("{0} was raised for {1}, but {2}'s vendor is {3}. Request a new payment instead.").format(
+                doc.name, before.vendor, po.name, po.vendor), title=_("Not allowed"))
+        if not approving:
+            return
+        available = po_available_balance(po)
+        if not moved and before.status in PO_PENDING_STATUSES:
+            available += flt(before.amount)   # still counted as an open request in the balance
+        problem = po_balance_refusal(available, doc.amount)
+        if problem:
+            frappe.throw(problem, title=_("Not allowed"))
+
+
+LEGACY_TDS_REFUSAL = (
+    "The legacy TDS box is not set or changed by hand: it decides whether a PO payment's tax counts on top. "
+    "A payment's tax is its Payment TDS Deduction."
+)
+
+
+def refuse_hand_written_legacy_tds(doc):
+    """`tds`, the legacy TDS box, marks a PO payment with a tax record as stored gross
+    (`payment_tds.counted_deductions_sql`), so a hand edit would change PO tax counting (story 53). The
+    Desk form shows it read-only; this refuses it from REST too. Its one writer is the by-hand patch
+    `v3_0.net_po_payments_with_tds` (`set_value`, under `in_patch` when run by migrate); the system's moves
+    (`SYSTEM_STEP_FLAGS`) copy what they find."""
+    if frappe.flags.in_patch or is_system_move(doc):
+        return
+    before = doc.get_doc_before_save()
+    # Compared as numbers: Desk and REST send "600.0" for a stored "600", which is no change.
+    if flt((before.get("tds") if before else 0) or 0, 2) != flt(doc.get("tds") or 0, 2):
+        frappe.throw(LEGACY_TDS_REFUSAL)
+
+
+def _is_restating_save(doc) -> bool:
+    """Would this save restate the payment's tax if its amount moved? Not on the machine paths that move
+    the amount without a person editing it (`NO_RESTATE_FLAGS`, and `from_adjustment`, on which
+    `on_update` returns first)."""
+    return not (doc.flags.get("from_adjustment") or any(doc.flags.get(flag) for flag in payment_tds.NO_RESTATE_FLAGS))
+
+
+def refuse_raise_after_tax_cut(doc):
+    """A payment whose tax was cut can't be raised (#1537): the raise would gross the tax up again.
+    The message points to *TDS paid by company* (`payment_tds.refuse_raise_after_cut`)."""
+    if _is_restating_save(doc):
+        payment_tds.refuse_raise_after_cut(doc, doc.get_doc_before_save())
+
+
+def refuse_while_work_order_under_amendment(doc):
+    """A new payment on a Work Order under amendment is refused (#1540): no money moves against a total
+    that may change. On insert, so the request dialog, the Accountant's paid entry, Desk and REST all meet
+    it (rule: `work_order_lifecycle.payment_request_problem`)."""
+    if doc.document_type != "Service Requests" or not doc.document_name:
+        return
+    problem = payment_request_problem(
+        doc.document_name, frappe.db.get_value("Service Requests", doc.document_name, "status")
+    )
+    if problem:
+        frappe.throw(_(problem), WorkOrderChangeRefused, title=_("Work Order under amendment"))
+
+
+def refuse_reject_if_deposited(doc):
+    """A payment whose tax is in a challan can't be rejected (#1535): rejecting gives its tax back
+    (`payment_tds.give_back_tax_on_reject`), and deposited tax can't disappear."""
+    before = doc.get_doc_before_save()
+    if before and before.status != PAYMENT_REJECTED and doc.status == PAYMENT_REJECTED:
+        payment_tds.refuse_if_deposited(doc.name, "can't be rejected")
+
+
+def refuse_amount_change_if_deposited(doc):
+    """A payment whose tax is in a challan can't have its amount changed (#1535): the edit would
+    restate the deposited tax (`payment_tds.restate_deduction_on_amount_change`).
+
+    Skipped exactly where the restate is skipped (`NO_RESTATE_FLAGS`, and `from_adjustment`, on which
+    `on_update` returns first): those saves move the amount but never the tax, so the deposit is safe.
+    """
+    before = doc.get_doc_before_save()
+    if not before or flt(before.amount) == flt(doc.amount) or not _is_restating_save(doc):
+        return
+    payment_tds.refuse_if_deposited(doc.name, "can't have its amount changed")
 
 
 def _validate_work_order_limit(doc):
@@ -221,7 +453,10 @@ def _validate_work_order_limit(doc):
       * `split_child` -- a CEO part-approval or Bulk Import part payment inserts the leftover BEFORE
         it trims the original, so this money is already counted once;
       * `from_adjustment` -- PO Revision, which skips every payment hook;
-      * an amount of zero or less -- a refund only lowers what is paid out.
+      * an amount of zero, which the request endpoint refuses on its own.
+
+    The same check refuses a negative amount (money coming back is a Vendor Refund) and holds the
+    insert to the invoice check, as the session user (#1488).
 
     A Purchase Order payment is not a Work Order payment and keeps only the doctype's own check.
     """
@@ -229,10 +464,47 @@ def _validate_work_order_limit(doc):
         return
     if doc.flags.get("work_order_limit_checked") or doc.flags.get("split_child") or doc.flags.get("from_adjustment"):
         return
-    if flt(doc.amount) <= 0:
+    if flt(doc.amount) == 0:
         return
     sr = frappe.get_doc("Service Requests", doc.document_name)
     assert_within_work_order_limit(sr, doc.amount, bool(cint(doc.get("is_gst_payment"))), action="pay")
+
+
+def _validate_work_order_limit_on_edit(doc):
+    """An edit that takes more of a Work Order's payment limit is held to it, as a new request is
+    (#1536, story 43): a raised amount, or a move to another Work Order. (A switch between base and GST is
+    refused by the field itself, `is_gst_payment` being set-only-once.)
+    Measured with this payment left out of the order and its new GROSS figure asked for, so the most it
+    may be raised to is what a request in its place could ask, with the same ₹10 tolerance and the same
+    invoice check for the session user. Lowering is never refused: it takes nothing more, and an order
+    already paid past its limit can still be corrected.
+
+    Skipped where the insert check is (split parts, PO Revision) and on the machine paths that move an
+    amount without a person editing it (`_is_restating_save`). A raise of a payment whose tax was cut is
+    refused before this, by `refuse_raise_after_tax_cut`.
+    """
+    if doc.document_type != "Service Requests" or not doc.document_name:
+        return
+    if doc.flags.get("split_child") or not _is_restating_save(doc):
+        return
+    before = doc.get_doc_before_save()
+    if not before:
+        return
+    takes_more = flt(doc.amount, 2) > flt(before.amount, 2) or (
+        (before.document_type, before.document_name) != (doc.document_type, doc.document_name)
+    )
+    if not takes_more:
+        return
+    withheld = frappe.db.get_value(
+        payment_tds.TDS_DOCTYPE,
+        {"project_payment": doc.name, "borne_by": ["!=", payment_tds.BORNE_BY_COMPANY]},
+        "tds_amount",
+    )
+    sr = frappe.get_doc("Service Requests", doc.document_name)
+    assert_within_work_order_limit(
+        sr, flt(doc.amount) + flt(withheld), bool(cint(doc.get("is_gst_payment"))), action="edit",
+        exclude_payment=doc.name,
+    )
 
 
 def after_insert(doc, method):
@@ -272,7 +544,7 @@ def after_insert(doc, method):
     # Born at CEO Pending: an L1 approver raised it, so L1 is already cleared (owner,
     # 2026-09-21). It is waiting for the CEO, not for an L1 approver -- say so to the CEO.
     if doc.status == "CEO Pending":
-        _notify_ceo_payment_awaiting(
+        notify_ceo_payment_awaiting(
             doc,
             f"was raised by {get_user_name(frappe.session.user)}, who holds L1, "
             "so it has come straight to you for approval.",
@@ -342,6 +614,12 @@ def on_update(doc, method):
 
     old_doc = doc.get_doc_before_save()
 
+    # Recount the order(s) whose Amount Paid this save moved, FIRST: everything below and the CEO Hold
+    # check after this hook read the recounted figure. The order a Paid payment leaves and the one it
+    # joins, when it enters or leaves Paid, or when a Paid payment's amount or order changes
+    # (`services/amount_paid.orders_moved_by` names the watched fields, #1453).
+    recount_orders(doc, orders_moved_by(old_doc, doc))
+
     # SR tax already withheld — restate it when the AMOUNT is edited.
     #
     # ⚠️ IT MUST SIT ABOVE THE STATUS GUARD BELOW, WHICH RETURNS. An amount edit changes no status,
@@ -349,8 +627,9 @@ def on_update(doc, method):
     # as `after_insert`, where the deduction call sits above its own returning branch.
     #
     # Once a deduction exists, `amount` IS the net figure, so an edit to it is an edit to the net:
-    # the service re-derives gross and tax from it at the deduction's OWN snapshotted rate, and
-    # recomputes any challan the tax was paid under. A payment with no deduction is untouched.
+    # the service re-derives gross and tax from it at the deduction's OWN snapshotted rate. A payment
+    # with no deduction is untouched, and one whose tax is in a challan never gets here: `validate`
+    # refuses its amount edit (`refuse_amount_change_if_deposited`, #1535).
     #
     # ⚠️ ONLY WHEN A HUMAN EDITED THE AMOUNT. `on_update` cannot tell who moved the number, so the
     # machine paths -- which flag themselves on the way in -- are excluded by name. The edit dialog
@@ -362,8 +641,27 @@ def on_update(doc, method):
     ):
         payment_tds.restate_deduction_on_amount_change(doc)
 
+    # A Paid payment whose amount or order changed while it stayed Paid (#1453): the payment save has
+    # just recounted the order(s) it left and joined, so the credit read from their `amount_paid`
+    # moves too, under one entry per vendor. Entering and leaving Paid have their own credit paths
+    # (Approved -> Paid below, `on_trash`, the outflow import's settle and unreconcile).
+    # Above the status guard below, which returns.
+    if old_doc and old_doc.status == doc.status == "Paid":
+        moved_pos = [name for doctype, name in orders_moved_by(old_doc, doc) if doctype == "Procurement Orders"]
+        if moved_pos:
+            recompute_vendor_credit(moved_pos, PAYMENT_CHANGED_ENTRY)
+
     if not old_doc or old_doc.status == doc.status:
         return # Do nothing if status hasn't changed
+
+    # A Rejected payment on a live Payment cheque rejects every payment on it and cancels the cheque;
+    # on an Old-type cheque its line drops off (#1481, #1413). Commit-free: bulk reject saves inside a
+    # savepoint. Above the notification branches, several of which return.
+    if doc.status == PAYMENT_REJECTED:
+        # No tax is held for money that didn't go out (#1535). `validate` refused the reject if the
+        # tax was already in a challan.
+        payment_tds.give_back_tax_on_reject(doc)
+        on_payment_rejected(doc)
 
     # Call the search-based helper function to sync the status.
     _find_and_update_po_term(doc, doc.status)
@@ -405,7 +703,7 @@ def on_update(doc, method):
         if doc.flags.get("bulk_approval"):
             # Bulk endpoint emits one summary notification covering all payments.
             return
-        _notify_ceo_payment_awaiting(
+        notify_ceo_payment_awaiting(
             doc, "has been approved by the project lead and is awaiting your final review."
         )
 
@@ -484,13 +782,45 @@ def on_update(doc, method):
             print("No matching users found with push notifications enabled for payment fulfillment.")
 
 
+SETTLED_DELETE_REFUSAL = (
+    "A payment whose money has left the bank can't be deleted: Amount Paid and the Work Order's amendment rules "
+    "count it. Unreconcile it in Bulk Import Outflow (Paid), or Revert to Approved (Reconciliation Pending), first."
+)
+
+
+def refuse_deleting_settled_money(doc):
+    """A user's delete (REST, Desk, the app's Delete) of a Paid payment, or of one at Reconciliation Pending
+    that no live Cheque holds (review round 5, AA2; stories 18-19): it would drop out of Amount Paid and free
+    an amendment to cut the total or swap the vendor. The system's deletes pass `ignore_permissions` (a PO's
+    clean-up, a split's leftover, a cheque withdrawn) and patches run under `in_patch`; `Administrator`, the
+    site superuser, passes as elsewhere."""
+    if doc.flags.ignore_permissions or frappe.flags.in_patch or frappe.session.user == "Administrator":
+        return
+    if doc.status == "Paid" or (doc.status == "Reconciliation Pending" and not held_by_a_live_cheque(doc.name)):
+        frappe.throw(_(SETTLED_DELETE_REFUSAL), title=_("Not allowed"))
+
+
 def on_trash(doc, method):
     """
     On deletion, find the related PO term by searching and revert its status to Created.
     Also handles cleanup of notifications and comments.
     """
+    # FIRST, so a refused delete runs no clean-up (`settled_targets.on_trash` runs before this hook).
+    # `force=True` skips Frappe's link check, not this.
+    payment_tds.refuse_if_deposited(doc.name, "can't be deleted")
+    refuse_deleting_settled_money(doc)
+
+    # A Paid payment leaving recounts its order first, without itself (still in the table here), so
+    # the vendor credit below reads the recounted figure.
+    if doc.status == "Paid":
+        recount_orders(doc, [(doc.document_type, doc.document_name)], exclude_payment=doc.name)
+
     # Always revert to "Created" - frontend will determine eligibility based on due_date
     _find_and_update_po_term(doc, "Created", clear_link=True)
+
+    # A deleted payment drops off its Cheque (#1413). Here, not later: Frappe checks links AFTER
+    # `on_trash`, and a Cheque Line still naming the payment would refuse the delete.
+    drop_off_cheques_of(doc, DELETED)
 
     # A tax deduction belongs to its payment and does not outlive it — there is no reversal
     # workflow, so deleting the payment deletes the row (owner ruling 2026-09-10).
@@ -501,25 +831,9 @@ def on_trash(doc, method):
     # outright — the payment would simply become undeletable, with the error naming a doctype
     # most people have never opened.
     #
-    # ⚠️ CAPTURE THE CHALLAN(S) BEFORE THE ROWS GO. A challan's `reconciled_amount` is the SUM of
-    # the deductions pointing at it, and this raw delete fires no hooks -- so without the recompute
-    # below the challan keeps counting tax paid against a row that no longer exists. Measured on
-    # localhost: a challan still reading Rs 150 used with ZERO deductions behind it, and therefore
-    # Rs 150 short of usable balance forever.
-    challans = frappe.db.sql_list(
-        """
-        SELECT DISTINCT tds_challan FROM "tabPayment TDS Deduction"
-        WHERE project_payment = %s AND tds_challan IS NOT NULL
-        """,
-        (doc.name,),
-    )
-
+    # No challan to recompute: a deduction in one refused this delete at the top (#1535). Before that
+    # rule, deleting took deposited tax off its challan and freed the balance to be spent twice.
     frappe.db.delete("Payment TDS Deduction", {"project_payment": doc.name})
-
-    for challan in challans:
-        # RE-DERIVED FROM WHAT REMAINS, never decremented by the deleted figure: a `-=` would be a
-        # second arithmetic path that has to agree with the pay path forever.
-        payment_tds.recompute_challan_reconciled(challan)
 
     # Vendor credit recalculation on payment deletion
     if doc.document_type == "Procurement Orders":

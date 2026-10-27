@@ -56,6 +56,8 @@ from nirmaan_stack.api.outflow_import.review import (
 )
 from nirmaan_stack.api.outflow_import.long_reference_fixture import _give_row_a_long_narration
 from nirmaan_stack.api.outflow_import.upload import _stage_batch
+from nirmaan_stack.api.vendor_credit import _compute_credit_used
+from nirmaan_stack.api.vendor_refunds import credit_fixture
 from nirmaan_stack.services.outflow_import import parser as parser_module
 from nirmaan_stack.services.outflow_import import settle as settle_module
 from nirmaan_stack.services.outflow_import.contains_guard import match_surface
@@ -76,6 +78,7 @@ from nirmaan_stack.services.outflow_import.settle import (
     format_amount_for,
     statement_attachment_field,
 )
+from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.status import ROW_SETTLED
 from nirmaan_stack.api.outflow_import.unreconcile import get_unreconcile_plan, unreconcile_row
 
@@ -142,6 +145,9 @@ class InflowFixture(unittest.TestCase):
             FROM "tabProcurement Orders"
             WHERE status = 'Delivered' AND amount_paid >= 1000
               AND vendor IS NOT NULL AND project IS NOT NULL
+              -- #1399: a refund on a PO with an adjustment links into it; the raw purge cannot undo that.
+              AND NOT EXISTS (
+                  SELECT 1 FROM "tabPO Adjustments" a WHERE a.po_id = "tabProcurement Orders".name)
             GROUP BY vendor, project HAVING COUNT(*) >= 2
             ORDER BY vendor, project LIMIT 1
             """,
@@ -156,6 +162,9 @@ class InflowFixture(unittest.TestCase):
             )
             for po in cls.refund_pos
         }
+        # Each refund save recounts its vendor's credit and the endpoint commits (#1398); the raw
+        # purge cannot undo that either.
+        cls.vendor_credit = credit_fixture.snapshot([cls.vendor])
         frappe.db.commit()
 
     @classmethod
@@ -197,6 +206,7 @@ class InflowFixture(unittest.TestCase):
         # The raw purge ran no refund hook: put back each PO's figures exactly as found.
         for po, figures in cls.refund_po_figures.items():
             frappe.db.set_value("Procurement Orders", po, figures, update_modified=False)
+        credit_fixture.restore(cls.vendor_credit)
         frappe.db.delete(MATCH_DOCTYPE, {"import_batch": ["in", cls.batches]})
         for name in cls.batches:
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
@@ -392,7 +402,7 @@ class TestTheHappyPath(InflowFixture):
         self.assertEqual(match.target_doctype, INFLOW_DOCTYPE)
         self.assertEqual(match.target_name, summary["settled"]["name"])
         self.assertEqual(match.match_kind, "Settled")
-        # ⚠️ NO NEW `match_basis` OPTION WAS NEEDED. An ICICI row carries none, so `_record_settlement`
+        # ⚠️ NO NEW `match_basis` OPTION WAS NEEDED. An ICICI row carries none, so `record_settlement`
         # falls back to "Manual" -- which is the truth: nothing was matched, a person chose the
         # project. A test rather than a comment, because a doctype JSON edit is the alternative.
         self.assertEqual(match.match_basis, "Manual")
@@ -625,6 +635,77 @@ class TestTheDuplicateGuards(InflowFixture):
         row, summary = self._receive(row=row, confirm_mismatch=True)
         self.assertTrue(summary["settled"]["name"])
 
+    def test_the_ask_names_the_record_and_what_creating_again_would_do(self):
+        """2026-10-15: the button asks in the words of creating, not with the match run's note."""
+        row = self._next_credit_row()
+        planted = self._plant_inflow(row, row["remarks"], amount_delta=500)
+
+        message = self._refusal(row, error=RecordedMoneyNeedsConfirmationError)
+        self.assertIn(f"Project Inflow {planted} (₹", message)
+        self.assertIn("has this credit's reference, but its amount is ₹500 more.", message)
+        self.assertIn("a new inflow counts the money two times", message)
+        self.assertIn("or create anyway.", message)
+        self.assertNotIn("Nothing has been recorded yet", message)
+
+    def test_an_inflow_sharing_only_a_bank_branch_code_does_not_ask(self):
+        """The measured false warning: an unrelated payer's inflow whose stored narration ends in the
+        same HDFC branch code. A branch code identifies a branch, never a transfer (2026-10-15)."""
+        row = self._next_credit_row()
+        self._set_remarks(row, f"{row['remarks']}/HDFC0000240")
+        self._plant_inflow(row, "NEFT-UNRELATED PAYER PVT LTD-HDFC0000240", amount_delta=-5000)
+
+        row, summary = self._record(row=row)
+        self.assertTrue(summary["settled"]["name"])
+        self._release(row)
+
+    def test_an_inflow_another_line_accounts_for_in_full_does_not_ask(self):
+        """The other measured false warning: the record is another line's money, whole, so it is not
+        this line's money recorded with a different figure (2026-10-15)."""
+        row = self._next_credit_row()
+        planted = self._plant_inflow(row, row["remarks"], amount_delta=500)
+        self._settle_on_another_line(row, planted)
+
+        row, summary = self._record(row=row)
+        self.assertTrue(summary["settled"]["name"])
+        self._release(row)
+
+    @staticmethod
+    def _release(row):
+        """Undo the create so the line is open again: this suite has few credit lines, and the
+        tests after this one each need one (Unreconcile deletes the inflow the import created)."""
+        unreconcile_row(row=row["name"], legs="all", reason="test: release the credit line")
+
+    def _set_remarks(self, row, remarks):
+        """Change a staged line's narration for one test, restoring the original after it."""
+        original = frappe.db.get_value(ROW_DOCTYPE, row["name"], "remarks")
+        frappe.db.set_value(ROW_DOCTYPE, row["name"], "remarks", remarks, update_modified=False)
+        frappe.db.commit()
+        row["remarks"] = remarks
+        self.addCleanup(
+            lambda: (
+                frappe.db.set_value(ROW_DOCTYPE, row["name"], "remarks", original, update_modified=False),
+                frappe.db.commit(),
+            )
+        )
+
+    def _settle_on_another_line(self, row, target_name):
+        """A `Settled` leg from a different staged line onto `target_name`, for its whole amount."""
+        other = frappe.get_all(
+            ROW_DOCTYPE,
+            filters={"import_batch": self.batch.name, "direction": ["!=", DIRECTION_CREDIT]},
+            fields=["name", "transfer_id"],
+            limit=1,
+        )[0]
+        leg = frappe.get_doc({
+            "doctype": MATCH_DOCTYPE, "import_row": other["name"], "import_batch": self.batch.name,
+            "transfer_id": other["transfer_id"], "target_doctype": INFLOW_DOCTYPE,
+            "target_name": target_name,
+            "target_amount": frappe.db.get_value(INFLOW_DOCTYPE, target_name, "amount"),
+            "match_kind": MATCH_SETTLED, "match_basis": "Manual",
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(lambda: (frappe.db.delete(MATCH_DOCTYPE, {"name": leg.name}), frappe.db.commit()))
+
     def test_a_junk_reference_inside_the_narration_does_not_refuse(self):
         """Inverted at #1259 (it asserted a blank key). A reference with no eligible token --
         `ICICI`, a short code -- never refuses a receipt, even when the narration contains it."""
@@ -730,8 +811,9 @@ class TestTheNonProjectInflowDuplicateGuards(InflowFixture):
         refusal = self._refusal(
             other, error=RecordedMoneyNeedsConfirmationError, create=self._non_project_call
         )
-        self.assertIn(f"Non Project Inflow {summary['settled']['name']} already accounts", refusal)
-        self.assertIn(f"recorded from batch {batch}", refusal)
+        # 2026-10-15: the button's prompt names the other bank line and its batch.
+        self.assertIn(f"Non Project Inflow {summary['settled']['name']} (₹", refusal)
+        self.assertIn(f"bank line {row['name']} (batch {batch}) already accounts for it", refusal)
         self._assert_nothing_written(other, before)
 
 
@@ -951,6 +1033,30 @@ class TestTheNonProjectInflow(InflowFixture):
             NON_PROJECT_INFLOW, summary["settled"]["name"], ["inflow_type", "description"], as_dict=True
         )
         self.assertEqual((doc.inflow_type, doc.description), ("Others", "Vendor refund, PO 0123"))
+
+
+class TestTheNonProjectInflowDefaultDescription(InflowFixture):
+    """The dialog's Description starts EMPTY, so a description left blank is filled by the server
+    -- the payer, then the bank narration -- exactly as a created expense's is. Its own class: the
+    happy-path class above already holds the six consuming tests the fixture's credits allow."""
+
+    def _stored(self, summary):
+        return frappe.db.get_value(NON_PROJECT_INFLOW, summary["settled"]["name"], "description")
+
+    def _row_text(self, row):
+        return frappe.db.get_value(ROW_DOCTYPE, row["name"], ["beneficiary_name", "remarks"], as_dict=True)
+
+    def test_a_blank_description_gets_the_payer_and_the_narration(self):
+        for blank in (None, "   "):
+            row, summary = self._receive(inflow_type="FD Closures", description=blank)
+            text = self._row_text(row)
+            expected = " - ".join(p for p in (text.beneficiary_name, text.remarks) if (p or "").strip())
+            self.assertTrue(expected, "fixture precondition: the row carries a payer or a narration")
+            self.assertEqual(self._stored(summary), expected)
+
+    def test_a_typed_description_is_stored_as_typed(self):
+        _, summary = self._receive(inflow_type="FD Closures", description="  FD 0057 closed  ")
+        self.assertEqual(self._stored(summary), "FD 0057 closed")
 
 
 class TestTheNonProjectInflowRefusals(InflowFixture):
@@ -1239,6 +1345,64 @@ class TestTheVendorRefund(InflowFixture):
                 self.assertGreater(document["paid"], 0)
 
 
+class TestAVendorRefundFromABankLine(InflowFixture):
+    """A refund recorded from a bank line is Received, and recounts its vendor's credit (#1398).
+
+    On a real PO UNDERPAID by at least Rs 1,000 against what was delivered and created after April
+    2025, so its `delivered - paid` counts towards credit used: a Rs 1,000 refund lowers paid by 1,000
+    and raises the vendor's credit used by exactly 1,000.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        po = frappe.db.sql(
+            """
+            SELECT po.name, po.vendor, po.project FROM "tabProcurement Orders" po
+            WHERE po.status NOT IN ('Cancelled', 'Merged', 'Inactive') AND po.creation >= '2025-04-01'
+              AND po.amount_paid >= 1000 AND COALESCE(po.po_amount_delivered, 0) >= po.amount_paid + 1000
+              AND po.vendor IS NOT NULL AND po.project IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM "tabPO Adjustments" a WHERE a.po_id = po.name)
+              -- The stored figure is already what the refund hook recomputes, so only the refund moves it.
+              AND ABS(po.amount_paid - (
+                  COALESCE((
+                      SELECT SUM(pp.amount) FROM "tabProject Payments" pp
+                      WHERE pp.document_type = 'Procurement Orders' AND pp.document_name = po.name
+                        AND pp.status = 'Paid'), 0)
+                  - COALESCE((
+                      SELECT SUM(r.amount) FROM "tabVendor Refunds" r
+                      WHERE r.document_type = 'Procurement Orders' AND r.document_name = po.name
+                        AND r.status = 'Received'), 0))) < 0.01
+            ORDER BY po.name LIMIT 1
+            """,
+            as_dict=True,
+        )[0]
+        cls.underpaid = po
+        cls.refund_po_figures[po.name] = frappe.db.get_value(
+            "Procurement Orders", po.name, _REFUND_PO_FIGURES, as_dict=True
+        )
+        cls.vendor_credit.update(credit_fixture.snapshot([po.vendor]))
+        frappe.db.commit()
+
+    def test_it_is_received_and_moves_the_vendor_s_credit_used(self):
+        po = self.underpaid
+        base = _compute_credit_used(frappe.get_doc("Vendors", po.vendor))
+        row, summary = self._refund(
+            vendor=po.vendor, project=po.project, allocations=[self._po(po.name, "1000")]
+        )
+        name = summary["records"][0]["name"]
+
+        self.assertEqual(frappe.db.get_value(VENDOR_REFUND, name, "status"), "Received")
+        self.assertAlmostEqual(
+            float(frappe.db.get_value("Vendors", po.vendor, "credit_used")), float(base) + 1000, places=2
+        )
+
+        unreconcile_row(row=row["name"], legs="all", reason="test: refund credit undo")
+        self.assertAlmostEqual(
+            float(frappe.db.get_value("Vendors", po.vendor, "credit_used")), float(base), places=2
+        )
+
+
 class TestTheVendorRefundRefusals(InflowFixture):
     """Each refusal writes NOTHING: no record, no match leg, and the row where it was."""
 
@@ -1375,23 +1539,3 @@ class TestTheReceiptPathIsGone(unittest.TestCase):
 
     def test_the_receipt_service_no_longer_exists(self):
         self.assertFalse(hasattr(settle_module, "create_non_project_receipt_from_row"))
-
-
-class TestTheIncomeExpenseTypes(unittest.TestCase):
-    """The four `non_project = 1` income Expense Type fixtures (owner ruling Q19).
-
-    Kept at #1266 although the import no longer writes them: they stay in `fixtures/expense_type.json`
-    and are still offered by the manual Non-Project Expense dialog, which Amendment A-D3 leaves
-    untouched. ⚠️ They must carry `non_project = 1` and not `project`, or that dialog cannot offer them.
-    """
-
-    INCOME_TYPES = ("Interest Received", "Fixed Deposit Proceeds", "Loan Received", "Advance Returned")
-
-    def test_each_one_exists_and_is_scoped_non_project(self):
-        for name in self.INCOME_TYPES:
-            scoped = frappe.db.get_value(
-                "Expense Type", name, ["non_project", "project"], as_dict=True
-            )
-            self.assertIsNotNone(scoped, f"{name!r} is missing -- run `bench migrate`")
-            self.assertTrue(scoped.non_project, f"{name!r} must carry non_project = 1")
-            self.assertFalse(scoped.project, f"{name!r} must NOT be offered on the project side")

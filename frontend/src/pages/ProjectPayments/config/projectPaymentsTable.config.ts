@@ -1,8 +1,9 @@
 import { SearchFieldOption } from '@/components/data-table/new-data-table';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
-import { PAYMENT_STATUS } from '../approve-payments/constants';
+import { PAYMENT_STATUS } from '@/constants/paymentStatus';
 import { PP_TABS } from './ppTabs.constants';
 import { CURRENT_USER_TOKEN } from './approvalsTable.config';
+import { RECONCILIATION_PENDING_LEAVES_OUT } from '@/utils/cheques/chequeTabs';
 
 export const DEFAULT_PP_FIELDS_TO_FETCH: (keyof ProjectPayments | 'name')[] =  [
     "name", "project", "owner", "vendor", "document_name", "document_type",
@@ -88,7 +89,8 @@ export const getProjectPaymentsStaticFilters = (tab: string): Array<[string, str
         // filtered from day one: without a case here the switch falls through to
         // `default: base`, i.e. NO status filter, and the tab would show every payment
         // in the system while claiming to show unreconciled ones.
-        case "Reconciliation Pending": return [...base, ["status", "=", PAYMENT_STATUS.RECONCILIATION_PENDING]];
+        // A payment on an Issued cheque waits in the Cheque Tracker instead (#1483).
+        case "Reconciliation Pending": return [...base, ["status", "=", PAYMENT_STATUS.RECONCILIATION_PENDING], RECONCILIATION_PENDING_LEAVES_OUT];
         case "Payments Done": return [...base, ["status", "=", PAYMENT_STATUS.PAID]];
         case "Payments Pending": return [...base, ["status", "in", [PAYMENT_STATUS.REQUESTED, PAYMENT_STATUS.CEO_PENDING, PAYMENT_STATUS.APPROVED]]];
         case "All Payments": return [];

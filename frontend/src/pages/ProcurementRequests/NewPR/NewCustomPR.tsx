@@ -34,9 +34,7 @@ import { CustomPRSummary } from './CustomPRSummary';
 import { PaymentTermsDialog } from '../VendorQuotesSelection/components/PaymentTermsDialog';
 import { PaymentTermsData, VendorPaymentTerm } from '@/pages/ProcurementRequests/VendorQuotesSelection/types/paymentTerms';
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
-import { WorkPackageSelector } from "./components/WorkPackageSelector";
-import { SelectedHeaderTag } from "./types";
-import { Projects } from "@/types/NirmaanStack/Projects";
+import { derivePRPackages } from "@/utils/prPackages";
 
 // Local type definitions for this component
 interface CustomPRItem extends ProcurementItem {
@@ -62,7 +60,6 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
     prId ? `Procurement Request ${prId}` : null
   );
 
-  const { data: project } = useFrappeGetDoc<Projects>("Projects", projectId, projectId ? `Project ${projectId}` : null);
 
   const { data: vendor_list, isLoading: vendorListLoading } = useFrappeGetDocList<Vendors>("Vendors", {
     fields: ["*"],
@@ -88,8 +85,8 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
   const { upload } = useFrappeFileUpload();
 
   // --- Component State ---
-  const [section, setSection] = useState(resolve ? "choose-vendor" : "header-selection");
-  const [selectedHeaderTags, setSelectedHeaderTags] = useState<SelectedHeaderTag[]>([]);
+  // No package step: the PR's packages come from each row's package (the server writes them).
+  const [section, setSection] = useState("choose-vendor");
   const [selectedVendor, setSelectedvendor] = useState<Vendor | null>(null);
   const [order, setOrder] = useState<CustomPRItem[]>([]);
   const [amounts, setAmounts] = useState<{ [key: string]: number }>({});
@@ -186,13 +183,6 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
           console.error("Failed to parse payment_terms from PR", e);
         }
       }
-
-      if (request.pr_tag_list) {
-        setSelectedHeaderTags((request.pr_tag_list || []).map((tag: any) => ({
-          tag_header: tag.tag_header,
-          tag_package: tag.tag_package
-        })));
-      }
     }
   }, [resolve, prId, prDoc, vendor_list]);
 
@@ -240,7 +230,6 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
         comment: comment,
         attachment: attachment ? { file_url: file_url } : null,
         payment_terms: Object.keys(paymentTerms).length > 0 ? JSON.stringify({ list: paymentTerms }) : null,
-        tags: selectedHeaderTags
       });
 
       if (response.message.status === 200) {
@@ -274,7 +263,6 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
         comment: comment,
         attachment: attachment ? { file_url: file_url } : null,
         payment_terms: Object.keys(paymentTerms).length > 0 ? JSON.stringify({ list: paymentTerms }) : null,
-        tags: selectedHeaderTags
       });
 
       if (response.message.status === 200) {
@@ -296,20 +284,8 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
   return (
     <div className="flex-1 space-y-4">
       {/* The Header Card is now only rendered here, at the top level */}
-      {section === "header-selection" && (
-        <div className="px-4 py-4">
-          <WorkPackageSelector
-            onSelectHeaders={(headers) => {
-              setSelectedHeaderTags(headers);
-              setSection("choose-vendor");
-            }}
-            project={project}
-          />
-        </div>
-      )}
-
       {section === "choose-vendor" && (
-        <ProcurementHeaderCard orderData={prDoc} customPr headers={selectedHeaderTags} />
+        <ProcurementHeaderCard orderData={prDoc} customPr packages={derivePRPackages(order)} />
       )}
 
       {section === "choose-vendor" && (
@@ -396,7 +372,6 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
           <div className="flex justify-between items-center mt-4 pl-2">
             <div className="flex gap-2">
               <Button onClick={() => setOrder(prev => [...prev, { name: uuidv4(), procurement_package: "", category: "", item: "", quantity: 0, unit: "", quote: 0, tax: 18, status: "Pending" }])}>New Item</Button>
-              <Button variant="outline" onClick={() => setSection("header-selection")}>Back to Header</Button>
             </div>
             <div className="flex items-center gap-2"><Button disabled={!checkNextButtonStatus()} onClick={handleSaveAmounts}>Next</Button></div>
           </div>
@@ -406,6 +381,7 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
       {section == "summary" && approvalSummary && (
         <CustomPRSummary
           orderData={prDoc}
+          packages={derivePRPackages(order)}
           approvalSummary={approvalSummary}
           resolve={resolve}
           onBack={() => setSection("choose-vendor")}

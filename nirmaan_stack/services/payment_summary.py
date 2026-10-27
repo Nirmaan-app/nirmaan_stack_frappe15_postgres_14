@@ -19,8 +19,10 @@ deleted -- which is why it gets a line of its own rather than disappearing into 
 ⚠️ A WORK ORDER'S PAYMENTS ARE COUNTED GROSS. Once TDS is withheld, `Project Payments.amount` is
 the NET figure, yet the tax was still part of what was requested; the Work Order page's Request
 Payment balance has always added it back (`approved-sr.tsx`, `grossRequested`), and this follows
-it. EXCEPT on a company-borne Work Order (Miscellaneous / Transportation only), whose payments were
-never reduced -- adding the tax there would count it twice. A PO carries no TDS.
+it. `tds_by_payment` therefore holds only the tax WITHHELD from each payment: a deduction the company
+bore on top left its payment whole, and adding it would count it twice. The loader picks them off
+each deduction's `borne_by` (`services/order_payments.load_payments`). A PO's payments are counted
+the same way: the tax recorded on an old one is added back once it is netted (ADR-0034 Amendment B).
 """
 
 from frappe.utils import flt
@@ -45,15 +47,12 @@ def is_counted(status) -> bool:
 	return (status or "").strip() in _LINE_OF_STATUS
 
 
-def gross_amount(payment, tds_by_payment, company_borne: bool) -> float:
+def gross_amount(payment, tds_by_payment) -> float:
 	"""The figure a payment counts for: its amount, plus any tax withheld from it."""
-	amount = flt(payment.get("amount"))
-	if company_borne:
-		return amount
-	return amount + flt((tds_by_payment or {}).get(payment.get("name")))
+	return flt(payment.get("amount")) + flt((tds_by_payment or {}).get(payment.get("name")))
 
 
-def summarise(value, payments, tds_by_payment=None, company_borne=False, exclude_payment=None) -> dict:
+def summarise(value, payments, tds_by_payment=None, exclude_payment=None) -> dict:
 	"""Sum a PO / Work Order's payments by status, gross, leaving `exclude_payment` out.
 
 	`exclude_payment` is the payment being APPROVED: the dialog shows it as "This payment", so it
@@ -70,7 +69,7 @@ def summarise(value, payments, tds_by_payment=None, company_borne=False, exclude
 		name = p.get("name")
 		if exclude_payment and name == exclude_payment:
 			continue
-		gross = gross_amount(p, tds_by_payment, company_borne)
+		gross = gross_amount(p, tds_by_payment)
 		status = (p.get("status") or "").strip()
 		line = _LINE_OF_STATUS.get(status)
 		if line:

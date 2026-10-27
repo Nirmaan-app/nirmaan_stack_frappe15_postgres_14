@@ -12,6 +12,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { usePublishRefetch, type RefetchRef } from '@/hooks/usePublishRefetch';
 import {
     APPROVAL_QUEUE_API,
     APPROVAL_FETCH_FIELDS,
@@ -51,6 +52,7 @@ import { QueueRowEditDialog } from "./components/QueueRowEditDialog";
 import { useUpdatePaymentRequest } from "./hooks/useUpdatePaymentRequests";
 import { canEditQueueRow, canRevertQueueRow, canUploadInvoiceRow, canWorkQueueRows } from "./config/queueRowActions";
 import { useUserData } from "@/hooks/useUserData";
+import { useExpenseEditAccess } from "@/hooks/useExpenseDecision";
 import { useDialogStore } from "@/zustand/useDialogStore";
 
 
@@ -75,6 +77,9 @@ interface AllPaymentsProps {
     // Additional prop to distinguish URL state contexts if this component is used multiple times
     // on the same page with different projectId/customerId props.
     contextKey?: string;
+    /** Where this tab publishes its refetch, which the page calls when its lists changed (a New Expense
+     *  submit): the rows refresh, the filters stay (`usePublishRefetch`). */
+    refetchRef?: RefetchRef;
 }
 
 // --- Constants ---
@@ -140,10 +145,12 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     tab = "Payments Pending", // Default tab
     projectId,
     customerId,
+    refetchRef,
     contextKey = "all" // Default context for URL key
 }) => {
     const { db } = useContext(FrappeContext) as FrappeConfig;
     const { role, user_id } = useUserData(); // Get user role
+    const editableStatuses = useExpenseEditAccess();
     const refreshTabCounts = useRefreshApprovalCounts();
 
     // --- CEO Hold Highlighting ---
@@ -331,6 +338,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                 document_name: row.document_name,
                 document_type: row.document_type,
                 amount: row.amount,
+                requested_amount: row.requested_amount,
                 status: row.status,
                 cheque_no: row.cheque_no || undefined,
             });
@@ -348,13 +356,13 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         getDocumentTotal,
         getPoAmountDelivered,
         onEdit: canWork ? setEditRow : undefined,
-        canEdit: (row) => canEditQueueRow(row, role),
+        canEdit: (row) => canEditQueueRow(row, editableStatuses),
         onRevert: canWork ? setRevertRow : undefined,
         canRevert: (row) => canRevertQueueRow(row, role),
         onMarkReconciled: openPayDialog,
         onDelete: tab === PP_TABS.PAYMENT_BY_ME ? setDeleteRow : undefined,
         onUploadInvoice: canWork && tab === PP_TABS.PAYMENTS_DONE ? setInvoiceRow : undefined,
-        canUploadInvoice: (row) => canUploadInvoiceRow(row, role),
+        canUploadInvoice: (row) => canUploadInvoiceRow(row, role, editableStatuses),
         isUnseen: (row) => !!notifications.find(
             (n) => n.docname === row.name && n.seen === "false"
                 && n.event_id === (tab === "Payments Done" ? "payment:fulfilled" : null)
@@ -364,7 +372,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         ),
     }), [
         tab, projectMap, vendorLabelMap, userLabelMap, getDocumentTotal,
-        getPoAmountDelivered, canWork, role, notifications,
+        getPoAmountDelivered, canWork, role, notifications, editableStatuses,
         handleSeenNotification, openPayDialog,
     ]);
 
@@ -459,6 +467,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     // and every mutate() in the hook is commented out.)
     useFrappeDocTypeEventListener("Project Expenses", () => refetch());
     useFrappeDocTypeEventListener("Non Project Expenses", () => refetch());
+    usePublishRefetch(refetchRef, refetch);
 
     const handleConfirmDelete = useCallback(async () => {
         if (!deleteRow) return;

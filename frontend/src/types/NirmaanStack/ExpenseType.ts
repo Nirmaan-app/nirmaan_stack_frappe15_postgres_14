@@ -20,4 +20,9 @@ export interface ExpenseType {
     /** "Enable Source": on => the request dialog shows `source_format`; off => the standard
      *  fields. Cannot be on without a format. */
     source_format_enabled?: 0 | 1 | boolean
+    /** Who gets paid on a request of this type: Required / Optional / Not asked (the default).
+     *  See `utils/payees/expensePayee`. */
+    payee_rule?: string | null
+    /** "Confirmed as Expense Request": a label only, changed by Admin alone (spec #1494). */
+    confirmed_as_request?: 0 | 1 | boolean
 }

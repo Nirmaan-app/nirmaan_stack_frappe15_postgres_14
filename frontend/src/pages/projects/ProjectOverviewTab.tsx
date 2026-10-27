@@ -36,7 +36,11 @@ import { useGstOptions } from "@/hooks/useGstOptions";
 import { SevenDayPlanningTab } from "./SevenDayPlanningTab";
 import { useProjectOverviewApi } from "./data/tab/overview/useProjectOverviewTabApi";
 import { ProjectModuleDeactivationStatus } from "./components/ProjectModuleDeactivationStatus";
-import { canRemoveProjectAssignee, PROCUREMENT_PROFILES } from "@/constants/roles";
+import {
+  canRemoveProjectAssignee,
+  PROCUREMENT_PROFILES,
+  SERVICE_PROCUREMENT_EXECUTIVE_PROFILE,
+} from "@/constants/roles";
 import { getFrappeError } from "@/utils/frappeErrors";
 import {
   AlertDialog,
@@ -55,11 +59,6 @@ interface ProjectOverviewTabProps {
   estimatesTotal: number
   totalPOAmountWithGST: number
   getAllSRsTotalWithGST: number
-  getTotalAmountPaid: {
-    poAmount: number;
-    srAmount: number;
-    totalAmount: number;
-  };
 }
 
 /** One person on the Assignees card — the id is what a removal needs, the name is shown. */
@@ -70,7 +69,7 @@ interface ProjectAssignee {
 
 {/* <OverviewSkeleton2 /> */ }
 
-export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectData, projectCustomer, getAllSRsTotalWithGST, totalPOAmountWithGST, getTotalAmountPaid }) => {
+export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectData, projectCustomer, getAllSRsTotalWithGST, totalPOAmountWithGST }) => {
 
   const { role, user_id } = useUserData();
   const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
@@ -194,7 +193,9 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
           ?.filter(
             (user) =>
               !projectAssignees?.some((i) => i?.user === user?.name) &&
-              ["Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES].includes(user?.role_profile)
+              ["Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES].includes(user?.role_profile) &&
+              // Service Procurement sees every project and is never assigned one.
+              user?.role_profile !== SERVICE_PROCUREMENT_EXECUTIVE_PROFILE
           )
           ?.map((op) => ({
             // This is the structure react-select expects.

@@ -244,7 +244,123 @@ class TestWorkOrderPaidEntryLimit(FrappeTestCase):
 			frappe.set_user(U)
 		self.assertEqual(flt(frappe.db.get_value(PAYMENT, result["data"]["remainder_payment"], "amount")), 40000.0)
 
-	def test_a_refund_is_never_refused_by_the_limit(self):
+	def test_a_negative_paid_entry_is_refused(self):
+		"""Money coming back is a Vendor Refund, never a negative payment (#1488)."""
 		sr = self._gst_wo(gst_invoiced=0, base_paid_gross=0)
 		self._plant(sr, 130000, "Approved")  # paid past the total: total left is -12,000
-		self.assertTrue(self._paid_entry(sr, -2000, gst=False, status="Requested"))
+		before = self._count(sr)
+		with self.assertRaisesRegex(frappe.ValidationError, "cannot be negative.*Vendor Refund"):
+			self._paid_entry(sr, -2000, gst=False, status="Requested")
+		self.assertEqual(self._count(sr), before)
+
+
+class TestWorkOrderInvoiceCheck(FrappeTestCase):
+	"""GLOSSARY.md, *Invoice check (on a Work Order payment)* (#1488): after a first payment, a new one
+	waits until raised money is less than ₹100 above Total Amount Invoiced. Raised by someone who is
+	neither an L1 approver nor the CEO -- `Administrator`, which every other suite here runs as, skips
+	it."""
+
+	setUp = TestWorkOrderPaidEntryLimit.setUp
+	_plant = TestWorkOrderPaymentRequestLimit._plant
+	_count = TestWorkOrderPaymentRequestLimit._count
+	_request = TestWorkOrderPaymentRequestLimit._request
+	_paid_entry = TestWorkOrderPaidEntryLimit._paid_entry
+
+	REFUSAL = "raised is more than .* in approved invoices. Get an invoice approved before raising another payment"
+
+	def _user(self, profile):
+		user = frappe.db.get_value("Nirmaan Users", {"role_profile": profile}, "name")
+		if not user:
+			self.skipTest(f"no {profile} user on this site")
+		return user
+
+	def _on_project(self, user):
+		"""A real user only sees projects they are on: put them on the fixture's for this test."""
+		perm = frappe.get_doc({"doctype": "User Permission", "user": user, "allow": "Projects",
+			"for_value": self.project}).insert(ignore_permissions=True)
+		frappe.db.commit()
+		self.addCleanup(self._remove_permission, perm.name)
+		return user
+
+	@staticmethod
+	def _remove_permission(name):
+		"""Must survive a poisoned transaction: it would otherwise leave a real user on a test project."""
+		frappe.db.rollback()
+		try:
+			frappe.db.delete("User Permission", {"name": name})
+			frappe.db.commit()
+		except Exception:
+			frappe.db.rollback()
+			print(f"!! could not remove test User Permission {name}")
+			raise
+
+	def _as(self, user, fn, *args, **kwargs):
+		frappe.set_user(user)
+		try:
+			return fn(*args, **kwargs)
+		finally:
+			frappe.set_user(U)
+
+	def _wo(self, amount_invoiced=0, raised=20000):
+		"""1,18,000 incl. GST with `raised` already requested on it."""
+		sr = self.fx.service_request(self.project, self.vendor, total=118000, gst=True, amount_invoiced=amount_invoiced)
+		if raised:
+			self._plant(sr, raised, "Requested")
+		return sr
+
+	def test_a_first_payment_needs_no_invoice(self):
+		procurement = self._on_project(self._user("Nirmaan Procurement Executive Profile"))
+		sr = self._wo(raised=0)
+		self.assertTrue(self._as(procurement, self._request, sr, 20000))
+
+	def test_a_second_payment_waits_for_an_approved_invoice(self):
+		procurement = self._user("Nirmaan Procurement Executive Profile")
+		sr = self._wo(amount_invoiced=0)
+		before = self._count(sr)
+		with self.assertRaisesRegex(frappe.ValidationError, self.REFUSAL):
+			self._as(procurement, self._request, sr, 5000)
+		self.assertEqual(self._count(sr), before)
+
+	def test_a_second_payment_passes_once_invoices_catch_up(self):
+		procurement = self._on_project(self._user("Nirmaan Procurement Executive Profile"))
+		sr = self._wo(amount_invoiced=20000)
+		self.assertTrue(self._as(procurement, self._request, sr, 60000))
+
+	def test_an_l1_approver_skips_it(self):
+		sr = self._wo(amount_invoiced=0)
+		self.assertTrue(self._request(sr, 5000))  # Administrator
+		admin = self._user("Nirmaan Admin Profile")
+		self.assertTrue(self._as(admin, self._request, sr, 5000))
+
+	def test_the_ceo_skips_it(self):
+		from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
+
+		if not frappe.db.exists("User", CEO_AUTHORIZED_USER):
+			self.skipTest("no CEO user on this site")
+		sr = self._wo(amount_invoiced=0)
+		self.assertTrue(self._as(CEO_AUTHORIZED_USER, self._request, sr, 5000))
+
+	def test_the_accountants_paid_entry_is_held_to_it(self):
+		accountant = self._user("Nirmaan Accountant Profile")
+		sr = self._wo(amount_invoiced=0)
+		before = self._count(sr)
+		with self.assertRaisesRegex(frappe.ValidationError, self.REFUSAL):
+			self._as(accountant, self._paid_entry, sr, 5000, gst=False)
+		self.assertEqual(self._count(sr), before)
+
+	def test_a_split_leftover_is_not_held_to_it(self):
+		"""A split carries money already raised forward; it is never a new payment."""
+		from nirmaan_stack.services.payment_split import split_payment
+
+		accountant = self._user("Nirmaan Accountant Profile")
+		sr = self._wo(amount_invoiced=0, raised=0)
+		pay = self._plant(sr, 50000, "Approved")
+		result = self._as(accountant, split_payment, pay, 30000, expect_status="Approved",
+			remainder_status="Approved", stamp_ceo_approval=False)
+		self.assertTrue(result)
+		self.assertEqual(self._count(sr), 2)
+
+	def test_a_negative_request_is_refused_even_for_an_l1_approver(self):
+		sr = self._wo(amount_invoiced=118000, raised=0)
+		with self.assertRaisesRegex(frappe.ValidationError, "cannot be negative.*Vendor Refund"):
+			self._request(sr, -2000)

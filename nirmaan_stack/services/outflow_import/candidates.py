@@ -98,6 +98,8 @@ from nirmaan_stack.services.outflow_import.normalize import normalize_amount, no
 from nirmaan_stack.services.outflow_import.parser import BANK_TERMINAL_STATUSES, is_terminal_status
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, build_project_index
 from nirmaan_stack.services.outflow_import.status import ROW_SKIPPED
+from nirmaan_stack.services.payees.vendor_account import vendor_accounts
+from nirmaan_stack.services.vendor_refunds import RECEIVED as VENDOR_REFUND_RECEIVED
 
 __all__ = [
     "load_vendor_index",
@@ -136,6 +138,13 @@ _PAYMENT_DECIDED_ON = f"{decided_on_sql(PAYMENT_DOCTYPE)} AS decided_on"
 _PROJECT_EXPENSE_DECIDED_ON = f"{decided_on_sql(PROJECT_EXPENSE_DOCTYPE)} AS decided_on"
 _NON_PROJECT_EXPENSE_DECIDED_ON = f"{decided_on_sql(NON_PROJECT_EXPENSE_DOCTYPE)} AS decided_on"
 
+# What `_payment_target` reads, for both payment pools. `pay_to_account_number` and `pay_to_ifsc` are
+# the payment's own copy of the account it was raised to, which tier 1 compares with the line (#1440).
+_PAYMENT_COLUMNS = (
+    "name, amount, status, vendor, utr, payment_date, project, document_type, document_name, "
+    f"pay_to_account_number, pay_to_ifsc, {_PAYMENT_DECIDED_ON}"
+)
+
 
 def amount_window_sql(column: str, amounts: Sequence[Decimal]) -> tuple[str, list]:
     """A SQL predicate matching `column` against any of `amounts` WITHIN THE TOLERANCE.
@@ -161,26 +170,30 @@ def amount_window_sql(column: str, amounts: Sequence[Decimal]) -> tuple[str, lis
 
 
 def load_vendor_index() -> VendorIndex:
-    """Build the vendor index once per batch. ~1,077 rows; normalising per row would be 50x this."""
-    rows = frappe.db.sql(
-        """
-        SELECT name, vendor_name, account_name, account_number, ifsc
-        FROM "tabVendors"
-        """,
-        as_dict=True,
-    )
-    return build_vendor_index(
-        [
+    """Build the vendor index once per batch. ~1,077 rows; normalising per row would be 50x this.
+
+    A vendor's account, IFSC and holder name are its CURRENT Payee's
+    (`payees.vendor_account.vendor_accounts`, #1427, ADR-0033). Tier 1 reads them only for a payment
+    with no pay-to copy of its own (#1440): there a Payee shared by several vendors admits a payment
+    of any of them. A payment with a copy is matched on that copy, so a line paid to a vendor's
+    previous account still reaches the payment raised to it. Refund suggestions read this index too.
+    No vendor bank field is read. A vendor with no Payee is still indexed, by name only.
+    """
+    rows = frappe.db.sql('SELECT name, vendor_name FROM "tabVendors"', as_dict=True)
+    accounts = vendor_accounts()
+    vendors = []
+    for r in rows:
+        account = accounts.get(r["name"], {})
+        vendors.append(
             VendorRef(
                 name=r["name"],
                 vendor_name=r.get("vendor_name") or "",
-                account_name=r.get("account_name") or "",
-                account_number=r.get("account_number") or "",
-                ifsc=r.get("ifsc") or "",
+                account_name=account.get("account_name") or "",
+                account_number=account.get("account_number") or "",
+                ifsc=account.get("ifsc") or "",
             )
-            for r in rows
-        ]
-    )
+        )
+    return build_vendor_index(vendors)
 
 
 def load_project_index() -> ProjectIndex:
@@ -301,8 +314,7 @@ def _payments_by_reference(
     status_ph = ", ".join(["%s"] * len(statuses))
     rows = frappe.db.sql(
         f"""
-        SELECT name, amount, status, vendor, utr, payment_date, project, document_type,
-               document_name, {_PAYMENT_DECIDED_ON}
+        SELECT {_PAYMENT_COLUMNS}
         FROM "tabProject Payments"
         WHERE utr IS NOT NULL AND utr <> ''
           AND upper(btrim(utr)) IN ({reference_ph})
@@ -383,7 +395,9 @@ class ContainsLedger:
     doctype: str
     table: str
     reference: str
-    paid_only: bool
+    status: str | None
+    """The ONE status a record must have to count as recorded money, or None for a book with no status
+    (the two inflow books). `Paid` on the three settle ledgers; `Received` on Vendor Refunds (#1401)."""
     description: str | None = None
     part_linked: bool = False
     """Does this ledger also enter the guard PER LIVE SLIP while Reconciliation Pending? (ADR-0027 R3)
@@ -393,25 +407,38 @@ class ContainsLedger:
     money, under that line's own narration -- instead of one candidate for the whole run. False
     everywhere else: a payment is settled by one line, and an inflow has no slips to read.
     """
+    still_waiting: str | None = None
+    """A SQL predicate on the ledger's own columns for a record that has the counting `status` yet is
+    NOT recorded money: it is still waiting for its bank line. Only Vendor Refunds has one (#1403): a
+    Received refund marked `no_bank_line`, which a late credit line is matched to, not skipped for."""
 
 
 CONTAINS_LEDGERS: tuple[ContainsLedger, ...] = (
-    ContainsLedger(PAYMENT_DOCTYPE, "tabProject Payments", "utr", paid_only=True),
+    ContainsLedger(PAYMENT_DOCTYPE, "tabProject Payments", "utr", status=PAID),
     ContainsLedger(
-        PROJECT_EXPENSE_DOCTYPE, "tabProject Expenses", "payment_ref", paid_only=True,
+        PROJECT_EXPENSE_DOCTYPE, "tabProject Expenses", "payment_ref", status=PAID,
         description="description", part_linked=True,
     ),
     ContainsLedger(
-        NON_PROJECT_EXPENSE_DOCTYPE, "tabNon Project Expenses", "payment_ref", paid_only=True,
+        NON_PROJECT_EXPENSE_DOCTYPE, "tabNon Project Expenses", "payment_ref", status=PAID,
         description="description", part_linked=True,
     ),
     # Inflows have no status: every one counts (owner ruling on #1252).
-    ContainsLedger(INFLOW_DOCTYPE, "tabProject Inflows", "utr", paid_only=False),
+    ContainsLedger(INFLOW_DOCTYPE, "tabProject Inflows", "utr", status=None),
     # #1268 (ADR-0016 A-D2): a credit's other book. Without it a receipt recorded as a Non Project
     # Inflow -- by hand, or by an earlier import -- is invisible, and the same money is recorded twice.
-    ContainsLedger(NON_PROJECT_INFLOW_DOCTYPE, "tabNon Project Inflows", "utr", paid_only=False),
+    ContainsLedger(NON_PROJECT_INFLOW_DOCTYPE, "tabNon Project Inflows", "utr", status=None),
     # The third credit book: a credit recorded as a Vendor Refund is recorded, whichever card did it.
-    ContainsLedger(VENDOR_REFUND_DOCTYPE, "tabVendor Refunds", "utr", paid_only=False),
+    # ⚠️ ONLY A RECEIVED ONE (#1401, ADR-0032). A waiting refund (Reconciliation Pending) is money the
+    # vendor SAYS it sent, with a UTR typed by hand: it is what the line should be MATCHED to, and
+    # counting it here would skip the very line that proves it. A Cancelled one never arrived.
+    # ⚠️ #1403: neither is a Received refund an Admin marked "no bank line" (`no_bank_line = 1`): it
+    # counts on the PO, but its bank line has not been matched, so that line is what it waits for. The
+    # match clears the mark, and from then on its reference counts here like any Received refund's.
+    ContainsLedger(
+        VENDOR_REFUND_DOCTYPE, "tabVendor Refunds", "utr", status=VENDOR_REFUND_RECEIVED,
+        still_waiting="COALESCE(no_bank_line, 0) = 1",
+    ),
 )
 
 
@@ -427,13 +454,15 @@ def load_recorded_by_contains(
       * HIT -- an eligible token of the stored reference equals a line's transfer id or is contained
         in its match surface. The tokenising in SQL mirrors `contains_guard.reference_tokens`
         (whole string without whitespace + pieces split on non-alphanumerics; 6+ characters, a digit,
-        not a `BULD` batch id, no `DUMMY-` reference). `test_review.TestTheContainsQueryMirrorsThe
+        not a `BULD` batch id, not a bank branch code, no `DUMMY-` reference). `test_review.TestTheContainsQueryMirrorsThe
         PureTokens` pins the two together. ⚠️ KNOWN LIMIT: for a reference holding NON-ASCII
         whitespace or digits (a non-breaking space, a Devanagari numeral) PostgreSQL's `\s` / `[0-9]`
         see less than Python's, so the WHOLE-STRING token can be missed; the ASCII pieces still hit;
       * LEDGER BY DIRECTION -- `contains_guard.ledgers_for_direction`, so the direction map has one
         home. A line with no direction contributes nothing;
-      * STATUS -- `Paid` on the three settle ledgers; every Project Inflow and Non Project Inflow;
+      * STATUS -- `Paid` on the three settle ledgers; `Received` Vendor Refunds not marked `no_bank_line`
+        (#1403, `ContainsLedger.still_waiting`) (#1401: a waiting one is
+        matched, not a duplicate); every Project Inflow and Non Project Inflow;
         and (ADR-0027 R3) `Reconciliation Pending` expenses that already carry live `Settled` slips,
         which enter ONCE PER SLIP -- see the comment on that branch below.
 
@@ -480,7 +509,9 @@ def load_recorded_by_contains(
                 continue
             ref = f'"{ledger.reference}"'
             description = f'"{ledger.description}"' if ledger.description else "NULL"
-            status = ' AND status = %s' if ledger.paid_only else ""
+            status = ' AND status = %s' if ledger.status else ""
+            if ledger.still_waiting:
+                status += f" AND NOT ({ledger.still_waiting})"
             selects.append(
                 f"""
                 SELECT %s AS doctype, %s AS direction, name, amount::text AS amount,
@@ -490,7 +521,7 @@ def load_recorded_by_contains(
                 WHERE {ref} IS NOT NULL AND btrim({ref}) <> ''{status}
                 """
             )
-            select_params += [doctype, direction] + ([PAID] if ledger.paid_only else [])
+            select_params += [doctype, direction] + ([ledger.status] if ledger.status else [])
             if not ledger.part_linked:
                 continue
             slip_description = f"e.{description}" if ledger.description else "NULL"
@@ -553,6 +584,8 @@ def load_recorded_by_contains(
               AND length(piece.token) >= {MIN_TOKEN_LENGTH}
               AND piece.token ~ '[0-9]'
               AND piece.token !~ '^BULD[0-9]+$'
+              -- A bank branch code (IFSC), or one cut short -- `contains_guard._BANK_BRANCH_CODE`.
+              AND piece.token !~ '^[A-Z]{{4}}0[A-Z0-9]{{0,6}}$'
         ),
         gram AS (
             SELECT line.direction, substr(line.surface, i, {MIN_TOKEN_LENGTH}) AS g
@@ -598,11 +631,12 @@ def _contains_status(ledger: ContainsLedger, import_row) -> str:
     """The status a contains-guard candidate carries: the one its branch of the union selected for.
 
     A per-slip candidate is a `Reconciliation Pending` expense by construction (R3); a whole-record
-    candidate is `Paid` on the three settle ledgers and blank on the inflows, which have no status.
+    candidate is `Paid` on the three settle ledgers, `Received` on Vendor Refunds, and blank on the two
+    inflow books, which have no status.
     """
     if import_row:
         return RECONCILIATION_PENDING
-    return PAID if ledger.paid_only else ""
+    return ledger.status or ""
 
 
 def load_record_claims(records) -> tuple[RecordClaim, ...]:
@@ -620,6 +654,10 @@ def load_record_claims(records) -> tuple[RecordClaim, ...]:
 
     `records` is anything with `doctype` and `name` -- in practice the contains-guard pool. The pairs
     travel as a `VALUES` list with explicit placeholders (see the module docstring on `= ANY(%s)`).
+
+    Each claim carries how much of the record its line accounts for (2026-10-15): a settled leg's
+    `target_amount`, or none for a skip basis, which accounts for the whole record. `::text` and
+    `normalize_amount`, as `load_recorded_by_contains` reads amounts, so a junk value reads as 0.
     """
     pairs = sorted({(r.doctype, r.name) for r in records})
     if not pairs:
@@ -628,7 +666,8 @@ def load_record_claims(records) -> tuple[RecordClaim, ...]:
     found = frappe.db.sql(
         f"""
         WITH rec(doctype, name) AS (VALUES {values})
-        SELECT rec.doctype, rec.name, r.name AS import_row, r.import_batch, 0 AS settled
+        SELECT rec.doctype, rec.name, r.name AS import_row, r.import_batch, 0 AS settled,
+               NULL::text AS amount
         FROM "tabOutflow Import Row" r
         -- The CASE, not a WHERE on json_typeof: a WHERE may be applied after the set-returning call,
         -- and one non-array value would then fail the whole match run.
@@ -639,7 +678,8 @@ def load_record_claims(records) -> tuple[RecordClaim, ...]:
         WHERE r.duplicate_basis IS NOT NULL
           AND r.row_status = %s
         UNION
-        SELECT rec.doctype, rec.name, m.import_row, m.import_batch, 1 AS settled
+        SELECT rec.doctype, rec.name, m.import_row, m.import_batch, 1 AS settled,
+               m.target_amount::text AS amount
         FROM "tabOutflow Row Match" m
         JOIN rec ON rec.doctype = m.target_doctype AND rec.name = m.target_name
         WHERE m.match_kind = %s
@@ -654,6 +694,8 @@ def load_record_claims(records) -> tuple[RecordClaim, ...]:
             import_row=r.get("import_row") or "",
             import_batch=r.get("import_batch") or "",
             settled=bool(r.get("settled")),
+            # A skip basis claims the whole record (None); a settled leg claims its own part.
+            amount=None if r.get("amount") is None else normalize_amount(r.get("amount")),
         )
         for r in found
     )
@@ -663,7 +705,8 @@ def load_payments_by_amount(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]
     """TIERS 1 AND 2, SETTLE CANDIDATES: APPROVED payments inside these amount windows.
 
     ⚠️ ONE POOL SERVES BOTH TIERS, AND THE AMOUNT IS THE ONLY AXIS IT SCOPES BY. Tier 1 then filters
-    it in memory by vendor and the strict Re 1 window; tier 2 filters it by project. Pushing either
+    it in memory by the payment's pay-to account (else its vendor's Payee) and the strict Re 1
+    window; tier 2 filters it by project. Pushing either
     of those into SQL would build a pool that is narrower than one of the tiers -- and a pool
     narrower than a tier hides matches without leaving a trace, which is worse than a pool that is
     slightly too wide.
@@ -687,8 +730,7 @@ def load_payments_by_amount(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]
 
     rows = frappe.db.sql(
         f"""
-        SELECT name, amount, status, vendor, utr, payment_date, project, document_type,
-               document_name, {_PAYMENT_DECIDED_ON}
+        SELECT {_PAYMENT_COLUMNS}
         FROM "tabProject Payments"
         WHERE {amount_clause}
           AND status IN ({status_ph})
@@ -1082,4 +1124,6 @@ def _payment_target(row: dict) -> TargetRef:
         project=row.get("project") or None,
         description="",
         decided_on=_decided_on(row),
+        pay_to_account_number=row.get("pay_to_account_number") or "",
+        pay_to_ifsc=row.get("pay_to_ifsc") or "",
     )

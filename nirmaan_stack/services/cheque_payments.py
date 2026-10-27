@@ -1,7 +1,8 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Cheque payments — approved like any payment, then moved straight on to Reconciliation Pending.
+"""Cheque payments — approved like any payment, then moved straight on to Reconciliation Pending,
+and their Cheque Issued in the same write.
 
 A cheque is already written when it is requested (its number and date are captured on the
 request), so there is nothing for an accountant to pay: "Payment need to paid" (`Approved`) has
@@ -22,14 +23,24 @@ withhold tax a second time.
 only for rows still at `Approved` (`bulk_actions._record_bulk_deductions`); moving a row before that
 would leave a Work Order cheque with no deduction and its amount gross. That is why this is an
 explicit call at the end of each approval route, never a hook inside the save.
+
+THE MOVE ISSUES THE CHEQUE (#1479, spec #1477, ADR-0035). A Payment cheque starts Approval Pending; the save
+that moves its last payment on to Reconciliation Pending also makes it Issued, dated the day of the
+last approval (`services/cheques/status.issue`). One transaction, so a failed move leaves both the
+payment at Approved and its cheque at Approval Pending: the two never disagree.
 """
 
 import frappe
 
 from nirmaan_stack.services import payment_tds, settlement
+from nirmaan_stack.services.cheques.rules import ISSUED
 
 MODE_ONLINE = "Online"
 MODE_CHEQUE = "Cheque"
+
+#: The flag `move_to_reconciliation` saves with: the move is the cheque rule's, not a person's
+#: Mark as Paid, so the payment-step guard lets it through whoever set it going (`services/payment_steps`).
+CHEQUE_MOVES_ON = "cheque_moves_on"
 
 
 def is_cheque(doc) -> bool:
@@ -50,10 +61,11 @@ def has_no_tds_to_wait_for(doc) -> bool:
 
 
 def move_to_reconciliation(payment_name: str, *, sync_po_term: bool = True) -> bool:
-	"""Move an `Approved` cheque payment on to `Reconciliation Pending`. False when there was nothing to move.
+	"""Move an `Approved` cheque payment on to `Reconciliation Pending`, and issue its Cheque once every
+	payment on it has moved (`services/cheques/status.issue`). False when there was nothing to move.
 
-	RAISES on failure; the caller owns the transaction (`api/payments/project_payments.
-	_move_cheque_to_reconciliation`, or the bulk approval group). A payment that fails to move
+	RAISES on failure; the caller owns the transaction (`commit_move_to_reconciliation`, or the bulk
+	approval group). A payment that fails to move
 	simply stays at `Approved`, where the accountant's "Mark as Paid" finishes the same job --
 	nothing is lost.
 
@@ -61,24 +73,80 @@ def move_to_reconciliation(payment_name: str, *, sync_po_term: bool = True) -> b
 	group in one PO save (`bulk_actions._process_group`): the payment's own hook then leaves the
 	PO alone, exactly as it does for the bulk approval itself.
 
-	⚠️ THE TDS CALL IS A RETRY, NOT A SECOND DEDUCTION. `record_deduction` returns the existing row
-	when there is one. It is here for the payment whose deduction FAILED during its approval
-	(`record_deduction_if_eligible` swallows the error): once it leaves `Approved` nothing can record
-	it any more (`is_deductible` needs `Approved`), so it is recorded now or the move is refused.
+	The step itself, TDS retry included, is `to_reconciliation`.
 	"""
 	pay = frappe.get_doc("Project Payments", payment_name)
 	if not is_cheque(pay) or (pay.status or "").strip() != settlement.STATUS_APPROVED:
 		return False
-	# A held payment stays at Approved (`services/payment_hold.py`, whose `validate_hold` would
-	# refuse the save anyway) -- returning here keeps a stray call from logging an error.
-	if pay.get("on_hold"):
-		return False
 
-	if payment_tds.is_deductible(pay):
-		payment_tds.record_deduction(pay)
-
-	pay.status = settlement.STATUS_RECONCILIATION_PENDING
+	pay.flags[CHEQUE_MOVES_ON] = True
 	if not sync_po_term:
 		pay.flags.bulk_approval = True  # `_find_and_update_po_term` stays out; the caller writes the term
+	if not to_reconciliation(pay):
+		return False
+	if pay.get("cheque"):
+		# Local: the cheques service imports this module.
+		from nirmaan_stack.services.cheques.status import issue
+		from nirmaan_stack.services.cheques.writer import CHEQUES_CHANGED_EVENT
+
+		if issue(pay.cheque, user=frappe.session.user):
+			frappe.publish_realtime(CHEQUES_CHANGED_EVENT, {"cheque": pay.cheque}, after_commit=True)
+	return True
+
+
+def to_reconciliation(pay) -> bool:
+	"""THE STEP FROM `Approved` TO `Reconciliation Pending` FOR A CHEQUE PAYMENT: `pay` (a loaded
+	payment at Approved, carrying the caller's flags) has its TDS deduction retried, then is saved at
+	Reconciliation Pending. The reload after a deduction keeps `pay.flags`. False, and nothing written, for a payment on hold:
+	it stays at Approved (`services/payment_hold.validate_hold` would refuse the save). Its callers are the
+	move after an approval (`move_to_reconciliation`) and the bank import, which brings a cheque's payments
+	forward before it pays them (`services/cheques/status._bring_forward`).
+
+	⚠️ THE TDS CALL IS A RETRY, NOT A SECOND DEDUCTION. `record_deduction` returns the existing row
+	when there is one. It is here for the payment whose deduction FAILED during its approval
+	(`record_deduction_if_eligible` swallows the error): once it leaves `Approved` nothing can record
+	it any more (`is_deductible` needs `Approved`), so it is recorded now or the move is refused. The
+	deduction writes the payment's net amount, so `pay` is read again before its save.
+	"""
+	if pay.get("on_hold"):
+		return False
+	if payment_tds.is_deductible(pay):
+		payment_tds.record_deduction(pay)
+		pay.reload()
+	pay.status = settlement.STATUS_RECONCILIATION_PENDING
 	pay.save(ignore_permissions=True)
 	return True
+
+
+def commit_move_to_reconciliation(payment_name: str) -> bool:
+	"""Move an Approved cheque payment on to Reconciliation Pending, in its OWN transaction.
+
+	⚠️ CALL IT ONLY AFTER THE APPROVAL HAS BEEN COMMITTED. It commits or rolls back by itself, so
+	a failure here can never take the approval with it, and it NEVER raises: a payment it could
+	not move stays at `Approved`, in "Payment need to paid", where the accountant's "Mark as Paid"
+	makes the same move. The rule itself is `move_to_reconciliation`. Every approval route, a hold
+	release and each cheques endpoint that puts a payment on a Cheque end with it.
+	"""
+	try:
+		moved = move_to_reconciliation(payment_name)
+		frappe.db.commit()
+		return moved
+	except Exception:
+		frappe.db.rollback()
+		frappe.log_error(
+			title=f"Cheque payment not moved to Reconciliation Pending ({payment_name})",
+			message=frappe.get_traceback(),
+		)
+		return False
+
+
+def in_cheque_tracker_sql(status_col: str, cheque_status_col: str) -> tuple[str, dict]:
+	"""`(condition, params)`: the SQL condition for a payment that waits in the Cheque Tracker, not in
+	Project Payments' Reconciliation Pending (#1483, spec #1477): at Reconciliation Pending on an Issued
+	cheque. `status_col` / `cheque_status_col` name the payment's status and its cheque's status in the
+	caller's query. Both Reconciliation Pending counts (the tab strip, the sidebar badge) leave these out
+	through here, so they cannot disagree. A blank status stays a blank: `COALESCE`, so `NOT (...)` keeps it."""
+	return (
+		f"COALESCE({status_col}, '') = %(tracker_status)s AND COALESCE({cheque_status_col}, '') = %(tracker_cheque)s",
+		{"tracker_status": settlement.STATUS_RECONCILIATION_PENDING, "tracker_cheque": ISSUED},
+	)

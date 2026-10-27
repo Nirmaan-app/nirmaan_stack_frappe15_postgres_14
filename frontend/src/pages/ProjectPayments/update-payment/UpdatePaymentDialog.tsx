@@ -11,6 +11,7 @@ import { TailSpin }   from "react-loader-spinner";
 
 import { formatToRoundedIndianRupee as fmt } from "@/utils/FormatPrice";
 import { CustomAttachment }      from "@/components/helpers/CustomAttachment";
+import { PayToBox }              from "@/components/payees/PayToBox";
 
 import { useDialogStore }          from "@/zustand/useDialogStore";
 
@@ -19,7 +20,6 @@ import { AlertTriangle, Loader2, Sparkles } from "lucide-react";
 import { useUpdatePaymentRequest } from "../hooks/useUpdatePaymentRequests";
 import { useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
 import { DOC_TYPES } from "../approve-payments/constants";
-import { useOrderPayments } from "@/hooks/useOrderPayments";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
@@ -40,6 +40,8 @@ export interface ProjectPaymentUpdateFields {
         document_name : string;
         document_type : string;
         amount        : number;
+        /** The full bill (`requested_amount` of the queue row): `amount` plus any tax cut from it. */
+        requested_amount ?: number;
         status        : string;
         /** A cheque payment's number: the reference its reconciliation starts from. */
         cheque_no    ?: string;
@@ -56,8 +58,7 @@ export default function UpdatePaymentRequestDialog({
   mode, payment, onSuccess
 }: UpdatePaymentDialogProps) {
 
-  const { getAmount: getTotalAmountPaidForPO } = useOrderPayments()
-  const { getTotalAmount } = useOrderTotals()
+  const { getTotalAmount, getAmountPaid } = useOrderTotals()
 
   /* global dialog open/close from zustand */
   const { paymentDialog: open, togglePaymentDialog: toggle } =
@@ -80,9 +81,9 @@ export default function UpdatePaymentRequestDialog({
      against payment.amount. */
   const [receiptAmount, setReceiptAmount]       = useState<number | null>(null);
   const [amountDeltaThreshold, setAmountDeltaThreshold] = useState<number>(2);
-  /* Soft beneficiary-name check — receipt payee vs this payment's vendor. Only a
-     confirmed mismatch (match === false) is stored; null hides the banner. */
-  const [vendorMismatch, setVendorMismatch]     = useState<{ extracted: string } | null>(null);
+  /* Soft beneficiary-name check — receipt payee vs this payment's own account holder and its
+     vendor (#1438). Only a confirmed mismatch (match === false) is stored; null hides the banner. */
+  const [vendorMismatch, setVendorMismatch]     = useState<{ extracted: string; expected: string } | null>(null);
 
   /* Reset every form / autofill bit whenever the dialog (re)opens or the
      selected payment row changes. The dialog component stays mounted
@@ -161,7 +162,9 @@ export default function UpdatePaymentRequestDialog({
 
       // Soft beneficiary check — only surface a confirmed mismatch (match === false).
       const vm = data?.validation?.vendor_match;
-      setVendorMismatch(vm?.match === false ? { extracted: (vm.extracted || "").trim() } : null);
+      setVendorMismatch(vm?.match === false
+        ? { extracted: (vm.extracted || "").trim(), expected: (vm.expected_account_name || "").trim() }
+        : null);
 
       if (filled.size > 0) {
         toast({
@@ -291,10 +294,19 @@ export default function UpdatePaymentRequestDialog({
           <Row label="Project"  val={payment.project_label} />
           <Row label="Vendor"   val={payment.vendor_label} />
           <Row label="Doc #"    val={payment.document_name} />
-          <Row label="Req. Amt" val={fmt(payment.amount)} labelClass="font-bold" valClass="font-bold" />
+          {/* Req. Amt is the full bill (story 60, walk W5); what is paid, the stored amount, under it. */}
+          <Row label="Req. Amt" val={fmt(payment.requested_amount ?? payment.amount)} labelClass="font-bold" valClass="font-bold" />
+          {payment.requested_amount !== undefined && payment.requested_amount !== payment.amount && (
+            <Row label="To be paid" val={fmt(payment.amount)} />
+          )}
           <Row label={payment.document_type === "Service Requests" ? "WO Value" : "PO Value"} val={fmt(getTotalAmount(payment.document_name, payment.document_type).totalWithTax)} />
-          <Row label="Total Paid" val={fmt(getTotalAmountPaidForPO(payment.document_name, ["Paid"]))} />
+          <Row label="Total Paid" val={fmt(getAmountPaid(payment.document_name, payment.document_type))} />
         </div>
+
+        {/* Where the money goes: the payment's own pay-to account (#1438). */}
+        {mode === "fulfil" && payment.name && (
+          <PayToBox doctype="Project Payments" name={payment.name} />
+        )}
 
         {mode === "fulfil" ? (
           stage === "upload" ? (
@@ -378,14 +390,14 @@ export default function UpdatePaymentRequestDialog({
                 </div>
               )}
 
-              {/* Soft warning: receipt beneficiary name differs from this payment's vendor */}
+              {/* Soft warning: receipt beneficiary name differs from this payment's account holder */}
               {vendorMismatch && (
                 <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-300 px-2.5 py-1.5">
                   <AlertTriangle className="h-3.5 w-3.5 text-amber-700 flex-shrink-0 mt-0.5" />
                   <p className="text-xs text-amber-900 leading-snug">
                     <span className="font-medium">Beneficiary mismatch:</span> receipt paid{" "}
                     <span className="font-medium">{vendorMismatch.extracted || "an unrecognised name"}</span>, not{" "}
-                    <span className="font-medium">{payment.vendor_label}</span>.
+                    <span className="font-medium">{vendorMismatch.expected || payment.vendor_label}</span>.
                   </p>
                 </div>
               )}

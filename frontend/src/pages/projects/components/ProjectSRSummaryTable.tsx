@@ -28,6 +28,11 @@ import {
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
+import {
+  LISTED_WORK_ORDER_STATUSES,
+  workOrderBadge,
+  workOrderBadgeVariant,
+} from "@/pages/ServiceRequests/config/workOrderAmendment";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList"; // Adjust path
 import { TailSpin } from "react-loader-spinner";
 import {
@@ -82,9 +87,7 @@ export const SR_SUMMARY_DATE_COLUMNS: string[] = ["creation", "modified"];
 export const SR_SUMMARY_STATUS_OPTIONS = [
   { label: "Approved", value: "Approved" },
   { label: "Vendor Selected", value: "Vendor Selected" },
-  { label: "Created", value: "Created" },
   { label: "Amendment", value: "Amendment" },
-  // { label: "Edit", value: "Edit" },
   { label: "Rejected", value: "Rejected" },
 ];
 
@@ -163,8 +166,8 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
     if (projectId) {
       filters.push(["project", "=", projectId]);
     }
-    // // Could add other default static filters here, e.g., status "Approved" for this summary
-    filters.push(["status", "=", "Approved"]);
+    // A Work Order under amendment stays listed, with its badge (#1540).
+    filters.push(["status", "in", LISTED_WORK_ORDER_STATUSES]);
     return filters;
   }, [projectId]);
 
@@ -270,14 +273,8 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
           <DataTableColumnHeader column={column} title="Status" />
         ),
         cell: ({ row }) => {
-          const isFinalized = row.getValue("is_finalized");
-          return (
-            <Badge
-              variant={isFinalized ? "green" : "outline"}
-            >
-              {isFinalized ? "Finalized" : "Approved"}
-            </Badge>
-          );
+          const badge = workOrderBadge(row.original);
+          return <Badge variant={workOrderBadgeVariant(badge)}>{badge}</Badge>;
         },
         enableColumnFilter: true,
         size: 120,
@@ -451,7 +448,7 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
                     </span>
                   </p>
                   <p className="text-gray-700">
-                    <span className="font-medium">Total Amt Paid:</span>{" "}
+                    <span className="font-medium">Paid on Approved WOs (incl. TDS):</span>{" "}
                     <span className="text-green-600 font-semibold">
                       {formatToRoundedIndianRupee(
                         srAggregates.total_amount_paid_for_srs
@@ -462,8 +459,7 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
                     <span className="font-medium">Total Amt Payable:</span>{" "}
                     <span className="text-yellow-600 font-semibold">
                       {formatToRoundedIndianRupee(
-                        srAggregates.total_sr_value_inc_gst -
-                        srAggregates.total_amount_paid_for_srs
+                        srAggregates.total_amount_due_for_srs
                       )}
                     </span>
                   </p>

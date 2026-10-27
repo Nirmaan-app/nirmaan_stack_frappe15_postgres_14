@@ -23,12 +23,14 @@ import {
   ClipboardMinus,
   HandCoins,
   PiggyBank,
+  Banknote,
+  BookUser,
   ReceiptText, FileUp,
   CreditCard,
   Dices,
   FileSpreadsheet,
   Landmark, PencilRuler, SquareStack,
-  Warehouse, ClipboardList,
+  Warehouse,
   FileChartLine,
   PackageCheck,
   Tickets,
@@ -70,16 +72,29 @@ import {
 } from "../ui/collapsible";
 import { Separator } from "../ui/separator";
 import { useCountsBridge } from "@/hooks/useSidebarCounts";
+import { useAppAccess } from "@/hooks/useAppAccess";
+import { useExpenseAccess } from "@/hooks/useExpenseAccess";
+import { showsExpenses } from "@/utils/expenseAccess";
 import {
+  ACCOUNTANT_LEAD_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ADMIN_PROFILE,
+  CHEQUE_ACCESS_PROFILES,
   HOD_ACCESS,
+  HR_EXECUTIVE_PROFILE,
+  HR_LEAD_PROFILE,
   MATERIAL_PROCUREMENT_PROFILES,
   NON_PROJECT_INFLOWS_ACCESS,
+  PMO_EXECUTIVE_PROFILE,
   PROCUREMENT_PROFILES,
+  PROJECT_LEAD_PROFILE,
   SERVICE_PROCUREMENT_PROFILES,
   canUseProjectBilling,
   isMaterialProcurementProfile,
+  isNirmaanAdmin,
   isProcurementProfile,
 } from "@/constants/roles";
+import { payeesSidebarPlace } from "@/utils/payees/payeeRoutes";
 
 export function NewSidebar() {
   const [role, setRole] = useState<string | null>(null);
@@ -89,8 +104,15 @@ export function NewSidebar() {
 
   const user_id = Cookies.get("user_id") ?? "";
 
+  // While the app is locked (utils/appAccess.ts) -- or still being checked, so no item shows and then vanishes --
+  // the menu is the Dashboard alone; the dashboard shows what to sort out first.
+  const appAccess = useAppAccess();
+
   // * inside component body */
-  useCountsBridge(user_id);
+  // The badge counts are for menu items a locked person can't see: fetch them only once the app is open
+  // (code review #12). A null user keeps the counts query off.
+  useCountsBridge(appAccess.state === "open" ? user_id : null);
+  const { access: expenseAccess } = useExpenseAccess();
 
   const [collapsedKey, setCollapsedKey] = useState<string | null>(null); // Tracks the currently open group
 
@@ -212,7 +234,8 @@ export function NewSidebar() {
   //
   // Kept as an inline spread rather than a second grouped block so the Admin
   // Options items stay in their existing visual order.
-  const isAdminOnly = user_id == "Administrator" || role == "Nirmaan Admin Profile";
+  const isAdminOnly = isNirmaanAdmin(role, user_id);
+  const payeesPlace = payeesSidebarPlace(role, user_id);
 
   const items = useMemo(() => [
     { key: "/", icon: LayoutGrid, label: "Dashboard" },
@@ -268,6 +291,8 @@ export function NewSidebar() {
                 { key: "/asset-management", label: "Assets" },
                 { key: "/vendors", label: "Vendors" },
                 ...(isAdminOnly ? [{ key: "/customers", label: "Customers" }] : []),
+                // Payees (#1466): the Admin's sits here with the other masters (`payeesSidebarPlace`).
+                ...(payeesPlace === "admin-options" ? [{ key: "/payees", label: "Payees" }] : []),
                 { key: "/packages-settings", label: "Packages Settings" },
                 { key: "/tds-repository", label: "TDS Repository" },
                 { key: "/project-gst", label: "Project GST" },
@@ -291,6 +316,16 @@ export function NewSidebar() {
           icon: UsersRound,
           label: "Users",
         },
+        {
+          key: "/asset-management",
+          icon: Package,
+          label: "Assets",
+        },
+      ]
+      : []),
+    // HR Lead has every asset permission HR Executive has (owner, 2026-10-15), so the Assets link too.
+    ...(role == "Nirmaan HR Lead Profile"
+      ? [
         {
           key: "/asset-management",
           icon: Package,
@@ -553,11 +588,11 @@ export function NewSidebar() {
         },
       ]
       : []),
-    // HR Executive added 2026-09-17 (owner): HR gets four VIEW-ONLY tabs there (Reconciliation
-    // Pending, Payment Done, Payments Pending, Payment By Me) -- RenderProjectPaymentsComponent
-    // holds it to them. HR LEAD is
-    // deliberately NOT here: it cannot create or delete an expense, so that tab stays empty.
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan HR Executive Profile", ...PROCUREMENT_PROFILES].includes(role as string)
+    // HR Executive added 2026-09-17 (owner): HR gets VIEW-ONLY tabs there (Reconciliation
+    // Pending, Payment Done, Payments Pending, Payment By Me, and All Payments since #1476) --
+    // `paymentsTabSet` holds it to them. HR LEAD added #1476 (spec #1470): the same view-only
+    // tabs, landing on "Payment Raised By Me".
+    ...(user_id == "Administrator" || [ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE, ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, PROJECT_LEAD_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, ...PROCUREMENT_PROFILES].includes(role as string)
       ? [
         {
           key: '/project-payments',
@@ -571,20 +606,30 @@ export function NewSidebar() {
         },
       ]
       : []),
-    // HR LEAD ADDED 2026-09-23 (owner). It was already a valid REVIEWER server-side
-    // (`api/expense_requests/access.PM_REQUEST_REVIEWERS`) but appeared in no sidebar gate
-    // anywhere, so the approve right it held was unreachable -- there was no door to the
-    // screen. It now gets the same three tabs as Admin / Accountant / HR Executive; the tab
-    // set itself is decided by `reviewsExpenseRequests` in constants/roles.ts.
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan HR Executive Profile", "Nirmaan HR Lead Profile", "Nirmaan Project Manager Profile"].includes(role as string)
+    // Cheque Tracker (#1483): it was Reports › Payment › Cheque Payment. Reads the same constant as the route
+    // guard (routesConfig.tsx); every `api/cheques/` endpoint enforces it. Project Managers are not in it.
+    // ⚠️ The flat-nav Set below matches on this LABEL — both strings move together.
+    ...(user_id == "Administrator" || CHEQUE_ACCESS_PROFILES.includes(role as string)
       ? [
         {
-          // Renamed "Expense" -> "Expense Request" (owner, 17 Sep 2026): the module now shows
-          // only the request list -- ExpenseLayout hides the Misc Project / Non-Project tabs.
-          // ⚠️ The flat-nav Set below matches on this LABEL — both strings move together.
+          key: '/cheque-tracker',
+          icon: Banknote,
+          label: 'Cheque Tracker',
+        },
+      ]
+      : []),
+    // Expenses (spec #1494, #1506): shown to someone who can raise at least one expense type, or who
+    // reviews -- the server's answer (`useExpenseAccess`, `access.opens_expenses`), read from the same
+    // `Expense Type.allowed_roles` the request-creating call enforces, and the same answer the
+    // `/expense` route guard (`ExpenseRoute`) reads. It replaced a fixed profile list that left out
+    // Project Lead (who raises three types) and kept in profiles that could raise nothing.
+    // ⚠️ The flat-nav Set below matches on this LABEL — both strings move together.
+    ...(showsExpenses(expenseAccess)
+      ? [
+        {
           key: '/expense',
           icon: Landmark,
-          label: 'Expense Request',
+          label: 'Expenses',
         },
       ]
       : []),
@@ -594,10 +639,9 @@ export function NewSidebar() {
     // (owner, 2026-10-07).
     // ── "Expense" HIDDEN from the sidebar (owner, 15 Sep 2026) ──────────────────
     //
-    // Expenses are now raised and worked from "Project Payment & Expense": the unified
-    // queue lists all three money-out ledgers, and the top-bar "Expense Request"
-    // dropdown creates either kind. A second nav entry pointing at the same records
-    // was two doors into one room.
+    // Expenses are worked from "Project Payment & Expense": the unified queue lists all three
+    // money-out ledgers. They are raised through New Expense on the Expenses page (spec #1494).
+    // A second nav entry pointing at the same ledger records was two doors into one room.
     //
     // ⚠️ HIDDEN, NOT DELETED — exactly like PO Wise / All Payments on the payments tab
     // strip. `/expense/project` and `/expense/non-project` still RESOLVE
@@ -652,6 +696,17 @@ export function NewSidebar() {
         },
       ]
       : []),
+    // Payees (spec #1420) for the Accountants; the Admin's is in Admin Options (#1466). Both read the
+    // same constant as the route guard (routesConfig.tsx).
+    ...(payeesPlace === "top-level"
+      ? [
+        {
+          key: '/payees',
+          icon: BookUser,
+          label: 'Payees',
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES].includes(role as string)
       ? [
         {
@@ -684,7 +739,8 @@ export function NewSidebar() {
         {
           key: '/inventory',
           icon: Warehouse,
-          label: 'Inventory',
+          // ⚠️ Matched by label in the flat-button set below: rename both together.
+          label: 'Inventory / Warehouse',
         },
       ]
       : []),
@@ -694,15 +750,6 @@ export function NewSidebar() {
           key: '/internal-transfer-memos',
           icon: ArrowLeftRight,
           label: 'Internal Transfer Memos',
-        },
-      ]
-      : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role as string)
-      ? [
-        {
-          key: '/warehouse',
-          icon: Package,
-          label: 'Warehouse',
         },
       ]
       : []),
@@ -782,15 +829,6 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role as string)
-      ? [
-        {
-          key: '/pr-tracker',
-          icon: ClipboardList,
-          label: 'PR Tracker',
-        },
-      ]
-      : []),
     ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role as string)
       ? [
         {
@@ -821,7 +859,7 @@ export function NewSidebar() {
 
 
 
-  ], [user_id, role, isAdminOnly]);
+  ], [user_id, role, isAdminOnly, payeesPlace, expenseAccess]);
 
   const allKeys = useMemo(() => new Set([
     "projects",
@@ -857,9 +895,11 @@ export function NewSidebar() {
     // "approved-sr",
     "notifications",
     "project-payments",
+    "cheque-tracker",
     "credits",
     "in-flow-payments",
     "non-project-inflows",
+    "payees",
     'invoice-reconciliation',
     'project-invoices',
     'expense',
@@ -868,7 +908,6 @@ export function NewSidebar() {
     'snag-list',
     'hod-tracker',
     'critical-po-tracker',
-    'pr-tracker',
     'work-plan-tracker',
     'material-plan-tracker',
     'cashflow-plan-tracker',
@@ -903,7 +942,7 @@ export function NewSidebar() {
 
 
   const groupMappings = useMemo(() => ({
-    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "packages-settings", "tds-repository", "all-AQs", "project-gst", "upload-boq/templates"],
+    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "payees", "packages-settings", "tds-repository", "all-AQs", "project-gst", "upload-boq/templates"],
     "/asset-management": ["asset-management"],
     "/projects": ["projects"],
     "/products": ["products"],
@@ -914,9 +953,11 @@ export function NewSidebar() {
     "/service-requests": ["service-requests", "service-requests-list"],
     "/purchase-orders": ["purchase-orders"],
     "/project-payments": ["project-payments"],
+    "/cheque-tracker": ["cheque-tracker"],
     "/credits": ["credits"],
     "/in-flow-payments": ["in-flow-payments"],
     "/non-project-inflows": ["non-project-inflows"],
+    "/payees": ["payees"],
     "/invoice-reconciliation": ["invoice-reconciliation"],
     "/project-invoices": ["project-invoices"],
     // Keyed on the module ROOT so every tab (requests / project / non-project) keeps the
@@ -927,14 +968,14 @@ export function NewSidebar() {
     '/snag-list': ['snag-list'],
     '/hod-tracker': ['hod-tracker'],
     '/critical-po-tracker': ['critical-po-tracker'],
-    '/pr-tracker': ['pr-tracker'],
     '/work-plan-tracker': ['work-plan-tracker'],
     '/material-plan-tracker': ['material-plan-tracker'],
     '/cashflow-plan-tracker': ['cashflow-plan-tracker'],
     '/tds-approval': ['tds-approval'],
-    '/inventory': ['inventory'],
+    // Warehouse is a tab of the "Inventory / Warehouse" entry (InventoryWarehouseLayout), so
+    // /warehouse keeps that entry highlighted. 'warehouse' stays in allKeys for that match.
+    '/inventory': ['inventory', 'warehouse'],
     '/internal-transfer-memos': ['internal-transfer-memos'],
-    '/warehouse': ['warehouse'],
     '/help-repository': ['help-repository'],
     '/commission-tracker': ['commission-tracker'],
     '/billing-tracker': ['billing-tracker'],
@@ -966,6 +1007,7 @@ export function NewSidebar() {
       if (selectedKeys === "products") return "/products";
       if (selectedKeys === "vendors") return "/vendors";
       if (selectedKeys === "customers") return "/customers";
+      if (selectedKeys === "payees") return "/payees";
       if (selectedKeys === "asset-management") return "/asset-management";
     }
 
@@ -991,6 +1033,8 @@ export function NewSidebar() {
       setCollapsedKey(openKey)
     }
   }, [])
+
+  const visibleItems = appAccess.state === "open" ? items : items.filter((item) => item.key === "/");
 
   return (
     <Sidebar collapsible="icon">
@@ -1022,7 +1066,7 @@ export function NewSidebar() {
       >
         <SidebarGroup>
           <SidebarMenu>
-            {items.map((item) => (
+            {visibleItems.map((item) => (
               <Collapsible
                 key={item.key}
                 open={collapsedKey === item?.key}
@@ -1038,6 +1082,8 @@ export function NewSidebar() {
                     "Procurement Requests",
                     "Purchase Orders",
                     "Project Payment & Expense",
+                    // Cheque Tracker (#1483): flat nav button, same trap as Non-Project Inflows below.
+                    "Cheque Tracker",
                     "Credit Payments",
                     "Sent Back Requests",
                     "Projects",
@@ -1047,6 +1093,8 @@ export function NewSidebar() {
                     // Non-Project Inflows (#1265): flat nav button. It was first shipped WITHOUT this
                     // label, so it rendered as an empty group -- a chevron and a click that went nowhere.
                     "Non-Project Inflows",
+                    // Payees (spec #1420): flat nav button, same trap as Non-Project Inflows above.
+                    "Payees",
                     "Vendor Invoice Recon",
                     "Reports",
                     "Design Tracker",
@@ -1061,13 +1109,12 @@ export function NewSidebar() {
                     "HOD Tracker",
                     // Flat nav button (no children), like the trackers around it.
                     "Billing Tracker",
-                    "PR Tracker",
                     "PO Tracker",
                     "Work Plan Tracker",
                     "Material Plan Tracker",
                     "Cashflow Plan Tracker",
                     "Project Invoices",
-                    "Expense Request",
+                    "Expenses",
                     "Users",
                     "Assets",
                     "Vendors",
@@ -1075,9 +1122,8 @@ export function NewSidebar() {
                     "Products",
                     "TDS Approval",
                     "Work Order Rate Card",
-                    "Inventory",
+                    "Inventory / Warehouse",
                     "Internal Transfer Memos",
-                    "Warehouse",
                     "PMO Dashboard",
                     "Reminders Dashboard",
                     "Upload BoQ",

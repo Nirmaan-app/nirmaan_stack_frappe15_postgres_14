@@ -5,20 +5,31 @@
 vendor on a project, or against no document at all (a Misc. Expense).
 
 Created from a bank-statement credit on the Bulk Import Transactions screen: a credit split across
-three POs and a misc remainder becomes four records. It has NO status -- it counts the moment it is saved, like the other
-inflow books (`Project Inflows`, `Non Project Inflows`).
+three POs and a misc remainder becomes four records, each `Received` from the moment it is saved.
 
-⚠️ IT LOWERS ITS PO'S / WORK ORDER'S `amount_paid` (owner, 2026-09-17): the stored figure is the Paid
-payments LESS the refunds, recomputed on every save and delete by
-`integrations/controllers/vendor_refunds`. It creates no Project Payment. Recording the same money
-through the PO Adjustment "Vendor has refund" flow as well would lower the paid amount twice.
+STATUS (#1398, ADR-0032): `Reconciliation Pending` (recorded before its bank line), `Received` (a bank
+line is matched to it, or it was recorded from one) or `Cancelled`. Which status counts for what lives
+in `services/vendor_refunds` (`LOWERS_PAID_STATUSES`, `TAKES_REFUNDABLE_STATUSES`).
+
+⚠️ A RECEIVED REFUND LOWERS ITS PO'S / WORK ORDER'S `amount_paid` (owner, 2026-09-17): the stored figure
+is the Paid payments LESS the Received refunds, recomputed on every save and delete by
+`integrations/controllers/vendor_refunds`, which also recounts the vendor's credit. It creates no Project Payment.
+
+WAITING REFUNDS (#1400): "Adjust Payments" records one at Reconciliation Pending
+(`api/vendor_refunds/waiting_refunds`); it holds its amount of the PO's overpaid credit. Only while it
+waits may its amount or PO change, and only by its creator (`waiting_created_by`) or an Accountant
+(`integrations/controllers/vendor_refunds.guard_money_edit`). A Cancelled refund skips the cap below.
+
+WAYS OUT (#1403): its creator or an Accountant may Cancel a waiting refund; an Admin may mark it Received
+with no bank line (`no_bank_line` + by / at / reason, the "No bank proof" badge) until a Bulk Import credit
+line is matched to it (`api/vendor_refunds/waiting_refunds`).
 """
 
 import frappe
 from frappe.model.document import Document
 
 # The rule lives in a service so the bank-statement import asks the same one.
-from nirmaan_stack.services.vendor_refunds import document_project, refund_document_problem
+from nirmaan_stack.services.vendor_refunds import CANCELLED, document_project, refund_document_problem
 
 
 class VendorRefunds(Document):
@@ -26,6 +37,10 @@ class VendorRefunds(Document):
         # A PO / WO refund is on its document's project; fill it when left blank.
         if not self.project:
             self.project = document_project(self.document_type, self.document_name)
+        # A Cancelled refund counts for nothing and holds nothing (#1400), so a cap that tightened
+        # since it was recorded must not stop it being cancelled or kept.
+        if self.status == CANCELLED:
+            return
         problem = refund_document_problem(
             self.vendor,
             self.project,

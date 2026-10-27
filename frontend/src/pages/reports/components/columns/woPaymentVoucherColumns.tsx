@@ -7,16 +7,25 @@ import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { PaymentVoucherActions } from "@/components/paymentsVoucher/PaymentVoucherActions";
+import { TDS_PAID_BY_COMPANY_LABEL } from "@/pages/ProjectPayments/tdsPreview";
+import { TDS_BORNE_BY, type TdsBorneBy } from "@/types/NirmaanStack/PaymentTDSDeduction";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { hasVoucher } from "@/utils/paymentVoucher";
 import { VoucherStatusFilter } from "../../config/woPaymentVoucherTable.config";
+
+/** One Paid payment's tax, as `get_paid_work_order_payment_tds` answers it. */
+export interface VoucherTds {
+    tds_amount: number;
+    borne_by: TdsBorneBy;
+}
 
 interface WOPaymentVoucherColumnArgs {
     projectNames: Map<string, string>;
     vendorNames: Map<string, string>;
-    /** payment name -> TDS withheld (from `Payment TDS Deduction`). */
-    tdsByPayment: Map<string, number>;
+    /** payment name -> its tax and who bore it (`get_paid_work_order_payment_tds`, #1543). */
+    tdsByPayment: Map<string, VoucherTds>;
     /** Upload / Delete allowed (screen-only gate). */
     canEditVoucher: boolean;
     onVoucherUpdate: () => void;
@@ -86,8 +95,6 @@ const VoucherStatusHeader = ({
         </div>
     );
 };
-
-export const hasVoucher = (p: Pick<ProjectPayments, "voucher_attachment">) => !!p.voucher_attachment;
 
 export const getWOPaymentVoucherColumns = ({
     projectNames,
@@ -170,7 +177,16 @@ export const getWOPaymentVoucherColumns = ({
         header: "TDS",
         cell: ({ row }) => {
             const tds = tdsByPayment.get(row.original.name);
-            return <div className="whitespace-nowrap">{tds ? formatToRoundedIndianRupee(tds) : "--"}</div>;
+            if (!tds?.tds_amount) return <div className="whitespace-nowrap">--</div>;
+            return (
+                <div className="whitespace-nowrap">
+                    {formatToRoundedIndianRupee(tds.tds_amount)}
+                    {/* Tax the company paid on top was not cut from the vendor (#1543). */}
+                    {tds.borne_by === TDS_BORNE_BY.COMPANY && (
+                        <span className="block text-[10px] leading-3 text-muted-foreground">{TDS_PAID_BY_COMPANY_LABEL}</span>
+                    )}
+                </div>
+            );
         },
         size: 110,
         enableSorting: false,
@@ -179,7 +195,7 @@ export const getWOPaymentVoucherColumns = ({
             exportHeaderName: "TDS",
             exportValue: (r: ProjectPayments) => {
                 const tds = tdsByPayment.get(r.name);
-                return tds ? formatForReport(tds) : "";
+                return tds?.tds_amount ? formatForReport(tds.tds_amount) : "";
             },
         },
     },

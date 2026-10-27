@@ -3,11 +3,15 @@
 import frappe
 from frappe.utils import flt, get_datetime, create_batch
 
+from nirmaan_stack.services.outflow_import.amounts import rupees
+from nirmaan_stack.services.payment_tds import BorneTds, borne_tds_by_payment
+from nirmaan_stack.services.vendor_refunds import LOWERS_PAID_STATUSES, REFUND_DOCUMENT_FIELDS, VENDOR_REFUNDS
+
 @frappe.whitelist()
 def get_po_ledger_data(vendor_id):
     """
     Fetches all POs, Service Requests, their Invoices (from Vendor Invoices doctype),
-    and related Project Payments. SR totals come directly from `sr.total_amount`
+    related Project Payments and Received Vendor Refunds (minus payments). SR totals come directly from `sr.total_amount`
     (kept fresh by the SR's calculate_total_amount hook); GST is stripped for the
     ledger row to match pre-migration behavior.
 
@@ -149,20 +153,63 @@ def get_po_ledger_data(vendor_id):
             )
         print(f"DEBUG LEDGER: Found {len(payments)} total historical Project Payments.")
 
+        # A payment settles its amount PLUS the TDS withheld from the vendor on it (ADR-0034 Amendments A
+        # and B, #1512, #1534): that tax is part of its order's Amount Paid, so the row carries it and the
+        # ledger closes against Amount Paid. Tax the company paid on top was never the vendor's: nothing. A
+        # PO payment still stored gross holds its recorded tax in its amount: nothing on top either.
+        tds_by_payment = borne_tds_by_payment(vendor_id)
+
         for payment in payments:
             linked_doc_name = payment.get("document_name")
             project_name_for_payment = doc_project_map.get(linked_doc_name, "N/A")
             doc_type_abbr = "PO" if payment.get("document_type") == "Procurement Orders" else "SR"
+            details = f"UTR: {payment.get('utr', 'N/A')}\nFor {doc_type_abbr}: {linked_doc_name}"
+            withheld = tds_by_payment.get(payment.get("name"), BorneTds()).vendor
+            if withheld:
+                details += f"\nincl. TDS {rupees(withheld)}"
             all_transactions.append({
                 "type": "Refund Received" if flt(payment.get("amount", 0)) < 0 else "Payment Made",
                 "date": get_datetime(payment.get("payment_date") or payment.get("creation")),
-                "details": f"UTR: {payment.get('utr', 'N/A')}\nFor {doc_type_abbr}: {linked_doc_name}",
+                "details": details,
                 "amount": 0,
-                "payment": flt(payment.get("amount", 0)),
+                "payment": flt(payment.get("amount", 0)) + withheld,
                 "project": project_name_for_payment,
                 "is_inactive": linked_doc_name in inactive_doc_names
             })
             log_counter += 1
+
+    # --- Step 4b: Received Vendor Refunds (#1460, ADR-0034 point 4) ---
+    # A Received refund lowers its order's Amount Paid, so the ledger lists it as a minus payment on the
+    # refund's own date, and the ledger's payments add up to Amount Paid. "No bank proof" refunds are
+    # Received and show; waiting and Cancelled ones moved no money and do not.
+    if doc_names:
+        refunds = []
+        for _chunk in create_batch(doc_names, 500):
+            refunds += frappe.get_all(
+                VENDOR_REFUNDS,
+                filters={
+                    "vendor": vendor_id,
+                    "status": ["in", list(LOWERS_PAID_STATUSES)],
+                    "document_type": ["in", list(REFUND_DOCUMENT_FIELDS)],
+                    "document_name": ["in", list(_chunk)],
+                },
+                fields=["name", "payment_date", "creation", "amount", "utr", "no_bank_line",
+                        "document_name", "document_type"],
+            )
+
+        for refund in refunds:
+            linked_doc_name = refund.get("document_name")
+            doc_type_abbr = "PO" if refund.get("document_type") == "Procurement Orders" else "SR"
+            utr = refund.get("utr") or ("No bank proof" if refund.get("no_bank_line") else "N/A")
+            all_transactions.append({
+                "type": "Refund Received",
+                "date": get_datetime(refund.get("payment_date") or refund.get("creation")),
+                "details": f"Refund: {refund.get('name')}\nUTR: {utr}\nFor {doc_type_abbr}: {linked_doc_name}",
+                "amount": 0,
+                "payment": -flt(refund.get("amount", 0)),
+                "project": doc_project_map.get(linked_doc_name, "N/A"),
+                "is_inactive": linked_doc_name in inactive_doc_names
+            })
 
     # --- Step 5: Final Filtering, Sorting, and Formatting ---
     print(f"DEBUG LEDGER: Collected a total of {len(all_transactions)} transactions before date filtering.")

@@ -1,10 +1,26 @@
+import { type Dispatch, type SetStateAction, useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import { useFrappeFileUpload } from "frappe-react-sdk";
+import { AlertTriangle, Ban, Loader2 } from "lucide-react";
+
+import { FROM_PHOTO_INPUT, FromPhotoTag } from "@/components/cheques/FromPhotoTag";
+import { useChequePhotoReader, usePayeeVendorMismatch } from "@/components/cheques/useChequePhotoReader";
+import { useExistingCheque } from "@/components/cheques/useExistingCheque";
+import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
+import { toast } from "@/components/ui/use-toast";
+import { cn } from "@/lib/utils";
+import { CHEQUE_BANK, CHEQUE_PAYMENT_DATE_LABEL, CHEQUE_STATUS } from "@/types/NirmaanStack/Cheques";
+import { isFromPhoto, type ChequePhotoField } from "@/utils/cheques/chequePhoto";
+import { chequeReportPath } from "@/utils/cheques/chequeReportLink";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { getFrappeError } from "@/utils/frappeErrors";
 
 import {
 	chequeAmountFor,
+	chequeAmountHint,
 	PAYMENT_MODE_CHEQUE,
 	PAYMENT_MODE_ONLINE,
 	PaymentMode,
@@ -12,65 +28,206 @@ import {
 } from "../paymentMode";
 import type { TdsForecast } from "../tdsForecast";
 
+/**
+ * The cheque fields the photo fills: no payee box, the cheque is made out to the PO / WO's Vendor, and no
+ * bank, which is fixed to ICICI Bank (#1516).
+ */
+const PHOTO_FIELDS: readonly ChequePhotoField[] = ["cheque_no", "cheque_date", "amount"];
+
 interface Props {
 	value: PaymentModeValue;
-	onChange: (value: PaymentModeValue) => void;
+	/** The dialog's `useState` setter: the photo fills the fields after an await, so it takes updaters. */
+	onChange: Dispatch<SetStateAction<PaymentModeValue>>;
 	/** The amount being requested, for the "write the cheque for" line. Omit to hide the line. */
 	amount?: number;
-	/** The Work Order's TDS forecast on `amount` (`forecastTds`), or null when nothing is withheld. */
+	/** The Work Order's TDS forecast on `amount` (the server's, `toTdsForecast`), or null when nothing is withheld. */
 	tds?: TdsForecast | null;
 	/** Miscellaneous / Transportation-only Work Order: the company pays the tax on top. */
 	companyBorne?: boolean;
+	/** The PO / Work Order's Vendor, whom the cheque is made out to: the photo's payee is checked against it. */
+	vendor?: string;
 	disabled?: boolean;
+	/**
+	 * False on a Work Order: its payments are paid Online (spec #1477, `chequeModeOffered`), so the
+	 * mode is shown, not chosen. The server refuses a Work Order cheque anyway.
+	 */
+	chequeOffered?: boolean;
 }
 
-/** Online / Cheque, plus the cheque's number and date. Shared by every Project Payment request dialog. */
-export const PaymentModeFields = ({ value, onChange, amount, tds = null, companyBorne = false, disabled }: Props) => {
-	const isCheque = value.mode === PAYMENT_MODE_CHEQUE;
+const Required = () => <span className="ml-0.5 text-red-500">*</span>;
+
+/**
+ * Online / Cheque. Shared by every Project Payment request dialog (the PO page's payment terms, the
+ * Work Order page, Credits). A Work Order request is Online only (`chequeOffered={false}`).
+ *
+ * Cheque mode (#1414, spec #1407) starts from the cheque's photo: it is uploaded, read, and what it
+ * says fills the number, date and amount, tagged "From photo". The bank is fixed to ICICI Bank, the only
+ * bank whose statement clears a cheque (#1516). On Submit the server makes the
+ * payment and a new Cheque with one line for it. A bank + number already recorded is shown here,
+ * with a link to that Cheque, and the request stays disabled: the dialog asks `useDuplicateChequeOf` for
+ * `isPaymentModeComplete`.
+ */
+export const PaymentModeFields = ({
+	value,
+	onChange,
+	amount,
+	tds = null,
+	companyBorne = false,
+	vendor,
+	disabled,
+	chequeOffered = true,
+}: Props) => {
+	const isCheque = chequeOffered && value.mode === PAYMENT_MODE_CHEQUE;
 	const chequeAmount = amount !== undefined ? chequeAmountFor(amount, tds) : undefined;
+
+	const { upload, loading: uploading } = useFrappeFileUpload();
+	const [photoFile, setPhotoFile] = useState<File | null>(null);
+	// A photo replaced while the first is still uploading or read must not land the first one's values.
+	const uploadSession = useRef(0);
+	const valueRef = useRef(value);
+	valueRef.current = value;
+	const reader = useChequePhotoReader<PaymentModeValue>(
+		() => valueRef.current,
+		(fill) => onChange((prev) => ({ ...prev, ...fill })),
+		PHOTO_FIELDS,
+	);
+	const fromPhoto = (field: ChequePhotoField) => isFromPhoto(field, value, reader.photo);
+
+	const photoPayee = isCheque ? reader.photo?.payee_name : undefined;
+	const payeeMismatch = usePayeeVendorMismatch(photoPayee, vendor);
+	const amountHint = isCheque && amount !== undefined ? chequeAmountHint(value.amount, amount, tds) : null;
+
+	const existing = useExistingCheque(isCheque ? value.cheque_no : "");
+
+	const set = (patch: Partial<PaymentModeValue>) => onChange((prev) => ({ ...prev, ...patch }));
+
+	const handlePhoto = async (file: File | null) => {
+		const session = ++uploadSession.current;
+		reader.cancel();
+		setPhotoFile(file);
+		set({ attachment: "", photoBusy: !!file });
+		if (!file) return;
+		try {
+			// Uploaded unattached, as the Security Deposit cheque form does: saving the Cheque attaches it.
+			const uploaded = await upload(file, { isPrivate: true });
+			if (session !== uploadSession.current) return;
+			set({ attachment: uploaded.file_url });
+			// A replaced photo is read again; what only the old one said is cleared.
+			const current = await reader.read(uploaded.file_url);
+			if (current && session === uploadSession.current) set({ photoBusy: false });
+		} catch (e) {
+			if (session !== uploadSession.current) return;
+			setPhotoFile(null);
+			set({ photoBusy: false });
+			toast({ title: "Could not upload the photo", description: getFrappeError(e), variant: "destructive" });
+		}
+	};
 
 	return (
 		<div className="space-y-2 rounded-md border px-3 py-2">
-			<div className="flex items-center gap-4">
-				<span className="text-sm font-medium">Mode of Payment</span>
-				<RadioGroup
-					value={value.mode}
-					onValueChange={(mode) => onChange({ ...value, mode: mode as PaymentMode })}
-					className="flex gap-4"
-					disabled={disabled}
-				>
-					<div className="flex items-center gap-1.5">
-						<RadioGroupItem value={PAYMENT_MODE_ONLINE} id="pay-mode-online" />
-						<Label htmlFor="pay-mode-online">Online</Label>
-					</div>
-					<div className="flex items-center gap-1.5">
-						<RadioGroupItem value={PAYMENT_MODE_CHEQUE} id="pay-mode-cheque" />
-						<Label htmlFor="pay-mode-cheque">Cheque</Label>
-					</div>
-				</RadioGroup>
-			</div>
+			{!chequeOffered && (
+				<div className="space-y-0.5">
+					<p className="flex items-center gap-4 text-sm">
+						<span className="font-medium">Mode of Payment</span>
+						<span>Online</span>
+					</p>
+					<p className="text-[11px] text-muted-foreground">Work Order payments are paid online, never by cheque.</p>
+				</div>
+			)}
+			{chequeOffered && (
+				<div className="flex items-center gap-4">
+					<span className="text-sm font-medium">Mode of Payment</span>
+					<RadioGroup
+						value={value.mode}
+						onValueChange={(mode) => set({ mode: mode as PaymentMode })}
+						className="flex gap-4"
+						disabled={disabled}
+					>
+						<div className="flex items-center gap-1.5">
+							<RadioGroupItem value={PAYMENT_MODE_ONLINE} id="pay-mode-online" />
+							<Label htmlFor="pay-mode-online">Online</Label>
+						</div>
+						<div className="flex items-center gap-1.5">
+							<RadioGroupItem value={PAYMENT_MODE_CHEQUE} id="pay-mode-cheque" />
+							<Label htmlFor="pay-mode-cheque">Cheque</Label>
+						</div>
+					</RadioGroup>
+				</div>
+			)}
 
 			{isCheque && (
 				<>
+					<div className="space-y-1">
+						<Label className="text-xs">Cheque photo<Required /></Label>
+						<div className="flex flex-wrap items-center gap-2">
+							<CustomAttachment
+								selectedFile={value.attachment || value.photoBusy ? photoFile : null}
+								onFileSelect={handlePhoto}
+								acceptedTypes={["image/*", "application/pdf"]}
+								label="Upload cheque photo"
+								disabled={disabled}
+							/>
+							{(uploading || reader.reading) && (
+								<span className="flex items-center gap-1 text-xs text-muted-foreground">
+									<Loader2 className="h-4 w-4 animate-spin" />
+									{uploading ? "Uploading..." : "Reading the photo..."}
+								</span>
+							)}
+						</div>
+						{!value.attachment && !value.photoBusy && (
+							<p className="text-[11px] text-muted-foreground">
+								Upload the cheque's photo first: what can be read off it is filled in and tagged "From photo".
+							</p>
+						)}
+					</div>
+
 					<div className="grid grid-cols-2 gap-2">
 						<div className="space-y-1">
-							<Label htmlFor="cheque-no" className="text-xs">Cheque No</Label>
+							<Label htmlFor="cheque-bank" className="text-xs">Bank</Label>
+							<Input id="cheque-bank" className="h-8" value={CHEQUE_BANK.ICICI} readOnly disabled />
+							<p className="text-[11px] text-muted-foreground">
+								A Payment cheque is drawn on ICICI Bank: only its statement clears the cheque.
+							</p>
+						</div>
+						<div className="space-y-1">
+							<Label htmlFor="cheque-no" className="text-xs">
+								Cheque No<Required />{fromPhoto("cheque_no") && <FromPhotoTag />}
+							</Label>
 							<Input
 								id="cheque-no"
-								className="h-8"
-								value={value.chequeNo}
-								onChange={(e) => onChange({ ...value, chequeNo: e.target.value })}
+								inputMode="numeric"
+								className={cn("h-8", fromPhoto("cheque_no") && FROM_PHOTO_INPUT)}
+								value={value.cheque_no}
+								onChange={(e) => set({ cheque_no: e.target.value })}
 								disabled={disabled}
 							/>
 						</div>
 						<div className="space-y-1">
-							<Label htmlFor="cheque-date" className="text-xs">Cheque Date</Label>
+							<Label htmlFor="cheque-date" className="text-xs">
+								{CHEQUE_PAYMENT_DATE_LABEL}<Required />{fromPhoto("cheque_date") && <FromPhotoTag />}
+							</Label>
 							<Input
 								id="cheque-date"
 								type="date"
-								className="h-8"
-								value={value.chequeDate}
-								onChange={(e) => onChange({ ...value, chequeDate: e.target.value })}
+								className={cn("h-8", fromPhoto("cheque_date") && FROM_PHOTO_INPUT)}
+								value={value.cheque_date}
+								onChange={(e) => set({ cheque_date: e.target.value })}
+								disabled={disabled}
+							/>
+						</div>
+						<div className="space-y-1">
+							<Label htmlFor="cheque-amount" className="flex flex-wrap items-center gap-y-1 text-xs">
+								<span>Cheque amount (₹)<Required /></span>
+								{fromPhoto("amount") && <FromPhotoTag />}
+							</Label>
+							<Input
+								id="cheque-amount"
+								type="number"
+								min={0}
+								step="0.01"
+								className={cn("h-8", fromPhoto("amount") && FROM_PHOTO_INPUT)}
+								value={value.amount}
+								onChange={(e) => set({ amount: e.target.value })}
 								disabled={disabled}
 							/>
 						</div>
@@ -78,11 +235,11 @@ export const PaymentModeFields = ({ value, onChange, amount, tds = null, company
 
 					{chequeAmount !== undefined && chequeAmount > 0 && (
 						<p className="text-xs">
-							Cheque amount for this payment:{" "}
+							Write the cheque for{" "}
 							<span className="font-semibold tabular-nums">{formatToIndianRupee(chequeAmount)}</span>
 							{tds && !companyBorne && (
 								<span className="text-muted-foreground">
-									{" "}— after {formatToIndianRupee(tds.tds)} TDS ({tds.ratePct}%)
+									{" "}after {formatToIndianRupee(tds.tds)} TDS ({tds.ratePct}%)
 								</span>
 							)}
 							{tds && companyBorne && (
@@ -91,9 +248,43 @@ export const PaymentModeFields = ({ value, onChange, amount, tds = null, company
 							.
 						</p>
 					)}
+					{amountHint && (
+						<p className="flex items-start gap-1.5 text-xs text-amber-700">
+							<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+							{amountHint.kind === "gross"
+								? `The cheque is for the gross amount, ${formatToIndianRupee(amountHint.gross)}. ` +
+									`Write it for ${formatToIndianRupee(amountHint.expected)}, after ${formatToIndianRupee(amountHint.tds)} TDS. You can still request it.`
+								: `The cheque is for ${formatToIndianRupee(Number(value.amount))}, but this payment's cheque should be ` +
+									`${formatToIndianRupee(amountHint.expected)}. Check the amount; you can still request it.`}
+						</p>
+					)}
+					{photoPayee && (
+						<p className="text-xs text-muted-foreground">
+							Payee on the photo: <span className="font-medium text-foreground">{photoPayee}</span>
+							<FromPhotoTag />
+						</p>
+					)}
+					{payeeMismatch && (
+						<p className="flex items-start gap-1.5 text-xs text-amber-700">
+							<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+							The payee on the photo ({payeeMismatch.payee}) does not look like {payeeMismatch.vendorName}, this
+							order's Vendor. Check the photo; you can still request it.
+						</p>
+					)}
+					{existing && (
+						<div className="flex items-start gap-1.5 rounded border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-700">
+							<Ban className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+							<span>
+								{existing.message}{" "}
+								<Link to={chequeReportPath(existing.cheque_no)} target="_blank" className="font-medium underline">
+									Open cheque {existing.cheque_no}
+								</Link>
+							</span>
+						</div>
+					)}
 					<p className="text-[11px] text-muted-foreground">
-						One cheque can cover several payments: use the same Cheque No on each. Once approved, a
-						cheque payment goes straight to Reconciliation Pending.
+						This payment gets its own new cheque. The cheque starts {CHEQUE_STATUS.PENDING}; once the payment is
+						approved, the cheque is Issued and waits in the Cheque Tracker until the bank clears it.
 					</p>
 				</>
 			)}

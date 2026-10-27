@@ -14,9 +14,9 @@ generalisation; if a rule has no observed failure behind it, it should not be he
 THE IDENTITY / SCORING SPLIT is load-bearing and the most important thing to understand before
 changing anything:
 
-  * `normalize_account`, `normalize_reference` produce IDENTITY forms. Two values that normalize
-    equal are treated as the same account or the same bank reference. They must never merge things
-    that are genuinely different.
+  * `normalize_account`, `normalize_ifsc`, `normalize_reference` produce IDENTITY forms. Two values
+    that normalize equal are treated as the same account, IFSC or bank reference. They must never
+    merge things that are genuinely different.
   * `normalize_name`, `name_tokens` produce SCORING forms. They feed a ranked suggestion that a
     human confirms. They are allowed to be lossy -- `name_tokens` deliberately singularises, which
     is a heuristic and would be indefensible as an identity rule.
@@ -102,6 +102,13 @@ def normalize_account(value: object) -> str:
         return ""
     stripped = cleaned.lstrip("0")
     return stripped or "0"
+
+
+def normalize_ifsc(value: object) -> str:
+    """Identity form of an IFSC: trimmed and upper-cased. Paired with `normalize_account`, it is how
+    Bulk Import's Tier 1 and the payer's vendor-account switch (`services/payees/paid_to`)
+    decide two accounts are the same."""
+    return str(value or "").strip().upper()
 
 
 def normalize_reference(value: object) -> str:

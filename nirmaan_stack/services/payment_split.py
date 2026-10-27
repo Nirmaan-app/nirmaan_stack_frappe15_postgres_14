@@ -78,8 +78,11 @@ from frappe.utils import flt, nowdate
 
 # Read by `load_part_reconciled_split_families`, from the modules that own them -- the same slips
 # and statuses every settle path writes, never retyped here.
+from nirmaan_stack.services.cheque_payments import is_cheque
+from nirmaan_stack.services.cheques.payment_rules import CHEQUE_REFUSES_SPLIT, cheque_payment_problem
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE, RECONCILIATION_PENDING
+from nirmaan_stack.services.payees.pay_to import copy_pay_to
 
 # A split must leave something meaningful on BOTH sides. Below this the action
 # is not a partial approval — it is a full approval or a rejection, and both of
@@ -164,6 +167,14 @@ def split_payment(
                 pay.status, expect_status
             )
         )
+
+    # One cheque, one decision (spec #1477, #1487): a cheque pays its payments in full or not at all,
+    # so neither the CEO's part-approval nor the bank import's part-settlement splits one.
+    problem = cheque_payment_problem(
+        pay.name, CHEQUE_REFUSES_SPLIT, is_cheque=is_cheque(pay), cheque_no=pay.get("cheque_no")
+    )
+    if problem:
+        frappe.throw(_(problem))
 
     # ⚠️ THIS GUARD IS ALSO WHAT KEEPS THE SAVEPOINT ISOLATED — do not demote it
     # to "the frontend already checks this". Saving the payment and the PO both
@@ -267,6 +278,9 @@ def split_payment(
             # leftover's GST at its own approval. `set_only_once`, so it can only be set here.
             "is_gst_payment": pay.get("is_gst_payment") or 0,
         })
+        # The balance is paid where the original was raised to be paid (#1437, ADR-0033): its
+        # parent's pay-to account, not the vendor's Payee as it reads now.
+        copy_pay_to(pay, remainder_doc)
         remainder_doc.flags.split_child = True
         remainder_doc.insert(ignore_permissions=True)
 
@@ -407,7 +421,7 @@ def unsplit_payment(
     this payment's, at another status, or split again, or a balance term with no term to fold into.
 
     The split's transaction shape: both payments and the PO ``FOR UPDATE``, one savepoint, one PO save.
-    Nothing commits; the caller holds shut any trash hook that would (``_outflow_import_write``).
+    Nothing commits; the caller holds shut any trash hook that would (``outflow_import_write``).
     """
     frappe.db.sql(
         'SELECT name FROM "tabProject Payments" WHERE name IN %s ORDER BY name FOR UPDATE',
@@ -513,9 +527,11 @@ def _merge_po_terms(po_doc, original_payment, leftover_payment) -> bool:
 def _delete_leftover(name: str) -> None:
     """Delete the balance payment. Its own function so a test can fail it mid-way.
 
-    ⚠️ `force=True` SKIPS THE LINK CHECK, AND THAT IS NEEDED: a Reversed outflow match record (a transfer
-    that paid this balance and was unreconciled) keeps a Dynamic Link to it forever. The trash hooks
-    still run -- the term was folded away first, so the controller's term sync finds nothing to touch.
+    `force=True` skips Frappe's link check. A Reversed outflow match record (a transfer that paid this
+    balance and was unreconciled) names it as text since ADR-0022 Amendment G, so it no longer trips
+    that check; a LIVE one is refused by `settled_targets.on_trash`, which `force` does not skip.
+    The trash hooks still run -- the term was folded away first, so the controller's term sync finds
+    nothing to touch.
     """
     frappe.delete_doc("Project Payments", name, force=True, ignore_permissions=True)
 

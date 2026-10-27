@@ -14,6 +14,14 @@
 
 Status changes are manual, with one exception: the system places and lifts **automatic CEO Holds** (ADR-0004; see `frontend/.claude/context/domain/ceo-hold.md` § Automatic CEO Hold). A manual CEO Hold is restricted to one authorized user (not role-based).
 
+**Bid outcome (`tendering_status`, ADR-0001 v3) is the OTHER status field:** Tendering / Won / Lost / **Merged**.
+Operational code gates on `tendering_status == "Won"` (`_tendering_guard`), so every other value is pre-Won. **Merged**
+(ADR-0038): the project's BoQs were moved into an existing Won project, named by `merged_into`; closed (no Edit /
+Convert / Lost / Delete / BoQ add) until it is undone (anyone who can create projects; also merges from the
+Convert / Create wizard's BOQ step, ADR-0038 D10). Endpoints `api/projects/tendering_merge.py`, rules
+`services/tendering_merge.py`, BoQ moves `integrations/controllers/boqs.py` (`move_boqs_into_project`,
+`return_merged_boqs`, keyed on `BOQs.merged_from`).
+
 ---
 
 ## Backend Effects by Status
@@ -91,3 +99,61 @@ which WOs they count.
 **Consistency:** one rule on every surface. The two backend figures are pinned by `TestProjectNotionalGst`
 (`api/projects/test_project_aggregates.py`); on 2026-09-11 the card total, the rollup and a direct SQL sum
 agreed on all 85 projects with Approved WOs.
+
+---
+
+## Project outflow, Current Liabilities and the cashflow gap (ADR-0034, #1456)
+
+Terms: `GLOSSARY.md` *Project outflow*, *Current Liabilities*.
+
+**Load-bearing invariant: one server figure.** `services/project_money.project_money(projects, from_date,
+to_date)` returns outflow, liabilities, inflow and `cashflow_gap` (= outflow + liabilities − inflow) per project
+in one grouped query. CEO Hold (`_compute_cashflow_gap` in `integrations/controllers/project_cashflow_hold_update.py`)
+and the Projects list (`get_projects_financial_rollup`, which now returns `cashflow_gap` too) both read it, so
+their gaps agree (pinned by `api/projects/test_project_money.py`). A screen that shows any of these figures
+reads it through `api/projects/project_money.get_project_money` (one project) or `get_projects_money` (several
+projects, one query). Both need read access to Procurement Orders and Project Payments. Never work the gap out
+again in the browser. The Cash Sheet report reads Inflow, Outflow, Current Liability and Cashflow Gap from
+`get_projects_money` for its chosen dates.
+
+- Outflow is cash: Paid payments on the project (whatever its order's state now), less Received Vendor Refunds
+  against a PO / WO, plus Paid expenses, plus the TDS on Paid PO and WO payments (ADR-0034 Amendments A and B,
+  #1510, #1534). It is stored as three parts, `po_outflow`, `wo_outflow` and `expense_outflow` (each refund
+  off its own order kind), and `outflow` is their sum; Financials shows the parts as the Project Outflow
+  breakdown. `refunds` and `tds` are also returned: amounts already inside the two order parts, never added
+  again, so a list of payments and expenses can be walked to the outflow (list − refunds + tds).
+- **Only this figure is labelled "outflow" on a screen (#1542).** Every other money-out figure is named for
+  what it counts: the Outflow Report's total is "Payments + Paid Expenses", the Payments card's 30-day column
+  "Cash Out (30 Days)" over all projects, its Paid rows "Settled", the PO / WO Summary totals "Paid on Active
+  POs" / "Paid on Approved WOs (incl. TDS)", the Customer page "Paid to Vendors, All Projects", the Cashflow
+  Plan print "Planned Payment". Project Spends is left alone (queued for removal). The Projects list and Cash
+  Sheet tooltip is `frontend/src/constants/projectOutflow.ts`. Report names ("Outflow Report") and Bulk
+  Import's "Outflow" (bank debit lines, and the Payments card's "Total Unreconciled Outflow" that mirrors it)
+  are not figures of a project and keep the word.
+- **The Project Outflow Report's total is filtered in every part (#1542).** Its headline is the Paid rows plus
+  the confirmed part of Reconciliation Pending records (`api/reports/partially_reconciled`); the add-on goes
+  through the table's own columns, facet filters and search (`pages/reports/utils/outflowReportSummary.ts`,
+  `reconciledInReportFilters`), and mobile and desktop print the same total. When one project is the whole
+  filter (no other facet, no search) a note reads `get_project_money` for that project and range: "This list:
+  ₹… · Not in this list: refunds −₹…, TDS +₹… · Project outflow: ₹…", where "This list" is the Paid rows, so
+  list − refunds + TDS = Project outflow, the Cash Sheet's figure.
+- WO TDS: `wo_outflow` adds the `tds_amount` of every `Payment TDS Deduction` on a Paid WO payment, **both
+  kinds** (`borne_by` Vendor and Company), on the payment's project and the payment's date, never the
+  challan's. The challan is later a *TDS Payment* Non-Project Expense, which project outflow never reads, so
+  the tax counts once. The bank cash-out lists (Outflow report, WO Payment Voucher) do not add it.
+- Liabilities: max(0, delivered − Amount Paid) per PO, over POs **not** Merged, Cancelled or Inactive.
+- Date range (optional, inclusive): each payment, refund, expense and inflow counts on its own `payment_date`
+  (falling back to its creation date); a refund counts on the refund's date, not its order's. Liabilities in
+  a range cover the POs created in it (the Cash Sheet's PO set).
+
+**The project page reads the stored figures (#1457).** It fetches no payments. Financials "Project Outflow" and
+"Current Liabilities" read `get_project_money`. The PO Summary "Paid on Active POs", the WO Summary "Paid on
+Approved WOs (incl. TDS)" and the WO Summary "Total Amt Payable" are the orders' summed `amount_paid` / `amount_due` (`get_project_po_summary_aggregates`,
+`get_project_sr_summary_aggregates`). Spends sums EVERY PO's `amount_paid` per work package, whatever its
+status (Merged, Cancelled, Inactive included: their Amount Paid is real money out), so its PO total is the PO
+part of the project outflow; its Services row sums every WO's `amount_paid` (#1451 review). The POs and all
+their items come from `api/projects/project_spends.get_project_pos_paid`, because the PO summary leaves
+Merged / Inactive POs' items out. A PO's work package comes from its items, not its PR:
+PR `work_package` holds "Normal" / "Custom" today, which matches no row; a PO with no items counts under Custom. A PO whose items span several
+packages shares its `amount_paid` among them in proportion to item value incl. GST. The Material Usage paid badge compares a PO's `amount_paid`
+with its `total_amount`. The pure rules live in `frontend/src/utils/projects/projectPaid.ts`.

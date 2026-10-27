@@ -1,20 +1,18 @@
 import { useCallback, useMemo } from 'react';
 import { useProcurementRequestStore } from '../store/useProcurementRequestStore';
 import { useToast } from '@/components/ui/use-toast';
-import { CategoryMakesMap, CategorySelection, ProcurementRequestItem, SelectedHeaderTag } from '../types';
+import { CategorySelection, ProcurementRequestItem } from '../types';
 import { Items } from '@/types/NirmaanStack/Items';
 import { ITEM_TOKEN_SEARCH_CONFIG } from '@/hooks/useItemCatalog';
 import { TokenSearchConfig, rankByTokenScore } from '@/components/ui/fuzzy-search-select';
 
 interface UseProcurementRequestFormResult {
-    selectedWP: string;
     procList: ProcurementRequestItem[];
     selectedCategories: CategorySelection[];
     updateCategoryMakes: (categoryName: string, newMake: string) => void;
     undoStack: ProcurementRequestItem[];
     newPRComment: string;
     isStoreInitialized: boolean;
-    selectHeaders: (headers: SelectedHeaderTag[], combinedMakes: CategoryMakesMap) => void;
     addOrUpdateItem: (itemData: Omit<ProcurementRequestItem, 'uniqueId' | 'status'>, isRequest?: boolean) => void;
     updateItemInList: (updatedItem: ProcurementRequestItem) => void;
     deleteItemFromList: (itemName: string) => void;
@@ -30,7 +28,6 @@ export const useProcurementRequestForm = (
     const { toast } = useToast();
 
     // --- Select state and actions individually ---
-    const selectedWP = useProcurementRequestStore(state => state.selectedWP);
     const procList = useProcurementRequestStore(state => state.procList);
     const selectedCategories = useProcurementRequestStore(state => state.selectedCategories);
     const undoStack = useProcurementRequestStore(state => state.undoStack);
@@ -38,7 +35,6 @@ export const useProcurementRequestForm = (
     const isStoreInitialized = useProcurementRequestStore(state => state.isInitialized);
 
     // Actions
-    const setSelectedHeaders = useProcurementRequestStore(state => state.setSelectedHeaders);
     const addProcItem = useProcurementRequestStore(state => state.addProcItem);
     const updateProcItem = useProcurementRequestStore(state => state.updateProcItem);
     const deleteProcItem = useProcurementRequestStore(state => state.deleteProcItem);
@@ -48,10 +44,6 @@ export const useProcurementRequestForm = (
 
     // --- Token Search Configuration for Item Selection ---
     const itemTokenSearchConfig = ITEM_TOKEN_SEARCH_CONFIG;
-
-    const selectHeaders = useCallback((headers: SelectedHeaderTag[], combinedMakes: CategoryMakesMap) => {
-        setSelectedHeaders(headers, combinedMakes);
-    }, [setSelectedHeaders]);
 
     const addOrUpdateItem = useCallback((itemData: Omit<ProcurementRequestItem, 'uniqueId' | 'status'>, isRequest = false) => {
         const success = addProcItem({
@@ -106,13 +98,11 @@ export const useProcurementRequestForm = (
     }, [rawItemList]);
 
     return {
-        selectedWP,
         procList,
         selectedCategories,
         undoStack,
         newPRComment,
         isStoreInitialized,
-        selectHeaders,
         addOrUpdateItem,
         updateItemInList,
         deleteItemFromList,

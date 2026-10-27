@@ -14,6 +14,7 @@ import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { NirmaanUserPermissions } from "@/types/NirmaanStack/NirmaanUserPermissions";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { isOperational } from "@/components/common/projectStatus";
+import { SERVICE_PROCUREMENT_EXECUTIVE_PROFILE } from "@/constants/roles";
 import { ProjectCard } from "./ProjectCard";
 import {
   CirclePlus,
@@ -104,12 +105,13 @@ export function UserProjectsTab({
     [projectList, addressData]
   );
 
-  // Check if user is admin or estimates executive (can't be assigned projects)
+  // Company-wide profiles see every project, so they can't be assigned one
   const isRestrictedRole = [
     "Nirmaan Admin Profile",
     "Nirmaan PMO Executive Profile",
     "Nirmaan Estimates Executive Profile",
     "Nirmaan Billing Executive Profile",
+    SERVICE_PROCUREMENT_EXECUTIVE_PROFILE,
   ].includes(user.role_profile || "");
 
   return (
@@ -153,7 +155,7 @@ export function UserProjectsTab({
           <p className="text-sm text-muted-foreground mt-1 max-w-sm">
             {isAdmin
               ? isRestrictedRole
-                ? "Admin and Estimates Executive users have access to all projects."
+                ? "This user's role has access to all projects, so no assignment is needed."
                 : "Click 'Assign Project' to give this user access to projects."
               : "This user doesn't have any project assignments yet."}
           </p>

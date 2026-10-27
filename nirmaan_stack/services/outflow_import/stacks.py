@@ -195,7 +195,7 @@ def group_into_stacks(rows: Iterable, records_for) -> tuple[Stack, ...]:
 def _transfer_date(row):
     """The day the money moved, as a plain `date`.
 
-    `_StagedRow` exposes `added_on_date`; a raw row may carry only `added_on`, which is a datetime.
+    `StagedRow` exposes `added_on_date`; a raw row may carry only `added_on`, which is a datetime.
     Both are accepted because this module is pure and does not get to say who builds its input.
     """
     value = getattr(row, "added_on_date", None)

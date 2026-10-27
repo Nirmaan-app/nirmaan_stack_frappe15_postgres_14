@@ -41,7 +41,8 @@ export const PP_TABS = {
      *  deep-links unpaid payments here, so removing the route would break every
      *  such link. Hidden ≠ deleted. */
     PO_WISE: 'PO Wise',
-    /** Hidden from the tab strip 2026-09-15; still routed, same reason as PO_WISE. */
+    /** Hidden from the tab strip 2026-09-15; back on it since #1476 for the viewers
+     *  `paymentsTabSet` names, and still routed for everyone, same reason as PO_WISE. */
     ALL_PAYMENTS: 'All Payments',
     /** label: "Payment Raised By Me" (renamed from "Payment By Me", same day) — NEW 2026-09-17. Every row of all three ledgers the
      *  logged-in user created, in every status. Replaces the planned "Rejected" tab.
@@ -91,10 +92,12 @@ export const PP_PAYMENT_TYPE_TAB_OPTIONS: PPTabOption[] = [
     { label: "Payments Pending", value: PP_TABS.PAYMENTS_PENDING, countKey: "pay.pending" }, // The actual logic combines approved + requested
 ];
 
-// HIDDEN from the tab strip (owner, 2026-09-15). Kept exported and routed:
-// `paymentHref()` sends every NON-paid payment deep link to this tab.
+// Hidden from the tab strip 2026-09-15, back for its audience since #1476 (`paymentsTabSet`).
+// Routed for everyone: `paymentHref()` sends every NON-paid payment deep link to this tab.
+// Its badge is the union counts endpoint's `all` (every ledger, every status), so there is no
+// `countKey` into the payments-only store.
 export const PP_ALL_TAB_OPTIONS: PPTabOption[] = [
-    { label: "All Payments", value: PP_TABS.ALL_PAYMENTS, countKey: "pay.all" },
+    { label: "All Payments", value: PP_TABS.ALL_PAYMENTS },
 ];
 
 // Shown to EVERY role that can open the page. Its badge comes from the union counts

@@ -2,6 +2,9 @@
 
 import type { WizardStep } from "@/components/ui/wizard-steps";
 
+import { CARD_SOURCE } from "./creditCardImport";
+import { PORTER_SOURCE } from "./porterImport";
+
 /**
  * The import dialog's steps (slice CF/S7, third source added at C6).
  *
@@ -21,7 +24,27 @@ import type { WizardStep } from "@/components/ui/wizard-steps";
 export type CashfreeStepKey = "upload" | "check" | "run" | "confirm";
 export type CashbookStepKey = "upload" | "review" | "create";
 export type BankStepKey = "upload" | "check" | "import";
-export type ImportStepKey = CashfreeStepKey | CashbookStepKey | BankStepKey;
+export type PorterStepKey = "upload" | "validate" | "review" | "create";
+export type CardStepKey = "upload" | "review" | "create";
+export type ImportStepKey = CashfreeStepKey | CashbookStepKey | BankStepKey | PorterStepKey | CardStepKey;
+
+/**
+ * The sources the Import statement dialog offers, in its order.
+ *
+ * ⚠️ THESE `value` STRINGS ARE THE PARSER'S ADAPTER KEYS AND THE DOCTYPE SELECT OPTIONS, and all three
+ * spellings are pinned together by test (`importWizard.test.ts` against `SOURCE_OPTIONS`, which is pinned
+ * against the server). Widen this list in the same change as the parser and the doctype, never on its own.
+ *
+ * ⚠️ `ICICI Bank Statement` names the BANK, not "a bank statement", deliberately: the source picks a
+ * COLUMN ADAPTER, and a second bank has different columns and a different narration grammar.
+ */
+export const IMPORT_SOURCES: readonly { value: string; label: string; available: boolean }[] = [
+    { value: "Cashfree", label: "Cashfree", available: true },
+    { value: "Cashbook", label: "Cashbook (petty cash)", available: true },
+    { value: "ICICI Bank Statement", label: "ICICI bank statement", available: true },
+    { value: PORTER_SOURCE, label: "Porter Statement (deliveries)", available: true },
+    { value: CARD_SOURCE, label: "Credit Card Statement (ICICI)", available: true },
+];
 
 export const CASHFREE_STEPS: (WizardStep & { key: CashfreeStepKey })[] = [
     { key: "upload", title: "Upload", shortTitle: "Upload" },
@@ -52,6 +75,34 @@ export const BANK_STEPS: (WizardStep & { key: BankStepKey })[] = [
 ];
 
 /**
+ * The Porter Statement's four steps (#1443, ADR-0032).
+ *
+ * ⚠️ UPLOAD WRITES, SO THERE IS NO CHECK STEP BEFORE IT. The upload reads the whole file and refuses it
+ * before anything is saved, then stages the lines and the Porter Invoices in the same request; what the
+ * accountant checks comes AFTER, against Porter's own invoices (Check invoices). Nothing is created until the
+ * last step, and only when every invoice has passed.
+ */
+export const PORTER_STEPS: (WizardStep & { key: PorterStepKey })[] = [
+    { key: "upload", title: "Upload", shortTitle: "Upload" },
+    { key: "validate", title: "Check invoices", shortTitle: "Check invoices" },
+    { key: "review", title: "Review projects", shortTitle: "Review" },
+    { key: "create", title: "Create", shortTitle: "Create" },
+];
+
+/**
+ * The Credit Card Statement's three steps (#1566, ADR-0039).
+ *
+ * ⚠️ UPLOAD WRITES, SO THERE IS NO CHECK STEP BEFORE IT, as on Porter. The upload reads the whole PDF and
+ * refuses it (locked, another company, totals that do not agree) before anything is saved, then stages it.
+ * Review shows what was read; nothing is created until the last step.
+ */
+export const CARD_STEPS: (WizardStep & { key: CardStepKey })[] = [
+    { key: "upload", title: "Upload", shortTitle: "Upload" },
+    { key: "review", title: "Review", shortTitle: "Review" },
+    { key: "create", title: "Create", shortTitle: "Create" },
+];
+
+/**
  * Everything that differs between sources, in ONE place, keyed by the source string.
  *
  * ⚠️ A LOOKUP RATHER THAN A CHAIN OF `source === "…"` LITERALS (slice C6). The step list and the
@@ -68,7 +119,19 @@ interface SourceFlow {
     steps: (WizardStep & { key: ImportStepKey })[];
     /** Zero-indexed into `steps`, derived from the flow state alone. */
     stepIndex: (state: ImportFlowState) => number;
+    /**
+     * The file names the picker takes, mirroring the source's endpoint. Absent: `.csv` or `.xlsx` (the
+     * server sniffs the real format from the bytes, so a renamed export still works).
+     */
+    extensions?: readonly string[];
+    /**
+     * Where to export this source's file from, when it is not a Cashfree report. Absent: the dialog
+     * reads "Cashfree → Reports → {report}", which is only true of the Cashfree reports.
+     */
+    exportPath?: string;
 }
+
+const DEFAULT_EXTENSIONS: readonly string[] = [".csv", ".xlsx"];
 
 const DEFAULT_FLOW: SourceFlow = {
     steps: CASHFREE_STEPS,
@@ -97,12 +160,39 @@ const SOURCE_FLOWS: Record<string, SourceFlow> = {
          */
         stepIndex: (state) => (state.staged ? 2 : state.previewed ? 1 : 0),
     },
+    [PORTER_SOURCE]: {
+        steps: PORTER_STEPS,
+        // Staged = uploaded, which lands on Check invoices; every invoice Passed lands on Review (#1446); once
+        // Create has started (Creating / Created, #1445) it is on Create.
+        stepIndex: (state) => (state.createStarted ? 3 : state.validated ? 2 : state.staged ? 1 : 0),
+        // Porter's own export, and nothing else: `porter_upload.read_upload` refuses any other file.
+        extensions: [".csv"],
+        exportPath: "Porter for Business → the month's order statement, downloaded as CSV",
+    },
+    [CARD_SOURCE]: {
+        steps: CARD_STEPS,
+        // Staged = uploaded, which lands on Review; once Create has started (#1569) it is on Create.
+        stepIndex: (state) => (state.createStarted ? 2 : state.staged ? 1 : 0),
+        // The bank's own PDF, unlocked: `card_upload.read_upload` refuses any other file.
+        extensions: [".pdf"],
+        exportPath: "The card's monthly statement PDF from ICICI, unlocked (no password)",
+    },
 };
+
+/** The sources that have a flow of their own. Every one must be a source the dialog offers. */
+export const SOURCES_WITH_OWN_FLOW: readonly string[] = Object.keys(SOURCE_FLOWS);
 
 const flowFor = (source: string): SourceFlow => SOURCE_FLOWS[source] ?? DEFAULT_FLOW;
 
 export const importSteps = (source: string): (WizardStep & { key: ImportStepKey })[] =>
     flowFor(source).steps;
+
+/** The file extensions the picker takes for `source`, lower case, each with its dot. */
+export const acceptedExtensions = (source: string): readonly string[] =>
+    flowFor(source).extensions ?? DEFAULT_EXTENSIONS;
+
+/** Where `source`'s file is exported from, or undefined for a Cashfree report (see `SourceFlow`). */
+export const sourceExportPath = (source: string): string | undefined => flowFor(source).exportPath;
 
 /**
  * What the dialog has achieved so far. The step is DERIVED from this, never held beside it.
@@ -119,6 +209,10 @@ export interface ImportFlowState {
     staged: boolean;
     /** The match run finished. False while it runs AND after it fails. */
     matched: boolean;
+    /** Porter only: every Porter Invoice of the import Passed (the server's derived `Validated`). */
+    validated?: boolean;
+    /** Porter only: Create has started (the server's derived `Creating` / `Created`, #1445). */
+    createStarted?: boolean;
 }
 
 /**

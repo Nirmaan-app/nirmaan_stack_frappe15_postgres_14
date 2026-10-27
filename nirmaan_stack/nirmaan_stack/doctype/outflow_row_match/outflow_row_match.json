@@ -1,8 +1,7 @@
 {
  "actions": [],
- "allow_rename": 0,
  "autoname": "OFM-.YY.-.######",
- "creation": "2026-08-06 00:00:00.000000",
+ "creation": "2026-08-06 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -72,12 +71,11 @@
    "reqd": 1
   },
   {
-   "description": "The matched record.",
+   "description": "The matched record's name, as text (ADR-0022 Amendment G): a Reversed match record never blocks deleting it, and may name a record that no longer exists. A live one blocks the delete through the target's own on_trash check.",
    "fieldname": "target_name",
-   "fieldtype": "Dynamic Link",
+   "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Target",
-   "options": "target_doctype",
    "reqd": 1
   },
   {
@@ -123,7 +121,7 @@
    "fieldname": "match_basis",
    "fieldtype": "Select",
    "label": "Match Basis",
-   "options": "reference\naccount+IFSC\nproject in remark\nManual\ncashbook remark",
+   "options": "reference\naccount+IFSC\nproject in remark\nManual\ncashbook remark\nporter statement\ncheque number\ncard statement",
    "reqd": 1
   },
   {
@@ -182,9 +180,8 @@
   }
  ],
  "index_web_pages_for_search": 1,
- "istable": 0,
  "links": [],
- "modified": "2026-09-15 00:00:00.000000",
+ "modified": "2026-10-25 15:25:41.435726",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Outflow Row Match",

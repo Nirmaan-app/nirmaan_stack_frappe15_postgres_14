@@ -17,6 +17,7 @@ blocked at the door.
 Usage:
     python3 scripts/residence_check.py --init   # (re)generate the baseline file
     python3 scripts/residence_check.py          # check current tree against baseline
+    python3 scripts/residence_check.py --list   # ... and print each counted violation (P1)
 
 Stdlib only; run from anywhere (repo root is resolved from __file__).
 """
@@ -24,9 +25,11 @@ Stdlib only; run from anywhere (repo root is resolved from __file__).
 from __future__ import annotations
 
 import argparse
+import ast
 import io
 import json
 import re
+import subprocess
 import sys
 import tokenize
 from dataclasses import dataclass
@@ -73,6 +76,14 @@ PURE_MODULES = [
     "nirmaan_stack/services/boq_bcs/sources.py",
     # The Non Project Inflows type rule (#1266): read by the doctype validate and the import service.
     "nirmaan_stack/services/non_project_inflows.py",
+    # The refund link rule (#1399): how much of each Received refund settles a PO Adjustment.
+    "nirmaan_stack/services/refund_links.py",
+    # The waiting-refund suggestion rule (#1402): which waiting Vendor Refund a bank credit line may be.
+    "nirmaan_stack/services/outflow_import/refund_suggestion.py",
+    # The date a money row counts on, and its range clauses (#1451 review): project money and vendor paid.
+    "nirmaan_stack/services/money_dates.py",
+    # The cashflow CEO Hold rule (#1508 review): the hold check and the WO recount patch's preview.
+    "nirmaan_stack/services/ceo_hold/rules.py",
 ]
 
 
@@ -137,6 +148,331 @@ def count_pure_module_impurity(pattern: re.Pattern) -> int:
     return total
 
 
+# --- Rule P1: adding up Project Payments to show a paid figure (ADR-0034) ------
+# The rule's code lives here, ahead of the registry, because its measure is more than one regex.
+
+# A payment row's amount added to a running total: `sum + parseNumber(p.amount)`,
+# `total += payment.amount`. Payment rows are called p / pp / pay / payment across the app.
+_TS_PAYMENT_SUMS = (
+    re.compile(r"\+=?\s*(?:parseNumber|Number|parseFloat)?\(?\s*(?:p|pp|pay|payment)\??\.amount\b"),
+    # The shared helpers that add up payment rows: each CALL is a copy (a definition has no `(`).
+    re.compile(r"\bgetTotalAmountPaid\("),
+    re.compile(r"\buseOrderPayments\("),
+)
+
+# A payment cap inside a screen file (the WO page's Request Payment limit) is an allowed owner: it ignores
+# refunds on purpose (ADR-0032). It says so with this text on the line, or on a comment line right above it.
+CAP_MARKER = "ADR-0034 payment cap"
+
+
+def _is_comment_line(line: str) -> bool:
+    return line.strip().startswith(("//", "*", "/*", "{/*"))
+
+
+def payment_sum_lines_ts(src: str) -> list[int]:
+    """1-based lines of a TS/TSX source that add up Project Payments amounts."""
+    lines = src.splitlines()
+    out = []
+    for i, line in enumerate(lines):
+        if _is_comment_line(line) or not any(p.search(line) for p in _TS_PAYMENT_SUMS):
+            continue
+        above = lines[i - 1] if i > 0 else ""
+        if CAP_MARKER in line or (_is_comment_line(above) and CAP_MARKER in above):
+            continue
+        out.append(i + 1)
+    return out
+
+
+_PAYMENTS = "Project Payments"
+_FETCHERS = {"get_all", "get_list", "get_value", "get_values"}
+
+
+def _is_payment_fetch(node: ast.AST) -> bool:
+    """`frappe.get_all("Project Payments", ...)` and its get_list / get_value cousins."""
+    if not (isinstance(node, ast.Call) and node.args):
+        return False
+    name = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", None)
+    first = node.args[0]
+    return name in _FETCHERS and isinstance(first, ast.Constant) and first.value == _PAYMENTS
+
+
+def _reads_amount(expr: ast.AST, var: str) -> bool:
+    """`var.amount`, `var["amount"]` or `var.get("amount")` somewhere inside `expr`."""
+    for n in ast.walk(expr):
+        if isinstance(n, ast.Attribute) and n.attr == "amount" and getattr(n.value, "id", None) == var:
+            return True
+        if (isinstance(n, ast.Subscript) and getattr(n.value, "id", None) == var
+                and isinstance(n.slice, ast.Constant) and n.slice.value == "amount"):
+            return True
+        if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "get"
+                and getattr(n.func.value, "id", None) == var and n.args
+                and isinstance(n.args[0], ast.Constant) and n.args[0].value == "amount"):
+            return True
+    return False
+
+
+_JINJA_PAYMENT_LOOP = re.compile(r'\{%-?\s*for\s+(\w+)\s+in\s+frappe\.get_all\(\s*["\']' + _PAYMENTS)
+_JINJA_ENDFOR = re.compile(r"\{%-?\s*endfor")
+
+
+def payment_sum_lines_jinja(src: str) -> list[int]:
+    """1-based lines of a Jinja print format that add up the rows of a Project Payments loop."""
+    out, var = [], None
+    for i, line in enumerate(src.splitlines()):
+        loop = _JINJA_PAYMENT_LOOP.search(line)
+        if loop:
+            var = loop.group(1)
+        elif var and _JINJA_ENDFOR.search(line):
+            var = None
+        elif var and re.search(r"\+\s*\(?\s*" + var + r"\.amount\b", line):
+            out.append(i + 1)
+    return out
+
+
+# SUM(amount), SUM(pp.amount), SUM(CAST(amount AS numeric)), COALESCE inside or out. Group 1: the alias.
+_SQL_SUM_AMOUNT = re.compile(r'SUM\(\s*(?:(?:CAST|COALESCE)\(\s*)*(?:"?(\w+)"?\.)?"?amount"?\b', re.IGNORECASE)
+_SQL_FIRST_FROM = re.compile(r'FROM\s+[`"]?tab([^`"]+)[`"]?', re.IGNORECASE)
+
+
+def _sql_payment_sums(sql: str) -> list[int]:
+    """Offsets of each SUM over a Project Payments amount in one SQL string. With an alias the alias must
+    name the payments table; without one, the first FROM after the SUM must be the payments table."""
+    out = []
+    for m in _SQL_SUM_AMOUNT.finditer(sql):
+        alias = m.group(1)
+        if alias:
+            hit = re.search(r'tab' + _PAYMENTS + r'[`"]?\s+(?:AS\s+)?' + re.escape(alias) + r'\b', sql, re.IGNORECASE)
+        else:
+            nxt = _SQL_FIRST_FROM.search(sql, m.end())
+            hit = nxt is not None and nxt.group(1) == _PAYMENTS
+        if hit:
+            out.append(m.start())
+    return out
+
+
+def _string_values(node: ast.AST, str_names: dict[str, list[str]]) -> list[str]:
+    """String constants inside `node`, with a bare Name read through its assignments (`fields=[sum_field]`)."""
+    out = []
+    for n in ast.walk(node):
+        if isinstance(n, ast.Constant) and isinstance(n.value, str):
+            out.append(n.value)
+        elif isinstance(n, ast.Name):
+            out.extend(str_names.get(n.id, []))
+    return out
+
+
+def payment_sum_lines_py(src: str) -> list[int]:
+    """1-based lines of a Python source that add up Project Payments amounts."""
+    tree = ast.parse(src)
+
+    # Docstrings are prose, not SQL.
+    docstrings = {
+        id(body[0].value) for body in (getattr(n, "body", None) for n in ast.walk(tree))
+        if isinstance(body, list) and body and isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant) and isinstance(body[0].value.value, str)
+    }
+    str_names: dict[str, list[str]] = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant) and isinstance(n.value.value, str):
+            for t in n.targets:
+                if isinstance(t, ast.Name):
+                    str_names.setdefault(t.id, []).append(n.value.value)
+
+    # Names that hold fetched payment rows: `x = get_all("Project Payments")`, `x.extend(get_all(...))`.
+    row_names: set[str] = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Assign) and _is_payment_fetch(n.value):
+            row_names.update(t.id for t in n.targets if isinstance(t, ast.Name))
+        if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "extend"
+                and isinstance(n.func.value, ast.Name) and n.args and _is_payment_fetch(n.args[0])):
+            row_names.add(n.func.value.id)
+
+    def is_rows(it: ast.AST) -> bool:
+        return _is_payment_fetch(it) or (isinstance(it, ast.Name) and it.id in row_names)
+
+    lines: set[int] = set()
+    for n in ast.walk(tree):
+        # SQL: SUM over the payments table, in a plain or f-string literal.
+        if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docstrings:
+            lines.update(n.lineno + n.value[:at].count("\n") for at in _sql_payment_sums(n.value))
+        # get_all("Project Payments", fields=["sum(amount) ..."])
+        if _is_payment_fetch(n):
+            fields = [kw.value for kw in n.keywords if kw.arg in ("fields", "fieldname")] + n.args[2:3]
+            if any(re.search(r"sum\s*\(.*amount", s, re.IGNORECASE)
+                   for f in fields for s in _string_values(f, str_names)):
+                lines.add(n.lineno)
+        # sum(<amount of p> for p in <payment rows>)
+        if (isinstance(n, ast.Call) and getattr(n.func, "id", None) == "sum" and n.args
+                and isinstance(n.args[0], (ast.GeneratorExp, ast.ListComp))):
+            gen = n.args[0].generators[0]
+            if is_rows(gen.iter) and isinstance(gen.target, ast.Name) and _reads_amount(n.args[0].elt, gen.target.id):
+                lines.add(n.lineno)
+        # for p in <payment rows>: total += <amount of p>
+        if isinstance(n, ast.For) and is_rows(n.iter) and isinstance(n.target, ast.Name):
+            for s in ast.walk(n):
+                if (isinstance(s, ast.AugAssign) and isinstance(s.op, (ast.Add, ast.Sub))
+                        and _reads_amount(s.value, n.target.id)):
+                    lines.add(s.lineno)
+                    break
+    return sorted(lines)
+
+
+# The allowed owners of a payment sum (ADR-0034), and why. Anything else that adds up payments to show a
+# paid figure must read the order's stored `amount_paid` / `amount_due` instead.
+PAYMENT_SUM_OWNERS: dict[str, str] = {
+    # The Amount Paid rule itself and its judge.
+    "nirmaan_stack/services/amount_paid.py": "amount_paid_of: THE rule (Paid payments, plus a WO's TDS withheld from the vendor, less Received refunds)",
+    "nirmaan_stack/services/amount_paid_drift.py": "the mismatch service: recomputes the rule to judge the stored figure",
+    # Project outflow is cash, a payment sum by definition (ADR-0034 point 5, #1456).
+    "nirmaan_stack/services/project_money.py": "project outflow / Current Liabilities / cashflow gap: the one server figure",
+    # Amount Paid carries no date; a vendor's paid figure for a period applies the same rule to dated rows (#1461).
+    "nirmaan_stack/services/vendor_paid.py": "Vendor report's dated paid figures: payments plus WO TDS withheld, less Received refunds, each on its own date",
+    # Payment caps: ignore refunds on purpose (ADR-0032).
+    "nirmaan_stack/services/finance.py": "server caps: get_total_paid / _pending / _reconciliation_pending",
+    "nirmaan_stack/services/payment_summary.py": "the request / approve 'left to request' cap",
+    "nirmaan_stack/services/order_payments.py": "the Work Order payment limit",
+    "nirmaan_stack/nirmaan_stack/doctype/project_payments/project_payments.py":
+        "the payment's insert cap (payment total <= order total)",
+    # Bank cash-out lists: list payments, never a paid figure of an order.
+    "nirmaan_stack/api/payments/get_project_payment_summary.py": "payments dashboard, incl. the 30-day outflow card",
+    "frontend/src/pages/reports/hooks/useOutflowReportData.ts": "the Outflow report",
+    "frontend/src/pages/reports/components/WOPaymentVoucherReport.tsx": "the WO Payment Voucher report",
+    # Not an owner: the generic helper. Each `getTotalAmountPaid(` CALL is counted instead of its body.
+    "frontend/src/utils/getAmounts.ts": "getTotalAmountPaid's body (its call sites are counted)",
+}
+
+
+def payment_sum_copies() -> list[str]:
+    """Every `path:line` outside PAYMENT_SUM_OWNERS that adds up Project Payments amounts. Test files and
+    patches (append-only history) are not scanned. A cap inside a screen file carries CAP_MARKER."""
+    found = []
+    scans = (
+        (iter_files("nirmaan_stack", (".py",)), payment_sum_lines_py),
+        (iter_files("frontend/src", (".ts", ".tsx")), payment_sum_lines_ts),
+        (iter_files("frontend/src", (".html",)), payment_sum_lines_jinja),
+    )
+    for files, lines_of in scans:
+        for p in files:
+            rel = p.relative_to(REPO_ROOT).as_posix()
+            if rel in PAYMENT_SUM_OWNERS or p.name.startswith("test_") or ".test." in p.name or "/patches/" in rel:
+                continue
+            try:
+                hits = lines_of(read(p))
+            except SyntaxError:
+                hits = []
+            found.extend((rel, n) for n in hits)
+    return [f"{rel}:{n}" for rel, n in sorted(found)]
+
+
+# --- Rules S1, A1, R1: what the code review kept finding by hand (retro of spec #1442) ----------
+# Hand-written source only: tests, patches (append-only) and shadcn's generated components are left out.
+
+def _hand_written(p: Path) -> bool:
+    rel = p.relative_to(REPO_ROOT).as_posix()
+    return not (p.name.startswith("test_") or ".test." in p.name or "/patches/" in rel
+                or rel.startswith("frontend/src/components/ui/"))
+
+
+def _source_files() -> list[Path]:
+    return [p for p in iter_files("nirmaan_stack", (".py",)) + iter_files("frontend/src", (".ts", ".tsx"))
+            if _hand_written(p)]
+
+
+MAX_FILE_LINES = 500  # CODING_STANDARDS.md § Where code goes, "File size"
+
+
+def oversized_files() -> list[str]:
+    """Every hand-written source file over MAX_FILE_LINES, as `path (N lines)`."""
+    found = []
+    for p in _source_files():
+        n = read(p).count("\n")
+        if n > MAX_FILE_LINES:
+            found.append(f"{p.relative_to(REPO_ROOT).as_posix()} ({n} lines)")
+    return sorted(found)
+
+
+# `x: any`, `as any`, `any[]`, `Record<string, any>`. The lookaheads keep prose out ("Note: any value").
+_TS_EXPLICIT_ANY = (
+    re.compile(r":\s*any\b(?=\s*(?:[)\];,=|&>\[]|$))"),
+    re.compile(r"\bas\s+any\b(?=\s*(?:[)\];,.]|$))"),
+    re.compile(r"[<,]\s*any\s*(?=[>,\]])"),
+)
+
+
+def explicit_any_lines_ts(src: str) -> list[int]:
+    """1-based lines of a TS/TSX source that type something as `any`."""
+    return [i + 1 for i, line in enumerate(src.splitlines())
+            if not _is_comment_line(line) and any(p.search(line) for p in _TS_EXPLICIT_ANY)]
+
+
+def explicit_any_copies() -> list[str]:
+    found = []
+    for p in _source_files():
+        if p.suffix in (".ts", ".tsx"):
+            rel = p.relative_to(REPO_ROOT).as_posix()
+            found.extend(f"{rel}:{n}" for n in explicit_any_lines_ts(read(p)))
+    return found
+
+
+# A function that turns a number into "₹1,234" text. The homes stay; every other one is a copy.
+RUPEE_FORMATTER_HOMES = {
+    "nirmaan_stack/services/outflow_import/amounts.py",  # amounts.rupees(amount, paise=...)
+    "frontend/src/utils/FormatPrice.ts",                 # formatToIndianRupee and its rounded forms
+}
+_PY_RUPEE_DEF = re.compile(r"^\s*def\s+\w*rupee\w*\s*\(", re.IGNORECASE)
+_TS_RUPEE_DEF = re.compile(
+    r"^\s*(?:export\s+)?(?:function\s+\w*rupee\w*\s*[(<]|const\s+\w*rupee\w*\s*=\s*(?:\(|async\b|function\b|\w+\s*=>))",
+    re.IGNORECASE,
+)
+
+
+def rupee_formatter_lines(src: str, suffix: str) -> list[int]:
+    """1-based lines that define a rupee formatter, in a .py or a .ts/.tsx source."""
+    pattern = _PY_RUPEE_DEF if suffix == ".py" else _TS_RUPEE_DEF
+    return [i + 1 for i, line in enumerate(src.splitlines()) if pattern.search(line)]
+
+
+def rupee_formatters() -> list[str]:
+    found = []
+    for p in _source_files():
+        rel = p.relative_to(REPO_ROOT).as_posix()
+        if rel not in RUPEE_FORMATTER_HOMES:
+            found.extend(f"{rel}:{n}" for n in rupee_formatter_lines(read(p), p.suffix))
+    return found
+
+
+# P1's second shape (#1509): a Work Order's tax added onto its Amount Paid. Since ADR-0034 Amendment A the
+# stored `amount_paid` already holds the TDS withheld from the vendor, so `amount_paid + total_tds` (or a
+# deduction's `tds_amount`) counts it twice. Either order, one line, any language (TS, Python, SQL, Jinja).
+_TAX = r"\b(?:total_tds|tds_amount)\b"
+_TDS_ONTO_AMOUNT_PAID = (
+    re.compile(r"\bamount_paid\b[^;\n]*?\+[^;\n]*?" + _TAX),
+    re.compile(_TAX + r"[^;\n]*?\+[^;\n]*?\bamount_paid\b"),
+)
+
+
+def tds_added_to_amount_paid_lines(src: str) -> list[int]:
+    """1-based lines of a source (TS, Python, SQL, Jinja) that add a Work Order's tax onto its Amount Paid.
+    Comment lines (`//`, `*`, `#`) are prose, not code."""
+    return [
+        i + 1 for i, line in enumerate(src.splitlines())
+        if not (_is_comment_line(line) or line.strip().startswith("#"))
+        and any(p.search(line) for p in _TDS_ONTO_AMOUNT_PAID)
+    ]
+
+
+def tds_added_to_amount_paid() -> list[str]:
+    """Every `path:line` outside PAYMENT_SUM_OWNERS that adds `total_tds` / `tds_amount` onto
+    `amount_paid`. Test files and patches are not scanned."""
+    found = []
+    for p in iter_files("nirmaan_stack", (".py",)) + iter_files("frontend/src", (".ts", ".tsx", ".html")):
+        rel = p.relative_to(REPO_ROOT).as_posix()
+        if rel in PAYMENT_SUM_OWNERS or p.name.startswith("test_") or ".test." in p.name or "/patches/" in rel:
+            continue
+        found.extend(f"{rel}:{n}" for n in tds_added_to_amount_paid_lines(read(p)))
+    return sorted(found)
+
+
 # --- check registry ----------------------------------------------------------
 
 @dataclass
@@ -146,6 +482,8 @@ class Check:
     description: str
     route_hint: str      # printed on FAILURE — tells the violator where the concept lives
     measure: Callable[[], int]
+    # Optional: each counted violation as `path:line`. Printed on failure, and for every check by --list.
+    locate: Callable[[], list[str]] | None = None
 
 
 # b2: files containing the state literal, minus the predicate home and test files.
@@ -157,6 +495,19 @@ def _measure_b2() -> int:
         if p.name != "procurement_approval.py" and not p.name.startswith("test_")
     ]
     return count_files(files, _VENDOR_SELECTED)
+
+
+_GET_VALUE_ANY_ROW = re.compile(r"""get_value\(\s*["'][^"']+["']\s*,\s*\{\s*\}""")
+
+
+def tests_picking_any_row() -> list[str]:
+    found = []
+    for p in iter_files("nirmaan_stack", (".py",)):
+        if p.name.startswith("test_"):
+            rel = p.relative_to(REPO_ROOT).as_posix()
+            found.extend(f"{rel}:{i + 1}" for i, line in enumerate(read(p).splitlines())
+                         if _GET_VALUE_ANY_ROW.search(line))
+    return sorted(found)
 
 
 CHECKS: list[Check] = [
@@ -209,6 +560,74 @@ CHECKS: list[Check] = [
             re.compile(r"JSON\.parse"),
         ),
     ),
+    # Not an ADR-0010 residence rule: a test-data rule that rides this ratchet because it is the
+    # repo's one counting check. `get_value(doctype, {})` returns the most recently MODIFIED row,
+    # so any unrelated write (a recount touching every Vendor) changes which record a test gets.
+    Check(
+        id="t1_tests_pick_any_row",
+        rule="T1",
+        description="Lines in test_*.py fetching a row with empty filters (get_value(doctype, {}...)): "
+                    "the record depends on whatever was modified last.",
+        route_hint="put the property the test needs in the filters (e.g. {\"vendor_nickname\": [\"is\", \"set\"]}) "
+                   "or create the record in the test's setUp.",
+        measure=lambda: len(tests_picking_any_row()),
+        locate=tests_picking_any_row,
+    ),
+    # Not an ADR-0010 rule either: ADR-0034 (stored Amount Paid is the one paid figure). Each screen ticket
+    # of spec #1451 lowers it; at zero, a new copy fails here. `--list` prints every copy.
+    Check(
+        id="p1_payment_sum_copies",
+        rule="P1",
+        description="Lines that add up Project Payments amounts (frontend, backend, print formats) outside the "
+                    "allowed owners in PAYMENT_SUM_OWNERS: the Amount Paid rule, the payment caps, the bank "
+                    "cash-out lists.",
+        route_hint="read the order's stored amount_paid / amount_due (ADR-0034), or the server's project outflow "
+                   "for a project total; never add up payments again. A payment cap in a screen file says "
+                   f"'{CAP_MARKER}' on the line or the comment line above it.",
+        measure=lambda: len(payment_sum_copies()),
+        locate=payment_sum_copies,
+    ),
+    # The three below are not ADR-0010 rules: they are review findings a script can make, so a change
+    # meets them at commit time instead of in review (.githooks/pre-commit runs this file).
+    Check(
+        id="s1_oversized_files",
+        rule="S1",
+        description=f"Hand-written source files (not tests, patches or components/ui) over {MAX_FILE_LINES} lines.",
+        route_hint=f"split the file into focused submodules before it passes {MAX_FILE_LINES} lines "
+                   "(CODING_STANDARDS.md § Where code goes, File size).",
+        measure=lambda: len(oversized_files()),
+        locate=oversized_files,
+    ),
+    Check(
+        id="a1_explicit_any",
+        rule="A1",
+        description="Frontend lines (not tests or components/ui) that type something as `any`.",
+        route_hint="type unknown data as `unknown` and narrow it; `catch (err: unknown)` "
+                   "(frontend/CODING_STANDARDS.md § Writing TypeScript and styling).",
+        measure=lambda: len(explicit_any_copies()),
+        locate=explicit_any_copies,
+    ),
+    Check(
+        id="r1_rupee_formatters",
+        rule="R1",
+        description="Functions that format rupees outside RUPEE_FORMATTER_HOMES.",
+        route_hint="format with services/outflow_import/amounts.rupees (backend) or utils/FormatPrice.ts "
+                   "(frontend); never write another rupee formatter.",
+        measure=lambda: len(rupee_formatters()),
+        locate=rupee_formatters,
+    ),
+    # P1's second shape (#1509, ADR-0034 Amendment A): baseline 0 from the day it was added.
+    Check(
+        id="p1_tds_added_to_amount_paid",
+        rule="P1",
+        description="Lines adding a Work Order's total_tds (or a deduction's tds_amount) onto amount_paid outside "
+                    "PAYMENT_SUM_OWNERS: amount_paid already holds the TDS withheld from the vendor, so the "
+                    "sum counts it twice.",
+        route_hint="read amount_paid as it is (it includes the vendor's TDS); for its parts ask the server "
+                   "(api/payments/work_order_tds.get_work_order_tds: withheld, company).",
+        measure=lambda: len(tds_added_to_amount_paid()),
+        locate=tds_added_to_amount_paid,
+    ),
 ]
 
 
@@ -243,6 +662,32 @@ def compare(check_id: str, current: int, baseline: int) -> Verdict:
     return Verdict(ok=True, message=f"holding at {current}", new_baseline=None)
 
 
+def changed_paths() -> set[str] | None:
+    """Repo-relative paths changed since HEAD (staged, unstaged, untracked); None outside git."""
+    paths: set[str] = set()
+    for cmd in (["diff", "--name-only", "HEAD"], ["ls-files", "--others", "--exclude-standard"]):
+        try:
+            out = subprocess.run(["git", "-C", str(REPO_ROOT), *cmd], capture_output=True, text=True, check=True)
+        except (OSError, subprocess.CalledProcessError):
+            return None
+        paths.update(filter(None, out.stdout.splitlines()))
+    return paths
+
+
+LOCATIONS_SHOWN = 20
+
+
+def locations_to_show(where: list[str], changed: set[str] | None = None) -> list[str]:
+    """On a failure, the violations in files this change touches; with none of those, the first few."""
+    changed = changed_paths() if changed is None else changed
+    mine = [loc for loc in where if re.split(r"[: ]", loc, maxsplit=1)[0] in (changed or set())]
+    if mine:
+        return mine
+    if len(where) <= LOCATIONS_SHOWN:
+        return where
+    return where[:LOCATIONS_SHOWN] + [f"... {len(where) - LOCATIONS_SHOWN} more (--list prints them all)"]
+
+
 # --- baseline I/O + entry points ---------------------------------------------
 
 def measure_all() -> dict[str, dict]:
@@ -265,7 +710,7 @@ def do_init() -> int:
     return 0
 
 
-def do_check() -> int:
+def do_check(list_all: bool = False) -> int:
     if not BASELINE_PATH.exists():
         print(f"No baseline at {BASELINE_PATH} — run with --init first.", file=sys.stderr)
         return 2
@@ -274,7 +719,8 @@ def do_check() -> int:
     failed = False
     rewrites: dict[str, int] = {}
     for c in CHECKS:
-        current = c.measure()
+        where = c.locate() if c.locate else None
+        current = len(where) if where is not None else c.measure()
         base_count = baseline.get(c.id, {}).get("count", 0)
         verdict = compare(c.id, current, base_count)
         mark = "✓" if verdict.ok else "✗"
@@ -282,6 +728,9 @@ def do_check() -> int:
         if not verdict.ok:
             failed = True
             print(f"    -> {c.route_hint}")
+        if where and (list_all or not verdict.ok):
+            for loc in where if list_all else locations_to_show(where):
+                print(f"       {loc}")
         if verdict.new_baseline is not None:
             rewrites[c.id] = verdict.new_baseline
 
@@ -298,8 +747,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="ADR-0010 module-residence ratchet.")
     parser.add_argument("--init", action="store_true",
                         help="Measure all checks and (over)write the baseline file, then exit.")
+    parser.add_argument("--list", action="store_true",
+                        help="Also print each counted violation (path:line) of the checks that can locate them.")
     args = parser.parse_args()
-    return do_init() if args.init else do_check()
+    return do_init() if args.init else do_check(list_all=args.list)
 
 
 if __name__ == "__main__":

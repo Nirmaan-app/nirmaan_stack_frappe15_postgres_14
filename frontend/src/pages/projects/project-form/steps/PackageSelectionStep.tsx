@@ -7,25 +7,35 @@ import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { ProjectFormValues, DailyProgressWorkHeader } from "../schema";
 import { ProjectFormData } from "../hooks/useProjectFormData";
-import { Plus, X, ClipboardList, ChevronDown, ChevronRight, PenTool, Copy, ListChecks, Info } from "lucide-react";
+import { Plus, X, ClipboardList, ChevronDown, ChevronRight, PenTool, Copy, ListChecks, Info, FileSpreadsheet, AlertTriangle } from "lucide-react";
 import { useState } from "react";
+import { buildWorkPackageEntry, FormWorkPackage } from "../boqPackageSeed";
+import {
+    OptionalSections,
+    PackageChange,
+    readOptionalSections,
+    syncSectionsWithPackages,
+    toWorkHeaderEntry,
+    turnSectionOff,
+    turnSectionOn,
+} from "../packageSectionSync";
 
-// Local type for form's internal work package structure
-interface FormWorkPackage {
-    work_package_name: string;
-    category_list: {
-        list: Array<{
-            name: string;
-            makes: Array<{ label: string; value: string }>;
-        }>;
-    };
+/** The ticked BoQs (own and added) the packages were last pre-ticked from, and what they covered. */
+export interface SeededBoqs {
+    names: string[];
+    packages: string[];
+    unmappedHeaders: string[];
 }
+
+const NO_SEEDED_BOQS: SeededBoqs = { names: [], packages: [], unmappedHeaders: [] };
 
 interface PackageSelectionStepProps {
     form: UseFormReturn<ProjectFormValues>;
     formData: ProjectFormData;
     onNext: () => void;
     onPrevious: () => void;
+    /** The BoQs the packages were pre-ticked from, for the banner. */
+    seededBoqs?: SeededBoqs;
 }
 
 export const PackageSelectionStep: React.FC<PackageSelectionStepProps> = ({
@@ -33,7 +43,9 @@ export const PackageSelectionStep: React.FC<PackageSelectionStepProps> = ({
     formData,
     onNext,
     onPrevious,
+    seededBoqs = NO_SEEDED_BOQS,
 }) => {
+    const seededScope = seededBoqs;
     const { workPackages, categories, workHeaders, designCategories, criticalPOCategories, isPackageDataLoading, isWorkHeadersLoading, isDesignCategoriesLoading, isCriticalPOCategoriesLoading } = formData;
     const watchedWorkPackages = form.watch("project_work_packages.work_packages");
     const selectedWorkPackages: FormWorkPackage[] = Array.isArray(watchedWorkPackages) ? watchedWorkPackages : [];
@@ -68,6 +80,30 @@ export const PackageSelectionStep: React.FC<PackageSelectionStepProps> = ({
         return categories?.filter((cat) => cat.work_package === workPackageName) || [];
     };
 
+    // The masters the three optional sections are filled from, by package.
+    const sectionMasters = useMemo(
+        () => ({
+            workHeaders: workHeaders ?? [],
+            designCategories: designCategories ?? [],
+            criticalPOCategories: criticalPOCategories ?? [],
+        }),
+        [workHeaders, designCategories, criticalPOCategories]
+    );
+
+    const writeSections = useCallback(
+        (next: OptionalSections) => {
+            form.setValue("daily_progress_setup", next.daily_progress_setup);
+            form.setValue("design_packages_setup", next.design_packages_setup);
+            form.setValue("critical_po_setup", next.critical_po_setup);
+        },
+        [form]
+    );
+
+    // Ticking / unticking packages ticks / unticks their headers and categories below.
+    const syncSections = (change: PackageChange) => {
+        writeSections(syncSectionsWithPackages(readOptionalSections(form.getValues()), sectionMasters, change));
+    };
+
     // Check if a work package is selected
     const isPackageSelected = (workPackageName: string) => {
         return selectedWorkPackages.some((wp) => wp.work_package_name === workPackageName);
@@ -82,49 +118,52 @@ export const PackageSelectionStep: React.FC<PackageSelectionStepProps> = ({
 
     // Handle work package selection
     const handlePackageToggle = (workPackageName: string, checked: boolean) => {
-        const packageCategories = getCategoriesForPackage(workPackageName);
         const currentPackages = [...selectedWorkPackages];
 
         if (checked) {
             if (currentPackages.some((wp) => wp.work_package_name === workPackageName)) {
                 return;
             }
-            const newPackage: FormWorkPackage = {
-                work_package_name: workPackageName,
-                category_list: {
-                    list: packageCategories.map((cat) => ({
-                        name: cat.category_name,
-                        makes: [],
-                    })),
-                },
-            };
             form.setValue("project_work_packages.work_packages", [
                 ...currentPackages,
-                newPackage,
+                buildWorkPackageEntry(workPackageName, categories ?? []),
             ]);
+            syncSections({
+                added: [workPackageName],
+                removed: [],
+                ticked: [...currentPackages.map((wp) => wp.work_package_name), workPackageName],
+            });
         } else {
             form.setValue(
                 "project_work_packages.work_packages",
                 currentPackages.filter((wp) => wp.work_package_name !== workPackageName)
             );
+            syncSections({
+                added: [],
+                removed: [workPackageName],
+                ticked: currentPackages
+                    .map((wp) => wp.work_package_name)
+                    .filter((name) => name !== workPackageName),
+            });
         }
     };
 
     // Handle select all
     const handleSelectAll = (checked: boolean) => {
+        const alreadySelected = selectedWorkPackages.map((wp) => wp.work_package_name);
         if (checked && workPackages) {
-            const allWorkPackages = workPackages.map((wp) => ({
-                work_package_name: wp.work_package_name,
-                category_list: {
-                    list: getCategoriesForPackage(wp.work_package_name).map((cat) => ({
-                        name: cat.category_name,
-                        makes: [],
-                    })),
-                },
-            }));
+            const allWorkPackages = workPackages.map((wp) =>
+                buildWorkPackageEntry(wp.work_package_name, categories ?? [])
+            );
             form.setValue("project_work_packages.work_packages", allWorkPackages);
+            syncSections({
+                added: workPackages.map((wp) => wp.work_package_name).filter((name) => !alreadySelected.includes(name)),
+                removed: [],
+                ticked: workPackages.map((wp) => wp.work_package_name),
+            });
         } else {
             form.setValue("project_work_packages.work_packages", []);
+            syncSections({ added: [], removed: alreadySelected, ticked: [] });
         }
     };
 
@@ -134,15 +173,21 @@ export const PackageSelectionStep: React.FC<PackageSelectionStepProps> = ({
     // DAILY PROGRESS REPORT SETUP HANDLERS
     // ═══════════════════════════════════════════════════════════════════════
 
-    const handleProgressEnabledChange = useCallback((checked: boolean) => {
-        form.setValue("daily_progress_setup.enabled", checked);
-        if (!checked) {
-            // Reset all settings when disabled
-            form.setValue("daily_progress_setup.zone_type", undefined);
-            form.setValue("daily_progress_setup.zones", []);
-            form.setValue("daily_progress_setup.work_headers", []);
-        }
-    }, [form]);
+    // Switching a section on fills it from the ticked packages; switching it off clears it
+    // and keeps it off while packages change (see packageSectionSync).
+    const handleSectionEnabledChange = useCallback(
+        (key: "daily_progress_setup" | "design_packages_setup" | "critical_po_setup", checked: boolean) => {
+            const sections = readOptionalSections(form.getValues());
+            const ticked = (form.getValues("project_work_packages.work_packages") ?? []).map((wp) => wp.work_package_name);
+            writeSections(checked ? turnSectionOn(sections, key, ticked, sectionMasters) : turnSectionOff(sections, key));
+        },
+        [form, sectionMasters, writeSections]
+    );
+
+    const handleProgressEnabledChange = useCallback(
+        (checked: boolean) => handleSectionEnabledChange("daily_progress_setup", checked),
+        [handleSectionEnabledChange]
+    );
 
     const handleZoneTypeChange = useCallback((value: 'single' | 'multiple') => {
         form.setValue("daily_progress_setup.zone_type", value);
@@ -169,11 +214,7 @@ export const PackageSelectionStep: React.FC<PackageSelectionStepProps> = ({
     }, [zones, form]);
 
     const handleWorkHeaderToggle = useCallback((header: WorkHeaderType, checked: boolean) => {
-        const newHeader: DailyProgressWorkHeader = {
-            work_header_doc_name: header.name,
-            work_header_display_name: header.work_header_name,
-            work_package_link: header.work_package_link,
-        };
+        const newHeader: DailyProgressWorkHeader = toWorkHeaderEntry(header);
 
         if (checked) {
             // Add header if not already selected
@@ -209,16 +250,10 @@ export const PackageSelectionStep: React.FC<PackageSelectionStepProps> = ({
     // DESIGN PACKAGES SETUP HANDLERS
     // ═══════════════════════════════════════════════════════════════════════
 
-    const handleDesignEnabledChange = useCallback((checked: boolean) => {
-        form.setValue("design_packages_setup.enabled", checked);
-        if (!checked) {
-            // Reset all settings when disabled
-            form.setValue("design_packages_setup.zone_source", undefined);
-            form.setValue("design_packages_setup.zone_type", undefined);
-            form.setValue("design_packages_setup.zones", []);
-            form.setValue("design_packages_setup.selected_categories", []);
-        }
-    }, [form]);
+    const handleDesignEnabledChange = useCallback(
+        (checked: boolean) => handleSectionEnabledChange("design_packages_setup", checked),
+        [handleSectionEnabledChange]
+    );
 
     const handleDesignZoneSourceChange = useCallback((source: 'custom' | 'copy_from_progress') => {
         form.setValue("design_packages_setup.zone_source", source);
@@ -276,13 +311,10 @@ export const PackageSelectionStep: React.FC<PackageSelectionStepProps> = ({
     // CRITICAL PO SETUP HANDLERS
     // ═══════════════════════════════════════════════════════════════════════
 
-    const handleCriticalPOEnabledChange = useCallback((checked: boolean) => {
-        form.setValue("critical_po_setup.enabled", checked);
-        if (!checked) {
-            // Reset all settings when disabled
-            form.setValue("critical_po_setup.selected_categories", []);
-        }
-    }, [form]);
+    const handleCriticalPOEnabledChange = useCallback(
+        (checked: boolean) => handleSectionEnabledChange("critical_po_setup", checked),
+        [handleSectionEnabledChange]
+    );
 
     const handleCriticalPOCategoryToggle = useCallback((categoryName: string) => {
         if (selectedCriticalPOCategories.includes(categoryName)) {
@@ -373,6 +405,39 @@ export const PackageSelectionStep: React.FC<PackageSelectionStepProps> = ({
                         </span>
                     )}
                 </div>
+
+                {/* Where the ticks came from */}
+                {seededBoqs.names.length > 0 && (
+                    <div className="flex items-start gap-2 rounded border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+                        <FileSpreadsheet className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                        <span>
+                            {seededScope.packages.length > 0 ? (
+                                <>
+                                    Pre-selected from{" "}
+                                    <span className="font-medium">{seededBoqs.names.join(", ")}</span>.
+                                    You can still add or remove packages.
+                                </>
+                            ) : (
+                                <>
+                                    <span className="font-medium">{seededBoqs.names.join(", ")}</span>{" "}
+                                    {seededBoqs.names.length === 1 ? "maps" : "map"} to no package, so nothing was
+                                    pre-selected. Select the packages yourself.
+                                </>
+                            )}
+                        </span>
+                    </div>
+                )}
+                {seededScope.unmappedHeaders.length > 0 && (
+                    <div className="flex items-start gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                        <span>
+                            The selected BoQs also cover{" "}
+                            <span className="font-medium">{seededScope.unmappedHeaders.join(", ")}</span>, which{" "}
+                            {seededScope.unmappedHeaders.length === 1 ? "has" : "have"} no single package. Tick those
+                            packages yourself.
+                        </span>
+                    </div>
+                )}
 
                 {/* Select All */}
                 <div className="flex items-center gap-2 py-2 px-3 bg-gray-50 border border-gray-200 rounded-t">

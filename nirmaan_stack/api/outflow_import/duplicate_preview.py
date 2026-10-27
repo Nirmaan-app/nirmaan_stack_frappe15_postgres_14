@@ -38,7 +38,7 @@ import frappe
 from nirmaan_stack.api.outflow_import.review import (
     BATCH_DOCTYPE,
     _FROZEN_ROW_STATUSES,
-    _StagedRow,
+    StagedRow,
     _assert_batch,
     _batch_source,
     _contains_guard_outcomes,
@@ -91,7 +91,7 @@ def build_preview(batch: str | None = None) -> dict:
         name = meta["name"]
         loaded = _load_rows(name)
         notes = {r["name"]: r.get("outcome_note") or "" for r in loaded}
-        rows = [_StagedRow(r) for r in loaded]
+        rows = [StagedRow(r) for r in loaded]
         matchable = [r for r in rows if r.row_status not in _FROZEN_ROW_STATUSES]
         entries = []
         for row, group, verdict in _guard_verdicts(name, matchable, carried):

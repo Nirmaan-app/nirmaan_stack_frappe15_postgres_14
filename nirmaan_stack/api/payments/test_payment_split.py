@@ -650,6 +650,28 @@ class TestTheDefaultsAreTheCeoBehaviour(PaymentSplitFixture):
 
         self.assertEqual(self._remainder_of(self.payment), [], "a refused split mints nothing")
 
+    def test_a_cheque_payment_is_refused_on_both_paths(self):
+        """Spec #1477 (#1487): one cheque, one decision. Neither the CEO's part-approval nor the bank
+        import's part-settlement may split a cheque payment."""
+        frappe.db.set_value(
+            PAYMENT, self.payment,
+            {"mode_of_payment": "Cheque", "cheque_no": "000747", "cheque_date": nowdate()},
+            update_modified=False,
+        )
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError) as caught:
+            split_payment(self.payment, 60000)
+        self.assertIn("is paid by cheque 000747, so it cannot be split", str(caught.exception))
+
+        frappe.db.set_value(PAYMENT, self.payment, "status", "Reconciliation Pending", update_modified=False)
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError) as caught:
+            split_payment(self.payment, 60000, expect_status="Reconciliation Pending",
+                          keep_status="Reconciliation Pending", remainder_status="Reconciliation Pending",
+                          stamp_ceo_approval=False)
+        self.assertIn("so it cannot be split", str(caught.exception))
+        self.assertEqual(self._remainder_of(self.payment), [], "a refused split mints nothing")
+
     def test_a_settlement_split_still_refuses_a_refund_and_a_sub_rupee_balance(self):
         """The guards are not CEO-specific and must not become so. A negative payment is
         meaningless to split from either direction."""
@@ -704,7 +726,9 @@ class TestACeoSplitKeepsThePaymentKind(unittest.TestCase):
         self.fx = TaxedWorkOrderFixture.attach(self)
         self.project = self.fx.project()
         self.vendor = self.fx.vendor(2.0)
-        self.sr = self.fx.service_request(self.project, self.vendor)
+        # GST-on with GST released: an approval re-checks the Work Order's payment limit, which refuses a
+        # GST payment on a Work Order without GST.
+        self.sr = self.fx.service_request(self.project, self.vendor, gst=True, gst_invoiced=10000000)
 
     def _plant(self, amount, *, gst):
         name = self.fx._name("PAY")

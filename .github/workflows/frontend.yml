@@ -1,0 +1,42 @@
+name: Frontend
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: frontend-${{ github.event.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: vitest + typecheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Clone
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Install
+        run: yarn install --frozen-lockfile
+        env:
+          # Cypress is a dependency, but neither check runs it.
+          CYPRESS_INSTALL_BINARY: 0
+
+      - name: Unit tests
+        run: yarn vitest run
+
+      - name: Typecheck (new errors only, against tsc-baseline.json)
+        run: yarn typecheck
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096

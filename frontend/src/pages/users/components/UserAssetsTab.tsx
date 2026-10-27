@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback } from "react";
-import { Link } from "react-router-dom";
-import { useFrappeUpdateDoc, useFrappeDeleteDoc, useFrappeFileUpload } from "frappe-react-sdk";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { Link, useLocation } from "react-router-dom";
+import { useFrappePostCall } from "frappe-react-sdk";
 import {
   Dialog,
   DialogClose,
@@ -17,29 +17,44 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TailSpin } from "react-loader-spinner";
 import { useToast } from "@/components/ui/use-toast";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
-import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { formatDate } from "@/utils/FormatDate";
 import {
   CirclePlus,
   PackageSearch,
-  Trash2,
   Undo2,
+  CheckCircle2,
+  UserMinus,
   ExternalLink,
   Calendar,
   Hash,
   AlertTriangle,
   FileCheck,
-  Upload,
-  FileText,
   Briefcase,
   Laptop,
+  PenLine,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { AssignAssetToUserDialog } from "./AssignAssetToUserDialog";
+import { useUserData } from "@/hooks/useUserData";
+import { assetTabToOpen, canSignDeclaration } from "@/utils/assetDeclaration";
 import {
-  ASSET_MASTER_DOCTYPE,
-  ASSET_MANAGEMENT_DOCTYPE,
-} from "@/pages/Assets/assets.constants";
+  AUDIT_PENDING,
+  AssetCardTone,
+  AuditBadge,
+  assetCardTone,
+  auditBadge,
+  canSubmitAudit,
+  isAuditOverdue,
+  parseAuditAnswers,
+} from "@/utils/assetAudit";
+import { PendingDeclarationTooltip, pendingAssetActionsLabel } from "@/components/helpers/PendingDeclarationIcon";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { AssignAssetToUserDialog } from "./AssignAssetToUserDialog";
+import { SignDeclarationDialog } from "@/pages/Assets/components/SignDeclarationDialog";
+import { SubmitAuditDialog } from "@/pages/Assets/components/SubmitAuditDialog";
+import { AuditStatusRow } from "@/pages/Assets/components/AuditStatusRow";
+import { UnassignReasonFields } from "@/pages/Assets/components/UnassignReasonFields";
+import { isUnassignReasonValid } from "@/utils/assetUnassign";
+import { getFrappeError } from "@/utils/frappeErrors";
 
 // Types for asset data
 interface AssetManagementRecord {
@@ -49,6 +64,19 @@ interface AssetManagementRecord {
   asset_assigned_on: string;
   asset_declaration_attachment: string | null;
   creation: string;
+  /** Ticked by the server when the declaration arrives (signed or uploaded). */
+  received?: 0 | 1;
+  received_on?: string | null;
+  /** Ticked when the holder returns it; cleared if Admin / HR / PMO reject the return. */
+  returned?: 0 | 1;
+  returned_on?: string | null;
+  /** Monthly asset audit (owner, 2026-10-14), written by the server. */
+  audit_status?: string | null;
+  audit_month?: string | null;
+  last_audit_on?: string | null;
+  audit_proof?: string | null;
+  /** The latest audit's questions and answers (owner, 2026-10-15); read through parseAuditAnswers. */
+  audit_answers?: unknown;
 }
 
 interface AssetMasterRecord {
@@ -65,52 +93,117 @@ interface AssetCategoryRecord {
   name: string;
   asset_category: string;
   category_type?: "Project" | "IT";
+  /** "Monthly audit required" (owner, 2026-10-14). */
+  audit_required?: 0 | 1;
 }
 
 type AssetSubTab = "Project" | "IT";
+
+/**
+ * The mark on a Project / IT tab with declarations still to sign or upload, or audits still to send
+ * (same icon as the sidebar; red while an audit is waiting to be sent).
+ */
+function PendingDeclarationMark({
+  count,
+  audits = 0,
+  overdueAudits = 0,
+  canSign,
+}: {
+  count: number;
+  audits?: number;
+  overdueAudits?: number;
+  canSign: boolean;
+}) {
+  if (count + audits === 0) return null;
+  return (
+    <PendingDeclarationTooltip
+      auditPending={audits > 0}
+      label={pendingAssetActionsLabel(count, audits, canSign, overdueAudits)}
+    />
+  );
+}
 
 interface UserAssetsTabProps {
   user: NirmaanUsers;
   assetManagementList: AssetManagementRecord[] | undefined;
   assetMasterList: AssetMasterRecord[] | undefined;
+  /** Assets the viewer can't open (their own, on a project they are not on): the card shows no link. */
+  assetsWithoutPage?: ReadonlySet<string>;
   categoryList: AssetCategoryRecord[] | undefined;
   isAdmin: boolean;
   isOwnProfile: boolean;
   onMutate: () => void;
 }
 
+// The card's tint (owner, 2026-10-15): light red while its audit is overdue, light yellow while the
+// declaration or the audit is pending.
+const CARD_TONE_CLASS: Record<NonNullable<AssetCardTone>, string> = {
+  overdue: "bg-red-50 border-red-200",
+  pending: "bg-amber-50 border-amber-200",
+};
+
 // Asset Card Component
 function AssetCard({
   assignment,
   asset,
   isAdmin,
-  isOwnProfile,
+  canSign,
+  canReturn = false,
+  returnBlockedByAudit = false,
+  hasPage = true,
+  audit = null,
+  canAudit = false,
   onUnassign,
-  onUploadDeclaration,
+  onSign,
+  onReturn,
+  onAudit,
 }: {
   assignment: AssetManagementRecord;
   asset: AssetMasterRecord | undefined;
   isAdmin: boolean;
-  isOwnProfile: boolean;
+  /** False when the viewer can't open the asset's page: the name is shown without a link. */
+  hasPage?: boolean;
+  /** The viewer is the assignee and the declaration is still pending. Everyone signs their own, Admin too:
+   * there is no scanned-declaration upload (owner, 2026-10-15). */
+  canSign: boolean;
+  /** The viewer holds it, the declaration is on file and no return is waiting: show Return. */
+  canReturn?: boolean;
+  /** Return would be allowed but the monthly audit is open: Return shows greyed out (owner, 2026-10-14). */
+  returnBlockedByAudit?: boolean;
+  /** The audit line, or null when there is nothing to show (a category that isn't audited). */
+  audit?: AuditBadge | null;
+  /** The viewer holds it and its audit is open: show Submit audit. */
+  canAudit?: boolean;
   onUnassign: () => void;
-  onUploadDeclaration: () => void;
+  onSign: () => void;
+  onReturn?: () => void;
+  onAudit?: () => void;
 }) {
   const isPendingDeclaration = !assignment.asset_declaration_attachment;
-  const canUploadDeclaration = isAdmin || isOwnProfile;
+  const tone = assetCardTone(isPendingDeclaration, audit);
 
   return (
-    <Card className="group relative overflow-hidden transition-all duration-300 hover:shadow-md hover:border-primary/20">
+    <Card
+      className={cn(
+        "group relative overflow-hidden transition-all duration-300 hover:shadow-md",
+        tone ? CARD_TONE_CLASS[tone] : "hover:border-primary/20"
+      )}
+    >
       <CardContent className="p-4 space-y-3">
         {/* Header with Asset Name */}
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
-            <Link
-              to={`/asset-management/${assignment.asset}`}
-              className="font-semibold text-base hover:text-primary transition-colors flex items-center gap-1 group/link"
-            >
-              <span className="truncate">{asset?.asset_name || assignment.asset}</span>
-              <ExternalLink className="h-3 w-3 opacity-0 group-hover/link:opacity-100 transition-opacity flex-shrink-0" />
-            </Link>
+            {hasPage ? (
+              <Link
+                to={`/asset-management/${assignment.asset}`}
+                className="font-semibold text-base hover:text-primary transition-colors flex items-center gap-1 group/link"
+              >
+                <span className="truncate">{asset?.asset_name || assignment.asset}</span>
+                <ExternalLink className="h-3 w-3 opacity-0 group-hover/link:opacity-100 transition-opacity flex-shrink-0" />
+              </Link>
+            ) : (
+              <p className="font-semibold text-base truncate">{asset?.asset_name || assignment.asset}</p>
+            )}
             <p className="text-xs text-muted-foreground mt-0.5">
               {asset?.asset_category || "Uncategorized"}
             </p>
@@ -132,18 +225,26 @@ function AssetCard({
           )}
         </div>
 
-        {/* Asset Details */}
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          {asset?.asset_serial_number && (
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              <Hash className="h-3.5 w-3.5" />
-              <span className="truncate">{asset.asset_serial_number}</span>
+        {/* Asset Details: serial and assigned date on the left, Received on the right */}
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground">
+            {asset?.asset_serial_number && (
+              <div className="flex min-w-0 items-center gap-1.5">
+                <Hash className="h-3.5 w-3.5 flex-shrink-0" />
+                <span className="truncate">{asset.asset_serial_number}</span>
+              </div>
+            )}
+            <div className="flex items-center gap-1.5" title="Assigned on">
+              <Calendar className="h-3.5 w-3.5" />
+              <span>{formatDate(assignment.asset_assigned_on)}</span>
             </div>
-          )}
-          <div className="flex items-center gap-1.5 text-muted-foreground">
-            <Calendar className="h-3.5 w-3.5" />
-            <span>{formatDate(assignment.asset_assigned_on)}</span>
           </div>
+          {!!assignment.received && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 whitespace-nowrap">
+              <CheckCircle2 className="h-3 w-3" />
+              Received {assignment.received_on ? formatDate(assignment.received_on) : ""}
+            </span>
+          )}
         </div>
 
         {/* Declaration Status */}
@@ -169,29 +270,74 @@ function AssetCard({
 
           {/* Action Buttons */}
           <div className="flex items-center gap-1">
-            {isPendingDeclaration && canUploadDeclaration && (
+            {canReturn && (
               <Button
-                variant="ghost"
                 size="sm"
-                onClick={onUploadDeclaration}
-                className="h-7 px-2 text-xs gap-1 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                onClick={onReturn}
+                className="h-7 px-2.5 text-xs gap-1 bg-red-600 text-white hover:bg-red-700"
               >
-                <Upload className="h-3.5 w-3.5" />
-                Upload
+                <Undo2 className="h-3.5 w-3.5" />
+                Return
+              </Button>
+            )}
+            {returnBlockedByAudit && (
+              // A disabled button gets no hover, so the tooltip hangs on a wrapper (focusable for keyboard).
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span tabIndex={0} className="inline-flex cursor-not-allowed rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <Button size="sm" disabled className="pointer-events-none h-7 px-2.5 text-xs gap-1">
+                      <Undo2 className="h-3.5 w-3.5" />
+                      Return
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top">Submit the pending audit first, then return it.</TooltipContent>
+              </Tooltip>
+            )}
+            {canSign && (
+              <Button
+                size="sm"
+                onClick={onSign}
+                className="h-7 px-2.5 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700"
+              >
+                <PenLine className="h-3.5 w-3.5" />
+                Sign
               </Button>
             )}
             {isAdmin && (
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 onClick={onUnassign}
-                className="h-7 px-2 text-xs gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
+                className="h-7 px-2 text-xs gap-1 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
               >
-                <Trash2 className="h-3.5 w-3.5" />
+                <UserMinus className="h-3.5 w-3.5" />
+                Unassign
               </Button>
             )}
           </div>
         </div>
+
+        {/* Monthly audit (owner, 2026-10-14): pending with Submit audit for the holder, or done with the photo
+            and the answers (owner, 2026-10-15) */}
+        {audit && (
+          <AuditStatusRow
+            badge={audit}
+            proofUrl={assignment.audit_proof}
+            canSubmit={canAudit}
+            onSubmit={onAudit}
+            answers={parseAuditAnswers(assignment.audit_answers)}
+            answersTitle={`${asset?.asset_name || assignment.asset} · audit for ${assignment.audit_month ?? ""}`}
+          />
+        )}
+
+        {/* Returned, waiting for approval (owner, 2026-10-13) */}
+        {!!assignment.returned && (
+          <span className="inline-flex w-fit items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-600">
+            <Undo2 className="h-3 w-3" />
+            Returned {assignment.returned_on ? formatDate(assignment.returned_on) : ""} · waiting for approval
+          </span>
+        )}
       </CardContent>
     </Card>
   );
@@ -201,24 +347,34 @@ export function UserAssetsTab({
   user,
   assetManagementList,
   assetMasterList,
+  assetsWithoutPage,
   categoryList,
   isAdmin,
   isOwnProfile,
   onMutate,
 }: UserAssetsTabProps) {
   const { toast } = useToast();
-  const { updateDoc } = useFrappeUpdateDoc();
-  const { deleteDoc } = useFrappeDeleteDoc();
-  const { upload } = useFrappeFileUpload();
+  const userData = useUserData();
+  // One request: the reason is checked, the assignment removed and the reason kept on the asset's
+  // "Unassigned" history row (api/assets/assign.py).
+  const { call: unassignAsset } = useFrappePostCall("nirmaan_stack.api.assets.assign.unassign_asset");
 
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [unassignDialogOpen, setUnassignDialogOpen] = useState(false);
-  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [selectedAssignment, setSelectedAssignment] = useState<AssetManagementRecord | null>(null);
   const [isUnassigning, setIsUnassigning] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const [declarationFile, setDeclarationFile] = useState<File | null>(null);
+  const [unassignReason, setUnassignReason] = useState("");
+  const [unassignDetails, setUnassignDetails] = useState("");
   const [subTab, setSubTab] = useState<AssetSubTab>("Project");
+  // The dialog holds the row's name; the live row is read from the refetched list.
+  const [signingAssignmentName, setSigningAssignmentName] = useState<string | null>(null);
+  // Return (owner, 2026-10-13): the holder tells HR / Admin they gave the asset back; it stays
+  // assigned until one of them approves it on the Assets page's Return Request tab.
+  const [returningAssignment, setReturningAssignment] = useState<AssetManagementRecord | null>(null);
+  const [isReturning, setIsReturning] = useState(false);
+  const { call: requestReturn } = useFrappePostCall("nirmaan_stack.api.assets.returns.request_return");
+  // Monthly audit (owner, 2026-10-14): the dialog holds the row's name; the live row comes from the list.
+  const [auditingAssignmentName, setAuditingAssignmentName] = useState<string | null>(null);
 
   // Get asset details by ID
   const getAssetDetails = useCallback(
@@ -237,6 +393,23 @@ export function UserAssetsTab({
     return map;
   }, [categoryList]);
 
+  // Categories whose assigned assets get the monthly audit.
+  const auditedCategories = useMemo(
+    () => new Set((categoryList ?? []).filter((c) => !!c.audit_required).map((c) => c.name)),
+    [categoryList]
+  );
+
+  // The card's audit line: shown while an audit is open or once one was sent; nothing for a category
+  // that isn't audited or an asset with no audit yet, so those cards look as they did.
+  const getAuditBadge = useCallback(
+    (assignment: AssetManagementRecord): AuditBadge | null => {
+      const category = getAssetDetails(assignment.asset)?.asset_category;
+      const badge = auditBadge(assignment, !!category && auditedCategories.has(category), category);
+      return badge.tone === "off" || badge.tone === "none" ? null : badge;
+    },
+    [getAssetDetails, auditedCategories]
+  );
+
   // Determine an assignment's category type via its asset → category lookup.
   const getAssignmentType = useCallback(
     (assignment: AssetManagementRecord): AssetSubTab | undefined => {
@@ -250,10 +423,12 @@ export function UserAssetsTab({
   const { projectAssignments, itAssignments } = useMemo(() => {
     const project: AssetManagementRecord[] = [];
     const it: AssetManagementRecord[] = [];
+    // An assignment whose category type can't be read (its asset or category didn't load) goes under Project: the
+    // app access gate counts its declaration and audit, so its card -- with Sign / Submit audit -- must show
+    // somewhere, never in neither tab (code review #3).
     (assetManagementList ?? []).forEach((a) => {
-      const t = getAssignmentType(a);
-      if (t === "Project") project.push(a);
-      else if (t === "IT") it.push(a);
+      if (getAssignmentType(a) === "IT") it.push(a);
+      else project.push(a);
     });
     return { projectAssignments: project, itAssignments: it };
   }, [assetManagementList, getAssignmentType]);
@@ -263,7 +438,42 @@ export function UserAssetsTab({
     (a) => !a.asset_declaration_attachment
   ).length;
 
+  // Declarations still waiting, per tab -- the same test as the "Declaration Pending" count above.
+  const projectPending = projectAssignments.filter((a) => !a.asset_declaration_attachment).length;
+  const itPending = itAssignments.filter((a) => !a.asset_declaration_attachment).length;
+  // Monthly audits still open, in total and per tab.
+  const pendingAuditCount = (assetManagementList ?? []).filter((a) => a.audit_status === AUDIT_PENDING).length;
+  const projectAudits = projectAssignments.filter((a) => a.audit_status === AUDIT_PENDING).length;
+  const itAudits = itAssignments.filter((a) => a.audit_status === AUDIT_PENDING).length;
+  const projectOverdueAudits = projectAssignments.filter((a) => isAuditOverdue(a)).length;
+  const itOverdueAudits = itAssignments.filter((a) => isAuditOverdue(a)).length;
+
+  // Open on the tab that needs attention: when the assignments first load, and again on every
+  // navigation here -- the app access gate's "Open my assets" navigates even when this profile is
+  // already open, so it switches tabs too. A tab the user picks stays until the next navigation.
+  const location = useLocation();
+  const subTabDecidedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (subTabDecidedFor.current === location.key || projectAssignments.length + itAssignments.length === 0) return;
+    subTabDecidedFor.current = location.key;
+    setSubTab(
+      assetTabToOpen(
+        { total: projectAssignments.length, pending: projectPending + projectAudits },
+        { total: itAssignments.length, pending: itPending + itAudits }
+      )
+    );
+  }, [location.key, projectAssignments.length, itAssignments.length, projectPending, itPending, projectAudits, itAudits]);
+
   const visibleAssignments = subTab === "Project" ? projectAssignments : itAssignments;
+
+  const signingAssignment = useMemo(
+    () => (assetManagementList ?? []).find((a) => a.name === signingAssignmentName),
+    [assetManagementList, signingAssignmentName]
+  );
+  const auditingAssignment = useMemo(
+    () => (assetManagementList ?? []).find((a) => a.name === auditingAssignmentName),
+    [assetManagementList, auditingAssignmentName]
+  );
 
   // All unassigned assets — the dialog filters internally by its Asset Type
   // dropdown (defaults to the currently active sub-tab).
@@ -277,13 +487,14 @@ export function UserAssetsTab({
 
     setIsUnassigning(true);
     try {
-      // Clear current_assignee in Asset Master
-      await updateDoc(ASSET_MASTER_DOCTYPE, selectedAssignment.asset, {
-        current_assignee: "",
+      // This card's own row: a leftover row for someone who no longer holds the asset is removed
+      // without touching the real holder.
+      await unassignAsset({
+        asset: selectedAssignment.asset,
+        assignment: selectedAssignment.name,
+        reason: unassignReason,
+        details: unassignDetails.trim() || undefined,
       });
-
-      // Delete the Asset Management record
-      await deleteDoc(ASSET_MANAGEMENT_DOCTYPE, selectedAssignment.name);
 
       toast({
         title: "Asset Unassigned",
@@ -297,51 +508,11 @@ export function UserAssetsTab({
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error?.message || "Failed to unassign asset.",
+        description: getFrappeError(error),
         variant: "destructive",
       });
     } finally {
       setIsUnassigning(false);
-    }
-  };
-
-  const handleUploadDeclaration = async () => {
-    if (!selectedAssignment || !declarationFile) return;
-
-    setIsUploading(true);
-    try {
-      // Upload the file
-      const fileArgs = {
-        doctype: ASSET_MANAGEMENT_DOCTYPE,
-        docname: selectedAssignment.name,
-        fieldname: "asset_declaration_attachment",
-        isPrivate: true,
-      };
-      const uploadedFile = await upload(declarationFile, fileArgs);
-
-      // Update the Asset Management record with the file URL
-      await updateDoc(ASSET_MANAGEMENT_DOCTYPE, selectedAssignment.name, {
-        asset_declaration_attachment: uploadedFile.file_url,
-      });
-
-      toast({
-        title: "Declaration Uploaded",
-        description: "The declaration document has been uploaded successfully.",
-        variant: "success",
-      });
-
-      setUploadDialogOpen(false);
-      setSelectedAssignment(null);
-      setDeclarationFile(null);
-      onMutate();
-    } catch (error: any) {
-      toast({
-        title: "Upload Failed",
-        description: error?.message || "Failed to upload declaration.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsUploading(false);
     }
   };
 
@@ -369,12 +540,24 @@ export function UserAssetsTab({
               <span className="tabular-nums">{pendingDeclCount}</span> Declaration Pending
             </span>
           )}
+          {pendingAuditCount > 0 && (
+            <span className="inline-flex items-center gap-1 text-red-600">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              <span className="tabular-nums">{pendingAuditCount}</span> Audit Pending
+            </span>
+          )}
         </div>
       </div>
 
       {/* Project / IT Sub-tabs + Assign button on the same row */}
       <div className="flex items-center justify-between gap-4">
-        <Tabs value={subTab} onValueChange={(v) => setSubTab(v as AssetSubTab)}>
+        <Tabs
+          value={subTab}
+          onValueChange={(v) => {
+            subTabDecidedFor.current = location.key;
+            setSubTab(v as AssetSubTab);
+          }}
+        >
           <TabsList className="w-fit bg-gray-100/80 p-1">
             <TabsTrigger
               value="Project"
@@ -386,6 +569,12 @@ export function UserAssetsTab({
               <Badge variant="secondary" className="ml-1 px-1.5 py-0 h-5 text-xs">
                 {projectAssignments.length}
               </Badge>
+              <PendingDeclarationMark
+                count={projectPending}
+                audits={projectAudits}
+                overdueAudits={projectOverdueAudits}
+                canSign={isOwnProfile}
+              />
             </TabsTrigger>
             <TabsTrigger
               value="IT"
@@ -397,6 +586,12 @@ export function UserAssetsTab({
               <Badge variant="secondary" className="ml-1 px-1.5 py-0 h-5 text-xs">
                 {itAssignments.length}
               </Badge>
+              <PendingDeclarationMark
+                count={itPending}
+                audits={itAudits}
+                overdueAudits={itOverdueAudits}
+                canSign={isOwnProfile}
+              />
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -427,23 +622,56 @@ export function UserAssetsTab({
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {visibleAssignments.map((assignment) => (
-            <AssetCard
-              key={assignment.name}
-              assignment={assignment}
-              asset={getAssetDetails(assignment.asset)}
-              isAdmin={isAdmin}
-              isOwnProfile={isOwnProfile}
-              onUnassign={() => {
-                setSelectedAssignment(assignment);
-                setUnassignDialogOpen(true);
-              }}
-              onUploadDeclaration={() => {
-                setSelectedAssignment(assignment);
-                setUploadDialogOpen(true);
-              }}
-            />
-          ))}
+          {visibleAssignments.map((assignment) => {
+            const asset = getAssetDetails(assignment.asset);
+            // The holder, own profile, declaration on file, no return waiting. An open audit greys
+            // Return out until it is sent (owner, 2026-10-14).
+            const returnable =
+              isOwnProfile &&
+              assignment.asset_assigned_to === userData?.user_id &&
+              asset?.current_assignee === userData?.user_id &&
+              !!assignment.asset_declaration_attachment &&
+              !assignment.returned;
+            return (
+              <AssetCard
+                key={assignment.name}
+                assignment={assignment}
+                asset={asset}
+                hasPage={!assetsWithoutPage?.has(assignment.asset)}
+                isAdmin={isAdmin}
+                canSign={
+                  isOwnProfile &&
+                  canSignDeclaration({
+                    viewerId: userData?.user_id,
+                    assignedTo: assignment.asset_assigned_to,
+                    currentAssignee: asset?.current_assignee,
+                    declaration: assignment.asset_declaration_attachment,
+                  })
+                }
+                onUnassign={() => {
+                  setSelectedAssignment(assignment);
+                  setUnassignReason("");
+                  setUnassignDetails("");
+                  setUnassignDialogOpen(true);
+                }}
+                onSign={() => setSigningAssignmentName(assignment.name)}
+                canReturn={returnable && assignment.audit_status !== AUDIT_PENDING}
+                returnBlockedByAudit={returnable && assignment.audit_status === AUDIT_PENDING}
+                onReturn={() => setReturningAssignment(assignment)}
+                audit={getAuditBadge(assignment)}
+                canAudit={
+                  isOwnProfile &&
+                  canSubmitAudit({
+                    viewerId: userData?.user_id,
+                    assignedTo: assignment.asset_assigned_to,
+                    currentAssignee: asset?.current_assignee,
+                    auditStatus: assignment.audit_status,
+                  })
+                }
+                onAudit={() => setAuditingAssignmentName(assignment.name)}
+              />
+            );
+          })}
         </div>
       )}
 
@@ -453,15 +681,96 @@ export function UserAssetsTab({
         onOpenChange={setAssignDialogOpen}
         userId={user.name}
         userName={user.full_name}
+        userDepartment={user.department}
         unassignedAssets={unassignedAssets}
         categoryList={categoryList}
         initialAssetType={subTab}
         onAssigned={onMutate}
       />
 
+      {/* Sign Declaration Dialog (the assignee, on their own profile) */}
+      {signingAssignment && (
+        <SignDeclarationDialog
+          isOpen={!!signingAssignment}
+          onOpenChange={(open) => {
+            if (!open) setSigningAssignmentName(null);
+          }}
+          assignmentId={signingAssignment.name}
+          assetId={signingAssignment.asset}
+          assetName={getAssetDetails(signingAssignment.asset)?.asset_name || ""}
+          serialNumber={getAssetDetails(signingAssignment.asset)?.asset_serial_number}
+          condition={getAssetDetails(signingAssignment.asset)?.asset_condition}
+          assignedOn={signingAssignment.asset_assigned_on}
+          onSigned={onMutate}
+        />
+      )}
+
+      {/* Submit Audit Dialog (the holder, own profile) */}
+      {auditingAssignment && (
+        <SubmitAuditDialog
+          key={auditingAssignment.name}
+          isOpen={!!auditingAssignment}
+          onOpenChange={(open) => {
+            if (!open) setAuditingAssignmentName(null);
+          }}
+          assignmentId={auditingAssignment.name}
+          assetName={getAssetDetails(auditingAssignment.asset)?.asset_name || auditingAssignment.asset}
+          auditMonth={auditingAssignment.audit_month}
+          onSubmitted={onMutate}
+        />
+      )}
+
+      {/* Return Asset Dialog (the holder, own profile) */}
+      <Dialog open={!!returningAssignment} onOpenChange={(open) => !open && !isReturning && setReturningAssignment(null)}>
+        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-amber-50">
+              <Undo2 className="h-6 w-6 text-amber-600" />
+            </div>
+            <DialogTitle className="text-center">
+              Return {getAssetDetails(returningAssignment?.asset || "")?.asset_name || returningAssignment?.asset}?
+            </DialogTitle>
+            <DialogDescription className="text-center">
+              This tells HR / Admin that you gave the asset back today, {formatDate(new Date())}.
+            </DialogDescription>
+          </DialogHeader>
+          <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+            It stays assigned to you until they approve the return.
+          </p>
+          <DialogFooter className="gap-2 sm:justify-center">
+            <DialogClose asChild>
+              <Button variant="outline" disabled={isReturning}>Cancel</Button>
+            </DialogClose>
+            <Button
+              disabled={isReturning}
+              onClick={async () => {
+                if (!returningAssignment) return;
+                setIsReturning(true);
+                try {
+                  await requestReturn({ assignment: returningAssignment.name });
+                  toast({
+                    title: "Return sent",
+                    description: "HR / Admin will approve it. The asset stays with you until then.",
+                    variant: "success",
+                  });
+                  setReturningAssignment(null);
+                  onMutate();
+                } catch (error) {
+                  toast({ title: "Couldn't return the asset", description: getFrappeError(error), variant: "destructive" });
+                } finally {
+                  setIsReturning(false);
+                }
+              }}
+            >
+              {isReturning ? "Sending…" : "Yes, I returned it"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Unassign Asset Dialog */}
       <Dialog open={unassignDialogOpen} onOpenChange={setUnassignDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Unassign Asset</DialogTitle>
             <DialogDescription>
@@ -472,6 +781,13 @@ export function UserAssetsTab({
               ? This will remove the asset from this user.
             </DialogDescription>
           </DialogHeader>
+          <UnassignReasonFields
+            reason={unassignReason}
+            details={unassignDetails}
+            onReasonChange={setUnassignReason}
+            onDetailsChange={setUnassignDetails}
+            disabled={isUnassigning}
+          />
           <DialogFooter className="gap-2 sm:gap-0">
             {isUnassigning ? (
               <TailSpin color="hsl(var(--destructive))" height={40} width={40} />
@@ -486,70 +802,11 @@ export function UserAssetsTab({
                 <Button
                   variant="destructive"
                   onClick={handleUnassign}
+                  disabled={!isUnassignReasonValid(unassignReason, unassignDetails)}
                   className="gap-1"
                 >
-                  <Trash2 className="h-4 w-4" />
+                  <UserMinus className="h-4 w-4" />
                   Unassign
-                </Button>
-              </>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Upload Declaration Dialog */}
-      <Dialog open={uploadDialogOpen} onOpenChange={(open) => {
-        setUploadDialogOpen(open);
-        if (!open) {
-          setDeclarationFile(null);
-        }
-      }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-50">
-              <FileText className="h-6 w-6 text-amber-600" />
-            </div>
-            <DialogTitle className="text-center">Upload Declaration</DialogTitle>
-            <DialogDescription className="text-center">
-              Upload declaration document for{" "}
-              <span className="font-medium text-foreground">
-                {getAssetDetails(selectedAssignment?.asset || "")?.asset_name || selectedAssignment?.asset}
-              </span>
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="py-4">
-            <CustomAttachment
-              selectedFile={declarationFile}
-              onFileSelect={setDeclarationFile}
-              acceptedTypes={["image/*", "application/pdf"]}
-              label="Upload Declaration Document"
-              maxFileSize={10 * 1024 * 1024}
-              onError={(err) =>
-                toast({
-                  title: "File Error",
-                  description: err.message,
-                  variant: "destructive",
-                })
-              }
-            />
-          </div>
-
-          <DialogFooter className="gap-2 sm:gap-0">
-            {isUploading ? (
-              <TailSpin color="hsl(var(--primary))" height={40} width={40} />
-            ) : (
-              <>
-                <DialogClose asChild>
-                  <Button variant="outline">Cancel</Button>
-                </DialogClose>
-                <Button
-                  onClick={handleUploadDeclaration}
-                  disabled={!declarationFile}
-                  className="gap-1 bg-amber-600 hover:bg-amber-700"
-                >
-                  <Upload className="h-4 w-4" />
-                  Upload
                 </Button>
               </>
             )}

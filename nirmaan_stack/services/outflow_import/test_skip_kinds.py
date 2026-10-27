@@ -108,6 +108,12 @@ class TestVocabulary(unittest.TestCase):
                 "Credit card auto-debit",
                 "Cashbook internal movement",
                 "Skipped by hand",
+                # #1443 (ADR-0032): a Porter Statement line whose order Porter cancelled.
+                "Porter order cancelled",
+                # #1567 (ADR-0039 decision 4): the card statement's credits, sorted at upload.
+                "Card payment received",
+                "Card cashback",
+                "Card refund pair",
             ),
         )
 
@@ -268,6 +274,13 @@ class TestTheHistoryBackfill(unittest.TestCase):
                 SKIP_KIND_REPEATED_IN_FILE,
             ),
         ]
+        partner = "SerNo 14099237561 of 02-Sep-2026"
+        cases += [
+            (status.SKIP_REASON_CARD_PAYMENT, skip_kinds.SKIP_KIND_CARD_PAYMENT),
+            (status.SKIP_REASON_CARD_CASHBACK, skip_kinds.SKIP_KIND_CARD_CASHBACK),
+            (status.SKIP_REASON_CARD_REFUND.format(partner=partner), skip_kinds.SKIP_KIND_CARD_REFUND_PAIR),
+            (status.SKIP_REASON_CARD_REFUNDED_SPEND.format(partner=partner), skip_kinds.SKIP_KIND_CARD_REFUND_PAIR),
+        ]
         for category, kind in SKIP_KIND_BY_EXCLUSION_CATEGORY.items():
             cases.append((status.SKIP_REASON_EXCLUDED_AT_INGEST.format(category=category), kind))
         for sentence, kind in cases:
@@ -279,7 +292,7 @@ class TestTheHistoryBackfill(unittest.TestCase):
         for template in status.SYSTEM_SKIP_SENTENCES:
             filled = template.format(
                 status="FAILED", batch="OFI-1", records="Project Payment PAY-1",
-                category="platform_porter",
+                category="platform_porter", partner="SerNo 14099237561 of 02-Sep-2026",
             )
             with self.subTest(template=template):
                 self.assertIsNotNone(kind_of_skip_sentence(filled))

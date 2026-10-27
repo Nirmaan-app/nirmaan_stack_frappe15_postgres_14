@@ -1,0 +1,329 @@
+// src/pages/outflow-import/porterReview.ts
+//
+// Reviewing a Porter import's projects before Create (#1446, ADR-0032), as pure data. No React, no fetch.
+// `PorterReviewPanel` renders it; `porterReview.test.ts` pins it.
+//
+// ⚠️ THE SERVER DECIDES WHICH GROUP AN ORDER IS IN (`porter.remark_group_key`: normalised remark and city;
+// blank when the order has no remark). This module only lays the groups out and orders them.
+
+import { orders } from "./porterWords";
+
+export const PORTER_REVIEW_METHOD = "nirmaan_stack.api.outflow_import.porter_review.get_porter_review";
+export const PORTER_PLACE_METHOD = "nirmaan_stack.api.outflow_import.porter_review.set_porter_placement";
+
+const PROJECT_LEDGER = "Project Expenses";
+
+/** Where an order stands in Choose projects, as `porter_state.placement_kinds` names it. */
+export type PlacementKind = "placed_automatically" | "placed_by_person" | "needs_person";
+
+/** One completed order as `get_porter_review` reports it. */
+export interface PorterReviewLine {
+    name: string;
+    crn: string;
+    completed_on: string | null;
+    fare: number;
+    remarks: string;
+    city: string;
+    from_address: string;
+    to_address: string;
+    booked_by: string;
+    /** Blank: no remark, so the order is reviewed on its own. */
+    group_key: string;
+    ledger: string | null;
+    project: string | null;
+    project_name: string | null;
+    reason: string | null;
+    strength: string | null;
+    /** Create would still write it (waiting, in Error, or reopened), so its placement can still change. */
+    editable: boolean;
+    /**
+     * THE SERVER'S placement rule (`porter_state.placement_kinds`, #1560): placed automatically, placed by a
+     * person, or needs a person (a remark group with a Check order, an order with no placement, or a remark
+     * group placed differently). Create is refused while any line needs a person, and the progress bar
+     * counts the same lines. Read through `needsPerson` / `placedByPerson`, never re-derived from `reason`.
+     */
+    placement: PlacementKind;
+    /**
+     * For an order whose remark group needs a person, the projects the placement signals named
+     * (`porter_placement.Placement.likely`, #1563): the remark's first, then the addresses'. Else empty.
+     */
+    likely_projects: string[];
+}
+
+export interface PorterReview {
+    batch: string;
+    lines: PorterReviewLine[];
+    /** The only projects that may be chosen: Won ones. */
+    projects: { name: string; project_name: string }[];
+}
+
+/** A remark group, assigned as one, or a single order with no remark. */
+export interface ReviewItem {
+    key: string;
+    kind: "group" | "order";
+    remark: string;
+    city: string;
+    lines: PorterReviewLine[];
+    fare: number;
+    /** The project every order is on; null when they are Non-Project or disagree. */
+    project: string | null;
+    projectName: string | null;
+    /** The orders are not all placed alike. */
+    mixed: boolean;
+    /** A weak suggestion, or orders that disagree: look at it first. */
+    needsCheck: boolean;
+    /** Every distinct reason among its orders. */
+    reasons: string[];
+    /** The orders a choice places: those still editable. A created order is moved with Rectify. */
+    toPlace: string[];
+    /** Any order of it can still be placed. */
+    editable: boolean;
+}
+
+const placementOf = (line: PorterReviewLine) =>
+    line.ledger === PROJECT_LEDGER && line.project ? line.project : null;
+
+/** The order still needs a person to choose its project (the server's rule). */
+export const needsPerson = (line: PorterReviewLine): boolean => line.placement === "needs_person";
+
+/** A person chose the order's project, "Not a project" included (the server's rule). */
+export const placedByPerson = (line: PorterReviewLine): boolean => line.placement === "placed_by_person";
+
+/**
+ * The project a picker shows as chosen for one order: none while it needs a person, else its project, or
+ * blank for Not a project.
+ */
+export const chosenProject = (line: PorterReviewLine): string | null =>
+    needsPerson(line) ? null : placementOf(line) ?? "";
+
+const toItem = (key: string, kind: ReviewItem["kind"], lines: PorterReviewLine[]): ReviewItem => {
+    const placements = new Set(lines.map(placementOf));
+    const mixed = placements.size > 1;
+    const project = mixed ? null : placementOf(lines[0]);
+    return {
+        key,
+        kind,
+        remark: lines[0].remarks.trim(),
+        city: lines[0].city,
+        lines,
+        fare: lines.reduce((sum, line) => sum + line.fare, 0),
+        project,
+        projectName: project ? lines.find((line) => line.project === project)?.project_name ?? project : null,
+        mixed,
+        needsCheck: mixed || lines.some((line) => line.strength === "Check"),
+        reasons: [...new Set(lines.map((line) => line.reason).filter((reason): reason is string => Boolean(reason)))],
+        toPlace: lines.filter((line) => line.editable).map((line) => line.name),
+        editable: lines.some((line) => line.editable),
+    };
+};
+
+/**
+ * 0: check it (a weak suggestion, or a group that disagrees); 1: no project was found, so it would become
+ * Non-Project unless someone places it; 2: a strong suggestion, or a placement already chosen in review.
+ */
+const tierOf = (item: ReviewItem): number => {
+    if (item.needsCheck) return 0;
+    if (!item.project && item.lines.some((line) => !placedByPerson(line))) return 1;
+    return 2;
+};
+
+const firstCompleted = (item: ReviewItem) =>
+    item.lines.reduce((first, line) => (line.completed_on && line.completed_on < first ? line.completed_on : first), "~");
+
+/**
+ * The orders as the reviewer sees them: one item per remark group, one per order with no remark; checks
+ * first, then orders with no project, then the rest; within a tier, bigger groups, then the earlier order.
+ */
+export const reviewItems = (lines: PorterReviewLine[]): ReviewItem[] => {
+    const groups = new Map<string, PorterReviewLine[]>();
+    const items: ReviewItem[] = [];
+    for (const line of lines) {
+        if (!line.group_key) {
+            items.push(toItem(`order:${line.name}`, "order", [line]));
+            continue;
+        }
+        const members = groups.get(line.group_key);
+        if (members) members.push(line);
+        else groups.set(line.group_key, [line]);
+    }
+    for (const [key, members] of groups) items.push(toItem(`group:${key}`, "group", members));
+    return items.sort(
+        (a, b) =>
+            tierOf(a) - tierOf(b) ||
+            b.lines.length - a.lines.length ||
+            firstCompleted(a).localeCompare(firstCompleted(b)) ||
+            a.key.localeCompare(b.key),
+    );
+};
+
+/**
+ * The items in the order they were first shown, so an edit that changes an item's tier does not move it
+ * under the reader's cursor. Items not shown before follow, in their own order.
+ */
+export const keepShownOrder = (items: ReviewItem[], shownKeys: readonly string[]): ReviewItem[] => {
+    const at = new Map(shownKeys.map((key, index) => [key, index]));
+    const seen = items.filter((item) => at.has(item.key)).sort((a, b) => at.get(a.key)! - at.get(b.key)!);
+    return [...seen, ...items.filter((item) => !at.has(item.key))];
+};
+
+const chosenByPerson = (line: PorterReviewLine) => line.editable && placedByPerson(line);
+
+/**
+ * Choose projects (#1560): only the items a person has to decide -- any order of it needs a person -- and
+ * the ones a person already decided and could still change, so a choice stays on screen. A sure placement
+ * is left out: it is shown on the next screen.
+ */
+export const choiceItems = (lines: PorterReviewLine[]): ReviewItem[] =>
+    reviewItems(lines).filter((item) => item.lines.some((line) => needsPerson(line) || chosenByPerson(line)));
+
+/**
+ * The step's heading and the note under it. "All N placed automatically" only when no person chose any:
+ * once Create has written them, the orders a person chose are no longer listed, but still theirs.
+ */
+export const choiceSummary = (lines: PorterReviewLine[]): { heading: string; note: string | null } => {
+    const listed = new Set(choiceItems(lines).flatMap((item) => item.lines.map((line) => line.name)));
+    if (listed.size === 0) {
+        const byPerson = lines.filter(placedByPerson).length;
+        if (byPerson === 0) return { heading: `All ${orders(lines.length)} placed automatically.`, note: null };
+        return {
+            heading: `All ${orders(lines.length)} placed.`,
+            note: `${byPerson} chosen by a person, ${lines.length - byPerson} placed automatically.`,
+        };
+    }
+    const left = lines.filter(needsPerson).length;
+    const automatic = lines.length - listed.size;
+    return {
+        heading: `${orders(left)} ${left === 1 ? "needs" : "need"} a project`,
+        note: automatic === 0 ? null : `${orders(automatic)} ${automatic === 1 ? "was" : "were"} placed automatically. You'll see ${
+            automatic === 1 ? "it" : "them"
+        } on the next screen.`,
+    };
+};
+
+/** The footer's Next: locked, and counting down, while any order needs a person. */
+export const nextConfirmLabel = (left: number): string => (left > 0 ? `Next: confirm (${left} left)` : "Next: confirm");
+
+const NOT_A_PROJECT = "Not a project";
+
+/** Where one order is placed, as Confirm & create names it: its project, or Not a project. */
+export const placedOn = (line: PorterReviewLine): string =>
+    placementOf(line) ? line.project_name ?? line.project! : NOT_A_PROJECT;
+
+/** One line of Confirm & create's table: a project (`key` its name), or Not a project (`key` blank). */
+export interface ConfirmRow {
+    key: string;
+    label: string;
+    orders: number;
+    fare: number;
+}
+
+/**
+ * Confirm & create (#1564): what Create would write, per project (largest fare first), then Not a project,
+ * then the total. Only the orders Create would still write count; a created one is behind the import.
+ */
+export const confirmSummary = (
+    lines: PorterReviewLine[],
+): { rows: ConfirmRow[]; total: { orders: number; fare: number } } => {
+    const byKey = new Map<string, ConfirmRow>();
+    const total = { orders: 0, fare: 0 };
+    for (const line of lines) {
+        if (!line.editable) continue;
+        const key = placementOf(line) ?? "";
+        const row = byKey.get(key) ?? { key, label: placedOn(line), orders: 0, fare: 0 };
+        row.orders += 1;
+        row.fare += line.fare;
+        byKey.set(key, row);
+        total.orders += 1;
+        total.fare += line.fare;
+    }
+    const projects = [...byKey.values()]
+        .filter((row) => row.key)
+        .sort((a, b) => b.fare - a.fare || a.label.localeCompare(b.label));
+    const notAProject = byKey.get("");
+    return { rows: notAProject ? [...projects, notAProject] : projects, total };
+};
+
+/**
+ * The orders placed automatically, which Confirm & create folds into a closed accordion: still to be
+ * written, not waiting on a person, and not chosen by one (those were on Choose projects).
+ */
+export const automaticLines = (lines: PorterReviewLine[]): PorterReviewLine[] =>
+    lines.filter((line) => line.editable && line.placement === "placed_automatically");
+
+/**
+ * Where the item's orders would go: its project, Non-Project, or how a disagreeing group splits. An order
+ * that still needs a person and has no project is "not chosen yet": a blank is never Non-Project (#1560).
+ */
+export const placementLabel = (item: ReviewItem): string => {
+    const nameOf = (line: PorterReviewLine) =>
+        placementOf(line) ? line.project_name ?? line.project! : needsPerson(line) ? "not chosen yet" : "Non-Project";
+    if (!item.mixed) return nameOf(item.lines[0]);
+    const counts = new Map<string, number>();
+    for (const line of item.lines) counts.set(nameOf(line), (counts.get(nameOf(line)) ?? 0) + 1);
+    return `Mixed: ${[...counts].map(([name, count]) => `${count} ${name}`).join(", ")}`;
+};
+
+// Why a placement was made, as `Outflow Import Row.placement_reason` spells it (`porter.REASON_*`). Signals
+// that agreed are joined by "+" (`porter_placement.REASONS_JOINED_BY`): "name+address".
+const REASON_LABELS: Record<string, string> = {
+    name: "Project name in the remark",
+    typo: "Project name misspelt in the remark",
+    initials: "Project initials in the remark",
+    address: "Its site address",
+    history: "Kept so in an earlier Porter import",
+    conflict: "Name and most addresses point to different projects",
+    review: "Chosen in review",
+};
+
+// How a signal reads after the first one: "…, and its site address".
+const AGREEING_LABELS: Record<string, string> = { address: "its site address" };
+
+/** The reason in words. ⚠️ A reason this screen does not know yet is shown as it is, never hidden. */
+export const reasonLabel = (reason: string | null | undefined): string => {
+    if (!reason) return "No project found";
+    const [first, ...agreeing] = reason.split("+");
+    return [REASON_LABELS[first] ?? first, ...agreeing.map((part) => AGREEING_LABELS[part] ?? part)].join(", and ");
+};
+
+/**
+ * The badge saying why an item is listed (#1563): why the system is not sure. Null when no order of it
+ * needs a person (a person already chose). Never a bare "Check".
+ */
+export const listedBecause = (item: ReviewItem): string | null => {
+    const undecided = item.lines.filter(needsPerson);
+    if (undecided.length === 0) return null;
+    if (item.lines.some((line) => line.reason === "conflict")) return "Name and address disagree";
+    if (item.mixed) return "Orders placed differently";
+    if (undecided.every((line) => !line.reason)) return "No match";
+    if (undecided.some((line) => line.reason === "address")) return "Only the address matched";
+    return "Loose name match";
+};
+
+/**
+ * The one-click choices (#1563): when the placement named one or two likely projects for the item, each
+ * still offered (Won), in the order named. Otherwise none, and the full picker is the choice.
+ */
+export const likelyChoices = (
+    item: ReviewItem,
+    projects: readonly { name: string; project_name: string }[],
+): { value: string; label: string }[] => {
+    const likely = [...new Set(item.lines.flatMap((line) => line.likely_projects ?? []))];
+    if (likely.length < 1 || likely.length > 2) return [];
+    const offered = likely.flatMap((name) => {
+        const project = projects.find((p) => p.name === name);
+        return project ? [{ value: project.name, label: project.project_name }] : [];
+    });
+    return offered.length === likely.length ? offered : [];
+};
+
+/**
+ * Review is offered once every invoice has passed (the server refuses it otherwise too), and again while a
+ * stopped Create still has orders to write: a line in Error, or one Unreconcile reopened, can be re-placed
+ * before Create runs again (the server accepts exactly those lines). Not while the Create job runs -- even
+ * one just queued, whose import still reads Validated because no line is written yet (#1564).
+ */
+export const porterReviewOffered = (
+    status: { state: string; to_create?: number; create_running?: boolean } | null | undefined,
+): boolean =>
+    !status?.create_running &&
+    (status?.state === "Validated" || (status?.state === "Creating" && (status.to_create ?? 0) > 0));

@@ -8,6 +8,9 @@
  * `services/outflow_import/status.py` -- never recompute them in the client, or the list page and
  * the review screen will disagree about how much of a batch is done.
  */
+import type { ChequeStatus } from "./Cheques";
+import type { PorterProgress } from "@/pages/outflow-import/porterProgress";
+
 export interface OutflowImportBatch {
     name: string;
     creation: string;
@@ -25,7 +28,7 @@ export interface OutflowImportBatch {
      * selects a COLUMN ADAPTER, and a second bank has different columns and a different narration
      * grammar. Adding HDFC later is one more option, not a re-fit of this one.
      */
-    source: "Cashfree" | "Cashbook" | "ICICI Bank Statement";
+    source: "Cashfree" | "Cashbook" | "ICICI Bank Statement" | "Porter Statement" | "ICICI Credit Card Statement";
     /** The stored CSV. Attached to the BATCH and only the batch (owner ruling R3). */
     source_file?: string;
     original_filename?: string;
@@ -97,6 +100,36 @@ export interface OutflowRowMatch {
     order_name?: string;
 }
 
+/** The import run's waiting-refund suggestion for a credit line (#1402), as `get_outflow_rows` sends it. */
+export interface WaitingRefundSuggestion {
+    vendor: string;
+    /** How it was found: "Bank reference" or "Account+IFSC+amount" (`matcher.BASIS_*`). */
+    basis: string;
+    /** Each refund's current amount, and its PO as the label. */
+    refunds: { name: string; amount: number; label: string }[];
+}
+
+/** A payment raised on a cancelled cheque's PO after the cancel (#1485): the PO may now be paid twice. */
+export interface ChequeDoublePayment {
+    payment: string;
+    record: string;
+    amount: number;
+    status: string;
+}
+
+/**
+ * The Payment cheque a Settled ICICI line cleared, or was linked to (#1485), as both row reads send it.
+ * `started` is where the cheque stood before the line: Issued, Approval Pending (the import approved it),
+ * Cancelled (the bank paid it anyway), or Cleared (cleared by hand, the line only linked).
+ */
+export interface ChequeOutcome {
+    cheque: string;
+    cheque_no: string;
+    status: string;
+    started: ChequeStatus;
+    double_payments: ChequeDoublePayment[];
+}
+
 /** One staged transfer, as `get_batch_rows` returns it. */
 export interface OutflowImportRow {
     name: string;
@@ -111,6 +144,13 @@ export interface OutflowImportRow {
     ifsc?: string;
     remarks?: string;
     bank_reference_no?: string;
+    /**
+     * The reference a settle or create from this line WRITES -- the server's
+     * `settlement_reference_of_row`, computed on read (never the raw column): on an ICICI line the
+     * whole narration, plus the cheque number on a cheque line; on a gateway line its bank reference;
+     * on a wallet line its transaction id. What the decision dialog shows as "Payment reference".
+     */
+    settlement_reference?: string;
     /**
      * `Debit` / `Credit` / blank — WHICH WAY THE MONEY WENT (slices B3, shipped to the screen at B6).
      *
@@ -204,6 +244,17 @@ export interface OutflowImportRow {
      * there is no entry to stamp.
      */
     suggested_order_name?: string;
+    /**
+     * The waiting Vendor Refund(s) the import run suggests this CREDIT line is (#1402, ADR-0032): its
+     * bank reference is the UTR typed on them (or, when a source carries them, its account and IFSC
+     * are the vendor's and exactly one waiting refund has its amount). `get_outflow_rows` only, read
+     * fresh: `null` once any of them has stopped waiting, and on a line that is not open.
+     *
+     * ⚠️ NOT `suggested_name`. A group cannot fit that pair, and "Confirm all matched" reads it.
+     */
+    waiting_refund_suggestion?: WaitingRefundSuggestion | null;
+    /** #1485: the Payment cheque this Settled line cleared or was linked to; null on every other line. */
+    cheque_outcome?: ChequeOutcome | null;
     /**
      * Whether this settlement took the matcher's pick: "Suggestion accepted" / "Suggestion
      * overridden" / "No suggestion". Blank until the row is settled (slice Q1).
@@ -351,6 +402,8 @@ export interface OutflowImportOption {
      * picker with no control able to bring it back, while its transfers still needed settling.
      */
     source?: string;
+    /** A Credit Card Statement import's card holder (#1566): Import History lists it by holder and period. */
+    card_holder?: string | null;
     total_rows?: number;
     /**
      * How many of this statement's transfers the bank actually moved OUT (slice CF/S4, #1287).
@@ -378,6 +431,8 @@ export interface OutflowImportOption {
     gross_amount?: number;
     uploaded_at?: string;
     uploaded_by?: string;
+    /** A Porter import's per-phase progress summary (#1556), the one its dialog's bar reads. Porter only. */
+    progress?: PorterProgress;
 }
 
 /** `review.get_import_summary` (slice X2). Every money figure crosses the wire as a number. */

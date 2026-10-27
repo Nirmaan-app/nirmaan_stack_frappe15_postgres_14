@@ -11,6 +11,13 @@ export const SKIP_KIND_NO_AMOUNT = "No amount";
 export const SKIP_KIND_OUTFLOW_RECORDED = "Outflow Already Recorded";
 export const SKIP_KIND_INFLOW_RECORDED = "Inflow Already Recorded";
 export const SKIP_KIND_BY_HAND = "Skipped by hand";
+/** A Porter Statement line whose order Porter cancelled (#1443). Locked: never unskipped. */
+export const SKIP_KIND_PORTER_CANCELLED = "Porter order cancelled";
+/** A Credit Card Statement's credits, sorted at upload (#1567). Payments and cashback are locked. */
+export const SKIP_KIND_CARD_PAYMENT = "Card payment received";
+export const SKIP_KIND_CARD_CASHBACK = "Card cashback";
+/** A merchant credit and the card spend it cancels. Unskippable: both lines come back together. */
+export const SKIP_KIND_CARD_REFUND_PAIR = "Card refund pair";
 
 /**
  * The kinds a bank-statement rule decided: the line was read as money moving inside the bank or between
@@ -29,7 +36,8 @@ export const BANK_RULE_SKIP_KINDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The four kinds that stay skipped, with the sentence the disabled Unskip shows (owner, 2026-09-17, A1).
+ * The kinds that stay skipped, with the sentence the disabled Unskip shows (owner, 2026-09-17, A1; the
+ * cancelled Porter order joined at #1443, ADR-0032).
  * The SERVER's `unskip_refusal` is the boundary; this exists so the button explains itself in words.
  */
 export const UNSKIP_LOCKED_KINDS: Readonly<Record<string, string>> = {
@@ -37,4 +45,7 @@ export const UNSKIP_LOCKED_KINDS: Readonly<Record<string, string>> = {
     [SKIP_KIND_REPEATED_IN_FILE]: "The same transfer appears earlier in this statement.",
     [SKIP_KIND_NO_AMOUNT]: "No money moved on this line.",
     [SKIP_KIND_BANK_REFUSED]: "The bank never moved this money.",
+    [SKIP_KIND_PORTER_CANCELLED]: "Porter cancelled this order and never billed it.",
+    [SKIP_KIND_CARD_PAYMENT]: "A payment into the card is never a spend or a receipt.",
+    [SKIP_KIND_CARD_CASHBACK]: "Card cashback is not recorded as anything.",
 };

@@ -32,8 +32,13 @@ from nirmaan_stack.services.outflow_import.expense_links import (
     linked_totals_join,
     remaining_balance,
 )
+from nirmaan_stack.services.payees.paid_to import paid_to_rows
+from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.payment_split import load_part_reconciled_split_families
+from nirmaan_stack.services.payment_tds import counted_deductions_sql, requested_amount_sql, withheld_expense_gross_sql
 
+from nirmaan_stack.services.cheque_payments import in_cheque_tracker_sql
+from nirmaan_stack.services.expense_tds import withheld_tds_by_expense
 from nirmaan_stack.services.approval_tiers import (
     TIER_L2_ABOVE,
     TIER_L2_ABOVE_EXPENSES,
@@ -85,16 +90,25 @@ _EXPENSE_AMOUNT = 'COALESCE(e."amount", 0)::numeric'
 # values are parameterized, but the identifiers are interpolated, so an allowlist
 # is what keeps that safe.
 SORTABLE = {
-    "name", "source", "source_type", "status", "amount", "against_primary", "vendor", "project",
+    "name", "source", "source_type", "status", "amount", "requested_amount", "against_primary", "vendor", "project",
     "raised_by", "creation", "modified", "approved_on", "paid_on", "utr_ref", "payment_by",
     "expense_type", "doctype",
 }
+
+# The "Req. Amount" column's id is `amount`, but it shows the full bill (owner ruling X4-A, #1541), so it
+# sorts and filters on that (spec #1528 story 60). `amount` itself stays the stored, TDS-cut figure: what is
+# paid, what the actions, the bank file and the summary total read.
+_COLUMN_FOR = {"amount": "requested_amount"}
 
 # Date columns get their own operator vocabulary. `creation` is a TIMESTAMP while
 # the other two are DATEs, so every comparison casts to ::date -- otherwise
 # "Is 06-Apr-2026" matches nothing, because a timestamp is never equal to a date.
 DATE_FIELDS = {"creation", "approved_on", "paid_on"}
-FILTERABLE = SORTABLE | {"doctype"}
+# `cheque_status`: Project Payments' Reconciliation Pending tab sends `cheque_status != Issued` (#1483,
+# spec #1477). A payment on an Issued cheque waits in the Cheque Tracker's Issued tab instead; an Online
+# payment or an expense has a blank `cheque_status`, so it stays.
+FILTERABLE = SORTABLE | {"doctype", "cheque_status"}
+
 SEARCHABLE = {
     "name", "against_primary", "against_secondary", "vendor", "project",
     "raised_by", "utr_ref", "cheque_no",
@@ -180,25 +194,55 @@ def _payments_select():
             -- Mode of Payment (2026-09-19). ⚠️ POSITIONAL, like every column here: the
             -- same three sit at the same place in `_expense_select`, blank there.
             COALESCE(p."mode_of_payment", '')::text AS mode_of_payment,
-            COALESCE(p."cheque_no", '')::text AS cheque_no,
+            -- The Cheque's own number when the payment is on one (the payment's copy otherwise, for a
+            -- cheque payment from before Cheques).
+            COALESCE(NULLIF(c."cheque_no", ''), p."cheque_no", '')::text AS cheque_no,
             p."cheque_date"                 AS cheque_date,
+            -- The cheque chip (#1415, spec #1407): the Cheque the payment is on and its status, so
+            -- every list draws the chip with no fetch per row. ⚠️ POSITIONAL: blank at the same place
+            -- in `_expense_select` (an expense line changes nothing on the expense).
+            COALESCE(p."cheque", '')::text  AS cheque,
+            COALESCE(c."status", '')::text  AS cheque_status,
             -- Payment hold (2026-09-22). ⚠️ POSITIONAL: `0` at the same place in `_expense_select`.
             COALESCE(p."on_hold", 0)        AS on_hold,
             -- Payment kind (ADR-0030): 1 on a GST payment, which is never taxed -- the lists tag it
             -- and the TDS forecast skips it. ⚠️ POSITIONAL: `0` at the same place in `_expense_select`.
             COALESCE(p."is_gst_payment", 0) AS is_gst_payment,
+            -- The Expense Request an expense came from; blank on a Direct Expense, so "Payment Raised
+            -- By Me" gives its raiser the Edit pencil (#1472). A payment has none. ⚠️ POSITIONAL: right
+            -- before `invoice` in `_expense_select` too.
+            ''::text                        AS request_id,
             -- An expense's invoice file, for the "Upload Invoice" action on the Paid tab. A PO / WO
             -- payment's invoices are Vendor Invoices, never a field here, so it is blank.
-            -- ⚠️ POSITIONAL: last in `_expense_select` too.
-            ''::text                        AS invoice
+            -- ⚠️ POSITIONAL: before the pay-to columns in `_expense_select` too.
+            ''::text                        AS invoice,
+            -- The full bill ("Req. Amount"): the stored amount plus the tax withheld from the vendor
+            -- (`payment_tds.counted_deductions_sql`; tax the company paid on top is not added).
+            -- ⚠️ POSITIONAL: right before the pay-to columns in `_expense_select` too.
+            (CASE WHEN w."project_payment" IS NULL THEN COALESCE(p."amount", 0)
+                  ELSE {requested} END)::numeric AS requested_amount,
+            -- The payment's own pay-to account (ADR-0033, #1438), folded into `paid_to` after the
+            -- fetch. ⚠️ POSITIONAL: last in `_expense_select` too.
+            {pay_to_p}
         FROM "tabProject Payments" p
+        LEFT JOIN "tabCheques" c ON c."name" = p."cheque"
+        LEFT JOIN ({counted}) w ON w."project_payment" = p."name"
         {linked_join}
     """.format(
+        counted=counted_deductions_sql(),
+        requested=requested_amount_sql("w"),
         src=SOURCE_VENDOR_PAYMENT,
         po=TYPE_PO_PAYMENT,
         sr=TYPE_SR_PAYMENT,
         linked_join=linked_totals_join("Project Payments", "p"),
+        pay_to_p=_pay_to_columns("p"),
     )
+
+
+def _pay_to_columns(alias):
+    """A row's own pay-to account (`services/payees/pay_to.PAY_TO_FIELDS`), the same columns in the same
+    order in every branch."""
+    return ",\n            ".join(f'{alias}."{f}"::text AS {f}' for f in PAY_TO_FIELDS)
 
 
 def _expense_select(table, source, project_col):
@@ -211,6 +255,14 @@ def _expense_select(table, source, project_col):
     payment_by_expr = 'COALESCE(e."payment_by", \'\')::text' if source == SOURCE_PROJECT_EXPENSE else "''::text"
     # Grouped by target, so it can only ever add columns to a row -- never duplicate one.
     linked_join = linked_totals_join(SOURCE_TO_DOCTYPE[source], "e")
+    # A Non-Project Expense whose tax was withheld (Office Rent, spec #1522) is stored at the net; its full
+    # bill is its tax record's gross (`non_project_expense` is unique, so the join adds no row). Tax the
+    # company pays on top leaves the amount whole. A Project Expense carries no tax record.
+    if source == SOURCE_NON_PROJECT:
+        tds_join = f'LEFT JOIN ({withheld_expense_gross_sql()}) t ON t."non_project_expense" = e."name"'
+        requested_expr = f'COALESCE(t."gross_amount", {_EXPENSE_AMOUNT})::numeric'
+    else:
+        tds_join, requested_expr = "", _EXPENSE_AMOUNT
     return f"""
         SELECT
             e."name"                        AS name,
@@ -261,12 +313,19 @@ def _expense_select(table, source, project_col):
             ''::text                        AS mode_of_payment,
             ''::text                        AS cheque_no,
             NULL::date                      AS cheque_date,
+            ''::text                        AS cheque,
+            ''::text                        AS cheque_status,
             -- Only a PO / WO payment can be held.
             0                               AS on_hold,
             -- Only a Work Order payment can be a GST payment.
             0                               AS is_gst_payment,
-            COALESCE(e."invoice_attachment", '')::text AS invoice
+            COALESCE(e."request_id", '')::text AS request_id,
+            COALESCE(e."invoice_attachment", '')::text AS invoice,
+            -- The full bill: the amount, or a withheld expense's rent before withholding.
+            {requested_expr}                AS requested_amount,
+            {_pay_to_columns("e")}
         FROM "{table}" e
+        {tds_join}
         {linked_join}
     """
 
@@ -350,6 +409,7 @@ def _build_where(filters, search_term, search_fields):
             # Silently ignoring an unknown filter would show MORE rows than asked
             # for -- the same failure mode as a missing case in the tab switch.
             frappe.throw(_("Unsupported filter field: {0}").format(field))
+        field = _COLUMN_FOR.get(field, field)
         if field == "raised_by" and value == CURRENT_USER_TOKEN:
             # Unconditional since 23 Sep 2026 -- no Admin bypass. This one substitution
             # scopes the LIST, the FACETS and the CSV EXPORT together, because all three
@@ -391,6 +451,7 @@ def _build_order(order_by):
     if not parts:
         return default
     col = parts[0].split(".")[-1].strip('"')
+    col = _COLUMN_FOR.get(col, col)
     direction = "DESC" if len(parts) > 1 and parts[1].lower() == "desc" else "ASC"
     if col not in SORTABLE:
         return default
@@ -473,6 +534,25 @@ def get_approval_queue(
         for member in family["members"]
     }
 
+    # Who each row is paid to (#1431, #1438, #1463): the row's own pay-to account, or the vendor's an
+    # Approved PO / WO payment switches to, folded into `paid_to` by the Payee module (with whether a
+    # cheque pays it, #1464); a few queries per page, never one per row.
+    for r, paid_to in zip(rows, paid_to_rows([
+        {"doctype": r.get("doctype"), "name": r.get("name"), "status": r.get("status"), "vendor": r.get("vendor"),
+         "expense_type": r.get("expense_type"), "mode_of_payment": r.get("mode_of_payment"),
+         **{f: r.pop(f, None) for f in PAY_TO_FIELDS}}
+        for r in rows
+    ])):
+        r["paid_to"] = paid_to
+
+    # The tax withheld from an Office Rent expense (#1527): its record's gross, rate, tax and section, so
+    # the Amount cell shows Rent / TDS / Net to an approver who cannot read `Payment TDS Deduction`. One
+    # query per page, for its Non-Project Expenses only. None before approval: the amount is still the
+    # full rent then, and the screen forecasts from it (`expenseTds.shownExpenseTds`).
+    withheld = withheld_tds_by_expense((r.get("doctype"), r["name"]) for r in rows)
+    for r in rows:
+        r["withheld_tds"] = withheld.get((r.get("doctype"), r["name"]))
+
     for r in rows:
         # Derived SERVER-side, from the same cast amount the routing will use, so
         # the chip on screen and the gate that runs can never disagree.
@@ -485,6 +565,8 @@ def get_approval_queue(
         # per-source lookup means a future split cannot reopen that gap.
         r["tier"] = required_tier(flt(r.get("amount")), _l2_line_for(r.get("source")))
         r["amount"] = flt(r.get("amount"))
+        # "Req. Amount" is the full bill whatever the status (owner ruling X4-A, #1541), from the union.
+        r["requested_amount"] = flt(r.get("requested_amount"), 2)
         r["has_proof"] = bool(r.get("proof"))
         r["has_invoice"] = bool(r.get("invoice"))
         r["bank_line_count"] = cint(r.get("bank_line_count"))
@@ -509,19 +591,28 @@ def get_approval_queue(
 
 @frappe.whitelist(allow_guest=False)
 def get_approval_queue_counts():
-    """Per-tab counts for the tab strip, in one query per readable ledger."""
+    """Per-tab counts for the tab strip, in one query per readable ledger.
+
+    Reconciliation Pending leaves out the payments on an Issued cheque, as its tab does (#1483): they are
+    reported as `cheque_tracker` (`payments` and their `cheques`) for the tab's note pointing to the Cheque
+    Tracker. `all` still counts them.
+    """
     branches = _readable_branches()
     if not branches:
         frappe.throw(_("Not permitted"), frappe.PermissionError)
     union = " UNION ALL ".join(branches)
+    in_tracker, marks = in_cheque_tracker_sql('q."status"', 'q."cheque_status"')
     rows = frappe.db.sql(
         f'SELECT q."status" AS status, COUNT(*) AS cnt, COALESCE(SUM(q."amount"), 0) AS amt '
-        f"FROM ({union}) q GROUP BY q.\"status\"",
+        f"FROM ({union}) q WHERE NOT ({in_tracker}) GROUP BY q.\"status\"",
+        marks,
         as_dict=True,
     )
     counts = {r["status"] or "": cint(r["cnt"]) for r in rows}
     amounts = {r["status"] or "": flt(r["amt"]) for r in rows}
-    counts["All"] = sum(counts.values())
+    tracker = frappe.db.sql(
+        f'SELECT COUNT(*), COUNT(DISTINCT q."cheque") FROM ({union}) q WHERE {in_tracker}', marks
+    )[0]
     # "Payment By Me" badge: every status, rows the logged-in user created -- for EVERY
     # caller, Admin included, matching what that tab now lists. Its own key, not inside
     # `counts`, which is keyed by status.
@@ -529,7 +620,15 @@ def get_approval_queue_counts():
         f'SELECT COUNT(*) FROM ({union}) q WHERE q."raised_by" = %s',
         (frappe.session.user,),
     )[0][0]
-    return {"counts": counts, "amounts": amounts, "by_me": cint(by_me)}
+    # "All Payments" badge (#1476): every readable ledger, every status -- what that tab lists
+    # (the queue with no filter), the Cheque Tracker's payments included. Its own key, like `by_me`.
+    return {
+        "counts": counts,
+        "amounts": amounts,
+        "by_me": cint(by_me),
+        "all": sum(counts.values()) + cint(tracker[0]),
+        "cheque_tracker": {"payments": cint(tracker[0]), "cheques": cint(tracker[1])},
+    }
 
 
 # Facet fields the queue offers. `tier` is absent on purpose: it is derived in

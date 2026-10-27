@@ -2,18 +2,6 @@ import { useFrappePostCall } from "frappe-react-sdk";
 import { PO_ADJUSTMENT_APIS, WRITE_OFF_REASON_MAX_LEN } from "./poAdjustment.constants";
 
 /**
- * D5: may the current user write off an adjustment balance? MIRRORS the server's
- * `pricing._is_nirmaan_admin` (Administrator OR role_profile "Nirmaan Admin Profile"), and
- * the sibling predicates `SheetPricingPage.canAdminOverride` / `isRateMasterAdmin`. False
- * while the role is still "Loading" so the control never flashes in for a non-admin.
- * CONVENIENCE ONLY — `write_off_adjustment` re-gates server-side and is authoritative.
- */
-export function canWriteOffAdjustment(role: string, userId: string): boolean {
-  if (role === "Loading") return false;
-  return userId === "Administrator" || role === "Nirmaan Admin Profile";
-}
-
-/**
  * D5: normalise the MANDATORY reason. Trim, cap to the server's length, and report whether
  * what remains is usable — a write-off with no reason is the Desk edit again, wearing a
  * button, so the caller disables submit on `!isValid`. Pure.
@@ -24,12 +12,9 @@ export function normalizeWriteOffReason(raw: string): { value: string; isValid: 
 }
 
 interface AdjustmentEntry {
-  return_type: "Against-po" | "Vendor-has-refund" | "Ad-hoc";
+  return_type: "Against-po" | "Ad-hoc";
   amount: number;
   target_pos?: { po_number: string; amount: number }[];
-  utr?: string;
-  refund_attachment?: string;
-  refund_date?: string;
   "ad-hoc_description"?: string;
   "ad-hoc_type"?: string;
   comment?: string;
@@ -92,6 +77,38 @@ export function useApplyVendorCredit() {
   };
 
   return { apply, loading, error };
+}
+
+export interface WaitingRefundInput {
+  amount: number;
+  payment_date?: string;
+  utr?: string;
+  refund_attachment?: string;
+}
+
+interface RecordWaitingRefundResult {
+  refund: string;
+  status: string;
+  held_credit: number;
+  usable_credit: number;
+}
+
+/**
+ * Record a waiting Vendor Refund on a PO (#1400, ADR-0032): the vendor says it sent the money, the
+ * bank line is not matched yet. It counts for nothing until accounts match it, and holds its amount of
+ * the PO's overpaid credit. The server re-checks the role and the unheld balance.
+ */
+export function useRecordWaitingRefund() {
+  const { call, loading, error } = useFrappePostCall<{
+    message: RecordWaitingRefundResult;
+  }>(PO_ADJUSTMENT_APIS.recordWaitingRefund);
+
+  const record = async (poId: string, refund: WaitingRefundInput) => {
+    const res = await call({ po_id: poId, ...refund });
+    return res?.message;
+  };
+
+  return { record, loading, error };
 }
 
 interface WriteOffResult {

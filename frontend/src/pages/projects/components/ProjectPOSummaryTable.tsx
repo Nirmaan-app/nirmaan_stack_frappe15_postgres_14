@@ -232,7 +232,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     useProjectPOAggregates(projectId);
 
   // --- Supporting Data (for display in columns/facets, not for main list filtering) ---
-  const { projectsResponse, projectPaymentsResponse, criticalPOTasksResponse } =
+  const { projectsResponse, criticalPOTasksResponse } =
     useProjectPOSupportingData(projectId);
   const { data: criticalPOTasks, isLoading: criticalPOTasksLoading } = criticalPOTasksResponse;
   const { data: projects, isLoading: projectsLoading } = projectsResponse;
@@ -249,12 +249,6 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     isLoading: userListLoading,
     error: userListError,
   } = useUsersList();
-
-  const {
-    data: projectPayments,
-    isLoading: projectPaymentsLoading,
-    error: projectPaymentsError,
-  } = projectPaymentsResponse;
 
   const { totals: creditTotals } = useProjectAllCredits(projectId);
 
@@ -279,21 +273,6 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     ),
     [projects]
   );
-
-  const getTotalAmountPaidForPO = useMemo(() => {
-    if (!projectPayments) return () => 0;
-    const paymentsMap = new Map<string, number>();
-    projectPayments.forEach((p) => {
-      // Assuming projectPayments is already filtered for "Paid" PO payments
-      if (p.document_name) {
-        paymentsMap.set(
-          p.document_name,
-          (paymentsMap.get(p.document_name) || 0) + parseNumber(p.amount)
-        );
-      }
-    });
-    return memoize((poName: string) => paymentsMap.get(poName) || 0);
-  }, [projectPayments]);
 
   // --- Critical PO Tasks reverse map ---
   const criticalTasksByPO = useMemo(() => {
@@ -703,7 +682,6 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     [
       getVendorName,
       criticalTasksByPO,
-      getTotalAmountPaidForPO,
       userList,
       poAmountsDict,
       calculateTotalLiabilities,
@@ -752,15 +730,13 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     vendorsLoading ||
     userListLoading ||
     aggregatesLoading ||
-    projectPaymentsLoading ||
     criticalPOTasksLoading;
   const hasLoadedOnce = useHasLoadedOnce(isLoadingOverall);
   const combinedErrorOverall =
     vendorsError ||
     userListError ||
     listError ||
-    aggregatesError ||
-    projectPaymentsError;
+    aggregatesError;
 
   if (combinedErrorOverall && !poDataForPage?.length && !poAggregates) {
     toast({
@@ -808,7 +784,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                     </span>
                                 </p>
                                 <p>
-                                    <span className="font-medium">Total Amt Paid:</span>{" "}
+                                    <span className="font-medium">Paid on Active POs:</span>{" "}
                                     <span className="text-green-600 font-semibold">
                                         {formatToRoundedIndianRupee(
                                             poAggregates.total_amount_paid_for_pos
@@ -983,14 +959,14 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                       </p>
                       <p className="flex justify-between w-full">
                         <span className="font-medium inline-flex items-center gap-1 group">
-                          Amount Paid Against Delivered Items in PO
+                          PO Paid, Covered by Delivery
                           <HoverCard>
                             <HoverCardTrigger asChild>
                               <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
                             </HoverCardTrigger>
                             <HoverCardContent className="text-xs w-auto p-1.5">
-                              Amount paid against delivered items in this
-                              project’s POs.
+                              What these POs have paid, up to the value
+                              delivered on each.
                             </HoverCardContent>
                           </HoverCard>
                         </span>{" "}
@@ -1002,13 +978,14 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                       </p>
                       <p className="flex justify-between w-full">
                         <span className="font-medium inline-flex items-center gap-1 group">
-                          Total Amt Paid
+                          Paid on Active POs
                           <HoverCard>
                             <HoverCardTrigger asChild>
                               <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
                             </HoverCardTrigger>
                             <HoverCardContent className="text-xs w-auto p-1.5">
-                              Total expenses recorded for this project POs.
+                              Amount Paid of this project's POs, leaving out
+                              Merged, Cancelled and Inactive ones.
                             </HoverCardContent>
                           </HoverCard>
                         </span>{" "}
@@ -1020,14 +997,14 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                       </p>
                       <p className="flex justify-between w-full">
                         <span className="font-medium inline-flex items-center gap-1 group">
-                          Advance Against PO
+                          PO Paid Ahead of Delivery
                           <HoverCard>
                             <HoverCardTrigger asChild>
                               <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
                             </HoverCardTrigger>
                             <HoverCardContent className="text-xs w-auto p-1.5">
-                              Advance amount paid before delivery for this
-                              project’s POs.
+                              What these POs have paid beyond the value
+                              delivered on each.
                             </HoverCardContent>
                           </HoverCard>
                         </span>{" "}
@@ -1074,13 +1051,13 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                           <p className="flex justify-between w-full">
                             <span className="font-medium inline-flex items-center gap-1 group">
                               {" "}
-                              Amount Paid
+                              Credit Terms Marked Paid
                               <HoverCard>
                                 <HoverCardTrigger asChild>
                                   <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
                                 </HoverCardTrigger>
                                 <HoverCardContent className="text-xs w-auto p-1.5">
-                                  Total value of credit POs that are paid.
+                                  Credit payment terms on these POs that are marked paid.
                                 </HoverCardContent>
                               </HoverCard>
                             </span>{" "}

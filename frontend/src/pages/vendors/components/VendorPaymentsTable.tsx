@@ -6,7 +6,7 @@ import {
 import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { Button } from "@/components/ui/button";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
-import { ColumnDef } from "@tanstack/react-table";
+import { ColumnDef, Table } from "@tanstack/react-table";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import formatToIndianRupee, {
   formatToRoundedIndianRupee,
@@ -18,6 +18,9 @@ import { Badge } from "@/components/ui/badge";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { PaymentScreenshotDialog } from "./PaymentScreenshotDialog";
 import { TruncatedText } from "@/components/common/TruncatedText";
+import { ChequeChip } from "@/components/cheques/ChequeChip";
+import { useChequeChips } from "@/components/cheques/useChequeChips";
+import { showsChequeChip } from "@/utils/cheques/chequeChip";
 
 interface VendorPaymentsTableProps {
   vendorId: string;
@@ -28,6 +31,8 @@ const PAYMENT_TABLE_FIELDS: (keyof ProjectPayments | "name")[] = [
   "name",
   "utr",
   "payment_attachment",
+  "cheque",
+  "cheque_no",
   "document_name",
   "document_type",
   "project",
@@ -42,6 +47,33 @@ const PAYMENT_SEARCHABLE_FIELDS: SearchFieldOption[] = [
   { value: "utr", label: "UTR/Ref No." },
   { value: "status", label: "Status" },
 ];
+
+/**
+ * The cheque chip in the UTR cell (spec #1407). Every chip on the page asks for the whole page's Cheques
+ * under one key, so the page makes one call, not one per row.
+ */
+const PaymentChequeOrUtr = ({
+  payment,
+  table,
+  utr,
+}: {
+  payment: ProjectPayments;
+  table: Table<ProjectPayments>;
+  /** The cell for a payment that shows no chip. */
+  utr: React.ReactNode;
+}) => {
+  const chips = useChequeChips(table.getRowModel().rows.map((r) => r.original.cheque));
+  const chip = payment.cheque ? chips[payment.cheque] : undefined;
+  if (!showsChequeChip({ ...payment, cheque_status: chip?.status })) return <>{utr}</>;
+  return (
+    <div className="min-w-[150px] space-y-0.5">
+      <ChequeChip cheque={payment.cheque} chequeNo={chip?.cheque_no || payment.cheque_no || ""} status={chip?.status} />
+      {payment.utr && (
+        <TruncatedText text={payment.utr} className="block font-mono text-[10px] text-muted-foreground" />
+      )}
+    </div>
+  );
+};
 
 export const VendorPaymentsTable: React.FC<VendorPaymentsTableProps> = ({
   vendorId,
@@ -65,9 +97,9 @@ export const VendorPaymentsTable: React.FC<VendorPaymentsTableProps> = ({
       {
         accessorKey: "utr",
         header: "UTR / Ref No.",
-        cell: ({ row }) => {
+        cell: ({ row, table }) => {
           const payment = row.original;
-          return (
+          const utr = (
             <div className="font-medium min-w-[150px] flex items-center gap-1.5">
               {payment.utr && payment.payment_attachment ? (
                 <a
@@ -94,6 +126,8 @@ export const VendorPaymentsTable: React.FC<VendorPaymentsTableProps> = ({
               )}
             </div>
           );
+          // An Online payment never asks for chips.
+          return payment.cheque_no ? <PaymentChequeOrUtr payment={payment} table={table} utr={utr} /> : utr;
         },
         size: 180,
       },

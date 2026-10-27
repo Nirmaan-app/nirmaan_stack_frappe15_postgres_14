@@ -1,12 +1,10 @@
 import { Customers } from "@/types/NirmaanStack/Customers";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
-import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
 import { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 import { NonProjectExpenses } from "@/types/NirmaanStack/NonProjectExpenses";
 import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 
-import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
@@ -56,8 +54,6 @@ interface ProjectExpenseListParams extends ListParams { }
 const PROJECT_REPORT_FIELDS: (keyof Projects)[] = ['name', 'project_name', 'project_value', 'creation', 'modified'];
 const PO_REPORT_FIELDS: (keyof ProcurementOrder)[] = ['name', 'creation', 'project', 'vendor', 'total_amount', 'loading_charges', 'freight_charges', 'status', 'modified', 'project_name', 'vendor_name', 'dispatch_date','expected_delivery_date',"latest_delivery_date","latest_payment_date",'amount_paid','po_amount_delivered','amount_invoiced'];
 const SR_REPORT_FIELDS: (keyof ServiceRequests)[] = ['name', 'creation', 'project', 'vendor', 'gst', 'status', 'modified', 'amount_paid', 'total_amount', 'amount_invoiced'];
-const PAYMENT_REPORT_FIELDS: (keyof ProjectPayments)[] = ['name', 'document_type', 'document_name', 'project', 'amount', 'status','creation','payment_date']; // Added 'project'
-const INFLOW_REPORT_FIELDS: (keyof ProjectInflows)[] = ['name', 'project', 'amount', 'payment_date', 'creation']; // Add fields as needed
 const PROJECT_INVOICE_REPORT_FIELDS: (keyof ProjectInvoice)[] = ['name', 'project', 'amount','creation','invoice_date']; // Add fields as needed
 const PROJECT_MINIMAL_FIELDS: (keyof Projects)[] = ['name', 'project_name','creation'];
 const VENDOR_MINIMAL_FIELDS: (keyof Vendors)[] = ['name', 'vendor_name','creation']; // Assuming this type/field exists
@@ -210,16 +206,6 @@ export const getSRReportListOptions = (): SRListParams => ({
   orderBy: { field: 'creation', order: 'desc' },
 });
 
-export const getPaymentReportListOptions = (docTypes: ('Procurement Orders' | 'Service Requests')[]): PaymentListParams => ({
-  fields: PAYMENT_REPORT_FIELDS,
-  // Fetch payments related to POs/SRs and are marked 'Paid' for the PO Report context
-  filters: [
-    ['document_type', 'in', docTypes],
-    ['status', '=', 'Paid'], // Status relevant for PO Report 'Amt Paid'
-  ],
-  limit: 100000,
-});
-
 export const getProjectMinimalListOptions = (projectIds: string[]): ProjectListParams => ({
   fields: PROJECT_MINIMAL_FIELDS,
   filters: projectIds.length > 0 ? [['name', 'in', projectIds]] : [],
@@ -256,27 +242,16 @@ export const getSRForProjectInvoiceOptions = (): SRListParams => ({
   limit: 100000,
 });
 
-export const getInflowReportListOptions = (): InflowListParams => ({
-  fields: INFLOW_REPORT_FIELDS,
-  // No project filter here, fetch all and group in the hook
-  limit: 100000,
-});
-
 export const getProjectInvoiceReportListOptions = (): InflowListParams => ({
   fields: PROJECT_INVOICE_REPORT_FIELDS,
   // No project filter here, fetch all and group in the hook
   limit: 100000,
 });
 
-export const getPaidPaymentReportListOptions = (): PaymentListParams => ({
-  fields: PAYMENT_REPORT_FIELDS, // Includes 'project' and 'amount'
-  // Filter specifically for 'Paid' status for accurate outflow calculation
-  filters: [['status', '=', 'Paid']],
-  limit: 100000,
-});
-
+// Each type's *Who gets paid* (`payee_rule`) rides along: the expense Edit dialogs word their Who gets
+// paid section by it (#1465).
 export const getNonProjectExpenseTypeListOptions = (): ExpenseTypeListParams => ({
-  fields: EXPENSE_TYPE_MINIMAL_FIELDS,
+  fields: [...EXPENSE_TYPE_MINIMAL_FIELDS, "payee_rule"],
   filters: [['non_project', '=', 1]], // Only fetch non-project expense types
   limit: 100000, // Default to a high limit for dropdowns
   orderBy: { field: "expense_name", order: "asc" }, // Default sort by name
@@ -289,8 +264,8 @@ export const getNonProjectExpenseListOptions = (): NonProjectExpenseListParams =
 });
 
 export const getProjectExpenseTypeListOptions = (): ExpenseTypeListParams => ({
-  fields: EXPENSE_TYPE_MINIMAL_FIELDS,
-  filters: [['project', '=', 1]], // Only fetch non-project expense types
+  fields: [...EXPENSE_TYPE_MINIMAL_FIELDS, "payee_rule"],
+  filters: [['project', '=', 1]], // Project-flagged types only: a Project Expense refuses any other (#1496)
   limit: 100000, // Default to a high limit for dropdowns
   orderBy: { field: "expense_name", order: "asc" }, // Default sort by name
 });

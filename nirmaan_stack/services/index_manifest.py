@@ -91,6 +91,8 @@ INDEXES: tuple[tuple[str, tuple[str, ...], str, bool], ...] = (
     ('BoQ Template Row', ('sheet_name',), 'BoQ_Template_Row_sheet_name_idx', False),
     ('BoQ Template Row', ('template',), 'BoQ_Template_Row_template_idx', False),
     ('CEO Hold Reason', ('project',), 'CEO_Hold_Reason_project_idx', False),
+    ('Credit Card Statement', ('holder', 'period_from', 'period_to'), 'credit_card_statement_holder_period_unique', True),
+    ('Credit Card Statement', ('import_batch',), 'Credit_Card_Statement_import_batch_idx', False),
     ('Critical PO Task Child Table', ('critical_po_task',), 'critical_po_task_child_table_task_idx', False),
     ('Delivery Notes', ('parent_docname',), 'Delivery_Notes_parent_docname_idx', False),
     ('Delivery Notes', ('procurement_order',), 'Delivery_Notes_procurement_order_idx', False),
@@ -159,6 +161,7 @@ INDEXES: tuple[tuple[str, tuple[str, ...], str, bool], ...] = (
     ('Vendor Invoices', ('project',), 'Vendor_Invoices_project_idx', False),
     ('Vendor Invoices', ('status',), 'Vendor_Invoices_status_idx', False),
     ('Vendor Invoices', ('vendor',), 'Vendor_Invoices_vendor_idx', False),
+    ('WO Generated Invoice', ('work_order',), 'WO_Generated_Invoice_work_order_idx', False),
 )
 
 

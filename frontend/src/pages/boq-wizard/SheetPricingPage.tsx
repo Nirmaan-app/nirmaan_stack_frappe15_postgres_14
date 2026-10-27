@@ -30,6 +30,7 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "r
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall, FrappeContext, type FrappeConfig } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
+import { isNirmaanAdmin } from "@/constants/roles";
 import type { RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
 import { BoqPresence } from "./BoqPresence";
 import { AlertTriangle, ArrowDownToLine, ArrowLeft, Calculator, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Snowflake, Sparkles, Undo2, Unlock, X } from "lucide-react";
@@ -451,18 +452,6 @@ export function shouldRefetchOnConnect(
 // Slice G3b: client mirror of the server's _CATEGORY_OVERRIDE_REASON_MAX_LEN (pricing.py). The server
 // caps it too -- BOTH, not either. Delete with the override control.
 export const CATEGORY_OVERRIDE_REASON_MAX_LEN = 250;
-
-/**
- * Slice G3b: may the current user SEE the admin override control? True iff the role has RESOLVED
- * (not the "Loading" sentinel -- so the control never flashes in before disappearing) AND the user is
- * an admin, MIRRORING the server's _is_nirmaan_admin (Administrator OR role_profile "Nirmaan Admin
- * Profile"; useUserData maps Administrator -> "Nirmaan Admin Profile"). CONVENIENCE ONLY -- the server
- * (set/clear_category_override) is authoritative. Pure -- unit-tested. Delete with the override.
- */
-export function canAdminOverride(role: string, userId: string): boolean {
-  if (role === "Loading") return false;
-  return userId === "Administrator" || role === "Nirmaan Admin Profile";
-}
 
 /**
  * Slice G3b: normalise the OPTIONAL reason for submission -- client-cap to the max length (belt to the
@@ -985,12 +974,12 @@ const SheetPricingPage = () => {
   // stays the durable enforcement; this is only the UX accelerator.
   const { socket } = useContext(FrappeContext) as FrappeConfig;
   // Slice G3b: `role` is read from the SAME already-warm useUserData() call (no new fetch). Control
-  // visibility flows through the pure `canAdminOverride` helper (see its docstring) -- role-resolved AND
+  // visibility flows through the shared `isNirmaanAdmin` (constants/roles) -- role-resolved AND
   // admin. CONVENIENCE ONLY; the server is authoritative. Delete `showCategoryOverrideControl` + the
   // `role` read + everything marked "G3b" when the override is removed (owner commitment: once
   // classification engines cover all disciplines).
   const { user_id: currentUser, role } = useUserData();
-  const showCategoryOverrideControl = canAdminOverride(role, currentUser);
+  const showCategoryOverrideControl = isNirmaanAdmin(role, currentUser);
   const { call: acquirePricingLock } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.pricing.acquire_pricing_lock",
   );

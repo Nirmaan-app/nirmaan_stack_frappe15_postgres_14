@@ -1,6 +1,10 @@
 """
-Manual PO Adjustment API — handles Against-po, Adhoc, and Vendor Refund flows.
+Manual PO Adjustment API — handles Against-po and Adhoc flows (and the admin Write Off).
 Operates on the PO Adjustments doctype created by the revision approval process.
+
+A vendor refund is NOT an adjustment method any more (#1400, ADR-0032): "Adjust Payments" records a
+waiting Vendor Refund through `api/vendor_refunds/waiting_refunds.record_waiting_refund`, and the old
+negative-payment + "RA Vendor" branch is gone.
 """
 import frappe
 from frappe import _
@@ -10,14 +14,18 @@ import json
 from ._payment_utils import (
     _create_project_payment,
     _recalculate_amount_paid,
+    _recheck_cashflow_after_recount,
     _append_return_payment_term,
     _split_target_po_term,
     _transfer_credit,
     _lock_and_assert_source_credit,
     _lock_and_assert_dest_capacity,
+    usable_po_credit,
 )
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
-from nirmaan_stack.services.po_credit import usable_credit
+from nirmaan_stack.services.expense_type_ledger import expense_type_problem
+from nirmaan_stack.services.outflow_import.ledgers import PROJECT_EXPENSE_DOCTYPE
+from nirmaan_stack.services.vendor_refunds import held_on, waiting_refunds_of
 
 
 def _last_ledger_edit(adj_name):
@@ -85,18 +93,38 @@ def get_po_adjustment(po_id):
     doc["computed_from_children"] = computed
     doc["ledger_in_sync"] = in_sync
     doc["manual_edit"] = None if in_sync else _last_ledger_edit(adj_name)
+    # What "Adjust Payments" may offer (#1400): the credit the server will accept, after the cap
+    # and the hold, and the waiting refunds that hold the rest ("₹X held for VRF-…").
+    doc["usable_credit"] = flt(usable_po_credit(po_id), 2)
+    doc["held_credit"] = flt(held_on(po_id), 2)
+    doc["waiting_refunds"] = waiting_refunds_of(po_id)
     return doc
+
+
+#: The methods `execute_adjustment` runs. A vendor refund is not one of them (#1400).
+ADJUSTMENT_RETURN_TYPES = ("Against-po", "Ad-hoc")
 
 
 @frappe.whitelist()
 def execute_adjustment(po_id, adjustments_json):
     """
-    Processes manual adjustment entries (Against-po, Adhoc, Vendor Refund).
+    Processes manual adjustment entries (Against-po, Ad-hoc).
     Creates payments, appends child entries to PO Adjustment doc,
     recalculates remaining_impact, and sets status.
     """
     try:
         adjustments = json.loads(adjustments_json) if isinstance(adjustments_json, str) else adjustments_json
+        for entry in adjustments:
+            if entry.get("return_type") not in ADJUSTMENT_RETURN_TYPES:
+                frappe.throw(_(
+                    "{0} is not an adjustment method. A vendor refund is recorded as a waiting Vendor Refund."
+                ).format(entry.get("return_type") or "A blank method"))
+            # The ad-hoc expense is a Project Expense, which refuses a non-project type on save
+            # (#1496). Asked here too, so a wrong type is refused before any payment is made.
+            if entry.get("return_type") == "Ad-hoc":
+                problem = expense_type_problem(PROJECT_EXPENSE_DOCTYPE, entry.get("ad-hoc_type"))
+                if problem:
+                    frappe.throw(problem, title=_("Wrong expense type"))
 
         adj_name = frappe.db.get_value("PO Adjustments", {"po_id": po_id}, "name")
         if not adj_name:
@@ -108,7 +136,7 @@ def execute_adjustment(po_id, adjustments_json):
 
         # CONCURRENCY GUARD (source side): lock this PO's adjustment row and assert it
         # still holds enough overpaid credit to cover everything this submission resolves
-        # (Against-PO transfers + Adhoc + Vendor Refund). Prevents a stale dialog or a
+        # (Against-PO transfers + Adhoc). Prevents a stale dialog or a
         # concurrent vendor-credit PULL from spending the same credit twice. The PULL
         # endpoint takes the SAME lock, so the two serialize.
         total_to_resolve = 0.0
@@ -164,25 +192,6 @@ def execute_adjustment(po_id, adjustments_json):
                         "project_payment": pay_out.name,
                         "target_po": t_po_id,
                     })
-
-            elif r_type == "Vendor-has-refund":
-                pay_refund = _create_project_payment(
-                    po_id=po_id, project=adj_doc.project, vendor=adj_doc.vendor,
-                    amt=-amount, status="Paid",
-                    utr=entry.get("utr"),
-                    attachment=entry.get("refund_attachment")
-                )
-                _append_return_payment_term(original_po, pay_refund, "RA Vendor", -amount)
-
-                adj_doc.append("adjustment_items", {
-                    "entry_type": "Vendor Refund",
-                    "amount": flt(amount),
-                    "description": f"Vendor refund received",
-                    "timestamp": nowdate(),
-                    "project_payment": pay_refund.name,
-                    "refund_date": entry.get("refund_date") or nowdate(),
-                    "refund_attachment": entry.get("refund_attachment"),
-                })
 
             elif r_type == "Ad-hoc":
                 desc = entry.get("ad-hoc_description", "")
@@ -246,6 +255,9 @@ def execute_adjustment(po_id, adjustments_json):
         # Recalculate remaining impact
         adj_doc.recalculate_remaining_impact()
 
+        # CEO Hold, on the recounted amount_paid: the payments above skipped the check.
+        _recheck_cashflow_after_recount([po_id, *affected_target_pos])
+
         # Emit socket event
         frappe.db.commit()
         frappe.publish_realtime(
@@ -307,20 +319,34 @@ def write_off_adjustment(po_id, amount, reason):
     if not adj_name:
         frappe.throw(_("No PO Adjustment found for PO {0}").format(po_id))
 
-    adj_doc = frappe.get_doc("PO Adjustments", adj_name)
+    # The row lock every credit spender and a waiting refund take, so the hold read below is current.
+    adj_doc = frappe.get_doc("PO Adjustments", adj_name, for_update=True)
     remaining = flt(adj_doc.remaining_impact, 2)
     if abs(remaining) < 0.01:
         frappe.throw(_("{0} has nothing left to write off.").format(po_id))
 
+    # THE CREDIT HOLD (#1400, owner 2026-10-13): waiting Vendor Refunds hold their amount of a negative
+    # balance. That money is promised back, and the refund settles that part of the balance when it is
+    # Received, so a write-off may take only the unheld rest. A positive balance holds nothing.
+    held = flt(held_on(po_id), 2) if remaining < 0 else 0.0
+    writable = max(0.0, flt(abs(remaining) - held, 2))
+    if writable < 0.01:
+        frappe.throw(
+            _("All of {0} on {1} is held by waiting Vendor Refunds, so none of it can be written off.").format(
+                frappe.utils.fmt_money(abs(remaining), currency="INR"), po_id
+            )
+        )
+
     magnitude = abs(flt(amount, 2))
     if magnitude < 0.01:
         frappe.throw(_("Write-off amount must be greater than zero."))
-    if magnitude > abs(remaining) + 0.01:
+    if magnitude > writable + 0.01:
         frappe.throw(
-            _("Cannot write off {0} — only {1} is outstanding on {2}.").format(
+            _("Cannot write off {0} — only {1} is outstanding on {2}{3}.").format(
                 frappe.utils.fmt_money(magnitude, currency="INR"),
-                frappe.utils.fmt_money(abs(remaining), currency="INR"),
+                frappe.utils.fmt_money(writable, currency="INR"),
                 po_id,
+                _(" that no waiting Vendor Refund holds") if held else "",
             )
         )
 
@@ -430,18 +456,14 @@ def get_vendor_adjustment_credit(vendor, exclude_po=None):
             continue
         if adj.po_id in pending_rev_pos:
             continue
-        po = frappe.db.get_value(
-            "Procurement Orders", adj.po_id,
-            ["project_name", "status", "amount_paid", "total_amount"], as_dict=True
-        ) or {}
-        # D2 cap — the pool must offer only what each source actually overpaid, or the
-        # picker invites someone to spend a phantom and `_lock_and_assert_source_credit`
-        # rejects it at apply time. Same function on both sides, so they cannot disagree.
-        available = flt(
-            usable_credit(adj.remaining_impact, po.get("amount_paid"), po.get("total_amount")), 2
-        )
+        # The pool offers what `_lock_and_assert_source_credit` will accept at apply time:
+        # both read `usable_po_credit`, so they cannot disagree (D2 cap, and any hold on it).
+        available = flt(usable_po_credit(adj.po_id), 2)
         if available <= 0:
             continue
+        po = frappe.db.get_value(
+            "Procurement Orders", adj.po_id, ["project_name", "status"], as_dict=True
+        ) or {}
         sources.append({
             "po_id": adj.po_id,
             "project": adj.project,
@@ -527,6 +549,9 @@ def apply_vendor_credit_to_po(dest_po, allocations_json):
 
         if vendor:
             recalculate_vendor_credit(vendor, "Adjustment Resolved", po_id=dest_po, project=dest.project)
+
+        # CEO Hold, on the recounted amount_paid: the payments above skipped the check.
+        _recheck_cashflow_after_recount([dest_po, *merged])
 
         frappe.db.commit()
         frappe.publish_realtime(

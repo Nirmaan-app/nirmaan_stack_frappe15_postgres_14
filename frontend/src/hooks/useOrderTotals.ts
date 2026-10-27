@@ -8,22 +8,30 @@ import { useMemo } from "react";
 import { useVendorsList } from "../pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 
 
+/** PO statuses whose value, delivery, vendor and GST the getters below leave out (they read 0 / 'N/A'). */
+const PO_STATUSES_WITHOUT_TOTALS = ['Cancelled', 'Merged'];
+
 export const useOrderTotals = () => {
-  const { data: purchaseOrders, isLoading: poLoading, error: poError } = useFrappeGetDocList<ProcurementOrder>(
+  // EVERY PO, whatever its status: a Merged or Cancelled PO's Amount Paid is real money out, and a row
+  // naming one shows it (`getAmountPaid`, spec #1451). The other getters read `purchaseOrders` below.
+  const { data: allPurchaseOrders, isLoading: poLoading, error: poError } = useFrappeGetDocList<ProcurementOrder>(
     'Procurement Orders',
     {
-      fields: ['name', "amount","vendor","total_amount", "tax_amount", "po_amount_delivered"],
-      filters: [['status', 'not in', ['Cancelled', 'Merged']]],
+      fields: ['name', 'status', "amount","vendor","total_amount", "tax_amount", "po_amount_delivered", "amount_paid"],
       limit: 0,
       orderBy: { field: 'modified', order: 'desc' },
     },
     "All_POs_for_order_totals"
   );
+  const purchaseOrders = useMemo(
+    () => allPurchaseOrders?.filter((po) => !PO_STATUSES_WITHOUT_TOTALS.includes(po.status)),
+    [allPurchaseOrders]
+  );
 
   const { data: serviceOrdersRaw, isLoading: srLoading, error: srError } = useFrappeGetDocList<ServiceRequests>(
     'Service Requests',
     {
-      fields: ['name', 'total_amount', 'gst', 'vendor'],
+      fields: ['name', 'total_amount', 'gst', 'vendor', 'amount_paid'],
       limit: 0,
       orderBy: { field: 'modified', order: 'desc' },
     },
@@ -132,6 +140,23 @@ export const useOrderTotals = () => {
     [purchaseOrders]
   );
 
+  // What the order has been paid: its stored Amount Paid, Paid payments (on a WO plus the TDS withheld
+  // from the vendor) less Received refunds (ADR-0034, Amendment A), whatever the order's status. Never
+  // add up payments or tax here.
+  const getAmountPaid = useMemo(
+    () => memoize((orderId: string, type: string): number => {
+      if (['Procurement Orders', 'Purchase Order'].includes(type)) {
+        return parseNumber(allPurchaseOrders?.find(i => i?.name === orderId)?.amount_paid);
+      }
+      if (['Service Requests', 'Service Order'].includes(type)) {
+        return parseNumber(serviceOrders?.find(i => i?.name === orderId)?.amount_paid);
+      }
+      return 0;
+    },
+      (orderId: string, type: string) => `${orderId}-${type}-paid`),
+    [allPurchaseOrders, serviceOrders]
+  );
+
   const getVendorName = useMemo(
     () => memoize((orderId: string, type: string): string => {
         let vendorId: string | undefined;
@@ -212,6 +237,7 @@ export const useOrderTotals = () => {
     srError,
     getTotalAmount,
     getDeliveredAmount, // --- (THE FIX) Expose the new function ---
+    getAmountPaid,
     //--For Getting Vendor Name ----
     getVendorName,
     vendorsLoading,

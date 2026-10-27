@@ -15,25 +15,28 @@ column and are deliberately not being changed.
 from decimal import Decimal
 
 import frappe
-from frappe.utils import flt
+from frappe.utils import flt, now_datetime
 
+from nirmaan_stack.api.expense_requests.flatten import (
+	NATIVE_INVOICE_SECTION,
+	SEP,
+	flatten_pairs,
+	flatten_source_data,
+	render_description_template,
+	request_invoice,
+	undeclared_pairs,
+)
+# `applicable_format` lives in `form_snapshot`; imported here too because the append-only patch
+# `v3_0.freeze_expense_request_forms` reads it from this module.
+from nirmaan_stack.api.expense_requests.form_snapshot import applicable_format, governing_form  # noqa: F401
+from nirmaan_stack.services.expense_decision import starting_status
+from nirmaan_stack.services.expense_statuses import REQUEST_APPROVED
 from nirmaan_stack.services.outflow_import.ledgers import (
 	NON_PROJECT_EXPENSE_DOCTYPE,
 	PROJECT_EXPENSE_DOCTYPE,
 )
-from nirmaan_stack.api.expense_requests.flatten import (
-	NATIVE_INVOICE_SECTION,
-	SEP,
-	filled_against_a_form,
-	first_mapped_attachment,
-	flatten_pairs,
-	flatten_source_data,
-	native_invoice,
-	render_description_template,
-)
 from nirmaan_stack.services.outflow_import.settle import format_amount_for
-from nirmaan_stack.services.approval_raiser import raiser_level
-from nirmaan_stack.services.approval_tiers import TIER_L2_ABOVE_EXPENSES, initial_status_for_raiser
+from nirmaan_stack.services.payees.pay_to import copy_pay_to
 
 
 def target_doctype(req) -> str:
@@ -44,38 +47,6 @@ def target_doctype(req) -> str:
 	the time we get here the answer cannot contradict the master.
 	"""
 	return PROJECT_EXPENSE_DOCTYPE if req.projects else NON_PROJECT_EXPENSE_DOCTYPE
-
-
-def applicable_format(source_format, form_enabled, source_data) -> str | None:
-	"""The format that governs a request, or None when it is a STANDARD request.
-
-	The type's `source_format_enabled` switch decides -- EXCEPT for a request already filled
-	against the form (`templateId` in its answers): that one keeps its form even if the switch
-	was turned off after it was raised, or its answers would convert unlabelled.
-
-	ONE rule, shared by the conversion, the promotion at create and the reviewer's detail
-	list, so the approval screen and the ledger row cannot disagree about which form applies.
-	"""
-	if not (source_format or "").strip():
-		return None
-	if form_enabled or filled_against_a_form(source_data):
-		return source_format
-	return None
-
-
-def _source_format_for(req) -> str | None:
-	"""The type's format, used only to LABEL the flatten and locate the mapped attachment.
-
-	Read live rather than from the snapshot deliberately: this is presentation, and a label
-	corrected on the master should improve an approval made afterwards. The snapshot governs
-	how the request RENDERS, which is a different question.
-	"""
-	row = frappe.db.get_value(
-		"Expense Type", req.type, ["source_format", "source_format_enabled"], as_dict=True
-	)
-	if not row:
-		return None
-	return applicable_format(row.source_format, row.source_format_enabled, req.get("source_data"))
 
 
 def compose_description(req, source_format=None) -> str:
@@ -101,11 +72,16 @@ def compose_description(req, source_format=None) -> str:
 	"""
 	prose = render_description_template(req.source_data, source_format)
 	if prose:
-		body = prose
+		# An answer to a field since taken off the form (#1430's bank fields) is not in the
+		# sentence, so it follows it: a request raised before keeps what was typed.
+		body = SEP.join([prose] + [
+			f"{label}: {value}" for label, value in undeclared_pairs(req.source_data, source_format)
+		])
 	elif source_format:
-		body = flatten_source_data(req.source_data, source_format)
+		# The invoice answers land in their own ledger columns, never in the prose.
+		body = flatten_source_data(req.source_data, source_format,
+		                           skip_sections=(NATIVE_INVOICE_SECTION,))
 	else:
-		# The invoice answers of a standard request land in their own ledger columns.
 		body = SEP.join(
 			value for _label, value
 			in flatten_pairs(req.source_data, skip_sections=(NATIVE_INVOICE_SECTION,))
@@ -113,30 +89,21 @@ def compose_description(req, source_format=None) -> str:
 	return " · ".join(p for p in (body, f"[{req.name}]") if p)
 
 
-def target_status(req) -> str:
-	"""What status the ledger row WILL be born at, without creating it.
+def target_status(req, reviewer: str | None = None) -> str:
+	"""What status the ledger row WILL be born at if `reviewer` approves it, without creating it.
 
 	The reviewer is told the outcome before they commit to it, and since 2026-08-20 that
 	outcome depends on the amount -- so the dialog can no longer say "Approved" and be right.
 
-	⚠️ IT MAKES THE LEDGER'S OWN CALL, byte for byte: `initial_status_for_raiser(amount,
-	TIER_L2_ABOVE_EXPENSES, level)` is exactly the line `ProjectExpenses.validate` and
-	`NonProjectExpenses.validate` run on the row this request becomes. Restating the
-	comparison here -- or hardcoding a number in this module, or worse in TypeScript -- is how
-	the screen would come to promise one thing while `validate` did another.
+	⚠️ IT MAKES THE LEDGER'S OWN CALL: `expense_decision.starting_status` is exactly what both
+	ledgers' `validate` apply to the row this request becomes. Restating the comparison here -- or
+	hardcoding a number in this module, or worse in TypeScript -- is how the screen would come to
+	promise one thing while `validate` did another.
 
-	⚠️ THIS USED TO IMPORT `AUTO_APPROVE_LIMIT` FROM `project_expenses`, AND THAT NAME IS
-	GONE (16 Sep 2026): the rule moved into `services/approval_tiers.py` and the per-doctype
-	constants went with it. The dead import did not fail quietly -- it raised `ImportError`
-	inside `get_my_expense_requests`, which is the ONLY source of `can_review`, so the whole
-	scoped read 500'd and every row's Approve/Reject collapsed to "--" for everyone, Admin
-	included. Keep this pointed at the shared module.
-
-	⚠️ AND IT FOLLOWS THE REQUEST'S RAISER (owner, 2026-09-21), exactly as `validate` does via
-	`approval_raiser.expense_raiser`: an L1 approver's request is born past L1, the CEO's past
-	both. The raiser is the REQUEST's owner -- never the reviewer calling this.
+	The raiser is the REQUEST's owner -- never the reviewer calling this. The reviewer matters too:
+	an Admin's review is the L1 step (#1499), so an Admin and an Accountant are told different things.
 	"""
-	return initial_status_for_raiser(flt(req.amount), TIER_L2_ABOVE_EXPENSES, raiser_level(req.get("owner")))
+	return starting_status(req.amount, req.get("owner"), reviewer).status
 
 
 def create_ledger_row(req):
@@ -161,10 +128,10 @@ def create_ledger_row(req):
 	⚠️ CONSEQUENCE, ACCEPTED: an expense of ₹15,000 or more is NOT payable on approval alone.
 	It needs the ledger's own Approve -- and that queue held 7 stranded rows when this shipped.
 	If nobody works it, a large approved request never gets paid. The old text said ₹5,000 and
-	"admin-only"; the threshold moved (10,000 -> 15,000) and L1 is now Admin OR Accountant Lead.
+	"admin-only"; the threshold moved (10,000 -> 15,000) and L1 is the Admin profile (`expense_decision.is_l1`, #1497).
 	"""
 	doctype = target_doctype(req)
-	source_format = _source_format_for(req)
+	source_format = governing_form(req)
 
 	values = {
 		"type": req.type,
@@ -181,14 +148,11 @@ def create_ledger_row(req):
 		"comment": req.comment or None,
 	}
 
-	# Declared mapping, not convention: a format slot carrying
-	# `"maps_to": "invoice_attachment"` puts its file on the ledger row. Absent => no file.
-	bill = first_mapped_attachment(req.source_data, source_format)
-	if bill:
-		values["invoice_attachment"] = bill
-	if not source_format:
-		# A standard request carries its invoice details as answers, not a declared slot.
-		values.update(native_invoice(req.source_data))
+	# The invoice (#1502): asked once for every type, form or not, by "Do you have the
+	# invoice?", and carried under the native keys onto the Expense's own invoice columns.
+	# A request raised before that, against a form slot declaring
+	# `"maps_to": "invoice_attachment"`, still has its file carried from that slot.
+	values.update(request_invoice(req.source_data, source_format))
 	if doctype == PROJECT_EXPENSE_DOCTYPE:
 		# `Non Project Expenses` has NEITHER of these columns, so both are project-only.
 		# ⚠️ The vendor is copied as a plain field, exactly like the project -- it reached the
@@ -200,5 +164,35 @@ def create_ledger_row(req):
 
 	row = frappe.new_doc(doctype)
 	row.update(values)
+	# Who gets paid (ADR-0033, #1436), on BOTH ledgers: the request's pay-to account, exactly as the
+	# reviewer saw it. The vendor's Payee is NOT read again; the save copies it only when the request
+	# carried none (`services/payees/pay_to.fill_from_vendor`).
+	copy_pay_to(req, row)
 	row.insert(ignore_permissions=True)
+	# The Expense is the RAISER's, not the reviewer's who approved it (spec #1494): "Raised by" and
+	# "Payment Raised By Me" read its `owner`, and Frappe stamps the session user on insert. Raw on
+	# purpose: no hook or rule reads an Expense's owner (the approval path reads the request's,
+	# `approval_raiser.expense_raiser`), and it moves no money figure.
+	if req.owner and row.owner != req.owner:
+		row.db_set("owner", req.owner, update_modified=False)
 	return row
+
+
+def approve_request(req, reviewer: str | None = None):
+	"""Approve `req` and create its Expense; return the Expense. The ONE approve path, for a
+	Reviewer's approval (`review.approve_expense_request`, `reviewer` = the caller) and for approval
+	on submit (`create`, Records without review: no `reviewer`, `approved_on_submit` says why).
+
+	The request is saved FIRST, then the Expense inserted: the ledger's `validate` reads the
+	request's `reviewed_by` (`approval_raiser.expense_reviewer`), because an L1 review is the L1
+	step (`expense_decision.starting_status`, #1499). Never commits: the caller owns the
+	transaction, and a failure in the insert must take the request's approval back with it.
+	"""
+	req.status = REQUEST_APPROVED
+	if reviewer:
+		req.reviewed_by = reviewer
+		req.reviewed_on = now_datetime()
+	else:
+		req.approved_on_submit = 1
+	req.save(ignore_permissions=True)
+	return create_ledger_row(req)

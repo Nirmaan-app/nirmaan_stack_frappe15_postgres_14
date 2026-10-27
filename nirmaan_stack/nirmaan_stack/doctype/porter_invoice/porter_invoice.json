@@ -1,0 +1,259 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:invoice_number",
+ "creation": "2026-10-15 19:35:41.171803",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "invoice_number",
+  "import_batch",
+  "invoice_link",
+  "invoice_file",
+  "column_break_status",
+  "validation_status",
+  "validation_message",
+  "validation_warnings",
+  "statement_section",
+  "porter_gstin",
+  "customer_gstin",
+  "billing_entity",
+  "city",
+  "column_break_statement",
+  "completed_orders",
+  "fare_total",
+  "tax_total",
+  "read_section",
+  "read_invoice_number",
+  "read_invoice_date",
+  "read_supplier_gstin",
+  "column_break_read",
+  "read_receiver_gstin",
+  "read_fare",
+  "read_tax"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Invoice"
+  },
+  {
+   "description": "Porter's invoice number. The identity of a Porter Invoice: the record is named by it.",
+   "fieldname": "invoice_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Invoice Number",
+   "read_only": 1,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "description": "The Bulk Import batch (Porter Statement) this invoice was uploaded in.",
+   "fieldname": "import_batch",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Import Batch",
+   "options": "Outflow Import Batch",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "description": "Porter's own link to the invoice PDF, verbatim from the statement.",
+   "fieldname": "invoice_link",
+   "fieldtype": "Small Text",
+   "label": "Invoice Link",
+   "read_only": 1
+  },
+  {
+   "description": "The PDF downloaded once from the invoice link and stored here. Every Porter Expense of this invoice shares this URL.",
+   "fieldname": "invoice_file",
+   "fieldtype": "Attach",
+   "label": "Invoice PDF",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_status",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Queued",
+   "fieldname": "validation_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Validation Status",
+   "options": "Queued\nDownloading\nReading\nComparing\nPassed\nFailed\nError",
+   "read_only": 1
+  },
+  {
+   "description": "Why the invoice Failed (the figure that disagreed) or hit an Error.",
+   "fieldname": "validation_message",
+   "fieldtype": "Small Text",
+   "label": "Validation Message",
+   "read_only": 1
+  },
+  {
+   "fieldname": "statement_section",
+   "fieldtype": "Section Break",
+   "label": "From the statement"
+  },
+  {
+   "fieldname": "porter_gstin",
+   "fieldtype": "Data",
+   "label": "Porter GSTIN",
+   "read_only": 1
+  },
+  {
+   "fieldname": "customer_gstin",
+   "fieldtype": "Data",
+   "label": "Customer GSTIN",
+   "read_only": 1
+  },
+  {
+   "fieldname": "billing_entity",
+   "fieldtype": "Data",
+   "label": "Billing Entity",
+   "read_only": 1
+  },
+  {
+   "fieldname": "city",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "City",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_statement",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Completed orders on this invoice. A cancelled order is never counted.",
+   "fieldname": "completed_orders",
+   "fieldtype": "Int",
+   "label": "Completed Orders",
+   "read_only": 1
+  },
+  {
+   "description": "Sum of the completed orders' Porter fare (before GST).",
+   "fieldname": "fare_total",
+   "fieldtype": "Currency",
+   "label": "Fare Total",
+   "read_only": 1
+  },
+  {
+   "description": "Sum of the completed orders' tax, as the statement rounds it row by row.",
+   "fieldname": "tax_total",
+   "fieldtype": "Currency",
+   "label": "Tax Total",
+   "read_only": 1
+  },
+  {
+   "fieldname": "read_section",
+   "fieldtype": "Section Break",
+   "label": "What Gemini read"
+  },
+  {
+   "fieldname": "read_invoice_number",
+   "fieldtype": "Data",
+   "label": "Invoice Number (read)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "read_invoice_date",
+   "fieldtype": "Date",
+   "label": "Invoice Date (read)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "read_supplier_gstin",
+   "fieldtype": "Data",
+   "label": "Supplier GSTIN (read)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_read",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "read_receiver_gstin",
+   "fieldtype": "Data",
+   "label": "Receiver GSTIN (read)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "read_fare",
+   "fieldtype": "Currency",
+   "label": "Fare (read)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "read_tax",
+   "fieldtype": "Currency",
+   "label": "Tax (read)",
+   "read_only": 1
+  },
+  {
+   "description": "Figures the PDF read differently from the statement that do not stop the invoice agreeing (Porter GSTIN, customer GSTIN, tax, invoice number; #1559), as {warnings: [{figure, statement, read}]}, read null when it could not be read. Written with the verdict by the validation job only (services/outflow_import/porter_verdict.stored_warnings); blank when there are none.",
+   "fieldname": "validation_warnings",
+   "fieldtype": "JSON",
+   "label": "Validation Warnings",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-10-25 14:51:11.463355",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Porter Invoice",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant Lead",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

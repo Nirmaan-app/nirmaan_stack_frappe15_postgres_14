@@ -18,9 +18,12 @@ export const useUrlParam = (key: string) => {
   // RenderSentBackComponent, ...) keeps a stale value after a navigate() and only
   // corrects on a manual refresh. This used to be masked by the error boundary's
   // per-navigation remount, removed in d2b2dc14.
+  // Keyed on the navigation, not on location.search: after a tab click (urlStateManager,
+  // replaceState) the router's search is stale, so a navigate() back to that same search
+  // -- the app access gate's "Open my assets" opening ?tab=assets -- would change nothing.
   useEffect(() => {
     setParamValue(new URLSearchParams(location.search).get(key));
-  }, [key, location.search]);
+  }, [key, location.key, location.search]);
 
   // Still needed for urlStateManager.updateParam (replaceState-based filter/pagination
   // writes that react-router's location does not observe) and its popstate handling.

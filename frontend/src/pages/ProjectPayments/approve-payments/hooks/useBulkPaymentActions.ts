@@ -13,14 +13,51 @@ export interface BulkResult {
   succeeded: string[];
   failed: BulkFailure[];
   total: number;
+  /**
+   * Approved payments whose TDS could not be withheld: approved, still at their GROSS amount, and
+   * waiting for Retry TDS (#1536). Empty for a reject, and for a batch with no Work Order payment.
+   */
+  tdsFailed: string[];
+}
+
+interface ApiResult {
+  succeeded: string[];
+  failed: BulkFailure[];
+  total: number;
+  tds_failed?: string[];
 }
 
 interface ApiEnvelope {
   message?: {
     status?: number;
     message?: string;
-    data?: BulkResult;
+    data?: ApiResult;
   };
+}
+
+/** What Retry TDS answers (`bulk_actions.retry_bulk_deductions`). */
+export interface TdsRetryResult {
+  tds_recorded: number;
+  /** Still failing: retry again, or ask for the Error Log. */
+  tds_failed: string[];
+  /** No longer at Approved, so no tax can be withheld here any more. */
+  not_approved: string[];
+}
+
+/** Retry TDS on the payments a bulk approve named in `tdsFailed`. Admin only, on the server too. */
+export function useRetryBulkTds() {
+  const { call, loading } = useFrappePostCall<{ message: TdsRetryResult }>(
+    "nirmaan_stack.api.payments.bulk_actions.retry_bulk_deductions"
+  );
+  const retry = useCallback(
+    async (paymentIds: string[]): Promise<TdsRetryResult> => {
+      const response = await call({ payment_ids: paymentIds });
+      if (!response?.message) throw new Error("Retry TDS returned no data");
+      return response.message;
+    },
+    [call]
+  );
+  return { retry, loading };
 }
 
 /**
@@ -53,7 +90,12 @@ export function useBulkPaymentActions(mode: BulkMode) {
       if (!data) {
         throw new Error("Bulk action returned no data");
       }
-      return data;
+      return {
+        succeeded: data.succeeded,
+        failed: data.failed,
+        total: data.total,
+        tdsFailed: data.tds_failed ?? [],
+      };
     },
     [call]
   );

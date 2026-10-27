@@ -1,6 +1,6 @@
 # ADR-0028 — GST Hold replaces the Work Order ₹15 lakh block
 
-- **Status:** Accepted, built (owner grilling 2026-09-19, Q1–Q16; Q3 revised twice the same day — final: the job never releases a hold)
+- **Status:** Accepted, built (owner grilling 2026-09-19, Q1–Q16; Q3 revised twice the same day — final: the job never releases a hold). Amended 2026-10-21: see *Amendment A* (GST follows the vendor; Remove GST Hold changes no Work Order). Amended 2026-10-22: see *Amendment B* (an amendment can't swap in a held vendor)
 - **Date:** 2026-09-19
 - **Feature:** Vendors / Work Orders (Service Requests)
 - **Replaces:** the new-WO amount check added 2026-09-16 (`validate_vendor_fy_limit`)
@@ -98,3 +98,61 @@ Service Request). Amending, approving, paying and invoicing existing Work Orders
 - **Recompute both ways** — OFF the next morning once the total is back at ₹15L or under, which also
   cleared every hold at a new financial year. Built, then reversed by the owner on 2026-09-19: the job
   never releases, only an Admin does.
+
+---
+
+## Amendment A — GST follows the vendor; Remove GST Hold changes no Work Order (2026-10-21)
+
+**Accepted** (owner decision record "Work Order Life After Creation", rounds 2 and 4: S1-C, S2-B, S3-A,
+Z1-A, Z2-A, Z10-A; spec #1528, built in #1538). Reverses *Remove GST Hold (Q5–Q7, Q14)* above and the
+"Vendor gets a GST number" row of *Setting and clearing*.
+
+### Context
+
+Approval already set a Work Order's GST flag from its vendor (owner, 2026-09-19), but the "GST
+Applicable" switch on the WO page could still set it either way, and Remove GST Hold switched a vendor's
+GST-off Work Orders on, rewriting the totals of Work Orders that were already paid or finalized. An
+approval bug had also left 46 Work Orders GST-off although their vendor has a GST number. The owner's
+rule: nothing changes history by itself; a person decides each old Work Order.
+
+### Decision
+
+1. **GST follows the vendor.** A Work Order's GST flag is on exactly when its vendor has a GST number
+   (blank or whitespace counts as none). The server sets it at first approval and when an amendment that
+   changed the vendor is accepted (`controllers/service_requests.set_gst_from_vendor`; the vendor before the amendment
+   is read from the WO's Version history, `services/work_order_amendment.vendor_before_amendment`). An
+   amendment that kept the vendor, or a revert back to it, leaves the flag alone.
+2. **The switch is locked**, on the WO page and on the server: any other save that changes the flag is
+   refused (`integrations/controllers/service_requests.validate_gst_flag_not_changed_by_hand`), Admin and
+   Desk included. The server's own writers mark the save with `doc.flags.gst_set_from_vendor`.
+3. **Match GST to vendor** (Admin, Accountant, Accountant Lead; `api/service_requests/match_gst_to_vendor`)
+   is the one way to change an existing Work Order's flag. It moves one Approved Work Order, Finalized
+   included, only towards its vendor's status; it shows the new total and Amount Due first; it meets the
+   rule that GST can't go off while a GST payment exists (ADR-0030 decision 6); and it writes an
+   undeletable system remark beside the Version row.
+4. **The GST mismatch list** (Work Orders → All WO → GST mismatch, same roles) lists every Approved Work
+   Order whose flag disagrees with its vendor, both directions: the 46 left GST-off by the approval bug,
+   those of vendors who registered later, and GST-on ones whose vendor has no GST number.
+5. **Remove GST Hold only clears the hold.** It changes no Work Order and no longer needs a GST number
+   (Z2-A, not Z2-B). If the vendor registers, someone enters its GST number: its new Work Orders are then
+   approved GST-on and its old GST-off ones appear on the mismatch list.
+
+The daily GST Hold job is unchanged.
+
+### Consequences
+
+- No Work Order total moves unless a person chooses it on that one Work Order.
+- A vendor released without a GST number that still qualifies is put back on hold the next morning, as
+  an untick by hand already was. The earlier objection to this (*Rejected*, "Remove without a GST
+  number") no longer applies: removing the hold is no longer how Work Orders are switched.
+- A Work Order put in Amendment without the document layer (raw SQL) has no Version row for the move,
+  so accepting it leaves the flag alone; Match GST to vendor fixes it afterwards.
+
+## Amendment B — an amendment can't swap in a vendor on GST Hold (2026-10-22)
+
+**Accepted** (spec #1528 story 20, built in #1540). Narrows *What GST Hold blocks* above, which let
+amending carry on. A held vendor still keeps its existing Work Orders, and they may still be amended.
+What is refused is an amendment that makes a held vendor the Work Order's vendor (a vendor other than the
+one before the amendment), on every amendment save, Desk and REST included
+(`services/work_order_lifecycle.change_problem`, `GST_HOLD_AMEND_REFUSAL`). Otherwise an amendment would
+be a way round the block on creating a Work Order for that vendor.

@@ -12,6 +12,8 @@ Race-safe by design:
   * Per-payment status guard so stale rows are reported, not silently overwritten.
   * Suppresses the per-payment notification cascade via flags.bulk_approval and
     emits one summary notification per recipient at the end.
+  * A payment on a Pending Payment cheque is decided with every payment on that cheque,
+    across POs, all or nothing (`services/cheques/decide.py`, #1481).
 """
 
 import json
@@ -30,13 +32,12 @@ from nirmaan_stack.integrations.Notifications.pr_notifications import (
 )
 from nirmaan_stack.services import cheque_payments, payment_tds, settlement
 from nirmaan_stack.services.approval_tiers import STATUS_CEO_PENDING, status_after_l1
+from nirmaan_stack.services.cheques import decide
+from nirmaan_stack.services.payment_steps import STEP_L1, holds
+from nirmaan_stack.services.cheques.writer import CHEQUES
+from nirmaan_stack.services.po_terms import TERM_NOOP, TERM_ORPHAN, TERM_UPDATED, sync_term_in_memory
 
 MAX_BATCH_SIZE = 100
-LEAD_ALLOWED_ROLE_PROFILES = (
-    "Nirmaan Admin Profile",
-    "Nirmaan Accountant Profile",
-    "Nirmaan Accountant Lead Profile",
-)
 REJECTED_STATUS = "Rejected"
 
 
@@ -54,6 +55,31 @@ def bulk_lead_approve_payments(payment_ids, action: str, rejection_reason: Optio
         rejection_reason=rejection_reason,
         config=_LEAD_CONFIG,
     )
+
+
+@frappe.whitelist(methods=["POST"])
+def retry_bulk_deductions(payment_ids):
+    """Retry TDS (#1536, story 42): record the tax a bulk approve failed to withhold (`tds_failed`).
+
+    For an Admin (the L1 step, as bulk approve). Only a payment still at `Approved` can take its tax
+    (`payment_tds.is_deductible`); one that has moved on is listed in `not_approved` and left alone. A
+    retried Work Order cheque then moves on to Reconciliation Pending, as after a bulk approve. Returns
+    `{tds_recorded, tds_failed, not_approved}`, read as bulk approve's.
+    """
+    if not holds(frappe.session.user, STEP_L1):
+        frappe.throw(_("Only an Admin can retry TDS on approved payments."), frappe.PermissionError)
+    payment_ids = _parse_ids(payment_ids)
+    approved = set(frappe.get_all(
+        "Project Payments", filters={"name": ["in", payment_ids], "status": payment_tds.APPROVED}, pluck="name"
+    ))
+    retried = [pid for pid in payment_ids if pid in approved]
+    recorded, failed = _record_bulk_deductions(retried) if retried else (0, [])
+    _move_on_approved_cheques(retried)
+    return {
+        "tds_recorded": recorded,
+        "tds_failed": failed,
+        "not_approved": [pid for pid in payment_ids if pid not in approved],
+    }
 
 
 @frappe.whitelist()
@@ -75,6 +101,8 @@ def bulk_ceo_approve_payments(payment_ids, action: str, rejection_reason: Option
 @dataclass(frozen=True)
 class _ModeConfig:
     source_status: str
+    #: Which approval a cheque's decision makes (`services/cheques/decide.py`).
+    cheque_stage: str
     approve_target_status: str
     approve_date_field: Optional[str]
     approve_event_id: str
@@ -174,6 +202,7 @@ def _lead_recipients_for_approve(succeeded_rows: list[dict]) -> dict:
 
 _LEAD_CONFIG = _ModeConfig(
     source_status="Requested",
+    cheque_stage=decide.STAGE_L1,
     approve_target_status="CEO Pending",
     approve_date_field="approval_date",
     # Must match the controller hook's event_id for the same transition
@@ -187,6 +216,7 @@ _LEAD_CONFIG = _ModeConfig(
 
 _CEO_CONFIG = _ModeConfig(
     source_status="CEO Pending",
+    cheque_stage=decide.STAGE_CEO,
     approve_target_status="Approved",
     approve_date_field="ceo_approval_date",
     approve_event_id="payment:ceo_approved",
@@ -208,14 +238,12 @@ def _authorize_ceo():
 
 
 def _authorize_lead():
-    user = frappe.session.user
-    if user == "Administrator":
-        return
-    role_profile = frappe.db.get_value("Nirmaan Users", user, "role_profile")
-    if role_profile in LEAD_ALLOWED_ROLE_PROFILES:
+    """The L1 step, as on the Approve Payments tab: an Admin (#1530). Accountants were admitted here
+    until #1530, though the screen never offered them the tab."""
+    if holds(frappe.session.user, STEP_L1):
         return
     frappe.throw(
-        _("You are not authorised to approve payments in bulk."),
+        _("Only an Admin can approve or reject payments in bulk."),
         frappe.PermissionError,
     )
 
@@ -224,7 +252,8 @@ def _authorize_lead():
 # Core engine
 # ---------------------------------------------------------------------------
 
-def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config: _ModeConfig):
+def _parse_ids(payment_ids) -> list[str]:
+    """The endpoint's `payment_ids`, a list or its JSON, checked and de-duplicated in order."""
     if isinstance(payment_ids, str):
         try:
             payment_ids = json.loads(payment_ids)
@@ -236,14 +265,35 @@ def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config:
 
     if len(payment_ids) > MAX_BATCH_SIZE:
         frappe.throw(_("Bulk action limited to {0} payments per call.").format(MAX_BATCH_SIZE))
+    return list(dict.fromkeys(payment_ids))
+
+
+def _move_on_approved_cheques(payment_ids: list[str]) -> None:
+    """Move each Approved cheque payment of `payment_ids` on to Reconciliation Pending, each in its own
+    transaction (`cheque_payments.commit_move_to_reconciliation`). Call it only after the deduction phase:
+    a Work Order cheque moved earlier would keep its gross amount with no deduction."""
+    if not payment_ids:
+        return
+    for pid in frappe.get_all(
+        "Project Payments",
+        filters={
+            "name": ["in", payment_ids],
+            "status": payment_tds.APPROVED,
+            "mode_of_payment": cheque_payments.MODE_CHEQUE,
+        },
+        pluck="name",
+    ):
+        cheque_payments.commit_move_to_reconciliation(pid)
+
+
+def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config: _ModeConfig):
+    deduped_ids = _parse_ids(payment_ids)
 
     if action not in ("approve", "reject"):
         frappe.throw(_("action must be 'approve' or 'reject'."))
 
     if action == "reject" and not (rejection_reason or "").strip():
         frappe.throw(_("Rejection reason is required."))
-
-    deduped_ids = list(dict.fromkeys(payment_ids))
 
     payment_rows = frappe.get_all(
         "Project Payments",
@@ -281,9 +331,18 @@ def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config:
             return config.approve_target_status
         return status_after_l1(row.get("amount"))
 
+    # ⚠️ A CHEQUE PAYMENT IS GROUPED BY ITS CHEQUE, NOT BY ITS PO (#1481, spec #1477). One cheque is one
+    # decision: its payments may sit on several POs, and grouping them by PO let a cheque half succeed.
+    # A payment on a Pending Payment cheque is decided with EVERY payment on that cheque, ticked or not,
+    # by `decide.approve` / `decide.reject`, in one savepoint of its own; the rest group by PO as before.
     groups: dict[tuple, list[str]] = defaultdict(list)
+    cheque_groups: dict[str, list[str]] = defaultdict(list)
     for pid in deduped_ids:
         if pid not in found:
+            continue
+        cheque = decide.cheque_of(pid)
+        if cheque:
+            cheque_groups[cheque].append(pid)
             continue
         row = found[pid]
         groups[(row["document_type"], row["document_name"], _target_for(row))].append(pid)
@@ -291,6 +350,17 @@ def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config:
     # Deferred rejection-reason comments — applied AFTER the group commits,
     # so a comment failure cannot poison the approval (fix E2).
     pending_comments: list[str] = []
+
+    for cheque, pids in cheque_groups.items():
+        _process_cheque(
+            cheque=cheque,
+            payment_ids=pids,
+            action=action,
+            stage=config.cheque_stage,
+            rejection_reason=rejection_reason,
+            succeeded=succeeded,
+            failed=failed,
+        )
 
     for (doc_type, doc_name, target_status), pids in groups.items():
         _process_group(
@@ -345,14 +415,7 @@ def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config:
             # group; one whose in-group move failed is still `Approved` and is retried here.)
             # Each move is its own transaction; one that fails stays at `Approved`, where "Mark
             # as Paid" finishes it.
-            from nirmaan_stack.api.payments.project_payments import _move_cheque_to_reconciliation
-
-            for pid in frappe.get_all(
-                "Project Payments",
-                filters={"name": ["in", settled_now], "mode_of_payment": cheque_payments.MODE_CHEQUE},
-                pluck="name",
-            ):
-                _move_cheque_to_reconciliation(pid)
+            _move_on_approved_cheques(settled_now)
 
     # Best-effort: rejection-reason comments. A failure here does not unwind the
     # approvals — the comment is purely auditing.
@@ -477,10 +540,10 @@ def _process_group(
             if action == "approve" and approve_date_field:
                 pay.set(approve_date_field, nowdate())
 
-            sync_outcome = "noop"
+            sync_outcome = TERM_NOOP
             if po_doc is not None:
-                sync_outcome = _sync_po_term_in_memory(po_doc, pid, target_status)
-                if sync_outcome == "orphan":
+                sync_outcome = sync_term_in_memory(po_doc, pid, target_status)
+                if sync_outcome == TERM_ORPHAN:
                     frappe.log_error(
                         title=f"Bulk Payment Orphan Term ({pid})",
                         message=(
@@ -493,7 +556,7 @@ def _process_group(
             pay.flags.bulk_approval = True
             pay.save(ignore_permissions=True)
 
-            if sync_outcome == "updated":
+            if sync_outcome == TERM_UPDATED:
                 po_dirty = True
 
             # A PO cheque moves on to Reconciliation Pending right here, so the group's one PO
@@ -504,7 +567,7 @@ def _process_group(
                 and target_status == payment_tds.APPROVED
                 and cheque_payments.is_cheque(pay)
                 and cheque_payments.has_no_tds_to_wait_for(pay)
-                and _move_cheque_in_group(pid, po_doc) == "updated"
+                and _move_cheque_in_group(pid, po_doc) == TERM_UPDATED
             ):
                 po_dirty = True
 
@@ -545,21 +608,40 @@ def _process_group(
     pending_comments.extend(local_rejection_pids)
 
 
-def _sync_po_term_in_memory(po_doc, payment_name: str, new_status: str) -> str:
-    """Mirrors ``_find_and_update_po_term`` but mutates in-memory; caller saves once.
+def _process_cheque(
+    cheque: str,
+    payment_ids: list[str],
+    action: str,
+    stage: str,
+    rejection_reason: str | None,
+    succeeded: list[str],
+    failed: list[dict],
+):
+    """Decide one Payment cheque: every payment on it, ticked or not, approved or rejected together.
 
-    Returns one of:
-      * ``"updated"`` — a term row was modified; caller should save the PO.
-      * ``"noop"``    — matching term row already had this status.
-      * ``"orphan"``  — no matching term row found (caller should log).
+    `decide` holds the cheque's whole savepoint, locks the cheque, its POs and its payments, writes the
+    PO terms once per PO, and never commits; on a reject it also writes the reason on each payment and
+    cancels the cheque (so these payments stay out of `pending_comments`). A failure has already been
+    rolled back by `decide` and is reported ONCE, for the cheque, naming the ticked payments.
     """
-    for term in po_doc.get("payment_terms") or []:
-        if term.project_payment == payment_name:
-            if term.term_status != new_status:
-                term.term_status = new_status
-                return "updated"
-            return "noop"
-    return "orphan"
+    try:
+        if action == "approve":
+            result = decide.approve(payment_ids[0], stage=stage, user=frappe.session.user)
+        else:
+            result = decide.reject(
+                payment_ids[0], stage=stage, reason=rejection_reason, user=frappe.session.user
+            )
+    except Exception as exc:
+        cheque_no = frappe.db.get_value(CHEQUES, cheque, "cheque_no") or cheque
+        failed.append({
+            "name": f"Cheque {cheque_no}",
+            "reason": str(exc) or "Unknown error",
+            "cheque": cheque,
+            "payments": payment_ids,
+        })
+        frappe.log_error(title=f"Bulk Cheque Decision Error ({cheque})", message=frappe.get_traceback())
+        return
+    succeeded.extend(result["payments"])
 
 
 def _move_cheque_in_group(payment_name: str, po_doc) -> str | None:
@@ -570,7 +652,7 @@ def _move_cheque_in_group(payment_name: str, po_doc) -> str | None:
     Pending in memory, so the group's ONE PO save writes it -- a separate move re-saved the whole
     PO per cheque (measured on 100 rows: 25 -> 50 PO saves, 2.2s -> 4.0s).
 
-    Returns the term sync outcome (`"updated"` means the PO needs its save), or None when nothing
+    Returns the term sync outcome (`TERM_UPDATED` means the PO needs its save), or None when nothing
     moved.
 
     ⚠️ ITS OWN SAVEPOINT, AND A FAILED MOVE IS NOT A FAILED APPROVAL. The approval is already saved
@@ -594,8 +676,8 @@ def _move_cheque_in_group(payment_name: str, po_doc) -> str | None:
     if not moved:
         return None
     if po_doc is None:
-        return "noop"
-    return _sync_po_term_in_memory(po_doc, payment_name, settlement.STATUS_RECONCILIATION_PENDING)
+        return TERM_NOOP
+    return sync_term_in_memory(po_doc, payment_name, settlement.STATUS_RECONCILIATION_PENDING)
 
 
 def _add_rejection_comments(payment_ids: list[str], rejection_reason: str):

@@ -196,7 +196,7 @@ class TestLegsThisReversalCannotCorrectlyUndo(AllocationFixture):
 class TestAReversedLegIsNeverHardDeleted(AllocationFixture):
     """⚠️ WHOLE-BRANCH REVIEW F4 -- THE ADR'S OWN GUARANTEE, BROKEN BY A ROUTE IT DID NOT CONSIDER.
     "A wrong leg is soft-reversed, never deleted" is the entire justification for ADR-0020 D3 and
-    for the partial unique index. Once EVERY leg is reversed, `_refresh_row_allocation` returns the
+    for the partial unique index. Once EVERY leg is reversed, `refresh_row_allocation` returns the
     row to `Matched`/`Mismatched` -- deliberately, so it can be reconsidered -- and both
     `match_batch` and `skip_row` then reach it and used to `frappe.db.delete` every match record on
     it, unscoped. The most natural next action after a reversal destroyed exactly the fact the

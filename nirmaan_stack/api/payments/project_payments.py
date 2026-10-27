@@ -15,10 +15,20 @@ from nirmaan_stack.services.approval_tiers import (
     steps_cleared_by_raiser,
 )
 from nirmaan_stack.services.order_payments import assert_within_work_order_limit
+from nirmaan_stack.services.payment_steps import ROUTED_AT_REQUEST
 from nirmaan_stack.services import cheque_payments
+from nirmaan_stack.services.tds_forecast import request_amount_as_stored
+from nirmaan_stack.services.cheques import decide as cheque_decision
+from nirmaan_stack.api.payments.payment_cheque import (
+    cheque_header,
+    expect_new_cheque,
+    put_on_new_cheque,
+    refuse_unless_cheque_can_be_made,
+)
 # api -> service is the one legal direction (ADR-0010). See `reference_guard.py`'s module
 # docstring: this call site and `settle._assert_reference_is_free` must move together.
 from nirmaan_stack.services.outflow_import.reference_guard import assert_reference_is_free
+from nirmaan_stack.services.outflow_import.settle import recompute_latest_payment_date
 
 # This constant is a good security practice
 ALLOWED_DOCS = {"Procurement Orders", "Service Requests"}
@@ -46,6 +56,14 @@ def _route_new_payment(amount):
     return status, l1_cleared, ceo_cleared
 
 
+def tier_new_payment(amount, cheque):
+    """`(auto_approve, status, l1_cleared, ceo_cleared)` for a new payment of `amount` the session user
+    raises. A cheque payment (`cheque`, its cheque's header) is tiered on the CHEQUE amount (spec #1477,
+    C3): one cheque is one decision. Small payments auto-approve; a negative refund never does."""
+    tier_amount = cheque.amount if cheque else amount
+    return (is_auto_approved(tier_amount), *_route_new_payment(tier_amount))
+
+
 def _stamp_raiser_approval(pay, l1_cleared: bool, ceo_cleared: bool) -> None:
     """Date the steps the raiser stood in for, like a person's approval -- NOT `auto_approved`."""
     if l1_cleared:
@@ -61,22 +79,11 @@ def _comment_raiser_approval(pay, ceo_cleared: bool) -> None:
 
 def _assert_within_po_balance(src, amount):
     """A PO request: value incl. GST − Paid − open requests − Reconciliation Pending, ₹10 tolerance."""
-    from nirmaan_stack.services.finance import (
-        get_source_document_financials,
-        get_total_paid,
-        get_total_pending,
-        get_total_reconciliation_pending,
-    )
-    available = (
-        get_source_document_financials(src).get("payable_total")
-        - get_total_paid(src)
-        - get_total_pending(src)
-        - get_total_reconciliation_pending(src)
-    )
-    if amount > (available + 10):
-        frappe.throw(_(
-            "Maximum amount you can request is {0} (available balance)"
-        ).format(frappe.format_value(available, "Currency")))
+    from nirmaan_stack.services.finance import po_available_balance, po_balance_refusal
+
+    problem = po_balance_refusal(po_available_balance(src), amount)
+    if problem:
+        frappe.throw(problem)
 
 
 @frappe.whitelist()
@@ -91,9 +98,14 @@ def create_payment_request_for_service(data: str) -> str:
             "amount" : 12345.67,
             "is_gst_payment": 0 | 1,                        # Work Orders only; base when absent
             "mode_of_payment": "Online" | "Cheque",           # optional, Online when absent
-            "cheque_no": "...", "cheque_date": "YYYY-MM-DD"    # required for a cheque
+            # A cheque (#1414) -- the payment gets its own new one-line Cheque:
+            "bank": "ICICI Bank" | "Others", "bank_name": "...",  # bank_name for Others only
+            "cheque_no": "...", "cheque_date": "YYYY-MM-DD",
+            "cheque_amount": 9800.0,                           # what the cheque is written for
+            "cheque_attachment": "/private/files/..."          # the cheque photo, required
         }
-    Returns: JSON string { "name": "<PAY-00042-087>" }
+    Returns: JSON string { "name": "<PAY-00042-087>", "cheque": "<CHQ-26-00001>" | null }
+    A bank + cheque number already recorded refuses the whole request (`DuplicateChequeError`).
     """
     payload = frappe.parse_json(data)
     doctype = payload.get("doctype")
@@ -103,8 +115,8 @@ def create_payment_request_for_service(data: str) -> str:
     if doctype not in ALLOWED_DOCS:
         frappe.throw(_("Not allowed for doctype {0}").format(doctype))
 
-    # Allow negative amounts (refunds / credits issued after a negative-rate amend).
-    # Zero is still rejected — it has no business meaning.
+    # Zero has no business meaning. A negative amount is refused on a Work Order by its limit check
+    # below (money coming back is a Vendor Refund, #1488); a PO still allows one.
     if amount == 0:
         frappe.throw(_("Amount cannot be zero"))
 
@@ -121,11 +133,14 @@ def create_payment_request_for_service(data: str) -> str:
     else:
         _assert_within_po_balance(src, amount)
 
+    # Before the insert: its `after_insert` commits, so a refusal after it would come too late.
+    cheque = cheque_header(payload, vendor=src.vendor)
+    refuse_unless_cheque_can_be_made(cheque)
+
     # ── create payment doc  (ACID wrapper) ─────────────────────────
     # Small payments auto-approve; negative refunds (amount < 0) always go
     # through manual review, hence the strict `0 < amount` lower bound.
-    auto_approve = is_auto_approved(amount)
-    status, l1_cleared, ceo_cleared = _route_new_payment(amount)
+    auto_approve, status, l1_cleared, ceo_cleared = tier_new_payment(amount, cheque)
 
     pay = frappe.new_doc("Project Payments")
     pay.update({
@@ -133,7 +148,7 @@ def create_payment_request_for_service(data: str) -> str:
         "document_name" : docname,
         "project"       : src.project,
         "vendor"        : src.vendor,
-        "amount"        : round(amount),
+        "amount"        : request_amount_as_stored(amount),
         "status"        : status,
         "is_gst_payment": 1 if gst_payment else 0,
         **_mode_fields(payload),
@@ -147,6 +162,9 @@ def create_payment_request_for_service(data: str) -> str:
     # Checked above against the amount AS REQUESTED; the insert validation must not check the
     # rounded figure again and refuse what this endpoint just allowed.
     pay.flags.work_order_limit_checked = True
+    # Routed above by the raiser's level (`tier_new_payment`), on the requested amount or the cheque's.
+    pay.flags[ROUTED_AT_REQUEST] = True
+    expect_new_cheque(pay, cheque)
     pay.insert()
 
     if auto_approve:
@@ -155,15 +173,16 @@ def create_payment_request_for_service(data: str) -> str:
     elif l1_cleared:
         _comment_raiser_approval(pay, ceo_cleared)
 
+    cheque_name = put_on_new_cheque(pay.name, cheque)
     frappe.db.commit()
 
     # A cheque born Approved (the auto band, or a raiser who holds the approval) goes straight
     # on to Reconciliation Pending, in its own transaction now that the approval (and its TDS)
     # is on disk.
     if status == "Approved" and cheque_payments.is_cheque(pay):
-        _move_cheque_to_reconciliation(pay.name)
+        cheque_payments.commit_move_to_reconciliation(pay.name)
 
-    return frappe.as_json({"name": pay.name})
+    return frappe.as_json({"name": pay.name, "cheque": cheque_name})
 
 @frappe.whitelist()
 def create_project_payment(
@@ -176,10 +195,19 @@ def create_project_payment(
     mode_of_payment: str | None = None,
     cheque_no: str | None = None,
     cheque_date: str | None = None,
+    bank: str | None = None,
+    bank_name: str | None = None,
+    cheque_amount: float | None = None,
+    cheque_attachment: str | None = None,
 ):
     """
     Creates a new "Project Payments" doc AND updates the source PO Payment Term row
     to establish the link. This is the primary function called by the frontend.
+
+    In Cheque mode (#1414) the payment gets its own new one-line Cheque, made from `bank`
+    (+ `bank_name` for Others), `cheque_no`, `cheque_date`, `cheque_amount` and the photo
+    `cheque_attachment`; the reply names it as `cheque`. A bank + cheque number already recorded
+    refuses the whole request (`DuplicateChequeError`) and creates nothing.
 
     Uses a two-phase approach to ensure atomicity:
     1. Validate and update the PO term status first (prevents duplicate requests)
@@ -224,28 +252,23 @@ def create_project_payment(
                 ).format(term_details.get("due_date")))
 
         # --- Step 3: Financial Validation ---
-        from nirmaan_stack.services.finance import (
-            get_source_document_financials,
-            get_total_paid,
-            get_total_pending,
-            get_total_reconciliation_pending,
-        )
         src = frappe.get_doc(doctype, docname)
-        totals = get_source_document_financials(src)
-        paid = get_total_paid(src)
-        pending = get_total_pending(src)
-        available = (
-            totals.get("payable_total") - paid - pending - get_total_reconciliation_pending(src)
-        )
+        _assert_within_po_balance(src, amount)
 
-        if amount > (available + 10):
-            frappe.throw(_(
-                "Maximum amount you can request is {0} (available balance)"
-            ).format(frappe.format_value(available, "Currency")))
+        # --- Step 3b: the cheque, checked BEFORE the insert (its `after_insert` commits) ---
+        cheque = cheque_header({
+            "mode_of_payment": mode_of_payment,
+            "bank": bank,
+            "bank_name": bank_name,
+            "cheque_no": cheque_no,
+            "cheque_date": cheque_date,
+            "cheque_amount": cheque_amount,
+            "cheque_attachment": cheque_attachment,
+        }, vendor=src.vendor)
+        refuse_unless_cheque_can_be_made(cheque)
 
         # --- Step 4: Create the payment document (small ones skip both gates) ---
-        auto_approve = is_auto_approved(amount)
-        status, l1_cleared, ceo_cleared = _route_new_payment(amount)
+        auto_approve, status, l1_cleared, ceo_cleared = tier_new_payment(amount, cheque)
 
         pay = frappe.new_doc("Project Payments")
         pay.update({
@@ -268,8 +291,11 @@ def create_project_payment(
         else:
             _stamp_raiser_approval(pay, l1_cleared, ceo_cleared)
 
+        # Routed above by the raiser's level (`tier_new_payment`), on the amount or the cheque's.
+        pay.flags[ROUTED_AT_REQUEST] = True
         # This insert will trigger the 'after_insert' hook, which routes
         # notifications by status (auto-approved → accountants + admin record note).
+        expect_new_cheque(pay, cheque)
         pay.insert(ignore_permissions=True)
 
         if auto_approve:
@@ -277,6 +303,9 @@ def create_project_payment(
                 frappe.format_value(TIER_AUTO_APPROVE_BELOW, "Currency")))
         elif l1_cleared:
             _comment_raiser_approval(pay, ceo_cleared)
+
+        # --- Step 4b: a cheque payment goes on its own new one-line Cheque ---
+        cheque_name = put_on_new_cheque(pay.name, cheque)
 
         # --- Step 5: Update the PO Payment Term row, mirroring the payment status ---
         # This establishes the bidirectional relationship.
@@ -294,12 +323,13 @@ def create_project_payment(
         # Reconciliation Pending too (the line above would otherwise put it back to Approved).
         if status == "Approved" and cheque_payments.is_cheque(pay):
             frappe.db.commit()
-            _move_cheque_to_reconciliation(pay.name)
+            cheque_payments.commit_move_to_reconciliation(pay.name)
 
         # --- Step 6: Return success ---
         return {
             "status": 200,
-            "message": f"Payment {pay.name} has been requested."
+            "message": f"Payment {pay.name} has been requested.",
+            "cheque": cheque_name,
         }
 
     except frappe.DoesNotExistError:
@@ -374,6 +404,19 @@ def ceo_approve_payment(payment_id: str, approved_amount=None) -> dict:
             "data": result,
         }
 
+    # A payment on a Payment cheque is approved with every other payment on it, all or none
+    # (#1480, spec #1477): `services/cheques/decide.py`.
+    if cheque_decision.cheque_of(payment_id):
+        result = cheque_decision.approve(payment_id, stage=cheque_decision.STAGE_CEO, user=frappe.session.user)
+        frappe.db.commit()
+        return {
+            "status": "success",
+            "message": _("All {0} payments on cheque {1} approved and moved to Reconciliation Pending.").format(
+                len(result["payments"]), result["cheque_no"]
+            ),
+            "data": result,
+        }
+
     pay = frappe.get_doc("Project Payments", payment_id)
 
     if pay.status != "CEO Pending":
@@ -385,7 +428,7 @@ def ceo_approve_payment(payment_id: str, approved_amount=None) -> dict:
 
     if cheque_payments.is_cheque(pay):
         frappe.db.commit()
-        if _move_cheque_to_reconciliation(pay.name):
+        if cheque_payments.commit_move_to_reconciliation(pay.name):
             return {"status": "success", "message": _("Cheque payment approved and moved to Reconciliation Pending.")}
 
     return {"status": "success", "message": _("Payment forwarded for fulfilment.")}
@@ -450,27 +493,6 @@ def _mode_fields(source: dict) -> dict:
     }
 
 
-def _move_cheque_to_reconciliation(payment_name: str) -> bool:
-    """Move an Approved cheque payment on to Reconciliation Pending, in its OWN transaction.
-
-    ⚠️ CALL IT ONLY AFTER THE APPROVAL HAS BEEN COMMITTED. It commits or rolls back by itself, so
-    a failure here can never take the approval with it, and it NEVER raises: a payment it could
-    not move stays at `Approved`, in "Payment need to paid", where the accountant's "Mark as Paid"
-    makes the same move. The rule itself is `services/cheque_payments.move_to_reconciliation`.
-    """
-    try:
-        moved = cheque_payments.move_to_reconciliation(payment_name)
-        frappe.db.commit()
-        return moved
-    except Exception:
-        frappe.db.rollback()
-        frappe.log_error(
-            title=f"Cheque payment not moved to Reconciliation Pending ({payment_name})",
-            message=frappe.get_traceback(),
-        )
-        return False
-
-
 @frappe.whitelist()
 def move_cheque_payment_to_reconciliation(payment_id: str) -> dict:
     """The single L1 approve writes `Approved` from the browser (`updateDoc`), so it has no server
@@ -478,7 +500,7 @@ def move_cheque_payment_to_reconciliation(payment_id: str) -> dict:
     for an online payment or one not at `Approved`, so a repeated or stray call is harmless.
     """
     frappe.has_permission("Project Payments", "write", doc=payment_id, throw=True)
-    return {"moved": _move_cheque_to_reconciliation(payment_id)}
+    return {"moved": cheque_payments.commit_move_to_reconciliation(payment_id)}
 
 
 @frappe.whitelist()
@@ -525,6 +547,9 @@ def _fulfil_payment(pay, args):
     # Requested / CEO Pending one cannot skip its approval gate.
     if pay.status not in ("Approved", "Reconciliation Pending"):
         frappe.throw(_("Payment is not yet CEO-approved or has already been processed"))
+    cheque_problem = cheque_decision.pay_alone_problem(pay.name)  # spec #1477: clearing the cheque pays it
+    if cheque_problem:
+        frappe.throw(_(cheque_problem), title=_("Paid by cheque"))
 
     utr = (args.get("utr") or "").strip()
     if not utr:
@@ -554,9 +579,12 @@ def _fulfil_payment(pay, args):
     if file_url:
         _attach_file(pay, file_url)
 
-    po_doc = frappe.get_doc(pay.document_type, pay.document_name)
-    po_doc.latest_payment_date = args.get("pay_date") or nowdate()
-    po_doc.save()
+    # The order is recounted, never saved (#1536, story 44): the payment's own `on_update` has just
+    # recounted its Amount Paid, Total TDS and Amount Due (`recount_orders`), and its latest payment date is
+    # re-read from its Paid payments here. Saving the whole PO / Work Order ran every one of its own checks,
+    # so an unrelated problem on it (a broken link, a lifecycle lock) failed the payment. No `doc_events`
+    # handler watches `latest_payment_date` (`settle.recompute_latest_payment_date`).
+    recompute_latest_payment_date(pay.document_type, pay.document_name)
 
 
 def _attach_file(pay, file_url: str):

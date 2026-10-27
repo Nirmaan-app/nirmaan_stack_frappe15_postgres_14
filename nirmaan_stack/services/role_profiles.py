@@ -1,4 +1,4 @@
-"""Shared role-profile constants.
+"""Shared role-profile constants, the checks built on them, and the access asserts endpoints start with.
 
 ADR-0010 B1: a decision the business names gets one owning module. Endpoint role
 gating was previously an inline profile string repeated across ~14 modules,
@@ -7,8 +7,8 @@ real user — was refused by every one of them.
 
 Lives in ``services/`` rather than ``api/`` because BOTH ``api/`` and
 ``integrations/`` consume it, and api -> service is the one legal direction
-(same reasoning as ``services/boq_bcs/readiness.py``). It is pure data: no
-``frappe.db``, no request context.
+(same reasoning as ``services/boq_bcs/readiness.py``). It reads no request
+context.
 
 Note the two distinct layers, they are NOT the same thing:
 
@@ -20,19 +20,26 @@ Note the two distinct layers, they are NOT the same thing:
 Mirrored client-side by ``frontend/src/constants/roles.ts``; keep the two in sync.
 This layer is the enforcement boundary.
 
-The constants below are pure data. The RESOLVERS at the bottom
-(``get_role_profile`` / ``has_role_profile`` / ``is_nirmaan_admin``) read
+The constants are pure data. The RESOLVERS (``get_role_profile`` /
+``has_role_profile`` / ``is_nirmaan_admin``), the ``can_*`` checks built on them and
+the ``assert_*`` access guards (``assert_cheque_access`` /
+``assert_cheque_form_access``, which raise ``frappe.PermissionError``) read
 ``frappe.db`` — a DB read, never request context: every one takes ``user`` as an
 argument and none of them touch ``frappe.session``, so they stay callable from
 ``api/``, ``integrations/`` and a background job alike.
 """
 
 import frappe
+from frappe import _
 
 PROCUREMENT_EXECUTIVE_PROFILE = "Nirmaan Procurement Executive Profile"
 PROCUREMENT_LEAD_PROFILE = "Nirmaan Procurement Lead Profile"
 MATERIAL_PROCUREMENT_EXECUTIVE_PROFILE = "Nirmaan Material Procurement Executive Profile"
 SERVICE_PROCUREMENT_EXECUTIVE_PROFILE = "Nirmaan Service Procurement Executive Profile"
+# ^ A company-wide WO desk, like Estimates: NEVER assigned projects, sees all of them.
+# That takes zero User Permission rows (so Frappe lists stay unfiltered) AND a seat in
+# every project-scoped endpoint's full-access list -- today `api/sidebar_counts.py`
+# and `api/tds/get_tds_requests.py`. The frontend half is in `constants/roles.ts`.
 
 # Procurement splits by WHAT IS BOUGHT. Material = the PR -> PO chain and
 # everything downstream of a material buy; Service = Work Orders (Service
@@ -78,6 +85,8 @@ ADMIN_PROFILE = "Nirmaan Admin Profile"
 PMO_EXECUTIVE_PROFILE = "Nirmaan PMO Executive Profile"
 ACCOUNTANT_PROFILE = "Nirmaan Accountant Profile"
 ACCOUNTANT_LEAD_PROFILE = "Nirmaan Accountant Lead Profile"
+#: The accountants: told of an approved Work Order and of a signed generated invoice, and linked to payments.
+ACCOUNTANT_PROFILES = (ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
 # May act on the "Pending Invoice Approvals" queue -- approve, reject, or re-run
 # the auto-approve gates on an invoice that is stuck behind a stale reason.
@@ -95,6 +104,16 @@ INVOICE_APPROVAL_PROFILES = (
     ACCOUNTANT_LEAD_PROFILE,
 )
 
+# May see Vendor Invoice Recon -> "Pending Invoices Upload": the approvers plus PMO and every procurement
+# profile, who chase the missing invoices (owner ruling 2026-09-24). Mirrors `PENDING_INVOICE_UPLOAD_PROFILES`
+# in `frontend/src/constants/roles.ts`. The PO and WO sub-tabs are read-only reports; this list is the
+# ENFORCEMENT boundary of the Credit Card sub-tab's endpoints (`api/expenses/card_invoices`: list, attach).
+PENDING_INVOICE_UPLOAD_PROFILES = INVOICE_APPROVAL_PROFILES + (PMO_EXECUTIVE_PROFILE,) + PROCUREMENT_PROFILES
+
+# May mark a card spend *No invoice* (ADR-0039 ruling 8): Admin and Accountant Lead. ENFORCEMENT boundary of
+# `api/expenses/card_invoices.mark_card_no_invoice`; mirrored by `canMarkCardNoInvoice` in `constants/roles.ts`.
+CARD_NO_INVOICE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
 # Work the settled end of the Payments queue (owner, 2026-09-21): send a Reconciliation Pending
 # payment back to Approved, and edit a project / non-project expense on the queue's tabs.
 # Also hold / release an Approved payment (owner, 2026-09-22; `services/payment_hold.py`).
@@ -104,6 +123,13 @@ INVOICE_APPROVAL_PROFILES = (
 # `QUEUE_EDIT_PROFILES` in `frontend/src/pages/ProjectPayments/config/queueRowActions.ts` --
 # keep the two lists in sync.
 PAYMENT_SETTLE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
+# The L1 step of a payment's approval: approve or reject a Requested payment, alone or in bulk
+# (#1530). The Admin profile, plus `Administrator` and the CEO. Mirrored client-side by `canApprove`
+# in `frontend/src/pages/ProjectPayments/config/paymentsTabSet.ts` (the Approve Payments tab) and
+# matching `services/approval_raiser.raiser_level`. ENFORCEMENT boundary: the Project Payments
+# `validate` hook (`services/payment_steps.py`) and `api/payments/bulk_actions._authorize_lead`.
+PAYMENT_L1_PROFILES = (ADMIN_PROFILE,)
 
 # `Non Project Inflows` (#1265, ADR-0016 Amendment A) -- company treasury money. Read + create:
 # Admin / Accountant / Accountant Lead; edit: Admin + Accountant Lead; delete: Admin only.
@@ -116,6 +142,47 @@ PAYMENT_SETTLE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PR
 NON_PROJECT_INFLOWS_READ_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 NON_PROJECT_INFLOWS_WRITE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 NON_PROJECT_INFLOWS_DELETE_PROFILES = (ADMIN_PROFILE,)
+
+# The Amount Paid Mismatch report and its Recount (#1455, ADR-0034): Admin and Accountant Lead only --
+# the people who can judge a wrong payment. Narrower than the 2B Reconcile report (no Accountant).
+# ENFORCEMENT boundary for `api/reports/amount_paid_mismatch`, whose recount writes with `set_value`.
+# Mirrored client-side by `frontend/src/constants/roles.ts::AMOUNT_PAID_MISMATCH_PROFILES`.
+AMOUNT_PAID_MISMATCH_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
+# Match GST to vendor and the GST mismatch list (#1538, ADR-0028 Amendment A): Admin and Accountants.
+# ENFORCEMENT boundary for `api/service_requests/match_gst_to_vendor`, which saves with
+# `ignore_permissions`. Mirrored client-side by `frontend/src/constants/roles.ts::MATCH_GST_TO_VENDOR_PROFILES`.
+MATCH_GST_TO_VENDOR_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
+HR_EXECUTIVE_PROFILE = "Nirmaan HR Executive Profile"
+HR_LEAD_PROFILE = "Nirmaan HR Lead Profile"
+
+# Set or change a person's `Nirmaan Users.department` (owner, 2026-10-12). Many roles have
+# write on Nirmaan Users (their own profile), so the doctype's role rows cannot say this;
+# `NirmaanUsers.validate` enforces it. Mirrored client-side by `DEPARTMENT_EDIT_PROFILES` in
+# `frontend/src/constants/departments.ts` -- keep the two lists in sync.
+DEPARTMENT_EDIT_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
+
+# See the asset history -- the cross-asset log (`api/assets/history.get_asset_history`) and the
+# History card on an asset (owner, 2026-10-12: "only admin and HR"). Mirrored client-side by
+# `canViewHistory` in `frontend/src/pages/Assets/utils/permissions.ts` -- keep the two in sync.
+ASSET_HISTORY_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
+
+# Assign and unassign assets (owner, 2026-10-13): Admin, HR and PMO handle every asset; procurement
+# handles Project assets only. Nobody else, whatever Roles their profile bundles (System Manager on
+# Project Lead / Design Lead / Estimates carries Asset Management create + delete). HR Lead has every
+# asset permission HR Executive has (owner, 2026-10-15). `services/asset_assign_access.py` enforces it;
+# mirrored client-side by `canAssignAssetType` in `frontend/src/pages/Assets/utils/permissions.ts` -- keep
+# the two in sync.
+ASSET_ASSIGN_ALL_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PMO_EXECUTIVE_PROFILE)
+ASSET_ASSIGN_PROJECT_PROFILES = PROCUREMENT_PROFILES
+
+# Monthly asset audit (owner, 2026-10-14). Switching a category's "Monthly audit required": Admin only (the
+# Categories tab shows the column to Admin alone, owner 2026-10-14). Reading audit rows from the history -- the
+# Asset Audit tab's Fulfilled list -- everyone who sees the Assets lists (`canViewAssets`), on top of
+# ASSET_HISTORY_PROFILES. Mirrored in `frontend/src/pages/Assets/utils/permissions.ts` -- keep in sync.
+ASSET_CATEGORY_AUDIT_PROFILES = (ADMIN_PROFILE,)
+ASSET_AUDIT_VIEW_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE) + PROCUREMENT_PROFILES
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -164,6 +231,18 @@ def has_role_profile(user: str, profiles, *, superuser_passes: bool = True) -> b
 def is_nirmaan_admin(user: str) -> bool:
     """True for the Administrator superuser or a `Nirmaan Admin Profile` user."""
     return has_role_profile(user, (ADMIN_PROFILE,))
+
+
+def assert_match_gst_to_vendor_access(user: str) -> None:
+    """Refuse a user outside `MATCH_GST_TO_VENDOR_PROFILES`. Every Match GST to vendor endpoint starts with it."""
+    if not has_role_profile(user, MATCH_GST_TO_VENDOR_PROFILES):
+        raise frappe.PermissionError(_("Only an Admin or an Accountant may use Match GST to vendor."))
+
+
+def assert_amount_paid_mismatch_access(user: str) -> None:
+    """Refuse a user outside `AMOUNT_PAID_MISMATCH_PROFILES`. Both of the report's endpoints start with it."""
+    if not has_role_profile(user, AMOUNT_PAID_MISMATCH_PROFILES):
+        raise frappe.PermissionError(_("Only an Admin or Accountant Lead may use the Amount Paid Mismatch report."))
 
 
 BILLING_EXECUTIVE_PROFILE = "Nirmaan Billing Executive Profile"
@@ -219,8 +298,53 @@ def can_action_invoice_approvals(user: str) -> bool:
     return has_role_profile(user, INVOICE_APPROVAL_PROFILES)
 
 
+# A Vendor Invoice on a WORK ORDER (#1531, ADR-0014 Amendment A). Purchase Order invoices keep
+# their old rules. The ENFORCEMENT boundary is the Vendor Invoices `validate` hook
+# (`integrations/controllers/vendor_invoices.guard_work_order_invoice`, rule in
+# `services/work_order_invoice_access.py`), so Desk and the API obey it as the screens do.
+#
+# * Approve or reject: the invoice-approval roles, the same people who work the Pending queue.
+# * Edit (number, date, amount, base, GST): Accountants and Admin, the WO page's Edit gate
+#   (`isAccountant` in `DocumentAttachments.tsx`).
+# * Change an APPROVED invoice's number, date or amount: Admin only. Everyone else rejects it and
+#   uploads it again.
+# Uploading a new invoice is NOT narrowed: PMO and Procurement upload WO invoices today.
+WO_INVOICE_DECIDE_PROFILES = INVOICE_APPROVAL_PROFILES
+WO_INVOICE_EDIT_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+WO_APPROVED_INVOICE_EDIT_PROFILES = (ADMIN_PROFILE,)
+
+
+def can_decide_wo_invoice(user: str) -> bool:
+    """True when `user` may approve or reject a Work Order invoice. Administrator passes."""
+    return has_role_profile(user, WO_INVOICE_DECIDE_PROFILES)
+
+
+def can_edit_wo_invoice(user: str) -> bool:
+    """True when `user` may edit a Pending or Rejected Work Order invoice. Administrator passes."""
+    return has_role_profile(user, WO_INVOICE_EDIT_PROFILES)
+
+
+def can_edit_approved_wo_invoice(user: str) -> bool:
+    """True when `user` may change an Approved Work Order invoice's number, date or amount."""
+    return has_role_profile(user, WO_APPROVED_INVOICE_EDIT_PROFILES)
+
+
 PROJECT_MANAGER_PROFILE = "Nirmaan Project Manager Profile"
 PROJECT_LEAD_PROFILE = "Nirmaan Project Lead Profile"
+
+# Approve or reject a Work Order, and accept or revert its amendment (#1529, spec #1528). The
+# ENFORCEMENT boundary is the Service Requests `validate` hook
+# (`integrations/controllers/service_requests.guard_lifecycle`, rule in `services/work_order_lifecycle.py`),
+# so Desk and the API obey it: about 17 Roles write a Work Order, and System Manager rides on several
+# profiles, so the doctype's Role rows cannot say this. Mirrored client-side by `SR_ADMIN_ROLES` in
+# `frontend/src/pages/ServiceRequests/config/srTabs.constants.ts` -- keep the two in sync. PMO was removed
+# on 2026-09-17 (PMO access review).
+WO_DECIDE_PROFILES = (ADMIN_PROFILE, PROJECT_LEAD_PROFILE)
+
+
+def can_decide_work_order(user: str) -> bool:
+    """True when `user` may approve or reject a Work Order or decide its amendment. Administrator passes."""
+    return has_role_profile(user, WO_DECIDE_PROFILES)
 
 # May upload, edit and delete a Material Test Certificate (owner, 2026-10-07).
 #
@@ -240,3 +364,118 @@ MTC_PROJECT_SCOPED_PROFILES = (PROJECT_MANAGER_PROFILE, PROJECT_LEAD_PROFILE)
 def can_manage_mtc(user: str) -> bool:
     """True when `user` may upload / edit / delete an MTC. Administrator always passes."""
     return has_role_profile(user, MTC_MANAGE_PROFILES)
+
+
+# Generate and void a generated invoice on a GST-off Work Order, and upload its signed copy (#1546 /
+# #1547, spec #1528 story 89): Admin, PMO, service procurement and Project Lead. Approving the Vendor
+# Invoice the upload creates stays with WO_INVOICE_DECIDE_PROFILES. ENFORCEMENT boundary for
+# `api/service_requests/generated_invoices`, which writes with `ignore_permissions` (the doctype grants
+# read only). Mirrored client-side by `frontend/src/constants/roles.ts::WO_GENERATED_INVOICE_PROFILES`.
+WO_GENERATED_INVOICE_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, PROJECT_LEAD_PROFILE) + SERVICE_PROCUREMENT_PROFILES
+
+
+def can_generate_wo_invoice(user: str) -> bool:
+    """True when `user` may generate, void or upload a Work Order's generated invoice."""
+    return has_role_profile(user, WO_GENERATED_INVOICE_PROFILES)
+
+
+def assert_generate_wo_invoice_access(user: str) -> None:
+    """Refuse a user outside `WO_GENERATED_INVOICE_PROFILES`."""
+    if not can_generate_wo_invoice(user):
+        raise frappe.PermissionError(
+            _("Only Admin, PMO, Procurement and Project Leads can generate, void or upload a Work Order's generated invoice.")
+        )
+
+
+# May open "Adjust Payments" on a PO and record a waiting Vendor Refund from it (#1400, ADR-0032:
+# "anyone who may use Adjust Payments may record one"). Waiting refunds are PO-only, so the material
+# procurement profiles, exactly as the PO page's button gate (`PODetails.tsx`).
+# ENFORCEMENT boundary for `api/vendor_refunds/waiting_refunds.record_waiting_refund`, which writes
+# with `ignore_permissions` (the Vendor Refunds DocPerms give these users read only).
+ADJUST_PAYMENTS_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE) + MATERIAL_PROCUREMENT_PROFILES
+
+# "An Accountant" for a waiting Vendor Refund (#1400): may correct its amount or PO while it waits, or
+# cancel it, besides the user who recorded it. Mirrored client-side by
+# `frontend/src/constants/roles.ts::REFUND_ACCOUNTANT_PROFILES`.
+REFUND_ACCOUNTANT_PROFILES = (ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
+# May complete a Vendor Refund's paperwork -- its proof, UTR and description -- at any status (#1396
+# story 10): whoever works the PO's payments, i.e. the "Adjust Payments" profiles and the Accountants.
+# Its amount and PO stay with its creator or an Accountant (`services/vendor_refunds.money_edit_problem`).
+# ENFORCEMENT boundary for `api/vendor_refunds/waiting_refunds.update_waiting_refund`. Mirrored
+# client-side by `frontend/src/constants/roles.ts::REFUND_PAPERWORK_PROFILES`.
+REFUND_PAPERWORK_PROFILES = ADJUST_PAYMENTS_PROFILES + REFUND_ACCOUNTANT_PROFILES
+
+# May delete a Cancelled Vendor Refund from its PO's Transaction Details (owner, 2026-10-13): an Admin or
+# material Procurement (waiting refunds, and so Cancelled ones, are PO-only). ENFORCEMENT boundary for
+# `api/vendor_refunds/waiting_refunds.delete_cancelled_refund`. Mirrored client-side by
+# `frontend/src/constants/roles.ts::REFUND_DELETE_PROFILES`.
+REFUND_DELETE_PROFILES = (ADMIN_PROFILE,) + MATERIAL_PROCUREMENT_PROFILES
+
+# Cheques (spec #1407). Admin, Accountant and Accountant Lead run cheques end to end; Procurement may
+# view the Cheque Payments report and add a Cheque, but never change its status.
+# Project Managers have no access. ENFORCEMENT boundary for every endpoint in `api/cheques/`, which
+# write through `services/cheques/writer.py` with `ignore_permissions`: the Cheques DocPerms cannot
+# say this (`Nirmaan Procurement Executive` also rides on the Project Lead profile). Not tied to the
+# Payment TDS Deduction read permission. Mirrored client-side by
+# `frontend/src/constants/roles.ts::CHEQUE_ACCESS_PROFILES` / `CHEQUE_ACCOUNTS_PROFILES`.
+CHEQUE_ACCOUNTS_PROFILES = PAYMENT_SETTLE_PROFILES
+CHEQUE_ACCESS_PROFILES = CHEQUE_ACCOUNTS_PROFILES + PROCUREMENT_PROFILES
+
+
+def can_use_cheques(user: str) -> bool:
+    """True when `user` may open the Cheque Payments report and add a Cheque. Administrator passes."""
+    return has_role_profile(user, CHEQUE_ACCESS_PROFILES)
+
+
+def assert_cheque_access(user: str) -> None:
+    """Refuse a user outside `CHEQUE_ACCESS_PROFILES` (Project Managers included). Every cheques
+    endpoint starts with it."""
+    if not can_use_cheques(user):
+        raise frappe.PermissionError(_("You are not allowed to view or add cheques."))
+
+
+def assert_cheque_form_access(user: str) -> None:
+    """Refuse a user who may neither use cheques nor request a payment (create on Project Payments).
+    For the read-only helpers a cheque form calls, Request Payment's Cheque mode included."""
+    if not (can_use_cheques(user) or frappe.has_permission("Project Payments", "create", user=user)):
+        raise frappe.PermissionError(_("You are not allowed to look up cheques."))
+
+
+# Payees (spec #1420, ADR-0033). Admin, Accountant and Accountant Lead manage Payees on the Payees page:
+# list them, add one, and (#1423) edit a holder name. Procurement adds Payees only
+# through the vendor screens, and anyone raising an Expense Request only through the request; those
+# endpoints carry their own checks and call the same Payee module (`services/payees/`). ENFORCEMENT
+# boundary for every endpoint in `api/payees/`, which write with `ignore_permissions`. Mirrored
+# client-side by `frontend/src/constants/roles.ts::PAYEE_MANAGE_PROFILES`.
+PAYEE_MANAGE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
+
+def can_manage_payees(user: str) -> bool:
+    """True when `user` may use the Payees page. Administrator passes."""
+    return has_role_profile(user, PAYEE_MANAGE_PROFILES)
+
+
+def assert_payee_manager(user: str) -> None:
+    """Refuse a user outside `PAYEE_MANAGE_PROFILES`. Every Payees-page endpoint starts with it."""
+    if not can_manage_payees(user):
+        frappe.throw(_("Only Accounts and Admins can manage payees here."), frappe.PermissionError)
+
+
+# The vendor screens' Payee step (#1425/#1426): who may create a vendor, and so pick its Payee or add
+# one from new bank details. Everyone who reaches a new-vendor form today: Procurement (the Vendors
+# page and the PR / WO vendor sheets), Admin and PMO (Admin Options > Vendors), the Project Lead (Custom
+# PR's New Vendor) and Accounts (the Vendors page). ENFORCEMENT boundary for `api/payees/vendor_payee`
+# and `api/create_vendor_and_address`, which write with `ignore_permissions`. Mirrored client-side by
+# `frontend/src/constants/roles.ts::VENDOR_PAYEE_PROFILES` for the vendor page's Edit bank details and Use a different payee (#1426, #1435).
+VENDOR_PAYEE_PROFILES = (
+    (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, PROJECT_LEAD_PROFILE) + PROCUREMENT_PROFILES + PAYEE_MANAGE_PROFILES
+)
+
+
+def assert_vendor_payee_access(user: str) -> None:
+    """Refuse a user outside `VENDOR_PAYEE_PROFILES` (Administrator passes). Every vendor-screen Payee
+    endpoint starts with it, and the `Vendors` `validate` refuses a `payee` set or change by anyone
+    else (`payees.guard`)."""
+    if not has_role_profile(user, VENDOR_PAYEE_PROFILES):
+        frappe.throw(_("You are not allowed to set a vendor's bank account."), frappe.PermissionError)

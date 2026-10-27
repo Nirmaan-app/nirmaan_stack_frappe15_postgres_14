@@ -1,6 +1,8 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import SITEURL from "@/constants/siteURL";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
@@ -8,9 +10,15 @@ import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useFrappeGetDocList } from "frappe-react-sdk";
+import { TriangleAlert } from "lucide-react";
 import { useMemo } from "react";
 import { TruncatedText } from "@/components/common/TruncatedText";
+import { NoBankProofBadge } from "@/components/vendor-refunds/NoBankProofBadge";
+import { useVendorRefunds } from "@/components/vendor-refunds/useVendorRefunds";
 import { GstPaymentTag } from "./components/GstPaymentTag";
+import { usePurchaseOrderTds } from "./hooks/usePurchaseOrderTds";
+import { useWorkOrderTds } from "./hooks/useWorkOrderTds";
+import { amountPaidLine, paymentsDialogRows } from "./paymentsDialogRows";
 
 interface PaymentsDataDialogProps {
   open: boolean;
@@ -44,6 +52,13 @@ export const PaymentsDataDialog = ({
     open && data?.name ? `PaymentsDialog-${data.name}` : null
   );
 
+  // The order's refunds, fetched only while open (a blank name disables the read). Its Received ones are
+  // listed as minus rows, so the list adds up to the Amount Paid that was clicked (#1460, ADR-0034).
+  const { refunds } = useVendorRefunds({
+    documentType: isPO ? "Procurement Orders" : "Service Requests",
+    documentName: open ? data?.name ?? "" : "",
+  });
+
   const dataAttributes = useMemo(() => {
           let project = ""
           let vendor = ""
@@ -60,8 +75,29 @@ export const PaymentsDataDialog = ({
           return { project, vendor, document_name: data?.name, gst }
   }, [projects, vendors, data])
 
-  // The fetch already scopes to document_name + status="Paid", so no further filtering needed.
-  const paymentsData = useMemo(() => fetchedPayments ?? [], [fetchedPayments])
+  // An order's Amount Paid holds the TDS withheld from the vendor on each payment (ADR-0034 Amendments A
+  // and B: a Work Order's, and a PO's recorded tax once its payment is netted), so its rows show it. Asked
+  // of the server, which checks read on the order: `Payment TDS Deduction` is readable by the accountants
+  // only (#1451). A Work Order reads the Work Order page's own cache entry, so its refresh after a payment
+  // change reaches this pop-up too.
+  const { workOrderTds, error: woTdsError } = useWorkOrderTds(data?.name, open && !isPO);
+  const { purchaseOrderTds, error: poTdsError } = usePurchaseOrderTds(data?.name, open && !!isPO);
+  const deductions = isPO ? purchaseOrderTds?.payments : workOrderTds?.payments;
+  const tdsError = isPO ? poTdsError : woTdsError;
+  // Until it answers, the TDS column and the total wait: a total without the tax is not the Amount Paid.
+  const tdsPending = !deductions;
+
+  const { rows, total: rowsTotal } = useMemo(
+    () => paymentsDialogRows(fetchedPayments, refunds, deductions, tdsPending),
+    [fetchedPayments, refunds, deductions, tdsPending]
+  )
+  // The Total is the order's SAVED Amount Paid, the figure that was clicked (#1543); the rows are only
+  // checked against it, once all of them have loaded.
+  const totalLine = amountPaidLine(data?.amount_paid, fetchedPayments ? rowsTotal : undefined);
+
+  const tdsPendingCell = tdsError
+    ? <span className="text-xs text-muted-foreground">Unavailable</span>
+    : <Skeleton className="h-4 w-16" />;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -95,29 +131,50 @@ export const PaymentsDataDialog = ({
                 <TableRow>
                   <TableHead>Payment Date</TableHead>
                   <TableHead>Amount</TableHead>
+                  <TableHead>TDS</TableHead>
                   <TableHead>UTR No.</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(paymentsData || []).length > 0 ? (
-                  paymentsData?.map((payment) => (
-                    <TableRow key={payment?.name}>
+                {rows.length > 0 ? (
+                  rows.map((row) => row.kind === "refund" ? (
+                    <TableRow key={row.name} className="text-red-600">
                       <TableCell className="font-medium">
-                        {formatDate(payment.payment_date || payment.creation)}
+                        {formatDate(row.refund.payment_date || row.refund.creation)}
                       </TableCell>
                       <TableCell>
-                        {formatToRoundedIndianRupee(payment?.amount)}
-                        <GstPaymentTag payment={payment} />
+                        <span className="flex flex-col items-start gap-1">
+                          <span>-{formatToRoundedIndianRupee(row.refund.amount)}</span>
+                          <Badge variant="outline" className="border-red-500 px-1 py-0 text-[9px] leading-3 text-red-600">
+                            Refund {row.name}
+                          </Badge>
+                          <NoBankProofBadge refund={row.refund} />
+                        </span>
                       </TableCell>
-                      {payment?.payment_attachment ? (
+                      <TableCell>--</TableCell>
+                      <TableCell className="font-semibold overflow-hidden truncate max-w-28"><TruncatedText text={row.refund.utr} fallback="--" className="max-w-28" /></TableCell>
+                    </TableRow>
+                  ) : (
+                    <TableRow key={row.name}>
+                      <TableCell className="font-medium">
+                        {formatDate(row.payment.payment_date || row.payment.creation)}
+                      </TableCell>
+                      <TableCell>
+                        {formatToRoundedIndianRupee(row.payment.amount)}
+                        <GstPaymentTag payment={row.payment} />
+                      </TableCell>
+                      <TableCell>
+                        {row.tds === undefined ? tdsPendingCell : row.tds ? formatToRoundedIndianRupee(row.tds) : "--"}
+                      </TableCell>
+                      {row.payment.payment_attachment ? (
                           <TableCell className="font-semibold text-blue-500 underline overflow-hidden truncate max-w-28">
-                              <a href={`${SITEURL}${payment?.payment_attachment}`} target="_blank" rel="noreferrer"
+                              <a href={`${SITEURL}${row.payment.payment_attachment}`} target="_blank" rel="noreferrer"
                               >
-                                  <TruncatedText text={payment?.utr} fallback="" className="max-w-28" />
+                                  <TruncatedText text={row.payment.utr} fallback="" className="max-w-28" />
                               </a>
                       </TableCell>
                       ) : (
-                          <TableCell className="font-semibold overflow-hidden truncate max-w-28"><TruncatedText text={payment?.utr} className="max-w-28" /></TableCell>
+                          <TableCell className="font-semibold overflow-hidden truncate max-w-28"><TruncatedText text={row.payment.utr} className="max-w-28" /></TableCell>
                       )}
                     </TableRow>
                   ))
@@ -129,6 +186,30 @@ export const PaymentsDataDialog = ({
                   </TableRow>
                 )}
               </TableBody>
+              {rows.length > 0 && (
+                <TableFooter>
+                  <TableRow>
+                    <TableCell className="font-semibold">Total</TableCell>
+                    <TableCell className="font-semibold" colSpan={3}>
+                      {formatToRoundedIndianRupee(totalLine.amountPaid)}
+                    </TableCell>
+                  </TableRow>
+                  {totalLine.mismatch && totalLine.rowsTotal !== undefined && (
+                    <TableRow>
+                      <TableCell colSpan={4} className="bg-amber-50 text-amber-800 text-xs font-normal">
+                        <span className="flex items-start gap-1.5" role="alert">
+                          <TriangleAlert className="h-4 w-4 shrink-0" />
+                          <span>
+                            The rows above add up to {formatToRoundedIndianRupee(totalLine.rowsTotal)}, not the saved
+                            Amount Paid of {formatToRoundedIndianRupee(totalLine.amountPaid)}. The saved figure may be
+                            wrong: see Reports → Amount Paid Mismatch.
+                          </span>
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableFooter>
+              )}
             </Table>
           </div>
         </DialogHeader>

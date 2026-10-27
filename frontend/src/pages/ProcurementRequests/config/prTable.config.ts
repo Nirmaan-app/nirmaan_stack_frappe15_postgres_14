@@ -20,9 +20,10 @@ export const PR_SEARCHABLE_FIELDS: SearchFieldOption[] = [
         is_json: true, // Signal to backend for special JSON search logic
     },
     {
-        value: "PR Tag Child Table.tag_header",
-        label: "PR Tags",
-        placeholder: "Search by PR Tags...",
+        value: "pr_tag_list", // PR tag rows; the backend's child-table search covers tag_package
+        label: "Packages",
+        placeholder: "Search by Package...",
+        is_json: true, // Signal to backend for the child-table search
     },
 ];
 

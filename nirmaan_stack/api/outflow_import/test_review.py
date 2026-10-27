@@ -37,6 +37,7 @@ from nirmaan_stack.api.outflow_import.review import (
     MATCH_DOCTYPE,
     _match_order,
     _payment_order_names,
+    earliest_import_month,
     list_imports,
     get_batch_rows,
     get_confirmable_rows,
@@ -54,6 +55,7 @@ from nirmaan_stack.api.outflow_import.review import (
 from nirmaan_stack.api.outflow_import.expenses import allocate_row, create_expense, settle_row
 from nirmaan_stack.api.outflow_import.test_allocate_row import AllocationFixture
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, _stage_batch
+from nirmaan_stack.api.payees.payee_fixture import PayeeFixture, delete_each
 from nirmaan_stack.services.outflow_import import candidates as C
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.contains_guard import find_hits
@@ -2835,15 +2837,11 @@ class TestTheTierLadderEndToEnd(OutflowReviewFixture):
         # admits it; the payment's junk UTR is what keeps tier 0 out of the way.
         cls.tier1_row = cls._row("0010")
         cls.test_vendor = f"TEST-OFV-{frappe.generate_hash(length=10)}"
-        frappe.db.sql(
-            """
-            INSERT INTO "tabVendors" (name, creation, modified, modified_by, owner, docstatus, idx,
-                                      vendor_name, account_number, ifsc)
-            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s)
-            """,
-            (cls.test_vendor, "Administrator", "Administrator", "Testvendor Theta Ltd",
-             cls.tier1_row.bank_account, cls.tier1_row.ifsc),
+        # The vendor's account is its Payee's (#1427).
+        payee = PayeeFixture.class_payee(
+            "TESTPYE Testvendor Theta Ltd", cls.tier1_row.bank_account, cls.tier1_row.ifsc
         )
+        PayeeFixture.insert_vendor(payee, name=cls.test_vendor, vendor_name="Testvendor Theta Ltd")
         cls.pay_tier1 = cls._insert_payment_row(
             amount=cls.tier1_row.amount, status=SETTLEABLE,
             utr="PO/077/00066/25-26", payment_date=None, project=cls.test_project,
@@ -2881,8 +2879,13 @@ class TestTheTierLadderEndToEnd(OutflowReviewFixture):
 
     @classmethod
     def tearDownClass(cls):
-        frappe.db.delete("Vendors", {"name": cls.test_vendor})
-        frappe.db.delete("Projects", {"name": cls.test_project})
+        # The purge rolls back first, so it goes FIRST and deletes the vendor itself: a delete made
+        # before it was undone, which stranded one `Testvendor Theta Ltd` per run.
+        # The project goes in its own scope too, even when the purge reports a failure.
+        try:
+            PayeeFixture.purge(vendors=[cls.test_vendor])
+        finally:
+            delete_each([("Projects", cls.test_project)], raw={"Projects"})
         super().tearDownClass()
 
     def test_tier_1_matches_on_the_bank_account_and_ifsc(self):
@@ -2946,15 +2949,9 @@ class TestStackAutoPairing(OutflowReviewFixture):
         cls.stack_account = "98765432101"
         cls.stack_ifsc = "TEST0009999"
         cls.stack_vendor = f"TEST-OFV-{frappe.generate_hash(length=10)}"
-        frappe.db.sql(
-            """
-            INSERT INTO "tabVendors" (name, creation, modified, modified_by, owner, docstatus, idx,
-                                      vendor_name, account_number, ifsc)
-            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s)
-            """,
-            (cls.stack_vendor, "Administrator", "Administrator",
-             "Testvendor Stackco Ltd", cls.stack_account, cls.stack_ifsc),
-        )
+        # The vendor's account is its Payee's (#1427).
+        payee = PayeeFixture.class_payee("TESTPYE Testvendor Stackco Ltd", cls.stack_account, cls.stack_ifsc)
+        PayeeFixture.insert_vendor(payee, name=cls.stack_vendor, vendor_name="Testvendor Stackco Ltd")
         cls.extra_vendors.append(cls.stack_vendor)
 
         # STACK A -- BALANCED: three transfers, three approved payments.
@@ -3040,8 +3037,8 @@ class TestStackAutoPairing(OutflowReviewFixture):
 
     @classmethod
     def tearDownClass(cls):
-        for name in getattr(cls, "extra_vendors", []):
-            frappe.db.delete("Vendors", {"name": name})
+        # The purge rolls back first, so it deletes the vendors itself (see TestTheTierLadderEndToEnd).
+        PayeeFixture.purge(vendors=getattr(cls, "extra_vendors", []))
         super().tearDownClass()
 
     def _suggestions(self, names) -> list:
@@ -4105,6 +4102,97 @@ class TestTheImportListNarrowsBySourceOnTheServer(unittest.TestCase):
             self.assertTrue(set(self.made) <= set(names), empty)
 
 
+class TestTheImportListByStatementMonth(unittest.TestCase):
+    """`list_imports(month=...)` -- the History dialog's Statement month (owner ruling 2026-10-14).
+
+    Fixtures sit in 1971, a year no real statement covers, so every assertion is about these rows
+    alone whatever else the site holds.
+    """
+
+    ICICI = "ICICI Bank Statement"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.made = []
+        cls.inside = cls._batch(period_from="1971-03-05", period_to="1971-03-20")
+        # A statement crossing the month boundary belongs to BOTH months it touches.
+        cls.straddles = cls._batch(period_from="1971-02-25", period_to="1971-03-08")
+        cls.outside = cls._batch(period_from="1971-04-01", period_to="1971-04-30")
+        cls.icici = cls._batch(period_from="1971-03-01", period_to="1971-03-31", source=cls.ICICI)
+        # No declared period: it falls back to the day it was uploaded.
+        cls.undated = cls._batch(period_from=None, period_to=None, uploaded_at="1971-06-15 10:00:00")
+        frappe.db.commit()
+
+    @classmethod
+    def _batch(cls, *, period_from, period_to, source="Cashfree", uploaded_at=None):
+        doc = frappe.new_doc(BATCH_DOCTYPE)
+        doc.source = source
+        doc.original_filename = f"month-test-{frappe.generate_hash(length=8)}.csv"
+        doc.period_from = period_from
+        doc.period_to = period_to
+        doc.uploaded_at = uploaded_at
+        doc.uploaded_by = "Administrator"
+        doc.insert(ignore_permissions=True)
+        cls.made.append(doc.name)
+        return doc
+
+    @classmethod
+    def tearDownClass(cls):
+        # Roll back first, then each delete on its own: a poisoned transaction must not strand the
+        # rest (CODING_STANDARDS § Writing tests).
+        frappe.db.rollback()
+        failures = []
+        for name in cls.made:
+            try:
+                frappe.delete_doc(BATCH_DOCTYPE, name, force=True, ignore_permissions=True)
+                frappe.db.commit()
+            except Exception as exc:  # noqa: BLE001 -- reported below, not swallowed
+                frappe.db.rollback()
+                failures.append(f"{name}: {exc}")
+        super().tearDownClass()
+        if failures:
+            raise AssertionError("month fixtures not cleaned up: " + "; ".join(failures))
+
+    def _names(self, month, **kwargs):
+        return {r["name"] for r in list_imports(month=month, **kwargs)}
+
+    def test_a_statement_inside_the_month_is_listed_and_one_outside_is_not(self):
+        names = self._names("1971-03")
+        self.assertIn(self.inside.name, names)
+        self.assertNotIn(self.outside.name, names)
+
+    def test_a_statement_spanning_two_months_belongs_to_both(self):
+        self.assertIn(self.straddles.name, self._names("1971-02"))
+        self.assertIn(self.straddles.name, self._names("1971-03"))
+
+    def test_a_month_lifts_the_row_cap(self):
+        """The reason the argument exists: the newest ten of sixty hid everything below the cut."""
+        names = self._names("1971-03", limit=1)
+        self.assertTrue({self.inside.name, self.straddles.name, self.icici.name} <= names)
+
+    def test_the_source_still_narrows_inside_a_month(self):
+        names = self._names("1971-03", sources=json.dumps([self.ICICI]))
+        self.assertIn(self.icici.name, names)
+        self.assertNotIn(self.inside.name, names)
+
+    def test_a_statement_with_no_period_falls_back_to_its_upload_month(self):
+        self.assertIn(self.undated.name, self._names("1971-06"))
+        self.assertNotIn(self.undated.name, self._names("1971-05"))
+
+    def test_a_malformed_month_is_refused_not_ignored(self):
+        """Ignoring it would return the whole UNCAPPED table -- the answer the argument prevents."""
+        for bad in ("1971-13", "1971-3", "March 1971", "1971-03-01"):
+            with self.assertRaises(frappe.ValidationError, msg=bad):
+                list_imports(month=bad)
+
+    def test_no_month_keeps_the_picker_s_cap(self):
+        self.assertEqual(len(list_imports(limit=1)), 1)
+
+    def test_the_earliest_month_reaches_back_to_the_oldest_statement(self):
+        self.assertLessEqual(earliest_import_month(), "1971-02")
+
+
 class TestTheHistoryFigures(OutflowReviewFixture):
     """`list_imports` -- the count and the amount the History dialog prints (slice CF/S4)."""
 
@@ -4421,14 +4509,16 @@ class TestTheSettledLedgerSplit(OutflowReviewFixture):
             ["Project Payments", "Project Expenses", "Non Project Expenses"],
         )
         # Received carries its OWN books, plus the anomaly. `Non Project Inflows` since #1266,
-        # `Vendor Refunds` since; `Non Project Expenses` stays for rows the removed receipt path wrote.
+        # `Vendor Refunds` since. `Non Project Expenses` left it (owner ruling 2026-09-24,
+        # services/outflow_import/ledgers.RECEIVED_LEDGER_DOCTYPES): no receipt reaches that book,
+        # and a leftover row of the removed receipt path lands in `Other`, as this one does.
         received = by_direction["Received"]
         self.assertEqual(received["rows"], 1)
         self.assertEqual(
-            [b["ledger"] for b in received["ledgers"]][:4],
-            ["Project Inflows", "Non Project Inflows", "Vendor Refunds", "Non Project Expenses"],
+            [b["ledger"] for b in received["ledgers"]],
+            ["Project Inflows", "Non Project Inflows", "Vendor Refunds", "Other"],
         )
-        self.assertEqual(received["ledgers"][-1]["ledger"], "Other")
+        self.assertEqual(received["ledgers"][-1]["rows"], 1)
 
         # Both reconciliations, and the sum, all still exact.
         for block in blocks:
@@ -4883,7 +4973,7 @@ class TestABankStatementIsDuplicateGuardOnly(BankStatementFixture):
 
         name = self._bank_rows()[_BANK_PERFECT_CANDIDATE]["name"]
         staged = next(
-            R._StagedRow(r) for r in R._load_rows(self.icici_batch.name) if r["name"] == name
+            R.StagedRow(r) for r in R._load_rows(self.icici_batch.name) if r["name"] == name
         )
         pools = R._load_pools([staged], self.icici_batch.name)
         result = R.match_row(
@@ -5787,6 +5877,97 @@ class TestOneRecordJustifiesOneLineAcrossImports(OutflowReviewFixture):
         self.assertEqual(self._rows(self.second.name), self.after_second)
 
 
+class TestOnlyARecordNoLineAccountsForIsRecordedDifferently(OutflowReviewFixture):
+    """2026-10-15: the two rules that ended the false "Create anyway?" warnings, on a match run.
+
+    Each line replays one shape measured on the local statements. `ifsc` and `whole` were false
+    warnings and must now find nothing; `part` and `open` were right and must still hold the line,
+    naming the record. Random references and a far-future date keep the live ledger out of it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.refs = {key: _random_reference() for key in ("ifsc", "other", "whole", "part", "open")}
+        cls.tid_prefix = f"T1015{frappe.generate_hash(length=6).upper()}"
+        super().setUpClass()
+
+    @classmethod
+    def _line(cls, key, narration, amount):
+        return {
+            "key": key, "tid": f"{cls.tid_prefix}{key.upper()}", "narration": narration,
+            "amount": amount, "credit": False, "cheque": "", "day": _GUARD_DAY,
+        }
+
+    @classmethod
+    def _plant_targets(cls):
+        r, d = cls.refs, _GUARD_DAY.date()
+        cls.statement = _stage_icici_statement(
+            [
+                # The payer's branch code is the only thing this line shares with the record.
+                cls._line("ifsc", f"NEFT-{r['ifsc']}-INDRA HOTELS PVT LTD-HDFC0000240", 1470000),
+                cls._line("whole", f"MMT/IMPS/{r['whole']}/ACME TRADERS", 50000),
+                cls._line("part", f"MMT/IMPS/{r['part']}/SALARY RUN", 125000),
+                cls._line("open", f"MMT/IMPS/{r['open']}/NEEDLE AND THREAD", 140000),
+            ],
+            f"test-1015-icici-{cls.tid_prefix}.csv",
+        )
+        cls.batches.append(cls.statement.name)
+
+        cls.rec_ifsc = cls._insert_payment_row(
+            amount=28886, status="Paid", utr=f"NEFT-{r['other']}-SUNRISE HVAC-HDFC00002", payment_date=d,
+        )
+        cls.rec_whole = cls._insert_payment_row(amount=28000, status="Paid", utr=r["whole"], payment_date=d)
+        cls.rec_part = cls._insert_payment_row(amount=500000, status="Paid", utr=r["part"], payment_date=d)
+        cls.rec_open = cls._insert_payment_row(amount=421606, status="Paid", utr=r["open"], payment_date=d)
+
+        # Another line's legs: all of `whole`, only part of `part` (the fixture's Cashfree rows).
+        settlers = frappe.get_all(
+            ROW_DOCTYPE, filters={"import_batch": cls.batch.name}, fields=["name", "transfer_id"], limit=2,
+        )
+        for settler, target, part in ((settlers[0], cls.rec_whole, 28000), (settlers[1], cls.rec_part, 200000)):
+            frappe.get_doc({
+                "doctype": MATCH_DOCTYPE, "import_row": settler["name"], "import_batch": cls.batch.name,
+                "transfer_id": settler["transfer_id"], "target_doctype": "Project Payments",
+                "target_name": target, "target_amount": part, "match_kind": MATCH_SETTLED,
+                "match_basis": "Manual",
+            }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        match_batch(cls.statement.name)
+        rows = frappe.get_all(
+            ROW_DOCTYPE, filters={"import_batch": cls.statement.name},
+            fields=["transfer_id", "row_status", "outcome_note"],
+        )
+        cls.after = {r["transfer_id"][len(cls.tid_prefix):].lower(): r for r in rows}
+        cls.links = {
+            r["transfer_id"][len(cls.tid_prefix):].lower(): {e["target_name"] for e in r["related_records"]}
+            for r in get_batch_rows(cls.statement.name)["rows"]
+        }
+
+    def test_a_record_sharing_only_a_bank_branch_code_is_no_hit(self):
+        row = self.after["ifsc"]
+        self.assertEqual(row["row_status"], ROW_MISMATCHED)
+        self.assertEqual(row["outcome_note"], STAGED_NOTE_NO_SETTLEMENT_PATH)
+        self.assertNotIn(self.rec_ifsc, self.links["ifsc"])
+
+    def test_an_amount_off_record_another_line_accounts_for_in_full_is_no_hit(self):
+        row = self.after["whole"]
+        self.assertEqual(row["outcome_note"], STAGED_NOTE_NO_SETTLEMENT_PATH)
+        self.assertNotIn(self.rec_whole, self.links["whole"])
+
+    def test_a_record_another_line_pays_only_in_part_still_holds_the_line(self):
+        row = self.after["part"]
+        self.assertEqual(row["row_status"], ROW_MISMATCHED)
+        self.assertIn(self.rec_part, row["outcome_note"])
+        self.assertIn(self.rec_part, self.links["part"])
+
+    def test_a_record_no_line_accounts_for_still_holds_the_line(self):
+        row = self.after["open"]
+        self.assertEqual(row["row_status"], ROW_MISMATCHED)
+        self.assertIn(self.rec_open, row["outcome_note"])
+        self.assertIn(self.rec_open, self.links["open"])
+
+
 class TestAnICICISettleIsFoundAgainWhenItsMoneyReappears(OutflowReviewFixture):
     """#1259: an ICICI settle stores the line's whole match surface, so a LATER statement carrying the
     same money is recognised by the contains-match -- and two cheques that only differ by number stay
@@ -5953,7 +6134,7 @@ class TestTheContainsQueryReadsATextOrNumericAmount(unittest.TestCase):
                   "INF-JUNK", 0, "zz", date(2031, 3, 10)),
         )
         frappe.db.commit()
-        return [C.ContainsLedger(INFLOW_DOCTYPE, table, "utr", paid_only=False)]
+        return [C.ContainsLedger(INFLOW_DOCTYPE, table, "utr", status=None)]
 
     def _pool(self, ledgers):
         line = _StagedRowLike(narration="MMT/IMPS/600219693408/CLIENT", direction="Credit")
@@ -5996,6 +6177,11 @@ class TestTheContainsQueryMirrorsThePureTokens(unittest.TestCase):
         "BATCH": "BULD67453750",
         "BATCH_NEIGHBOUR": "043572728741/BULD67453750",
         "TRANSFER_ID": "s1257tid9",
+        # A bank branch code never counts, whole or cut short (2026-10-15) -- nor as the only piece
+        # a stored narration shares with the line.
+        "IFSC": "HDFC0000240",
+        "IFSC_CUT": "hdfc00002",
+        "IFSC_IN_NARRATION": "NEFT-XYZ-ACME LTD-HDFC0000240",
     }
 
     def test_the_query_returns_exactly_what_the_pure_guard_hits(self):
@@ -6012,14 +6198,14 @@ class TestTheContainsQueryMirrorsThePureTokens(unittest.TestCase):
         frappe.db.commit()
 
         line = _StagedRowLike(
-            narration="NEFT/600219693408/UTIBR72025010600221243/043572728741/000734/BULD67453750 ICICI refund",
+            narration="NEFT/600219693408/UTIBR72025010600221243/043572728741/000734/BULD67453750 ICICI refund/HDFC0000240",
             direction="Credit",
             transfer_id="S1257TID9",
             reference_id="000734",
             added_on=_GUARD_DAY,
         )
         pool = C.load_recorded_by_contains(
-            [line], ledgers=[C.ContainsLedger(INFLOW_DOCTYPE, table, "utr", paid_only=False)]
+            [line], ledgers=[C.ContainsLedger(INFLOW_DOCTYPE, table, "utr", status=None)]
         )
         every_record = [
             replace(next(iter(pool)), name=name, reference=reference)
@@ -6328,3 +6514,74 @@ class TestTheLedgerAggregateOnAGenuineMultiLedgerRow(AllocationFixture):
         values = get_outflow_facet_values(column="settled_ledger", batch=batch)
         self.assertEqual(sorted(values["values"]), ["Project Expenses", "Project Payments"])
         self.assertNotIn("Project Expenses|Project Payments", values["values"])
+
+
+class TestTheRowCarriesTheReferenceItWillSave(OutflowReviewFixture):
+    """The decision dialog shows "Payment reference" from `settlement_reference` on the row it
+    reads. That must be the value a settle or create WRITES -- `settlement_reference_of_row` --
+    and not the short reference the parser extracted, which is what the forms used to show while the
+    server saved the whole narration. Both read endpoints carry it, so they cannot disagree.
+
+    The fixture is a Cashfree statement, so rows are turned into ICICI lines in place: the value
+    reads only `source`, `remarks`, `reference_id` and the stored `settlement_reference`."""
+
+    ICICI = "ICICI Bank Statement"
+
+    def _open_rows(self, count):
+        rows = frappe.get_all(
+            ROW_DOCTYPE,
+            filters={"import_batch": self.batch.name, "row_status": ["!=", "Skipped"]},
+            fields=["name", "bank_reference_no", "settlement_reference"],
+            order_by="creation asc",
+            limit=count,
+        )
+        self.assertEqual(len(rows), count, "fixture precondition: enough open rows")
+        return rows
+
+    def _as_icici(self, name, **fields):
+        frappe.db.set_value(
+            ROW_DOCTYPE, name, {"source": self.ICICI, "direction": "Debit", **fields},
+            update_modified=False,
+        )
+        frappe.db.commit()
+
+    def _carried(self, name):
+        """The value each read endpoint ships for row `name`, as {endpoint: value}."""
+        outflow = get_outflow_rows(scope="all", batch=self.batch.name, limit=200)["rows"]
+        batch = get_batch_rows(self.batch.name)["rows"]
+        return {
+            "get_outflow_rows": next(r for r in outflow if r["name"] == name).get("settlement_reference"),
+            "get_batch_rows": next(r for r in batch if r["name"] == name).get("settlement_reference"),
+        }
+
+    def test_an_icici_line_carries_its_whole_narration(self):
+        (row,) = self._open_rows(1)
+        narration = "MMT/IMPS/624419924169/BULD77739367/Ambikak/KVBL0001284"
+        self._as_icici(row["name"], remarks=narration, reference_id="",
+                       bank_reference_no="624419924169", settlement_reference=narration)
+        for endpoint, value in self._carried(row["name"]).items():
+            self.assertEqual(value, narration, endpoint)
+
+    def test_a_cheque_line_carries_its_narration_and_cheque_number(self):
+        _, row = self._open_rows(2)
+        self._as_icici(row["name"], remarks="CLG/HASSANAMBA POWER SYSTEMS/IOB", reference_id="816",
+                       bank_reference_no="", settlement_reference="")
+        for endpoint, value in self._carried(row["name"]).items():
+            self.assertEqual(value, "CLG/HASSANAMBA POWER SYSTEMS/IOB 816", endpoint)
+
+    def test_an_icici_line_staged_before_1259_still_carries_the_narration(self):
+        """Its stored column holds the short reference; the save recomputes the narration, so the
+        screen must too -- reading the column would put the old short value back on the form."""
+        _, _, row = self._open_rows(3)
+        narration = "MMT/IMPS/627615688720/BULD79646100/AljoJoseA/CNRB0000720"
+        self._as_icici(row["name"], remarks=narration, reference_id="",
+                       bank_reference_no="627615688720", settlement_reference="627615688720")
+        for endpoint, value in self._carried(row["name"]).items():
+            self.assertEqual(value, narration, endpoint)
+
+    def test_a_cashfree_line_carries_its_bank_reference(self):
+        rows = self._open_rows(4)
+        row = rows[3]
+        self.assertTrue(row["bank_reference_no"], "fixture precondition: a bank reference")
+        for endpoint, value in self._carried(row["name"]).items():
+            self.assertEqual(value, row["bank_reference_no"], endpoint)

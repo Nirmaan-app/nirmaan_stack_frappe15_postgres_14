@@ -55,6 +55,7 @@ from nirmaan_stack.services.outflow_import.settlement_reference import (
 from nirmaan_stack.services.outflow_import.sources import (
     BANK_STATEMENT_SOURCES,
     source_has_settlement_path,
+    source_waits_for_its_own_create,
 )
 from nirmaan_stack.services.outflow_import.status import (
     ROW_SKIPPED,
@@ -287,6 +288,13 @@ def _read_and_parse():
     if source not in SUPPORTED_SOURCES:
         frappe.throw(
             f"Unknown source '{source}'. Supported: {', '.join(SUPPORTED_SOURCES)}.",
+            title="Unsupported source",
+        )
+    # ⚠️ A PORTER STATEMENT HAS ITS OWN PIPELINE (#1443, ADR-0032). Staged here it would become bank
+    # lines open to the matcher and to every main-table action, with no invoice check in front of them.
+    if source_waits_for_its_own_create(source):
+        frappe.throw(
+            f"A {source} is imported through its own import, not this upload.",
             title="Unsupported source",
         )
 

@@ -21,10 +21,11 @@ import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 import SITEURL from "@/constants/siteURL";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
+import { invoiceAttachmentUrl } from "@/utils/porterExpense";
 
 /** The invoice form is the same on both expense ledgers — one dialog serves both. */
 type ExpenseDoctype = "Project Expenses" | "Non Project Expenses";
-type InvoiceFields = "name" | "invoice_date" | "invoice_ref" | "invoice_attachment";
+type InvoiceFields = "name" | "invoice_date" | "invoice_ref" | "invoice_attachment" | "porter_order";
 
 interface UpdateInvoiceDetailsDialogProps {
     isOpen: boolean;
@@ -38,7 +39,20 @@ interface UpdateInvoiceDetailsDialogProps {
      * before the file arrives.
      */
     requireAttachment?: boolean;
+    /**
+     * A card spend's invoice (Pending Invoices Upload -> Credit Card, #1570): the FILE is required, the ref and
+     * date optional (a food receipt may carry neither), and the save goes through this callback (the card
+     * endpoint) instead of a plain document update. Given only by that sub-tab.
+     */
+    cardSave?: (values: CardInvoiceValues) => Promise<void>;
     onSuccess?: () => void;
+}
+
+/** What a card spend's invoice save sends. */
+export interface CardInvoiceValues {
+    invoice_attachment: string;
+    invoice_ref: string | null;
+    invoice_date: string | null;
 }
 
 interface InvoiceFormState {
@@ -52,8 +66,10 @@ const ATTACHMENT_ACCEPTED_TYPES: AcceptedFileType[] = ["image/*", "application/p
 
 
 export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProps> = ({
-    isOpen, setIsOpen, expense, doctype = "Non Project Expenses", requireAttachment = false, onSuccess
+    isOpen, setIsOpen, expense, doctype = "Non Project Expenses", requireAttachment = false, cardSave, onSuccess
 }) => {
+    const cardMode = !!cardSave;
+    const fileRequired = requireAttachment || cardMode;
     const { toast } = useToast();
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
@@ -67,7 +83,7 @@ export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProp
     useEffect(() => {
         if (isOpen && expense) {
             setFormState({
-                invoice_date: expense.invoice_date ? formatDateFns(new Date(expense.invoice_date), "yyyy-MM-dd") : formatDateFns(new Date(), "yyyy-MM-dd"),
+                invoice_date: expense.invoice_date ? formatDateFns(new Date(expense.invoice_date), "yyyy-MM-dd") : cardMode ? "" : formatDateFns(new Date(), "yyyy-MM-dd"),
                 invoice_ref: expense.invoice_ref || "",
             });
             setExistingAttachmentUrl(expense.invoice_attachment);
@@ -75,7 +91,7 @@ export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProp
             setAttachmentAction(expense.invoice_attachment ? "keep" : "remove");
             setFormErrors({});
         }
-    }, [isOpen, expense]);
+    }, [isOpen, expense, cardMode]);
 
     const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
@@ -105,17 +121,17 @@ export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProp
     // An invoice attachment (kept existing or newly staged) requires an Invoice Ref -- the same rule
     // every expense dialog applies.
     const hasAttachment = !!newAttachmentFile || (attachmentAction !== "remove" && !!existingAttachmentUrl);
-    const refRequired = requireAttachment || hasAttachment;
+    const refRequired = !cardMode && (requireAttachment || hasAttachment);
     // With `requireAttachment`, Save stays disabled until both the file and the ref are there -- an
     // invoice with neither is not an invoice. `validate` below repeats it as the backstop.
-    const missingRequired = requireAttachment && (!hasAttachment || !formState.invoice_ref.trim());
+    const missingRequired = fileRequired && (!hasAttachment || (refRequired && !formState.invoice_ref.trim()));
 
     const validate = () => {
         const errors: InvoiceFormErrors = {};
-        if (!formState.invoice_date) errors.invoice_date = "Invoice date is required.";
+        if (!formState.invoice_date) { if (!cardMode) errors.invoice_date = "Invoice date is required."; }
         // `max` only limits the picker -- a typed date can still land past today.
         else if (formState.invoice_date > formatDateFns(new Date(), "yyyy-MM-dd")) errors.invoice_date = "Invoice date cannot be in the future.";
-        if (requireAttachment && !hasAttachment) errors.attachment = "Invoice file is required.";
+        if (fileRequired && !hasAttachment) errors.attachment = "Invoice file is required.";
         if (refRequired && !formState.invoice_ref.trim()) errors.invoice_ref = "Invoice reference is required when an invoice is attached.";
         setFormErrors(errors);
         return Object.keys(errors).length === 0;
@@ -144,7 +160,15 @@ export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProp
             }
             // If action is "keep", invoice_attachment is not added to dataToUpdate.
 
-            await updateDoc(doctype, expense.name, dataToUpdate);
+            if (cardSave) {
+                await cardSave({
+                    invoice_attachment: dataToUpdate.invoice_attachment ?? existingAttachmentUrl ?? "",
+                    invoice_ref: dataToUpdate.invoice_ref,
+                    invoice_date: dataToUpdate.invoice_date || null,
+                });
+            } else {
+                await updateDoc(doctype, expense.name, dataToUpdate);
+            }
             toast({ title: "Success", description: "Invoice details updated.", variant: "success" });
             onSuccess?.();
             setIsOpen(false);
@@ -178,7 +202,11 @@ export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProp
                 <div className="flex items-center gap-2 min-w-0">
                     <Download className="h-4 w-4 text-primary flex-shrink-0" />
                     <a
-                        href={SITEURL + effectiveExistingUrl}
+                        href={
+                            SITEURL +
+                            (invoiceAttachmentUrl(doctype, { ...expense, invoice_attachment: effectiveExistingUrl }) ??
+                                effectiveExistingUrl)
+                        }
                         target="_blank"
                         rel="noopener noreferrer"
                         className="truncate hover:underline"
@@ -214,7 +242,7 @@ export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProp
                 </AlertDialogHeader>
                 <div className="space-y-4 py-2">
                     <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="invoice_date_update_id" className="text-right col-span-1">Invoice Date <sup className="text-destructive">*</sup></Label>
+                        <Label htmlFor="invoice_date_update_id" className="text-right col-span-1">Invoice Date{!cardMode && <sup className="text-destructive"> *</sup>}</Label>
                         <Input id="invoice_date_update_id" name="invoice_date" type="date" value={formState.invoice_date} onChange={handleInputChange} max={formatDateFns(new Date(), "yyyy-MM-dd")} className="col-span-3" />
                         {formErrors.invoice_date && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.invoice_date}</p>}
                     </div>
@@ -225,7 +253,7 @@ export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProp
                     </div>
 
                     <div className="grid grid-cols-4 items-start gap-3">
-                        <Label className="text-right col-span-1 pt-2">Invoice Attachment{requireAttachment && <sup className="text-destructive"> *</sup>}</Label>
+                        <Label className="text-right col-span-1 pt-2">Invoice Attachment{fileRequired && <sup className="text-destructive"> *</sup>}</Label>
                         <div className="col-span-3 space-y-2">
                             {currentAttachmentDisplay}
                             {(!newAttachmentFile && (attachmentAction === "remove" || !existingAttachmentUrl)) && (
@@ -261,7 +289,7 @@ export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProp
                                 handleSubmit closes it itself, on success only. */}
                             <AlertDialogAction
                                 disabled={missingRequired}
-                                title={missingRequired ? "Attach the invoice file and enter its ref" : undefined}
+                                title={missingRequired ? (cardMode ? "Attach the invoice file" : "Attach the invoice file and enter its ref") : undefined}
                                 onClick={(e) => { e.preventDefault(); handleSubmit(); }}>
                                 Save Invoice
                             </AlertDialogAction>

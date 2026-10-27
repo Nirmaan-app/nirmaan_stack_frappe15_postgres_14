@@ -98,7 +98,7 @@ from typing import Iterable, Sequence
 # `amounts` is itself a PURE leaf -- `from decimal import ...` and nothing else -- so this costs
 # nothing that matters: the deriver stays callable from a plain unittest with no bench, no site and
 # no fixtures, which is the property the purity test actually exists to protect.
-from nirmaan_stack.services.outflow_import.amounts import amounts_match
+from nirmaan_stack.services.outflow_import.amounts import amounts_match, rupees
 
 # THE SECOND PERMITTED PACKAGE IMPORT, on exactly the same terms as the first. `ledgers` is a PURE
 # leaf -- vocabulary, no behaviour, no `frappe` -- so the property the purity test protects (this
@@ -193,6 +193,11 @@ __all__ = [
     "SKIP_REASON_ALREADY_RECEIVED",
     "SKIP_REASON_ALREADY_LINKED",
     "SKIP_REASON_EXCLUDED_AT_INGEST",
+    "SKIP_REASON_PORTER_CANCELLED",
+    "SKIP_REASON_CARD_PAYMENT",
+    "SKIP_REASON_CARD_CASHBACK",
+    "SKIP_REASON_CARD_REFUND",
+    "SKIP_REASON_CARD_REFUNDED_SPEND",
     "STAGED_NOTE_NO_SETTLEMENT_PATH",
     "SKIP_ORIGIN_SYSTEM",
     "SKIP_ORIGIN_MANUAL",
@@ -356,6 +361,24 @@ SKIP_REASON_EXCLUDED_AT_INGEST = (
     "Excluded by bank-statement rule '{category}'."
 )
 
+# A Porter Statement order Porter cancelled (spec #1442, ADR-0032): staged Skipped and locked at upload,
+# beside its skip kind (`skip_kinds.SKIP_KIND_PORTER_CANCELLED`). Porter's invoice never bills it.
+SKIP_REASON_PORTER_CANCELLED = "Porter order cancelled. Porter does not bill it, so it becomes no expense."
+
+# A Credit Card Statement's credits, sorted at upload (#1567, ADR-0039 decision 4), each beside its skip kind
+# (`skip_kinds.SKIP_KIND_CARD_*`). A refund pair's two sentences name the other line (`{partner}`: its SerNo,
+# date and amount), so each line of the pair can be found from the other.
+SKIP_REASON_CARD_PAYMENT = (
+    "Card payment received. Money paid into the card to clear its bill: no spend, no income, no refund."
+)
+SKIP_REASON_CARD_CASHBACK = "Card cashback from the bank. It is not recorded as anything."
+SKIP_REASON_CARD_REFUND = (
+    "Card refund pair: this merchant credit cancels the spend {partner}. Neither line becomes a record."
+)
+SKIP_REASON_CARD_REFUNDED_SPEND = (
+    "Card refund pair: this spend is cancelled by the merchant credit {partner}. Neither line becomes a record."
+)
+
 # The landing note for a source that stages straight to `Mismatched` (slice B3, owner ruling Q31).
 #
 # ⚠️ IT SAYS "NO SETTLEMENT PATH", NOT "THE MATCHER NEVER RUNS", AND THE DIFFERENCE IS DELIBERATE.
@@ -384,6 +407,11 @@ SYSTEM_SKIP_SENTENCES = (
     SKIP_REASON_ALREADY_RECEIVED,
     _SKIP_REASON_ALREADY_RECORDED,
     SKIP_REASON_EXCLUDED_AT_INGEST,
+    SKIP_REASON_PORTER_CANCELLED,
+    SKIP_REASON_CARD_PAYMENT,
+    SKIP_REASON_CARD_CASHBACK,
+    SKIP_REASON_CARD_REFUND,
+    SKIP_REASON_CARD_REFUNDED_SPEND,
 )
 
 
@@ -727,16 +755,29 @@ def pick_duplicate_group(row, groups):
 RECORDED_DUPLICATE = "duplicate"
 RECORDED_NEEDS_CONFIRMATION = "needs confirmation"
 
+# What the write that asks is about to do with the line (2026-10-15): the three credit create cards
+# and Create expense CREATE a record; Link, Allocate and the part settle LINK an existing one. The
+# "... anyway?" prompt says which, because the consequence it warns of reads differently.
+RECORDED_ACTION_CREATE = "create"
+RECORDED_ACTION_LINK = "link"
+
 
 @dataclass(frozen=True)
 class RecordedMoneyVerdict:
-    """Why a write must stop: `kind` is one of the two constants above; `note` names the records."""
+    """Why a write must stop: `kind` is one of the two constants above; `note` names the records.
+
+    `prompt` is what the button asks a person "... anyway?" with -- set only when `kind` is
+    `RECORDED_NEEDS_CONFIRMATION`. `note` stays the match run's own sentence, the one the row shows.
+    """
 
     kind: str
     note: str
+    prompt: str = ""
 
 
-def derive_recorded_money_verdict(row, paid_duplicate) -> RecordedMoneyVerdict | None:
+def derive_recorded_money_verdict(
+    row, paid_duplicate, action: str = RECORDED_ACTION_CREATE
+) -> RecordedMoneyVerdict | None:
     """What a WRITE endpoint does with the records this line duplicates, or `None` to proceed (#1260).
 
     `paid_duplicate` is the group the MATCH RUN would judge this line on, for its source --
@@ -754,8 +795,84 @@ def derive_recorded_money_verdict(row, paid_duplicate) -> RecordedMoneyVerdict |
     outcome = _already_recorded_outcome(row, paid_duplicate)
     if outcome is None:
         return None
-    kind = RECORDED_DUPLICATE if outcome.status == ROW_SKIPPED else RECORDED_NEEDS_CONFIRMATION
-    return RecordedMoneyVerdict(kind=kind, note=outcome.note)
+    if outcome.status == ROW_SKIPPED:
+        return RecordedMoneyVerdict(kind=RECORDED_DUPLICATE, note=outcome.note)
+    return RecordedMoneyVerdict(
+        kind=RECORDED_NEEDS_CONFIRMATION,
+        note=outcome.note,
+        prompt=_record_anyway_prompt(row, paid_duplicate, action),
+    )
+
+
+def _record_anyway_prompt(row, group, action: str) -> str:
+    """The "... anyway?" question, in the words of the moment a person records money (2026-10-15).
+
+    The row's note is the match run's sentence -- "Not skipped", "statement line", batch ids -- and
+    read on a Create button it made no sense. This says what the record is, how far its amount is
+    off (or which other line already accounts for it), and what recording again would do. It is
+    built from the SAME group as the note, so the two can never name different records.
+    """
+    received = is_received_direction(getattr(row, "direction", None))
+    line = "credit" if received else "debit"
+    verb = "link" if action == RECORDED_ACTION_LINK else "create"
+    used_by = getattr(group, "used_by", ()) or ()
+    if used_by:
+        used_keys = {(c.doctype, c.name) for c in used_by}
+        targets = [t for t in _targets_of(group) if (t.doctype, t.name) in used_keys]
+        one = len(targets) == 1
+        places = []
+        for c in used_by:
+            what = "already accounts for " + ("it" if one else "them") if c.settled else (
+                "was skipped as this money"
+            )
+            place = f"bank line {c.import_row} (batch {c.import_batch}) {what}"
+            if place not in places:
+                places.append(place)
+        money = "receipt" if received else "payment"
+        return (
+            f"{_prompt_records(targets)} {'has' if one else 'have'} this {line}'s reference and the "
+            f"same amount, but {'; '.join(places)}. If this is a second, real {money}, {verb} anyway."
+        )
+
+    targets = list(_targets_of(group))
+    one = len(targets) == 1
+    delta = _total_of(group) - _amount_of(row)
+    direction = "more" if delta > 0 else "less"
+    if verb == "link":
+        consequence = "linking this line counts the money two times"
+    else:
+        consequence = f"a new {'inflow' if received else 'expense'} counts the money two times"
+    return (
+        f"{_prompt_records(targets)} {'has' if one else 'have'} this {line}'s reference, but "
+        f"{'its amount' if one else 'their total'} is {rupees(abs(delta))} {direction}. "
+        f"If {'it already includes' if one else 'they already include'} this money, {consequence}. "
+        f"Open {'it' if one else 'them'} to check, or {verb} anyway."
+    )
+
+
+def _prompt_records(targets) -> str:
+    """`Project Inflow PAYIN-1 (₹4,21,606, 12-Sep-2026)`, each record in the notes' ledger order,
+    joined "A, B and C". An expense is DESCRIBED, as the notes describe it -- its name is a hash."""
+    order = {d: i for i, d in enumerate(_LEDGER_NAMING_ORDER)}
+    ordered = sorted(targets, key=lambda t: (order.get(t.doctype, len(order)), t.name))
+    phrases = []
+    for target in ordered:
+        singular, _ = LEDGER_NOUNS.get(target.doctype, (target.doctype, target.doctype))
+        if target.doctype in _DESCRIBED_LEDGERS:
+            description = " ".join((getattr(target, "description", "") or "").split())
+            if len(description) > _DESCRIPTION_LIMIT:
+                description = description[:_DESCRIPTION_LIMIT] + "…"
+            label = f'{singular} "{description}"' if description else singular
+        else:
+            label = f"{singular} {target.name}"
+        facts = [rupees(target.amount or 0)]
+        on = getattr(target, "txn_date", None)
+        if hasattr(on, "strftime"):
+            facts.append(on.strftime("%d-%b-%Y"))
+        phrases.append(f"{label} ({', '.join(facts)})")
+    if len(phrases) <= 1:
+        return "".join(phrases) or "A record"
+    return f"{', '.join(phrases[:-1])} and {phrases[-1]}"
 
 
 def _settleable_candidates(match) -> tuple:
@@ -1170,7 +1287,7 @@ def batch_is_open(status: str | None) -> bool:
     never written, and MUST STAY THAT WAY.
 
     A batch closes ITSELF instead: `derive_batch_status` already returns `Completed` when no row is
-    open, and `_refresh_batch_rollup` runs on every settle and every skip. So there is no field to
+    open, and `refresh_batch_rollup` runs on every settle and every skip. So there is no field to
     add, no patch to write and no backfill -- a statement whose last transfer was settled a year ago
     already reads `Completed` today.
 

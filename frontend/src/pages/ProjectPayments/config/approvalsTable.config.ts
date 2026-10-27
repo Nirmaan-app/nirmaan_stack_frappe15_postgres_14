@@ -7,6 +7,10 @@
  */
 
 import { SearchFieldOption } from "@/components/data-table/new-data-table";
+import type { ChequeStatus } from "@/types/NirmaanStack/Cheques";
+import { RECONCILIATION_PENDING_LEAVES_OUT } from "@/utils/cheques/chequeTabs";
+import type { PaidTo } from "@/utils/payees/paidTo";
+import type { WithheldTds } from "@/utils/expenses/expenseTds";
 import { PP_TABS, PPTabValue } from "./ppTabs.constants";
 
 export const APPROVAL_QUEUE_API =
@@ -51,7 +55,7 @@ export type ApprovalTab = PPTabValue;
  */
 export type ApprovalColumnId =
   | "actions" | "source" | "against" | "requested_on"
-  | "vendor" | "project" | "amount" | "tier" | "raised_by"
+  | "vendor" | "paid_to" | "project" | "amount" | "tier" | "raised_by"
   | "approved_on" | "paid_on" | "utr_ref" | "proof" | "payment_by"
   | "reconciled_on" | "status" | "project_value" | "cashflow_gap";
 
@@ -67,7 +71,14 @@ export interface ApprovalQueueRow {
   source_type: "PO Payment" | "SR Payment" | "Vendor Payment" | "Project Expense" | "Non-Project";
   doctype: "Project Payments" | "Project Expenses" | "Non Project Expenses";
   status: string;
+  /** The stored amount: what is paid. On a PO / WO payment with TDS withheld, already cut by the tax. */
   amount: number;
+  /**
+   * The full bill ("Req. Amount", owner ruling X4-A, #1541): `amount` plus the TDS withheld from it;
+   * `amount` itself on an expense or a payment with none. Display only: every action reads `amount`.
+   * Absent on a row not built by the queue endpoint; read it as `amount` then.
+   */
+  requested_amount?: number;
   against_primary: string;
   /** Line 2 under Against — the expense TYPE. Blank on a payment. */
   against_secondary: string;
@@ -77,6 +88,8 @@ export interface ApprovalQueueRow {
   vendor: string;
   project: string;
   raised_by: string;
+  /** The Expense Request an expense came from; blank on a Direct Expense and on a payment (#1472). */
+  request_id: string;
   creation: string;
   approved_on: string | null;
   paid_on: string | null;
@@ -119,8 +132,15 @@ export interface ApprovalQueueRow {
   document_type: string;
   /** A payment's Mode of Payment; blank on an expense (and on a payment from before the field). */
   mode_of_payment: string;
+  /** The Cheque's own number when the payment is on one; else the payment's copy (an older cheque payment). */
   cheque_no: string;
   cheque_date: string | null;
+  /**
+   * The Cheque the payment is on, and its status (spec #1407): what the cheque chip draws, so it needs no
+   * fetch per row. Blank on an Online payment, an older cheque payment no Cheque records, and every expense.
+   */
+  cheque: string;
+  cheque_status: ChequeStatus | "";
   /**
    * 1 while a PO / WO payment is held from payment (`services/payment_hold.py`); always 0 on an
    * expense. The row stays Approved — see `queueRowActions.isHeldQueueRow`.
@@ -135,6 +155,12 @@ export interface ApprovalQueueRow {
    *  invoices are Vendor Invoices. Drives the Paid tab's Upload Invoice action. */
   invoice: string;
   has_invoice: boolean;
+  /** Who the row is paid to: its own pay-to account, copied when it was raised (ADR-0033, #1438).
+   *  Read by the server's Payee module (`services/payees/paid_to`). */
+  paid_to?: PaidTo;
+  /** An Office Rent expense's tax record once approved (#1527), served past the record's own permission
+   *  (`services/expense_tds.withheld_tds_of`); null before approval and on every other row. */
+  withheld_tds: WithheldTds | null;
 }
 
 /**
@@ -159,15 +185,16 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
     "actions", "source", "against", "requested_on",
     "vendor", "project", "amount", "project_value", "cashflow_gap",
   ],
-  // "Payment need to paid"
+  // "Payment need to paid" — Paid to in Vendor's place (#1431): where every row's money goes.
   [PP_TABS.NEW_PAYMENTS]: [
-    "actions", "source", "against", "vendor",
+    "actions", "source", "against", "paid_to",
     "project", "amount", "approved_on", "raised_by",
   ],
   // "Payment Done / Reconciliation Pending" — `payment_by` earns its place here:
-  // 99.5% filled on project expenses and homeless otherwise.
+  // 99.5% filled on project expenses and homeless otherwise. Paid to (spec story 56/60): the account
+  // the money went into, read-only, beside the vendor.
   [PP_TABS.RECONCILIATION_PENDING]: [
-    "actions", "source", "against", "vendor", "project",
+    "actions", "source", "against", "vendor", "paid_to", "project",
     "amount", "paid_on", "utr_ref", "proof", "payment_by",
   ],
   // "Payment Done / Reconciliation Done" — no `select`. `actions` holds ONLY the expense
@@ -175,8 +202,9 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
   // same three roles); a Paid PO / WO payment has none (the 17 Sep removal of
   // the payment pencil stands). The screen drops the column for roles that cannot edit.
   // `reconciled_on` was removed from the table (owner, 2026-09-21); it stays in the CSV export.
+  // Paid to, read-only, as on Reconciliation Pending.
   [PP_TABS.PAYMENTS_DONE]: [
-    "actions", "source", "against", "vendor", "project", "amount", "paid_on",
+    "actions", "source", "against", "vendor", "paid_to", "project", "amount", "paid_on",
     "utr_ref", "proof", "payment_by",
   ],
   // Mixed-status tabs are the only ones that show `status`, because they are the
@@ -271,7 +299,8 @@ export const getApprovalsStaticFilters = (
     case PP_TABS.NEW_PAYMENTS:
       return [["status", "=", APPROVAL_STATUS.APPROVED]];
     case PP_TABS.RECONCILIATION_PENDING:
-      return [["status", "=", APPROVAL_STATUS.RECONCILIATION_PENDING]];
+      // A payment on an Issued cheque waits in the Cheque Tracker instead (#1483).
+      return [["status", "=", APPROVAL_STATUS.RECONCILIATION_PENDING], RECONCILIATION_PENDING_LEAVES_OUT];
     case PP_TABS.PAYMENTS_DONE:
       return [["status", "=", APPROVAL_STATUS.PAID]];
     case PP_TABS.PAYMENTS_PENDING:

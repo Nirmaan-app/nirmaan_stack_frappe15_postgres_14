@@ -7,10 +7,12 @@ import { DCMIRReportType, POReportOption, SROption, PaymentTDSReportType, Projec
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
 import { urlStateManager } from '@/utils/urlStateManager';
 import { cn } from '@/lib/utils';
+import { paymentTabReports } from './config/paymentTab.config';
 import {
+    AMOUNT_PAID_MISMATCH_PROFILES,
     MATERIAL_PROCUREMENT_PROFILES,
-    PAYMENT_TDS_ACCESS,
     PROCUREMENT_PROFILES,
+    RECONCILE_2B_REPORT_PROFILES,
     SERVICE_PROCUREMENT_PROFILES,
     isProcurementProfile,
 } from "@/constants/roles";
@@ -28,14 +30,15 @@ const WOPaymentVoucherReport = React.lazy(() => import('./components/WOPaymentVo
 // Tax Deducted at Source. The page lives outside ./components because it predates this tab --
 // it was a sidebar route of its own until the ledger moved in here.
 const PaymentTDSDeductions = React.lazy(() => import('@/pages/PaymentTDSDeductions/PaymentTDSDeductions'));
-const ChequePaymentReport = React.lazy(() => import('./components/ChequePaymentReport'));
+// The Cheque Payment report is the Cheque Tracker now, its own page (#1483); `ReportsIndex` redirects old links.
 
 // Define options for the selector
 const projectReportOptions: { label: string; value: ProjectReportType }[] = [
     { label: 'Cash Sheet', value: 'Cash Sheet' },
     { label: 'Inflow Report', value: 'Inflow Report' },
-    { label: 'Outflow Report(Project)', value: 'Outflow Report(Project)' },
-    { label: 'Outflow Report(Non-Project)', value: 'Outflow Report(Non-Project)' },
+    // Labels only (story 62: "outflow" means Project outflow alone); the values stay, as URL and store keys.
+    { label: 'Payments Report (Project)', value: 'Outflow Report(Project)' },
+    { label: 'Payments Report (Non-Project)', value: 'Outflow Report(Non-Project)' },
     { label: 'Project Invoices', value: 'Project Invoices' },
     { label: 'Project Progress Report', value: 'Project Progress Report' },
     { label: 'Inventory Report', value: 'Inventory Report' },
@@ -58,6 +61,7 @@ const poReportOptions: { label: string; value: POReportOption }[] = [
     { label: '2B Reconcile Report', value: '2B Reconcile Report' },
     { label: 'PO Attachment Reconciliation', value: 'PO Attachment Reconciliation Report' },
     { label: 'DN > DC Quantity Report', value: 'DN > DC Quantity Report' },
+    { label: 'Amount Paid Mismatch', value: 'Amount Paid Mismatch' },
 ];
 
 const srReportOptions: { label: string; value: SROption }[] = [
@@ -65,6 +69,7 @@ const srReportOptions: { label: string; value: SROption }[] = [
     { label: 'Excess Payments (WO)', value: 'PO with Excess Payments' },
     { label: '2B Reconcile Report', value: '2B Reconcile Report' },
     { label: 'Payment Voucher Uploads', value: 'Payment Voucher Uploads' },
+    { label: 'Amount Paid Mismatch', value: 'Amount Paid Mismatch' },
 ];
 
 const dcmirReportOptions: { label: string; value: DCMIRReportType }[] = [
@@ -74,7 +79,6 @@ const dcmirReportOptions: { label: string; value: DCMIRReportType }[] = [
 
 const paymentTdsReportOptions: { label: string; value: PaymentTDSReportType }[] = [
     { label: 'TDS Deduction', value: 'TDS Deduction' },
-    { label: 'Cheque Payment', value: 'Cheque Payment' },
 ];
 
 export default function ReportsContainer() {
@@ -193,14 +197,11 @@ export default function ReportsContainer() {
         if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({ label: "DCs & MIRs", value: REPORTS_TABS.DCS_MIRS });
         }
-        // ⚠️ READS THE SHARED CONSTANT rather than listing profiles inline, unlike its
-        // neighbours above. `PAYMENT_TDS_ACCESS` is NARROWER than every other tab here and has
-        // to be: the `Payment TDS Deduction` doctype grants read to System Manager / Nirmaan
-        // Accountant / Nirmaan Accountant Lead only, so PMO, Project Lead and the procurement
-        // profiles would land on a PermissionError. The same constant drives the report-type
-        // default and the legacy-route redirect — an inline second copy drifts the day one of
-        // them is edited, and it fails quietly: a visible tab that cannot load.
-        if (PAYMENT_TDS_ACCESS.includes(role)) {
+        // ⚠️ READS THE SHARED HELPER rather than listing profiles inline, unlike its
+        // neighbours above. The helper gates each of the tab's reports (TDS Deduction:
+        // `PAYMENT_TDS_ACCESS`) and drives the report list and the default -- an inline second copy
+        // drifts the day one of them is edited, and it fails quietly: a visible tab that cannot load.
+        if (paymentTabReports(role).length > 0) {
             availableTabs.push({ label: "Payment", value: REPORTS_TABS.PAYMENT_TDS });
         }
         return availableTabs;
@@ -229,8 +230,14 @@ export default function ReportsContainer() {
 
 
 
-    // Roles that can see 2B Reconcile Report
-    const canSee2BReconcileReport = ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"].includes(role);
+    // Role-limited reports of the PO and WO tabs: 2B Reconcile (Admin + Accountants), and
+    // Amount Paid Mismatch (Admin + Accountant Lead, #1455; the server refuses anyone else).
+    const hiddenOrderReports = useMemo(() => {
+        const hidden: string[] = [];
+        if (!RECONCILE_2B_REPORT_PROFILES.includes(role)) hidden.push('2B Reconcile Report');
+        if (!AMOUNT_PAID_MISMATCH_PROFILES.includes(role)) hidden.push('Amount Paid Mismatch');
+        return hidden;
+    }, [role]);
 
     const currentReportOptions = useMemo(() => {
         if (activeTab === REPORTS_TABS.PROJECTS) {
@@ -260,18 +267,12 @@ export default function ReportsContainer() {
                 );
             }
             if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
-                // Filter out 2B Reconcile Report for non-Admin/Accountant roles
-                return canSee2BReconcileReport
-                    ? poReportOptions
-                    : poReportOptions.filter(option => option.value !== '2B Reconcile Report');
+                return poReportOptions.filter(option => !hiddenOrderReports.includes(option.value));
             }
             return [];
         } else if (activeTab === REPORTS_TABS.SR) {
             if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
-                // Filter out 2B Reconcile Report for non-Admin/Accountant roles
-                return canSee2BReconcileReport
-                    ? srReportOptions
-                    : srReportOptions.filter(option => option.value !== '2B Reconcile Report');
+                return srReportOptions.filter(option => !hiddenOrderReports.includes(option.value));
             }
             return [];
         } else if (activeTab === REPORTS_TABS.DCS_MIRS) {
@@ -280,10 +281,11 @@ export default function ReportsContainer() {
             }
             return [];
         } else if (activeTab === REPORTS_TABS.PAYMENT_TDS) {
-            return PAYMENT_TDS_ACCESS.includes(role) ? paymentTdsReportOptions : [];
+            const allowed = paymentTabReports(role);
+            return paymentTdsReportOptions.filter(option => allowed.includes(option.value));
         }
         return [];
-    }, [activeTab, role, canSee2BReconcileReport]);
+    }, [activeTab, role, hiddenOrderReports]);
 
 
     // Effect to auto-select/validate report type when options change
@@ -388,7 +390,6 @@ export default function ReportsContainer() {
             return <SRReports />;
         }
         if (activeTab === REPORTS_TABS.PAYMENT_TDS) {
-            if (selectedReportType === 'Cheque Payment') return <ChequePaymentReport />;
             return <PaymentTDSDeductions />;
         }
         if (activeTab === REPORTS_TABS.DCS_MIRS) {

@@ -7,10 +7,12 @@ No DB. The endpoint suite (`api/invoices/test_gst_release`) drives the same rule
 import unittest
 
 from nirmaan_stack.services.work_order_gst import (
+	gst_flag_for_vendor,
 	gst_is_on,
 	gst_opened_by_approval,
 	gst_released,
 	work_order_gst,
+	work_order_total,
 )
 
 
@@ -71,3 +73,22 @@ class TestGstOpenedByApproval(unittest.TestCase):
 
 	def test_blank_figures_read_as_zero(self):
 		self.assertAlmostEqual(gst_opened_by_approval(None, None, 18000), 0)
+
+
+class TestGstFlagForVendor(unittest.TestCase):
+	"""GLOSSARY *GST flag*: on exactly when the vendor has a GST number (ADR-0028 Amendment A)."""
+
+	def test_a_vendor_with_a_gst_number_means_on(self):
+		self.assertEqual(gst_flag_for_vendor("29AADCU7527Q1ZG"), "true")
+
+	def test_no_gst_number_means_off(self):
+		for vendor_gst in (None, "", "   "):
+			self.assertEqual(gst_flag_for_vendor(vendor_gst), "false", repr(vendor_gst))
+
+
+class TestWorkOrderTotal(unittest.TestCase):
+	def test_gst_on_adds_18_percent(self):
+		self.assertAlmostEqual(work_order_total(100_000, "true"), 118_000)
+
+	def test_gst_off_is_the_bare_value(self):
+		self.assertEqual(work_order_total(100_000, "false"), 100_000)

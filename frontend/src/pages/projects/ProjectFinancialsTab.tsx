@@ -23,6 +23,7 @@ import { AmountBreakdownHoverCard } from "./components/AmountBreakdownHoverCard"
 import { CustomerPODetailsCard } from "./components/CustomerPODeatilsCard";
 import {
   useProjectFinancialsTabData,
+  useProjectMoney,
 } from "./data/tab/financials/useProjectFinancialsTabApi";
 import { useProjectAllCredits } from "./hooks/useProjectAllCredits";
 import { TruncatedText } from "@/components/common/TruncatedText";
@@ -38,12 +39,6 @@ interface ProjectFinancialsTabProps {
   projectData?: Projects
   projectCustomer?: Customers;
   // updateURL: (params: Record<string, string>, removeParams?: string[]) => void;
-  getTotalAmountPaid: {
-    poAmount: number;
-    srAmount: number;
-    projectExpensesAmount: number; // Receive the new field
-    totalAmount: number;
-  }
   totalPOAmountWithGST: number;
   getAllSRsTotalWithGST: number;
   getAllPODeliveredAmount: number;
@@ -124,7 +119,7 @@ const SummaryTile: React.FC<{ item: SummaryItem }> = ({ item }) => (
   </div>
 );
 
-export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ projectData, projectCustomer, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, getAllPODeliveredAmount, poPaymentAgainstDelivery, advanceAgainstPO }) => {
+export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ projectData, projectCustomer, totalPOAmountWithGST, getAllSRsTotalWithGST, getAllPODeliveredAmount, poPaymentAgainstDelivery, advanceAgainstPO }) => {
 
   const { role } = useUserData();
   const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
@@ -192,6 +187,11 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
 
 
   const { inflowsResponse, invoicesResponse } = useProjectFinancialsTabData(projectData?.name);
+
+  // Project Outflow and Current Liabilities: the server's project money, the figures CEO Hold and the
+  // Projects list read (ADR-0034). Never worked out again in the browser.
+  const { data: projectMoneyResponse } = useProjectMoney(projectData?.name);
+  const projectMoney = projectMoneyResponse?.message;
   const { data: projectInflows, isLoading: projectInflowsLoading } = inflowsResponse;
 
   const totalInflowAmount = useMemo(() => getTotalInflowAmount(projectInflows || []), [projectInflows])
@@ -251,10 +251,10 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
 
 
     {
-      label: "Total Credit Amount Paid",
+      label: "Credit Terms Marked Paid",
       value: relatedTotalCreditPaid,
       style: "",
-      info: "Total value of credit POs that are paid."
+      info: "Credit payment terms on this project's POs that are marked paid. A term's status, not cash: see Project Outflow for the money paid out."
     },
     {
       label: "Project Value (Excl. GST)",
@@ -269,20 +269,23 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       info: "Total project value including GST."
     },
     {
-      // label: "Total Amount Paid",
-      label: "Total OutFlow Amount",
-
-      value: getTotalAmountPaid.totalAmount,
-      info: "Total expenses recorded for the project. (Hover for breakdown)",
+      label: "Project Outflow",
+      value: projectMoney?.outflow ?? 0,
+      info: "Money paid out for the project: Paid payments less Received vendor refunds, plus Paid expenses, plus the TDS on Paid PO and WO payments. (Hover for breakdown)",
       style: "text-red-600",
-
-      // --- (Indicator) NEW: Add breakdown data for hover card ---
-      breakdown: {
-        poAmount: getTotalAmountPaid.poAmount,
-        srAmount: getTotalAmountPaid.srAmount,
-        projectExpensesAmount: getTotalAmountPaid.projectExpensesAmount
+      breakdown: projectMoney && {
+        poAmount: projectMoney.po_outflow,
+        srAmount: projectMoney.wo_outflow,
+        projectExpensesAmount: projectMoney.expense_outflow,
       },
-
+    },
+    {
+      // Same figure as the project's Misc. Project Expenses tab total: its Paid
+      // expenses' amount (that tab is Paid-only when embedded in a project).
+      label: "Misc. Project Expenses",
+      value: projectMoney?.expense_outflow ?? 0,
+      style: "",
+      info: "Total of Paid misc. project expenses -- the same total as the Misc. Project Expenses tab.",
     },
     {
       label: "Payable Amount Against Delivered Items in PO",
@@ -291,25 +294,25 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       info: "Total amount for delivered POs that are now payable."
     },
     {
-      label: "Amount Paid Against Delivered Items in PO",
+      label: "PO Paid, Covered by Delivery",
       value: poPaymentAgainstDelivery,
       style: "",
-      info: "Amount paid against delivered items in this project’s POs."
+      info: "What this project's POs have paid, up to the value delivered on each."
     },
     {
-      label: "Advance Against PO",
+      label: "PO Paid Ahead of Delivery",
       value: advanceAgainstPO,
       style: "",
-      info: "Advance amount paid before delivery for this project’s POs."
+      info: "What this project's POs have paid beyond the value delivered on each."
     },
     {
       label: "Current Liabilities",
-      value: getAllPODeliveredAmount - poPaymentAgainstDelivery,
+      value: projectMoney?.liabilities ?? 0,
       style: "",
-      info: "PO Payable Amount - PO Payment Against Delivery"
+      info: "Delivered value not yet paid, per PO (Merged, Cancelled and Inactive POs left out)"
     },
 
-  ], [totalInflowAmount, totalProjectInvoiceAmount, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, projectData?.project_value, relatedTotalBalanceCredit, relatedTotalCreditPaid, getAllPODeliveredAmount, poPaymentAgainstDelivery, advanceAgainstPO])
+  ], [totalInflowAmount, totalProjectInvoiceAmount, projectMoney, totalPOAmountWithGST, getAllSRsTotalWithGST, projectData?.project_value, relatedTotalBalanceCredit, relatedTotalCreditPaid, getAllPODeliveredAmount, poPaymentAgainstDelivery, advanceAgainstPO])
 
 
   // Ordered by CLIENT_SUMMARY_LABELS, not by position in amountsSummaryItems.

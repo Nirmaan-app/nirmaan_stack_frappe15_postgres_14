@@ -17,6 +17,7 @@ import { useFrappeGetDoc } from "frappe-react-sdk";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
+import { uniqueTagPackages } from "@/utils/prPackages";
 
 interface HeaderHoverCardProps {
   prName: string;
@@ -40,7 +41,8 @@ export const HeaderHoverCard: React.FC<HeaderHoverCardProps> = ({
     }
   );
 
-  const tags = prDoc?.pr_tag_list || [];
+  // Rows written before 2026-10 can repeat a package (one per old header): show each once.
+  const packages = uniqueTagPackages(prDoc?.pr_tag_list);
 
   useEffect(() => {
     setIsOpen(false);
@@ -59,7 +61,7 @@ export const HeaderHoverCard: React.FC<HeaderHoverCardProps> = ({
     <Popover open={isOpen} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <button
-          aria-label="View PR Tags"
+          aria-label="View PR packages"
           className="p-1 rounded hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 cursor-pointer inline-flex"
           onClick={handleClick}
           tabIndex={0}
@@ -72,7 +74,7 @@ export const HeaderHoverCard: React.FC<HeaderHoverCardProps> = ({
         <div className="sticky top-0 bg-white z-20 flex justify-between items-center px-3 py-2 border-b">
           <div className="flex items-center gap-2">
             <Tags className="w-4 h-4 text-muted-foreground" />
-            <h4 className="font-semibold text-sm">PR Tag Headers</h4>
+            <h4 className="font-semibold text-sm">PR Packages</h4>
           </div>
           <Button
             variant="ghost"
@@ -89,37 +91,31 @@ export const HeaderHoverCard: React.FC<HeaderHoverCardProps> = ({
           {isLoading && (
             <div className="flex items-center justify-center p-4">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              <span className="ml-2">Loading tags...</span>
+              <span className="ml-2">Loading packages...</span>
             </div>
           )}
           {error && (
             <div className="text-red-500 p-4">
-              Error loading tags: {error.message || "Unknown error"}
+              Error loading packages: {error.message || "Unknown error"}
             </div>
           )}
-          {!isLoading && !error && tags.length === 0 && (
+          {!isLoading && !error && packages.length === 0 && (
             <div className="text-gray-500 p-4 text-center">
-              No tags found for this PR.
+              No packages found for this PR.
             </div>
           )}
-          {!isLoading && !error && tags.length > 0 && (
+          {!isLoading && !error && packages.length > 0 && (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader className="bg-gray-100">
                   <TableRow>
-                    <TableHead className="text-xs font-bold uppercase">Tag Header</TableHead>
                     <TableHead className="text-xs font-bold uppercase">Package</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {tags.map((tag, idx) => (
-                    <TableRow key={tag.name || idx}>
-                      <TableCell className="text-sm font-medium">
-                        {tag.tag_header}
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        {tag.tag_package}
-                      </TableCell>
+                  {packages.map((pkg) => (
+                    <TableRow key={pkg}>
+                      <TableCell className="text-sm font-medium">{pkg}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -132,23 +128,22 @@ export const HeaderHoverCard: React.FC<HeaderHoverCardProps> = ({
   );
 };
 
-export const WPRTagsBadge: React.FC<{ tags?: { tag_header: string; tag_package: string }[] }> = ({ tags }) => {
-  if (!tags || tags.length === 0) return null;
-
-  const uniquePackages = Array.from(new Set(tags.map(t => t.tag_header))).filter(Boolean).sort();
+/** A PR's procurement packages as chips (sorted, each once). */
+export const WPRTagsBadge: React.FC<{ packages?: string[] }> = ({ packages }) => {
+  if (!packages || packages.length === 0) return null;
 
   return (
     <div className="flex items-center gap-3">
       <div className="flex items-center gap-2 pr-2 border-r border-purple-100/50 mr-1">
         <Badge variant="outline" className="flex items-center gap-1 py-0.5 px-1.5 text-[9px] font-bold uppercase tracking-wider bg-white border-purple-200 text-purple-600 shadow-sm">
           <Tags className="h-3 w-3" />
-          PR Tags
+          Packages
         </Badge>
       </div>
 
       <div className="flex items-center gap-2">
         <div className="flex flex-wrap items-center gap-1.5">
-          {uniquePackages.map((pkg) => (
+          {packages.map((pkg) => (
             <Badge
               key={pkg}
               variant="secondary"

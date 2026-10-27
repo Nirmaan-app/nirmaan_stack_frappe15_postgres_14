@@ -20,4 +20,8 @@ export interface NirmaanVersions{
 	previous_state?: string
 	/**	New State : Data	*/
 	new_state?: string
+	/**	Reason : Data	*/
+	reason?: string
+	/**	Outcome : Select - an amendment snapshot's decision; blank while it waits	*/
+	outcome?: "" | "Accepted" | "Reverted"
 }

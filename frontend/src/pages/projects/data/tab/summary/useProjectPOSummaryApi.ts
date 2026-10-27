@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { Projects } from "@/types/NirmaanStack/Projects";
-import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
 import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
 import { useProjectPOTaskLinks } from "@/pages/projects/data/critical-po/useCriticalPOQueries";
@@ -28,7 +27,6 @@ interface POAggregatesResponse extends POAggregates {
 
 const poSummaryKeys = {
   projects: (projectId?: string) => ["project-tab", "po-summary", "projects", projectId || "all"] as const,
-  payments: (projectId: string) => ["project-tab", "po-summary", "payments", projectId] as const,
   criticalPOTasks: (projectId: string) => ["project-tab", "po-summary", "critical-po-tasks", projectId] as const,
 };
 
@@ -86,20 +84,6 @@ export const useProjectPOSupportingData = (projectId?: string) => {
     poSummaryKeys.projects(projectId)
   );
 
-  const projectPaymentsResponse = useFrappeGetDocList<ProjectPayments>(
-    "Project Payments",
-    {
-      fields: ["document_name", "amount", "status"],
-      filters: [
-        ["document_type", "=", "Procurement Orders"],
-        ["status", "=", "Paid"],
-        ["project", "=", projectId],
-      ],
-      limit: 0,
-    },
-    projectId ? poSummaryKeys.payments(projectId) : null
-  );
-
   const criticalPOTasksResponse = useFrappeGetDocList<CriticalPOTask>(
     "Critical PO Tasks",
     {
@@ -114,13 +98,6 @@ export const useProjectPOSupportingData = (projectId?: string) => {
   useApiErrorLogger(projectsResponse.error, {
     hook: "useProjectPOSupportingData",
     api: "Projects List",
-    feature: "projects-tab-po-summary",
-    entity_id: projectId,
-  });
-
-  useApiErrorLogger(projectPaymentsResponse.error, {
-    hook: "useProjectPOSupportingData",
-    api: "Project Payments List",
     feature: "projects-tab-po-summary",
     entity_id: projectId,
   });
@@ -141,7 +118,6 @@ export const useProjectPOSupportingData = (projectId?: string) => {
 
   return {
     projectsResponse,
-    projectPaymentsResponse,
     criticalPOTasksResponse: {
       ...criticalPOTasksResponse,
       data: criticalPOTasksData,

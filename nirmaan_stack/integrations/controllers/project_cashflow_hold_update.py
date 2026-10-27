@@ -4,6 +4,10 @@ from frappe.utils import flt
 
 from nirmaan_stack.nirmaan_stack.doctype.projects.projects import CEO_HOLD_SYSTEM_USER
 from nirmaan_stack.services.ceo_hold import core
+from nirmaan_stack.services.ceo_hold.rules import over_cashflow_limit, watches_cashflow_gap
+from nirmaan_stack.services.caller_transaction import caller_owns_the_commit
+from nirmaan_stack.services.project_money import project_money_of
+from nirmaan_stack.services.amount_paid import paid_money
 from ..Notifications.pr_notifications import PrNotification
 
 
@@ -44,16 +48,10 @@ def sync_cashflow_reason(project_id: str) -> None:
 		return  # scheduled-recheck mode — only tasks.ceo_hold_recheck may decide.
 
 	limit = flt(row.cashflow_gap_limit)
-	over_limit = False
-	if row.status != "Completed" and limit > 0:
-		gap = _compute_cashflow_gap(project_id)
-		over_limit = gap > limit
-		if over_limit:
-			core.set_reason(
-				project_id, core.SOURCE_CASHFLOW, core.cashflow_reason_text(gap, limit)
-			)
-		else:
-			core.clear_reason(project_id, core.SOURCE_CASHFLOW)
+	gap = _compute_cashflow_gap(project_id) if watches_cashflow_gap(row.status, limit) else 0.0
+	over_limit = over_cashflow_limit(row.status, limit, gap)
+	if over_limit:
+		core.set_reason(project_id, core.SOURCE_CASHFLOW, core.cashflow_reason_text(gap, limit))
 	else:
 		core.clear_reason(project_id, core.SOURCE_CASHFLOW)
 
@@ -109,7 +107,8 @@ def _notify_manual_hold_releasable(project_id: str, holder_user: str) -> None:
 	# cleared in a `finally`. It covers BOTH ledgers: this module is wired to `Project Payments`
 	# on_update AND `Project Expenses` on_update, so the payment path was exposed to this same
 	# commit before the expense path ever reached it.
-	if frappe.flags.get("outflow_import_settling"):
+	# `expense_decision.decide` saves inside its caller's per-row savepoint too, so the same holds.
+	if caller_owns_the_commit():
 		return
 
 	if frappe.db.exists(
@@ -236,29 +235,44 @@ def trigger_check(project_id):
 		frappe.log_error(frappe.get_traceback(), f"CEO Hold evaluation failed for {project_id}")
 
 
+def recheck_after_recount(project_id):
+	"""Re-evaluate one project's cashflow hold AFTER its orders' Amount Paid was recounted, even when
+	this request already checked it (#1453): that earlier check may have read the stale figure. For a
+	flow that writes payments with the hooks skipped and recounts at the end (PO Adjustments)."""
+	if project_id:
+		frappe.flags.pop(f"ceo_hold_checked:{project_id}", None)
+		trigger_check(project_id)
+
+
 def on_project_payment(doc, method=None):
 	"""
-	Cashflow gap counts only Paid payments (see _compute_cashflow_gap).
-	Skip the evaluation for any status that doesn't touch the gap
-	(Requested / CEO Pending / Approved / Rejected).
+	Cashflow gap counts only Paid payments (see services/project_money), and its liabilities read the
+	POs' stored Amount Paid. So it is re-evaluated only when the payment's paid money moved
+	(`services/amount_paid.paid_money`: into or out of Paid, or a Paid payment's amount or
+	order changed), on the project it leaves and the one it joins, and when a Paid row is deleted.
 
-	Fires only when:
-	  * a row enters Paid (status flipped to 'Paid')
-	  * a row leaves  Paid (status flipped away from 'Paid')
-	  * a Paid row is trashed
+	⚠️ AFTER THE RECOUNT, NEVER BEFORE (#1453). Bound to on_update, which Frappe runs after the
+	payment's own `on_update` has recounted its orders, and to `after_delete` (never `on_trash`), so the
+	deleted payment has left both the payment sum and its order's Amount Paid. A payment written by a
+	PO Adjustment (`from_adjustment`) skips the recount, so it is skipped here too: the adjustment
+	recounts at the end and then calls `recheck_after_recount`.
 	"""
-
-	if not doc.has_value_changed("status"):
+	if doc.flags.get("from_adjustment"):
+		return
+	if method == "after_delete":
+		if doc.status == "Paid":
+			trigger_check(doc.project)
 		return
 
-	prev_status = (doc.get_doc_before_save() or {}).get("status") if not doc.is_new() else None
-	if doc.status == "Paid" or prev_status == "Paid":
-		trigger_check(doc.project)
+	before = doc.get_doc_before_save()
+	if paid_money(before) != paid_money(doc):
+		for project in sorted({p for p in (doc.get("project"), before and before.get("project")) if p}):
+			trigger_check(project)
 
 
 def on_project_expense(doc, method=None):
 	"""
-	Cashflow gap counts only Paid expenses (see _compute_cashflow_gap), so — like
+	Cashflow gap counts only Paid expenses (see services/project_money), so — like
 	on_project_payment — only re-evaluate the CEO Hold when a row enters or leaves
 	Paid. Adding / editing a Requested or Approved expense does NOT touch the gap
 	and is skipped.
@@ -283,51 +297,20 @@ def on_project_inflow(doc, method=None):
 
 
 def on_procurement_order(doc, method=None):
-	# PO contributes to the gap only via po_amount_delivered + amount_paid.
-	# has_value_changed returns True when there is no prior save state
-	# (insert / trash), so this single check covers all three events:
-	# always fire on insert + trash, fire on update only when these fields
+	# PO contributes to the gap only via its liability: po_amount_delivered and
+	# amount_paid, counted only while its status is not Merged / Cancelled /
+	# Inactive (services/project_money). has_value_changed returns True when there
+	# is no prior save state (insert / trash), so this single check covers all three
+	# events: always fire on insert + trash, fire on update only when these fields
 	# actually moved.
-	if doc.has_value_changed("po_amount_delivered") or doc.has_value_changed("amount_paid"):
+	if any(doc.has_value_changed(field) for field in ("po_amount_delivered", "amount_paid", "status")):
 		trigger_check(doc.project)
 
 
 def _compute_cashflow_gap(project_id: str) -> float:
+	"""The project's cashflow gap, from the one server figure `services/project_money` (#1456, ADR-0034).
+
+	The Projects list rollup reads the same function, so the two gaps agree. Kept as the seam the
+	CEO Hold tests patch and older patches import.
 	"""
-	Mirror of the frontend formula in projects.tsx (lines 462-477):
-	    gap = (paid_payments + all_expenses + liabilities) - all_inflows
-	    liabilities = Σ po_amount_delivered − Σ min(amount_paid, po_amount_delivered)
-	"""
-	paid_payments = frappe.get_all(
-		"Project Payments",
-		filters=[["project", "=", project_id], ["status", "=", "Paid"]],
-		fields=["amount"],
-	)
-	expenses = frappe.get_all(
-		"Project Expenses",
-		# Only Paid expenses count as outflow (mirrors the Paid-only Project Payments
-		# filter above); Requested/Approved-but-unpaid expenses don't affect the gap.
-		filters=[["projects", "=", project_id], ["status", "=", "Paid"]],  # 'projects' (plural) is correct
-		fields=["amount"],
-	)
-	outflow = sum(flt(p.amount) for p in paid_payments) + sum(flt(e.amount) for e in expenses)
-
-	inflows = frappe.get_all(
-		"Project Inflows",
-		filters=[["project", "=", project_id]],
-		fields=["amount"],
-	)
-	inflow = sum(flt(i.amount) for i in inflows)
-
-	pos = frappe.get_all(
-		"Procurement Orders",
-		filters=[["project", "=", project_id]],
-		fields=["po_amount_delivered", "amount_paid"],
-	)
-	payable = sum(flt(po.po_amount_delivered) for po in pos)
-	paid_against_delivered = sum(
-		min(flt(po.amount_paid), flt(po.po_amount_delivered)) for po in pos
-	)
-	liabilities = payable - paid_against_delivered
-
-	return outflow + liabilities - inflow
+	return project_money_of(project_id).cashflow_gap

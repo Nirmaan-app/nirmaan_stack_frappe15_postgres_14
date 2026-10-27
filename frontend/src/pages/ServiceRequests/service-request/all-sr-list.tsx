@@ -38,8 +38,13 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
+import {
+  LISTED_WORK_ORDER_STATUSES,
+  workOrderBadge,
+  workOrderBadgeVariant,
+} from "../config/workOrderAmendment";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
-import { SRRemarksPopover } from "@/pages/ServiceRequests/approved-sr/components/SRRemarksPopover";
+import { SRRemarksPopover } from "@/pages/ServiceRequests/service-request/components/SRRemarksPopover";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { parseNumber } from "@/utils/parseNumber";
 import {
@@ -132,8 +137,9 @@ export const AllSRList: React.FC<AllSRListProps> = ({
   );
 
   const staticFilters = useMemo(() => {
+    // A Work Order under amendment stays listed, with its badge (#1540).
     const filters: Array<[string, string, any]> = [
-      ["status", "=", "Approved"],
+      ["status", "in", LISTED_WORK_ORDER_STATUSES],
     ];
 
     if (for_vendor) {
@@ -151,7 +157,6 @@ export const AllSRList: React.FC<AllSRListProps> = ({
         "service_category_list",
         "total_amount",
         "amount_paid",
-        "total_tds",
         "gst",
         "is_finalized",
         "amount_invoiced",
@@ -320,11 +325,10 @@ export const AllSRList: React.FC<AllSRListProps> = ({
         header: ({ column }: { column: any }) => (
           <DataTableColumnHeader column={column} title="Status" />
         ),
-        cell: ({ row }: { row: any }) => (
-          <Badge variant={row.getValue("is_finalized") ? "green" : "outline"}>
-            {row.getValue("is_finalized") ? "Finalized" : "Approved"}
-          </Badge>
-        ),
+        cell: ({ row }: { row: any }) => {
+          const badge = workOrderBadge(row.original);
+          return <Badge variant={workOrderBadgeVariant(badge)}>{badge}</Badge>;
+        },
         enableColumnFilter: true,
         size: 120,
       },
@@ -368,26 +372,6 @@ export const AllSRList: React.FC<AllSRListProps> = ({
         enableColumnFilter: true,
         size: 120,
         meta: { exportHeaderName: "Amt. Paid", exportValue: (row: ServiceRequests) => parseNumber(row.amount_paid) || 0 },
-      },
-      {
-        // Tax withheld from this order's PAID payments. Sits beside Amt. Paid because the two
-        // are recomputed together server-side and always describe the same set of payments;
-        // an SR payment's own amount is stored NET, so this is the rest of that figure.
-        accessorKey: "total_tds",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Total TDS" />
-        ),
-        cell: ({ row }) => (
-          <div className="font-medium pr-2">
-            {formatToRoundedIndianRupee(parseNumber(row.original.total_tds) || 0)}
-          </div>
-        ),
-        enableSorting: true,
-        size: 120,
-        meta: {
-          exportHeaderName: "Total TDS",
-          exportValue: (row: ServiceRequests) => parseNumber(row.total_tds) || 0,
-        },
       },
       {
         // A stored SR field (total_amount - amount_paid, maintained by the same events

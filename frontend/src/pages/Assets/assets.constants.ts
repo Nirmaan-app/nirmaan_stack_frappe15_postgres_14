@@ -10,6 +10,8 @@ export const ASSET_CATEGORY_FIELDS = [
     'name',
     'asset_category',
     'category_type',
+    // Monthly asset audit (owner, 2026-10-14): assigned assets of a ticked category are audited.
+    'audit_required',
     'creation',
     'modified',
 ] as const;
@@ -28,6 +30,7 @@ export const ASSET_MASTER_FIELDS = [
     'asset_name',
     'asset_description',
     'asset_category',
+    'department',
     'asset_condition',
     'asset_serial_number',
     'asset_value',
@@ -50,12 +53,47 @@ export const ASSET_MANAGEMENT_FIELDS = [
     'creation',
 ] as const;
 
+/**
+ * The assignment plus its receive / return fields (owner, 2026-10-13): the profile cards and the
+ * Return Request tab. Kept apart from ASSET_MANAGEMENT_FIELDS so the other lists don't need the columns.
+ */
+export const ASSET_MANAGEMENT_RETURN_FIELDS = [
+    ...ASSET_MANAGEMENT_FIELDS,
+    'received',
+    'received_on',
+    'returned',
+    'returned_on',
+] as const;
+
+/**
+ * The assignment plus its monthly-audit fields (owner, 2026-10-14): the profile cards, the sidebar
+ * badge and the Asset Audit tab's Pending list. The server writes them; nobody types them.
+ */
+export const ASSET_MANAGEMENT_AUDIT_FIELDS = [
+    ...ASSET_MANAGEMENT_RETURN_FIELDS,
+    'audit_status',
+    'audit_month',
+    'last_audit_on',
+    'audit_proof',
+    'audit_overdue_since',
+] as const;
+
+/**
+ * The audit fields plus the latest audit's answers (owner, 2026-10-15) -- for the screens that show "View
+ * answers" (the profile cards). Kept apart so the data tables don't fetch the JSON for every row.
+ */
+export const ASSET_MANAGEMENT_AUDIT_ANSWER_FIELDS = [
+    ...ASSET_MANAGEMENT_AUDIT_FIELDS,
+    'audit_answers',
+] as const;
+
 // Searchable fields for Asset Master
 export const ASSET_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "asset_name", label: "Asset Name", placeholder: "Search by asset name...", default: true },
     { value: "name", label: "Asset ID", placeholder: "Search by asset ID..." },
     { value: "asset_serial_number", label: "Serial Number", placeholder: "Search by serial number..." },
     { value: "asset_category", label: "Category", placeholder: "Search by category..." },
+    { value: "department", label: "Department", placeholder: "Search by department..." },
 ];
 
 // Extra searchable fields shown only on the Project Assets tab
@@ -101,30 +139,17 @@ export const DECLARATION_STATUS_OPTIONS = [
 
 // Centralized SWR cache keys for consistent cross-component invalidation
 export const ASSET_CACHE_KEYS = {
-    // Summary counts (global — used by Categories tab)
-    CATEGORIES_COUNT: `${ASSET_CATEGORY_DOCTYPE}_summary`,
-    TOTAL_ASSETS_COUNT: `${ASSET_MASTER_DOCTYPE}_total_summary`,
-    ASSIGNED_ASSETS_COUNT: `${ASSET_MASTER_DOCTYPE}_assigned_summary`,
-    UNASSIGNED_ASSETS_COUNT: `${ASSET_MASTER_DOCTYPE}_unassigned_summary`,
-    PENDING_DECLARATION_COUNT: `${ASSET_MANAGEMENT_DOCTYPE}_pending_summary`,
-
-    // Summary counts scoped to Project-type assets
-    PROJECT_TOTAL_ASSETS_COUNT: `${ASSET_MASTER_DOCTYPE}_total_summary_project`,
-    PROJECT_ASSIGNED_ASSETS_COUNT: `${ASSET_MASTER_DOCTYPE}_assigned_summary_project`,
-    PROJECT_UNASSIGNED_ASSETS_COUNT: `${ASSET_MASTER_DOCTYPE}_unassigned_summary_project`,
-    PROJECT_PENDING_DECLARATION_COUNT: `${ASSET_MANAGEMENT_DOCTYPE}_pending_summary_project`,
-
-    // Summary counts scoped to IT-type assets
-    IT_TOTAL_ASSETS_COUNT: `${ASSET_MASTER_DOCTYPE}_total_summary_it`,
-    IT_ASSIGNED_ASSETS_COUNT: `${ASSET_MASTER_DOCTYPE}_assigned_summary_it`,
-    IT_UNASSIGNED_ASSETS_COUNT: `${ASSET_MASTER_DOCTYPE}_unassigned_summary_it`,
-    IT_PENDING_DECLARATION_COUNT: `${ASSET_MANAGEMENT_DOCTYPE}_pending_summary_it`,
+    // Per-category counts: all assets, and the ones someone holds (useCategoryAssetCounts)
+    CATEGORY_ASSET_COUNTS: 'asset_counts_by_category',
+    CATEGORY_ASSIGNED_COUNTS: 'assigned_asset_counts_by_category',
 
     // Category dropdowns (shared across all dialogs)
     CATEGORIES_DROPDOWN: `${ASSET_CATEGORY_DOCTYPE}_dropdown`,
 
     // Projects dropdown (Project-Asset project/city/state picker)
     PROJECTS_DROPDOWN: `${ASSET_MASTER_DOCTYPE}_projects_dropdown`,
+    /** Every Won project, for the Project pickers (api/assets/projects.get_won_projects). */
+    WON_PROJECTS: `${ASSET_MASTER_DOCTYPE}_won_projects`,
 
     // Category-name lists by type (used by useAssetCategoryNamesByType)
     PROJECT_CATEGORIES_NAMES: `${ASSET_CATEGORY_DOCTYPE}_names_project`,
@@ -132,4 +157,15 @@ export const ASSET_CACHE_KEYS = {
 
     // Asset Management (for individual asset assignments)
     assetManagement: (assetId: string) => `${ASSET_MANAGEMENT_DOCTYPE}_${assetId}`,
+
+    // Returns waiting for approval (useReturnRequests) and their assets' details
+    RETURN_REQUESTS: `${ASSET_MANAGEMENT_DOCTYPE}_return_requests`,
+    returnRequestAssets: (assetIds: string[]) => `${ASSET_MASTER_DOCTYPE}_return_requests:${assetIds.join('|')}`,
+
+    // Monthly asset audit: the open audits (useAuditPending), their assets, and the Fulfilled list
+    // (a prefix: one key per tab + month + page).
+    AUDIT_PENDING: `${ASSET_MANAGEMENT_DOCTYPE}_audit_pending`,
+    auditPendingAssets: (assetIds: string[]) => `${ASSET_MASTER_DOCTYPE}_audit_pending:${assetIds.join('|')}`,
+    AUDIT_FULFILLED_PREFIX: 'asset_audit_fulfilled:',
+    AUDITED_CATEGORIES: `${ASSET_CATEGORY_DOCTYPE}_audited`,
 } as const;

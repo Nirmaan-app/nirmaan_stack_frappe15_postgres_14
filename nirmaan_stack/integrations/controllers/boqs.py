@@ -2,6 +2,8 @@ import json
 import frappe
 from frappe import _
 
+from nirmaan_stack.services.role_profiles import is_nirmaan_admin
+
 
 def next_boq_version(project, boq_name, is_template_source=False, exclude=None):
     """The next `version` for a BoQ in its naming scope: COALESCE(MAX(version), 0) + 1.
@@ -39,6 +41,34 @@ def next_boq_version(project, boq_name, is_template_source=False, exclude=None):
     return result[0][0] if result else 1
 
 
+def is_won_project(project):
+    """True when `project` is Won as a bid (`tendering_status`, permanent; ADR-0001 v3).
+
+    Not the execution `status`, which moves on from Won to WIP and beyond: a project at WIP or
+    Completed is still a Won project here (ADR-0037).
+    """
+    return bool(project) and frappe.db.get_value("Projects", project, "tendering_status") == "Won"
+
+
+def assert_can_add_boq(project, user=None):
+    """Once a project is Won, only an Admin may add a BoQ to it (owner ruling 2026-09-18), and
+    nobody may add one to a Merged project (ADR-0038 D6: its BoQs live in the Won project now).
+
+    THE one owner of the rule. The upload and create-from-template endpoints call it first so
+    the user gets the refusal at once, not as a failed background job; `before_insert` calls it
+    again as the backstop for every other path (Desk, REST). A project-less template seed and a
+    Tendering project are never restricted here.
+    """
+    tendering_status = frappe.db.get_value("Projects", project, "tendering_status") if project else None
+    if tendering_status == "Merged":
+        frappe.throw(_(
+            "This project's BoQs were merged into a Won project. Undo the merge to add a BoQ here."
+        ))
+    if tendering_status != "Won" or is_nirmaan_admin(user or frappe.session.user):
+        return
+    frappe.throw(_("Only an Admin can add a BoQ to a Won project."), frappe.PermissionError)
+
+
 def before_insert(doc, method):
     # Template-source BoQs (Create-from-Template, ADR-0013 A1) are project-less: a
     # scratch authoring BoQ used to seed the master BoQ Template, not bound to any
@@ -48,14 +78,207 @@ def before_insert(doc, method):
         frappe.throw(_("Project is required"))
     if not doc.boq_name:
         frappe.throw(_("BoQ Name is required"))
+    assert_can_add_boq(doc.project)
 
     doc.version = next_boq_version(
         doc.project, doc.boq_name, is_template_source=bool(doc.get("is_template_source"))
     )
 
-    doc.status = "Draft"
+    # A BoQ an Admin adds to a Won project is part of its live scope at once (ADR-0037 D3):
+    # a new upload, a revision and a create-from-template alike.
+    doc.status = "Selected" if is_won_project(doc.project) else "Draft"
     doc.uploaded_by = frappe.session.user
     doc.uploaded_at = frappe.utils.now()
+
+
+def _save_boq(name, **values):
+    """Save one BoQ with new field values, its row locked. Through `doc.save()`, not `set_value`,
+    so validate() runs and -- BOQs has `track_changes` -- the change leaves a Version row naming
+    who made it. Link re-validation is skipped: only the given fields change, and a stale link
+    elsewhere on the BoQ (a removed uploader, a deleted template) must not block it.
+    """
+    doc = frappe.get_doc("BOQs", name, for_update=True)
+    doc.update(values)
+    doc.flags.ignore_links = True
+    doc.save(ignore_permissions=True)
+
+
+def _set_boq_status(name, status):
+    _save_boq(name, status=status)
+
+
+def _move_boq_attachments(boq_names, project):
+    """Point the BoQs' `Nirmaan Attachments` rows (the uploaded workbook, `upload_file` step 1) at
+    `project`. Those rows are the one other place a BoQ's project is stored: every BoQ table links
+    by `boq`, and no other Dynamic-Link doctype holds a BoQ row (checked 2026-10-21).
+
+    Raw UPDATE: `Nirmaan Attachments` has no doc_events in hooks.py, so nothing is skipped, and only
+    `project` changes (no derived field depends on it).
+    """
+    if not boq_names:
+        return
+    frappe.db.sql(
+        """
+        UPDATE "tabNirmaan Attachments"
+        SET project = %(project)s
+        WHERE (associated_doctype = 'BOQs' AND associated_docname IN %(boqs)s)
+           OR (attachment_link_doctype = 'BOQs' AND attachment_link_docname IN %(boqs)s)
+        """,
+        {"project": project, "boqs": tuple(boq_names)},
+    )
+
+
+def move_boqs_into_project(from_project, to_project, selected_boqs):
+    """Merge (ADR-0038 D2): every BoQ of the Tendering project `from_project` moves to the Won
+    project `to_project`, stamped `merged_from` so Undo can find exactly this set; the BoQs'
+    attachment rows move with them. A BoQ in `selected_boqs` (ticked) becomes Selected, every other
+    one Draft, so it lands in the Won project's Other BoQs. The caller
+    (`api/projects/tendering_merge`) checks the rule -- including that every BoQ is Draft and every
+    pick belongs to `from_project` -- and commits.
+    """
+    ticked = set(selected_boqs or [])
+    names = frappe.get_all("BOQs", filters={"project": from_project}, pluck="name", order_by="name asc")
+    for name in names:
+        _save_boq(
+            name,
+            project=to_project,
+            merged_from=from_project,
+            status="Selected" if name in ticked else "Draft",
+        )
+    _move_boq_attachments(names, to_project)
+    return names
+
+
+def boqs_blocking_unmerge(from_project):
+    """BoQs whose revision link (`source_boq`) crosses the line Undo would draw (ADR-0038 D4):
+    a BoQ that stays in the Won project revising a merged BoQ, or a merged BoQ revising a BoQ that
+    stays. Undoing would split each pair across two projects, so Undo refuses them by name. A
+    deleted source does not block.
+    """
+    return frappe.db.sql(
+        """
+        SELECT r.name
+        FROM "tabBOQs" r
+        JOIN "tabBOQs" m ON m.name = r.source_boq
+        WHERE m.merged_from = %(project)s
+          AND COALESCE(r.merged_from, '') != %(project)s
+        UNION
+        SELECT m.name
+        FROM "tabBOQs" m
+        JOIN "tabBOQs" s ON s.name = m.source_boq
+        WHERE m.merged_from = %(project)s
+          AND COALESCE(s.merged_from, '') != %(project)s
+        ORDER BY 1
+        """,
+        {"project": from_project},
+        pluck=True,
+    )
+
+
+def return_merged_boqs(from_project):
+    """Undo a merge (ADR-0038 D3): the BoQs stamped `merged_from = from_project` -- exactly the
+    set the merge moved, whatever else the Won project holds -- go back to `from_project` as
+    Draft (a merge only takes Draft BoQs) and lose the stamp; their attachment rows go back too.
+    """
+    names = frappe.get_all(
+        "BOQs", filters={"merged_from": from_project}, pluck="name", order_by="name asc"
+    )
+    for name in names:
+        _save_boq(name, project=from_project, merged_from=None, status="Draft")
+    _move_boq_attachments(names, from_project)
+    return names
+
+
+def select_project_boqs(project, selected_boqs, require_pick=True):
+    """Record which BoQs a Tendering project was won on (Convert to Won, ADR-0037 D2).
+
+    THE one owner of the rule: every BoQ in `selected_boqs` -> Selected. Every other BoQ of the
+    project stays as it is (Draft). A project with no BoQ needs no selection; one with any BoQ
+    that is not Superseded must name at least one of them -- unless `require_pick` is False,
+    which the conversion passes when it also merges in other Tendering projects' BoQs (ADR-0038):
+    then a tick among those is enough, and the conversion checks "at least one overall" itself.
+
+    Called by `api/projects/tendering.convert_tendering_to_won` INSIDE its transaction and does
+    not commit, so the statuses land or roll back together with the conversion. Every pick is
+    checked before anything is written.
+    """
+    if isinstance(selected_boqs, str):
+        selected_boqs = [selected_boqs]
+    selected = list(dict.fromkeys(name for name in (selected_boqs or []) if name))
+
+    if not selected:
+        if require_pick and frappe.db.exists(
+            "BOQs", {"project": project, "status": ["!=", "Superseded"]}
+        ):
+            frappe.throw(_("Select at least one BoQ this project was won on."))
+        return {"selected": []}
+
+    statuses = {}
+    for name in selected:
+        boq = frappe.db.get_value("BOQs", name, ["project", "status"], as_dict=True, for_update=True)
+        if not boq:
+            frappe.throw(_("BoQ '{0}' does not exist.").format(name))
+        if boq.project != project:
+            frappe.throw(_("BoQ '{0}' does not belong to project '{1}'.").format(name, project))
+        if boq.status == "Superseded":
+            frappe.throw(_("BoQ '{0}' is Superseded and cannot be selected.").format(name))
+        statuses[name] = boq.status
+
+    for name in selected:
+        if statuses[name] != "Selected":
+            _set_boq_status(name, "Selected")
+
+    return {"selected": selected}
+
+
+# Each Admin action, keyed by the status it moves a BoQ TO, with the one status it moves it FROM.
+_SELECTION_MOVES = {"Selected": "Draft", "Draft": "Selected"}
+
+
+def change_boq_selection(project, boq_names, to_status):
+    """Move a Won project's BoQs between Selected and Draft -- the Admin's "Mark as Selected"
+    (Draft -> Selected) and "Move to Draft" (Selected -> Draft), ADR-0037 D4/D7.
+
+    THE one owner of the rule; `api/projects/boq_selection.set_boq_selection` is its thin endpoint. Only an
+    Admin, only on a Won project, and only from the status the move expects: a BoQ found in any
+    other status (already moved by someone else, or Approved / Superseded) is refused by name.
+    Every BoQ is read under a row lock and checked before any is written, so the whole batch moves
+    or none of it does. Moving the last Selected BoQ to Draft is allowed (the screen warns).
+    Does not commit.
+    """
+    from_status = _SELECTION_MOVES.get(to_status)
+    if not from_status:
+        frappe.throw(_("Unknown BoQ status '{0}'.").format(to_status))
+    if not is_nirmaan_admin(frappe.session.user):
+        frappe.throw(_("Only an Admin can change which BoQs are Selected."), frappe.PermissionError)
+    if not is_won_project(project):
+        frappe.throw(_("Project '{0}' is not Won.").format(project))
+
+    if isinstance(boq_names, str):
+        boq_names = [boq_names]
+    names = list(dict.fromkeys(name for name in (boq_names or []) if name))
+    if not names:
+        frappe.throw(_("Choose at least one BoQ."))
+
+    for name in names:
+        boq = frappe.db.get_value(
+            "BOQs", name, ["project", "status"], as_dict=True, for_update=True
+        )
+        if not boq:
+            frappe.throw(_("BoQ '{0}' does not exist.").format(name))
+        if boq.project != project:
+            frappe.throw(_("BoQ '{0}' does not belong to project '{1}'.").format(name, project))
+        if boq.status != from_status:
+            frappe.throw(
+                _("BoQ '{0}' is {1}, not {2}; refresh the page and try again.").format(
+                    name, boq.status or "blank", from_status
+                )
+            )
+
+    for name in names:
+        _set_boq_status(name, to_status)
+
+    return {"status": to_status, "boqs": names}
 
 
 def validate(doc, method):
@@ -73,6 +296,9 @@ def validate(doc, method):
 
     if old_doc.status == "Superseded" and doc.status != "Superseded":
         frappe.throw(_("A Superseded BoQ cannot be reopened."))
+
+    if old_doc.status == "Approved" and doc.status == "Draft":
+        frappe.throw(_("An Approved BoQ cannot go back to Draft."))
 
 
 def after_delete(doc, method):

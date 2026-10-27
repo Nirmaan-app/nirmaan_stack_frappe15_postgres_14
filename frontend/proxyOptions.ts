@@ -29,7 +29,9 @@ function getCommonSiteConfig(): { webserver_port?: number; socketio_port?: numbe
 }
 
 const config = getCommonSiteConfig()
-const webserver_port = config ? config.webserver_port : 8000
+// FRAPPE_WEB_PORT wins: a dev env's worktree may sit outside its bench folder, where the walk up finds no config
+// (devenv.sh `serve` sets it).
+const webserver_port = Number(process.env.FRAPPE_WEB_PORT) || (config ? config.webserver_port : 8000)
 
 // Define the socket.io port (default is 9000)
 const socketio_port = config ? config.socketio_port : 9000; // You might want to add socketio_port to common_site_config.json if it differs

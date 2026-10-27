@@ -27,15 +27,20 @@ import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import SITEURL from "@/constants/siteURL";
 import { attachmentsFromSourceData } from "@/utils/expenseFormat";
+import { TIER_AUTO_APPROVE_BELOW, TIER_L2_ABOVE_EXPENSES } from "@/utils/approvalTiers";
 import { getFrappeError } from "@/utils/frappeErrors";
-import type { ExpenseRequest } from "@/types/NirmaanStack/ExpenseRequest";
+import { PAYEE_RULE, asPayeeRule, noAccountReviewLine, payeeAccountLine } from "@/utils/payees/expensePayee";
+import { bankLine } from "@/utils/payees/payeeForm";
+import type { ExpenseRequest, StayDuplicate } from "@/types/NirmaanStack/ExpenseRequest";
+import DuplicateStayNote from "@/components/common/DuplicateStayNote";
 
 export type ReviewAction = "approve" | "reject";
 
-/** Same-type, same-amount expenses of the last 60 days. The per-type "same person, overlapping
- *  dates" warning was removed with its rules (owner, 2026-09-19). */
+/** Same-type, same-amount expenses of the last 60 days (`nearby`), and other stays for the same
+ *  person on overlapping dates (`stays`, #1504: keyed on the form, never on the type's name). */
 interface SimilarResponse {
     nearby: { doctype: string; name: string; amount: number; status: string; on: string }[];
+    stays: StayDuplicate[];
 }
 
 interface Props {
@@ -80,6 +85,7 @@ export const ReviewActionDialog: React.FC<Props> = ({
     const r = enriched && request ? { ...request, ...enriched } : (enriched ?? request);
     const detail = enriched?.detail ?? [];
     const attachments = attachmentsFromSourceData(enriched?.source_data);
+    const noAccountLine = noAccountReviewLine(r?.payee_rule, r?.type ?? "");
 
     // Read-only, and fetched ONLY while the dialog is open -- the reviewer is the control
     // point, so this is where it earns its cost. `undefined` vs `null` as the swrKey is the
@@ -152,6 +158,29 @@ export const ReviewActionDialog: React.FC<Props> = ({
                                 )}</>
                             : <span className="text-muted-foreground">-- non-project --</span>}
                     </Row>
+                    {/* Who gets paid (ADR-0033, #1436): the request's own pay-to account, which
+                        approval copies onto the expense as it is. The reviewer can catch a wrong
+                        account before then, or a Required type's missing one (#1466). */}
+                    {r?.pay_to ? (
+                        <Row label="Who gets paid">
+                            <span className="block font-medium">{r.pay_to.account_name}</span>
+                            <span className="block text-xs tabular-nums text-muted-foreground">
+                                {payeeAccountLine(r.pay_to)}
+                            </span>
+                            {bankLine(r.pay_to) && (
+                                <span className="block text-xs text-muted-foreground">
+                                    {bankLine(r.pay_to)}
+                                </span>
+                            )}
+                        </Row>
+                    ) : noAccountLine && (
+                        <Row label="Who gets paid">
+                            <span className={asPayeeRule(r?.payee_rule) === PAYEE_RULE.REQUIRED
+                                ? "font-medium text-destructive" : "text-muted-foreground"}>
+                                {noAccountLine}
+                            </span>
+                        </Row>
+                    )}
                     <Row label="Raised by">
                         {getUserName?.(r?.owner) || r?.owner}
                         {r?.creation ? ` \u00b7 ${formatDate(r.creation)}` : ""}
@@ -172,6 +201,9 @@ export const ReviewActionDialog: React.FC<Props> = ({
                         ))}
                     </div>
                 )}
+
+                {/* Bold to the Reviewer, with every match (#1504). It never blocks the decision. */}
+                <DuplicateStayNote matches={similar?.stays ?? []} variant="warning" />
 
                 {(similar?.nearby?.length ?? 0) > 0 && (
                     <p className="text-xs text-muted-foreground">
@@ -217,10 +249,25 @@ export const ReviewActionDialog: React.FC<Props> = ({
                                 would be free to disagree with what `validate` actually does. */}
                             <span className="font-medium">{targetStatus}</span>
                         </p>
+                        {/* Who approves next (#1499). An Admin's review IS the L1 step, so the
+                            server's landing status already says whose approval comes next:
+                            Requested = an Admin's, CEO Pending = the CEO's. */}
+                        {targetStatus === "Requested" && (
+                            <p className="mt-1.5 font-medium">
+                                An Admin approves it next{(r?.amount ?? 0) > TIER_L2_ABOVE_EXPENSES ? ", then the CEO" : ""}.
+                            </p>
+                        )}
+                        {targetStatus === "CEO Pending" && (
+                            <p className="mt-1.5 font-medium">
+                                Your approval is the first-level step. The CEO approves it next.
+                            </p>
+                        )}
                         <p className="mt-1 text-xs text-muted-foreground">
                             {landsApproved
                                 ? "The answers above are written onto it, the bill is carried across, and the accountant marks it Paid. Money moves at that step, not this one."
-                                : "The answers above are written onto it and the bill is carried across — but this amount still needs the expense itself to be approved before it can be paid. Money moves at that step, not this one."}
+                                : targetStatus === "Requested"
+                                    ? `At ${formatToRoundedIndianRupee(TIER_AUTO_APPROVE_BELOW)} and above, an HR or Accounts approval is not the last one: the expense waits for an Admin in Approve Payments before it can be paid. Money moves at that step, not this one.`
+                                    : `Above ${formatToRoundedIndianRupee(TIER_L2_ABOVE_EXPENSES)} the CEO approves the expense in Approve Payments before it can be paid. Money moves at that step, not this one.`}
                         </p>
                     </div>
                 )}

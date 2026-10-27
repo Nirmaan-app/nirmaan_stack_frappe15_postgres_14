@@ -22,6 +22,9 @@
 // job to the reviewer either way: a transfer that did not line up. The CAUSE moved to the outcome
 // note, which already said which case a row was.
 
+import { CARD_SOURCE } from "./creditCardImport";
+import { PORTER_SOURCE } from "./porterImport";
+
 export const ROW_PENDING_MATCH = "Pending match run";
 export const ROW_MATCHED = "Matched";
 export const ROW_MISMATCHED = "Mismatched";
@@ -222,7 +225,7 @@ export const canUndoOutflow = (role: string | null | undefined, userId: string |
  * with two Cashbook rules of their own: no Skip while the Cashbook job has not written the line
  * (`Pending match run`), and Unskip only for a hand skip.
  */
-export const NEVER_MATCHED_SOURCES: ReadonlySet<string> = new Set(["Cashbook"]);
+export const NEVER_MATCHED_SOURCES: ReadonlySet<string> = new Set(["Cashbook", PORTER_SOURCE, CARD_SOURCE]);
 
 /**
  * The sources whose statement names who spent the money (#1314): a Create from their line writes

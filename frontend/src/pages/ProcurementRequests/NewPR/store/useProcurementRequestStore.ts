@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
-import { ProcurementRequestItem, CategorySelection, CategoryMakesMap, SelectedHeaderTag } from '../types';
+import { ProcurementRequestItem, CategorySelection, CategoryMakesMap } from '../types';
 
 // Interface for session-added makes state
 type SessionAddedMakes = Record<string, Set<string>>; // CategoryName -> Set<MakeName>
@@ -10,14 +10,12 @@ interface ProcurementRequestState {
     mode: 'create' | 'edit' | 'resolve';
     projectId: string | null;
     prId: string | null;
-    selectedWP: string;
-    selectedHeaderTags: SelectedHeaderTag[]; // New multi-header support
     procList: ProcurementRequestItem[];
     selectedCategories: CategorySelection[]; // The final derived list with all relevant makes
     undoStack: ProcurementRequestItem[];
     newPRComment: string;
     isInitialized: boolean;
-    initialCategoryMakes: CategoryMakesMap; // Combined baseline makes from all selected packages
+    initialCategoryMakes: CategoryMakesMap; // Combined baseline makes from all the project's packages
     sessionAddedMakes: SessionAddedMakes; // Track makes added via dialog
 
     // --- Actions ---
@@ -26,9 +24,8 @@ interface ProcurementRequestState {
         projectId?: string,
         prId: string | undefined,
         wpSpecificInitialMakes: CategoryMakesMap | undefined,
-        initialPrData?: { workPackage: string, selectedHeaderTags: SelectedHeaderTag[], procList: ProcurementRequestItem[], categories: CategorySelection[] }
+        initialPrData?: { procList: ProcurementRequestItem[], categories: CategorySelection[] }
     ) => void;
-    setSelectedHeaders: (headers: SelectedHeaderTag[], combinedMakes: CategoryMakesMap) => void;
     addProcItem: (item: ProcurementRequestItem) => boolean;
     updateProcItem: (updatedItem: Partial<ProcurementRequestItem> & { uniqueId: string }) => void;
     deleteProcItem: (itemName: string) => void;
@@ -96,8 +93,6 @@ export const useProcurementRequestStore = create<ProcurementRequestState>()(
             mode: 'create',
             projectId: null,
             prId: null,
-            selectedWP: '',
-            selectedHeaderTags: [],
             procList: [],
             selectedCategories: [],
             undoStack: [],
@@ -121,8 +116,6 @@ export const useProcurementRequestStore = create<ProcurementRequestState>()(
                         mode,
                         projectId,
                         prId: prId || null,
-                        selectedWP: initialPrData?.workPackage || '',
-                        selectedHeaderTags: initialPrData?.selectedHeaderTags || [],
                         procList: initialProcList,
                         initialCategoryMakes: wpSpecificInitialMakes || {},
                         sessionAddedMakes: {},
@@ -132,41 +125,26 @@ export const useProcurementRequestStore = create<ProcurementRequestState>()(
                         isInitialized: true,
                     });
                     get()._recalculateCategories();
-                } else if (initialPrData && initialPrData.procList) {
-                    console.log("Store: Updating procList with fresh data.");
-                    set(state => ({
-                        procList: initialPrData.procList,
-                        selectedWP: initialPrData.workPackage || state.selectedWP,
-                        selectedHeaderTags: initialPrData.selectedHeaderTags || state.selectedHeaderTags,
-                        initialCategoryMakes: wpSpecificInitialMakes || state.initialCategoryMakes,
-                    }));
-                    get()._recalculateCategories();
-                }
-            },
-
-            setSelectedHeaders: (headers, combinedMakes) => {
-                const currentMode = get().mode;
-                console.log(`Store: Setting selected headers in ${currentMode} mode:`, headers);
-                
-                const updates: any = {
-                    selectedHeaderTags: headers,
-                    selectedWP: headers.length > 0 ? headers[0].tag_package : '',
-                    initialCategoryMakes: combinedMakes,
-                };
-
-                // CRITICAL: Only clear procList if we are in 'create' mode.
-                // In 'edit' or 'resolve' mode, we MUST keep existing items.
-                if (currentMode === 'create') {
-                    updates.procList = [];
-                    updates.selectedCategories = [];
-                    updates.sessionAddedMakes = {};
-                    updates.undoStack = [];
-                }
-
-                set(updates);
-                // No immediate recalculate needed as procList is empty or unchanged
-                if (currentMode !== 'create') {
-                    get()._recalculateCategories();
+                } else {
+                    // Same PR context: take fresh items (edit/resolve), and the makes once the
+                    // project has loaded -- in create mode the project can arrive after the
+                    // first initialize, and there is no header step any more to set them later.
+                    const updates: Partial<ProcurementRequestState> = {};
+                    if (initialPrData && initialPrData.procList) {
+                        console.log("Store: Updating procList with fresh data.");
+                        updates.procList = initialPrData.procList;
+                    }
+                    if (
+                        wpSpecificInitialMakes &&
+                        Object.keys(wpSpecificInitialMakes).length > 0 &&
+                        JSON.stringify(wpSpecificInitialMakes) !== JSON.stringify(currentState.initialCategoryMakes)
+                    ) {
+                        updates.initialCategoryMakes = wpSpecificInitialMakes;
+                    }
+                    if (Object.keys(updates).length > 0) {
+                        set(updates);
+                        get()._recalculateCategories();
+                    }
                 }
             },
 
@@ -265,7 +243,6 @@ export const useProcurementRequestStore = create<ProcurementRequestState>()(
                     mode: 'create',
                     projectId: null,
                     prId: null,
-                    selectedWP: '',
                     procList: [],
                     selectedCategories: [],
                     undoStack: [],
@@ -283,7 +260,6 @@ export const useProcurementRequestStore = create<ProcurementRequestState>()(
                 mode: state.mode,
                 projectId: state.projectId,
                 prId: state.prId,
-                selectedWP: state.selectedWP,
                 procList: state.procList,
                 // selectedCategories: state.selectedCategories, // Don't persist derived state
                 newPRComment: state.newPRComment,
