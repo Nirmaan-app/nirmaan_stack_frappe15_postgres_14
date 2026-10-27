@@ -215,6 +215,20 @@ def _purge():
             frappe.db.delete(NPE, {"name": ["in", names]})
         frappe.db.delete(NPE, {"description": ["like", "reimb_test %"]})
 
+    def tombstones():
+        # Every `delete_doc` (a claim, an expense, a receipt File, the users at the end) leaves a Deleted Document
+        # and a "Deleted" Comment (subject "<doctype> <name>", no reference_name). Only the suite's own: its users
+        # by name, the rest by the `reimb_test_` owner or receipt URL in the deleted record's JSON.
+        named = [(dt, u) for dt in ("User", "Nirmaan Users", "Notification Settings") for u in USERS]
+        for dt, pattern in (("Reimbursement", '%"owner": "reimb_test_%'), (NPE, '%"owner": "reimb_test_%'),
+                            ("File", "%/api/method/reimb_test/%")):
+            gone = frappe.get_all("Deleted Document", {"deleted_doctype": dt, "data": ["like", pattern]},
+                                  pluck="deleted_name")
+            named += [(dt, n) for n in gone]
+        for dt, name in named:
+            frappe.db.delete("Comment", {"comment_type": "Deleted", "reference_doctype": dt, "subject": f"{dt} {name}"})
+            frappe.db.delete("Deleted Document", {"deleted_doctype": dt, "deleted_name": name})
+
     scopes = [
         ("notifications", lambda: frappe.db.delete("Nirmaan Notifications", {"recipient": ["in", USERS]})),
         # Before the claims: each links to its claim (ADR-0040). Raw deletes, past the on_trash refusal.
@@ -227,6 +241,8 @@ def _purge():
         ("payees", lambda: frappe.db.delete("Payee", {"ifsc": IFSC, "normalized_account": ["like", f"{PREFIX}%"]})),
         ("users", lambda: [frappe.delete_doc(dt, email, force=True, ignore_permissions=True)
                            for email in USERS for dt in ("Nirmaan Users", "User") if frappe.db.exists(dt, email)]),
+        # Last: the deletes above leave tombstones of their own.
+        ("tombstones", tombstones),
     ]
     failures = []
     for name, action in scopes:

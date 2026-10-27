@@ -97,6 +97,11 @@ its endings. Decision record: `docs/adr/0040-an-approved-reimbursement-becomes-a
   UTR) is read through `claims.get_claim_payments`, scoped to the claims the caller may read, so a claimant
   never depends on reading Non-Project Expenses. That read is the ledger's own DocPerm, not this feature's: on
   localhost (2026-10-27) a Project Manager reads every Non-Project Expense and the whole Approve Payments queue.
+- **In Project Payments a claim's expense is a Non-Project Expense with a Reimbursement tag.** The queue stores
+  its `source_type` as `Reimbursement` (`get_approval_queue.TYPE_REIMBURSEMENT`); the Type column shows the
+  Non-Project pill plus `ReimbursementTag`. A Type filter naming `Non-Project` also matches `Reimbursement`, for
+  is / is not / in / not in (`_widen_non_project`, one place for list, facets and export), and the Non-Project
+  facet count includes them; `Reimbursement` alone narrows to claims (owner, 2026-10-27).
 - **Every read is scoped on the server.** Every Nirmaan role holds READ on the doctype; `integrations/controllers/
   reimbursement.py` narrows it (`has_permission` + `permission_query_conditions`): Admin / HR / Accounts see every
   claim, everyone else only their own (`owner`). The page's tabs are display only.

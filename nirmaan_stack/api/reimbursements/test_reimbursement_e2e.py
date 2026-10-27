@@ -251,6 +251,46 @@ class TestReimbursementEndToEnd(_EndToEndCase):
                 self.assertEqual(self.queue_row(ADMIN, doc.name)["source_type"], "Non-Project")
 
 
+class TestTheTypeFilterCountsAReimbursementAsNonProject(_EndToEndCase):
+    """A reimbursement's expense shows as a Non Project Expense with a Reimbursement tag, so the Type filter and
+    its counts treat it as one; "Reimbursement" alone still narrows to claims."""
+
+    def rows(self, expense, op, types):
+        filters = [["name", "=", expense], ["source_type", op, types]]
+        reply = self.as_user(ADMIN, get_approval_queue.get_approval_queue, filters=filters)
+        return [r["name"] for r in reply["data"]]
+
+    def test_picking_non_project_keeps_the_reimbursement_and_leaving_it_out_drops_it(self):
+        _, expense = self.approve(HR)
+        cases = (
+            ("in", ["Non-Project"], [expense]),
+            ("=", "Non-Project", [expense]),
+            ("in", ["Reimbursement"], [expense]),
+            ("in", ["PO Payment", "Non-Project"], [expense]),
+            ("not in", ["Non-Project"], []),
+            ("!=", "Non-Project", []),
+            ("in", ["Project Expense"], []),
+            ("not in", ["Reimbursement"], []),
+        )
+        for op, types, expected in cases:
+            with self.subTest(op=op, types=types):
+                self.assertEqual(self.rows(expense, op, types), expected)
+
+    def test_the_non_project_count_includes_the_reimbursement(self):
+        _, expense = self.approve(HR)
+        ordinary = frappe.get_doc({"doctype": NPE, "amount": 1000, "description": "reimb_test ordinary expense"})
+        self.as_user(PM, ordinary.insert, ignore_permissions=True)
+        reply = self.as_user(ADMIN, get_approval_queue.get_approval_queue_facets, "source_type",
+                             filters=[["name", "in", [expense, ordinary.name]]])
+        self.assertEqual({v["value"]: v["count"] for v in reply["values"]}, {"Non-Project": 2, "Reimbursement": 1})
+
+    def test_a_claim_alone_still_offers_non_project(self):
+        _, expense = self.approve(HR)
+        reply = self.as_user(ADMIN, get_approval_queue.get_approval_queue_facets, "source_type",
+                             filters=[["name", "=", expense]])
+        self.assertEqual(reply["values"], [{"value": "Non-Project", "count": 1}, {"value": "Reimbursement", "count": 1}])
+
+
 class TestReimbursementBulkActions(_EndToEndCase):
     """The Project Payments bulk bars with reimbursements ticked among ordinary expenses.
 
@@ -429,7 +469,10 @@ class TestReimbursementBulkActions(_EndToEndCase):
         good_claim, good = self.approve(HR)
         paid_claim, paid = self.approve(HR)
         self.assert_moved(self.decide(ACC, paid, "mark_paid", payment=self.payment()), paid, "Paid")
-        payment = frappe.db.get_value("Project Payments", {}, ["name", "status", "modified"], as_dict=True)
+        # The oldest Paid payment: a fixed record, not whichever payment was modified last (rule T1).
+        payment = frappe.db.get_value(
+            "Project Payments", {"status": "Paid"}, ["name", "status", "modified"], as_dict=True, order_by="creation asc"
+        )
         names = [good, paid, "reimb-test-no-such-expense", good] + ([payment.name] if payment else [])
 
         data = self.decide_many(ACC, names, "mark_done")
