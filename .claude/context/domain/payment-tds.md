@@ -655,8 +655,16 @@ Reports hub → **Payment TDS Deduction** tab (report type "TDS Deduction"), gat
   pay from?", this answers "what have we deposited?". Its Expense column links or unlinks the
   challan's TDS Payment expense (§ a challan and its TDS Payment expense); the picker leaves out
   expenses already on another challan (`challanExpense.linkableExpenses`).
-- Project / Payment / Gross / Net columns are **hidden by default**, not deleted (⚠️ hiding `project`
-  also removes its facet dropdown).
+- Project / Payment / Gross columns are **hidden by default**, not deleted (⚠️ hiding `project`
+  also removes its facet dropdown). No Section column (owner 2026-10-27; `tds_section` is still stored).
+- **Payment Status is the vendor payment's status, not the tax's**, so the **Pending tab drops it**
+  (a "Paid" there read as TDS paid). Its statuses are still fetched: Pay TDS's selection gate reads them.
+- **Vendor ID / GST / PAN** come from the vendor's *current* record, joined by the list query
+  (`vendor.vendor_gst as vendor_gst`), so Export All carries them; a landlord row shows its snapshotted PAN.
+- **WO/PO excl. GST / incl. GST**: the order's total sits in **one** column, picked by its GST (WO: the
+  `gst` flag; PO: `tax_amount > 0`), split in `services/tds_register_orders` and served for the whole
+  register by `api/payments/tds_register_orders.get_tds_register_order_values` (`document_name` is a
+  Dynamic Link the list query cannot join). **Paid Amount** (was Net Paid) sits right after TDS Amount.
 
 ---
 
