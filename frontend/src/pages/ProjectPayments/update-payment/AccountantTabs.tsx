@@ -21,8 +21,9 @@ import { useFrappeUpdateDoc, useFrappeDeleteDoc, useFrappePostCall } from 'frapp
 import { useUpdatePaymentRequest } from "../hooks/useUpdatePaymentRequests";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { useExpenseDecision, useExpenseEditAccess } from "@/hooks/useExpenseDecision";
-import { isExpenseDoctype } from "@/utils/expenses/expenseDecision";
+import { splitByLedger } from "@/utils/expenses/expenseDecision";
 import { GstPaymentTag } from "../components/GstPaymentTag";
+import { ReimbursementTag } from "../components/ReimbursementTag";
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { usePublishRefetch, type RefetchRef } from '@/hooks/usePublishRefetch';
 import {
@@ -459,7 +460,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         const skippedNote = skippedLine ? ` ${skippedLine}.` : "";
         // The expenses go in one Mark as Done through the expense decision call, which checks the
         // marker may settle (#1497); each payment is still its own save, as before.
-        const expenseRows = rows.filter((row) => isExpenseDoctype(row.doctype));
+        const { expenses: expenseRows, payments: paymentRows } = splitByLedger(rows);
         if (expenseRows.length) {
             try {
                 const result = await decideExpenses(expenseRows.map((row) => row.name), "mark_done");
@@ -473,7 +474,6 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             }
             setMarkingProgress(expenseRows.length);
         }
-        const paymentRows = rows.filter((row) => !isExpenseDoctype(row.doctype));
         for (let i = 0; i < paymentRows.length; i++) {
             try {
                 await updateDoc(paymentRows[i].doctype, paymentRows[i].name, {
@@ -907,6 +907,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                                             <div className="text-muted-foreground">
                                                 {formatToRoundedIndianRupee(row.amount)}
                                                 <GstPaymentTag payment={row} />
+                                                <ReimbursementTag row={row} />
                                                 {row.vendor
                                                     ? ` · ${vendorLabelMap.get(row.vendor) || row.vendor}`
                                                     : ""}
@@ -965,6 +966,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                                         <div className="text-muted-foreground">
                                             {formatToRoundedIndianRupee(holdRow.amount)}
                                             <GstPaymentTag payment={holdRow} />
+                                            <ReimbursementTag row={holdRow} />
                                             {holdRow.vendor
                                                 ? ` · ${vendorLabelMap.get(holdRow.vendor) || holdRow.vendor}`
                                                 : ""}
@@ -1028,6 +1030,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                                         <div className="text-muted-foreground">
                                             {formatToRoundedIndianRupee(deleteRow.amount)}
                                             <GstPaymentTag payment={deleteRow} />
+                                            <ReimbursementTag row={deleteRow} />
                                             {deleteRow.vendor
                                                 ? ` · ${vendorLabelMap.get(deleteRow.vendor) || deleteRow.vendor}`
                                                 : ""}

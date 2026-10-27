@@ -116,7 +116,7 @@ def create_expense(claim, approver: str):
         "invoice_attachment": receipts_link(claim.get("attachment")),
         "invoice_ref": claim.name,
         "invoice_date": getdate(claim.creation),
-        # No status: born at the ledger's default, Requested, so `NonProjectExpenses.validate` routes it by
+        # No status: born at the ledger's default, Requested, so `expense_decision.apply_starting_status` routes it by
         # the one shared rule, with the claim's approver as the raiser (`approval_raiser.routing_raiser`).
         # The claim is already saved Approved with `approved_by`, which that lookup reads.
     })

@@ -1,4 +1,4 @@
-# ADR 0039 — A Reimbursement is money outside the expense ledgers
+# ADR 0041 — A Reimbursement is money outside the expense ledgers
 
 **Status:** Superseded by [ADR-0040](0040-an-approved-reimbursement-becomes-a-non-project-expense.md) (2026-10-23): an approved claim now becomes a Non-Project Expense and turns Paid with it. Accepted · 2026-10-22 (owner)
 
@@ -23,7 +23,7 @@ import does not match it. It has its own screen, from raising to exporting the a
    amount. The decision saves only `approved_by`, or the `rejection_reason`.
 3. **Where it is paid:** into the claimant's own bank account: the one Payee named in the `payee` field of the
    person's Nirmaan Users row (one account per person), so Payee keeps its shape
-   (ADR-0033 Amendment A). The claim copies the account, as an Expense does; nothing points back.
+   (ADR-0033 Amendment B). The claim copies the account, as an Expense does; nothing points back.
 4. **Receipts:** any files; PDFs and pictures are merged into one PDF on submit.
 5. **The claimant is saved on the claim** (`claimant_name`, `claimant_role`) when it is raised, as the bank account is: a claim never depends on the user record still existing.
 

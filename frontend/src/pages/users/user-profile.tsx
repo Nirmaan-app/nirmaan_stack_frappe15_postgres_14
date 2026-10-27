@@ -12,7 +12,7 @@ import { UserProfileSkeleton } from "@/components/ui/skeleton";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
-import { PROJECT_REQUIRED_PROFILES} from "@/constants/roles";
+import { PROJECT_REQUIRED_PROFILES } from "@/constants/roles";
 import { useUrlParam } from "@/hooks/useUrlParam";
 import { useMyAssets, useRefreshUserAssignments, useUserAssignments } from "@/hooks/useUserAssignments";
 import { withOwnAssets } from "@/utils/ownAssets";
@@ -273,9 +273,10 @@ export default function Profile() {
     return <AlertDestructive error={new Error("User not found")} />;
   }
 
-  // Check if viewed user's role is exempt from project assignment
-  const isProjectExemptRole = PROJECT_EXEMPT_ROLES.includes(data.role_profile || "");
-  // ?tab=assets opens the Assets tab (the sidebar's pending-declaration badge links here).
+  // Only the profiles that need a project get the Projects tab and count -- the same list as the app access gate's
+  // no-project lock, `PROJECT_REQUIRED_PROFILES` (owner, 2026-10-22, code review #10: one list, not two).
+  const isProjectExemptRole = !PROJECT_REQUIRED_PROFILES.includes(data.role_profile || "");
+  // ?tab=assets opens the Assets tab (the app access gate's "Open my assets" links here).
   const profileTabs = [
     "overview",
     ...(isProjectExemptRole ? [] : ["projects"]),

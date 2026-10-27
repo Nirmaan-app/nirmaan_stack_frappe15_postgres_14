@@ -138,10 +138,10 @@ Non-Project Expense); an Expense Request and a PO / WO payment keep decision 9 a
   `services/expense_decision.assert_may_edit` refuses the change through Change account and through a
   document save (`LOCKED_FIELDS` at Reconciliation Pending). The edit dialog and Record Payment read
   the same answer from `get_expense_edit_access`. The row's other fields keep the story-50 edit rule.
-## Amendment A — a person's own bank account (2026-10-22, owner)
+## Amendment B — a person's own bank account (2026-10-22, owner)
 
 Decision 3 said a Payee with no Vendor is paid only through Expenses. It may now also be paid through a
-**Reimbursement** (ADR-0039), into the claimant's own bank account.
+**Reimbursement** (ADR-0041), into the claimant's own bank account.
 
 - **The link lives on the person, not on the Payee.** Nirmaan Users gains one field, `payee` (Link → Payee): **one
   account per person** (owner, 2026-10-22, replacing a first cut that let a person hold several through a `User

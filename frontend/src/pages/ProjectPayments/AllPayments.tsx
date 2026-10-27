@@ -63,6 +63,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { getFrappeError } from "@/utils/frappeErrors"
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice"
 import { GstPaymentTag } from "./components/GstPaymentTag"
+import { ReimbursementTag } from "./components/ReimbursementTag"
 import {
     AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -642,7 +643,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                                         </div>
                                         <div className="text-muted-foreground">
                                             {formatToRoundedIndianRupee(deleteRow.amount)}
-                                            <GstPaymentTag payment={deleteRow} /> · {deleteRow.status}
+                                            <GstPaymentTag payment={deleteRow} /><ReimbursementTag row={deleteRow} /> · {deleteRow.status}
                                             {deleteRow.vendor ? ` · ${vendorLabelMap.get(deleteRow.vendor) || deleteRow.vendor}` : ""}
                                         </div>
                                         {deleteRow.raised_by !== user_id && (

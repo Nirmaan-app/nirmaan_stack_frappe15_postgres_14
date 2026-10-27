@@ -57,7 +57,7 @@ export const RenderRightActionButton = ({
   const { selectedProject } = useContext(UserContext);
   // Shared through SWR with the sidebar item, so it costs no extra request.
   const { access: expenseAccess } = useExpenseAccess();
-  const { toggleNewInflowDialog, toggleNewNonProjectInflowDialog, toggleNewPayeeDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewExpenseRequestDialog, toggleNewWODialog, setNewReminderDialog, setEditReminderScheduleName ,toggleNewReimbursementDialog} = useDialogStore()
+  const { toggleNewInflowDialog, toggleNewNonProjectInflowDialog, toggleNewPayeeDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewExpenseRequestDialog, toggleNewWODialog, setNewReminderDialog, setEditReminderScheduleName, toggleNewReimbursementDialog } = useDialogStore()
 
   if (newButtonRoutes[locationPath]) {
     // "Add New Project" uses the shared canManageTendering gate (Admin / PMO /
@@ -179,7 +179,7 @@ export const RenderRightActionButton = ({
         Raise <span className="hidden md:flex pl-1">Reimbursement</span>
       </Button>
     );
-  }  else if (locationPath === "/reminders") {
+  } else if (locationPath === "/reminders") {
     // Reminders are Admin-only to manage (owner ruling): Add, Edit and Delete all share
     // one gate. Every other role with sidebar access sees the table read-only.
     // MUST stay in step with `canManage` in pages/Reminders/RemindersPage.tsx and with

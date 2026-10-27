@@ -266,6 +266,13 @@ def _expense_select(table, source, project_col):
         requested_expr = f'COALESCE(t."gross_amount", {_EXPENSE_AMOUNT})::numeric'
     else:
         tds_join, requested_expr = "", _EXPENSE_AMOUNT
+    # `Non Project Expenses.reimbursement` arrives with `bench migrate`, which every deploy runs before this
+    # code serves (code review finding 10: no per-load column check that would hide a failed migrate).
+    source_type_expr = (
+        f"CASE WHEN COALESCE(e.\"reimbursement\", '') <> '' THEN '{TYPE_REIMBURSEMENT}' ELSE '{source}' END"
+        if source == SOURCE_NON_PROJECT
+        else f"'{source}'"
+    )
     return f"""
         SELECT
             e."name"                        AS name,

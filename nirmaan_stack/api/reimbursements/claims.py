@@ -21,7 +21,11 @@ from nirmaan_stack.services.payees.own_accounts import assert_own_account
 from nirmaan_stack.services.payees.pay_to import copy_payee_account
 from nirmaan_stack.services.reimbursements.access import is_hr
 from nirmaan_stack.services.reimbursements.convert import LINK_FIELD
-from nirmaan_stack.services.reimbursements.expense_link import delete_claim, delete_expense_of
+from nirmaan_stack.services.reimbursements.expense_link import (
+    delete_claim,
+    delete_rejected_expense,
+    lock_expense_of,
+)
 from nirmaan_stack.services.reimbursements.receipts import (
     apply_receipts,
     claim_files,
@@ -52,6 +56,12 @@ def _check(title, amount, receipt_count, description, reimbursement_type) -> Non
     problem = claim_problem(title, amount, receipt_count, description, reimbursement_type)
     if problem:
         frappe.throw(_(problem))
+
+
+def _refuse_delete(claim, user: str) -> None:
+    problem = delete_problem(claim.status, is_claimant=claim.owner == user)
+    if problem:
+        frappe.throw(_(problem), frappe.PermissionError if claim.owner != user else frappe.ValidationError)
 
 
 def _delete_last(names: list[str]) -> None:
@@ -125,14 +135,18 @@ def update_reimbursement(name, title, amount, payee, description=None, file_urls
 
 @frappe.whitelist(methods=["POST"])
 def delete_reimbursement(name) -> dict:
-    """Delete the claimant's own claim while it is Pending Approval or Rejected, with its receipts -- and,
-    for a claim Rejected in the Payments queue, its Rejected expense (ADR-0040)."""
+    """Delete the claimant's own claim while it is Pending Approval or Rejected, with its receipts -- and, for a
+    claim rejected in Payments, its Rejected Non-Project Expense (owner, 2026-10-27; ADR-0040).
+
+    The expense is locked BEFORE the claim, the order a decision or a delete from Payments takes, so this can't
+    deadlock with them (code review 2026-10-27, finding 2). The rule is asked again inside the locks."""
     user = frappe.session.user
+    # Refused before any lock, so someone else's call never holds the claim's expense row.
+    _refuse_delete(frappe.get_doc(DOCTYPE, name), user)
+    expense = lock_expense_of(name)
     claim = frappe.get_doc(DOCTYPE, name, for_update=True)
-    problem = delete_problem(claim.status, is_claimant=claim.owner == user)
-    if problem:
-        frappe.throw(_(problem), frappe.PermissionError if claim.owner != user else frappe.ValidationError)
-    delete_expense_of(name)
+    _refuse_delete(claim, user)
+    delete_rejected_expense(name, expense)
     files = delete_claim(name)
     frappe.db.commit()
     _delete_last(files)

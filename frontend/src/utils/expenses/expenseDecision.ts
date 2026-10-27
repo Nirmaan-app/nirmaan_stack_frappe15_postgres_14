@@ -12,6 +12,17 @@ export const EXPENSE_DOCTYPES: readonly string[] = ["Project Expenses", "Non Pro
 export const isExpenseDoctype = (doctype: string | null | undefined): boolean =>
   !!doctype && EXPENSE_DOCTYPES.includes(doctype);
 
+/**
+ * The Project Payments bulk bars' one split (bulk Approve / Reject, bulk Mark as Paid): the ticked rows by
+ * ledger, each in the order ticked. `expenses` -- both expense ledgers, a reimbursement's expense included
+ * (ADR-0040) -- go in one `decide_expenses` call; `payments` to the payments engine. Keyed on `doctype` only:
+ * `source_type` is a display label, so a reimbursement row is an expense because its ledger is.
+ */
+export const splitByLedger = <T extends { doctype?: string | null }>(rows: readonly T[]): { expenses: T[]; payments: T[] } => ({
+  expenses: rows.filter((row) => isExpenseDoctype(row.doctype)),
+  payments: rows.filter((row) => !isExpenseDoctype(row.doctype)),
+});
+
 /** Mirrors `expense_decision.ACTIONS`, pinned by `expenseDecision.test.ts`. */
 export const EXPENSE_ACTIONS = ["l1_approve", "ceo_approve", "reject", "mark_done", "mark_paid"] as const;
 export type ExpenseAction = (typeof EXPENSE_ACTIONS)[number];

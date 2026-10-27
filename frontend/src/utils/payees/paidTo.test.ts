@@ -160,6 +160,17 @@ describe("rowEligibility: which rows of Payment need to paid can be paid, and ho
     });
 });
 
+describe("a reimbursement's expense on Payment need to paid (ADR-0040)", () => {
+    // What `get_paid_to` answers for one (localhost, 2026-10-27): the claimant's account copied onto the
+    // expense, no Expense Type (so the rule is Not asked and the type blank).
+    const reimbursement: PaidTo = { account, missing: null, payee_rule: "Not asked", ...NO_SWITCH };
+
+    it("can be ticked for bulk Mark as Paid and goes in the bank file, with no expense type", () => {
+        expect(rowEligibility(reimbursement, "")).toEqual({ kind: "payable" });
+        expect(unpayableReason(reimbursement, "", false)).toBeNull();
+    });
+});
+
 describe("unpayableReason: why Mark as Paid leaves a row out (#1464)", () => {
     const paymentWithNone: PaidTo = { account: null, missing: "payment_has_no_account", payee_rule: null, ...NO_SWITCH };
     const requiredWithNone: PaidTo = { account: null, missing: "expense_has_no_account", payee_rule: "Required", ...NO_SWITCH };

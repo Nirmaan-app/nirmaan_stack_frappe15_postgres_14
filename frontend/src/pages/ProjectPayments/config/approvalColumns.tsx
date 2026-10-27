@@ -30,6 +30,7 @@ import {
 } from "../components/DetailPopovers";
 import { ExpenseBankLinesPopover } from "../components/ExpenseBankLinesPopover";
 import { GstPaymentTag } from "../components/GstPaymentTag";
+import { ReimbursementTag } from "../components/ReimbursementTag";
 import { partReconciled } from "../components/expenseBankLinesView";
 import { ExpenseTdsBreakdown } from "@/components/common/ExpenseTdsBreakdown";
 import { shownExpenseTds } from "@/utils/expenses/expenseTds";
@@ -144,23 +145,13 @@ const daysSince = (iso?: string | null): number | null => {
   return Math.floor((Date.now() - then) / 86_400_000);
 };
 
-/** A label with a " / " (e.g. "Reimbursement / Non Project Expense", ADR-0040) stacks its parts, so the pill
- *  stays as narrow as the single-line labels and never spills into the next column. */
+/** A reimbursement's expense IS a Non-Project Expense (ADR-0040): it wears that pill, and the
+ *  ReimbursementTag beside it says which kind, the way a GST payment carries its "GST" tag. */
 const TypeChip = ({ type }: { type: ApprovalQueueRow["source_type"] }) => {
-  const label = TYPE_LABEL[type] ?? type;
-  const [main, ...rest] = label.split(" / ");
-  if (rest.length === 0) {
-    // Every one-line label keeps its original pill, unchanged.
-    return (
-      <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${TYPE_BADGE[type] ?? ""}`}>
-        {label}
-      </span>
-    );
-  }
+  const shown = type === "Reimbursement" ? "Non-Project" : type;
   return (
-    <span className={`inline-flex max-w-full flex-col rounded-2xl px-2 py-0.5 text-[11px] font-medium leading-tight ring-1 ring-inset ${TYPE_BADGE[type] ?? ""}`}>
-      <span className="whitespace-nowrap">{main}</span>
-      <span className="text-[10px] font-normal opacity-80">{rest.join(" / ")}</span>
+    <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${TYPE_BADGE[shown] ?? ""}`}>
+      {TYPE_LABEL[shown] ?? shown}
     </span>
   );
 };
@@ -412,10 +403,11 @@ const REGISTRY: Record<
       <span className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1">
         <TypeChip type={row.original.source_type} />
         <GstPaymentTag payment={row.original} />
+        <ReimbursementTag row={row.original} />
       </span>
     ),
-    // Sized for the longest one-line label, "Non Project Expense", rendered as a pill; the Reimbursement
-    // label stacks onto two lines inside its pill (TypeChip), so it fits the same width.
+    // Sized for the longest label, "Non Project Expense", rendered as a pill; a tag (GST, Reimbursement)
+    // wraps onto the next line beside it.
     size: 158,
     meta: { exportHeaderName: "Type", exportValue: (r: ApprovalQueueRow) => TYPE_LABEL[r.source_type] ?? r.source_type },
   }),

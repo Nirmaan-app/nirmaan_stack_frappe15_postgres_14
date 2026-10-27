@@ -1,6 +1,6 @@
 /**
  * The Payee page's Linked User tab: the person whose own bank account this is (`Nirmaan Users.payee`), into
- * which their Reimbursements are paid (ADR-0033 Amendment A). At most one person holds a Payee. Only that
+ * which their Reimbursements are paid (ADR-0033 Amendment B). At most one person holds a Payee. Only that
  * person links an account to themselves, from Raise Reimbursement, so this tab shows the link and never changes it.
  */
 

@@ -28,7 +28,7 @@ export interface PayeePageTabItem {
 
 /** Payee Overview first, then Linked Vendors and Linked User with their counts. A Payee lists no payments
  *  or expenses: none points at it (#1434). Linked User is the person who has it in their own bank accounts
- *  (Reimbursements, ADR-0033 Amendment A): one at most. */
+ *  (Reimbursements, ADR-0033 Amendment B): one at most. */
 export const payeePageTabs = (
     { vendors, users = 0 }: Pick<PayeeSummary, "vendors"> & { users?: number },
 ): PayeePageTabItem[] => [

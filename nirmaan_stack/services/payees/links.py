@@ -121,7 +121,7 @@ def payee_page(name: str) -> dict:
 
 
 def linked_user(name: str) -> dict | None:
-    """The person whose own bank account Payee `name` is (`Nirmaan Users.payee`, ADR-0033 Amendment A), or
+    """The person whose own bank account Payee `name` is (`Nirmaan Users.payee`, ADR-0033 Amendment B), or
     None: `{name, full_name, role_profile}`. At most one person holds a Payee (`own_accounts.check_own_account`)."""
     return frappe.db.get_value(
         "Nirmaan Users", {"payee": name}, ["name", "full_name", "role_profile"], as_dict=True, order_by="creation asc",

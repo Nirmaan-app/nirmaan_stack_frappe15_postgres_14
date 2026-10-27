@@ -469,6 +469,7 @@ doc_events = {
             # An approval that would withhold Office Rent's tax is refused without the landlord,
             # before the row is written. After the doctype's `validate`, which sets a new row's status.
             "nirmaan_stack.integrations.controllers.expense_tds.validate",
+            # A reimbursement's Rejected expense is final (ADR-0040): no other status after it.
             "nirmaan_stack.integrations.controllers.reimbursement_expense.validate",
         ],
         # Office Rent withholds 10% TDS when approved (#1525): a row born Approved here, an
@@ -483,7 +484,8 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.expense_request_notify.on_expense_update",
             # A card spend's type edited: remembered for its merchant (#1569). Exits unless both hold.
             "nirmaan_stack.integrations.controllers.card_merchant_memory.on_expense_update",
-            "nirmaan_stack.integrations.controllers.reimbursement_expense.on_update"
+            # A reimbursement's expense (ADR-0040): Paid / Rejected / an undone match moves its claim.
+            "nirmaan_stack.integrations.controllers.reimbursement_expense.on_update",
         ],
         "on_trash": [
             # A claimant can't delete their own reimbursement's expense unless Rejected -- FIRST (ADR-0040).
@@ -519,9 +521,6 @@ doc_events = {
             # Carries Paid back onto the originating request, then tells the requester.
             # STATE FIRST -- the request must already read Paid when the message goes out.
             "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_status_changed",
-            "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_paid",
-            # Rejected in Payments -> the originating request is Rejected, with the reason.
-            "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_rejected",
             "nirmaan_stack.integrations.controllers.expense_request_notify.on_expense_update",
         ],
         # generate_versions needs the pre-delete data, so it stays on on_trash.

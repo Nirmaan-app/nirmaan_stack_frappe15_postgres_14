@@ -63,7 +63,8 @@ export function editProblem(status: string, isClaimant: boolean): string | null 
     return null;
 }
 
-/** Why the person may not delete the claim, or null: the claimant, while pending or after rejection. */
+/** Why the person may not delete the claim, or null: the claimant, while pending or once rejected (owner,
+ *  2026-10-27). A claim rejected in Payments takes its Rejected expense with it (the server does that). */
 export function deleteProblem(status: string, isClaimant: boolean): string | null {
     if (!isClaimant) return "Only the person who raised a claim can delete it.";
     if (status !== PENDING && status !== REJECTED) return `This claim is ${status}, so it can't be deleted.`;

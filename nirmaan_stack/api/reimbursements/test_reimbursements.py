@@ -22,6 +22,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.approvals import expense_actions
+from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.api.reimbursements import bank_accounts, claims, review
 from nirmaan_stack.services.payees import own_accounts
 from nirmaan_stack.services.reimbursements import convert, expense_link, receipts
@@ -205,7 +206,10 @@ def _purge():
     failure can't strand the rest (CODING_STANDARDS § Writing tests)."""
     def test_expenses():
         claims_ = frappe.get_all("Reimbursement", {"owner": ["in", USERS]}, pluck="name")
-        names = frappe.get_all(NPE, {"reimbursement": ["in", claims_ or [""]]}, pluck="name")
+        # ⚠️ NEVER `claims_ or [""]`: `reimbursement` is a nullable Link, so `["in", [""]]` renders as
+        # `ifnull(reimbursement, '') in ('')` and matches EVERY ordinary Non-Project Expense. On 2026-10-27 a
+        # single-test run (no claim left to purge) raw-deleted ~891 real expenses that way.
+        names = frappe.get_all(NPE, {"reimbursement": ["in", claims_]}, pluck="name") if claims_ else []
         if names:
             frappe.db.delete("Comment", {"reference_doctype": NPE, "reference_name": ["in", names]})
             frappe.db.delete(NPE, {"name": ["in", names]})
@@ -429,6 +433,7 @@ class TestRaiseEditDelete(ReimbursementTestCase):
             self.as_user(PM, claims.update_reimbursement, name, "Changed", 10, payee, reimbursement_type="Travel")
 
     def test_delete_while_pending_or_rejected_but_never_approved(self):
+        """Owner, 2026-10-27: the claimant deletes a Pending or Rejected claim. One HR rejected has no expense."""
         pending = self.raise_claim(PM)
         self.as_user(PM, claims.delete_reimbursement, pending)
         self.assertFalse(frappe.db.exists("Reimbursement", pending))
@@ -681,9 +686,13 @@ class TestClaimExpense(ReimbursementTestCase):
         self.assertEqual(frappe.db.get_value("Reimbursement", name, "status"), APPROVED)
 
     def test_rejecting_in_the_payments_queue_rejects_the_claim_with_that_reason(self):
+        if not frappe.db.exists("User", CEO_AUTHORIZED_USER):
+            self.skipTest("the CEO user is not on this site")
         name, expense = self.approve(ADMIN, amount=80000)
-        reply = expense_actions._bulk_expense_action(
-            [expense.name], "reject", " Duplicate of an earlier claim ", "CEO Pending", "ceo_approval_date", True,
+        self.assertEqual(frappe.db.get_value(NPE, expense.name, "status"), "CEO Pending")
+        reply = self.as_user(
+            CEO_AUTHORIZED_USER, expense_actions.decide_expenses,
+            expense_ids=[expense.name], action="reject", reason=" Duplicate of an earlier claim ",
         )
         self.assertEqual(reply["data"]["failed"], [])  # the engine reports failures under data.failed
         claim = frappe.get_doc("Reimbursement", name)
@@ -726,41 +735,71 @@ class TestClaimExpense(ReimbursementTestCase):
         doc.description = "Other fields still save"
         doc.save(ignore_permissions=True)
 
-    def test_the_claimant_cannot_delete_their_own_claims_expense_unless_it_is_rejected(self):
-        """Code review 2026-10-23: the claimant's delete is allowed only while Pending or Rejected (owner), so their
-        own claim's expense can't be deleted around that rule (it would take an Approved / Paid claim with it)."""
+    def test_the_claimant_cannot_delete_their_own_claims_expense_directly(self):
+        """Owner, 2026-10-27: the claimant removes a Rejected expense by deleting their claim (Reimbursements), never
+        the expense itself, in any status. Project Managers and many other roles hold delete on Non-Project
+        Expenses, so a direct delete would take an Approved or Paid claim around the claim's own rule."""
         name, expense = self.approve(HR)
-        with self.assertRaises(frappe.ValidationError):
-            self.as_user(PM, frappe.delete_doc, NPE, expense.name, ignore_permissions=True)
-        frappe.db.rollback()
-        self.assertTrue(frappe.db.exists("Reimbursement", name))
+        for status in (None, "Rejected"):
+            if status:
+                self.move(expense, status, "Wrong project")
+            with self.subTest(status=status or "Approved"), self.assertRaises(frappe.ValidationError):
+                self.as_user(PM, frappe.delete_doc, NPE, expense.name, ignore_permissions=True)
+            frappe.db.rollback()
+            self.assertTrue(frappe.db.exists("Reimbursement", name))
+            self.assertTrue(frappe.db.exists(NPE, expense.name))
+
+    def test_the_claimant_deleting_a_claim_rejected_in_payments_deletes_its_expense(self):
+        """Owner, 2026-10-27: the claim and its Rejected expense go together, with the claim's receipts."""
+        name, expense = self.approve(HR)
         self.move(expense, "Rejected", "Wrong project")
-        self.as_user(PM, frappe.delete_doc, NPE, expense.name, ignore_permissions=True)
+        frappe.db.commit()
+        receipt_files = [f.name for f in receipts.claim_files(name)]
+        self.as_user(PM, claims.delete_reimbursement, name)
         self.assertFalse(frappe.db.exists("Reimbursement", name))
+        self.assertFalse(frappe.db.exists(NPE, expense.name))
+        self.assertTrue(set(receipt_files) <= set(self.storage.deleted))
 
     def test_the_claimant_cannot_delete_a_rejected_claim_whose_expense_was_revived(self):
-        """Code review finding 2: a claim Rejected in Payments whose expense was later put back must not take
-        that live expense with it."""
+        """A claim Rejected in Payments whose expense was later put back must not take that live expense with it,
+        and the refusal says what Accounts can do (code review 2026-10-27, finding 4: a reject is refused there)."""
         name, expense = self.approve(HR)
         self.move(expense, "Rejected", "Wrong project")
-        # Revival is refused through the document now (Rejected is final); this stands in for an older row or a
-        # raw write that got past it, which the claim's delete must still refuse. Raw on purpose: test setup.
+        # Revival is refused through the document (Rejected is final); this stands in for an older row or a raw
+        # write that got past it. Raw on purpose: test setup.
         frappe.db.set_value(NPE, expense.name, "status", "Approved", update_modified=False)
         frappe.db.commit()
-        self.assertEqual(frappe.db.get_value("Reimbursement", name, "status"), REJECTED)
         with self.assertRaises(frappe.ValidationError) as refused:
             self.as_user(PM, claims.delete_reimbursement, name)
-        self.assertIn(expense.name, str(refused.exception))
+        message = str(refused.exception)
+        self.assertIn(expense.name, message)
+        self.assertIn("Accounts can delete that expense there", message)
+        self.assertNotIn("reject", message.lower().split("can't be deleted")[1])
         frappe.db.rollback()
         self.assertTrue(frappe.db.exists("Reimbursement", name))
         self.assertTrue(frappe.db.exists(NPE, expense.name))
 
-    def test_the_claimant_deleting_a_claim_rejected_in_payments_deletes_its_expense(self):
+    def test_the_claimants_delete_locks_the_expense_before_the_claim(self):
+        """Code review 2026-10-27, finding 2: a decision or a delete from Payments locks the expense, then reaches
+        the claim in its hooks. The claimant's delete takes the same order, so the two can never deadlock."""
         name, expense = self.approve(HR)
         self.move(expense, "Rejected", "Wrong project")
         frappe.db.commit()
-        self.as_user(PM, claims.delete_reimbursement, name)
-        self.assertFalse(frappe.db.exists("Reimbursement", name))
+        order = []
+        real_lock, real_get_doc = claims.lock_expense_of, frappe.get_doc
+
+        def lock(claim_name):
+            order.append("expense")
+            return real_lock(claim_name)
+
+        def get_doc(*args, **kwargs):
+            if kwargs.get("for_update") and args[:1] == ("Reimbursement",):
+                order.append("claim")
+            return real_get_doc(*args, **kwargs)
+
+        with patch.object(claims, "lock_expense_of", lock), patch.object(frappe, "get_doc", get_doc):
+            self.as_user(PM, claims.delete_reimbursement, name)
+        self.assertEqual(order, ["expense", "claim"])
         self.assertFalse(frappe.db.exists(NPE, expense.name))
 
     def test_the_bank_import_links_settles_and_undoes_it_like_any_expense(self):

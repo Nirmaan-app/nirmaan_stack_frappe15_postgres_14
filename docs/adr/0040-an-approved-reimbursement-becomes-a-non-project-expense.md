@@ -1,16 +1,16 @@
 # ADR 0040 — An approved Reimbursement becomes a Non-Project Expense
 
-**Status:** Accepted · 2026-10-23 (owner) · Supersedes [ADR-0039](0039-reimbursement-is-money-outside-the-ledgers.md)
+**Status:** Accepted · 2026-10-23 (owner) · Supersedes [ADR-0041](0041-reimbursement-is-money-outside-the-ledgers.md)
 decision "money of its own" and its "No Paid status yet"
 
 ## Context
 
-ADR-0039 kept a Reimbursement outside the expense ledgers: Approved was where a claim ended, the payers
+ADR-0041 kept a Reimbursement outside the expense ledgers: Approved was where a claim ended, the payers
 exported the Approved claims and paid them through the bank, and nothing recorded that a claim was paid. Its
 own Consequences named the cost: a claim could be exported, and paid, twice; reimbursement transfers showed as
 unmatched lines in the bank-statement import; reimbursed money was missing from every outflow figure.
 
-ADR-0039 rejected "a Reimbursement that creates a Non-Project Expense on approval" because the owner wanted a
+ADR-0041 rejected "a Reimbursement that creates a Non-Project Expense on approval" because the owner wanted a
 self-contained screen with its own approval rule. This decision keeps that screen and that rule, and pays the
 claim through the ledger.
 
@@ -54,6 +54,14 @@ expense from Project Payments & Expenses like any other; the claim follows only 
    claim is how it gets paid twice); a claim's payment (expense, stage, UTR) shows in its detail sheet, not as a
    table column (owner, 2026-10-23); a new Paid tab.
 
+### Amendment A (2026-10-27, owner) -- deleting from the claim side
+
+Refines the claimant's part of decision 6. The claimant deletes their claim while it is Pending Approval or
+Rejected, from Reimbursements; a claim rejected in Payments takes its Rejected expense with it. The claimant
+never deletes their claim's expense directly. Deleting the expense, by anyone else and in any status, deletes
+the claim, and every screen that deletes it says so. Both paths lock the expense before the claim, so they
+cannot deadlock (code review 2026-10-27).
+
 ## Considered options
 
 - **Reimbursement as a fifth kind of payment on the Project Payments screens**, the claim holding its own
@@ -85,6 +93,7 @@ expense from Project Payments & Expenses like any other; the claim follows only 
   the owner (2026-10-23, code review finding 4): the `reimbursement` link ties every expense to its claim, so a
   change is checked against the claim rather than blocked. The owner gives no extra rights (no owner-only rules).
 - A reimbursement's expense has no Expense Type, so reports that group spend by type show it under a blank type;
-  the Payments queue labels it by its claim link ("Reimbursement / Non Project Expense"). The old
+  the Payments queue labels it by its claim link: a "Non Project Expense" pill with a "Reimbursement" tag beside
+  it, as a GST payment carries "GST" (export and filter: "Reimbursement / Non Project Expense"). The old
   "Reimbursements" Expense Type is to be deleted (owner, 2026-10-23).
 - Nothing migrates: the feature had not shipped, so no claim predates this decision.

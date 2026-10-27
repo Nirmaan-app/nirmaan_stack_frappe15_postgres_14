@@ -3,7 +3,7 @@
 A **Reimbursement** is a Nirmaan user's claim to be repaid money they spent for work. Approving it creates the
 Non-Project Expense that pays it; Accounts pays that expense from Project Payments & Expenses and the claim follows
 its endings. Decision record: `docs/adr/0040-an-approved-reimbursement-becomes-a-non-project-expense.md`
-(supersedes ADR-0039). Glossary: root `GLOSSARY.md`
+(supersedes ADR-0041). Glossary: root `GLOSSARY.md`
 § Reimbursements (*Reimbursement*, *Claimant*, *HR approval limit*) and § Payees (*Own bank account*).
 
 ## Load-bearing invariants
@@ -38,7 +38,7 @@ its endings. Decision record: `docs/adr/0040-an-approved-reimbursement-becomes-a
   `invoice_date` = the claim's ID / raised date (the claim is the invoice); `owner` = the claimant
   (an owner-only `set_value` after insert, since Frappe stamps the session user).
 - **The expense's starting status is the expense rule with the APPROVER as raiser, in ONE place**: the expense is
-  born Requested and `NonProjectExpenses.validate` routes it like any other, reading its raiser through
+  born Requested and `expense_decision.apply_starting_status` (both ledgers' `validate`) routes it like any other, reading its raiser through
   `approval_raiser.routing_raiser`, which returns the claim's `approved_by` when `reimbursement` is set (code
   review finding 6: no second copy of the rule in `convert.py`). HR's claims are auto-approved; an Admin's
   approval clears L1 (≤ ₹50,000 Approved, above CEO Pending); the CEO's clears both. `expense_raiser` (who
@@ -46,8 +46,8 @@ its endings. Decision record: `docs/adr/0040-an-approved-reimbursement-becomes-a
 - **The claim follows only its expense's endings** (`services/reimbursements/expense_link.claim_status_for`, the
   pure rule, run by the expense `on_update` hook `integrations/controllers/reimbursement_expense`): Approved
   while the expense is Requested / CEO Pending / Approved / Reconciliation Pending; Paid → claim `Paid` (nothing
-  else sets it); Rejected → claim Rejected with the queue's reason (`expense_actions._process_expense` puts it on
-  `doc.flags.rejection_reason`. The single-row Reject in Approve Payments sends EVERY expense row through that same engine with a required reason (`ApprovePayments.handlePaymentUpdate`, `PaymentActionDialog.rejectsExpense`; code review 2026-10-23), never a bare status PATCH. Only a Desk rejection gets `FALLBACK_REASON`); Paid → back (an undone match) → claim
+  else sets it); Rejected → claim Rejected with the queue's reason (`expense_decision.decide` puts it on
+  `doc.flags[REJECTION_REASON_FLAG]`. Every Reject in Approve Payments, single-row or bulk, goes through develop's one decision call `expense_actions.decide_expenses` with a required reason (`ApprovePayments.handlePaymentUpdate`, `PaymentActionDialog.rejectsExpense`), never a bare status PATCH. Only a rejection that skips `decide` gets `FALLBACK_REASON`); Paid → back (an undone match) → claim
   Approved. The claim is written with `doc.save`, in the expense's transaction.
 - **The `reimbursement` link can't be forged** (code review 2026-10-23): it is set only on the insert
   `convert.create_expense` makes (server-side flag `convert.APPROVAL_FLAG`), never changed or removed afterwards,
@@ -56,9 +56,10 @@ its endings. Decision record: `docs/adr/0040-an-approved-reimbursement-becomes-a
   `approval_raiser.REIMBURSEMENT_APPROVAL_FLAG`). A typed-in link (REST, import) is refused; the field is
   `no_copy`, so Desk's Duplicate drops it (the copy is an ordinary expense). Nobody can skip approval or delete /
   pay someone else's claim through it.
-- **The claimant can't delete their own claim's expense unless it is Rejected** (`expense_link.refuse_claimant_delete`,
-  the expense `on_trash`, first): their claim delete is Pending / Rejected only. Accounts / Admin deleting someone
-  else's still deletes the claim.
+- **The claimant can't delete their own claim's expense directly, in any status** (`expense_link.refuse_claimant_delete`,
+  the expense `on_trash`, first; owner, 2026-10-27): a Rejected one goes only by deleting the claim from
+  Reimbursements. Many roles (Project Managers included) hold delete on Non-Project Expenses, so this is what stops
+  a claimant deleting an Approved or Paid claim through its expense. Anyone else deleting it still deletes the claim.
 - **The expense edit dialog needs no type for these** (`EditNonProjectExpense`): it shows "Reimbursement · <claim>"
   where the type picker is, and keeps the type empty.
 - **Edits to the expense never touch the claim** (owner, 2026-10-23): amount, account (Change account), anything.
@@ -74,13 +75,17 @@ its endings. Decision record: `docs/adr/0040-an-approved-reimbursement-becomes-a
   Reconciliation Pending (`link_lines.get_linkable_expenses` lists it, with a blank type). The settle and
   `unreconcile._revert_expense` both `doc.save` inside `outflow_import_write`, so the claim follows in the same
   savepoint. Pinned by `test_reimbursements.test_the_bank_import_links_settles_and_undoes_it_like_any_expense`.
-- **Deleting goes in pairs** (owner, 2026-10-23, revised the same day to match Expense Requests): deleting the
-  expense in ANY status deletes the claim -- its `after_delete` (`expense_link.delete_with_expense`) clears the
-  claim's notifications, deletes it, and deletes its receipts after the commit through `frappe.db.after_commit`.
-  Frappe's delete permission and the bank-link guard still decide whether the expense may go. The claimant deletes
-  their claim only while Pending Approval or Rejected (`rules.delete_problem`); a claim with an expense takes it
-  along only while that expense is Rejected (`expense_link.delete_expense_problem` refuses a revived one, code
-  review finding 2). A flag stops each side deleting the other back.
+- **Deleting** (owner, 2026-10-27): the claimant deletes their claim while it is Pending Approval or Rejected
+  (`rules.delete_problem`, twin `rules.ts`, shared cases JSON). A pending claim, or one HR or Admin rejected, has no
+  expense; a claim rejected in Payments takes its Rejected expense with it (`expense_link.delete_rejected_expense`),
+  and one whose expense is not Rejected (an older row, a raw write) is refused, telling the claimant Accounts can
+  delete that expense. Deleting the expense in ANY status deletes the claim (`expense_link.delete_with_expense`:
+  clears its notifications, deletes it, deletes its receipts after the commit through `frappe.db.after_commit`);
+  Frappe's delete permission and the bank-link guard still decide whether it may go, and every delete screen says
+  the claim goes too (the Non-Project Expenses page naming it, Project Payments' accountant tabs, All Payments).
+  **One lock order, expense then claim** (code review 2026-10-27, finding 2): the claimant's delete locks the
+  expense (`expense_link.lock_expense_of`) before the claim, as a decision and a delete from Payments do, so the
+  paths can wait on each other but never deadlock. A flag stops the expense's hooks deleting the claim back.
 - **The "Reimbursements" Expense Type is to be deleted** (owner, 2026-10-23); until then it keeps its HR / PM roles
   (an Expense Request route that skips the HR ₹2,000 rule). Nothing here uses it.
 - **"Payment need to be paid" has no Export** (owner, 2026-10-23; `ClaimsTable` `showExportButton={!approved}`):
@@ -89,8 +94,9 @@ its endings. Decision record: `docs/adr/0040-an-approved-reimbursement-becomes-a
 - **No tick-and-Export, no Payment column in the tables, and no bell when the claim follows its expense** (owner,
   2026-10-23; a Paid / Payments-rejection bell was added and removed the same day). Only the HR / Admin Approved
   and Rejected bells exist. The claim's payment (expense, stage,
-  UTR) is read through `claims.get_claim_payments`, scoped to the claims the caller may read, because most
-  claimants cannot read Non-Project Expenses.
+  UTR) is read through `claims.get_claim_payments`, scoped to the claims the caller may read, so a claimant
+  never depends on reading Non-Project Expenses. That read is the ledger's own DocPerm, not this feature's: on
+  localhost (2026-10-27) a Project Manager reads every Non-Project Expense and the whole Approve Payments queue.
 - **Every read is scoped on the server.** Every Nirmaan role holds READ on the doctype; `integrations/controllers/
   reimbursement.py` narrows it (`has_permission` + `permission_query_conditions`): Admin / HR / Accounts see every
   claim, everyone else only their own (`owner`). The page's tabs are display only.
@@ -103,7 +109,7 @@ its endings. Decision record: `docs/adr/0040-an-approved-reimbursement-becomes-a
   (`pay_to.copy_payee_account`) and no link to the Payee (owner, 2026-10-22). A person has one account, so an
   edit re-copies it onto the claim.
 - **The own bank account lives on Nirmaan Users, one per person.** `Nirmaan Users.payee` is a Link to one Payee
-  (owner, 2026-10-22: one account, no child table); Payee has no user field (ADR-0033 Amendment A). It is set only
+  (owner, 2026-10-22: one account, no child table); Payee has no user field (ADR-0033 Amendment B). It is set only
   by `own_accounts.add_own_account`, which refuses a second account; the Nirmaan Users `validate` hook
   (`check_own_account`) refuses every other change and a Payee that is already another person's.
 - **The person corrects their own account** from their profile's Payee tab (`own_accounts.edit_own_account`, the Payee module's `edit_payee_reply` underneath). Refused for someone else's account and for one a Vendor is also paid into (`links.linked_vendors`). Claims keep their copy.
@@ -128,4 +134,4 @@ its endings. Decision record: `docs/adr/0040-an-approved-reimbursement-becomes-a
 | Rules | `services/reimbursements/` (`rules`, `access`, `receipts`, `convert`, `expense_link`), `services/payees/own_accounts.py` |
 | Hooks | `integrations/controllers/reimbursement.py`, `reimbursement_notify.py`, `nirmaan_users.py` (`validate`), `reimbursement_expense.py` (on `Non Project Expenses`) |
 | Screen | `frontend/src/pages/Reimbursements/`, `utils/reimbursements/rules.ts`, sidebar entry + "Raise Reimbursement" header button; the read-only **Payees** tab on a user's profile (`pages/users/components/UserPayeesTab.tsx`) |
-| Tests | `services/reimbursements/test_rules.py`, `api/reimbursements/test_reimbursements.py`, `frontend/src/utils/reimbursements/rules.test.ts` |
+| Tests | `services/reimbursements/test_rules.py`, `api/reimbursements/test_reimbursements.py`, `api/reimbursements/test_reimbursement_e2e.py` (raise → decide → Payments' `decide_expenses` → the claim follows; the bulk approve / reject / Mark as Paid bars with reimbursements among ordinary expenses), `frontend/src/utils/reimbursements/rules.test.ts` |
