@@ -54,15 +54,13 @@ export const ASSET_MANAGEMENT_FIELDS = [
 ] as const;
 
 /**
- * The assignment plus its receive / return fields (owner, 2026-10-13): the profile cards and the
- * Return Request tab. Kept apart from ASSET_MANAGEMENT_FIELDS so the other lists don't need the columns.
+ * The assignment plus its receive fields (owner, 2026-10-13): the profile cards. Kept apart from
+ * ASSET_MANAGEMENT_FIELDS so the other lists don't need the columns. Returns were removed (2026-10-26).
  */
 export const ASSET_MANAGEMENT_RETURN_FIELDS = [
     ...ASSET_MANAGEMENT_FIELDS,
     'received',
     'received_on',
-    'returned',
-    'returned_on',
 ] as const;
 
 /**
@@ -157,10 +155,6 @@ export const ASSET_CACHE_KEYS = {
 
     // Asset Management (for individual asset assignments)
     assetManagement: (assetId: string) => `${ASSET_MANAGEMENT_DOCTYPE}_${assetId}`,
-
-    // Returns waiting for approval (useReturnRequests) and their assets' details
-    RETURN_REQUESTS: `${ASSET_MANAGEMENT_DOCTYPE}_return_requests`,
-    returnRequestAssets: (assetIds: string[]) => `${ASSET_MASTER_DOCTYPE}_return_requests:${assetIds.join('|')}`,
 
     // Monthly asset audit: the open audits (useAuditPending), their assets, and the Fulfilled list
     // (a prefix: one key per tab + month + page).

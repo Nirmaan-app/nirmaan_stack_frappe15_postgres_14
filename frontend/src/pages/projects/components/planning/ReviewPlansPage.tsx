@@ -2,6 +2,7 @@ import React, { useState, useMemo } from "react";
 import ReactSelect from 'react-select';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -72,6 +73,8 @@ interface POPlan {
     items: POItem[];
     selectedItems: Set<string>;
     deliveryDate: string;
+    /** Optional; saved to the plan's `remarks`. */
+    remarks?: string;
     isCritical: boolean;
     category?: string;
     task?: string;
@@ -202,6 +205,13 @@ export const ReviewPlansPage: React.FC<ReviewPlansPageProps> = ({
         updatedPlans[planIndex].deliveryDate = date
             ? format(date, "yyyy-MM-dd")
             : "";
+        onPlansChange(updatedPlans);
+    };
+
+    // Update remarks for a plan
+    const updateRemarks = (planIndex: number, remarks: string) => {
+        const updatedPlans = [...plans];
+        updatedPlans[planIndex] = { ...updatedPlans[planIndex], remarks };
         onPlansChange(updatedPlans);
     };
 
@@ -603,6 +613,20 @@ export const ReviewPlansPage: React.FC<ReviewPlansPageProps> = ({
                                 <PlanDatePicker
                                     value={plan.deliveryDate}
                                     onChange={(date) => updateDeliveryDate(planIndex, date)}
+                                />
+                            </div>
+
+                            {/* Remarks (optional) */}
+                            <div className="space-y-2">
+                                <label htmlFor={`plan-remarks-${planIndex}`} className="text-sm font-medium">
+                                    Remarks <span className="font-normal text-muted-foreground">(optional)</span>
+                                </label>
+                                <Textarea
+                                    id={`plan-remarks-${planIndex}`}
+                                    placeholder="Any note for this plan"
+                                    value={plan.remarks ?? ""}
+                                    onChange={(e) => updateRemarks(planIndex, e.target.value)}
+                                    rows={2}
                                 />
                             </div>
                         </CardContent>

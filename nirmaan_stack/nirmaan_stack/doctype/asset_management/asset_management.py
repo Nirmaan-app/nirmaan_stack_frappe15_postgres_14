@@ -64,7 +64,7 @@ class AssetManagement(Document):
 		asset (owner, 2026-10-13): tick Received, dated that day. Nobody types these two fields.
 
 		Only when the declaration arrives in this save: an assignment signed before the field existed
-		must not get the date of some later, unrelated save (a return, say).
+		must not get the date of some later, unrelated save.
 		"""
 		if self.get("asset_declaration_attachment") and self.has_value_changed("asset_declaration_attachment") and not self.received:
 			self.received = 1

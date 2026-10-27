@@ -1,14 +1,14 @@
 # Assets — Reference
 
 Company assets (Project tools such as meters and drills; IT devices such as laptops and tabs), who holds each one,
-the holder's signed declaration, returns, the monthly audit, and every change to an asset in its history.
+the holder's signed declaration, the monthly audit, and every change to an asset in its history.
 
 Users work with assets in two places:
 - the Assets page (`/asset-management`, not `/assets`, which Frappe serves as static files): Project Assets / IT
-  Assets tabs with sub-tabs All, Assigned, Unassigned, Pending Declaration, Return Request and Asset Audit; plus
+  Assets tabs with sub-tabs All, Assigned, Unassigned, Pending Declaration and Asset Audit; plus
   Categories, Departments and History;
-- the holder's own profile (`/users/<id>?tab=assets`): one card per held asset with Sign declaration, Return and
-  Submit audit. While anything there is pending, the app access gate locks the rest of the app (below).
+- the holder's own profile (`/users/<id>?tab=assets`): one card per held asset with Sign declaration and Submit
+  audit. While anything there is pending, the app access gate locks the rest of the app (below).
 
 The detailed rules live in the code's own docstrings, cited below; this page is the map and the owner-locked rules.
 
@@ -46,7 +46,7 @@ The detailed rules live in the code's own docstrings, cited below; this page is 
   earlier to a project no longer Won still saves). The dialogs already list only Won projects.
 - **No move into an inactive department:** assigning refuses with "The X department is inactive. Report it to the
   admin." (`AssetManagement.decide_department_move`). Departments are never switched off in practice.
-- **Two people at once get a plain message:** every row lock (assign, Return, Reject return, the category audit switch,
+- **Two people at once get a plain message:** every row lock (assign, the category audit switch,
   submit audit) catches PostgreSQL's serialization failure (`asset_audit_open.is_serialization_failure`) and says
   "just changed ... Reload the page", never a database error.
 - **Pending asset tasks lock the app** (owner, 2026-10-21). While the signed-in person has a declaration to sign or
@@ -61,9 +61,12 @@ The detailed rules live in the code's own docstrings, cited below; this page is 
   (`api/assets/declaration.sign_declaration`). No screen offers a scanned-declaration upload (owner, 2026-10-15);
   older "Declaration Uploaded" history rows stay. A declaration arriving ticks `received` and opens the month's
   audit if one is due.
-- **Returns:** the holder asks (`returned`), a manager approves (the normal Unassign, which deletes the
-  assignment) or rejects. The holder's Return is refused while the asset's audit is Pending; an Admin/HR
-  unassign is never blocked by an audit.
+- **No returns** (removed 2026-10-26): an asset comes back only through Unassign (Admin / HR), which is never
+  blocked by an audit. `returned` / `returned_on` stay on the doctype, unused; the audit no longer reads them. The
+  history events "Return Requested" / "Return Rejected" were removed from `Asset History.event`; the patch
+  `v3_0.remove_asset_returns` cancelled the returns still waiting (the owed audit opened), deleted every return
+  history row, and dropped the "· return rejected" note from the audits a rejection had opened. An approved
+  return was a normal Unassign, so those "Unassigned" rows stay.
 
 ### Monthly audit
 
@@ -105,11 +108,11 @@ The detailed rules live in the code's own docstrings, cited below; this page is 
 |---|---|
 | **Asset Category** | `category_type` Project / IT; `audit_required` (Admin switch) |
 | **Asset Master** | The asset; `current_assignee` (read-only, synced from the assignment), `department`, `asset_condition`, IT credentials (Password fields); `asset_history` child table |
-| **Asset Management** | The current assignment: holder, declaration, `received`/`returned` (+ dates), and the open audit: `audit_status`, `audit_month` (`MM/YYYY`), `last_audit_on`, `audit_proof`, `audit_overdue_since`, `audit_answers` |
+| **Asset Management** | The current assignment: holder, declaration, `received` (+ date; `returned` + date unused since 2026-10-26), and the open audit: `audit_status`, `audit_month` (`MM/YYYY`), `last_audit_on`, `audit_proof`, `audit_overdue_since`, `audit_answers` |
 | **Asset History** (child of Asset Master) | One row per change: `event`, `assigned_to`, `done_by`, `done_on`, `declaration` ("File"), `from_department` / `to_department`, `reason`, `audit_answers` |
 
 History events: Asset Added, Assigned, Declaration Signed, Declaration Uploaded, Unassigned, Department Set,
-Return Requested, Return Rejected, Audit Requested, Audit Fulfilled, Audit Missed.
+Audit Requested, Audit Fulfilled, Audit Missed.
 
 `audit_month` is Data `MM/YYYY`: compare it for equality or as a date (`to_date(audit_month, 'MM/YYYY')`), never in
 text order.
@@ -120,7 +123,6 @@ text order.
 |---|---|
 | `api/assets/assign.py` | `assign_asset`, `unassign_asset` |
 | `api/assets/declaration.py` | `sign_declaration` (holder; Redis lock while the PDF renders), `read_declaration_form` (holder; the blank form, whatever the project) |
-| `api/assets/returns.py` | `request_return` (holder), `approve_return`, `reject_return` |
 | `api/assets/audits.py` | `submit_audit` (holder), `set_category_audit` (Admin) |
 | `api/assets/history.py` | `get_asset_history` (named filters; the Fulfilled list), `get_asset_history_table` + `get_asset_history_facets` (the History tab's data table and its filter counts; share `_table_conditions`) |
 | `api/assets/mine.py` | `get_my_assets`: the caller's own assets, whatever project they are booked against |
@@ -150,9 +152,29 @@ text order.
 
 Backend (run each with `--module`; they hit the live localhost DB and roll back their own fixtures):
 `services.test_asset_audit`, `services.test_asset_unassign`, `services.test_asset_department`,
-`api.assets.test_audits`, `test_history`, `test_returns`, `test_declaration`, `test_mine`, `test_assign_access`,
-`test_projects`, and the doctype tests `asset_master`, `asset_category`, `asset_management`.
+`services.test_asset_project`, `api.assets.test_audits`, `test_history`, `test_first_history_patch`,
+`test_declaration`, `test_mine`, `test_assign_access`, `test_projects`, `test_returns_removed`, and the doctype
+tests `asset_management` (plus `asset_master` and `asset_category`, which hold no tests yet).
 
 Frontend (vitest, in the container): `src/utils/appAccess.test.ts`, `assetAudit.test.ts`, `assetAuditAnswers.test.ts`,
 `assetHistory.test.ts`, `assetDeclaration.test.ts`, `assetDepartment.test.ts`, `assetUnassign.test.ts`,
-`ownAssets.test.ts`.
+`ownAssets.test.ts`; `src/pages/Assets/returnsRemoved.test.ts`, `utils/assetListLinks.test.ts`,
+`utils/permissions.test.ts`.
+
+**Returns removed (2026-10-26) -- guard tests:** `api/assets/test_returns_removed.py` (backend) and
+`frontend/src/pages/Assets/returnsRemoved.test.ts` fail at once if anything of returns comes back (the endpoints,
+the Return button / tab / badge, the two history events, the audit skipping a `returned` row, the return note) and
+if what must stay goes with it (Unassign's "Returned – no longer needed", Received, the other sub-tabs and audit
+notes, the unused `returned` columns). Each failure message says what was removed and why.
+
+### Residence check (`python3 scripts/residence_check.py`, from the app root)
+
+It counts violations across the whole working tree against `scripts/` baselines, so it fails on unrelated work too.
+Never raise a baseline to make it pass. Asset files that already carry violations, so a change there must not add
+to them:
+- `frontend/src/pages/users/components/UserAssetsTab.tsx` -- S1 (over 500 lines: 710 after returns were removed,
+  818 before) and A1 (one `catch (error: any)` in the Unassign handler; `unknown` is the fix).
+
+Removing returns (2026-10-26) added no violations: no new `any` in the changed files, no file newly over 500
+lines. The check still failed then (S1 338 -> 342, A1 1754 -> 1756) from outside assets: the baseline already
+fails on committed `develop`.

@@ -52,6 +52,7 @@ def get_gst_mismatch_work_orders() -> list:
                COALESCE(s.total_amount, 0) AS total_amount,
                COALESCE(s.amount_paid, 0) AS amount_paid,
                COALESCE(s.amount_due, 0) AS amount_due,
+               COALESCE(s.amount_invoiced, 0) AS amount_invoiced,
                s.creation,
                (SELECT COUNT(*) FROM "tabProject Payments" pp
                  WHERE pp.document_type = %(sr)s AND pp.document_name = s.name

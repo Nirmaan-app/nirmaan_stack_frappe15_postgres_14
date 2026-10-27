@@ -181,7 +181,6 @@ describe("audit history rows in words", () => {
     expect(auditHistorySummary("Audit Requested", "11/2026 · category audit switched on")?.line).toBe(
       "For November 2026 · opened when the category's audit was switched on"
     );
-    expect(auditHistorySummary("Audit Requested", "11/2026 · return rejected")?.line).toBe("For November 2026 · opened when the return was rejected");
     expect(auditHistorySummary("Audit Missed", "10/2026")).toEqual({ line: "October 2026 was not sent", remarks: null });
   });
 

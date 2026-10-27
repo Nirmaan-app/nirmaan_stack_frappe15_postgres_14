@@ -24,6 +24,7 @@ export interface GstMismatchRow {
     total_amount: number;
     amount_paid: number;
     amount_due: number;
+    amount_invoiced: number;
     creation: string;
     /** GST payments on it: any one stops turning GST off. */
     gst_payments: number;
