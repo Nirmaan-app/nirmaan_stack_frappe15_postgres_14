@@ -5,6 +5,7 @@
 `card_import.upload_card_statement` calls, in order.
 
     read_upload        the posted PDF's name and bytes (refuses anything but a .pdf)
+    read_password      the password typed for a locked PDF, or "" (never saved)
     read_statement     the PDF's text, read and gated whole (`card_statement`), or refused
     refuse_same_period a second statement for the holder's billing period is refused, naming the first
     leave_out_repeats  lines whose SerNo is already imported are left out and counted; nothing new is refused
@@ -83,11 +84,18 @@ def read_upload() -> tuple[str, bytes]:
     return filename, content
 
 
-def read_statement(content: bytes) -> CardStatement:
-    """The PDF's text, read and gated whole. A locked or unreadable PDF, another company's statement, a
-    cash advance or lines that miss the statement's own totals are refused here."""
+def read_password() -> str:
+    """The password typed for a locked PDF (ADR-0039 Amendment A), or "". Popped from the form, so nothing
+    later in the request (Frappe's recorder included) holds it."""
+    return frappe.form_dict.pop("password", None) or ""
+
+
+def read_statement(content: bytes, password: str = "") -> CardStatement:
+    """The PDF's text, read and gated whole. A locked PDF without its password (or with a wrong one), an
+    unreadable PDF, another company's statement, a cash advance or lines that miss the statement's own
+    totals are refused here."""
     try:
-        return read_card_statement(statement_text(content))
+        return read_card_statement(statement_text(content, password))
     except CardStatementError as exc:
         frappe.throw(str(exc), title="Could not import this statement")
 

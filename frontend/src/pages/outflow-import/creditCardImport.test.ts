@@ -6,8 +6,11 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+    CARD_PASSWORD_NEEDED,
     CARD_SOURCE,
+    CARD_WRONG_PASSWORD,
     canDiscardCard,
+    cardAsksForPassword,
     cardCountsLine,
     cardDiscardConfirmation,
     cardHistoryTitle,
@@ -175,5 +178,32 @@ describe("Discard", () => {
         expect(cardDiscardConfirmation(cardImport())).toBe(
             "Discard OFI-26-00100? This deletes TEST HOLDER's statement for 02-Sep-2026 to 01-Oct-2026, its 47 lines and its PDF. Nothing was created from it, so nothing else changes. You can upload the statement again afterwards.",
         );
+    });
+});
+
+describe("a password-locked PDF (ADR-0039 Amendment A)", () => {
+    it("knows the two password refusals word for word as card_pdf.py raises them", () => {
+        const cardPdf = repoFile("nirmaan_stack/services/outflow_import/card_pdf.py");
+        expect(cardPdf).toContain(`PASSWORD_NEEDED = "${CARD_PASSWORD_NEEDED}"`);
+        expect(cardPdf).toContain(`WRONG_PASSWORD = "${CARD_WRONG_PASSWORD}"`);
+    });
+
+    it("asks for the password on either refusal, with or without the error's title before it", () => {
+        expect(cardAsksForPassword(CARD_PASSWORD_NEEDED)).toBe(true);
+        expect(cardAsksForPassword(CARD_WRONG_PASSWORD)).toBe(true);
+        expect(cardAsksForPassword(`Could not import this statement: ${CARD_PASSWORD_NEEDED}`)).toBe(true);
+    });
+
+    it("does not ask for it on any other refusal, or on no error", () => {
+        expect(cardAsksForPassword("A Credit Card Statement is the bank's .pdf file. You uploaded a '.csv'.")).toBe(
+            false,
+        );
+        expect(
+            cardAsksForPassword(
+                "This file could not be read as a PDF. Upload the card's monthly statement PDF as the bank sends it.",
+            ),
+        ).toBe(false);
+        expect(cardAsksForPassword(null)).toBe(false);
+        expect(cardAsksForPassword("")).toBe(false);
     });
 });
