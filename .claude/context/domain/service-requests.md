@@ -44,14 +44,16 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   everyone, Admin included: no change to number, date or amounts, no Edit dialog (`update_invoice_data` refuses
   it whole, so the signed scan is not swapped), and once Rejected it stays Rejected. PO invoices keep their old
   rules.
-- **A generated invoice is a record, numbered and limited by the server, never edited (#1546, GLOSSARY
+- **A generated invoice is a record, numbered and limited by the server, never edited (#1546, ADR-0040, GLOSSARY
   *Generated invoice*, *RA number*).** Doctype `WO Generated Invoice`, named `WGI-<WO>-<RA number>` (so the pair
   is unique in the primary key). Made only by `api/service_requests/generated_invoices.generate_invoice`
   (the doc's `before_insert` refuses any insert without `flags.made_by_generate`), changed only by the moves in
-  `services/wo_generated_invoices.MOVES` (`change_problem`, run by the doc's `validate`), never deleted
-  (`on_trash`). Generate runs under `_billing_lock`, a session-level advisory lock followed by a commit: Frappe
+  `services/wo_generated_invoices.MOVES` (`change_problem`, run by the doc's `validate`), deleted only in the
+  app (`on_trash` `refuse_delete` needs `flags.deleted_in_app`: Admin's `delete_generated_invoice` of a Voided one,
+  or its Vendor Invoice's delete); the Deleted Document copy keeps its RA number and FINAL-n place
+  (`_deleted_records`, `wo_generated_invoices.ra_number_of_record`), so a delete never frees a number. Generate runs under `_billing_lock`, a session-level advisory lock followed by a commit: Frappe
   runs PostgreSQL at REPEATABLE READ, so a row lock alone left a waiting generate reading the old highest RA
-  number (the concurrency test caught it). Generate and void commit. A FINAL generated after a voided one prints FINAL-2, FINAL-3 (`invoice_number`'s `final_number`, counting every FINAL the WO has had), so a voided number is never printed again. The limit counts Pending + Approved Vendor
+  number (the concurrency test caught it). Generate and void commit. The type is never chosen: `generate_invoice` takes only the amount and saves the FINAL when it brings `billed` to the WO amount, to within ₹10 (`wo_generated_invoices.is_final`, the `FULLY_PAID_TOLERANCE`), else an RA; the Generate dialog previews it from `billed` (`isFinalAmount`) and its "Put Paid" button fills in `left`. A FINAL generated after a voided one prints FINAL-2, FINAL-3 (`invoice_number`'s `final_number`, counting every FINAL the WO has had), so a voided number is never printed again. The limit counts Pending + Approved Vendor
   Invoices and generated invoices at *Generated*; a *Signed* one is counted through the Pending invoice its
   upload creates, so #1547 must create that invoice in the same save that moves the record to *Signed*. Only an
   Approved WO with `gst` explicitly off (`work_order_gst.gst_is_explicitly_off`; blank is not off) and a
@@ -67,8 +69,9 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   notification after the commit; `pr_notifications.get_allowed_accountants` would miss the unrestricted ones. The Vendor Invoices `on_update` hook
   `controllers/vendor_invoices.follow_generated_invoice` moves the record (approved: *Approved*; rejected, even
   after approval: *Voided*, the rejection as its reason; `wo_generated_invoices.vendor_invoice_move`), so the
-  single, bulk and Desk approvals all move it. That Vendor Invoice is never deleted (`on_trash`
-  `refuse_deleting_generated_invoice`; `delete_invoice_entry` answers it first): reject it instead.
+  single, bulk and Desk approvals all move it. Deleting that Vendor Invoice (who may: as for any WO
+  invoice) deletes its generated invoice too, whatever its status (`on_trash` `delete_generated_invoice_with_it`,
+  before Frappe's link check), so the amount is freed and the number stays used.
 - **WO status-move rules live in one place, `services/work_order_lifecycle.change_problem` (#1529).** The
   Service Requests `validate` hook `controllers/service_requests.guard_lifecycle` applies it on every save,
   so the SPA, Desk and REST obey it. A save that moves the status INTO *Approved* or *Rejected* (approve,

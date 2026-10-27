@@ -32,14 +32,16 @@ export interface GeneratedInvoicesState {
   invoices: GeneratedInvoice[];
   /** The user may generate and void. */
   can_generate: boolean;
+  /** The user may delete a Voided one (Admin). */
+  can_delete: boolean;
   /** Why nothing can be generated on this Work Order now, or null. */
   blocked: string | null;
   next_ra_number: number;
-  /** The most an RA may bill. */
+  /** The most an invoice may bill: Amount Paid (incl. TDS), up to the WO amount, less `billed`. */
   left: number;
+  /** What already counts against the WO amount: Pending and Approved invoices, and generated ones not uploaded. */
+  billed: number;
   fully_paid: boolean;
-  /** What a FINAL would bill; null until the Work Order is fully paid. */
-  final_amount: number | null;
   has_final: boolean;
 }
 
@@ -69,10 +71,9 @@ export const useGeneratedInvoices = (workOrder: string | null) => {
 
 export interface GenerateArgs {
   work_order: string;
-  invoice_type: GeneratedInvoiceType;
   invoice_date: string;
-  /** RA only; a FINAL bills what is left. */
-  amount?: number;
+  /** The server saves it as an RA, or as the FINAL when it reaches the WO amount. */
+  amount: number;
 }
 
 /** Generate, void and upload the signed copy. Each reply is the record after the action. */
@@ -86,10 +87,15 @@ export const useGeneratedInvoiceActions = () => {
   const { call: callUpload, loading: uploading } = useFrappePostCall<{ message: GeneratedInvoice }>(
     `${API}.upload_signed_copy`
   );
+  const { call: callDelete, loading: deleting } = useFrappePostCall<{ message: { name: string } }>(
+    `${API}.delete_generated_invoice`
+  );
   const generate = async (args: GenerateArgs) => (await callGenerate(args)).message;
   const voidInvoice = async (name: string, reason: string) => (await callVoid({ name, reason })).message;
   /** `fileUrl` is the already-uploaded scan; the server makes its Pending Vendor Invoice (#1547). */
   const uploadSignedCopy = async (name: string, fileUrl: string) =>
     (await callUpload({ name, file_url: fileUrl })).message;
-  return { generate, voidInvoice, uploadSignedCopy, generating, voiding, uploading };
+  /** Admin, a Voided one only; its RA number is never given again. */
+  const deleteInvoice = async (name: string) => (await callDelete({ name })).message;
+  return { generate, voidInvoice, uploadSignedCopy, deleteInvoice, generating, voiding, uploading, deleting };
 };
