@@ -140,7 +140,9 @@ describe("12e-4d AC0 -- the 12e-4c stored rows the findings came from, on the pa
       expect({ id, working: p.working[0] }).toEqual({ id, working: "pipe size 19.05 is not on the sheet -> 25 (the smallest size)" });
       // and the section's thickness: both its lines name the same step too
       const sb = secBlock(attached(v));
-      expect({ id, field: stepOf(field(sb, "thickness_mm").note), working: stepOf(sb.working.find((w) => w.startsWith("thickness "))) }).toEqual({ id, field: "the smallest size", working: "the smallest size" });
+      // INVERTED at ADP-4a (owner D5 / AC3: a ladder move stated ONCE, on its field; an Insulation block reads the same in a
+      // Piping section) by mechanical authority. BEFORE: `toEqual({ id, field: "the smallest size", working: "the smallest size" })`.
+      expect({ id, field: stepOf(field(sb, "thickness_mm").note), working: stepOf(sb.working.find((w) => w.startsWith("thickness "))) }).toEqual({ id, field: "the smallest size", working: null });
       expect(fig(values)).toEqual(want);
     }
   });
@@ -227,7 +229,13 @@ describe("12e-4d AC2 -- an insulation section never prices a size its pipe refus
     expect(CASES).toHaveLength(7);
   });
   it("BEFORE, measured: on 'size 1 has no unit' the section priced 191 / 14 from the bare 1 read as millimetres -- that figure is what is gone", () => {
-    expect(pure(INS, ins({ cladding: "No", thickness_mm: "6", pipe_size_mm: "1" }, ["pipe_size_mm"]))).toEqual([191, 14]);
+    // INVERTED at 12e-6c (owner U2, 2026-10-18: F-3 on every axis that reads inches) by mechanical authority. BEFORE:
+    // `expect(pure(INS, ins({ cladding: "No", thickness_mm: "6", pipe_size_mm: "1" }, ["pipe_size_mm"]))).toEqual([191, 14])`.
+    // The input is a TYPED entry (the "Other..." box); Piping's typed path refuses the same bare 1 (`calc("MS", "1")` above),
+    // and now Insulation's does too, so the 191 / 14 is gone from Calculator -> Insulation as well. The negative half kept:
+    // a pipe size at the smallest stocked size, 6.35, still prices there.
+    expect(pure(INS, ins({ cladding: "No", thickness_mm: "6", pipe_size_mm: "1" }, ["pipe_size_mm"]))).toEqual([undefined, undefined]);
+    expect(pure(INS, ins({ cladding: "No", thickness_mm: "6", pipe_size_mm: "6.35" }, ["pipe_size_mm"]))).toEqual([191, 14]);
     expect(JSON.stringify(attached(model("CPVC", "1").v))).not.toMatch(/"supply_rate":191/);
   });
   it("a size the pricer TYPES in the section's own box prices the section exactly as Calculator -> Insulation does (owner: 'the user can change it')", () => {
@@ -295,7 +303,11 @@ describe("12e-4d AC3 -- below the smallest stocked size both lines say '(the sma
     const x = c.run();
     const b = c.block(x.v);
     const w = b.working.find((l) => l.startsWith(c.working) && l.includes("is not on the sheet"));
-    expect({ field: stepOf(field(b, c.field).note), working: stepOf(w) }).toEqual({ field: c.step, working: c.step });
+    // INVERTED at ADP-4a (owner D5 / AC3: on a category that rules defaults -- ADP, Insulation, and an Insulation section in a
+    // Piping row -- the ladder's move is stated ONCE, on its field) by mechanical authority. BEFORE, for every case:
+    // `toEqual({ field: c.step, working: c.step })`. Piping's own pipe size (Piping rules no defaults) keeps both lines.
+    const once = !c.label.startsWith("Piping pipe size");
+    expect({ field: stepOf(field(b, c.field).note), working: stepOf(w) }).toEqual({ field: c.step, working: once ? null : c.step });
   });
   it("the sweep names what it covers: Piping (pipe size, its section's thickness and pipe size), Insulation (thickness, pipe size), ADP (diameter) -- each below and between", () => {
     expect(CASES.map((c) => c.label)).toHaveLength(10);

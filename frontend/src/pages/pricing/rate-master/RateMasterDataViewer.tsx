@@ -29,6 +29,7 @@ import {
   COL_ACTIONS, COL_KIND, COL_SPEC, COL_PI_NAME, COL_BRAND, COL_UNIT,
   COL_PI_SHARED_BY, COL_PI_USED_BY, COL_PI_ITEMS,
   COL_SOURCE_SHEET, COL_SOURCE_ROW, COL_FORMULA_SUPPLY, COL_FORMULA_INSTALL,
+  COL_ITEM_UID, COL_DISCIPLINE, COL_CATEGORY, fileColumnId, plainFileColumnLabel,
 } from "./rateMasterGridColumns";
 import {
   DEFAULT_RATE_FILE_FORMAT, FORMAT_COPY, RATE_FILE_FORMATS, TWIN_COPY, twinNumbers,
@@ -261,6 +262,9 @@ export function RateMasterDataViewer({
   // HAD gone through. The refusal now stays ON the dialog and the dialog stays OPEN.
   const [deactivateErr, setDeactivateErr] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  // ADP-4b (owner D7 / AC3): "Show spec details" -- off by default, so a spec-driven grid shows exactly the download's
+  // columns; on, it adds the spec verdict, the "read from spec" columns, the source sheet and row.
+  const [showSpecDetails, setShowSpecDetails] = useState(false);
 
   // EA-1c change 1: SCOPE the Data tab to the selected category's items. The kinds come from the
   // config's declared item_kinds, else (legacy wiring) derived from its pipelines' match_master_row.
@@ -311,8 +315,11 @@ export function RateMasterDataViewer({
     const rank = new Map(fileOrder.attrs.map((id, i) => [id, i]));
     const known = defs.filter((d) => rank.has(d.id))
       .sort((x, y) => (rank.get(x.id) as number) - (rank.get(y.id) as number));
-    return [...known, ...defs.filter((d) => !rank.has(d.id))];
-  }, [config, specMode, specCols, fileOrder]);
+    const ordered = [...known, ...defs.filter((d) => !rank.has(d.id))];
+    // ADP-4b (owner D7, "drop the empty Depth column"): on a spec-driven grid a "read from spec" column that NO item
+    // fills is not shown. Display only -- the definition stays, it is part of the model's question.
+    return specMode ? ordered.filter((d) => scopedItems.some((it) => cellText(it.attributes?.[d.id]) !== "")) : ordered;
+  }, [config, specMode, specCols, fileOrder, scopedItems]);
   // The attribute definitions a human may TYPE into: the text pair in spec mode, every column otherwise.
   const editableAttrCols = specMode ? textCols : attrCols;
 
@@ -374,8 +381,13 @@ export function RateMasterDataViewer({
    * `rateMasterGridColumns.ts` for what drifting cost).
    */
   const gridCols = useMemo(() => gridColumnKeys({
-    canEdit, showKindCol, piMode, specMode, showImpactCol, textCols, attrCols, rateCols,
-  }), [canEdit, showKindCol, piMode, specMode, showImpactCol, textCols, attrCols, rateCols]);
+    canEdit, showKindCol, piMode, specMode, showImpactCol, textCols, attrCols, rateCols, showSpecDetails,
+  }), [canEdit, showKindCol, piMode, specMode, showImpactCol, textCols, attrCols, rateCols, showSpecDetails]);
+  // ADP-4b (owner D7 / AC3): on a spec-driven grid each file column's header carries the file's own column id beneath
+  // its plain label. The file carries the text pair, never a "read from spec" column.
+  const showFileIds = specMode && !piMode;
+  const fileAttrIds = useMemo(() => new Set(textCols.map((d) => d.id)), [textCols]);
+  const fileIdOf = (key: string): string | undefined => (showFileIds ? fileColumnId(key, fileAttrIds) ?? undefined : undefined);
 
   // SLICE 12a: the row-level formula text for every scoped item, and how many rows declare each rate
   // column derived (what the formula row's count names). ONE pass, memoised on the items + config.
@@ -453,6 +465,15 @@ export function RateMasterDataViewer({
   // distinct-value dropdowns and the row predicate, so a new attribute/rate column self-registers.
   const columns = useMemo(
     () => [
+      // ADP-4b (owner D7): a spec-driven grid's three identity columns -- the item id as the file writes it; the
+      // discipline and the category by their display names (owner, 2026-10-21: N-7, a category id never reaches the screen)
+      ...(specMode && !piMode
+        ? [
+            { key: COL_ITEM_UID, get: (it: RateMasterItem) => it.item_uid },
+            { key: COL_DISCIPLINE, get: () => disciplineLabel },
+            { key: COL_CATEGORY, get: () => categoryLabel },
+          ]
+        : []),
       ...(showKindCol ? [{ key: "kind", get: (it: RateMasterItem) => it.kind }] : []),
       ...textCols.map((d) => ({ key: `attr:${d.id}`, get: (it: RateMasterItem) => it.attributes?.[d.id] })),
       ...(specMode
@@ -473,7 +494,7 @@ export function RateMasterDataViewer({
       { key: "source_sheet", get: (it: RateMasterItem) => it.source_sheet },
       { key: "source_row", get: (it: RateMasterItem) => it.source_row },
     ],
-    [showKindCol, specMode, textCols, attrCols, rateCols],
+    [showKindCol, specMode, textCols, attrCols, rateCols, piMode, disciplineLabel, categoryLabel],
   );
   const distinctByColumn = useMemo(() => {
     const m: Record<string, string[]> = {};
@@ -507,6 +528,8 @@ export function RateMasterDataViewer({
   const rows = useMemo(() => {
     return scopedItems.map((it) => {
       const cells: string[] = [
+        // ADP-4b: the item id is a displayed cell on a spec-driven grid, so it is searchable there
+        ...(specMode && !piMode ? [cellText(it.item_uid)] : []),
         cellText(it.kind),
         ...textCols.map((d) => cellText(it.attributes?.[d.id])),
         ...(specMode ? [specNotUnderstoodReason(it) ?? SPEC_COPY.readFromSpec] : []),
@@ -718,13 +741,20 @@ export function RateMasterDataViewer({
    * sit on different baselines. Both only in pricing-inputs mode; every other grid is untouched.
    */
   const piHead = piMode ? "h-12 overflow-hidden align-top py-1 px-1" : "";
+  /** ADP-4b (owner D7 / AC3): a plain header label with the file's column id beneath it, so a person can match the file. */
+  const withFileId = (label: string, fileId: string) => (
+    <span className="flex flex-col leading-tight">
+      <span>{label}</span>
+      <span className="font-mono text-[9px] font-normal text-muted-foreground" data-testid="file-column-id">{fileId}</span>
+    </span>
+  );
 
   const fullLabelFor = (colKey: string, shown: string) => {
     const k = colKey.startsWith("rate:") ? colKey.slice(5) : "";
     return (k && PRICING_INPUT_COLUMN_LABELS[k]) || shown;
   };
 
-  const hdr = (colKey: string, label: string, rightAlign = false, tag?: string, note?: string) => (
+  const hdr = (colKey: string, label: string, rightAlign = false, tag?: string, note?: string, fileId?: string) => (
     /**
      * ⚠️ IN PRICING-INPUTS MODE THE FILTER IS TAKEN OUT OF THE FLOW AND THE LABEL IS CLAMPED.
      * Wrapping alone did NOT work and the owner saw the result: a flex item will not shrink below its
@@ -738,10 +768,12 @@ export function RateMasterDataViewer({
       piMode ? "relative flex items-start pr-3.5" : "flex items-center gap-1",
       !piMode && rightAlign && "justify-end",
     )}>
+      {fileId ? withFileId(label, fileId) : (
       <span
         className={cn(piMode && "min-w-0 text-[10px] leading-tight line-clamp-2 break-normal")}
         title={piMode ? fullLabelFor(colKey, label) : undefined}
       >{label}</span>
+      )}
       {note ? (
         <span className="font-normal text-[10px] text-muted-foreground whitespace-nowrap">{note}</span>
       ) : null}
@@ -915,6 +947,18 @@ export function RateMasterDataViewer({
       {specMode && (
         <p className="text-[11px] text-muted-foreground" data-testid="spec-hint">{SPEC_COPY.hint}</p>
       )}
+      {/* ADP-4b (owner D7 / AC3, U4): the default grid is the download's columns; this adds the spec details */}
+      {specMode && !piMode && (
+        <label className="flex w-fit items-center gap-1.5 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={showSpecDetails}
+            onChange={(e) => setShowSpecDetails(e.target.checked)}
+            data-testid="spec-details-toggle"
+          />
+          Show spec details
+        </label>
+      )}
 
       {/* SLICE 12a (owner I-2 / I-3): the one rule a user needs about a derived cost, said once beside
           the table -- and ONLY where the category actually has one, so no other screen gains a line. */}
@@ -983,11 +1027,15 @@ export function RateMasterDataViewer({
                   z-30 so it wins over both the sticky row (z-20) and the sticky body column (z-10) and
                   never ghosts. */}
               {gridCols.map((key) => {
+                if (key === COL_ITEM_UID || key === COL_DISCIPLINE || key === COL_CATEGORY) {
+                  const id = fileIdOf(key) ?? "";
+                  return <TableHead key={key} className="sticky top-0 z-20 bg-background">{hdr(key, plainFileColumnLabel(id), false, undefined, undefined, id)}</TableHead>;
+                }
                 if (key === COL_ACTIONS) {
                   return <TableHead key={key} className="sticky left-0 top-0 z-30 bg-background text-right">actions</TableHead>;
                 }
                 if (key === COL_KIND) {
-                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("kind", "kind")}</TableHead>;
+                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("kind", showFileIds ? plainFileColumnLabel("kind") : "kind", false, undefined, undefined, fileIdOf(key))}</TableHead>;
                 }
                 if (key === COL_SPEC) {
                   return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("spec", SPEC_COPY.specColumn)}</TableHead>;
@@ -998,13 +1046,13 @@ export function RateMasterDataViewer({
                   return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("pi:name", "input")}</TableHead>;
                 }
                 if (key === COL_BRAND) {
-                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("brand", "brand")}</TableHead>;
+                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("brand", showFileIds ? plainFileColumnLabel("brand") : "brand", false, undefined, undefined, fileIdOf(key))}</TableHead>;
                 }
                 if (key === COL_UNIT) {
                   /* SLICE 12c / ACCEPTANCE 4 (U4, approved): on a SKU grid `unit` sits right after
                      `brand`, where the rate file puts it; in Pricing Inputs it stays after the rate
                      columns. `gridColumnKeys` decides which, for the header AND the body at once. */
-                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("unit", "unit")}</TableHead>;
+                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("unit", showFileIds ? plainFileColumnLabel("unit") : "unit", false, undefined, undefined, fileIdOf(key))}</TableHead>;
                 }
                 if (key.startsWith("attr:")) {
                   const id = key.slice(5);
@@ -1015,7 +1063,7 @@ export function RateMasterDataViewer({
                      derived attributes each tagged "read from spec". */
                   return (
                     <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>
-                      {isText ? hdr(`attr:${d.id}`, d.label)
+                      {isText ? hdr(`attr:${d.id}`, d.label, false, undefined, undefined, fileIdOf(key))
                               : hdr(`attr:${d.id}`, d.label, false, specMode ? SPEC_COPY.readFromSpec : undefined)}
                     </TableHead>
                   );
@@ -1027,8 +1075,9 @@ export function RateMasterDataViewer({
                       {/* SLICE 12b(B) acceptance 1: the DERIVED kind rides beside the key. A Pricing
                           Input carries its own fixed column label instead -- it is not a SKU rate. */}
                       {hdr(`rate:${k}`,
-                           piMode ? (PRICING_INPUT_COLUMN_SHORT_LABELS[k] ?? PRICING_INPUT_COLUMN_LABELS[k] ?? k) : k, true,
-                           undefined, piMode ? undefined : rateLabelFor(k))}
+                           piMode ? (PRICING_INPUT_COLUMN_SHORT_LABELS[k] ?? PRICING_INPUT_COLUMN_LABELS[k] ?? k)
+                                  : showFileIds ? plainFileColumnLabel(k) : k, true,
+                           undefined, piMode ? undefined : rateLabelFor(k), fileIdOf(key))}
                     </TableHead>
                   );
                 }
@@ -1055,10 +1104,10 @@ export function RateMasterDataViewer({
                   return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background text-right", piHead)}>{hdr("source_row", "row", true)}</TableHead>;
                 }
                 if (key === COL_FORMULA_SUPPLY) {
-                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{DERIVED_COPY.columnHeaderSupply}</TableHead>;
+                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{showFileIds ? withFileId(DERIVED_COPY.columnHeaderSupply, fileIdOf(key) ?? "") : DERIVED_COPY.columnHeaderSupply}</TableHead>;
                 }
                 if (key === COL_FORMULA_INSTALL) {
-                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{DERIVED_COPY.columnHeaderInstall}</TableHead>;
+                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{showFileIds ? withFileId(DERIVED_COPY.columnHeaderInstall, fileIdOf(key) ?? "") : DERIVED_COPY.columnHeaderInstall}</TableHead>;
                 }
                 return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)} />;
               })}
@@ -1196,6 +1245,10 @@ export function RateMasterDataViewer({
               );
 
               cells[COL_KIND] = <TableCell key={COL_KIND}>{r.it.kind}</TableCell>;
+              // ADP-4b (owner D7): the file's identity columns on a spec-driven grid
+              cells[COL_ITEM_UID] = <TableCell key={COL_ITEM_UID} className="font-mono text-[11px]">{r.it.item_uid}</TableCell>;
+              cells[COL_DISCIPLINE] = <TableCell key={COL_DISCIPLINE}>{disciplineLabel}</TableCell>;
+              cells[COL_CATEGORY] = <TableCell key={COL_CATEGORY}>{categoryLabel}</TableCell>;
 
               for (const d of textCols) {
                 cells[attrColKey(d.id)] = (

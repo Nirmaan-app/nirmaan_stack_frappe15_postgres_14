@@ -4975,7 +4975,7 @@ const PW_SUPPLY_OPTIONAL_CONDUIT: Pipeline = {
   steps: PW_PIPELINES.pw_boq_supply.steps.map((s) => {
     const step = s as { step: string; name?: string };
     if (step.step === "circuit_fit") return PW_CIRCUIT_FIT_ABSENT;
-    if (step.step === "component_ref" && step.name === "conduit") return { ...(s as object), none_skips: true };
+    if (step.step === "component_ref" && step.name === "conduit") return { ...s, none_skips: true };
     return s;
   }),
 };

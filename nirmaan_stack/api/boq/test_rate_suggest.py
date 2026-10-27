@@ -1343,6 +1343,23 @@ def _deep_node(boq, sheet_doc, node_type, src, parent, desc, sort, qty=None,
     if appended is not None:
         n.append_notes_raw = appended
     n.insert(ignore_permissions=True)
+    # F1-a (owner 2026-10-22, O1): the pricing payload reads a node's attached notes from the committed TREE -- its child
+    # nodes of row_class "note", in sort_order -- by the commit's own rule. So each attached note is ALSO committed as a
+    # note row under the node, exactly as a real commit leaves it (the saved copy above = the derive, as on every commit
+    # since 2026-08-11). Before F1-a the fixture carried the saved copy alone, which the payload no longer reads.
+    for i, text in enumerate(attached or []):
+        note = frappe.new_doc("BOQ Nodes")
+        note.boq = boq
+        note.sheet = sheet_doc
+        note.node_type = "Other"
+        note.row_class = "note"
+        note.source_row_number = src * 100 + i + 1
+        note.parent_node = n.name
+        note.description = text
+        note.sort_order = sort * 100 + i + 1
+        note.commit_version = 1
+        note.is_current = 1
+        note.insert(ignore_permissions=True)
     return n.name
 
 

@@ -3,9 +3,9 @@
 // Owner ruling (option a): a Rate Master page beside hvac-/electrical-pricing in
 // the Pricing module area, PricingRoute-guarded (UI gate; the endpoints' login
 // requirement is the real enforcement). Registry-shaped disciplines (Electrical
-// today). Two tabs: DATA VIEWER (the full item master) + DERIVATION (a
-// configurator that runs the stored pipelines through the SINGLE pure interpreter
-// -- RM-3's helper consumes that same interpreter unchanged).
+// today). Two tabs: DATA VIEWER (the full item master) + DERIVATION (the rules
+// listing -- ADP-4b, owner D8: the configurator and its figures are gone, the
+// calculator prices; owner D9: the Pipelines tab is gone too).
 //
 // Lazy route module -- exports `Component` per the M1.59 lazy() contract.
 
@@ -28,8 +28,8 @@ import { pricingInputUsedBy } from "./rateMasterSpec";
 import { isPricingInputConfig } from "./rateMasterSpec";
 import { RATE_MASTER_CONFIG_TARGETS, RateConfigFetcher, useConfigsByCategory }
   from "@/pages/boq-wizard/rate-helper/rateHelperPlumbing";
-import { RateMasterDerivation } from "./RateMasterDerivation";
-import { RateMasterPipelines } from "./RateMasterPipelines";
+import { RateMasterDerivation, calculatorPageLabel } from "./RateMasterDerivation";
+import { CALCULATOR_WORKBOOKS } from "../PricingCalculator";
 import { isNirmaanAdmin } from "@/constants/roles";
 import {
   FREEZE_COPY,
@@ -44,7 +44,7 @@ import {
   DEFAULT_RATE_FILE_FORMAT, rateFileFallbackName,
   type RateFileFormat, type TwinDecision, type UploadPlan, type UploadResult,
 } from "./rateMasterUpload";
-import type { GetConfigResponse, GetItemsResponse, RateCategoryConfig } from "./rateMasterTypes";
+import type { GetConfigResponse, GetItemsResponse } from "./rateMasterTypes";
 import {
   applyCsvPayload, createItemPayload, saveItemPayload,
   type CreateItemPayload, type SaveItemPatch, type SpecConfirmationReply, type SpecDecision,
@@ -53,12 +53,12 @@ import {
 const ITEMS_METHOD = "nirmaan_stack.api.boq.rate_master.get_rate_master_items";
 const CONFIG_METHOD = "nirmaan_stack.api.boq.rate_master.get_rate_category_config";
 // RM-4a: admin-only write endpoints (owner option (a) -- Estimates is READ-ONLY, controls HIDDEN).
-const UPDATE_PARAM_METHOD = "nirmaan_stack.api.boq.rate_master.update_rate_config_param";
+// ADP-4b (owner D8 / D9): the Derivation inline parameter edit (`update_rate_config_param`) and the Pipelines tab's
+// whole-config replace (`update_rate_config`) have no caller on this page any more; both endpoints stay server-side
+// (D9 option A: `update_rate_config` one more slice).
 const UPDATE_ITEM_METHOD = "nirmaan_stack.api.boq.rate_master.update_rate_master_item";
 const CREATE_ITEM_METHOD = "nirmaan_stack.api.boq.rate_master.create_rate_master_item";
 const DEACTIVATE_ITEM_METHOD = "nirmaan_stack.api.boq.rate_master.deactivate_rate_master_item";
-// RM-4b: admin-only whole-config STRUCTURE replace (validated server-side; the authority).
-const UPDATE_CONFIG_METHOD = "nirmaan_stack.api.boq.rate_master.update_rate_config";
 // SLICE 5: the two download surfaces. Both are ADMIN-gated server-side (_require_rate_admin) --
 // hiding the buttons is UX; the endpoints are the boundary.
 const EXPORT_CSV_METHOD = "nirmaan_stack.api.boq.rate_master.export_rate_master_csv";
@@ -94,7 +94,7 @@ export function RateMasterPage() {
     { discipline: disciplineId },
     disciplineId ? `rate-master-items-${disciplineId}` : null
   );
-  const { data: configData, isLoading: configLoading, error: configError, mutate: mutateConfig } = useFrappeGetCall<{ message: GetConfigResponse }>(
+  const { data: configData, isLoading: configLoading, error: configError } = useFrappeGetCall<{ message: GetConfigResponse }>(
     CONFIG_METHOD,
     { discipline: disciplineId, category_id: activeCategoryId },
     disciplineId && activeCategoryId ? `rate-master-config-${disciplineId}-${activeCategoryId}` : null
@@ -108,7 +108,6 @@ export function RateMasterPage() {
   // is the stored catalogue and is what the impact panel (and every other pricing path) reads.
   const computedRates = itemsData?.message?.computed_rates ?? undefined;
   const config = configData?.message?.config ?? null;
-  const configName = configData?.message?.name;
 
   // RM-4a: admin gate (owner option (a)). `role` off the already-warm useUserData (PricingRoute warmed
   // it); the shared isNirmaanAdmin mirrors the server _is_nirmaan_admin. When false the tabs render
@@ -186,11 +185,9 @@ export function RateMasterPage() {
   // DELEGATES to the same predicate rather than minting a second one that could drift.
   const canManageFreeze = canManageRateMasterFreeze(role, currentUser);
 
-  const { call: callSaveParam } = useFrappePostCall(UPDATE_PARAM_METHOD);
   const { call: callSaveItem } = useFrappePostCall(UPDATE_ITEM_METHOD);
   const { call: callCreateItem } = useFrappePostCall(CREATE_ITEM_METHOD);
   const { call: callDeactivateItem } = useFrappePostCall(DEACTIVATE_ITEM_METHOD);
-  const { call: callSaveConfig } = useFrappePostCall(UPDATE_CONFIG_METHOD);
   const { call: callExportCsv } = useFrappePostCall(EXPORT_CSV_METHOD);
   const { call: callExportAsset } = useFrappePostCall(EXPORT_ASSET_METHOD);
   const { call: callPreviewCsv } = useFrappePostCall(PREVIEW_CSV_METHOD);
@@ -229,19 +226,8 @@ export function RateMasterPage() {
     }
   }, [callFreeze, callUnfreeze, freezeState.frozen, mutateFreeze]);
 
-  // Each write refetches its collection so the derivation/viewer recompute live (the persistence split
-  // then carries edited params/rates into the next pricing-panel compute with no re-run).
-  const onSaveParam = useCallback(
-    async (pipelineId: string, stepIndex: number, conditionIndex: number | null, paramKey: string, newValue: number) => {
-      if (!configName) throw new Error("No config loaded.");
-      await callSaveParam({
-        name: configName, pipeline_id: pipelineId, step_index: stepIndex,
-        condition_index: conditionIndex ?? undefined, param_key: paramKey, new_value: newValue,
-      });
-      await mutateConfig();
-    },
-    [callSaveParam, configName, mutateConfig]
-  );
+  // Each write refetches its collection so the viewer recomputes live (the persistence split then carries
+  // edited rates into the next pricing-panel compute with no re-run).
   // SLICE 1d (owner ruling, the ONE permitted edit to these two wrappers): they RETURN the endpoint's
   // reply -- so a "needs confirmation" answer with the server's best match can reach the form -- and
   // FORWARD an optional spec_decision / spec_fingerprint. With those absent the request payload is
@@ -346,16 +332,6 @@ export function RateMasterPage() {
     void mutateItems();
   }, [mutateItems]);
 
-  // RM-4b: whole-config structure replace. The server re-validates (the authority); on success the
-  // config refetch flows the new structure into the Derivation + Data tabs and the helper (no re-run).
-  const onSaveConfig = useCallback(
-    async (nextConfig: RateCategoryConfig) => {
-      if (!configName) throw new Error("No config loaded.");
-      await callSaveConfig({ name: configName, config: JSON.stringify(nextConfig) });
-      await mutateConfig();
-    },
-    [callSaveConfig, configName, mutateConfig]
-  );
   const categoryLabel =
     config?.category_display ??
     discipline?.categories.find((c) => c.category_id === activeCategoryId)?.label ??
@@ -415,8 +391,8 @@ export function RateMasterPage() {
 
       {/* ── RMF-1: the freeze CONTROL (admin-only; HIDDEN for everyone else, matching every other
           write affordance on this screen). It sits in the header row so it is reachable from ANY
-          tab -- the writes it governs are split across Data Viewer (upload, row edits) and
-          Derivation / Pipelines (config edits). Approved UI item 1. */}
+          tab -- the writes it governs are on the Data Viewer (upload, row edits; ADP-4b: the Derivation and
+          Pipelines config edits are gone). Approved UI item 1. */}
       {canManageFreeze && (
         <div className="flex flex-wrap items-center gap-2">
           <Button
@@ -472,7 +448,6 @@ export function RateMasterPage() {
           <TabsList>
             <TabsTrigger value="viewer">Data Viewer</TabsTrigger>
             <TabsTrigger value="derivation">Derivation</TabsTrigger>
-            <TabsTrigger value="pipelines">Pipelines</TabsTrigger>
           </TabsList>
           <TabsContent value="viewer" className="mt-3">
             {/* SLICE 12b(B): the hook-safe N-fetch children that load every category's config. They
@@ -541,18 +516,7 @@ export function RateMasterPage() {
             <RateMasterDerivation
               items={items}
               config={config}
-              isAdmin={isAdmin}
-              frozen={writesBlocked}
-              onSaveParam={onSaveParam}
-            />
-          </TabsContent>
-          <TabsContent value="pipelines" className="mt-3">
-            <RateMasterPipelines
-              items={items}
-              config={config}
-              isAdmin={isAdmin}
-              frozen={writesBlocked}
-              onSaveConfig={onSaveConfig}
+              calculatorPage={calculatorPageLabel(disciplineId, CALCULATOR_WORKBOOKS)}
             />
           </TabsContent>
         </Tabs>

@@ -27,6 +27,11 @@ Three standards fail silently when broken, so they are summarised here too (full
 
 ## Session workflow
 
+- **Before implementing anything, ask the owner where it runs: laptop or desktop.** Then run
+  `bash scripts/env_sync/env_sync.sh status` and act on its verdict. **Desktop chosen:** delegate. Write the brief,
+  run `session-start`, then `session-wait --pull-back` in the background; relay any `BLOCKED` question to the owner and
+  answer it with `session-send`. On the desktop (hostname `DESKTOP-4RMALAH`), skip the question: the laptop has already
+  handed over. The loop, the delegation protocol and recovery: `docs/agents/environments.md`.
 - **Tickets and specs are GitHub issues.** Read the ticket and its parent spec first:
   `gh issue view <n> --json title,body,labels,comments --repo Nirmaan-app/nirmaan_stack_frappe15_postgres_14`
   (`--comments` alone prints only the comments, never the body).
@@ -34,7 +39,8 @@ Three standards fail silently when broken, so they are summarised here too (full
   `/implement`, the ticket is the approved plan: build it without re-planning or stopping for review.
 - **Commit once per ticket, on the current branch;** branch only when the user asks. Run
   `python3 scripts/residence_check.py` before each commit.
-- **Never push, and never close issues.** The user does both, by hand.
+- **Never push to GitHub, and never close issues.** The user does both, by hand, from the laptop. Moving commits
+  between the laptop and the desktop with `env_sync.sh` is not a push. The desktop never pushes anywhere.
 - **Per ticket, run the affected test modules, not the whole app.** This overrides `/implement`'s "full test suite
   once at the end". Affected means: the test modules of the package you changed, every test module that imports
   a module you changed (`grep -rln "<dotted.package.path>" nirmaan_stack --include='test_*.py'`; grep the
@@ -135,5 +141,6 @@ Read by the installed engineering skills (`/triage`, `/to-spec`, `/code-review`,
   `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
 - **Domain docs:** single-context — root `GLOSSARY.md` + root `docs/adr/` — plus the per-domain reference docs
   under `.claude/context/domain/` and `frontend/.claude/context/`. See `docs/agents/domain.md`.
+- **Environments:** the laptop / desktop loop and `scripts/env_sync/env_sync.sh`. See `docs/agents/environments.md`.
 - **Coding standards:** `CODING_STANDARDS.md` and `frontend/CODING_STANDARDS.md` (the `/code-review` Standards axis
   reads both).

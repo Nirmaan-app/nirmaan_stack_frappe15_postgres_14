@@ -187,6 +187,18 @@ class TestSpecReader(FrappeTestCase):
         with self.assertRaises(KeyError):
             spec_reader.read_spec("no_such_category", "x", "y")
 
+    # -- adp5c --------------------------------------------------------------------------------------
+    def test_adp5c_vcd_aluminium_is_read_and_an_unknown_vcd_detail_still_is_not(self):
+        # ADP-5c (owner 2026-10-23 10:21): the VCD Aluminium SKU's spec reads to its variant
+        a, reason = spec_reader.attributes_for("hvac_adp", "Volume control Damper (VCD)", "Aluminium", "SQM")
+        self.assertIsNone(reason)
+        self.assertEqual(a, {"item_name": "Volume control Damper (VCD)", "item_detail": "Aluminium",
+                             "family": "VCD", "variant": "aluminium"})
+        # NEGATIVE: a VCD detail outside the four is still not understood, and the sentence names all four
+        derived, reason = spec_reader.read_spec("hvac_adp", "Volume control Damper (VCD)", "Brass", "SQM")
+        self.assertEqual(derived, {})
+        self.assertEqual(reason, "VCD detail 'Brass' is not one of GI Rectangular, GI Oval, Motorized, Aluminium.")
+
     # -- t04 ----------------------------------------------------------------------------------------
     def test_t04_the_one_stored_shape_and_determinism(self):
         a, reason = spec_reader.attributes_for("hvac_adp", "Diffuser with damper", "NECK: 375X375", "Nos")

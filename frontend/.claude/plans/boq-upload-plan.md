@@ -48233,3 +48233,1021 @@ declaration, `CUB\` (P6 dump, group lists, proofs).
 - FINDING: non-BoQ test modules (expense, TDS, outflow, schedule tests) still leave residue on every full run (since the
   deletes: Expense Request 136, Non Project Expenses 54, Projects 8, Users 12, Nirmaan Users 16, Contacts 67, DC Items 6,
   Nirmaan Versions 561 of which 317 on BOQs from delete_doc teardowns). Not in this slice; a later hygiene slice.
+
+## Slice 12e-6c - Insulation: the five consistency fixes from 12e-6R (U1, U2, O3, O4, RPUF) and HVAC v46 - as built 2026-10-18
+
+**Commits (unpushed at the time of writing):**
+- `9edce7f9b` fix(rate-helper): the five rules in `itemListPricing.ts`.
+  - U1: `declares` no longer counts `typed_entry`.
+  - U2: F-3 on every axis that reads inches (`f3InchAlt`, `F3_INCH_ALT`).
+  - O3: `withoutFixingWords` runs inside `choiceTextFor`.
+  - O4: `clothFacingCladding`.
+  - R: `rpufFamily`, called before the row-kind default.
+  - Five add-only Derivation-tab lines in `itemListRuleOrder.ts` (RPUF, the GI map with fixings, the cloth facing, F-3 on Insulation; U1's typed line comes from v46's key).
+  - New `slice12e6c.test.ts` (23).
+  - `ruleReachability` cases C1-C5, positive and negative, plus a 12e-6c guard on the live asset.
+  - Pins inverted by mechanical authority (BEFORE lines kept) in `slice12d8` / `12e2` / `12e2b` / `12e3b` / `12e3c` / `12e4b` / `12e4d` and `calculatorPanelParity`. The owner widened the test scope for these files (RULED-2).
+- `3c7c69469` feat(rate-master): HVAC v46 = v45 + `typed_entry: "one_size"` on Insulation's `numbers.pipe_size_mm` (Piping's own key).
+  - Pins: `max(ns)` 45 -> 46 (10), `CURRENT_HVAC_ASSET` v45 -> v46.
+  - Two cross-version Insulation pins normalise the key out by name (`_without_12e6c_typed_entry`).
+  - `TestSlice12e6cAssetV46` (test_45-47).
+- The docs commit that carries this entry.
+
+Start tip `3077ae9d5` (= origin). Live on dev: HVAC v46 (items `93bbac8f3c13d86c` unchanged, configs `447e1d967a655768`; snapshot BRMS-26-01415, batch `rmbulk-056c5223c650`), Electrical v66 unchanged. Report on the Desktop: `2026-10-18_12e6c_Report.md` (ledger first), `_Paths.xlsx`, screens in `2026-10-18_12e6c_screens\`.
+
+### 1. The rulings and how they were built (owner 2026-10-18)
+
+- **STOP-1, then RULED-1.** Piping's own keys put on Insulation move 0 figures but rewrite size wording on 893-978 stored rows.
+  - Measured by a scratch replay of v45 + each candidate key.
+  - `typed_entry` and `inch_mm_alt` each flip `declares`.
+  - `below_smallest` is category-wide and also rewrites thickness notes.
+  - New config keys would need `config_validation.py`, whose key sets are closed.
+  - The owner's options, all option 1:
+    - U1: the v46 key, with `typed_entry` controlling only the one-size rule.
+    - U2: F-3 in code on every `inches: true` axis, as ruled (x25.4 / x25 within the type's range).
+    - O4 + R: code word lists like R8 / R4, with no config key.
+- **U1.** A typed "40-50" / "50 mm O.D." on Insulation refuses "Type one pipe size, in mm or inches". A model-read range is unchanged. A test pins every stored-row wording equal with and without the key, on both categories.
+- **U2.** The covered axes are pinned: exactly Piping `size_mm` and Insulation `pipe_size_mm`. As ruled, the range is the type's own: a bare "4" on Nitrile (101.6 / 100 mm > 53.98) still prices at 6.35, while "4" on Tubular PUF or an MS pipe refuses.
+- **O3.** "GI strip at 1 m grid" names no cladding; "26 G GI cladding" still maps to 26G.
+- **O4.** A cloth facing copied with the cladding unanswered prices as Glass Cloth with paint, or as `<gauge>` Aluminium with Glass Cloth when aluminium is named (no gauge: 26G). An answered cladding stands; a sheet row still refuses (D9b).
+- **R.** RPUF in the row or as written, with no material answered (including a no-SKU answer), prices as Tubular PUF at the next thickness up. 00321 / 15's 12e-5 reading ("none of these" + RPUF) prices 9,459 / 1,904, the stored figure where the model picked Tubular PUF. 30 mm on a 40 mm pipe refuses. NBR is nitrile (owner 2026-10-16 13:53); no change needed.
+- **Corpus.** Only "RPUF" appears: 12 stored items on 00321, all already answered Tubular PUF, so 0 moves. 0 stored items have a cloth facing with the cladding unanswered. The GI map fired 12 times, all "26 G GI cladding". 0 stored Insulation items carry a bare pipe size below 6.35.
+
+### 2. The free recheck (AC8) and v46 (AC7)
+
+- **Replay, both harnesses, 17,883 rows, after the code commit and again after the v46 load.**
+  - 0 rows moved, wording included.
+  - Plain `85869b59717d1b2a2787bbcd8a382e4a811bee601d773bd6ed008a97420d16f7` and section-aware `5c824dd331a0b9d53c0250685e864bb82c9c7976d9691fcbbccae73221e4c5a5` are unchanged (the baseline stands).
+- **Stub proof.** The adp / insulation / piping extraction requests rebuilt from v45 and v46 are identical (a pricing key only).
+- **Vacuity.** One break per mechanism, on the targeted tests: 3 / 4 / 3 / 5 / 6 red, each restore sha-exact.
+
+### 3. Suites, cert
+
+- **Python full at `3c7c69469`:** Ran 8,533 (= 8,530 + 3). Failures 7 / errors 2 = the 8 known names plus `test_daily_window_picks_a_wo_touched_since` (run 00:08-00:37 IST, inside its window).
+- **vitest:** 187 files / 7,031 tests, 1 failed (writeOffControl).
+- **tsc:** 3,170, identical by file and message.
+- **Capture log:** 461 (+0).
+- **Cert at :8080** after the full de-stale (honcho needed `kill -9`; ping after 236 s). The served module carried the five code strings; a runtime import read `F3_INCH_ALT` 25.
+  - **C1.** Calculator > Insulation, typed "40-50": "Type one pipe size, in mm or inches"; "50": 615 / 224.
+  - **C2.** A bare "2" on Nitrile, and "4" on Tubular PUF: "size N has no unit - price this row by hand". A bare "4" on Nitrile: 327 / 224, as ruled.
+  - **C3.** No stored row shows O4 or RPUF (0 moves), and the calculator cannot express either input (both fields are plain dropdowns). The page's own module priced in-memory fixture rows against the live v46 configs: the cloth line at 461 / 84, and the RPUF line on an Insulation row and on 00321 / 15 (9,459 / 1,904).
+  - **C4.** The Derivation tab shows 38 lines, the new ones at 6, 18, 26, 27 and 31.
+  - **C5.** 2,123 / 588, 7,830 / 692 and 1,884.
+
+### 4. Findings for the next slice
+
+1. **"2 inch" under a pipe.** On a Piping row the insulation section takes the pipe's size as 50 (the x25 conversion) and prices 604 / 224. An Insulation row or tab reads "2 inch" as 50.8 and prices 607 / 224. This predates the slice; the code paths it changed do not reach it.
+2. **The C2 example "4".** It refuses on Tubular PUF, not on Nitrile: under F-3 as ruled, 4 inches lies above Nitrile's range.
+3. **A GI frame copied as the cladding.** With the cladding unanswered, "GI frame with perforated Al sheet" no longer maps to 26G Aluminium: the frame words are masked. 0 stored items are affected. The stocked option for it is "GI Framework with perforated Al sheet", which the model answers.
+4. **RPUF on a per-sq.m row** has no PUF rule, so it reads as before (the row-kind default where nothing names a stocked material). This is not ruled.
+5. **The browser session re-saved its FCM token.** `dev_isolate.py --verify` fails on push_tokens / push_on (the CU-B finding); `disable_push` still blocks sends. Not re-run: it is outside this slice's writes.
+
+## Slice ADP-1 - ADP retrofit, pricing rules part 1: slot diffusers (H3), per-number plenums (H4), the three ADP Pricing Inputs (A4), Insulation riders F1 / F3 / F4, and HVAC v47 - as built 2026-10-19
+
+**Commits (unpushed at the time of writing):**
+- `8a56dcb05` feat(rate-helper): code + tests.
+  - `itemListPricing.ts`: number-reader keys `typed_only`, `length_from`, `label`, `not_stocked`, `bare_above_largest` and the unit "m"; convert keys `show_numbers`, `name_missing`; `readPieceLength` (`PIECE_LENGTH_MIN_MM` 300), `numbersLine`, `giFrameworkCladding` (F3), `rpufSheetRefusal` (F4), F1 in the inch reading with the `mirrored` exemption.
+  - `pricingSheetHelper.ts` (display only): the value actually used (a length read from the size, a cleared typed box's default), the `mirrored` marker through `decodeItemEdits`.
+  - `itemListRuleOrder.ts`: add-only Derivation lines; the number_defaults line takes the reader's unit and says "then the ladder" only of a laddered number.
+  - `pricingInputReach.ts` walks `convert` (owner Q2); `pricingInputExact.ts` / `pricingInputImpact.ts` price an ADP SKU's own W x H and confirm a directly priced candidate directly.
+  - `config_validation.py`: the closed key sets widened by exactly these keys; units {mm, nm, sqm, m}.
+  - Tests: `adp1.harness.ts` + `adp1.test.ts`; `ruleReachability` AD1-AD7 / AF1 / AF3 / AF4 + an ADP-1 guard; `calculatorPanelParity` N1-N10 (N5 excluded by name: the Slots dropdown cannot offer 4); `test_config_validation_adp1.py` (11). Count pins inverted by mechanical authority, BEFORE lines kept.
+  - The replay harness tracked in `scripts/_instruments/` (AC7): `ac5_dump.py`, `ac7_harness.ts`, `ac7v2_harness.ts`, `replay.sh` (`REPLAY_DIR`), README row.
+- `1c32ebbf1` feat(rate-master): HVAC v47 = v46 - the 2 per-number plenum SKUs + the 3 ADP Pricing Inputs + the ADP-1 config keys. `mint_hvac_v47_adp1.py` (deactivate / export / build / load / verify). Pins: `max(ns)` 47, `CURRENT_HVAC_ASSET` v47, cross-version pins normalised by name (`_without_adp1_*`), `TestAdp1AssetV47` (test_48-50), `servedVsStoredPricing` normalised by name (`withoutAdp1()`, BEFORE kept; owner go - it was missed by the commit-2 targeted set and folded in by amend from `10a4e2637`).
+- The docs commit that carries this entry.
+
+Start tip `113a32949` (= origin). Live on dev: HVAC v47 (items `793a2b39344242ad`, configs `37b49f9506fe7cf6`; batch `rmbulk-76a1917667e7`, snapshot BRMS-26-01508), Electrical v66 unchanged (`784d1dbe8024d5f8` / `aa8d0a49ef645120`). Report on the Desktop: `2026-10-19_ADP-1_Report.md` (ledger first), `_Ledger.md`, `_Moved_Rows.xlsx`.
+
+### 1. The rulings and how they were built (owner 2026-10-19)
+
+- **H3 slot diffusers.** Per sq.m: damper only, "without" refuses by name. Per metre: slots + damper, 1 / 4 slots refuse ("No SKU for a N-slot diffuser"). Per number: the per-metre SKU x the piece length (m); no slot count refuses naming it. Fields (owner 15:56): per sq.m Damper; per metre Damper + Slots; per number Damper + Slots + Piece length (m). Removed from per number: "Size (as written)", "Area band (as written)". The quantity box stays.
+- **The piece length (owner ruling).** Typed wins; else the side written as the length; else the longest side of a x b (x c); else a single unlabelled number >= 300 mm; below 300 it is a slot width. Nothing read -> 1 m, amber "no piece length stated - priced at 1 m".
+- **H4 per-number plenums.** 2 x (LB + BH + LH) / 10^6 x the per-sq.m rate, + the adder on supply only at S7's position; a missing dimension refuses naming each. The 2 Nos SKUs (rmi-4184735331c3, rmi-a23b43d34447) retired through the per-SKU deactivate path (owner Q1), export after, v47 minted from the export and proved equal to the database by content. The mint gate has no item atoms and cannot see the removal.
+- **A4.** 150 / 300 / 2.5 are HVAC Pricing Inputs (rmi-22297aebf841, rmi-1c12e3f08472, rmi-26006c5ca808), `shared_by: adp`. The 150 stays before the markup (Q2b). The impact panel: 0 SKUs for the 150 and the 2.5 m, the 6 cross-talk Nos SKUs for the 300 (Q2).
+- **F1.** A bare number whose inch readings are both above the largest refuses (Nitrile "4"); a mirrored section size is exempt. **F3.** "GI frame / framework" + perforated aluminium sheet, cladding unanswered -> "GI Framework with perforated Al sheet" (row text or heading). **F4.** RPUF on a per-sq.m Insulation row refuses by name; ADP's double-skin "RPUF injected panel" rows are unchanged.
+
+### 2. The replay (AC3 / AC7 / AC9) and v47 (AC10)
+
+- **AC7.** The tracked harness reproduces 17,883 rows, plain `85869b59...` / section-aware `5c824dd3...`, at START.
+- **Ladder.** Code only on v46: 0 moved. A4 alone: 0 figures, 139 ADP rows change working lines only (117 mixing box, 12 flexible duct, 10 cross-talk). Full delta = live v47: plain `777736f7590431cc...`, section-aware `5b2bfd9196692a85...`.
+- **Moved rows (AC9).** 9 rows change figures, all H3: BOQ-26-00093 x4 1,949 / 430 -> 2,204 / 352; BOQ-26-00329 x4 (the slot item now priced at 1 m, the rows still blank); BOQ-26-00245 / 116 now 1,160 / 352. 186 change wording only (A4+H4 117, H3 31, A4 22, H4 16). 0 unexplained; Electrical 0; Piping 0. The unchanged-set sha is equal before and after (`ef82320a6d137066...`).
+- **The first full-delta pass moved 2 Piping rows** (a mirrored "6.24" read by F1 as bare); fixed before any commit with the `mirrored` exemption, pinned by test, re-run Piping 0.
+- **v47.** Series 1..47 contiguous; gate PASS; live == file 0 / 0; the stub proof (extraction requests rebuilt from v46 and v47) identical.
+- **Vacuity.** 18 frontend breaks + 1 Python, each red on its own tests, each restore sha-exact.
+
+### 3. Suites, cert
+
+- **Python full:** 8,547 run (= 8,533 + 14), failures 6 / errors 2 = the 8 known names.
+- **vitest:** 188 files / 7,104 tests, 1 failed (writeOffControl), after the owner-approved `servedVsStoredPricing` inversion.
+- **tsc:** 3,170, identical by file and message (`NODE_OPTIONS=--max-old-space-size=5120`; the default heap OOMs).
+- **Capture log:** 461 (+0) throughout; byte-equal to START at the end.
+- **Cert at :8080** after the full de-stale (honcho needed `kill -9`; ping after 222 s; the served modules carried the code strings; a runtime import read `PIECE_LENGTH_MIN_MM` 300).
+  - **C1-C3.** Slot per sq.m: Damper only, "without" refuses, "with" 12,992 / 2,864. Per metre: Damper + Slots (2, 3), 2-slot with damper 1,465 / 352. Per number: Damper + Slots + Piece length; 1.5 -> 3,306 / 528 ("1520 x 1.5 = 2280"); cleared -> amber 1 m, 2,204 / 352.
+  - **C4.** BOQ-26-00093 / 150: 2,204 / 352, "1000x150 -> 1 m (the longest side)".
+  - **C2 stored row.** BOQ-26-00341 / 87 (4-slot): "No SKU for a 4-slot diffuser - price this row by hand".
+  - **C5 / C6(i).** 450x450x350 -> "1230 x 2 x (...) / 10^6 + 150 = 1423.05" -> 2,065, no +150 on install; "2200 mm length" refuses "no width and height stated".
+  - **AC0 (d).** The adder 150 -> 200 through Rate Master > Pricing Inputs moved BOQ-26-00186 / 58 2,233 -> 2,306 (+73 = 50 x 1.45, rounded); the impact panel said "added to the row", 0 SKUs; restored 150, read back from the database (2 Version rows), live == v47 by content.
+  - **C7 / C8.** Pricing Inputs 14 items with the 3 new rows; the Derivation tab shows every new line.
+  - **C9.** Nitrile "4" refuses (F1); GI framework copy and heading -> GI Framework 2,368 / 364 (F3); RPUF per sq.m refuses (F4); ADP BOQ-26-00312 / 27 "RPUF injected panel" 4,785 / 640 unchanged.
+  - **C10.** Electrical BOQ-26-00183 / 19 120 / 24; Piping BOQ-26-00100 / 61 602 / 234 (the mirrored 6.4 still matched to 6.35).
+  - **C11.** Live == v47 / v66 by content; the replay dump after the cert byte-equal to the AC9 dump, and the replay reproduces 17,883 rows, `777736f7...` / `5b2bfd91...` (= AC9); capture byte-equal to START.
+
+### 4. Findings for the next slice
+
+1. **A slot-diffuser plenum that gives only a length refuses** (BOQ-26-00087 rows 68-74 state only a length: "Plenum Box for N Slot Linear Diffuser - L mm Length"), as H4 ruled; pricing them needs a ruling on the plenum's W and H for a slot count.
+2. **The calculator's Slots dropdown offers only stocked counts (2, 3)**, so a 4-slot refusal is shown on stored rows only (BOQ-26-00341 / 87).
+3. **A scoped Suggest run needs a completed run to carry from**, so a sheet with no runs (BOQ-26-00087) can be suggested only whole.
+4. **`scripts/residence_check.py` already fails at START** (F5 120 vs 117, F2 221 vs 217); ADP-1 adds 0 to either.
+
+## Slice ADP-2 - ADP retrofit, pricing rules part 2: damper by air stream (H5), plenum fields and three-way rule (H7), neck "Other..." (B3), and HVAC v48 - as built 2026-10-20
+
+**Commits (unpushed at the time of writing):**
+- `aa92dfee9` feat(rate-helper): code + tests (H5 fix (a) folded in by fixup + autosquash; was `7d41750ab`).
+  - `itemListPricing.ts`: the reader key `box_side` and `readBoxSides` (L x W x H, height last, a label winning); a typed-only number filled from the model's reading (a box side, or a non-metre number such as the area band at its largest), shown with its line (`filledReads`); several `name_missing` conversions refuse together ("... needs an area, or length + width + height - ... not stated"); their fields carry one either-or `group` label; a `derive_when_none` default carries the fact that decided it (`DefaultedAttr.when`) and its line names it; H5 fix (a): `airStreamsNamed` and the derive-step guard (a row naming supply and return air leaves the damper as read).
+  - `pricingSheetHelper.ts` (the filled value on its field), `RateHelperPanel.tsx` (the group label, once), `itemListRuleOrder.ts` (the H5, plenum either-or / area, box sides, area fill and B3 lines, fix (a)'s both-streams line; ADP-1's plenum refusal line replaced), `config_validation.py` (`box_side`, approved Q2).
+  - Tests: `adp2.harness.ts` + `adp2.test.ts` (37, then 39 with the v48 pin); `ruleReachability` (+21 cases, the ADP-2 guard); `calculatorPanelParity` P1-P7, P7x, A18 (v33); `test_config_validation_adp2.py` (10); pins inverted by mechanical authority, BEFORE kept: itemListPricing.test (R13's record carries `when`) and the ADP Derivation count 18 -> 19 in ruleReachability, slice12d8 (x2), 12e2, 12e2b, 12e3b, 12e3c, 12e4b (fix (a)'s line generates wherever R13 reads the air stream).
+- `e42189318` feat(rate-master) (was `3f01b6bbe`, then `7858b3359` with the test_extraction_coercion v48 pin by owner go; re-parented by the fix (a) autosquash, patch unchanged): HVAC v48 = v47 + the ADP-2 config on hvac_adp, no item change; `mint_hvac_v48_adp2.py` (export / build / load / verify) + README row; pins by mechanical authority (test_piping_v34 newest-asset x12 + test_47, test_rate_master CURRENT_HVAC_ASSET and ten more via `_without_adp2_adp`), `TestAdp2AssetV48` test_51-53, adp2.test AC8.
+- The docs commit that carries this entry.
+
+Start tip `82b11f9ce` (= origin). Live on dev: HVAC v48 (items `793a2b39344242ad` unchanged, configs `534fe6a2358839e2`; batch `rmbulk-85520d6c104d`, snapshot BRMS-26-01623), Electrical v66 unchanged. Report on the Desktop: `2026-10-20_ADP-2_Report.md` (ledger first), `_Premises.md`, `_Ledger.md`, `_Moved_Rows.xlsx`, `_Field_Table.xlsx`.
+
+### 1. The rulings and how they were built
+
+- **A2 stop (owner 00:11), answered 00:24.** Premises: every stored damper-choice item carries the model's `air` (615 / 615); the question asks only an area BAND; ADP-R0's 86 spigots were "any damper in any ancestor" (9 by the ruling's words); stored necks already ladder; the Derivation tab has no unit. Rulings: F-ADP1 -> ADP-5 (needs the model's judgment), A6 -> ADP-4 (needs a unit selector), H7 fill L x W x H with a new key (approved), Area from the band at its largest.
+- **H5.** Config only: four `derive_when_none` rules on the six damper families (supply -> with; return / exhaust / fresh -> without), replacing R13. Explicit damper wins; no air stated keeps R1. The Air stream field now shows on all six families (it decides the damper).
+- **H7.** Four typed boxes, filled from the model's existing size and area-band answers (the stub proof: the model's question is unchanged); area first (no adder), else ADP-1's formula, else the either-or refusal. Display only: 0 figures moved.
+- **H5 payload audit -> fix (a) (owner 2026-10-20).** 00247 r80 ("Supply / Return air diffuser") and 00103 r41 (heading "Supply & return air diffusers") were answered supply without support in the payload. Ruling: the row's own text naming one stream decides; naming both, or none under a heading naming both, leaves the damper as read (not mentioned -> without), with a line; only words used for the air count. Code only. It reaches R13 too: two R13 linear grilles "for supply & return air" (00234 / 00273 "(CHW BOQ) AHU & Low Side" r571) moved 9,628 / 2,800 -> 4,829 / 880 -- STOP, owner "(i) ACCEPT".
+- **B3.** `neck_mm` -> `dropdown_or_other`; a stored unstocked neck now opens in "Other..." with the BoQ's words (30 rows, wording only).
+
+### 2. The replay and v48
+
+- START: 17,914 rows, `0afdc501...` / `09d2bc0a...` (= ADP-1's post-run). Ladder on scratch copies: code only 0 figures (7 wording, the R13 line); H5 alone 51 figure rows; H7 alone 0; B3 alone 0; all 51.
+- Live v48 replay = the scratch "all" byte for byte (`3a285993...` / `41daf510...`) before fix (a). With fix (a) (scratch `75823633...` / `e21be24e...`): 51 figure rows = 49 H5 (square diffuser 32, slot 12, curved grille 5; e.g. 00087 r54 2,187 -> 2,866) + 2 "H5 both streams" (the R13 linear grilles above); 00247 r80 1,813 / 400 and 00103 r41 1,668 / 400 back at START; 637 wording; 0 unexplained; unchanged-set sha equal; Electrical 0, Piping 0, Insulation 0. Code only on v47: exactly the 2 linear grilles. 4 stored rows carry the both-streams line.
+- v48: export = v47 by content; only hvac_adp changes; stub proof identical; mint gate PASS; live == file 0 / 0.
+- Vacuity: 13 frontend breaks + 1 Python, then 5 for fix (a) (the guard, the row winning, the heading, words-for-the-air, the Derivation line), each red on its own tests, each restored sha-exact.
+
+### 3. Suites, cert
+
+- **Targeted** (after fix (a)): vitest 43 files / 3,237 OK (including every test that reads the latest asset); Python 10 modules 1,158 OK (fix (a) is TS only).
+- **Full, at `e42189318`:** Python `--app nirmaan_stack` Ran 8,560 -- failures 6 / errors 2 = the 8 known (expense requests x5, CEO hold dedup, outflow CREDIT settlement, bulk TDS); the first full run (8,557) had stopped on the test_extraction_coercion v47 pin (inverted by owner go) and the daily-window test (accepted as pre-existing). vitest 189 files / 7,175 -- 1 failure, `writeOffControl` "mirrors the sibling admin predicates" timing out at 5 s on its cold import of `SheetPricingPage` (also failing alone; ADP-1 recorded the same). tsc (`NODE_OPTIONS=--max-old-space-size=5120`) 3,170 errors, line for line identical to ADP-1. Capture log 465 lines, all 6 generations sha-equal to the slice's first backup.
+- `scripts/residence_check.py`: F5 120 / F2 221, = START (pre-existing; ADP-2 adds 0).
+
+- **Cert at :8080** after the full de-stale (ping after 261 s; PROOF 1 code strings; PROOF 2 runtime import of `readBoxSides` / `BOX_SIDE_ORDER`): C1 00087 r54 2,866 / 458 with the supply-air line, r60 2,187 / 458 with the return-air line; C2 00231 r238 stays without, 1,044 / 400; C3 calculator slot per sq.m supply -> 12,992 / 2,864, return -> the without refusal; C4 calculator plenum four fields, area 2.5 -> 4,459 (no adder), 450 / 450 / 350 -> 2,065, length only -> the either-or refusal; C5 00087 r71 four fields, Length 3000, the refusal; C6 00186 r58 2,233 with 900 / 200 / 350; C7 neck "Other..." 225 -> 1,532 / 400 (priced as 300), 600 refuses; C9 the six Derivation lines; C10 Electrical 120 / 24, Piping 836, Insulation 594 unchanged; C11 v48 / v66 by content, capture byte-equal (no model call). Fix (a) re-cert after a second full de-stale (served code carries `airStreamsNamed`, runtime import read it): 00247 r80 1,813 / 400 Damper without, Air stream supply, the both-streams line; 00103 r41 1,668 / 400 the same; 00234 r571 linear grille per sq.m 4,829 / 880 (combined 5,709) the same; C1 r54 2,866 / 458 with, r60 2,187 without, neither with the line. No write in the cert.
+
+### 4. Findings for the next slice
+
+1. **F-ADP1 (ADP-5).** 9 stored spigot items sit under a heading naming a butterfly damper with no damper item on the row (00231 r257-259, 00243 r257-259, 00144 r227-229); a further 57 headings name another damper. The owner wants the warning only where the model judges the damper priced in the spigot row.
+2. **A6 (ADP-4).** The Derivation tab prices a SKU, not a row (VCD 550X300: 7,830 / 1,920 on the tab, 1,292 / 317 on the panel); it needs a row-unit selector.
+3. **The model leaves allow_none attributes out** (ADP-1 audit: `insulated` x20, `variant` x11 on BRSR-26-01103) where the spec says to answer "None"; harmless under F-1, a prompt point for ADP-5.
+4. **`scripts/residence_check.py` still fails at START** (F5 120 vs 117, F2 221 vs 217); ADP-2 adds 0.
+5. **`writeOffControl.test.ts` times out at 5 s** on its dynamic import of `SheetPricingPage` (the pricing module graph); a per-test timeout or a lighter import would end the standing one-failure vitest run.
+
+## Slice ADP-3a - the needed-to-price marker, either-or groups, field-keyed refusals, value-used lines, screen-reader names (every discipline, no price move) - as built 2026-10-20
+
+**Commits (unpushed at the time of writing):**
+- `c9581a251` feat(rate-helper): code + tests (was `516ea2053`; amended once with the cert-found group-order fix, below).
+  - `itemListPricing.ts`: `ItemFieldDef.required` / `axes` / `secondKey`; the square diffuser's Outer size shown as its own field (second_key); either-or groups from `waysLabel` (+ "Neck size, or Outer size"), a group's fields moved together; the multi-way refusal "<kind> needs <ways> - neither stated / <box> not stated / Size '<raw>' gives one length ... - price this row by hand"; the U5 sentence "<kind> is not stocked per <unit> (stocked per <units>) - price this row by hand" (an unrecognised unit too); every missing need named; `refusedFor` on the field a refusal is about; the area working line; the sq.ft before / after line; the B6 rule in the no-SKU facts.
+  - `pricingSheetHelper.ts`: `required` on every attribute (the gate's own condition, plus a blank self-fit bind); "Missing to price: A, B -- fill them to compute a rate." / "Fill to price: A, B."; the "landed" value-used note (catalog_fit, map, derive, module_fit; a stocked size given as asked reads "As given - a stocked size"); U7 on the calculator only (absent_dependents; the named plate's quantity default); the item outline keyed to the field; the text-box value notes; the B6 rule in the attribute and wiring no-match sentences.
+  - `rateHelperTypes.ts` (`required`, the `landed` note, last in ATTR_NOTE_ORDER), `RateHelperPanel.tsx` (the "*" and the one note, group headings, `<label htmlFor>` naming every control, undo buttons out of the labels, the quantity named), `itemListRuleOrder.ts` (three Derivation lines, LAST on each tab).
+  - Tests: `adp3a.harness.ts`, `adp3a.test.ts` (27), `adp3a.dom.test.tsx` (6, jsdom); `ruleReachability` (+14 cases N1-N3, the ADP-3a guard); `calculatorPanelParity` I35 / I36 / A19-A21; pins inverted by mechanical authority, BEFORE kept (sentences and Derivation counts only; no price pin).
+- The docs commit that carries this entry. No asset commit: HVAC v48 / Electrical v66 stay live (0 / 0 differing, the START shas).
+
+Start tip `da840a9ce` (= origin). Report on the Desktop: `2026-10-20_ADP-3a_Report.md` (ledger first), `_Ledger.md`, `_Field_Table.xlsx`, `_Wording_Rows.xlsx`, the three test logs, `2026-10-20_ADP-3a_Cert\`.
+
+### 1. The rulings and how they were built
+
+- **H1 (the "*").** One rule in the shared code: a field carries `required` exactly when a blank in it withholds the price (item list: the family's / unit block's / single conversion's needs minus a need a default fills on a BLANK; attribute path: the gate's own sets, plus a blank self-fit bind). Proof on every stored row: a starred blank field on a priced row = 0 (attribute 6,958 starred blanks, all refused; item 287, all blank blocks).
+- **H2 (either-or).** ADP "Size (W x H), or Area band" on the per-number families; the plenum "Area, or all three of Length, Width, Height"; the square diffuser "Neck size, or Outer size" with the outer size SHOWN. A field in a group carries no "*"; its heading does.
+- **B6.** A no-SKU sentence keeps a fact only where the kind's products carry it AND vary on it, or all share one value the row contradicts ("No SKU for fire damper: UL listed no, variant UL" -- the per-sq.m SKU has no width or height; the one access door is 450 x 450, so a 600 x 600 row still names both).
+- **Unit refusals (owner 13:35).** Code supersedes the config `unit_refusal` sentence on the item-list path (kept as the fallback with no family).
+- **H6.** Nothing removed.
+- **U7.** Calculator only, so no stored row can move: circuit wiring No sets a blank circuit dependent to None (the server's `force_absent_dependents`); a plate's quantity takes the extraction default once the plate is named (literal rule; extending it to unnamed computed plates made the calculator price rows the panel refuses, so it was not built).
+
+### 2. The replay
+
+- START = ADP-2's fix (a) replay: 17,914 rows, plain `75823633...` / section-aware `e21be24e...`. Every stage: **figures changed 0 of 17,914**.
+- AC9 (a richer record: label / required / group / blank / outline / note per field, notes per attribute, the derivation), HEAD sources vs the commit on the same dump: 17,050 rows wording only -- U1 16,660, U2 361, U3 4,138, U4 8, U5 63, U6 5,250; 0 unexplained.
+- AC1 vs the ADP-R3 Field_Table: 180 agree; the 35 "NO" are explained (Electrical quantities / wire 2 / circuit cores and runs lose the "*" only where a None controller disables them; cabletray / hvac_raceway thickness keeps it unless the gauge supplies it; Insulation's cladding is starred -- a blank refuses; the fire damper variant is not -- a blank takes the default).
+- AC5: 224 calculator controls over 23 categories, 0 unnamed before and after; before, a name ran on into the whole option list and the "default" / "90%" badges.
+
+### 3. Suites, cert
+
+- Targeted before commit 1: boq-wizard + pricing 119 files / 5,343 OK; Python `test_rate_master` 742 OK + `test_extraction_coercion` 216 OK (both read the changed sources); tsc 3,170 (= ADP-2); residence F5 120 / F2 221 (= START; the harness's parse routed through `readJsonFixture` so ADP-3a adds 0).
+- **Full, at `c9581a251`:** Python `--app nirmaan_stack` Ran 8,560 -- failures 6 / errors 2 = the same 8 known as ADP-2, test for test; vitest 191 files / 7,227 -- 1 failure, the known `writeOffControl` 5 s timeout; tsc 3,170 (= ADP-2; the three TS18048 `b.familyControl` lines in RateHelperPanel.tsx). Capture unchanged through every run (465 lines, `89c4ea9c...`).
+- Vacuity: V1-V6 (marker off, old U5 words, the either-or line not generated, a label without htmlFor, "As given" off, the group not moved together), each red on its own tests, each restored sha-exact.
+- Cert C1-C11 at :8080 after the full de-stale (twice -- the second after the mid-cert fix), all PASS; C3 first found the either-or heading drawn TWICE on a square diffuser whose Air stream sat between Neck size and Outer size -- fixed (the group's fields move together), +2 tests, V6, replay 219 rows field order only.
+
+### 4. Findings for the next slice
+
+1. **The plenum outline follows ADP-2's sentence**: with nothing stated only Length / Width / Height are outlined (the sentence names those three, not Area).
+2. **Insulation's unstocked combination cannot reach the calculator** (its options are stocked combinations, so it shows the stale-pick "choose again"); parity I36 is an exclusion for that reason.
+3. **The panel's stored rows that refuse on a blank plate quantity remain** (the plate is computed, never named; U7's default is calculator-only by the ruling's words).
+4. **A circuit-wire thickness forced to None still carries the "*"** (an allow-None field is answered by None and the gate still asks for it) -- consistent with every allow-None field; flagged for the owner.
+5. **The Field_Table's "OPTIONAL" for Insulation's cladding and cabletray thickness, and "REQUIRED (default ...)" for the fire damper variant**, were field-level summaries the marker now measures per row.
+
+## Slice ADP-3b - the ADP face size in its own Width / Height boxes, the plenum Area outline, the circuit-wire marker, and HVAC v49 - as built 2026-10-20 / 21
+
+**Owner rulings built (quoted):** B1 (2026-10-11; restated 2026-10-19 23:19) "wherever we are capturing multiuple dimesions we
+need to capture each in it sown attribuyte and not combined. that is easier for th euser to understand" -- the model keeps
+reporting as today, the panel fills the separate fields. 2026-10-20 21:57 ("ok"): (2) a plenum with nothing stated outlines
+Area too; (3) circuit-wire thickness fields lose the "*" while circuit wiring = No. 2026-10-20 22:25 ("ok to all") on ADP-R3b:
+D1 a three-part size on a face -- the first two parts are the face, labels decide only between two parts, a third part never
+displaces them; D2 a per-metre grille whose one dimension is written as a width is read as the grille's height (its narrow
+dimension); D3 the square diffuser's outer size is "Outer width (mm)" and "Outer height (mm)" in the "Neck size, or Outer
+size" group; D4 the depth axis is retired.
+
+**Commits (unpushed at the time of writing):**
+- `05e88252a` feat(rate-helper): code + tests.
+  - `itemListPricing.ts`: `readFaceSides` (beside `readBoxSides`); the typed-number fill takes `face_side` (value-used line
+    "BoQ says 550X300 -> width 550 mm"; the parts not used said once, on the first face box's line); D2; D3 (two outer
+    boxes, read wherever the neck is); two boxes as one way read "Width + Height"; a face that gave no side is named by the
+    size; fix (2) ("neither stated", every box of every way outlined).
+  - `pricingSheetHelper.ts`: fix (3) (a field its controller declares absent carries no "*"). `itemListRuleOrder.ts`: an
+    ADP-3b group, LAST, from `face_side`. `config_validation.py`: `face_side`.
+  - Tests: `adp3b.harness.ts` + `adp3b.test.ts` (37, then 39 with the v49 pin); `ruleReachability` (+9 cases, the ADP-3b
+    guard); `calculatorPanelParity` Q1-Q4; `test_config_validation_adp3b` (9); pins inverted by mechanical authority,
+    BEFORE kept: adp2.test (fix (2) sentence), itemListPricing.test ("Face width + Face height").
+- `2cfa5ee6b` feat(rate-master): HVAC v49 = v48 + ADP's config only (B1 typed face boxes, ids unchanged; D4 depth retired;
+  per-box notes); `mint_hvac_v49_adp3b.py` + README row; pins by mechanical authority (test_piping_v34 newest-asset x13 +
+  series x2 + "v49 absent" x2, test_extraction_coercion CURRENT, test_rate_master CURRENT + v28..v33 "moved past" x6 + the
+  ADP note pins x6 + two tests whose sample attribute was `depth_mm`); record tests `TestAdp3bAssetV49` test_54-56,
+  adp3b.test AC5.
+- The docs commit that carries this entry.
+
+Start tip `5405d2542` (= origin). Live on dev: HVAC v49 (items `793a2b39344242ad` unchanged, configs `bd12afff78ba6dd8`;
+batch `rmbulk-b20016df0729`, snapshot BRMS-26-01865), Electrical v66 unchanged. Report on the Desktop:
+`2026-10-20_ADP-3b_Report.md` (ledger first), `_Ledger.md`, `_Moved_Rows.xlsx`, `_Field_Table.xlsx`, `_Cert\`, the three
+test logs.
+
+### 1. How it was built
+
+- **The boxes are the SKU attributes themselves.** `face_w_mm` / `face_h_mm` keep their ids and become `typed_only` readers
+  with `length_from: size_mm` and `face_side`; every need, conversion, SKU match and pipeline that reads them is v48's, and
+  the model's question is unchanged (the stub proof: identical requests for ADP, Insulation, Piping).
+- **The reader** reads exactly as the width axis did where it cannot split a face (the whole text is the width: a range
+  takes its top, a list keeps its named refusal), so the 205 face-read sizes the recon measured read the same.
+- **A typed-only reader is read only where the family's rule needs it** (ADP-1), so the square diffuser's `second_key`
+  axes are added where the neck is read; on every other family the face boxes appear only where they price.
+
+### 2. The replay (every stored row, 17,914; START `2ed9361d...` / `0bdd6fa1...`)
+
+- Ladder: code only on v48 -> 0 figure rows (848 wording: U4 34, U5 814); code + v49 (scratch) -> figure rows EXACTLY
+  BOQ-26-00247 "BOQ" r102 (refused -> 725 / 132 / 857, D2), 0 undeclared, unchanged-set hash identical; live v49 -> the
+  same (the rich record on the live dump == the scratch run byte for byte; tracked replay `a0fbe8b7...` / `f15205af...`,
+  FIGURES CHANGED 1).
+- Wording rows: U1 320, U2 219, U3 21, U4 34, U5 814, D2 3 (r102 + the two '6" wide' grilles, refused either way, now
+  "height stated in inches"). Electrical, Piping, Insulation: 0 figure rows.
+
+### 3. Suites, cert
+
+- Targeted before each commit (sets in the report); vacuity V1-V9 (D1, D2, the face fill, fix (2), fix (3), the "+" label,
+  D3, the Derivation group, the validator), each red on its own tests, restored sha-exact.
+- **Full, at `2cfa5ee6b`:** Python `--app nirmaan_stack` Ran 8,572 (= 8,560 + 9 validator + 3 record tests) -- failures 7 /
+  errors 2 = ADP-3a's same 8, test for test, plus `test_daily_window_picks_a_wo_touched_since` (the known time-of-day
+  failure: 19:46 UTC = 01:16 IST, `today()` past midnight; fails alone too; nothing under `nirmaan_stack/tasks/` changed);
+  vitest 192 files / 7,281 -- 1 failure, the known `writeOffControl` 5 s timeout; tsc 3,170 (= ADP-3a). Capture unchanged
+  through every run (465 lines).
+- **Cert at :8080** after the full de-stale: C1-C11 all PASS -- the one move seen at C3 (00247 r102 725 / 132 / 857).
+
+### 4. Findings for the next slice
+
+1. **A row with an unrecognised unit still shows its fields** (e.g. NRD / VCD with a unit the catalogue does not know) beside
+   the unit refusal -- unchanged from ADP-3a; the boxes are simply the new ones.
+2. **The catalogue-column definition `depth_mm`** (category `attribute_definitions`) stays: D4 names the reader, the match
+   attribute, the control and the note; 0 items carry it.
+3. **`writeOffControl.test.ts`** still times out at 5 s on its dynamic import (standing).
+
+## Slice ADP-3c - a two-part size on a Width + Height item is the face, whatever its parts are called - as built 2026-10-21
+
+**Owner rulings built (quoted):** 2026-10-21 00:47 "when for som eSKU, 2 measurements are required like width aND HEIGHT and
+the boq descripton mentions 2 dimesnions but with different names, it does not get captured and price refuses. ... we will
+need to decide if we nee dto fix such cases to use the dimensions irrespective of the exact name"; 01:31 "proceed"; 01:55 "ok
+to both" on ADP-R3c. RULE: on an item whose panel shows BOTH Width and Height boxes, a size with EXACTLY TWO readable parts
+is the face whatever its parts are called -- a width or height label decides that side, the other part takes the other side;
+with no width / height label, first = width, second = height. (2) both parts labelled the same side ("600 W x 300 W") read by
+position. UNCHANGED: D1 (three parts), D2 (the per-metre grille), the plenum's L / W / H boxes, a one-part size, inches /
+lists / ranges. **Ruling (1)** ("the four BOQ-26-00245 'HVAC ' door grilles with no unit price") was **WITHDRAWN by the owner
+on 2026-10-21**: its premise ("the panel already treats an empty unit as per number") is false on the live page (finding 1).
+
+**Commits (unpushed at the time of writing):**
+- `efdb7b77f` feat(rate-helper): code + tests.
+  - `itemListPricing.ts`: `readFaceSides(text, { pair })` -- with `pair` and exactly two parts, the two-part branch above;
+    a part whose own label is not the side it fills carries a `line` ("the other part of a two-part size"; "the first /
+    second part of a two-part size" where no width / height label decided). `priceOneItem` passes `pair` when the block's
+    `readsHere` holds both `face_side` readers of the same `length_from`; a side's `line` becomes its value-used line.
+  - `itemListRuleOrder.ts`: one Derivation line, LAST, generated where a config has both face sides -- "A two-part size on a
+    Width + Height item is the face, whatever its parts are called -- a width or height label decides that side, else
+    first = width, second = height" (ADP tab line 38).
+  - Tests: `adp3c.test.ts` (new, 23: the reader with / without the pair; AC1 every ruled case pos + neg; AC2 order on the
+    face-matched SKUs -- cross-talk, access door, square diffuser outer -- calculator = panel; the Derivation line);
+    `ruleReachability` C1a / C1b / C1c / C1a-calc / C1b-neg / C1c-neg + the ADP-3c guard; `calculatorPanelParity` R1 / R2.
+    Pins inverted by mechanical authority, BEFORE kept: `adp3b.test.ts` U3 (00302 r67 refused -> width 150 / height 600;
+    the "not used" pin moves to the per-metre grille), U6 `slice(-3)` -> `slice(-4, -1)`; the ruleReachability ADP-3b guard
+    (`slice(-NEW.length - 1, -1)`, gained set + `T.faceAny`).
+- The docs commit that carries this entry.
+
+Start tip `dcb824d5b` (= origin). No asset: live HVAC v49 (`793a2b39344242ad` / `bd12afff78ba6dd8`) and Electrical v66
+(`784d1dbe8024d5f8` / `aa8d0a49ef645120`) unchanged by content at START and END. Report on the Desktop:
+`2026-10-21_ADP-3c_Report.md` (ledger first), `_Ledger.md`, `_Moved_Rows.xlsx`, `_Field_Table.xlsx`, the two test logs.
+
+### 1. The live effect: ONE row
+
+- **Live (the page's unit, `row.unit ?? ""`): exactly 1 row moves** -- BOQ-26-00302 Sheet1 r67, curved grille "600(L)X150mm
+  width": refused -> width 150 / height 600 -> **496 / 80 / 576** (cert C1). 0 wording-only rows; unchanged-set hash
+  `4fa32105ecc2a4d0` before and after.
+- **Harness (the stored unit passed as null, as every replay passes it): 5 rows** -- r67 plus the four 00245 "HVAC " door
+  grilles r126-129 (1204 / 378, 313 / 98, 625 / 196, 1873 / 588); 0 wording rows; unchanged-set hash `2d8b894c96d56375`;
+  tracked replay after `85030279...` / `9e49ca93...`.
+- **Live, the four 00245 rows do not move at all**: their stored `BOQ Nodes.unit` is empty, the page passes `""`, and a
+  door grille (stocked per sq.m and per number) refuses "No unit on the BoQ row - this item is priced per sq.m or per number
+  or per metre; set the unit" before the size is read -- byte-identical before and after (cert C2, the panel shows no
+  boxes). Electrical, Piping, Insulation: 0 rows in both modes.
+
+### 2. Suites, cert
+
+- Targeted before commit 1: `src/pages/boq-wizard` + `src/pages/pricing` 121 files / 5,430 OK. Vacuity V1-V5 (the pair
+  branch 19 red, the flag 17, the label deciding 11, the U1 line 8, the U2 line 5), each restored sha-exact.
+- **Full, at `efdb7b77f`:** vitest 193 files / 7,314 (ADP-3b 192 / 7,281; +1 file, +33) -- 1 failure, the known
+  `writeOffControl` 5 s timeout (also times out alone with the slice's two sources at their `dcb824d5b` text); tsc 3,170,
+  the log byte-identical to ADP-3b's. Python not run (no Python file changed).
+- **Cert at :8080** after the full de-stale: C1 PASS; C2 (as written: 00245 r126 / r129 priced) FAILS -- the finding below;
+  C3-C7 PASS (00087 r36 1292 / 317, 00175 r170 D1 line, 00247 r102 725 / 132; calculator VCD 600 / 300 1410 / 346,
+  cross-talk 500 / 250 1044 / 360 and access door 450 / 450 8700 / 1280 = the panel's entry point on "500(W) x 250(L)" /
+  "450(L) x 450(H)"; the Derivation line LAST; Electrical 00256 r624 1775, Piping 00064 r68 4728, Insulation 00064 r141
+  1371; v49 / v66 unchanged, capture 465 lines unchanged).
+
+### 3. Findings (open)
+
+1. **The replay harnesses and the page pass an empty unit differently** -- for a separate READ-ONLY check. The page
+   (`SheetPricingPage.tsx`, `helperPanelCtx`) passes `unit: row.unit ?? ""`; `ac5_dump` -> `ac7` / `ac7v2` and the rich
+   replays pass the stored `None` as null. The pricer reads null as "unit not given" (prices per number) and `""` as "no
+   unit" (refuses on a kind stocked in more than one unit). Any stored row with an empty unit can therefore price in a
+   replay and refuse live; earlier replay baselines carry the same gap. ADP-R3c's "5 rows move" was harness-only. The
+   tracked harnesses were NOT changed in this slice (owner).
+2. **The grid's Unit column shows "Nos" on 00245 "HVAC " r126-129 while the panel reads no unit** (seen at C2) -- not
+   investigated here; part of finding 1's check.
+3. **ADP-3b's Derivation line 35 still says a part labelled as a length or depth is "named and not used"**; on a Width +
+   Height item line 38 now governs a two-part size (U2 is the only line this slice adds).
+4. **`writeOffControl.test.ts`** still times out at 5 s (standing; owner 2026-10-21: the listed known governs).
+
+## Slice ADP-4a - the ADP wording clean-up: Derivation reasons and merges, plain panel text, each default once, "Other..." on five fields, HVAC v50 - as built 2026-10-21
+
+**Owner rulings built (quoted from the ADP-R4 decision table, 2026-10-21 14:41, "ok with the rest"):** D1 reasons on every
+Derivation line ("'Reason not recorded' goes only where none exists"); D2 / D3 one line per rule (merges 17+19, 23-27,
+5+32, 13+24, 16+35, 35+38); D4 no H-codes; D5 "Show each default once, on the field (where it can be changed), not again in
+the working"; D6 "Add 'Other...' to diameter, torque, panel ratio, thickness and slot count" - "Same as the neck size you
+approved"; D10 the ten family cases + a family guard; D11 the harness source pin. Scope rulings the same day: labels
+display-side only ("Plenum thickness (mm)"); AC1 generic fixes on all three tabs, reasons and merges ADP only, U6 = the 7
+Insulation / Piping lines; AC3 "Insulation everywhere" (its sections in Piping rows too); SCOPE-1 (13 test files, wording
+inversions only); parity "List the 7, fix later"; PY-1 (latest-asset pins, mechanical only).
+
+**Commits (unpushed at the time of writing):**
+- `08fb63a97` feat(rate-helper): code + tests (31 files).
+  - `itemListRuleOrder.ts`: `DERIVATION_RULINGS` (keyed by item kind `hvac_adp_item` and line key) and " -- why: " on every
+    ADP line; the merges; ten generated lines (per-number W x H, area band, per-metre grille, per piece, the v38 mixing box,
+    cross-talk's own formula, '1:N', the gauge refusal, square feet, m / cm); full lists, "amber", line 30's units.
+  - `plainEnglish.ts`: H-codes and tag brackets stripped. `itemListPricing.ts`: `plainItemListWording`, `plainWorking`,
+    `FAMILY_DISPLAY`, `shownLabel` (labels without "(as written)"; a multi-source reader named by the reader), no "None" offered
+    on the air stream. `pricingSheetHelper.ts`: `withoutRestatements` (AC3), the family display labels, "not stated" for a
+    stored None ONLY where no ruled default maps it (U5 = the air stream; UL / damper / insulated keep their display - a
+    replay-found scope correction). `RateHelperPanel.tsx`: the display labels and placeholder.
+  - Parity (`calculatorPanelParity.*`): the fixture's ADP part is v50; the 21 awaiting ADP entries (8 corpus D + 13 sweep)
+    CLOSED and removed; the sweep asserts 0 ADP divergences with its count; a new cause `E_outer_size_quote` lists 7
+    pre-existing rows (BRSR-26-01369#32, 01370#46/47/48/50/51/52: the panel quotes the outer size as written, the calculator
+    its width box; both refuse; since ADP-3b / v49), status awaiting - fix in ADP-4b. 01311#42 closed on v50.
+  - `ruleReachability`: G1a..G10b-neg + G4c / G4d-neg (each new line pos + neg), F1a..F10b-neg (the ten families, on v50,
+    figures pinned) + FG1-neg / FG2-neg (curved / door grille had no negative), the family guard (25 families) + its
+    vacuity proof, merged rules retargeted. New `adp4a.test.ts`, `harnessUnitPin.test.ts`. 22 files' wording pins inverted
+    by mechanical authority, BEFORE kept; no price, figure, SKU or family assertion changed.
+- `b2ad0736f` HVAC v50 (= v49 + the five `panel_controls` "dropdown_or_other" and five `panel_notes`; `build_items_spec`
+  byte-identical on v49 / v50: ADP dcbe3a2e..., Insulation c335f2b8..., Piping 757f2ba4...) + the latest-asset pins in
+  `test_piping_v34.py`, `test_rate_master.py`, `test_extraction_coercion.py`. Loaded: batch `rmbulk-0aaaf84fc3c1`, HVAC
+  items `793a2b39344242ad`, configs `304920f9894e4f52`; Electrical `784d1dbe8024d5f8` / `aa8d0a49ef645120` unchanged.
+- The docs commit that carries this entry.
+
+Start tip `30b6e5b24` (= origin). Report on the Desktop: `2026-10-21_ADP-4a_Report.md` (ledger first), `_Ledger.md`,
+`_Wording.xlsx`, the three full-suite logs.
+
+### 1. The Derivation tab (ADP, v50): 38 lines
+
+20 carry a dated ruling, 18 "reason not recorded". One sizes line (line 19) carries the face, the box, the two-part rule and
+"not used only where it cannot be the face" (old 35 + 38). The fitting line (29) names every stocked value and "Other...".
+Line 30 carries the inputs' current values. Insulation (43) and Piping (25) changed only the 7 U6 lines.
+
+### 2. The replay (17,914 rows, start vs end on live v50)
+
+0 figure moves. Changed 2,989 rows: ADP 1,956 (working reworded 1,809, options 740, "Other..." 155, air None -> "not stated"
+204, a restated working line removed 11), Insulation 195 (restated lines removed only), Piping 838 (inside Insulation sections
+only, 0 outside). Electrical 0. The field table (873 rows) is identical to v49 but for the labels and the five controls.
+
+### 3. Suites, cert
+
+- vitest full (third run): 195 files / 7,409, 1 failed = `writeOffControl` (known). Two load timeouts seen in earlier full
+  runs - the plainEnglish 12d-5 ADP sweep (alone: HEAD 2,188 ms vs slice 2,491 ms medians, +13.8%) and ruleReachability F7
+  (alone: 2,021 vs 2,059 ms) - each passed alone and on the re-run: standing load timeouts.
+- tsc: 3,170 = ADP-3c's (two unused declarations this slice left were removed, TSC-1).
+- Python full: the standing run (8,572) shows the 8 known non-BoQ failures + 46 environmental (their 5 modules pass alone;
+  test_submit's cause is TEST WP residue colliding with its random suffix).
+- Cert at :8080 after the full de-stale: C1-C9 PASS (r49 1972 / 576 / 2548 on panel and calculator; the diameter-450 refusal
+  the same on both; air None reads "not stated"; the H4 plenum working clean; Insulation's thickness default once;
+  Electrical and Piping unchanged vs the start replay).
+
+### 4. Findings (open)
+
+1. The 7 cause-E outer-size rows (ADP-4b).
+2. 24 `TEST WP` Procurement Packages rows built up since 2026-10-18 - `tds.test_submit` leaves 2 per run; not deleted.
+3. The cert re-saved the admin `fcm_token` after the mandated site-data clear (Version `fplnan0925`), as at every cert.
+4. The mixing box's rule line writes (L x B + B x H + L x H) and its working (W x H + H x D + W x D) - wording, pre-existing.
+5. The Derivation reasons are keyed by item kind, so an older config (v48) shows the face rulings on its sizes line too.
+
+## Slice ADP-4b - the Derivation tab is the rules listing, the Pipelines tab is removed (every category), the ADP data viewer shows what downloads, and four ADP fixes - as built 2026-10-21 / 22
+
+**Owner rulings built:** D8 (2026-10-21 14:41 / 14:49, every discipline and category: "the derivation tab just becomes the rules
+listing"); D9 option A (13:26: "remove the pipeline tab entirely"; `update_rate_config` kept one more slice, uncalled); D7 (14:41: "a
+toggle, off by default, so the screen equals the file, plus drop the empty Depth column"); fixes (a) and (b); cause E; the mixing-box
+wording; two reasons for lines 6 and 19. Rulings taken in the slice: PA1-R (the extraction Rules card stays where the config carries
+rules, its empty state goes; the Pricing Inputs line), AC3 (the admin actions column stays first), AC5 "same rule everywhere", AC7
+"Both quote the read sides", RULING-CAT (Category cells show the display name, N-7), FIXB-1 (fix (b) knowingly reverses the 12c-S S10
+reading for the double-skin plenum only; S10 stands for every other family), U5-R (the Damper "*" on every per-sq.m slot diffuser,
+15 stored items), AMEND-1 (the test split folded into commit 1).
+
+**Commits (unpushed at the time of writing):**
+- `e64af7335` feat(rate-master): code + tests (21 files; amended from `8edefb71e` to move the rendered Derivation tests into
+  `adp4b.dom.test.ts` -- a jsdom docblock in a `*.test.ts` file loses the full run's worker-start race and is DROPPED, never run).
+  - `RateMasterDerivation.tsx`: the rules list, the extraction Rules card where rules exist, otherwise `derivationNoticeLine`
+    ("This category's rules are not listed yet. To see how a row is priced, open <page> -> Calculator." / the Pricing Inputs
+    line); the boxes, step cards, figures and `InlineParamEdit` gone; `derivedQtyValue` kept (the panel imports it, so the file
+    never imports the calculator -- the page passes `CALCULATOR_WORKBOOKS`). `RateMasterPage.tsx`: two tabs; the param and
+    structure saves gone. `RateMasterPipelines.tsx` + test deleted (22 tests); `rateMasterStructure.ts` loses `cloneConfig`,
+    `evaluateGoldens`, `goldenDeltas`, `referencedAttrIds`, `blankAttributeDefinition`, `blankPipeline` (9 tests).
+  - `rateMasterGridColumns.ts` / `RateMasterDataViewer.tsx`: a spec-driven grid is the download's 13 columns in its order, a plain
+    label with the file id beneath (`fileColumnId`, `plainFileColumnLabel`); "Show spec details" adds spec, the filled
+    read-from-spec columns, source sheet and row; an all-empty read-from-spec column (Depth) is not shown.
+  - `itemListPricing.ts`: `units_not_offered` honoured by `priceOneItem` and `stockedUnitsWords`; the "*" when a ruled default is
+    the refused value (`refusedHere`); `outerSetAside` (the outer size quoted as read); `plainBoxSurface` in `plainWorking`.
+    `itemListRuleOrder.ts`: `convertsOf` (lines 10 / 11 / 36 / 34), `plainBoxSurface`, reasons `n` and `oBox`.
+  - Parity: the 7 cause-E rows left the awaiting list (83 -> 76); 0 ADP divergences beside the 3 accepted C rows (count
+    asserted). Pins inverted, BEFORE kept: S4, S10 (+ "S10 kept"), parity x4, adp4a x2, the grid-columns spec branch.
+- The docs commit that carries this entry.
+
+Start tip `ea37926da` (= origin). Report on the Desktop: `2026-10-21_ADP-4b_Report.md` (ledger first), `_Ledger.md`,
+`_Findings.xlsx`, the two full-suite logs.
+
+### 1. The replay (17,914 rows, start vs end on live v50)
+
+0 figure moves. 143 rows changed, all ADP: the mixing-box formula wording 117, the outer size quoted as read 32 (6 carry both);
+Electrical, Piping and Insulation 0. The field table (873 rows, HEAD vs slice) differs only in the slot diffuser's Damper "*"
+(per sq.m / sq.ft, panel / calculator / stored) and the double-skin plenum's per-number refusal and stocked words.
+
+### 2. Suites, cert
+
+- vitest full (on `e64af7335`): 196 files / 7,409, 1 failed = `writeOffControl` (known). The plainEnglish 12d-5 ADP sweep and
+  ruleReachability F7 timed out in earlier full runs and passed alone (2,708 / 2,257 ms) and on the re-runs: standing load timeouts.
+- tsc: 3,170 = ADP-4a's by message (0 new, 0 gone).
+- No Python file changed; the six Python tests that read the changed frontend files ran OK.
+- Cert at :8080 after the full de-stale: C1-C10 PASS (Derivation rules-only on all 17 categories, counted; the viewer equals the
+  download cell for cell except the Category display name and number formatting; r49 1972 / 576 / 2548 on panel and calculator;
+  the slot diffuser's "*"; the plenum not offered per number; the 450 x 450 sentence the same on both surfaces).
+
+### 3. Findings (open)
+
+1. The download writes rates as `str(float)` ("1200.0") where the viewer shows "1200" -- 174 ADP cells, number format only,
+   pre-existing.
+2. `update_rate_config` and `update_rate_config_param` have no caller (D9 option A); `rateMasterEdit.matchedConditionIndex` /
+   `isEditableParam` lost their only product caller (outside this slice's file scope; kept with their test).
+3. The cert re-saved the admin `fcm_token` after the mandated site-data clear (Version `951ifpifsu`), as at every cert.
+
+## Slice ADP-5a - ADP rules in code and config: spigot + butterfly damper as one item, the curved grille's damper, both air streams, box sides, the endpoint tidy-up, HVAC v51 - as built 2026-10-22
+
+**Owner rulings built:** the spigot ruling (2026-10-22 10:43-10:49: "the model correctly returned spigot and butterfly
+damper...so these cases should be matched with spigot with butterfly damper"; "Spigot Smaper is spigot with butterfly damper";
+"only the dia of the spigot matters"; the SKU's 0 install "is ok"), replacing the F-ADP1 interim warning and the R4 warning
+plan; items 3, 5, 6, 7 and 8 of the ADP-R5 table (10:49 "ok with 1 to3 and 5 to 8"); R9 / D9 (the endpoints "kept one slice,
+then removed"). Rulings taken in the slice: **SCOPE-5a-1** (the spigot rule is a config key, `family_merge`, with its shape
+check in `config_validation.py` and its own validator test module -- no family or word in code), **SCOPE-5a-2** (a per-family
+line on a default, `rule_by_family`), **HN-2** (the headings' notes reach the pricer's row context as the payload carries them,
+read ONLY by the both-streams check and `family_merge`), **HN-3** ("immediate parent only": the heading directly above the
+row; a section heading's note two levels up moved six undeclared rows on BOQ-26-00341 and is not read).
+
+**Commits (unpushed at the time of writing):**
+- `22fed197b` feat(rate-helper): code + tests. `config_validation.py` (`family_merge` + `_validate_family_merge`;
+  `rule_by_family`); `itemListPricing.ts` (`FamilyMerge`, `applyFamilyMerge`, the merged item's line with its size,
+  `rule_by_family` read by the pricer, "cum" and "SA / RA" in `airStreamsNamed`, the heading notes in the both-streams check,
+  "A x B-C depth" in `readBoxSides`); `pricingSheetHelper.ts` (the merge right after assembly -- the absorbed item leaves the
+  EDIT STATE too, because a block's position is its edit index; the heading notes passed); `rateHelperTypes.ts` /
+  `rateSuggestionModel.ts` (`headingNotes`, `rowHeadingNotes`); `itemListRuleOrder.ts` (the spigot line, last; the defaults
+  line groups rules per attribute and fact and says "(not on curved grille)" and "without (curved grille: with)"; the
+  both-streams and sizes lines' new clauses; four reasons quoted from the rulings); `rate_master.py` (`update_rate_config`,
+  `update_rate_config_param` removed); `rateMasterEdit.ts` (`matchedConditionIndex`, `isEditableParam` removed); the replay
+  rig (`ac5_dump.py` + both harnesses carry `headingNotes`). Tests: `adp5a.test.ts`, `test_config_validation_adp5a.py`,
+  ruleReachability (12 cases on v51 from real stored rows with figures + the ADP-5a guard; the pure path applies the same
+  merge), the AC6 re-points / deletions in `test_rate_master.py` (validator tests 16, 17, 19, 20, 26, 27, 29, 30 and 31's seeding
+  re-pointed at `_validate_config`; endpoint tests 09, 10, 15, 18, 21, 22, 28 deleted; the freeze tests SIX -> FOUR writes, rmf_13
+  6 -> 4) and `test_piping_v34.py` (test_20 at `validate_delegated_sections`), `adp4b.test.ts` and `rateMasterEdit.test.ts`
+  inverted (BEFORE kept).
+- `0c209c9ec` feat(rate-master): HVAC v51 (exported from the DB = v50 by content; only `hvac_adp` edited: the damper default
+  per family with the curved grille's line, curved grille out of the return / exhaust / fresh derive rules, `family_merge`,
+  the dead top-level `depth_mm` definition removed and declared `attr:hvac_adp:depth_mm`); mint gate v50 -> v51 PASS; load
+  batch `rmbulk-a0c8878633cd`, pre-load snapshot `BRMS-26-02143`; live == v51 by content; the latest-asset pins (test_piping_v34
+  x20, test_rate_master the constant + 6 + the second wave `_without_adp5a_adp` / `_without_adp5a_removal`,
+  test_extraction_coercion x1, itemListRuleOrder.test.ts x1), BEFORE kept.
+- `ca7dc377b` fix(rate-helper): CERT-C5 / C5c (a declared fourth code commit, not an amend: commits 1-2 had already passed
+  the full suites). The cert found BOQ-26-00122 r65 still at 12,428 on the live page: the page's rows carry no
+  `attached_notes`, so `rowHeadingNotes` read nothing there while the replay dump read BOQ Nodes. `rowHeadingNotes` now builds
+  a heading's notes from its committed note rows, as `commit_pipeline._derive_attached_notes` does; the rig builds the
+  replay's context with the same function from the page rows the dump exports and REPORTS the payload comparison
+  (`payloadHeadingNotes`, reference only); `adp5a.test.ts` pins the page shape and the live 00122 shape.
+- The docs commit that carries this entry.
+
+Start tip `796f7ff59` (= origin). Report on the Desktop: `2026-10-22_ADP-5a_Report.md` (ledger first), `_Ledger.md`,
+`_Moved_Rows.xlsx`, the three full-suite logs.
+
+### 1. The replay (17,914 rows, the tracked rig)
+
+The rig change alone (the dump gains `headingNotes`) moved nothing: re-baselined once, dump rows `b48267f533c06447`, ac7 /
+ac7v2 = START (`376852e4` / `412594e2`) with the product code stashed. After CERT-C5c the replay's heading notes come from
+the page's own rows (`rowHeadingNotes`), equal to the payload's on 17,680 / 17,914 rows (234 differ, finding 1) -- the
+result below is the same byte for byte. On live v51: EXACTLY the 104 declared rows change, 102
+with figures -- spigot 93 (e.g. BOQ-26-00341 r103 1,311 -> 1,015; BOQ-26-00231 r257 275 -> 725; 00239 r268 and 00144 r229 stay
+refused, wording only), curved grille 5 (6,390 -> 13,530 x4; 576 -> 1,218), both streams 4 (12,428 -> 5,709), box sides 2
+(-> 2,306 / 2,787 supply); 0 other rows, 0 Electrical / Piping / Insulation; ac7 `e45102ef...`, ac7v2 `e4fe5588...`. The model's
+question is unchanged: ADP `dcbe3a2e...`, Insulation `c335f2b8...`, Piping `757f2ba4...` = v50. The field table (397 surface
+rows, HEAD vs slice) differs in 26 leaves, all the curved grille's damper value and line, panel and calculator.
+
+### 2. Suites, cert
+
+- vitest full (on `ca7dc377b`): 197 files / 7,455, 1 failed = `writeOffControl` (known 5 s timeout). On `0c209c9ec`: 197 /
+  7,454, plus the plainEnglish 12d-5 ADP sweep timing out (5,206 ms; alone 2,603 ms PASS) -- a standing load timeout.
+- tsc: 3,170 = ADP-4b's by message (0 new, 0 gone), on `0c209c9ec` and on `ca7dc377b`.
+- Python full (on `0c209c9ec`; commit 3 changes no Python file): 8,576 tests (= 8,572 + 11 new - 7 deleted). Every BoQ /
+  rate-master module OK alone; left: 6 F + 2 E in 5 untouched non-BoQ modules = ADP-4a's shape.
+- Vacuity V1-V11: each break red where expected, each restore sha-equal.
+- Cert at :8080 after the full de-stale (served-module and in-page import proofs), run whole AFTER the CERT-C5 fix: C1-C10
+  PASS. 00231 r257 725 / 0; 00341 r103 one item 1,015; 00341 r62 plain spigot 276 / 64 / 340; 00185 r29 curved grille
+  "with" 10,730 / 2,800 / 13,530 and 00140 r168 "without" 6,390; 00122 r65 both streams 4,829 / 880 / 5,709 (the cert's
+  C5 failure, fixed by `ca7dc377b`); 00247 r92 boxes 1,200 / 150 / 300, 2,306; the calculator equals the panel (spigot 200 +
+  butterfly damper -> one item 1,015; curved grille per sq.m "with" 13,530); the Derivation tab's four new clauses with
+  their reasons and no `depth_mm`; 00096 r49 1972 / 576 / 2548, Electrical 00174 r148 260 / 60 / 320, Piping 00131 r75 358 /
+  42 / 400 unchanged; end state = v51 live (HVAC configs `992e860a2231dcf1`, items unchanged), capture 465 unchanged, runs
+  351 / 200, AI on. Nothing pressed that writes.
+
+### 3. Findings (open)
+
+1. **F-1: stale `attached_notes` on 17 committed sheets** (234 stored rows): what the model is sent for a heading's notes
+   differs from the committed tree, which the page shows. 8 sheets predate `cda170eb0` (D5 forward-only, no backfill); the
+   other 9 need the production deploy date. No price effect today. For a follow-up slice, with the owner's standing view that
+   the panel should use the server's payload builder (detail in `boq-rate-master.md`).
+2. `spec_reader`'s LP-plenum branch still writes `depth_mm` for an "A X B X C" detail -- inert (0 of 93 SKUs carry it).
+3. Writes outside the slice, none of live content: the two certs' mandated site-data clears re-saved the admin `fcm_token`
+   (Versions `qlinq7mdvq`, `kkatu1tl5t`, `knd27615cv`); the Python suites (12:00-13:59) left 2,251 Error Log rows (failure-path
+   tests: 1,658 "Error Attaching File", 522 outflow statement links, the rest BoQ / payment / tendering tests), 44 Version rows on
+   finance documents that no longer exist, and 3 Versions on `BRMI-26-15812` (tray_discount; Electrical items sha unchanged).
+   Not deleted: residue goes only from a list the owner approves.
+
+
+## Slice F1-a - the pricing payload's heading notes from the current BoQ tree by the commit's own rule; the page's own notes from its note rows - as built 2026-10-22 / 23
+
+**Owner rulings built:** 18:21 ("First Ai shopuld not see all notes. it should follow the current payload structure!!" -> the
+EA-7 tiers unchanged, only the SOURCE of the attached part moves); 18:25 (no change to either payload "betond the sheets for
+which we are targeting"); 18:27 (the pricing payload ALWAYS derives a heading's attached notes from the current tree with the
+commit's own `_derive_attached_notes`, reused, never re-implemented); **O1** (pricing payload only, the classifier untouched);
+**O2 deferred** (rule recorded in `boq-rate-master.md`); **O3** (the page's `rowOwnNotes` from the row's child note rows); **O4**
+(the six pass-3-absent sheets: a later read-only look). Rulings taken in the slice: **STOP 1 -> V2** (the commit's stand-in
+text "(untitled)" / a node's own code is handed to the derive as "", what the commit saw; V1, the node text as stored, moved
+164 rows on 28 sheets committed since 2026-08-11); **STOP 2** (a test double stands in for `assemble_population` with two
+arguments -> option D: the call stays `assemble_population(boq, sheet_name)` and the Suggest run logs the drift in a separate
+advisory call). Recon: F1-R (Desktop `2026-10-22_F1-R_Report.md`).
+
+**Commits (unpushed at the time of writing):**
+- `8b236a419` feat(rate-helper): code + tests + rig. `context_builder.py` (`derive_attached_notes`, `_commit_note_text`,
+  `_attached_notes_drift`; additive `derived_attached_notes` on every row and `ancestors` entry, wrapper `attached_notes_drift`;
+  0 extra queries); `extraction.py` (`_attached_of` read by `_ai_item` and `row_own_text_fragments` -- and through the payload
+  `point_type_of`; `_log_attached_notes_drift` / `_log_attached_notes_drift_for` called by `run_extraction` after its
+  unchanged population read); `rateSuggestionModel.ts` (`rowOwnNotes(row, rows)`); both harnesses feed the replay the page's
+  own notes and REPORT `on_differ_<label>.txt`. Tests: `test_f1a_derived_notes.py` (12: fresh commit through the real
+  write-body -- derived == saved, payload byte-identical, the stand-in adapter pinned to `_build_node_pass1`'s expression, the
+  payload == page pin outside the O2 rows; a stale fixture -- the tree's notes sent, the stale text absent, the classifier still
+  reading the saved copy, the deterministic own-text reader; the lean tier; AC6 fires once / stays silent / is called by
+  `run_extraction` through a two-argument stand-in); `test_rate_suggest.TestEA7PayloadShape` fixture gains note-child nodes
+  with the same asserted texts; `rateSuggestionModel.test.ts` rowOwnNotes pins inverted (BEFORE kept).
+- The docs commit that carries this entry.
+
+Start tip `bd298ded8` (= origin). Report on the Desktop: `2026-10-22_F1-a_Report.md` (ledger first), `_Ledger.md`,
+`_Proof.xlsx`, the three full-suite logs.
+
+### 1. The proofs (stub builds only: no model call, no capture record)
+
+- Blind spot (ruling item 3): over all 899 committed sheets, 178 note nodes carry the stand-in shape, all genuine stand-ins
+  (153 code, 25 "(untitled)"; review description empty); 0 real descriptions equal to their own sl_no_value.
+- AC3, HEAD vs the slice, every eligible row of every committed sheet (899 sheets / 73,158 rows): the rows whose pricing
+  payload item differs = EXACTLY the 6,429 expected (a node at EA-7 distance 0-2 whose saved copy differs from the commit's
+  derive over the committed nodes, the V2 adapter computed independently in the rig); on each, the only difference is
+  attached-note text in the full tier, every lean entry byte-identical; 0 rows on the 734 sheets whose saved copy equals the
+  derive; through the REAL `_extract_batch` (stub client, capture writer replaced): 3,176 calls, 322 differ, only on expected
+  rows, the prompt before `ROWS:` identical. Against F1-R's 751 (the page's rule, stored rows): 740 under V2; the 11 dropped are
+  the stand-in rows; 0 new.
+- AC4: the classifier's context (every pre-existing key, the voter item, the rules-engine arguments) byte-identical on 899 / 899.
+- End to end: BOQ-26-00260 "Electrical BOQ " r56's parent sends its 37 note rows (was none); BOQ-26-00174 "Electrical " r148
+  no longer sends the note of another heading.
+- AC7 replay (tracked rig, page own notes): ac7 `e45102ef...`, ac7v2 `e4fe5588...` = START; own notes page vs dump differ on 35
+  rows (the stale saved copy, reported). Heading notes page == payload on 17,911 / 17,914 stored rows (3 O2 rows, BOQ-26-00292
+  r58-60); own notes page == tree on 17,905 (9 O2 rows).
+- Capture 465 `89c4ea9c...` unchanged through every proof, test run and the cert.
+
+### 2. Suites, vacuity, cert
+
+- Python full (on `8b236a419`): 8,588 tests (= 8,576 + 12), FAILED (failures=6, errors=2) = the same 8 non-BoQ failures.
+- vitest full: 197 files / 7,455, 1 failed = `writeOffControl` (known 5 s timeout). tsc: 3,170 = ADP-5a's by message.
+- Targeted (27 modules / 2,147 tests) OK on the final code. Vacuity V1-V7 (V5 a/b) all red where expected, every restore sha-equal.
+- Cert at :8080 after the full de-stale (served-module grep of transformed code; in-page `import()` of `rowOwnNotes`): 00096 r49
+  1972 / 576 / 2548; 00088 r60 (own note row) 1258 / 154 / 1412 with all 16 lines = START; 00122 r65 4,829 / 880 / 5,709;
+  Electrical 00174 r148 260 / 60 / 320; Piping 00131 r75 358 / 42 / 400; END = START by content. Nothing pressed that writes.
+
+### 3. Findings (open)
+
+1. **O4**: six sheets with no pass-3 field on any node (00106, 00173, 00181, 00221 x2, 00260) -- a separate read-only look.
+2. **O2** (deferred): the page shows a stand-in note's text; the payload does not (3 + 9 stored rows).
+3. The classifier still reads the saved copy (O1); moving it would change 922 rule verdicts on a re-run (F1-R Q5).
+
+
+## Slice ADP-5b - the model-question changes (ADP item as written, the Insulation conditional-cladding sentence, the damper default's words), HVAC v52, and the paid re-read - as built 2026-10-23
+
+**Owner rulings built:** R1 / R2 / R5-note of the ADP-R5 table (2026-10-22 10:49 "ok with 1 to3 and 5 to 8"); the paid run's
+"go" (2026-10-23 00:24, "cap does not matter" -> runaway guard 80 calls / 900k tokens only); R6 / Q6 (no host-face borrowing:
+the 13 Q6 rows and 00337 r72 dropped). **STOP 1 (spec contradiction), ruled option 1:** Piping's question carries Insulation's
+whole (12e-3a D-2), so R2 necessarily moves the Piping items spec -- allowed ONLY inside its delegated Insulation section
+(757f2ba4 -> f5524dd1); plus the read-only Piping cladding-exposure count (item 3) and 2 Piping probes + 3 Piping controls in
+the run (item 4); 7 Insulation controls (ADP-R5 said 8, named 7).
+
+**Commits (unpushed at the time of writing):**
+- `122400f3d` feat(rate-helper): `adp5b.test.ts` -- the R1 mechanism on the v51 ADP config with only the definition and the key
+  added, through `makePricingSheetHelper(...).compute` on real rows (positive: 00096 r56 / 00122 r160 named; negative: absent /
+  "None" / blank and the key-less config keep the R18 sentence; a priced row given an item as written is unchanged field for
+  field; generic: ADP declares none of the other readers' keys). NO product code: the Insulation mechanism is generic for ADP.
+- `67a3af26c` feat(rate-master): HVAC v52 (exported = v51 by content; only `hvac_adp` -- `item_as_written` last +
+  `no_sku_named_by`, the damper note "without (curved grille: with)" -- and `hvac_insulation` -- the cladding sentence -- edited);
+  mint gate v51 -> v52 PASS; load batch `rmbulk-d20abacadfea`, pre-load snapshot `BRMS-26-02341`; live == v52 (HVAC configs
+  `e8a0b8a1743302d4`, items `793a2b39344242ad` unchanged). `test_adp5b_question.py` (9: validator, the definition, refusals in
+  other forms, both note texts, only two configs change, the three spec shas, Piping only in its section, a pricing key never
+  sent). Latest-asset pins inverted, BEFORE kept: test_piping_v34 x20, test_rate_master x7, test_extraction_coercion x1 + the
+  second wave x2 (il_02's ADP text-definition list; mc4c_02 reads ADP's model-facing definitions from v51, the class's idiom).
+- The docs commit that carries this entry.
+
+Start tip `424f4208f` (= origin). Report on the Desktop: `2026-10-23_ADP-5b_Report.md` (ledger first), `_Ledger.md`,
+`_Expected.xlsx`, `_Rows.xlsx`, the three full-suite logs, `ADP-5b Payload Archive\`.
+
+### 1. The question (no model call)
+
+Items-spec shas through `_group_context`: ADP `dcbe3a2e` -> `2d9cd352`, Insulation `c335f2b8` -> `5dd6268f`, Piping `757f2ba4` ->
+`f5524dd1` (only its delegated section); every other HVAC and Electrical category byte-identical. Stub proof through the real
+`_extract_batch` (34 sheets, 222 requests, 0 capture writes): 75 identical; 147 differ ONLY in ITEMS_SPEC (old spec json
+replaced by the new reproduces the request exactly). Replay on v52 before any call: ac7 `e45102ef` / ac7v2 `e4fe5588` = START
+(the 25 stored "none of these" rows keep their wording until re-read). Vacuity V1-V5 red, restores sha-equal.
+
+### 2. The paid re-read
+
+`start_suggest` called in-process as Administrator (the function the Suggest button POSTs to; only the HTTP dispatch is not
+exercised), one sheet at a time, every sheet ALLOWED by the server's own guards at the current state. **34 sheets, 185 rows (181
+selected + 4 never-read 00341 Insulation rows), 47 calls, 411,623 tokens** (estimate 47 / 384,853); 0 failed attempts, 0 ceiling
+cuts, no capture roll (465 -> 546); carried rows byte-identical on all 34 sheets. Payload integrity: 185 / 185 blocks byte-equal
+to the logged payload_items, EA-7 PASS 185 / 185, every row replied, 8 rows answered an unasked "air" on Insulation.
+
+**Classes (P5):** EXPECTED 163, NEUTRAL 12 (same SKU and figures; an air answer or the merge line differs), RUN-VARIATION 8,
+UNEXPLAINED 2.
+- As declared: 00087 r28 594 -> **712** (866), r29 464 -> **581** (735), Aluminium Foil; 19 of 25 Q1 rows name their item
+  (Hit & Miss Damper x9, Bird Screens x2, Z-Piece x3, Circular ducts x4, condensate pump, 10 mm rigid flexible pipes); the 4 Q3 /
+  ADP-2 rows, spigots (but one), curved grilles and every other control as START.
+- RUN-VARIATION (payload identical to the stored answer's; the question differs by AC1-AC3 only): 00096 r93 spigot ->
+  "none of these" / "Spigot Dampers" (334 -> refusal); 00185 r42 + 00281 r42 "Z TYPE BAFFLE" under "ACTUATORS" -> actuator
+  ("no torque stated"); 00269 r82 pressure sensor -> no item returned; 00108 r214 aluminium louver damper -> VCD 9,750;
+  00197 r137 return air transfer duct -> cross-talk 3,120; **control** 00329 r257 Acoustic -> Thermal Nitrile (1,525 -> 748);
+  **Piping probe** 00191 r37 cladding left out -> the row refuses (was 4,695) -- the new R2 sentence with the coating rule is the
+  likely cause ("UV coatings ... as required").
+- UNEXPLAINED (F1 rows whose note change does not explain the move): 00007 r171 louver damper -> VCD 9,750; **control** 00149 r277
+  adds an "access door" item (in its unchanged own text) -> the row refuses.
+
+**AC8:** replay after = 17,918 rows (+4); 64 rows differ (ADP 54, Insulation 8, Piping 2), all re-read; 0 others. **New
+baseline: ac7 `2f0e0f13f852637a...`, ac7v2 `b5e79698ffe6fbba...`.** Field table: 49 differences, all on re-read rows.
+
+### 3. Suites, cert
+
+- Python full: 8,597, FAILED (failures=7, errors=3) = F1-a's 8 + `tds.test_edit_request` (full-run only; 28 OK alone) +
+  `test_daily_window_picks_a_wo_touched_since` (the known time-of-day failure after IST midnight; nothing under `tasks/`
+  changed). vitest 198 / 7,460, 1 failed = writeOffControl (known). tsc 3,170 = F1-a by message. Capture log unchanged by the
+  suites.
+- Cert at :8080 after the full de-stale (served-module grep + in-page import): C1 00087 r28 712 / 154 / 866 and r29 581 / 154 /
+  735 with the foil line; C2 00096 r56 "No SKU in the catalogue for Hit & Miss Damper" and 00122 r160 "... Bird Screens with GI
+  wire mesh ..."; C3 00313 r93 Butterfly Damper With SPIGOT 334, 00185 r29 curved grille 13,530 "with"; C4 00087 r32 (Insulation)
+  1,731 and r36 (ADP) 1,609 = START; C5 00096 r49 1972 / 576 / 2548, Electrical 00174 r148 260 / 60 / 320, Piping 00131 r75 358 /
+  42 / 400; C6 HVAC configs v52 `e8a0b8a1`, Electrical v66. Nothing pressed that writes.
+
+### 4. Findings (open, for the owner)
+
+1. The 8 RUN-VARIATION and 2 UNEXPLAINED rows are LIVE in the new active runs (no repair: the slice writes only its runs). Wrong
+   by their own words: the two Z-baffle rows (actuator), the two louver dampers (a GI VCD at 9,750), the transfer duct
+   (cross-talk); a priced spigot, a priced control and a priced Piping row now refuse; one Insulation control dropped 777.
+2. Whether R1's new answer pulls borderline rows to "none of these" (00096 r93) or out of it (the louver / baffle / duct rows)
+   cannot be told from one read; a repeat read of the 10 rows would separate the question from chance.
+3. 00191 r37: the R2 sentence meets the coating rule ("a coating with no glass cloth: leave Cladding out, copy it into
+   Cladding as written"): the model left the cladding out but did not copy it, so the row cannot price.
+
+## Slice ADP-5c - why 10 rows moved in ADP-5b, the ruled wording (HVAC v53), VCD Aluminium, the cross-talk default, work on existing items, the coating shown read-only, and a broad re-read - as built 2026-10-23
+
+**Owner rulings built** (2026-10-23): the Phase A stop 10:46 / 10:51 (C1 louver = VCD; C3 never an empty list; C4 spigot damper
+= spigot; C5 Z-piece / Z baffle / cross talk silencer = cross-talk, also under another family's heading; C6 plenum accessories
+are part of it, a canvas connection is NOT; C9 VCD Aluminium + D8 (a) motorised wins; C7 a coating is never a cladding and is
+shown read-only with its note; D10 aluminium hit & miss stay refusals; D11 00086 High side added); 12:03 spec_reader's VCD
+"Aluminium" entry; 12:04 / 12:07 / 12:08 the cross-talk 300 x 300 default on EVERY no-size cross-talk row and the removal /
+refixing rule (supersedes "option 3 now, option 4 later"); desktop Q1 (b) phrases on the row's OWN text only (parent heading
+OPEN); 18:18 Q1 (a) 00191 r37 accepted on D4 (a), Q2 (a) 00086 High side declared Glass Cloth with paint (premise corrected).
+Built on the desktop (DESKTOP-4RMALAH) from Phase B on; the laptop did Phase A.
+
+**Commits (unpushed at the time of writing):**
+- `bbcbb7fb5` feat(rate-helper): itemListPricing.ts `existing_work` (`existingWorkOf` + step (6c) of `priceOneItem`: supply 0,
+  install x `install_times`, a plain line quoting the row; own text only; no SKU -> refuses as before); config_validation.py
+  `existing_work` + `_validate_existing_work`; spec_reader.py VCD "Aluminium" -> variant "aluminium" (93 live ADP items read
+  byte-identical); tests adp5c.test.ts (16), test_config_validation_adp5c.py (8), the test_spec_reader.py case; test_rate_master
+  test_p01 key-set pin extended (mechanical). Vacuity V1-V5 red, restores sha-equal (V-S1 on the laptop).
+- `e1a4fea33` feat(rate-master): HVAC v53 (export = v52 by content; ONLY the ruled edits; 380 items carried byte-equal + ONE added,
+  VCD Aluminium `rmi-c1ebcadd4fd5`, 5,940 / 1,200 typed, attributes read by spec_reader: 8,613 + 1,920 = 10,533 per sq.m); mint
+  gate v52 -> v53 PASS, `--latest` PASS; pre-load snapshot `BRMS-26-02473`, batch `rmbulk-09dc78cf4501`; live == v53 (HVAC
+  configs `bda58c7f28b919c9`, items `31631135edffdf23`; Electrical v66 unchanged). test_adp5c_question.py (9) + the adp5c.test.ts
+  v53 block (the coating line on Insulation and in Piping's section; VCD Aluminium on the panel). Current-asset pins inverted,
+  BEFORE kept: test_piping_v34 (21 + the live count), test_rate_master (the constant, 6 asserts, sv_01, `_without_adp5c_items` /
+  `_without_adp5c_insulation` in 4 cross-version pins), test_extraction_coercion (1), servedVsStoredPricing.test.ts
+  (`withoutAdp5c`; it reads the latest asset by readdir, so the name search missed it -- found by the full vitest run).
+- The docs commit that carries this entry.
+
+Desktop: `2026-10-23_ADP-5c_Report.md` (ledger first), `_Ledger.md`, `_PhaseA.xlsx`, `_Expected.xlsx`, `_Rows.xlsx`,
+`_python_full.log`, `ADP-5c Payload Archive\` (AB_resend\A2, AB_resend\B4, Phase_C), `Capture log backup\2026-10-23_ADP-5c_*`.
+
+### 1. Phase A (laptop; full record in the report)
+A1 history over 7,757 capture records; A2 A/B re-send of ADP-5b's own requests (60 calls, 524,843 tokens): no clean QUESTION
+row -- most moves are chance or old; A3 / A4 the candidates C1-C10; A5 the broad set (431 rows / 52 sheets). Corrections the
+owner ruled on: the louver damper is a VCD (aluminium -> a new SKU), the Z-piece default needs the removal rule, the coating
+sentence made 00191 r37 refuse.
+
+### 2. Phase B (no model call except B4)
+- Items-spec shas: ADP `2d9cd352` -> `72712eb4`, Insulation `5dd6268f` -> `66639b0c`, Piping `f5524dd1` -> `ee6848a5` (only its
+  delegated section); every other category identical.
+- Stub through the real `_extract_batch` over the 54 Phase C sheets (338 requests, 0 capture writes): 211 item-list requests
+  differ ONLY in ITEMS_SPEC, 127 others byte-identical; v53 file in memory == live, byte for byte.
+- Replay (tracked rig) v53 vs the desktop START by key: 187 rows moved = the 8 declared movers at their declared figures (00166
+  r268 / 00239 r272 0 / 288 / 288; 00166 r270 / 00239 r274 0 / 576 / 576; 00218-2F / -3F r121, 00278-2F r121, 00336 r116
+  836 / 288 / 1,124) + 179 rows whose only difference is "aluminium" in a VCD option list; 0 undeclared.
+- B4 (30 calls, 279,232 tokens): 00096 r93 spigot, 00185 / 00281 r42 cross-talk, 00269 r82 named refusal, 00108 r214 / 00007 r171
+  VCD aluminium, 00149 r277 the plenum alone -- 3 / 3 each; 00191 r37 cladding None 3 / 3 but item "none of these" 3 / 3
+  (accepted, Q1 (a)); control 00329 r254 26G 3 / 3 (as on v52 in A2).
+
+### 3. Full suites (after commit 2, before Phase C)
+Python 8,615 tests: 6 failures + 2 errors, all in ADP-5b's known set, 0 new (8,597 -> 8,615: +18 this slice); the capture log
+unchanged. vitest 199 files / 7,482: the known writeOffControl timeout only (two 5 s load timeouts pass alone). tsc 3,170, the
+same set as ADP-5b.
+
+### 4. Phase C - the broad re-read (54 sheets, 453 rows)
+Population 453 rows / 54 sheets (A5's 431 + the aluminium movers + 00086 High side x21), every sheet ALLOWED by the server's
+own guards, 0 never-read joins; expected table frozen before the first call (rows sha256 `c5a36aac...`). `start_suggest`
+in-process as Administrator, one sheet at a time, nohup. The account's monthly spend limit stopped the run at sheet 48 (00313):
+three refused first calls (0 tokens; runs 01735 / 01736 / 01737, all inactive, no stored answer changed) before the owner's
+limit change took effect. **81 answered calls, 1,048,531 tokens**; carried rows byte-identical on all 54 sheets; the replay
+after vs before: 140 rows differ, all re-read rows, 0 outside. New replay baseline ac7 `c75fe0fe5c9487e5` / ac7v2
+`771683e3673d114d` (17,918 rows).
+
+Classification (hand-read; Desktop `_Rows.xlsx` Classification): **EXPECTED 375, NEUTRAL 50, QUESTION-EFFECT 22,
+UNEXPLAINED 6, RUN-VARIATION 0**. Payload == logged 453 / 453; EA-7 PASS 453 / 453.
+- Met: VCD Aluminium 10,533 on 15 rows (00191 r78 rightly stays GI -- its "aluminium" is the grille); the plenum alone (6,295 x3,
+  5,425); cross-talk 1,124 x3, 1,685, 1,404, 3,120 per sq.m; 00096 r93 334; 00191 r37 4,695 (coating shown, read-only);
+  00329 r257 Acoustic 1,525; 00269 r82 / 00197 r137 named refusals; 00086 High side x21 Glass Cloth with paint, unchanged;
+  Acoustic_Thermal 0 contradictions (0 / 56 read, 0 / 370 stored).
+- **NOT met: 00087 r28 / r29 now refuse** -- cladding "24G Aluminium with Glass Cloth" (0.30; was Aluminium Foil 0.40) on
+  "aluminum cladding / reinforced foil facing where required", same payload: a QUESTION-EFFECT of the v53 Insulation note
+  (712 / 581 lost). Not iterated (spec).
+- QUESTION-EFFECT to rule on: 00302 r53 (control) canvas connection dropped under C6 (4,514 -> 1,784) against the owner's canvas
+  ruling; 00231 r211 (control) aluminium blades -> VCD Aluminium; 00231 r214-216 refusals -> priced (control panel / actuator
+  no longer separate items); 00066 r638 (control) 5,709 -> 12,428; 00140 r39 (control) R2 "exposed" -> cladding None;
+  12 grille / diffuser family flips on the same payload.
+- UNEXPLAINED 6: 00140 "HVAC Lowside Works" Piping r542-546 / r550 -- the payload changed under F1-a (derived heading notes); the
+  pipe type is stated nowhere (the prior MS was a 0.45 guess); now left out -> refuse.
+
+### 5. Browser cert (Chrome on the desktop, :8080, after the full de-stale)
+C1 00108 r214 / 00007 r171 VCD Aluminium 10,533 (variant select "aluminium"); C2 00197 r137 named refusal, 00185 r42 cross-talk
+1,124 with the 300 x 300 default lines; C3 00087 r28 / r29 refuse (as the workbook records -- the end-to-end shortfall); C4
+00191 r37 4,695 with "Coating as written" read-only and its note, 00329 r257 Acoustic 1,525; C5 controls 00007 r75 2,730 and
+00329 r249 735 unchanged; C6 00096 r49 1,972 / 576 / 2,548 and Electrical 00183 r12 210 unchanged; additions 00239 r272
+0 / 288 / 288 ("removal of existing -> supply 0, install 1 x 288 = 288") and r274 0 / 576 / 576 ("removal and refixing of
+existing -> ... 2 x 288 = 576"); C7 HVAC = v53 by content, Electrical v66.
+
+### 6. Open
+- The parent-heading match for `existing_work` (desktop Q1 (b)).
+- 00087 r28 / r29 (the foil facing read as glass cloth), the C6 canvas side effect (00302 r53), the motorised VCD accessories
+  (00231 r214-216), 00231 r211 aluminium blades: owner rulings for a follow-up slice.
+- A composed (two-layer) Insulation row shows the coating note once per layer (the existing `read_notes` mechanism).
+
+## Slice ADP-5d - the owner's rulings on ADP-5c's 22 moved rows (HVAC v54), four pricer mechanisms, and a re-read of the affected rows - as built 2026-10-24 / 2026-10-26
+
+**Owner rulings built:**
+- 2026-10-23 22:20-23:48, R1-R23. The Phase A stop rulings (2026-10-24):
+  - Q1 (B): R6b ring fence, 4 movers.
+  - Q2 (a): R22 no change; the drain-pipe tree defect is recorded.
+  - Q3: R4 companion grille, 3,635 accepted.
+  - Q4: text notes; R9 reach tight.
+  - Q5 (b): `rule_by_family`.
+  - Q6: 00088 r121's named refusal accepted.
+  - Q7: the wording approved, not R7 / R23.
+  - Q8: the population.
+- The B4 stop rulings (2026-10-24, delivered 2026-10-26 after an unplanned reboot):
+  - Q9 (a): 00247 BOQ r78 is out of Phase C.
+  - Q10 (a): 00140 PAC Works r68 and 00231 r211 are out of Phase C.
+- Standing from this slice (owner 2026-10-24): SCOPED suites replace the full suites. From 2026-10-26: a laptop code + data
+  sync HOLD after every commit.
+
+Built on the desktop (DESKTOP-4RMALAH).
+
+**Commits (unpushed at the time of writing):**
+- `6020fdb54` feat(rate-helper), itemListPricing.ts:
+  - `stream_heading_default` (R6b): the heading directly above names supply and return air, the row names neither stream
+    and no damper, and that heading gives its damper to neither both streams nor no stream. The model's damper answer is
+    then set aside for the family default, recorded as an override (the field shows the value priced, with the line).
+  - `companion_items` (R4): a cross-talk item whose row's OWN text says "return air baffle" also pays for one 300 x 300
+    linear grille without damper, return, per row unit, on the per-number path.
+  - `text_notes` (R9 / R13): a working line drawn from the row's text, with `from_text`, `unit_classes` and `when`.
+  - `number_defaults.rule_by_family` (R21).
+  - The row's headings reach `priceOneItem` as one optional argument (pricingSheetHelper.ts:3151).
+  - config_validation.py: the three keys + rule_by_family shape-checked.
+  - Tests: adp5d.test.ts (30, v53 config + only these keys, stored rows, the panel entry point) and
+    test_config_validation_adp5d.py (7).
+  - Vacuity V1-V13 red, restores sha-equal.
+  - The test_rate_master test_p01 key-set pin extended (mechanical).
+  - **Design note:** the R9 / R13 lines sit in `text_notes`, a sibling of `read_notes`. The Rate Master Derivation tab
+    (itemListRuleOrder.ts) builds a line per `read_notes` entry and would word a text entry wrongly. The three new keys add
+    no Derivation line (the existing_work precedent).
+- `dd1dadc00` feat(rate-master): HVAC v54.
+  - Export = v53 by content; ONLY the approved wording and keys; no item change; configs changed `hvac_adp` and
+    `hvac_insulation`.
+  - Items-spec shas: ADP `72712eb4` -> `39f2e4d7`, Insulation `66639b0c` -> `3fbc3b78`, Piping `ee6848a5` -> `bbdbf548` (its
+    insulation section only).
+  - Mint gate PASS; backup 20261024_012623; pre-load snapshot `BRMS-26-02579`; batch `rmbulk-e9ad45732dd4`. Live == file:
+    HVAC configs `e9d3689a9b670bd4`, items `31631135edffdf23` (unchanged); Electrical v66 unchanged.
+  - test_adp5d_question.py (6).
+  - Current-asset pins inverted, BEFORE kept: test_piping_v34 (14 + 3 + 3), test_rate_master (the constant + 6),
+    test_extraction_coercion (1). The readdir "latest asset" readers all pass on v54.
+- The docs commit that carries this entry.
+
+Desktop:
+- `2026-10-24_ADP-5d_Report.md` (ledger first), `_Ledger.md`, `_PhaseA.xlsx`, `_Expected.xlsx` (v2), `_Rows.xlsx`.
+- `_python_scoped.log`, `_frontend_scoped.log`, `_tsc_full.log`.
+- `ADP-5d Payload Archive\` (AB_resend\B4, Phase_C) and `Capture log backup\2026-10-24_ADP-5d_*`.
+
+### 1. Phase A (read-only; full record in the report and _PhaseA.xlsx)
+Every stored HVAC row was counted with the payload the next Suggest would send (3,903 rows / 109 sheets); expected figures
+were priced by the tracked harness on scratch copies.
+
+Corrections the owner ruled on:
+- **R22's premise does not hold.** 00140 "HVAC Lowside Works " r542-546 are GI class B DRAIN pipes and r550 a CPVC drain.
+  Their sub-headings (r540-541, r548-549) were committed as NOTE rows, and every row is parented to r421 "Chilled Water
+  Cassette Unit", whose notes carry about 40 sub-headings, so the model leaves the type out by its own rule. The
+  chilled-water = MS / refrigerant = Copper rule already works elsewhere (33 / 33, 1 / 1).
+- **R6b as quoted** reached 5 rows whose heading gives the damper to both streams or to none.
+- **R4's grille** is 435 + 80 = 515 (each half rounded up): 3,635 per sq.m, not 3,634.
+- **R23** was already built (12e-6 R1).
+
+### 2. Phase B
+- **B3:**
+  - Stub over the 17 sheets (112 requests): the 67 ADP / Insulation / Piping requests differ ONLY in ITEMS_SPEC, 45 are
+    identical, 0 capture writes.
+  - Tracked replay v54 vs START by key: exactly the 15 declared movers, 0 others:
+
+    | Ruling | Rows and figures |
+    |---|---|
+    | R6b | 00066 r638, 00148 6.HVAC r65 / r70 12,428 -> 5,709; 00073 r15 9,285 -> 6,195 |
+    | R21 | 00315 r42 -> 1,824 |
+    | R13 | the shape note on 00133 r106 / r108 and 00329 r215 / r217 |
+    | R9 | the "not included" line on 00231 / 00243 r214-216 |
+
+- **Scoped suites (after commit 2):** Python 86 modules / 4,456 tests, all OK, capture log unchanged. vitest
+  boq-wizard + pricing 128 files / 5,628 and related 59 / 3,623, with only the known 5 s timeouts. tsc 3,170 = ADP-5c's
+  set.
+- **B4:** ADP-5c's archived Phase C requests for the 22 rows + twins re-sent 3 times on v54, only ITEMS_SPEC changed (48
+  calls, 643,466 tokens).
+  - 22 / 25 ruled checks 3 / 3, including every end-to-end proof row.
+  - 00140 PAC r68 2 / 3 (door grille once) and 00231 r211 2 / 3 (GI once): KEEP rows with no approved wording.
+  - 00247 BOQ r78 0 / 3: the R22 tree defect again. r76 / r77 were committed as notes and r78 hangs under "HVAC SYSTEM".
+  - Q9 / Q10: all three left out of Phase C; their stored answers stand.
+
+### 3. Phase C - the re-read (17 sheets, 80 rows; population v2 = v1 less exactly the 3 rows)
+- **Interruptions:** an unplanned reboot on 2026-10-26 11:47 IST. Postgres ran a clean automatic WAL recovery, and the
+  state equalled the B4 end. Then the owner's HOLD for the laptop's code + data sync (IN_SYNC / SAME).
+- **Before the first call:** expected table v2 (rows sha256 `dd91ad3b...`, beside v1 `21f1b841...`). Server guards
+  17 / 17 ALLOWED.
+- **The run:** `start_suggest` in-process as Administrator, one sheet at a time. **18 calls (= the estimate), 207,664
+  tokens**, 0 retries, every run complete, carried rows byte-identical on 17 / 17 sheets.
+- **C-P8:** 25 rows differ, all re-read rows, 0 outside. New replay baseline: ac7 `2148a730d3237986` / ac7v2
+  `ce5009cc4c048b18` (17,918 rows).
+- **Classification: EXPECTED 70, NEUTRAL 8 (wording only), REPORT 2**, QUESTION-EFFECT 0, UNEXPLAINED 0, RUN-VARIATION 0.
+  Payload == logged 80 / 80; EA-7 PASS 80 / 80; the three specs sent = v54's.
+- **Met:**
+
+  | Row | Result |
+  |---|---|
+  | 00087 r28 / r29 | Aluminium Foil 712 / 581 supply |
+  | 00302 r53 | plenum + canvas 4,514 |
+  | 00066 r638 | 5,709 |
+  | 00144 r224 / 00114 r220 | cross-talk + grille 3,635 |
+  | 00100 r94 / r96 | square 9,285 / 6,195 with the note |
+  | 00140 r39 | 654 |
+  | 00197 r83 | 12,428 |
+  | 00215 r42 | floor grille 1,824 |
+  | 00243 r214-216 | the motorised VCD alone, 7,123 / 14,245 / 21,368 + the line |
+  | 00088 r121 | the collar-damper refusal |
+  | 00191 r37 | 4,695 |
+  | 00140 r542-546 / r550 | refusals |
+
+- **Report:** 00197 r137 cross-talk 3,120 (allowed); 00329 r257 Thermal 748 (Acoustic ruled; no heading rule, as ADP-5c).
+- **Slice total:** 66 calls, 851,130 tokens.
+
+### 4. Browser cert
+Run after this commit and the laptop's sync HOLD; the results are in the Desktop report (section C1-C10).
+
+### 5. Open
+- **The TREE defect:** sub-headings committed as note rows under one sheet-level parent (00140 "HVAC Lowside Works " from
+  r421; 00247 "BOQ" under row 8). It makes the payload unable to place a row (R22's six drain pipes, R19's r78); a
+  separate slice.
+- 00329 r257 Acoustic vs Thermal (unstable on both v53 and v54).
+- The parent-heading match for `existing_work` (ADP-5c Q1 (b)).
+
+## Step DB-PUSH - one command to copy the laptop's data back to the desktop, and the desktop scheduler switched on - as built 2026-10-26
+
+Run by the LAPTOP session (tooling runs from the laptop; no delegated desktop session). Owner rulings: 2026-10-26 16:21
+(if the desktop drops, all work continues on the laptop, which is then the master; on reconnect the desktop is brought up
+for code and data first), 17:18 "One-command copy back : do it" and "Desktop scheduler is off: switch on", 17:26 (D9)
+"keep it on" for the laptop after each pull, after its guards are proved. Built on SYNC-R (same day), which proved the hand
+procedure (laptop Desktop: `2026-10-26_SYNC-R_Report.md`, `2026-10-26_Desktop_Drop_Runbook.md`).
+
+### 1. Built (commit 1, `7b1b8f5a8`)
+- `scripts/env_sync/env_sync.sh db-push --yes [--discard-desktop-writes]`: the laptop -> desktop twin of `db-pull`. It
+  refuses without `--yes` and unless the code is `IN_SYNC`. It also refuses when the desktop's fingerprint differs from
+  the one recorded at the laptop's last `db-pull`, naming both (only `--discard-desktop-writes` overrides). Then:
+  1. It backs up the desktop FIRST and proves the backup: sizes and sha256, `gzip -t`, and a test restore into a
+     scratch database with the table count and key row counts equal to live.
+  2. It proves the laptop backup and copies it across, checking sha and size.
+  3. It re-reads both fingerprints, and refuses if either has moved.
+  4. It stops the desktop bench and restores the laptop's backup, keeping the old desktop database as
+     `<db>_envsync_prev`. It runs files and migrate, starts bench and waits for ping.
+  5. It prints the before and after fingerprints, writes a run record to the laptop's Desktop, and refreshes the pull
+     record.
+- New helpers: `remote/prove_backup.sh` and `remote/scratch_check.sh`.
+- `db-pull` now records the pulled fingerprint (`frappe-bench/envsync/last_pull_fingerprint.txt`; override
+  `ENV_SYNC_PULL_RECORD`).
+- `status` now names the master machine.
+- `docs/agents/environments.md`: the desktop-drop exception in Rules, a "Desktop drop" section (the steps, the refusals,
+  proofs against the laptop's values, the rollback), `db-push` in Commands, and Recovery.
+- No test reads `env_sync` or `environments.md` (searched every `test_*.py` and `*.test.ts(x)`), so no suite ran. The
+  residence check is unchanged (F5 120 / 117, F2 221 / 217, the same failures as before this step).
+
+### 2. Proved (live, both machines)
+- **Guard tests, no live write:** each refused with exit 2, and the desktop wrote no backup:
+  - no `--yes`;
+  - no pull record yet;
+  - a throwaway branch `dbpush-probe` on the laptop (BRANCH_MISMATCH; deleted afterwards);
+  - an edited COPY of the record (`ENV_SYNC_PULL_RECORD`, versions 458000 vs 458059), where both values were named.
+- **Real run:** `db-push --yes` 17:34:06-17:45:43, **697 s**, exit 0.
+  - Desktop safety backup `20261026_173428` proved: the scratch restore had 426 / 426 tables and 8 / 8 key tables
+    equal.
+  - Laptop backup `20261026_173622` copied, with sha equal.
+  - The desktop proof file (v54 / v66 live == file hashes, counts, AI enabled + key presence, dev flags, scheduler,
+    stopped jobs, capture hashes) is `cmp`-identical before and after.
+  - `dev_isolate.py --verify` is unchanged (FAIL on `push_tokens` / `push_on` only, the known login token).
+  - The replay of 17,918 rows is equal BY KEY to the ADP-5d baseline. The file sha `671d90af` / `b553d199` differs from
+    `2148a730` / `ce5009cc` in serialisation only, the same as SYNC-R.
+  - The pull back reads `IN_SYNC` / `SAME`.
+- The restore replaced the older `_envsync_prev` (SYNC-R's pre-copy database), whose content is in backup
+  `20261026_164402`.
+
+### 3. The desktop scheduler (switched on 17:58:45 IST)
+- **Guards before:**
+  - site_config `mute_emails` 1, `disable_push` 1, `disable_cloud_upload` 1, `nirmaan_env` dev;
+  - the 19 stopped Scheduled Job Types (listed by name in the ledger), including `queue.flush` and
+    `email_account.pull`;
+  - the 4 Email Accounts with outgoing and incoming off;
+  - an empty Email Queue.
+- **Switch:** `bench --site localhost enable-scheduler`, which calls `frappe.utils.scheduler.enable_scheduler()` and
+  sets System Settings `enable_scheduler` = 1.
+- **20-minute watch:** 59 job runs, all Complete.
+  - 0 Error Log entries;
+  - Email Queue 0 queued and 0 sent;
+  - 0 Nirmaan Notifications, Notification Log or Communication rows;
+  - capture log unchanged at 258 lines.
+  - Data changes: 1 Version row (Energy Point Settings' allocation date) and −54 Error Log rows (the log clean-up job).
+  - Rate masters, runs and counts unchanged; the replay equal by key.
+- **The laptop (owner D9):**
+  - Its own guards were proved first (the same values; its bench runs `bench schedule`).
+  - Then `db-pull` (scheduler on), `IN_SYNC` / `SAME`.
+  - **10-minute watch:** 14 job runs, all Complete; 0 errors, emails, notifications or Communications.
+  - The setup-table rows created 18:29:19-18:29:39 are `bench migrate`'s fixture sync, which runs on every pull, not the
+    scheduler.
+
+### 4. Open / follow-ups
+- `session-send` can start a second copy of a busy desktop session (PP-1, 2026-10-26). The fix needs the Claude
+  background CLI's stop / resume behaviour, so it is not small; for now, avoid sending to a busy session.
+- The desktop's `/tmp` still holds SYNC-R's and DB-PUSH's scratch (`/tmp/syncr`, `/tmp/dbpush`), because the `rm -rf`
+  clean-up was refused.

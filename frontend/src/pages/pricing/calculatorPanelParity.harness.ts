@@ -642,12 +642,26 @@ export function itemListCasesForCategory(
 //   D  item-list: BOTH refuse, and the panel's reason quotes BoQ text that has no box on the screen
 //      ("several values stated for torque ('3.5, 7.9 & 15.9 Nm')") where the calculator says "no torque
 //      stated". A pricer cannot retype an unparseable string, so the sentence differs; no price does.
+//   E  item-list (ADP-4a, owner 2026-10-21 "list the 7, fix later"): BOTH refuse with the same sentence except the
+//      quoted outer size -- the panel quotes the BoQ's words ('450 mm x 450 mm'), the calculator its width box
+//      ('450'). Present since ADP-3b's face boxes (v49); the frozen snapshot config hid it until the fixture moved
+//      to v50. FIXED in ADP-4b (owner AC7, "Both quote the read sides"): both now say "outer size 450 x 450"; no row
+//      carries it any more, and the classifier stays so a return would be named.
 export type DivergenceCause =
   | "A_wiring_primary"
   | "B_stale_pick"
   | "C_unit_not_offered"
   | "D_reason_only"
+  | "E_outer_size_quote"
   | "Z_UNCLASSIFIED";
+
+/** Cause E's signature: every divergence is a refusal sentence, and the two sentences agree once the quoted outer
+ *  size is masked. */
+function onlyOuterSizeQuoteDiffers(run: ParityRun): boolean {
+  const mask = (s: unknown) => String(s).replace(/outer size '[^']*'/g, "outer size '...'");
+  return run.divergences.length > 0
+    && run.divergences.every((d) => (d.what === "item row reason" || d.what === "item blocks") && mask(d.panel) === mask(d.calculator));
+}
 
 /** PURE over a completed run. Which of the four declared causes explains this divergence. */
 export function classifyDivergence(run: ParityRun, c: ParityCase): DivergenceCause {
@@ -658,6 +672,7 @@ export function classifyDivergence(run: ParityRun, c: ParityCase): DivergenceCau
   if (calcNotes.some((n) => n.includes("not stocked with the other answers"))) return "B_stale_pick";
   if (whats.has("item unit class")) return "C_unit_not_offered";
   const bothRefuse = !hasPrice(run.panel) && !hasPrice(run.calculator);
+  if (bothRefuse && onlyOuterSizeQuoteDiffers(run)) return "E_outer_size_quote";
   if (bothRefuse && panelQuotesTextWithNoBox(run.panel)) return "D_reason_only";
   return "Z_UNCLASSIFIED";
 }

@@ -1,18 +1,17 @@
-// RM-4b: pure helpers for the STRUCTURE editor (the Pipelines tab).
-// No React, no I/O -- unit-tested. The interpreter (ratePipelineInterpreter.ts) is reused UNCHANGED:
-// the preview gate runs the SAME pure interpreter over a DRAFT config + the live master items and
-// compares against the config's stored goldens. This module owns the goldens-as-config-data shape, the
-// step vocabulary + blank-step factory, and the client mirror of the server reference guard.
+// RM-4b: pure helpers over a config's STRUCTURE -- the step vocabulary + blank-step factory, the attribute-type
+// axes, the Data-tab scoping and the derived-attribute bindings. No React, no I/O -- unit-tested.
+// ADP-4b (owner D9, 2026-10-21: "we can remove th epipeline tab entirely"): the Pipelines tab is gone, and with it the
+// editor-only helpers -- the goldens preview gate (evaluateGoldens / goldenDeltas and their Golden / GoldenCheck
+// shapes), cloneConfig, the reference-guard mirror referencedAttrIds, blankAttributeDefinition and blankPipeline. The
+// goldens stay config DATA, read by the mint gate, the loader and the exporter; the server keeps its own guard.
 
 import type {
   AttributeDefinition,
-  Pipeline,
-  PipelineStatus,
   PipelineStep,
   RateCategoryConfig,
   RateMasterItem,
 } from "./rateMasterTypes";
-import { NONE_SENTINEL, runPipeline } from "./ratePipelineInterpreter";
+import { NONE_SENTINEL } from "./ratePipelineInterpreter";
 
 /**
  * CP2: the two axes of an attribute type, each with ONE definition.
@@ -36,8 +35,7 @@ export function isDropdownAttributeType(type: AttributeDefinition["type"] | stri
  * (`matchMasterRow`: `it.attributes[k] === selected[k]`), so a value coerced to the wrong JS type
  * silently fails to match a catalog row that carries it -- a no-match, never a wrong price, but
  * equally never a price. It lived buried in `pricingSheetHelper.ts` until CP2 moved it here beside
- * the other attribute-definition helpers (`blankAttributeDefinition`, `referencedAttrIds`,
- * `distinctNumberValues`), so both the pricing-editor helper and any future consumer share ONE
+ * the other attribute-definition helpers (`distinctNumberValues`), so both the pricing-editor helper and any future consumer share ONE
  * definition. PURE.
  */
 export function coerceForMatch(def: AttributeDefinition, raw: string | number | null): string | number | null {
@@ -50,27 +48,6 @@ export function coerceForMatch(def: AttributeDefinition, raw: string | number | 
     return Number.isFinite(n) ? n : null;
   }
   return String(raw);
-}
-
-/** One standing golden stored in the config: attributes + expected finals per pipeline. */
-export interface Golden {
-  id?: string;
-  attrs: Record<string, string | number>;
-  expect: Record<string, Record<string, number>>;
-}
-
-/** One expected-vs-computed check for a single golden output key. */
-export interface GoldenCheck {
-  goldenIndex: number;
-  goldenId?: string;
-  attrs: Record<string, string | number>;
-  pipelineId: string;
-  key: string;
-  expected: number;
-  /** The value the (draft) config computed, or null when the pipeline did not produce it. */
-  got: number | null;
-  status: PipelineStatus | "missing_pipeline";
-  pass: boolean;
 }
 
 /** The step types the pure interpreter executes (the ONLY types the validator/editor allow). */
@@ -114,59 +91,8 @@ export const STEP_VOCABULARY = [
 
 export type StepType = (typeof STEP_VOCABULARY)[number];
 
-/** Deep clone a config for a draft edit session (JSON round-trip -- config is plain JSON). */
-export function cloneConfig(config: RateCategoryConfig): RateCategoryConfig {
-  return JSON.parse(JSON.stringify(config)) as RateCategoryConfig;
-}
-
-/** Run every stored golden through the given config's pipelines + items, one check per output key. */
-export function evaluateGoldens(config: RateCategoryConfig, items: RateMasterItem[]): GoldenCheck[] {
-  const goldens = (config.goldens as Golden[] | undefined) ?? [];
-  const checks: GoldenCheck[] = [];
-  goldens.forEach((g, gi) => {
-    for (const [pid, emap] of Object.entries(g.expect ?? {})) {
-      const pl = config.pipelines?.[pid] as Pipeline | undefined;
-      let finals: Record<string, number> = {};
-      let status: GoldenCheck["status"] = "missing_pipeline";
-      if (pl) {
-        // A DRAFT can be transiently invalid mid-edit (e.g. a param renamed before its formula
-        // catches up -> evalFormula throws). The preview must survive that: a throw becomes "not
-        // produced" (a delta), never a crash. This wraps the interpreter; it does NOT change it.
-        try {
-          const r = runPipeline(pid, pl, items, g.attrs);
-          finals = r.finals;
-          status = r.status;
-        } catch {
-          finals = {};
-          status = "no_match";
-        }
-      }
-      for (const [key, expected] of Object.entries(emap)) {
-        const produced = status === "ok" && Number.isFinite(finals[key]) ? finals[key] : null;
-        checks.push({
-          goldenIndex: gi,
-          goldenId: g.id,
-          attrs: g.attrs,
-          pipelineId: pid,
-          key,
-          expected,
-          got: produced,
-          status,
-          pass: produced === expected,
-        });
-      }
-    }
-  });
-  return checks;
-}
-
-/** The subset of golden checks that FAIL (expected !== computed) -- the preview gate's deltas. */
-export function goldenDeltas(config: RateCategoryConfig, items: RateMasterItem[]): GoldenCheck[] {
-  return evaluateGoldens(config, items).filter((c) => !c.pass);
-}
-
-/** A minimal VALID skeleton for a new step of the given type (the editor appends this, then the admin
- * fills the blanks). Mirrors the server validator's per-type required keys. */
+/** A minimal VALID skeleton for a new step of the given type (the retired Pipelines editor appended this; the
+ * interpreter tests sweep the vocabulary with it). Mirrors the server validator's per-type required keys. */
 export function blankStep(type: StepType): PipelineStep {
   switch (type) {
     case "match_master_row":
@@ -219,65 +145,6 @@ export function blankStep(type: StepType): PipelineStep {
   }
 }
 
-/** Client mirror of the server reference guard: the attribute ids a pipeline references (every
- * apply_effective_multiplier condition `when` key, every component_band `band_on`, and every
- * attribute a module_fit names). Removing a definition still in this set is rejected server-side;
- * the editor uses it to warn pre-save. */
-export function referencedAttrIds(config: RateCategoryConfig): Set<string> {
-  const out = new Set<string>();
-  for (const pl of Object.values(config.pipelines ?? {})) {
-    for (const raw of pl.steps ?? []) {
-      const s = raw as {
-        step: string;
-        conditions?: { when?: Record<string, unknown> }[];
-        band_on?: string;
-        params?: {
-          terms?: { attr?: string; none_when?: string; ident?: string }[];
-          ladders?: { floor_from?: string }[];
-          blanks?: { stated_attr?: string };
-          result_attr?: string;
-        };
-      };
-      if (s.step === "apply_effective_multiplier") {
-        for (const c of s.conditions ?? []) {
-          for (const k of Object.keys(c.when ?? {})) out.add(k);
-        }
-      } else if (s.step === "component_band" && typeof s.band_on === "string" && s.band_on) {
-        out.add(s.band_on);
-      } else if (s.step === "module_fit") {
-        // SLICE 2: every attribute id a module_fit names must be guarded, so a typo fails LOUDLY at
-        // save instead of silently no-computing every row of the category at runtime.
-        for (const t of s.params?.terms ?? []) {
-          if (typeof t?.attr === "string" && t.attr) out.add(t.attr);
-          if (typeof t?.none_when === "string" && t.none_when) out.add(t.none_when);
-          // SLICE 5: `weight_from.from_attr` names an attribute too -- the slot whose SKU supplies
-          // this term's width. Guarded for the reason the slice-2 comment above gives: a typo here
-          // resolves no catalogue row, and the width lookup refuses EVERY row of the category. That
-          // must fail at save, not at runtime.
-          const wf = (t as { weight_from?: { from_attr?: unknown } })?.weight_from;
-          if (typeof wf?.from_attr === "string" && wf.from_attr) out.add(wf.from_attr);
-        }
-        const sa = s.params?.blanks?.stated_attr;
-        if (typeof sa === "string" && sa) out.add(sa);
-        // SLICE 2 part 2: a ladder's floor_from names an attribute too.
-        for (const L of s.params?.ladders ?? []) {
-          if (typeof L?.floor_from === "string" && L.floor_from) out.add(L.floor_from);
-        }
-      } else if (s.step === "derive_attribute") {
-        // CIRCUIT LENGTH part 1: the step names its SOURCE attributes AND its TARGET attribute, and
-        // all of them are guarded -- a typo in either would silently no-compute (or silently never
-        // find a stated value to defer to) rather than failing at save.
-        for (const t of s.params?.terms ?? []) {
-          if (typeof t?.attr === "string" && t.attr) out.add(t.attr);
-        }
-        const ra = s.params?.result_attr;
-        if (typeof ra === "string" && ra) out.add(ra);
-      }
-    }
-  }
-  return out;
-}
-
 /**
  * EA-1c: the master-item kinds belonging to a category, used to SCOPE the Data tab to just this
  * category's items/columns. Fallback order: the config's declared `item_kinds` if present; else derive
@@ -312,27 +179,6 @@ export function categoryItemKinds(config: RateCategoryConfig): string[] {
  */
 export function isCategoryDataScopeEmpty(config: RateCategoryConfig): boolean {
   return categoryItemKinds(config).length === 0;
-}
-
-/** A blank attribute definition (choice with one empty value slot, or a number). */
-export function blankAttributeDefinition(type: "choice" | "number"): AttributeDefinition {
-  return type === "choice"
-    ? { id: "", label: "", type: "choice", values: [] }
-    : { id: "", label: "", type: "number" };
-}
-
-/**
- * EA-2 (rider 1): a validator-MINIMAL pipeline for the Add-pipeline affordance. The server
- * `_validate_config` requires `output` (a list of strings) + a NON-empty `steps` list whose every
- * step is a known type; a single `match_master_row` (the natural first step -- it selects the item to
- * price) is the one blankStep the server accepts UNEDITED (its params.kind is a non-empty string).
- * The author then adds the real computation steps via the existing AddStep machinery. This is what
- * makes authoring a pipeline into an EMPTY-pipelines config (the LMS path) possible.
- */
-export function blankPipeline(outputKeys: string[], kind?: string): Pipeline {
-  const first = blankStep("match_master_row") as PipelineStep & { params: { kind: string } };
-  first.params = { kind: kind && kind.trim() ? kind.trim() : "item" };
-  return { output: outputKeys.filter((k) => k.trim().length > 0), steps: [first] };
 }
 
 /**

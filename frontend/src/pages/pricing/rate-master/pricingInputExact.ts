@@ -293,6 +293,26 @@ export function priceSkuExactItemList(
     if (v === null || v === undefined || v === "") continue;
     attributes[k] = { value: String(v) };
   }
+  /**
+   * ADP-1 (owner Q2, 2026-10-19: the cross-talk depth must reach "the 6 cross-talk SKUs"). A number the reader takes
+   * from a DIFFERENT text attribute -- ADP's width and height are axes of ONE size phrase (`size_mm`), its torque is
+   * read from `torque` -- reaches it the way a BoQ row writes it: the SKU's own sizes joined "a x b" in axis order, a
+   * plain number as itself. Without this every such SKU refused "no width stated" here, so no input could ever be
+   * seen to move one. A reader taking its own id (every Insulation and Piping axis) and a typed-only box are untouched.
+   */
+  const phrase: Record<string, string[]> = {};
+  for (const [nid, rd] of Object.entries(spec.numbers)) {
+    const v = ((item.attributes ?? {}) as Record<string, unknown>)[nid];
+    const src = rd.from[0];
+    if (typeof v !== "number" || rd.typed_only || src === nid || src in attributes) continue;
+    if (typeof rd.component === "number") (phrase[src] ??= [])[rd.component - 1] = String(v);
+    else attributes[src] = { value: String(v) };
+  }
+  for (const [src, parts] of Object.entries(phrase)) {
+    const run: string[] = [];
+    for (let i = 0; i < parts.length && parts[i] !== undefined; i++) run.push(parts[i]);
+    if (run.length) attributes[src] = { value: run.join("x") };
+  }
   const rowUnit = String(item.unit ?? "");
   const ext = [{ attributes } as never];
 
@@ -541,6 +561,10 @@ export function confirmInputMovesSku(
   if (skuCarriesGeometry(config, item)) {
     return priceSkuExactItemList(item, config, items, itemsNext).legs.some((l) => l.moved);
   }
+  // ADP-1 (owner Q2): a candidate the product's pricer CAN price on its own (an ADP cross-talk sold per number: its
+  // width and height are not ladders) is decided by that price; only one it cannot falls to the samples
+  const direct = priceSkuExactItemList(item, config, items, itemsNext);
+  if (direct.ok) return direct.legs.some((l) => l.moved);
   return priceSkuExactSamples(item, config, items, itemsNext).some(
     (s) => s.result.legs.some((l) => l.moved),
   );

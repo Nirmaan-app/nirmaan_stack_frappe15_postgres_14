@@ -18,15 +18,16 @@
  * the bottom asserts that the header and the body both MAP that list rather than carrying their own.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import ELECTRICAL from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v66.json";
 import HVAC from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v25.json";
 import { columnOrderForFile } from "./rateMasterSpec";
 import CAT_KINDS from "../../../../../scripts/_instruments/cat_kinds.json";
 import {
-  gridColumnKeys, gridColumnsSharedWithFile, attrColKey, rateColKey,
-  COL_UNIT, COL_BRAND, COL_ACTIONS, COL_PI_NAME,
+  gridColumnKeys, gridColumnsSharedWithFile, attrColKey, rateColKey, fileColumnId, plainFileColumnLabel,
+  COL_UNIT, COL_BRAND, COL_ACTIONS, COL_PI_NAME, COL_ITEM_UID, COL_DISCIPLINE, COL_CATEGORY, COL_SPEC,
+  COL_SOURCE_SHEET, COL_SOURCE_ROW,
 } from "./rateMasterGridColumns";
 
 type AnyRec = Record<string, unknown>;
@@ -98,18 +99,18 @@ describe("the grid's columns are the file's columns, in the file's order", () =>
         const keys = gridColumnKeys(inp);
         const shared = gridColumnsSharedWithFile(keys);
         /**
-         * ⚠️ ONE DOCUMENTED DIVERGENCE, AND IT IS DELIBERATE: a SPEC-DRIVEN category puts its text
-         * pair (`item_name`, `item_detail`) FIRST on the screen -- slice 1c / U3, "the text pair
-         * FIRST, then the spec verdict, then brand" -- and omits its DERIVED attribute columns from
-         * the file entirely. So for such a category the screen and the file legitimately differ in
-         * where the text pair sits, and the file is not a complete reference for the rest.
-         * Everywhere else the two orders must agree exactly, which is what `8fa8d3262` intended.
+         * ⚠️ INVERTED at ADP-4b (owner D7 / AC3, "the data viewer shows exactly what downloads") by mechanical authority.
+         * BEFORE, the ONE DOCUMENTED DIVERGENCE: a spec-driven category put its text pair FIRST on the screen (slice 1c /
+         * U3) and this branch modelled the file order from the screen's own inputs:
+         *   [...textCols, COL_BRAND, COL_UNIT, ...attrCols, ...fileRates]
+         * AFTER: the grid IS the file's order -- the three identity columns, brand, unit, the text pair, the rates (the
+         * "read from spec" columns are not in the file, nor on the default grid).
          */
         const fileOrder = inp.specMode
           ? [
-              ...inp.textCols.map((d) => attrColKey(d.id)),
+              COL_ITEM_UID, COL_DISCIPLINE, COL_CATEGORY,
               COL_BRAND, COL_UNIT,
-              ...inp.attrCols.map((d) => attrColKey(d.id)),
+              ...inp.textCols.map((d) => attrColKey(d.id)),
               ...inp.fileRates.map((k) => rateColKey(k)),
             ]
           : [
@@ -278,3 +279,78 @@ describe("source pin: the viewer has ONE ordering and every row maps it", () => 
     expect(src).toContain("gridColumnKeys({");
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * ADP-4b (owner D7 / AC3, 2026-10-21): "a toggle, off by default, so the screen equals the file, plus drop the
+ * empty Depth column ... same column order both sides". Read on the CURRENT HVAC asset (the highest version on disk),
+ * against the column list the backend pins for the real ADP download (`test_spec_reader.py` HVAC_FILE_COLUMNS, and
+ * `csv_exporter.build_category_rows` measured in-container at ADP-4b PA3: the same 13).
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe("ADP-4b -- a spec-driven grid shows exactly the download's columns; 'Show spec details' adds the rest", () => {
+  const DATA = join(__dirname, "../../../../../nirmaan_stack/services/boq_rate_master/data");
+  const latest = readdirSync(DATA).filter((f) => /^rate_master_hvac_all_v\d+\.json$/.test(f))
+    .sort((a, b) => Number(/v(\d+)/.exec(a)![1]) - Number(/v(\d+)/.exec(b)![1])).pop()!;
+  const hvac = JSON.parse(readFileSync(join(DATA, latest), "utf-8")) as Asset;
+  const adp = hvac.category_configs.find((c) => c.attributes_from_spec === true)!;
+  const adpItems = hvac.items.filter((i) => ((adp.item_kinds as string[] | undefined) ?? []).includes(String(i.kind)));
+  const HVAC_FILE_COLUMNS = ["item_uid", "discipline", "category", "brand", "unit", "item_name", "item_detail",
+    "cost_install", "cost_supply", "install_markup", "supply_markup", "supply_formula", "install_formula"];
+  const inputs = (details: boolean, canEdit = false) => {
+    const inp = inputsFor(adp, adpItems, canEdit ? "editing" : "normal");
+    return { ...inp, showSpecDetails: details };
+  };
+  const fileIds = (keys: string[]) => keys.map((k) => fileColumnId(k, new Set(["item_name", "item_detail"])));
+
+  it("the sweep reaches the ADP config and its items (never vacuous)", () => {
+    expect(adp.category_id).toBe("hvac_adp");
+    expect(adpItems.length).toBeGreaterThan(80);
+  });
+
+  it("POSITIVE: the default grid's columns are the file's 13, in the file's order -- each one names its file column", () => {
+    expect(fileIds(gridColumnKeys(inputs(false)))).toEqual(HVAC_FILE_COLUMNS);
+  });
+
+  it("POSITIVE: the admin actions column stays FIRST and is the only column the file does not carry (owner 2026-10-21)", () => {
+    const keys = gridColumnKeys(inputs(false, true));
+    expect(keys[0]).toBe(COL_ACTIONS);
+    expect(fileIds(keys.slice(1))).toEqual(HVAC_FILE_COLUMNS);
+    expect(fileColumnId(COL_ACTIONS, new Set())).toBeNull();
+  });
+
+  it("POSITIVE: the toggle adds the spec verdict and the 'read from spec' columns after the text pair, and the source sheet and row before the formulas", () => {
+    const off = gridColumnKeys(inputs(false));
+    const on = gridColumnKeys(inputs(true));
+    const inp = inputs(true);
+    const added = on.filter((k) => !off.includes(k));
+    expect(added).toEqual([COL_SPEC, ...inp.attrCols.map((d) => attrColKey(d.id)), COL_SOURCE_SHEET, COL_SOURCE_ROW]);
+    expect(on.indexOf(COL_SPEC)).toBe(on.indexOf(attrColKey("item_detail")) + 1);
+    expect(on.indexOf(COL_SOURCE_ROW) + 1).toBe(on.indexOf("formula:supply"));
+    // the file's columns keep their order inside the wider grid
+    expect(on.filter((k) => off.includes(k))).toEqual(off);
+    // NEGATIVE: none of the added columns is a file column
+    for (const k of added) expect({ k, id: fileColumnId(k, new Set(["item_name", "item_detail"])) }).toEqual({ k, id: null });
+  });
+
+  it("NEGATIVE: a grid that is not spec-driven ignores the toggle -- every Electrical and other HVAC category is unchanged", () => {
+    let checked = 0;
+    for (const [disc, asset] of ASSETS) {
+      for (const c of categoriesWithItems(asset, disc)) {
+        if (isSpecDriven(c.config)) continue;
+        const inp = inputsFor(c.config, c.items, "normal");
+        expect(gridColumnKeys({ ...inp, showSpecDetails: true }), c.id).toEqual(gridColumnKeys(inp));
+        expect(gridColumnKeys(inp), c.id).not.toContain(COL_ITEM_UID);
+        checked++;
+      }
+    }
+    // every category with items on Electrical v66 and HVAC v25 except the one spec-driven (ADP): 14, asserted exactly
+    expect(checked).toBe(14);
+  });
+
+  it("plain labels: the identity columns by name, a rate id read as words -- no id on its own", () => {
+    expect(["item_uid", "discipline", "category", "brand", "unit"].map(plainFileColumnLabel))
+      .toEqual(["Item ID", "Discipline", "Category", "Brand", "Unit"]);
+    expect(["cost_install", "cost_supply", "install_markup", "supply_markup"].map(plainFileColumnLabel))
+      .toEqual(["Install cost", "Supply cost", "Install markup", "Supply markup"]);
+  });
+});
+

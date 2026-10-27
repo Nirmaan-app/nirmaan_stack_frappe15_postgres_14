@@ -51,6 +51,66 @@ _NODE_FIELDS = [
     "is_current",
 ]
 
+# F1-a (owner 2026-10-22, ruling V2): the text the commit writes on a node whose review row had NO description and NO
+# Sl. No. -- commit_pipeline._build_node_pass1: `d.get("description") or d.get("sl_no_value") or "(untitled)"`.
+# Pinned to that expression by test_f1a_derived_notes.
+_COMMIT_UNTITLED = "(untitled)"
+
+
+def _commit_note_text(node):
+    """The description the COMMIT's derive saw for this node: its stored description, except that the commit's
+    stand-in -- "(untitled)", or the node's own code (sl_no_value) standing in for an empty description -- is handed
+    back as "", which is what the commit read for that row (owner V2, 2026-10-22).
+
+    ⚠️ BLIND SPOT, KNOWN AND MEASURED: a note whose REAL description is exactly its own sl_no_value is indistinguishable
+    here from the stand-in and contributes "" too. 0 such note rows across all 899 committed sheets at F1-a
+    (2026-10-22); a later O2 slice that changes what an empty-description note contributes retires this adapter."""
+    desc = node.get("description") or ""
+    code = node.get("code")
+    if desc == _COMMIT_UNTITLED or (code and desc == code):
+        return ""
+    return desc
+
+
+def derive_attached_notes(nodes):
+    """F1-a: {node name: [note text, ...]} for one sheet's CURRENT committed nodes, built by the commit's own rule
+    (commit_pipeline._derive_attached_notes, imported, never re-implemented) over the committed tree: a node's notes are
+    the descriptions of its child nodes of row_class "note", in sort_order (= the commit's row_index). The node's
+    `parent_node` is the commit's effective parent; a note whose parent is not a current node lands in no list (the
+    commit's master bucket). A node with no note children is absent.
+
+    Where the commit derived the saved `attached_notes` (every commit since 2026-08-11), this equals it exactly; where
+    the saved copy is stale (older commits), this is the tree as it stands. The import is lazy: the classifier never
+    needs it at module load."""
+    from nirmaan_stack.api.boq.wizard.commit_pipeline import _derive_attached_notes
+
+    sort_by_name = {n["name"]: n.get("sort_order") for n in nodes}
+    name_by_sort = {n.get("sort_order"): n["name"] for n in nodes}
+    node_rows = [
+        (
+            {"row_index": n.get("sort_order"), "description": _commit_note_text(n)},
+            {"effective_classification": n.get("row_class"),
+             "effective_parent_index": sort_by_name.get(n.get("parent_node"))},
+        )
+        for n in nodes
+    ]
+    return {name_by_sort[i]: notes for i, notes in _derive_attached_notes(node_rows).items() if i in name_by_sort}
+
+
+def _attached_notes_drift(nodes, derived):
+    """F1-a AC6: the nodes whose saved `attached_notes` differs from the derived list, compared as the pricing payload
+    reads both (extraction._as_list: trimmed strings, blanks dropped) -- [{node, source_row_number, saved, derived}]
+    with COUNTS only, for the Suggest run's one log line."""
+    from nirmaan_stack.services.boq_rate_master.extraction import _as_list
+
+    out = []
+    for n in nodes:
+        saved, fresh = _as_list(n.get("attached_notes")), _as_list(derived.get(n["name"]))
+        if saved != fresh:
+            out.append({"node": n["name"], "source_row_number": n.get("source_row_number"),
+                        "saved": len(saved), "derived": len(fresh)})
+    return out
+
 
 def _notes_text(node):
     """Combine a node's own notes + attached_notes (list) + append_notes_raw (dict) into a
@@ -114,7 +174,12 @@ def build_sheet_context(boq, sheet_name):
                    append_notes_raw}] -- the AI voter rebuilds the indented chain from this),
         anc_attached_notes (raw, per ancestor, root-first),
         anc_append_notes_raw (raw, per ancestor, root-first),
-        warnings ([str] -- e.g. a broken/non-current ancestor pointer; the row is KEPT).
+        warnings ([str] -- e.g. a broken/non-current ancestor pointer; the row is KEPT),
+        derived_attached_notes (F1-a, ADDITIVE: the row's attached notes from the current tree -- also on each
+                   `ancestors` entry; read by the pricing payload only).
+
+    F1-a (owner 2026-10-22, O1): the wrapper also carries `attached_notes_drift` (see _attached_notes_drift). Every
+    pre-existing key is byte-identical: the classifier reads the saved `attached_notes` exactly as before.
     """
     sheets = frappe.get_all(
         "BoQ Sheet",
@@ -129,6 +194,7 @@ def build_sheet_context(boq, sheet_name):
             "sheet_warnings": [
                 f"No current committed BoQ Sheet for boq={boq}, sheet_name={sheet_name!r}."
             ],
+            "attached_notes_drift": [],
         }
 
     sheet_doc = sheets[0]["name"]
@@ -141,6 +207,8 @@ def build_sheet_context(boq, sheet_name):
         order_by="sort_order asc",
     )
     by_name = {n["name"]: n for n in nodes}
+    # F1-a: once per sheet, from the nodes already loaded -- no extra query.
+    derived = derive_attached_notes(nodes)
 
     def ancestors(node):
         """Walk parent_node -> root, root-first. Cycle-guarded + hop-capped. Returns
@@ -200,6 +268,7 @@ def build_sheet_context(boq, sheet_name):
                 "own_notes_raw": a.get("notes"),
                 "attached_notes": a.get("attached_notes"),
                 "append_notes_raw": a.get("append_notes_raw"),
+                "derived_attached_notes": derived.get(a["name"]),
             }
             for a in anc
         ]
@@ -224,6 +293,7 @@ def build_sheet_context(boq, sheet_name):
                 "anc_attached_notes": [a.get("attached_notes") for a in anc],
                 "anc_append_notes_raw": [a.get("append_notes_raw") for a in anc],
                 "warnings": warnings,
+                "derived_attached_notes": derived.get(n["name"]),
             }
         )
 
@@ -232,4 +302,5 @@ def build_sheet_context(boq, sheet_name):
         "sheet_name": sheet_name,
         "rows": rows,
         "sheet_warnings": [],
+        "attached_notes_drift": _attached_notes_drift(nodes, derived),
     }

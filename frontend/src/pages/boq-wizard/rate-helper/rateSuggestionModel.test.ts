@@ -265,20 +265,29 @@ describe("SLICE 12d-1a / R2 -- rowHeadings and the optional headings on buildRow
 
 // ---------------------------------------------------------------------------------------------------------
 // SLICE 12d-4a (owner D3): the row's OWN notes ride the context (`ownNotes`) for the word rules that must never
-// see a heading. `rowOwnNotes` reads `row_notes` and the STRING entries of `attached_notes`, nothing from a parent.
+// see a heading. `rowOwnNotes` reads `row_notes`, then (F1-a, owner O3) the row's own child NOTE rows -- nothing from a
+// parent. BEFORE F1-a it read the STRING entries of an `attached_notes` field, which the page's rows never carry
+// (ADP-5a CERT-C5): `rowOwnNotes({ row_notes: "with glass cloth", attached_notes: ["GI strip at 1 m", "", 42, {...}] })`
+// was ["with glass cloth", "GI strip at 1 m"]; that field is now ignored (the negative half below).
 // ---------------------------------------------------------------------------------------------------------
 describe("SLICE 12d-4a -- rowOwnNotes / ownNotes on the row context", () => {
   const base = { row_index: 3, source_row_number: 30, description: "13 mm thick", node_type: "Line Item", effective_parent_index: 1 } as unknown as PricedRow;
-  it("row_notes and string attached_notes, in that order; blanks and non-strings skipped; nothing -> []", () => {
-    expect(rowOwnNotes({ ...base, row_notes: "with glass cloth", attached_notes: ["GI strip at 1 m", "", 42, { text: "obj" }] } as unknown as PricedRow))
-      .toEqual(["with glass cloth", "GI strip at 1 m"]);
-    expect(rowOwnNotes({ ...base, row_notes: null, attached_notes: null } as unknown as PricedRow)).toEqual([]);
-    expect(rowOwnNotes({ ...base, row_notes: "  ", attached_notes: [] } as unknown as PricedRow)).toEqual([]);
+  const note = (row_index: number, parent: number, description: unknown) =>
+    ({ row_index, source_row_number: row_index * 10, description, node_type: "Other", effective_classification: "note", effective_parent_index: parent }) as unknown as PricedRow;
+  it("row_notes, then the row's own note rows in row order (trimmed); blanks skipped; an attached_notes field is NOT read; nothing -> []", () => {
+    const row = { ...base, row_notes: "with glass cloth", attached_notes: ["a field the page never receives"] } as unknown as PricedRow;
+    expect(rowOwnNotes(row, [row, note(5, 3, "  GI strip at 1 m "), note(4, 3, "first by row order"), note(6, 3, "  "), note(7, 1, "the parent's note, not the row's")]))
+      .toEqual(["with glass cloth", "first by row order", "GI strip at 1 m"]);
+    expect(rowOwnNotes(row)).toEqual(["with glass cloth"]);
+    expect(rowOwnNotes({ ...base, row_notes: null, attached_notes: null } as unknown as PricedRow, [])).toEqual([]);
+    expect(rowOwnNotes({ ...base, row_notes: "  ", attached_notes: ["ignored"] } as unknown as PricedRow, [])).toEqual([]);
+    // a row classified otherwise (a line item) under the row is not a note
+    expect(rowOwnNotes({ ...base, row_notes: null } as unknown as PricedRow, [{ ...note(8, 3, "a child line item"), effective_classification: "line_item" } as unknown as PricedRow])).toEqual([]);
   });
   it("buildRowContext carries ownNotes ONLY when the rows are given (the headings precedent); the parent's notes are never the row's", () => {
     const parent = { row_index: 1, source_row_number: 10, description: "ACOUSTIC INSULATION", node_type: "Preamble", effective_parent_index: -1, row_notes: "perforated aluminium sheets on a GI stud framework", attached_notes: null } as unknown as PricedRow;
-    const row = { ...base, row_notes: null, attached_notes: ["own note"] } as unknown as PricedRow;
-    const withRows = buildRowContext(row, ["supply_rate"], undefined, [parent, row]);
+    const row = { ...base, row_notes: null, attached_notes: ["a field the page never receives"] } as unknown as PricedRow;
+    const withRows = buildRowContext(row, ["supply_rate"], undefined, [parent, row, note(4, 3, "own note"), note(2, 1, "the heading's note")]);
     expect(withRows.ownNotes).toEqual(["own note"]);
     expect(withRows.headings).toEqual(["ACOUSTIC INSULATION"]);
     expect(buildRowContext(row, ["supply_rate"], undefined).ownNotes).toBeUndefined();

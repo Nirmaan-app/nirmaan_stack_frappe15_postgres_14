@@ -224,7 +224,10 @@ describe("12d-4c: the Derivation tab lists EVERY Insulation rule the config decl
     expect(text).toMatch(/the pricing inputs are read first \(Aluminium sheet 24G, Aluminium sheet 26G, Cladding overlap, GI framework fabrication, GI framework sheet, GI framework sheet factor, Glass cloth\)/);
     expect(text).toMatch(/A rate read live from another catalogue row -- Cladding Only/);
     expect(text).toMatch(/shown greyed, never typed -- cladding --/);
-    expect(text).toMatch(/\d+ cells on \d+ rows \(the grey 'derived' cells\)/);
+    // INVERTED at ADP-4a (owner U6, 2026-10-21: the viewer paints a derived cell AMBER) by mechanical authority.
+    // BEFORE: `expect(text).toMatch(/\d+ cells on \d+ rows \(the grey 'derived' cells\)/)`.
+    expect(text).toMatch(/\d+ cells on \d+ rows \(the amber 'derived' cells\)/);
+    expect(text).not.toMatch(/the grey 'derived' cells/);
     expect(text).toMatch(/a row with no unit, or a rate-only unit \(R\/O, QRO\), is priced in the item's own unit/);
     expect(text).toMatch(/A pipe size written in inches is converted to millimetres/);
     expect(text).toMatch(/Several thickness values stated take the highest/);
@@ -253,7 +256,11 @@ describe("12d-4c: the Derivation tab lists EVERY Insulation rule the config decl
       expect(textOf(cfgOf(LIVE, cid), []), `${cid} without items`).not.toMatch(/\b\w+_\w+\b/);
     }
     expect(textOf(insulation(), [])).toMatch(/the pricing inputs are read first \(alu sheet 24g, alu sheet 26g, cladding overlap, gi framework adder, gi framework factor, gi sheet rate, glass cloth\)/);
-    expect(textOf(cfgOf(LIVE, "hvac_adp"))).toMatch(/Then the priced steps below, in their own order -- install, item install, item supply, supply/);
+    // INVERTED at ADP-4a (owner AC1 b, R1 line 28: the steps in words, the inputs with their values) by mechanical authority.
+    // BEFORE: `expect(textOf(cfgOf(LIVE, "hvac_adp"))).toMatch(/Then the priced steps below, in their own order -- install,
+    // item install, item supply, supply/)`. The negative half: no pipeline id is listed any more.
+    expect(textOf(cfgOf(LIVE, "hvac_adp"))).toMatch(/Then the priced steps below, in their own order -- the supply rate and the install rate, each from the catalogue's cost and the SKU's markup, rounded up to the rupee/);
+    expect(textOf(cfgOf(LIVE, "hvac_adp"))).not.toMatch(/install, item install, item supply, supply/);
     expect(plainSentence("foil on an acoustic row - set the cladding (R4)")).toBe("foil on an acoustic row - set the cladding");
     expect(plainSentence("R4 foil on a pipe is priced as 26G cladding (owner 2026-10-07)")).toBe("R4 foil on a pipe is priced as 26G cladding");
     expect(plainSentence("glass cloth is not offered on sheet insulation - price this row by hand")).toBe("glass cloth is not offered on sheet insulation - price this row by hand");
@@ -266,11 +273,23 @@ describe("12d-4c: the Derivation tab lists EVERY Insulation rule the config decl
 
   it("ADP (5d, approved on the owner's word): its lines are ITS config -- the damper / insulated / UL defaults with their values, the UL 555 override, the five ladders, the derived cells; none of Insulation's", () => {
     const text = textOf(cfgOf(LIVE, "hvac_adp"));
-    expect(text).toMatch(/damper not mentioned -> without, insulated not mentioned -> with, UL listed not mentioned -> no/);
+    // INVERTED at ADP-4a (owner D2 "17 + 19": the damper said once, decided by the air stream, its fallback named) by
+    // mechanical authority. BEFORE: `expect(text).toMatch(/damper not mentioned -> without, insulated not mentioned -> with,
+    // UL listed not mentioned -> no/)`. The values are still the config's own; the separate "-> without" is gone.
+    // INVERTED at ADP-5a (HVAC v51, the LATEST asset this reads; owner 2026-10-20 12:51, AC2: the curved grille's default is
+    // "with") by mechanical authority. BEFORE: `/no air stream stated, and on every other kind -> without; a damper the row
+    // states, .../` -- the fallback now names the one kind that differs.
+    expect(text).toMatch(/no air stream stated, and on every other kind -> without \(curved grille: with\); a damper the row states, with or without, always wins -- with a line naming the air stream; insulated not mentioned -> with, UL listed not mentioned -> no/);
+    expect(text).not.toMatch(/damper not mentioned -> without, insulated/);
     expect(text).toMatch(/variant on fire damper becomes UL 555 when UL listed is yes/);
     expect(text).toMatch(/double-skin plenum is not offered per number/);
-    expect(text).toMatch(/Fitting the stated torque to the catalogue -- the stated size, else the next size the catalogue stocks; above the largest stocked size refuses, naming the size/);
-    expect(text).toMatch(/\d+ cells on \d+ rows \(the grey 'derived' cells\)/);
+    // INVERTED at ADP-4a (owner D2 "23-27 into one 'fitting to the catalogue' line naming each attribute") by mechanical
+    // authority. BEFORE: `expect(text).toMatch(/Fitting the stated torque to the catalogue -- the stated size, else the next
+    // size the catalogue stocks; above the largest stocked size refuses, naming the size/)`.
+    expect(text).toMatch(/Fitting the stated diameter, neck size, torque, panel ratio or plenum thickness to the catalogue -- the stated value, else the next value the catalogue stocks; above the largest stocked value refuses, naming it/);
+    expect(text).not.toMatch(/Fitting the stated torque to the catalogue/);
+    // INVERTED at ADP-4a (owner U6) by mechanical authority. BEFORE: `toMatch(/\d+ cells on \d+ rows \(the grey 'derived' cells\)/)`.
+    expect(text).toMatch(/\d+ cells on \d+ rows \(the amber 'derived' cells\)/);
     for (const not of ["Nitrile", "Glass Cloth", "epdm", "writes as layers", "Several", "inches"]) expect(text, not).not.toContain(not);
   });
 });

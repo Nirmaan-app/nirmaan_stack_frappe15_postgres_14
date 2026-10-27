@@ -1,49 +1,27 @@
-// RM-2 Tab 2 -- DERIVATION VIEW. A configurator whose selectors are BUILT FROM
-// the attribute_definitions (choice -> select of stored values; number -> select
-// of the values present in the data; brand shown, not selectable). Below it,
-// EVERY pipeline in the stored config renders as an ordered step list (name +
-// explain + params + matched condition + running value) with finals as summary
-// cards. BCS pipelines ARE shown here (internal transparency); only the
-// pricer-facing helper defers them. Honest no-match + unsupported-step states.
+// RM-2 Tab 2 -- DERIVATION. ADP-4b (owner D8, 2026-10-21: "the calculator already serves the same function. so the
+// derivation tab just becomes the rules listing ... for all disciplines and categories"): THE RULES, AND NOTHING THAT
+// PRICES. The attribute boxes, the pipeline step cards with their figures, and the inline parameter editor are gone
+// on every category -- a second pricing path on this tab showed a figure the panel did not (ADP-R4 R4: 7685 / 1600 for
+// a per-number square diffuser the panel prices at 1972 / 576), and the one-pricing-path rule forbids it. What stays:
+// "How a row is priced" (the rules list) where the category has one, the extraction Rules card where the config
+// carries rules, and otherwise ONE line saying where a row is priced (owner PA1-R).
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { extractionRulesCardShown, itemListRuleOrder } from "./itemListRuleOrder";
-import { Pencil, Check, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { AttributeDefinition, RateCategoryConfig, RateMasterItem, StepTrace } from "./rateMasterTypes";
-import { NONE_SENTINEL, runAllPipelines } from "./ratePipelineInterpreter";
-import { isEditableParam, matchedConditionIndex, parseFiniteInput } from "./rateMasterEdit";
-// CP2: the two type axes (dropdown affordance / numeric coercion) have ONE definition each.
-import {
-  derivedAttrIds,
-  derivedQtyAttrs,
-  isDropdownAttributeType,
-  isNumericAttributeType,
-} from "./rateMasterStructure";
-
-/**
- * CP2: the Derivation screen's own coercion of a picked/typed value into `selected`.
- *
- * Deliberately NOT `coerceForMatch`: this form clears to "" (an empty numeric input, or unchecking
- * None) where the match coercion yields null -- "" means "the field is empty", and the interpreter
- * reads `selected` directly. The TYPE decision is the shared one, so a `number_choice` dropdown
- * writes a NUMBER here for exactly the same reason it does on the pricing-editor path.
- */
-function coerceSelected(def: AttributeDefinition, raw: string): string | number {
-  // EA-4a-r: preserve the "None" sentinel verbatim for an allow_none def (never Number("None")=NaN).
-  if (def.allow_none && raw === NONE_SENTINEL) return NONE_SENTINEL;
-  if (isNumericAttributeType(def.type)) return raw === "" ? "" : Number(raw);
-  return raw;
-}
+import type { RateCategoryConfig, RateMasterItem, StepTrace } from "./rateMasterTypes";
+import { isPricingInputConfig } from "./rateMasterSpec";
+import { PRICING_WORKBOOKS } from "../pricingWorkbooks";
 
 /**
  * PURE. The computed value a derived attribute displays, read out of the pipeline traces (the ctx
  * snapshot each step carries). Returns undefined when NOTHING computed it -- e.g. a "None" plate,
  * where blanks are positively absent -- so the caller can render an honest blank rather than a 0
  * that would claim "zero blanks" when the truth is "no plate to fill".
+ *
+ * ADP-4b: the tab no longer shows a computed value; this stays because the pricing panel reads it
+ * (`pricingSheetHelper.ts`) and moving it is not this slice's change.
  */
 export function derivedQtyValue(
   results: { steps: StepTrace[] }[],
@@ -58,134 +36,46 @@ export function derivedQtyValue(
   return undefined;
 }
 
+/** The pricing page tab the pointer names -- pinned by test to the tab strip's own label (`PRICING_PAGE_TABS`). */
+export const CALCULATOR_TAB_LABEL = "Calculator";
+
+/** ADP-4b (owner PA1-R, 2026-10-21): what a Pricing Inputs category's tab says. The impact list has no name on screen;
+ *  it opens from the count in the Data Viewer's 'items' column, so the line names that control. */
+export const PRICING_INPUTS_DERIVATION_LINE =
+  "Pricing Inputs hold shared numbers that other categories' rules use; no BoQ row is priced here. " +
+  "On the Data Viewer, the count in a number's 'items' column shows which items it reaches.";
+
+/**
+ * ADP-4b -- PURE. The sidebar label of the pricing page whose Calculator prices this discipline, or null where none
+ * does. `calculators` is the calculator's own path -> discipline map (`CALCULATOR_WORKBOOKS`), passed in by the page:
+ * the panel imports this file, so importing the calculator here would close an import cycle through the panel.
+ */
+export function calculatorPageLabel(discipline: string, calculators: Readonly<Record<string, string>>): string | null {
+  const path = Object.keys(calculators).find((p) => calculators[p] === discipline);
+  return PRICING_WORKBOOKS.find((w) => w.path === path)?.label ?? null;
+}
+
+/**
+ * ADP-4b (owner D8 + PA1-R) -- PURE. The one line a category with NO rules list shows instead, or null when it has one.
+ * A Pricing Inputs category prices no row, so it says what it holds; any other names where its discipline prices a
+ * row -- the pricing page and its Calculator tab, read from the registries, never written per discipline.
+ */
+export function derivationNoticeLine(config: RateCategoryConfig, calculatorPage: string | null, ruleLines: number): string | null {
+  if (ruleLines > 0) return null;
+  if (isPricingInputConfig(config)) return PRICING_INPUTS_DERIVATION_LINE;
+  return calculatorPage
+    ? `This category's rules are not listed yet. To see how a row is priced, open ${calculatorPage} -> ${CALCULATOR_TAB_LABEL}.`
+    : "This category's rules are not listed yet.";
+}
+
 interface Props {
   items: RateMasterItem[];
   config: RateCategoryConfig;
-  // RM-4a: admin-only inline param editing. Non-admins render today's read-only view (controls HIDDEN).
-  isAdmin?: boolean;
-  // RMF-1: while the deployment freeze is on, the inline param edit is a WRITE
-  // (update_rate_config_param) and is refused server-side, so the field renders read-only with
-  // the owner's approved message as its tooltip rather than accepting a keystroke it will lose.
-  frozen?: boolean;
-  onSaveParam?: (
-    pipelineId: string,
-    stepIndex: number,
-    conditionIndex: number | null,
-    paramKey: string,
-    newValue: number,
-  ) => Promise<void>;
+  /** The sidebar label of the pricing page whose Calculator prices this discipline (`calculatorPageLabel`). */
+  calculatorPage: string | null;
 }
 
-// RM-4a: one numeric parameter, admin-inline-editable (pencil -> input -> save/cancel; Escape cancels;
-// Enter saves). Save calls the param endpoint (via onSave); the page refetches + the derivation
-// recomputes. Read-only string params (e.g. `kind`) never reach this -- they render as plain text.
-function InlineParamEdit({
-  paramKey,
-  value,
-  onSave,
-}: {
-  paramKey: string;
-  value: number;
-  onSave: (v: number) => Promise<void>;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(String(value));
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const begin = () => {
-    setDraft(String(value));
-    setErr(null);
-    setEditing(true);
-  };
-  const cancel = () => {
-    setEditing(false);
-    setErr(null);
-  };
-  const commit = async () => {
-    const n = parseFiniteInput(draft);
-    if (n === null) {
-      setErr("Enter a number");
-      return;
-    }
-    setSaving(true);
-    setErr(null);
-    try {
-      await onSave(n);
-      setEditing(false);
-    } catch (e) {
-      setErr((e as { message?: string })?.message ?? "Save failed");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (!editing) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded bg-muted/50 px-1.5 py-0.5 font-mono">
-        {paramKey} {value}
-        <button
-          type="button"
-          aria-label={`Edit ${paramKey}`}
-          onClick={begin}
-          className="text-muted-foreground hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        >
-          <Pencil className="h-3 w-3" />
-        </button>
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1">
-      <span className="font-mono">{paramKey}</span>
-      <Input
-        autoFocus
-        className="h-6 w-20 text-xs"
-        value={draft}
-        disabled={saving}
-        inputMode="decimal"
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") void commit();
-          else if (e.key === "Escape") cancel();
-        }}
-        aria-label={`${paramKey} value`}
-      />
-      <button type="button" aria-label="Save" disabled={saving} onClick={() => void commit()} className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50">
-        <Check className="h-3.5 w-3.5" />
-      </button>
-      <button type="button" aria-label="Cancel" disabled={saving} onClick={cancel} className="text-muted-foreground hover:text-foreground disabled:opacity-50">
-        <X className="h-3.5 w-3.5" />
-      </button>
-      {err && <span className="text-[10px] text-destructive">{err}</span>}
-    </span>
-  );
-}
-
-function fmt(v: number | undefined): string {
-  if (v === undefined || !Number.isFinite(v)) return "-";
-  return Number.isInteger(v) ? String(v) : v.toFixed(2);
-}
-
-function detailFor(s: StepTrace): string {
-  // EA-2c: component_ref names the referenced row (e.g. "Bus bar") so the trace shows WHICH row
-  // supplied the base, alongside its resolved params.
-  if (s.refItem) {
-    const p = s.params && Object.keys(s.params).length
-      ? " -- " + Object.entries(s.params).map(([k, v]) => `${k} ${v}`).join(", ")
-      : "";
-    const cond = s.matchedCondition ? ` (${s.matchedCondition})` : "";
-    return `ref: ${s.refItem}${p}${cond}`;
-  }
-  if (s.matchedCondition) return s.matchedCondition;
-  if (s.bandChosen) return s.bandChosen;
-  if (s.params && Object.keys(s.params).length) {
-    return Object.entries(s.params).map(([k, v]) => `${k} ${v}`).join(", ");
-  }
-  return "";
-}
-
-export function RateMasterDerivation({ items, config, isAdmin, frozen, onSaveParam }: Props) {
+export function RateMasterDerivation({ items, config, calculatorPage }: Props) {
   // SLICE 12c / ACCEPTANCE 5: the resolution order, read from `list_spec.pricing`. PURE and unit-tested,
   // so this component stays thin over it (ADR-0010 F4); [] for a category that is not item-list.
   const ruleOrder = useMemo(() => itemListRuleOrder(config, items), [config, items]);
@@ -195,275 +85,25 @@ export function RateMasterDerivation({ items, config, isAdmin, frozen, onSavePar
     () => (Array.isArray(config.rules) ? config.rules : []),
     [config]
   );
-  /**
-   * SLICE 2d, OWNER RULING Q4(i) -- THIS TAB IS A PURE CALCULATOR: you state the INPUTS, and every
-   * attribute the pipeline DERIVES leaves the selects, appearing only in the step lines below.
-   *
-   * ⚠️ THIS EXPLICITLY SUPERSEDES the "THE TWO SCREENS STAY APART" invariant in
-   * `frontend/.claude/context/domain/pricing-rate-master-frontend.md`,
-   * which required this screen to read `derivedQtyAttrs` (the superseded-qty half) and never
-   * `derivedAttrIds` (both halves). That rule existed to stop a genuinely editable field being
-   * frozen; the ruling accepts that cost in exchange for a screen on which every control is an input.
-   *
-   * ⚠️ IT COSTS THREE BENCH CAPABILITIES, each now pinned by a unit test rather than by this screen:
-   * take-the-larger's UPGRADE (a stated plate too small for its contents), `derive_attribute`'s
-   * STATED-WINS (a stated circuit length), and `catalog_fit`'s stated-"None" STICKING. None can be
-   * exercised here any more, because none of their attributes has a control.
-   *
-   * The predicate is the SHARED one from `rateMasterStructure` -- never a second copy, which would be
-   * free to disagree with the panel about whether a field is an input.
-   */
-  const derivedBinds = useMemo(() => derivedAttrIds(config), [config]);
-  const selectableDefs = useMemo(
-    () => config.attribute_definitions.filter((d) => d.selector !== false && !derivedBinds.has(d.id)),
-    [config, derivedBinds]
-  );
-  const brandDef = useMemo(
-    () => config.attribute_definitions.find((d) => d.id === "brand"),
-    [config]
-  );
-
-  // EA-4a: a choice def may resolve its allowed values FROM the live master (values_from) rather than a
-  // static `values` list -- point_wiring's switch/socket/plate selects, keyed by family. Resolve them
-  // here from `items` (the FULL discipline set the page passes), the SAME live read the backend uses.
-  const valuesFromOptions = useMemo(() => {
-    const out: Record<string, string[]> = {};
-    for (const d of selectableDefs) {
-      const vf = d.values_from;
-      if (!vf) continue;
-      const seen = new Set<string>();
-      const opts: string[] = [];
-      for (const it of items) {
-        if (it.kind !== vf.kind) continue;
-        const a = it.attributes ?? {};
-        if (!Object.entries(vf.where ?? {}).every(([k, v]) => a[k] === v)) continue;
-        const raw = a[vf.attr];
-        const val = typeof raw === "string" ? raw.trim() : raw;
-        if (val !== undefined && val !== null && val !== "" && !seen.has(String(val))) {
-          seen.add(String(val));
-          opts.push(String(val));
-        }
-      }
-      out[d.id] = opts;
-    }
-    return out;
-  }, [selectableDefs, items]);
-  const optionsFor = (d: AttributeDefinition): string[] => {
-    const base = d.values_from ? (valuesFromOptions[d.id] ?? []) : (d.values ?? []).map((v) => String(v));
-    // EA-4a-r: an allow_none def offers the "None" sentinel (positive absence) at the TOP.
-    return d.allow_none ? [NONE_SENTINEL, ...base] : base;
-  };
-
-  // distinct number-attr values present in the data, sorted ascending
-  const numberValues = useMemo(() => {
-    const out: Record<string, number[]> = {};
-    for (const d of selectableDefs) {
-      if (d.type !== "number") continue;
-      const set = new Set<number>();
-      for (const it of items) {
-        const v = it.attributes?.[d.id];
-        if (typeof v === "number") set.add(v);
-      }
-      out[d.id] = Array.from(set).sort((a, b) => a - b);
-    }
-    return out;
-  }, [selectableDefs, items]);
-
-  // default selection: the first item's attributes (guarantees a match for a category that owns its
-  // rows). EA-4a: an ASSEMBLY category (point_wiring) owns NO rows of its own, so items[0] doesn't carry
-  // its defs -- seed each unfilled def from its `default`, then the config's first stored golden (so the
-  // Derivation opens in a COMPUTABLE state showing the golden), then the first option (incl. values_from),
-  // then the first data number.
-  const [selected, setSelected] = useState<Record<string, string | number>>(() => {
-    const init: Record<string, string | number> = {};
-    const seed = items[0]?.attributes ?? {};
-    const golden0 = (config.goldens as Array<{ attrs?: Record<string, string | number> }> | undefined)?.[0]?.attrs ?? {};
-    for (const d of selectableDefs) {
-      if (seed[d.id] !== undefined) {
-        init[d.id] = seed[d.id];
-      } else if (d.default !== undefined) {
-        init[d.id] = d.default;
-      } else if (golden0[d.id] !== undefined) {
-        init[d.id] = golden0[d.id];
-      } else if (isDropdownAttributeType(d.type)) {
-        // CP2: a number_choice seeds from its options exactly like a choice -- but the option is a
-        // STRING off the catalog, so it goes through the same numeric coercion the picker uses.
-        const opts = optionsFor(d);
-        if (opts.length) init[d.id] = coerceSelected(d, opts[0]);
-      } else if (d.type === "number" && numberValues[d.id]?.length) {
-        init[d.id] = numberValues[d.id][0];
-      }
-    }
-    return init;
-  });
-
-  const setAttr = (def: AttributeDefinition, raw: string) => {
-    setSelected((prev) => {
-      // EA-4a-r: preserve the "None" sentinel verbatim for an allow_none def (never Number("None")=NaN);
-      // an empty number (e.g. unchecking None) clears to "" (not 0); CLEAR its disables_when_none targets.
-      const val = coerceSelected(def, raw);
-      const next = { ...prev, [def.id]: val };
-      if (def.allow_none) {
-        for (const t of def.disables_when_none ?? []) {
-          if (val === NONE_SENTINEL) delete next[t];
-        }
-      }
-      return next;
-    });
-  };
-
-  // EA-4a-r: defs greyed because an allow_none controller is set to "None" (positive absence).
-  const disabledByNone = useMemo(() => {
-    const s = new Set<string>();
-    for (const d of selectableDefs) {
-      if (d.allow_none && d.disables_when_none && selected[d.id] === NONE_SENTINEL) {
-        for (const t of d.disables_when_none) s.add(t);
-      }
-    }
-    return s;
-  }, [selectableDefs, selected]);
-
-  const results = useMemo(
-    () => runAllPipelines(config, items, selected),
-    [config, items, selected]
-  );
-
-  // BLANKER SLICE: the attributes this config computes rather than accepts (see derivedQtyAttrs).
-  // ⚠️ DISPLAY ONLY -- the computed value is NEVER written back into `selected`. `selected` means
-  // "what the user or extraction supplied"; writing a derived value into it would make the two
-  // indistinguishable, and every later reader would treat a computed number as a stated one.
-  // Because `results` is recomputed on every `selected` change, the display updates live for free.
-  const derivedAttrs = useMemo(() => derivedQtyAttrs(config), [config]);
-
-  // The "(fixed)" brand label is CATEGORY-SCOPED (owner ruling 2026-09-04). `items` is the WHOLE
-  // discipline ordered by kind, so an unscoped `items[0]` reads whichever kind sorts first --
-  // `cable`, i.e. "Polycab" -- and showed that on EVERY category whose own brand def carries no
-  // static `values`. It was already wrong for `db_switchgear`, whose items are all "Generic".
-  // Scope to the config's own `item_kinds` first; fall back to the previous behaviour when the
-  // config declares no kinds or none of its items are loaded, so this can never render blank.
-  const brandValue = useMemo(() => {
-    const declared = config.item_kinds;
-    if (brandDef?.values?.[0] !== undefined) return String(brandDef.values[0]);
-    if (Array.isArray(declared) && declared.length) {
-      const own = items.find((it) => declared.includes(it.kind));
-      if (own?.brand) return own.brand;
-    }
-    return items[0]?.brand ?? "-";
-  }, [brandDef, config.item_kinds, items]);
+  const notice = derivationNoticeLine(config, calculatorPage, ruleOrder.length);
+  // ADP-4b (owner PA1-R): the extraction Rules card stays where the config carries rules; its empty state is dropped
+  // wherever the notice line already says what this tab holds.
+  const rulesCardShown = extractionRulesCardShown(config) && (rules.length > 0 || notice === null);
 
   return (
     <div className="space-y-4">
-      {/* configurator */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Configure attributes</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-4">
-            {selectableDefs.map((d) => {
-              if (d.type === "number") {
-                // EA-2 rider 2: a FREE numeric input with the data-present distinct values offered as
-                // datalist SUGGESTIONS -- a number attribute with no matching data (e.g. module_count)
-                // still accepts any typed number, instead of rendering an empty, unusable Select.
-                const listId = `rmnum-${d.id}`;
-                const suggestions = numberValues[d.id] ?? [];
-                const isNone = selected[d.id] === NONE_SENTINEL;
-                // BLANKER SLICE: a DERIVED attribute shows the COMPUTED value and is never editable.
-                // An undefined computed value renders EMPTY, not 0 -- with a "None" plate there are
-                // no blanks at all, and a 0 would claim "zero needed" instead of "not applicable".
-                const derived = derivedAttrs.get(d.id);
-                const derivedValue = derived ? derivedQtyValue(results, derived.ctxKey) : undefined;
-                return (
-                  <div key={d.id} className="flex flex-col gap-1">
-                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                      {d.label}
-                      {derived && <span className="text-[10px] italic">(computed)</span>}
-                      {/* EA-4a-r: a NUMBER allow_none def offers "None" (positive absence) as a checkbox --
-                          the input-appropriate analogue of a choice def's top-of-list "None". */}
-                      {d.allow_none && !derived && (
-                        <label className="flex items-center gap-0.5 text-[10px]">
-                          <input
-                            type="checkbox"
-                            checked={isNone}
-                            onChange={(e) => setAttr(d, e.target.checked ? NONE_SENTINEL : "")}
-                          />
-                          None
-                        </label>
-                      )}
-                    </label>
-                    <input
-                      type="number"
-                      list={derived ? undefined : listId}
-                      value={
-                        derived
-                          ? (derivedValue === undefined ? "" : String(derivedValue))
-                          : isNone ? "" : String(selected[d.id] ?? "")
-                      }
-                      onChange={(e) => setAttr(d, e.target.value)}
-                      readOnly={!!derived}
-                      disabled={!!derived || disabledByNone.has(d.id) || isNone}
-                      title={derived ? `Computed from the assembly (${derived.ctxKey}) -- not editable` : undefined}
-                      placeholder={derived ? "-" : isNone ? "None" : `Enter ${d.label}`}
-                      className="h-8 w-44 rounded border bg-background px-3 text-sm disabled:opacity-50"
-                    />
-                    <datalist id={listId}>
-                      {suggestions.map((v) => (
-                        <option key={v} value={String(v)} />
-                      ))}
-                    </datalist>
-                  </div>
-                );
-              }
-              const options = optionsFor(d);
-              return (
-                <div key={d.id} className="flex flex-col gap-1">
-                  <label className="text-xs text-muted-foreground">
-                    {d.label}
-                    {d.default !== undefined && (
-                      <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                        default {String(d.default)}
-                      </span>
-                    )}
-                  </label>
-                  <Select
-                    value={String(selected[d.id] ?? "")}
-                    onValueChange={(v) => setAttr(d, v)}
-                    disabled={disabledByNone.has(d.id)}
-                  >
-                    <SelectTrigger className="h-8 w-44 disabled:opacity-50">
-                      <SelectValue placeholder={`Select ${d.label}`} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {options.map((o) => (
-                        <SelectItem key={o} value={o}>{o}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              );
-            })}
-            {/* brand: shown, not selectable */}
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-muted-foreground">{brandDef?.label ?? "Brand"}</label>
-              <div className="flex h-8 items-center rounded border px-3 text-sm text-muted-foreground">
-                {brandValue} <span className="ml-1 text-xs">(fixed)</span>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {notice !== null && (
+        <p className="text-sm text-muted-foreground" data-testid="rate-master-derivation-notice">{notice}</p>
+      )}
 
       {/* SLICE 12c / ACCEPTANCE 5 (U10): HOW A ROW IS PRICED, for a category that prices a row as a
-          LIST OF ITEMS. Its pipelines live inside `list_spec`, so the cards below could not see them and
-          the tab read "No rules configured" for a category that carries a complete rule set. And pricing
-          such a row is not "run a pipeline": the unit class, the kind, the block, the facts it needs, the
-          ruled defaults and the size fitting are all resolved FIRST, and none of that is visible in a
-          list of steps.
+          LIST OF ITEMS. Its pipelines live inside `list_spec`, so a list of steps could not see them; the
+          unit class, the kind, the block, the facts it needs, the ruled defaults and the size fitting are
+          all resolved FIRST, and this list says so in order.
 
           ⚠️ NOT SCOPED TO ONE CATEGORY. The whole section is driven by `list_spec.pricing`, so a config
-          without one renders NOTHING here and every other tab is byte-identical -- scoping it by name
-          would put a category id in code, which the standing rule forbids. It therefore shows on ADP's
-          tab as well, which is what U10 approves. */}
+          without one renders NOTHING here -- scoping it by name would put a category id in code, which the
+          standing rule forbids. */}
       {ruleOrder.length > 0 && (
         <Card data-testid="rate-master-item-list-order">
           <CardHeader className="pb-2">
@@ -489,13 +129,12 @@ export function RateMasterDerivation({ items, config, isAdmin, frozen, onSavePar
 
       {/* EA-4 ext-a: RULES -- owner-authored estimator guidance, read-only. It is the SAME text the
           extraction prompt receives verbatim, so this panel is what the config actually tells the AI,
-          not a paraphrase. Unlike the pipelines grid below, it renders an explicit empty state: the
-          Derivation tab had no empty-state precedent (a config with no pipelines simply drew blank
-          space), and silent blankness reads as "broken" rather than "none configured".
+          not a paraphrase.
           SLICE 12d-5 (owner P1, F-C5a): NOT drawn on an item-list category that declares no extraction
           rules -- its rules are the list above, and an empty card beneath it read as a contradiction. The
-          decision is the pure `extractionRulesCardShown(config)`; Electrical's card is unchanged. */}
-      {extractionRulesCardShown(config) && (
+          decision is the pure `extractionRulesCardShown(config)`.
+          ADP-4b (owner PA1-R): nor where the notice line above already says what the tab holds. */}
+      {rulesCardShown && (
       <Card data-testid="rate-master-rules-panel">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm">Rules</CardTitle>
@@ -522,113 +161,6 @@ export function RateMasterDerivation({ items, config, isAdmin, frozen, onSavePar
         </CardContent>
       </Card>
       )}
-
-      {/* pipelines */}
-      <div className="grid gap-4 md:grid-cols-2">
-        {results.map((r) => (
-          <Card key={r.pipelineId}>
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center justify-between text-sm">
-                <span className="font-mono">{r.pipelineId}</span>
-                {r.status === "no_match" && <Badge variant="destructive">no match</Badge>}
-                {r.status === "unsupported" && <Badge variant="destructive">unsupported step</Badge>}
-              </CardTitle>
-              {r.note && <p className="text-xs text-muted-foreground">{r.note}</p>}
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {/* finals */}
-              {r.status === "ok" ? (
-                <div className="flex flex-wrap gap-2">
-                  {r.outputs.map((o) => (
-                    <div key={o} className="rounded border bg-muted/40 px-3 py-1.5">
-                      <div className="text-xs text-muted-foreground">{o}</div>
-                      <div className="text-lg font-semibold tabular-nums">{fmt(r.finals[o])}</div>
-                    </div>
-                  ))}
-                </div>
-              ) : r.status === "no_match" ? (
-                <p className="text-sm text-muted-foreground">
-                  No master row for this attribute combination -- no values computed.
-                </p>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  This pipeline uses a step type this viewer does not support yet -- no values computed.
-                </p>
-              )}
-
-              {/* steps */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-left text-muted-foreground">
-                      <th className="py-1 pr-2">step</th>
-                      <th className="py-1 pr-2">detail</th>
-                      <th className="py-1 pr-2 text-right">value</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {r.steps.map((s, i) => (
-                      <tr key={i} className={s.unsupported ? "text-destructive" : ""}>
-                        <td className="py-1 pr-2 align-top">
-                          <div className="font-mono">{s.step}</div>
-                          <div className="text-muted-foreground">{s.label}</div>
-                        </td>
-                        <td className="py-1 pr-2 align-top">
-                          {(() => {
-                            // RM-4a: address the CONFIG path for this step so numeric params can be
-                            // edited inline (admin). condIdx re-derives the matched branch exactly as
-                            // the interpreter did (no interpreter change). String params (kind) + the
-                            // condition `when` stay read-only; editing STRUCTURE is RM-4b.
-                            const configStep = (config.pipelines?.[r.pipelineId]?.steps?.[i] ?? undefined) as
-                              | { conditions?: { when: Record<string, string | number>; params: Record<string, number> }[] }
-                              | undefined;
-                            const condIdx = matchedConditionIndex(configStep, r.matchedItem?.attributes);
-                            const whenLabel =
-                              condIdx !== null && configStep?.conditions
-                                ? Object.entries(configStep.conditions[condIdx].when)
-                                    .map(([k, v]) => `${k} = ${v}`)
-                                    .join(", ")
-                                : s.bandChosen ?? null;
-                            const entries = Object.entries(s.params ?? {});
-                            if (entries.length === 0) return detailFor(s);
-                            return (
-                              <div className="space-y-1">
-                                {whenLabel && <div className="text-muted-foreground">{whenLabel}</div>}
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  {entries.map(([key, value]) =>
-                                    isAdmin && !frozen && onSaveParam && isEditableParam(value) ? (
-                                      <InlineParamEdit
-                                        key={key}
-                                        paramKey={key}
-                                        value={value}
-                                        onSave={(v) => onSaveParam(r.pipelineId, i, condIdx, key, v)}
-                                      />
-                                    ) : (
-                                      <span
-                                        key={key}
-                                        className="rounded bg-muted/50 px-1.5 py-0.5 font-mono text-muted-foreground"
-                                      >
-                                        {key} {String(value)}
-                                      </span>
-                                    ),
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })()}
-                        </td>
-                        <td className="py-1 pr-2 text-right align-top tabular-nums">
-                          {s.produced ? `${s.produced.key} = ${fmt(s.produced.value)}` : ""}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
     </div>
   );
 }

@@ -59,6 +59,9 @@ import {
 } from "./calculatorPanelParity.harness";
 import { calculatorCtx } from "./PricingCalculator";
 import { itemListRuleOrder } from "./rate-master/itemListRuleOrder";
+import { applyAdp1 } from "@/pages/boq-wizard/rate-helper/adp1.harness";
+import { applyAdp2 } from "@/pages/boq-wizard/rate-helper/adp2.harness";
+import { applyAdp3b } from "@/pages/boq-wizard/rate-helper/adp3b.harness";
 
 // ── the fixtures, as snapshotted from the live site on 2026-10-06 ───────────────────────────────
 
@@ -90,9 +93,24 @@ const master = readFixture<ParityMasterFile>("parityMaster.json");
 const configs = new Map<string, RateCategoryConfig>(
   Object.entries(master.configs).filter(([, v]) => !!v) as Array<[string, RateCategoryConfig]>,
 );
+/**
+ * ADP-4a (owner D6 / C7, AC4: "the parity fixture moves to v49 (or the new v50)"). THE ADP PART OF THE SNAPSHOT IS HVAC v50 --
+ * its `hvac_adp` config, its ADP items and the three Pricing Inputs ADP reads (ADP-1, after the 2026-10-06 snapshot).
+ * Every other category -- Electrical, Insulation, the aliases -- and every stored row stay the frozen snapshot, byte for
+ * byte. BEFORE: the snapshot's own ADP config and items (2026-10-06, pre-ADP-1). The 21 wording-only ADP divergences the
+ * owner ruled closed in ADP-4 ("fixed in ADP-4 so both say the same thing") are closed by v50's "Other..." on the five
+ * number fields, and leave the awaiting list.
+ */
+const V50 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
+  new URL("../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v50.json", import.meta.url),
+);
+const isAdpItem = (it: { kind?: string; attributes?: Record<string, unknown> }) =>
+  it.kind === "hvac_adp_item" || (it.kind === "hvac_pricing_input" && (it.attributes as { shared_by?: unknown } | undefined)?.shared_by === "adp");
+configs.set("hvac_adp", V50.category_configs.find((c) => c.category_id === "hvac_adp")!);
 const items = mergeItemsByName(
   master.items.Electrical ?? [],
-  master.items.HVAC ?? [],
+  [...(master.items.HVAC ?? []).filter((it) => !isAdpItem(it)),
+   ...V50.items.filter(isAdpItem).map((it) => ({ ...it, discipline: V50.discipline } as RateMasterItem))],
 );
 const CLASSES = corpus.classes;
 const RUNS = corpus.runs;
@@ -126,7 +144,9 @@ describe("the fixture names exactly what this test covers", () => {
     expect(configs.size).toBe(23);        // 12e-1: + hvac_piping (data-only); 12e-2: the same config, now item-list
     expect(master.items.Electrical).toHaveLength(1402);
     expect(master.items.HVAC).toHaveLength(379);   // 12e-1: 335 + 40; 12e-2: + 4 inputs
-    expect(items).toHaveLength(1781);   // 1,402 + 379 (12e-1: 1,777)
+    // INVERTED at ADP-4a (owner AC4: the fixture's ADP part comes from v50) by mechanical authority: BEFORE toHaveLength(1781).
+    // The snapshot's 95 ADP items leave and v50's 93 ADP items + its 3 ADP-shared pricing inputs join: 1,781 - 95 + 96.
+    expect(items).toHaveLength(1782);
   });
 
   it("the 15 categories the corpus exercises", () => {
@@ -206,8 +226,13 @@ describe("every stored extracted row -- the panel's figures and the calculator's
     // that remain are the ones whose BoQ SAID a unit the item cannot take -- owner U1, refusing is
     // correct. INVERTED, not deleted: the count is still pinned exactly.
     expect(tally.get("C_unit_not_offered")).toEqual({ classes: 3, rows: 3 });
-    expect(tally.get("D_reason_only")).toEqual({ classes: 8, rows: 8 });
-    expect([...tally.keys()].sort()).toEqual(["A_wiring_primary", "C_unit_not_offered", "D_reason_only"]);
+    // INVERTED at ADP-4a (owner AC4 + 2026-10-21 "list the 7, fix later") by mechanical authority: BEFORE
+    // `D_reason_only` { classes: 8, rows: 8 } and keys [A, C, D]. On v50 the 8 D rows agree; cause E's 7 are listed.
+    expect(tally.get("D_reason_only")).toBeUndefined();
+    // INVERTED at ADP-4b (owner AC7 "Both quote the read sides") by mechanical authority: BEFORE
+    // `E_outer_size_quote` { classes: 7, rows: 7 } and keys [A, C, E]. Both surfaces now quote the outer size as read.
+    expect(tally.get("E_outer_size_quote")).toBeUndefined();
+    expect([...tally.keys()].sort()).toEqual(["A_wiring_primary", "C_unit_not_offered"]);
   });
 
   it("the thirteen Electrical categories and the two HVAC alias categories agree on EVERY row except wiring's offered figure", () => {
@@ -219,7 +244,12 @@ describe("every stored extracted row -- the panel's figures and the calculator's
     // the ONLY two categories with any divergence at all
     expect([...perCat.keys()].sort()).toEqual(["hvac_adp", "wiring_cabling"]);
     expect(perCat.get("wiring_cabling")).toBe(188);
-    expect(perCat.get("hvac_adp")).toBe(11); // 12c-F: 24 -> 13; 12c-U: the no-unit and R/O rows closed, 13 -> 11
+    // 12c-F: 24 -> 13; 12c-U: the no-unit and R/O rows closed, 13 -> 11; INVERTED at ADP-4a by mechanical authority:
+    // BEFORE toBe(11) -- 3 C + 8 D; AFTER 3 C + 7 E (the 8 D closed on v50, the 7 E exposed by the fixture move)
+    // INVERTED at ADP-4b (owner AC7) by mechanical authority: BEFORE toBe(10) -- 3 C + 7 E. AFTER 0 ADP divergences
+    // beside the 3 accepted C rows, count asserted
+    expect(perCat.get("hvac_adp")).toBe(3);
+    expect(CORPUS_RESULTS.filter((x) => x.cause !== null && x.k.case.cat === "hvac_adp" && x.cause !== "C_unit_not_offered")).toEqual([]);
   });
 
   it("THE HEADLINE: no ITEM-LIST row ever produces a figure on both surfaces that disagree", () => {
@@ -333,6 +363,9 @@ describe("the owner's ruling on each cause (12c-F)", () => {
     // this corpus is awaiting a ruling. INVERTED, not deleted: the set is still pinned exactly, and
     // a NEW divergence would make it non-empty and fail here.
     expect(STATUS_BY_CAUSE.C_unit_not_offered).toBe("accepted by owner");   // owner U1
+    // INVERTED at ADP-4a (owner 2026-10-21 "list the 7, fix later") by mechanical authority: BEFORE toEqual([]).
+    expect(STATUS_BY_CAUSE.E_outer_size_quote).toBe("awaiting owner review");
+    // INVERTED back at ADP-4b (owner AC7, the 7 fixed): BEFORE toEqual(["E_outer_size_quote"])
     expect([...awaiting]).toEqual([]);
   });
 
@@ -355,8 +388,13 @@ describe("the owner's ruling on each cause (12c-F)", () => {
       expect(hasPrice(r.panel)).toBe(false);
       expect(hasPrice(r.calculator)).toBe(false);
       const want = unit === "nos"
-        ? "No SKU for slot diffuser: without damper, width 600, height 600 - price this row by hand"
-        : "No SKU for slot diffuser: without damper - price this row by hand";
+        // INVERTED at ADP-3a (owner B6, 13:32: a no-SKU sentence lists only the facts the kind's SKUs vary on) by mechanical authority: BEFORE "..., width 600, height 600 - ..." (the per-metre SKU carries no width or height)
+        // INVERTED AGAIN at ADP-4a (owner AC4: on v50 a per-number slot diffuser converts from the per-metre rate by its slot
+        // count, ADP-1, and this row states none) by mechanical authority: BEFORE "No SKU for slot diffuser: without damper - price this row by hand"
+        ? "per-number row: no slot count stated to convert the per-metre rate"
+        // INVERTED at ADP-4a (owner AC4: the fixture's ADP part is v50, whose per-sq.m slot diffuser refuses by its own
+        // ADP-1 unit rule) by mechanical authority: BEFORE "No SKU for slot diffuser: without damper - price this row by hand"
+        : "No SKU for a slot diffuser per sq.m without damper - price this row by hand";
       expect((r.panel as ItemListSuggestion).itemList!.items[0].reason).toBe(want);
       expect((r.calculator as ItemListSuggestion).itemList!.items[0].reason).toBe(want);
     }
@@ -384,6 +422,8 @@ describe("the owner's ruling on each cause (12c-F)", () => {
    */
   it("nothing is awaiting a ruling; the three that remain are the owner's accepted refusals", () => {
     const awaiting = AWAITING_CORPUS_DIVERGENCES.filter((d) => STATUS_BY_CAUSE[d.cause] === "awaiting owner review");
+    // INVERTED at ADP-4a (owner 2026-10-21 "list the 7, fix later") by mechanical authority: BEFORE toEqual([]).
+    // INVERTED back at ADP-4b (owner AC7): BEFORE the 7 ids BRSR-26-01369#32, BRSR-26-01370#46 / 47 / 48 / 50 / 51 / 52
     expect(awaiting.map((d) => d.id).sort()).toEqual([]);
     // owner U1: the BoQ SAID a unit and it was wrong for the item -- the panel refusing is correct
     const unitShaped = AWAITING_CORPUS_DIVERGENCES.filter((d) => d.cause === "C_unit_not_offered");
@@ -418,7 +458,9 @@ describe("every active SKU of every row-level category", () => {
     // 12e-2: 1,933 -- Piping is an ITEM-LIST category now and its 40 SKUs are swept below by the item-list driver, so its
     // 41 leave; the FOUR Piping accessories inputs are rows of the (row-level, data-only) Pricing Inputs category and join
     // it, each declining on both paths exactly as the seven Insulation inputs always have
-    expect(total).toBe(1933);
+    // INVERTED at ADP-4a (owner AC4) by mechanical authority: BEFORE toBe(1933). v50's 3 ADP-shared pricing inputs are
+    // rows of the row-level Pricing Inputs category, each declining on both paths
+    expect(total).toBe(1936);
   }, 180000);
 
   it("the resolution paths this sweep reached, named", () => {
@@ -440,7 +482,8 @@ describe("HVAC ADP -- every family x unit class x ladder path", () => {
   const cases = itemListCasesForCategory(cfg, items);
 
   it("120 cases over all 25 families", () => {
-    expect(cases).toHaveLength(120);
+    // INVERTED at ADP-4a (owner AC4: the sweep runs on the v50 config) by mechanical authority: BEFORE toHaveLength(120)
+    expect(cases).toHaveLength(122);
     const fams = new Set(cases.map((c) => c.items?.[0]?.family as string));
     expect(fams.size).toBe(25);
   });
@@ -454,6 +497,8 @@ describe("HVAC ADP -- every family x unit class x ladder path", () => {
       expect(hasPrice(r.panel)).toBe(hasPrice(r.calculator));
     }
     expect(found).toEqual(AWAITING_SWEEP_DIVERGENCES.filter((d) => d.cat === "hvac_adp"));
+    // ADP-4a AC4: on v50 not one ADP sweep case diverges (BEFORE: 13, all D_reason_only)
+    expect(found).toHaveLength(0);
   }, 60000);
 
   it("the resolution paths this sweep reached, named", () => {
@@ -817,9 +862,18 @@ describe("SLICE 12d-8 / T2 -- one parity case per Derivation-tab rule, on the li
   const T6U4 = { excludedBy: "T6 (12d-1b) + U4 (12d-6): a typed thickness is a single number; the calculator refuses what the panel composes" };
   const R4 = { excludedBy: "owner R4 option (b), 12d-8: the cladding is not offered on this family, so the calculator clears it under R1 and refuses with its own sentence" };
   const ROWTEXT = { excludedBy: "F_row_text_not_an_input (12d-4a, accepted by owner): the calculator has no row text, so the word rule cannot fire there" };
+  // ADP-3a: an unstocked combination reaches the calculator only as a stale pick -- its options are the stocked ones
+  const STALE = { excludedBy: "12c-S stale-pick clearing (12d-7 F-1): the calculator offers only stocked combinations, so one it is handed is cleared ('choose again') where the panel names the unstocked fact; neither side prices" };
   const UNIT = { excludedBy: "C_unit_not_offered: the calculator's picker offers only the classes the family prices in, so the two surfaces are fed different units by design", what: "item unit class" };
   /** Tab lines that are NOT panel-path rules (a catalogue rule the pricer never reads), by name. */
   const NOT_PANEL_RULES = ["A catalogue cell derived from another row's cell follows its base"];
+  // ADP-4a (owner D2): the one line fitting every laddered value to the catalogue, on ADP's tab
+  const FIT = "Fitting the stated diameter, neck size, torque, panel ratio or plenum thickness to the catalogue";
+  // ADP-4a (AC1 c), MEASURED, not ruled: on v33 a per-number cross-talk's size reaches the calculator as one box its two
+  // component readers do not split, so the calculator refuses "no height stated" where the panel prices 1044 / 360 -- on
+  // v33 only. v49's face boxes (ADP-3b) closed it: the same row agrees on v49 and v50 (the ADP-3c case R2 here, and
+  // adp4a.test.ts's v50 case). Reported as a finding in the ADP-4a report; no price moves.
+  const V33_CROSSTALK = { excludedBy: "ADP-4a finding (measured, pre-existing on v33 only): the v33 calculator's one size box is not split into the cross-talk's width and height, so it refuses where the panel prices; v49 / v50 agree" };
   const INCH = "1-1/4" + '"';
 
   const CASES: RuleCase[] = [
@@ -855,23 +909,54 @@ describe("SLICE 12d-8 / T2 -- one parity case per Derivation-tab rule, on the li
     ins("I29", "A row-kind material on the other row kind prices as the one for the row's unit", "sqm", { item: NR, cladding: "No", thickness_mm: "19" }),
     ins("I30", "A thickness range takes the higher value", "RMT", { ...NIT, thickness_mm: "13-19 mm" }),
     ins("I31", "Fixings and duct material in the row are not a cladding", "RMT", { ...NIT, cladding: "None" }, "agree", { desc: "Nitrile insulation fixed with GI strip on a GI duct" }),
+    // ── SLICE 12e-6c (owner U2 / R, 2026-10-18): the two lines this slice adds to the v33-generated tab, one parity case each ──
+    ins("I32", "A pipe size written as a bare number that could be inches refuses", "RMT", { ...NIT, pipe_size_mm: "1" }),
+    ins("I33", "RPUF with no material answered prices as Tubular Puf Insulation", "RMT", { item: "none of these", cladding: "No", thickness_mm: "40", pipe_size_mm: "100", material_as_written: "RPUF" }),
+    // ── ADP-1 (owner F4, 2026-10-19): the one line it adds to the v33-generated tab, one parity case ──
+    ins("I34", "RPUF on a per-sq.m row refuses by name", "sqm", { item: "none of these", cladding: "No", thickness_mm: "50", material_as_written: "RPUF" }),
     adp("A1", "The row's unit decides which kind of rate applies", "nos", { family: "VCD", variant: "GI rectangular", size_mm: "600x600" }),
     adp("A2", "The item's own kind decides which products can price it", "nos", { family: "grille, type not stated", damper: "with", size_mm: "600x150" }),
-    adp("A3", "A material the model could not match to any kind refuses", "nos", { family: "none of these", damper: "with", dia_mm: "200" }),
+    // INVERTED at ADP-4a (owner AC1 b, R1 line 3: on an item catalogue the thing not matched is an ITEM) by mechanical
+    // authority. BEFORE: rule "A material the model could not match to any kind refuses". The case is unchanged.
+    adp("A3", "An item the model could not match to any kind refuses", "nos", { family: "none of these", damper: "with", dia_mm: "200" }),
     adp("A4", "That kind's rule for that unit", "rmt", { family: "spigot", dia_mm: "200" }, UNIT),
-    adp("A5", "A kind the catalogue does not price in the row's unit", "nos", { family: "double-skin plenum", thickness_mm: "25", size_mm: "600x600" }, UNIT),
+    // INVERTED at ADP-4a (owner D2 "5 + 32": the not-offered unit is said in the stocked-units line) by mechanical authority.
+    // BEFORE: rule "A kind the catalogue does not price in the row's unit". The case and its exclusion are unchanged.
+    adp("A5", "A kind not stocked in the row's unit refuses, naming the units it is stocked in", "nos", { family: "double-skin plenum", thickness_mm: "25", size_mm: "600x600" }, UNIT),
     adp("A6", "The facts that rule needs before it can price", "nos", { family: "actuator", ul: "no" }),
     adp("A7", "A fact the row does not mention takes its ruled value", "nos", { family: "round diffuser", damper: "None", dia_mm: "200" }),
     adp("A8", "A ruling that replaces a value the row DID state", "nos", { family: "fire damper", variant: "motorised", ul: "yes", size_mm: "600x600" }),
-    adp("A9", "Fitting the stated diameter to the catalogue", "nos", { family: "round diffuser", damper: "with", dia_mm: "220" }),
-    adp("A10", "Fitting the stated neck size to the catalogue", "nos", { family: "square diffuser", damper: "with", neck_mm: "320" }),
+    // INVERTED at ADP-4a (owner D2 "23-27 into one 'fitting to the catalogue' line naming each attribute") by mechanical
+    // authority. BEFORE: A9-A13 each named its own "Fitting the stated <value> to the catalogue" line. The five cases are unchanged.
+    adp("A9", FIT, "nos", { family: "round diffuser", damper: "with", dia_mm: "220" }),
+    adp("A10", FIT, "nos", { family: "square diffuser", damper: "with", neck_mm: "320" }),
     adp("A10b", "A stated outer size is matched beside the neck size on square diffuser", "nos", { family: "square diffuser", damper: "with", size_mm: "595x595" }),
-    adp("A11", "Fitting the stated torque to the catalogue", "nos", { family: "actuator", ul: "no", torque: "12" }),
-    adp("A12", "Fitting the stated panel ratio to the catalogue", "nos", { family: "control panel", panel_ratio: "5" }),
-    adp("A13", "Fitting the stated plenum thickness to the catalogue", "sqm", { family: "double-skin plenum", thickness_mm: "30" }),
+    adp("A11", FIT, "nos", { family: "actuator", ul: "no", torque: "12" }),
+    adp("A12", FIT, "nos", { family: "control panel", panel_ratio: "5" }),
+    adp("A13", FIT, "sqm", { family: "double-skin plenum", thickness_mm: "30" }),
     adp("A14", "Then the priced steps below, in their own order", "nos", { family: "round diffuser", damper: "with", dia_mm: "200" }),
     adp("A16", "The rate converts to the unit the row is written in", "sqft", { family: "VCD", variant: "GI rectangular" }),
     adp("A17", "Multiplied by how many of the item one unit of the row pays for", "nos", { family: "round diffuser", damper: "with", dia_mm: "200", qty_per_row_unit: "2" }),
+    // ── ADP-2 H5 fix (a) (owner 2026-10-20): v33's R13 reads the air stream, so the both-streams line is generated here too ──
+    adp("A18", "A row naming supply and return air leaves the damper as read", "nos", { family: "linear grille", air: "supply", damper: "None", size_mm: "600x150" }, "agree", { desc: "Supply / Return air linear grille" }),
+    // ── ADP-3a (owner 13:35 / B6 / H2; AC6): the lines it adds to the v33-generated tab (LAST), one parity case each per tab ──
+    ins("I35", "A kind not stocked in the row's unit refuses, naming the units it is stocked in", "nos", NIT, UNIT),
+    ins("I36", "An unstocked combination names only the facts the kind's products vary on", "RMT", { item: "Tubular Puf Insulation", cladding: "Glass Cloth", thickness_mm: "25", pipe_size_mm: "100" }, STALE),
+    adp("A19", "A kind not stocked in the row's unit refuses, naming the units it is stocked in", "rmt", { family: "actuator", ul: "no", torque: "10" }, UNIT),
+    adp("A20", "An unstocked combination names only the facts the kind's products vary on", "nos", { family: "fire damper", variant: "UL", ul: "no", size_mm: "600x600" }),
+    adp("A21", "A per-number item needs Size (W x H), or Area band; with neither stated it refuses, naming both", "nos", { family: "VCD", variant: "GI rectangular" }),
+    // ── ADP-4a (owner AC1 c; standing block 39: each rule keeps one named case): the rules that ran with no line, now each with
+    // a line on v33's tab (its own conversion rule texts), one parity case each ──
+    adp("A22", "Per-number row: per-sq.m rate x W x H", "nos", { family: "VCD", variant: "GI rectangular", size_mm: "600x300" }),
+    adp("A23", "Area band: per-sq.m rate x the band's maximum area", "nos", { family: "VCD", variant: "GI rectangular", area_band: "up to 0.5 sqm" }),
+    adp("A24", "Per-metre grille: per-sq.m rate x height in metres", "rmt", { family: "linear grille", damper: "with", size_mm: "1000x150" }),
+    adp("A25", "Per piece: per-metre rate x 2.5 m standard length", "nos", { family: "flexible duct", insulated: "with", dia_mm: "200" }),
+    adp("A26", "Per-number mixing box at any size: per-sq.m cost x 2(WH + HD + WD) + 150, rounded up, then the markup", "nos", { family: "mixing box / LP plenum", insulated: "with", size_mm: "450x450x350" }),
+    adp("A27", "A per-number cross-talk is priced by its own formula", "nos", { family: "cross-talk", size_mm: "500x250" }, V33_CROSSTALK),
+    adp("A28", "A panel ratio is read from '1:N' as N", "nos", { family: "control panel", panel_ratio: "1:6" }),
+    adp("A29", "A plenum thickness below 5 mm is a sheet gauge, not a thickness, and refuses", "sqm", { family: "double-skin plenum", thickness_mm: "1.0 mm" }),
+    adp("A30", "An area written in square feet refuses", "nos", { family: "VCD", variant: "GI rectangular", area_band: "up to 5 sq.ft" }),
+    adp("A31", "A size written in metres or centimetres is read in millimetres", "nos", { family: "round diffuser", damper: "with", dia_mm: "20 cm" }),
   ];
 
   it("THE GUARD: the rules these cases name EQUAL the rules the live config generates (Insulation 24, ADP 18)", () => {
@@ -901,8 +986,153 @@ describe("SLICE 12d-8 / T2 -- one parity case per Derivation-tab rule, on the li
     }
   });
 
-  it("the exclusions are exactly the seven named ones", () => {
-    expect(CASES.filter((r) => r.expect !== "agree").map((r) => r.id)).toEqual(["I6", "I8", "I13", "I14", "I15", "A4", "A5"]);
+  // INVERTED at ADP-3a (AC6: a parity case for each line it adds) by mechanical authority: BEFORE "exactly the seven named ones",
+  // `toEqual(["I6", "I8", "I13", "I14", "I15", "A4", "A5"])`. The unit line's cases take the existing C_unit_not_offered
+  // exclusion (the picker never offers an unstocked unit), and Insulation's unstocked combination the stale-pick one
+  it("the exclusions are exactly the eleven named ones", () => {
+    // ADP-4a: + A27, the cross-talk formula line's case on v33 (V33_CROSSTALK above; a NEW case, not an inversion -- the line
+    // is new). BEFORE: the ten named ones.
+    expect(CASES.filter((r) => r.expect !== "agree").map((r) => r.id)).toEqual(["I6", "I8", "I13", "I14", "I15", "A4", "A5", "I35", "I36", "A19", "A27"]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// ADP-1 (owner rulings 2026-10-19; AC8: each new rule keeps one permanent calculator = panel parity case) -- every line
+// the slice adds, through BOTH surfaces on v46 + ADP-1 (= v47; `applyAdp1`, pinned equal to the asset in its commit)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe("ADP-1 parity -- one case per new rule (slot diffuser H3, plenum H4, F1 / F3 / F4), on v46 + ADP-1", () => {
+  const v46 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
+    new URL("../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v46.json", import.meta.url),
+  );
+  const a = applyAdp1(v46 as any) as typeof v46;
+  const cfgA = new Map<string, RateCategoryConfig>(a.category_configs.map((c) => [c.category_id, c]));
+  const itemsA: RateMasterItem[] = a.items.map((it) => ({ ...it, discipline: a.discipline } as RateMasterItem));
+  const INS = "hvac_insulation", ADP = "hvac_adp";
+  const NIT = { item: "Nitrile Rubber Insulation", cladding: "26G Aluminium", thickness_mm: "19" };
+  const SLOT = "slot diffuser", MIX = "mixing box / LP plenum";
+  const CASES_ADP1: Array<{ id: string; rule: string; c: ParityCase; excludedBy?: string }> = [
+    { id: "N1", rule: "A per-number slot diffuser is priced from the per-metre rate", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: SLOT, damper: "with", slot_count: "3", size_mm: "1000x150" }] } },
+    { id: "N2", rule: "A per-number slot diffuser without slot count refuses, naming what is missing", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: SLOT, damper: "with" }] } },
+    { id: "N3", rule: "A per-number mixing box / LP plenum is priced from the per-sq.m rate", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: MIX, insulated: "with", size_mm: "450x450x350" }] } },
+    { id: "N4", rule: "A per-number mixing box / LP plenum without width, height, depth refuses, naming what is missing", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: MIX, insulated: "with", size_mm: "2200 mm Length" }] } },
+    { id: "N5", rule: "A slot count the catalogue does not stock refuses", c: { cat: ADP, unit: "rmt", desc: "", attrs: {}, items: [{ family: SLOT, damper: "with", slot_count: "4" }] },
+      excludedBy: "not offered by design (the R4 shape): the calculator's Slots dropdown stocks 2 and 3 only, so a 4 cannot be picked -- it is cleared (R1) and refuses 'choose again' where the panel names the 4-slot" },
+    { id: "N6", rule: "A piece length is typed in 'Piece length (m)', else read from the size", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: SLOT, damper: "without", slot_count: "2", size_mm: "600x150" }] } },
+    // INVERTED at ADP-4a (owner AC1 b, R1 line 21: a title opens with a capital) by mechanical authority. BEFORE: "without as ...".
+    { id: "N7", rule: "Without as the damper on a per-sq.m row of slot diffuser refuses", c: { cat: ADP, unit: "sqm", desc: "", attrs: {}, items: [{ family: SLOT, damper: "without" }] } },
+    { id: "N8", rule: "A pipe size written as a bare number whose inch reading is above the largest refuses", c: { cat: INS, unit: "RMT", desc: "", attrs: {}, items: [{ ...NIT, pipe_size_mm: "4" }] } },
+    { id: "N9", rule: "A GI frame or framework with perforated aluminium sheet, with no cladding answered, prices as GI Framework with perforated Al sheet", c: { cat: INS, unit: "sqm", desc: "", attrs: {}, items: [{ item: "Acoustic Nitrile Insulation", cladding: "None", thickness_mm: "19", cladding_as_written: "GI frame with perforated Al sheet" }] } },
+    { id: "N10", rule: "RPUF on a per-sq.m row refuses by name", c: { cat: INS, unit: "sqm", desc: "", attrs: {}, items: [{ item: "none of these", cladding: "No", thickness_mm: "50", material_as_written: "RPUF" }] } },
+  ];
+  it("the cases name every new line of the ADP-1 config, and only those", () => {
+    const t = (cat: string) => itemListRuleOrder(cfgA.get(cat)!, itemsA).map((l) => l.title);
+    for (const r of CASES_ADP1) expect({ id: r.id, onTab: t(r.c.cat).includes(r.rule) }).toEqual({ id: r.id, onTab: true });
+    expect(new Set(CASES_ADP1.map((r) => r.rule)).size).toBe(CASES_ADP1.length);
+  });
+  it.each(CASES_ADP1.map((r) => [r.id, r] as const))("%s: the calculator and the panel agree", (_, r) => {
+    const run = runParity(cfgA, itemsA, r.c, "full");
+    if (r.excludedBy) {
+      // EXCLUDED by name: the two must differ (a stale exclusion fails) and neither may price
+      expect({ id: r.id, diverges: run.divergences.length > 0, bothPriced: hasPrice(run.panel) || hasPrice(run.calculator) }).toEqual({ id: r.id, diverges: true, bothPriced: false });
+      return;
+    }
+    expect({ id: r.id, rule: r.rule, divergences: run.divergences }).toEqual({ id: r.id, rule: r.rule, divergences: [] });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// ADP-2 (owner rulings H5 / H7 / B3; AC6: each new rule keeps one permanent calculator = panel parity case) -- every line
+// the slice adds, through BOTH surfaces on v46 + ADP-1 + ADP-2 (= v48; `applyAdp2`, pinned equal to the asset in its commit)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe("ADP-2 parity -- one case per new rule (air stream H5, plenum H7, neck B3), on the ADP-1 config + ADP-2", () => {
+  const v46 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
+    new URL("../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v46.json", import.meta.url),
+  );
+  const a = applyAdp2(applyAdp1(v46 as any)) as typeof v46;
+  const cfgA = new Map<string, RateCategoryConfig>(a.category_configs.map((c) => [c.category_id, c]));
+  const itemsA: RateMasterItem[] = a.items.map((it) => ({ ...it, discipline: a.discipline } as RateMasterItem));
+  const ADP = "hvac_adp", MIX = "mixing box / LP plenum", SQ = "square diffuser";
+  const CASES_ADP2: Array<{ id: string; rule: string; c: ParityCase }> = [
+    // INVERTED at ADP-4a (owner D2 "17 + 19": the air-stream rule is said in the defaults line) by mechanical authority.
+    // BEFORE: rule "A damper not mentioned is decided by the air stream" (P1), "The length, width and height are typed in their
+    // own boxes, else read from the size" (P4), "A neck size the catalogue does not stock can be typed in 'Other...'" (P6;
+    // D2 "13 + 24"). The cases are unchanged; each names the merged line that now says its rule.
+    { id: "P1", rule: "A fact the row does not mention takes its ruled value", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: SQ, air: "supply", damper: "None", neck_mm: "450 x 450" }] } },
+    { id: "P2", rule: "A per-number mixing box / LP plenum with an area is priced from the per-sq.m rate", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: MIX, insulated: "with", area_band: "up to 0.5 sqm" }] } },
+    { id: "P3", rule: "A per-number mixing box / LP plenum without an area, or length + width + height refuses, naming what is missing", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: MIX, insulated: "with", size_mm: "3000 mm Length" }] } },
+    { id: "P4", rule: "The sizes are typed in their own boxes, else read from the size as written", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: MIX, insulated: "with", size_mm: "900x200x350mm Ht." }] } },
+    { id: "P5", rule: "An area is typed in 'Area (sq.m)', else read from the area band, at its largest value", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: MIX, insulated: "without", area_band: "1.1 to 2.0 sqm" }] } },
+    { id: "P6", rule: "Fitting the stated diameter, neck size, torque, panel ratio or plenum thickness to the catalogue", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: SQ, damper: "without", neck_mm: "225 x 225" }] } },
+    // H5 fix (a) (owner 2026-10-20): the row names ONE stream under a heading naming both -> the row wins, the two agree
+    { id: "P7", rule: "A row naming supply and return air leaves the damper as read", c: { cat: ADP, unit: "nos", desc: "Aluminium powder coated supply air diffuser 450x450", headings: ["Supply & return air diffusers"], attrs: {}, items: [{ family: SQ, air: "supply", damper: "None", neck_mm: "450 x 450" }] } },
+  ];
+  it("the cases name every new line of the ADP-2 config, and only those", () => {
+    const t = (cat: string) => itemListRuleOrder(cfgA.get(cat)!, itemsA).map((l) => l.title);
+    for (const r of CASES_ADP2) expect({ id: r.id, onTab: t(r.c.cat).includes(r.rule) }).toEqual({ id: r.id, onTab: true });
+    expect(new Set(CASES_ADP2.map((r) => r.rule)).size).toBe(CASES_ADP2.length);
+  });
+  it.each(CASES_ADP2.map((r) => [r.id, r] as const))("%s: the calculator and the panel agree", (_, r) => {
+    const run = runParity(cfgA, itemsA, r.c, "full");
+    expect({ id: r.id, rule: r.rule, divergences: run.divergences }).toEqual({ id: r.id, rule: r.rule, divergences: [] });
+  });
+  // H5 fix (a): a row naming BOTH streams -- the panel keeps the damper as read ("without"), and the calculator, fed the
+  // panel's fields, prices that same "without": the two agree (the calculator has no row text, but it needs none here)
+  it("P7x: a row naming supply AND return air -- the calculator, fed the panel's damper, agrees", () => {
+    const c: ParityCase = { cat: ADP, unit: "nos", desc: "Aluminium powder coated Supply / Return air diffuser of 450x450 mm neck size", attrs: {}, items: [{ family: SQ, air: "supply", damper: "None", neck_mm: "450 x 450" }] };
+    const run = runParity(cfgA, itemsA, c, "full");
+    expect({ divergences: run.divergences, bothPriced: hasPrice(run.panel) && hasPrice(run.calculator) }).toEqual({ divergences: [], bothPriced: true });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// ADP-3b (owner B1; D1 / D2; AC4: each new rule keeps one permanent calculator = panel parity case) -- every line the
+// slice adds (and ADP-3a's either-or line, re-worded by the new group), through BOTH surfaces on v46 + ADP-1 + ADP-2 +
+// ADP-3b (= v49; `applyAdp3b`, pinned equal to the asset in its commit)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe("ADP-3b parity -- one case per new rule (face boxes B1, third part D1, width as height D2), on the ADP-2 config + ADP-3b", () => {
+  const v46 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
+    new URL("../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v46.json", import.meta.url),
+  );
+  const a = applyAdp3b(applyAdp2(applyAdp1(v46 as any))) as typeof v46;
+  const cfgB = new Map<string, RateCategoryConfig>(a.category_configs.map((c) => [c.category_id, c]));
+  const itemsB: RateMasterItem[] = a.items.map((it) => ({ ...it, discipline: a.discipline } as RateMasterItem));
+  const ADP = "hvac_adp";
+  const CASES_ADP3B: Array<{ id: string; rule: string; c: ParityCase }> = [
+    // INVERTED at ADP-4a (owner D2 "16 + 35") by mechanical authority. BEFORE: rule "The width and height are typed in their own
+    // boxes, else read from the size". The case is unchanged.
+    { id: "Q1", rule: "The sizes are typed in their own boxes, else read from the size as written", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: "VCD", variant: "GI rectangular", size_mm: "550X300" }] } },
+    { id: "Q2", rule: "A third part of a size never displaces the face", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: "sound attenuator", size_mm: "600 x 300 x 900 mm long" }] } },
+    { id: "Q3", rule: "A kind that reads only the height, sized by one dimension written as a width, takes it as the height", c: { cat: ADP, unit: "rmt", desc: "", attrs: {}, items: [{ family: "linear grille", size_mm: "150mm width" }] } },
+    { id: "Q4", rule: "A per-number item needs Width + Height, or Area band; with neither stated it refuses, naming both", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: "VCD", variant: "GI rectangular" }] } },
+  ];
+  it("the cases name every new line of the ADP-3b config, and only those", () => {
+    const t = (cat: string) => itemListRuleOrder(cfgB.get(cat)!, itemsB).map((l) => l.title);
+    for (const r of CASES_ADP3B) expect({ id: r.id, onTab: t(r.c.cat).includes(r.rule) }).toEqual({ id: r.id, onTab: true });
+    expect(new Set(CASES_ADP3B.map((r) => r.rule)).size).toBe(CASES_ADP3B.length);
+  });
+  it.each(CASES_ADP3B.map((r) => [r.id, r] as const))("%s: the calculator and the panel agree", (_, r) => {
+    const run = runParity(cfgB, itemsB, r.c, "full");
+    expect({ id: r.id, rule: r.rule, divergences: run.divergences }).toEqual({ id: r.id, rule: r.rule, divergences: [] });
+  });
+
+  // ADP-3c (owner 2026-10-21 01:31 / 01:55; AC3): its one line keeps permanent parity cases on the same config (= v49; no
+  // config change) -- a length beside a labelled width (the 00302 r67 shape), and the face-matched cross-talk whose SKU
+  // is found only when the label, not the position, decides
+  const CASES_ADP3C: Array<{ id: string; rule: string; c: ParityCase }> = [
+    // INVERTED at ADP-4a (owner D3 "35 + 38": the ruling is said in THE size line) by mechanical authority. BEFORE: R1 and R2
+    // named "A two-part size on a Width + Height item is the face, whatever its parts are called". The cases are unchanged.
+    { id: "R1", rule: "The sizes are typed in their own boxes, else read from the size as written", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: "curved grille", size_mm: "600(L)X150mm width" }] } },
+    { id: "R2", rule: "The sizes are typed in their own boxes, else read from the size as written", c: { cat: ADP, unit: "nos", desc: "", attrs: {}, items: [{ family: "cross-talk", size_mm: "250(L) x 500(W)" }] } },
+  ];
+  it("ADP-3c: the cases name the new line, and it is on the tab", () => {
+    const t = itemListRuleOrder(cfgB.get(ADP)!, itemsB).map((l) => l.title);
+    // INVERTED at ADP-4a (owner D3) by mechanical authority. BEFORE: `{ onTab: true, last: true }` -- the line was LAST; the size
+    // line it is now said in sits with the other reading rules. The ruling's own words are pinned in adp3c.test.ts.
+    for (const r of CASES_ADP3C) expect({ id: r.id, onTab: t.includes(r.rule) }).toEqual({ id: r.id, onTab: true });
+  });
+  it.each(CASES_ADP3C.map((r) => [r.id, r] as const))("ADP-3c %s: the calculator and the panel agree, and both price", (_, r) => {
+    const run = runParity(cfgB, itemsB, r.c, "full");
+    expect({ id: r.id, divergences: run.divergences, bothPriced: hasPrice(run.panel) && hasPrice(run.calculator) }).toEqual({ id: r.id, divergences: [], bothPriced: true });
   });
 });
 
@@ -1269,7 +1499,7 @@ describe("12e-5 AC10 -- one real Stage A row per row type (runs BRSR-26-00447 ..
     want: [number, number] | string;
     parity: "outright" | "typed" | "pick" | "both refuse" | "finding";
     /** "finding" only: the calculator's figure, pinned AS IT IS for the owner (a divergence this audit found). */
-    calc?: [number, number];
+    calc?: [number, number] | string;
     rewrite?: Record<string, string>;
   }
   const ROWS: TypeRow[] = [
@@ -1288,12 +1518,19 @@ describe("12e-5 AC10 -- one real Stage A row per row type (runs BRSR-26-00447 ..
     {"type": "CPVC above its largest size (80 > 75): refuses", "id": "BOQ-26-00098/VRF/85", "unit": "M", "desc": "80 mm dia", "h": ["DRAIN PIPING"], "notes": [], "items": [{"a": {"pipe_type": "CPVC", "pipe_type_as_written": "CPVC", "size_mm": "80 mm dia", "pipe_class": "medium class", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": null, "pipe_size_mm": "80 mm", "brand": null, "material_as_written": "nitrile rubber"}, "s": "insulation"}], "want": "pipe size 80 is above the largest size on the sheet (75)", "parity": "outright"},
     {"type": "Inch size with mm in brackets: one size (12e-5b R6)", "id": "BOQ-26-00119/HVAC/20", "unit": "RMTS", "desc": "1/2\" (12.7mm)", "h": ["AIR CONDITIONING EQUIPMENT", "Supply, laying / fixing, testing and commissioning of following nominal sizes of Copper piping inside the building (with necessary clamps and fittings etc.)", "PIPE SIZE HD"], "notes": [], "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "Copper", "size_mm": "1/2\" (12.7mm)", "pipe_class": null, "insulated": null}}], "want": [936, 220], "parity": "outright"},
     {"type": "Cladding left out by the model: could not tell cladding", "id": "BOQ-26-00341/VRV/33", "unit": "RMT", "desc": "41.3 mm dia(hard drawn) with 19 mm thick insulation", "h": ["REFRIGERANT COPPER PIPING"], "notes": [], "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": "41.3 mm dia", "pipe_class": "hard drawn", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": null, "thickness_mm": "19 mm", "pipe_size_mm": "41.3 mm", "brand": null, "material_as_written": null}, "s": "insulation"}], "want": "could not tell cladding", "parity": "pick"},
-    {"type": "Unstocked material (RPUF) refused by name", "id": "BOQ-26-00321/PIPING & VALVES/15", "unit": "Rmt", "desc": "300 mm dia", "h": ["Note: The contractor should read the specifications thoroughly and quote the price for each item. The BOQ should read in-conjunction with specification, drawing & equipment schedule. The cost shall include the cost of the material, transportation, taxes, duties, lifting, shifting, storing, handling, installation, testing and commissioning.", "CHILLED WATER PIPING AND RELATED VALVES", "MS C Class Pipes (factory rolled) as per IS 1239 / IS 3589 with specified wall thickness cut to required lengths and installed with all welded joints. All necessary fittings like bends, elbows, tees, reducers, mating flange joints etc., steel fabricated and machined flanges, structural supports, Puff saddles, clamps and hardware etc as requred at site to be considered. All Nut bolts to be of GI only and not MS. Fittings and Nipples for providing any BMS sensors as per BMS vendor requirement to be considered. Entire CHW system shall be PN16"], "notes": [], "items": [{"a": {"pipe_type": "MS", "pipe_type_as_written": "MS", "size_mm": "300 mm dia", "pipe_class": "C Class", "insulated": "Yes"}}, {"a": {"item": "none of these", "cladding": "26G Aluminium", "thickness_mm": "50 mm thick", "pipe_size_mm": "300 mm dia", "brand": null, "material_as_written": "RPUF"}, "s": "insulation"}], "want": "No SKU in the catalogue for RPUF - price this row by hand", "parity": "both refuse"},
+    // INVERTED at 12e-6c (owner R, 2026-10-18: RPUF -> Tubular PUF in code too) by mechanical authority. BEFORE: type "Unstocked
+    // material (RPUF) refused by name", want "No SKU in the catalogue for RPUF - price this row by hand", parity "both refuse".
+    // AFTER: the panel prices 9,459 / 1,904 -- the stored row's own figure where the model picked Tubular PUF itself.
+    // The calculator, fed the panel's answers, types the model's "50 mm thick" into the thickness box and refuses by U4 (12d-6: a
+    // typed thickness is one number) -- the existing ruled divergence, pinned as it is; RPUF itself cannot be typed there (a dropdown).
+    {"type": "RPUF as written with none of these: priced as Tubular PUF (12e-6c R)", "id": "BOQ-26-00321/PIPING & VALVES/15", "unit": "Rmt", "desc": "300 mm dia", "h": ["Note: The contractor should read the specifications thoroughly and quote the price for each item. The BOQ should read in-conjunction with specification, drawing & equipment schedule. The cost shall include the cost of the material, transportation, taxes, duties, lifting, shifting, storing, handling, installation, testing and commissioning.", "CHILLED WATER PIPING AND RELATED VALVES", "MS C Class Pipes (factory rolled) as per IS 1239 / IS 3589 with specified wall thickness cut to required lengths and installed with all welded joints. All necessary fittings like bends, elbows, tees, reducers, mating flange joints etc., steel fabricated and machined flanges, structural supports, Puff saddles, clamps and hardware etc as requred at site to be considered. All Nut bolts to be of GI only and not MS. Fittings and Nipples for providing any BMS sensors as per BMS vendor requirement to be considered. Entire CHW system shall be PN16"], "notes": [], "items": [{"a": {"pipe_type": "MS", "pipe_type_as_written": "MS", "size_mm": "300 mm dia", "pipe_class": "C Class", "insulated": "Yes"}}, {"a": {"item": "none of these", "cladding": "26G Aluminium", "thickness_mm": "50 mm thick", "pipe_size_mm": "300 mm dia", "brand": null, "material_as_written": "RPUF"}, "s": "insulation"}], "want": [9459, 1904], "calc": "Type the thickness as a single number in mm", "parity": "finding"},
     {"type": "Unstocked material (closed cell polyethylene) refused by name", "id": "BOQ-26-00273/247 - VRF System/61", "unit": "Rmt", "desc": "20 mm dia.", "h": ["CPVC Pipes with 6mm thick Closed Cell Polyethylene"], "notes": [], "items": [{"a": {"pipe_type": "CPVC", "pipe_type_as_written": "CPVC", "size_mm": "20 mm dia.", "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "none of these", "cladding": "None", "thickness_mm": "6 mm", "pipe_size_mm": "20 mm dia.", "brand": null, "material_as_written": "6 mm thick closed cell polyethylene"}, "s": "insulation"}], "want": "No SKU in the catalogue for 6 mm thick closed cell polyethylene - price this row by hand", "parity": "both refuse"},
     {"type": "UPVC as written, type left out (as-written decides)", "id": "BOQ-26-00162/Water Side/75", "unit": "Rmt.", "desc": "40mm. Dia", "h": ["CONDENSATE DRAIN PIPE FOR AHU'S."], "notes": [], "items": [{"a": {"pipe_type": null, "pipe_type_as_written": "UPVC", "size_mm": "40mm. Dia", "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": null, "thickness_mm": "9mm", "pipe_size_mm": "40mm. Dia", "brand": null, "material_as_written": "nitrile rubber"}, "s": "insulation"}], "want": "could not tell cladding", "parity": "both refuse"},
     {"type": "Several sizes for several unit counts: refuses", "id": "BOQ-26-00294/CHW PIPE BOQ/62", "unit": "Rmt", "desc": "supply, installation, testing and commissioning of AC drain pipe. Drain Piping shall be Hard PVC.25mm dia for single unit, 40mm dia for two units and 50mm dia for 3 units. Drain Piping shall be insulated with 13mm nitrile rubber insulation", "h": ["AIR HANDLING UNITS (AHU )", "Pressure Guage/Thermometer"], "notes": [], "items": [{"a": {"pipe_type": "PVC", "pipe_type_as_written": "Hard PVC", "size_mm": "25mm dia for single unit, 40mm dia for two units and 50mm dia for 3 units", "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "13mm", "pipe_size_mm": "25mm dia for single unit, 40mm dia for two units and 50mm dia for 3 units", "brand": null, "material_as_written": "nitrile rubber"}, "s": "insulation"}], "want": "several values stated for pipe size ('25mm dia for single unit, 40mm dia for two units and 50mm dia for 3 units')", "parity": "both refuse"},
-    {"type": "Unit Nos: refuses on the unit", "id": "BOQ-26-00321/PIPING & VALVES/78", "unit": "Nos", "desc": "50 mm dia", "h": ["Note: The contractor should read the specifications thoroughly and quote the price for each item. The BOQ should read in-conjunction with specification, drawing & equipment schedule. The cost shall include the cost of the material, transportation, taxes, duties, lifting, shifting, storing, handling, installation, testing and commissioning.", "CHILLED WATER PIPING AND RELATED VALVES", "CPVC Condensate Drain piping (Schedule 40) cut to required lengths, duly insulated with 9 mm thick tubular Nitrile rubber as per specifications. and installed with all screwed joints. Providing and fixing in position the necessary elbows, tees and reducers as per specifications required U trap door to be provided with proper supporting arrangement."], "notes": [], "items": [{"a": {"pipe_type": "CPVC", "pipe_type_as_written": "CPVC", "size_mm": "50 mm dia", "pipe_class": "Schedule 40", "insulated": "Yes"}}, {"a": {"item": "Tubular Puf Insulation", "cladding": "None", "thickness_mm": "9 mm thick", "pipe_size_mm": "50 mm dia", "brand": null, "material_as_written": "tubular Nitrile rubber"}, "s": "insulation"}], "want": "unit 'Nos' is not a length unit", "parity": "both refuse"},
-    {"type": "Unit Set: refuses on the unit", "id": "BOQ-26-00162/Water Side/78", "unit": "Set", "desc": "Interconnection of MS piping for Air Handling Unit (AHU)", "h": ["CHILLED WATER PIPING with INSULATION."], "notes": [], "items": [{"a": {"pipe_type": "MS", "pipe_type_as_written": "MS", "size_mm": null, "pipe_class": "Heavy class 'C'", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "24G Aluminium with Glass Cloth", "thickness_mm": null, "pipe_size_mm": null, "brand": null, "material_as_written": "nitrile rubber foam sheet of density 50+/-2 kg/m3"}, "s": "insulation"}], "want": "unit 'Set' is not a length unit", "parity": "both refuse"},
+    // INVERTED at ADP-3a (owner 13:35, U5: a unit the kind is not stocked in names the unit and the stocked ones) by mechanical authority: BEFORE want "unit 'Nos' is not a length unit"
+    {"type": "Unit Nos: refuses on the unit", "id": "BOQ-26-00321/PIPING & VALVES/78", "unit": "Nos", "desc": "50 mm dia", "h": ["Note: The contractor should read the specifications thoroughly and quote the price for each item. The BOQ should read in-conjunction with specification, drawing & equipment schedule. The cost shall include the cost of the material, transportation, taxes, duties, lifting, shifting, storing, handling, installation, testing and commissioning.", "CHILLED WATER PIPING AND RELATED VALVES", "CPVC Condensate Drain piping (Schedule 40) cut to required lengths, duly insulated with 9 mm thick tubular Nitrile rubber as per specifications. and installed with all screwed joints. Providing and fixing in position the necessary elbows, tees and reducers as per specifications required U trap door to be provided with proper supporting arrangement."], "notes": [], "items": [{"a": {"pipe_type": "CPVC", "pipe_type_as_written": "CPVC", "size_mm": "50 mm dia", "pipe_class": "Schedule 40", "insulated": "Yes"}}, {"a": {"item": "Tubular Puf Insulation", "cladding": "None", "thickness_mm": "9 mm thick", "pipe_size_mm": "50 mm dia", "brand": null, "material_as_written": "tubular Nitrile rubber"}, "s": "insulation"}], "want": "CPVC is not stocked per 'Nos' (stocked per metre) - price this row by hand", "parity": "both refuse"},
+    // INVERTED at ADP-3a (owner 13:35, U5: a unit the kind is not stocked in names the unit and the stocked ones) by mechanical authority: BEFORE want "unit 'Set' is not a length unit"
+    {"type": "Unit Set: refuses on the unit", "id": "BOQ-26-00162/Water Side/78", "unit": "Set", "desc": "Interconnection of MS piping for Air Handling Unit (AHU)", "h": ["CHILLED WATER PIPING with INSULATION."], "notes": [], "items": [{"a": {"pipe_type": "MS", "pipe_type_as_written": "MS", "size_mm": null, "pipe_class": "Heavy class 'C'", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "24G Aluminium with Glass Cloth", "thickness_mm": null, "pipe_size_mm": null, "brand": null, "material_as_written": "nitrile rubber foam sheet of density 50+/-2 kg/m3"}, "s": "insulation"}], "want": "MS is not stocked per 'Set' (stocked per metre) - price this row by hand", "parity": "both refuse"},
     {"type": "No size and no unit (TR-rated lump row)", "id": "BOQ-26-00088/HVAC/34", "unit": null, "desc": "17.0 TR REFERIG COPPER PIPING&FLX COPPER CABLING", "h": ["11 TR DUCTABLE SPLIT", "REFRIDGERENT PIPING & CABLING"], "notes": [], "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": null, "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "No", "thickness_mm": "6mm", "pipe_size_mm": null, "brand": null, "material_as_written": "nitrile foam"}, "s": "insulation"}], "want": "no pipe size stated", "parity": "outright"},
   ];
 
@@ -1355,18 +1592,20 @@ describe("12e-5 AC10 -- one real Stage A row per row type (runs BRSR-26-00447 ..
       "MS NB with wall thickness in the class (chilled water)", "MS mm dia, class C, no insulation", "PVC in the row text, insulation from the row",
       "PVC NB with a kg class, no heading", "MS + insulation with aluminium cladding and glass cloth (note schedule)", "Layered thickness: 32 mm above the largest stocked (13 + 19)",
       "Insulated pipe above the insulation sheet (53.98): refuses", "CPVC above its largest size (80 > 75): refuses", "Inch size with mm in brackets: one size (12e-5b R6)",
-      "Cladding left out by the model: could not tell cladding", "Unstocked material (RPUF) refused by name", "Unstocked material (closed cell polyethylene) refused by name",
+      "Cladding left out by the model: could not tell cladding", "RPUF as written with none of these: priced as Tubular PUF (12e-6c R)", "Unstocked material (closed cell polyethylene) refused by name",
       "UPVC as written, type left out (as-written decides)", "Several sizes for several unit counts: refuses", "Unit Nos: refuses on the unit", "Unit Set: refuses on the unit",
       "No size and no unit (TR-rated lump row)",
     ]);
     expect(new Set(ROWS.map((r) => r.id.split("/").slice(0, 2).join("/"))).size).toBe(11);
     const byParity: Record<string, number> = {};
     for (const r of ROWS) byParity[r.parity] = (byParity[r.parity] ?? 0) + 1;
-    expect(byParity).toEqual({ outright: 14, typed: 1, pick: 1, "both refuse": 6 });
+    // INVERTED at 12e-6c (owner R): BEFORE `{ outright: 14, typed: 1, pick: 1, "both refuse": 6 }` -- the RPUF row now prices on the panel
+    expect(byParity).toEqual({ outright: 14, typed: 1, pick: 1, "both refuse": 5, finding: 1 });
   });
   it("THE PANEL, row by row: 12 rows price at the figure the audit recorded, 10 refuse with the sentence it recorded", () => {
     expect(Object.fromEntries(ROWS.map((r) => [r.id, fig(panelOf(r))]))).toEqual(Object.fromEntries(ROWS.map((r) => [r.id, r.want])));
-    expect(ROWS.filter((r) => typeof r.want !== "string")).toHaveLength(12);
+    // INVERTED at 12e-6c (owner R): BEFORE `toHaveLength(12)` (12 priced, 10 refused) -- the RPUF row prices: 13 priced, 9 refused
+    expect(ROWS.filter((r) => typeof r.want !== "string")).toHaveLength(13);
   });
   it.each(ROWS.map((r) => [r.id, r] as const))("%s: the calculator, fed the panel's own answers, agrees", (_id, r) => {
     const p = panelOf(r);

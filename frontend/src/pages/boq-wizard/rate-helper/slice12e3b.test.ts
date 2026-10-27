@@ -51,6 +51,10 @@ import {
   severalSizesPick, severalSizesTaken, slashSizes,
 } from "./itemListPricing";
 
+// ADP-3a (owner U5 / B6 / H2): the Derivation lines ADP-3a adds -- set aside where a pin counts or positions an earlier tab
+const ADP3A_LINE = /^(A kind not stocked in the row's unit refuses|An unstocked combination names only|A per-.+ needs .+; with neither stated it refuses, naming both$)/;
+const withoutAdp3aLines = <T extends { title: string } | string>(ls: T[]): T[] => ls.filter((l) => !ADP3A_LINE.test(typeof l === "string" ? l : l.title));
+
 type Asset = { discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] };
 const DATA = "../../../../../nirmaan_stack/services/boq_rate_master/data/";
 const ASSET = readJsonFixture<Asset>(new URL(`${DATA}rate_master_hvac_all_v37.json`, import.meta.url));
@@ -179,7 +183,10 @@ describe("12e-3b AC1 -- D1b: in the calculator a section opens on the material l
     expect(v.items[0].familyDefaulted).toBeDefined();
     // INVERTED at 12e-4b (owner G3: the field's label, never the id "item"). BEFORE:
     //   toContain("item not mentioned -> Nitrile Rubber Insulation")
-    expect(v.items[0].working.join("\n")).toContain("insulation material not mentioned -> Nitrile Rubber Insulation");
+    // INVERTED AGAIN at ADP-4a (owner D5 / AC3: the family default stated ONCE, on the heading) by mechanical authority.
+    // BEFORE: `expect(v.items[0].working.join("\n")).toContain("insulation material not mentioned -> Nitrile Rubber Insulation")`.
+    expect(v.items[0].familyDefaulted?.value).toBe(NITRILE);
+    expect(v.items[0].working.join("\n")).not.toContain("insulation material not mentioned -> Nitrile Rubber Insulation");
     expect(v.items[0].working.some((w) => w.startsWith("item not mentioned"))).toBe(false);
     expect((v as ItemListView).pickFamily).toBeUndefined();
   });
@@ -435,7 +442,9 @@ describe("12e-3b AC3 -- no rule tag reaches a pricer's screen; the config and th
   it("on the PANEL: the UL line, the outer-size lines and the flexible-duct line carry no tag", () => {
     const ul = compute(ADP, { items: [{ base: null, family: "fire damper", attrs: { variant: "motorised", ul: "yes", size_mm: "600x600" } }] }, "nos");
     expect(ul.values).toEqual({ supply_rate: 7830, install_rate: 692, combined_rate: 8522 });
-    expect(ul.v.items[0].working).toContain("UL stated, so the UL 555 SKU is used");
+    // INVERTED at ADP-4a (owner D5 / AC3: the override stated ONCE, on the variant field -- below) by mechanical authority.
+    // BEFORE: `expect(ul.v.items[0].working).toContain("UL stated, so the UL 555 SKU is used")`.
+    expect(ul.v.items[0].working).not.toContain("UL stated, so the UL 555 SKU is used");
     expect(field(ul.v.items[0], "variant").note).toBe("UL stated, so the UL 555 SKU is used");
     const outer = panel(ADP, [{ family: "square diffuser", damper: "without", size_mm: "600 x 600" }], undefined, "Nos");
     expect(outer.v.items[0].working).toContain("the outer size 600x600 is the sheet's 595x595");
@@ -505,7 +514,9 @@ describe("12e-3b AC5 -- a per-number row still waiting for its size shows the ki
   it("fire damper per number, no size: Variant and UL listed show their ruled defaults, amber, with the rule -- as per sq.m does", () => {
     const nos = damper("nos"), sqm = damper("sqm");
     expect(nos.rowPriced).toBe(false);
-    expect(nos.items[0].reason).toMatch(/^per-number row: no .* stated to convert the per-sq\.m rate$/);
+    // INVERTED at ADP-3a (owner H2 / U2: several ways are ONE either-or group and the refusal names it) by mechanical authority:
+    // BEFORE `toMatch(/^per-number row: no .* stated to convert the per-sq\.m rate$/)`
+    expect(nos.items[0].reason).toBe("fire damper needs Size (W x H), or Area band - neither stated - price this row by hand");
     for (const id of ["variant", "ul"]) {
       const a = field(nos.items[0], id), b = field(sqm.items[0], id);
       expect({ id, value: a.value, defaulted: a.defaulted, rule: a.rule }).toEqual({ id, value: b.value, defaulted: true, rule: b.rule });
@@ -548,7 +559,10 @@ describe("12e-3b AC6 -- the Derivation tab lists the insulation section's lines 
     // INVERTED at 12e-4b (owner F-3: the no-unit line sits after "Fitting the stated pipe size", so every later line
     // moves down one). BEFORE: `toHaveLength(19)`, `all[17].title`, `[...all.slice(14, 17), { ...all[18], n: 18 }]`.
     // The four lines' words, and the numbers this test has always named them by, are unchanged.
-    expect(all).toHaveLength(20);
+    // INVERTED at ADP-3a (owner U5 / B6 / H2: the unit-refusal and unstocked-combination lines on every item-list tab, and
+    // ADP's per-number either-or line) by mechanical authority: BEFORE `toHaveLength(20)`; without the ADP-3a lines it is still 20; Piping gains ONE line (the unit refusal): it matches on size alone, so no combination can be unstocked
+    expect(all).toHaveLength(21);
+    expect(withoutAdp3aLines(all)).toHaveLength(20);
     expect(all[11].title).toBe("A pipe size written as a bare number that could be inches refuses");
     expect(all[18].title).toBe("The insulation section's quantity is its pipe's until the pricer types their own");
     expect([...all.slice(15, 18).map((l) => ({ ...l, n: l.n - 1 })), { ...all[19], n: 18 }]).toEqual([
@@ -574,14 +588,32 @@ describe("12e-3b AC6 -- the Derivation tab lists the insulation section's lines 
     expect(all[2].detail).toContain("shown 'as the pipe'");
   });
   it("NEGATIVE: a config that declares no delegated section adds nothing -- Insulation 24, ADP 18, v36 Piping 14, and no internal id or tag on any line", () => {
-    expect(lines(CFG[INS])).toHaveLength(24);
-    expect(lines(CFG[ADP])).toHaveLength(18);
+    // INVERTED at 12e-6c (owner U2 / R, 2026-10-18) by mechanical authority: BEFORE `expect(lines(CFG[INS])).toHaveLength(24)`.
+    // The F-3 line and the RPUF line generate on Insulation; without them it is still 24.
+    // INVERTED at ADP-1 (owner F4, 2026-10-19) by mechanical authority: BEFORE `expect(lines(CFG[INS])).toHaveLength(26)`. The F4 line (RPUF on a per-sq.m row)
+    // generates wherever the RPUF line does; without it the count below it is unchanged.
+    // INVERTED at ADP-3a (owner U5 / B6 / H2: the unit-refusal and unstocked-combination lines on every item-list tab, and
+    // ADP's per-number either-or line) by mechanical authority: BEFORE `toHaveLength(27)`; without the ADP-3a lines it is still 27
+    expect(lines(CFG[INS])).toHaveLength(29);
+    expect(withoutAdp3aLines(lines(CFG[INS]))).toHaveLength(27);
+    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE the same filter over the whole tab; the ADP-3a lines are set aside first
+    expect(withoutAdp3aLines(lines(CFG[INS])).filter((l) => !["A pipe size written as a bare number that could be inches refuses", "RPUF with no material answered prices as Tubular Puf Insulation", "RPUF on a per-sq.m row refuses by name"].includes(l.title))).toHaveLength(24);
+    // INVERTED at ADP-2 H5 fix (a) (owner 2026-10-20) by mechanical authority: BEFORE `expect(lines(CFG[ADP])).toHaveLength(18)`. R13 reads the air
+    // stream, so the both-streams line generates on this config too; without it the count is unchanged.
+    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE `toHaveLength(19)`; without the ADP-3a lines it is still 19
+    // INVERTED at ADP-4a (owner D2 merges and AC1 c, measured) by mechanical authority: BEFORE `toHaveLength(22)`, 19, 18.
+    expect(lines(CFG[ADP])).toHaveLength(27);
+    expect(withoutAdp3aLines(lines(CFG[ADP]))).toHaveLength(24);
+    expect(withoutAdp3aLines(lines(CFG[ADP])).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(23);
     const v36pip = V36.category_configs.find((c) => c.category_id === PIP)!;
     // INVERTED at 12e-4b (owner F-3): BEFORE `toHaveLength(14)` and `.slice(0, 14)`. v36 already carries the keys the
     // no-unit line is generated from, so it reads 15 under this code; the claim itself is unchanged -- everything
     // before the section's lines is what a config with no section has.
-    expect(lines(v36pip)).toHaveLength(15);
-    expect(lines(CFG[PIP]).slice(0, 15).map((l) => l.title)).toEqual(lines(v36pip).map((l) => l.title));
+    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE `toHaveLength(15)` and the
+    // first 15 lines compared with the whole v36 tab; without the ADP-3a lines both are exactly as before; Piping gains ONE line (the unit refusal): it matches on size alone, so no combination can be unstocked
+    expect(lines(v36pip)).toHaveLength(16);
+    expect(withoutAdp3aLines(lines(v36pip))).toHaveLength(15);
+    expect(lines(CFG[PIP]).slice(0, 15).map((l) => l.title)).toEqual(withoutAdp3aLines(lines(v36pip)).map((l) => l.title));
     for (const cat of [INS, ADP]) expect(lines(CFG[cat]).map((l) => l.title).join("\n")).not.toMatch(/section/i);
     const text = lines(CFG[PIP]).map((l) => `${l.title} | ${l.detail ?? ""}`).join("\n");
     expect(text).not.toMatch(/hvac_insulation|pipe_size_mm|size_mm|include_when|\{chosen\}|\{pipe\}/);

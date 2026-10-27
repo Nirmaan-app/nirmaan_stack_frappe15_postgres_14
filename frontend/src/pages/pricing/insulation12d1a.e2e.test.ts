@@ -168,7 +168,10 @@ describe("E2E-1 (a)-(h) -- each rule produces the outcome stated in advance, on 
     const clad = v.items[0].fields.find((f) => f.id === "cladding")!;
     expect(clad.value).toBe("26G Aluminium");
     // 12d-5 (owner P2) INVERTED: the override line carries the rule's WORDS, never its code -- before: some(w => /R4/.test(w))
-    expect(v.items[0].working.some((w) => /foil on a pipe is priced as 26G cladding/.test(w))).toBe(true);
+    // INVERTED at ADP-4a (owner D5 / AC3: a ruling is stated ONCE, on its field) by mechanical authority. BEFORE:
+    // `expect(v.items[0].working.some((w) => /foil on a pipe is priced as 26G cladding/.test(w))).toBe(true)`.
+    expect(clad.note).toMatch(/foil on a pipe is priced as 26G cladding/);
+    expect(v.items[0].working.some((w) => /foil on a pipe is priced as 26G cladding/.test(w))).toBe(false);
     expect(v.items[0].working.some((w) => /R4/.test(w))).toBe(false);
     expect(headline(r)).toEqual({ supply: 545, install: 224 });
     noDivergence(r);

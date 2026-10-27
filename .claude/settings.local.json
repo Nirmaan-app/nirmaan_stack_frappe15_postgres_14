@@ -2,6 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
+      "Bash(bash scripts/env_sync/env_sync.sh:*)",
       "Bash(docker exec frappe_docker_devcontainer-frappe-1:*)",
       "Bash(docker exec -u root frappe_docker_devcontainer-frappe-1:*)",
       "Bash(docker cp:*)",

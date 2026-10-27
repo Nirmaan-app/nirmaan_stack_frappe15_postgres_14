@@ -383,10 +383,12 @@ describe("v39 (AC2 / AC3 / AC4 / AC8b) -- the shipped keys and the real rows", (
       .not.toEqual(panel(PIP, ROW("50mm. Dia"), "Rmt.", "50mm. Dia", H162, undefined, PLAIN).values);
   });
   it("AC8b: an insulation section on a count unit says what insulation is priced by; v38 said 'not a count, area or length unit'", () => {
-    const sentence = "unit 'Nos' is not a length or area unit - insulation is priced per metre or per sq.m";
+    // INVERTED at ADP-3a (owner 13:35, U5: a unit the kind is not stocked in names the unit and the stocked ones) by mechanical authority: BEFORE "unit 'Nos' is not a length or area unit - insulation is priced per metre or per sq.m"
+    const sentence = "Nitrile Rubber Insulation is not stocked per 'Nos' (stocked per metre) - price this row by hand";
     const sec = (configs: Map<string, RateCategoryConfig>) => attached(panel(PIP, COPPER("12.7mm"), "Nos", "", [], undefined, configs).v).view;
     expect(sec(LIVE).reason).toBe(sentence);
-    expect(sec(PLAIN).reason).toBe("unit 'Nos' is not a count, area or length unit");
+    // INVERTED at ADP-3a (owner 13:35, U5) by mechanical authority: BEFORE "unit 'Nos' is not a count, area or length unit" (the same U5 sentence on both configs now)
+    expect(sec(PLAIN).reason).toBe("Nitrile Rubber Insulation is not stocked per 'Nos' (stocked per metre) - price this row by hand");
     expect(panel(INS, INSULATION("12.7mm"), "Nos", "", [], undefined, LIVE).v.items[0].reason).toBe(sentence);
   });
 });

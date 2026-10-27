@@ -50,6 +50,10 @@ import {
 } from "./itemListPricing";
 import { nearestRung } from "./ladderResolution";
 
+// ADP-3a (owner U5 / B6 / H2): the Derivation lines ADP-3a adds -- set aside where a pin counts or positions an earlier tab
+const ADP3A_LINE = /^(A kind not stocked in the row's unit refuses|An unstocked combination names only|A per-.+ needs .+; with neither stated it refuses, naming both$)/;
+const withoutAdp3aLines = <T extends { title: string } | string>(ls: T[]): T[] => ls.filter((l) => !ADP3A_LINE.test(typeof l === "string" ? l : l.title));
+
 const ASSET = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
   new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v36.json", import.meta.url),
 );
@@ -392,12 +396,14 @@ describe("12e-2 P3 / P4 -- the class box and the unit", () => {
     expect(ro.v.unitNote).toBe("BoQ says R/O (rate only) -> priced per metre, the catalogue's unit for this item");
     const nos = panel({ pipe_type: "MS", size_mm: "50" }, "nos");
     expect(nos.v.rowPriced).toBe(false);
-    expect(nos.v.reason).toBe("unit 'nos' is not a length unit");
+    // INVERTED at ADP-3a (owner 13:35, U5: a unit the kind is not stocked in names the unit and the stocked ones) by mechanical authority: BEFORE "unit 'nos' is not a length unit"
+    expect(nos.v.reason).toBe("MS is not stocked per 'nos' (stocked per metre) - price this row by hand");
     expect(nos.s.values).toEqual({});
     // NEGATIVE: Insulation keeps the R12 sentence byte-for-byte
     const h = makePricingSheetHelper({ configsByCategory: CONFIGS, items: ITEMS, extractionByRow: new Map([[1, { excelRow: 1, description: "", attributes: {}, items: [{ attributes: cells({ item: "Nitrile Rubber Insulation", cladding: "No", thickness_mm: "19", pipe_size_mm: "50" }) }] } as ExtractionRow]]) });
     const r = h.compute({ excelRow: 1, description: "", nodeType: "Line Item", category: "hvac_insulation", discipline: "HVAC", rateKinds: [...KINDS], unit: "nos" } as RateHelperRowContext & { unit: string }, {});
-    expect((r as ItemListSuggestion).itemList!.reason).toBe("unit 'nos' is not a count, area or length unit");
+    // INVERTED at ADP-3a (owner 13:35, U5) by mechanical authority: BEFORE "unit 'nos' is not a count, area or length unit"
+    expect((r as ItemListSuggestion).itemList!.reason).toBe("Nitrile Rubber Insulation is not stocked per 'nos' (stocked per metre) - price this row by hand");
     // the calculator's picker offers the length class's first spelling only
     expect(calc(picked("MS", { size_mm: "50" })).v.unitChoices).toEqual(["mts"]);
   });
@@ -446,7 +452,8 @@ describe("12e-2 AC6 -- the Derivation tab lists P1-P5 from the config, no intern
   const titles = () => itemListRuleOrder(CFG[PIP], ITEMS).map((l) => l.title);
   const text = (cfg: unknown = CFG[PIP]) => itemListRuleOrder(cfg, ITEMS).map((l) => `${l.title} -- ${l.detail ?? ""}`).join("\n");
   it("the lines, in run order", () => {
-    expect(titles()).toEqual([
+    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE `expect(titles()).toEqual([...])` -- the same list, with the ADP-3a lines set aside
+    expect(withoutAdp3aLines(titles())).toEqual([
       "The row's unit decides which kind of rate applies",
       "The item's own kind decides which products can price it",
       "A pipe type written as GI, uPVC, HDPE is priced as the kind it means",
@@ -456,7 +463,9 @@ describe("12e-2 AC6 -- the Derivation tab lists P1-P5 from the config, no intern
       "The facts that rule needs before it can price",
       "A pipe size written in inches is converted to millimetres",
       "A typed pipe size is one size, in mm or inches",
-      "A Copper, MS and 2 more row stating its own figure in the class / wall thickness carries a line saying what was priced",
+      // INVERTED at ADP-4a (owner U6, 2026-10-21: every list in full, "and N more" gone -- Piping line 13) by mechanical
+      // authority. BEFORE: "A Copper, MS and 2 more row stating its own figure in the class / wall thickness ...".
+      "A Copper, MS, PVC, CPVC row stating its own figure in the class / wall thickness carries a line saying what was priced",
       "Fitting the stated pipe size to the catalogue",
       // INVERTED at 12e-4b (owner F-3, 2026-10-13): one line more, generated from keys this config already
       // carries (the second inch conversion + the below-the-smallest ruling). BEFORE: 14 titles, without it.
@@ -472,7 +481,10 @@ describe("12e-2 AC6 -- the Derivation tab lists P1-P5 from the config, no intern
     expect(t).toContain("converted at 25.4 mm to the inch, then at 25 where the first lands on no stocked size");
     expect(t).toContain("a size within 0.1 mm of a stocked size counts as that size; below the smallest stocked size takes the smallest; above the largest stocked size refuses, naming the size");
     expect(t).toContain("the pricing inputs are read first (Piping accessories - CPVC, Piping accessories - Copper, Piping accessories - MS, Piping accessories - PVC)");
-    expect(t).toContain("4 cells on 2 rows (the grey 'derived' cells)");
+    // INVERTED at ADP-4a (owner U6: the viewer paints a derived cell AMBER -- Piping line 17) by mechanical authority.
+    // BEFORE: `expect(t).toContain("4 cells on 2 rows (the grey 'derived' cells)")`.
+    expect(t).toContain("4 cells on 2 rows (the amber 'derived' cells)");
+    expect(t).not.toContain("the grey 'derived' cells");
     expect(t).not.toMatch(/\b[a-z0-9]+_[a-z0-9_]+\b/i);
     expect(t).not.toMatch(/\(owner/i);
     expect(t).not.toMatch(/\b[RDTSQ]-?\d{1,2}[a-z]?\b/);
@@ -486,14 +498,38 @@ describe("12e-2 AC6 -- the Derivation tab lists P1-P5 from the config, no intern
     expect(without((pr) => delete pr.numbers.size_mm.inch_mm_alt)).not.toContain("then at 25");
     expect(without((pr) => delete pr.numbers.size_mm.typed_entry)).not.toContain("A typed pipe size is one size");
     expect(without((pr) => delete pr.size_match.near)).not.toContain("within 0.1 mm");
-    expect(without((pr) => delete pr.size_match.below_smallest)).not.toContain("takes the smallest");
+    // INVERTED at 12e-6c (owner U2, 2026-10-18: F-3 follows `inches`; "re-point the vacuity check to inches") by mechanical
+    // authority. BEFORE: `expect(without((pr) => delete pr.size_match.below_smallest)).not.toContain("takes the smallest")` --
+    // the F-3 line rode on `below_smallest` and its detail says "takes the smallest size, as before". The key still drops
+    // its own bit of the fit line; the F-3 line now drops with `inches`.
+    expect(without((pr) => delete pr.size_match.below_smallest)).not.toContain("below the smallest stocked size takes the smallest");
+    expect(without((pr) => delete pr.numbers.size_mm.inches)).not.toContain("written as a bare number that could be inches refuses");
+    expect(text(CFG[PIP])).toContain("written as a bare number that could be inches refuses");
     expect(without((pr) => delete pr.read_notes)).not.toContain("carries a line saying what was priced");
   });
   it("NEGATIVE: Insulation's and ADP's tabs are byte-identical to their 12d-8 counts (24 and 18) and carry none of the Piping lines", () => {
-    expect(itemListRuleOrder(CFG.hvac_insulation, ITEMS)).toHaveLength(24);
-    expect(itemListRuleOrder(CFG.hvac_adp, ITEMS)).toHaveLength(18);
+    // INVERTED at 12e-6c (owner U2 / R, 2026-10-18) by mechanical authority: BEFORE `expect(itemListRuleOrder(CFG.hvac_insulation,
+    // ITEMS)).toHaveLength(24)` and the Piping words checked on Insulation's whole tab. Insulation gains the F-3 line (U2:
+    // every inches axis) and the RPUF line (R); WITHOUT those two its tab is still 24 and carries none of the Piping lines.
+    // INVERTED at ADP-1 (owner F4, 2026-10-19) by mechanical authority: BEFORE `expect(itemListRuleOrder(CFG.hvac_insulation, ITEMS)).toHaveLength(26)`. The F4 line (RPUF on a per-sq.m row)
+    // generates wherever the RPUF line does; without it the count below it is unchanged.
+    const NEW_12E6C = ["A pipe size written as a bare number that could be inches refuses", "RPUF with no material answered prices as Tubular Puf Insulation", "RPUF on a per-sq.m row refuses by name"];
+    // INVERTED at ADP-3a (owner U5 / B6 / H2: the unit-refusal and unstocked-combination lines on every item-list tab, and
+    // ADP's per-number either-or line) by mechanical authority: BEFORE `toHaveLength(27)`; without the ADP-3a lines it is still 27
+    expect(itemListRuleOrder(CFG.hvac_insulation, ITEMS)).toHaveLength(29);
+    expect(withoutAdp3aLines(itemListRuleOrder(CFG.hvac_insulation, ITEMS))).toHaveLength(27);
+    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE the same filter over the whole tab; the ADP-3a lines are set aside first
+    expect(withoutAdp3aLines(itemListRuleOrder(CFG.hvac_insulation, ITEMS)).filter((l) => !NEW_12E6C.includes(l.title))).toHaveLength(24);
+    // INVERTED at ADP-2 H5 fix (a) (owner 2026-10-20) by mechanical authority: BEFORE `expect(itemListRuleOrder(CFG.hvac_adp, ITEMS)).toHaveLength(18)`. R13 reads the air
+    // stream, so the both-streams line generates on this config too; without it the count is unchanged.
+    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE `toHaveLength(19)`; without the ADP-3a lines it is still 19
+    // INVERTED at ADP-4a (owner D2 merges and AC1 c, measured) by mechanical authority: BEFORE `toHaveLength(22)`, 19, 18.
+    expect(itemListRuleOrder(CFG.hvac_adp, ITEMS)).toHaveLength(27);
+    expect(withoutAdp3aLines(itemListRuleOrder(CFG.hvac_adp, ITEMS))).toHaveLength(24);
+    expect(withoutAdp3aLines(itemListRuleOrder(CFG.hvac_adp, ITEMS)).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(23);
     for (const cid of ["hvac_insulation", "hvac_adp"]) {
-      const t = text(CFG[cid]);
+      const t = itemListRuleOrder(CFG[cid], ITEMS).filter((l) => !NEW_12E6C.includes(l.title)).map((l) => `${l.title} -- ${l.detail ?? ""}`).join("\n");
+      if (cid === "hvac_adp") expect(t).toBe(text(CFG[cid]));
       for (const not of ["pipe type", "one size", "then at 25", "within 0.1", "takes the smallest", "any other unit refuses"]) expect(t, `${cid}: ${not}`).not.toContain(not);
     }
   });
