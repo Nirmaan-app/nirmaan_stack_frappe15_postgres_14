@@ -832,7 +832,9 @@ two-valued attributes are static config lists and were always shown in full. **E
 (torque still narrows under UL). ⚠️ **"UL WINS" ON BOTH PATHS (D2):** a hand-picked UL "yes" beside any variant
 prices the UL 555 SKU through the SAME `override_when` the model path uses (slice 8 M-b) -- it is NOT a refusal; the
 variant field then shows what priced ("UL 555", with the rule) whenever its own list can no longer show the pick.
-⚠️ **D4 (a):** a slot diffuser per sq.m / per number keeps the ruled default "damper not mentioned -> without" and
+⚠️ **D4 (a)** (⚠️ ADP-2 H5, below: where the AIR STREAM is stated, it decides a damper not mentioned -- supply -> with, so a
+per-sq.m slot diffuser on supply air now prices; the default below holds only where no air stream is stated):
+a slot diffuser per sq.m / per number keeps the ruled default "damper not mentioned -> without" and
 REFUSES by name (only "with" is stocked at those units); the calculator and the panel now say the same sentence, so
 the one sweep divergence that was awaiting a ruling is gone. The model's instructions are untouched: the choice lists
 sent to the model are built in Python from the definitions and always carried both values.
@@ -1215,6 +1217,574 @@ On a BoQ row the model opened with no insulation item, the section is priced by 
 material by the row-kind default, the ruled thickness then the ladder (the thickness priority ends at 9 mm, 12d-2), cladding
 "No" -- each amber with its line. The calculator keeps "choose the material" (D1b).
 
+**INSULATION'S TYPED PIPE SIZE FOLLOWS PIPING'S ONE-SIZE RULE; `typed_entry` NEVER CHANGES THE WORDING (owner U1, 2026-10-18:
+"ok" + "make typed_entry control only the typed one-size rule, not the 12e-2 wording"; slice 12e-6c, HVAC v46).** A pipe size the
+pricer TYPES on Insulation (Calculator -> Insulation, or a panel block's own box) is one size, exactly as on Piping: "40-50" and
+"50 mm O.D." refuse "Type one pipe size, in mm or inches". The MODEL's reading is unchanged (a range takes its top value). HVAC v46
+carries Piping's own key on Insulation's `pipe_size_mm`; `itemListPricing`'s `declares` no longer counts `typed_entry`, so the
+12e-2 size wording still comes only from `inch_mm_alt` / `size_match.near` / `size_match.below_smallest` -- the stored rows'
+words are pinned unchanged on both categories (`slice12e6c.test.ts`). A section's size mirrored from its pipe is a number the pipe
+already read, so the rule never refuses a mirror.
+
+**F-3 IS THE RULE OF EVERY AXIS THAT READS INCHES (owner U2, 2026-10-18: "apply F-3 ... to every axis with inches: true, testing
+x25.4 / x25 as ruled. No config key, no wording change, no second conversion"; slice 12e-6c).** A bare number with no unit, below
+the smallest stocked size, whose reading in inches (x 25.4 or x 25) falls within the stocked range refuses "size N has no unit -
+price this row by hand" -- on Insulation's `pipe_size_mm` as on Piping's `size_mm` (`f3InchAlt`; the x25 is a test, never a
+ladder conversion). A test pins the covered axes (exactly those two today) and fails if the set changes. As ruled, the range is
+the TYPE's own: a bare "4" on Nitrile (101.6 / 100 mm, above its 53.98) still takes the smallest size, while an MS pipe "4"
+refuses and its section follows the pipe. ⚠️ **The Nitrile "4" half is SUPERSEDED by ADP-1 F1 (owner 2026-10-19, below): a bare
+number whose inch readings are both ABOVE the largest stocked size now refuses too.**
+
+**A FIXING IS NEVER A CLADDING, ALSO TO THE GI MAP (owner O3, 2026-10-18: "fix it"; slice 12e-6c).** `choiceTextFor` masks the
+fixing and duct words (`withoutFixingWords`) before R2's GI words are looked for, so "GI strip at 1 m grid" names no cladding;
+"26 G GI cladding" still prices as 26G Aluminium (12e-5b R2).
+
+**A COPIED CLOTH FACING IS THE GLASS-CLOTH CLADDING, IN CODE TOO (owner O4, 2026-10-18: "ok" -- "aluminium + cloth with no
+gauge -> 26G Aluminium with Glass Cloth; cloth alone -> the glass-cloth cladding; an answered cladding is never overridden";
+slice 12e-6c).** The code backstop of 12e-6 R6: with the cladding UNANSWERED and a glass / fibre cloth copied as written
+("factory laminated fire resistant fibre cloth fabric", "reinforced glass cloth", "FR fabric"), `clothFacingCladding` prices it as
+"Glass Cloth with paint", or "<gauge> Aluminium with Glass Cloth" where aluminium is named too (no gauge: 26G; a gauge the
+catalogue does not stock refuses with R2's sentence), amber: "BoQ says <words> -> priced as <cladding>". A sheet row still
+refuses glass cloth (D9b). Word lists in code, as R8 / R4; no config key.
+
+**RPUF WITH NO MATERIAL ANSWERED PRICES AS TUBULAR PUF (owner R, ruled 2026-10-15 14:24 "accept", code ruling 2026-10-18 "ok";
+slice 12e-6c).** With nothing answered, "not mentioned" or a no-SKU answer by the model, "RPUF" (or "rigid PUF") in the row's own
+text or the material as written prices as the category's PUF family for the row's unit -- the ladders then take the next stocked
+thickness up exactly as for a picked Tubular PUF (the stored 00321 / 15 figure, 9,459 / 1,904, both ways); 30 mm on a small pipe
+still refuses. An answered material is never overridden; a per-sq.m row has no PUF rule and is read as before. NBR is nitrile
+(owner 2026-10-16 13:53) and needed no change. ⚠️ **"A per-sq.m row is read as before" is SUPERSEDED by ADP-1 F4 (owner
+2026-10-19, below): RPUF on a per-sq.m Insulation row now refuses by name.**
+
+**ADP-1 F1: A BARE NUMBER WHOSE INCH READING IS ABOVE THE LARGEST REFUSES (owner 2026-10-19 09:57 "agree on all F1 to F4", 10:16
+"ride along with ADP retrofit"; HVAC v47).** On an axis with `inches: true` and `bare_above_largest: "refuse"` (Insulation's
+`pipe_size_mm` today), a number with no unit, below the smallest stocked size, whose readings in inches (x 25.4 and x 25) are
+BOTH above the largest stocked size refuses "size N has no unit - price this row by hand" (Nitrile "4"). It sits beside F-3
+(within the range) and never replaces it; "2" and "4" on Tubular PUF and F2's "2 inch" under a pipe (604 vs 607) are unchanged.
+⚠️ **A section's size MIRRORED from its pipe is exempt** (the cell carries `mirrored: true`, passed through `decodeItemEdits`):
+the pipe already read it in mm, and without the exemption a mirrored "6.24" refused on 2 stored Piping rows in the first
+replay. The calculator, which has no pipe to mirror from, is never exempt.
+
+**ADP-1 F3: A GI FRAME WITH PERFORATED ALUMINIUM SHEET PRICES AS THE GI FRAMEWORK OPTION (owner 2026-10-19; HVAC v47).** With
+the cladding UNANSWERED, "GI frame / framework" with "perforated Al / aluminium sheet" -- in the cladding as written, else the
+row's own text, else a heading -- prices as `GI_FRAMEWORK_CLADDING` ("GI Framework with perforated Al sheet"), amber "BoQ says
+<words> -> priced as GI Framework with perforated Al sheet". It is read BEFORE O3's fixing mask (which would hide "frame") and
+BEFORE the GI map and O4's cloth facing (`giFrameworkCladding ?? choiceTextFor ?? clothFacingCladding`). A cladding the model
+answered stands. Word lists in code; no config key.
+
+**ADP-1 F4: RPUF ON A PER-SQ.M INSULATION ROW REFUSES BY NAME (owner 2026-10-19; HVAC v47).** Where the category stocks no PUF
+family at the row's unit (per sq.m today), R's RPUF reading refuses "No SKU in the catalogue for RPUF - price this row by hand"
+instead of falling to the row-kind default -- only where no material was answered; an answered material stands. Scoped to
+INSULATION: an ADP double-skin plenum "RPUF injected panel" row prices from its own SKU, unchanged (BOQ-26-00312 / 27 4,785 / 640,
+00234, 00273, 00171 proved). The day a PUF sheet is stocked per sq.m, the refusal stops by itself (the test reads the families'
+units, not a word list).
+
+**ADP-1 H3: SLOT DIFFUSERS MATCH ON SLOTS AND DAMPER; PER NUMBER = THE PER-METRE SKU x THE PIECE LENGTH (owner 2026-10-19
+14:15 / 14:24 / 14:34; HVAC v47).** Per sq.m: the damper only (slots never asked); "without" -- stated or the ruled default --
+refuses "No SKU for a slot diffuser per sq.m without damper - price this row by hand" (only "with" is stocked per sq.m; D4 (a)
+holds there). Per metre: slots + damper; a slot count the catalogue does not stock (1, 4) refuses "No SKU for a N-slot
+diffuser" (`not_stocked`). Per number: the per-metre SKU (slots + damper) x the piece length in metres, on supply and install
+before the markup (`convert` with `show_numbers`); no slot count refuses naming it (`name_missing`). Because per number now
+reads the per-metre SKUs, which stock both damper values, D4 (a)'s per-number refusal of "without" no longer applies. The
+fields shown are only the unit's (owner 15:56): per sq.m Damper; per metre Damper + Slots; per number Damper + Slots + "Piece
+length (m)"; "Size (as written)" and "Area band (as written)" are gone from slot diffusers; the quantity box stays.
+
+**ADP-1 THE PIECE LENGTH (owner 2026-10-19).** `numbers.piece_length_m` is `typed_only` (the model is never asked) with
+`length_from: size_mm`. Typed wins (mm / cm converted, with a line). Else, from the size as written: the side labelled as the
+length ("1500 mm long"); else the LONGEST side of "a x b" or "a x b x c" ("1000x150" -> 1 m); else a single unlabelled number
+>= `PIECE_LENGTH_MIN_MM` (300) mm IS the length; below 300 it is a slot width and is not read. Nothing read -> 1 m, amber,
+"no piece length stated - priced at 1 m" (H3 (d)). The field shows the value actually used with how it landed there.
+
+**ADP-1 H4: A PER-NUMBER MIXING BOX / LP PLENUM IS 2 x (LB + BH + LH) / 10^6 x THE PER-SQ.M RATE, + THE ADDER ON SUPPLY (owner
+2026-10-19 14:34 / 14:41; HVAC v47).** This supersedes the 2026-10-05 ruling "without dimensions -> a fixed rate". Per-number
+rows (Nos / each / no-unit priced per number) convert the per-sq.m SKU by the surface area of W x H x D; the mixing-box supply
+adder is added to SUPPLY only, before the round-up and the supply markup, exactly where S7 put it (never to install). A missing
+dimension REFUSES naming each one ("per-number row: no width and height stated to convert the per-sq.m rate") -- including a
+slot-diffuser plenum that gives only a length (BOQ-26-00087 rows 72-74). Per-sq.m plenum rows keep per-sq.m pricing.
+⚠️ **The refusal sentence and the W x H x D reading are SUPERSEDED by ADP-2 H7 (below): an area is a second way to price, the
+sides are read L x W x H as their own fields, and the refusal offers both ways. The formula, its + 150 and its position stand.**
+⚠️ **THE TWO PER-NUMBER PLENUM SKUs ARE RETIRED, NOT DELETED (owner Q1, 2026-10-19 15:50).** rmi-4184735331c3 and
+rmi-a23b43d34447 were deactivated through the product's per-SKU path (`deactivate_rate_master_item`: active = 0, every row and
+its history kept), v47 was exported from the database after that and proved equal to it by content. Reason, as recorded: H4 --
+"use this logic to price all low pressure plenums / mixing box"; the formula makes the Nos SKUs redundant (they were never
+matched by any stored row). ⚠️ **The mint gate cannot see this:** `mint_completeness_check.py` has no item atoms, so a
+removed SKU passes it silently -- an item retirement is proved by the uid diff, never by the gate.
+
+**ADP-1 A4: THE THREE ADP LITERALS ARE HVAC PRICING INPUTS (owner 2026-10-19 14:24 "yes"; HVAC v47).** Mixing box supply adder
+150 (amount, Rs per number), cross-talk assumed depth 300 (factor, mm), flexible duct length per piece 2.5 (factor, m per piece),
+`shared_by: adp`, read through a `rate_ref` step + `<x>_from_ctx` exactly as Insulation's. The move changed ZERO figures (the
+A4-alone replay: 139 ADP rows changed working lines only). The 150 stays BEFORE the markup (owner Q2b). ⚠️ **Reach (owner Q2
+"ok"):** `pricingInputReach` walks `convert` options too; a conversion records "used by ADP" with NO SKU columns, so the impact
+panel shows 0 SKUs for the 150 and the 2.5 m (they act only when a per-number row converts) and the 6 cross-talk Nos SKUs for
+the 300. A per-number row's supply moves by exactly the edit x (1 + markup) (AC0 (d): 150 -> 200 moved 00186 / 58 2,233 ->
+2,306).
+
+**ADP-2 H5: THE AIR STREAM DECIDES A DAMPER NOT MENTIONED, ON EVERY GRILLE AND DIFFUSER WITH A DAMPER CHOICE (owner 2026-10-19
+14:34 / 14:41; HVAC v48).** Four `derive_when_none` rules on the six families whose SKUs carry a with / without damper (curved,
+floor, linear grille; round, slot, square diffuser): supply air -> with; return, exhaust, fresh air -> without. They fire ONLY
+over a damper "None" or not answered, so a damper the row states (with or without) always wins; no air stream stated keeps R1's
+"without". "Supply and return both" cannot be answered (`air` is one value); where the model answers one stream anyway, fix (a)
+below decides. They
+REPLACE R13 (linear grille, supply -> with), whose effect they include. A default a stated fact decided carries that fact
+(`DefaultedAttr.when`) and its line names it: "supply air, damper not mentioned -> with damper" (U3); the Air stream field now
+shows on all six families because it decides the damper (v47: the linear grille only). Measured on the 17,914 stored rows: 51
+rows change figures -- 49 from H5 (square diffuser 32, slot 12, curved grille 5 -- every one supply air, damper not mentioned),
+e.g. BOQ-26-00087 r54 2,187 -> 2,866, and 2 from fix (a) (below); an explicit "without" under supply air stays (BOQ-26-00231
+r238, 1,044 / 400).
+
+**ADP-2 H5 FIX (a): A ROW NAMING SUPPLY AND RETURN AIR LEAVES THE DAMPER AS READ (owner 2026-10-20, after the H5 payload audit;
+code only, every config).** The model sometimes answers one stream for a row that names both (BOQ-26-00247 r80 "Supply / Return
+air diffuser", answered supply at 0.7). Where a `derive_when_none` rule's fact is an AIR STREAM (its values hold supply and
+return): (1) the row's OWN text (description + own notes) naming exactly one stream -> that stream decides, as built (a row
+saying "supply air diffuser" under a heading naming both stays "with"); (2) else, the own text naming both, or naming none under
+a heading (any ancestor description) naming both -> the stream does NOT decide: the damper is the model's own value, not
+mentioned -> the ruled default "without", with the line "BoQ names supply and return air -> damper as read (not mentioned ->
+without)"; (3) else as built. ⚠️ **Only words used FOR the air count** (`airStreamsNamed`: "supply air", "Supply / Return air",
+"supply & return air"): the BoQ's everyday "Supply and installation of ..." names no stream, nor does "SUPPLY LINEAR SLOT
+DIFFUSER MAKE: AIR MASTER". ⚠️ **It reaches every damper rule reading the air stream, R13 included** (owner "(i) ACCEPT":
+H5 replaces R13), so the Derivation line "A row naming supply and return air leaves the damper as read" generates on v33 / v38
+/ v47 too, and the two R13 linear grilles "for supply & return air" (BOQ-26-00234 and BOQ-26-00273 "(CHW BOQ) AHU & Low Side"
+r571) moved 9,628 / 2,800 -> 4,829 / 880. 00247 r80 (1,813 / 400) and 00103 r41 (1,668 / 400, heading "Supply & return air
+diffusers") stay at their pre-ADP-2 figures. The calculator has no row text; fed the panel's damper it agrees.
+
+**ADP-2 H7: A PER-NUMBER PLENUM / MIXING BOX HAS FOUR FIELDS -- AREA, LENGTH, WIDTH, HEIGHT -- AND PRICES BY AREA, ELSE BY ITS
+THREE SIDES, ELSE REFUSES (owner 23:13 / 23:18 / 23:19, Q2 / Q3 2026-10-20; HVAC v48).** The four are typed-only boxes
+(`numbers.plenum_area_sqm`, `plenum_length_mm`, `plenum_width_mm`, `plenum_height_mm`), shown in the panel and the calculator
+under one plain group label, "Area, or all three of Length, Width, Height" (generated from their labels; ADP-3's marker replaces
+it); there is no combined "Size (as written)" box on a per-number plenum. With nothing typed they are FILLED from the model's
+existing answers -- the model's question is unchanged (stub proof: identical): the sides from the size as written by
+`readBoxSides` (the reader key `box_side`), in the order LENGTH x WIDTH x HEIGHT, height last as the stored BoQs write it ("550
+x 550 x 400 mm Ht"), a written label winning (L / long / length -> length; W / B / width -> width; H / Ht / high / depth ->
+height; "3000 mm Length" -> length 3000); the area from "Area band (as written)" at its LARGEST value ("up to 0.5 sqm -> priced at
+0.5 sq.m (the largest value)"). Each field shows the value used with that line. ⚠️ **This is NOT `splitSizePhrase`**, whose axes
+are a face's (width, height, depth, "Length" -> depth); `box_side` exists because no older key can say "this side of a box".
+(a) An area -> area x the per-sq.m rate, supply and install, NO adder (23:18: "we just use the rate from it"); it wins when the
+sides are stated too. (b) Else length + width + height -> ADP-1's formula, + the adder on supply, unchanged. (c) Else refuse,
+offering both ways and naming what the nearest one lacks: "mixing box / LP plenum needs an area, or length + width + height -
+width and height not stated - price this row by hand" (several conversions that EACH declare `name_missing` refuse together;
+a family with one keeps ADP-1's sentence). DISPLAY ONLY for stored rows: the formula is symmetric, so the fill order moves no
+figure -- 0 of the 17,914 rows changed figures from H7 (185 wording). No stored plenum carries an area band (0 of 204 stored plenum items).
+
+**ADP-2 B3: THE NECK DROPDOWN OFFERS "OTHER..." (owner 2026-10-19 14:24 "ok"; HVAC v48).** ADP's `panel_controls.neck_mm` is
+`dropdown_or_other` (owner FA8's control, already Insulation's and Piping's): the stocked necks (300 / 375 / 450, the square
+diffuser only) plus a typed box; a typed unstocked neck takes the next stocked size up with its line ("225 mm -> priced as 300
+mm"), above the largest (450) it refuses. A stored neck the catalogue does not stock now opens the field in "Other..." showing the
+BoQ's words, at the same laddered price (30 rows, wording only); no figure moved -- the ladder already applied to the model's
+value. The Derivation line is keyed to a `square` size reader, so Insulation's and Piping's tabs are unchanged.
+
+**ADP-2 MOVED OUT (owner 2026-10-20 00:24): F-ADP1 (the butterfly-damper warning on spigots) -> ADP-5**, because only the model
+can tell whether the heading's damper is priced in the spigot row or separately ("if it is seprate then no warning hsould be
+there"); measured: 9 stored spigot items whose heading names a butterfly damper and whose row carries no damper item.
+**A6 (the Derivation tab priced through the panel's entry point) -> ADP-4**: the tab has no row unit, so it cannot price a
+converted row (VCD 550X300: 7,830 / 1,920 per sq.m on the tab vs 1,292 / 317 per number on the panel). SUPERSEDED by ADP-4b D8:
+the tab prices nothing; the calculator is where a row is priced.
+
+**ADP-3a H1: THE "*" IS THE GATE'S OWN CONDITION, BUILT ONCE (owner 2026-10-20; every discipline).** A field carries `required`
+(the "*" after its label, `aria-required`, one "* needed to price" note per panel / calculator) exactly when a blank in it
+withholds the price: on an item list, the family's / unit block's / single conversion's needs minus a need a default fills on a
+BLANK (`absent_as_none`, `number_defaults`) -- a default that fires only on "not mentioned" (Insulation's cladding) still
+refuses a blank, so it is starred; on an attribute row, the gate's own sets (not derived, or a blank self-fit bind, or an
+unfillable derived one), never a disabled field. Never a second list: a starred blank field on a priced row is 0 over every
+stored row. A field in an either-or group carries no "*"; the group heading does.
+
+**ADP-3a H2: SEVERAL WAYS TO PRICE ONE FAMILY ON ONE UNIT ARE ONE GROUP ON SCREEN.** The heading is generated from the fields
+(`waysLabel`, the refusal's own helper): "Size (W x H), or Area band", "Area, or all three of Length, Width, Height", "Neck
+size, or Outer size" (the square diffuser's outer size is SHOWN as its own field). The group's fields sit together where the
+first of them sits (cert C3: a field read between them drew the heading twice). With neither way stated the row refuses
+naming the group: "<kind> needs <ways> - neither stated - price this row by hand", every box it names outlined.
+
+**ADP-3a B6: A NO-SKU SENTENCE NAMES ONLY WHAT THE KIND'S PRODUCTS VARY ON.** A fact the products do not carry, or carry with
+one shared value the row agrees with, is left out ("No SKU for fire damper: UL listed no, variant UL"); a shared value the row
+CONTRADICTS stays (the one access door is 450 x 450, so "No SKU for access door: width 600, height 600"). The same rule on the
+attribute path ("... matches these answers.").
+
+**ADP-3a UNIT REFUSALS (owner 13:35).** A kind not stocked in the row's unit, or a unit the catalogue does not know ('Lot',
+'Nos/Ro'), refuses as "<kind> is not stocked per <unit> (stocked per <units>) - price this row by hand". The code sentence
+supersedes the config's `unit_refusal` on the item-list path; the key stays the fallback where no family is known.
+
+**ADP-3a U3 / U6: EVERY MISSING FIELD IS NAMED, EVERY USED VALUE IS SAID.** "Missing to price: A, B -- fill them to compute a
+rate." (panel) / "Fill to price: A, B." (calculator); an item list names every missing need ("could not tell cladding; no pipe
+size stated"); the outline is keyed to the field the refusal is about (`refusedFor`), not to the sentence. A value the
+pricing landed on says how, under its field: W x H read from Size, the area band at its largest, the neck behind an outer
+size, the area multiplied, the sq.ft rate before and after, and on attribute rows the `landed` note (fitted / mapped / worked
+out / module fit; a stocked size given as asked is "As given - a stocked size").
+
+**ADP-3a U7: THE CALCULATOR ASKS WHAT THE SERVER WOULD (calculator only; a BoQ row is untouched).** A controller's
+`absent_when_value` (circuit wiring included = No) sets each BLANK `absent_dependents` field to None, exactly the server's
+`force_absent_dependents`; a stated value is never overwritten. A computed item's quantity (the face plate, `requires_named`)
+takes its `extraction_defaults` value once the item is NAMED, shown as a default -- never before.
+
+**ADP-3a U8: EVERY CONTROL IS NAMED BY ITS OWN LABEL.** `<label htmlFor>` with a `useId` prefix per mounted panel; no control
+inside a wrapping label (an undo button inside one took the field's name, and a wrapping label made a select's name run on into
+its whole option list). Proved in jsdom (`adp3a.dom.test.tsx`: every category's calculator, 0 unnamed).
+
+**ADP-3a DERIVATION LINES, LAST ON EACH TAB.** The unit refusal (every item-list tab); the unstocked combination (only where
+the category has a choice attribute -- not Piping); ADP's per-number either-or, titled by the GROUP, never the kinds (they
+change between catalogue versions). Old pins read a tab with these set aside (`withoutAdp3aLines`).
+
+**ADP-3b B1: A FACE SIZE IS TWO BOXES, WIDTH AND HEIGHT (owner B1, 2026-10-11 / 2026-10-19; HVAC v49).** `face_w_mm` /
+`face_h_mm` are `typed_only` readers with `length_from: size_mm` and `face_side` (width / height) -- their ids are the SKU
+attributes, so needs, conversions, the SKU match and pipelines are untouched, and the model is still asked for the size as
+written (`size_mm`, unchanged). An empty box is filled from that size by `readFaceSides` with its value-used line ("BoQ says
+550X300 -> width 550 mm"); a typed value always wins ("You typed 600 -> width 600 mm"). Text the reader cannot split is read
+WHOLE as the width, exactly as the width axis read it before. Two boxes as one way read "Width + Height" (the group and the
+refusal: "<kind> needs Width + Height, or Area band - ... - price this row by hand"). A face that gave no side is named by the
+size ("Size '1500 mm long' gives no width or height (1500 mm long named as a length - not used)").
+
+**ADP-3b D1: THE FACE IS THE FIRST TWO PARTS (owner 2026-10-20 22:25).** A label (W / wide / width; H / Ht / hgt / high /
+height) decides only between the first two parts; a third part never displaces them and is said on the width's line ("450 mm
+Height (the third part) - not used as the face"); a part labelled as a length or a depth is named and not used ("600(L) named
+as a length - not used").
+
+**ADP-3b D2: A HEIGHT-ONLY KIND SIZED BY ONE WIDTH (owner 2026-10-20 22:25).** Where a family's rule reads the HEIGHT alone (the
+per-metre grilles) and the size is ONE part written as a width ("150mm width"), it is the height: "BoQ says 150mm width ->
+height 150 mm (the grille's narrow dimension)". An unlabelled single number stays the width (refuses, as before). This moved one
+stored row: BOQ-26-00247 "BOQ" r102, refused -> 725 / 132 / 857.
+
+**ADP-3b D3: THE SQUARE DIFFUSER'S OUTER SIZE IS TWO BOXES (owner 2026-10-20 22:25).** "Outer width (mm)" / "Outer height (mm)"
+in the "Neck size, or Outer size" group, read wherever the neck is (a `typed_only` reader is otherwise read only where the
+family's rule needs it); the refusal names the size as written when the boxes are empty.
+
+**ADP-3b D4: NO DEPTH AXIS (owner 2026-10-20 22:25; HVAC v49).** `numbers.depth_mm`, `match_attrs` depth_mm,
+`panel_controls.depth_mm` and its "Add the depth ..." note are retired (read by nothing; cross-talk's depth is the Pricing Input
+`crosstalk_assumed_depth_mm`). The catalogue-column definition stays (0 items carry it).
+
+**ADP-3b FIX (2): A PLENUM WITH NOTHING STATED NAMES NEITHER WAY AND OUTLINES EVERY BOX (owner 2026-10-20 21:57).** "mixing box /
+LP plenum needs an area, or length + width + height - neither stated - price this row by hand", Area outlined with Length /
+Width / Height; with something stated, the nearest way's gaps as before.
+
+**ADP-3b FIX (3): A FIELD ITS CONTROLLER DECLARES ABSENT CARRIES NO "*" (owner 2026-10-20 21:57).** While `circuit_wire_included`
+= No (its `absent_when_value`), the six circuit-wire fields (`absent_dependents`) are not marked needed -- on the panel and the
+calculator alike. Display only: the gate is unchanged.
+
+**ADP-3c: A TWO-PART SIZE ON A WIDTH + HEIGHT ITEM IS THE FACE, WHATEVER ITS PARTS ARE CALLED (owner 2026-10-21 01:31 /
+01:55; no asset).** Where a block reads BOTH `face_side` readers (width and height) of the same size, a size of EXACTLY two
+readable parts fills both boxes: a width or height label decides that side and the other part takes the other side (L /
+length / long / D / deep / depth no longer mean "not used" there -- "BoQ says 600(L)X150mm width -> height 600 mm (the other
+part of a two-part size)"); with no width / height label, or both parts labelled the same side (owner (2)), first = width,
+second = height ("the first / second part of a two-part size"). D1's "named and not used" still holds for three-part sizes
+and for single-side readers; D2, the plenum, one-part sizes and inches / lists / ranges are unchanged. Order matters on the
+face-matched kinds (cross-talk, access door, square diffuser outer); calculator = panel. ADP Derivation line LAST. An EMPTY
+row unit is NOT priced per number on the page (`row.unit ?? ""` -> "set the unit" on a multi-unit kind); the replay
+harnesses pass null -- an open finding (ADP-3c plan entry), not a rule.
+
+**ADP-4a D1: EVERY ADP DERIVATION LINE ENDS WITH ITS REASON (owner 2026-10-21 14:41; HVAC v50).** Each line's detail ends
+" -- why: <reason>": a ruling the owner gave, quoted as one sentence with its date, from `DERIVATION_RULINGS` in
+`itemListRuleOrder.ts`, keyed by the catalogue's ITEM KIND (`hvac_adp_item`) and the line key -- never written from what the
+code does; a line (or a fact inside a merged line) with no ruling says "reason not recorded". Insulation and Piping carry
+no reasons. A new ADP line must get a key and either a ruling or "reason not recorded".
+
+**ADP-4a D2 / D3: ONE LINE PER RULE ON ADP's TAB (owner 2026-10-21).** Merged: the damper / defaults lines into one (the
+air stream's rule inside it); the five fitting lines and the neck "Other..." line into "Fitting the stated diameter, neck
+size, torque, panel ratio or plenum thickness to the catalogue" (each value's stocked list named); the boxes / face /
+two-part lines into "The sizes are typed in their own boxes, else read from the size as written"; line 5 (unit not
+offered) into the unit-refusal line. Lines for rules the config always ran are generated (the conversions, cross-talk,
+'1:N', gauge, square feet, m / cm), each with a positive and a negative reachability case. Generic fixes on all three
+tabs: full lists (never "and N more"), "amber" derived cells, line 30's units / factor / rounding. Insulation and Piping
+change ONLY those lines (U6: Insulation 23 / 24 / 39 / 40 / 42, Piping 13 / 17).
+
+**ADP-4a AC2: NO INTERNAL TEXT ON ADP's PANEL OR CALCULATOR (plain item wording = a category declaring shared
+`default_pipelines`, i.e. ADP).** The working drops "item supply:" leads, ROUNDUP (folded into its line as "rounded up to
+the rupee"), H-codes / R-tags, "(amount) / (factor) / (rate)", "10^6" (written 1,000,000), "sum components", "SQM row";
+labels drop "(as written)" (a multi-source reader is named by its reader: "Plenum thickness (mm)"); "none of these" /
+"grille, type not stated" show as "Not in the catalogue" / "Grille (type not stated)" -- display only, the value is
+unchanged. The air stream offers no "None"; a stored "None" shows the empty choice worded "not stated" (U5) -- ONLY on a
+field whose None no ruled default maps (the air stream); UL / damper / insulated keep their display.
+
+**ADP-4a AC3: A FACT STATED ON A FIELD IS NOT REPEATED IN THE WORKING (owner D5, 2026-10-21; ADP and Insulation, an
+Insulation block the same wherever it sits).** `withoutRestatements` rebuilds each restating working line EXACTLY from the
+record it was written from (a default, the family's decider, an override, an alias, a reader's line, a ladder hop) and
+drops it ONLY when the field (or heading) stating it is on screen; a fact with no field stays in the working. Scope: a
+category with `defaults` / `number_defaults`; Piping's own working is untouched byte for byte. Reachability pins read the
+field's note for a reader's words (F-2 holds through the note, built from the same pricer result).
+
+**ADP-4a AC4: DIAMETER, TORQUE, PANEL RATIO, PLENUM THICKNESS AND SLOT COUNT ARE "DROPDOWN OR OTHER..." (owner D6; HVAC v50).**
+`panel_controls` + one `panel_notes` entry each -- nothing `build_items_spec` reads (the model's request is byte-identical on
+v49 and v50: ADP dcbe3a2e..., Insulation c335f2b8..., Piping 757f2ba4...). The parity fixture's ADP part is v50: 0 ADP
+sweep divergences (asserted with its count); the corpus keeps the 3 accepted C rows and 7 rows of cause E
+(`E_outer_size_quote`, the quoted outer size, pre-existing since v49) awaiting a fix (owner 2026-10-21 "List the 7, fix later").
+Fixed in ADP-4b (below): the corpus keeps the 3 accepted C rows only.
+
+**ADP-4b D8: THE DERIVATION TAB IS THE RULES LISTING -- NO SECOND PRICING PATH ON IT (owner 2026-10-21 14:41 / 14:49; every
+discipline and category).** "the calculator already serves the same function. so the derivation tab just becomes the rules
+listing." The tab shows `itemListRuleOrder`'s "How a row is priced" where the category has one; otherwise ONE line
+(`derivationNoticeLine`): "This category's rules are not listed yet. To see how a row is priced, open <pricing page> ->
+Calculator." (the page from `CALCULATOR_WORKBOOKS` + `PRICING_WORKBOOKS`, passed in by the page -- the panel imports
+`RateMasterDerivation.tsx` for `derivedQtyValue`, so that file must never import the calculator), and on a Pricing Inputs
+category the owner's line about shared numbers (PA1-R). The extraction "Rules" card (`config.rules`, the AI's guidance) stays
+where the config carries rules; its "No rules configured" empty state is not drawn beside the line. ⚠️ **No attribute
+box, figure, pipeline step card or inline parameter edit may return to this tab**: the retired grid ran `runAllPipelines`
+with no row unit and showed figures the panel did not (ADP-R4 R4: 7685 / 1600 for a per-number square diffuser the panel
+prices 1972 / 576) -- a figure is seen in the calculator, which prices through the panel's own entry point. A category's
+retrofit builds its rules list; until then it shows the line.
+
+**ADP-4b D9: THE PIPELINES TAB IS REMOVED; A CONFIG'S STRUCTURE CHANGES ONLY BY A NEW ASSET VERSION (owner 2026-10-21 13:26,
+option A; every category).** "whatever needs to be edited from there becomes a part of the pricing input sheet or individual
+category catalogs." Business numbers live in Pricing Inputs, dropdown values in the catalogue, and attribute definitions,
+steps, conditions, bands and goldens change only through a minted asset (developer-only). The editor-only helpers went with it
+(`cloneConfig`, `evaluateGoldens`, `goldenDeltas`, `referencedAttrIds`, `blankAttributeDefinition`, `blankPipeline`); the
+goldens stay config DATA for the mint gate, the loader and the exporter. **ADP-5a (owner D9: "kept one slice, then
+removed"): `update_rate_config` and `update_rate_config_param` are REMOVED**, with the frontend helpers only they served
+(`rateMasterEdit.matchedConditionIndex` / `isEditableParam`). The validator they wrapped (`config_validation._validate_config`,
+`validate_delegated_sections`) keeps one product caller, the import loader (`loader.py`), and is tested directly; the
+re-import block in `rate_master.py` stays for the tests that reach it through the api module. Rate Master write endpoints
+are now four: `update_rate_master_item`, `create_rate_master_item`, `deactivate_rate_master_item`, `apply_rate_master_csv`.
+
+**ADP-5a: A SPIGOT WITH A BUTTERFLY DAMPER IS ONE "BUTTERFLY DAMPER WITH SPIGOT", AT THE SPIGOT'S DIAMETER (owner 2026-10-22
+10:43-10:49: "the model correctly returned spigot and butterfly damper...so these cases should be matched with spigot with
+butterfly damper"; "Spigot Smaper is spigot with butterfly damper"; "only the dia of the spigot matters"; the SKU's 0 install
+"is ok").** Config key `list_spec.pricing.family_merge` (SCOPE-5a-1; shape check `config_validation._validate_family_merge`):
+an item of `family` prices as ONE item of `into` when the row also carries an item of a family in `absorbs` (that item is the
+same thing and is DROPPED -- its own answers, its size included, are not read) or when the row's text, a heading or the note
+of the heading directly above names one of `words` at a word start; `at` is the number kept (the spigot's diameter, then the
+standard ladder: the stated size, else the next stocked size up, refusing above the largest). ADP v51: spigot -> butterfly
+damper, absorbs butterfly damper, words "butterfly damper" / "spigot damper" / "spicot damper". `applyFamilyMerge` runs in the
+panel helper RIGHT AFTER the items are assembled, so the absorbed item leaves the EDIT STATE too (a block's position is its
+edit index on the panel), and the calculator gets the same one item from the same two. It applies whoever chose the family
+(model or pricer). The item says "spigot with butterfly damper named -> priced as one Butterfly Damper With Spigot, <size>
+mm". A spigot with no damper named stays a spigot. 93 stored rows moved (28 with both items, 9 under a butterfly heading, 56
+"spigot / spicot damper"), e.g. BOQ-26-00341 r103 1,311 -> 1,015.
+
+**ADP-5a: A CURVED GRILLE TAKES A DAMPER UNLESS THE BoQ SAYS WITHOUT (owner 2026-10-20 12:51: "curved grills are supply
+only..so they should price with damper only"; "always with damper unless the row says 'without'").** `defaults.damper` is
+per family (`by_family`: curved grille "with", the other five damper families "without") with the curved grille's own line
+(`rule_by_family`, SCOPE-5a-2: a family named there says that line; every other family keeps `rule` word for word); curved
+grille is out of the return / exhaust / fresh `derive_when_none` rules. A stated "without" (the model's answer, which reads a
+heading's "without") wins. 5 stored rows moved (6,390 -> 13,530 x4; 576 -> 1,218).
+
+**ADP-5a: "SUPPLY CUM RETURN AIR" AND "SA / RA" NAME BOTH AIR STREAMS; THE NOTE OF THE HEADING DIRECTLY ABOVE COUNTS (owner
+2026-10-22 10:49 item 3; HN-2 / HN-3).** `airStreamsNamed` reads "cum" among the joining words and "SA / RA" (capitals) as both
+streams -- in code; the model's question is unchanged. The panel's row context carries `headingNotes` -- the notes of the
+heading DIRECTLY above the row (`rateSuggestionModel.rowHeadingNotes`) -- read ONLY by the both-streams check and
+`family_merge`'s words; every other text rule reads what it always read. A farther heading's note (a section-wide
+specification) is not read (HN-3: on BOQ-26-00341 it would have moved six undeclared rows). 4 stored rows moved
+(12,428 -> 5,709).
+
+**ADP-5a CERT-C5 / C5c: THE PAGE BUILDS A HEADING'S NOTES FROM ITS COMMITTED ROWS (owner 2026-10-22).** The page's rows carry
+NO `attached_notes` field: an attached note reaches the page as its OWN committed row, `effective_classification` "note"
+(`NOTE_CLASSIFICATION` = `review_screen._NOTE_CLS`), whose effective parent is the heading. `rowHeadingNotes` builds the list as
+`commit_pipeline._derive_attached_notes` does: the heading's `append_notes_raw` values, its `row_notes`, then its note rows in
+row order, each trimmed, blanks dropped (= the BOQ Nodes tree). The replay rig uses the SAME function on the page rows
+`ac5_dump.py` exports (`ac5_page_rows.json`), so the replay sees what the page sees; the dump keeps the payload's view
+(`extraction._note_block` on the stored `attached_notes`) as `payloadHeadingNotes`, REFERENCE ONLY, and both harnesses REPORT
+the comparison (`hn_differ_<label>.txt`), never stop. At ADP-5a: equal on 17,680 / 17,914 rows, differ on 234 -- all on 17
+sheets whose stored `attached_notes` blob is stale (finding F-1, below); no stored row prices differently under either source.
+The owner's standing view: the payload structure is the standard and the panel should see what the model sees -- a follow-up
+slice moves the panel onto the server's payload builder. **F1-a (owner O3, 2026-10-22):** the row's OWN notes are built the
+same way -- `rowOwnNotes(row, rows)`: its `row_notes` (as before), then its own child note rows in row order, trimmed; the
+`attached_notes` field it used to read is never on the page and is no longer read. Screen only; neither payload changes. The
+rig builds `ownNotes` with it too and REPORTS the comparison with the dump's saved-copy view (`on_differ_<label>.txt`; 35
+rows at F1-a); the replay stayed `e45102ef` / `e4fe5588`.
+
+**F-1 CLOSED FOR THE PRICING PAYLOAD (F1-a, 2026-10-22; owner 18:21 / 18:25 / 18:27, O1, V2).** The pricing payload
+(`extraction._ai_item`, and the deterministic readers `row_own_text_fragments` / `point_type_of`) reads a node's attached
+notes ONLY from `derived_attached_notes`, which `context_builder.build_sheet_context` builds per row and per ancestor from the
+nodes it already loads by the COMMIT'S OWN rule (`commit_pipeline._derive_attached_notes`, imported, never re-implemented):
+the node's child nodes of row_class "note", in sort_order. Where the saved copy is right -- every commit since the derive
+reached production (2026-08-11 05:22 IST) -- the payload is byte-identical by construction; only where it is stale (165
+sheets, all committed before then; the cause was the pre-derive pass 3 copying the review row's own carried copy, which a
+re-commit could carry forward) does it change. The EA-7 tiers are untouched (the lean tier still carries no attached notes).
+Proven over all 899 committed sheets / 73,158 rows: exactly the 6,429 rows with a stale node at distance 0-2 differ, only in
+attached-note text inside the full tier; 0 rows on the 734 sheets whose saved copy is right; the classifier's input
+byte-identical everywhere. A Suggest run that meets a stale saved copy writes ONE `frappe.logger("boq_rate_extraction")`
+warning line per sheet (heading nodes and counts, never the text; no DB write). Nothing stored is rewritten (D5).
+- **The classifier still reads the saved copy (O1, 18:28 / 18:32).** Its rules feed, voter payload and `_notes_text` are
+  unchanged; moving it is a separate, measured decision (F1-R Q5: 7,313 inputs / 922 rule verdicts would move on a re-run).
+- **THE STAND-IN ADAPTER (owner V2, 2026-10-22) and its blind spot.** The commit writes a node's description as
+  `description or sl_no_value or "(untitled)"` (`commit_pipeline._build_node_pass1`) but derived the saved copy from the
+  REVIEW description, where an empty one contributes "". So `context_builder._commit_note_text` hands the derive "" for a
+  note node whose text is exactly "(untitled)" or its own code -- pinned to the commit's expression by
+  `test_f1a_derived_notes`. **Blind spot:** a note whose REAL description equals its own sl_no_value is indistinguishable
+  from the stand-in and contributes "" too -- 0 such note rows across all 899 sheets at F1-a (all 178 matching nodes are
+  stand-ins: 153 code, 25 "(untitled)").
+- **O2 -- DEFERRED, the rule recorded in the owner's words (18:31):** "an empty-description note row contributes only text
+  from the captured columns (description parts, appended notes, row notes), never a fallback, a row number or
+  '(untitled)'." Until it is built, an empty-description note contributes exactly what it did before F1-a (nothing to the
+  payload); the PAGE still shows the stand-in text, so page and payload differ on those rows only (F1-a: 3 stored rows'
+  heading notes, BOQ-26-00292 r58-60; 9 rows' own notes).
+- **O4 -- OPEN: six "pass-3 absent" sheets** (BOQ-26-00106 ELECTRICAL BOQ, 00173 FAPA, 00181 FAPA, 00221 BOQ 2025-GF and
+  BOQ 2025- (Basement), 00260 Electrical BOQ): no node carries any pass-3 JSON field (no `attached_notes`, no
+  `description_parts_raw`) although the review rows do; 4 were committed after the derive deployed, which today's
+  reconciliation would have refused. Cause unknown read-only; a separate read-only look, then the owner's call. The payload
+  already reads their tree.
+
+**ADP-5b: ADP's "none of these" refusal NAMES THE ITEM AS WRITTEN (owner R1, 2026-10-22 10:49; HVAC v52).** ADP asks a text
+answer `item_as_written` ("Item as written", asked last; its note asks for the BoQ's own shortest continuous words, and only
+when the family is "none of these") and `list_spec.pricing.no_sku_named_by: "item_as_written"` -- the Insulation mechanism
+(12d-1b T5), used with NO code change: ADP declares none of the keys the pricer's other `no_sku_named_by` readers need
+(`unstocked_materials`, `family_when_none`, `material_text`, `choice_text`, a PUF or fiberglass family), so the answer only
+ever reaches `namedMaterialRefusal`: "No SKU in the catalogue for Hit & Miss Damper - price this row by hand". The pricing
+never reads it, no panel box shows it, and an answer without it keeps the R18 sentence (pinned: `adp5b.test.ts`,
+`test_adp5b_question.py`).
+
+**ADP-5b: A CLADDING NAMED "WHERE REQUIRED" STILL APPLIES (owner R2, 2026-10-22 10:49; HVAC v52).** The Insulation `cladding`
+note's conditional sentence reads: "A cladding a heading names with 'where required', 'if required', 'as required' or 'as
+directed' still applies to every row under that heading: answer it. Only a condition that names WHERE the item is (pipes
+exposed to sun or atmosphere, outdoor, exposed areas) limits the cladding to rows that meet that condition." **Piping asks it
+too:** Piping's question carries the Insulation question whole as its delegated section (12e-3a, owner D-2 "no second copy"),
+so an Insulation note change ALWAYS changes the Piping items spec, only inside that section (owner, ADP-5b STOP 1 option 1).
+A stub proof for an Insulation question change must expect the Piping sha to move.
+
+**ADP-5b: THE MODEL-FACING DAMPER DEFAULT SAYS "without (curved grille: with)" (owner R5, HVAC v52)** -- the ADP-5a per-family
+default in the words the model reads; figure-neutral.
+
+**ADP-5b PAID RE-READ (2026-10-23): a question change MOVES ANSWERS IT DID NOT TARGET.** 185 rows on 34 sheets re-read
+(47 calls): the targets landed (00087 r28 / r29 price with Aluminium Foil, 712 / 581; 19 of 25 "none of these" rows name their
+item), but on payloads identical to the stored answers' the model also moved 8 rows (a spigot to "none of these", two
+"Z TYPE BAFFLE" rows to actuator, two louver dampers to VCD at 9,750, a transfer duct to cross-talk, an Insulation control
+Acoustic -> Thermal, a Piping probe's cladding left out) and 2 F1 rows unexplained by their note change. Row list, payloads
+and both replies: the plan doc's ADP-5b entry and the Desktop `2026-10-23_ADP-5b_Rows.xlsx`. Rows NOT selected kept their
+stored answers byte-for-byte (34 / 34 sheets).
+
+**ADP-5c: WORK ON EXISTING ITEMS -- REMOVAL x1, REMOVAL AND REFIXING x2 (owner 2026-10-23 12:07 / 12:08; HVAC v53).**
+`list_spec.pricing.existing_work` (ADP only for now): a list of entries `{words, install_times, line, rule}`, tried IN ORDER;
+the first entry with a phrase at a word start in the row's OWN text (description + own notes -- never a heading, owner Q1 (b))
+wins. The SKU is matched the normal way (family + size ladder; a no-size cross-talk takes the 300 x 300 default below); a row
+with no SKU match refuses as before. Then step (6c) of `priceOneItem` sets supply 0 and install = the matched install x
+`install_times`, with the plain working line "removal and refixing of existing -> supply 0, install 2 x 288 = 576 (the row's
+own text says 'Refixing of Existing')". Phrases live in config, never in code: x2 "refixing (of) existing", "re-fixing (of)
+existing", "shifting (of) existing" (listed first, so "Removing and Refixing of Existing" reads as x2); x1 "removing (of)
+existing", "removal (of) existing". A bare "removing" never matches ("removable core" is on 36 priced rows). The calculator
+has no row text, so the rule never fires there. Validator: `_validate_existing_work` (a phrase in two entries is refused).
+**OPEN (owner Q1 (b), 2026-10-23): the phrases on the PARENT heading.** The ruling said "the row's own text and its parent
+heading"; `priceOneItem` sees the parent heading only inside the joined `rowText`, so passing it needs one optional argument
+from `pricingSheetHelper.ts` -- deferred. 0 of the 11 stored matches come from a heading.
+
+**ADP-5c: A CROSS-TALK SILENCER WITH NO SIZE PRICES AS 300 x 300 (owner 2026-10-23 10:14 / 12:08; HVAC v53).**
+`number_defaults.face_w_mm` / `face_h_mm` = 300 for family `cross-talk` (the ADP-1 mechanism, no code): 836 / 288 / 1,124,
+marked as assumed; a stated size always wins; a removal row with no size takes it too (then existing_work applies). The
+families list keeps every other per-number family's refusal ("no width and height stated") unchanged. This SUPERSEDES the
+earlier "option 3 now, option 4 later" record of the same day.
+
+**ADP-5c: THE ADP QUESTION (owner 2026-10-23 10:46; HVAC v53).** The family note gains, word for word: "A row that buys
+something returns at least one item: an item outside the list is 'none of these' with 'Item as written' -- never an empty
+list." (C3); in ALTERNATIVE NAMES "a spigot damper is 'spigot' (code prices it as the Butterfly Damper With Spigot); a
+multi-blade louver damper is 'VCD'. A Z-piece, a Z type baffle, a Z baffle or a cross talk silencer is 'cross-talk' (owner
+2026-10-23), also under a heading that names another family (a Z type baffle under an ACTUATORS heading is 'cross-talk')."
+(C4 / C1 / C5); and after "both items are returned." "A PLENUM'S ACCESSORIES ARE PART OF IT (owner 2026-10-23): where the row's
+item is a 'double-skin plenum' or a 'mixing box / LP plenum' itself, an access door or any other accessory the row names with
+it (hangers, cut-outs, openings) is not a second item -- return the plenum alone; its rate includes them." (C6; a canvas
+connection is NOT an accessory and stays its own item -- the sentence does not name it).
+
+**ADP-5c: VCD ALUMINIUM (owner 2026-10-23 10:21 / 10:23 / 12:03; HVAC v53).** One SKU, "Volume control Damper (VCD)" /
+"Aluminium", SQM, cost_supply 5,940 TYPED (= GI Rectangular's 5,400 x 1.10, not a formula or a link), install 1,200, markups
+0.45 / 0.6: 8,613 + 1,920 = 10,533 per sq.m; every other field from rmi-4f4585c07dd2. `spec_reader`'s VCD rule reads the detail
+"Aluminium" to variant "aluminium" (attributes are READ, never hand-typed). The variant (values, `values_by_family.VCD`, the
+catalogue values) gains "aluminium"; the note: "A VCD is 'aluminium' ONLY where the row or its headings say the damper is
+aluminium (aluminium, aluminum, Al.) (owner 2026-10-23); a VCD that does not say aluminium is answered as before and takes the
+default. A motorised aluminium VCD is 'motorised'." (D8 (a)). Every dropdown that offers the variant is driven by the SKUs or
+the config -- no code. Aluminium hit & miss dampers stay named refusals (D10).
+
+**ADP-5c: A COATING IS NEVER A CLADDING, AND IT IS SHOWN (owner C7, 2026-10-23 10:51; HVAC v53).** The Insulation `cladding`
+note's coating sentence reads: "A paint or coating ('polyshield coating', 'fire retardant coating', 'protective coating', a UV
+coating, a lacquer) is not a cladding and never changes the price (owner 2026-10-23): where it is the only covering the text
+names, with no glass cloth, answer 'None' -- never 'Glass Cloth with paint' -- and leave it out of 'Cladding as written'. A
+cladding named beside it (an aluminium sheet, a foil) is answered as that cladding. Where the coating IS sandwiched with or
+applied over glass cloth, it is the paint of 'Glass Cloth with paint': copy the words up to and including the glass cloth into
+'Cladding as written'." The model copies the coating's own words into the text answer `coating_as_written` (asked last);
+`panel_readonly` shows it and a `read_notes` rule (every Insulation family, the whole text) adds the line "Coating (as in BoQ):
+<text>. Coating price is not included - adjust the price if appropriate." -- the pipe-class mechanism, by config. Piping's
+insulation section is priced with the Insulation config, so the line reaches it. Known: a COMPOSED row (two layers) shows the
+line once per layer (the existing `read_notes` mechanism). A coating sandwiched with glass cloth is the glass-cloth cladding
+(BOQ-26-00086 "High side": "sandwiched with 10 Mil Class E Glass Cloth" -> Glass Cloth with paint, owner Q2 (a)).
+
+**ADP-5c BROAD RE-READ (2026-10-23, HVAC v53): 453 rows on 54 sheets, 81 calls.** EXPECTED 375 / NEUTRAL 50 / QUESTION-EFFECT 22
+/ UNEXPLAINED 6; rows NOT selected kept their stored answers byte-for-byte (54 / 54). **OPEN for the owner:** BOQ-26-00087 r28 /
+r29 now read "aluminum cladding / reinforced foil facing" as 24G Aluminium with Glass Cloth and refuse (were Aluminium Foil,
+712 / 581) -- the v53 note moved a 0.4-confidence answer; 00302 r53's canvas connection is dropped as a plenum "accessory"
+(C6 reached it, against the canvas ruling); 00231 r214-216 motorised VCDs no longer return their control panel / actuator as
+items and now price. Rows, payloads and both replies: the plan doc's ADP-5c entry and the Desktop `2026-10-23_ADP-5c_Rows.xlsx`.
+**RESOLVED in ADP-5d (HVAC v54):** 00087 r28 / r29 712 / 581, 00302 r53 4,514, 00231 / 00243 r214-216 the motorised VCD alone
+with the "not included" line.
+
+**ADP-5d: THE DAMPER A ROW'S AIR STREAM CANNOT DECIDE (owner R6b 2026-10-23 23:24; ring fence Q1 (B) 2026-10-24; HVAC v54).**
+`list_spec.pricing.stream_heading_default` ({attr, streams_attr, families, words, line, rule}, ADP only). A MODEL damper answer
+that differs from the family's ruled default (`defaults.damper.by_family`) is set aside for that default, recorded as an
+override, so the field shows the value priced with the line "heading names supply and return air, this row names neither ->
+damper as default (without)". It applies ONLY when all of these hold:
+- the row's OWN text (description + own notes) names neither supply nor return air (`airStreamsNamed`) and no damper word;
+- the heading DIRECTLY above (HN-3: the last heading + its notes) names both streams;
+- that heading's damper sentences name no sentence with BOTH streams and at least one with exactly one. A heading naming no
+  damper qualifies; "supply & return air grilles with vcd" and "damper should be operable" do not.
+
+A grandparent naming both streams never counts. A pricer's pick and a "not mentioned" answer are untouched, and the
+calculator never fires it. Movers: 00066 r638 and 00148 6.HVAC r65 / r70 -> 5,709; 00073 r15 -> 6,195.
+
+**ADP-5d: A RETURN AIR BAFFLE IS A Z-PIECE PLUS ONE GRILLE (owner R4 2026-10-23 23:28 / 23:29; Q3; HVAC v54).** The question
+answers 'cross-talk'. `list_spec.pricing.companion_items` ({families, words, unit_class, item, line, rule}) then adds, where
+the row's OWN text names "return air baffle", one linear grille (without damper, return, 300 x 300), priced through
+`priceOneItem` on the `count` path (sq.m rate x W x H = 435 + 80 = 515) and added to the item's supply and install, one per
+row unit. That gives 2,320 + 435 / 800 + 80 = 3,635 per sq.m (the owner accepted 3,635 over 3,634: each half is rounded up), or
+per number 1,124 + 515. A companion that does not price leaves a line saying so.
+
+**ADP-5d: LINES DRAWN FROM THE ROW'S TEXT (owner R9 / R13; Q4; HVAC v54).** `list_spec.pricing.text_notes` ({families,
+from_text "headings" | "own_and_headings", pattern, unit_classes?, when {attr, equals}?, line, rule}) adds a working line;
+display only. It is deliberately NOT inside `read_notes`, whose every entry the Rate Master Derivation tab turns into a line.
+- R9: a VCD with variant 'motorised' under a heading naming a control panel gets "control panel, actuator and cabling named
+  in the heading: not included - add by hand". Reach is tight: the heading must name a control panel, which today means
+  00231 / 00243 r214-216.
+- R13: a square diffuser on an AREA row whose texts do not settle the shape (no shape word, or round and square both) gets
+  "shape not stated (or round/square offered): priced as square diffuser - change if round". The question answers 'square
+  diffuser' there (R13). A per-number row never gets it.
+
+**ADP-5d: THE FLOOR GRILLE'S 300 x 300 (owner R21 2026-10-23 23:43; Q5 (b); HVAC v54).** `number_defaults.face_w_mm` /
+`face_h_mm` families gain 'floor grille', with `rule_by_family` (new, the `defaults` precedent): "size not stated: priced at
+300 x 300 - change if different". The cross-talk rows keep their own line byte for byte. 00315 / 00215 PAC WORKS r42 -> 1,824.
+
+**ADP-5d: THE WORDING (owner R1 / R2 / R4 / R9 / R12 / R13 / R17-R19 / R21; Q7; HVAC v54).** The exact old -> new texts are in
+`test_adp5d_question.py` and the plan doc.
+- ADP family note: a canvas connection is NOT a plenum accessory (its own item); a return air baffle is 'cross-talk'; a
+  motorised VCD's heading control panel / actuator / cabling are not items; on a per-sq.m row an unsettled diffuser shape is
+  'square diffuser'; a double deflection grille is 'linear grille' (a curved grille stays curved); a grille damper is
+  'collar damper'; a floor tile / rigid floor / rigid tile grille is 'floor grille'; a discrete grille is 'grille, type not
+  stated'; a size-only row buys its heading's item.
+- Insulation cladding note: a FOIL facing is 'Aluminium Foil', never glass cloth, and aluminium cladding / foil facing
+  offered as alternatives is 'Aluminium Foil' (R2). "Exposed insulation material with <cladding>" describes the insulation's
+  own face, not a place, and Al Foil / GC cloth is 'Aluminium Foil' (R12). Piping's insulation section moves with it.
+- R22 needs no wording: chilled water = MS and refrigerant = Copper already live in the Piping pipe_type note. R23 needs none
+  either: the stocked alternative is already priced (12e-6 R1).
+
+**ADP-5d OPEN: THE TREE DEFECT (owner Q2 (a) / Q9 (a)).** Sub-headings committed as NOTE rows under one sheet-level parent give
+the payload a flat list of every sub-heading. The model cannot place the row:
+- 00140 "HVAC Lowside Works " r542-546 (GI class B drain) and r550 (CPVC drain), under r421 "Chilled Water Cassette Unit";
+- 00247 "BOQ" r78, under row 8 "HVAC SYSTEM".
+
+They stay refusals until a separate tree slice. 00140 PAC Works r68 and 00231 r211 keep their stored ruled answers (2,056 /
+10,533; their B4 re-sends flipped 1 in 3).
+
+**ADP-5a: "A x B-C depth" IS THREE BOX SIDES (owner 2026-10-22 10:49 item 6).** `readBoxSides` splits a two-part size whose
+second part is "B-C" followed by a height label ("1200x150-300 depth", "600x600-300 depth") into length A, width B, height C.
+A plenum does NOT borrow its diffuser's face size (R6, owner 2026-10-19 23:13). 2 stored rows price (2,306 / 2,787 supply).
+The dead top-level `depth_mm` catalogue column definition is gone from v51 (declared `attr:hvac_adp:depth_mm`; not
+model-facing; `spec_reader`'s LP-plenum branch still writes the key for an "A X B X C" detail -- inert, 0 of 93 SKUs).
+
+**ADP-4b D7: THE ADP DATA VIEWER SHOWS WHAT DOWNLOADS (owner 2026-10-21 14:41).** On a spec-driven grid (`attributes_from_spec`)
+the default columns are the download's (`csv_exporter.build_category_rows`): item id, discipline, category, [kind], brand,
+unit, the text pair, the rates, the two formula columns -- in that order, each header a plain label with the file's column
+id beneath (`rateMasterGridColumns.gridColumnKeys` / `fileColumnId`); the admin actions column stays first. "Show spec
+details" (off by default) adds the spec verdict and the "read from spec" columns after the text pair and the source sheet /
+row before the formulas. A "read from spec" column no item fills is not shown (display only; the definition stays -- it is
+part of the model's question). The Category cells show the display name (owner 2026-10-21, N-7), the file the id. This
+supersedes the slice-1c U3 order (the text pair first) on that grid; Insulation and Piping are unchanged.
+
+**ADP-4b FIXB-1: A UNIT A FAMILY IS NOT OFFERED IN IS NEITHER PRICED NOR STOCKED (owner 2026-10-21; fix (b) + AC5 "same rule
+everywhere").** Where a family declares `units_not_offered` for a class it reaches only by a CONVERSION, the conversion does
+not run and the row refuses "<family> is not stocked per <unit> (stocked per <units>)" -- `priceOneItem`, `stockedUnitsWords`
+and every Derivation line that lists conversions read the same rule. This knowingly reverses the 12c-S S10 reading ("a row
+that arrives in a hidden unit still prices") FOR THE DOUBLE-SKIN PLENUM ONLY -- its per-number price ignored depth (1723 / 231
+at every depth); 0 stored rows. S10 stands for every other family: a unit a family prices ITSELF (`units`) and hides from the
+picker still prices (pinned "S10 kept").
+
+**ADP-4b fix (a): A RULED DEFAULT THE ROW'S UNIT REFUSES FILLS NOTHING, SO ITS FIELD CARRIES THE "*" (owner 2026-10-21).**
+`itemFieldDefs` exempts a default-filled need from the "*" unless `refuse_on_unit_class` refuses that very default on the
+family and unit -- the per-sq.m slot diffuser's Damper (blank -> "without" -> refused). The "*" stays a per-family-and-unit
+marker: it shows on every per-sq.m slot diffuser, whatever its value (owner U5-R, 15 stored items).
+
+**ADP-4b AC6 / AC7: ONE WORDING FOR THE BOX FORMULA; A SET-ASIDE OUTER SIZE IS QUOTED AS READ.** The box surface reads
+"2 x (L x W + W x H + L x H)" on the Derivation line, its reason and the working (`plainBoxSurface`, display only -- the
+config's rule and step text are unchanged; the fields are Length / Width / Height, owner 2026-10-19 23:19). A square
+diffuser's outer size that matched no SKU is quoted by the sides read ("outer size 450 x 450 could not be used ..."), the
+same from the BoQ's words and the typed boxes (owner "Both quote the read sides"); a size that gave no sides keeps its words.
+
 **A DEFAULT IS NAMED AS THE DEFAULT, SAID ONCE, BY ITS FIELD'S LABEL (owner G1 / G2 / G3, 2026-10-12 "yes"; slice
 12e-4b).** G1: a number nobody stated (the ruled default) heads its field note "Default 9 mm -> priced as 13 mm
 (the smallest size)" (12e-4d AC3: below the smallest stocked size the field's line and the working both say "(the
@@ -1235,7 +1805,7 @@ category exists in the discipline, is an item-list config with pricing rules, is
 family in the owner's family attribute; every family offered is priceable in the section's unit class THERE and has
 an active SKU there; `mirror.to` is one of ITS number readers. It is called ONCE by `loader._load_multi` over the
 payload's configs and items BEFORE the first write, by the single-config load path (`load_rate_master` with a
-singular `category_config`; owner F9 "fix", 12e-3c) with the same arguments, and by `update_rate_config` before
+singular `category_config`; owner F9 "fix", 12e-3c) with the same arguments, and (until ADP-5a removed it) by `update_rate_config` before
 `doc.save` -- EVERY config load path runs it; both read whatever
 stays active outside the write from the database, so a write is checked against the catalogue AS IT WILL STAND and an
 edit to the DELEGATED category that would break another config's section is refused on its own save. The pure half is
@@ -1364,8 +1934,8 @@ be for now"). A row that states layers but no pipe size refuses per layer, exact
 schedule in a heading (thickness keyed to pipe size) is a FACT THE MODEL READS** for this row's size
 (the thickness note); "take the highest" is CODE for the case with no schedule. **A `no_sku_families`
 refusal may NAME the material as written** through `no_sku_named_by` (a text def the pricing never
-reads): "No SKU in the catalogue for XLPE - price this row by hand"; without the key the R18 sentence
-stands, which is how ADP's stays byte-identical. **A pipe-size field holding a slash list is not an
+reads): "No SKU in the catalogue for XLPE - price this row by hand"; without the key, or with the answer
+absent / "None" / blank, the R18 sentence stands. ADP uses the same key since HVAC v52 (`item_as_written`, ADP-5b R1). **A pipe-size field holding a slash list is not an
 inch fraction** -- a fraction is ONE slash between TWO numbers (or a mixed number).
 
 **A CATEGORY IS ELIGIBLE WHEN IT CARRIES PRICING RULES THAT RUN -- top-level `pipelines`, OR an
@@ -1720,7 +2290,7 @@ other spelling refuses by name), shared by the calculator's typed "Other..." pip
   via RM-4b but never written back into that top-level dict is DROPPED on the next `replace=True` import.
   **Verify an apply by comparing `stored == asset` KEY BY KEY, never by golden COUNT** -- a swap can leave the
   count identical while replacing the content.
-- **Estimator rules are read from the DB, not the asset:** `extraction._load_active_configs` reads `BoQ Rate Category Config`, so editing `services/boq_rate_master/data/rate_master_*.json` is **INERT at runtime** until re-imported or applied via the audited RM-4b `update_rate_config`. The asset is the record; the config row is what the model reads.
+- **Estimator rules are read from the DB, not the asset:** `extraction._load_active_configs` reads `BoQ Rate Category Config`, so editing `services/boq_rate_master/data/rate_master_*.json` is **INERT at runtime** until re-imported (the audited RM-4b `update_rate_config` path was removed in ADP-5a, owner D9). The asset is the record; the config row is what the model reads.
 
 ## BoQ Rate Master (RM-1)
 
@@ -1750,7 +2320,7 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
 - **RM-4a editing endpoints (ADMIN-ONLY, owner option (a); full as-built in the plan doc's "Build slice
   RM-4a").** Four `@frappe.whitelist(methods=["POST"])` writes in `api/boq/rate_master.py`:
   `update_rate_config_param` / `update_rate_master_item` / `create_rate_master_item` /
-  `deactivate_rate_master_item`. ALL gate on the IMPORTED `pricing._is_nirmaan_admin` (never a re-minted
+  `deactivate_rate_master_item` (`update_rate_config_param` REMOVED in ADP-5a, owner D9). ALL gate on the IMPORTED `pricing._is_nirmaan_admin` (never a re-minted
   copy), admin gate BEFORE any target resolution or write (`frappe.PermissionError` otherwise). **The
   AUDITED write recipe is `doc.save(ignore_permissions=True, ignore_version=False)`** (get_doc → json.loads
   → mutate the parsed dict → json.dumps → save → commit): both doctypes are `track_changes:1` with
@@ -1764,7 +2334,8 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   `import_batch="manual-"+hash` / `source_sheet="Manual entry"` / `source_row=0`; `deactivate` sets
   `active=0` (RETAINED, never deleted). Frontend HIDES every affordance for non-admins (`isNirmaanAdmin`;
   the server is authoritative). The first `Version` docs for the two rate-master doctypes now exist.
-- **RM-4b structure editor (ADMIN-ONLY; full as-built in the plan doc's "Build slice RM-4b").** ONE
+- **RM-4b structure editor (ADMIN-ONLY; full as-built in the plan doc's "Build slice RM-4b"). REMOVED in ADP-5a (owner D9);
+  the record below is historical.** ONE
   `@frappe.whitelist(methods=["POST"])` write `update_rate_config(name, config)` in `api/boq/rate_master.py`
   LIFTS the RM-4a param-values-only boundary — add/remove params, steps, conditions, and attribute
   definitions. Admin-gated FIRST (`pricing._is_nirmaan_admin`), then FULL server-side STRUCTURAL VALIDATION
@@ -1777,8 +2348,8 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   rejects removing a definition any pipeline condition/`band_on` references, naming every referencing
   location**; no unknown top-level keys; an identity guard forbids repointing discipline/category_id.
   **GOLDENS-AS-CONFIG-DATA:** the config carries a `goldens` array (attrs + expected finals per pipeline)
-  seeded via ONE audited endpoint call; the vitest golden files stay INDEPENDENT pins. The frontend Pipelines
-  tab's PREVIEW GATE computes the goldens against a draft before save (confirm-not-block). Interpreter
+  seeded via ONE audited endpoint call; the vitest golden files stay INDEPENDENT pins. (The frontend Pipelines
+  tab's preview gate is REMOVED with the tab, ADP-4b D9; the goldens stay data for the mint gate / loader / exporter.) Interpreter
   EXECUTION semantics untouched. **The `test_rate_master` count is NOT recorded here — read it from
   `nirmaan_stack/api/boq/test_rate_master.py` itself.**
 - **Multi-category import + scoped supersede (owner-locked; full detail in the plan doc's "Build slice
@@ -1926,8 +2497,8 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   first, to be authored in-system later (the loader + all four surfaces + the preview gate tolerate empty
   pipelines honestly — no derivation output, no crash). **EA-2 SHIPPED the in-system authoring path:**
   `_validate_config` now ACCEPTS empty `pipelines: {}` (a non-empty pipelines object is still fully
-  validated), and the RM-4b Pipelines tab has an **Add-pipeline affordance** (id + output keys -> a
-  validator-minimal `{output, [match_master_row]}` via `blankPipeline`, then edited via AddStep).
+  validated), and the RM-4b Pipelines tab had an **Add-pipeline affordance** (REMOVED with the tab in ADP-4b D9 --
+  structure now changes only by a new asset version).
   `_KNOWN_CONFIG_KEYS` also gained FOUR pass-through keys (`identity_attribute_id`, `matching_mode`,
   `notes`, `pipeline_labels`) stored VERBATIM and NOT structurally validated (like `item_kinds`) —
   REQUIRED because RM-4b resubmits the whole config, so an item-identity config (or the wiring
@@ -2480,7 +3051,8 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   wrong, not merely shorter, which is why `component_ref` has always refused in the same situation.
 - **⚠️ THE TAIL BACKSTOP'S PREDICATE IS `typeof v === "number" && !Number.isFinite(v)` — A NUMBER THAT
   IS NOT FINITE, NEVER A MISSING VALUE (owner-locked).** It is the only mechanism that does not depend
-  on config being well-formed (**the loader does not validate; only `update_rate_config` does**), so a
+  on config being well-formed (**the loader does not validate; only `update_rate_config` does** -- historical: the loader validates since 2026-09-10 and
+  `update_rate_config` was removed in ADP-5a), so a
   bad value reaching `stageRate` is caught here. **A backstop written as "no non-value may pass with
   ok" would BREAK the four live `miscellaneous` CEIG / AS Built honest partials while fixing nothing
   that was ever broken.** Absent means *"this row has no such rate"*; NaN means *"we computed
@@ -2626,7 +3198,8 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   **`*_from_attr` param holding a STRING** (an attribute-id binding — scoped to that suffix ONLY; any
   other param carrying a string still raises). Before this, `cabletray_raceway` and `popup_boxes` could
   not be saved through RM-4b at all.
-- **⚠️ THE LOADER DOES NOT VALIDATE, THE EDITOR DOES.** `_validate_config` has exactly ONE caller
+- **⚠️ THE LOADER DOES NOT VALIDATE, THE EDITOR DOES** (historical: the loader validates since 2026-09-10; the editor,
+  `update_rate_config`, was removed in ADP-5a). `_validate_config` had exactly ONE caller
   (`update_rate_config`); `load_rate_master` / `_load_multi` validate nothing of the sort. **So an
   un-validatable config imports cleanly and only fails later, at the editor** — a whole-config RM-4b
   save. This asymmetry has now bitten TWICE in one slice (an unregistered top-level key, and step

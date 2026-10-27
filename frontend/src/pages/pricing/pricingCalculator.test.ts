@@ -218,7 +218,9 @@ describe("Calculator slice 2 / a blank withholds the price; None prices", () => 
     if (!isSuggestion(r)) throw new Error("expected suggestion shape");
     expect(r.values).toEqual({});
     expect(r.basis).toBe("Fill the attributes to price");
-    expect(r.workings.derivation).toEqual(["No extracted attributes -- fill them to compute a rate."]);
+    // INVERTED at ADP-3a (owner U3: every missing field is named) by mechanical authority: BEFORE
+    // `toEqual(["No extracted attributes -- fill them to compute a rate."])`
+    expect(r.workings.derivation).toEqual(["Fill to price: Colour."]);
     expect(r.workings.sections).toBeUndefined();
     expect(r.workings.attributes.find((a) => a.id === "colour")!.value).toBe("");
   });

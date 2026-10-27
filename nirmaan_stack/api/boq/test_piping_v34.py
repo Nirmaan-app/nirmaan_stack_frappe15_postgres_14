@@ -289,7 +289,20 @@ class TestSlice12e1AssetV34(FrappeTestCase):
         self.assertNotEqual(max(ns), 42, "12e-6: v42 is no longer the newest")
         # BEFORE: self.assertEqual(max(ns), 43)
         self.assertNotEqual(max(ns), 43, "12e-6b: v43 is no longer the newest")
-        self.assertEqual(max(ns), 45)
+        # BEFORE: self.assertEqual(max(ns), 45)
+        self.assertNotEqual(max(ns), 45, "12e-6c: v45 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 46)
+        self.assertNotEqual(max(ns), 46, "ADP-1: v46 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 47)
+        self.assertNotEqual(max(ns), 47, "ADP-2: v47 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 48)
+        self.assertNotEqual(max(ns), 48, "ADP-3b: v48 is no longer the newest")
+        # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertEqual(max(ns), 49)`
+        # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 50)`
+        # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 51)`
+        # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 52)`
+        # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 53)`
+        self.assertEqual(max(ns), 54)
         self.assertTrue(os.path.exists(_asset_path(V35)), "v35 stays on disk as the 12e-1b record")
         self.assertTrue(os.path.exists(_asset_path(V34)), "v34 stays on disk as the 12e-1 record")
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
@@ -749,7 +762,20 @@ class TestSlice12e2AssetV36(FrappeTestCase):
         self.assertNotEqual(max(ns), 42, "12e-6: v42 is no longer the newest")
         # BEFORE: self.assertEqual(max(ns), 43)
         self.assertNotEqual(max(ns), 43, "12e-6b: v43 is no longer the newest")
-        self.assertEqual(max(ns), 45)
+        # BEFORE: self.assertEqual(max(ns), 45)
+        self.assertNotEqual(max(ns), 45, "12e-6c: v45 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 46)
+        self.assertNotEqual(max(ns), 46, "ADP-1: v46 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 47)
+        self.assertNotEqual(max(ns), 47, "ADP-2: v47 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 48)
+        self.assertNotEqual(max(ns), 48, "ADP-3b: v48 is no longer the newest")
+        # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertEqual(max(ns), 49)`
+        # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 50)`
+        # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 51)`
+        # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 52)`
+        # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 53)`
+        self.assertEqual(max(ns), 54)
         self.assertTrue(os.path.exists(_asset_path(V36)))
         self.assertTrue(os.path.exists(_asset_path(V35)))
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
@@ -763,7 +789,16 @@ class TestSlice12e2Live(FrappeTestCase):
         a = {it["item_uid"]: it for it in v36["items"]}
         rows = frappe.get_all("BoQ Rate Master Item", filters={"discipline": "HVAC", "active": 1},
                               fields=["kind", "brand", "unit", "attributes", "rates", "item_uid"])
-        self.assertEqual(len(rows), 379, "load v36 first")
+        # INVERTED at ADP-1 under mechanical authority (owner H4 / A4): BEFORE assertEqual(len(rows), 379, "load v36 first"). The live
+        # catalogue is v47: v36's items less the two retired per-number plenum SKUs, plus the three ADP Pricing Inputs.
+        # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(len(rows), 380, "load v47 first")`. The live catalogue is v53: v47 + the one
+        # VCD Aluminium SKU (rmi-c1ebcadd4fd5, owner 2026-10-23 10:21), left out below like the ADP Pricing Inputs.
+        self.assertEqual(len(rows), 381, "load v53 first")
+        rows = [r for r in rows if r["item_uid"] != "rmi-c1ebcadd4fd5"]
+        rows = [r for r in rows if not (r["kind"] == INPUT_KIND and json.loads(r["attributes"] if isinstance(r["attributes"], str) else json.dumps(r["attributes"])).get("shared_by") == "adp")]
+        self.assertEqual(len(rows), 377)
+        v36 = dict(v36, items=[it for it in v36["items"] if it["item_uid"] not in ("rmi-4184735331c3", "rmi-a23b43d34447")])
+        a = {it["item_uid"]: it for it in v36["items"]}
         norm = lambda it: _norm({"kind": it["kind"], "brand": it.get("brand") or None, "unit": it.get("unit"),
                                  "attributes": it["attributes"] if isinstance(it["attributes"], dict) else json.loads(it["attributes"] or "{}"),
                                  "rates": it["rates"] if isinstance(it["rates"], dict) else json.loads(it["rates"] or "{}")})
@@ -771,7 +806,7 @@ class TestSlice12e2Live(FrappeTestCase):
         self.assertEqual(set(live), set(a))
         self.assertEqual([u for u in a if norm(a[u]) != live[u]], [])
         served = rate_master.get_rate_master_items(discipline="HVAC", kind=INPUT_KIND)
-        self.assertEqual(served["count"], 11)
+        self.assertEqual(served["count"], 14)   # ADP-1: + the three ADP inputs (BEFORE: 11)
         self.assertEqual({it["attributes"]["item"]: it["rates"] for it in served["items"] if it["attributes"]["shared_by"] == "piping"},
                          {INPUT_IDS[f]: {"factor": ACCESSORIES[f]} for f in ACCESSORIES})
         cfg = rate_master.get_rate_category_config(discipline="HVAC", category_id=CATEGORY)["config"]
@@ -806,9 +841,10 @@ class TestSlice12e2Live(FrappeTestCase):
 #
 #   TestSlice12e3aGates (the LIVE site; every refusal is verified to have written nothing)
 #     19  `load_rate_master` refuses a payload whose section is broken, BEFORE the first write.
-#     20  the config editor's save (`update_rate_config`) refuses the same, and refuses an edit to the
-#         DELEGATED category that would break Piping's section (the reverse direction); the stored config is
-#         unchanged after each.
+#     20  the config editor's save check (`validate_delegated_sections`, label "Config not saved") refuses the same,
+#         and refuses an edit to the DELEGATED category that would break Piping's section (the reverse direction);
+#         the stored config is unchanged after each. ADP-5a (owner D9): RE-POINTED from the removed endpoint
+#         `update_rate_config`, which ran exactly this call before its write.
 # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
 V37 = "rate_master_hvac_all_v37.json"   # 12e-3a: v36 + Piping's `insulated` definition + `list_spec.sections`
 INSULATION = "hvac_insulation"
@@ -884,7 +920,20 @@ class TestSlice12e3aSectionsV37(FrappeTestCase):
         self.assertNotEqual(max(ns), 42, "12e-6: v42 is no longer the newest")
         # BEFORE: self.assertEqual(max(ns), 43)
         self.assertNotEqual(max(ns), 43, "12e-6b: v43 is no longer the newest")
-        self.assertEqual(max(ns), 45)
+        # BEFORE: self.assertEqual(max(ns), 45)
+        self.assertNotEqual(max(ns), 45, "12e-6c: v45 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 46)
+        self.assertNotEqual(max(ns), 46, "ADP-1: v46 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 47)
+        self.assertNotEqual(max(ns), 47, "ADP-2: v47 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 48)
+        self.assertNotEqual(max(ns), 48, "ADP-3b: v48 is no longer the newest")
+        # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertEqual(max(ns), 49)`
+        # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 50)`
+        # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 51)`
+        # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 52)`
+        # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 53)`
+        self.assertEqual(max(ns), 54)
         self.assertTrue(os.path.exists(_asset_path(V37)))
         self.assertTrue(os.path.exists(_asset_path(V36)), "v36 stays on disk as the 12e-2 record")
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
@@ -1101,8 +1150,11 @@ class TestSlice12e3aGates(FrappeTestCase):
             config_validation.validate_delegated_sections([copy.deepcopy(piping)], label="Config not saved")
             config_validation.validate_delegated_sections([copy.deepcopy(insulation)], label="Config not saved")
             def refused(cid, cfg, needle):
+                # RE-POINTED at ADP-5a (owner D9, 2026-10-21: the endpoint "kept one slice, then removed"): BEFORE
+                # `rate_master.update_rate_config(name=name(cid), config=json.dumps(cfg))`, whose cross-category half
+                # was exactly this call
                 with self.assertRaises(frappe.ValidationError) as cm:
-                    rate_master.update_rate_config(name=name(cid), config=json.dumps(cfg))
+                    config_validation.validate_delegated_sections([copy.deepcopy(cfg)], label="Config not saved")
                 self.assertIn(needle, str(cm.exception))
                 self.assertIn("Config not saved", str(cm.exception))
                 self.assertEqual(self._state(), before, "nothing stored: %s" % needle)
@@ -1500,7 +1552,20 @@ class TestSlice12e4bAssetV38(FrappeTestCase):
         self.assertNotEqual(max(ns), 42, "12e-6: v42 is no longer the newest")
         # BEFORE: self.assertEqual(max(ns), 43)
         self.assertNotEqual(max(ns), 43, "12e-6b: v43 is no longer the newest")
-        self.assertEqual(max(ns), 45)
+        # BEFORE: self.assertEqual(max(ns), 45)
+        self.assertNotEqual(max(ns), 45, "12e-6c: v45 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 46)
+        self.assertNotEqual(max(ns), 46, "ADP-1: v46 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 47)
+        self.assertNotEqual(max(ns), 47, "ADP-2: v47 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 48)
+        self.assertNotEqual(max(ns), 48, "ADP-3b: v48 is no longer the newest")
+        # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertEqual(max(ns), 49)`
+        # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 50)`
+        # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 51)`
+        # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 52)`
+        # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 53)`
+        self.assertEqual(max(ns), 54)
         self.assertTrue(os.path.exists(_asset_path(V37)), "v37 stays on disk as the 12e-3a record")
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
 
@@ -1775,7 +1840,20 @@ class TestSlice12e5bAssetV39(FrappeTestCase):
         self.assertNotEqual(max(ns), 42, "12e-6: v42 is no longer the newest")
         # BEFORE: self.assertEqual(max(ns), 43)
         self.assertNotEqual(max(ns), 43, "12e-6b: v43 is no longer the newest")
-        self.assertEqual(max(ns), 45)
+        # BEFORE: self.assertEqual(max(ns), 45)
+        self.assertNotEqual(max(ns), 45, "12e-6c: v45 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 46)
+        self.assertNotEqual(max(ns), 46, "ADP-1: v46 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 47)
+        self.assertNotEqual(max(ns), 47, "ADP-2: v47 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 48)
+        self.assertNotEqual(max(ns), 48, "ADP-3b: v48 is no longer the newest")
+        # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertEqual(max(ns), 49)`
+        # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 50)`
+        # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 51)`
+        # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 52)`
+        # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 53)`
+        self.assertEqual(max(ns), 54)
         self.assertTrue(os.path.exists(_asset_path(V38)), "v38 stays on disk as the 12e-4b record")
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
 
@@ -1901,7 +1979,20 @@ class TestSlice12e5bAssetV40(FrappeTestCase):
         self.assertNotEqual(max(ns), 42, "12e-6: v42 is no longer the newest")
         # BEFORE: self.assertEqual(max(ns), 43)
         self.assertNotEqual(max(ns), 43, "12e-6b: v43 is no longer the newest")
-        self.assertEqual(max(ns), 45)
+        # BEFORE: self.assertEqual(max(ns), 45)
+        self.assertNotEqual(max(ns), 45, "12e-6c: v45 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 46)
+        self.assertNotEqual(max(ns), 46, "ADP-1: v46 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 47)
+        self.assertNotEqual(max(ns), 47, "ADP-2: v47 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 48)
+        self.assertNotEqual(max(ns), 48, "ADP-3b: v48 is no longer the newest")
+        # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertEqual(max(ns), 49)`
+        # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 50)`
+        # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 51)`
+        # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 52)`
+        # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 53)`
+        self.assertEqual(max(ns), 54)
         self.assertTrue(os.path.exists(_asset_path(V39)), "v39 stays on disk as the 12e-5b record")
 
 
@@ -1957,7 +2048,20 @@ class TestSlice12e5b2AssetV41(FrappeTestCase):
         self.assertNotEqual(max(ns), 42, "12e-6: v42 is no longer the newest")
         # BEFORE: self.assertEqual(max(ns), 43)
         self.assertNotEqual(max(ns), 43, "12e-6b: v43 is no longer the newest")
-        self.assertEqual(max(ns), 45)
+        # BEFORE: self.assertEqual(max(ns), 45)
+        self.assertNotEqual(max(ns), 45, "12e-6c: v45 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 46)
+        self.assertNotEqual(max(ns), 46, "ADP-1: v46 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 47)
+        self.assertNotEqual(max(ns), 47, "ADP-2: v47 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 48)
+        self.assertNotEqual(max(ns), 48, "ADP-3b: v48 is no longer the newest")
+        # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertEqual(max(ns), 49)`
+        # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 50)`
+        # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 51)`
+        # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 52)`
+        # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 53)`
+        self.assertEqual(max(ns), 54)
         self.assertTrue(os.path.exists(_asset_path(V40)), "v40 stays on disk as the 12e-5b record")
 
 
@@ -2009,7 +2113,20 @@ class TestSlice12e5cAssetV42(FrappeTestCase):
         self.assertNotEqual(max(ns), 42, "12e-6: v42 is no longer the newest")
         # BEFORE: self.assertEqual(max(ns), 43)
         self.assertNotEqual(max(ns), 43, "12e-6b: v43 is no longer the newest")
-        self.assertEqual(max(ns), 45)
+        # BEFORE: self.assertEqual(max(ns), 45)
+        self.assertNotEqual(max(ns), 45, "12e-6c: v45 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 46)
+        self.assertNotEqual(max(ns), 46, "ADP-1: v46 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 47)
+        self.assertNotEqual(max(ns), 47, "ADP-2: v47 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 48)
+        self.assertNotEqual(max(ns), 48, "ADP-3b: v48 is no longer the newest")
+        # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertEqual(max(ns), 49)`
+        # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 50)`
+        # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 51)`
+        # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 52)`
+        # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 53)`
+        self.assertEqual(max(ns), 54)
         self.assertTrue(os.path.exists(_asset_path(V41)), "v41 stays on disk as the 12e-5b2 record")
 
 
@@ -2083,7 +2200,20 @@ class TestSlice12e6AssetV43(FrappeTestCase):
         ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
         # BEFORE: self.assertEqual(max(ns), 43)
         self.assertNotEqual(max(ns), 43, "12e-6b: v43 is no longer the newest")
-        self.assertEqual(max(ns), 45)
+        # BEFORE: self.assertEqual(max(ns), 45)
+        self.assertNotEqual(max(ns), 45, "12e-6c: v45 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 46)
+        self.assertNotEqual(max(ns), 46, "ADP-1: v46 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 47)
+        self.assertNotEqual(max(ns), 47, "ADP-2: v47 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 48)
+        self.assertNotEqual(max(ns), 48, "ADP-3b: v48 is no longer the newest")
+        # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertEqual(max(ns), 49)`
+        # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 50)`
+        # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 51)`
+        # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 52)`
+        # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 53)`
+        self.assertEqual(max(ns), 54)
         self.assertTrue(os.path.exists(_asset_path(V42)), "v42 stays on disk as the 12e-5c record")
 
 
@@ -2145,9 +2275,365 @@ class TestSlice12e6bAssetV45(FrappeTestCase):
     def test_44_v45_is_the_newest_and_v43_stays(self):
         d = os.path.dirname(_asset_path(V45))
         ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
-        self.assertEqual(max(ns), 45)
+        # BEFORE: self.assertEqual(max(ns), 45)
+        self.assertNotEqual(max(ns), 45, "12e-6c: v45 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 46)
+        self.assertNotEqual(max(ns), 46, "ADP-1: v46 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 47)
+        self.assertNotEqual(max(ns), 47, "ADP-2: v47 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 48)
+        self.assertNotEqual(max(ns), 48, "ADP-3b: v48 is no longer the newest")
+        # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertEqual(max(ns), 49)`
+        # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 50)`
+        # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 51)`
+        # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 52)`
+        # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 53)`
+        self.assertEqual(max(ns), 54)
         # owner option B (12e-6b, 2026-10-17): BEFORE `self.assertNotIn(44, ns, "v44 was reverted in 12e-6 and is not on disk")`.
         # v44: reverted in 12e-6, kept on disk for the version series -- history only, never loaded, never current.
         self.assertIn(44, ns, "v44 stays on disk as history for the contiguous version series")
         self.assertNotEqual(max(ns), 44)
         self.assertTrue(os.path.exists(_asset_path(V43)), "v43 stays on disk as the 12e-6 record")
+
+
+V46 = "rate_master_hvac_all_v46.json"   # 12e-6c: v45 + typed_entry on Insulation's pipe size (owner U1)
+
+
+class TestSlice12e6cAssetV46(FrappeTestCase):
+    """SLICE 12e-6c AC7 (owner U1, 2026-10-18: a typed Insulation pipe size refuses like the Piping tab's) -- HVAC v46 =
+    v45 + ONE PRICING KEY: `typed_entry: "one_size"` on Insulation's `list_spec.pricing.numbers.pipe_size_mm`.
+
+      test_45  THE DIFF: every item, every other config and every other key byte-equal; with the key removed v46 IS v45.
+      test_46  the key is Piping's own (`size_mm` carries the same) and v46 validates; no request the model receives changes.
+      test_47  v46 is the newest HVAC asset; v45 stays on disk.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.v45, cls.v46 = _read(V45), _read(V46)
+
+    def test_45_the_one_key_is_the_whole_diff(self):
+        self.assertEqual(self.v45["items"], self.v46["items"])
+        c45 = {c["category_id"]: c for c in self.v45["category_configs"]}
+        c46 = {c["category_id"]: c for c in self.v46["category_configs"]}
+        self.assertEqual(sorted(c45), sorted(c46))
+        for cid in c45:
+            if cid != "hvac_insulation":
+                self.assertEqual(c45[cid], c46[cid], cid)
+        rd = c46["hvac_insulation"]["list_spec"]["pricing"]["numbers"]["pipe_size_mm"]
+        self.assertEqual(rd["typed_entry"], "one_size")
+        self.assertNotIn("typed_entry", c45["hvac_insulation"]["list_spec"]["pricing"]["numbers"]["pipe_size_mm"])
+        put_back = json.loads(json.dumps(c46["hvac_insulation"]))
+        del put_back["list_spec"]["pricing"]["numbers"]["pipe_size_mm"]["typed_entry"]
+        self.assertEqual(put_back, c45["hvac_insulation"])
+
+    def test_46_the_key_is_pipings_own_and_no_request_changes(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation, extraction
+        c46 = {c["category_id"]: c for c in self.v46["category_configs"]}
+        self.assertEqual(c46["hvac_piping"]["list_spec"]["pricing"]["numbers"]["size_mm"]["typed_entry"], "one_size")
+        for c in self.v46["category_configs"]:
+            config_validation._validate_config(dict(c, discipline=self.v46["discipline"]))
+        for payload in (self.v45, self.v46):
+            payload["_req"] = {}
+            cfgs = {(payload["discipline"], c["category_id"]): dict(c, discipline=payload["discipline"]) for c in payload["category_configs"]}
+            for c in payload["category_configs"]:
+                if c.get("list_spec"):
+                    payload["_req"][c["category_id"]] = json.dumps(extraction.build_items_spec(cfgs[(payload["discipline"], c["category_id"])], cfgs, payload["discipline"]), sort_keys=True)
+        self.assertEqual(sorted(self.v46["_req"]), ["hvac_adp", "hvac_insulation", "hvac_piping"])
+        self.assertEqual(self.v45["_req"], self.v46["_req"])
+
+    def test_47_v46_is_the_newest_and_v45_stays(self):
+        d = os.path.dirname(_asset_path(V46))
+        ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
+        # BEFORE: self.assertEqual(max(ns), 46)
+        self.assertNotEqual(max(ns), 46, "ADP-1: v46 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 47)
+        self.assertNotEqual(max(ns), 47, "ADP-2: v47 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 48)
+        self.assertNotEqual(max(ns), 48, "ADP-3b: v48 is no longer the newest")
+        # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertEqual(max(ns), 49)`
+        # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 50)`
+        # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 51)`
+        # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 52)`
+        # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 53)`
+        self.assertEqual(max(ns), 54)
+        self.assertTrue(os.path.exists(_asset_path(V45)))
+        # INVERTED at ADP-1 (mechanical authority): BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v47.json")))`.
+        # v47 is minted; nothing past it exists.
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v47.json")))
+        # INVERTED at ADP-2 (mechanical authority): BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v48.json")))`.
+        # v48 is minted; nothing past it exists.
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v48.json")))
+        # INVERTED at ADP-3b (mechanical authority): BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v49.json")))`.
+        # v49 is minted; nothing past it exists.
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v49.json")))
+        # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v50.json")))`
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v50.json")))
+        # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v51.json")))`
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v51.json")))
+        # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v52.json")))`
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v52.json")))
+        # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v53.json")))`
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v53.json")))
+        # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v54.json")))`
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v54.json")))
+        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v55.json")))
+
+
+V47 = "rate_master_hvac_all_v47.json"   # ADP-1: v46 + the ADP-1 rules (H3 / H4 / A4 / F1), the two per-number plenum SKUs deactivated
+
+
+class TestAdp1AssetV47(FrappeTestCase):
+    """ADP-1 AC10 (owner rulings 2026-10-19) -- HVAC v47 = v46 + exactly this slice's changes, minted by
+    `scripts/_instruments/mint_hvac_v47_adp1.py` from the database export taken after the two SKUs were deactivated.
+
+      test_48  THE ITEMS: v47 = v46 less the two per-number plenum SKUs (H4) plus the three Pricing Inputs (A4); every
+               other item byte-equal. THE CONFIGS: only ADP and Insulation differ, and Insulation by its one F1 key.
+      test_49  v47 validates; no request the model receives changes (the stub proof); the three inputs are read by ADP.
+      test_50  v47 is the newest HVAC asset; v46 stays on disk.
+    """
+
+    RETIRED = ("rmi-4184735331c3", "rmi-a23b43d34447")
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.v46, cls.v47 = _read(V46), _read(V47)
+
+    def test_48_the_diff_is_exactly_the_slices(self):
+        i46 = {i["item_uid"]: i for i in self.v46["items"]}
+        i47 = {i["item_uid"]: i for i in self.v47["items"]}
+        self.assertEqual(sorted(set(i46) - set(i47)), sorted(self.RETIRED))
+        added = [i47[u] for u in sorted(set(i47) - set(i46))]
+        self.assertEqual(sorted(a["attributes"]["item"] for a in added),
+                         ["crosstalk_assumed_depth_mm", "flexible_duct_length_m", "mixing_box_supply_adder"])
+        self.assertEqual({a["attributes"]["item"]: a["rates"] for a in added},
+                         {"mixing_box_supply_adder": {"amount": 150.0}, "crosstalk_assumed_depth_mm": {"factor": 300.0}, "flexible_duct_length_m": {"factor": 2.5}})
+        self.assertTrue(all(a["kind"] == "hvac_pricing_input" for a in added))
+        for u in set(i46) & set(i47):
+            self.assertEqual(i46[u], i47[u], u)
+        for u in self.RETIRED:
+            self.assertEqual((i46[u]["unit"], i46[u]["attributes"]["family"]), ("Nos", "mixing box / LP plenum"))
+        c46 = {c["category_id"]: c for c in self.v46["category_configs"]}
+        c47 = {c["category_id"]: c for c in self.v47["category_configs"]}
+        self.assertEqual([c["category_id"] for c in self.v46["category_configs"]], [c["category_id"] for c in self.v47["category_configs"]])
+        self.assertEqual(sorted(cid for cid in c46 if c46[cid] != c47[cid]), ["hvac_adp", "hvac_insulation"])
+        put_back = json.loads(json.dumps(c47["hvac_insulation"]))
+        self.assertEqual(put_back["list_spec"]["pricing"]["numbers"]["pipe_size_mm"].pop("bare_above_largest"), "refuse")
+        self.assertEqual(put_back, c46["hvac_insulation"])
+        self.assertEqual({k: v for k, v in self.v47.items() if k not in ("items", "category_configs")},
+                         {k: v for k, v in self.v46.items() if k not in ("items", "category_configs")})
+
+    def test_49_v47_validates_no_request_changes_and_the_inputs_are_read_by_adp(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation, csv_exporter, extraction
+        for c in self.v47["category_configs"]:
+            config_validation._validate_config(dict(c, discipline=self.v47["discipline"]))
+        req = {}
+        for name, payload in (("v46", self.v46), ("v47", self.v47)):
+            cfgs = {(payload["discipline"], c["category_id"]): dict(c, discipline=payload["discipline"]) for c in payload["category_configs"]}
+            req[name] = {c["category_id"]: json.dumps(extraction.build_items_spec(cfgs[(payload["discipline"], c["category_id"])], cfgs, payload["discipline"]), sort_keys=True)
+                         for c in payload["category_configs"] if c.get("list_spec")}
+        self.assertEqual(sorted(req["v47"]), ["hvac_adp", "hvac_insulation", "hvac_piping"])
+        self.assertEqual(req["v46"], req["v47"])
+        used = csv_exporter.pricing_input_used_by({c["category_id"]: dict(c, discipline="HVAC") for c in self.v47["category_configs"]})
+        for iid in ("mixing_box_supply_adder", "crosstalk_assumed_depth_mm", "flexible_duct_length_m"):
+            self.assertIn("hvac_adp", used[iid][1], iid)
+        # NEGATIVE: on v46 nothing reads them
+        used46 = csv_exporter.pricing_input_used_by({c["category_id"]: dict(c, discipline="HVAC") for c in self.v46["category_configs"]})
+        self.assertNotIn("mixing_box_supply_adder", used46)
+
+    def test_50_v47_is_the_newest_and_v46_stays(self):
+        d = os.path.dirname(_asset_path(V47))
+        ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
+        # BEFORE: self.assertEqual(max(ns), 47)
+        self.assertNotEqual(max(ns), 47, "ADP-2: v47 is no longer the newest")
+        # BEFORE: self.assertEqual(max(ns), 48)
+        self.assertNotEqual(max(ns), 48, "ADP-3b: v48 is no longer the newest")
+        # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertEqual(max(ns), 49)`
+        # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 50)`
+        # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 51)`
+        # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 52)`
+        # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 53)`
+        self.assertEqual(max(ns), 54)
+        # INVERTED at ADP-2 (HVAC v48) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 48)))`
+        # INVERTED at ADP-3b (HVAC v49) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 49)))`
+        # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 50)))`
+        # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 51)))`
+        # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 52)))`
+        # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 53)))`
+        # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 54)))`
+        self.assertEqual(sorted(ns), list(range(1, 55)))
+        self.assertTrue(os.path.exists(_asset_path(V46)))
+
+
+V48 = "rate_master_hvac_all_v48.json"   # ADP-2: v47 + the ADP-2 config (H5 air stream, H7 plenum fields, B3 neck Other); no item change
+
+
+class TestAdp2AssetV48(FrappeTestCase):
+    """ADP-2 AC8 (owner rulings H5 / H7 / B3) -- HVAC v48 = v47 + exactly this slice's config, minted by
+    `scripts/_instruments/mint_hvac_v48_adp2.py` from the database export.
+
+      test_51  THE ITEMS: v48 = v47, item for item. THE CONFIGS: only ADP differs, and by exactly H5 (the four air-stream
+               rules replacing R13), H7 (the four plenum boxes, the area conversion first) and B3 (the neck control).
+      test_52  v48 validates; no request the model receives changes (the stub proof).
+      test_53  v48 is the newest HVAC asset; v47 stays on disk.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.v47, cls.v48 = _read(V47), _read(V48)
+
+    def test_51_the_diff_is_exactly_the_slices(self):
+        self.assertEqual(self.v47["items"], self.v48["items"])
+        c47 = {c["category_id"]: c for c in self.v47["category_configs"]}
+        c48 = {c["category_id"]: c for c in self.v48["category_configs"]}
+        self.assertEqual(sorted(cid for cid in c47 if c47[cid] != c48[cid]), ["hvac_adp"])
+        p47, p48 = c47["hvac_adp"]["list_spec"]["pricing"], c48["hvac_adp"]["list_spec"]["pricing"]
+        self.assertEqual([r["rule"] for r in p47["derive_when_none"]], ["R13 supply-air linear / plain grille = with damper"])
+        self.assertEqual([(r["when"]["equals"], r["then"], len(r["families"])) for r in p48["derive_when_none"]],
+                         [("supply", "with", 6), ("return", "without", 6), ("exhaust", "without", 6), ("fresh", "without", 6)])
+        self.assertEqual(sorted(set(p48["numbers"]) - set(p47["numbers"])), ["plenum_area_sqm", "plenum_height_mm", "plenum_length_mm", "plenum_width_mm"])
+        self.assertEqual([p48["numbers"][k].get("box_side") for k in ("plenum_length_mm", "plenum_width_mm", "plenum_height_mm")], ["length", "width", "height"])
+        self.assertEqual((p47["panel_controls"]["neck_mm"], p48["panel_controls"]["neck_mm"]), ("dropdown", "dropdown_or_other"))
+        conv = p48["families"]["mixing box / LP plenum"]["convert"]["count"]
+        self.assertEqual([o["needs"] for o in conv], [["plenum_area_sqm"], ["plenum_length_mm", "plenum_width_mm", "plenum_height_mm"]])
+        # NEGATIVE: everything else on ADP's config is v47's, key for key
+        strip = lambda p: {k: v for k, v in p.items() if k not in ("derive_when_none", "numbers", "match_attrs", "panel_controls", "families")}
+        self.assertEqual(strip(p47), strip(p48))
+        self.assertEqual({k: v for k, v in p48["families"].items() if k != "mixing box / LP plenum"}, {k: v for k, v in p47["families"].items() if k != "mixing box / LP plenum"})
+        self.assertEqual({k: v for k, v in self.v48.items() if k not in ("items", "category_configs")},
+                         {k: v for k, v in self.v47.items() if k not in ("items", "category_configs")})
+
+    def test_52_v48_validates_and_no_request_changes(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation, extraction
+        for c in self.v48["category_configs"]:
+            config_validation._validate_config(dict(c, discipline=self.v48["discipline"]))
+        req = {}
+        for name, payload in (("v47", self.v47), ("v48", self.v48)):
+            cfgs = {(payload["discipline"], c["category_id"]): dict(c, discipline=payload["discipline"]) for c in payload["category_configs"]}
+            req[name] = {c["category_id"]: json.dumps(extraction.build_items_spec(cfgs[(payload["discipline"], c["category_id"])], cfgs, payload["discipline"]), sort_keys=True)
+                         for c in payload["category_configs"] if c.get("list_spec")}
+        self.assertEqual(sorted(req["v48"]), ["hvac_adp", "hvac_insulation", "hvac_piping"])
+        self.assertEqual(req["v47"], req["v48"])
+
+    def test_53_v48_is_the_newest_and_v47_stays(self):
+        d = os.path.dirname(_asset_path(V48))
+        ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
+        # BEFORE: self.assertEqual(max(ns), 48)
+        self.assertNotEqual(max(ns), 48, "ADP-3b: v48 is no longer the newest")
+        # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertEqual(max(ns), 49)`
+        # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 50)`
+        # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 51)`
+        # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 52)`
+        # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 53)`
+        self.assertEqual(max(ns), 54)
+        # INVERTED at ADP-3b (HVAC v49) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 49)))`
+        # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 50)))`
+        # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 51)))`
+        # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 52)))`
+        # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 53)))`
+        # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 54)))`
+        self.assertEqual(sorted(ns), list(range(1, 55)))
+        self.assertTrue(os.path.exists(_asset_path(V47)))
+        # INVERTED at ADP-3b (mechanical authority): BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v49.json")))`.
+        # v49 is minted; nothing past it exists.
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v49.json")))
+        # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v50.json")))`
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v50.json")))
+        # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v51.json")))`
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v51.json")))
+        # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v52.json")))`
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v52.json")))
+        # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v53.json")))`
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v53.json")))
+        # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v54.json")))`
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v54.json")))
+        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v55.json")))
+
+
+V49 = "rate_master_hvac_all_v49.json"   # ADP-3b: v48 + the ADP-3b config (B1 face boxes, D4 depth retired); no item change
+
+
+class TestAdp3bAssetV49(FrappeTestCase):
+    """ADP-3b AC5 (owner B1; D1-D4) -- HVAC v49 = v48 + exactly this slice's config, minted by
+    `scripts/_instruments/mint_hvac_v49_adp3b.py` from the database export.
+
+      test_54  THE ITEMS: v49 = v48, item for item. THE CONFIGS: only ADP differs, and by exactly B1 (face_w_mm / face_h_mm
+               typed face boxes, ids unchanged), D4 (the depth axis retired: number, match attribute, control, note) and the
+               per-box notes; every need, conversion and pipeline is v48's.
+      test_55  v49 validates; no request the model receives changes (the stub proof).
+      test_56  v49 is the newest HVAC asset; v48 stays on disk; the series is 1..49 with no gap.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.v48, cls.v49 = _read(V48), _read(V49)
+
+    def test_54_the_diff_is_exactly_the_slices(self):
+        self.assertEqual(self.v48["items"], self.v49["items"])
+        c48 = {c["category_id"]: c for c in self.v48["category_configs"]}
+        c49 = {c["category_id"]: c for c in self.v49["category_configs"]}
+        self.assertEqual(sorted(cid for cid in c48 if c48[cid] != c49[cid]), ["hvac_adp"])
+        p48, p49 = c48["hvac_adp"]["list_spec"]["pricing"], c49["hvac_adp"]["list_spec"]["pricing"]
+        self.assertEqual({k: p49["numbers"][k] for k in ("face_w_mm", "face_h_mm")}, {
+            "face_w_mm": {"from": ["face_w_mm"], "name": "width", "unit": "mm", "typed_only": True, "length_from": "size_mm", "face_side": "width", "label": "Width (mm)"},
+            "face_h_mm": {"from": ["face_h_mm"], "name": "height", "unit": "mm", "typed_only": True, "length_from": "size_mm", "face_side": "height", "label": "Height (mm)"}})
+        self.assertEqual([p48["numbers"][k].get("component") for k in ("face_w_mm", "face_h_mm", "depth_mm")], [1, 2, 3])
+        self.assertNotIn("depth_mm", p49["numbers"])
+        self.assertEqual([a for a in p48["match_attrs"] if a != "depth_mm"], p49["match_attrs"])
+        self.assertEqual({k: v for k, v in p48["panel_controls"].items() if k != "depth_mm"}, p49["panel_controls"])
+        self.assertEqual(p49["panel_notes"]["face_w_mm"], [{"text": "Type the width the BoQ states, in mm."}])
+        self.assertEqual(p49["panel_notes"]["face_h_mm"], [{"text": "Type the height the BoQ states, in mm."}])
+        # NEGATIVE: every other key of ADP's pricing is v48's, key for key -- the needs, conversions and pipelines included
+        strip = lambda p: {k: v for k, v in p.items() if k not in ("numbers", "match_attrs", "panel_controls", "panel_notes")}
+        self.assertEqual(strip(p48), strip(p49))
+        self.assertEqual({k: v for k, v in p48["numbers"].items() if k not in ("face_w_mm", "face_h_mm", "depth_mm")},
+                         {k: v for k, v in p49["numbers"].items() if k not in ("face_w_mm", "face_h_mm")})
+        self.assertEqual({k: v for k, v in p48["panel_notes"].items() if k not in ("face_w_mm", "face_h_mm")},
+                         {k: v for k, v in p49["panel_notes"].items() if k not in ("face_w_mm", "face_h_mm")})
+        self.assertEqual({k: v for k, v in c48["hvac_adp"].items() if k != "list_spec"}, {k: v for k, v in c49["hvac_adp"].items() if k != "list_spec"})
+        self.assertEqual({k: v for k, v in self.v49.items() if k not in ("items", "category_configs")},
+                         {k: v for k, v in self.v48.items() if k not in ("items", "category_configs")})
+
+    def test_55_v49_validates_and_no_request_changes(self):
+        from nirmaan_stack.services.boq_rate_master import config_validation, extraction
+        for c in self.v49["category_configs"]:
+            config_validation._validate_config(dict(c, discipline=self.v49["discipline"]))
+        req = {}
+        for name, payload in (("v48", self.v48), ("v49", self.v49)):
+            cfgs = {(payload["discipline"], c["category_id"]): dict(c, discipline=payload["discipline"]) for c in payload["category_configs"]}
+            req[name] = {c["category_id"]: json.dumps(extraction.build_items_spec(cfgs[(payload["discipline"], c["category_id"])], cfgs, payload["discipline"]), sort_keys=True)
+                         for c in payload["category_configs"] if c.get("list_spec")}
+        self.assertEqual(sorted(req["v49"]), ["hvac_adp", "hvac_insulation", "hvac_piping"])
+        self.assertEqual(req["v48"], req["v49"])
+
+    def test_56_v49_is_the_newest_and_v48_stays(self):
+        d = os.path.dirname(_asset_path(V49))
+        ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
+        # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertEqual(max(ns), 49)`
+        # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 50)`
+        # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 51)`
+        # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 52)`
+        # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 53)`
+        self.assertEqual(max(ns), 54)
+        # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 50)))`
+        # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 51)))`
+        # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 52)))`
+        # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 53)))`
+        # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 54)))`
+        self.assertEqual(sorted(ns), list(range(1, 55)))
+        self.assertTrue(os.path.exists(_asset_path(V48)))
+        # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v50.json")))`
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v50.json")))
+        # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v51.json")))`
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v51.json")))
+        # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v52.json")))`
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v52.json")))
+        # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v53.json")))`
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v53.json")))
+        # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v54.json")))`
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v54.json")))
+        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v55.json")))

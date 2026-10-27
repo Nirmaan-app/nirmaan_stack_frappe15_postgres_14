@@ -42,6 +42,10 @@ import {
   fieldOptionsFromSkus, itemListPricingSpec, matchStatedToOption, matchStatedToOptionDetailed, readNumber, unicodeFractions,
 } from "./itemListPricing";
 
+// ADP-3a (owner U5 / B6 / H2): the Derivation lines ADP-3a adds -- set aside where a pin counts or positions an earlier tab
+const ADP3A_LINE = /^(A kind not stocked in the row's unit refuses|An unstocked combination names only|A per-.+ needs .+; with neither stated it refuses, naming both$)/;
+const withoutAdp3aLines = <T extends { title: string } | string>(ls: T[]): T[] => ls.filter((l) => !ADP3A_LINE.test(typeof l === "string" ? l : l.title));
+
 const ASSET = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
   new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v33.json", import.meta.url),
 );
@@ -156,7 +160,10 @@ describe("SLICE 12d-8 / R1 -- a value the system clears stays blank and the row 
     expect(field(block, "ul").note).toBeUndefined();
     // INVERTED at 12e-3b (block 38; the owner's "Yes, those three pins"). BEFORE:
     //   expect(block.working).toContain("UL stated, so the UL 555 SKU is used (R-M-b)");
-    expect(block.working).toContain("UL stated, so the UL 555 SKU is used");
+    // INVERTED AGAIN at ADP-4a (owner D5 / AC3: a ruling stated ONCE, on its field) by mechanical authority. BEFORE:
+    //   expect(block.working).toContain("UL stated, so the UL 555 SKU is used");
+    expect(field(block, "variant").note).toBe("UL stated, so the UL 555 SKU is used");
+    expect(block.working).not.toContain("UL stated, so the UL 555 SKU is used");
     expect(block.working.join("\n")).not.toContain("(R-M-b)");
     // the variant field shows what PRICED, under the catalogue's word, with the rule
     expect(field(block, "variant").value).toBe("UL");
@@ -189,7 +196,11 @@ describe("SLICE 12d-8 / R1 -- a value the system clears stays blank and the row 
     //   expect(block.working).toContain("thickness_mm not mentioned -> 9 (thickness not mentioned -> 9 mm, then the ladder)");
     // INVERTED AGAIN at 12e-4b (owner G2: no working line repeats itself). BEFORE:
     //   expect(block.working).toContain("thickness not mentioned -> 9 (thickness not mentioned -> 9 mm, then the ladder)");
-    expect(block.working).toContain("thickness not mentioned -> 9 mm, then the ladder");
+    // INVERTED AGAIN at ADP-4a (owner D5 / AC3: the default stated ONCE, on its field) by mechanical authority. BEFORE:
+    //   expect(block.working).toContain("thickness not mentioned -> 9 mm, then the ladder");
+    expect(field(block, "thickness_mm")).toMatchObject({ defaulted: true });
+    expect(field(block, "thickness_mm").rule).toBeTruthy();
+    expect(block.working).not.toContain("thickness not mentioned -> 9 mm, then the ladder");
     expect(block.working.join("\n")).not.toContain("thickness_mm");
     expect(r.values).toEqual({ supply_rate: 556, install_rate: 224, combined_rate: 780 });
   });
@@ -199,7 +210,10 @@ describe("SLICE 12d-8 / R1 -- a value the system clears stays blank and the row 
     expect(block.state).toBe("priced");
     // INVERTED at 12e-4b (owner G2). BEFORE:
     //   expect(block.working).toContain("damper not mentioned -> without (damper not mentioned (or not answered) = without)");
-    expect(block.working).toContain("damper not mentioned -> without");
+    // INVERTED AGAIN at ADP-4a (owner D5 / AC3) by mechanical authority. BEFORE:
+    //   expect(block.working).toContain("damper not mentioned -> without");
+    expect(field(block, "damper")).toMatchObject({ defaulted: true, value: "without" });
+    expect(block.working).not.toContain("damper not mentioned -> without");
     expect(r.values).toEqual({ supply_rate: 986, install_rate: 400, combined_rate: 1386 });
   });
 
@@ -220,7 +234,9 @@ describe("SLICE 12d-8 / R2 -- a number-matched model value keeps the reader's ow
     expect(th.value).toBe("25");
     expect(th.otherMode).toBe(false);
     expect(th.note).toBe("BoQ says 13 / 19 / 25 -> 25 mm (states several values -- the highest, 25, is taken)");
-    expect(block.working).toContain("thickness: '13 / 19 / 25' states several values -- the highest, 25, is taken");
+    // INVERTED at ADP-4a (owner D5 / AC3: a reading stated ONCE, on its field -- the note above) by mechanical authority.
+    // BEFORE: `expect(block.working).toContain("thickness: '13 / 19 / 25' states several values -- the highest, 25, is taken")`.
+    expect(block.working).not.toContain("thickness: '13 / 19 / 25' states several values -- the highest, 25, is taken");
     expect(th.note).not.toMatch(/own spelling/);
   });
 
@@ -230,7 +246,8 @@ describe("SLICE 12d-8 / R2 -- a number-matched model value keeps the reader's ow
     const ps = field(block, "pipe_size_mm");
     expect(ps.value).toBe("200");
     expect(ps.note).toBe("BoQ says 20 cm -> 200 mm (20 cm read as 200 mm)");
-    expect(block.working).toContain("pipe size: 20 cm read as 200 mm");
+    // INVERTED at ADP-4a (owner D5 / AC3) by mechanical authority. BEFORE: `toContain("pipe size: 20 cm read as 200 mm")`.
+    expect(block.working).not.toContain("pipe size: 20 cm read as 200 mm");
   });
 
   it("\"25 to 50\" (PUF thickness, the range reader): the range line, then the ladder hop, 412 / 14 unchanged", () => {
@@ -242,7 +259,9 @@ describe("SLICE 12d-8 / R2 -- a number-matched model value keeps the reader's ow
     // 12e-6 AC8 (owner R10 / U6) INVERTED by mechanical authority -- the line only; value, hop and figures unchanged.
     // Before: "BoQ says 25 to 50 -> 50 mm (range '25 to 50' -> its top value 50) -> ..." / "thickness: range '25 to 50' -> its top value 50"
     expect(th.note).toBe("BoQ says 25 to 50 -> 50 mm (states a range - the higher, 50, is taken) -> priced as 65 mm (the smallest size)");
-    expect(block.working).toContain("thickness: '25 to 50' states a range - the higher, 50, is taken");
+    // INVERTED at ADP-4a (owner D5 / AC3) by mechanical authority. BEFORE:
+    //   expect(block.working).toContain("thickness: '25 to 50' states a range - the higher, 50, is taken");
+    expect(block.working).not.toContain("thickness: '25 to 50' states a range - the higher, 50, is taken");
     expect(block.working).not.toContain("thickness: range '25 to 50' -> its top value 50");
   });
 
@@ -373,19 +392,48 @@ describe("SLICE 12d-8 / R4 option (b) -- Aluminium Foil is offered on the pipe f
 describe("SLICE 12d-8 / R5 + R6 -- the Derivation tab, generated from config", () => {
   it("Insulation: 24 lines; line 9 says a range takes its top value (a comma list and a tolerance still refuse)", () => {
     const lines = itemListRuleOrder(INS, ITEMS);
-    expect(lines).toHaveLength(24);
+    // INVERTED at 12e-6c (owner U2 / R, 2026-10-18) by mechanical authority: BEFORE `expect(lines).toHaveLength(24)`.
+    // The F-3 line (every inches axis) and the RPUF line generate on this config too; without them it is still 24.
+    // INVERTED at ADP-1 (owner F4, 2026-10-19) by mechanical authority: BEFORE `expect(lines).toHaveLength(26)`. The F4 line (RPUF on a per-sq.m row)
+    // generates wherever the RPUF line does; without it the count below it is unchanged.
+    // INVERTED at ADP-3a (owner U5 / B6 / H2: the unit-refusal and unstocked-combination lines on every item-list tab, and
+    // ADP's per-number either-or line) by mechanical authority: BEFORE `toHaveLength(27)`; without the ADP-3a lines it is still 27
+    expect(lines).toHaveLength(29);
+    expect(withoutAdp3aLines(lines)).toHaveLength(27);
+    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE the same filter over the whole tab; the ADP-3a lines are set aside first
+    expect(withoutAdp3aLines(lines).filter((l) => !["A pipe size written as a bare number that could be inches refuses", "RPUF with no material answered prices as Tubular Puf Insulation", "RPUF on a per-sq.m row refuses by name"].includes(l.title))).toHaveLength(24);
     const several = lines.find((l) => /^Several thickness values stated take the highest$/.test(l.title))!;
-    expect(several.n).toBe(9);
+    // INVERTED at 12e-6c (owner R) by mechanical authority: BEFORE `expect(several.n).toBe(9)`. The RPUF line sits above it;
+    // on the tab without the two 12e-6c lines it is still the ninth.
+    // INVERTED at ADP-1 (owner F4, 2026-10-19) by mechanical authority: BEFORE `expect(several.n).toBe(10)`. The F4 line sits
+    // above it too; on the tab without the 12e-6c and ADP-1 lines it is still the ninth.
+    expect(several.n).toBe(11);
+    expect(lines.filter((l) => !["A pipe size written as a bare number that could be inches refuses", "RPUF with no material answered prices as Tubular Puf Insulation", "RPUF on a per-sq.m row refuses by name"].includes(l.title)).findIndex((l) => l.title === several.title) + 1).toBe(9);
     expect(several.detail).toBe("a bare slash list ('19 / 25 / 32'); a size range ('25 to 50') takes its top value; a comma list and a tolerance ('25 +/- 2') still refuse");
     expect(several.detail).not.toMatch(/\('25 to 50'\), a comma list and a tolerance .* still refuse/);
   });
 
   it("ADP: 18 lines; the outer-size match has its own line, before the ladders, in the config's own words", () => {
     const lines = itemListRuleOrder(ADP, ITEMS);
-    expect(lines).toHaveLength(18);
+    // INVERTED at ADP-2 H5 fix (a) (owner 2026-10-20) by mechanical authority: BEFORE `expect(lines).toHaveLength(18)`. R13 reads the air
+    // stream, so the both-streams line generates on this config too; without it the count is unchanged.
+    // INVERTED at ADP-3a (owner U5 / B6 / H2: the unit-refusal and unstocked-combination lines on every item-list tab, and
+    // ADP's per-number either-or line) by mechanical authority: BEFORE `toHaveLength(19)`; without the ADP-3a lines it is still 19
+    // INVERTED at ADP-4a (owner D2 merges -- 17 + 19, 23-27, 5 + 32 -- and AC1 c, the rules that ran with no line) by
+    // mechanical authority: BEFORE `toHaveLength(22)`, then 19 without the ADP-3a lines, 18 without the both-streams line.
+    // On this config (v38) the count is MEASURED (the ADP-4a report lists the 27 titles): the five ladder lines are one, the
+    // damper's own line and "not offered" are folded in, and the rules that ran with no line (its own conversion rule texts,
+    // the cross-talk formula, the gauge / square-feet / ratio / m-cm readings) each gain one.
+    expect(lines).toHaveLength(27);
+    expect(withoutAdp3aLines(lines)).toHaveLength(24);
+    expect(withoutAdp3aLines(lines).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(23);
     const outer = lines.find((l) => /outer size/.test(l.title))!;
     expect(outer.title).toBe("A stated outer size is matched beside the neck size on square diffuser");
-    expect(outer.detail).toBe("both stated: the outer size narrows the products the neck size then fits; outer size only: the one product behind it is used as it stands, else the largest neck size behind it; an outer size the catalogue does not stock is set aside and the neck size prices the row; the catalogue's alternative wording of the same size counts as that size");
+    // INVERTED at ADP-3a (owner H2 / U2, B6 #5: the outer size is shown beside the neck as one either-or group) by mechanical authority: BEFORE the same detail ending at "... counts as that size"
+    // INVERTED at ADP-4a (owner A1 / D1: every ADP line ends with its reason, "reason not recorded" where no ruling exists)
+    // by mechanical authority. BEFORE: the same detail, ending at "... and with neither stated the row refuses naming both".
+    expect(outer.detail).toBe("both stated: the outer size narrows the products the neck size then fits; outer size only: the one product behind it is used as it stands, else the largest neck size behind it; an outer size the catalogue does not stock is set aside and the neck size prices the row; the catalogue's alternative wording of the same size counts as that size; the outer size is shown beside the neck size as one either-or group, and with neither stated the row refuses naming both -- why: reason not recorded");
+    expect(outer.reason).toBe("reason not recorded");
     const ladder = lines.find((l) => /^Fitting the stated diameter/.test(l.title))!;
     expect(outer.n).toBeLessThan(ladder.n);
   });
@@ -393,7 +441,15 @@ describe("SLICE 12d-8 / R5 + R6 -- the Derivation tab, generated from config", (
   it("NEGATIVE: a config without second_key gains no line (Insulation), and a key with no name / primary is skipped", () => {
     expect(itemListRuleOrder(INS, ITEMS).some((l) => /outer size|matched beside/.test(l.title))).toBe(false);
     const broken = { ...ADP, list_spec: { ...(ADP as any).list_spec, pricing: { ...(ADP as any).list_spec.pricing, second_key: [{ families: ["square diffuser"] }] } } };
-    expect(itemListRuleOrder(broken, ITEMS)).toHaveLength(17);
+    // INVERTED at ADP-2 H5 fix (a) (owner 2026-10-20) by mechanical authority: BEFORE `expect(itemListRuleOrder(broken, ITEMS)).toHaveLength(17)`. R13 reads the air
+    // stream, so the both-streams line generates on this config too; without it the count is unchanged.
+    // INVERTED at ADP-3a (owner U5 / B6 / H2: the unit-refusal and unstocked-combination lines on every item-list tab, and
+    // ADP's per-number either-or line) by mechanical authority: BEFORE `toHaveLength(18)`; without the ADP-3a lines it is still 18
+    // INVERTED at ADP-4a (owner D2 merges and AC1 c) by mechanical authority: BEFORE `toHaveLength(21)`, 18, 17 -- every
+    // count is the tab above less the one outer-size line, exactly as before
+    expect(itemListRuleOrder(broken, ITEMS)).toHaveLength(26);
+    expect(withoutAdp3aLines(itemListRuleOrder(broken, ITEMS))).toHaveLength(23);
+    expect(withoutAdp3aLines(itemListRuleOrder(broken, ITEMS)).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(22);
   });
 });
 

@@ -27,12 +27,22 @@ export type PlainEnglishItem = { kind?: string; attributes?: Record<string, unkn
  */
 export const HYPHEN_TAG = /\s*\((?:R|A|D|T|S|Q)(?:-[A-Za-z0-9]{1,2}){1,2}\)/g;
 
-/** A config sentence as the pricer should read it: the trailing "(R4)" / "(R-M-b)" / "(owner ...)" tags dropped. */
+/**
+ * ADP-4a (owner D4, 2026-10-21 "Yes"): the ADP-1 / ADP-2 rule names "H3" / "H4" / "H7" are codes like any other --
+ * "H" joins the tag letters, and a bracket of codes joined by commas ("(S7, H4)") is a tag too. Measured before
+ * this change: no Insulation, Piping or Electrical config sentence carries either form.
+ */
+const TAG = String.raw`(?:R|D|T|S|Q|H)-?\d+[a-z]?`;
+const TAG_BRACKET = new RegExp(String.raw`\s*\(${TAG}(?:\s*[/,]\s*${TAG})*\)`, "g");
+
+/** A config sentence as the pricer should read it: the trailing "(R4)" / "(R-M-b)" / "(owner ...)" tags dropped,
+ *  and an H-code opening the sentence ("H4 per-number mixing box ...") with them. */
 export const plainSentence = (s: unknown): string =>
   String(s ?? "")
-    .replace(/\s*\((?:R|D|T|S|Q)-?\d+[a-z]?(?:\s*\/\s*(?:R|D|T|S|Q)-?\d+[a-z]?)*\)/g, "")
+    .replace(TAG_BRACKET, "")
     .replace(HYPHEN_TAG, "")
     .replace(/\s*\(owner[^)]*\)/gi, "")
+    .replace(/^H\d+[a-z]?\s+(?=\S)/, "")
     .replace(/\s{2,}/g, " ")
     .trim();
 
@@ -171,8 +181,8 @@ export function onceOnly(line: string): string {
   return `${field}${NOT_MENTIONED_LEAD}${v} (${outcome})`;
 }
 
-/** A code token: `R14`, `D9b`, `T1`, `S6`, `Q8`, or `slice 11`. */
-const CODE_TOKEN = String.raw`(?:(?:R|D|T|S|Q)-?\d+[a-z]?|slice \d+)`;
+/** A code token: `R14`, `D9b`, `T1`, `S6`, `Q8`, `H4` (ADP-4a, owner D4), or `slice 11`. */
+const CODE_TOKEN = String.raw`(?:(?:R|D|T|S|Q|H)-?\d+[a-z]?|slice \d+)`;
 /** A run of code tokens joined by " / ": `R5 / R14 / slice 11`. */
 const CODE_RUN = String.raw`${CODE_TOKEN}(?:\s*\/\s*${CODE_TOKEN})*`;
 

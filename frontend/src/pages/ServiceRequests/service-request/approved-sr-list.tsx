@@ -45,6 +45,7 @@ import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/use
 import { SRRemarksPopover } from "@/pages/ServiceRequests/service-request/components/SRRemarksPopover";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { parseNumber } from "@/utils/parseNumber";
+import { pendingInvoiceAmount } from "@/utils/workOrderPendingInvoice";
 import {
   DEFAULT_SR_FIELDS_TO_FETCH,
   SR_DATE_COLUMNS,
@@ -467,6 +468,29 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         meta: {
           exportHeaderName: "Total Invoiced",
           exportValue: (row: ServiceRequests) => parseNumber(row.amount_invoiced),
+        },
+      },
+      {
+        // Not a stored field: Amt. Paid less Total Invoiced, floored at 0 (`pendingInvoiceAmount`).
+        // Unsortable, since sorting a server-paged table would only reorder the fetched page.
+        id: "pending_invoice_amount",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Pending Invoices" className="justify-end" />
+        ),
+        cell: ({ row }) => {
+          const value = pendingInvoiceAmount(row.original);
+          return (
+            <div className={cn("text-center font-medium", value > 0 ? "text-red-600" : "text-muted-foreground")}>
+              {formatToRoundedIndianRupee(value)}
+            </div>
+          );
+        },
+        size: 150,
+        enableSorting: false,
+        enableColumnFilter: false,
+        meta: {
+          exportHeaderName: "Pending Invoices",
+          exportValue: (row: ServiceRequests) => pendingInvoiceAmount(row),
         },
       },
       {

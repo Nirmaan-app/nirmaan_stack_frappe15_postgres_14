@@ -5,7 +5,7 @@
  * overridable final-value field, and "Use this value"). Zero helper-specific rendering lives here,
  * so a new helper needs no panel change. Nothing persists (guardrail G2).
  */
-import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { X, ChevronRight, ChevronDown, RotateCcw, Sparkles, CheckCircle2, Copy, Check, Plus, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -392,6 +392,9 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
   // expanded; the two BoQ variants keep their collapsed default.
   const isCalculator = variant === "calculator";
   const [expanded, setExpanded] = useState<string | null>(isCalculator ? (helpers?.[0]?.id ?? null) : null);
+  // ADP-3a (U8): every field's control is named by its own <label htmlFor> -- one id prefix per mounted panel, so the
+  // embedded panel, a push panel and the calculator never share an id
+  const fieldUid = useId();
   const [finalOverrideState, setFinalOverrideState] = useState<RowScoped<Record<string, string>>>(EMPTY_FINAL_STATE);
   // What the CURRENT row may see. A different row (or none) sees nothing -- never the previous row's.
   const attrOverrides = overridesForRow(attrOverrideState, excelRow, EMPTY_ATTR_MAP);
@@ -684,6 +687,12 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                       // per order" (owner); no grouping is invented here.
                       style={isCalculator ? { gridTemplateColumns: `repeat(${Math.max(1, fieldColumns ?? 1)}, minmax(0, 1fr))` } : undefined}
                     >
+                      {/* ADP-3a (owner H1, 2026-10-20 13:32 "ok"): ONE note per panel / calculator, beside the first field */}
+                      {result.workings.attributes.some((x) => x.required) && (
+                        <p className={cn("text-[10px] text-muted-foreground", isCalculator && "col-span-full")} data-testid="needed-to-price-note">
+                          * needed to price
+                        </p>
+                      )}
                       {result.workings.attributes.map((a, ai, attrs) => {
                         // F4b -- THE LABELLED GROUP HEADER. General: emitted whenever `groupLabel`
                         // CHANGES between consecutive rendered attributes, so a config declaring
@@ -740,9 +749,13 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                         {/* Calculator layout slice: the label sits ABOVE its box (a column, boxes
                             full-width and equal within a column); the BoQ variants keep label-left /
                             box-right on one line, byte-unchanged. */}
-                        <label className={isCalculator ? "flex flex-col items-stretch gap-1 text-xs" : "flex items-center justify-between gap-2 text-xs"}>
+                        {/* ADP-3a (U8): a <div>, not a wrapping <label> -- the label below names the control by id, so
+                            the undo button (inside this row) can never take the field's name */}
+                        <div className={isCalculator ? "flex flex-col items-stretch gap-1 text-xs" : "flex items-center justify-between gap-2 text-xs"}>
                           <span className="flex items-center gap-1 text-muted-foreground">
-                            {a.label}
+                            <label htmlFor={`${fieldUid}-attr-${a.id}`}>{a.label}</label>
+                            {/* ADP-3a (owner H1, U1): "*" after the label of a field needed to price */}
+                            {a.required && <span aria-hidden="true" data-testid="needed-marker">*</span>}
                             {showingDerived && (
                               <span
                                 className="text-[10px] italic"
@@ -788,6 +801,8 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                           </span>
                           {a.options ? (
                             <select
+                              id={`${fieldUid}-attr-${a.id}`}
+                              aria-required={a.required || undefined}
                               // EA-4a-r: disabled = greyed (an allow_none controller is set to "None").
                               className={cn(
                                 "h-7 rounded border bg-background px-1 text-xs disabled:opacity-50",
@@ -849,6 +864,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                                 <label className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
                                   <input
                                     type="checkbox"
+                                    aria-label={`${a.label}: none`}
                                     checked={a.value === "None"}
                                     onChange={(e) => setAttr(helper.id, a.id, e.target.checked ? "None" : "")}
                                   />
@@ -856,6 +872,8 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                                 </label>
                               )}
                               <Input
+                                id={`${fieldUid}-attr-${a.id}`}
+                                aria-required={a.required || undefined}
                                 className={cn(isCalculator ? "h-7 w-full text-xs disabled:opacity-50" : "h-7 w-28 text-xs disabled:opacity-50", fieldTone)}
                                 value={shown === "None" ? "" : shown}
                                 // READ-ONLY, not disabled: the value is real and worth reading (and
@@ -867,7 +885,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                               />
                             </span>
                           )}
-                        </label>
+                        </div>
                         {/* LONG-OPTION READ-OUT (owner 2026-09-04). A native <select> does NOT wrap
                             its option text in any engine we ship to, so a long catalogue description
                             is truncated to one line and the pricer cannot read what they picked.
@@ -1133,6 +1151,8 @@ function ItemListBlocks({
   section?: { heading: string; onRemove?: () => void };
 }) {
   const [picker, setPicker] = useState<ItemPicker>(null);
+  // ADP-3a (U8): one id prefix per instance -- a nested section is its own instance, so ids never collide
+  const fieldUid = useId();
   // SLICE 12e-3a (owner D4 / Q2a / M5): on a row made of sections every LINE counts -- each item and each section
   const n = view.sections ? view.sections.lines : view.items.length;
   const bad = view.sections ? view.sections.bad : view.items.filter((b) => b.state !== "priced").length;
@@ -1230,6 +1250,10 @@ function ItemListBlocks({
           {view.unitNote}
         </div>
       )}
+      {/* ADP-3a (owner H1, 2026-10-20 13:32 "ok"): ONE note per panel / calculator -- never repeated in a section */}
+      {!section && view.items.some((b) => b.fields.some((f) => f.required || f.group)) && (
+        <p className="text-[10px] text-muted-foreground" data-testid="needed-to-price-note">* needed to price</p>
+      )}
       {view.items.map((b, i) => (
         <Fragment key={i}>
         <div className="relative space-y-1.5 rounded-md border bg-muted/30 px-2 py-1.5" data-testid="item-block">
@@ -1244,7 +1268,8 @@ function ItemListBlocks({
                 className={cn("text-xs font-semibold", b.familyDefaulted && "rounded bg-amber-50 px-1 dark:bg-amber-950/30")}
                 data-testid={b.familyDefaulted ? "item-family-defaulted" : undefined}
               >
-                {b.family ?? "(no family)"}
+                {/* ADP-4a (owner AC2): the family as a pricer reads it ("Not in the catalogue"); the value is unchanged */}
+                {b.familyLabel ?? b.family ?? "(no family)"}
                 {b.familyDefaulted && (
                   <span className="ml-1 text-[10px] font-normal text-amber-700 dark:text-amber-400">default</span>
                 )}
@@ -1272,7 +1297,7 @@ function ItemListBlocks({
           </div>
           {b.familyRaw && !b.familyLine && (
             <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400">
-              BoQ says &ldquo;{b.familyRaw}&rdquo;: priced as {b.family} (your rule).
+              BoQ says &ldquo;{b.familyRawLabel ?? b.familyRaw}&rdquo;: priced as {b.family} (your rule).
             </p>
           )}
           {/* SLICE 12e-2 (owner Q16 / Q15, amendment 2026-10-10): the config's own line for a family read as
@@ -1344,17 +1369,29 @@ function ItemListBlocks({
               )}
             </div>
           )}
-          {b.fields.map((f) => {
-            const tone = f.blank
+          {b.fields.map((f, fi) => {
+            // ADP-3a (U3 / U4): a box that holds words but did not give what the refusal needs is outlined too
+            const tone = f.blank || f.outline
               ? "border-red-500 dark:border-red-500"
               : f.defaulted
                 ? "bg-amber-50 dark:bg-amber-950/30"
                 : undefined;
+            // ADP-2 (owner H7, U1): an either-or group's plain label, once, above its first field
+            const groupStart = !!f.group && f.group !== b.fields[fi - 1]?.group;
             return (
               <div key={f.id} className="group/attr space-y-0.5">
-                <label className="flex items-center justify-between gap-2 text-xs">
+                {/* ADP-3a (owner H2, U2): the either-or group's label carries the "*" -- one of its fields is needed */}
+                {groupStart && (
+                  <p className="pt-1 text-[11px] font-medium text-muted-foreground" data-testid="item-field-group">
+                    {f.group} <span aria-hidden="true">*</span>
+                  </p>
+                )}
+                {/* ADP-3a (U8): a <div>; the label names its control by id, so the undo button never takes the name */}
+                <div className="flex items-center justify-between gap-2 text-xs">
                   <span className="flex items-center gap-1 text-muted-foreground">
-                    {f.label}
+                    <label htmlFor={`${fieldUid}-${i}-${f.id}`}>{f.label}</label>
+                    {/* ADP-3a (owner H1, U1): "*" after the label of a field needed to price */}
+                    {f.required && <span aria-hidden="true" data-testid="needed-marker">*</span>}
                     {f.defaulted && (
                       <span
                         className="rounded bg-amber-100 px-1 text-[9px] font-medium leading-none text-amber-800 dark:bg-amber-900 dark:text-amber-200"
@@ -1387,6 +1424,8 @@ function ItemListBlocks({
                   {f.options ? (
                     <span className="flex items-center gap-1">
                       <select
+                        id={`${fieldUid}-${i}-${f.id}`}
+                        aria-required={f.required || undefined}
                         className={cn("h-7 w-28 rounded border bg-background px-1 text-xs", tone)}
                         /**
                          * OWNER FA8: a `dropdown_or_other` field keeps its select on OTHER whenever the
@@ -1418,7 +1457,8 @@ function ItemListBlocks({
                           onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value });
                         }}
                       >
-                        <option value="">&mdash; select &mdash;</option>
+                        {/* ADP-4a (owner B5, U5): a stored "None" no longer offered reads "not stated" */}
+                        <option value="">{f.placeholder ?? "— select —"}</option>
                         {f.options.map((o) => (
                           // SLICE 9 (A-6): the VALUE is what prices; the TEXT may be the catalogue's own word
                           // for it. Keeping the value real is what stops a controlled select falling back to
@@ -1447,12 +1487,14 @@ function ItemListBlocks({
                     <span className="h-7 w-28 truncate text-xs" data-testid={`item-optional-${f.id}`}>{f.value}</span>
                   ) : (
                     <Input
+                      id={`${fieldUid}-${i}-${f.id}`}
+                      aria-required={f.required || undefined}
                       className={cn("h-7 w-28 text-xs", tone)}
                       value={f.value}
                       onChange={(e) => onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value })}
                     />
                   )}
-                </label>
+                </div>
                 {/* A RULED DEFAULT stays AMBER -- it is the one tone this panel reserves for "we filled
                     this in for you", and the owner's S7 ruling left amber and red exactly as they were. */}
                 {f.rule && <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400">{f.rule}</p>}
@@ -1500,7 +1542,7 @@ function ItemListBlocks({
               </div>
             );
           })}
-          <label className="flex items-center justify-between gap-2 text-xs">
+          <div className="flex items-center justify-between gap-2 text-xs">
             {/* SLICE 6b (owner V7): how many of THIS item make up ONE unit of the row -- the row's own quantity
                 plays no part in the rate (the module never reads it).
                 SLICE 6c (owner ruling, 2026-09-24): a quantity the pricer has NOT typed is an ASSUMPTION, and it
@@ -1508,7 +1550,8 @@ function ItemListBlocks({
                 a row needing 2 of something prices low and looks complete. Marked amber with the same "default"
                 tag every other assumed value carries. Nothing reads a quantity from the row. */}
             <span className="flex items-center gap-1 text-muted-foreground">
-              How many in one {view.unit} of this row
+              {/* ADP-3a (U8): the quantity box is named by this label (it had only a wrapping one) */}
+              <label htmlFor={`${fieldUid}-${i}-qty`}>How many in one {view.unit} of this row</label>
               {/* SLICE 12e-3c (owner F10): the quantity is the item's this section sits under, until typed here */}
               {b.qtyMirrorTag && (
                 <span
@@ -1528,12 +1571,13 @@ function ItemListBlocks({
               )}
             </span>
             <Input
+              id={`${fieldUid}-${i}-qty`}
               className={cn("h-7 w-28 text-xs", b.qtyDefaulted && "bg-amber-50 dark:bg-amber-950/30")}
               value={b.qty}
               inputMode="decimal"
               onChange={(e) => onEdit({ op: "set_qty", index: i, qty: e.target.value })}
             />
-          </label>
+          </div>
           {b.state === "priced" ? (
             <div className="space-y-0.5 text-xs text-muted-foreground">
               {b.skuLine && <div>{b.skuLine}</div>}

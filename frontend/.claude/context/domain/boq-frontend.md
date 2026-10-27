@@ -2858,7 +2858,10 @@ throughout).
 Editing it and re-checking in the browser requires the full Vite de-stale (restart with
 `node_modules/.vite` cleared + hard reload); an HMR update silently leaves the old module running.
 
-### Q4(i) -- the Derivation tab is a pure calculator
+### Q4(i) -- the Derivation tab is a pure calculator (REMOVED, ADP-4b)
+
+⚠️ **ADP-4b (owner D8, 2026-10-21; every category) removed this calculator from the Derivation tab**: the tab is the
+rules listing, or one line pointing to the pricing page's Calculator; the record below describes what was removed.
 
 `selectableDefs` now filters `!derivedBinds.has(d.id)` using the SHARED `derivedAttrIds`, so a
 `catalog_fit` bind or `module_fit` ladder bind has no select and appears only in the step lines. The
@@ -3031,7 +3034,8 @@ is system-wide). Only a BOOLEAN `writesBlocked` is threaded to the three tabs as
 ### Disabled write controls (item 3) -- DISABLED, never hidden
 
 `RateMasterDataViewer` (row edit, deactivate, Add row), `RateMasterUploadDialog` (the CSV chooser),
-`RateMasterDerivation` (inline param edit), `RateMasterPipelines` ("Edit structure"). **Each carries
+`RateMasterDerivation` (inline param edit) and `RateMasterPipelines` ("Edit structure") -- both REMOVED in ADP-4b (owner
+D8 / D9), so the freeze now governs the Data Viewer's writes only. **Each carries
 the owner's APPROVED message as its `title`**, so the reason is on screen and the feature needed no
 new string for it.
 

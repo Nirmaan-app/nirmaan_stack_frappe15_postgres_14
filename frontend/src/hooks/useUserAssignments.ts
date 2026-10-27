@@ -15,8 +15,6 @@ export interface UserAssignment {
   creation: string;
   received?: 0 | 1;
   received_on?: string | null;
-  returned?: 0 | 1;
-  returned_on?: string | null;
   /**
    * Monthly asset audit (owner, 2026-10-14): Pending / Fulfilled, the month (MM/YYYY), when sent, the photo, and
    * the first month of an unbroken run recorded Missed.
@@ -73,8 +71,7 @@ export function useUserAssignments(userId: string | undefined, enabled = true) {
   return useFrappeGetDocList<UserAssignment>(
     ASSET_MANAGEMENT_DOCTYPE,
     {
-      // With the receive / return and audit fields: the profile card shows Received, Returned, Return
-      // and the audit row; the app access gate counts open audits.
+      // With the receive and audit fields: the profile card shows Received and the audit row; the app access gate counts open audits.
       fields: [...ASSET_MANAGEMENT_AUDIT_ANSWER_FIELDS],
       filters: [["asset_assigned_to", "=", userId ?? ""]],
       limit: 1000,

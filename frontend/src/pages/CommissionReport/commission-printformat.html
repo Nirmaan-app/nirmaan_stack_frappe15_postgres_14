@@ -1454,7 +1454,16 @@ thead { display: table-header-group; }
             {%- set details_section  = (tpl.sections | selectattr("id", "equalto", "details")  | list | first) -%}
             {%- set evidence_section = (tpl.sections | selectattr("id", "equalto", "evidence") | list | first) -%}
 
-            <table class="cv-page-layout">
+            <style>
+                /* Leave headroom so a long (3+ line) LOCATION or the multi-zone ZONE
+                   row doesn't push the signature onto a 2nd page: shorter photo row
+                   + tighter heading. */
+                .cv-pp-page .cv-img-grid img { max-height: 150px !important; }
+                .cv-pp-page .cv-img-grid td { min-height: 0 !important; }
+                .cv-pp-page .cv-sub-head { padding: 3px 0 !important; }
+            </style>
+
+            <table class="cv-page-layout cv-pp-page">
                 <tr><td class="cv-content-cell">
 
                     {# Title + cover header #}
@@ -1510,7 +1519,7 @@ thead { display: table-header-group; }
                         {%- endfor -%}
                         {%- set total = ns_imgs.list | length -%}
                         {% if total == 0 %}
-                            <table class="cv-img-grid" style="height: 180px;">
+                            <table class="cv-img-grid" style="height: 160px;">
                                 <tr><td style="vertical-align: middle; text-align: center;" class="cv-img-empty">&nbsp;</td></tr>
                             </table>
                         {% else %}

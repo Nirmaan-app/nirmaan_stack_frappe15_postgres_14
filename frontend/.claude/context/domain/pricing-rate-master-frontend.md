@@ -57,7 +57,8 @@ root `.claude/context/domain/boq-rate-master.md` § Load-bearing invariants — 
   `extraction.build_attribute_defs` copies it into the per-attribute definitions sent to the model, and
   it also seeds the Rate Master Derivation screen ahead of the goldens fallback. It is DISTINCT from the
   top-level `extraction_defaults` map. Treat adding one as a behavioural change, and prove the
-  whole-config RM-4b round-trip -- the loader does not validate, only `update_rate_config` does.
+  whole-config RM-4b round-trip -- the loader does not validate, only `update_rate_config` does (historical: the loader
+  validates since 2026-09-10; `update_rate_config` was removed in ADP-5a).
 - **`coerceForMatch` lives in `rateMasterStructure.ts` and is THE single point where an attribute
   value becomes a match key.** It is not a page helper: `matchMasterRow` compares with `===`, so the
   JS type produced here decides whether a catalog row is found at all. Two shared predicates, one
@@ -659,10 +660,11 @@ in the plan doc.
   disabled), gated by the shared `isNirmaanAdmin(role, userId)` in `src/constants/roles.ts` (mirrors
   the server `_is_nirmaan_admin`; false while `role` is "Loading"/"Error"). The server
   (four `api/boq/rate_master.py` write endpoints) is authoritative. **PARAM VALUES ONLY** -- pipeline
-  STRUCTURE / condition / attribute-definition editing is RM-4b. **Derivation tab:** each NUMERIC param in a
-  step's `detail` cell is an inline edit (`InlineParamEdit`: pencil -> input, Enter saves / Escape cancels);
+  STRUCTURE / condition / attribute-definition editing is RM-4b. **Derivation tab (REMOVED in ADP-4b D8 -- the tab is
+  the rules listing; the inline edit below no longer exists):** each NUMERIC param in a
+  step's `detail` cell was an inline edit (`InlineParamEdit`: pencil -> input, Enter saves / Escape cancels);
   the condition `when` + string params (e.g. `kind`) stay read-only. The matched-condition path is
-  re-derived by `matchedConditionIndex` (config + matched item, EXACTLY as the interpreter matches) so the
+  re-derived by `matchedConditionIndex` (removed in ADP-5a; config + matched item, EXACTLY as the interpreter matches) so the
   interpreter is NEVER touched. **Data tab:** an admin ACTIONS column (inline row rate/attr edit; deactivate
   via AlertDialog confirm -- freeze-and-supersede, dropped from active view, NEVER deleted) + an `AddItemDialog`
   built from the attribute definitions + rate keys; manual rows carry "Manual entry" provenance. Each write
@@ -695,8 +697,14 @@ in the plan doc.
   `border-t`-only on the proxy so proxyMax == scrollerMax. The Add-row form is likewise category-scoped (its
   attribute definitions + rate keys + kind preselected read-only for one kind, a select for several).
 
-### RM-4b structure editor - the Pipelines tab
+### RM-4b structure editor - the Pipelines tab (REMOVED, ADP-4b)
 
+- **⚠️ REMOVED in ADP-4b (owner D9, 2026-10-21, option A; every category).** The Pipelines tab, `RateMasterPipelines.tsx`
+  and its test, and the editor-only helpers (`cloneConfig`, `evaluateGoldens`, `goldenDeltas`, `referencedAttrIds`,
+  `blankAttributeDefinition`, `blankPipeline`) are gone; a config's structure changes only by a new asset version.
+  `update_rate_config` stayed server-side, uncalled, one more slice, and was REMOVED in ADP-5a with `update_rate_config_param`
+  and the helpers only they served (`rateMasterEdit.matchedConditionIndex` / `isEditableParam`). The text below is the as-built record of what was
+  removed. The Rate Master page has TWO tabs: Data Viewer and Derivation.
 - **RM-4b structure editor -- the THIRD tab "Pipelines" (`RateMasterPipelines.tsx` + `rateMasterStructure.ts`).**
   LIFTS the RM-4a param-values-only line: add/remove params, steps, conditions, and attribute definitions.
   READ-ONLY structural view for everyone (attribute-definitions table + each pipeline as its ordered step
@@ -872,6 +880,11 @@ in the plan doc.
   screen** -- take-the-larger's UPGRADE (a stated plate too small), `derive_attribute`'s STATED-WINS
   (a stated circuit length), and `catalog_fit`'s stated-`"None"` STICKING. None can be exercised there
   any more, because none of their attributes has a control.
+  ⚠️ **ADP-4b (owner D8, 2026-10-21) REMOVED that calculator from the Derivation tab on every category**: the tab is the
+  rules listing (`itemListRuleOrder`) or one line pointing to the pricing page's Calculator (Pricing Inputs: what they hold);
+  no attribute box, figure, step card or inline edit -- the calculator prices through the panel's own entry point.
+  `derivedQtyValue` stays exported from `RateMasterDerivation.tsx` (the panel reads it), so that file must never import
+  the calculator (a cycle through the panel).
   ⚠️ **The predicate lives in `rateMasterStructure.ts`, the leaf both screens may import** -- with
   `derivedQtyAttrs` and `blanksQtyAttr` -- because `pricingSheetHelper` already imports FROM
   `RateMasterDerivation`, so importing back the other way is a CYCLE. **Never a second copy:** two
@@ -917,8 +930,9 @@ in the plan doc.
   outputs still compute — so a source row carrying supply but not install (or vice-versa; the misc CEIG /
   AS Built rows) prices only what exists. **Empty-pipelines configs render honestly with ZERO frontend
   changes:** a config with `pipelines: {}` (a DATA-ONLY category such as `lighting_mgmt_system`, authored
-  in-system later) shows its data + attribute definitions on the Data / Derivation / Pipelines tabs and the
-  preview gate with no derivation output and no crash. **EA-2 SHIPPED the authoring path:** the Pipelines-tab
+  in-system later) showed its data + attribute definitions on the Data / Derivation / Pipelines tabs and the
+  preview gate with no derivation output and no crash (ADP-4b: the Pipelines tab and the Derivation configurator are
+  gone; such a category's Derivation tab shows the calculator line). **EA-2 SHIPPED the authoring path:** the Pipelines-tab
   edit mode has an **Add-pipeline** control (validated id + output keys -> a validator-minimal pipeline via
   `blankPipeline`, seeded with `match_master_row`), so a NEW pipeline can be authored into an empty config;
   the RM-4b `distinctNumberValues` datalist makes number attributes (e.g. module_count) a free numeric input

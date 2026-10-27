@@ -539,6 +539,23 @@ export function computeImpact(
     const it = itemsByUid?.get(cand.itemUid);
     if (!it) continue;
     const cfgForRow = exactCtx?.configs?.[cand.categories[0] ?? ""];
+    // ADP-1 (owner Q2): a candidate the product's pricer prices ON ITS OWN (an ADP cross-talk per number: width and
+    // height are not ladders) shows its own now / becomes, exactly as a column row does; only one it cannot price
+    // is quoted through samples
+    const direct = itemsNextForSamples && cfgForRow ? priceSkuExactItemList(it, cfgForRow, exactCtx!.items, itemsNextForSamples) : null;
+    if (direct && direct.ok && direct.legs.length) {
+      const primary = direct.legs.find((l) => legClassOf(l.output) === legWanted) ?? direct.legs[0];
+      rows.push({
+        itemUid: cand.itemUid, kind: cand.kind, rateKey: "",
+        label: skuLabel(it, labelCtx), categories: cand.categories, storedRate: 0,
+        now: primary.now, becomes: primary.becomes,
+        pctChange: primary.now === 0 ? null : ((primary.becomes - primary.now) / primary.now) * 100,
+        moved: primary.moved,
+        otherLegs: direct.legs.filter((l) => l !== primary && l.moved),
+        exact: true,
+      });
+      continue;
+    }
     const samples = itemsNextForSamples && cfgForRow
       ? priceSkuExactSamples(it, cfgForRow, exactCtx!.items, itemsNextForSamples)
       : [];

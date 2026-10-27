@@ -29,7 +29,10 @@ import {
   ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, assembleItems, decodeItemEdits, makePricingSheetHelper,
   type ItemListSuggestion,
 } from "./pricingSheetHelper";
-import { familyAttr, itemListPricingSpec, priceItemList } from "./itemListPricing";
+import { applyFamilyMerge, familyAttr, itemListPricingSpec, priceItemList } from "./itemListPricing";
+import { applyAdp1 } from "./adp1.harness";
+import { applyAdp2 } from "./adp2.harness";
+import { applyAdp3b } from "./adp3b.harness";
 
 const ASSET = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
   new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v38.json", import.meta.url),   // 12e-4b: v37 -> v38 (Insulation, ADP and every item carried; Piping gains its model questions, the as-written rule and the second opinion; Insulation one key). BEFORE: v37. 12e-2: v33 -> v36 (Insulation and ADP carried byte-equal; Piping gains its rules); 12e-3b: v36 -> v37 (Piping gains its insulation section; Insulation and ADP byte-equal)
@@ -43,6 +46,47 @@ const ASSET42 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMast
 const CFG42: Record<string, RateCategoryConfig> = Object.fromEntries(ASSET42.category_configs.map((c) => [c.category_id, c]));
 const CONFIGS42 = new Map<string, RateCategoryConfig>(Object.entries(CFG42));
 const ITEMS42: RateMasterItem[] = ASSET42.items.map((it) => ({ ...it, discipline: ASSET42.discipline } as RateMasterItem));
+// SLICE 12e-6c: the LIVE asset, for the rules whose config keys only it carries (O3 / O4 read `choice_text`, v40+; U1 reads
+// Insulation's `typed_entry`, v46); a case marked `live` runs on it, on the panel's entry point and the pure pricer alike
+const ASSET_LIVE = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
+  new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v46.json", import.meta.url),   // 12e-6c AC7: v46 (BEFORE, commit 1: v45)
+);
+const CFG_LIVE: Record<string, RateCategoryConfig> = Object.fromEntries(ASSET_LIVE.category_configs.map((c) => [c.category_id, c]));
+const CONFIGS_LIVE = new Map<string, RateCategoryConfig>(Object.entries(CFG_LIVE));
+const ITEMS_LIVE: RateMasterItem[] = ASSET_LIVE.items.map((it) => ({ ...it, discipline: ASSET_LIVE.discipline } as RateMasterItem));
+// ADP-1 (owner rulings 2026-10-19): v46 + this slice's changes (`applyAdp1`; the asset commit pins it EQUAL to v47); a case
+// marked `adp1` runs on it, on the panel's entry point and the pure pricer alike
+const ASSET_ADP1 = applyAdp1(ASSET_LIVE as any) as typeof ASSET_LIVE;
+const CFG_ADP1: Record<string, RateCategoryConfig> = Object.fromEntries(ASSET_ADP1.category_configs.map((c) => [c.category_id, c]));
+const CONFIGS_ADP1 = new Map<string, RateCategoryConfig>(Object.entries(CFG_ADP1));
+const ITEMS_ADP1: RateMasterItem[] = ASSET_ADP1.items.map((it) => ({ ...it, discipline: ASSET_ADP1.discipline } as RateMasterItem));
+// ADP-2 (owner rulings H5 / H7 / B3): the ADP-1 config + this slice's changes (`applyAdp2`; the asset commit pins it EQUAL to
+// v48); a case marked `adp2` runs on it, on the panel's entry point and the pure pricer alike
+const ASSET_ADP2 = applyAdp2(ASSET_ADP1 as any) as typeof ASSET_LIVE;
+const CFG_ADP2: Record<string, RateCategoryConfig> = Object.fromEntries(ASSET_ADP2.category_configs.map((c) => [c.category_id, c]));
+const CONFIGS_ADP2 = new Map<string, RateCategoryConfig>(Object.entries(CFG_ADP2));
+const ITEMS_ADP2: RateMasterItem[] = ASSET_ADP2.items.map((it) => ({ ...it, discipline: ASSET_ADP2.discipline } as RateMasterItem));
+// ADP-3b (owner B1; D1-D4): the ADP-2 config (= v48) + this slice's changes (`applyAdp3b`; the asset commit pins it EQUAL to
+// v49); a case marked `adp3b` runs on it, on the panel's entry point and the pure pricer alike. No item changes.
+const ASSET_ADP3B = applyAdp3b(ASSET_ADP2 as any) as typeof ASSET_LIVE;
+const CFG_ADP3B: Record<string, RateCategoryConfig> = Object.fromEntries(ASSET_ADP3B.category_configs.map((c) => [c.category_id, c]));
+const CONFIGS_ADP3B = new Map<string, RateCategoryConfig>(Object.entries(CFG_ADP3B));
+// ADP-4a (owner AC5; D10): HVAC v50 itself (v49 + the five "Other..." fields); a case marked `adp4a` runs on it, on the panel's
+// entry point and the pure pricer alike
+const ASSET_V50 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
+  new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v50.json", import.meta.url),
+);
+const CFG_V50: Record<string, RateCategoryConfig> = Object.fromEntries(ASSET_V50.category_configs.map((c) => [c.category_id, c]));
+const CONFIGS_V50 = new Map<string, RateCategoryConfig>(Object.entries(CFG_V50));
+const ITEMS_V50: RateMasterItem[] = ASSET_V50.items.map((it) => ({ ...it, discipline: ASSET_V50.discipline } as RateMasterItem));
+// ADP-5a (owner rulings 2026-10-22): HVAC v51 itself (v50 + the curved grille default, `family_merge`, the depth_mm column gone); a
+// case marked `adp5a` runs on it, on the panel's entry point and the pure pricer alike
+const ASSET_V51 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
+  new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v51.json", import.meta.url),
+);
+const CFG_V51: Record<string, RateCategoryConfig> = Object.fromEntries(ASSET_V51.category_configs.map((c) => [c.category_id, c]));
+const CONFIGS_V51 = new Map<string, RateCategoryConfig>(Object.entries(CFG_V51));
+const ITEMS_V51: RateMasterItem[] = ASSET_V51.items.map((it) => ({ ...it, discipline: ASSET_V51.discipline } as RateMasterItem));
 const CONFIGS = new Map<string, RateCategoryConfig>(Object.entries(CFG));
 const ITEMS: RateMasterItem[] = ASSET.items.map((it) => ({ ...it, discipline: ASSET.discipline } as RateMasterItem));
 const INS = "hvac_insulation";
@@ -68,6 +112,8 @@ interface Case {
   model?: Array<Record<string, string>>;      // the stored extraction's items (panel / ptyped)
   edits?: Edit[];                             // session edits (calc / ptyped)
   description?: string; headings?: string[]; ownNotes?: string[];
+  /** ADP-5a (HN-2 / HN-3): the notes of the heading directly above the row, as the panel's row context carries them */
+  headingNotes?: string[];
   /** the rule's OWN line(s): every regex must appear in the panel's lines; none of `not` may */
   re: Array<string | RegExp>; not?: Array<string | RegExp>;
   /** lines that must appear in a block's WORKING -- the pricer's own output, never a display note (F-2: the reader's line must reach the pricer) */
@@ -77,6 +123,22 @@ interface Case {
   pure?: boolean;
   /** SLICE 12e-6: run on the live v42 asset (configs and items) instead of v38 */
   v42?: boolean;
+  /** SLICE 12e-6c: run on the LIVE asset (v45, then v46) instead of v38 */
+  live?: boolean;
+  /** ADP-1: run on the ADP-1 config (v46 + `applyAdp1`, = v47) instead of v38 */
+  adp1?: boolean;
+  /** ADP-2: run on the ADP-2 config (the ADP-1 config + `applyAdp2`, = v48) instead of v38 */
+  adp2?: boolean;
+  /** ADP-3b: run on the ADP-2 config + ADP-3b (= v49) */
+  adp3b?: boolean;
+  /** ADP-4a: run on HVAC v50 (configs and items) */
+  adp4a?: boolean;
+  /** ADP-5a: run on HVAC v51 (configs and items) */
+  adp5a?: boolean;
+  /** ADP-4a (AC5): the family this case is named for, read by the family guard (default: the first item's family) */
+  family?: string;
+  /** ADP-4a (AC5): the row's figures, supply and install, exactly (the replay's own figures for the stored row) */
+  figures?: [number, number];
 }
 const NR = "Nitrile Rubber Insulation", PUF = "Tubular Puf Insulation", THM = "Thermal Nitrile Insulation",
   ACO = "Acoustic Nitrile Insulation", FGB = " Fiberglass Rigid Board Insulation, Density 48Kg/m3", CLO = "Cladding Only";
@@ -146,7 +208,9 @@ const T = {
   // ── SLICE 12e-4b (owner D-3 / F-1), generated from the two keys HVAC v38 adds ──
   asWritten: "A pipe type left unanswered is read from 'Pipe type as written'",
   nearPipe: "A pipe size within 0.1 mm of a stocked size counts as that size",
-  readClass: "A Copper, MS and 2 more row stating its own figure in the class / wall thickness carries a line saying what was priced",
+  // INVERTED at ADP-4a (owner AC1 generic fix: a full list, never "and N more"; U6 Piping line 17) by mechanical authority:
+  // BEFORE "A Copper, MS and 2 more row stating its own figure in the class / wall thickness carries a line saying what was priced"
+  readClass: "A Copper, MS, PVC, CPVC row stating its own figure in the class / wall thickness carries a line saying what was priced",
   // ── SLICE 12e-6 (U9, owner 2026-10-16 14:49): the lines AC14 adds -- one per new rule ──
   noneNamed: "A 'none of these' answer where the BoQ names no material takes the kind its row implies",
   altMaterial: "A material written with an alternative prices the stocked one",
@@ -160,6 +224,66 @@ const T = {
   secDefaults: "Insulated Yes with no insulation facts opens the insulation section on Insulation's defaults",
   // ── SLICE 12e-6b (owner R1; U2): the one line it adds ──
   drainCpvc: "A drain pipe whose material the BoQ does not name prices as CPVC",
+  // ── SLICE 12e-6c (owner rulings 2026-10-18): the lines it adds (U2's F-3 line on Insulation is `noUnit`; U1's is `typedSize`) ──
+  rpuf: "RPUF with no material answered prices as Tubular Puf Insulation",
+  giMap: "A cladding written as 'gi', 'g.i' with none answered is priced as the stocked one of its gauge",
+  cloth: "A glass or fibre cloth facing copied as the cladding with none answered prices as the glass cloth cladding",
+  // ── ADP-1 (owner rulings 2026-10-19; U6): the lines it adds. F4's is generated wherever the RPUF line is (code over keys
+  // v38 carries); F3's wherever `choice_text` is (v40+); the rest from v47's keys ──
+  rpufSheet: "RPUF on a per-sq.m row refuses by name",
+  giFramework: "A GI frame or framework with perforated aluminium sheet, with no cladding answered, prices as GI Framework with perforated Al sheet",
+  f1Above: "A pipe size written as a bare number whose inch reading is above the largest refuses",
+  slotNos: "A per-number slot diffuser is priced from the per-metre rate",
+  slotMissing: "A per-number slot diffuser without slot count refuses, naming what is missing",
+  mixNos: "A per-number mixing box / LP plenum is priced from the per-sq.m rate",
+  mixMissing: "A per-number mixing box / LP plenum without width, height, depth refuses, naming what is missing",
+  slotsStock: "A slot count the catalogue does not stock refuses",
+  pieceLen: "A piece length is typed in 'Piece length (m)', else read from the size",
+  // INVERTED at ADP-4a (AC1: a title starts with a capital) by mechanical authority: BEFORE "without as the damper on a ..."
+  slotSqm: "Without as the damper on a per-sq.m row of slot diffuser refuses",
+  // ── ADP-2 (owner rulings H5 / H7 / B3; U6): the lines it adds; ADP-1's `mixMissing` is replaced by `mixEither` ──
+  h5Air: "A damper not mentioned is decided by the air stream",
+  mixArea: "A per-number mixing box / LP plenum with an area is priced from the per-sq.m rate",
+  mixEither: "A per-number mixing box / LP plenum without an area, or length + width + height refuses, naming what is missing",
+  boxSides: "The length, width and height are typed in their own boxes, else read from the size",
+  areaFill: "An area is typed in 'Area (sq.m)', else read from the area band, at its largest value",
+  neckOther: "A neck size the catalogue does not stock can be typed in 'Other...'",
+  // ADP-2 H5 fix (a) (owner 2026-10-20): generated wherever a derive rule reads an air stream (v47's R13 too)
+  h5Both: "A row naming supply and return air leaves the damper as read",
+  // ── ADP-3a (owner 13:35 unit refusals / B6 / H2; AC6): the lines it adds, LAST on the tab, generated by the code from keys
+  // every version carries -- the unstocked-combination line only where a category has a choice attribute (not Piping) ──
+  a3Unit: "A kind not stocked in the row's unit refuses, naming the units it is stocked in",
+  a3Unstocked: "An unstocked combination names only the facts the kind's products vary on",
+  a3Either: "A per-number item needs Size (W x H), or Area band; with neither stated it refuses, naming both",
+  // ── ADP-3b (owner B1; D1 / D2): the lines it adds, LAST on ADP's tab, generated from `face_side` (v49) ──
+  faceBoxes: "The width and height are typed in their own boxes, else read from the size",
+  faceThird: "A third part of a size never displaces the face",
+  faceD2: "A kind that reads only the height, sized by one dimension written as a width, takes it as the height",
+  // ADP-3a's either-or line, worded by the group the v49 boxes form
+  a3EitherFace: "A per-number item needs Width + Height, or Area band; with neither stated it refuses, naming both",
+  // ── ADP-3c (owner 2026-10-21 01:31 / 01:55): the one line it adds, LAST on ADP's tab, generated where a config has BOTH
+  // face sides (v49 -- no config change; its cases run on the ADP-3b config, = v49) ──
+  faceAny: "A two-part size on a Width + Height item is the face, whatever its parts are called",
+  // ── ADP-4a (owner D1 / D2 / D3; AC1): ADP's tab in plain words. Renamed: the no-match line names an ITEM. Merged: the five
+  // fitting lines (and ADP-2's neck "Other..." line) into one; the boxes / face / two-part lines (ADP-2 / ADP-3b / ADP-3c)
+  // into one sizes line; ADP-2's air-stream line into the defaults line; line 5 (the unit not offered) into ADP-3a's unit
+  // line. New: one line per rule the config already ran that the tab never named (each with a positive and a negative case) ──
+  noSkuAdp: "An item the model could not match to any kind refuses",
+  fitAdp: "Fitting the stated diameter, neck size, torque, panel ratio or plenum thickness to the catalogue",
+  sizesAdp: "The sizes are typed in their own boxes, else read from the size as written",
+  convWH: "Per-number row: per-sq.m rate x W x H",
+  convBand: "Area band: per-sq.m rate x the band's maximum area",
+  convGrille: "Per-metre grille: per-sq.m rate x height in metres",
+  convPiece38: "Per piece: per-metre rate x 2.5 m standard length",
+  convPiece: "Per piece: per-metre rate x the flexible duct length per piece",
+  convMix38: "Per-number mixing box at any size: per-sq.m cost x 2(WH + HD + WD) + 150, rounded up, then the markup",
+  crossTalk: "A per-number cross-talk is priced by its own formula",
+  ratio: "A panel ratio is read from '1:N' as N",
+  gauge: "A plenum thickness below 5 mm is a sheet gauge, not a thickness, and refuses",
+  sqft: "An area written in square feet refuses",
+  // ADP-5a (owner 2026-10-22, SCOPE-5a-1): the one line v51 adds, LAST on the ADP tab
+  mergeSpigot: "A spigot named with a butterfly damper is priced as one butterfly damper",
+  mcm: "A size written in metres or centimetres is read in millimetres",
 };
 /** Tab lines that are NOT panel-path rules (a catalogue / rate-master rule the pricer never reads), by name. */
 const NOT_PANEL_RULES: Record<string, string> = {
@@ -172,21 +296,22 @@ const CASES: Case[] = [
   // the model path and the calculator; negative: 0.11 away still takes the next size up, and says nothing of 0.1 mm.
   { id: "I15a", rule: T.nearPipe, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { pipe_size_mm: "22.3" })], re: ["pipe size 22.3 is 22.23 on the sheet (within 0.1 mm)"], priced: true },
   { id: "I15a-calc", rule: T.nearPipe, cat: INS, path: "calc", kind: "pos", edits: calc(NR, { cladding: "26G Aluminium", thickness_mm: "19", pipe_size_mm: "22.3" }, ["pipe_size_mm"]), rowUnit: "mts", re: ["pipe size 22.3 is 22.23 on the sheet (within 0.1 mm)"], priced: true },
-  { id: "I15b-neg", rule: T.nearPipe, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [m(NIT, { pipe_size_mm: "22.34" })], re: ["pipe size 22.34 is not on the sheet -> 28.58 (next size up"], not: ["within 0.1 mm"], priced: true },
+  { id: "I15b-neg", rule: T.nearPipe, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [m(NIT, { pipe_size_mm: "22.34" })], re: ["pipe_size_mm:BoQ says 22.34 mm -> priced as 28.58 mm (next size up)"], not: ["within 0.1 mm"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["pipe size 22.34 is not on the sheet -> 28.58 (next size up"]
   { id: "I1a", rule: T.unit, cat: INS, path: "panel", kind: "pos", unit: "sqft", model: [THMI], re: ["per sq.ft: sq.m rate x 0.0929"], priced: true },
   { id: "I1a-calc", rule: T.unit, cat: INS, path: "calc", kind: "pos", edits: calc(THM, { cladding: "No", thickness_mm: "19" }), rowUnit: "sqft", re: ["per sq.ft: sq.m rate x 0.0929"], priced: true },
   { id: "I1b", rule: T.unit, cat: INS, path: "panel", kind: "pos", unit: "", model: [NIT], re: ["No unit on the BoQ row -> priced per metre"], priced: true },
   { id: "I1c", rule: T.unit, cat: INS, path: "panel", kind: "pos", unit: "R/O", model: [NIT], re: ["BoQ says R/O (rate only) -> priced per metre"], priced: true },
   { id: "I1d", rule: T.unit, cat: INS, path: "panel", kind: "pos", unit: "QRO - Sqm.", model: [THMI], re: ["BoQ says QRO - Sqm. (rate only) -> priced per sq.m"], priced: true },
   { id: "I1e", rule: T.unit, cat: INS, path: "panel", kind: "pos", unit: "", model: [{ item: CLO, cladding: "26G Aluminium", thickness_mm: "19", pipe_size_mm: "50" }], re: ["No unit on the BoQ row - this item is priced per metre or per sq.m; set the unit"], priced: false },
-  { id: "I1f-neg", rule: T.unit, cat: INS, path: "panel", kind: "neg", unit: "nos", model: [NIT], re: ["unit 'nos' is not a count, area or length unit"], priced: false },
+  { id: "I1f-neg", rule: T.unit, cat: INS, path: "panel", kind: "neg", unit: "nos", model: [NIT], // INVERTED at ADP-3a (owner 13:35, U5: a unit the kind is not stocked in names the unit and the stocked ones) by mechanical authority: BEFORE re ["unit 'nos' is not a count, area or length unit"]
+    re: ["Nitrile Rubber Insulation is not stocked per 'nos' (stocked per metre) - price this row by hand"], priced: false },
   { id: "I2a", rule: T.kind, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [NIT], re: [], priced: true },
   { id: "I2b-neg", rule: T.kind, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [m(NIT, { item: "Foo Insulation" })], re: ["no SKU in the catalogue for 'Foo Insulation' -- the user decides"], priced: false },
-  { id: "I3a", rule: T.famNone, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { item: "None" })], re: ["insulation material not mentioned -> Nitrile Rubber Insulation (Nitrile by row kind" /* 12e-4b (G2 / G3): BEFORE "item not mentioned -> Nitrile Rubber Insulation (" */], not: ["item not mentioned"], priced: true },
-  { id: "I3b", rule: T.famNone, cat: INS, path: "panel", kind: "pos", unit: "sqm", model: [m(THMI, { item: "None" })], re: ["insulation material not mentioned -> Thermal Nitrile Insulation (Nitrile by row kind" /* 12e-4b (G2 / G3): BEFORE "item not mentioned -> Thermal Nitrile Insulation (" */], not: ["item not mentioned"], priced: true },
-  { id: "I3c", rule: T.famNone, cat: INS, path: "panel", kind: "pos", unit: "sqm", model: [m(THMI, { item: "None" })], headings: ["Acoustic lining of AHU room"], re: ["insulation material not mentioned -> Acoustic Nitrile Insulation (Nitrile by row kind" /* 12e-4b (G2 / G3): BEFORE "item not mentioned -> Acoustic Nitrile Insulation (" */], not: ["item not mentioned"], priced: true },
+  { id: "I3a", rule: T.famNone, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { item: "None" })], re: ["family:Nitrile Rubber Insulation", "material not mentioned -> Nitrile by row kind" /* 12e-4b (G2 / G3): BEFORE "item not mentioned -> Nitrile Rubber Insulation (" */], not: ["item not mentioned"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field -- the heading names the kind, the rule line says why) by mechanical authority: BEFORE "insulation material not mentioned -> Nitrile Rubber Insulation (Nitrile by row kind"
+  { id: "I3b", rule: T.famNone, cat: INS, path: "panel", kind: "pos", unit: "sqm", model: [m(THMI, { item: "None" })], re: ["family:Thermal Nitrile Insulation", "material not mentioned -> Nitrile by row kind" /* 12e-4b (G2 / G3): BEFORE "item not mentioned -> Thermal Nitrile Insulation (" */], not: ["item not mentioned"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field -- the heading names the kind, the rule line says why) by mechanical authority: BEFORE "insulation material not mentioned -> Thermal Nitrile Insulation (Nitrile by row kind"
+  { id: "I3c", rule: T.famNone, cat: INS, path: "panel", kind: "pos", unit: "sqm", model: [m(THMI, { item: "None" })], headings: ["Acoustic lining of AHU room"], re: ["family:Acoustic Nitrile Insulation", "material not mentioned -> Nitrile by row kind" /* 12e-4b (G2 / G3): BEFORE "item not mentioned -> Acoustic Nitrile Insulation (" */], not: ["item not mentioned"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field -- the heading names the kind, the rule line says why) by mechanical authority: BEFORE "insulation material not mentioned -> Acoustic Nitrile Insulation (Nitrile by row kind"
   { id: "I3c-neg", rule: T.famNone, cat: INS, path: "panel", kind: "neg", unit: "sqm", model: [THMI], headings: ["Acoustic lining"], re: ["family:Thermal Nitrile Insulation"], not: ["not mentioned ->"], priced: true },
-  { id: "I3a-calc", rule: T.famNone, cat: INS, path: "calc", kind: "pos", edits: [{ base: null, family: null, attrs: { cladding: "26G Aluminium", thickness_mm: "19", pipe_size_mm: "50" }, other: ["pipe_size_mm"] }], rowUnit: "mts", re: ["insulation material not mentioned -> Nitrile Rubber Insulation (Nitrile by row kind" /* 12e-4b (G2 / G3): BEFORE "item not mentioned -> Nitrile Rubber Insulation (" */], not: ["item not mentioned"] },
+  { id: "I3a-calc", rule: T.famNone, cat: INS, path: "calc", kind: "pos", edits: [{ base: null, family: null, attrs: { cladding: "26G Aluminium", thickness_mm: "19", pipe_size_mm: "50" }, other: ["pipe_size_mm"] }], rowUnit: "mts", re: ["family:Nitrile Rubber Insulation", "material not mentioned -> Nitrile by row kind" /* 12e-4b (G2 / G3): BEFORE "item not mentioned -> Nitrile Rubber Insulation (" */], not: ["item not mentioned"] },   // INVERTED at ADP-4a (AC3: stated once, on the field -- the heading names the kind, the rule line says why) by mechanical authority: BEFORE "insulation material not mentioned -> Nitrile Rubber Insulation (Nitrile by row kind"
   { id: "I4a", rule: T.noSku, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { item: "none of these", material_as_written: "XLPE foam" })], re: ["No SKU in the catalogue for XLPE foam - price this row by hand"], priced: false },
   // 12e-6 AC2 INVERTED by mechanical authority: BEFORE `model: [m(NIT, { item: "none of these" })]` alone -- a row naming NO
   // material now takes the row-kind default (I16*). The negative keeps its half: a material named (here in a heading) refuses.
@@ -196,7 +321,8 @@ const CASES: Case[] = [
   { id: "I5c-neg", rule: T.unstocked, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [NIT], headings: ["Rockwool section"], re: [], not: ["No SKU in the catalogue"], priced: true },
   // 12e-6 AC5 INVERTED by mechanical authority: BEFORE `model: [NIT]` (Nitrile Rubber on a per-sq.m row) refusing "no SKU per
   // sq.m for Nitrile Rubber Insulation" -- that row now prices as Thermal Nitrile (I17a). A kind outside the row-kind pair still refuses.
-  { id: "I6a", rule: T.ruleForUnit, cat: INS, path: "panel", kind: "pos", unit: "sqm", model: [PUFI], re: ["no SKU per sq.m for Tubular Puf Insulation"], priced: false },
+  { id: "I6a", rule: T.ruleForUnit, cat: INS, path: "panel", kind: "pos", unit: "sqm", model: [PUFI], // INVERTED at ADP-3a (owner 13:35, U5: a unit the kind is not stocked in names the unit and the stocked ones) by mechanical authority: BEFORE re ["no SKU per sq.m for Tubular Puf Insulation"]
+    re: ["Tubular Puf Insulation is not stocked per sq.m (stocked per metre) - price this row by hand"], priced: false },
   { id: "I6b-neg", rule: T.ruleForUnit, cat: INS, path: "panel", kind: "neg", unit: "sqm", model: [{ item: CLO, cladding: "26G Aluminium" }], re: [], not: ["no SKU per"], priced: true },
   { id: "I7a", rule: T.needs, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { pipe_size_mm: undefined })], re: ["no pipe size stated"], priced: false },
   { id: "I7b-neg", rule: T.needs, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [NIT], re: [], not: [/no (pipe size|thickness|cladding) stated/], priced: true },
@@ -211,15 +337,15 @@ const CASES: Case[] = [
   { id: "I9b-neg", rule: T.several, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [m(NIT, { thickness_mm: "13, 19, 25" })], re: ["several values stated for thickness"], priced: false },
   { id: "I9c-neg", rule: T.several, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [m(NIT, { thickness_mm: "25 +/- 2" })], re: ["several values stated for thickness"], priced: false },
   // 12e-6 AC8 INVERTED (wording only): BEFORE re ["range '25 to 50' -> its top value 50", "BoQ says 25 to 50 -> 50 mm (range"]
-  { id: "I9d", rule: T.several, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(PUFI, { thickness_mm: "25 to 50" })], re: ["'25 to 50' states a range - the higher, 50, is taken", "BoQ says 25 to 50 -> 50 mm (states a range"], not: ["its top value"], priced: true },
+  { id: "I9d", rule: T.several, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(PUFI, { thickness_mm: "25 to 50" })], re: ["BoQ says 25 to 50 -> 50 mm (states a range"], not: ["its top value"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field -- the field note below carries it) by mechanical authority: BEFORE "'25 to 50' states a range - the higher, 50, is taken", 
   { id: "I9x-calc", rule: T.several, cat: INS, path: "calc", kind: "excluded", excludedBy: "U4", edits: calc(NR, { cladding: "26G Aluminium", thickness_mm: "13 / 19 / 25", pipe_size_mm: "50" }, ["thickness_mm", "pipe_size_mm"]), rowUnit: "mts", re: ["Type the thickness as a single number in mm"], priced: false },
   { id: "I10a", rule: T.inches, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { pipe_size_mm: '5/8"' })], re: ["15.88"], priced: true },
   { id: "I10b", rule: T.inches, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { pipe_size_mm: '1-1/4"' })], re: ["31.75", "34.93"], priced: true },
   { id: "I10u", rule: T.inches, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { pipe_size_mm: "1¼\"" })], re: ["31.75", "34.93"], priced: true },
   { id: "I10b-calc", rule: T.inches, cat: INS, path: "calc", kind: "pos", edits: calc(NR, { cladding: "26G Aluminium", thickness_mm: "19", pipe_size_mm: '1-1/4"' }, ["pipe_size_mm"]), rowUnit: "mts", re: ["31.75", "34.93"], priced: true },
   { id: "I10c-neg", rule: T.inches, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [m(NIT, { thickness_mm: '3/4"' })], re: ["thickness stated in inches"], priced: false },
-  { id: "I11a", rule: T.defaults, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { cladding: "None" })], re: ["cladding not mentioned -> No ("], priced: true },
-  { id: "I11b", rule: T.defaults, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { thickness_mm: undefined })], re: ["thickness not mentioned -> 9 mm, then the ladder" /* 12e-3c (F7): BEFORE "thickness_mm not mentioned -> 9 ("; 12e-4b (G2): BEFORE "thickness not mentioned -> 9 (" */, "thickness 9 is not on the sheet -> 13"], not: ["thickness_mm not mentioned", "thickness not mentioned -> 9 ("], priced: true },
+  { id: "I11a", rule: T.defaults, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { cladding: "None" })], re: ["cladding:cladding not mentioned -> without cladding"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["cladding not mentioned -> No ("]
+  { id: "I11b", rule: T.defaults, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { thickness_mm: undefined })], re: ["thickness not mentioned -> 9 mm, then the ladder" /* 12e-3c (F7): BEFORE "thickness_mm not mentioned -> 9 ("; 12e-4b (G2): BEFORE "thickness not mentioned -> 9 (" */, "thickness_mm:Default 9 mm -> priced as 13 mm (the smallest size)"], not: ["thickness_mm not mentioned", "thickness not mentioned -> 9 ("], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE "thickness 9 is not on the sheet -> 13"]
   { id: "I11c-neg", rule: T.defaults, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [m(NIT, { thickness_mm: "as per specification" })], re: ["no number in 'as per specification' for thickness"], not: ["not mentioned -> 9"], priced: false },
   { id: "I11a-calc", rule: T.defaults, cat: INS, path: "calc", kind: "pos", edits: calc(NR, { cladding: "None", thickness_mm: "19", pipe_size_mm: "50" }, ["pipe_size_mm"]), rowUnit: "mts", re: ["cladding not mentioned -> No ("], priced: true },
   { id: "I11b-calc", rule: T.defaults, cat: INS, path: "calc", kind: "pos", edits: calc(NR, { cladding: "26G Aluminium", pipe_size_mm: "50" }, ["pipe_size_mm"]), rowUnit: "mts", re: ["thickness not mentioned -> 9 mm, then the ladder" /* 12e-3c (F7): BEFORE "thickness_mm not mentioned -> 9 ("; 12e-4b (G2): BEFORE "thickness not mentioned -> 9 (" */], not: ["thickness_mm not mentioned", "thickness not mentioned -> 9 ("], priced: true },
@@ -235,15 +361,15 @@ const CASES: Case[] = [
   { id: "I14d-neg", rule: T.glassSheet, cat: INS, path: "panel", kind: "neg", unit: "sqm", model: [m(THMI, { cladding: "None" })], headings: ["Glass cloth finish section"], re: [], not: ["glass cloth is not offered"], priced: true },
   { id: "I14a-calc", rule: T.glassSheet, cat: INS, path: "calc", kind: "excluded", excludedBy: "not offered by design - owner R4, 2026-10-09", edits: calc(THM, { cladding: "Glass Cloth with paint", thickness_mm: "19" }), rowUnit: "sqm", re: ["Glass Cloth with paint is not stocked with the other answers on this item -- choose again"], priced: false, pure: false },
   { id: "I15a", rule: T.namedInRow, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { cladding: "None" })], description: "Nitrile insulation with 26G aluminium cladding", re: ["cladding named in this row but not read - set the cladding"], priced: false },
-  { id: "I15b-neg", rule: T.namedInRow, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [m(NIT, { cladding: "None" })], headings: ["Aluminium cladding section"], re: ["cladding not mentioned -> No ("], not: ["cladding named in this row"], priced: true },
+  { id: "I15b-neg", rule: T.namedInRow, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [m(NIT, { cladding: "None" })], headings: ["Aluminium cladding section"], re: ["cladding:cladding not mentioned -> without cladding"], not: ["cladding named in this row"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["cladding not mentioned -> No ("]
   { id: "I15c-neg", rule: T.namedInRow, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [NIT], description: "with 26G aluminium cladding", re: [], not: ["cladding named in this row"], priced: true },
   { id: "I16a", rule: T.readNotes, cat: INS, path: "panel", kind: "pos", unit: "sqm", model: [{ item: FGB, cladding: "No", thickness_mm: "25", material_as_written: "Fiberglass rigid board 32 kg/m3" }], re: ["BoQ says 32 kg/m3 -> priced as the 48 kg/m3 board"], priced: true },
   { id: "I16b-neg", rule: T.readNotes, cat: INS, path: "panel", kind: "neg", unit: "sqm", model: [{ item: FGB, cladding: "No", thickness_mm: "25", material_as_written: "Fiberglass board 48 kg/m3" }], re: [], not: ["priced as the 48 kg/m3 board"], priced: true },
-  { id: "I17a", rule: T.fitPipe, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [NIT], re: ["pipe size 50 is not on the sheet -> 53.98 (next size up"], priced: true },
-  { id: "I17a-calc", rule: T.fitPipe, cat: INS, path: "calc", kind: "pos", edits: calc(NR, { cladding: "26G Aluminium", thickness_mm: "19", pipe_size_mm: "50" }, ["pipe_size_mm"]), rowUnit: "mts", re: ["pipe size 50 is not on the sheet -> 53.98 (next size up"], priced: true },
+  { id: "I17a", rule: T.fitPipe, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [NIT], re: ["pipe_size_mm:BoQ says 50 mm -> priced as 53.98 mm (next size up)"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["pipe size 50 is not on the sheet -> 53.98 (next size up"]
+  { id: "I17a-calc", rule: T.fitPipe, cat: INS, path: "calc", kind: "pos", edits: calc(NR, { cladding: "26G Aluminium", thickness_mm: "19", pipe_size_mm: "50" }, ["pipe_size_mm"]), rowUnit: "mts", re: ["pipe_size_mm:You typed 50 mm -> priced as 53.98 mm (next size up)"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["pipe size 50 is not on the sheet -> 53.98 (next size up"]
   { id: "I17b", rule: T.fitPipe, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { pipe_size_mm: "22.2" })], re: ["pipe size 22.2 is 22.23 on the sheet"], priced: true },
   { id: "I17c-neg", rule: T.fitPipe, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [m(NIT, { pipe_size_mm: "65" })], re: ["pipe size 65 is above the largest size on the sheet (53.98)"], priced: false },
-  { id: "I18a", rule: T.fitThk, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { pipe_size_mm: "19.05", thickness_mm: "20" })], re: ["thickness 20 is not on the sheet -> 25 (next size up"], priced: true },
+  { id: "I18a", rule: T.fitThk, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { pipe_size_mm: "19.05", thickness_mm: "20" })], re: ["thickness_mm:BoQ says 20 mm -> priced as 25 mm (next size up)"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["thickness 20 is not on the sheet -> 25 (next size up"]
   { id: "I18b", rule: T.fitThk, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { pipe_size_mm: "19.05", thickness_mm: "30" })], re: ["-> priced as 13 + 19 mm (32 mm, +2) -- above the largest stocked size (25 mm)"], priced: true },
   { id: "I18b-calc", rule: T.fitThk, cat: INS, path: "calc", kind: "pos", edits: calc(NR, { cladding: "26G Aluminium", thickness_mm: "30", pipe_size_mm: "19.05" }, ["thickness_mm"]), rowUnit: "mts", re: ["You typed 30 mm -> priced as 13 + 19 mm (32 mm, +2) -- above the largest stocked size (25 mm)"], priced: true },
   { id: "I18c-neg", rule: T.fitThk, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [m(NIT, { pipe_size_mm: "19.05", thickness_mm: "200" })], re: ["thickness 200 is above the largest size on the sheet (25)"], priced: false },
@@ -265,27 +391,29 @@ const CASES: Case[] = [
   { id: "A1b", rule: T.unit, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "VCD", variant: "GI rectangular", area_band: "0.5 to 1 sqm" }], re: ["area band: per-sq.m rate x the band's maximum area"], priced: true },
   { id: "A1c", rule: T.unit, cat: ADP, path: "panel", kind: "pos", unit: "", model: [{ family: "VCD", variant: "GI rectangular", size_mm: "600x600" }], re: ["No unit on the BoQ row - this item is priced per sq.m or per number; set the unit"], priced: false },
   { id: "A1d", rule: T.unit, cat: ADP, path: "panel", kind: "pos", unit: "", model: [{ family: "actuator", ul: "no", torque: "10" }], re: ["No unit on the BoQ row -> priced per number"], priced: true },
-  { id: "A1f-neg", rule: T.unit, cat: ADP, path: "panel", kind: "neg", unit: "kg", model: [{ family: "actuator", ul: "no", torque: "10" }], re: ["unit 'kg' is not a count, area or length unit"], priced: false },
+  { id: "A1f-neg", rule: T.unit, cat: ADP, path: "panel", kind: "neg", unit: "kg", model: [{ family: "actuator", ul: "no", torque: "10" }], // INVERTED at ADP-3a (owner 13:35, U5: a unit the kind is not stocked in names the unit and the stocked ones) by mechanical authority: BEFORE re ["unit 'kg' is not a count, area or length unit"]
+    re: ["actuator is not stocked per 'kg' (stocked per number) - price this row by hand"], priced: false },
   { id: "A1a-calc", rule: T.unit, cat: ADP, path: "calc", kind: "pos", edits: calc("VCD", { variant: "GI rectangular", size_mm: "600x600" }), rowUnit: "nos", re: ["per-number row: per-sq.m rate x W x H"], priced: true },
   { id: "A1h", rule: T.unit, cat: ADP, path: "panel", kind: "pos", unit: "rmt", model: [{ family: "linear grille", damper: "with", size_mm: "600x150" }], re: ["per-metre grille: per-sq.m rate x height in metres"], priced: true },
   { id: "A1i", rule: T.unit, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "flexible duct", insulated: "with", dia_mm: "200" }], re: ["per piece: per-metre rate x 2.5 m standard length"], priced: true },
   { id: "A1j", rule: T.unit, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "mixing box / LP plenum", insulated: "with", size_mm: "750x150x350" }], re: ["per-number mixing box at any size"], priced: true },
-  { id: "A2a", rule: T.kind, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "grille, type not stated", damper: "with", size_mm: "600x150" }], re: ["'grille, type not stated' prices as linear grille"], priced: true },
+  { id: "A2a", rule: T.kind, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "grille, type not stated", damper: "with", size_mm: "600x150" }], re: ["family:linear grille"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field -- the heading shows the kind it prices as) by mechanical authority: BEFORE re: ["'grille, type not stated' prices as linear grille"]
   { id: "A2b-neg", rule: T.kind, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "linear grille", damper: "with", size_mm: "600x150" }], re: [], not: ["prices as"], priced: true },
-  { id: "A3a", rule: T.noSku, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "none of these", damper: "with", dia_mm: "200" }], re: ["no SKU in the catalogue for 'none of these' -- the user decides"], priced: false },
-  { id: "A3b-neg", rule: T.noSku, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "round diffuser", damper: "with", dia_mm: "200" }], re: [], not: ["the user decides"], priced: true },
-  { id: "A4a", rule: T.ruleForUnit, cat: ADP, path: "panel", kind: "pos", unit: "rmt", model: [{ family: "spigot", dia_mm: "200" }], re: ["no SKU per metre for spigot"], priced: false },
+  { id: "A3a", rule: T.noSkuAdp, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "none of these", damper: "with", dia_mm: "200" }], re: ["no SKU in the catalogue for 'none of these' -- the user decides"], priced: false },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.noSku
+  { id: "A3b-neg", rule: T.noSkuAdp, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "round diffuser", damper: "with", dia_mm: "200" }], re: [], not: ["the user decides"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.noSku
+  { id: "A4a", rule: T.ruleForUnit, cat: ADP, path: "panel", kind: "pos", unit: "rmt", model: [{ family: "spigot", dia_mm: "200" }], // INVERTED at ADP-3a (owner 13:35, U5: a unit the kind is not stocked in names the unit and the stocked ones) by mechanical authority: BEFORE re ["no SKU per metre for spigot"]
+    re: ["spigot is not stocked per metre (stocked per number) - price this row by hand"], priced: false },
   { id: "A4b-neg", rule: T.ruleForUnit, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "spigot", dia_mm: "200" }], re: [], not: ["no SKU per"], priced: true },
   { id: "A6a", rule: T.needs, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "actuator", ul: "no" }], re: ["no torque stated"], priced: false },
   { id: "A6b", rule: T.needs, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "round diffuser", damper: "with" }], re: ["no diameter stated"], priced: false },
   { id: "A6c-neg", rule: T.needs, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "actuator", ul: "no", torque: "10" }], re: [], not: [/no (torque|diameter|neck size|size) stated/], priced: true },
   { id: "A6a-calc", rule: T.needs, cat: ADP, path: "calc", kind: "pos", edits: calc("actuator", { ul: "no" }), rowUnit: "nos", re: ["no torque stated"], priced: false },
-  { id: "A7a", rule: T.defaults, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "round diffuser", damper: "None", dia_mm: "200" }], re: ["damper not mentioned -> without"] /* 12e-4b (G2): BEFORE "damper not mentioned -> without (" */, not: ["damper not mentioned -> without ("], priced: true },
-  { id: "A7b", rule: T.defaults, cat: ADP, path: "panel", kind: "pos", unit: "rmt", model: [{ family: "flexible duct", dia_mm: "200" }], re: ["insulated not mentioned -> with ("], priced: true },
-  { id: "A7c", rule: T.defaults, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "actuator", torque: "10" }], re: ["UL listed not mentioned -> no (non-UL)"] /* 12e-4b (G2 / G3): BEFORE "ul not mentioned -> no (" */, not: ["ul not mentioned"], priced: true },
-  { id: "A7d", rule: T.defaults, cat: ADP, path: "panel", kind: "pos", unit: "sqm", model: [{ family: "VCD" }], re: ["variant not mentioned -> GI rectangular ("], priced: true },
-  { id: "A7e", rule: T.defaults, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "linear grille", damper: "None", air: "supply", size_mm: "600x150" }], re: ["damper not mentioned -> with (supply-air linear / plain grille = with damper)"], priced: true },
-  { id: "A7e-neg", rule: T.defaults, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "linear grille", damper: "None", air: "return", size_mm: "600x150" }], re: ["damper not mentioned -> without"] /* 12e-4b (G2): BEFORE "damper not mentioned -> without (" */, not: ["supply-air linear", "damper not mentioned -> without ("], priced: true },
+  { id: "A7a", rule: T.defaults, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "round diffuser", damper: "None", dia_mm: "200" }], re: ["damper:damper not mentioned (or not answered) = without"] /* 12e-4b (G2): BEFORE "damper not mentioned -> without (" */, not: ["damper not mentioned -> without ("], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["damper not mentioned -> without"]
+  { id: "A7b", rule: T.defaults, cat: ADP, path: "panel", kind: "pos", unit: "rmt", model: [{ family: "flexible duct", dia_mm: "200" }], re: ["insulated:insulation not mentioned (or not answered) = insulated"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["insulated not mentioned -> with ("]
+  { id: "A7c", rule: T.defaults, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "actuator", torque: "10" }], re: ["ul:UL not mentioned (or not answered) = non-UL"] /* 12e-4b (G2 / G3): BEFORE "ul not mentioned -> no (" */, not: ["ul not mentioned"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["UL listed not mentioned -> no (non-UL)"]
+  { id: "A7d", rule: T.defaults, cat: ADP, path: "panel", kind: "pos", unit: "sqm", model: [{ family: "VCD" }], re: ["variant:VCD = GI rectangular; fire damper = without sleeve"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["variant not mentioned -> GI rectangular ("]
+  { id: "A7e", rule: T.defaults, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "linear grille", damper: "None", air: "supply", size_mm: "600x150" }], re: ["damper:supply-air linear / plain grille = with damper"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["damper not mentioned -> with (supply-air linear / plain grille = with damper)"]
+  { id: "A7e-neg", rule: T.defaults, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "linear grille", damper: "None", air: "return", size_mm: "600x150" }], re: ["damper:damper not mentioned (or not answered) = without"] /* 12e-4b (G2): BEFORE "damper not mentioned -> without (" */, not: ["supply-air linear", "damper not mentioned -> without ("], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["damper not mentioned -> without"]
   { id: "A7f-neg", rule: T.defaults, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "round diffuser", damper: "with", dia_mm: "200" }], re: [], not: ["damper not mentioned"], priced: true },
   { id: "A7a-calc", rule: T.defaults, cat: ADP, path: "calc", kind: "pos", edits: calc("round diffuser", { damper: "None", dia_mm: "200" }), rowUnit: "nos", re: ["damper not mentioned -> without"] /* 12e-4b (G2): BEFORE "damper not mentioned -> without (" */, not: ["damper not mentioned -> without ("], priced: true },
   { id: "A8a", rule: T.override, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "fire damper", variant: "motorised", ul: "yes", size_mm: "600x600" }], re: ["UL stated, so the UL 555 SKU is used"], priced: true },
@@ -298,19 +426,19 @@ const CASES: Case[] = [
   { id: "A10d", rule: T.outer, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "square diffuser", damper: "with", size_mm: "600x600" }], re: ["the outer size 600x600 is the sheet's 595x595"], priced: true },
   { id: "A10e", rule: T.outer, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "square diffuser", damper: "with", neck_mm: "300", size_mm: "700x700" }], re: ["did not match the catalogue -- matched on the neck size instead"], priced: true },
   { id: "A10f-neg", rule: T.outer, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "square diffuser", damper: "with", neck_mm: "300" }], re: [], not: ["outer size"], priced: true },
-  { id: "A9a", rule: T.fitDia, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "round diffuser", damper: "with", dia_mm: "220" }], re: ["diameter 220 is not on the sheet -> 250 (next size up"], priced: true },
-  { id: "A9b-neg", rule: T.fitDia, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "round diffuser", damper: "with", dia_mm: "500" }], re: ["diameter 500 is above the largest size on the sheet (400)"], priced: false },
-  { id: "A9a-calc", rule: T.fitDia, cat: ADP, path: "calc", kind: "pos", edits: calc("round diffuser", { damper: "with", dia_mm: "220" }, ["dia_mm"]), rowUnit: "nos", re: ["diameter 220 is not on the sheet -> 250 (next size up"], priced: true },
-  { id: "A10a", rule: T.fitNeck, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "square diffuser", damper: "with", neck_mm: "320" }], re: ["neck size 320 is not on the sheet -> 375 (next size up"], priced: true },
-  { id: "A10b-neg", rule: T.fitNeck, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "square diffuser", damper: "with", neck_mm: "500" }], re: ["neck size 500 is above the largest size on the sheet (450)"], priced: false },
-  { id: "A11a", rule: T.fitTorque, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "actuator", ul: "no", torque: "12" }], re: ["torque 12 is not on the sheet -> 20 (next size up"], priced: true },
-  { id: "A11b-neg", rule: T.fitTorque, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "actuator", ul: "no", torque: "25" }], re: ["torque 25 is above the largest size on the sheet (20)"], priced: false },
-  { id: "A12a", rule: T.fitRatio, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "control panel", panel_ratio: "5" }], re: ["panel ratio 5 is not on the sheet -> 6 (next size up"], priced: true },
-  { id: "A12b-neg", rule: T.fitRatio, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "control panel", panel_ratio: "13" }], re: ["panel ratio 13 is above the largest size on the sheet (12)"], priced: false },
-  { id: "A13a", rule: T.fitPlenum, cat: ADP, path: "panel", kind: "pos", unit: "sqm", model: [{ family: "double-skin plenum", thickness_mm: "30" }], re: ["plenum thickness 30 is not on the sheet -> 50 (next size up"], priced: true },
-  { id: "A13b-neg", rule: T.fitPlenum, cat: ADP, path: "panel", kind: "neg", unit: "sqm", model: [{ family: "double-skin plenum", thickness_mm: "60" }], re: ["plenum thickness 60 is above the largest size on the sheet (50)"], priced: false },
-  { id: "A13a-calc", rule: T.fitPlenum, cat: ADP, path: "calc", kind: "pos", edits: calc("double-skin plenum", { thickness_mm: "30" }, ["thickness_mm"]), rowUnit: "sqm", re: ["plenum thickness 30 is not on the sheet -> 50 (next size up"], priced: true },
-  { id: "A14a", rule: T.steps, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "round diffuser", damper: "with", dia_mm: "200" }], re: ["item supply:"], priced: true },
+  { id: "A9a", rule: T.fitAdp, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "round diffuser", damper: "with", dia_mm: "220" }], re: ["dia_mm:BoQ says 220 mm -> priced as 250 mm (next size up)"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.fitDia   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["diameter 220 is not on the sheet -> 250 (next size up"]
+  { id: "A9b-neg", rule: T.fitAdp, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "round diffuser", damper: "with", dia_mm: "500" }], re: ["diameter 500 is above the largest size on the sheet (400)"], priced: false },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.fitDia
+  { id: "A9a-calc", rule: T.fitAdp, cat: ADP, path: "calc", kind: "pos", edits: calc("round diffuser", { damper: "with", dia_mm: "220" }, ["dia_mm"]), rowUnit: "nos", re: ["dia_mm:You typed 220 mm -> priced as 250 mm (next size up)"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.fitDia   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["diameter 220 is not on the sheet -> 250 (next size up"]
+  { id: "A10a", rule: T.fitAdp, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "square diffuser", damper: "with", neck_mm: "320" }], re: ["neck_mm:BoQ says 320 mm -> priced as 375 mm (next size up)"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.fitNeck   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["neck size 320 is not on the sheet -> 375 (next size up"]
+  { id: "A10b-neg", rule: T.fitAdp, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "square diffuser", damper: "with", neck_mm: "500" }], re: ["neck size 500 is above the largest size on the sheet (450)"], priced: false },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.fitNeck
+  { id: "A11a", rule: T.fitAdp, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "actuator", ul: "no", torque: "12" }], re: ["torque:BoQ says 12 Nm -> priced as 20 Nm (next size up)"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.fitTorque   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["torque 12 is not on the sheet -> 20 (next size up"]
+  { id: "A11b-neg", rule: T.fitAdp, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "actuator", ul: "no", torque: "25" }], re: ["torque 25 is above the largest size on the sheet (20)"], priced: false },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.fitTorque
+  { id: "A12a", rule: T.fitAdp, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "control panel", panel_ratio: "5" }], re: ["panel_ratio:BoQ says 5 -> priced as 6 (next size up)"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.fitRatio   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["panel ratio 5 is not on the sheet -> 6 (next size up"]
+  { id: "A12b-neg", rule: T.fitAdp, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "control panel", panel_ratio: "13" }], re: ["panel ratio 13 is above the largest size on the sheet (12)"], priced: false },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.fitRatio
+  { id: "A13a", rule: T.fitAdp, cat: ADP, path: "panel", kind: "pos", unit: "sqm", model: [{ family: "double-skin plenum", thickness_mm: "30" }], re: ["insulation_thickness_mm:BoQ says 30 mm -> priced as 50 mm (next size up)"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.fitPlenum   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["plenum thickness 30 is not on the sheet -> 50 (next size up"]
+  { id: "A13b-neg", rule: T.fitAdp, cat: ADP, path: "panel", kind: "neg", unit: "sqm", model: [{ family: "double-skin plenum", thickness_mm: "60" }], re: ["plenum thickness 60 is above the largest size on the sheet (50)"], priced: false },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.fitPlenum
+  { id: "A13a-calc", rule: T.fitAdp, cat: ADP, path: "calc", kind: "pos", edits: calc("double-skin plenum", { thickness_mm: "30" }, ["thickness_mm"]), rowUnit: "sqm", re: ["insulation_thickness_mm:BoQ says 30 mm -> priced as 50 mm (next size up)"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.fitPlenum   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["plenum thickness 30 is not on the sheet -> 50 (next size up"]
+  { id: "A14a", rule: T.steps, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "round diffuser", damper: "with", dia_mm: "200" }], re: ["supply: cost x (1 + the SKU's supply markup) = 1276, rounded up to the rupee"], priced: true },   // INVERTED at ADP-4a (AC2: no 'item supply:', no ROUNDUP) by mechanical authority: BEFORE re: ["item supply:"]
   { id: "A14b-neg", rule: T.steps, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "round diffuser", damper: "with", dia_mm: "500" }], re: [], not: ["item supply:"], priced: false },
   { id: "A16a", rule: T.convert, cat: ADP, path: "panel", kind: "pos", unit: "sqft", model: [{ family: "VCD", variant: "GI rectangular" }], re: ["per sq.ft: sq.m rate x 0.0929"], priced: true },
   { id: "A16b-neg", rule: T.convert, cat: ADP, path: "panel", kind: "neg", unit: "sqm", model: [{ family: "VCD", variant: "GI rectangular" }], re: [], not: ["per sq.ft"], priced: true },
@@ -322,7 +450,8 @@ const CASES: Case[] = [
   // P4 the unit
   { id: "P4a", rule: T.unit, cat: PIP, path: "panel", kind: "pos", unit: "", model: [MS50], re: ["No unit on the BoQ row -> priced per metre"], priced: true },
   { id: "P4b", rule: T.unit, cat: PIP, path: "panel", kind: "pos", unit: "R/O", model: [MS50], re: ["BoQ says R/O (rate only) -> priced per metre"], priced: true },
-  { id: "P4c-neg", rule: T.unit, cat: PIP, path: "panel", kind: "neg", unit: "nos", model: [MS50], re: ["unit 'nos' is not a length unit"], not: ["count, area or length"], priced: false },
+  { id: "P4c-neg", rule: T.unit, cat: PIP, path: "panel", kind: "neg", unit: "nos", model: [MS50], // INVERTED at ADP-3a (owner 13:35, U5: a unit the kind is not stocked in names the unit and the stocked ones) by mechanical authority: BEFORE re ["unit 'nos' is not a length unit"]
+    re: ["MS is not stocked per 'nos' (stocked per metre) - price this row by hand"], not: ["count, area or length"], priced: false },
   { id: "P4a-calc", rule: T.unit, cat: PIP, path: "calc", kind: "pos", edits: calc("MS", { size_mm: "50" }), rowUnit: "mts", re: [], priced: true },
   // P1 the kind: stocked, mapped, refused, read off the row
   { id: "P1a", rule: T.kind, cat: PIP, path: "panel", kind: "pos", unit: "mts", model: [MS50], re: ["family:MS"], priced: true },
@@ -411,7 +540,7 @@ const CASES: Case[] = [
   { id: "S5c-neg", rule: T.secQty, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "MS", size_mm: "32" }], re: [], not: ["sec.qty:", "tag:from pipe"], priced: true },
   { id: "S4b-neg", rule: T.secTotal, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "MS", size_mm: "100" }, { section: "insulation", item: NR, cladding: "26G Aluminium", thickness_mm: "32" }], re: ["lines:2 bad:1"], not: ["total:"], priced: false, pure: false },
   // ── SLICE 12e-6 (AC14 / U9): one positive and one negative per new rule, on the panel's entry point ──
-  { id: "I16a", rule: T.noneNamed, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { item: "none of these" })], re: ["insulation material not mentioned -> Nitrile Rubber Insulation"], not: ["no SKU in the catalogue"], priced: true },
+  { id: "I16a", rule: T.noneNamed, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { item: "none of these" })], re: ["family:Nitrile Rubber Insulation", "material not mentioned -> Nitrile by row kind"], not: ["no SKU in the catalogue"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["insulation material not mentioned -> Nitrile Rubber Insulation"]
   { id: "I16b-neg", rule: T.noneNamed, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [m(NIT, { item: "none of these", material_as_written: "EPDM foam" })], re: ["No SKU in the catalogue for EPDM foam - price this row by hand"], priced: false },
   { id: "I16c-sec", rule: T.noneNamed, cat: PIP, path: "panel", kind: "pos", unit: "mts", v42: true, model: [{ pipe_type: "MS", size_mm: "50", insulated: "Yes" }, { section: "insulation", item: "none of these", cladding: "None", thickness_mm: "19" }], re: ["sec.family:Nitrile Rubber Insulation", "sec.default:material not mentioned -> Nitrile by row kind"], priced: true, pure: false },
   { id: "I17a", rule: T.rowKindSwap, cat: INS, path: "panel", kind: "pos", unit: "sqm", model: [m(NIT, { cladding: "No", pipe_size_mm: undefined })], re: ["priced as Thermal Nitrile Insulation (row is per sq.m)", "family:Thermal Nitrile Insulation"], priced: true },
@@ -422,7 +551,7 @@ const CASES: Case[] = [
   { id: "I19x", rule: T.xlpe, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { item: "none of these", material_as_written: "closed cell cross-linked polyethylene" })], re: ["No SKU in the catalogue for closed cell cross-linked polyethylene (XLPE) - price this row by hand"], not: ["closed cell polyethylene ->"], priced: false },
   { id: "I19y", rule: T.xlpe, cat: INS, path: "panel", kind: "pos", unit: "RMT", v42: true, model: [m(NIT, { cladding: "None", cladding_as_written: "co-extruded polymer jacket" })], re: ["No SKU in the catalogue for co-extruded polymer jacket (XLPE) - price this row by hand"], priced: false },
   { id: "I19z-neg", rule: T.xlpe, cat: INS, path: "panel", kind: "neg", unit: "RMT", v42: true, model: [m(NIT, { item: "none of these", material_as_written: "closed cell polyethylene" })], re: ["BoQ says closed cell polyethylene -> priced as Nitrile Rubber Insulation"], not: ["(XLPE)"], priced: true },
-  { id: "I22a", rule: T.thkRange, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(PUFI, { thickness_mm: "25-50mm" })], re: ["'25-50mm' states a range - the higher, 50, is taken"], priced: true },
+  { id: "I22a", rule: T.thkRange, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(PUFI, { thickness_mm: "25-50mm" })], re: ["thickness_mm:BoQ says 25-50mm -> 50 mm (states a range - the higher, 50, is taken)"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["'25-50mm' states a range - the higher, 50, is taken"]
   { id: "I22b-neg", rule: T.thkRange, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [m(NIT, { pipe_size_mm: "40-50" })], re: ["pipe size: range '40-50' -> its top value 50"], not: ["states a range"], priced: true },
   { id: "I25a", rule: T.mmNb, cat: INS, path: "panel", kind: "pos", unit: "RMT", v42: true, model: [m(NIT, { pipe_size_mm: "50 mm dia" })], re: ["cladding: measured on the matched size 53.98 (mm = NB: the size as read, 50, is not an outside diameter)"], not: ["as read 50 (not the"], priced: true },
   { id: "I25b", rule: T.mmNb, cat: PIP, path: "panel", kind: "pos", unit: "mts", v42: true, model: [{ pipe_type: "MS", size_mm: "50", insulated: "Yes" }, { section: "insulation", item: NR, cladding: "26G Aluminium", thickness_mm: "19" }], re: ["sec.cladding: measured on the matched size 53.98 (mm = NB: the size as read, 50, is not an outside diameter)"], priced: true, pure: false },
@@ -435,19 +564,214 @@ const CASES: Case[] = [
   { id: "P6a", rule: T.twoTypes, cat: PIP, path: "panel", kind: "pos", unit: "mts", model: [{ pipe_type: "None", pipe_type_as_written: "CPVC / UPVC", size_mm: "25" }], re: ["BoQ allows CPVC or uPVC -> priced as CPVC", "family:CPVC"], not: ["the lower cost"], priced: true },
   { id: "P6b", rule: T.twoTypes, cat: PIP, path: "panel", kind: "pos", unit: "mts", model: [{ pipe_type: "None", pipe_type_as_written: "MS / Copper", size_mm: "25" }], re: [/BoQ allows MS or Copper -> priced as (MS|Copper), the lower cost/], priced: true },
   { id: "P6c-neg", rule: T.twoTypes, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "None", pipe_type_as_written: "MS / GI", size_mm: "25" }], re: ["BoQ names MS / GI -> priced as MS"], not: ["BoQ allows"], priced: true },
-  { id: "S6a", rule: T.secDefaults, cat: PIP, path: "panel", kind: "pos", unit: "mts", model: [{ pipe_type: "MS", size_mm: "50", insulated: "Yes" }], re: ["sec.default:material not mentioned -> Nitrile by row kind", "sec.cladding not mentioned -> No (without cladding)"], not: ["could not tell cladding"], priced: true, pure: false },
+  { id: "S6a", rule: T.secDefaults, cat: PIP, path: "panel", kind: "pos", unit: "mts", model: [{ pipe_type: "MS", size_mm: "50", insulated: "Yes" }], re: ["sec.default:material not mentioned -> Nitrile by row kind", "sec.cladding:cladding not mentioned -> without cladding"], not: ["could not tell cladding"], priced: true, pure: false },   // INVERTED at ADP-4a (AC3: stated once, on the field -- the section's field) by mechanical authority: BEFORE "sec.cladding not mentioned -> No (without cladding)"]
   { id: "S6b-neg", rule: T.secDefaults, cat: PIP, path: "calc", kind: "neg", edits: calc("MS", { size_mm: "50", insulated: "Yes" }, ["size_mm"]), rowUnit: "mts", re: ["sec.pick:Choose the insulation material"], priced: false, pure: false },
   // ── SLICE 12e-6b (owner R1; U2): an untold drain -> CPVC; a named material keeps its rule; the calculator has no row text ──
   { id: "P8a", rule: T.drainCpvc, cat: PIP, path: "panel", kind: "pos", unit: "mts", model: [{ pipe_type: "None", pipe_type_as_written: "DRAIN", size_mm: "25MM DIA" }], description: "DRAIN PIPE 25MM DIA WITH 6 MM INSULATION", re: ["drain pipe, no material stated -> priced as CPVC", "family:CPVC"], priced: true },
   { id: "P8b-neg", rule: T.drainCpvc, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "None", pipe_type_as_written: "uPVC", size_mm: "25" }], description: "Drain pipe 25 mm", re: ["BoQ says uPVC -> priced as PVC", "family:PVC"], not: ["no material stated"], priced: true },
+  // ── SLICE 12e-6c (owner rulings 2026-10-18): one positive and one negative per rule, panel and calculator ──
+  // U2: F-3 on Insulation's pipe size (every axis reading inches); a bare 4 is no inch size Nitrile stocks (101.6 > 53.98)
+  { id: "C2a", rule: T.noUnit, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { pipe_size_mm: "1" })], re: ["size 1 has no unit - price this row by hand"], priced: false },
+  { id: "C2b-calc", rule: T.noUnit, cat: INS, path: "calc", kind: "pos", edits: calc(NR, { cladding: "26G Aluminium", thickness_mm: "19", pipe_size_mm: "2" }, ["pipe_size_mm"]), rowUnit: "mts", re: ["size 2 has no unit - price this row by hand"], priced: false },
+  { id: "C2c-neg", rule: T.noUnit, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [m(NIT, { pipe_size_mm: "4" })], re: ["pipe_size_mm:BoQ says 4 mm -> priced as 6.35 mm (the smallest size)"], not: ["has no unit"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["pipe size 4 is not on the sheet -> 6.35 (the smallest size"]
+  { id: "C2d-neg", rule: T.noUnit, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [m(NIT, { pipe_size_mm: "1 inch" })], not: ["has no unit"], re: ["28.58"], priced: true },
+  // R: RPUF with no material answered -> Tubular PUF, the next thickness up; 30 mm on a small pipe refuses; an answer stands
+  { id: "C1a", rule: T.rpuf, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [{ item: "none of these", cladding: "No", thickness_mm: "40", pipe_size_mm: "100", material_as_written: "RPUF" }], re: ["BoQ says RPUF -> priced as Tubular Puf Insulation", "family:Tubular Puf Insulation"], not: ["No SKU in the catalogue for RPUF"], priced: true },
+  { id: "C1b", rule: T.rpuf, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [{ item: "None", cladding: "No", thickness_mm: "40", pipe_size_mm: "100" }], description: "RPUF insulation 40 mm thick", re: ["BoQ says RPUF -> priced as Tubular Puf Insulation"], not: ["not mentioned -> Nitrile"], priced: true },
+  { id: "C1c-neg", rule: T.rpuf, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [m(NIT, { material_as_written: "RPUF" })], re: ["family:Nitrile Rubber Insulation"], not: ["priced as Tubular Puf"], priced: true },
+  { id: "C1d-neg", rule: T.rpuf, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [{ item: "none of these", cladding: "No", thickness_mm: "30", pipe_size_mm: "40", material_as_written: "RPUF" }], re: ["BoQ says RPUF -> priced as Tubular Puf Insulation", "thickness 30 is above the largest size on the sheet"], priced: false },
+  // O3: a fixing is not a cladding, before R2's GI map reads the words; "26 G GI cladding" still maps (live: v40+ `choice_text`)
+  { id: "C3a", rule: T.giMap, cat: INS, path: "panel", kind: "pos", unit: "RMT", live: true, model: [m(NIT, { cladding: "None", cladding_as_written: "26 G GI cladding" })], re: ["BoQ says 26 G GI cladding -> priced as 26G Aluminium"], priced: true },
+  { id: "C3b-neg", rule: T.giMap, cat: INS, path: "panel", kind: "neg", unit: "RMT", live: true, model: [m(NIT, { cladding: "None", cladding_as_written: "GI strip at 1 m grid" })], re: ["cladding:cladding not mentioned -> without cladding"], not: ["priced as 26G Aluminium"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["cladding not mentioned -> No (without cladding)"]
+  // O4: a copied cloth facing with the cladding unanswered -> the glass-cloth cladding; an answered cladding stands
+  { id: "C4a", rule: T.cloth, cat: INS, path: "panel", kind: "pos", unit: "RMT", live: true, model: [m(NIT, { cladding: "None", cladding_as_written: "factory laminated fire resistant fibre cloth fabric" })], re: ["BoQ says factory laminated fire resistant fibre cloth fabric -> priced as Glass Cloth with paint"], priced: true },
+  { id: "C4b", rule: T.cloth, cat: INS, path: "panel", kind: "pos", unit: "RMT", live: true, model: [m(NIT, { cladding: "None", cladding_as_written: "aluminium sheet with reinforced glass cloth" })], re: ["BoQ says aluminium sheet with reinforced glass cloth -> priced as 26G Aluminium with Glass Cloth"], priced: true },
+  { id: "C4c", rule: T.cloth, cat: INS, path: "panel", kind: "pos", unit: "RMT", live: true, model: [m(NIT, { cladding: "None", cladding_as_written: "24 G aluminium with glass cloth facing" })], re: ["BoQ says 24 G aluminium with glass cloth facing -> priced as 24G Aluminium with Glass Cloth"], priced: true },
+  { id: "C4d-neg", rule: T.cloth, cat: INS, path: "panel", kind: "neg", unit: "RMT", live: true, model: [m(NIT, { cladding: "26G Aluminium", cladding_as_written: "reinforced glass cloth" })], re: [], not: ["priced as Glass Cloth", "priced as 26G Aluminium with Glass Cloth"], priced: true },
+  // U1 (live: v46's `typed_entry` on Insulation's pipe size): a TYPED range refuses; the model's range is read as before
+  { id: "C5a", rule: T.typedSize, cat: INS, path: "ptyped", kind: "pos", unit: "RMT", live: true, model: [NIT], edits: ptyped({ pipe_size_mm: "40-50" }, ["pipe_size_mm"]), re: ["Type one pipe size, in mm or inches"], priced: false },
+  { id: "C5b-calc", rule: T.typedSize, cat: INS, path: "calc", kind: "pos", live: true, edits: calc(NR, { cladding: "26G Aluminium", thickness_mm: "19", pipe_size_mm: "50 mm O.D." }, ["pipe_size_mm"]), rowUnit: "mts", re: ["Type one pipe size, in mm or inches"], priced: false },
+  { id: "C5c-neg", rule: T.typedSize, cat: INS, path: "panel", kind: "neg", unit: "RMT", live: true, model: [m(NIT, { pipe_size_mm: "40-50" })], re: ["pipe size: range '40-50' -> its top value 50"], not: ["Type one pipe size"], priced: true },
+  // ── ADP-1 (owner rulings 2026-10-19): one positive and one negative case per new line, from the panel's entry point ──
+  { id: "AD1a", rule: T.slotNos, cat: ADP, path: "panel", kind: "pos", unit: "Nos", adp1: true, model: [{ family: "slot diffuser", damper: "with", slot_count: "3", size_mm: "1500 mm long" }], re: ["per-number slot diffuser: the per-metre rate (slots and damper) x the piece length in metres", "supply: 1520 x 1.5 = 2280"], priced: true },   // INVERTED at ADP-4a (AC2: no 'H3' tag) by mechanical authority: BEFORE "H3 per-number slot diffuser: the per-metre rate
+  { id: "AD1a-calc", rule: T.slotNos, cat: ADP, path: "calc", kind: "pos", adp1: true, edits: calc("slot diffuser", { damper: "with", slot_count: "3", piece_length_m: "1.5" }), rowUnit: "nos", re: ["supply: 1520 x 1.5 = 2280"], priced: true },
+  { id: "AD1b-neg", rule: T.slotNos, cat: ADP, path: "panel", kind: "neg", unit: "RMT", adp1: true, model: [{ family: "slot diffuser", damper: "with", slot_count: "3", size_mm: "1500 mm long" }], re: [], not: ["x the piece length in metres", "1520 x 1.5"], priced: true },
+  { id: "AD2a", rule: T.slotMissing, cat: ADP, path: "panel", kind: "pos", unit: "Nos", adp1: true, model: [{ family: "slot diffuser", damper: "with", size_mm: "600x600" }], re: ["per-number row: no slot count stated to convert the per-metre rate"], priced: false },
+  { id: "AD2b-neg", rule: T.slotMissing, cat: ADP, path: "panel", kind: "neg", unit: "Nos", adp1: true, model: [{ family: "slot diffuser", damper: "with", slot_count: "2", size_mm: "600x600" }], re: [], not: ["stated to convert"], priced: true },
+  { id: "AD3a", rule: T.mixNos, cat: ADP, path: "panel", kind: "pos", unit: "Nos", adp1: true, model: [{ family: "mixing box / LP plenum", insulated: "None", size_mm: "450x450x350" }], re: ["supply: 1230 x 2 x (450 x 450 + 450 x 350 + 450 x 350) / 1,000,000 + 150 = 1423.05", "supply: pricing input: Mixing box supply adder = 150"], priced: true },   // INVERTED at ADP-4a (AC2: 1,000,000, no '(amount)') by mechanical authority: BEFORE re: ["supply: 1230 x 2 x (450 x 450 + 450 x 350 + 450 x 350) / 10^6 + 150 = 1423.05", "supply: pricing input: Mixing box supply adder (amount) = 150"]
+  { id: "AD3a-calc", rule: T.mixNos, cat: ADP, path: "calc", kind: "pos", adp1: true, edits: calc("mixing box / LP plenum", { insulated: "with", size_mm: "450x450x350" }, ["size_mm"]), rowUnit: "nos", re: ["/ 1,000,000 + 150 = 1423.05"], priced: true },   // INVERTED at ADP-4a (AC2: 1,000,000) by mechanical authority: BEFORE re: ["/ 10^6 + 150 = 1423.05"]
+  { id: "AD3b-neg", rule: T.mixNos, cat: ADP, path: "panel", kind: "neg", unit: "sqm", adp1: true, model: [{ family: "mixing box / LP plenum", insulated: "with" }], re: [], not: ["/ 10^6 + 150", "Mixing box supply adder"], priced: true },
+  { id: "AD4a", rule: T.mixMissing, cat: ADP, path: "panel", kind: "pos", unit: "EA", adp1: true, model: [{ family: "mixing box / LP plenum", insulated: "None", size_mm: "2200 mm Length" }], re: ["per-number row: no width and height stated to convert the per-sq.m rate"], priced: false },
+  { id: "AD4a-calc", rule: T.mixMissing, cat: ADP, path: "calc", kind: "pos", adp1: true, edits: calc("mixing box / LP plenum", { insulated: "with", size_mm: "2200 mm length" }, ["size_mm"]), rowUnit: "nos", re: ["per-number row: no width and height stated to convert the per-sq.m rate"], priced: false },
+  { id: "AD4b-neg", rule: T.mixMissing, cat: ADP, path: "panel", kind: "neg", unit: "Nos", adp1: true, model: [{ family: "mixing box / LP plenum", insulated: "with", size_mm: "600x600x400" }], re: [], not: ["stated to convert"], priced: true },
+  { id: "AD5a", rule: T.slotsStock, cat: ADP, path: "panel", kind: "pos", unit: "RMT", adp1: true, model: [{ family: "slot diffuser", damper: "None", slot_count: "4 Slot" }], re: ["No SKU for a 4-slot diffuser - price this row by hand"], priced: false },
+  { id: "AD5b-neg", rule: T.slotsStock, cat: ADP, path: "panel", kind: "neg", unit: "RMT", adp1: true, model: [{ family: "slot diffuser", damper: "None", slot_count: "3 Slot" }], re: [], not: ["-slot diffuser"], priced: true },
+  { id: "AD6a", rule: T.pieceLen, cat: ADP, path: "panel", kind: "pos", unit: "Nos", adp1: true, model: [{ family: "slot diffuser", damper: "with", slot_count: "3", size_mm: "1000x150" }], re: ["BoQ says 1000x150 -> 1 m (the longest side)"], priced: true },
+  { id: "AD6a-calc", rule: T.pieceLen, cat: ADP, path: "calc", kind: "pos", adp1: true, edits: calc("slot diffuser", { damper: "with", slot_count: "3", piece_length_m: "1500 mm" }), rowUnit: "nos", re: ["piece length: 1500 mm read as 1.5 m"], priced: true },
+  { id: "AD6b-neg", rule: T.pieceLen, cat: ADP, path: "panel", kind: "neg", unit: "Nos", adp1: true, model: [{ family: "slot diffuser", damper: "with", slot_count: "3", size_mm: "75mm" }], re: ["piece_length_m:no piece length stated - priced at 1 m"], not: ["BoQ says 75mm"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["piece length not mentioned -> 1 (no piece length stated - priced at 1 m)"]
+  { id: "AD7a", rule: T.slotSqm, cat: ADP, path: "panel", kind: "pos", unit: "sqm", adp1: true, model: [{ family: "slot diffuser", damper: "None" }], re: ["No SKU for a slot diffuser per sq.m without damper - price this row by hand"], priced: false },
+  { id: "AD7b-neg", rule: T.slotSqm, cat: ADP, path: "panel", kind: "neg", unit: "sqm", adp1: true, model: [{ family: "slot diffuser", damper: "with" }], re: [], not: ["per sq.m without damper"], priced: true },
+  // ── ADP-2 (owner rulings H5 / H7 / B3): one positive and one negative case per new line, from the panel's entry point ──
+  { id: "AE1a", rule: T.defaults, cat: ADP, path: "panel", kind: "pos", unit: "Nos", adp2: true, model: [{ family: "square diffuser", air: "supply", damper: "None", neck_mm: "450 x 450" }], re: ["supply air, damper not mentioned -> with damper"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.h5Air
+  { id: "AE1a-ret", rule: T.defaults, cat: ADP, path: "panel", kind: "pos", unit: "RMT", adp2: true, model: [{ family: "slot diffuser", air: "return", damper: "None", slot_count: "3" }], re: ["return air, damper not mentioned -> without damper"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.h5Air
+  { id: "AE1a-calc", rule: T.defaults, cat: ADP, path: "calc", kind: "pos", adp2: true, edits: calc("slot diffuser", { air: "supply", damper: "None" }), rowUnit: "sqm", re: ["supply air, damper not mentioned -> with damper"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.h5Air
+  { id: "AE1b-neg", rule: T.defaults, cat: ADP, path: "panel", kind: "neg", unit: "Nos", adp2: true, model: [{ family: "square diffuser", air: "supply", damper: "without", neck_mm: "450 x 450" }], re: [], not: ["damper not mentioned"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.h5Air
+  { id: "AE1c", rule: T.h5Both, cat: ADP, path: "panel", kind: "pos", unit: "No", adp2: true, description: "Aluminium powder coated Supply / Return air diffuser of 450x450 mm neck size", model: [{ family: "square diffuser", air: "supply", damper: "None", neck_mm: "450 x 450" }], re: ["BoQ names supply and return air -> damper as read (not mentioned -> without)"], not: ["supply air, damper not mentioned"], priced: true },
+  { id: "AE1c-head", rule: T.h5Both, cat: ADP, path: "panel", kind: "pos", unit: "Nos", adp2: true, description: "375 x 375mm neck size", headings: ["Supply & return air diffusers with 600 x 600mm size."], model: [{ family: "square diffuser", air: "supply", damper: "None", neck_mm: "375 x 375" }], re: ["BoQ names supply and return air -> damper as read (not mentioned -> without)"], priced: true },
+  { id: "AE1d-neg", rule: T.h5Both, cat: ADP, path: "panel", kind: "neg", unit: "Nos", adp2: true, description: "Aluminium powder coated supply air diffuser 450x450", headings: ["Supply & return air diffusers"], model: [{ family: "square diffuser", air: "supply", damper: "None", neck_mm: "450 x 450" }], re: ["supply air, damper not mentioned -> with damper"], not: ["BoQ names supply and return air"], priced: true },
+  { id: "AE1d-neg2", rule: T.h5Both, cat: ADP, path: "panel", kind: "neg", unit: "Nos", adp2: true, description: "Supply and installation of 450 x 450 diffuser", model: [{ family: "square diffuser", air: "supply", damper: "None", neck_mm: "450 x 450" }], re: ["supply air, damper not mentioned -> with damper"], not: ["BoQ names supply and return air"], priced: true },
+  { id: "AE2a", rule: T.mixArea, cat: ADP, path: "panel", kind: "pos", unit: "Nos", adp2: true, model: [{ family: "mixing box / LP plenum", insulated: "with", area_band: "up to 0.5 sqm" }], re: ["per-number mixing box / LP plenum with an area", "supply: 1230 x 0.5 = 615"], not: ["supply adder"], priced: true },   // INVERTED at ADP-4a (AC2: no 'H7' tag) by mechanical authority: BEFORE "H7 per-number mixing box / LP plenum with an area"
+  { id: "AE2a-calc", rule: T.mixArea, cat: ADP, path: "calc", kind: "pos", adp2: true, edits: calc("mixing box / LP plenum", { insulated: "with", plenum_area_sqm: "2.5" }), rowUnit: "nos", re: ["supply: 1230 x 2.5 = 3075"], not: ["supply adder"], priced: true },
+  { id: "AE2b-neg", rule: T.mixArea, cat: ADP, path: "panel", kind: "neg", unit: "Nos", adp2: true, model: [{ family: "mixing box / LP plenum", insulated: "with", size_mm: "450x450x350" }], re: ["/ 1,000,000 + 150 = 1423.05"], not: ["with an area"], priced: true },   // INVERTED at ADP-4a (AC2: 1,000,000) by mechanical authority: BEFORE re: ["/ 10^6 + 150 = 1423.05"]
+  { id: "AE3a", rule: T.mixEither, cat: ADP, path: "panel", kind: "pos", unit: "EA", adp2: true, model: [{ family: "mixing box / LP plenum", insulated: "None", size_mm: "3000 mm Length" }], re: ["mixing box / LP plenum needs an area, or length + width + height - width and height not stated - price this row by hand"], priced: false },
+  { id: "AE3a-calc", rule: T.mixEither, cat: ADP, path: "calc", kind: "pos", adp2: true, edits: calc("mixing box / LP plenum", { insulated: "with", plenum_length_mm: "2200" }), rowUnit: "nos", re: ["needs an area, or length + width + height - width and height not stated"], priced: false },
+  { id: "AE3b-neg", rule: T.mixEither, cat: ADP, path: "panel", kind: "neg", unit: "Nos", adp2: true, model: [{ family: "mixing box / LP plenum", insulated: "with", size_mm: "600x600x400" }], re: [], not: ["needs an area, or"], priced: true },
+  { id: "AE4a", rule: T.sizesAdp, cat: ADP, path: "panel", kind: "pos", unit: "NOS", adp2: true, model: [{ family: "mixing box / LP plenum", insulated: "None", size_mm: "900x200x350mm Ht." }], re: ["plenum_height_mm:BoQ says 900x200x350mm Ht. -> 350 mm (the height as written)", "plenum_length_mm:BoQ says 900x200x350mm Ht. -> 900 mm (the first of length x width x height)"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.boxSides   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["height: BoQ says 900x200x350mm Ht. -> 350 mm (the height as written)", "length: BoQ says 900x200x350mm Ht. -> 900 mm (the first of length x width x height)"]
+  { id: "AE4b-neg", rule: T.sizesAdp, cat: ADP, path: "calc", kind: "neg", adp2: true, edits: calc("mixing box / LP plenum", { insulated: "with", plenum_length_mm: "450", plenum_width_mm: "450", plenum_height_mm: "350" }), rowUnit: "nos", re: ["/ 1,000,000 + 150 = 1423.05"], not: ["BoQ says"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.boxSides   // INVERTED at ADP-4a (AC2: 1,000,000) by mechanical authority: BEFORE re: ["/ 10^6 + 150 = 1423.05"]
+  { id: "AE5a", rule: T.areaFill, cat: ADP, path: "panel", kind: "pos", unit: "Nos", adp2: true, model: [{ family: "mixing box / LP plenum", insulated: "with", area_band: "up to 0.5 sqm" }], re: ["plenum_area_sqm:BoQ says up to 0.5 sqm -> priced at 0.5 sq.m (the largest value)"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["area: BoQ says up to 0.5 sqm -> priced at 0.5 sq.m (the largest value)"]
+  { id: "AE5b-neg", rule: T.areaFill, cat: ADP, path: "calc", kind: "neg", adp2: true, edits: calc("mixing box / LP plenum", { insulated: "with", plenum_area_sqm: "2.5" }), rowUnit: "nos", re: ["supply: 1230 x 2.5 = 3075"], not: ["BoQ says"], priced: true },
+  { id: "AE6a-ptyped", rule: T.fitAdp, cat: ADP, path: "ptyped", kind: "pos", unit: "Nos", adp2: true, model: [{ family: "square diffuser", damper: "without", neck_mm: "300 x 300" }], edits: ptyped({ neck_mm: "225" }, ["neck_mm"]), re: [/225 mm -> priced as 300 mm/], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.neckOther
+  { id: "AE6a-calc", rule: T.fitAdp, cat: ADP, path: "calc", kind: "pos", adp2: true, edits: calc("square diffuser", { damper: "without", neck_mm: "600" }, ["neck_mm"]), rowUnit: "nos", re: ["neck size 600 is above the largest size on the sheet (450)"], priced: false },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.neckOther
+  { id: "AE6b-neg", rule: T.fitAdp, cat: ADP, path: "ptyped", kind: "neg", unit: "Nos", adp2: true, model: [{ family: "square diffuser", damper: "without", neck_mm: "300 x 300" }], edits: ptyped({ neck_mm: "375" }, ["neck_mm"]), re: [], not: [/priced as/], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.neckOther
+  { id: "AF1a", rule: T.f1Above, cat: INS, path: "panel", kind: "pos", unit: "RMT", adp1: true, model: [m(NIT, { pipe_size_mm: "4" })], re: ["size 4 has no unit - price this row by hand"], priced: false },
+  { id: "AF1a-calc", rule: T.f1Above, cat: INS, path: "calc", kind: "pos", adp1: true, edits: calc(NR, { cladding: "26G Aluminium", thickness_mm: "19", pipe_size_mm: "4" }, ["pipe_size_mm"]), rowUnit: "mts", re: ["size 4 has no unit - price this row by hand"], priced: false },
+  { id: "AF1b-neg", rule: T.f1Above, cat: INS, path: "panel", kind: "neg", unit: "RMT", adp1: true, model: [m(NIT, { pipe_size_mm: "4 mm" })], re: [], not: ["has no unit"], priced: true },
+  { id: "AF3a", rule: T.giFramework, cat: INS, path: "panel", kind: "pos", unit: "sqm", live: true, model: [{ item: ACO, cladding: "None", thickness_mm: "19", cladding_as_written: "GI frame with perforated Al sheet" }], description: "Acoustic lining with GI frame with perforated Al sheet", re: ["BoQ says GI frame with perforated Al sheet -> priced as GI Framework with perforated Al sheet"], priced: true },
+  { id: "AF3a-head", rule: T.giFramework, cat: INS, path: "panel", kind: "pos", unit: "sqm", live: true, model: [{ item: ACO, cladding: "None", thickness_mm: "19" }], headings: ["Acoustic insulation with GI framework and perforated aluminium sheet"], re: ["BoQ says GI framework and perforated aluminium sheet -> priced as GI Framework with perforated Al sheet"], priced: true },
+  { id: "AF3b-neg", rule: T.giFramework, cat: INS, path: "panel", kind: "neg", unit: "sqm", live: true, model: [{ item: ACO, cladding: "No", thickness_mm: "19", cladding_as_written: "GI frame with perforated Al sheet" }], re: [], not: ["priced as GI Framework"], priced: true },
+  { id: "AF4a", rule: T.rpufSheet, cat: INS, path: "panel", kind: "pos", unit: "sqm", model: [{ item: "None", cladding: "No", thickness_mm: "50", material_as_written: "RPUF" }], re: ["No SKU in the catalogue for RPUF - price this row by hand"], priced: false },
+  { id: "AF4b-neg", rule: T.rpufSheet, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [{ item: "None", cladding: "No", thickness_mm: "40", pipe_size_mm: "100", material_as_written: "RPUF" }], re: ["BoQ says RPUF -> priced as Tubular Puf Insulation"], not: ["No SKU in the catalogue for RPUF"], priced: true },
+  // ── ADP-3a (AC6): a positive and a near-miss case for each line it adds, on every tab that carries it ──
+  { id: "N1a", rule: T.a3Unit, cat: INS, path: "panel", kind: "pos", unit: "nos", model: [NIT], re: ["Nitrile Rubber Insulation is not stocked per 'nos' (stocked per metre) - price this row by hand"], priced: false },
+  { id: "N1b-neg", rule: T.a3Unit, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [NIT], re: [], not: ["is not stocked per"], priced: true },
+  { id: "N1c", rule: T.a3Unit, cat: ADP, path: "panel", kind: "pos", unit: "Lot", model: [{ family: "spigot", dia_mm: "200" }], re: ["spigot is not stocked per 'Lot' (stocked per number) - price this row by hand"], priced: false },
+  { id: "N1d-neg", rule: T.a3Unit, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "spigot", dia_mm: "200" }], re: [], not: ["is not stocked per"], priced: true },
+  { id: "N1e", rule: T.a3Unit, cat: PIP, path: "panel", kind: "pos", unit: "Nos/Ro", model: [MS50], re: ["MS is not stocked per 'Nos/Ro' (stocked per metre) - price this row by hand"], priced: false },
+  { id: "N1f-neg", rule: T.a3Unit, cat: PIP, path: "panel", kind: "neg", unit: "RMT", model: [MS50], re: [], not: ["is not stocked per"], priced: true },
+  { id: "N2a", rule: T.a3Unstocked, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "fire damper", variant: "UL", ul: "no", size_mm: "600x600" }], re: ["No SKU for fire damper: UL listed no, variant UL - price this row by hand"], not: [", width 600, height 600 - price"], priced: false },
+  { id: "N2b-neg", rule: T.a3Unstocked, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "fire damper", variant: "UL", ul: "yes", size_mm: "600x600" }], re: [], not: ["No SKU for"] },
+  { id: "N2c", rule: T.a3Unstocked, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(PUFI, { cladding: "Glass Cloth" })], re: ["No SKU for Tubular Puf Insulation: cladding Glass Cloth - price this row by hand"], not: ["Glass Cloth, thickness", "Glass Cloth, pipe size"], priced: false },
+  { id: "N2d-neg", rule: T.a3Unstocked, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [PUFI], re: [], not: ["No SKU for"], priced: true },
+  { id: "N3a", rule: T.a3Either, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "VCD" }], re: ["VCD needs Size (W x H), or Area band - neither stated - price this row by hand"], priced: false },
+  { id: "N3a-calc", rule: T.a3Either, cat: ADP, path: "calc", kind: "pos", edits: calc("VCD", {}), rowUnit: "nos", re: ["VCD needs Size (W x H), or Area band - neither stated - price this row by hand"], priced: false },
+  { id: "N3b-neg", rule: T.a3Either, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "VCD", size_mm: "600x300" }], re: [], not: ["neither stated"], priced: true },
+  // ── ADP-3b (AC4): a positive and a near-miss case for each line it adds, on the v49-shaped config ──
+  { id: "B1a", rule: T.sizesAdp, cat: ADP, path: "panel", kind: "pos", unit: "nos", adp3b: true, model: [{ family: "VCD", variant: "GI rectangular", size_mm: "550X300" }], re: ["face_w_mm:BoQ says 550X300 -> width 550 mm", "face_h_mm:BoQ says 550X300 -> height 300 mm"], not: ["size_mm:"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.faceBoxes
+  { id: "B1a-calc", rule: T.sizesAdp, cat: ADP, path: "calc", kind: "pos", adp3b: true, edits: calc("VCD", { variant: "GI rectangular", face_w_mm: "600", face_h_mm: "300" }, ["face_w_mm", "face_h_mm"]), rowUnit: "nos", re: ["face_w_mm:You typed 600 -> width 600 mm"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.faceBoxes
+  { id: "B1b-neg", rule: T.sizesAdp, cat: ADP, path: "panel", kind: "neg", unit: "sqm", adp3b: true, model: [{ family: "VCD", variant: "GI rectangular", size_mm: "550X300" }], re: [], not: ["-> width", "-> height"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.faceBoxes
+  { id: "B2a", rule: T.faceThird, cat: ADP, path: "panel", kind: "pos", unit: "nos", adp3b: true, model: [{ family: "square diffuser", damper: "with", size_mm: "300 x 300 x 450 mm Height" }], re: ["450 mm Height (the third part) - not used as the face", "face_h_mm:BoQ says 300 x 300 x 450 mm Height -> height 300 mm"], priced: false },
+  { id: "B2b-neg", rule: T.faceThird, cat: ADP, path: "panel", kind: "neg", unit: "nos", adp3b: true, model: [{ family: "square diffuser", damper: "with", size_mm: "595 x 595" }], re: [], not: ["third part"], priced: true },
+  { id: "B3a", rule: T.faceD2, cat: ADP, path: "panel", kind: "pos", unit: "rmt", adp3b: true, model: [{ family: "linear grille", size_mm: "150mm width" }], re: ["face_h_mm:BoQ says 150mm width -> height 150 mm (the grille's narrow dimension)"], priced: true },
+  { id: "B3b-neg", rule: T.faceD2, cat: ADP, path: "panel", kind: "neg", unit: "rmt", adp3b: true, model: [{ family: "linear grille", size_mm: "150 mm" }], re: ["per-metre row: no height stated to convert the per-sq.m rate"], not: ["narrow dimension"], priced: false },
+  { id: "B4a", rule: T.a3EitherFace, cat: ADP, path: "panel", kind: "pos", unit: "nos", adp3b: true, model: [{ family: "VCD", variant: "GI rectangular" }], re: ["VCD needs Width + Height, or Area band - neither stated - price this row by hand"], priced: false },
+  { id: "B4b-neg", rule: T.a3EitherFace, cat: ADP, path: "panel", kind: "neg", unit: "nos", adp3b: true, model: [{ family: "VCD", variant: "GI rectangular", size_mm: "550X300" }], re: [], not: ["neither stated"], priced: true },
+  // ── ADP-3c (owner 2026-10-21): a two-part size on a W + H item is the face whatever its parts are called (v49) ──
+  { id: "C1a", rule: T.sizesAdp, cat: ADP, path: "panel", kind: "pos", unit: "nos", adp3b: true, model: [{ family: "curved grille", size_mm: "600(L)X150mm width" }], re: ["face_w_mm:BoQ says 600(L)X150mm width -> width 150 mm", "face_h_mm:BoQ says 600(L)X150mm width -> height 600 mm (the other part of a two-part size)"], not: ["not used"], working: ["height: BoQ says 600(L)X150mm width -> height 600 mm (the other part of a two-part size)"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.faceAny
+  { id: "C1b", rule: T.sizesAdp, cat: ADP, path: "panel", kind: "pos", unit: "nos", adp3b: true, model: [{ family: "door grille", size_mm: "900mm(L)x150mm (H)" }], re: ["face_w_mm:BoQ says 900mm(L)x150mm (H) -> width 900 mm (the other part of a two-part size)", "face_h_mm:BoQ says 900mm(L)x150mm (H) -> height 150 mm"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.faceAny
+  { id: "C1c", rule: T.sizesAdp, cat: ADP, path: "panel", kind: "pos", unit: "nos", adp3b: true, model: [{ family: "VCD", variant: "GI rectangular", size_mm: "600 W x 300 W" }], re: ["face_h_mm:BoQ says 600 W x 300 W -> height 300 mm (the second part of a two-part size)"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.faceAny
+  { id: "C1a-calc", rule: T.sizesAdp, cat: ADP, path: "calc", kind: "pos", adp3b: true, edits: calc("cross-talk", { size_mm: "250(L) x 500(W)" }, ["size_mm"]), rowUnit: "nos", re: ["face_h_mm:BoQ says 250(L) x 500(W) -> height 250 mm (the other part of a two-part size)"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.faceAny
+  { id: "C1b-neg", rule: T.sizesAdp, cat: ADP, path: "panel", kind: "neg", unit: "rmt", adp3b: true, model: [{ family: "linear grille", size_mm: "600(L) x 150 mm (H)" }], re: ["face_h_mm:BoQ says 600(L) x 150 mm (H) -> height 150 mm; 600(L) named as a length - not used"], not: ["two-part size"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.faceAny
+  { id: "C1c-neg", rule: T.sizesAdp, cat: ADP, path: "panel", kind: "neg", unit: "nos", adp3b: true, model: [{ family: "VCD", variant: "GI rectangular", size_mm: "550X300" }], re: ["face_w_mm:BoQ says 550X300 -> width 550 mm"], not: ["two-part size"], priced: true },   // ADP-4a (AC1 merge / rename): BEFORE rule: T.faceAny
   { id: "P8c-neg", rule: T.drainCpvc, cat: PIP, path: "calc", kind: "neg", edits: [{ base: null, family: null, attrs: { size_mm: "25" }, other: ["size_mm"] }], rowUnit: "mts", re: ["no pipe type could be told for this item"], not: ["no material stated", "family:CPVC"], priced: false },
+  // ── ADP-4a (owner D1 / D3; AC1): one positive and one negative case for each line ADP's tab now names that it never did. The
+  // rules are not new -- the config always ran them; the tab now says so. v38 (the file's base) unless flagged ──
+  { id: "G1a", rule: T.convWH, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "VCD", variant: "GI rectangular", size_mm: "600x300" }], re: ["per-number row: per-sq.m rate x W x H", "area: width 600 x height 300 mm = 0.18 sq.m (from 'Size')"], priced: true },
+  { id: "G1b-neg", rule: T.convWH, cat: ADP, path: "panel", kind: "neg", unit: "sqm", model: [{ family: "VCD", variant: "GI rectangular", size_mm: "600x300" }], re: [], not: ["per-number row"], priced: true },
+  { id: "G2a", rule: T.convBand, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "VCD", variant: "GI rectangular", area_band: "up to 0.5 sqm" }], re: ["area band: per-sq.m rate x the band's maximum area", "area_band:BoQ says up to 0.5 sqm -> priced at 0.5 sq.m (the largest value)"], not: ["per-number row"], priced: true },
+  { id: "G2b-neg", rule: T.convBand, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "VCD", variant: "GI rectangular", size_mm: "600x300" }], re: ["per-number row: per-sq.m rate x W x H"], not: ["area band:"], priced: true },
+  { id: "G3a", rule: T.convGrille, cat: ADP, path: "panel", kind: "pos", unit: "rmt", model: [{ family: "linear grille", damper: "with", size_mm: "1000x150" }], re: ["per-metre grille: per-sq.m rate x height in metres", "height 150 mm = 0.15 m (from 'Size')"], priced: true },
+  { id: "G3b-neg", rule: T.convGrille, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "linear grille", damper: "with", size_mm: "1000x150" }], re: ["per-number row: per-sq.m rate x W x H"], not: ["per-metre grille"], priced: true },
+  { id: "G4a", rule: T.convPiece38, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "flexible duct", insulated: "with", dia_mm: "200" }], re: ["per piece: per-metre rate x 2.5 m standard length", "supply: per piece: per-metre supply cost x 2.5 m standard length = 1025"], priced: true },
+  { id: "G4b-neg", rule: T.convPiece38, cat: ADP, path: "panel", kind: "neg", unit: "rmt", model: [{ family: "flexible duct", insulated: "with", dia_mm: "200" }], re: [], not: ["per piece"], priced: true },
+  { id: "G4c", rule: T.convPiece, cat: ADP, path: "panel", kind: "pos", unit: "nos", adp1: true, model: [{ family: "flexible duct", insulated: "with", dia_mm: "200" }], re: ["per piece: per-metre rate x the flexible duct length per piece"], not: ["2.5 m standard length"], priced: true },
+  { id: "G4d-neg", rule: T.convPiece, cat: ADP, path: "panel", kind: "neg", unit: "rmt", adp1: true, model: [{ family: "flexible duct", insulated: "with", dia_mm: "200" }], re: [], not: ["per piece"], priced: true },
+  { id: "G5a", rule: T.convMix38, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "mixing box / LP plenum", insulated: "with", size_mm: "450x450x350" }], re: ["per-number mixing box at any size: per-sq.m cost x 2(WH + HD + WD) + 150, rounded up, then the markup", "+ 150 = 1423.05, rounded up to the rupee: 1424"], priced: true },
+  { id: "G5b-neg", rule: T.convMix38, cat: ADP, path: "panel", kind: "neg", unit: "sqm", model: [{ family: "mixing box / LP plenum", insulated: "with", size_mm: "450x450x350" }], re: [], not: ["per-number mixing box", "+ 150"], priced: true },
+  { id: "G6a", rule: T.crossTalk, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "cross-talk", size_mm: "500x250" }], re: ["supply: 2 x (W + H) x 300 mm depth / 1,000,000 (sq.mm to sq.m) x the base per-sq.m supply cost = 720"], priced: true },
+  { id: "G6b-neg", rule: T.crossTalk, cat: ADP, path: "panel", kind: "neg", unit: "sqm", model: [{ family: "cross-talk", size_mm: "500x250" }], re: [], not: ["300 mm depth"], priced: true },
+  { id: "G7a", rule: T.ratio, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "control panel", panel_ratio: "1:6" }], re: ["panel_ratio:BoQ says 1:6 -> 6"], priced: true },
+  { id: "G7b-neg", rule: T.ratio, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "control panel", panel_ratio: "6" }], re: [], not: ["1:6 -> 6"], priced: true },
+  { id: "G8a", rule: T.gauge, cat: ADP, path: "panel", kind: "pos", unit: "sqm", model: [{ family: "double-skin plenum", thickness_mm: "26G" }], re: ["plenum thickness stated as '26G' -- a gauge, not a thickness"], priced: false },
+  { id: "G8b-neg", rule: T.gauge, cat: ADP, path: "panel", kind: "neg", unit: "sqm", model: [{ family: "double-skin plenum", thickness_mm: "25" }], re: ["family:double-skin plenum"], not: ["a gauge, not a thickness"], priced: true },
+  { id: "G9a", rule: T.sqft, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "VCD", variant: "GI rectangular", area_band: "2 sq ft" }], re: ["area stated in square feet ('2 sq ft')"], priced: false },
+  { id: "G9b-neg", rule: T.sqft, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "VCD", variant: "GI rectangular", area_band: "0.2 sqm" }], re: ["area_band:BoQ says 0.2 sqm -> priced at 0.2 sq.m"], not: ["square feet"], priced: true },
+  { id: "G10a", rule: T.mcm, cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "round diffuser", damper: "with", dia_mm: "20 cm" }], re: ["dia_mm:BoQ says 20 cm -> 200 mm (20 cm read as 200 mm)"], priced: true },
+  { id: "G10b-neg", rule: T.mcm, cat: ADP, path: "panel", kind: "neg", unit: "nos", model: [{ family: "round diffuser", damper: "with", dia_mm: "200 mm" }], re: [], not: ["cm read as"], priced: true },
+  // ── ADP-4a (owner D10, 2026-10-21 "Yes"; AC5): one named case for each of the ten families that had none, each from a
+  // REAL stored row (its items exactly as stored, its unit, the figures the replay gives), with its near miss -- on v50 ──
+  { id: "F1a", rule: T.kind, family: "floor grille", cat: ADP, path: "panel", kind: "pos", unit: "Nos.", adp4a: true, model: [{ family: "floor grille", damper: "with", size_mm: "200X200" }], re: ["family:floor grille"], priced: true, figures: [734, 77] },   // BOQ-26-00315 / PAC WORKS / 40: 734 / 77
+  { id: "F1b-neg", rule: T.kind, family: "floor grille", cat: ADP, path: "panel", kind: "neg", unit: "Nos.", adp4a: true, model: [{ family: "floor grille", damper: "with" }], re: ["floor grille needs Width + Height, or Area band - neither stated - price this row by hand"], priced: false },   // r42
+  { id: "F2a", rule: T.kind, family: "intake louvre", cat: ADP, path: "panel", kind: "pos", unit: "Sqm", adp4a: true, model: [{ family: "intake louvre" }], re: ["family:intake louvre"], priced: true, figures: [7250, 2800] },   // BOQ-26-00131 / ESTIMATE / 155: 7250 / 2800
+  { id: "F2b-neg", rule: T.kind, family: "intake louvre", cat: ADP, path: "panel", kind: "neg", unit: "NOS", adp4a: true, model: [{ family: "intake louvre", damper: "with", air: "fresh" }], re: ["intake louvre needs Width + Height, or Area band - neither stated - price this row by hand"], priced: false },   // BOQ-26-00186 / 97
+  { id: "F3a", rule: T.kind, family: "jet / eyeball diffuser", cat: ADP, path: "panel", kind: "pos", unit: "No's", adp4a: true, model: [{ family: "jet / eyeball diffuser", air: "supply", dia_mm: "300 mm" }], re: ["family:jet / eyeball diffuser"], priced: true, figures: [3698, 640] },   // BOQ-26-00140 / 339: 3698 / 640
+  { id: "F3b-neg", rule: T.kind, family: "jet / eyeball diffuser", cat: ADP, path: "panel", kind: "neg", unit: "No", adp4a: true, model: [{ family: "jet / eyeball diffuser" }], re: ["no diameter stated"], priced: false },   // BOQ-26-00325 / 249
+  { id: "F4a", rule: T.kind, family: "butterfly damper", cat: ADP, path: "panel", kind: "pos", unit: "Nos.", adp4a: true, model: [{ family: "butterfly damper", dia_mm: "150 dia" }], re: ["family:butterfly damper"], priced: true, figures: [725, 0] },   // BOQ-26-00341 / 163: 725 / 0
+  { id: "F4b-neg", rule: T.kind, family: "butterfly damper", cat: ADP, path: "panel", kind: "neg", unit: "Nos.", adp4a: true, model: [{ family: "butterfly damper", dia_mm: "10\" or 8\" dia." }], re: ["diameter stated in inches ('10\" or 8\" dia.')"], priced: false },   // BOQ-26-00137 / 167
+  { id: "F5a", rule: T.kind, family: "disc valve", cat: ADP, path: "panel", kind: "pos", unit: "Nos", adp4a: true, model: [{ family: "disc valve", dia_mm: "150mm" }], re: ["family:disc valve"], priced: true, figures: [653, 176] },   // BOQ-26-00149 / 415: 653 / 176
+  { id: "F5b-neg", rule: T.kind, family: "disc valve", cat: ADP, path: "panel", kind: "neg", unit: "Nos", adp4a: true, model: [{ family: "disc valve", air: "exhaust" }], re: ["no diameter stated"], priced: false },   // BOQ-26-00102 / 72
+  { id: "F6a", rule: T.kind, family: "NRD", cat: ADP, path: "panel", kind: "pos", unit: "SQM", adp4a: true, model: [{ family: "NRD" }], re: ["family:NRD"], priced: true, figures: [6888, 1600] },   // BOQ-26-00100 / 108: 6888 / 1600
+  { id: "F6b-neg", rule: T.kind, family: "NRD", cat: ADP, path: "panel", kind: "neg", unit: "", adp4a: true, model: [{ family: "NRD" }], re: ["No unit on the BoQ row - this item is priced per sq.m or per number; set the unit"], priced: false },   // BOQ-26-00245 / 132 (no unit)
+  { id: "F7a", rule: T.kind, family: "collar damper", cat: ADP, path: "panel", kind: "pos", unit: "Sqm.", adp4a: true, model: [{ family: "collar damper" }], re: ["family:collar damper"], priced: true, figures: [5220, 800] },   // BOQ-26-00102 / 71: 5220 / 800
+  { id: "F7b-neg", rule: T.kind, family: "collar damper", cat: ADP, path: "panel", kind: "neg", unit: "Nos", adp4a: true, model: [{ family: "collar damper", dia_mm: "150 mm dia" }], re: ["collar damper needs Width + Height, or Area band - neither stated - price this row by hand"], priced: false },   // BOQ-26-00239 / 239
+  { id: "F8a", rule: T.kind, family: "sound attenuator", cat: ADP, path: "panel", kind: "pos", unit: "Sqm", adp4a: true, model: [{ family: "sound attenuator" }], re: ["family:sound attenuator"], priced: true, figures: [6235, 2880] },   // BOQ-26-00341 / 38: 6235 / 2880
+  { id: "F8b-neg", rule: T.kind, family: "sound attenuator", cat: ADP, path: "panel", kind: "neg", unit: "Cum", adp4a: true, model: [{ family: "sound attenuator" }], re: ["sound attenuator is not stocked per 'Cum' (stocked per number or per sq.m) - price this row by hand"], priced: false },   // BOQ-26-00231 / 270
+  { id: "F9a", rule: T.kind, family: "canvas connection", cat: ADP, path: "panel", kind: "pos", unit: "SQM", adp4a: true, model: [{ family: "canvas connection" }], re: ["family:canvas connection"], priced: true, figures: [1450, 1280] },   // BOQ-26-00100 / 120: 1450 / 1280
+  { id: "F9b-neg", rule: T.kind, family: "canvas connection", cat: ADP, path: "panel", kind: "neg", unit: "", adp4a: true, model: [{ family: "canvas connection" }], re: ["No unit on the BoQ row - this item is priced per sq.m or per number or per metre; set the unit"], priced: false },   // BOQ-26-00245 / 101 (no unit)
+  { id: "F10a", rule: T.kind, family: "access door", cat: ADP, path: "panel", kind: "pos", unit: "Nos.", adp4a: true, model: [{ family: "access door", size_mm: "450x450mm", thickness_mm: "20G" }], re: ["family:access door"], priced: true, figures: [8700, 1280] },   // BOQ-26-00149 / 327: 8700 / 1280
+  { id: "F10b-neg", rule: T.kind, family: "access door", cat: ADP, path: "panel", kind: "neg", unit: "Sqm", adp4a: true, model: [{ family: "access door", insulated: "with" }], re: ["access door is not stocked per sq.m (stocked per number) - price this row by hand"], priced: false },   // BOQ-26-00234 / 577
+  // the two families whose only cases were ADP-3c's positives (C1a, C1b): each its near miss, so the family guard holds
+  { id: "FG1-neg", rule: T.kind, family: "curved grille", cat: ADP, path: "panel", kind: "neg", unit: "nos", adp4a: true, model: [{ family: "curved grille" }], re: ["curved grille needs Width + Height, or Area band - neither stated - price this row by hand"], priced: false },
+  { id: "FG2-neg", rule: T.kind, family: "door grille", cat: ADP, path: "panel", kind: "neg", unit: "nos", adp4a: true, model: [{ family: "door grille" }], re: ["door grille needs Width + Height, or Area band - neither stated - price this row by hand"], priced: false },
+  // ── ADP-5a (owner rulings 2026-10-22; AC8): a positive and a negative case for each rule this slice builds, each a REAL stored
+  // row (its items, unit, text, headings and heading notes as the replay dump holds them) with the figures the replay gives -- on v51 ──
+  { id: "M1a", rule: T.mergeSpigot, family: "spigot", cat: ADP, path: "panel", kind: "pos", unit: "Nos.", adp5a: true,
+    description: "a) Supply & installation of 200 mm dia Spigot & Butterfly damper for rectangular duct. It should be of 22G.(120 GSM)", headings: ["AIR DISTRIBUTION"],
+    model: [{ family: "spigot", damper: "None", air: "None", dia_mm: "200 mm dia", ul: "None", thickness_mm: "22G", variant: "None", qty_per_row_unit: "None" },
+            { family: "butterfly damper", damper: "None", air: "None", dia_mm: "200 mm dia", ul: "None", thickness_mm: "22G", variant: "None", qty_per_row_unit: "None" }],
+    re: ["spigot with butterfly damper named -> priced as one Butterfly Damper With Spigot, 200 mm", "Butterfly Damper With SPIGOT / 200 MM DIA (Nos)"], not: ["family:spigot"], working: ["spigot with butterfly damper named -> priced as one Butterfly Damper With Spigot, 200 mm"], priced: true, figures: [1015, 0] },   // BOQ-26-00341 r103: 1,247 / 64 -> 1,015 / 0
+  { id: "M1b", rule: T.mergeSpigot, family: "spigot", cat: ADP, path: "panel", kind: "pos", unit: "No", adp5a: true, description: "Ø 150 mm dia",
+    headings: ["AIR DISTRIBUTION", "SITC of round spigot with Butterfly Dampers as per the specifications & the sizes are as following below."],
+    model: [{ family: "spigot", damper: "with", air: "None", dia_mm: "Ø 150 mm dia", ul: "None" }], re: ["spigot with butterfly damper named -> priced as one Butterfly Damper With Spigot, 150 mm"], priced: true, figures: [725, 0] },   // BOQ-26-00231 r257: 211 / 64 -> 725 / 0
+  { id: "M1c", rule: T.mergeSpigot, family: "spigot", cat: ADP, path: "panel", kind: "pos", unit: "Nos", adp5a: true, description: "200 mm dia",
+    headings: ["Supply & Fixing of GI round spicot damper for flexible duct connection"],
+    model: [{ family: "spigot", damper: "with", air: "None", dia_mm: "200 mm dia", ul: "None", qty_per_row_unit: "None" }], re: ["spigot with butterfly damper named -> priced as one Butterfly Damper With Spigot, 200 mm"], priced: true, figures: [1015, 0] },   // BOQ-26-00313 r94: 232 / 64 -> 1,015 / 0
+  { id: "M1a-calc", rule: T.mergeSpigot, family: "spigot", cat: ADP, path: "calc", kind: "pos", adp5a: true,
+    edits: [{ base: null, family: "spigot", attrs: { dia_mm: "200" } }, { base: null, family: "butterfly damper", attrs: { dia_mm: "200" } }], rowUnit: "nos", re: ["spigot with butterfly damper named -> priced as one Butterfly Damper With Spigot, 200 mm"], priced: true, figures: [1015, 0] },
+  { id: "M1b-neg", rule: T.mergeSpigot, family: "spigot", cat: ADP, path: "panel", kind: "neg", unit: "Nos.", adp5a: true,
+    description: "300Dia Dropper of length 150/200mm for round diffuser connection . Its should of 24G and Match Elliptical duct color.",
+    headings: ["AIR DISTRIBUTION", "Supply, Installation, Testing and balancing of square type extruded aluminium powder coated diffusers for supply air"], headingNotes: ["Extruded Aluminium diffusers powder coated"],
+    model: [{ family: "spigot", air: "None", size_mm: "length 150/200mm", dia_mm: "300Dia", ul: "None", thickness_mm: "24G" }], re: ["family:spigot"], not: ["Butterfly Damper With Spigot"], priced: true, figures: [276, 64] },   // BOQ-26-00341 r62: unchanged
+  { id: "CG1a", rule: T.defaults, family: "curved grille", cat: ADP, path: "panel", kind: "pos", unit: "Sqm", adp5a: true,
+    description: "The supply & installation of higher grade Aluminum Extruded powder coated grilles with blade deflection of 0 & 15 deg", headings: ["AIR DISTRIBUTION SYSTEM", "GRILLES - Al. CURVED"],
+    model: [{ family: "curved grille", damper: "None", air: "None", ul: "None", qty_per_row_unit: "None" }], re: ["damper:damper not mentioned (or not answered) on a curved grille = with"], priced: true, figures: [10730, 2800] },   // BOQ-26-00185 r29: 5,510 / 880 -> 10,730 / 2,800
+  { id: "CG1b-neg", rule: T.defaults, family: "curved grille", cat: ADP, path: "panel", kind: "neg", unit: "Sqm", adp5a: true, description: "100 mm wide",
+    headings: ["SITC of the following items", "Return air Curved grilles with Zero deflection type of Powder coated high quality extruded aluminium construction without Collar damper of aluminium mounted directly on grilles."],
+    model: [{ family: "curved grille", damper: "without", insulated: "None", air: "return", size_mm: "100 mm wide", ul: "None", variant: "None", qty_per_row_unit: "None" }], re: [], not: ["on a curved grille = with"], priced: true, figures: [5510, 880] },   // BOQ-26-00140 r168: unchanged
+  { id: "AS1a", rule: T.h5Both, family: "linear grille", cat: ADP, path: "panel", kind: "pos", unit: "Sqm", adp5a: true,
+    description: "Powder coated extruded Extruded Aluminium - linear grille for SA / RA - 100mm width Make: Air master / Caryaire / Ravistar", headings: ["AIR TERMINALS"],
+    model: [{ family: "linear grille", damper: "None", insulated: "None", air: "supply", size_mm: "100mm width", ul: "None", qty_per_row_unit: "None" }], re: ["BoQ names supply and return air -> damper as read (not mentioned -> without)"], priced: true, figures: [4829, 880] },   // BOQ-26-00113 r78: 9,628 / 2,800 -> 4,829 / 880
+  { id: "AS1b", rule: T.h5Both, family: "linear grille", cat: ADP, path: "panel", kind: "pos", unit: "SqM", adp5a: true, description: "i. 100/150/200/250 mm/600mmx600mm Grilles", headings: ["DUCTWORK/AIR TERMINALS", "LINEAR GRILLES"],
+    headingNotes: ["Supply, Installation, Testing and Balancing of one way blow linear supply cum return air grilles complete with fixed core as per approved shop drawings and specifications. The grilles shall be of approved colour & shade.", "Powder coated aluminium grilles of extruded sections with integral flanges on both sides & ends as required complete with corner pieces."],
+    model: [{ family: "linear grille", damper: "None", air: "supply", size_mm: "100/150/200/250 mm/600mmx600mm", ul: "None" }], re: ["BoQ names supply and return air -> damper as read (not mentioned -> without)"], priced: true, figures: [4829, 880] },   // BOQ-26-00122 r65: 9,628 / 2,800 -> 4,829 / 880
+  { id: "AS1c-neg", rule: T.h5Both, family: "square diffuser", cat: ADP, path: "panel", kind: "neg", unit: "Nos.", adp5a: true, description: "375 X 375 (Neck size) overall size 596 X 596 (Tegular type)",
+    headings: ["AIR DISTRIBUTION", "Supply, Installation, Testing and balancing of square type extruded aluminium powder coated diffusers for supply air required as per the approved shop drawings."], headingNotes: ["Extruded Aluminium diffusers powder coated"],
+    model: [{ family: "square diffuser", damper: "None", air: "supply", neck_mm: "375 X 375", size_mm: "596 X 596", ul: "None" }], re: [], not: ["BoQ names supply and return air"], priced: true, figures: [2248, 576] },   // BOQ-26-00341 r59: the section heading's note (two levels up) is not read (HN-3): unchanged
+  { id: "BX1a", rule: T.sizesAdp, family: "mixing box / LP plenum", cat: ADP, path: "panel", kind: "pos", unit: "Nos", adp5a: true,
+    description: "GSS plenum boxes for fiing the diffusers along with openings for flexible ducts 1200x150-300 depth all the nescessary supports to be considered in the rate", headings: ["HVAC SYSTEM"],
+    model: [{ family: "mixing box / LP plenum", damper: "None", air: "None", size_mm: "1200x150-300 depth", ul: "None", qty_per_row_unit: "None" }],
+    re: ["plenum_width_mm:BoQ says 1200x150-300 depth -> 150 mm (the second of length x width x height)", "plenum_height_mm:BoQ says 1200x150-300 depth -> 300 mm (the height as written)"], priced: true, figures: [2306, 0] },   // BOQ-26-00247 r92: refused -> 2,306 / 0
+  { id: "BX1b-neg", rule: T.sizesAdp, family: "mixing box / LP plenum", cat: ADP, path: "panel", kind: "neg", unit: "NOS", adp5a: true, description: "900x200x350mm Ht.",
+    headings: ["GSS SPILL AIR BOX: Supply and installation of GSS Spill air box (24G)."],
+    model: [{ family: "mixing box / LP plenum", damper: "None", air: "None", size_mm: "900x200x350mm Ht.", ul: "None", thickness_mm: "24G", qty_per_row_unit: "None" }],
+    re: ["plenum_length_mm:BoQ says 900x200x350mm Ht. -> 900 mm (the first of length x width x height)"], not: ["-300 depth"], priced: true, figures: [2233, 0] },   // BOQ-26-00186 r58: unchanged
 ];
 
 /** ADP line 5 (`units_not_offered`) acts on the CALCULATOR'S UNIT PICKER, not on a row's price: it is covered
  *  by the unit-choices check below (a BoQ row arriving in a hidden unit prices exactly as before, by design). */
 const PICKER_CASES: Array<{ rule: string; family: string; offered: string[]; notOffered: string[] }> = [
-  { rule: T.notOffered, family: "double-skin plenum", offered: ["sqm"], notOffered: ["nos"] },
-  { rule: T.notOffered, family: "VCD", offered: ["nos", "sqm"], notOffered: [] },
+  // ADP-4a (AC1 merge D3 5+32): ADP's line 5 now speaks inside ADP-3a's unit line. BEFORE rule: T.notOffered on both
+  { rule: T.a3Unit, family: "double-skin plenum", offered: ["sqm"], notOffered: ["nos"] },
+  { rule: T.a3Unit, family: "VCD", offered: ["nos", "sqm"], notOffered: [] },
 ];
 
 // ── the runner: the panel's entry point on each path, beside the pure pricer ────────────────────────
@@ -460,10 +784,11 @@ function run(c: Case) {
   const overrides: Record<string, string> = {};
   if (c.edits) overrides[ITEM_LIST_OVERRIDE_KEY] = JSON.stringify({ items: c.edits });
   if (c.rowUnit !== undefined) overrides[ROW_UNIT_OVERRIDE_KEY] = c.rowUnit;
-  const h = makePricingSheetHelper({ configsByCategory: c.v42 ? CONFIGS42 : CONFIGS, items: c.v42 ? ITEMS42 : ITEMS, extractionByRow: ext });
+  const h = makePricingSheetHelper({ configsByCategory: c.adp5a ? CONFIGS_V51 : c.adp4a ? CONFIGS_V50 : c.adp3b ? CONFIGS_ADP3B : c.adp2 ? CONFIGS_ADP2 : c.adp1 ? CONFIGS_ADP1 : c.live ? CONFIGS_LIVE : c.v42 ? CONFIGS42 : CONFIGS, items: c.adp5a ? ITEMS_V51 : c.adp4a ? ITEMS_V50 : c.adp3b ? ITEMS_ADP2 : c.adp2 ? ITEMS_ADP2 : c.adp1 ? ITEMS_ADP1 : c.live ? ITEMS_LIVE : c.v42 ? ITEMS42 : ITEMS, extractionByRow: ext });
   const ctx: RateHelperRowContext & { unit?: string } = {
     excelRow: 1, description: c.path === "calc" ? "" : (c.description ?? ""), nodeType: "Line Item", category: c.cat, discipline: "HVAC",
     rateKinds: ["supply_rate", "install_rate", "combined_rate"], headings: c.path === "calc" ? [] : (c.headings ?? []), ownNotes: c.path === "calc" ? [] : (c.ownNotes ?? []),
+    ...(c.path !== "calc" && c.headingNotes ? { headingNotes: c.headingNotes } : {}),   // ADP-5a (HN-2 / HN-3)
   };
   // 12e-2: the family CONTROL's line reaches the lines read here, exactly as the panel shows it
   if (c.path !== "calc" && c.unit !== undefined) ctx.unit = c.unit;
@@ -501,6 +826,7 @@ function run(c: Case) {
       lines.push(...b.working.map((w) => `sec.${w}`));
       for (const f of b.fields) {
         if (f.note) lines.push(`sec.${f.id}:${f.note}`);
+        if (f.rule) lines.push(`sec.${f.id}:${f.rule}`);   // ADP-4a (AC3): a section's default is stated on its field, as a block's is
         if (f.mirrorTag) lines.push(`sec.${f.id}:tag=${f.mirrorTag}`);
         if (f.mirrorLine) lines.push(`sec.${f.id}:${f.mirrorLine}`);
       }
@@ -511,13 +837,16 @@ function run(c: Case) {
     if (v.rowPriced) lines.push(`total:${s.values.supply_rate}/${s.values.install_rate}`);
   }
   // the pure pricer over the SAME assembled inputs
-  const spec = itemListPricingSpec((c.v42 ? CFG42 : CFG)[c.cat])!;
+  const spec = itemListPricingSpec((c.adp5a ? CFG_V51 : c.adp4a ? CFG_V50 : c.adp3b ? CFG_ADP3B : c.adp2 ? CFG_ADP2 : c.adp1 ? CFG_ADP1 : c.live ? CFG_LIVE : c.v42 ? CFG42 : CFG)[c.cat])!;
   const edits = decodeItemEdits(overrides[ITEM_LIST_OVERRIDE_KEY], modelItems.length);
-  const assembled = assembleItems(edits, modelItems, familyAttr(spec));
+  const assembled0 = assembleItems(edits, modelItems, familyAttr(spec));
   const unitForPure = c.path === "calc" ? v.unit : (c.unit ?? v.unit);
   const rowText = c.path === "calc" ? "" : [c.description ?? "", ...(c.headings ?? [])].join(" | ");
   const ownText = c.path === "calc" ? "" : [c.description ?? "", ...(c.ownNotes ?? [])].join(" | ");
-  const pure = priceItemList(spec, c.v42 ? ITEMS42 : ITEMS, unitForPure, assembled, rowText, ownText);
+  // ADP-5a (SCOPE-5a-1 / HN-2): the SAME merge and the same heading notes the panel helper applies before it prices
+  const headingNoteText = c.path === "calc" ? "" : (c.headingNotes ?? []).join(" | ");
+  const assembled = applyFamilyMerge(spec, assembled0, [rowText, ownText, headingNoteText].join(" | "))?.items ?? assembled0;
+  const pure = priceItemList(spec, c.adp5a ? ITEMS_V51 : c.adp4a ? ITEMS_V50 : c.adp3b ? ITEMS_ADP2 : c.adp2 ? ITEMS_ADP2 : c.adp1 ? ITEMS_ADP1 : c.live ? ITEMS_LIVE : c.v42 ? ITEMS42 : ITEMS, unitForPure, assembled, rowText, ownText, undefined, headingNoteText);
   const working = v.items.flatMap((b) => b.working);
   // 12e-3c (AC2): the strings exactly as a pricer reads them -- no test-side lead -- for the field-id sweep
   const raw: string[] = [...(v.reason ? [v.reason] : []), ...(v.unitNote ? [v.unitNote] : []), ...(s.workings.derivation ?? [])];
@@ -531,7 +860,9 @@ function run(c: Case) {
   };
   for (const b of v.items) { rawBlock(b); for (const sv of b.sections ?? []) { if (sv.view.reason) raw.push(sv.view.reason); sv.view.items.forEach(rawBlock); } }
   for (const sv of v.sections?.independent ?? []) { if (sv.view.reason) raw.push(sv.view.reason); sv.view.items.forEach(rawBlock); }
-  return { s, v, lines, text: lines.join("\n"), working, pure, raw };
+  // ADP-4a (AC3): every field's note -- where a reader's or a ladder's line is stated once, read off the panel's own pricer result
+  const notes = v.items.flatMap((b) => b.fields.map((f) => f.note ?? "")).filter(Boolean);
+  return { s, v, lines, text: lines.join("\n"), working, pure, raw, notes };
 }
 const matches = (text: string, p: string | RegExp) => (typeof p === "string" ? text.includes(p) : p.test(text));
 
@@ -543,12 +874,21 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
   const NEW_12E6 = (): string[] => [T.noneNamed, T.altMaterial, T.xlpe, T.rowKindSwap, T.thkRange, T.mmNb, T.fixings, T.coating, T.twoTypes, T.secDefaults];
   // SLICE 12e-6b (owner R1; U2): ADD only, so the pins below read the tab without its one line as well
   const NEW_12E6B = (): string[] => [T.drainCpvc];
-  const before12e6 = (cat: string) => titles(cat).filter((t) => !NEW_12E6().includes(t) && !NEW_12E6B().includes(t));
+  // SLICE 12e-6c (owner U2 / R): ADD only, on Insulation (Piping's no-unit line is its own, since 12e-4b, and stays counted)
+  const NEW_12E6C = (cat: string): string[] => (cat === INS ? [T.rpuf, T.noUnit] : []);
+  // ADP-1 (owner F4; U6): ADD only -- the one line v38 generates (F4's, wherever the RPUF line is)
+  const NEW_ADP1 = (cat: string): string[] => (cat === INS ? [T.rpufSheet] : []);
+  // ADP-3a (AC6): ADD only, LAST on every tab -- set aside like the lines above
+  const NEW_ADP3A = (cat: string): string[] => (cat === PIP ? [T.a3Unit] : cat === ADP ? [T.a3Unit, T.a3Unstocked, T.a3Either] : [T.a3Unit, T.a3Unstocked]);
+  // ADP-4a (owner D1 / D3; AC1): the lines v38's ADP tab gains -- rules the config always ran that the tab never named
+  const NEW_ADP4A_V38 = [T.convWH, T.convBand, T.convGrille, T.convPiece38, T.convMix38, T.crossTalk, T.ratio, T.gauge, T.sqft, T.mcm];
+  const before12e6 = (cat: string) => titles(cat).filter((t) => !NEW_12E6().includes(t) && !NEW_12E6B().includes(t) && !NEW_12E6C(cat).includes(t) && !NEW_ADP1(cat).includes(t) && !NEW_ADP3A(cat).includes(t));
 
   it("THE GUARD: the rules this file names EQUAL the rules the config generates (Insulation 25, ADP 18, Piping 21 at 12e-4b / v38 -- Insulation 24 and Piping 19 before it); a new rule without a case, or a case naming a dead rule, fails here", () => {
     for (const cat of [INS, ADP, PIP]) {
       const generated = new Set(titles(cat));
-      const named = new Set([...CASES.filter((c) => c.cat === cat && (!c.v42 || generated.has(c.rule))).map((c) => c.rule), ...PICKER_CASES.filter(() => cat === ADP).map((p) => p.rule), ...Object.keys(NOT_PANEL_RULES).filter((t) => generated.has(t))]);
+      // ADP-5a: a case run on v51 (`adp5a`) is set aside like every other version-flagged case (BEFORE: the flags up to adp4a)
+      const named = new Set([...CASES.filter((c) => c.cat === cat && ((!c.v42 && !c.live && !c.adp1 && !c.adp2 && !c.adp3b && !c.adp4a && !c.adp5a) || generated.has(c.rule))).map((c) => c.rule), ...PICKER_CASES.filter(() => cat === ADP).map((p) => p.rule), ...Object.keys(NOT_PANEL_RULES).filter((t) => generated.has(t))]);
       const uncovered = [...generated].filter((t) => !named.has(t));
       const dead = [...named].filter((t) => !generated.has(t));
       expect({ cat, uncovered, dead }).toEqual({ cat, uncovered: [], dead: [] });
@@ -557,13 +897,27 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
     // INVERTED at 12e-6 (AC14 / U9) by mechanical authority: BEFORE `expect(titles(INS)).toHaveLength(25)` and
     // `expect(titles(PIP)).toHaveLength(21)` with the positional pins on `titles(PIP)`. The six v38-generated Insulation lines
     // and the two Piping lines this slice adds are counted here; every old pin now reads the tab without them.
-    expect(titles(INS)).toHaveLength(31);
+    // INVERTED at 12e-6c (owner U2 / R) by mechanical authority: BEFORE `expect(titles(INS)).toHaveLength(31)`. The F-3 line and
+    // the RPUF line; `before12e6` (below) reads the tab without them, so every older pin stands.
+    // INVERTED at ADP-1 (owner F4, 2026-10-19) by mechanical authority: BEFORE `expect(titles(INS)).toHaveLength(33)`. The F4 line;
+    // `before12e6` reads the tab without it, so every older pin stands.
+    // INVERTED at ADP-3a (owner 13:35 / B6 / H2) by mechanical authority: BEFORE `expect(titles(INS)).toHaveLength(34)`,
+    // `expect(titles(PIP)).toHaveLength(24)`, `expect(titles(ADP)).toHaveLength(19)`. The lines it adds sit LAST: two on
+    // Insulation, one on Piping, three on ADP; `before12e6` sets them aside, so every older pin stands.
+    expect(titles(INS)).toHaveLength(36);
     expect(before12e6(INS)).toHaveLength(25);
     // INVERTED at 12e-6b (owner R1 / U2) by mechanical authority: BEFORE `expect(titles(PIP)).toHaveLength(23)`. The one R1 line.
-    expect(titles(PIP)).toHaveLength(24);
+    expect(titles(PIP)).toHaveLength(25);
     expect(before12e6(PIP)).toHaveLength(21);
     expect(before12e6(INS)).toContain(T.nearPipe);
-    expect(titles(ADP)).toHaveLength(18);
+    // INVERTED at ADP-2 H5 fix (a) (owner 2026-10-20) by mechanical authority: BEFORE `expect(titles(ADP)).toHaveLength(18)`.
+    // v38's R13 reads the air stream, so the both-streams line is generated there too; the 18 before it are unchanged.
+    // INVERTED at ADP-4a (owner D1-D3; AC1) by mechanical authority: BEFORE `toHaveLength(22)` and the 18 below. The ten lines
+    // the tab never named join (NEW_ADP4A); the five fitting lines become one and line 5 folds into ADP-3a's unit line: 18 + 10 - 4 - 1
+    expect(titles(ADP)).toHaveLength(27);
+    expect(titles(ADP).filter((t) => t !== T.h5Both && !NEW_ADP3A(ADP).includes(t))).toHaveLength(23);
+    expect(titles(ADP).filter((t) => t !== T.h5Both && !NEW_ADP3A(ADP).includes(t) && !NEW_ADP4A_V38.includes(t))).toHaveLength(13);
+    for (const cat of [INS, ADP, PIP]) expect(titles(cat).slice(-NEW_ADP3A(cat).length)).toEqual(NEW_ADP3A(cat));
     // INVERTED at 12e-3b (AC6): BEFORE `toHaveLength(14)` on v36. v37 declares the insulation section, which adds the four
     // lines named here; the 14 before them are unchanged, in the same order.
     // INVERTED at 12e-3c (owner F10 / U6): BEFORE `toHaveLength(18)` and `slice(14)` equal to the four section lines.
@@ -575,8 +929,11 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
     expect(before12e6(PIP)[5]).toBe(T.asWritten);
     expect(before12e6(PIP)[12]).toBe(T.noUnit);
     expect(before12e6(PIP).slice(16)).toEqual([T.secToggle, T.secRules, T.secMirror, T.secQty, T.secTotal]);
-    expect(before12e6(PIP).slice(0, 16).filter((t) => t !== T.asWritten)).toEqual(itemListRuleOrder(V36_PIPING, ITEMS).map((l) => l.title).filter((t) => !NEW_12E6().includes(t)));
-    for (const cat of [INS, ADP]) expect(titles(cat)).not.toContain(T.noUnit);
+    expect(before12e6(PIP).slice(0, 16).filter((t) => t !== T.asWritten)).toEqual(itemListRuleOrder(V36_PIPING, ITEMS).map((l) => l.title).filter((t) => !NEW_12E6().includes(t) && !NEW_ADP3A(PIP).includes(t)));   // ADP-3a: BEFORE the v36 tab without NEW_12E6 only -- v36 carries the ADP-3a unit line too (the code generates it)
+    // INVERTED at 12e-6c (owner U2: F-3 on every axis reading inches) by mechanical authority: BEFORE
+    // `for (const cat of [INS, ADP]) expect(titles(cat)).not.toContain(T.noUnit)`. ADP still never says it.
+    expect(titles(INS)).toContain(T.noUnit);
+    expect(titles(ADP)).not.toContain(T.noUnit);
     // every NOT-panel rule is a REAL tab line (never a stale excuse)
     for (const t of Object.keys(NOT_PANEL_RULES)) expect(titles(INS).includes(t) || titles(ADP).includes(t)).toBe(true);
   });
@@ -608,10 +965,197 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
     expect({ pos: mine.some((c) => c.kind === "pos"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ pos: true, neg: true });
   });
 
+  // SLICE 12e-6c (owner rulings 2026-10-18; AC6): THE 12e-6c GUARD on the LIVE asset -- every line this slice adds to
+  // Insulation's tab is generated there, has a positive and a negative case above, and ADP and Piping gain none of them
+  // ADP-1 (owner rulings 2026-10-19; U6, AC8): THE ADP-1 GUARD on the ADP-1 config -- every line this slice adds is generated
+  // there, has a positive model-read case and a negative one above (the calculator cases ride beside them), and Piping
+  // gains none of them
+  it("ADP-1: every new line (on v46 + ADP-1 = v47) has a positive and a negative case; Piping gains none", () => {
+    // INVERTED at ADP-4a (AC1) by mechanical authority: BEFORE ADP's list without T.convPiece. The per-piece conversion line names
+    // the ADP-1 per-piece key ("the flexible duct length per piece") where v46 says "2.5 m standard length", so it is new here
+    const NEW: Record<string, string[]> = { [ADP]: [T.slotNos, T.slotMissing, T.mixNos, T.mixMissing, T.slotsStock, T.pieceLen, T.slotSqm, T.convPiece], [INS]: [T.rpufSheet, T.giFramework, T.f1Above] };
+    const tA = (cat: string) => itemListRuleOrder(CFG_ADP1[cat], ITEMS_ADP1).map((l) => l.title);
+    const tL = (cat: string) => itemListRuleOrder(CFG_LIVE[cat], ITEMS_LIVE).map((l) => l.title);
+    for (const [cat, list] of Object.entries(NEW)) {
+      expect({ cat, onTab: list.filter((t) => tA(cat).includes(t)) }).toEqual({ cat, onTab: list });
+      // the tab gained exactly these lines over v46 (the F3 / F4 lines are generated on v46 too, by the code)
+      expect({ cat, added: tA(cat).filter((t) => !tL(cat).includes(t)).sort() }).toEqual({ cat, added: list.filter((t) => !tL(cat).includes(t)).sort() });
+      for (const t of list) {
+        const mine = CASES.filter((c) => c.cat === cat && c.rule === t);
+        expect({ rule: t, pos: mine.some((c) => c.kind === "pos" && c.path !== "calc"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
+      }
+    }
+    expect(tA(PIP)).toEqual(tL(PIP));
+    for (const t of [...NEW[ADP], ...NEW[INS]]) expect(tA(PIP)).not.toContain(t);
+  });
+
+  // ADP-2 (owner rulings H5 / H7 / B3; U6, AC6): THE ADP-2 GUARD on the ADP-2 config -- every line this slice adds is
+  // generated there and has a positive case off the calculator and a negative one; the tab lost exactly ADP-1's plenum
+  // refusal line (replaced by the either-or one); Insulation and Piping gain and lose nothing
+  it("ADP-2: every new ADP line (on the ADP-1 config + ADP-2 = v48) has a positive and a negative case; Insulation and Piping unchanged", () => {
+    // INVERTED at ADP-4a (owner D2 merges; AC1) by mechanical authority: BEFORE NEW = [T.h5Air, T.mixArea, T.mixEither, T.boxSides,
+    // T.areaFill, T.neckOther]. The air-stream rule now speaks in the defaults line, the boxes in the one sizes line, the neck
+    // "Other..." in the one fitting line -- each asserted there, below, by its words
+    const NEW = [T.mixArea, T.mixEither, T.sizesAdp, T.areaFill];
+    const t2 = (cat: string) => itemListRuleOrder(CFG_ADP2[cat], ITEMS_ADP2).map((l) => l.title);
+    const t1 = (cat: string) => itemListRuleOrder(CFG_ADP1[cat], ITEMS_ADP1).map((l) => l.title);
+    const d2 = (title: string) => itemListRuleOrder(CFG_ADP2[ADP], ITEMS_ADP2).find((l) => l.title === title)?.detail ?? "";
+    expect(d2(T.defaults)).toMatch(/supply air means with damper/);
+    expect(d2(T.fitAdp)).toMatch(/Other\.\.\./);
+    expect(d2(T.sizesAdp)).toMatch(/a box \(length x width x height\)/);
+    for (const t of [T.h5Air, T.boxSides, T.neckOther]) expect(t2(ADP)).not.toContain(t);
+    expect(NEW.filter((t) => t2(ADP).includes(t))).toEqual(NEW);
+    expect(t2(ADP).filter((t) => !t1(ADP).includes(t)).sort()).toEqual([...NEW].sort());
+    expect(t1(ADP).filter((t) => !t2(ADP).includes(t))).toEqual([T.mixMissing]);
+    for (const t of NEW) {
+      const mine = CASES.filter((c) => c.cat === ADP && c.rule === t);
+      expect({ rule: t, pos: mine.some((c) => c.kind === "pos" && c.path !== "calc"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
+    }
+    for (const cat of [INS, PIP]) expect(t2(cat)).toEqual(t1(cat));
+  });
+
+  // ADP-3a (owner 13:35 / B6 / H2; AC6): THE ADP-3a GUARD -- the lines it adds are the LAST lines of each tab on every
+  // version (v38 here and the ADP-2 config = v48), the same titles on both (the either-or title never names the kinds),
+  // and each has a positive case off the calculator and a negative one ON THAT TAB
+  it("ADP-3a: the lines it adds sit last on every tab of v38 and v48 alike, each with a positive and a negative case on that tab", () => {
+    const tabs = { v38: (cat: string) => titles(cat), v48: (cat: string) => itemListRuleOrder(CFG_ADP2[cat], ITEMS_ADP2).map((l) => l.title) };
+    for (const [ver, t] of Object.entries(tabs)) {
+      for (const cat of [INS, ADP, PIP]) {
+        expect({ ver, cat, last: t(cat).slice(-NEW_ADP3A(cat).length) }).toEqual({ ver, cat, last: NEW_ADP3A(cat) });
+        expect({ ver, cat, n: t(cat).filter((x) => [T.a3Unit, T.a3Unstocked, T.a3Either].includes(x)).length }).toEqual({ ver, cat, n: NEW_ADP3A(cat).length });
+      }
+    }
+    for (const cat of [INS, ADP, PIP]) {
+      for (const t of NEW_ADP3A(cat)) {
+        const mine = CASES.filter((c) => c.cat === cat && c.rule === t);
+        expect({ cat, rule: t, pos: mine.some((c) => c.kind === "pos" && c.path !== "calc"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ cat, rule: t, pos: true, neg: true });
+      }
+    }
+  });
+
+  // ADP-3b (owner B1; D1 / D2; AC4): THE ADP-3b GUARD on the ADP-2 config + ADP-3b (= v49) -- the lines it adds are generated
+  // there, LAST, each with a positive case off the calculator and a negative one; the tab gained exactly them; the one
+  // line that changed words is ADP-3a's either-or line (its group is now "Width + Height"); Insulation and Piping unchanged
+  it("ADP-3b: every new ADP line (on the ADP-2 config + ADP-3b = v49) has a positive and a negative case; Insulation and Piping unchanged", () => {
+    // ADP-4a (TSC-1): BEFORE `const NEW = [T.faceBoxes, T.faceThird, T.faceD2];` -- unread since the guard reads NEW4A below
+    const t3 = (cat: string) => itemListRuleOrder(CFG_ADP3B[cat], ITEMS_ADP2).map((l) => l.title);
+    const t2 = (cat: string) => itemListRuleOrder(CFG_ADP2[cat], ITEMS_ADP2).map((l) => l.title);
+    // INVERTED at ADP-3c (U2: its one line, generated from the same v49 keys, is added LAST) by mechanical authority.
+    // BEFORE: `t3(ADP).slice(-NEW.length)` and the gained set `[...NEW, T.a3EitherFace]`.
+    // INVERTED at ADP-4a (owner D2 merge 23-27; AC1) by mechanical authority: BEFORE `slice(-NEW.length - 1, -1)` equal to NEW and
+    // the gained set [...NEW, T.a3EitherFace, T.faceAny]. The boxes line and ADP-3c's line speak inside the one sizes line (on the
+    // ADP-2 config already), so the tab gains the other two, LAST, and the either-or line's new words
+    const NEW4A = [T.faceThird, T.faceD2];
+    const d3 = (title: string) => itemListRuleOrder(CFG_ADP3B[ADP], ITEMS_ADP2).find((l) => l.title === title)?.detail ?? "";
+    expect(t3(ADP).slice(-NEW4A.length)).toEqual(NEW4A);
+    expect(t3(ADP).filter((t) => !t2(ADP).includes(t)).sort()).toEqual([...NEW4A, T.a3EitherFace].sort());
+    expect(t2(ADP).filter((t) => !t3(ADP).includes(t))).toEqual([T.a3Either]);
+    expect(d3(T.sizesAdp)).toMatch(/a face \(width x height\)/);
+    expect(itemListRuleOrder(CFG_ADP2[ADP], ITEMS_ADP2).find((l) => l.title === T.sizesAdp)?.detail ?? "").not.toMatch(/a face \(width x height\)/);
+    for (const t of [T.faceBoxes, T.faceAny]) expect(t3(ADP)).not.toContain(t);
+    for (const t of [T.sizesAdp, ...NEW4A, T.a3EitherFace]) {
+      const mine = CASES.filter((c) => c.cat === ADP && c.rule === t && c.adp3b);
+      expect({ rule: t, pos: mine.some((c) => c.kind === "pos" && c.path !== "calc"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
+    }
+    // the named set EQUALS the generated set: every ADP-3b case names a line v49 generates
+    for (const c of CASES.filter((x) => x.adp3b)) expect({ id: c.id, generated: t3(c.cat).includes(c.rule) }).toEqual({ id: c.id, generated: true });
+    for (const cat of [INS, PIP]) expect(t3(cat)).toEqual(t2(cat));
+  });
+
+  // ADP-3c (owner 2026-10-21 01:31 / 01:55; AC3): THE ADP-3c GUARD on v49 (the ADP-3b config; no config change) -- its one
+  // line is generated there, LAST, named by EXACTLY the C cases (C1a, C1b, C1c, C1a-calc, C1b-neg, C1c-neg), with a
+  // positive case off the calculator, one on it, and a negative; v48 (no face sides) and Insulation / Piping never carry it
+  it("ADP-3c: the new ADP line (v49) is LAST, named by exactly its cases (pos panel, pos calc, neg); v48, Insulation and Piping lack it", () => {
+    const t3 = (cat: string) => itemListRuleOrder(CFG_ADP3B[cat], ITEMS_ADP2).map((l) => l.title);
+    // INVERTED at ADP-4a (owner D2 merge 23-27; AC1) by mechanical authority: BEFORE `t3(ADP).at(-1)` toBe T.faceAny and the C cases
+    // named by `rule: T.faceAny`. The rule speaks inside the one sizes line; its cases name that line, and are found by their ids
+    expect(t3(ADP)).not.toContain(T.faceAny);
+    // the rule's own words, before the shared reason (" -- why: "), which names the owner's rulings whatever the version
+    const body = (cfg: RateCategoryConfig) => (itemListRuleOrder(cfg, ITEMS_ADP2).find((l) => l.title === T.sizesAdp)?.detail ?? "").split(" -- why: ")[0];
+    expect(body(CFG_ADP3B[ADP])).toMatch(/a two-part size fills both sides whatever its parts are called/);
+    const mine = CASES.filter((c) => /^C1[a-c]/.test(c.id) && c.cat === ADP);
+    expect(mine.map((c) => c.id)).toEqual(["C1a", "C1b", "C1c", "C1a-calc", "C1b-neg", "C1c-neg"]);
+    expect(mine.every((c) => c.cat === ADP && c.adp3b && c.rule === T.sizesAdp)).toBe(true);
+    expect({ panelPos: mine.some((c) => c.kind === "pos" && c.path === "panel"), calcPos: mine.some((c) => c.kind === "pos" && c.path === "calc"), neg: mine.some((c) => c.kind === "neg") })
+      .toEqual({ panelPos: true, calcPos: true, neg: true });
+    expect(body(CFG_ADP2[ADP])).not.toMatch(/two-part size/);   // ADP-4a: BEFORE t2(ADP) not.toContain(T.faceAny)
+    for (const cat of [INS, PIP]) expect(t3(cat)).not.toContain(T.sizesAdp);   // ADP-4a: BEFORE not.toContain(T.faceAny)
+  });
+
+  // ADP-4a (owner D1-D3; AC1 / AC5): THE ADP-4a GUARDS. (1) every line the tab now names that it never did has a positive case
+  // off the calculator and a negative one, on v38 and (the per-piece line) on the ADP-1 config; (2) on v50 itself the named set
+  // EQUALS the generated set; (3) every ADP family on v50 has a positive and a negative case of its own; (4) that guard is not
+  // vacuous -- a fake family in an in-memory copy is reported
+  it("ADP-4a: every line the ADP tab gains has a positive and a negative case; v50's tab is exactly the named set", () => {
+    for (const t of [...NEW_ADP4A_V38, T.convPiece]) {
+      const mine = CASES.filter((c) => c.cat === ADP && c.rule === t);
+      expect({ rule: t, pos: mine.some((c) => c.kind === "pos" && c.path !== "calc"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
+    }
+    for (const t of NEW_ADP4A_V38) expect(titles(ADP)).toContain(t);
+    const t50 = itemListRuleOrder(CFG_V50[ADP], ITEMS_V50).map((l) => l.title);
+    expect(t50).toHaveLength(38);
+    const named = new Set([...CASES.filter((c) => c.cat === ADP).map((c) => c.rule), ...PICKER_CASES.map((p) => p.rule), ...Object.keys(NOT_PANEL_RULES)]);
+    expect({ uncovered: t50.filter((t) => !named.has(t)) }).toEqual({ uncovered: [] });
+    // Insulation and Piping on v50: the tab of v49 exactly (ADP-4a changes ADP's config only)
+    for (const cat of [INS, PIP]) expect(itemListRuleOrder(CFG_V50[cat], ITEMS_V50).map((l) => l.title)).toEqual(itemListRuleOrder(CFG_ADP3B[cat], ITEMS_ADP2).map((l) => l.title));
+  });
+
+  // ADP-5a (owner rulings 2026-10-22; AC8): THE ADP-5a GUARD on v51 -- the one line it adds is LAST; the three rules it builds on
+  // existing lines (the defaults, both-streams and sizes lines) each have a positive and a negative case of their own, on v51,
+  // from real stored rows with their figures; v51's ADP tab is exactly the named set; Insulation and Piping are v50's tab exactly
+  it("ADP-5a: the new line is last on v51, each rule has a positive and a negative case, the named set is the tab", () => {
+    const t51 = itemListRuleOrder(CFG_V51[ADP], ITEMS_V51).map((l) => l.title);
+    const t50 = itemListRuleOrder(CFG_V50[ADP], ITEMS_V50).map((l) => l.title);
+    expect(t51[t51.length - 1]).toBe(T.mergeSpigot);
+    expect(t51.filter((t) => !t50.includes(t))).toEqual([T.mergeSpigot]);
+    expect(t50.filter((t) => !t51.includes(t))).toEqual([]);
+    for (const t of [T.mergeSpigot, T.defaults, T.h5Both, T.sizesAdp]) {
+      const mine = CASES.filter((c) => c.cat === ADP && c.rule === t && c.adp5a);
+      expect({ rule: t, pos: mine.some((c) => c.kind === "pos" && c.path !== "calc"), neg: mine.some((c) => c.kind === "neg"), figures: mine.every((c) => c.figures !== undefined) })
+        .toEqual({ rule: t, pos: true, neg: true, figures: true });
+    }
+    const named = new Set([...CASES.filter((c) => c.cat === ADP).map((c) => c.rule), ...PICKER_CASES.map((p) => p.rule), ...Object.keys(NOT_PANEL_RULES)]);
+    expect({ uncovered: t51.filter((t) => !named.has(t)) }).toEqual({ uncovered: [] });
+    for (const cat of [INS, PIP]) expect(itemListRuleOrder(CFG_V51[cat], ITEMS_V51).map((l) => l.title)).toEqual(itemListRuleOrder(CFG_V50[cat], ITEMS_V50).map((l) => l.title));
+  });
+
+  const caseFamily = (c: Case): string | null => c.family ?? (c.model?.[0]?.family as string | undefined) ?? c.edits?.[0]?.family ?? null;
+  const uncoveredFamilies = (families: string[]) => families.filter((f) => {
+    const mine = CASES.filter((c) => c.cat === ADP && caseFamily(c) === f);
+    return !(mine.some((c) => c.kind === "pos") && mine.some((c) => c.kind === "neg"));
+  });
+  it("ADP-4a (AC5): THE FAMILY GUARD -- every ADP family on v50 has a positive and a negative case of its own", () => {
+    const families = Object.keys(itemListPricingSpec(CFG_V50[ADP])!.families);
+    expect(families).toHaveLength(25);
+    expect(uncoveredFamilies(families)).toEqual([]);
+    // the ten families that had none before ADP-4a are named by exactly their F cases, on v50, with their figures
+    const F = CASES.filter((c) => /^F\d+[ab]/.test(c.id));
+    expect(F).toHaveLength(20);
+    expect(F.every((c) => c.adp4a && c.cat === ADP && c.rule === T.kind && c.family)).toBe(true);
+    expect(new Set(F.map((c) => c.family)).size).toBe(10);
+    expect(F.filter((c) => c.kind === "pos").every((c) => c.figures !== undefined)).toBe(true);
+  });
+  it("ADP-4a (AC5): the family guard is not vacuous -- a fake family in an in-memory copy is reported", () => {
+    const families = [...Object.keys(itemListPricingSpec(CFG_V50[ADP])!.families), "a fake kind for the vacuity proof"];
+    expect(uncoveredFamilies(families)).toEqual(["a fake kind for the vacuity proof"]);
+  });
+
+  it("12e-6c: every new Insulation line (live v46) has a positive and a negative case; ADP and Piping gain none", () => {
+    const NEW = [T.noUnit, T.rpuf, T.giMap, T.cloth, T.typedSize];
+    const tLive = (cat: string) => itemListRuleOrder(CFG_LIVE[cat], ITEMS_LIVE).map((l) => l.title);
+    expect(NEW.filter((t) => tLive(INS).includes(t))).toEqual(NEW);
+    for (const t of NEW) {
+      const mine = CASES.filter((c) => c.cat === INS && c.rule === t);
+      expect({ rule: t, pos: mine.some((c) => c.kind === "pos" && c.path !== "calc"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
+    }
+    for (const t of [T.rpuf, T.giMap, T.cloth]) { expect(tLive(ADP)).not.toContain(t); expect(tLive(PIP)).not.toContain(t); }
+    expect(tLive(ADP)).not.toContain(T.noUnit);
+  });
+
   it("every panel-path rule has a POSITIVE model-read case and a NEGATIVE (near-miss) case", () => {
     for (const cat of [INS, ADP, PIP]) {
       for (const t of titles(cat)) {
-        if (t in NOT_PANEL_RULES || t === T.notOffered) continue;
+        if (t in NOT_PANEL_RULES || t === T.notOffered) continue;   // ADP-4a: T.notOffered is no longer generated on ADP (kept for the skip's history)
         const mine = CASES.filter((c) => c.cat === cat && c.rule === t);
         expect({ cat, rule: t, positive: mine.some((c) => c.kind === "pos" && c.path !== "calc") }).toEqual({ cat, rule: t, positive: true });
         expect({ cat, rule: t, negative: mine.some((c) => c.kind === "neg") }).toEqual({ cat, rule: t, negative: true });
@@ -625,6 +1169,7 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
     for (const p of c.re) expect({ id: c.id, has: p, text }).toMatchObject({ has: p, text: expect.stringMatching(typeof p === "string" ? new RegExp(p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) : p) });
     for (const p of c.not ?? []) expect({ id: c.id, forbidden: p, hit: matches(text, p) }).toEqual({ id: c.id, forbidden: p, hit: false });
     if (c.priced !== undefined) expect({ id: c.id, priced: v.rowPriced }).toEqual({ id: c.id, priced: c.priced });
+    if (c.figures) expect({ id: c.id, figures: [s.values.supply_rate, s.values.install_rate] }).toEqual({ id: c.id, figures: c.figures });   // ADP-4a (AC5)
     if (c.pure !== false) {
       if (v.rowPriced) {
         expect({ id: c.id, panel: [s.values.supply_rate, s.values.install_rate], pure: [pure.supply, pure.install] })
@@ -680,30 +1225,30 @@ describe("T3 -- rewriter x rule: no step between a stored value / a typed entry 
     { id: "R4xLayers", rule: "matchStatedToOption x compose (12d-6 guard)", cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { thickness_mm: "Double layer of 19mm thick" })], re: ["priced as two layers"], priced: true },
     { id: "R4xSeveral (F-2)", rule: "matchStatedToOption x several=highest", cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { thickness_mm: "13 / 19 / 25" })], re: ["the highest, 25, is taken"], not: ["own spelling"], working: ["states several values -- the highest, 25, is taken"], priced: true },
     { id: "R4xCm (F-2)", rule: "matchStatedToOption x the cm reader", cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(PUFI, { pipe_size_mm: "20 cm" })], re: ["20 cm read as 200 mm"], not: ["own spelling"], working: ["20 cm read as 200 mm"], priced: true },
-    { id: "R4xRange (F-2)", rule: "matchStatedToOption x the range reader", cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(PUFI, { thickness_mm: "25 to 50" })], re: ["the higher, 50, is taken"], working: ["'25 to 50' states a range - the higher, 50, is taken"], priced: true },   // 12e-6 AC8 INVERTED: BEFORE re ["-> its top value 50"], working ["its top value 50"]
+    { id: "R4xRange (F-2)", rule: "matchStatedToOption x the range reader", cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(PUFI, { thickness_mm: "25 to 50" })], re: ["the higher, 50, is taken"], working: ["25 to 50 -> 50 mm (states a range - the higher, 50, is taken)"], priced: true },   // 12e-6 AC8 INVERTED: BEFORE re ["-> its top value 50"], working ["its top value 50"]   // INVERTED at ADP-4a (AC3: the reader's line stands once, on the field's note) by mechanical authority: BEFORE working ["'25 to 50' states a range - the higher, 50, is taken"]
     { id: "R4xInch", rule: "matchStatedToOption x inches (not an option: left alone)", cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { pipe_size_mm: '5/8"' })], re: ["15.88"], priced: true },
     { id: "R4xSizeMatch", rule: "matchStatedToOption x size_match", cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { pipe_size_mm: "22.2" })], re: ["pipe size 22.2 is 22.23 on the sheet"], priced: true },
     { id: "R4xText", rule: "matchStatedToOption x a choice spelled differently (the intended rewrite)", cat: ADP, path: "panel", kind: "pos", unit: "sqm", model: [{ family: "VCD", variant: "gi rectangular" }], re: ["BoQ says gi rectangular -> GI rectangular (the sheet's own spelling of this value)"], priced: true, pure: false },
     // INVERTED at 12e-2b (AC13: a LADDER field's stale pick ladders). BEFORE: re ["25 mm is not stocked with the other answers on this
     // item -- choose again", "choose again: thickness"], priced false. The 12d-7 F-1 half is kept: the 9 mm default never fills it.
-    { id: "R5xDefault (F-1)", rule: "unstockedPicks x number_defaults", cat: INS, path: "calc", kind: "pos", edits: calc(PUF, { cladding: "No", pipe_size_mm: "100", thickness_mm: "25" }), rowUnit: "mts", re: ["thickness_mm:25 mm is not stocked with pipe size 100 -> priced as 65 mm (the smallest size)" /* 12e-4d (AC3): BEFORE "... (next size up)" */, "thickness 25 is not on the sheet -> 65 (the smallest size" /* 12e-4d (AC3): BEFORE "... (next size up" */], not: ["not mentioned -> 9", "choose again"], priced: true },
+    { id: "R5xDefault (F-1)", rule: "unstockedPicks x number_defaults", cat: INS, path: "calc", kind: "pos", edits: calc(PUF, { cladding: "No", pipe_size_mm: "100", thickness_mm: "25" }), rowUnit: "mts", re: ["thickness_mm:25 mm is not stocked with pipe size 100 -> priced as 65 mm (the smallest size)" /* 12e-4d (AC3): BEFORE "... (next size up)" */, "thickness_mm:25 mm is not stocked with pipe size 100 -> priced as 65 mm (the smallest size)"], not: ["not mentioned -> 9", "choose again"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE "thickness 25 is not on the sheet -> 65 (the smallest size" /* 12e-4d (AC3): BEFORE "... (next size up" */
     // INVERTED at 12e-2b (AC13). BEFORE: rule "... (a cleared pick must not price EITHER way)", re ["choose again: thickness"], priced false.
     { id: "R5xCompose (F-1)", rule: "unstockedPicks x composition (a ladder pick composes exactly as the same value typed)", cat: INS, path: "calc", kind: "pos", edits: calc(NR, { cladding: "26G Aluminium", pipe_size_mm: "6.35", thickness_mm: "25" }, ["pipe_size_mm"]), rowUnit: "mts", re: ["25 mm is not stocked with pipe size 6.35 -> priced as 13 + 13 mm (26 mm, +1) -- above the largest stocked size (19 mm)"], not: ["not mentioned -> 9", "choose again"], priced: true },
     // INVERTED at 12e-2b (D1 (a) + D2). BEFORE: re ["choose again: whether it is UL listed"], priced false. The F-1 half is kept: no UL default fires.
     { id: "R5xAbsentAsNone (F-1)", rule: "unstockedPicks x absent_as_none + override_when", cat: ADP, path: "calc", kind: "pos", edits: calc("fire damper", { variant: "motorised", ul: "yes", size_mm: "600x600" }), rowUnit: "nos", re: ["UL stated, so the UL 555 SKU is used"], not: ["ul not mentioned -> no", "choose again"], priced: true },
     // 12e-2b (AC13): one named case per LADDER field kind a block's other answer can unstock -- and the choice-field negative
-    { id: "R5xLadderTorque (AC13)", rule: "unstockedPicks x a ladder pick (torque under UL): laddered, never cleared", cat: ADP, path: "calc", kind: "pos", edits: calc("actuator", { torque: "6", ul: "yes" }), rowUnit: "nos", re: ["torque:6 Nm is not stocked with UL listed yes -> priced as 8 Nm (next size up)" /* 12e-3b (Q13): BEFORE "torque:6 nm ... priced as 8 nm (next size up)" */, "torque 6 is not on the sheet -> 8 (next size up"], not: ["choose again"], priced: true },
+    { id: "R5xLadderTorque (AC13)", rule: "unstockedPicks x a ladder pick (torque under UL): laddered, never cleared", cat: ADP, path: "calc", kind: "pos", edits: calc("actuator", { torque: "6", ul: "yes" }), rowUnit: "nos", re: ["torque:6 Nm is not stocked with UL listed yes -> priced as 8 Nm (next size up)" /* 12e-3b (Q13): BEFORE "torque:6 nm ... priced as 8 nm (next size up)" */, "torque:6 Nm is not stocked with UL listed yes -> priced as 8 Nm (next size up)"], not: ["choose again"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE "torque 6 is not on the sheet -> 8 (next size up"
     { id: "R5xChoiceStillClears (AC13 neg)", rule: "unstockedPicks x a CHOICE pick (no ladder): still cleared, never refilled", cat: INS, path: "calc", kind: "neg", edits: calc(ACO, { cladding: "Aluminium Foil", thickness_mm: "19" }), rowUnit: "sqm", re: ["Aluminium Foil is not stocked with the other answers on this item -- choose again", "choose again: cladding"], not: ["priced as", "cladding not mentioned"], priced: false, pure: false },
-    { id: "R5xOther", rule: "unstockedPicks x a value typed through Other... (never cleared)", cat: INS, path: "calc", kind: "pos", edits: calc(PUF, { cladding: "No", pipe_size_mm: "100", thickness_mm: "25" }, ["thickness_mm"]), rowUnit: "mts", re: ["thickness 25 is not on the sheet -> 65 (the smallest size" /* 12e-4d (AC3): BEFORE "... (next size up" */], priced: true },
-    { id: "R5xModel", rule: "unstockedPicks x a model value (never cleared)", cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(PUFI, { thickness_mm: "25" })], re: ["thickness 25 is not on the sheet -> 65 (the smallest size" /* 12e-4d (AC3): BEFORE "... (next size up" */], priced: true },
-    { id: "R5xModelOpenedBox (F-3)", rule: "unstockedPicks x a size typed into a MODEL-opened Other... box", cat: INS, path: "ptyped", kind: "pos", unit: "RMT", model: [m(NIT, { pipe_size_mm: "250 NB" })], edits: ptyped({ pipe_size_mm: "50" }), re: ["pipe size 50 is not on the sheet -> 53.98", "pipe_size_mm:otherMode=true typed=50"], not: ["not stocked with the other answers"], priced: true },
+    { id: "R5xOther", rule: "unstockedPicks x a value typed through Other... (never cleared)", cat: INS, path: "calc", kind: "pos", edits: calc(PUF, { cladding: "No", pipe_size_mm: "100", thickness_mm: "25" }, ["thickness_mm"]), rowUnit: "mts", re: ["thickness_mm:You typed 25 mm -> priced as 65 mm (the smallest size)"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["thickness 25 is not on the sheet -> 65 (the smallest size" /* 12e-4d (AC3): BEFORE "... (next size up" */]
+    { id: "R5xModel", rule: "unstockedPicks x a model value (never cleared)", cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(PUFI, { thickness_mm: "25" })], re: ["thickness_mm:BoQ says 25 mm -> priced as 65 mm (the smallest size)"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["thickness 25 is not on the sheet -> 65 (the smallest size" /* 12e-4d (AC3): BEFORE "... (next size up" */]
+    { id: "R5xModelOpenedBox (F-3)", rule: "unstockedPicks x a size typed into a MODEL-opened Other... box", cat: INS, path: "ptyped", kind: "pos", unit: "RMT", model: [m(NIT, { pipe_size_mm: "250 NB" })], edits: ptyped({ pipe_size_mm: "50" }), re: ["pipe_size_mm:You typed 50 mm -> priced as 53.98 mm (next size up)", "pipe_size_mm:otherMode=true typed=50"], not: ["not stocked with the other answers"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE "pipe size 50 is not on the sheet -> 53.98"
     { id: "R5xFoil (R4b)", rule: "unstockedPicks x value_map (an offered mapped value is a stocked pick)", cat: INS, path: "calc", kind: "pos", edits: calc(NR, { cladding: "Aluminium Foil", thickness_mm: "19", pipe_size_mm: "50" }, ["pipe_size_mm"]), rowUnit: "mts", re: ["foil on a pipe is priced as 26G cladding"], not: ["not stocked"], priced: true },
-    { id: "R2xU4decimal", rule: "assembleItems typed marker x U4 (a decimal typed thickness is accepted)", cat: INS, path: "calc", kind: "pos", edits: calc(NR, { cladding: "26G Aluminium", thickness_mm: "12.5", pipe_size_mm: "50" }, ["thickness_mm", "pipe_size_mm"]), rowUnit: "mts", re: ["thickness 12.5 is not on the sheet -> 13 (the smallest size" /* 12e-4d (AC3): BEFORE "... (next size up" */], priced: true },
+    { id: "R2xU4decimal", rule: "assembleItems typed marker x U4 (a decimal typed thickness is accepted)", cat: INS, path: "calc", kind: "pos", edits: calc(NR, { cladding: "26G Aluminium", thickness_mm: "12.5", pipe_size_mm: "50" }, ["thickness_mm", "pipe_size_mm"]), rowUnit: "mts", re: ["thickness_mm:You typed 12.5 mm -> priced as 13 mm (the smallest size)"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["thickness 12.5 is not on the sheet -> 13 (the smallest size" /* 12e-4d (AC3): BEFORE "... (next size up" */]
     { id: "R2xU4pipe", rule: "assembleItems typed marker x U4 (the pipe-size box is untouched)", cat: INS, path: "calc", kind: "pos", edits: calc(NR, { cladding: "26G Aluminium", thickness_mm: "19", pipe_size_mm: "50 NB" }, ["pipe_size_mm"]), rowUnit: "mts", re: ["53.98"], priced: true },
     { id: "R2xAdded", rule: "assembleItems x needs (an added item starts from its family alone)", cat: INS, path: "ptyped", kind: "pos", unit: "RMT", model: [NIT], edits: [{ base: 0, family: null, attrs: {}, other: [] }, { base: null, family: PUF, attrs: {}, other: [] }], re: ["could not tell cladding"], priced: false },
     { id: "R1xBadBase", rule: "decodeItemEdits x family_when_none (an out-of-range base is dropped, never priced silently)", cat: INS, path: "ptyped", kind: "pos", unit: "RMT", model: [NIT], edits: [{ base: 5, family: null, attrs: {}, other: [] }], re: ["could not tell cladding"], priced: false },
     { id: "R3xUnitStale", rule: "the row-unit override x unit rules (a pick no longer offered falls to the first offered class)", cat: INS, path: "calc", kind: "pos", edits: calc(NR, { cladding: "26G Aluminium", thickness_mm: "19", pipe_size_mm: "50" }, ["pipe_size_mm"]), rowUnit: "sqm", re: [], priced: true },
-    { id: "R6xHeadings", rule: "row text x family_when_none (headings reach it) and x named_in_row (headings never do)", cat: INS, path: "panel", kind: "pos", unit: "sqm", model: [m(THMI, { item: "None", cladding: "None" })], headings: ["Acoustic lining with aluminium cladding"], re: ["insulation material not mentioned -> Acoustic Nitrile Insulation (" /* 12e-4b (G3): BEFORE "item not mentioned -> Acoustic Nitrile Insulation (" */, "cladding not mentioned -> No (without cladding)" /* 12e-4b (G2): BEFORE "cladding not mentioned -> No (" */], not: ["cladding named in this row", "item not mentioned"], priced: true },
+    { id: "R6xHeadings", rule: "row text x family_when_none (headings reach it) and x named_in_row (headings never do)", cat: INS, path: "panel", kind: "pos", unit: "sqm", model: [m(THMI, { item: "None", cladding: "None" })], headings: ["Acoustic lining with aluminium cladding"], re: ["family:Acoustic Nitrile Insulation", "material not mentioned -> Nitrile by row kind", "cladding:cladding not mentioned -> without cladding"], not: ["cladding named in this row", "item not mentioned"], priced: true },   // INVERTED at ADP-4a (AC3: stated once, on the field) by mechanical authority: BEFORE re: ["insulation material not mentioned -> Acoustic Nitrile Insulation (" /* 12e-4b (G3): BEFORE "item not mentioned -> Acoustic Nitrile Insulation (" */, "cladding not mentioned -> No (without cladding)" /* 12e-4b (G2): BEFORE "cladding not mentioned -> No (" */]
     { id: "R8xUnshowable", rule: "fieldCannotShowValue x the pricer (the pricer refuses an unshowable value first)", cat: ADP, path: "panel", kind: "pos", unit: "nos", model: [{ family: "round diffuser", damper: "yes", dia_mm: "200" }], re: ["No SKU for round diffuser: damper yes - price this row by hand"], priced: false },   // INVERTED at 12e-2b (D3): BEFORE "no SKU for this combination (round diffuser: damper yes)"
   ];
   it("the matrix names every rewriter x rule pair it covers", () => {
@@ -716,9 +1261,12 @@ describe("T3 -- rewriter x rule: no step between a stored value / a typed entry 
     ]);
   });
   it.each(MATRIX.map((c) => [c.id, c] as const))("%s", (_, c) => {
-    const { s, v, text, working, pure } = run(c);
+    const { s, v, text, working, pure, notes } = run(c);
     for (const p of c.re) expect({ id: c.id, has: p, hit: matches(text, p) }).toEqual({ id: c.id, has: p, hit: true });
-    for (const p of c.working ?? []) expect({ id: c.id, inWorking: p, hit: working.some((w) => matches(w, p)) }).toEqual({ id: c.id, inWorking: p, hit: true });
+    // INVERTED at ADP-4a (owner D5 / AC3: a reader's line is stated ONCE, on its field, and its copy leaves the working) by
+    // mechanical authority: BEFORE `working.some(...)`. The field's note is built from the SAME panel-path pricer result, so
+    // F-2's point -- the reader's words reach the pricer and are shown -- is read from the working or that note
+    for (const p of c.working ?? []) expect({ id: c.id, inWorking: p, hit: [...working, ...notes].some((w) => matches(w, p)) }).toEqual({ id: c.id, inWorking: p, hit: true });
     for (const p of c.not ?? []) expect({ id: c.id, forbidden: p, hit: matches(text, p) }).toEqual({ id: c.id, forbidden: p, hit: false });
     if (c.priced !== undefined) expect({ id: c.id, priced: v.rowPriced }).toEqual({ id: c.id, priced: c.priced });
     if (c.pure !== false && v.rowPriced) expect([s.values.supply_rate, s.values.install_rate]).toEqual([pure.supply, pure.install]);

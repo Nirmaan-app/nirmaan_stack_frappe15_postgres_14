@@ -11,7 +11,6 @@ Job Type works out the next run from the last one), so there is no manual "start
 
 Audits also open at once, for the cycle month, when:
 - a declaration arrives, signed or uploaded (`integrations/controllers/asset_management.on_update`);
-- a return is rejected (`api/assets/returns.reject_return`) -- a run skipped it while the return waited;
 - a category's "Monthly audit required" is ticked (`integrations/controllers/asset_category.on_update`).
 
 An assignment owes the cycle month's audit when all of these hold:
@@ -20,7 +19,6 @@ An assignment owes the cycle month's audit when all of these hold:
 - the asset's category has `audit_required` ticked;
 - its declaration is on file (`asset_declaration_attachment`), not `received`: that flag arrived on
   2026-10-13 and assignments signed earlier still carry 0;
-- no return is waiting (`returned`);
 - no audit is open (`audit_status` is not Pending) -- never two at once;
 - it has no audit for that month (`audit_month`), and the asset has no "Audit Fulfilled ... for <that month>"
   in its history -- by the month it was FOR, not the day it was sent: an audit sent late in the grace days is
@@ -30,7 +28,7 @@ A month left unsent (the 7th): the audit gets an "Audit Missed" history row (the
 month ends with one result -- Fulfilled or Missed -- and `audit_overdue_since` keeps the first month of the
 unbroken run of misses (the screens show "Audit overdue since 09/2026"; sending an audit clears it). Then:
 - its category still needs audits: the same open audit moves to this month (still Pending, plus "Audit
-  Requested" for this month) -- Return stays blocked;
+  Requested" for this month);
 - its category no longer needs audits (switched off, or the asset moved to another category): it closes
   (`audit_status` and `audit_overdue_since` cleared) -- it was required only for the month it was open in.
 Mid-cycle nothing closes an audit: switching a category off or moving the asset leaves it to be sent.
@@ -97,7 +95,6 @@ def due_assignments(day: date, category: str | None = None, assignment: str | No
         where m.current_assignee = a.asset_assigned_to
           and c.audit_required = 1
           and coalesce(a.asset_declaration_attachment, '') != ''
-          and coalesce(a.returned, 0) = 0
           and coalesce(a.audit_status, '') != %(pending)s
           and coalesce(a.audit_month, '') != %(label)s
           and not exists (

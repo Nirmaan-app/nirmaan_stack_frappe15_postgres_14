@@ -253,6 +253,33 @@ class TestAssetDepartmentsAndHistory(FrappeTestCase):
         row = self._history()[-1]
         self.assertEqual((row.event, row.declaration, row.assigned_to), ("Declaration Uploaded", url, self.pm))
 
+    # -- received (owner, 2026-10-13; moved here from test_returns when returns were removed) ------
+
+    def _received(self, assignment):
+        return frappe.db.get_value("Asset Management", assignment, ["received", "received_on"], as_dict=True)
+
+    def test_a_declaration_with_the_assignment_marks_it_received_today(self):
+        assignment = self._assign(self.pm, declaration=FAKE_FILE_URL.format("rcv-now", "rcv-now"))
+        row = self._received(assignment.name)
+        self.assertEqual((row.received, str(row.received_on)), (1, frappe.utils.today()))
+
+    def test_without_a_declaration_it_is_not_received(self):
+        assignment = self._assign(self.pm)
+        self.assertEqual(self._received(assignment.name).received, 0)
+
+    def test_an_uploaded_declaration_marks_it_received(self):
+        assignment = self._assign(self.pm)
+        assignment.asset_declaration_attachment = FAKE_FILE_URL.format("rcv-later", "rcv-later")
+        assignment.save(ignore_permissions=True)
+        self.assertEqual(self._received(assignment.name).received, 1)
+
+    def test_an_old_signed_assignment_is_not_dated_by_a_later_save(self):
+        """Signed before the field existed: a later, unrelated save must not stamp today's date on it."""
+        assignment = self._assign(self.pm, declaration=FAKE_FILE_URL.format("rcv-old", "rcv-old"))
+        frappe.db.set_value("Asset Management", assignment.name, {"received": 0, "received_on": None})
+        frappe.get_doc("Asset Management", assignment.name).save(ignore_permissions=True)
+        self.assertEqual((self._received(assignment.name).received, self._received(assignment.name).received_on), (0, None))
+
     # -- unassigning ----------------------------------------------------------------------------
 
     def test_unassign_logs_frees_the_asset_and_keeps_the_declaration_file(self):

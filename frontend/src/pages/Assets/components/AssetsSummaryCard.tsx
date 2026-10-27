@@ -7,7 +7,7 @@ import {
     DropdownMenuLabel,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Package, Boxes, UserCheck, UserX, AlertTriangle, Undo2 } from "lucide-react";
+import { Package, Boxes, UserCheck, UserX, AlertTriangle } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { useCounts, CountSpec } from "@/hooks/useCounts";
 import {
@@ -20,7 +20,6 @@ import { useAssetCategoryNamesByType } from '../hooks/useAssetCategoryNamesByTyp
 import { useAssetMasterNamesByType } from '../hooks/useAssetMasterNamesByType';
 import { CategoryUnassigned, useCategoryAssetCounts } from '../hooks/useCategoryAssetCounts';
 import { AssetListView, openAssetList } from '../utils/assetListLinks';
-import { useReturnRequests } from '../hooks/useReturnRequests';
 
 type AssetSummaryMode = 'project' | 'it' | 'categories';
 
@@ -56,7 +55,6 @@ function listTitle(view: AssetListView, type?: AssetCategoryType): string {
         assigned: `Show assigned ${what}`,
         unassigned: `Show unassigned ${what}`,
         pending: `Show ${what} waiting for a declaration`,
-        returns: `Show ${what} returned and waiting for approval`,
     }[view];
     return type ? shown : `${shown} (choose Project or IT)`;
 }
@@ -136,9 +134,6 @@ export const AssetsSummaryCards: React.FC<AssetsSummaryCardsProps> = ({ activeTa
     const typeViews: Record<AssetCategoryType, SummaryViewModel> = { Project: projectView, IT: itView };
 
     const view = scopeType ? typeViews[scopeType] : globalView;
-    // Returns waiting for approval (owner, 2026-10-13): the same numbers as the Return Request tabs.
-    const { byType: returnsByType } = useReturnRequests();
-    const returns = scopeType ? returnsByType[scopeType] : returnsByType.Project + returnsByType.IT;
     const isLoading = isCategoriesMode
         ? globalView.isLoading || projectView.isLoading || itView.isLoading
         : view.isLoading;
@@ -208,12 +203,6 @@ export const AssetsSummaryCards: React.FC<AssetsSummaryCardsProps> = ({ activeTa
                                             {pendingDecl}
                                         </CountLink>
                                     )}
-                                    {returns > 0 && (
-                                        <CountLink view="returns" type={scopeType} byType={returnsByType} className="px-1.5 py-0.5 text-[9px] font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded inline-flex items-center gap-0.5 active:bg-blue-200">
-                                            <Undo2 className="h-2.5 w-2.5" />
-                                            {returns}
-                                        </CountLink>
-                                    )}
                                 </div>
                             </div>
                             {/* Categories badge */}
@@ -278,12 +267,6 @@ export const AssetsSummaryCards: React.FC<AssetsSummaryCardsProps> = ({ activeTa
                                         <CountLink view="pending" type={scopeType} byType={pendingByType} className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 rounded-full hover:bg-amber-200 dark:hover:bg-amber-800/60">
                                             <AlertTriangle className="h-3 w-3" />
                                             {pendingDecl} Pending Decl
-                                        </CountLink>
-                                    )}
-                                    {returns > 0 && (
-                                        <CountLink view="returns" type={scopeType} byType={returnsByType} className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded-full hover:bg-blue-200 dark:hover:bg-blue-800/60">
-                                            <Undo2 className="h-3 w-3" />
-                                            {returns} {returns === 1 ? 'Return' : 'Returns'}
                                         </CountLink>
                                     )}
                                 </div>

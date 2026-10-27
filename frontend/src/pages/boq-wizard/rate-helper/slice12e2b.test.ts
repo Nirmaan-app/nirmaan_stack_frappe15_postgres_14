@@ -47,6 +47,10 @@ import {
   priceItemList, severalSizesMessage, slashSizes, twoWayValues, type ItemListPricingSpec,
 } from "./itemListPricing";
 
+// ADP-3a (owner U5 / B6 / H2): the Derivation lines ADP-3a adds -- set aside where a pin counts or lists an earlier tab
+const ADP3A_LINE = /^(A kind not stocked in the row's unit refuses|An unstocked combination names only|A per-.+ needs .+; with neither stated it refuses, naming both$)/;
+const withoutAdp3aLines = <T extends { title: string } | string>(ls: T[]): T[] => ls.filter((l) => !ADP3A_LINE.test(typeof l === "string" ? l : l.title));
+
 const ASSET = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
   new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v36.json", import.meta.url),
 );
@@ -101,7 +105,9 @@ describe("12e-2b AC1 -- the end-to-end proof: fire damper, UL listed shows both;
   it("picking 'yes' prices the UL 555 SKU at 21,750 / 1,920 with the 'UL stated' line", () => {
     const { b, values } = calc(ADP, "fire damper", { ul: "yes" }, "sqm");
     expect(fig(values)).toEqual([21750, 1920]);
-    expect(b.working).toContain(UL_LINE);
+    // INVERTED at ADP-4a (owner D5 / AC3: the override stated ONCE, on the variant field -- below) by mechanical authority.
+    // BEFORE: `expect(b.working).toContain(UL_LINE)`.
+    expect(b.working).not.toContain(UL_LINE);
     expect(b.skuLine).toBe("Fire damper / UL 555 Rated (SQM)");
     expect(field(b, "variant").value).toBe("UL");
     expect(field(b, "variant").note).toBe(UL_LINE);
@@ -114,7 +120,9 @@ describe("12e-2b AC1 -- the end-to-end proof: fire damper, UL listed shows both;
     expect(viaModel.values).toEqual({ supply_rate: 21750, install_rate: 1920, combined_rate: 23670 });
     expect(viaModel.values).toEqual(viaPick.values);
     expect(viaModel.b.working).toEqual(viaPick.b.working);
-    expect(viaModel.b.working).toContain(UL_LINE);
+    // INVERTED at ADP-4a (owner D5 / AC3) by mechanical authority. BEFORE: `expect(viaModel.b.working).toContain(UL_LINE)`.
+    expect(viaModel.b.working).not.toContain(UL_LINE);
+    expect(field(viaModel.b, "variant").note).toBe(UL_LINE);
   });
 });
 
@@ -211,7 +219,9 @@ describe("12e-2b AC3 -- D2 'UL wins' on both paths: a hand-picked UL 'yes' beats
     expect(fig(pick.values)).toEqual([21750, 1920]);
     expect(pick.values).toEqual(model.values);
     expect(pick.b.working).toEqual(model.b.working);
-    expect(pick.b.working).toContain(UL_LINE);
+    // INVERTED at ADP-4a (owner D5 / AC3: the override on the variant field, below) by mechanical authority. BEFORE:
+    // `expect(pick.b.working).toContain(UL_LINE)`.
+    expect(pick.b.working).not.toContain(UL_LINE);
     // the variant field shows what PRICED on both paths: the catalogue's word, the rule beneath
     for (const x of [pick, model]) {
       expect(field(x.b, "variant").value).toBe("UL");
@@ -225,7 +235,9 @@ describe("12e-2b AC3 -- D2 'UL wins' on both paths: a hand-picked UL 'yes' beats
     const model = panel(ADP, { family: "fire damper", variant, ul: "yes", size_mm: "600x600" }, "nos");
     expect(fig(pick.values)).toEqual([7830, 692]);
     expect(pick.values).toEqual(model.values);
-    expect(pick.b.working).toContain(UL_LINE);
+    // INVERTED at ADP-4a (owner D5 / AC3) by mechanical authority. BEFORE: `expect(pick.b.working).toContain(UL_LINE)`.
+    expect(pick.b.working).not.toContain(UL_LINE);
+    expect(field(pick.b, "variant").note).toBe(UL_LINE);
   });
   it("it is the override that prices it, not a copy: the pure pricer over the same two answers gives the same figure and names the same rule", () => {
     const pure = priceItemList(SPEC[ADP], ITEMS, "sqm", [{ attributes: cells({ family: "fire damper", variant: "motorised", ul: "yes" }) }]);
@@ -239,7 +251,8 @@ describe("12e-2b AC3 -- D2 'UL wins' on both paths: a hand-picked UL 'yes' beats
     expect(sqm.v.reason).toBe("No SKU for fire damper: UL listed no, variant UL - price this row by hand");
     const nos = calc(ADP, "fire damper", { variant: "UL", ul: "no", size_mm: "600x600" }, "nos");
     expect(nos.values).toEqual({});
-    expect(nos.v.reason).toBe("No SKU for fire damper: UL listed no, variant UL, width 600, height 600 - price this row by hand");
+    // INVERTED at ADP-3a (owner B6, 13:32: a no-SKU sentence lists only the facts the kind's SKUs vary on) by mechanical authority: BEFORE "... variant UL, width 600, height 600 - ..." (the per-sq.m SKU carries no width or height)
+    expect(nos.v.reason).toBe("No SKU for fire damper: UL listed no, variant UL - price this row by hand");
     // and the model path says the same sentence
     expect(panel(ADP, { family: "fire damper", variant: "UL", ul: "no" }, "sqm").v.reason).toBe(sqm.v.reason);
   });
@@ -295,11 +308,13 @@ describe("12e-2b AC4 -- D3: the unstocked-combination refusal, built in plainEng
     ["fire damper per sq.m, Variant UL + UL no", () => calc(ADP, "fire damper", { variant: "UL", ul: "no" }, "sqm").v.reason,
       "No SKU for fire damper: UL listed no, variant UL - price this row by hand"],
     ["fire damper per number 600x600, Variant UL + UL no", () => calc(ADP, "fire damper", { variant: "UL", ul: "no", size_mm: "600x600" }, "nos").v.reason,
-      "No SKU for fire damper: UL listed no, variant UL, width 600, height 600 - price this row by hand"],
+      // INVERTED at ADP-3a (owner B6, 13:32: a no-SKU sentence lists only the facts the kind's SKUs vary on) by mechanical authority: BEFORE "..., width 600, height 600 - ..."
+      "No SKU for fire damper: UL listed no, variant UL - price this row by hand"],
     ["slot diffuser per sq.m, damper never stated", () => calc(ADP, "slot diffuser", {}, "sqm").v.reason,
       "No SKU for slot diffuser: without damper - price this row by hand"],
     ["slot diffuser per number 600x600, damper never stated", () => calc(ADP, "slot diffuser", { size_mm: "600x600" }, "nos").v.reason,
-      "No SKU for slot diffuser: without damper, width 600, height 600 - price this row by hand"],
+      // INVERTED at ADP-3a (owner B6, 13:32: a no-SKU sentence lists only the facts the kind's SKUs vary on) by mechanical authority: BEFORE "..., width 600, height 600 - ..."
+      "No SKU for slot diffuser: without damper - price this row by hand"],
     ["slot diffuser per metre, without damper, 4 slots (model)", () => panel(ADP, { family: "slot diffuser", damper: "without", slot_count: "4 slot" }, "Rmt").v.reason,
       "No SKU for slot diffuser: without damper, slot count 4 - price this row by hand"],
     ["cross-talk per number 400 x 300 (model; a size the sheet does not derive)", () => panel(ADP, { family: "cross-talk", size_mm: "400x300" }, "Nos").v.reason,
@@ -326,7 +341,8 @@ describe("12e-2b AC4 -- D3: the unstocked-combination refusal, built in plainEng
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 describe("12e-2b AC5 -- D4 (a): slot diffuser per sq.m / per number keeps 'damper not mentioned -> without' and refuses by name", () => {
   it.each([["sqm", {} as Record<string, string>, "No SKU for slot diffuser: without damper - price this row by hand"],
-           ["nos", { size_mm: "600x600" }, "No SKU for slot diffuser: without damper, width 600, height 600 - price this row by hand"]] as const)(
+           // INVERTED at ADP-3a (owner B6, 13:32: a no-SKU sentence lists only the facts the kind's SKUs vary on) by mechanical authority: BEFORE "..., width 600, height 600 - ..."
+           ["nos", { size_mm: "600x600" }, "No SKU for slot diffuser: without damper - price this row by hand"]] as const)(
     "per %s, a fresh block: Damper shows with / without, the value used is 'without' (amber), the row refuses naming the pair", (unit, attrs, want) => {
       const { b, v, values } = calc(ADP, "slot diffuser", { ...attrs }, unit);
       expect(field(b, "damper").options).toEqual(["with", "without"]);
@@ -334,7 +350,9 @@ describe("12e-2b AC5 -- D4 (a): slot diffuser per sq.m / per number keeps 'dampe
       expect(field(b, "damper").defaulted).toBe(true);
       // INVERTED at 12e-4b (owner G2: no working line repeats itself). BEFORE:
       //   expect(b.working).toContain("damper not mentioned -> without (damper not mentioned (or not answered) = without)");
-      expect(b.working).toContain("damper not mentioned -> without");
+      // INVERTED AGAIN at ADP-4a (owner D5 / AC3: the default stated ONCE, on its field -- amber, above) by mechanical
+      // authority. BEFORE: `expect(b.working).toContain("damper not mentioned -> without")`.
+      expect(b.working).not.toContain("damper not mentioned -> without");
       expect(b.working.some((w) => w.includes("(damper not mentioned"))).toBe(false);
       expect(values).toEqual({});
       expect(v.reason).toBe(want);
@@ -444,15 +462,32 @@ describe("12e-2b AC7 -- the Derivation tab: the family is named, and Piping neve
     expect(calc(PIP, "MS", { size_mm: "40/50" }, "mts", ["size_mm"]).v.rowPriced).toBe(true);
   });
   it("NEGATIVE: Insulation's and ADP's unit line is byte-identical, and the three counts are unchanged (24 / 18 / 14)", () => {
-    for (const cat of [INS, ADP]) {
-      const l = lines(cat).find((x) => x.title === "That kind's rule for that unit")!;
-      expect(l.detail).toBe("a kind priced per metre and per square metre has a rule for each");
-    }
+    // INVERTED at ADP-4a (owner AC1 b, R1 line 4: ADP's line names per number too, and ends with its reason) by mechanical
+    // authority. BEFORE: ADP's detail `toBe("a kind priced per metre and per square metre has a rule for each")` as
+    // Insulation's. The negative half is kept: Insulation's line is byte-identical.
+    expect(lines(INS).find((x) => x.title === "That kind's rule for that unit")!.detail).toBe("a kind priced per metre and per square metre has a rule for each");
+    expect(lines(ADP).find((x) => x.title === "That kind's rule for that unit")!.detail).toBe("a kind priced per number, per sq.m or per metre has a rule for each -- why: reason not recorded");
     // INVERTED at 12e-4b (owner F-3): Piping's tab gains the no-unit line. BEFORE: `toEqual([24, 18, 14])`.
     // The negative half is kept: Insulation and ADP are still 24 and 18.
-    expect([lines(INS).length, lines(ADP).length, lines(PIP).length]).toEqual([24, 18, 15]);
+    // INVERTED at 12e-6c (owner U2 / R, 2026-10-18) by mechanical authority: BEFORE `toEqual([24, 18, 15])` and Insulation
+    // listed beside ADP as never saying the no-unit line. F-3 now follows `inches` (U2), so Insulation's pipe size says it;
+    // the RPUF line (R) is Insulation's too. Without those two Insulation is still 24; ADP is 18 and never says it.
+    // INVERTED at ADP-1 (owner F4, 2026-10-19) by mechanical authority: BEFORE `toEqual([26, 18, 15])`. The F4 line (RPUF on a per-sq.m row)
+    // generates wherever the RPUF line does; without it the count below it is unchanged.
+    const NEW_12E6C = ["A pipe size written as a bare number that could be inches refuses", "RPUF with no material answered prices as Tubular Puf Insulation", "RPUF on a per-sq.m row refuses by name"];
+    // INVERTED at ADP-2 H5 fix (a) (owner 2026-10-20) by mechanical authority: BEFORE `toEqual([27, 18, 15])`. R13 reads the air
+    // stream, so the both-streams line generates on this config too; without it the count is unchanged.
+    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE `toEqual([27, 19, 15])` -- two lines on Insulation, three on ADP, one on Piping (it has no choice attribute, so no unstocked-combination line); without them still [27, 19, 15]
+    // INVERTED at ADP-4a (owner D2 merges and AC1 c on ADP, measured; Insulation and Piping unchanged) by mechanical
+    // authority: BEFORE `toEqual([29, 22, 16])`, `toEqual([27, 19, 15])` and ADP `toHaveLength(18)` below.
+    expect([lines(INS).length, lines(ADP).length, lines(PIP).length]).toEqual([29, 27, 16]);
+    expect([withoutAdp3aLines(lines(INS)).length, withoutAdp3aLines(lines(ADP)).length, withoutAdp3aLines(lines(PIP)).length]).toEqual([27, 24, 15]);
+    expect(withoutAdp3aLines(lines(ADP)).filter((l) => l.title !== "A row naming supply and return air leaves the damper as read")).toHaveLength(23);
+    // INVERTED at ADP-3a (the lines ADP-3a adds sit LAST on the tab) by mechanical authority: BEFORE the same filter over the whole tab
+    expect(withoutAdp3aLines(lines(INS)).filter((l) => !NEW_12E6C.includes(l.title))).toHaveLength(24);
     expect(lines(PIP).map((l) => l.title)).toContain("A pipe size written as a bare number that could be inches refuses");
-    for (const cat of [INS, ADP]) expect(lines(cat).map((l) => l.title)).not.toContain("A pipe size written as a bare number that could be inches refuses");
+    expect(lines(INS).map((l) => l.title)).toContain("A pipe size written as a bare number that could be inches refuses");
+    expect(lines(ADP).map((l) => l.title)).not.toContain("A pipe size written as a bare number that could be inches refuses");
   });
   it("NEGATIVE (vacuity): a config with two unit classes keeps the old sentence even if it is Piping-shaped", () => {
     const two = structuredClone(CFG[PIP]) as RateCategoryConfig & { list_spec: { pricing: { unit_classes: Record<string, string[]> } } };

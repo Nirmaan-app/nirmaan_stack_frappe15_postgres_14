@@ -370,7 +370,6 @@ export function auditMonthName(label: string | null | undefined): string {
 const OPENED_BECAUSE: Record<string, string> = {
   handover: "opened when the declaration was signed",
   "category audit switched on": "opened when the category's audit was switched on",
-  "return rejected": "opened when the return was rejected",
 };
 
 /** An audit history row in a few words, plus what the holder typed (sent audits only). */

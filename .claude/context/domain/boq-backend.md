@@ -226,6 +226,17 @@ carry, classification-freeze and BCS invariants live in `boq-pricing-editor.md`.
   `DROP INDEX IF EXISTS "<fieldname>"` with no table name -- which drops ANOTHER table's index. `BoQ AI Run Log` keeps
   the flag on both indexed columns and creates `boq_ai_run_log_boq` / `boq_ai_run_log_status` in `on_doctype_update`;
   its doctype test fails if a column is ever indexed without the flag.
+- **The pricing payload re-derives attached notes from the committed tree (F1-a, owner 2026-10-22, O1 / V2):**
+  `context_builder.build_sheet_context` adds `derived_attached_notes` to every row and every `ancestors` entry -- the
+  commit's own `_derive_attached_notes` (imported lazily, never re-implemented) over the nodes it already loads, with the
+  stand-in adapter `_commit_note_text` ("(untitled)" / a node's own code read as "", what the commit saw) -- plus a wrapper
+  `attached_notes_drift` list. **Readers:** `extraction._attached_of` -> `_ai_item` (self + ancestors, EA-7 tiers unchanged),
+  `row_own_text_fragments`, and through the payload `point_type_of`; the Suggest run (`run_extraction`) calls
+  `_log_attached_notes_drift_for` right after its population read and logs one `boq_rate_extraction` line per stale sheet
+  (`assemble_population` keeps its exact two-argument call: test doubles stand in for it). **NOT readers:** the classifier (rules feed, voter, `_notes_text`,
+  `anc_attached_notes`) keeps the saved `attached_notes` (O1); every pre-existing key is byte-identical (proven over all 899
+  committed sheets). A dict without the key (a hand-built test row) falls back to the saved copy. Detail and the blind spot:
+  `boq-rate-master.md` § F-1.
 - **Committed `attached_notes` is DERIVED, not carried (EA-6a slice 2, owner-locked):** at commit,
   `commit_pipeline._derive_attached_notes` rebuilds every node's `attached_notes` from the EFFECTIVE
   tree (effective parent + effective classification, row_index order -- order is load-bearing,
@@ -1791,7 +1802,7 @@ attached_to_index = note_parent_index = target
 **Prompt/rules alignment.** `prompts/boq_composite_decomposition_prompt.md` names the row own notes in three
 clauses (source list, breaker enumeration, CURVE/UPS trigger) -- read from disk per request, so live on edit.
 R3 reworded in the new asset `data/rate_master_electrical_all_v18.json` (one JSON leaf differs from v17;
-v17 untouched) and applied LIVE via the audited RM-4b `update_rate_config` (`Version` 4 -> 5).
+v17 untouched) and applied LIVE via the audited RM-4b `update_rate_config` (`Version` 4 -> 5; the endpoint was removed in ADP-5a, owner D9).
 **Asset pin (current): the E-ALL asset is now `data/rate_master_electrical_all_v22.json`**
 (sha256 prefix `f1344c1853614d75`, 795 items / 12 configs), minted at slice 1b for point_wiring's
 blanker + the back_box dependency fix (v21 was slice 1a's `switches_sockets` rebuild). v18 above is the historical record of THAT cycle, not the
@@ -2419,9 +2430,9 @@ Both writes return `{ok, changed, frozen, frozen_by, frozen_at}`.
 
 ### Guard placement -- SIX inline + ONE self-guard
 
-`freeze.guard_not_frozen()` sits immediately AFTER `_require_rate_admin()` in the six WRITE
-endpoints (`update_rate_config_param`, `update_rate_master_item`, `create_rate_master_item`,
-`deactivate_rate_master_item`, `update_rate_config`, `apply_rate_master_csv`), and at the TOP of
+`freeze.guard_not_frozen()` sits immediately AFTER `_require_rate_admin()` in the four WRITE
+endpoints (`update_rate_master_item`, `create_rate_master_item`, `deactivate_rate_master_item`, `apply_rate_master_csv`;
+`update_rate_config_param` and `update_rate_config` were removed in ADP-5a, owner D9), and at the TOP of
 `csv_importer.apply_plan`, ahead of `build_plan`.
 
 **Gate order is admin-first, freeze-second** so a non-admin gets the honest "Not permitted" rather
