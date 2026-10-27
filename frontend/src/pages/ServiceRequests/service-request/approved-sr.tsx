@@ -70,7 +70,7 @@ import { getFrappeError } from "@/utils/frappeErrors";
 import { gstMatchesVendor, isGstOn } from "@/utils/workOrderGst";
 import { canMatchGstToVendor, isNirmaanAdmin } from "@/constants/roles";
 import { MatchGstToVendorDialog } from "../components/MatchGstToVendorDialog";
-import { TdsPaidByCompanyAction } from "../components/TdsPaidByCompanyAction";
+import { TdsCutUndoActions } from "../components/TdsCutUndoActions";
 
 // Everything requested but not yet `Paid` -- INCLUDING `Reconciliation Pending`, which counts as
 // neither paid (money figures count `Paid` alone) nor pending anywhere else. Left out, its amount
@@ -829,12 +829,12 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
                                                 <TableCell className="text-red-500 text-end w-[5%]">
                                                     <div className="flex items-center justify-end gap-1">
-                                                    {/* Admin, on a payment whose tax is recorded as withheld (#1537). */}
-                                                    <TdsPaidByCompanyAction
+                                                    {/* Admin, on an Approved payment cut by its TDS: Company Bears TDS / Mark as Deposit. */}
+                                                    <TdsCutUndoActions
                                                         payment={payment}
                                                         deduction={tdsByPayment[payment?.name]}
                                                         isAdmin={isNirmaanAdmin(role, user_id)}
-                                                        onMarked={() => Promise.all([refreshPayments(), service_request_mutate()])}
+                                                        onDone={() => Promise.all([refreshPayments(), service_request_mutate()])}
                                                     />
                                                     {/* Approved: Admin only (owner, 18 Sep) — as on the PO page. Paid: never.
                                                         Deleting the payment also deletes its Payment TDS Deduction (server on_trash).

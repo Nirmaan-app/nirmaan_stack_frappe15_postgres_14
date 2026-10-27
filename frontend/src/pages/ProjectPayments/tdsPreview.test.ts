@@ -72,11 +72,11 @@ describe("paymentTableFigures", () => {
 describe("tdsColumnNote (the Work Order payment table labels company tax, #1543)", () => {
 	it("labels tax the company paid on top, so it doesn't read as a deduction from the vendor", () => {
 		const recorded = paymentTableFigures(10000, { tds_amount: 200, borne_by: "Company" }, undefined);
-		expect(tdsColumnNote(recorded)).toBe("TDS paid by company");
+		expect(tdsColumnNote(recorded)).toBe("Company Bears TDS");
 	});
 
 	it("labels a waiting payment's company-borne forecast the same way", () => {
-		expect(tdsColumnNote(paymentTableFigures(10000, undefined, COMPANY_BORNE))).toBe("TDS paid by company");
+		expect(tdsColumnNote(paymentTableFigures(10000, undefined, COMPANY_BORNE))).toBe("Company Bears TDS");
 	});
 
 	it("has no label for tax withheld from the vendor, nor for a payment without tax", () => {
