@@ -136,8 +136,10 @@ class TestExpenseRequests(FrappeTestCase):
 		# Only the ledger rows born from this suite's own requests: other rows on the site
 		# (a browser walk's, say) carry the same "[EXR-" description and must survive.
 		# Deleting a row also deletes its request, so the rows go first.
-		for dt in ("Project Expenses", "Non Project Expenses"):
-			for r in frappe.get_all(dt, filters={"request_id": ["in", requests or [""]]}):
+		# ⚠️ NEVER `requests or [""]`: `request_id` is a nullable Link, so `["in", [""]]` renders as
+		# `ifnull(request_id, '') in ('')` and matches every expense raised without a request.
+		for dt in ("Project Expenses", "Non Project Expenses") if requests else ():
+			for r in frappe.get_all(dt, filters={"request_id": ["in", requests]}):
 				frappe.delete_doc(dt, r.name, force=True, ignore_permissions=True)
 		for name in requests:
 			for n in frappe.get_all("Nirmaan Notifications",

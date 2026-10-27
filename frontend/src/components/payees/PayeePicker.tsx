@@ -52,6 +52,7 @@ export function PayeePicker({ choice, disabled }: PayeePickerProps) {
                         payeeForm={choice.bankForm}
                         disabled={disabled || choice.adding}
                         layout="form"
+                        refuseOwnAccount={choice.refusesOwnAccount}
                         // A raiser can't open the Payees page, so the block offers the Payee to pick.
                         duplicateAction={(dup) => (
                             <button

@@ -181,3 +181,23 @@ with their three Expense Requests.
    naming series reuses a deleted newest number).
 7. **Clean-up (D3) has no screen:** none of the test rows can be deleted from Project Payments' All Payments
    (Walk 1, finding 3).
+
+# Walk 3 (not walked yet) — the own account in Raise Reimbursement and in New Expense Request
+
+Changed after Walks 1 and 2 (owner, 2026-10-27); covered by tests only so far
+(`api/expense_requests/test_request_payees`, `frontend/src/utils/payees/payeeForm.test.ts`).
+
+**People:** a person with no own bank account yet (a fresh PM), a PM who has one, an Accountant.
+**Records:** one Users Payee (the PM's own account) and one Others Payee with a similar holder name.
+
+| # | Who | Step | Expected |
+|---|---|---|---|
+| O1 | Fresh PM | Raise Reimbursement | The account section is titled **Add Your Account**; its button reads **Add Account** |
+| O2 | Fresh PM | Fill the account, Add Account | The account shows read-only; the title is now **Who gets paid**; "Edit it on your profile" link |
+| O3 | Fresh PM | Close and reopen Raise Reimbursement | **Who gets paid** with the saved account (no Add Your Account flash while it loads) |
+| E1 | PM | New Expense Request (a type that asks who gets paid) → Pick a payee → type the holder name | The Others Payee is listed; the PM's own account (Users) is not |
+| E2 | PM | Same, typing the own account's number | No match for the own account |
+| E3 | PM | Add new payee → the own account's exact number + IFSC | Red block **This is a user's account**: "This is a user's own account (Users), so it can't be used in an expense request. Enter a different account." No Pick button; Submit stays blocked |
+| E4 | PM | Add new payee → the Others Payee's number + IFSC | The ordinary block: "This account is already a payee" with **Pick … instead**, which picks it |
+| E5 | PM | Change the number to a new account | The block clears; the request submits with the new Payee |
+| A1 | Accountant | An expense's Change account (Paid to box) → search the PM's name | The own account IS listed here (only the request's picker hides it) |

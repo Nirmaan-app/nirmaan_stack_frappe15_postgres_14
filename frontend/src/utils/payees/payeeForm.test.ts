@@ -12,7 +12,9 @@ import {
     linkedVendorsLabel,
     newPayeeProblem,
     normalizeAccount,
+    OWN_ACCOUNT_REFUSAL,
     payeeFormProblem,
+    refusesOwnAccount,
     sameAccountDetails,
     sameHolderName,
     squashHolderName,
@@ -161,6 +163,31 @@ describe("newPayeeProblem", () => {
             "already a payee",
         );
         expect(newPayeeProblem({ formProblem: null, duplicate: false, lookingUp: false })).toBeNull();
+    });
+
+    it("refuses a person's own account where the screen can't use one", () => {
+        expect(newPayeeProblem({ formProblem: null, duplicate: true, lookingUp: false, ownAccountRefused: true })).toBe(
+            OWN_ACCOUNT_REFUSAL,
+        );
+        expect(newPayeeProblem({ formProblem: "Enter the IFSC.", duplicate: true, lookingUp: false, ownAccountRefused: true })).toBe(
+            "Enter the IFSC.",
+        );
+    });
+});
+
+describe("refusesOwnAccount (the Expense Request's screen, owner 2026-10-27)", () => {
+    it("refuses only a Users Payee, and only where the screen asks", () => {
+        expect(refusesOwnAccount(true, { payee_type: "Users" })).toBe(true);
+        expect(refusesOwnAccount(true, { payee_type: "Others" })).toBe(false);
+        expect(refusesOwnAccount(true, { payee_type: "Vendors" })).toBe(false);
+        expect(refusesOwnAccount(true, null)).toBe(false);
+        expect(refusesOwnAccount(false, { payee_type: "Users" })).toBe(false);
+        expect(refusesOwnAccount(undefined, { payee_type: "Users" })).toBe(false);
+    });
+
+    it("says what the server refuses with, word for word", () => {
+        const py = readFileSync(resolve(__dirname, "../../../../nirmaan_stack/services/payees/pay_to.py"), "utf8");
+        expect(py).toContain(`OWN_ACCOUNT_REFUSAL = "${OWN_ACCOUNT_REFUSAL}"`);
     });
 });
 

@@ -66,6 +66,7 @@ import {
     whoGetsPaidProblem,
 } from "@/utils/payees/expensePayee";
 import { payToSave } from "@/utils/payees/payToChoice";
+import { OWN_ACCOUNT_REFUSAL } from "@/utils/payees/payeeForm";
 
 import { invoiceNotes, newExpenseFields, newExpenseSubmit, whatHappensNext } from "@/utils/newExpenseForm";
 import { raiserLevelOf } from "@/utils/approvalTiers";
@@ -551,7 +552,11 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
             onSuccess?.();
         } catch (e) {
             if (e instanceof DuplicatePayeeError) {
-                toast({ title: "This account is already a payee", description: e.message, variant: "destructive" });
+                toast({
+                    title: e.message === OWN_ACCOUNT_REFUSAL ? "Can't use this account" : "This account is already a payee",
+                    description: e.message,
+                    variant: "destructive",
+                });
                 return;
             }
             // ⚠️ Frappe puts the useful text in `_server_messages` / `exception`, NEVER in

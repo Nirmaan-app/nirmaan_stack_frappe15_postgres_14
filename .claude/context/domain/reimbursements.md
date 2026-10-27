@@ -117,6 +117,10 @@ its endings. Decision record: `docs/adr/0040-an-approved-reimbursement-becomes-a
   (owner, 2026-10-22: one account, no child table); Payee has no user field (ADR-0033 Amendment B). It is set only
   by `own_accounts.add_own_account`, which refuses a second account; the Nirmaan Users `validate` hook
   (`check_own_account`) refuses every other change and a Payee that is already another person's.
+- **The Raise dialog adds it the first time** (`pages/Reimbursements/components/BankAccountSection.tsx`, through
+  `add_my_bank_account`). With no account yet the section is titled **Add Your Account** and its button **Add
+  Account** (owner, 2026-10-27); once there is one (and while it loads) it is **Who gets paid**, showing it
+  read-only. It is a Users Payee, so no Expense Request can be paid into it (`payees.md` § Payee Type).
 - **The person corrects their own account** from their profile's Payee tab (`own_accounts.edit_own_account`, the Payee module's `edit_payee_reply` underneath). Refused for someone else's account and for one a Vendor is also paid into (`links.linked_vendors`). Claims keep their copy.
 - **Receipts are merged before anything is written.** The dialog uploads every file loose (no doctype: claimants
   hold read only). `receipts.plan_receipts` reads them and merges the PDFs and pictures into one PDF IN MEMORY

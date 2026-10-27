@@ -1,6 +1,7 @@
 /**
  * "Who gets paid" in the Raise dialog: the claimant's one bank account, shown as the expense forms show a
- * picked payee (`PayeeReadOnly`), or -- when they have none yet -- the Add Payee fields inline.
+ * picked payee (`PayeeReadOnly`), or -- when they have none yet -- "Add Your Account" with the Add Payee fields
+ * inline and an "Add Account" button.
  *
  * The account is the Payee in the person's `Nirmaan Users.payee` field (`services/payees/own_accounts`), one per
  * person, so there is nothing to pick: every claim is repaid into it. It is changed on the profile's Payee tab,
@@ -64,14 +65,17 @@ export function BankAccountSection({ account, loading, onAdded, disabled, error 
         }
     };
 
+    // First time (no account yet): the section asks them to add one.
+    const adding = !account && !loading;
+
     return (
         <section className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-4" aria-labelledby="reimb-payto-heading">
             <div>
                 <h3 id="reimb-payto-heading" className="text-sm font-semibold">
-                    Who gets paid <span className="text-destructive">*</span>
+                    {adding ? "Add Your Account" : "Who gets paid"} <span className="text-destructive">*</span>
                 </h3>
                 <p className="text-xs text-muted-foreground">
-                    {account || loading
+                    {!adding
                         ? "Your bank account. Accounts repays this claim into it; its details are copied onto the claim."
                         : "Add the bank account you'll be repaid into. It's saved as yours and used for every claim."}
                 </p>
@@ -104,7 +108,7 @@ export function BankAccountSection({ account, loading, onAdded, disabled, error 
                         title={payeeForm.problem ?? undefined}
                     >
                         {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                        Save account
+                        Add Account
                     </Button>
                 </div>
             )}

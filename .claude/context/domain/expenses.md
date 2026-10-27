@@ -921,7 +921,8 @@ save an invalid template**.
     `api/expense_requests/payees.add_request_payee`) is copied in, unless the request names a vendor.
     **Editing** (`update_expense_request`): `keep_pay_to=1` leaves the copy as it is; otherwise the
     `payee` sent is copied (none clears it). Both through `pay_to.apply_picked_payee`, which refuses
-    a Payee that does not exist. (The Direct Expense create of #1471 was removed by #1506.)
+    a Payee that does not exist, and a person's own account (payee type Users: `pay_to.is_own_account`,
+    message `OWN_ACCOUNT_REFUSAL`; owner 2026-10-27). (The Direct Expense create of #1471 was removed by #1506.)
   - **A vendor named** (request or Project Expense, every write path): the save hook copies the
     vendor's Payee when the record has no copy and whenever the vendor changes, until the record is
     paid (`pay_to.fill_from_vendor`, from `guard.check_payee_links`). New expense dialogs, Bulk
@@ -929,7 +930,7 @@ save an invalid template**.
   - **Records raised before the pay-to account** were filled by `patches/v3_0/backfill_pay_to_accounts`
     (#1441): unpaid ones from the vendor's Payee, paid ones from their settled bank line, the rest
     blank. Rules: `payees.md`.
-  - **No server refusal** (#1436, owner 2026-10-15): *Required* with no account, a vendor and an
+  - **No server refusal** beyond those two (#1436, owner 2026-10-15): *Required* with no account, a vendor and an
     account that disagree, a change after payment, a change outside Accounts are all accepted. They
     are screen rules: the request dialog blocks sending a *Required* type with no account
     (`utils/payees/expensePayee.whoGetsPaidProblem`) and shows a vendor's account read-only.
@@ -937,7 +938,9 @@ save an invalid template**.
     Non-Project Expense AS IT IS (`pay_to.copy_pay_to`): the vendor's Payee is not read again. The
     reviewer sees it: `get_my_expense_requests` rows carry `pay_to` (`pay_to.pay_to_account`).
   - The dialog's picker (search, add new, the vendor's Payee) calls `api/expense_requests/payees`,
-    gated on `access.can_raise_requests`, never the Accounts-only `api/payees/` endpoints.
+    gated on `access.can_raise_requests`, never the Accounts-only `api/payees/` endpoints. It never
+    offers a person's own account (owner 2026-10-27): the search leaves Users Payees out, and one typed
+    in Add new payee comes back refused, with no Pick button (`payees.md` § Payee Type).
   - Record Payment's "Pay ₹X to" box reads the expense's own copy; its Change account
     (`expense_payee.change_expense_account`, #1438; Accounts, an approved, unpaid expense with no
     vendor, a screen rule) overwrites the copy with a picked or added Payee's account, recorded with

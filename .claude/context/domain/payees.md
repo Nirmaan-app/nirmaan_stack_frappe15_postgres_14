@@ -56,6 +56,13 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     `patches/v3_0/backfill_payee_type` (`rules.payee_type_from_links`: own account → Users, else any vendor →
     Vendors, else Others); never re-run it. The Payees list returns it, filters on it (`list_payees.FILTERABLE`)
     and shows it as a Payee type column with a decoupled facet.
+    **The Expense Request's picker never offers a Users Payee** (owner, 2026-10-27):
+    `api/expense_requests/payees.search_payees` passes `find_payees(..., exclude_type=PAYEE_TYPE_USERS)`. Only that
+    search: Accounts' Change account (`api/payees/paid_to.search_payees`) still lists them. Typing a Users Payee's
+    account + IFSC in Add new payee is refused, not offered: `check_request_payee` / `add_request_payee` return the
+    duplicate with `pay_to.OWN_ACCOUNT_REFUSAL` as the message, and the block (`PayeeBankFields refuseOwnAccount`,
+    on through `usePayeeChoice`'s `REQUEST_APIS.refusesOwnAccount`) shows it with no Pick button. The server's
+    boundary is `pay_to.apply_picked_payee` (request create and update), which refuses a Users Payee.
   - `matching.py` (pure): which Payees look like a vendor. *Strong match*: a vendor linked to the
     Payee has the same PAN; *Name only*: no PAN agrees but the names read alike. Strong first.
   - `choosing.py`: a vendor's Payee. `suggest_for_vendor`, `payee_choices` (its linked vendors, for

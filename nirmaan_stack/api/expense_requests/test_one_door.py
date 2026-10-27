@@ -112,8 +112,10 @@ class TestOneDoor(FrappeTestCase):
 		except Exception:
 			frappe.db.rollback()
 		requests = frappe.get_all("Expense Request", filters={"comment": ["like", f"{TAG}%"]}, pluck="name")
-		scopes = [(dt, name) for dt in LEDGERS
-		          for name in frappe.get_all(dt, filters={"request_id": ["in", requests or [""]]}, pluck="name")]
+		# ⚠️ NEVER `requests or [""]`: `request_id` is a nullable Link, so `["in", [""]]` renders as
+		# `ifnull(request_id, '') in ('')` and matches every expense raised without a request.
+		scopes = [(dt, name) for dt in LEDGERS if requests
+		          for name in frappe.get_all(dt, filters={"request_id": ["in", requests]}, pluck="name")]
 		scopes += [("Expense Request", name) for name in requests]
 		scopes += [("Expense Type", name) for name in cls.types.values()]
 		scopes += [("Projects", cls.project)]
