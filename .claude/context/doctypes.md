@@ -28,7 +28,6 @@
 | **Project Work Packages** | Work breakdown structure |
 | **Project Work Headers** | Work header entries |
 | **Project Work Milestones** | Milestone tracking |
-| **Project Estimates** | Budget estimates (BOQ) |
 
 ### Master Definitions
 - `Work Packages` - Master work package definitions
@@ -265,7 +264,6 @@ Projects (hub)
   │     ├─→ Project Invoices
   │     └─→ Project Payments
   │
-  ├─→ Project Estimates (BOQ)
   ├─→ Project Expenses
   └─→ Project Inflows
 ```

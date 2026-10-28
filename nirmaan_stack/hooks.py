@@ -385,9 +385,6 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.service_requests.on_update",
         ]
     },
-    "Project Estimates" : {
-        "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
-    },
     # `invoice_amount` on the parent PO / SR is maintained HERE, on the doctype,
     # not by hand-placed calls in the invoice endpoints — three of the nine ways an
     # invoice changes run no application code (the backfill patch, the legacy

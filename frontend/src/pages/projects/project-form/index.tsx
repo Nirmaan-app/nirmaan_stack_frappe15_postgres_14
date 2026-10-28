@@ -671,12 +671,6 @@ export const ProjectForm = () => {
         setCurrentStep(0);
     };
 
-    const handleAddEstimates = () => {
-        setCreationDialogOpen(false);
-        setCreationStage("idle");
-        navigate(`/projects/${newProjectId}/add-estimates`);
-    };
-
     const handleAddCustomerPO = () => {
         setCreationDialogOpen(false);
         setCreationStage("idle");
@@ -857,7 +851,6 @@ export const ProjectForm = () => {
                 errorMessage={creationError}
                 onGoBack={handleGoToProjects}
                 onCreateNew={handleCreateNew}
-                onAddEstimates={handleAddEstimates}
                 onAddCustomerPO={handleAddCustomerPO}
             />
         </div>

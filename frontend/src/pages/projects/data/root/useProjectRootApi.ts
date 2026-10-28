@@ -14,9 +14,7 @@ import { ProjectQueryKeys } from "@/pages/projects/queries";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Customers } from "@/types/NirmaanStack/Customers";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
-import { ProjectEstimates as ProjectEstimatesType } from "@/types/NirmaanStack/ProjectEstimates";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
-import { POItemForPaid } from "@/utils/projects/projectPaid";
 
 
 export interface ProjectPOItemDataItem {
@@ -51,7 +49,6 @@ export const projectRootKeys = {
   commissionMasterData: () => ["project-root", "commissionMasterData"] as const,
   procurementOrders: (projectId: string) => ["project-root", "procurementOrders", projectId] as const,
   approvedServiceRequests: (projectId: string) => ["project-root", "approvedServiceRequests", projectId] as const,
-  ordersPaid: (doctype: string, projectId: string) => ["project-root", "ordersPaid", doctype, projectId] as const,
   projectsListInvoices: () => ["project-root", "projectsListInvoices"] as const,
 };
 
@@ -338,22 +335,6 @@ export const useProjectViewMutations = () => {
 };
 
 export const useProjectViewFinancialData = (projectId: string) => {
-  const projectEstimatesResponse = useFrappeGetDocList<ProjectEstimatesType>(
-    "Project Estimates",
-    {
-      fields: ["work_package", "quantity_estimate", "rate_estimate", "name"],
-      filters: [["project", "=", projectId]],
-      limit: 0,
-    },
-    projectId
-      ? ProjectQueryKeys.estimates({
-        fields: ["work_package", "quantity_estimate", "rate_estimate", "name"],
-        filters: [["project", "=", projectId]],
-        limit: 0,
-      })
-      : null
-  );
-
   // No payments or expenses are fetched here: paid figures read the orders' stored Amount Paid, and
   // the project's outflow is the server's (useProjectMoney), ADR-0034.
   const procurementOrdersResponse = useFrappeGetDocList<ProcurementOrdersType>(
@@ -392,13 +373,6 @@ export const useProjectViewFinancialData = (projectId: string) => {
     projectId ? projectRootKeys.approvedServiceRequests(projectId) : null
   );
 
-  useApiErrorLogger(projectEstimatesResponse.error, {
-    hook: "useProjectViewFinancialData",
-    api: "Project Estimates List",
-    feature: "project-root",
-    entity_id: projectId,
-  });
-
   useApiErrorLogger(procurementOrdersResponse.error, {
     hook: "useProjectViewFinancialData",
     api: "Procurement Orders List",
@@ -414,54 +388,7 @@ export const useProjectViewFinancialData = (projectId: string) => {
   });
 
   return {
-    projectEstimatesResponse,
     procurementOrdersResponse,
     approvedServiceRequestsResponse,
   };
-};
-
-/** `api/projects/project_spends.get_project_pos_paid`: every PO of the project and every PO's items. */
-export interface ProjectPOsPaid {
-  pos: { name: string; amount_paid: number }[];
-  items: POItemForPaid[];
-}
-
-/**
- * The Spends tab's paid figures: EVERY PO and WO of the project with its stored Amount Paid, whatever its
- * status (spec #1451 stories 14-15). A Merged, Cancelled or Inactive order's Amount Paid is real money
- * out, so these add up to the PO and WO parts of the project outflow. The POs come with every PO's items,
- * which key a PO's paid figure by work package (the PO summary leaves Merged and Inactive POs' items out).
- */
-export const useProjectOrdersPaid = (projectId: string) => {
-  const posResponse = useFrappeGetCall<{ message: ProjectPOsPaid }>(
-    "nirmaan_stack.api.projects.project_spends.get_project_pos_paid",
-    { project_id: projectId },
-    projectId ? projectRootKeys.ordersPaid("Procurement Orders", projectId) : null
-  );
-
-  const wosResponse = useFrappeGetDocList<ServiceRequests>(
-    "Service Requests",
-    {
-      fields: ["name", "amount_paid"],
-      filters: [["project", "=", projectId]],
-      limit: 0,
-    },
-    projectId ? projectRootKeys.ordersPaid("Service Requests", projectId) : null
-  );
-
-  useApiErrorLogger(posResponse.error, {
-    hook: "useProjectOrdersPaid",
-    api: "get_project_pos_paid",
-    feature: "project-root",
-    entity_id: projectId,
-  });
-
-  useApiErrorLogger(wosResponse.error, {
-    hook: "useProjectOrdersPaid",
-    api: "Service Requests List",
-    feature: "project-root",
-    entity_id: projectId,
-  });
-
-  return { posResponse, wosResponse };
 };

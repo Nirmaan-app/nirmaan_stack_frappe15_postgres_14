@@ -93,7 +93,6 @@ export interface MaterialUsageDisplayItem {
   itemName?: string;
   categoryName: string;
   unit?: string;
-  estimatedQuantity?: number;
   orderedQuantity: number;
   deliveredQuantity: number;
   dcQuantity: number;
@@ -348,7 +347,6 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
       { header: 'Category', accessor: (item: MaterialUsageDisplayItem) => item.categoryName },
       { header: 'Billing Category', accessor: (item: MaterialUsageDisplayItem) => item.billingCategory || "N/A" },
       { header: 'Unit', accessor: (item: MaterialUsageDisplayItem) => item.unit || "N/A" },
-      { header: 'Est. Qty', accessor: (item: MaterialUsageDisplayItem) => item.estimatedQuantity?.toFixed(2) || "N/A" },
       { header: 'Ordered Qty', accessor: (item: MaterialUsageDisplayItem) => item.orderedQuantity.toFixed(2) },
       { header: 'Delivery Note Qty', accessor: (item: MaterialUsageDisplayItem) => item.deliveredQuantity.toFixed(2) },
       { header: 'Remaining Qty', accessor: (item: MaterialUsageDisplayItem) => item.remainingQuantity !== null && item.remainingQuantity !== undefined && item.remainingQuantity !== -1 ? item.remainingQuantity.toFixed(2) : "N/A" },

@@ -126,7 +126,7 @@ again in the browser. The Cash Sheet report reads Inflow, Outflow, Current Liabi
   what it counts: the Outflow Report's total is "Payments + Paid Expenses", the Payments card's 30-day column
   "Cash Out (30 Days)" over all projects, its Paid rows "Settled", the PO / WO Summary totals "Paid on Active
   POs" / "Paid on Approved WOs (incl. TDS)", the Customer page "Paid to Vendors, All Projects", the Cashflow
-  Plan print "Planned Payment". Project Spends is left alone (queued for removal). The Projects list and Cash
+  Plan print "Planned Payment". The Projects list and Cash
   Sheet tooltip is `frontend/src/constants/projectOutflow.ts`. Report names ("Outflow Report") and Bulk
   Import's "Outflow" (bank debit lines, and the Payments card's "Total Unreconciled Outflow" that mirrors it)
   are not figures of a project and keep the word.
@@ -149,11 +149,12 @@ again in the browser. The Cash Sheet report reads Inflow, Outflow, Current Liabi
 **The project page reads the stored figures (#1457).** It fetches no payments. Financials "Project Outflow" and
 "Current Liabilities" read `get_project_money`. The PO Summary "Paid on Active POs", the WO Summary "Paid on
 Approved WOs (incl. TDS)" and the WO Summary "Total Amt Payable" are the orders' summed `amount_paid` / `amount_due` (`get_project_po_summary_aggregates`,
-`get_project_sr_summary_aggregates`). Spends sums EVERY PO's `amount_paid` per work package, whatever its
-status (Merged, Cancelled, Inactive included: their Amount Paid is real money out), so its PO total is the PO
-part of the project outflow; its Services row sums every WO's `amount_paid` (#1451 review). The POs and all
-their items come from `api/projects/project_spends.get_project_pos_paid`, because the PO summary leaves
-Merged / Inactive POs' items out. A PO's work package comes from its items, not its PR:
-PR `work_package` holds "Normal" / "Custom" today, which matches no row; a PO with no items counts under Custom. A PO whose items span several
-packages shares its `amount_paid` among them in proportion to item value incl. GST. The Material Usage paid badge compares a PO's `amount_paid`
+`get_project_sr_summary_aggregates`). The Material Usage paid badge compares a PO's `amount_paid`
 with its `total_amount`. The pure rules live in `frontend/src/utils/projects/projectPaid.ts`.
+
+**Project Spends and Project Estimates are removed (owner 2026-10-27).** The Project Spends tab and its
+`api/projects/project_spends` endpoint, the Project Estimates tab, the Add Estimates page and its buttons, and
+the Material Usage "Est. Qty" column are gone; the `Project Estimates` doctype and table are dropped by
+`patches/v3_0/drop_project_estimates`. The Overview / Financials PO total (incl. GST) still sums the PO
+summary's items per work package in `project.tsx`; it never depended on estimates. An old
+`?page=projectspends` / `?page=projectestimates` link lands on the role's landing tab.
