@@ -65,6 +65,8 @@ export const BulkPdfDownloadButton = ({ scope, types }: BulkPdfDownloadButtonPro
     ClientInvoice: () => handleBulkDownload("ClientInvoice", TYPE_INFO.ClientInvoice.card),
     POPaymentVoucher: () => handleBulkDownload("POPaymentVoucher", TYPE_INFO.POPaymentVoucher.card),
     WOPaymentVoucher: () => handleBulkDownload("WOPaymentVoucher", TYPE_INFO.WOPaymentVoucher.card),
+    // Never in this menu: Porter invoices are Report Bulk Download only, which has no Quick Download.
+    PorterInvoice: () => {},
   };
   const invoiceChoices = INVOICE_SUB_TYPES.filter((c) => invoiceSubTypesFor(scope).includes(c.value));
 

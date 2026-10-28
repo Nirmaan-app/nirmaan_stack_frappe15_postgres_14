@@ -9,6 +9,7 @@ from pypdf import PdfWriter, PdfReader
 from nirmaan_stack.api.pdf_helper.po_print import merge_pdfs
 from nirmaan_stack.api.frappe_s3_attachment import get_s3_temp_url
 from nirmaan_stack.api.material_test_certificates.mtc_api import mtc_allowed_projects
+from nirmaan_stack.api.pdf_helper.porter_invoices import porter_invoice_files
 from nirmaan_stack.services.role_profiles import assert_reports_bulk_download_access
 from PIL import Image
 
@@ -144,8 +145,10 @@ WO_PAYMENT_VOUCHERS = "WO Payment Vouchers"
 PO_PAYMENT_VOUCHERS = "PO Payment Vouchers"
 VOUCHER_PRINT_FORMAT = "SR Payment"
 MTCS = "MTCs"
+# Report Bulk Download only: each Porter Invoice's own PDF (one PDF covers many trips), read back by invoice number.
+PORTER_INVOICES = "Porter Invoices"
 # Types downloaded by RECORD name: the job reads each file back itself, so the file-URL endpoint refuses them.
-READ_BACK_TYPES = (WO_PAYMENT_VOUCHERS, PO_PAYMENT_VOUCHERS, MTCS)
+READ_BACK_TYPES = (WO_PAYMENT_VOUCHERS, PO_PAYMENT_VOUCHERS, MTCS, PORTER_INVOICES)
 
 # A generated voucher takes ~1.6 s, so the biggest project's 451 paid PO payments take ~12 min: too
 # close to the `long` queue's 25-minute limit on a busy server. A job killed at the limit publishes
@@ -404,6 +407,17 @@ def download_selected_mtcs(names, project=None, vendor=None, download_id=None, a
 
 
 @frappe.whitelist()
+def download_selected_porter_invoices(names, download_id=None, all_scope=None):
+    # Report Bulk Download only (Porter invoices belong to no project or vendor). Takes INVOICE NUMBERS: the
+    # job reads each invoice's PDF back itself (`porter_invoice_files`), never a file link from the browser.
+    if not _is_all_scope(all_scope):
+        frappe.throw("Porter invoices are downloaded from Report Bulk Download only.")
+    scope = _scope(all_scope=all_scope)
+    _require_selection(names, "invoice", scope)
+    return _enqueue(scope, PORTER_INVOICES, "Selected_Porter_Invoices", download_id, names=names)
+
+
+@frappe.whitelist()
 def download_selected_attachments(attachment_names, doc_type, project=None, vendor=None, download_id=None, all_scope=None):
     scope = _scope(project, vendor, all_scope)
     _check_doc_type(scope[0], doc_type)
@@ -492,6 +506,10 @@ def _build_and_announce(publish, doc_type, project, vendor, names, attachment_na
     elif doc_type == MTCS:
         # The selected certificates (or all of them) -> their files, oldest certificate first.
         attachment_names, names = _mtc_files(field, value, names), None
+    elif doc_type == PORTER_INVOICES:
+        # The selected invoices -> each one's own PDF, once, oldest invoice date first. All scope only: a
+        # project or vendor run merges nothing (the guard above already refused an all-scope run without a list).
+        attachment_names, names = (porter_invoice_files(names or []) if field is None else []), None
     elif names is None and attachment_names is None:
         if doc_type in ALL_DOC_FILTERS:
             names = _all_doc_names(doc_type, field, value)

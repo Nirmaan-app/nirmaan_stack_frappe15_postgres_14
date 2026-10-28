@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { BulkPdfDownloadButton } from "@/components/common/BulkPdfDownloadButton";
 import { BulkDownloadProgressDialog } from "@/components/common/BulkDownloadProgressDialog";
 import { BulkDownloadStep1 } from "./BulkDownloadStep1";
-import { POSteps, WOSteps, InvoiceSteps, DCSteps, MIRSteps, DNSteps, MTCSteps, ClientInvoiceSteps, PaymentVoucherSteps } from "./steps";
+import { POSteps, WOSteps, InvoiceSteps, DCSteps, MIRSteps, DNSteps, MTCSteps, ClientInvoiceSteps, PaymentVoucherSteps, PorterInvoiceSteps } from "./steps";
 import { useBulkDownloadWizard } from "./useBulkDownloadWizard";
 import { useUserData } from "@/hooks/useUserData";
 import { BulkDownloadScope, TYPE_INFO, allowedBulkTypes, bulkTableLimits, invoiceSubTypesFor, isOverSelectionLimit } from "@/utils/bulkDownload/bulkDownloadTypes";
@@ -74,6 +74,8 @@ export const BulkDownloadPage = ({ scope }: BulkDownloadPageProps) => {
         woVouchersLoading,
         mtcItems,
         mtcsLoading,
+        porterInvoices,
+        porterInvoicesLoading,
         withRate,
         setWithRate,
 
@@ -289,6 +291,10 @@ export const BulkDownloadPage = ({ scope }: BulkDownloadPageProps) => {
                             isLoading={woVouchersLoading}
                             scopeKind={scope.kind}
                         />
+                    )}
+
+                    {step === 2 && docType === "PorterInvoice" && isAll && (
+                        <PorterInvoiceSteps {...sharedProps} items={porterInvoices} isLoading={porterInvoicesLoading} />
                     )}
 
                     {/* Step 3: Success */}

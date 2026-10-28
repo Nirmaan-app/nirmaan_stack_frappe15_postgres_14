@@ -28,6 +28,8 @@ const h = vi.hoisted(() => ({
     lists: {} as Record<string, unknown[] | ((args: { filters: unknown[] }) => unknown[])>,
     /** Every list query the wizard made: doctype + its arguments. */
     queries: [] as { doctype: string; args: { filters: unknown[] }; key: unknown }[],
+    /** Every server call the wizard made (method + SWR key; a null key fetches nothing). */
+    calls: [] as { method: string; key: unknown }[],
 }));
 
 vi.mock("@/components/ui/use-toast", () => ({ useToast: () => ({ toast: h.toast }) }));
@@ -41,7 +43,10 @@ vi.mock("frappe-react-sdk", async () => {
             const rows = h.lists[doctype];
             return { data: key ? (typeof rows === "function" ? rows(args) : rows) : undefined, isLoading: false };
         },
-        useFrappeGetCall: () => ({ data: undefined, isLoading: false }),
+        useFrappeGetCall: (method: string, _args: unknown, key: unknown) => {
+            h.calls.push({ method, key });
+            return { data: undefined, isLoading: false };
+        },
     };
 });
 vi.mock("@/pages/projects/data/critical-po/useCriticalPOQueries", () => ({
@@ -97,6 +102,7 @@ beforeEach(() => {
     h.handlers = null;
     h.lists = {};
     h.queries = [];
+    h.calls = [];
     fetchMock = vi.fn().mockResolvedValue(started);
     vi.stubGlobal("fetch", fetchMock);
     anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
@@ -437,3 +443,44 @@ describe("the all scope (Reports > Bulk Download: every project, no picker)", ()
         expect(body.get("all_scope")).toBeNull();
     });
 });
+
+describe("Porter Invoices (Report Bulk Download only)", () => {
+    const ALL_SCOPE: BulkDownloadScope = { kind: "all", id: "", name: "All projects" };
+    const ALL_TYPES: BulkDocType[] = ["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "ClientInvoice", "POPaymentVoucher", "WOPaymentVoucher", "PorterInvoice"];
+    function AllWizard() {
+        wiz = useBulkDownloadWizard(ALL_SCOPE, ALL_TYPES);
+        return null;
+    }
+    const porterKey = () => h.calls.filter((c) => c.method.endsWith("porter_invoices.get_porter_invoices")).at(-1)?.key;
+
+    it("loads the Porter list only when its card is opened", () => {
+        mount(AllWizard);
+        expect(porterKey()).toBeNull();
+        act(() => wiz.goToStep2("PO"));
+        expect(porterKey()).toBeNull();
+        act(() => wiz.goToStep2("PorterInvoice"));
+        expect(porterKey()).toBe("bulk-porter-all");
+    });
+
+    it("never loads it on a project tab, even if asked for the type", () => {
+        function ProjectPorter() {
+            wiz = useBulkDownloadWizard(PROJECT_SCOPE, ["PO", "PorterInvoice"]);
+            return null;
+        }
+        mount(ProjectPorter);
+        act(() => wiz.goToStep2("PorterInvoice"));
+        expect(porterKey()).toBeNull();
+    });
+
+    it("Download posts the invoice numbers (never file links) with all_scope", async () => {
+        mount(AllWizard);
+        await download("PorterInvoice", ["PRT-BLR-0412", "PRT-CHN-0091"]);
+        const [endpoint, init] = fetchMock.mock.calls[0];
+        expect(endpoint).toContain("bulk_download.download_selected_porter_invoices");
+        const body = (init as { body: FormData }).body;
+        expect(body.get("names")).toBe(JSON.stringify(["PRT-BLR-0412", "PRT-CHN-0091"]));
+        expect(body.get("all_scope")).toBe("1");
+        expect(body.get("attachment_names")).toBeNull();
+    });
+});
+

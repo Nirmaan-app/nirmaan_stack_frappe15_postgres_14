@@ -8,6 +8,7 @@ import { ALL_SCOPE_MAX_ITEMS, BulkDocType, BulkDownloadScope, InvoiceSubType, TY
 import { BulkDownloadReadyEvent, cancelBulkDownload, listenForDownload, newDownloadId } from "@/utils/bulkDownload/bulkDownloadEvents";
 import { DownloadRun, applyFailed, applyProgress, applyReady, isWorking, runDetails, startRun } from "@/utils/bulkDownload/bulkDownloadRun";
 import { readFrappeError } from "@/utils/frappeErrors";
+import { usePorterInvoices } from "./usePorterInvoices";
 
 export type { BulkDocType, InvoiceSubType };
 
@@ -275,6 +276,9 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocTy
         [mtcData]
     );
 
+    // Porter invoices: Report Bulk Download only, loaded only when the card is opened.
+    const { porterInvoices, porterInvoicesLoading } = usePorterInvoices(isAll && types.includes("PorterInvoice") && role !== "Loading" && wants("PorterInvoice"));
+
     // Every step filters inside its own selection table (facet + date column filters), so the hook
     // hands each step its full ELIGIBLE list: DN = POs that have deliveries; the attachment types =
     // rows that actually carry a file to merge.
@@ -295,7 +299,8 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocTy
         DC: dcItems.length, MIR: mirItems.length, DN: dnList.length,
         MTC: mtcItems.length, ClientInvoice: projectInvoiceItems.length,
         POPaymentVoucher: poVoucherPayments.length, WOPaymentVoucher: woVoucherPayments.length,
-    }), [poList, woList, invoiceItems, dcItems, mirItems, dnList, mtcItems, projectInvoiceItems, poVoucherPayments, woVoucherPayments]);
+        PorterInvoice: porterInvoices.length,
+    }), [porterInvoices, poList, woList, invoiceItems, dcItems, mirItems, dnList, mtcItems, projectInvoiceItems, poVoucherPayments, woVoucherPayments]);
 
     const goToStep2 = useCallback((t: BulkDocType) => { setDocType(t); setSelectedIds([]); setStep(2); }, []);
     const goBack = useCallback(() => { setStep(1); setDocType(null); setSelectedIds([]); }, []);
@@ -412,6 +417,11 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocTy
                     endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_wo_payment_vouchers";
                     formData.append("names", JSON.stringify(selectedIds));
                     break;
+                case "PorterInvoice":
+                    // Invoice numbers, not file URLs: the server reads each invoice's own PDF back itself.
+                    endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_porter_invoices";
+                    formData.append("names", JSON.stringify(selectedIds));
+                    break;
             }
 
             const res = await fetch(endpoint, { method: "POST", headers: { "X-Frappe-CSRF-Token": (window as any).csrf_token || "" }, body: formData });
@@ -470,5 +480,7 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocTy
         woVouchersLoading,
         mtcItems,
         mtcsLoading,
+        porterInvoices,
+        porterInvoicesLoading,
     };
 };

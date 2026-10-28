@@ -219,12 +219,13 @@ describe("the all scope (Reports > Bulk Download: every project, no picker)", ()
         expect(allowedBulkTypes(all, ACCOUNTANT)).toEqual([...BULK_DOC_TYPES]);
     });
 
-    it("applies the same role rules as the project tab (PM: no finance types; PMO: no client invoices)", () => {
+    it("applies the same role rules as the project tab, plus Porter Invoices (PM: no finance types at all)", () => {
         expect(allowedBulkTypes(all, PM)).toEqual(["PO", "WO", "DC", "MIR", "DN", "MTC"]);
-        expect(allowedBulkTypes(all, PMO)).toEqual(["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "POPaymentVoucher", "WOPaymentVoucher"]);
-        for (const role of [ADMIN, PM, PMO, ACCOUNTANT]) {
-            expect(allowedBulkTypes(all, role), role).toEqual(allowedBulkTypes(project, role));
+        expect(allowedBulkTypes(all, PMO)).toEqual(["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "POPaymentVoucher", "WOPaymentVoucher", "PorterInvoice"]);
+        for (const role of [ADMIN, PMO, ACCOUNTANT]) {
+            expect(allowedBulkTypes(all, role), role).toEqual([...allowedBulkTypes(project, role), "PorterInvoice"]);
         }
+        expect(allowedBulkTypes(all, PM)).toEqual(allowedBulkTypes(project, PM));
     });
 
     it("ignores a vendor type (there is no single vendor)", () => {
@@ -295,5 +296,25 @@ describe("canBulkDownloadAllProjects — who sees Reports > Bulk Download (owner
             expect(canBulkDownloadAllProjects(role, "someone@nirmaan.app")).toBe(false);
         }
         expect(canBulkDownloadAllProjects("", "Administrator")).toBe(true);
+    });
+});
+
+describe("Porter Invoices — Report Bulk Download only", () => {
+    it("is offered only in the all scope, never on a project or any vendor", () => {
+        expect(allowedBulkTypes({ kind: "all" }, ADMIN)).toContain("PorterInvoice");
+        expect(allowedBulkTypes({ kind: "all" }, ACCOUNTANT)).toContain("PorterInvoice");
+        expect(allowedBulkTypes(project, ADMIN)).not.toContain("PorterInvoice");
+        for (const type of ["Material", "Service", "Material & Service", undefined]) {
+            expect(allowedBulkTypes(vendor(type), ADMIN), String(type)).not.toContain("PorterInvoice");
+        }
+    });
+
+    it("is a Finance card, last", () => {
+        expect(MENU_GROUPS.find((g) => g.label === "Finance")!.types.at(-1)).toBe("PorterInvoice");
+        expect(BULK_DOC_TYPES.at(-1)).toBe("PorterInvoice");
+    });
+
+    it("is never offered to a Project Manager", () => {
+        expect(allowedBulkTypes({ kind: "all" }, PM)).not.toContain("PorterInvoice");
     });
 });

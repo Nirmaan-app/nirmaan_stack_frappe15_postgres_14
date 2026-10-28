@@ -13,6 +13,7 @@ import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
 import type { BulkScopeKind } from "@/utils/bulkDownload/bulkDownloadTypes";
 import type { SummaryAmount } from "@/utils/bulkDownload/bulkSelectionSummary";
 import type { POItem, WOItem, VendorInvoice, PODeliveryDocuments, ProjectInvoice, PaymentVoucherRow, MTCRow } from "../useBulkDownloadWizard";
+import type { PorterInvoiceRow } from "../usePorterInvoices";
 
 type VendorRow = { name: string; vendor?: string; vendor_name?: string };
 type ProjectRow = { project?: string; project_name?: string };
@@ -194,3 +195,42 @@ export const woSummaryAmounts: SummaryAmount<WOItem>[] = [{ label: "Incl. GST", 
 export const invoiceSummaryAmounts: SummaryAmount<VendorInvoice>[] = [{ label: "Invoice total", get: (row) => row.invoice_amount }];
 export const clientInvoiceSummaryAmounts: SummaryAmount<ProjectInvoice>[] = [{ label: "Incl. GST", get: (row) => row.amount }];
 export const voucherSummaryAmounts: SummaryAmount<PaymentVoucherRow>[] = [{ label: "Amount paid", get: (row) => row.amount }];
+
+/** A Porter invoice's total as on its PDF: fare + GST (blank parts count as 0). */
+export const porterInvoiceTotal = (row: PorterInvoiceRow) => (Number(row.fare_total) || 0) + (Number(row.tax_total) || 0);
+
+/**
+ * Porter Invoices (Report Bulk Download only): Porter Invoice data only -- no project, no vendor. Batch No,
+ * Validation Status and City are facets; Invoice Date is the date filter (and the summary's date range).
+ */
+export const porterInvoiceColumns: ColumnDef<PorterInvoiceRow, unknown>[] = [
+    textColumn<PorterInvoiceRow>("name", "Invoice No", (row) => row.name, true),
+    facetColumn<PorterInvoiceRow>("import_batch", "Batch No", (row) => row.import_batch),
+    {
+        ...facetColumn<PorterInvoiceRow>("validation_status", "Validation Status", (row) => row.validation_status),
+        enableGlobalFilter: false,
+        cell: ({ getValue }) => {
+            const status = String(getValue() ?? "");
+            if (!status) return "—";
+            const tone = status === "Passed" ? "border-emerald-300 text-emerald-700" : status === "Failed" || status === "Error" ? "border-red-300 text-red-700" : "border-gray-300";
+            return <Badge variant="outline" className={`text-[11px] py-0.5 px-2 h-auto font-medium whitespace-nowrap ${tone}`}>{status}</Badge>;
+        },
+    },
+    facetColumn<PorterInvoiceRow>("city", "City", (row) => row.city),
+    {
+        id: "completed_orders",
+        accessorFn: (row) => row.completed_orders ?? 0,
+        header: "Trips",
+        enableGlobalFilter: false,
+        cell: ({ getValue }) => <span className="tabular-nums">{String(getValue() ?? 0)}</span>,
+    },
+    dateColumn<PorterInvoiceRow>("read_invoice_date", "Invoice Date", (row) => row.read_invoice_date ?? undefined),
+    amountColumn<PorterInvoiceRow>("fare_total", "Fare (excl. GST)", (row) => row.fare_total),
+    amountColumn<PorterInvoiceRow>("tax_total", "GST", (row) => row.tax_total),
+    amountColumn<PorterInvoiceRow>("total", "Total (incl. GST)", porterInvoiceTotal),
+];
+
+export const porterInvoiceSummaryAmounts: SummaryAmount<PorterInvoiceRow>[] = [
+    { label: "Excl. GST", get: (row) => row.fare_total },
+    { label: "Incl. GST", get: porterInvoiceTotal },
+];

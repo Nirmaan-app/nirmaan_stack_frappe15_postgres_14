@@ -9,7 +9,7 @@
  */
 import { PMO_EXECUTIVE_PROFILE, PROJECT_MANAGER_PROFILE } from "@/constants/roles";
 
-export type BulkDocType = "PO" | "WO" | "Invoice" | "DC" | "MIR" | "DN" | "MTC" | "ClientInvoice" | "POPaymentVoucher" | "WOPaymentVoucher";
+export type BulkDocType = "PO" | "WO" | "Invoice" | "DC" | "MIR" | "DN" | "MTC" | "ClientInvoice" | "POPaymentVoucher" | "WOPaymentVoucher" | "PorterInvoice";
 export type InvoiceSubType = "PO Invoices" | "WO Invoices" | "All Invoices";
 export type BulkScopeKind = "project" | "vendor" | "all";
 
@@ -24,13 +24,13 @@ export interface BulkDownloadScope {
 }
 
 /** Card order. */
-export const BULK_DOC_TYPES: readonly BulkDocType[] = ["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "ClientInvoice", "POPaymentVoucher", "WOPaymentVoucher"];
+export const BULK_DOC_TYPES: readonly BulkDocType[] = ["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "ClientInvoice", "POPaymentVoucher", "WOPaymentVoucher", "PorterInvoice"];
 
 /** The Quick Download menu's sections, in menu order. Every type sits in exactly one (a test holds it). */
 export const MENU_GROUPS: readonly { label: string; types: readonly BulkDocType[] }[] = [
     { label: "Orders", types: ["PO", "WO"] },
     { label: "Delivery & Quality", types: ["DC", "MIR", "DN", "MTC"] },
-    { label: "Finance", types: ["Invoice", "ClientInvoice", "POPaymentVoucher", "WOPaymentVoucher"] },
+    { label: "Finance", types: ["Invoice", "ClientInvoice", "POPaymentVoucher", "WOPaymentVoucher", "PorterInvoice"] },
 ];
 
 /** The menu's sections holding only the allowed `types`; a section left empty is dropped. */
@@ -56,6 +56,8 @@ export const TYPE_INFO: Record<BulkDocType, { card: string; description: string;
     // PO payments have no uploaded voucher: the server generates each one, as the PO page does.
     POPaymentVoucher: { card: "PO Payment Vouchers", description: "Download generated vouchers of paid PO payments", short: "PO Payment Vouchers" },
     WOPaymentVoucher: { card: "WO Payment Vouchers", description: "Download uploaded vouchers of paid WO payments", short: "WO Payment Vouchers" },
+    // Report Bulk Download only: one row per Porter invoice PDF (one PDF covers many trips).
+    PorterInvoice: { card: "Porter Invoices", description: "Porter delivery invoices from the monthly Porter statement", short: "Porter Invoices" },
 };
 
 /**
@@ -97,7 +99,9 @@ export const vendorHandlesService = (vendorType?: string) => vendorType === "Ser
 
 export const allowedBulkTypes = (scope: Pick<BulkDownloadScope, "kind" | "vendorType">, role: string): BulkDocType[] =>
     BULK_DOC_TYPES.filter((type) => {
-        if (role === PROJECT_MANAGER_PROFILE && (type === "Invoice" || type === "ClientInvoice" || VOUCHER_TYPES.includes(type))) return false;
+        // Porter invoices belong to no project or vendor: Report Bulk Download (the all scope) only.
+        if (type === "PorterInvoice" && scope.kind !== "all") return false;
+        if (role === PROJECT_MANAGER_PROFILE && (type === "Invoice" || type === "ClientInvoice" || type === "PorterInvoice" || VOUCHER_TYPES.includes(type))) return false;
         if (role === PMO_EXECUTIVE_PROFILE && type === "ClientInvoice") return false;
         if (scope.kind === "vendor") {
             // Project Invoices carry no vendor.
