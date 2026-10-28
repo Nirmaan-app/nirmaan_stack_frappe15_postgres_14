@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 //
-// Reports > Bulk Download (the "all" scope) puts Back (left) and Download (right) in ONE row at the top,
-// with the 500-item warning right under that row, and hides each step's own footer (owner, 2026-10-28).
-// The project and vendor tabs keep the footer and have no limit.
+// The selection step has ONE Back / Download row, rendered by the page (the steps have no footer of their own).
+// Reports > Bulk Download (the "all" scope) puts it at the top, with the 500-item warning right under it
+// (owner, 2026-10-28). The project and vendor tabs keep it at the bottom and have no limit.
 import { createRoot, type Root } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -101,12 +101,15 @@ describe("Reports > Bulk Download: Back and Download in one row at the top", () 
 });
 
 describe("the project tab is unchanged", () => {
-    it("keeps the step footer (Back + Download at the bottom) and has no limit", () => {
+    it("keeps ONE Back + Download row at the bottom, under the table, and has no limit", () => {
         h.selectedIds = PO_ROWS.map((r) => r.name);
         render(PROJECT);
         expect(visibleButtons("Back")).toHaveLength(1);
+        expect(visibleButtons("Download")).toHaveLength(1);
         const [download] = visibleButtons("Download 510 POs");
         expect(download.disabled).toBe(false);
+        const table = container.querySelector("table")!;
+        expect(table.compareDocumentPosition(download) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         expect(container.querySelector('[role="alert"]')).toBeNull();
     }, 30_000); // the project tab renders all 510 rows unpaged: slow in jsdom under a full parallel run
 });

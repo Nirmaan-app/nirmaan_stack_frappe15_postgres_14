@@ -1,13 +1,14 @@
 import { useMemo } from "react";
 import { Separator } from "@/components/ui/separator";
 import { WizardSteps, WizardStep } from "@/components/ui/wizard-steps";
-import { FileDown, Wand2, LayoutList, CheckCircle2, RotateCcw, Download, ExternalLink, ArrowLeft, AlertTriangle, Loader2 } from "lucide-react";
+import { FileDown, Wand2, LayoutList, CheckCircle2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { BulkPdfDownloadButton } from "@/components/common/BulkPdfDownloadButton";
 import { BulkDownloadProgressDialog } from "@/components/common/BulkDownloadProgressDialog";
 import { BulkDownloadStep1 } from "./BulkDownloadStep1";
+import { BulkDownloadActions } from "./BulkDownloadActions";
 import { POSteps, WOSteps, InvoiceSteps, DCSteps, MIRSteps, DNSteps, MTCSteps, ClientInvoiceSteps, PaymentVoucherSteps, PorterInvoiceSteps } from "./steps";
 import { useBulkDownloadWizard } from "./useBulkDownloadWizard";
 import { useUserData } from "@/hooks/useUserData";
@@ -101,21 +102,27 @@ export const BulkDownloadPage = ({ scope }: BulkDownloadPageProps) => {
     const limits = useMemo(() => bulkTableLimits(scope.kind), [scope.kind]);
     const tableLimits = useMemo(() => ({ pageSize: limits.pageSize }), [limits]);
     const overLimit = isOverSelectionLimit(selectedIds.length, limits);
-    // "POs" / "PO" -- the short name the Download button counts in.
-    const noun = docType ? TYPE_INFO[docType].short.replace(/s$/, selectedIds.length === 1 ? "" : "s") : "";
 
     const sharedProps = {
         selectedIds,
         onSelectAll: selectAll,
-        onBack: goBack,
-        onDownload: handleDownload,
-        loading,
         tableLimits,
-        // Reports > Bulk Download puts Back (left) and Download (right) in one row at the top, with the
-        // over-limit warning right under it (owner, 2026-10-28); the project and vendor tabs keep each
-        // step's own footer.
-        showFooter: !isAll,
     };
+
+    // The selection step's one Back / Download row: at the top on Reports > Bulk Download, at the
+    // bottom on the project and vendor tabs (owner, 2026-10-28).
+    const actions = (placement: "top" | "bottom") => docType && (
+        <BulkDownloadActions
+            count={selectedIds.length}
+            plural={TYPE_INFO[docType].short}
+            loading={loading}
+            overLimit={overLimit}
+            maxSelect={limits.maxSelect}
+            placement={placement}
+            onBack={goBack}
+            onDownload={handleDownload}
+        />
+    );
 
     return (
         <div className="flex flex-col gap-6">
@@ -174,37 +181,7 @@ export const BulkDownloadPage = ({ scope }: BulkDownloadPageProps) => {
                 />
 
                 <div className="p-6">
-                    {step === 2 && isAll && (
-                        <div className="mb-4 flex flex-col gap-3">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                <Button variant="destructive" size="sm" onClick={goBack} disabled={loading}>
-                                    <ArrowLeft className="h-4 w-4 mr-2" />Back
-                                </Button>
-                                <Button
-                                    onClick={handleDownload}
-                                    disabled={loading || selectedIds.length === 0 || overLimit}
-                                    variant={selectedIds.length > 0 && !overLimit ? "destructive" : "outline"}
-                                    className="min-w-44"
-                                >
-                                    {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
-                                    {loading
-                                        ? "Generating..."
-                                        : selectedIds.length === 0
-                                            ? `Select ${noun} to download`
-                                            : `Download ${selectedIds.length.toLocaleString("en-IN")} ${noun}`}
-                                </Button>
-                            </div>
-                            {overLimit && (
-                                <div role="alert" className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                                    <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-                                    <span>
-                                        {selectedIds.length.toLocaleString("en-IN")} selected. One download takes up to {limits.maxSelect?.toLocaleString("en-IN")}.
-                                        Narrow the list with the Project, Vendor or Date filters.
-                                    </span>
-                                </div>
-                            )}
-                        </div>
-                    )}
+                    {step === 2 && isAll && actions("top")}
 
                     {step === 1 && (
                         <BulkDownloadStep1 onSelect={goToStep2} types={types} counts={isAll ? undefined : itemCounts} />
@@ -296,6 +273,8 @@ export const BulkDownloadPage = ({ scope }: BulkDownloadPageProps) => {
                     {step === 2 && docType === "PorterInvoice" && isAll && (
                         <PorterInvoiceSteps {...sharedProps} items={porterInvoices} isLoading={porterInvoicesLoading} />
                     )}
+
+                    {step === 2 && !isAll && actions("bottom")}
 
                     {/* Step 3: Success */}
                     {step === 3 && (

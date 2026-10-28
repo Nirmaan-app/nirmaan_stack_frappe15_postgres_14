@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import SITEURL from "@/constants/siteURL"
 import { getUrlStringParam } from "@/hooks/useServerDataTable"
 import { useUserData } from "@/hooks/useUserData"
+import { canSeeProjectLedger } from "@/constants/roles"
 import { Customers } from "@/types/NirmaanStack/Customers"
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows"
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice"
@@ -48,7 +49,7 @@ interface ProjectFinancialsTabProps {
 
 }
 // Sales users (Executive / Lead) only see these financial sub-tabs.
-const SALES_ALLOWED_TABS = ["Project Ledger", "Project Invoices", "Inflow", "Client PO"];
+const SALES_ALLOWED_TABS = ["Project Invoices", "Inflow", "Client PO"];
 
 // PMO Executive sees every sub-tab and every summary tile (owner, 2026-10-27),
 // reversing the earlier ruling that hid the client money from PMO. PMO is
@@ -118,15 +119,20 @@ const SummaryTile: React.FC<{ item: SummaryItem }> = ({ item }) => (
 
 export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ projectData, projectCustomer, totalPOAmountWithGST, getAllSRsTotalWithGST, getAllPODeliveredAmount, poPaymentAgainstDelivery, advanceAgainstPO }) => {
 
-  const { role } = useUserData();
+  const { role, user_id } = useUserData();
   const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
+  // Project Ledger is for Admin, PMO and Accounts only (owner, 2026-10-28); the server refuses the rest.
+  const canSeeLedger = canSeeProjectLedger(role, user_id);
+  // Financials opens on Project Ledger, its first sub-tab; a role without it opens where it did before.
+  // While the role loads it is Project Ledger (not mounted until the role allows it): the effect below
+  // moves the other roles off it.
+  const landingTab = canSeeLedger || role === "Loading" ? "Project Ledger" : isSales ? "Project Invoices" : "All Payments";
 
   const initialTab = useMemo(() => {
-    // Project Ledger is the first sub-tab, so Financials opens on it.
-    const urlTab = getUrlStringParam("fTab", "Project Ledger");
+    const urlTab = getUrlStringParam("fTab", landingTab);
     // Sales users default to (and are confined to) their allowed sub-tabs.
     if (isSales && !SALES_ALLOWED_TABS.includes(urlTab)) {
-      return "Project Ledger";
+      return landingTab;
     }
     return urlTab;
   }, []); // Calculate once
@@ -353,10 +359,11 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
         value: "Client PO"
       },
     ];
-    // Sales users only see Project Ledger, Project Invoices, Inflow, and Client PO.
+    // Sales users only see Project Invoices, Inflow, and Client PO.
     if (isSales) return allTabs.filter((t) => SALES_ALLOWED_TABS.includes(t.value));
+    if (!canSeeLedger) return allTabs.filter((t) => t.value !== "Project Ledger");
     return allTabs;
-  }, [isSales])
+  }, [isSales, canSeeLedger])
 
   const onClick = useCallback(
     (value: string) => {
@@ -367,13 +374,15 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
     }
     , [tab]);
 
-  // Keep Sales users confined to their allowed sub-tabs even if `tab` ends up
-  // on a restricted value (e.g. a stale fTab URL param).
+  // Keep Sales users confined to their allowed sub-tabs, and everyone outside the
+  // ledger roles off Project Ledger, even if `tab` ends up on a restricted value (a
+  // stale fTab URL param, or the default picked before the role arrived).
   useEffect(() => {
-    if (isSales && !SALES_ALLOWED_TABS.includes(tab)) {
-      setTab("Project Ledger");
+    if (role === "Loading") return;
+    if ((isSales && !SALES_ALLOWED_TABS.includes(tab)) || (!canSeeLedger && tab === "Project Ledger")) {
+      setTab(landingTab);
     }
-  }, [isSales, tab]);
+  }, [role, isSales, canSeeLedger, landingTab, tab]);
 
   return (
     <div className="flex-1 space-y-4">
@@ -442,7 +451,8 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
         ) : tab === "Inflow" ? (
           <InFlowPayments projectId={projectData?.name} urlContext="project_financials" />
         ) : tab === "Project Ledger" ? (
-          <ProjectLedger projectId={projectData?.name ?? ""} projectName={projectData?.project_name} />
+          // Mounted for the ledger roles only, so nobody else ever calls the endpoint.
+          canSeeLedger ? <ProjectLedger projectId={projectData?.name ?? ""} projectName={projectData?.project_name} /> : null
         ) : (
           <CustomerPODetailsCard projectId={projectData?.name} refetchProjectData={async () => { }} role={""} />
         )}

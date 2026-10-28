@@ -6,8 +6,6 @@
  *   PO page does for Paid payments.
  */
 import { useMemo } from "react";
-import { Button } from "@/components/ui/button";
-import { ArrowLeft, Download, Loader2 } from "lucide-react";
 import { BulkScopeKind, BulkTableLimits, scopeFacets, scopeNoun } from "@/utils/bulkDownload/bulkDownloadTypes";
 import { BulkSelectTable } from "./BulkSelectTable";
 import { forScope, poVoucherColumns, voucherSummaryAmounts, woVoucherColumns } from "./bulkTableColumns";
@@ -32,18 +30,13 @@ interface PaymentVoucherStepsProps {
     isLoading: boolean;
     selectedIds: string[];
     onSelectAll: (ids: string[]) => void;
-    onBack: () => void;
-    onDownload: () => void;
-    loading: boolean;
     scopeKind: BulkScopeKind;
     /** All scope: page size + selection limit (the project / vendor tabs pass none). */
     tableLimits?: BulkTableLimits;
-    /** False when the page shows Back and Download at the top instead (Reports > Bulk Download). */
-    showFooter?: boolean;
 }
 
 export const PaymentVoucherSteps = ({
-    kind, items, isLoading, selectedIds, onSelectAll, onBack, onDownload, loading, scopeKind, tableLimits = {}, showFooter = true,
+    kind, items, isLoading, selectedIds, onSelectAll, scopeKind, tableLimits = {},
 }: PaymentVoucherStepsProps) => {
     const config = KIND[kind];
     const facet = scopeFacets(scopeKind);
@@ -69,16 +62,6 @@ export const PaymentVoucherSteps = ({
                 {...tableLimits}
                 summaryAmounts={voucherSummaryAmounts}
             />
-
-            <div className={`flex items-center justify-between pt-2${showFooter ? "" : " hidden"}`}>
-                <Button variant="ghost" onClick={onBack} disabled={loading}>
-                    <ArrowLeft className="h-4 w-4 mr-2" />Back
-                </Button>
-                <Button onClick={onDownload} disabled={loading || selectedIds.length === 0} className="min-w-44 ml-auto">
-                    {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
-                    {loading ? "Generating..." : selectedIds.length === 0 ? "Select vouchers to download" : `Download ${selectedIds.length} Voucher${selectedIds.length !== 1 ? "s" : ""}`}
-                </Button>
-            </div>
         </div>
     );
 };

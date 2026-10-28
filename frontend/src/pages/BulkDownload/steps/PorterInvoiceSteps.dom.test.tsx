@@ -34,10 +34,9 @@ describe("Porter Invoices step", () => {
         container.remove();
     });
 
-    const render = (selectedIds: string[], showFooter = true) =>
+    const render = (selectedIds: string[]) =>
         act(() => root.render(
-            <PorterInvoiceSteps items={ROWS} isLoading={false} selectedIds={selectedIds} onSelectAll={() => {}}
-                onBack={() => {}} onDownload={() => {}} loading={false} showFooter={showFooter} />
+            <PorterInvoiceSteps items={ROWS} isLoading={false} selectedIds={selectedIds} onSelectAll={() => {}} />
         ));
     const blocks = () => [...container.querySelectorAll("[data-summary-label]")].map((l) => `${l.textContent}=${l.nextElementSibling?.textContent}`);
 
@@ -63,9 +62,9 @@ describe("Porter Invoices step", () => {
         ]);
     });
 
-    it("hides its footer when the page shows Back and Download at the top", () => {
-        render(["PRT-BLR-0412"], false);
-        const footer = [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("Download 1 Invoice"))!.parentElement!;
-        expect(footer.className).toContain("hidden");
+    it("has no Back or Download of its own (the page renders the one row)", () => {
+        render(["PRT-BLR-0412"]);
+        const labels = [...container.querySelectorAll("button")].map((b) => b.textContent?.trim() ?? "");
+        expect(labels.some((t) => t.startsWith("Back") || t.startsWith("Download"))).toBe(false);
     });
 });

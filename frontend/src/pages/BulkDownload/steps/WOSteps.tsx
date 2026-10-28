@@ -1,10 +1,8 @@
 /**
  * WOSteps — Work Order selection table with facet / date filters + select all
  */
-import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, Download, Loader2 } from "lucide-react";
 import { BulkSelectTable } from "./BulkSelectTable";
 import { useMemo } from "react";
 import { forScope, woColumns, woSummaryAmounts } from "./bulkTableColumns";
@@ -17,22 +15,16 @@ interface WOStepsProps {
     isLoading: boolean;
     selectedIds: string[];
     onSelectAll: (ids: string[]) => void;
-    onBack: () => void;
-    onDownload: () => void;
-    loading: boolean;
     withRate: boolean;
     onWithRateChange: (v: boolean) => void;
     scopeKind: BulkScopeKind;
     /** All scope: page size + selection limit (the project / vendor tabs pass none). */
     tableLimits?: BulkTableLimits;
-    /** False when the page shows Back and Download at the top instead (Reports > Bulk Download). */
-    showFooter?: boolean;
 }
 
 export const WOSteps = ({
     items, isLoading, selectedIds, onSelectAll,
-    onBack, onDownload, loading,
-    withRate, onWithRateChange, scopeKind, tableLimits = {}, showFooter = true,
+    withRate, onWithRateChange, scopeKind, tableLimits = {},
 }: WOStepsProps) => {
     const { role } = useUserData();
     const facet = scopeFacets(scopeKind);
@@ -75,16 +67,6 @@ export const WOSteps = ({
                 {...tableLimits}
                 summaryAmounts={woSummaryAmounts}
             />
-
-            <div className={`flex items-center justify-between pt-2${showFooter ? "" : " hidden"}`}>
-                <Button variant="ghost" onClick={onBack} disabled={loading}>
-                    <ArrowLeft className="h-4 w-4 mr-2" />Back
-                </Button>
-                <Button onClick={onDownload} disabled={loading || selectedIds.length === 0} className="min-w-40 ml-auto">
-                    {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
-                    {loading ? "Generating..." : selectedIds.length === 0 ? "Select WOs to download" : `Download ${selectedIds.length} WO${selectedIds.length !== 1 ? "s" : ""}`}
-                </Button>
-            </div>
         </div>
     );
 };

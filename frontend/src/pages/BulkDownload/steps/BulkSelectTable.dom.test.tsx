@@ -22,11 +22,11 @@ const COLUMNS: ColumnDef<Row, any>[] = [{ id: "name", accessorFn: (r) => r.name,
 
 let selected: string[] = [];
 
-const Harness = ({ pageSize, initial = [], amounts }: { pageSize?: number; initial?: string[]; amounts?: typeof AMOUNTS }) => {
+const Harness = ({ pageSize, initial = [], amounts, data = ROWS }: { pageSize?: number; initial?: string[]; amounts?: typeof AMOUNTS; data?: Row[] }) => {
     const [ids, setIds] = useState<string[]>(initial);
     selected = ids;
     return (
-        <BulkSelectTable data={ROWS} columns={COLUMNS} isLoading={false} selectedIds={ids} onSelectedIdsChange={setIds}
+        <BulkSelectTable data={data} columns={COLUMNS} isLoading={false} selectedIds={ids} onSelectedIdsChange={setIds}
             pageSize={pageSize} summaryAmounts={amounts} />
     );
 };
@@ -92,6 +92,21 @@ describe("BulkSelectTable paging (all scope)", () => {
         expect(selected).toHaveLength(10);
     });
 
+    it("moves to the last page that still exists when the rows shrink under it (a refetch), never an empty page", () => {
+        act(() => root.render(<Harness pageSize={50} />));
+        act(() => button("Next").click());
+        act(() => button("Next").click());
+        expect(container.textContent).toContain("101–120 of 120");
+        act(() => root.render(<Harness pageSize={50} data={ROWS.slice(0, 60)} />));
+        expect(container.textContent).toContain("Page 2 of 2");
+        expect(container.textContent).toContain("51–60 of 60");
+        expect(bodyRows()).toBe(10);
+        // And to page 1 when everything left fits on one.
+        act(() => root.render(<Harness pageSize={50} data={ROWS.slice(0, 7)} />));
+        expect(container.textContent).toContain("Page 1 of 1");
+        expect(bodyRows()).toBe(7);
+    });
+
     it("without pageSize renders every row and no pager (the project and vendor tabs)", () => {
         act(() => root.render(<Harness />));
         expect(bodyRows()).toBe(120);
@@ -123,6 +138,13 @@ describe("BulkSelectTable paging (all scope)", () => {
             act(() => root.render(<Harness pageSize={50} amounts={AMOUNTS} initial={["PO-001", "PO-120"]} />));
             expect(blocks()).toEqual(["Selected=2 of 120", "Incl. GST=₹121"]);
             expect(chips()).toEqual(["No filters"]);
+        });
+
+        it("counts and totals only ticked rows the table shows, so it always agrees with the header", () => {
+            // PO-999 is ticked but no longer in the list (a refetch dropped it).
+            act(() => root.render(<Harness pageSize={50} amounts={AMOUNTS} initial={["PO-001", "PO-120", "PO-999"]} />));
+            expect(blocks()).toEqual(["Selected=2 of 120", "Incl. GST=₹121"]);
+            expect(container.textContent).toContain("2/120 Selected");
         });
 
         it("follows the selection: select-all on every page totals all 120 rows", () => {

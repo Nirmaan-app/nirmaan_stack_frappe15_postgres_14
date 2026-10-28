@@ -314,6 +314,17 @@ export const canMatchGstToVendor = (role?: string | null, userId?: string | null
   userId === "Administrator" || (!!role && MATCH_GST_TO_VENDOR_PROFILES.includes(role));
 
 /**
+ * May see Financials > Project Ledger (owner, 2026-10-28): not Sales, Estimates or Billing, who keep
+ * their other Financials sub-tabs. UI gate only: `api/projects/project_ledger` refuses anyone outside
+ * `services/role_profiles.PROJECT_LEDGER_PROFILES`. Change the two together.
+ */
+export const PROJECT_LEDGER_PROFILES: readonly string[] = [ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, ...ACCOUNTANT_PROFILES];
+
+/** True when `role` (a role PROFILE) may see the Project Ledger. */
+export const canSeeProjectLedger = (role?: string | null, userId?: string | null): boolean =>
+  userId === "Administrator" || (!!role && PROJECT_LEDGER_PROFILES.includes(role));
+
+/**
  * May see the "Pending Invoices Upload" tab (orders still owed a vendor invoice).
  * Wider than the approval set: the invoice approvers plus PMO and every procurement
  * profile, who chase the missing invoices with vendors (owner ruling 2026-09-24).

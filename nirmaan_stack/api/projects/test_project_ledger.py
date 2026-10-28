@@ -3,14 +3,17 @@
 
 """Financials -> Project Ledger: the customer receivable ledger narrowed to one project.
 
-Fixtures are raw inserts (`db_insert`, no hooks) on scratch projects, never committed, rolled back
-and then purged by name prefix in `tearDownClass`.
+Fixtures are raw inserts (`db_insert`, no hooks) on scratch projects and throwaway users, never
+committed, rolled back and then purged by name prefix in `tearDownClass`.
 """
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.projects.project_ledger import get_project_ledger_data
+from nirmaan_stack.services.role_profiles import PROJECT_LEDGER_PROFILES
+
+USER_PREFIX = "test-pledger-"
 
 
 def _raw(doctype, **fields):
@@ -53,12 +56,67 @@ class TestProjectLedger(FrappeTestCase):
 
     @classmethod
     def tearDownClass(cls):
+        frappe.set_user("Administrator")
         frappe.db.rollback()
-        # By name prefix, so the empty project made inside a test is caught too.
-        for doctype in ("Project Invoices", "Project Inflows", "Projects"):
-            frappe.db.delete(doctype, {"name": ["like", "TEST-PLEDGER-%"]})
-        frappe.db.commit()
+        # By name prefix, so the empty project and the users made inside a test are caught too.
+        # One scope per try, each committed: a failed delete must not strand the rest.
+        failures = []
+        scopes = [
+            ("Project Invoices", {"name": ["like", "TEST-PLEDGER-%"]}),
+            ("Project Inflows", {"name": ["like", "TEST-PLEDGER-%"]}),
+            ("Projects", {"name": ["like", "TEST-PLEDGER-%"]}),
+            ("User Permission", {"user": ["like", f"{USER_PREFIX}%"]}),
+            ("Has Role", {"parent": ["like", f"{USER_PREFIX}%"], "parenttype": "User"}),
+            ("Nirmaan Users", {"name": ["like", f"{USER_PREFIX}%"]}),
+            ("User", {"name": ["like", f"{USER_PREFIX}%"]}),
+        ]
+        for doctype, filters in scopes:
+            try:
+                frappe.db.delete(doctype, filters)
+                frappe.db.commit()
+            except Exception as e:
+                frappe.db.rollback()
+                failures.append(f"{doctype}: {e}")
         super().tearDownClass()
+        if failures:
+            raise AssertionError(f"test_project_ledger clean-up failed: {failures}")
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+
+    def _user(self, profile, projects=()):
+        """A throwaway user on `profile` (its Nirmaan Users row and the profile's roles), held to
+        `projects` by User Permission rows. Written with `db_insert`: a normal insert runs our
+        Nirmaan Users / User Permission hooks."""
+        user = f"{USER_PREFIX}{frappe.generate_hash(length=8)}@example.com"
+        now = frappe.utils.now()
+
+        def insert(doc, name):
+            doc.name = name
+            doc.creation = doc.modified = now
+            doc.owner = doc.modified_by = "Administrator"
+            doc.db_insert()
+
+        insert(frappe.get_doc({
+            "doctype": "User", "email": user, "first_name": "Project ledger test", "enabled": 1,
+            "user_type": "System User", "send_welcome_email": 0, "role_profile_name": profile,
+        }), user)
+        insert(frappe.get_doc({
+            "doctype": "Nirmaan Users", "email": user, "first_name": "Project ledger test", "role_profile": profile,
+        }), user)
+        for i, role in enumerate(r.role for r in frappe.get_doc("Role Profile", profile).roles):
+            insert(frappe.get_doc({
+                "doctype": "Has Role", "role": role, "parent": user, "parenttype": "User",
+                "parentfield": "roles", "idx": i + 1,
+            }), frappe.generate_hash(length=10))
+        for project in projects:
+            insert(frappe.get_doc({
+                "doctype": "User Permission", "user": user, "allow": "Projects", "for_value": project,
+            }), f"TEST-PLEDGER-UP-{frappe.generate_hash(length=10)}")
+        frappe.cache.hdel("user_permissions", user)
+        frappe.cache.hdel("roles", user)
+        frappe.local.role_cache = {}
+        return user
 
     def test_rows_are_this_project_only_in_date_order(self):
         rows = get_project_ledger_data(self.P)
@@ -90,3 +148,40 @@ class TestProjectLedger(FrappeTestCase):
     def test_project_id_is_required(self):
         with self.assertRaises(frappe.ValidationError):
             get_project_ledger_data("")
+
+    def test_unknown_project_is_refused(self):
+        with self.assertRaises(frappe.ValidationError):
+            get_project_ledger_data("TEST-PLEDGER-DOES-NOT-EXIST")
+
+    def test_profiles_outside_the_ledger_list_are_refused(self):
+        # Sales, Estimates and Billing keep other Financials sub-tabs but not the ledger (owner, 2026-10-28).
+        refused = [
+            "Nirmaan Sales Executive Profile", "Nirmaan Sales Lead Profile",
+            "Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile",
+            "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile",
+            "Nirmaan Procurement Executive Profile",
+        ]
+        checked = 0
+        for profile in refused:
+            if not frappe.db.exists("Role Profile", profile):
+                continue
+            frappe.set_user(self._user(profile))
+            with self.assertRaises(frappe.PermissionError, msg=profile):
+                get_project_ledger_data(self.P)
+            frappe.set_user("Administrator")
+            checked += 1
+        self.assertGreater(checked, 0, "no refused profile exists on this site, so this test proves nothing")
+
+    def test_ledger_profiles_read_an_unrestricted_project(self):
+        for profile in PROJECT_LEDGER_PROFILES:
+            frappe.set_user(self._user(profile))
+            rows = get_project_ledger_data(self.P)
+            frappe.set_user("Administrator")
+            self.assertEqual(len(rows), 5, profile)
+
+    def test_a_user_permission_limits_which_projects(self):
+        # PMO held to Q by a User Permission row reads Q's ledger but not P's.
+        frappe.set_user(self._user("Nirmaan PMO Executive Profile", projects=[self.Q]))
+        self.assertEqual([r["invoice"] for r in get_project_ledger_data(self.Q)], [9999])
+        with self.assertRaises(frappe.PermissionError):
+            get_project_ledger_data(self.P)

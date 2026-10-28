@@ -34,7 +34,8 @@ Backend API endpoints in `nirmaan_stack/api/`.
 - `project_aggregates.py` - Financial aggregations
 - `project_wise_invoice_data.py` - Invoice analytics
 - `project_ledger.get_project_ledger_data(project_id)` - Financials → Project Ledger rows (invoices raised vs
-  inflows received, date-ordered); calls the customer ledger's shared `receivable_ledger` with `{"project": ...}`
+  inflows received, date-ordered); calls the customer ledger's shared `receivable_ledger` with `{"project": ...}`.
+  Refuses a profile outside `role_profiles.PROJECT_LEDGER_PROFILES` and a user who can't read the project
 
 ### PO Delivery Documents (`api/po_delivery_documentss.py`)
 - `create_po_delivery_documents()` - Create DC/MIR record with file upload and item quantities

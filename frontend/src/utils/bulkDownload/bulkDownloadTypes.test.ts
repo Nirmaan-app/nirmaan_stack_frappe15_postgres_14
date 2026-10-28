@@ -28,8 +28,8 @@ describe("allowedBulkTypes — project scope (the project tab)", () => {
         }
     });
 
-    it("keeps the existing PMO rule: client invoices go, vendor invoices and vouchers stay", () => {
-        expect(allowedBulkTypes(project, PMO)).toEqual(["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "POPaymentVoucher", "WOPaymentVoucher"]);
+    it("gives PMO every type, client invoices included (PMO views all client money, owner 2026-10-27)", () => {
+        expect(allowedBulkTypes(project, PMO)).toEqual(allowedBulkTypes(project, ADMIN));
     });
 
     it("ignores a vendor type in project scope", () => {
@@ -221,7 +221,7 @@ describe("the all scope (Reports > Bulk Download: every project, no picker)", ()
 
     it("applies the same role rules as the project tab, plus Porter Invoices (PM: no finance types at all)", () => {
         expect(allowedBulkTypes(all, PM)).toEqual(["PO", "WO", "DC", "MIR", "DN", "MTC"]);
-        expect(allowedBulkTypes(all, PMO)).toEqual(["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "POPaymentVoucher", "WOPaymentVoucher", "PorterInvoice"]);
+        expect(allowedBulkTypes(all, PMO)).toEqual([...BULK_DOC_TYPES]);
         for (const role of [ADMIN, PMO, ACCOUNTANT]) {
             expect(allowedBulkTypes(all, role), role).toEqual([...allowedBulkTypes(project, role), "PorterInvoice"]);
         }

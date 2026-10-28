@@ -5,9 +5,10 @@
  * A bulk download covers one project (the project page's tab), one vendor (the vendor page's tab)
  * or every project the user may read (Reports > Bulk Download, the "all" scope). Role rules are the
  * same in all three: a Project Manager gets no vendor invoices, client invoices or payment vouchers
- * (PO or WO); PMO loses client invoices only.
+ * (PO or WO). PMO gets every type, client invoices included (PMO views all client money, owner
+ * 2026-10-27).
  */
-import { PMO_EXECUTIVE_PROFILE, PROJECT_MANAGER_PROFILE } from "@/constants/roles";
+import { PROJECT_MANAGER_PROFILE } from "@/constants/roles";
 
 export type BulkDocType = "PO" | "WO" | "Invoice" | "DC" | "MIR" | "DN" | "MTC" | "ClientInvoice" | "POPaymentVoucher" | "WOPaymentVoucher" | "PorterInvoice";
 export type InvoiceSubType = "PO Invoices" | "WO Invoices" | "All Invoices";
@@ -102,7 +103,6 @@ export const allowedBulkTypes = (scope: Pick<BulkDownloadScope, "kind" | "vendor
         // Porter invoices belong to no project or vendor: Report Bulk Download (the all scope) only.
         if (type === "PorterInvoice" && scope.kind !== "all") return false;
         if (role === PROJECT_MANAGER_PROFILE && (type === "Invoice" || type === "ClientInvoice" || type === "PorterInvoice" || VOUCHER_TYPES.includes(type))) return false;
-        if (role === PMO_EXECUTIVE_PROFILE && type === "ClientInvoice") return false;
         if (scope.kind === "vendor") {
             // Project Invoices carry no vendor.
             if (type === "ClientInvoice") return false;

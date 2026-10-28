@@ -22,7 +22,7 @@ This document contains detailed page-level role access control mappings for the 
 **Special:** `Administrator` user (user_id) is hardcoded with Admin role access.
 
 **Note:** PMO Executive Profile mirrors Admin Profile access in all areas **except**:
-- **Project financials** *(owner, 2026-10-27 and 2026-10-28)*: PMO sees every Financials tile and sub-tab on the project page (including Project Value, Client Invoiced, Inflow and the Project Invoices / Inflow tabs), every financial column on the Projects list, the `/project-invoices` and `/in-flow-payments` pages (sidebar links + route guards), and every Reports → Projects report (Cash Sheet, Inflow, both Payments reports, Project Invoices, Project GST). PMO is **view-only** on client invoices and inflows everywhere: no Add Invoice / New Inflow, no invoice Edit/Delete, no inflow Actions menu. Rules: `canAddProjectInvoice`, `canAddInflow`, `canEditProjectInvoice`, `canActOnInflow`, `canDeleteInflow` in `src/constants/roles.ts`; `AllProjectInvoices` no longer counts PMO as Admin. Frontend only — the server already lets PMO read both doctypes.
+- **Project financials** *(owner, 2026-10-27 and 2026-10-28)*: PMO sees every Financials tile and sub-tab on the project page (including Project Value, Client Invoiced, Inflow and the Project Invoices / Inflow tabs), every financial column on the Projects list, the `/project-invoices` and `/in-flow-payments` pages (sidebar links + route guards), and every Reports → Projects report (Cash Sheet, Inflow, both Payments reports, Project Invoices, Project GST), and the Client Invoices card in every Bulk Download (project tab and Reports). PMO is **view-only** on client invoices and inflows everywhere: no Add Invoice / New Inflow, no invoice Edit/Delete, no inflow Actions menu. Rules: `canAddProjectInvoice`, `canAddInflow`, `canEditProjectInvoice`, `canActOnInflow`, `canDeleteInflow` in `src/constants/roles.ts`; `AllProjectInvoices` no longer counts PMO as Admin. Frontend only — the server already lets PMO read both doctypes.
 - **TDS Approval:** PMO can see the "Pending Approval" tab (read-only) but cannot approve/reject TDS items
 - **Project Payment Approval:** PMO can see the "Approve Payments" tab (read-only) but cannot approve/reject payments. (Editing a fulfilled payment no longer exists for anyone — see *Payments queue — edit & revert* below.)
 - **PR Approval** *(2026-07-04 access review)*: PMO does **not** see the "Approve PR" tab and is blocked from the approve/reject view even by a direct/bookmarked `?tab=Approve PR` URL (redirected to New PR Request). Approver roles are **Admin + Project Lead** (`PR_ADMIN_ROLES` in `config/prTabs.constants.ts`). Unlike TDS/Payments, this is NOT a read-only tab — it is removed entirely. PMO keeps New PR Request / In Progress / Sent Back / All PRs.
@@ -343,12 +343,15 @@ queue — edit & revert" below).
 - `InFlowPayments.tsx:280`
 - `InvoiceReconciliationContainer.tsx:23,51`
 
-**Project page → Financials sub-tabs** (`ProjectFinancialsTab.tsx`). Whoever sees the project's Financials tab
-(Admin, PMO, Accountant, Accountant Lead, Estimates, Billing, Sales Executive / Lead) sees **Project Ledger**,
-which is the first sub-tab and the one Financials opens on. Sales is confined to `SALES_ALLOWED_TABS`: Project
-Ledger, Project Invoices, Inflow, Client PO. Project Manager, Project Lead and Procurement never see Financials.
-Project Ledger is read-only. `get_project_ledger_data` has no server role check (nor does the customer ledger),
-so the gate is the frontend tab only.
+**Project page → Financials sub-tabs** (`ProjectFinancialsTab.tsx`). The Financials tab itself shows for Admin,
+PMO, Accountant, Accountant Lead, Estimates, Billing and Sales Executive / Lead; Project Manager, Project Lead
+and Procurement never see it. **Project Ledger** (first sub-tab, read-only) is for Admin, PMO, Accountant and
+Accountant Lead only (owner, 2026-10-28): `PROJECT_LEDGER_PROFILES` / `canSeeProjectLedger` in
+`src/constants/roles.ts`, and Financials opens on it for them. Estimates and Billing open on All Payments; Sales
+is confined to `SALES_ALLOWED_TABS` (Project Invoices, Inflow, Client PO) and opens on Project Invoices. The server
+enforces the ledger rule: `get_project_ledger_data` refuses a profile outside
+`services/role_profiles.PROJECT_LEDGER_PROFILES` (Administrator passes) and a user who can't read the project
+(User Permission). The customer ledger still has no server role check.
 
 ---
 

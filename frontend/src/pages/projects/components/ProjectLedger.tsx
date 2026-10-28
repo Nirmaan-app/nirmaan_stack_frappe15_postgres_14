@@ -1,19 +1,13 @@
-import React, { useMemo, useState, useCallback } from 'react';
-import Fuse from 'fuse.js';
-import { Row } from '@tanstack/react-table';
+import React, { useState, useCallback } from 'react';
 import { Search, FileUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/use-toast';
 import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
-import { exportToCsv } from '@/utils/exportToCsv';
-import { formatDate } from '@/utils/FormatDate';
-import { dateFilterFn } from '@/utils/tableFilters';
 import { DateFilterValue } from '../../vendors/components/AdvancedDateFilter';
-import { CustomerLedgerTransaction, parseLedgerDate } from '../../customers/data/useCustomerLedger';
 import { CustomerLedgerTable } from '../../customers/components/CustomerLedgerTable';
-import { CustomerLedgerEntry } from '../../customers/components/CustomerLedgerRow';
+import { exportReceivableLedgerCsv, useReceivableLedgerRows } from '../../customers/data/useReceivableLedgerRows';
 import { useProjectLedgerData } from '../data/useProjectLedger';
 
 interface ProjectLedgerProps {
@@ -21,14 +15,17 @@ interface ProjectLedgerProps {
   projectName?: string;
 }
 
+// Every row is this project, so the search skips the project name.
+const SEARCH_KEYS = ['details', 'type'] as const;
+
 /**
  * Receivable ledger for one project (Financials -> Project Ledger): the
  * customer ledger's invoices vs. inflows, narrowed to this project, so it has
  * no Project column or project filter.
  *
- * Same rules as the customer ledger: running receivable seeded at ZERO over
- * full history, filters applied BEFORE the running total, totals in the footer
- * only.
+ * Same rules as the customer ledger (`useReceivableLedgerRows`): running
+ * receivable seeded at ZERO over full history, filters applied BEFORE the
+ * running total, totals in the footer only.
  */
 export const ProjectLedger: React.FC<ProjectLedgerProps> = ({ projectId, projectName }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -37,38 +34,8 @@ export const ProjectLedger: React.FC<ProjectLedgerProps> = ({ projectId, project
   const { data: apiResponse, isLoading, error } = useProjectLedgerData(projectId);
   const transactions = apiResponse?.message;
 
-  const processedItems = useMemo(() => {
-    let items: CustomerLedgerTransaction[] = transactions || [];
-
-    if (dateFilter?.value) {
-      items = items.filter(item => {
-        const mockRow = { getValue: (columnId: string) => item[columnId as keyof CustomerLedgerTransaction] };
-        return dateFilterFn(mockRow as unknown as Row<CustomerLedgerTransaction>, 'date', dateFilter, () => { });
-      });
-    }
-    if (searchTerm.trim()) {
-      const fuse = new Fuse(items, { keys: ['details', 'type'], threshold: 0.3 });
-      items = fuse.search(searchTerm).map(result => result.item);
-    }
-
-    let runningReceivable = 0;
-    return items.map((entry): CustomerLedgerEntry => {
-      runningReceivable += entry.invoice - entry.inflow;
-      return { ...entry, receivable: runningReceivable };
-    });
-  }, [transactions, dateFilter, searchTerm]);
-
-  const totals = useMemo(() => (
-    processedItems.reduce((acc, item) => {
-      acc.invoice += item.invoice;
-      acc.inflow += item.inflow;
-      return acc;
-    }, { invoice: 0, inflow: 0 })
-  ), [processedItems]);
-
-  const closingReceivable = processedItems.length > 0
-    ? processedItems[processedItems.length - 1].receivable
-    : 0;
+  const ledger = useReceivableLedgerRows(transactions, { dateFilter, searchTerm, searchKeys: SEARCH_KEYS });
+  const { items: processedItems, totals, closingReceivable } = ledger;
 
   const hasAnyTransactions = (transactions?.length ?? 0) > 0;
   const hasActiveFilters = Boolean(dateFilter?.value) || searchTerm.trim() !== "";
@@ -79,36 +46,9 @@ export const ProjectLedger: React.FC<ProjectLedgerProps> = ({ projectId, project
   }, []);
 
   const handleExportCsv = useCallback(() => {
-    const exportColumns = [
-      { header: 'Date', accessorKey: 'date' },
-      { header: 'Transaction', accessorKey: 'type' },
-      { header: 'Details', accessorKey: 'details' },
-      { header: 'Invoice', accessorKey: 'invoice' },
-      { header: 'Inflow', accessorKey: 'inflow' },
-      { header: 'Receivable', accessorKey: 'receivable' },
-    ];
-
-    const formattedRows = processedItems.map(item => ({
-      date: formatDate(parseLedgerDate(item.date)),
-      type: item.type,
-      details: item.details.replace(/\n/g, ' | '),
-      invoice: item.invoice !== 0 ? Number(item.invoice).toFixed(2) : '',
-      inflow: item.inflow !== 0 ? Number(item.inflow).toFixed(2) : '',
-      receivable: Number(item.receivable).toFixed(2),
-    }));
-
-    const footerRow = {
-      date: '', type: '', details: 'Totals & Closing Receivable',
-      invoice: Number(totals.invoice).toFixed(2),
-      inflow: Number(totals.inflow).toFixed(2),
-      receivable: Number(closingReceivable).toFixed(2),
-    };
-
-    const label = projectName || projectId;
-    const sanitized = label.replace(/[/\\?%*:|"<>]/g, '-');
-    exportToCsv(`${sanitized}_Project_Ledger.csv`, [...formattedRows, footerRow], exportColumns);
+    exportReceivableLedgerCsv(ledger, { label: projectName || projectId, suffix: 'Project_Ledger', withProject: false });
     toast({ title: "Export Successful" });
-  }, [processedItems, totals, closingReceivable, projectId, projectName]);
+  }, [ledger, projectId, projectName]);
 
   if (error) return <AlertDestructive error={error} />;
   if (isLoading) return <div className="p-4"><Skeleton className="h-48 w-full" /></div>;

@@ -56,19 +56,24 @@ interface BulkSelectTableProps<T extends { name: string }> {
     summaryAmounts?: readonly SummaryAmount<T>[];
 }
 
+// Module-level defaults: a fresh `[]` / `{}` per render would defeat the summary's memos.
+const NO_FACETS: Record<string, string> = {};
+const NO_DATE_COLUMNS: string[] = [];
+const NO_AMOUNTS: readonly never[] = [];
+
 export function BulkSelectTable<T extends { name: string }>({
     data,
     columns,
     isLoading,
     selectedIds,
     onSelectedIdsChange,
-    facetColumns = {},
-    dateFilterColumns = [],
+    facetColumns = NO_FACETS,
+    dateFilterColumns = NO_DATE_COLUMNS,
     searchPlaceholder = "Search...",
     emptyMessage = "No items found.",
     rowLabel,
     pageSize,
-    summaryAmounts = [],
+    summaryAmounts = NO_AMOUNTS,
 }: BulkSelectTableProps<T>) {
     const [sorting, setSorting] = useState<SortingState>([]);
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -104,9 +109,18 @@ export function BulkSelectTable<T extends { name: string }>({
     const filteredRows = table.getPrePaginationRowModel().rows;
     const visibleIds = useMemo(() => filteredRows.map((r) => r.id), [filteredRows]);
     const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
-    const selectedVisibleCount = visibleIds.filter((id) => selected.has(id)).length;
+    const selectedVisibleIds = useMemo(() => visibleIds.filter((id) => selected.has(id)), [visibleIds, selected]);
+    const selectedVisibleCount = selectedVisibleIds.length;
     const allVisibleSelected = visibleIds.length > 0 && selectedVisibleCount === visibleIds.length;
     const isFiltered = columnFilters.length > 0 || globalFilter.trim() !== "";
+
+    // `autoResetPageIndex` is off, so nothing else pulls the page back when the rows shrink under it
+    // (a refetch after POs were merged or cancelled): move to the last page that still exists, in this
+    // render, rather than show an empty page reading "Page 6 of 5".
+    const pageCount = pageSize ? table.getPageCount() : 0;
+    if (pageSize && pagination.pageIndex > 0 && pagination.pageIndex >= pageCount) {
+        setPagination((p) => ({ ...p, pageIndex: Math.max(0, pageCount - 1) }));
+    }
 
     // The wizard's standing rule: changing a filter clears the selection, so a download never
     // carries a row the filters have hidden. Keyed on the filter VALUE (not a first-run flag) so a
@@ -132,25 +146,36 @@ export function BulkSelectTable<T extends { name: string }>({
     };
 
     // The two-line summary: line 1 = what is ticked and its total, line 2 = the filters and date range.
-    const dateTitles = Object.fromEntries(
-        dateFilterColumns.map((id) => {
-            const header = table.getColumn(id)?.columnDef.header;
-            return [id, typeof header === "string" ? header : id];
-        })
+    // Line 1 reads the ticked rows the filters SHOW, the same rows the header's "x/y Selected" counts.
+    // Memoised: each figure is a pass over the rows, and the all scope has thousands.
+    const dateTitles = useMemo(
+        () => Object.fromEntries(
+            dateFilterColumns.map((id) => {
+                const header = table.getColumn(id)?.columnDef.header;
+                return [id, typeof header === "string" ? header : id];
+            })
+        ),
+        // `table` is left out on purpose (a new reference every render); its columns come from `columns`.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [dateFilterColumns, columns],
     );
     // The ticked rows' own date range, on the table's main (first) date column -- not the date filter.
     const mainDate = dateFilterColumns[0];
-    const selectedDates = mainDate
-        ? dateSpan(table.getCoreRowModel().rows.filter((row) => selected.has(row.id)).map((row) => row.getValue(mainDate)))
-        : null;
-    const blocks = selectionBlocks(
-        data, selectedIds, filteredRows.length, summaryAmounts,
-        mainDate ? { title: dateTitles[mainDate], span: selectedDates } : null,
+    const blocks = useMemo(() => {
+        const ticked = filteredRows.filter((row) => selected.has(row.id));
+        const span = mainDate ? dateSpan(ticked.map((row) => row.getValue(mainDate))) : null;
+        return selectionBlocks(
+            ticked.map((row) => row.original), selectedVisibleIds, filteredRows.length, summaryAmounts,
+            mainDate ? { title: dateTitles[mainDate], span } : null,
+        );
+    }, [filteredRows, selected, selectedVisibleIds, summaryAmounts, mainDate, dateTitles]);
+    const filterParts = useMemo(
+        () => describeFilters(columnFilters, globalFilter, facetColumns, dateTitles),
+        [columnFilters, globalFilter, facetColumns, dateTitles],
     );
-    const filterParts = describeFilters(columnFilters, globalFilter, facetColumns, dateTitles);
     // Shown only once something is ticked or a filter is set (owner, 2026-10-28): an untouched table needs no summary.
     const hasFilters = filterParts[0]?.key !== "none";
-    const showSummary = selectedIds.length > 0 || hasFilters;
+    const showSummary = selectedVisibleCount > 0 || hasFilters;
 
     const clearFilters = () => {
         table.resetColumnFilters();

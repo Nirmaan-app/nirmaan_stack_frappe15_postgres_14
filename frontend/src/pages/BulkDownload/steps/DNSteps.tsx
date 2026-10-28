@@ -2,8 +2,6 @@
  * DNSteps — Delivery Notes: All DNs table (facet / date filters) / Critical POs tabs
  */
 import { useMemo } from "react";
-import { Button } from "@/components/ui/button";
-import { ArrowLeft, Download, Loader2 } from "lucide-react";
 import { BulkSelectTable } from "./BulkSelectTable";
 import { CriticalTasksTab } from "./CriticalTasksTab";
 import { dnColumns, forScope } from "./bulkTableColumns";
@@ -15,23 +13,17 @@ interface DNStepsProps {
     isLoading: boolean;
     selectedIds: string[];
     onSelectAll: (ids: string[]) => void;
-    onBack: () => void;
-    onDownload: () => void;
-    loading: boolean;
     /** Project scope only: Critical PO Tasks exist inside a project. */
     criticalTasks: CriticalPOTask[];
     onSelectMultipleCriticalTaskPOs: (taskNames: string[]) => void;
     scopeKind: BulkScopeKind;
     /** All scope: page size + selection limit (the project / vendor tabs pass none). */
     tableLimits?: BulkTableLimits;
-    /** False when the page shows Back and Download at the top instead (Reports > Bulk Download). */
-    showFooter?: boolean;
 }
 
 export const DNSteps = ({
     items, isLoading, selectedIds, onSelectAll,
-    onBack, onDownload, loading,
-    criticalTasks, onSelectMultipleCriticalTaskPOs, scopeKind, tableLimits = {}, showFooter = true,
+    criticalTasks, onSelectMultipleCriticalTaskPOs, scopeKind, tableLimits = {},
 }: DNStepsProps) => {
     const isProject = scopeKind === "project";
     const facet = scopeFacets(scopeKind);
@@ -66,16 +58,6 @@ export const DNSteps = ({
                     {...tableLimits}
                 />
             </CriticalTasksTab>
-
-            <div className={`flex items-center justify-between pt-2${showFooter ? "" : " hidden"}`}>
-                <Button variant="ghost" onClick={onBack} disabled={loading}>
-                    <ArrowLeft className="h-4 w-4 mr-2" />Back
-                </Button>
-                <Button onClick={onDownload} disabled={loading || selectedIds.length === 0} className="min-w-44 ml-auto">
-                    {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
-                    {loading ? "Generating..." : selectedIds.length === 0 ? "Select DNs to download" : `Download ${selectedIds.length} DN${selectedIds.length !== 1 ? "s" : ""}`}
-                </Button>
-            </div>
         </div>
     );
 };

@@ -1,8 +1,7 @@
 /**
  * InvoiceSteps — sub-type selector (All / PO Invoices / WO Invoices) + invoice table with facet / date filters
  */
-import { Button } from "@/components/ui/button";
-import { ArrowLeft, Download, Loader2, FileText } from "lucide-react";
+import { FileText } from "lucide-react";
 import { BulkSelectTable } from "./BulkSelectTable";
 import { useMemo } from "react";
 import { forScope, invoiceColumns, invoiceSummaryAmounts } from "./bulkTableColumns";
@@ -14,9 +13,6 @@ interface InvoiceStepsProps {
     isLoading: boolean;
     selectedIds: string[];
     onSelectAll: (ids: string[]) => void;
-    onBack: () => void;
-    onDownload: () => void;
-    loading: boolean;
     invoiceSubType: InvoiceSubType;
     onInvoiceSubTypeChange: (v: InvoiceSubType) => void;
     /** The choices this scope offers (`invoiceSubTypesFor`). */
@@ -24,13 +20,11 @@ interface InvoiceStepsProps {
     scopeKind: BulkScopeKind;
     /** All scope: page size + selection limit (the project / vendor tabs pass none). */
     tableLimits?: BulkTableLimits;
-    /** False when the page shows Back and Download at the top instead (Reports > Bulk Download). */
-    showFooter?: boolean;
 }
 
 export const InvoiceSteps = ({
     items, isLoading, selectedIds, onSelectAll,
-    onBack, onDownload, loading, invoiceSubType, onInvoiceSubTypeChange, subTypes, scopeKind, tableLimits = {}, showFooter = true,
+    invoiceSubType, onInvoiceSubTypeChange, subTypes, scopeKind, tableLimits = {},
 }: InvoiceStepsProps) => {
     const facet = scopeFacets(scopeKind);
     const columns = useMemo(() => forScope(invoiceColumns, scopeKind), [scopeKind]);
@@ -87,16 +81,6 @@ export const InvoiceSteps = ({
                 {...tableLimits}
                 summaryAmounts={invoiceSummaryAmounts}
             />
-
-            <div className={`flex items-center justify-between pt-2${showFooter ? "" : " hidden"}`}>
-                <Button variant="ghost" onClick={onBack} disabled={loading}>
-                    <ArrowLeft className="h-4 w-4 mr-2" />Back
-                </Button>
-                <Button onClick={onDownload} disabled={loading || selectedIds.length === 0} className="min-w-44 ml-auto">
-                    {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
-                    {loading ? "Generating..." : selectedIds.length === 0 ? "Select invoices to download" : `Download ${selectedIds.length} Invoice${selectedIds.length !== 1 ? "s" : ""}`}
-                </Button>
-            </div>
         </div>
     );
 };

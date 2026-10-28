@@ -3,8 +3,6 @@
  * (plus a Project filter in the all scope; a vendor never has client invoices)
  */
 import { useMemo } from "react";
-import { Button } from "@/components/ui/button";
-import { ArrowLeft, Download, Loader2 } from "lucide-react";
 import { BulkSelectTable } from "./BulkSelectTable";
 import { clientInvoiceColumns, clientInvoiceSummaryAmounts, forScope } from "./bulkTableColumns";
 import type { ProjectInvoice } from "../useBulkDownloadWizard";
@@ -15,18 +13,13 @@ interface ClientInvoiceStepsProps {
     isLoading: boolean;
     selectedIds: string[];
     onSelectAll: (ids: string[]) => void;
-    onBack: () => void;
-    onDownload: () => void;
-    loading: boolean;
     scopeKind: BulkScopeKind;
     /** All scope: page size + selection limit (the project tab passes none). */
     tableLimits?: BulkTableLimits;
-    /** False when the page shows Back and Download at the top instead (Reports > Bulk Download). */
-    showFooter?: boolean;
 }
 
 export const ClientInvoiceSteps = ({
-    items, isLoading, selectedIds, onSelectAll, onBack, onDownload, loading, scopeKind, tableLimits = {}, showFooter = true,
+    items, isLoading, selectedIds, onSelectAll, scopeKind, tableLimits = {},
 }: ClientInvoiceStepsProps) => {
     const isAll = scopeKind === "all";
     const columns = useMemo(() => forScope(clientInvoiceColumns, scopeKind), [scopeKind]);
@@ -52,16 +45,6 @@ export const ClientInvoiceSteps = ({
             {...tableLimits}
             summaryAmounts={clientInvoiceSummaryAmounts}
         />
-
-        <div className={`flex items-center justify-between pt-2${showFooter ? "" : " hidden"}`}>
-            <Button variant="ghost" onClick={onBack} disabled={loading}>
-                <ArrowLeft className="h-4 w-4 mr-2" />Back
-            </Button>
-            <Button onClick={onDownload} disabled={loading || selectedIds.length === 0} className="min-w-44 ml-auto">
-                {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
-                {loading ? "Generating..." : selectedIds.length === 0 ? "Select invoices to download" : `Download ${selectedIds.length} Invoice${selectedIds.length !== 1 ? "s" : ""}`}
-            </Button>
-        </div>
     </div>
     );
 };

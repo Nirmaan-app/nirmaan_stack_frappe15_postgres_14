@@ -495,3 +495,6 @@ def assert_vendor_payee_access(user: str) -> None:
     else (`payees.guard`)."""
     if not has_role_profile(user, VENDOR_PAYEE_PROFILES):
         frappe.throw(_("You are not allowed to set a vendor's bank account."), frappe.PermissionError)
+
+# Project Ledger (owner, 2026-10-28), enforced by `api/projects/project_ledger`; client twin in `roles.ts`.
+PROJECT_LEDGER_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
