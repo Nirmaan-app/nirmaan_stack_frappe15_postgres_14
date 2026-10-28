@@ -336,3 +336,25 @@ Pending Approval. Project Payments 8,648 before and after.
 6. **Left on localhost:** the test claims above except M7, with their expenses (X2 waiting in the lead tab), the four
    new Users Payees (holders "… UI Test", account numbers 99000777200001–04, IFSC HDFC0000001), and 12 receipt PDFs in
    the bucket. REIMB-26-00169 (₹2,000, "breakfast …") was not part of the walk.
+
+---
+
+# Walk 5 (not walked yet) — the Reimbursements tab on a user's profile
+
+Built 2026-10-28 (owner: Admin only); covered by `frontend/src/utils/reimbursements/profileMonth.test.ts` and a
+read-only server check of the tab's query (October for the Walk 4 PM: 6 claims, Approved ₹83,200, Pending ₹2,000;
+September: none). **People:** an Admin, the CEO user, HR, Accounts and a Project Manager.
+
+| # | Who | Step | Expected |
+|---|---|---|---|
+| P1 | Admin | Users → a person with claims → profile | A **Reimbursements** tab after Payee; it opens on this month |
+| P2 | Admin | The tab | That person's claims raised this month only, every status; no Claimant column, no Edit / Delete |
+| P3 | Admin | The summary above the table | "<Month> total ₹X · Approved + Paid" with the chip "Limit reached" from ₹2,000 or "Under the ₹2,000 limit", then Approved, Paid, Pending ("not counted yet") and Rejected ("never counted") |
+| P4 | Admin | The same month total in an approver's warning for that person's next claim | The same figure |
+| P5 | Admin | Month → last month; → All months | Rows and totals change together; All months says "Total", with no chip |
+| P6 | Admin | Reload with the month chosen | The same month (`?reimb_month=`) |
+| P7 | Admin | Click an ID | The detail sheet, with no Approve / Reject / Edit / Delete |
+| P8 | Admin | More than one page of claims (All months) | The total covers every page, not only the one shown |
+| P9 | CEO | A profile | The tab is there |
+| P10 | HR, Accounts, the PM on their own profile | A profile | **No** Reimbursements tab |
+| P11 | Admin | Phone width | Five tabs fit (icons only) |

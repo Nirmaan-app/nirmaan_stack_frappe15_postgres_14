@@ -19,13 +19,14 @@ import { withOwnAssets } from "@/utils/ownAssets";
 import { useAssetDataRefresh } from "@/pages/Assets/hooks/useAssetDataRefresh";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { seesAllClaims } from "@/utils/reimbursements/rules";
+import { seesProfileReimbursements } from "@/utils/reimbursements/profileMonth";
 import type { OwnBankAccount } from "@/types/NirmaanStack/Reimbursement";
 import { useUserSubmitHandlers } from "@/hooks/useUserSubmitHandlers";
 import { NirmaanUserPermissions } from "@/types/NirmaanStack/NirmaanUserPermissions";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Pencil2Icon } from "@radix-ui/react-icons";
-import { User, FolderKanban, Package, Landmark } from "lucide-react";
+import { User, FolderKanban, Package, Landmark, ReceiptText } from "lucide-react";
 import EditUserForm from "./EditUserForm";
 import {
   UserProfileActions,
@@ -33,6 +34,7 @@ import {
   UserProjectsTab,
   UserAssetsTab,
   UserPayeesTab,
+  UserReimbursementsTab,
 } from "./components";
 import {
   ASSET_MASTER_DOCTYPE,
@@ -237,6 +239,8 @@ export default function Profile() {
     canSeePayees && id ? `bank_account_of:${id}` : null
   );
   const payee = payeeData?.message ?? null;
+  // Reimbursements tab: the person's claims by month, with the totals. Admin only (owner, 2026-10-28).
+  const canSeeReimbursements = seesProfileReimbursements({ role: userData.role, userId: userData.user_id });
 
   const assetCount = useMemo(() => {
     return assetManagementList?.length || 0;
@@ -282,8 +286,9 @@ export default function Profile() {
     ...(isProjectExemptRole ? [] : ["projects"]),
     "assets",
     ...(canSeePayees ? ["payees"] : []),
+    ...(canSeeReimbursements ? ["reimbursements"] : []),
   ];
-  const tabGridCols = ["", "grid-cols-1", "grid-cols-2", "grid-cols-3", "grid-cols-4"][profileTabs.length];
+  const tabGridCols = ["", "grid-cols-1", "grid-cols-2", "grid-cols-3", "grid-cols-4", "grid-cols-5"][profileTabs.length];
   const activeTab = tabParam && profileTabs.includes(tabParam) ? tabParam : "overview";
 
   return (
@@ -317,7 +322,7 @@ export default function Profile() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={(tab) => urlStateManager.updateParam("tab", tab)} className="w-full">
-        <TabsList className={`grid w-full ${tabGridCols} ${profileTabs.length > 3 ? "max-w-xl" : "max-w-md"}`}>
+        <TabsList className={`grid w-full ${tabGridCols} ${profileTabs.length > 4 ? "max-w-3xl" : profileTabs.length > 3 ? "max-w-xl" : "max-w-md"}`}>
           <TabsTrigger value="overview" className="gap-2">
             <User className="h-4 w-4" />
             <span className="max-sm:hidden">Overview</span>
@@ -344,6 +349,12 @@ export default function Profile() {
             <TabsTrigger value="payees" className="gap-2">
               <Landmark className="h-4 w-4" />
               <span className="max-sm:hidden">Payee</span>
+            </TabsTrigger>
+          )}
+          {canSeeReimbursements && (
+            <TabsTrigger value="reimbursements" className="gap-2">
+              <ReceiptText className="h-4 w-4" />
+              <span className="max-sm:hidden">Reimbursements</span>
             </TabsTrigger>
           )}
         </TabsList>
@@ -404,6 +415,12 @@ export default function Profile() {
         {canSeePayees && (
           <TabsContent value="payees" className="mt-6">
             <UserPayeesTab account={payee} loading={payeeLoading} isOwnProfile={isOwnProfile} onChanged={() => mutatePayee()} />
+          </TabsContent>
+        )}
+
+        {canSeeReimbursements && (
+          <TabsContent value="reimbursements" className="mt-6">
+            <UserReimbursementsTab userId={id} />
           </TabsContent>
         )}
       </Tabs>
