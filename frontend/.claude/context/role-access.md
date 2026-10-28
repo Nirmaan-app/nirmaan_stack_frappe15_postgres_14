@@ -342,6 +342,13 @@ queue — edit & revert" below).
 - `InFlowPayments.tsx:280`
 - `InvoiceReconciliationContainer.tsx:23,51`
 
+**Project page → Financials sub-tabs** (`ProjectFinancialsTab.tsx`). Whoever sees the project's Financials tab
+(Admin, PMO, Accountant, Accountant Lead, Estimates, Billing, Sales Executive / Lead) sees **Project Ledger**,
+which is the first sub-tab and the one Financials opens on. Sales is confined to `SALES_ALLOWED_TABS`: Project
+Ledger, Project Invoices, Inflow, Client PO. Project Manager, Project Lead and Procurement never see Financials.
+Project Ledger is read-only. `get_project_ledger_data` has no server role check (nor does the customer ledger),
+so the gate is the frontend tab only.
+
 ---
 
 ### Payees (`payees/`, spec #1420)

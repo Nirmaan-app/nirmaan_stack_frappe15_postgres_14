@@ -33,6 +33,7 @@ const ProjectPaymentsList = React.lazy(() => import("../ProjectPayments/project-
 const ProjectWiseInvoices = React.lazy(() => import("./ProjectWiseInvoices"));
 const ProjectInvoices = React.lazy(() => import("../ProjectInvoices/ProjectInvoices"));
 const InFlowPayments = React.lazy(() => import("../inflow-payments/InFlowPayments"));
+const ProjectLedger = React.lazy(() => import("./components/ProjectLedger"));
 // const CustomerPODeatilsCard = React.lazy(() => import("./components/CustomerPODeatilsCard"));
 
 interface ProjectFinancialsTabProps {
@@ -47,7 +48,7 @@ interface ProjectFinancialsTabProps {
 
 }
 // Sales users (Executive / Lead) only see these financial sub-tabs.
-const SALES_ALLOWED_TABS = ["Project Invoices", "Inflow", "Client PO"];
+const SALES_ALLOWED_TABS = ["Project Ledger", "Project Invoices", "Inflow", "Client PO"];
 
 // PMO Executive sees every sub-tab and every summary tile (owner, 2026-10-27),
 // reversing the earlier ruling that hid the client money from PMO. PMO is
@@ -121,10 +122,11 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
   const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
 
   const initialTab = useMemo(() => {
-    const urlTab = getUrlStringParam("fTab", "All Payments");
+    // Project Ledger is the first sub-tab, so Financials opens on it.
+    const urlTab = getUrlStringParam("fTab", "Project Ledger");
     // Sales users default to (and are confined to) their allowed sub-tabs.
     if (isSales && !SALES_ALLOWED_TABS.includes(urlTab)) {
-      return "Project Invoices";
+      return "Project Ledger";
     }
     return urlTab;
   }, []); // Calculate once
@@ -323,6 +325,10 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
   const tabs = useMemo(() => {
     const allTabs = [
       {
+        label: "Project Ledger",
+        value: "Project Ledger"
+      },
+      {
         label: "All Payments",
         value: "All Payments"
       },
@@ -347,7 +353,7 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
         value: "Client PO"
       },
     ];
-    // Sales users only see Project Invoices, Inflow, and Client PO.
+    // Sales users only see Project Ledger, Project Invoices, Inflow, and Client PO.
     if (isSales) return allTabs.filter((t) => SALES_ALLOWED_TABS.includes(t.value));
     return allTabs;
   }, [isSales])
@@ -365,7 +371,7 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
   // on a restricted value (e.g. a stale fTab URL param).
   useEffect(() => {
     if (isSales && !SALES_ALLOWED_TABS.includes(tab)) {
-      setTab("Project Invoices");
+      setTab("Project Ledger");
     }
   }, [isSales, tab]);
 
@@ -435,6 +441,8 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
           <ProjectInvoices projectId={projectData?.name} customerId={projectData?.customer} />
         ) : tab === "Inflow" ? (
           <InFlowPayments projectId={projectData?.name} urlContext="project_financials" />
+        ) : tab === "Project Ledger" ? (
+          <ProjectLedger projectId={projectData?.name ?? ""} projectName={projectData?.project_name} />
         ) : (
           <CustomerPODetailsCard projectId={projectData?.name} refetchProjectData={async () => { }} role={""} />
         )}

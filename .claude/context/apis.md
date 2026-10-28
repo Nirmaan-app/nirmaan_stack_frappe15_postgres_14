@@ -33,6 +33,8 @@ Backend API endpoints in `nirmaan_stack/api/`.
 - `add_customer_po.py` - Customer PO linking
 - `project_aggregates.py` - Financial aggregations
 - `project_wise_invoice_data.py` - Invoice analytics
+- `project_ledger.get_project_ledger_data(project_id)` - Financials → Project Ledger rows (invoices raised vs
+  inflows received, date-ordered); calls the customer ledger's shared `receivable_ledger` with `{"project": ...}`
 
 ### PO Delivery Documents (`api/po_delivery_documentss.py`)
 - `create_po_delivery_documents()` - Create DC/MIR record with file upload and item quantities
@@ -102,6 +104,8 @@ Rules and who may call what: [domain/assets.md](domain/assets.md).
 - `delivery_notes/` - Delivery note updates (includes `uploaded_by` validation for Administrator)
 - `vendor/` - Vendor-specific data (POs, invoices)
 - `customers/` - Customer financials
+  - `customer_ledger.get_customer_ledger_data(customer_id)` - Customer page Ledger tab; its row builder
+    `receivable_ledger(filters)` is shared with the project's Project Ledger, so the two never disagree
 - `target_rates/` - Historical rate lookups
 - `data_table/search.py` - Data aggregation (sorting support prepared but not yet enabled; requires explicit field selection)
 

@@ -158,3 +158,13 @@ the Material Usage "Est. Qty" column are gone; the `Project Estimates` doctype a
 `patches/v3_0/drop_project_estimates`. The Overview / Financials PO total (incl. GST) still sums the PO
 summary's items per work package in `project.tsx`; it never depended on estimates. An old
 `?page=projectspends` / `?page=projectestimates` link lands on the role's landing tab.
+
+## Project Ledger (Financials → first sub-tab)
+
+The customer receivable ledger narrowed to one project: Project Invoices raised (amount incl. GST) vs Project
+Inflows received, running Receivable = previous + invoice − inflow, seeded at 0, full history. No Project
+column (every row is this project). Rows are picked by `project`, not by the project's current customer, so
+nothing drops out if the customer changes. Backend `api/projects/project_ledger.py` calls the shared
+`api/customers/customer_ledger.py::receivable_ledger`; change row rules there so both ledgers stay equal.
+Frontend `pages/projects/components/ProjectLedger.tsx` reuses `CustomerLedgerTable` / `CustomerLedgerRow`
+with `showProjectColumn={false}`. Who sees it: `frontend/.claude/context/role-access.md` § Financial Pages.
