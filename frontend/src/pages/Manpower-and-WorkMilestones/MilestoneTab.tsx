@@ -39,6 +39,14 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { Label } from "@/components/ui/label";
 import PhotoPermissionChecker from "./components/PhotoPermissionChecker"
+import { StaleDraftDialog } from "./components/StaleDraftDialog";
+import {
+  DPR_NO_DRAFT_REF,
+  StaleDraftKind,
+  clearDprSessionData,
+  dprDraftRefKey,
+  getStaleDraftKind,
+} from "./utils/dprSessionStorage";
 import {
   addWorkflowBreadcrumb,
   captureWorkflowError,
@@ -393,6 +401,11 @@ const latestCompletedReportDateIsToday =
   const [timeRemainingToUnlock, setTimeRemainingToUnlock] = useState<number | null>(null); // In minutes
   const [draftMessage,SetDraftMessage]=useState<string | null>(null);
 
+  // --- STATE FOR A BROWSER COPY WHOSE SERVER DRAFT IS GONE (deleted, submitted or replaced) ---
+  const [staleDraft, setStaleDraft] = useState<{ kind: StaleDraftKind; draftName: string | null } | null>(null);
+  // Bumped by "Clear and start new" so the loading effect re-seeds the form from the server.
+  const [sessionResetCount, setSessionResetCount] = useState(0);
+
   // --- STATE FOR MANPOWER TAB ---
   const [dialogManpowerRoles, setDialogManpowerRoles] = useState<ManpowerRole[]>([]);
   const [dialogRemarks, setDialogRemarks] = useState<string>("");
@@ -723,6 +736,33 @@ const [noSiteConfirmFromManpowerDialog, setNoSiteConfirmFromManpowerDialog] = us
         }
       }
     });
+
+    // Record which server draft this browser copy came from (see utils/dprSessionStorage.ts).
+    const draftRefKey = dprDraftRefKey(projectId!, dateString, zoneKey);
+    if (sessionStorage.getItem(draftRefKey) === null) {
+      sessionStorage.setItem(draftRefKey, existingDraftReport?.[0]?.name ?? DPR_NO_DRAFT_REF);
+    }
+  };
+
+  /**
+   * Opens the "draft was deleted" dialog when this browser copy belongs to a draft that is no longer the
+   * zone's draft. Returns true when it did, so the caller stops before seeding the form or saving.
+   */
+  const detectStaleDraft = (serverDraftName: string | null): boolean => {
+    if (!projectId) return false;
+    const storedRef = sessionStorage.getItem(dprDraftRefKey(projectId, formatDate(summaryWorkDate), zoneKey));
+    const kind = getStaleDraftKind(storedRef, serverDraftName);
+    if (!kind) return false;
+    setStaleDraft({ kind, draftName: kind === "draft_gone" ? storedRef : null });
+    return true;
+  };
+
+  const handleClearStaleDraft = () => {
+    if (!projectId) return;
+    clearDprSessionData(sessionStorage, projectId, formatDate(summaryWorkDate), zoneKey);
+    setStaleDraft(null);
+    setActiveTabValue("Work force");
+    setSessionResetCount((count) => count + 1);
   };
 
   const loadDailyReport = () => {
@@ -1066,6 +1106,9 @@ const [noSiteConfirmFromManpowerDialog, setNoSiteConfirmFromManpowerDialog] = us
       allFrappeMilestones &&
       projectData
     ) {
+      // Also runs when the draft lookup refreshes on tab refocus, so a draft deleted meanwhile is caught.
+      if (detectStaleDraft(existingDraftReport?.[0]?.name ?? null)) return;
+
       if (existingDraftReport && existingDraftReport.length > 0) {
         setCurrentFrappeReportName(existingDraftReport[0].name);
         console.log("Found existing draft report for date:", formatDate(summaryWorkDate), "Name:", existingDraftReport[0].name);
@@ -1091,7 +1134,8 @@ const [noSiteConfirmFromManpowerDialog, setNoSiteConfirmFromManpowerDialog] = us
     projectData,
     existingDraftReport,
     lastCompletedReport,
-    user
+    user,
+    sessionResetCount
   ]);
 
   // NEW: useEffect for Draft Ownership Check
@@ -1472,10 +1516,24 @@ console.log(user)
       console.log("Clear keys",storageKey)
       sessionStorage.removeItem(storageKey);
     });
+    sessionStorage.removeItem(dprDraftRefKey(projectId!, dateString, zoneKey));
   };
 
   const handleSyncAndSubmitAllData = async (isCalledFromManpowerDialog = false, skipNoSiteConfirmation = false) => {
     setIsLocalSaving(true);
+
+    // Re-read the zone's draft before writing: if it was deleted, submitted or replaced since this
+    // browser copy was loaded, saving would bring it back, so stop and show the dialog instead.
+    try {
+      const latestDrafts = await refetchExistingDraftReport();
+      if (detectStaleDraft(latestDrafts?.[0]?.name ?? null)) {
+        setIsLocalSaving(false);
+        return;
+      }
+    } catch (error) {
+      // A failed re-read leaves the save to report its own error below.
+      console.error("Could not re-check the DPR draft before saving:", error);
+    }
 
 
     if (activeTabValue !== "Work force" && activeTabValue !== "Photos") {
@@ -1607,6 +1665,11 @@ console.log(user)
       if (operationType === 'create') {
         response = await createDoc("Project Progress Reports", finalPayload);
         setCurrentFrappeReportName(response.name);
+        // This browser copy now belongs to the draft it just created.
+        sessionStorage.setItem(
+          dprDraftRefKey(projectId!, formatDate(summaryWorkDate), zoneKey),
+          response.name
+        );
         console.log("Frappe create response (Draft):", response);
       } else {
         if (!docNameForFrappeOperation) {
@@ -2073,6 +2136,19 @@ console.log(user)
     }
   };
 
+
+  // The browser copy belongs to a draft that is gone: block everything until the user clears it.
+  if (staleDraft) {
+    return (
+      <StaleDraftDialog
+        kind={staleDraft.kind}
+        staleDraftName={staleDraft.draftName}
+        zone={reportZone}
+        dateLabel={formatDate(summaryWorkDate)}
+        onClear={handleClearStaleDraft}
+      />
+    );
+  }
 
  // --- NEW: Render Blocking Message if applicable ---
   if (isBlockedByDraftOwnership) {

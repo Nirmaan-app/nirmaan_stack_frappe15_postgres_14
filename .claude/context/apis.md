@@ -106,6 +106,10 @@ Rules and who may call what: [domain/assets.md](domain/assets.md).
 - `customers/` - Customer financials
   - `customer_ledger.get_customer_ledger_data(customer_id)` - Customer page Ledger tab; its row builder
     `receivable_ledger(filters)` is shared with the project's Project Ledger, so the two never disagree
+- `milestone/` - DPR (Project Progress Reports) helpers
+  - `dpr_draft_deletion.get_dpr_draft_deletion(report_name)` - read-only: whether a DPR still exists
+    (`report_status`), else who deleted it and when, from Frappe's `Deleted Document` log; feeds the DPR
+    editor's "This draft was deleted" dialog
 - `target_rates/` - Historical rate lookups
 - `data_table/search.py` - Data aggregation (sorting support prepared but not yet enabled; requires explicit field selection)
 

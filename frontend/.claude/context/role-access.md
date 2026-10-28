@@ -199,7 +199,8 @@ profile missing from an endpoint's list reads 0 there while its tables show ever
 - `ApprovedQuotationsFlow/`, `DeliveryNotes/`, `DeliveryChallansAndMirs/`
 - `customers/`, `credits/`, `vendors-wp-categories/`
 - `CriticalPOCategories/` - Sidebar-level access only
-- `Manpower-and-WorkMilestones/` - No explicit checks
+- `Manpower-and-WorkMilestones/` - No route checks. Per-action: delete today's Completed DPR = Admin / PMO /
+  Project Lead; delete a Draft from its zone chip = Admin / PMO (see `domain/milestones.md` § Permission Checks)
 
 ### Users Page Access (Route-Level Guards)
 
