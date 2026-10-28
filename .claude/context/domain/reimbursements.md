@@ -150,7 +150,8 @@ its endings. Decision record: `docs/adr/0040-an-approved-reimbursement-becomes-a
   edit re-copies it onto the claim.
 - **The own bank account lives on Nirmaan Users, one per person.** `Nirmaan Users.payee` is a Link to one Payee
   (owner, 2026-10-22: one account, no child table); Payee has no user field (ADR-0033 Amendment B). It is set only
-  by `own_accounts.add_own_account`, which refuses a second account; the Nirmaan Users `validate` hook
+  by `own_accounts.add_own_account`, which refuses a second account and an account already on record as a Vendors
+  or Others Payee (owner, 2026-10-28: only a Users Payee is ever someone's own); the Nirmaan Users `validate` hook
   (`check_own_account`) refuses every other change and a Payee that is already another person's.
 - **The Raise dialog adds it the first time** (`pages/Reimbursements/components/BankAccountSection.tsx`, through
   `add_my_bank_account`). With no account yet the section is titled **Add Your Account** and its button **Add

@@ -38,7 +38,8 @@ HRL = "reimb_test_hrl@example.com"
 ADMIN = "reimb_test_admin@example.com"
 ACC = "reimb_test_acc@example.com"
 LEAVER = "reimb_test_leaver@example.com"  # deleted by its own test
-USERS = (PM, PM2, HR, HRL, ADMIN, ACC, LEAVER)
+LEAVER2 = "reimb_test_leaver2@example.com"  # deleted by its own test
+USERS = (PM, PM2, HR, HRL, ADMIN, ACC, LEAVER, LEAVER2)
 
 #: Account numbers no real Payee holds (the 9 prefix + the test IFSC keep them apart from live data).
 IFSC = "HDFC0009991"
@@ -235,7 +236,9 @@ def _purge():
         # by name, the rest by the `reimb_test_` owner or receipt URL in the deleted record's JSON.
         named = [(dt, u) for dt in ("User", "Nirmaan Users", "Notification Settings") for u in USERS]
         for dt, pattern in (("Reimbursement", '%"owner": "reimb_test_%'), (NPE, '%"owner": "reimb_test_%'),
-                            ("File", "%/api/method/reimb_test/%")):
+                            ("File", "%/api/method/reimb_test/%"),
+                            # A deleted person's own account goes with them (owner, 2026-10-28).
+                            ("Payee", f'%"normalized_account": "{PREFIX}%')):
             gone = frappe.get_all("Deleted Document", {"deleted_doctype": dt, "data": ["like", pattern]},
                                   pluck="deleted_name")
             named += [(dt, n) for n in gone]
@@ -305,13 +308,35 @@ class TestOwnBankAccount(ReimbursementTestCase):
         with self.assertRaises(own_accounts.OtherPersonsAccountError):
             bank_accounts.add_my_bank_account("PM2", f"{PREFIX}900002", IFSC)
 
-    def test_an_account_on_record_with_nobody_is_linked_to_you(self):
-        payee = frappe.get_doc({"doctype": "Payee", "account_name": "Loose", "account_number": f"{PREFIX}900003",
-                                "ifsc": IFSC, "bank_name": "HDFC Bank", "bank_branch": "Test"}).insert(
+    @staticmethod
+    def loose_payee(number: str, payee_type: str) -> str:
+        return frappe.get_doc({"doctype": "Payee", "account_name": "Loose", "account_number": number, "ifsc": IFSC,
+                               "bank_name": "HDFC Bank", "bank_branch": "Test", "payee_type": payee_type}).insert(
             ignore_permissions=True).name
+
+    def test_a_users_account_on_record_with_nobody_is_linked_to_you(self):
+        payee = self.loose_payee(f"{PREFIX}900003", "Users")
         reply = self.as_user(PM2, bank_accounts.add_my_bank_account, "PM2", f"{PREFIX}900003", IFSC)
         self.assertEqual((reply["outcome"], reply["payee"]), (own_accounts.LINKED, payee))
         self.assertEqual(own_accounts.holder_of(payee), PM2)
+
+    def test_an_others_or_vendors_account_on_record_is_refused(self):
+        # Payee Type is never retyped, so linking one would keep it out of `is_own_account` (owner, 2026-10-28).
+        for number, payee_type in ((f"{PREFIX}900005", "Others"), (f"{PREFIX}900006", "Vendors")):
+            with self.subTest(payee_type):
+                payee = self.loose_payee(number, payee_type)
+                with self.assertRaises(own_accounts.NotUsersPayeeError):
+                    self.as_user(PM2, bank_accounts.add_my_bank_account, "PM2", number, IFSC)
+                self.assertFalse(frappe.db.get_value("Nirmaan Users", PM2, "payee"))
+                self.assertIsNone(own_accounts.holder_of(payee))
+                self.assertEqual(frappe.db.get_value("Payee", payee, "payee_type"), payee_type)
+
+    def test_a_vendors_account_refusal_names_the_vendor(self):
+        payee = self.loose_payee(f"{PREFIX}900007", "Vendors")
+        with patch.object(own_accounts, "linked_vendors", lambda name: [{"name": "VEN-X", "vendor_name": "Acme Traders"}]):
+            with self.assertRaisesRegex(own_accounts.NotUsersPayeeError, "Acme Traders"):
+                self.as_user(PM2, bank_accounts.add_my_bank_account, "PM2", f"{PREFIX}900007", IFSC)
+        self.assertIsNone(own_accounts.holder_of(payee))
 
     def test_a_profile_shows_the_account_to_the_person_and_to_admin_hr_and_accounts(self):
         payee = self.account(PM)
@@ -1002,23 +1027,54 @@ class TestWhoSeesWhat(ReimbursementTestCase):
 
 
 class TestDeletingAPerson(ReimbursementTestCase):
-    def test_a_person_with_claims_and_accounts_can_be_deleted_and_their_claims_stay(self):
-        # No block (owner, 2026-10-22): HR or Admin decide any pending claim, and each claim keeps the
-        # claimant's name, role and bank account on itself.
-        _make_user(LEAVER, "Nirmaan Project Manager Profile", ("Nirmaan Project Manager",))
+    """Owner, 2026-10-28 (ADR-0033 Amendment C): deleting a person deletes their own bank account too, unless a
+    Vendor is also paid into it. The delete is never blocked, and the claims keep their own copy of the account."""
+
+    def leaver(self, email):
+        _make_user(email, "Nirmaan Project Manager Profile", ("Nirmaan Project Manager",))
         frappe.db.commit()
+
+    def test_deleting_a_person_deletes_their_account_and_their_claims_keep_it(self):
+        self.leaver(LEAVER)
         payee = self.account(LEAVER)
+        number = frappe.db.get_value("Payee", payee, "account_number")
         pending = self.raise_claim(LEAVER, payee=payee)
         frappe.delete_doc("Nirmaan Users", LEAVER, ignore_permissions=True)
         self.assertFalse(frappe.db.exists("Nirmaan Users", LEAVER))
+        self.assertFalse(frappe.db.exists("Payee", payee))
+        self.assertTrue(frappe.db.exists("Deleted Document", {"deleted_doctype": "Payee", "deleted_name": payee}))
 
         claim = frappe.get_doc("Reimbursement", pending)
         self.assertEqual((claim.owner, claim.claimant_name), (LEAVER, "reimb_test_leaver"))
-        self.assertEqual(claim.pay_to_account_number, frappe.db.get_value("Payee", payee, "account_number"))
-        # The account stays in Payees, belonging to nobody; the pending claim is still Admin's or HR's to decide.
-        self.assertIsNone(own_accounts.holder_of(payee))
+        self.assertEqual(claim.pay_to_account_number, number)
+        # The pending claim is still Admin's or HR's to decide.
         self.as_user(ADMIN, review.reject_reimbursement, pending, "Left the company")
         self.assertEqual(frappe.db.get_value("Reimbursement", pending, "status"), REJECTED)
+
+    def test_an_account_a_vendor_is_also_paid_into_stays(self):
+        self.leaver(LEAVER2)
+        payee = self.account(LEAVER2)
+        with patch.object(own_accounts, "linked_vendors", lambda name: [{"name": "VEN-X", "vendor_name": "Acme"}]):
+            frappe.delete_doc("Nirmaan Users", LEAVER2, ignore_permissions=True)
+        self.assertFalse(frappe.db.exists("Nirmaan Users", LEAVER2))
+        self.assertTrue(frappe.db.exists("Payee", payee))
+        self.assertIsNone(own_accounts.holder_of(payee))
+
+    def test_a_person_with_no_account_deletes_as_before(self):
+        self.leaver(LEAVER2)
+        self.no_account(LEAVER2)
+        frappe.delete_doc("Nirmaan Users", LEAVER2, ignore_permissions=True)
+        self.assertFalse(frappe.db.exists("Nirmaan Users", LEAVER2))
+
+    def test_a_failed_account_delete_undoes_the_person_s_delete(self):
+        self.leaver(LEAVER2)
+        payee = self.account(LEAVER2)
+        with patch.object(own_accounts, "delete_payee", side_effect=frappe.ValidationError("storage down")):
+            with self.assertRaises(frappe.ValidationError):
+                frappe.delete_doc("Nirmaan Users", LEAVER2, ignore_permissions=True)
+        frappe.db.rollback()
+        self.assertTrue(frappe.db.exists("Nirmaan Users", LEAVER2))
+        self.assertEqual(frappe.db.get_value("Nirmaan Users", LEAVER2, "payee"), payee)
 
 
 class TestDoctypeMatchesRules(FrappeTestCase):

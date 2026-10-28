@@ -44,11 +44,14 @@ from nirmaan_stack.services.stored_files import delete_files
 DOCTYPE = "Reimbursement"
 
 
-def _as_list(value) -> list[str]:
+def as_list(value) -> list[str]:
+    """A request argument sent as a JSON list (or already a list): its non-empty items. The package's one parser."""
     if not value:
         return []
     if isinstance(value, str):
         value = json.loads(value)
+    if not isinstance(value, (list, tuple)):
+        frappe.throw(_("Pass a list."))
     return [v for v in value if v]
 
 
@@ -79,7 +82,7 @@ def raise_reimbursement(title, amount, payee, file_urls=None, description=None, 
     `reviewer` is who will decide it ("HR or Admin" / "Admin").
     """
     user = frappe.session.user
-    new_files = loose_files(_as_list(file_urls), user)
+    new_files = loose_files(as_list(file_urls), user)
     _check(title, amount, len(new_files), description, reimbursement_type)
     assert_own_account(user, payee)
     plan = plan_receipts(None, new_files)
@@ -115,8 +118,8 @@ def update_reimbursement(name, title, amount, payee, description=None, file_urls
     if problem:
         frappe.throw(_(problem), frappe.PermissionError if claim.owner != user else frappe.ValidationError)
     assert_own_account(user, payee)
-    new_files = loose_files(_as_list(file_urls), user)
-    plan = plan_receipts(claim, new_files, _as_list(remove_file_urls))
+    new_files = loose_files(as_list(file_urls), user)
+    plan = plan_receipts(claim, new_files, as_list(remove_file_urls))
     _check(title, amount, plan.receipt_count, description, reimbursement_type)
 
     claim.update({
@@ -173,7 +176,7 @@ def get_claim_payments(names) -> dict:
 
     Read here rather than by the screen, because most claimants can't read Non-Project Expenses.
     """
-    wanted = [n for n in _as_list(names) if n]
+    wanted = [n for n in as_list(names) if n]
     if not wanted:
         return {}
     readable = frappe.get_list(DOCTYPE, filters={"name": ["in", wanted]}, pluck="name")

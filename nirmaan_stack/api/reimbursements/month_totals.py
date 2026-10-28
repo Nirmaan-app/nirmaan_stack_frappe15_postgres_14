@@ -11,11 +11,10 @@ see every claim (`access.sees_all_claims`: Admin, HR, Accounts).
 
 from __future__ import annotations
 
-import json
-
 import frappe
 from frappe import _
 
+from nirmaan_stack.api.reimbursements.claims import as_list
 from nirmaan_stack.services.reimbursements.access import sees_all_claims
 from nirmaan_stack.services.reimbursements.month_total import month_totals, month_totals_of_expenses
 
@@ -24,13 +23,7 @@ MAX_NAMES = 500
 
 
 def _names(value) -> list[str]:
-    if not value:
-        return []
-    if isinstance(value, str):
-        value = json.loads(value)
-    if not isinstance(value, (list, tuple)):
-        frappe.throw(_("Pass a list of names."))
-    names = [str(v) for v in value if v]
+    names = [str(v) for v in as_list(value)]
     if len(names) > MAX_NAMES:
         frappe.throw(_("Ask about at most {0} at a time.").format(MAX_NAMES))
     return names

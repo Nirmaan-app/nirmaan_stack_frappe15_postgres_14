@@ -45,8 +45,9 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   - `ifsc.py`: the IFSC lookup (Razorpay), the app's only outside bank service.
   - `own_accounts.py` (2026-10-22, ADR-0033 Amendment B): a person's own bank account, the one Payee in their
     `Nirmaan Users.payee` field (one per person), into which their Reimbursements are paid. `add_own_account` is
-    the only way it is set (new account: `create_payee`; on record with nobody's name: linked; another person's,
-    or a second one: refused); `check_own_account` (Nirmaan Users `validate`) refuses every other change. Payee itself has no user field. Detail: `reimbursements.md`.
+    the only way it is set (new account: `create_payee`; a Users Payee on record with nobody's name: linked; a
+    Vendors or Others Payee, another person's, or a second one: refused -- owner, 2026-10-28, since Payee Type is
+    never retyped and a linked Vendors/Others Payee would escape `pay_to.is_own_account`); `check_own_account` (Nirmaan Users `validate`) refuses every other change. Payee itself has no user field. Detail: `reimbursements.md`.
   - **Payee Type is where a Payee was created, set once** (owner, 2026-10-23). `Payee.payee_type`, a read-only,
     `set_only_once` Select: Users / Vendors / Others (`rules.PAYEE_TYPES`, pinned to the doctype by test), default
     Others. `writer.create_payee(..., payee_type)` stamps it: `own_accounts.add_own_account` passes Users,
