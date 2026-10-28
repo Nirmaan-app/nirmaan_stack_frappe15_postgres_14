@@ -193,6 +193,8 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.nirmaan_users.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
         ],
+        # The person's own bank account (Payee) goes with them, unless a Vendor is also paid into it.
+        "after_delete": "nirmaan_stack.integrations.controllers.nirmaan_users.after_delete",
         "after_rename": "nirmaan_stack.integrations.controllers.nirmaan_users.after_rename",
     },
     "User Permission": {

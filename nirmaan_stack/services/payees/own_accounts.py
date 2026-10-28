@@ -9,8 +9,9 @@ person corrects the one they have instead. Reimbursements are paid into it.
 
 * `my_account(user)` -- the person's Payee, or None.
 * `add_own_account(user, account_name, account_number, ifsc)` -- THE way the field is set. The account
-  number + IFSC decide: a new account becomes a new Payee and theirs; a Payee already on record that is
-  nobody's becomes theirs; their own is returned; another person's is refused (`OtherPersonsAccountError`).
+  number + IFSC decide: a new account becomes a new Payee and theirs; a Users Payee already on record that is
+  nobody's becomes theirs; a Vendors or Others Payee is refused (`NotUsersPayeeError`); their own is returned;
+  another person's is refused (`OtherPersonsAccountError`).
   A person who already has an account is refused any other (`AlreadyHasAccountError`).
 * `assert_own_account(user, payee)` -- refuse a Payee that is not the person's (a claim may only be paid
   into the claimant's own account).
@@ -20,6 +21,8 @@ person corrects the one they have instead. Reimbursements are paid into it.
   it stays with Accounts on the Payees page. Claims already raised keep their copy of the old account.
 * `check_own_account(doc)` -- the Nirmaan Users `validate` rule: the field changes only through
   `add_own_account`, and never names a Payee another person holds.
+* `delete_own_account(payee)` -- a deleted person's account goes with them (owner, 2026-10-28, ADR-0033
+  Amendment C), unless a Vendor is also paid into it: then it stays, linked to nobody.
 
 Nothing here commits; the caller does.
 """
@@ -31,9 +34,10 @@ from frappe import _
 
 from nirmaan_stack.services.payees.rules import ACCOUNT_FIELDS, PAYEE_TYPE_USERS, details_problem, parse_details
 from nirmaan_stack.services.payees.links import linked_vendors
-from nirmaan_stack.services.payees.writer import create_payee, edit_payee_reply, existing_payee
+from nirmaan_stack.services.payees.writer import create_payee, delete_payee, edit_payee_reply, existing_payee
 
 USERS_DOCTYPE = "Nirmaan Users"
+PAYEE_DOCTYPE = "Payee"
 PAYEE_FIELD = "payee"
 
 #: Set only while `add_own_account` saves a person's row; `check_own_account` refuses any other change.
@@ -50,6 +54,10 @@ class OtherPersonsAccountError(frappe.ValidationError):
 
 class AlreadyHasAccountError(frappe.ValidationError):
     """The person already has a bank account, and one person has one."""
+
+
+class NotUsersPayeeError(frappe.ValidationError):
+    """The account number + IFSC are already a Vendors or Others Payee, which is never a person's own."""
 
 
 def person_of(user: str) -> str | None:
@@ -115,9 +123,10 @@ def edit_own_account(user: str, payee: str, account_name, account_number, ifsc) 
 def add_own_account(user: str, account_name, account_number, ifsc) -> tuple[str, str]:
     """Make the account `user`'s and return `(payee, outcome)`.
 
-    `outcome` is `ADDED` (a new Payee), `LINKED` (a Payee on record that was nobody's) or `ALREADY_YOURS`.
+    `outcome` is `ADDED` (a new Payee), `LINKED` (a Users Payee on record that was nobody's) or `ALREADY_YOURS`.
     A person who already has a different account is refused (`AlreadyHasAccountError`); an account that is
-    another person's is refused (`OtherPersonsAccountError`). A new Payee goes through `writer.create_payee`,
+    another person's is refused (`OtherPersonsAccountError`), and so is a Vendors or Others Payee
+    (`NotUsersPayeeError`). A new Payee goes through `writer.create_payee`,
     so its details, duplicate rule and IFSC lookup are the Payee module's own.
     """
     person = person_of(user)
@@ -142,12 +151,31 @@ def add_own_account(user: str, account_name, account_number, ifsc) -> tuple[str,
         if holder and holder != person:
             frappe.throw(_("This bank account belongs to another person. Add a different account."),
                          OtherPersonsAccountError)
+        _refuse_non_users_payee(payee)
         _set(person, payee)
         return payee, LINKED
 
     payee = create_payee(details.account_name, details.account_number, details.ifsc, PAYEE_TYPE_USERS).name
     _set(person, payee)
     return payee, ADDED
+
+
+def _refuse_non_users_payee(payee: str) -> None:
+    """Refuse a Vendors or Others Payee as a person's own account (owner, 2026-10-28).
+
+    Payee Type is set once and never retyped, so linking one would leave it out of `pay_to.is_own_account`:
+    the Expense Request picker would still offer it, and a vendor's account would take reimbursements.
+    """
+    if frappe.db.get_value("Payee", payee, "payee_type") == PAYEE_TYPE_USERS:
+        return
+    vendors = linked_vendors(payee)
+    if vendors:
+        names = ", ".join(v["vendor_name"] or v["name"] for v in vendors)
+        message = _("This bank account is where {0} is paid, so it can't be your own. Add a different account.").format(names)
+    else:
+        message = _("This bank account is already on record as another payee's, so it can't be your own. "
+                    "Add a different account.")
+    frappe.throw(message, NotUsersPayeeError)
 
 
 def _set(person: str, payee: str) -> None:
@@ -178,3 +206,20 @@ def check_own_account(doc, method=None) -> None:
     holder = holder_of(new) if new else None
     if holder and holder != doc.name:
         frappe.throw(_("This bank account belongs to another person."), OtherPersonsAccountError)
+
+
+def delete_own_account(payee: str | None) -> bool:
+    """A deleted person's own account: delete the Payee, and return True when it was deleted (owner, 2026-10-28).
+
+    Kept when a Vendor is also paid into it (deleting it would leave that vendor with no account), and when it
+    is somehow still another person's. Claims, expenses and payments keep their own copy of the account, so
+    nothing paid changes. Called from the Nirmaan Users `after_delete`, once the person's row is gone (Frappe
+    refuses to delete a Payee a row still links to). Never commits: it is part of the person's delete, so a
+    failure here undoes that delete too.
+    """
+    if not payee or not frappe.db.exists(PAYEE_DOCTYPE, payee):
+        return False
+    if linked_vendors(payee) or holder_of(payee):
+        return False
+    delete_payee(payee)
+    return True
