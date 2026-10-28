@@ -49,14 +49,10 @@ interface ProjectFinancialsTabProps {
 // Sales users (Executive / Lead) only see these financial sub-tabs.
 const SALES_ALLOWED_TABS = ["Project Invoices", "Inflow", "Client PO"];
 
-// PMO Executive does NOT see these financial sub-tabs (owner ruling), leaving
-// All Payments + All PO Invoices + Client PO.
-//
-// Deliberately separate from SALES_ALLOWED_TABS: the two are opposite in
-// polarity -- one is an allow-list, the other a deny-list -- and they answer
-// different questions. Aliasing them would mean a later change to what Sales
-// may see silently changes what PMO may not.
-const PMO_HIDDEN_TABS = ["Project Invoices", "Inflow"];
+// PMO Executive sees every sub-tab and every summary tile (owner, 2026-10-27),
+// reversing the earlier ruling that hid the client money from PMO. PMO is
+// view-only on Project Invoices and Inflow: those components leave PMO out of
+// their add / edit / delete gates.
 
 type SummaryItem = {
   label: string;
@@ -123,17 +119,12 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
 
   const { role } = useUserData();
   const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
-  const isPMO = role === "Nirmaan PMO Executive Profile";
 
   const initialTab = useMemo(() => {
     const urlTab = getUrlStringParam("fTab", "All Payments");
     // Sales users default to (and are confined to) their allowed sub-tabs.
     if (isSales && !SALES_ALLOWED_TABS.includes(urlTab)) {
       return "Project Invoices";
-    }
-    // A stale ?fTab pointing at a hidden tab must not open it for PMO.
-    if (isPMO && PMO_HIDDEN_TABS.includes(urlTab)) {
-      return "All Payments";
     }
     return urlTab;
   }, []); // Calculate once
@@ -316,20 +307,12 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
 
 
   // Ordered by CLIENT_SUMMARY_LABELS, not by position in amountsSummaryItems.
-  //
-  // Withheld entirely from PMO (owner ruling): Total Inflow Amount, Total Client
-  // Invoiced and both Project Value figures. Returning [] rather than filtering
-  // the labels keeps the group an all-or-nothing block -- the render gates the
-  // divider on this being non-empty, so PMO gets no stray rule above the
-  // operational tiles.
   const clientSummaryItems = useMemo(
     () =>
-      isPMO
-        ? []
-        : (CLIENT_SUMMARY_LABELS
-            .map((label) => amountsSummaryItems.find((item) => item.label === label))
-            .filter(Boolean) as SummaryItem[]),
-    [amountsSummaryItems, isPMO]
+      CLIENT_SUMMARY_LABELS
+        .map((label) => amountsSummaryItems.find((item) => item.label === label))
+        .filter(Boolean) as SummaryItem[],
+    [amountsSummaryItems]
   );
 
   const operationalSummaryItems = useMemo(
@@ -366,10 +349,8 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
     ];
     // Sales users only see Project Invoices, Inflow, and Client PO.
     if (isSales) return allTabs.filter((t) => SALES_ALLOWED_TABS.includes(t.value));
-    // PMO loses Project Invoices + Inflow, keeping All Payments + All PO Invoices + Client PO.
-    if (isPMO) return allTabs.filter((t) => !PMO_HIDDEN_TABS.includes(t.value));
     return allTabs;
-  }, [isSales, isPMO])
+  }, [isSales])
 
   const onClick = useCallback(
     (value: string) => {
@@ -385,10 +366,8 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
   useEffect(() => {
     if (isSales && !SALES_ALLOWED_TABS.includes(tab)) {
       setTab("Project Invoices");
-    } else if (isPMO && PMO_HIDDEN_TABS.includes(tab)) {
-      setTab("All Payments");
     }
-  }, [isSales, isPMO, tab]);
+  }, [isSales, tab]);
 
   return (
     <div className="flex-1 space-y-4">

@@ -1,7 +1,7 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useUserData } from "@/hooks/useUserData";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
-import { PMO_PROJECT_REPORTS, REPORTS_TABS } from './constants';
+import { REPORTS_TABS } from './constants';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DCMIRReportType, POReportOption, SROption, PaymentTDSReportType, ProjectReportType, ReportType, useReportStore, VendorReportType, CustomerReportType } from './store/useReportStore';
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
@@ -244,11 +244,7 @@ export default function ReportsContainer() {
             if (role === "Nirmaan Project Manager Profile" || isProcurementProfile(role)) {
                 return projectReportOptions.filter(option => option.value === 'Inventory Report');
             }
-            // PMO Executive: the non-financial Projects reports only (owner ruling).
-            // Must be checked BEFORE the general list below, which still contains PMO.
-            if (role === "Nirmaan PMO Executive Profile") {
-                return projectReportOptions.filter(option => PMO_PROJECT_REPORTS.includes(option.value));
-            }
+            // PMO gets every Projects report again, money ones included (owner, 2026-10-28).
             return ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(role)
                 ? projectReportOptions
                 : [];

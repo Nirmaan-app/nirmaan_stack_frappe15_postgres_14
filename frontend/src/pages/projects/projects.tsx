@@ -213,32 +213,13 @@ const StatusCountPill: React.FC<StatusCountPillProps> = ({
 };
 
 // --- Component ---
-// Roles that can see financial columns
+// Roles that can see financial columns. PMO sees every one of them (owner,
+// 2026-10-27), reversing the earlier ruling that hid the client-money columns.
 const FINANCIAL_COLUMNS_ROLES = [
   "Nirmaan Admin Profile",
   "Nirmaan PMO Executive Profile",
   "Nirmaan Accountant Profile",
   "Nirmaan Accountant Lead Profile",
-];
-
-/**
- * Financial columns the PMO Executive does NOT see on the Projects list
- * (owner ruling). PMO keeps PO + WO Amount, Current Liabilities and Total
- * Purchase Over Credit.
- *
- * Matched on column IDENTITY, never header text -- the headers are JSX
- * elements. Note `project_value_gst` declares `accessorKey` with no explicit
- * `id`; TanStack derives the id from it, which is why the filter reads
- * `id ?? accessorKey` rather than `id` alone. A column whose id stops matching
- * simply stays visible, which is the safe direction for a list that would
- * otherwise silently lose a column.
- */
-const PMO_HIDDEN_FINANCIAL_COLUMNS: readonly string[] = [
-  "project_value_gst",      // Value (incl.GST)
-  "total_project_invoiced", // Client Invoices (Incl.GST)
-  "inflow",                 // Inflow
-  "outflow",                // Outflow
-  "cashflow_gap",           // Cashflow Gap
 ];
 
 // Roles that can see the summary card
@@ -280,7 +261,6 @@ export const Projects: React.FC<ProjectsProps> = ({
 }) => {
   const { role, user_id } = useUserData();
   const canViewFinancials = FINANCIAL_COLUMNS_ROLES.includes(role);
-  const isPMO = role === "Nirmaan PMO Executive Profile";
   const canViewSummaryCard = user_id === "Administrator" || SUMMARY_CARD_ROLES.includes(role);
 
   // The Tendering tab — and therefore the Projects/Tendering tab strip itself —
@@ -769,24 +749,10 @@ export const Projects: React.FC<ProjectsProps> = ({
     [getProjectFinancials]
   );
 
-  // PMO sees the financial block, minus the five columns above.
-  const visibleFinancialColumns = useMemo<ColumnDef<ProjectsType>[]>(
-    () =>
-      isPMO
-        ? financialColumns.filter((col) => {
-            const id =
-              (col as { id?: string; accessorKey?: string }).id ??
-              (col as { id?: string; accessorKey?: string }).accessorKey;
-            return !id || !PMO_HIDDEN_FINANCIAL_COLUMNS.includes(id);
-          })
-        : financialColumns,
-    [financialColumns, isPMO]
-  );
-
   // Combine columns based on user role
   const columns = useMemo<ColumnDef<ProjectsType>[]>(
-    () => (canViewFinancials ? [...baseColumns, ...visibleFinancialColumns] : baseColumns),
-    [baseColumns, visibleFinancialColumns, canViewFinancials]
+    () => (canViewFinancials ? [...baseColumns, ...financialColumns] : baseColumns),
+    [baseColumns, financialColumns, canViewFinancials]
   );
 
   // --- Static Filters for `useServerDataTable` ---

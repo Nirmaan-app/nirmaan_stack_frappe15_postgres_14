@@ -22,6 +22,7 @@ This document contains detailed page-level role access control mappings for the 
 **Special:** `Administrator` user (user_id) is hardcoded with Admin role access.
 
 **Note:** PMO Executive Profile mirrors Admin Profile access in all areas **except**:
+- **Project financials** *(owner, 2026-10-27 and 2026-10-28)*: PMO sees every Financials tile and sub-tab on the project page (including Project Value, Client Invoiced, Inflow and the Project Invoices / Inflow tabs), every financial column on the Projects list, the `/project-invoices` and `/in-flow-payments` pages (sidebar links + route guards), and every Reports → Projects report (Cash Sheet, Inflow, both Payments reports, Project Invoices, Project GST). PMO is **view-only** on client invoices and inflows everywhere: no Add Invoice / New Inflow, no invoice Edit/Delete, no inflow Actions menu. Rules: `canAddProjectInvoice`, `canAddInflow`, `canEditProjectInvoice`, `canActOnInflow`, `canDeleteInflow` in `src/constants/roles.ts`; `AllProjectInvoices` no longer counts PMO as Admin. Frontend only — the server already lets PMO read both doctypes.
 - **TDS Approval:** PMO can see the "Pending Approval" tab (read-only) but cannot approve/reject TDS items
 - **Project Payment Approval:** PMO can see the "Approve Payments" tab (read-only) but cannot approve/reject payments. (Editing a fulfilled payment no longer exists for anyone — see *Payments queue — edit & revert* below.)
 - **PR Approval** *(2026-07-04 access review)*: PMO does **not** see the "Approve PR" tab and is blocked from the approve/reject view even by a direct/bookmarked `?tab=Approve PR` URL (redirected to New PR Request). Approver roles are **Admin + Project Lead** (`PR_ADMIN_ROLES` in `config/prTabs.constants.ts`). Unlike TDS/Payments, this is NOT a read-only tab — it is removed entirely. PMO keeps New PR Request / In Progress / Sent Back / All PRs.
@@ -58,7 +59,7 @@ Billing Executive. **Everyone else has no billing access at all**, read included
 | What | Admin | PMO | Billing Lead | Billing Executive |
 |---|:-:|:-:|:-:|:-:|
 | Billing tab, Billing Tracker page, View Bills | ✓ | ✓ | ✓ | ✓ |
-| Total Invoiced / Total Inflow on the Billing tab | ✓ | ✓ (Financials hides them from PMO) | ✓ | ✓ |
+| Total Invoiced / Total Inflow on the Billing tab | ✓ | ✓ | ✓ | ✓ |
 | Setup Packages: add packages to a project | ✓ | ✓ | ✓ | ✓ |
 | Edit PO value / managers in the Setup Packages dialog | ✓ | ✓ | ✓ | ✓ |
 | Edit PO value / managers with the ✏️ on a package row | ✓ | — | — | — |
@@ -124,9 +125,9 @@ user_id === "Administrator" || role === "Nirmaan Admin Profile" || role === "Nir
 | Work Orders | Y | Y | Y | - | Y | Y | - | - | - | - |
 | Project Payments | Y | Y | Y | - | Y | Y | - | - | - | - |
 | Credit Payments | Y | Y | Y | - | Y | Y | - | - | - | - |
-| In-Flow Payments | Y | Y | - | - | - | Y | - | - | - | - |
+| In-Flow Payments | Y | Y (view-only) | - | - | - | Y | - | - | - | - |
 | Invoice Reconciliation | Y | Y | - | - | Y | Y | - | - | - | - |
-| Project Invoices | Y | Y | - | - | - | Y | - | - | - | - |
+| Project Invoices | Y | Y (view-only) | - | - | - | Y | - | - | - | - |
 | Project Expenses | Y | Y | - | - | - | Y | - | - | - | - |
 | Non-Project Expenses | Y | Y | - | - | - | Y | - | - | - | - |
 | Reports | Y | Y | Y | Y | Y | Y | - | - | - | - |
@@ -329,8 +330,8 @@ queue — edit & revert" below).
 | ProjectExpenses | Add Expense | Y | Y | Y | - |
 | ProjectExpenses | Delete Expense | Y | Y | - | - |
 | NonProjectExpenses | Edit/Delete | Y | Y | - | - |
-| ProjectInvoices | Edit/Delete | Y | Y | - | - |
-| InFlowPayments | Edit/Delete | Y | Y | - | - |
+| ProjectInvoices | Add/Edit/Delete | Y | - (view-only) | - | - |
+| InFlowPayments | Edit/Delete | Y | - (view-only) | Edit | - |
 | InvoiceReconciliation | Pending Tab | Y | - | Y | - |
 
 **Key files:**

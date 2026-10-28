@@ -482,14 +482,39 @@ export const BOQ_TEMPLATES_ACCESS: readonly string[] = [
   ESTIMATES_EXECUTIVE_PROFILE,
 ];
 
-/** `/project-invoices` -- Accountant block plus the Sales block. PMO excluded. */
+/** `/project-invoices` -- Accountant block, the Sales block and PMO (view-only, owner 2026-10-28). */
 export const PROJECT_INVOICES_ACCESS: readonly string[] = [
   ADMIN_PROFILE,
   ACCOUNTANT_PROFILE,
   ACCOUNTANT_LEAD_PROFILE,
   SALES_EXECUTIVE_PROFILE,
   SALES_LEAD_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
 ];
+
+/**
+ * Client money (Project Invoices, Project Inflows) -- who may change it, as opposed to
+ * who may see it. PMO SEES all client money -- the project Financials tab (owner,
+ * 2026-10-27), the `/project-invoices` and `/in-flow-payments` pages and the Reports ›
+ * Projects money reports (owner, 2026-10-28) -- but is view-only on it, like Sales.
+ * UI-only: the doctypes' DocPerms (and PMO's System Manager) still allow writes, so
+ * these decide what renders.
+ */
+export const canAddProjectInvoice = (role?: string | null): boolean =>
+  role !== SALES_EXECUTIVE_PROFILE && role !== SALES_LEAD_PROFILE && role !== PMO_EXECUTIVE_PROFILE;
+
+/** The "New Inflow" button -- the same view-only set as invoices. */
+export const canAddInflow = (role?: string | null): boolean => canAddProjectInvoice(role);
+
+/** Edit / delete a client invoice row. */
+export const canEditProjectInvoice = (role?: string | null): boolean => role === ADMIN_PROFILE;
+
+/** The inflow row's Actions menu (Edit). */
+export const canActOnInflow = (role?: string | null): boolean =>
+  role === ADMIN_PROFILE || ACCOUNTANT_PROFILES.includes(role ?? "");
+
+/** Delete inside that menu. */
+export const canDeleteInflow = (role?: string | null): boolean => role === ADMIN_PROFILE;
 
 /**
  * Reports > "Payment" tab — who may open the Tax Deducted at Source ledger (report "TDS Deduction").
