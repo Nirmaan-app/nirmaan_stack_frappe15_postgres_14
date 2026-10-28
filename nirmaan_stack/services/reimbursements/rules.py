@@ -3,13 +3,18 @@
 
 """The Reimbursement rules that need no database (ADR-0010 B1).
 
-Who decides a claim (owner, 2026-10-21/22):
+Who decides a claim (owner, 2026-10-21/22; amended 2026-10-28, ADR-0040 Amendment B):
 
-* HR (HR Executive or HR Lead) decides a claim of ₹2,000 or less (`HR_APPROVAL_LIMIT`, inclusive) whose
-  claimant is not in HR. An HR person's own claim is therefore never HR's to decide.
-* Admin decides everything else -- above ₹2,000, and every claim raised by someone in HR -- and may
-  decide their own claim.
+* HR (HR Executive or HR Lead) decides a claim of any amount whose claimant is not in HR. An HR person's own
+  claim is therefore never HR's to decide.
+* Admin decides every claim, every claim raised by someone in HR included, and may decide their own.
 * Approval is for the full amount; a rejection is final and needs a reason.
+
+How far an approval goes is the MONTHLY REIMBURSEMENT LIMIT (owner, 2026-10-28): ₹2,000 (`MONTHLY_LIMIT`) of month
+total; only a total UNDER it is within the limit, so exactly ₹2,000 already needs L1 (owner, 2026-10-28) -- the claim plus the claimant's other Approved and Paid claims raised in the same
+calendar month (`month_total.py`). Under it, HR's approval finishes the claim; at or above it, a claim HR approves
+also needs L1 in Payments (`approval_needs_l1`). An approval at or above it is confirmed with a tick
+(`acknowledgement_problem`); it is a warning, never a block.
 
 A claim above ₹2,000 (`DESCRIPTION_REQUIRED_ABOVE`) needs a description (owner, 2026-10-22). Every claim has a
 type: Travel, Food or Others (`TYPES`, owner, 2026-10-22).
@@ -39,8 +44,9 @@ STATUSES = (PENDING, APPROVED, REJECTED, PAID)
 #: What a claim was spent on, in the doctype's order. Pinned to the doctype's options by test.
 TYPES = ("Travel", "Food", "Others")
 
-#: HR may decide a claim of this amount or less (₹). Inclusive: exactly ₹2,000 is HR's.
-HR_APPROVAL_LIMIT = 2000
+#: The monthly reimbursement limit (₹) on a claimant's month total. A total of exactly ₹2,000 has reached it (owner,
+#: 2026-10-28): only a total below it is within the limit.
+MONTHLY_LIMIT = 2000
 
 #: A claim above this amount (₹) needs a description. Exactly ₹2,000 does not.
 DESCRIPTION_REQUIRED_ABOVE = 2000
@@ -50,16 +56,13 @@ REVIEWER_ADMIN = "Admin"
 REVIEWER_HR_OR_ADMIN = "HR or Admin"
 
 
-def reviewer_for(amount: float, *, claimant_is_hr: bool) -> str:
-    """Who decides a claim of `amount` raised by this claimant: `REVIEWER_ADMIN` or `REVIEWER_HR_OR_ADMIN`."""
-    if claimant_is_hr or amount > HR_APPROVAL_LIMIT:
-        return REVIEWER_ADMIN
-    return REVIEWER_HR_OR_ADMIN
+def reviewer_for(*, claimant_is_hr: bool) -> str:
+    """Who decides a claim raised by this claimant: `REVIEWER_ADMIN` or `REVIEWER_HR_OR_ADMIN`."""
+    return REVIEWER_ADMIN if claimant_is_hr else REVIEWER_HR_OR_ADMIN
 
 
 def decide_problem(
     status: str,
-    amount: float,
     *,
     claimant_is_hr: bool,
     decider_is_admin: bool,
@@ -78,8 +81,25 @@ def decide_problem(
         return "Only HR or Admin can approve or reject reimbursements."
     if claimant_is_hr:
         return "A claim raised by someone in HR is approved by Admin."
-    if amount > HR_APPROVAL_LIMIT:
-        return f"A claim above ₹{HR_APPROVAL_LIMIT:,} is approved by Admin."
+    return None
+
+
+def over_monthly_limit(month_total: float) -> bool:
+    """True when a claimant's month total has reached `MONTHLY_LIMIT`: ₹2,000 or more. Exactly ₹2,000 counts."""
+    return month_total >= MONTHLY_LIMIT
+
+
+def approval_needs_l1(month_total: float, *, decider_is_l1: bool) -> bool:
+    """Whether approving now leaves the claim's expense waiting for L1 in Payments: an approval by someone who
+    is not L1 (HR) when the month total has reached the limit. An L1's approval (Admin, the CEO) is the L1 step."""
+    return not decider_is_l1 and over_monthly_limit(month_total)
+
+
+def acknowledgement_problem(month_total: float, acknowledged: bool) -> str | None:
+    """Why an approval can't go ahead, or None: at or above the limit the approver must have confirmed the warning."""
+    if over_monthly_limit(month_total) and not acknowledged:
+        return (f"This person's reimbursements this month come to ₹{month_total:,.0f}, at or above the "
+                f"₹{MONTHLY_LIMIT:,} monthly limit. Tick the box to confirm, then approve.")
     return None
 
 

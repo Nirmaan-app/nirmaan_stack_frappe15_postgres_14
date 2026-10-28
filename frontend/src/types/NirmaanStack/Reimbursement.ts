@@ -55,11 +55,30 @@ export interface PendingReimbursement extends Reimbursement {
     /** "HR or Admin" / "Admin". */
     reviewer: string;
     /** Whether the person viewing may approve or reject it; HR sees every pending claim but decides only
-     *  those of ₹2,000 or less raised outside HR. */
+     *  those raised outside HR (any amount). */
     can_decide: boolean;
     /** Why not, when `can_decide` is false. */
     cannot_decide_reason?: string | null;
     is_own: boolean;
+}
+
+/** A row of `api/reimbursements/month_totals.get_month_totals`: a claimant's month total (ADR-0040 Amendment B),
+ *  worked out when it is read -- the claim plus their other Approved and Paid claims raised in the same month. */
+export interface MonthTotal {
+    claim: string;
+    /** The Non-Project Expense asked about, when the row was asked for by expense; null when asked by claim. */
+    expense: string | null;
+    /** The claimant (the claim's owner) and their name. */
+    claimant: string;
+    claimant_name: string;
+    /** The first day of the claim's month, `YYYY-MM-DD`. */
+    month: string;
+    /** This claim's own amount. */
+    amount: number;
+    month_total: number;
+    /** How many claims make up `month_total`, this one included. */
+    claims: number;
+    over_limit: boolean;
 }
 
 /** `api/reimbursements/bank_accounts.my_bank_account`: the caller's own Payee (one per person). */

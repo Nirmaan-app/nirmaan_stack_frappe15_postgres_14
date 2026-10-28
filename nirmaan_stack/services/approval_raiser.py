@@ -66,6 +66,11 @@ def expense_reviewer(doc) -> str | None:
 #: can set it. One constant for both, so they can't drift apart (code review, 2026-10-23).
 REIMBURSEMENT_APPROVAL_FLAG = "from_reimbursement_approval"
 
+#: Set by `reimbursements.convert.create_expense`, beside `REIMBURSEMENT_APPROVAL_FLAG`, when the claim's approval
+#: leaves its expense waiting for L1: HR approved it above the monthly reimbursement limit (ADR-0040 Amendment B,
+#: `reimbursements.rules.approval_needs_l1`). Read by `routing_skips_auto`.
+REIMBURSEMENT_NEEDS_L1_FLAG = "reimbursement_needs_l1"
+
 
 def routing_raiser(doc) -> str | None:
     """Whose level decides a NEW expense row's approval path (`expense_decision.apply_starting_status`).
@@ -84,3 +89,12 @@ def routing_raiser(doc) -> str | None:
         if approver:
             return approver
     return expense_raiser(doc)
+
+
+def routing_skips_auto(doc) -> bool:
+    """Whether a NEW expense row skips the auto-approve band (`expense_decision.apply_starting_status`).
+
+    True only on the insert an HR approval above the monthly reimbursement limit makes (ADR-0040 Amendment B):
+    that expense waits for L1 even under Rs 15,000. Both flags are server-side, so no client can set them.
+    """
+    return bool(doc.flags.get(REIMBURSEMENT_APPROVAL_FLAG) and doc.flags.get(REIMBURSEMENT_NEEDS_L1_FLAG))

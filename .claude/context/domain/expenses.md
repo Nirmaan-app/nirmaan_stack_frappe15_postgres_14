@@ -24,7 +24,10 @@ Both share one approval lifecycle and are entered/managed together in a single u
 - **The amount rule is NOT owned here.** It lives in `services/approval_tiers.py` (pure,
   mirrored by `frontend/src/utils/approvalTiers.ts` and pinned to it by a parity test that
   reads the Python source). Both expense ledgers pass `TIER_L2_ABOVE_EXPENSES` explicitly:
-  - `< ₹15,000` → created directly at `Approved` (skips `Requested`), `auto_approved = 1`.
+  - `< ₹15,000` → created directly at `Approved` (skips `Requested`), `auto_approved = 1`. **One exception**
+    (ADR-0040 Amendment B, owner 2026-10-28): a reimbursement's expense that HR approved at or above the ₹2,000
+    monthly reimbursement limit is born `Requested` and waits for L1 (`starting_status(skip_auto=True)`, asked
+    for only by `approval_raiser.routing_skips_auto`).
   - `₹15,000 – ₹50,000` → **L1 only**; the Admin / Accountant Lead tick FINISHES it.
   - `> ₹50,000` → **L1 then L2**; L1's tick writes `CEO Pending`, the CEO approves.
   - **A refund (amount ≤ 0) is never auto-approved**, then banded by its size like any
@@ -159,7 +162,9 @@ Both share one approval lifecycle and are entered/managed together in a single u
   expense engine with a required reason, so the reason reaches the request and lands as a comment on the expense.
 - **A Non-Project Expense with `reimbursement` set pays a Reimbursement claim** (ADR-0040). It is created on
   the claim's approval at Requested and routed by `validate` like any expense, with the claim's APPROVER as the
-  raiser (`approval_raiser.routing_raiser`, only on that flagged insert). The link is set ONLY by that approval
+  raiser (`approval_raiser.routing_raiser`, only on that flagged insert); when HR approved it at or above the monthly
+  reimbursement limit it also skips the auto band and waits for L1 (`approval_raiser.routing_skips_auto`, ADR-0040
+  Amendment B). The link is set ONLY by that approval
   step, never changes, and a claim has one expense (`expense_link.guard_link`). Its status moves the claim
   (Paid / Rejected / un-Paid), once **Rejected it can't move to any other status**, and **deleting it (any status) deletes the claim too**, as a request's expense does
   (`integrations/controllers/reimbursement_expense.py`). Everything else on it may be edited. Detail:

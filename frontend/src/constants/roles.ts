@@ -744,7 +744,7 @@ export const CHEQUE_ACCESS_PROFILES: readonly string[] = [...CHEQUE_ACCOUNTS_PRO
 // `utils/reimbursements/rules.ts`.
 // ---------------------------------------------------------------------------
 
-/** HR, who decide a claim of ₹2,000 or less raised outside HR. */
+/** HR, who decide a claim of any amount raised outside HR (above the monthly limit it also needs L1). */
 export const REIMBURSEMENT_HR_PROFILES: readonly string[] = [HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE];
 
 /** See every claim, and work the Approved (tick + Export) and Rejected tabs. */

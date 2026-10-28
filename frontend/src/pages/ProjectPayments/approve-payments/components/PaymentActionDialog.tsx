@@ -27,6 +27,8 @@ import { approvalBlocked, type ApprovalStage } from '../expenseApprovalDetail';
 import { approveAllLabel, rejectAllLabel, rejectTitle, type ChequeApproval } from '@/utils/cheques/chequeApproval';
 import { ChequeApprovalBlock } from './ChequeApprovalBlock';
 import { ChequeRejectBlock } from './ChequeRejectBlock';
+import { MonthLimitNotice, monthTickNeeded } from '@/components/reimbursements/MonthLimitNotice';
+import { useMonthTotals } from '@/components/reimbursements/useMonthTotals';
 
 interface PaymentActionDialogProps {
     isOpen: boolean;
@@ -116,6 +118,14 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
     const rejectsExpense = type === DIALOG_ACTION_TYPES.REJECT && isExpense;
     // A reimbursement's expense (ADR-0040): the claim is rejected too, and its raiser sees the reason.
     const isReimbursement = (paymentData as { source_type?: string } | null)?.source_type === "Reimbursement";
+    // Approving one shows its claimant's month total; above the monthly limit the box must be ticked first
+    // (ADR-0040 Amendment B). The tick is the screen's: the decision call takes none.
+    const approvesReimbursement = isOpen && isReimbursement && type === DIALOG_ACTION_TYPES.APPROVE && !!paymentData;
+    const month = useMonthTotals(approvesReimbursement ? { expenses: [paymentData.name] } : null);
+    const monthRow = approvesReimbursement ? month.byExpense.get(paymentData.name) : undefined;
+    const [acknowledged, setAcknowledged] = useState(false);
+    const monthBlocked = approvesReimbursement
+        && (month.isLoading || (monthTickNeeded(monthRow, month.failed) && !acknowledged));
     const needsReason = rejectsCheque || rejectsExpense;
     const chequeBlocked =
         chequeLoading || (throughCheque && !!chequeApproval?.problem) || (needsReason && !reason.trim());
@@ -132,6 +142,7 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
             setAmountInput(""); // Clear if no data
         }
         setReason("");
+        setAcknowledged(false);
     }, [paymentData, isOpen]); // Depend on isOpen to reset on reopen
 
     // All the boundary rules live in the pure helper so they can be tested — there is no DOM
@@ -174,13 +185,13 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
     const handleConfirm = useCallback(async () => {
         if (!paymentData) return;
         if (isPartialApprove && !split.valid) return;
-        if (chequeBlocked) return;
+        if (chequeBlocked || monthBlocked) return;
 
         // Non-partial paths send the untouched requested amount, exactly as before.
         await onSubmit(type, isPartialApprove ? split.approved : requestedAmount, needsReason ? reason.trim() : undefined);
         // Parent component will handle closing the dialog via onOpenChange after successful submission if needed
 
-    }, [paymentData, type, isPartialApprove, split, requestedAmount, onSubmit, chequeBlocked, needsReason, reason]);
+    }, [paymentData, type, isPartialApprove, split, requestedAmount, onSubmit, chequeBlocked, monthBlocked, needsReason, reason]);
 
     const renderTitle = () => {
         if (!paymentData) return null;
@@ -269,6 +280,17 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
                         isOpen={isOpen}
                         stage={stage}
                         approving={type === DIALOG_ACTION_TYPES.APPROVE}
+                    />
+                )}
+                {approvesReimbursement && (
+                    <MonthLimitNotice
+                        row={monthRow}
+                        isLoading={month.isLoading}
+                        failed={month.failed}
+                        place="payments"
+                        acknowledged={acknowledged}
+                        onAcknowledgedChange={setAcknowledged}
+                        disabled={isLoading}
                     />
                 )}
                 {paymentData && rejectsExpense && (
@@ -430,7 +452,7 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
                         <>
                             <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
                             <Button
-                                disabled={isLoading || chequeBlocked || expenseBlocked || (isPartialApprove && !split.valid)}
+                                disabled={isLoading || chequeBlocked || expenseBlocked || monthBlocked || (isPartialApprove && !split.valid)}
                                 onClick={handleConfirm}
                                 variant={needsReason ? "destructive" : "default"}
                             >

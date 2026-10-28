@@ -97,7 +97,7 @@ def raise_reimbursement(title, amount, payee, file_urls=None, description=None, 
     to_delete = apply_receipts(claim, plan)
     frappe.db.commit()
     _delete_last(to_delete)
-    return {"name": claim.name, "reviewer": reviewer_for(claim.amount, claimant_is_hr=is_hr(user))}
+    return {"name": claim.name, "reviewer": reviewer_for(claimant_is_hr=is_hr(user))}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -130,7 +130,7 @@ def update_reimbursement(name, title, amount, payee, description=None, file_urls
     to_delete = apply_receipts(claim, plan)
     frappe.db.commit()
     _delete_last(to_delete)
-    return {"name": claim.name, "reviewer": reviewer_for(claim.amount, claimant_is_hr=is_hr(user))}
+    return {"name": claim.name, "reviewer": reviewer_for(claimant_is_hr=is_hr(user))}
 
 
 @frappe.whitelist(methods=["POST"])

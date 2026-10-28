@@ -1,7 +1,7 @@
 /**
  * Approve (✓) and Reject (✕) on a Pending Approval row: icon-only, each named on hover. Disabled, with the
  * server's reason on hover, when this person can't decide the claim: HR sees every pending claim but decides
- * only those of ₹2,000 or less raised outside HR. Whether they may is the server's `can_decide`
+ * only those raised outside HR. Whether they may is the server's `can_decide`
  * (`review.get_pending_for_me`), never worked out here.
  */
 

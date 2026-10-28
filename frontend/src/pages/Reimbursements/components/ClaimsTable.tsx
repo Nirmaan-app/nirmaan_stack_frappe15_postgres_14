@@ -18,7 +18,7 @@
  * Accounts gets only their own claims whatever the filters say.
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 import { DataTable } from "@/components/data-table/new-data-table";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
@@ -83,7 +83,7 @@ export function ClaimsTable({
     const {
         table, totalCount, isLoading, error,
         searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField,
-        exportAllRows, isExporting,
+        exportAllRows, isExporting, refetch,
     } = useServerDataTable<Reimbursement>({
         doctype: REIMBURSEMENT_DOCTYPE,
         columns,
@@ -95,6 +95,15 @@ export function ClaimsTable({
         initialState: { columnVisibility: columnVisibilityFor(tab) },
         additionalFilters,
     });
+
+    // Claims are decided by other people (HR, Admin, the payers in Project Payments), so read the rows again when
+    // the window comes back into focus, as the tab counts above already do (SWR). The table keeps its rows in
+    // local state and otherwise refreshes only on the live list event, which a page signed in at /login on the
+    // dev site never receives until reloaded -- the counts moved while the rows stood still.
+    useEffect(() => {
+        window.addEventListener("focus", refetch);
+        return () => window.removeEventListener("focus", refetch);
+    }, [refetch]);
 
     return (
         <div className="flex flex-col gap-2">

@@ -12,7 +12,7 @@ import {
 
 import {
     DESCRIPTION_REQUIRED_ABOVE,
-    HR_APPROVAL_LIMIT,
+    MONTHLY_LIMIT,
     STATUSES,
     TAB_ALL,
     TYPES,
@@ -21,6 +21,8 @@ import {
     TAB_PAID,
     TAB_PENDING,
     TAB_REJECTED,
+    acknowledgementProblem,
+    approvalNeedsL1,
     claimantName,
     decideProblem,
     defaultTab,
@@ -28,6 +30,7 @@ import {
     descriptionRequired,
     editProblem,
     isMergeable,
+    overMonthlyLimit,
     paymentStage,
     resolveTab,
     reviewerFor,
@@ -35,8 +38,28 @@ import {
     tabsFor,
 } from "./rules";
 
+interface Named { name: string }
+interface Allowed extends Named { allowed: boolean }
+
+/** The shape of `reimbursement_rules_cases.json`, so each `it.each` row is typed (an untyped parse is refused). */
+interface RuleCases {
+    monthly_limit: number;
+    description_required_above: number;
+    statuses: string[];
+    types: string[];
+    reviewer: (Named & { claimant_is_hr: boolean; reviewer: string })[];
+    decide: (Allowed & { status: string; claimant_is_hr: boolean; decider_is_admin: boolean; decider_is_hr: boolean })[];
+    over_monthly_limit: (Named & { month_total: number; over: boolean })[];
+    approval_needs_l1: (Named & { month_total: number; decider_is_l1: boolean; needs_l1: boolean })[];
+    acknowledgement: (Allowed & { month_total: number; acknowledged: boolean })[];
+    edit: (Allowed & { status: string; is_claimant: boolean })[];
+    delete: (Allowed & { status: string; is_claimant: boolean })[];
+    description_required: (Named & { amount: number; required: boolean })[];
+    mergeable: { file_name: string; mergeable: boolean }[];
+}
+
 // The server's twin reads the same file (services/reimbursements/test_rules.py).
-const CASES = JSON.parse(
+const CASES: RuleCases = JSON.parse(
     readFileSync(
         resolve(__dirname, "../../../../nirmaan_stack/services/reimbursements/reimbursement_rules_cases.json"),
         "utf-8",
@@ -45,21 +68,33 @@ const CASES = JSON.parse(
 
 describe("shared cases with the server", () => {
     it("has the same limit and statuses", () => {
-        expect(HR_APPROVAL_LIMIT).toBe(CASES.hr_approval_limit);
+        expect(MONTHLY_LIMIT).toBe(CASES.monthly_limit);
         expect(DESCRIPTION_REQUIRED_ABOVE).toBe(CASES.description_required_above);
         expect(STATUSES).toEqual(CASES.statuses);
         expect(TYPES).toEqual(CASES.types);
     });
 
     it.each(CASES.reviewer)("reviewer: $name", (c) => {
-        expect(reviewerFor(c.amount, c.claimant_is_hr)).toBe(c.reviewer);
+        expect(reviewerFor(c.claimant_is_hr)).toBe(c.reviewer);
     });
 
     it.each(CASES.decide)("decide: $name", (c) => {
-        const problem = decideProblem(c.status, c.amount, {
+        const problem = decideProblem(c.status, {
             claimantIsHr: c.claimant_is_hr, deciderIsAdmin: c.decider_is_admin, deciderIsHr: c.decider_is_hr,
         });
         expect(problem === null).toBe(c.allowed);
+    });
+
+    it.each(CASES.over_monthly_limit)("over the monthly limit: $name", (c) => {
+        expect(overMonthlyLimit(c.month_total)).toBe(c.over);
+    });
+
+    it.each(CASES.approval_needs_l1)("approval needs L1: $name", (c) => {
+        expect(approvalNeedsL1(c.month_total, c.decider_is_l1)).toBe(c.needs_l1);
+    });
+
+    it.each(CASES.acknowledgement)("acknowledgement: $name", (c) => {
+        expect(acknowledgementProblem(c.month_total, c.acknowledged) === null).toBe(c.allowed);
     });
 
     it.each(CASES.edit)("edit: $name", (c) => {
@@ -134,6 +169,7 @@ describe("claimant details saved on the claim", () => {
 
 describe("paymentStage", () => {
     it("says where a claim's payment is, from its expense's status", () => {
+        expect(paymentStage("Requested")).toBe("Waiting for L1 approval");
         expect(paymentStage("CEO Pending")).toBe("Waiting for CEO approval");
         expect(paymentStage("Approved")).toBe("Waiting to be paid");
         expect(paymentStage("Reconciliation Pending")).toBe("Paid, waiting for the bank statement");

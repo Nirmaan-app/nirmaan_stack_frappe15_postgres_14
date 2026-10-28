@@ -19,11 +19,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import memoize from "lodash/memoize";
 
+import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
 import { useCounts } from "@/hooks/useCounts";
 import { useUserData } from "@/hooks/useUserData";
 import { cn } from "@/lib/utils";
 import type { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { REIMBURSEMENT_DOCTYPE, type PendingReimbursement, type Reimbursement } from "@/types/NirmaanStack/Reimbursement";
+import { raiserLevelOf } from "@/utils/approvalTiers";
 import {
     APPROVED,
     PAID,
@@ -213,6 +215,7 @@ function Reimbursements({ viewer }: { viewer: Viewer }) {
                 claim={decision?.claim ?? null}
                 claimantName={decision ? claimantName(decision.claim, getUserName) : ""}
                 isOwn={decision?.claim.owner === userId}
+                deciderLevel={raiserLevelOf(viewer.role, viewer.userId, CEO_AUTHORIZED_USER)}
                 onOpenChange={setDecisionOpen}
                 onDone={() => { setOpenName(null); refreshAll(); }}
             />

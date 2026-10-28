@@ -1,7 +1,8 @@
 # ADR 0040 — An approved Reimbursement becomes a Non-Project Expense
 
 **Status:** Accepted · 2026-10-23 (owner) · Supersedes [ADR-0041](0041-reimbursement-is-money-outside-the-ledgers.md)
-decision "money of its own" and its "No Paid status yet"
+decision "money of its own" and its "No Paid status yet" · Decisions 1 and 3 amended by
+[Amendment B](#amendment-b-2026-10-28-owner----a-monthly-limit-per-person-not-a-cap-per-claim) (2026-10-28)
 
 ## Context
 
@@ -61,6 +62,35 @@ Rejected, from Reimbursements; a claim rejected in Payments takes its Rejected e
 never deletes their claim's expense directly. Deleting the expense, by anyone else and in any status, deletes
 the claim, and every screen that deletes it says so. Both paths lock the expense before the claim, so they
 cannot deadlock (code review 2026-10-27).
+
+### Amendment B (2026-10-28, owner) -- a monthly limit per person, not a cap per claim
+
+Replaces decision 1 and HR's part of decision 3. The ₹2,000 stops deciding who may approve a claim and becomes
+the **monthly reimbursement limit**: ₹2,000 of **month total** per claimant (the claim in hand plus their other
+Approved and Paid claims raised in the same calendar month). Only a total under ₹2,000 is within it: exactly
+₹2,000 has reached the limit (owner, 2026-10-28, revised the same day from "₹2,000 is within").
+
+1. **HR approves a claim of any amount** whose claimant is not in HR. Admin still decides every claim raised by
+   someone in HR, and may decide their own.
+2. **HR's approval finishes a claim only under the limit.** Under it, the expense is auto-approved as before.
+   At or above it, the expense is born **Requested, even under ₹15,000**, and waits for L1 in Payment Pending Approval;
+   L1's approval follows the normal rule (Approved up to ₹50,000, CEO Pending above it). This is the one place an
+   expense under ₹15,000 is not auto-approved: the monthly limit is a per-person check that only HR's approval
+   skipped, so above it the claim gets the L1 look an Admin would have given it.
+3. **An Admin's approval is unchanged:** it counts as L1 (Approved up to ₹50,000, CEO Pending above it).
+4. **Every approver sees the month total and is warned at or above the limit**: HR and Admin on the
+   Reimbursements page, L1 and the CEO approving one reimbursement in Payments. At or above the limit they tick to
+   confirm before Approve is enabled. On the Reimbursements page the server refuses an approval at or above the
+   limit that the screen did not confirm. Bulk approve in Payments lists those reimbursements per person, with no
+   tick.
+   It is a warning, never a block.
+5. **The total is worked out when it is read**, never stored, so it is always current (a claim later rejected or
+   deleted drops out of it).
+
+Accepted edge: two HR approvals of the same person's claims committed in the same moment can each miss the
+other in their month total (PostgreSQL runs at REPEATABLE READ, so a lock would not make the second one see the
+first), and both may auto-approve. Each is HR's approval of a claim that was under the limit on its own, and
+L1 sees the true total on the person's next claim.
 
 ## Considered options
 

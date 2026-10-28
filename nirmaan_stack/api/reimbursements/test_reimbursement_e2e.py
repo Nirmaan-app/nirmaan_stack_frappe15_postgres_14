@@ -41,8 +41,11 @@ class _EndToEndCase(base.ReimbursementTestCase):
     """The doors the screens use, as helpers. No tests of its own."""
 
     def approve(self, approver, amount=1450, claimant=PM):
+        """Raise and approve one claim on an empty month, so it routes by its own amount (`fresh_month`); the
+        monthly-limit warning is ticked."""
+        self.fresh_month()
         name = self.raise_claim(claimant, amount=amount)
-        reply = self.as_user(approver, review.approve_reimbursement, name)
+        reply = self.as_user(approver, review.approve_reimbursement, name, acknowledged=1)
         self.assertEqual(reply["status"], APPROVED)
         self.assertEqual(reply["expense"], convert.expense_of(name))
         return name, reply["expense"]
@@ -137,16 +140,26 @@ class TestReimbursementEndToEnd(_EndToEndCase):
         self.assert_moved(self.decide(ACC, expense, "mark_paid", payment=self.payment()), expense, "Paid")
         self.assertEqual(self.claim(name).status, PAID)
 
-    def test_the_hr_limit_is_inclusive_and_admin_takes_what_hr_cannot(self):
-        at_limit, expense = self.approve(HR, amount=2000)
-        self.assertEqual((self.claim(at_limit).status, self.expense_status(expense)), (APPROVED, "Approved"))
+    def test_the_monthly_limit_is_reached_at_2000_and_hr_then_hands_the_claim_to_l1_in_payments(self):
+        """ADR-0040 Amendment B, through the doors the screens use: HR approves, the expense waits in the queue as a
+        Reimbursement, Admin approves it there with `decide_expenses`, and it is paid like any other."""
+        under, expense = self.approve(HR, amount=1999)
+        self.assertEqual((self.claim(under).status, self.expense_status(expense)), (APPROVED, "Approved"))
 
-        above = self.raise_claim(PM, amount=2000.01)
-        with self.assertRaises(frappe.PermissionError):
-            self.as_user(HR, review.approve_reimbursement, above)
+        above = self.raise_claim(PM, amount=1)  # the month comes to exactly ₹2,000: the limit is reached
+        with self.assertRaises(frappe.ValidationError):
+            self.as_user(HR, review.approve_reimbursement, above)  # the warning was not ticked
         self.assertIsNone(convert.expense_of(above))  # a refused approval leaves no expense behind
-        self.as_user(ADMIN, review.approve_reimbursement, above)
-        self.assertEqual(self.expense_status(convert.expense_of(above)), "Approved")
+        self.as_user(HR, review.approve_reimbursement, above, acknowledged=1)
+        waiting = convert.expense_of(above)
+        self.assertEqual(self.expense_status(waiting), "Requested")
+        self.assertEqual(self.queue_row(ADMIN, waiting)["source_type"], "Reimbursement")
+        self.assert_refused(self.decide(ACC, waiting, "mark_paid", payment=self.payment()), waiting, "Requested")
+
+        self.assert_moved(self.decide(ADMIN, waiting, "l1_approve"), waiting, "Approved")
+        self.assertEqual(self.claim(above).status, APPROVED)
+        self.assert_moved(self.decide(ACC, waiting, "mark_paid", payment=self.payment()), waiting, "Paid")
+        self.assertEqual(self.claim(above).status, PAID)
 
     # --- rejected in Payments ----------------------------------------------------------------------
 

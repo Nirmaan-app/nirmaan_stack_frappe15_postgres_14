@@ -20,8 +20,9 @@ What the expense holds (owner, 2026-10-23):
   the invoice. It has no bill number or date of its own, and one claim can merge several bills into its PDF.
 * `status` -- not set here: the expense is born Requested and its own `validate` routes it by the shared rule,
   with the claim's APPROVER as the raiser (`approval_raiser.routing_raiser`; code review finding 6, one copy of
-  the rule). HR's claims (₹2,000 or less) are auto-approved; an Admin's approval clears L1, so up to ₹50,000
-  is Approved and above it waits for the CEO; the CEO's clears both.
+  the rule). HR's approval within the monthly reimbursement limit is auto-approved; above it (`needs_l1`) the
+  expense waits for L1 even under ₹15,000 (ADR-0040 Amendment B); an Admin's approval clears L1, so up to
+  ₹50,000 is Approved and above it waits for the CEO; the CEO's clears both.
 * `owner` -- the claimant, so Payments shows the person the money is for.
 """
 
@@ -30,7 +31,7 @@ from __future__ import annotations
 import frappe
 from frappe.utils import flt, getdate
 
-from nirmaan_stack.services.approval_raiser import REIMBURSEMENT_APPROVAL_FLAG
+from nirmaan_stack.services.approval_raiser import REIMBURSEMENT_APPROVAL_FLAG, REIMBURSEMENT_NEEDS_L1_FLAG
 from nirmaan_stack.services.outflow_import.ledgers import NON_PROJECT_EXPENSE_DOCTYPE
 from nirmaan_stack.services.outflow_import.settle import format_amount_for
 from nirmaan_stack.services.payees.pay_to import copy_pay_to
@@ -100,8 +101,11 @@ def expense_of(claim_name: str) -> str | None:
     return frappe.db.get_value(NON_PROJECT_EXPENSE_DOCTYPE, {LINK_FIELD: claim_name}, "name")
 
 
-def create_expense(claim, approver: str):
-    """Create the claim's Non-Project Expense and return it. The caller holds the claim's lock and commits."""
+def create_expense(claim, approver: str, *, needs_l1: bool = False):
+    """Create the claim's Non-Project Expense and return it. The caller holds the claim's lock and commits.
+
+    `needs_l1` (`rules.approval_needs_l1`): the approval leaves the expense waiting for L1, so it skips the
+    auto-approve band (`approval_raiser.routing_skips_auto`)."""
     existing = expense_of(claim.name)
     if existing:
         return frappe.get_doc(NON_PROJECT_EXPENSE_DOCTYPE, existing)
@@ -122,6 +126,8 @@ def create_expense(claim, approver: str):
     })
     copy_pay_to(claim, expense)
     expense.flags[APPROVAL_FLAG] = True
+    if needs_l1:
+        expense.flags[REIMBURSEMENT_NEEDS_L1_FLAG] = True
     expense.insert(ignore_permissions=True)
     # Frappe stamps the session user (the approver) as `owner` on every insert. An owner-only write, so no
     # hook is skipped that matters: nothing reads an expense's owner after creation (its `validate` routing

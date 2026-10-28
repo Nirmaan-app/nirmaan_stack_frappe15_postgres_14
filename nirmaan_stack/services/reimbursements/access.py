@@ -41,11 +41,9 @@ def claimant_is_hr(claim) -> bool:
 
 
 def claim_decide_problem(claim, user: str) -> str | None:
-    """Why `user` may not approve or reject `claim` (a doc or dict with `status`, `amount`, `owner`,
-    `claimant_role`)."""
+    """Why `user` may not approve or reject `claim` (a doc or dict with `status`, `owner`, `claimant_role`)."""
     return decide_problem(
         claim.get("status"),
-        float(claim.get("amount") or 0),
         claimant_is_hr=claimant_is_hr(claim),
         decider_is_admin=is_nirmaan_admin(user),
         decider_is_hr=is_hr(user),

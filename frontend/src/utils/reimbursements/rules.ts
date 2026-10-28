@@ -1,6 +1,7 @@
 /**
- * The Reimbursement rules on the screen: which tabs a person sees, who decides a claim, and when the
- * claimant may edit or delete it (owner, 2026-10-21/22).
+ * The Reimbursement rules on the screen: which tabs a person sees, who decides a claim, the monthly
+ * reimbursement limit, and when the claimant may edit or delete it (owner, 2026-10-21/22; monthly limit
+ * 2026-10-28, ADR-0040 Amendment B).
  *
  * The twin of `nirmaan_stack/services/reimbursements/rules.py` (F1). The server's rules are the
  * boundary; these only decide what renders. Both read `reimbursement_rules_cases.json`, so they cannot
@@ -25,8 +26,22 @@ export const STATUSES: readonly ReimbursementStatus[] = [PENDING, APPROVED, REJE
 export const TYPES = ["Travel", "Food", "Others"] as const;
 export type ReimbursementType = (typeof TYPES)[number];
 
-/** HR may decide a claim of this amount or less (₹). Inclusive. */
-export const HR_APPROVAL_LIMIT = 2000;
+/** The monthly reimbursement limit (₹) on a claimant's month total. Exactly ₹2,000 has reached it: only a total below
+ *  it is within the limit (owner, 2026-10-28). */
+export const MONTHLY_LIMIT = 2000;
+
+/** True when a claimant's month total has reached the monthly limit: ₹2,000 or more. */
+export const overMonthlyLimit = (monthTotal: number): boolean => monthTotal >= MONTHLY_LIMIT;
+
+/** Whether approving now leaves the claim's expense waiting for L1 in Payments: an approval by someone who is not
+ *  L1 (HR) when the month total has reached the limit. An Admin's approval is the L1 step. */
+export const approvalNeedsL1 = (monthTotal: number, deciderIsL1: boolean): boolean =>
+    !deciderIsL1 && overMonthlyLimit(monthTotal);
+
+/** Why an approval can't go ahead, or null: at or above the limit the approver must tick the warning. */
+export function acknowledgementProblem(monthTotal: number, acknowledged: boolean): string | null {
+    return overMonthlyLimit(monthTotal) && !acknowledged ? "Tick the box to confirm, then approve." : null;
+}
 
 /** A claim above this amount (₹) needs a description (owner, 2026-10-22). Exactly ₹2,000 does not. */
 export const DESCRIPTION_REQUIRED_ABOVE = 2000;
@@ -37,22 +52,20 @@ export const descriptionRequired = (amount: number): boolean => amount > DESCRIP
 export const REVIEWER_ADMIN = "Admin";
 export const REVIEWER_HR_OR_ADMIN = "HR or Admin";
 
-/** Who decides a claim of `amount` raised by this claimant. */
-export function reviewerFor(amount: number, claimantIsHr: boolean): string {
-    return claimantIsHr || amount > HR_APPROVAL_LIMIT ? REVIEWER_ADMIN : REVIEWER_HR_OR_ADMIN;
+/** Who decides a claim raised by this claimant. */
+export function reviewerFor(claimantIsHr: boolean): string {
+    return claimantIsHr ? REVIEWER_ADMIN : REVIEWER_HR_OR_ADMIN;
 }
 
-/** Why this person may not approve or reject the claim, or null. */
+/** Why this person may not approve or reject the claim, or null. HR decides any amount raised outside HR. */
 export function decideProblem(
     status: string,
-    amount: number,
     who: { claimantIsHr: boolean; deciderIsAdmin: boolean; deciderIsHr: boolean },
 ): string | null {
     if (status !== PENDING) return `This claim is ${status}, so it can no longer be approved or rejected.`;
     if (who.deciderIsAdmin) return null;
     if (!who.deciderIsHr) return "Only HR or Admin can approve or reject reimbursements.";
     if (who.claimantIsHr) return "A claim raised by someone in HR is approved by Admin.";
-    if (amount > HR_APPROVAL_LIMIT) return `A claim above ₹${HR_APPROVAL_LIMIT.toLocaleString("en-IN")} is approved by Admin.`;
     return null;
 }
 
@@ -75,7 +88,7 @@ export function deleteProblem(status: string, isClaimant: boolean): string | nul
  *  Approved until the expense is Paid or Rejected. */
 export function paymentStage(expenseStatus: string | null | undefined): string {
     switch (expenseStatus) {
-        case "Requested": return "Waiting for approval in Payments";
+        case "Requested": return "Waiting for L1 approval";
         case "CEO Pending": return "Waiting for CEO approval";
         case "Approved": return "Waiting to be paid";
         case "Reconciliation Pending": return "Paid, waiting for the bank statement";

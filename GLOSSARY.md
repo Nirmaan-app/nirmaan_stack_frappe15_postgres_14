@@ -292,7 +292,9 @@ Two separate holds sit on a Vendor. They share the word "hold" and nothing else 
 
 - **Claimant** — the person who raised a Reimbursement, always the person it repays. Taken from the login, never typed. Their name and role profile are saved on the claim when it is raised, so the claim still names them, and still goes to the right approver, if they are later renamed, move role or are deleted. *Avoid*: requester, raiser (for this record), employee. (Owner, 2026-10-22.)
 
-- **HR approval limit** — ₹2,000. HR (HR Executive or HR Lead) may decide a Reimbursement of ₹2,000 or less whose claimant is not in HR; Admin decides everything else, every claim raised by someone in HR included, and may decide their own. Unrelated to the Expense and Payment amount tiers (₹15,000 / ₹50,000). (Owner, 2026-10-22.)
+- **Month total** — what a **claimant** is being reimbursed in one calendar month: the claim in hand plus their other Approved and Paid claims raised in that month. Pending and Rejected claims don't count. A claim belongs to the month it was raised in, not the month it is approved. (Owner, 2026-10-28.)
+
+- **Monthly reimbursement limit** — ₹2,000 of **month total** per claimant. Under it (₹1,999 or less), HR's approval of a claim finishes it. Once the month total reaches it (exactly ₹2,000 included), a claim HR approves also needs L1 in Payments, and the CEO above ₹50,000; every approver (HR, Admin, L1, the CEO) is warned how much the person has already been reimbursed that month and ticks to confirm before approving. It never blocks an approval. HR may approve a claim of any amount whose claimant is not in HR; Admin decides every claim raised by someone in HR, and may decide their own, and an Admin's approval counts as L1. Unrelated to the Expense and Payment amount tiers (₹15,000 / ₹50,000). Replaces the *HR approval limit* (owner, 2026-10-22), which capped what HR could approve on one claim ([ADR-0040 Amendment B](docs/adr/0040-an-approved-reimbursement-becomes-a-non-project-expense.md)). *Avoid*: HR approval limit, HR limit. (Owner, 2026-10-28.)
 
 ## Module residence
 

@@ -10,14 +10,17 @@ import unittest
 from nirmaan_stack.services.reimbursements.receipts import is_mergeable
 from nirmaan_stack.services.reimbursements.rules import (
     DESCRIPTION_REQUIRED_ABOVE,
-    HR_APPROVAL_LIMIT,
+    MONTHLY_LIMIT,
     STATUSES,
     TYPES,
+    acknowledgement_problem,
+    approval_needs_l1,
     claim_problem,
     decide_problem,
     delete_problem,
     description_required,
     edit_problem,
+    over_monthly_limit,
     rejection_problem,
     reviewer_for,
 )
@@ -28,7 +31,7 @@ with open(os.path.join(os.path.dirname(__file__), "reimbursement_rules_cases.jso
 
 class TestSharedCases(unittest.TestCase):
     def test_the_limit_and_statuses_match_the_cases(self):
-        self.assertEqual(HR_APPROVAL_LIMIT, CASES["hr_approval_limit"])
+        self.assertEqual(MONTHLY_LIMIT, CASES["monthly_limit"])
         self.assertEqual(DESCRIPTION_REQUIRED_ABOVE, CASES["description_required_above"])
         self.assertEqual(list(STATUSES), CASES["statuses"])
         self.assertEqual(list(TYPES), CASES["types"])
@@ -41,15 +44,32 @@ class TestSharedCases(unittest.TestCase):
     def test_reviewer(self):
         for case in CASES["reviewer"]:
             with self.subTest(case["name"]):
-                self.assertEqual(reviewer_for(case["amount"], claimant_is_hr=case["claimant_is_hr"]), case["reviewer"])
+                self.assertEqual(reviewer_for(claimant_is_hr=case["claimant_is_hr"]), case["reviewer"])
 
     def test_decide(self):
         for case in CASES["decide"]:
             with self.subTest(case["name"]):
                 problem = decide_problem(
-                    case["status"], case["amount"], claimant_is_hr=case["claimant_is_hr"],
+                    case["status"], claimant_is_hr=case["claimant_is_hr"],
                     decider_is_admin=case["decider_is_admin"], decider_is_hr=case["decider_is_hr"],
                 )
+                self.assertEqual(problem is None, case["allowed"], problem)
+
+    def test_over_monthly_limit(self):
+        for case in CASES["over_monthly_limit"]:
+            with self.subTest(case["name"]):
+                self.assertEqual(over_monthly_limit(case["month_total"]), case["over"])
+
+    def test_approval_needs_l1(self):
+        for case in CASES["approval_needs_l1"]:
+            with self.subTest(case["name"]):
+                self.assertEqual(approval_needs_l1(case["month_total"], decider_is_l1=case["decider_is_l1"]),
+                                 case["needs_l1"])
+
+    def test_acknowledgement(self):
+        for case in CASES["acknowledgement"]:
+            with self.subTest(case["name"]):
+                problem = acknowledgement_problem(case["month_total"], case["acknowledged"])
                 self.assertEqual(problem is None, case["allowed"], problem)
 
     def test_mergeable(self):
@@ -71,11 +91,16 @@ class TestSharedCases(unittest.TestCase):
 
 
 class TestRefusalsSayWhy(unittest.TestCase):
-    def test_hr_above_the_limit_is_told_admin_decides(self):
-        problem = decide_problem("Pending Approval", 2500, claimant_is_hr=False,
+    def test_hr_is_told_admin_decides_an_hr_claim(self):
+        problem = decide_problem("Pending Approval", claimant_is_hr=True,
                                  decider_is_admin=False, decider_is_hr=True) or ""
         self.assertIn("Admin", problem)
+
+    def test_an_unconfirmed_approval_above_the_limit_names_the_total_and_the_limit(self):
+        problem = acknowledgement_problem(3200, False) or ""
+        self.assertIn("3,200", problem)
         self.assertIn("2,000", problem)
+        self.assertIn("Tick", problem)
 
     def test_a_decided_claim_names_its_status(self):
         self.assertIn("Approved", edit_problem("Approved", is_claimant=True) or "")
