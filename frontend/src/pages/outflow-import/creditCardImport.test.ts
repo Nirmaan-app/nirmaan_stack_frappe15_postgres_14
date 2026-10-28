@@ -17,6 +17,7 @@ import {
     cardTotalsRows,
     isCardImport,
     opensCardDialog,
+    pdfLooksLocked,
     type CardImport,
 } from "./creditCardImport";
 import { historyEmptyLabel, historySubtitle, importsInTab, initialHistoryTab, tabCounts } from "./importHistoryView";
@@ -205,5 +206,28 @@ describe("a password-locked PDF (ADR-0039 Amendment A)", () => {
         ).toBe(false);
         expect(cardAsksForPassword(null)).toBe(false);
         expect(cardAsksForPassword("")).toBe(false);
+    });
+});
+
+describe("a PDF that looks locked when it is picked", () => {
+    const pdf = (text: string) => new TextEncoder().encode(text);
+
+    it("looks locked when its trailer, or its cross-reference stream, names an /Encrypt entry", () => {
+        expect(pdfLooksLocked(pdf("%PDF-1.4\ntrailer\n<< /Size 9 /Root 1 0 R /Encrypt 8 0 R >>\n%%EOF"))).toBe(true);
+        expect(pdfLooksLocked(pdf("%PDF-1.7\n9 0 obj\n<</Type/XRef/Encrypt<</Filter/Standard/V 5>>/W[1 2 1]>>"))).toBe(
+            true,
+        );
+    });
+
+    it("does not look locked without one, or with only a longer name that starts the same", () => {
+        expect(pdfLooksLocked(pdf("%PDF-1.4\ntrailer\n<< /Size 9 /Root 1 0 R >>\n%%EOF"))).toBe(false);
+        expect(pdfLooksLocked(pdf("<< /EncryptMetadata false >>"))).toBe(false);
+        expect(pdfLooksLocked(new Uint8Array())).toBe(false);
+    });
+
+    it("reads the bytes around binary content without losing its place", () => {
+        const binary = Uint8Array.from([0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a, 0x80, 0x9f, 0xff]);
+        const trailer = pdf("trailer << /Encrypt 8 0 R >>");
+        expect(pdfLooksLocked(Uint8Array.from([...binary, ...trailer]))).toBe(true);
     });
 });

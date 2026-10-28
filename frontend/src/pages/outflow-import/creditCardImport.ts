@@ -26,6 +26,16 @@ export const CARD_WRONG_PASSWORD = "That password did not open this PDF. Check i
 export const cardAsksForPassword = (error: string | null | undefined): boolean =>
     Boolean(error) && [CARD_PASSWORD_NEEDED, CARD_WRONG_PASSWORD].some((refusal) => error!.includes(refusal));
 
+/**
+ * Whether a PDF's bytes carry an `/Encrypt` entry, which every password-locked PDF has in its trailer (or in its
+ * cross-reference stream's dictionary, which is never compressed). Read when the file is picked, so Upload shows
+ * the password field before the first try. A hint only: the server still decides, and a PDF encrypted with an
+ * owner password only carries it too, yet opens with the field left empty.
+ */
+export const pdfLooksLocked = (bytes: Uint8Array): boolean =>
+    // One character per byte; `/EncryptMetadata` and other longer names are not the key.
+    /\/Encrypt(?![A-Za-z0-9])/.test(new TextDecoder("latin1").decode(bytes));
+
 /** The URL parameter that holds the card import the dialog is showing, so a reload reopens it. */
 export const CARD_URL_KEY = "card";
 

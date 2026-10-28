@@ -96,3 +96,8 @@ and for the stored PDF to have no password.
 - The PDF stored on the Credit Card Statement is an unlocked copy: the same pages written again with no
   encryption. An upload that was not locked is stored as uploaded.
 - There is no remembered password: each locked statement needs its password typed again.
+- The field also shows **before** the first upload, as soon as a picked PDF looks locked (it carries an
+  `/Encrypt` entry, read in the browser by `pdfLooksLocked`), so a locked statement is uploaded once. That
+  check is only a hint: the server still decides, and Upload stays enabled with the field empty, since a PDF
+  encrypted with an owner password only carries the entry yet opens without one. After either refusal above,
+  the field must be filled.

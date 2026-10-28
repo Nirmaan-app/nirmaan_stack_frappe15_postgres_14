@@ -99,6 +99,7 @@ import {
     canDiscardCard,
     cardAsksForPassword,
     cardDiscardConfirmation,
+    pdfLooksLocked,
     type CardImport,
 } from "../creditCardImport";
 import { canCreateCard, cardCreateButtonLabel, cardCreateStarted } from "../cardCreate";
@@ -310,11 +311,12 @@ export const ImportStatementDialog = ({
     const [staged, setStaged] = useState<OutflowUploadResult | null>(null);
     const [isDragging, setIsDragging] = useState(false);
     /**
-     * A card PDF the server found password-locked (ADR-0039 Amendment A): Upload then shows the PDF password
-     * field. The password is sent with that one upload and never kept; it goes with the file, the source or
-     * the dialog.
+     * Why Upload shows the PDF password field (ADR-0039 Amendment A): not at all; the picked file looks locked
+     * (`pdfLooksLocked`), when the field may stay empty, since an owner-password-only PDF opens without one; or
+     * the server refused it as locked or the password as wrong, when the field must be filled. The password is
+     * sent with that one upload and never kept; it goes with the file, the source or the dialog.
      */
-    const [cardLocked, setCardLocked] = useState(false);
+    const [cardLock, setCardLock] = useState<"none" | "looks locked" | "refused">("none");
     const [cardPassword, setCardPassword] = useState("");
     const cardPasswordRef = useRef<HTMLInputElement>(null);
 
@@ -430,6 +432,18 @@ export const ImportStatementDialog = ({
         [porterRulesData, fetchPorterRules]
     );
 
+    // The same pick counter as Porter's: a file picked, refused or replaced meanwhile drops a late answer.
+    const cardCheckFor = useRef(0);
+    const checkCardLock = useCallback(async (candidate: File) => {
+        const pick = ++cardCheckFor.current;
+        // Unreadable here is not "locked": the upload says what is wrong with the file.
+        const looksLocked = await candidate.arrayBuffer().then(
+            (buffer) => pdfLooksLocked(new Uint8Array(buffer)),
+            () => false
+        );
+        if (cardCheckFor.current === pick && looksLocked) setCardLock("looks locked");
+    }, []);
+
     const { call: runMatch } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.review.match_batch"
     );
@@ -465,7 +479,8 @@ export const ImportStatementDialog = ({
         setPorterConfirmAsked(false);
         porterCheckFor.current += 1;
         setPorterCheck(null);
-        setCardLocked(false);
+        cardCheckFor.current += 1;
+        setCardLock("none");
         setCardPassword("");
     }, [open]);
 
@@ -483,7 +498,8 @@ export const ImportStatementDialog = ({
         setCashbookBatch(null);
         setCashbookStatus(null);
         setError(null);
-        setCardLocked(false);
+        cardCheckFor.current += 1;
+        setCardLock("none");
         setCardPassword("");
         // ⚠️ A ROW NUMBER FROM ANOTHER SOURCE'S SHEET IS NOT A SMALLER TRUTH, IT IS A WRONG ONE.
         // Each source has its own export layout, so 17 means the header on one and a transaction
@@ -502,7 +518,8 @@ export const ImportStatementDialog = ({
         porterCheckFor.current += 1;
         setPorterCheck(null);
         // Another file may not be locked, or not with the same password.
-        setCardLocked(false);
+        cardCheckFor.current += 1;
+        setCardLock("none");
         setCardPassword("");
         if (!candidate) return;
 
@@ -528,7 +545,8 @@ export const ImportStatementDialog = ({
         }
         setFile(candidate);
         if (source === PORTER_SOURCE) void checkPorterChoice(candidate);
-    }, [source, checkPorterChoice]);
+        if (source === CARD_SOURCE) void checkCardLock(candidate);
+    }, [source, checkPorterChoice, checkCardLock]);
 
     /**
      * POST the statement to `url`.
@@ -756,15 +774,16 @@ export const ImportStatementDialog = ({
      * Upload a Credit Card Statement PDF (#1566). ONE request reads, gates, refuses or stages the whole
      * statement, as Porter's does: a refused file (another company, totals that disagree) saves nothing.
      *
-     * A password-locked PDF is refused until its password is sent with it (ADR-0039 Amendment A): that refusal,
-     * or a wrong password, shows the PDF password field, and the next upload sends what is typed there.
+     * A password-locked PDF is refused until its password is sent with it (ADR-0039 Amendment A): a picked file
+     * that looks locked, that refusal, or a wrong password shows the PDF password field, and the upload sends
+     * what is typed there.
      */
     const handleCardUpload = useCallback(async () => {
         if (!file || isBusy) return;
         setIsBusy("upload");
         setError(null);
         try {
-            const extra: Record<string, string> = cardLocked && cardPassword ? { password: cardPassword } : {};
+            const extra: Record<string, string> = cardLock !== "none" && cardPassword ? { password: cardPassword } : {};
             const message = (await post(CARD_UPLOAD_URL, null, extra)) as CardImport | undefined;
             if (!message?.batch) {
                 setError("The server accepted the file but returned no import.");
@@ -776,7 +795,7 @@ export const ImportStatementDialog = ({
             const reason = describeFrappeError(err, "The upload failed.");
             setError(reason);
             if (cardAsksForPassword(reason)) {
-                setCardLocked(true);
+                setCardLock("refused");
                 setCardPassword("");
                 // Already on screen after a wrong password; on first showing, `autoFocus` does it.
                 cardPasswordRef.current?.focus();
@@ -784,7 +803,7 @@ export const ImportStatementDialog = ({
         } finally {
             setIsBusy(null);
         }
-    }, [file, isBusy, post, seedCache, onCardBatch, cardLocked, cardPassword]);
+    }, [file, isBusy, post, seedCache, onCardBatch, cardLock, cardPassword]);
 
     /**
      * Retry one Porter Invoice that doesn't match or couldn't be read (#1444, #1562): the server downloads,
@@ -1162,7 +1181,7 @@ export const ImportStatementDialog = ({
                                 </>
                             ) : isCard ? (
                                 <>
-                                    {cardLocked && (
+                                    {cardLock !== "none" && (
                                         <div className="space-y-1.5">
                                             <Label htmlFor="card-pdf-password">PDF password</Label>
                                             <Input
@@ -1186,7 +1205,7 @@ export const ImportStatementDialog = ({
                                     )}
                                     <Button
                                         onClick={handleCardUpload}
-                                        disabled={!file || isBusy !== null || (cardLocked && !cardPassword)}
+                                        disabled={!file || isBusy !== null || (cardLock === "refused" && !cardPassword)}
                                     >
                                         {isBusy === "upload" && (
                                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
