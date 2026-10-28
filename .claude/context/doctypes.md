@@ -211,12 +211,22 @@ Asset Category
 | **Remaining Item Entry** | Child table for Remaining Items Report — per-item quantity tracking |
 
 ### Remaining Items Report Fields
-- `project` (link), `report_date` (Date), `created_by` (link to Nirmaan Users)
-- `declaration_accepted` (Check), `cooldown_bypass` (Check)
+- `project` (Link Projects), `report_date` (Date), `submitted_by` (Data, user id), `status` (Draft / Submitted)
 - `items` (Remaining Item Entry child table)
+- One report per project per date; editable only on its `report_date`. Written by
+  `api/remaining_items_report.submit_remaining_items_report`, which replaces all child rows on a same-day resubmit.
+- The newest **Submitted** report is the project's stock (ITM availability, Material Usage, Inventory pages).
+- **A Submitted report with zero child rows is valid:** it means "nothing to count today". Update Inventory
+  submits one when the project has no eligible items (> ₹5,000 ordered with a delivery, not Tool & Equipments,
+  not Additional Charges), so the PM can still clear Pending. It is the newest stock, so every item reads 0.
+- **Empty after empty moves, never piles up (owner, 2026-10-28):** an empty submit whose project's latest
+  Submitted report (`report_date desc, creation desc`) also has zero rows moves that report to today instead of
+  adding another (`_latest_submitted_if_empty`). A project with no items keeps one empty report whose date
+  moves forward. As a result, Monthly WIP counts it once, in its latest month.
 
 ### Remaining Item Entry Fields
-- `item_id`, `item_name`, `unit`, `category`, `quantity` (Float)
+- `item_id`, `item_name`, `unit`, `category`, `dn_quantity` (Float, delivered so far),
+  `remaining_quantity` (Float; `-1` = not filled), `make` (stamped by the server from the latest PO on Submit)
 - Linked to parent `Remaining Items Report`
 
 ### Progress Report Child Tables

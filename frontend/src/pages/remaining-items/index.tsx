@@ -66,30 +66,19 @@ function UpdateInventoryContent({ projectId, projectName }: { projectId: string;
 
   if (isLoading) return <LoadingFallback />;
 
-  if (!eligibleItems || eligibleItems.length === 0) {
-    return (
-      <>
-        <DateMetadataBar
-          hasProject={true}
-          lastReport={
-            latestReport?.message?.report_date
-              ? { submitted_by_full_name: latestReport.message.submitted_by_full_name || latestReport.message.submitted_by || "", report_date: latestReport.message.report_date }
-              : null
-          }
-          todayReportExists={todayExists}
-        />
-        <p className="text-sm text-muted-foreground">No eligible items found. Items must have total amount &gt; &#8377;5,000 and at least one delivery.</p>
-      </>
-    );
-  }
-
+  // A project with no eligible items still goes through the form: the PM submits an
+  // empty report, which records today's inventory as updated.
   return (
     <>
       <DateMetadataBar
         hasProject={true}
         lastReport={
           latestReport?.message?.report_date
-            ? { submitted_by_full_name: latestReport.message.submitted_by_full_name || latestReport.message.submitted_by || "", report_date: latestReport.message.report_date }
+            ? {
+                submitted_by_full_name: latestReport.message.submitted_by_full_name || latestReport.message.submitted_by || "",
+                report_date: latestReport.message.report_date,
+                isEmpty: Object.keys(latestReport.message.items ?? {}).length === 0,
+              }
             : null
         }
         todayReportExists={todayExists}

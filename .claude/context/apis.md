@@ -65,10 +65,17 @@ Backend API endpoints in `nirmaan_stack/api/`.
 - `print_integration.py` - Print format integration utilities
 
 ### Remaining Items / Inventory (`api/remaining_items_report.py`)
-- `create_remaining_items_report()` - Create inventory snapshot with item quantities
-- `get_remaining_items_report()` - Fetch report with eligible items
-- Cooldown enforcement (prevents rapid successive reports)
-- Declaration acceptance required before submission
+- `submit_remaining_items_report(project, report_date, items)`: saves the Update Inventory count. Only today's
+  date is accepted. Creates the report, or replaces the child rows of today's report. `items` may be empty
+  (`[]`, "nothing to count"). An empty submit whose latest Submitted report is also empty moves that report to
+  today instead of adding another. Returns `{status, name, action: "created" | "updated"}`.
+- `get_latest_remaining_quantities(project, include_reservations=False)`: the latest Submitted report's
+  quantities, keyed `{category}_{item_id}`, less ITMs dispatched since it was saved. With
+  `include_reservations`, also less Approved ITMs. `items` is `{}` for an empty report.
+- `get_remaining_reports_for_project(project, limit=5)`: last N Submitted reports with rows (Inventory Report →
+  History).
+- `get_today_report_for_project(project)`: `{exists, name, status, items, ...}` for today's report.
+- The declaration step is screen-only (`DeclarationDialog.tsx`); the server doesn't record it.
 
 ### Design Tracker (`api/design_tracker/`)
 - `get_task_wise_list.py` - Task-centric queries with designer/status/phase filtering
