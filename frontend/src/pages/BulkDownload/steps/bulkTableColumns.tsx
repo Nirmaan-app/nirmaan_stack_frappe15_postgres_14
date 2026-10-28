@@ -11,6 +11,7 @@ import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
 import type { BulkScopeKind } from "@/utils/bulkDownload/bulkDownloadTypes";
+import type { SummaryAmount } from "@/utils/bulkDownload/bulkSelectionSummary";
 import type { POItem, WOItem, VendorInvoice, PODeliveryDocuments, ProjectInvoice, PaymentVoucherRow, MTCRow } from "../useBulkDownloadWizard";
 
 type VendorRow = { name: string; vendor?: string; vendor_name?: string };
@@ -42,10 +43,19 @@ const projectColumn = <T extends ProjectRow>(): ColumnDef<T, any> =>
 
 /**
  * A project's documents span vendors, a vendor's span projects: in vendor scope the Vendor column
- * becomes a Project column (same place, same facet behaviour). Project scope returns `columns` as is.
+ * becomes a Project column (same place, same facet behaviour). The all scope spans both, so it
+ * keeps the Vendor column and adds a Project column just before it (after the first column when
+ * the type has no vendor, e.g. client invoices). Project scope returns `columns` as is.
  */
-export const forScope = <T extends ProjectRow>(columns: ColumnDef<T, any>[], kind: BulkScopeKind): ColumnDef<T, any>[] =>
-    kind === "vendor" ? columns.map((column) => (column.id === "vendor" ? projectColumn<T>() : column)) : columns;
+export const forScope = <T extends ProjectRow>(columns: ColumnDef<T, any>[], kind: BulkScopeKind): ColumnDef<T, any>[] => {
+    if (kind === "vendor") return columns.map((column) => (column.id === "vendor" ? projectColumn<T>() : column));
+    if (kind === "all") {
+        const at = columns.findIndex((column) => column.id === "vendor");
+        const index = at === -1 ? 1 : at;
+        return [...columns.slice(0, index), projectColumn<T>(), ...columns.slice(index)];
+    }
+    return columns;
+};
 
 const statusColumn = <T extends { status?: string }>(): ColumnDef<T, any> => ({
     id: "status",
@@ -171,3 +181,16 @@ export const mtcColumns: ColumnDef<MTCRow, any>[] = [
     dateColumn<MTCRow>("certificate_date", "Certificate Date", (row) => row.certificate_date ?? undefined),
     dateColumn<MTCRow>("creation", "Uploaded On", (row) => row.creation),
 ];
+
+/**
+ * What the selection summary totals per type -- the table's own amount columns, over the ticked rows.
+ * Delivery Notes, DCs, MIRs and MTCs carry no amount, so their summary shows the count only.
+ */
+export const poSummaryAmounts: SummaryAmount<POItem>[] = [
+    { label: "Excl. GST", get: (row) => row.amount },
+    { label: "Incl. GST", get: (row) => row.total_amount },
+];
+export const woSummaryAmounts: SummaryAmount<WOItem>[] = [{ label: "Incl. GST", get: (row) => row.total_amount }];
+export const invoiceSummaryAmounts: SummaryAmount<VendorInvoice>[] = [{ label: "Invoice total", get: (row) => row.invoice_amount }];
+export const clientInvoiceSummaryAmounts: SummaryAmount<ProjectInvoice>[] = [{ label: "Incl. GST", get: (row) => row.amount }];
+export const voucherSummaryAmounts: SummaryAmount<PaymentVoucherRow>[] = [{ label: "Amount paid", get: (row) => row.amount }];

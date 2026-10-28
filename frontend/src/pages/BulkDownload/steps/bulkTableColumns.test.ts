@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ColumnDef } from "@tanstack/react-table";
-import { dcColumns, dnColumns, forScope, invoiceColumns, mirColumns, mtcColumns, poColumns, poVoucherColumns, woColumns, woVoucherColumns } from "./bulkTableColumns";
+import { clientInvoiceColumns, dcColumns, dnColumns, forScope, invoiceColumns, mirColumns, mtcColumns, poColumns, poVoucherColumns, woColumns, woVoucherColumns } from "./bulkTableColumns";
 
 const ids = (columns: ColumnDef<any, any>[]) => columns.map((c) => c.id);
 const accessor = (column: ColumnDef<any, any>) => (column as { accessorFn: (row: unknown, i: number) => unknown }).accessorFn;
@@ -62,5 +62,30 @@ describe("mtcColumns", () => {
         const text = accessor(items)(row, 0) as string;
         expect(text).toBe("Copper Cable (Polycab), Cable Tray");
         expect(text).not.toContain("MTC-26");
+    });
+});
+
+describe("forScope — the all scope (Reports > Bulk Download)", () => {
+    it("keeps the Vendor column and adds a Project column right before it; every other column is the same object", () => {
+        for (const [name, columns] of Object.entries(ALL_SETS)) {
+            const cols = columns as ColumnDef<any, any>[];
+            const scoped = forScope(cols, "all");
+            const at = ids(cols).indexOf("vendor");
+            expect(at, name).toBeGreaterThan(-1);
+            const expected = [...ids(cols).slice(0, at), "project", ...ids(cols).slice(at)];
+            expect(ids(scoped), name).toEqual(expected);
+            expect(scoped.filter((c) => c.id !== "project"), name).toEqual(cols);
+        }
+    });
+
+    it("adds Project after the first column when the type has no vendor (client invoices)", () => {
+        expect(ids(forScope(clientInvoiceColumns as ColumnDef<any, any>[], "all"))).toEqual(["invoice_no", "project", "customer", "invoice_date", "amount"]);
+        expect(forScope(clientInvoiceColumns as ColumnDef<any, any>[], "project")).toBe(clientInvoiceColumns);
+    });
+
+    it("never mutates the shared column arrays (the project and vendor tabs read the same ones)", () => {
+        const before = ids(poColumns);
+        forScope(poColumns, "all");
+        expect(ids(poColumns)).toEqual(before);
     });
 });

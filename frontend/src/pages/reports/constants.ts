@@ -9,6 +9,8 @@ export const REPORTS_TABS = {
   // `/tds-approval`). Spelled `payment_tds` for the same reason the old route was spelled
   // `/payment-tds-deductions` in full: the two TDS families must never collide.
   PAYMENT_TDS: 'payment_tds',
+  // Every project's documents as one merged PDF (the project / vendor Bulk Download, unscoped).
+  BULK_DOWNLOAD: 'bulk_download',
 } as const; // Use "as const" for stricter typing
 
 // export const INVOICE_TASK_TYPE = "po_invoice_approval";

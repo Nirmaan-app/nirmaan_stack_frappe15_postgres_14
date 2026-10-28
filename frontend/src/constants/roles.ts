@@ -667,6 +667,28 @@ export const canBulkDownloadVendor = (
   (!!role && VENDOR_BULK_DOWNLOAD_PROFILES.includes(role));
 
 /**
+ * Reports > Bulk Download (every project, Project and Vendor as table filters) -- Admin and
+ * Accountant only (owner, 2026-10-28); Accountant Lead mirrors Accountant.
+ *
+ * NOT a UI-only gate: the server refuses everyone else on every all-scope call
+ * (`services/role_profiles.REPORTS_BULK_DOWNLOAD_PROFILES`, keep the two in sync), so a typed
+ * `?tab=bulk_download` shows nothing and fetches nothing.
+ */
+export const REPORTS_BULK_DOWNLOAD_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+];
+
+/** True when `role` (a role PROFILE) sees the Reports page's Bulk Download tab. */
+export const canBulkDownloadAllProjects = (
+  role?: string | null,
+  userId?: string | null
+): boolean =>
+  userId === "Administrator" ||
+  (!!role && REPORTS_BULK_DOWNLOAD_PROFILES.includes(role));
+
+/**
  * Reports > WO > Payment Voucher Uploads -- who may Upload / Delete a voucher (plus the
  * `Administrator` user, checked by the caller). Everyone else on the WO tab may still Gen /
  * download / view. SCREEN-ONLY: the write is `frappe.client.set_value`, and the WO page itself

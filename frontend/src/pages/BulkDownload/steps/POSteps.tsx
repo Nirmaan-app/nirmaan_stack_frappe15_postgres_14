@@ -8,10 +8,10 @@ import { Label } from "@/components/ui/label";
 import { ArrowLeft, Download, Loader2 } from "lucide-react";
 import { BulkSelectTable } from "./BulkSelectTable";
 import { CriticalTasksTab } from "./CriticalTasksTab";
-import { forScope, poColumns } from "./bulkTableColumns";
+import { forScope, poColumns, poSummaryAmounts } from "./bulkTableColumns";
 import { POItem, CriticalPOTask } from "../useBulkDownloadWizard";
 import { useUserData } from "@/hooks/useUserData";
-import { BulkScopeKind, scopeFacet } from "@/utils/bulkDownload/bulkDownloadTypes";
+import { BulkScopeKind, BulkTableLimits, scopeFacets, scopeNoun } from "@/utils/bulkDownload/bulkDownloadTypes";
 
 interface POStepsProps {
     items: POItem[];
@@ -27,6 +27,10 @@ interface POStepsProps {
     criticalTasks: CriticalPOTask[];
     onSelectMultipleCriticalTaskPOs: (taskNames: string[]) => void;
     scopeKind: BulkScopeKind;
+    /** All scope: page size + selection limit (the project / vendor tabs pass none). */
+    tableLimits?: BulkTableLimits;
+    /** False when the page shows Back and Download at the top instead (Reports > Bulk Download). */
+    showFooter?: boolean;
 }
 
 export const POSteps = ({
@@ -42,10 +46,12 @@ export const POSteps = ({
     criticalTasks,
     onSelectMultipleCriticalTaskPOs,
     scopeKind,
+    tableLimits = {},
+    showFooter = true,
 }: POStepsProps) => {
     const { role } = useUserData();
     const isProject = scopeKind === "project";
-    const facet = scopeFacet(scopeKind);
+    const facet = scopeFacets(scopeKind);
     const columns = useMemo(() => forScope(poColumns, scopeKind), [scopeKind]);
     const isProjectManager = role === "Nirmaan Project Manager Profile";
 
@@ -90,15 +96,17 @@ export const POSteps = ({
                     isLoading={isLoading}
                     selectedIds={selectedIds}
                     onSelectedIdsChange={onSelectAll}
-                    facetColumns={{ [facet.id]: facet.title, status: "Status" }}
+                    facetColumns={{ ...facet.columns, status: "Status" }}
                     dateFilterColumns={["creation"]}
                     searchPlaceholder={`Search by PO ID or ${facet.title}`}
-                    emptyMessage={`No POs found for this ${scopeKind}.`}
+                    emptyMessage={`No POs found for ${scopeNoun(scopeKind)}.`}
+                    {...tableLimits}
+                    summaryAmounts={poSummaryAmounts}
                 />
             </CriticalTasksTab>
 
             {/* Footer */}
-            <div className="flex items-center justify-between pt-2">
+            <div className={`flex items-center justify-between pt-2${showFooter ? "" : " hidden"}`}>
                 <Button variant="ghost" onClick={onBack} disabled={loading}>
                     <ArrowLeft className="h-4 w-4 mr-2" />Back
                 </Button>
@@ -106,7 +114,7 @@ export const POSteps = ({
                     onClick={onDownload}
                     disabled={loading || selectedIds.length === 0}
                     variant={selectedIds.length > 0 ? "destructive" : "outline"}
-                    className="min-w-44"
+                    className="min-w-44 ml-auto"
                 >
                     {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
                     {loading

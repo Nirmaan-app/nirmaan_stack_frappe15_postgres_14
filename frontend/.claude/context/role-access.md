@@ -373,8 +373,14 @@ links redirect to it (`pages/reports/ReportsIndex.tsx`).
 | PO | Y | Y | Y | Limited* | Y | Y |
 | WO (SR) | Y | Y | Y | - | Y | Y |
 | Payment › TDS Deduction | Y | - | - | - | - | Y |
+| Report Bulk Download† | Y | - | - | - | - | Y |
 
 *Project Manager only sees "Dispatched for 1+ days" report
+
+†Bulk Download (`canBulkDownloadAllProjects` in `constants/roles.ts`, Accountant Lead too; owner 2026-10-28) is
+the project / vendor Bulk Download over every project, with Project and Vendor as table filters. Server-enforced
+too: every all-scope call checks `services/role_profiles.REPORTS_BULK_DOWNLOAD_PROFILES`, so a typed
+`?tab=bulk_download` from anyone else shows and fetches nothing.
 
 The Payment tab is gated by `pages/reports/config/paymentTab.config.ts` (`PAYMENT_TDS_ACCESS` for TDS Deduction).
 Cheques are on their own page, the Cheque Tracker (above).

@@ -4,7 +4,7 @@ import { FrappeContext, FrappeConfig, useFrappeGetCall, useFrappeGetDocList } fr
 import { useUserData } from "@/hooks/useUserData";
 import { useProjectPOTaskLinks } from "@/pages/projects/data/critical-po/useCriticalPOQueries";
 import { attachLinkedPOs } from "@/pages/projects/CriticalPOTasks/utils";
-import { BulkDocType, BulkDownloadScope, InvoiceSubType, TYPE_INFO, compareMtcs } from "@/utils/bulkDownload/bulkDownloadTypes";
+import { ALL_SCOPE_MAX_ITEMS, BulkDocType, BulkDownloadScope, InvoiceSubType, TYPE_INFO, bulkTableLimits, compareMtcs, isOverSelectionLimit } from "@/utils/bulkDownload/bulkDownloadTypes";
 import { BulkDownloadReadyEvent, cancelBulkDownload, listenForDownload, newDownloadId } from "@/utils/bulkDownload/bulkDownloadEvents";
 import { DownloadRun, applyFailed, applyProgress, applyReady, isWorking, runDetails, startRun } from "@/utils/bulkDownload/bulkDownloadRun";
 import { readFrappeError } from "@/utils/frappeErrors";
@@ -44,6 +44,8 @@ export interface PODeliveryDocuments extends BasePODeliveryDocuments {
 import { ProjectInvoice as BaseProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
 export interface ProjectInvoice extends BaseProjectInvoice {
     company_name?: string;
+    /** All scope only: the facet column next to the customer. */
+    project_name?: string;
 }
 
 export interface WOItem extends ProjectFields {
@@ -90,14 +92,18 @@ export interface CriticalPOTask {
 }
 
 /**
- * The wizard for one project or one vendor. `types` is `allowedBulkTypes(scope, role)`: the
- * payment-voucher (PO, WO) and MTC lists are only fetched where their card is offered.
+ * The wizard for one project, one vendor or every project the user may read (the "all" scope).
+ * `types` is `allowedBulkTypes(scope, role)`: the payment-voucher (PO, WO) and MTC lists are only
+ * fetched where their card is offered.
  */
 export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocType[]) => {
     const { kind, id } = scope;
     const isProject = kind === "project";
-    const scopeFilter: [string, "=", string] = [kind, "=", id];
-    const scopeKey = id ? `${kind}-${id}` : null;
+    const isAll = kind === "all";
+    // The all scope has no scope filter: every list reads as the user (get_list), so their
+    // permissions are the limit -- a PM sees only their own projects' rows.
+    const scopeFilters: [string, "=", string][] = isAll ? [] : [[kind, "=", id]];
+    const scopeKey = isAll ? "all" : id ? `${kind}-${id}` : null;
     // The facet column of a vendor's tables is the project (a project's tables show the vendor).
     const projectFields = isProject ? [] : ["project", "project.project_name"];
 
@@ -121,6 +127,11 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocTy
 
     const [downloadToken, setDownloadToken] = useState<BulkDownloadReadyEvent | null>(null);
 
+    // A project or vendor loads every list up front (they are small, and Step 1 shows their counts).
+    // The all scope loads ONLY the list of the type opened: company-wide they run to thousands of
+    // rows each, so opening the tab fetches nothing. PO and DN share one list.
+    const wants = (...listTypes: BulkDocType[]) => !isAll || (docType !== null && listTypes.includes(docType));
+
     // The download this wizard started: its id, and the function that removes its listeners.
     const activeIdRef = useRef<string | null>(null);
     const unlistenRef = useRef<(() => void) | null>(null);
@@ -141,33 +152,33 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocTy
         "Procurement Orders",
         {
             fields: ["name", "vendor_name", "vendor", "status", "amount", "total_amount", "creation", "latest_delivery_date", ...(isProject ? [] : (["project", "project_name"] as const))],
-            filters: [scopeFilter, ["status", "not in", ["Merged", "Inactive", "Cancelled"]]],
+            filters: [...scopeFilters, ["status", "not in", ["Merged", "Inactive", "Cancelled"]]],
             limit: 0,
             orderBy: { field: "creation", order: "asc" },
         },
-        scopeKey && `bulk-po-${scopeKey}`
+        scopeKey && wants("PO", "DN") ? `bulk-po-${scopeKey}` : null
     );
 
     const { data: woList = [], isLoading: wosLoading } = useFrappeGetDocList<WOItem>(
         "Service Requests",
         {
             fields: ["name", "vendor", "vendor.vendor_name" as any, "status", "total_amount", "creation", ...projectFields as any[]],
-            filters: [scopeFilter, ["status", "=", "Approved"]],
+            filters: [...scopeFilters, ["status", "=", "Approved"]],
             limit: 0,
             orderBy: { field: "`tabService Requests`.creation", order: "asc" },
         },
-        scopeKey && `bulk-wo-${scopeKey}`
+        scopeKey && wants("WO") ? `bulk-wo-${scopeKey}` : null
     );
 
     const { data: vendorInvoices = [], isLoading: invoicesLoading } = useFrappeGetDocList<VendorInvoice>(
         "Vendor Invoices",
         {
             fields: ["name", "vendor", "vendor.vendor_name" as any, "document_type", "document_name", "invoice_no", "invoice_date", "invoice_amount", "invoice_attachment", ...projectFields as any[]],
-            filters: [scopeFilter, ["status", "=", "Approved"]],
+            filters: [...scopeFilters, ["status", "=", "Approved"]],
             limit: 0,
             orderBy: { field: "`tabVendor Invoices`.creation", order: "asc" },
         },
-        scopeKey && `bulk-vi-${scopeKey}`
+        scopeKey && wants("Invoice") ? `bulk-vi-${scopeKey}` : null
     );
 
     // PO-only by design: the Bulk Download wizard's UX (vendor facet, vendor_name
@@ -182,32 +193,32 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocTy
         {
             fields: ["name", "vendor", "vendor.vendor_name" as any, "type", "parent_docname", "procurement_order", "creation", "nirmaan_attachment", "dc_date", "reference_number", "dc_reference", ...projectFields as any[]],
             filters: [
-                scopeFilter,
+                ...scopeFilters,
                 ["parent_doctype", "=", "Procurement Orders"],
             ],
             limit: 0,
             orderBy: { field: "`tabPO Delivery Documents`.dc_date", order: "asc" },
         },
-        scopeKey && `bulk-podd-${scopeKey}`
+        scopeKey && wants("DC", "MIR") ? `bulk-podd-${scopeKey}` : null
     );
 
     const { data: projectInvoices = [], isLoading: projectInvoicesLoading } = useFrappeGetDocList<ProjectInvoice>(
         "Project Invoices",
         {
-            fields: ["name", "customer", "customer.company_name" as any, "invoice_no", "invoice_date", "amount", "attachment", "creation"],
-            filters: [scopeFilter],
+            fields: ["name", "customer", "customer.company_name" as any, "invoice_no", "invoice_date", "amount", "attachment", "creation", ...(isAll ? projectFields as any[] : [])],
+            filters: [...scopeFilters],
             limit: 0,
             orderBy: { field: "`tabProject Invoices`.invoice_date", order: "asc" },
         },
         // Project Invoices carry no vendor.
-        isProject && scopeKey ? `bulk-pi-${scopeKey}` : null
+        (isProject || isAll) && scopeKey && wants("ClientInvoice") ? `bulk-pi-${scopeKey}` : null
     );
 
     const { data: rawCriticalTasks, isLoading: criticalTasksListLoading } = useFrappeGetDocList<CriticalPOTask>(
         "Critical PO Tasks",
         {
             fields: ["name", "item_name", "critical_po_category"],
-            filters: [scopeFilter],
+            filters: [...scopeFilters],
             limit: 0,
             orderBy: { field: "creation", order: "desc" },
         },
@@ -231,11 +242,11 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocTy
         {
             fields: [...paymentFields, "voucher_attachment"],
             // The SDK's filter type has no "is" operator; Frappe does ("is set" = neither null nor "").
-            filters: [scopeFilter, ["document_type", "=", "Service Requests"], ["status", "=", "Paid"], ["voucher_attachment", "is", "set"] as any],
+            filters: [...scopeFilters, ["document_type", "=", "Service Requests"], ["status", "=", "Paid"], ["voucher_attachment", "is", "set"] as any],
             limit: 0,
             orderBy: { field: "`tabProject Payments`.payment_date", order: "asc" },
         },
-        types.includes("WOPaymentVoucher") && role !== "Loading" && scopeKey ? `bulk-pay-wo-${scopeKey}` : null
+        types.includes("WOPaymentVoucher") && role !== "Loading" && scopeKey && wants("WOPaymentVoucher") ? `bulk-pay-wo-${scopeKey}` : null
     );
     // PO: only Paid payments -- PO payments have no uploaded voucher, so the server generates each one,
     // and a voucher exists only for a payment made (the PO page offers it for Paid payments only).
@@ -243,19 +254,19 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocTy
         "Project Payments",
         {
             fields: paymentFields,
-            filters: [scopeFilter, ["document_type", "=", "Procurement Orders"], ["status", "=", "Paid"]],
+            filters: [...scopeFilters, ["document_type", "=", "Procurement Orders"], ["status", "=", "Paid"]],
             limit: 0,
             orderBy: { field: "`tabProject Payments`.payment_date", order: "asc" },
         },
-        types.includes("POPaymentVoucher") && role !== "Loading" && scopeKey ? `bulk-pay-po-${scopeKey}` : null
+        types.includes("POPaymentVoucher") && role !== "Loading" && scopeKey && wants("POPaymentVoucher") ? `bulk-pay-po-${scopeKey}` : null
     );
 
     // One row per certificate, through the MTC module's own read (`get_mtcs`), which applies the MTC
     // page's project rule: a PM / PL sees only their assigned projects.
     const { data: mtcData, isLoading: mtcsLoading } = useFrappeGetCall<{ message: MTCRow[] }>(
         "nirmaan_stack.api.material_test_certificates.mtc_api.get_mtcs",
-        { [kind]: id },
-        types.includes("MTC") && scopeKey ? `bulk-mtc-${scopeKey}` : null,
+        isAll ? { all_projects: 1 } : { [kind]: id },
+        types.includes("MTC") && scopeKey && wants("MTC") ? `bulk-mtc-${scopeKey}` : null,
         { revalidateOnFocus: false }
     );
     // Oldest certificate first, undated ones last -- the order the merged PDF holds them in.
@@ -322,6 +333,11 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocTy
     const handleDownload = async () => {
         if (loading) return;
         if (!selectedIds.length) { toast({ title: "No items selected", variant: "destructive" }); return; }
+        // The button is disabled over the limit; this guards any other way in (the server refuses too).
+        if (isOverSelectionLimit(selectedIds.length, bulkTableLimits(kind))) {
+            toast({ title: "Too many items", description: `One download takes up to ${ALL_SCOPE_MAX_ITEMS}. Narrow the list with the filters.`, variant: "destructive" });
+            return;
+        }
         const label = TYPE_INFO[docType!].short;
 
         try {
@@ -345,7 +361,9 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocTy
                 });
             }
 
-            const formData = new FormData(); formData.append(kind, id); formData.append("download_id", downloadId);
+            const formData = new FormData(); formData.append("download_id", downloadId);
+            // The all scope sends no project or vendor; the server reads the selection as the user.
+            if (isAll) formData.append("all_scope", "1"); else formData.append(kind, id);
             let endpoint = "";
 
             switch (docType) {

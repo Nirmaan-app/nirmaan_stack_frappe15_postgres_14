@@ -5,23 +5,26 @@
  * filter and date filter every list uses), so filtering here reads like filtering anywhere else.
  *
  * Selection is deliberately NOT TanStack row selection: it stays the wizard's `selectedIds`, which
- * is exactly what the download posts. The header checkbox acts on the FILTERED rows only.
+ * is exactly what the download posts. The header checkbox acts on the FILTERED rows only -- on
+ * every page when the table is paged (`pageSize`, the all scope), never just the page in view.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
     ColumnDef,
     ColumnFiltersState,
+    PaginationState,
     SortingState,
     flexRender,
     getCoreRowModel,
     getFacetedRowModel,
     getFacetedUniqueValues,
     getFilteredRowModel,
+    getPaginationRowModel,
     getSortedRowModel,
     useReactTable,
 } from "@tanstack/react-table";
 import { ArrowDownIcon, ArrowUpIcon, CaretSortIcon } from "@radix-ui/react-icons";
-import { Search, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -30,6 +33,7 @@ import { Button } from "@/components/ui/button";
 import { DataTableFacetedFilter } from "@/components/data-table/data-table-faceted-filter";
 import { DataTableDateFilter } from "@/components/data-table/data-table-date-filter";
 import { cn } from "@/lib/utils";
+import { SummaryAmount, dateSpan, describeFilters, selectionBlocks } from "@/utils/bulkDownload/bulkSelectionSummary";
 
 interface BulkSelectTableProps<T extends { name: string }> {
     data: T[];
@@ -46,6 +50,10 @@ interface BulkSelectTableProps<T extends { name: string }> {
     /** What a screen reader calls a row's checkbox ("Select …"); defaults to the row's `name`. Pass
      *  it when the name is an id users never see, e.g. an MTC. */
     rowLabel?: (row: T) => string;
+    /** Page the rows (the all scope's company-wide lists). Left out, every row renders, as before. */
+    pageSize?: number;
+    /** The figures the summary totals over the ticked rows (none: the summary shows the count only). */
+    summaryAmounts?: readonly SummaryAmount<T>[];
 }
 
 export function BulkSelectTable<T extends { name: string }>({
@@ -59,18 +67,25 @@ export function BulkSelectTable<T extends { name: string }>({
     searchPlaceholder = "Search...",
     emptyMessage = "No items found.",
     rowLabel,
+    pageSize,
+    summaryAmounts = [],
 }: BulkSelectTableProps<T>) {
     const [sorting, setSorting] = useState<SortingState>([]);
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
     const [globalFilter, setGlobalFilter] = useState("");
+    const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: pageSize ?? 0 });
+    // A filter or search change goes back to page 1 at once, in the same render (TanStack's own
+    // reset is queued for later, which shows an empty page in between).
+    const toFirstPage = () => setPagination((p) => (p.pageIndex === 0 ? p : { ...p, pageIndex: 0 }));
+    const changeSearch = (value: string) => { setGlobalFilter(value); toFirstPage(); };
 
     const table = useReactTable({
         data,
         columns,
-        state: { sorting, columnFilters, globalFilter },
+        state: { sorting, columnFilters, globalFilter, ...(pageSize ? { pagination } : {}) },
         onSortingChange: setSorting,
-        onColumnFiltersChange: setColumnFilters,
-        onGlobalFilterChange: setGlobalFilter,
+        onColumnFiltersChange: (updater) => { setColumnFilters(updater); toFirstPage(); },
+        onGlobalFilterChange: (updater) => { setGlobalFilter(updater); toFirstPage(); },
         globalFilterFn: "includesString",
         getRowId: (row) => row.name,
         getCoreRowModel: getCoreRowModel(),
@@ -78,10 +93,16 @@ export function BulkSelectTable<T extends { name: string }>({
         getSortedRowModel: getSortedRowModel(),
         getFacetedRowModel: getFacetedRowModel(),
         getFacetedUniqueValues: getFacetedUniqueValues(),
+        ...(pageSize
+            ? { getPaginationRowModel: getPaginationRowModel(), onPaginationChange: setPagination, autoResetPageIndex: false }
+            : {}),
     });
 
+    // `rows` = what this page renders; `filteredRows` = every row the filters and search leave, on
+    // all pages. Select-all, the counts and the header tick read `filteredRows`.
     const rows = table.getRowModel().rows;
-    const visibleIds = useMemo(() => rows.map((r) => r.id), [rows]);
+    const filteredRows = table.getPrePaginationRowModel().rows;
+    const visibleIds = useMemo(() => filteredRows.map((r) => r.id), [filteredRows]);
     const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
     const selectedVisibleCount = visibleIds.filter((id) => selected.has(id)).length;
     const allVisibleSelected = visibleIds.length > 0 && selectedVisibleCount === visibleIds.length;
@@ -110,9 +131,30 @@ export function BulkSelectTable<T extends { name: string }>({
         }
     };
 
+    // The two-line summary: line 1 = what is ticked and its total, line 2 = the filters and date range.
+    const dateTitles = Object.fromEntries(
+        dateFilterColumns.map((id) => {
+            const header = table.getColumn(id)?.columnDef.header;
+            return [id, typeof header === "string" ? header : id];
+        })
+    );
+    // The ticked rows' own date range, on the table's main (first) date column -- not the date filter.
+    const mainDate = dateFilterColumns[0];
+    const selectedDates = mainDate
+        ? dateSpan(table.getCoreRowModel().rows.filter((row) => selected.has(row.id)).map((row) => row.getValue(mainDate)))
+        : null;
+    const blocks = selectionBlocks(
+        data, selectedIds, filteredRows.length, summaryAmounts,
+        mainDate ? { title: dateTitles[mainDate], span: selectedDates } : null,
+    );
+    const filterParts = describeFilters(columnFilters, globalFilter, facetColumns, dateTitles);
+    // Shown only once something is ticked or a filter is set (owner, 2026-10-28): an untouched table needs no summary.
+    const hasFilters = filterParts[0]?.key !== "none";
+    const showSummary = selectedIds.length > 0 || hasFilters;
+
     const clearFilters = () => {
         table.resetColumnFilters();
-        setGlobalFilter("");
+        changeSearch("");
     };
 
     const facetOptions = (columnId: string) => {
@@ -132,12 +174,12 @@ export function BulkSelectTable<T extends { name: string }>({
                     <Input
                         placeholder={searchPlaceholder}
                         value={globalFilter}
-                        onChange={(e) => setGlobalFilter(e.target.value)}
+                        onChange={(e) => changeSearch(e.target.value)}
                         className="h-9 pl-9 pr-8 text-sm border-gray-300"
                     />
                     {globalFilter && (
                         <button
-                            onClick={() => setGlobalFilter("")}
+                            onClick={() => changeSearch("")}
                             className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                         >
                             <X className="h-3.5 w-3.5" />
@@ -151,10 +193,52 @@ export function BulkSelectTable<T extends { name: string }>({
                         </Button>
                     )}
                     <p className="text-sm text-slate-500 font-medium whitespace-nowrap">
-                        {selectedVisibleCount}/{rows.length} Selected
+                        {selectedVisibleCount}/{filteredRows.length} Selected
                     </p>
                 </div>
             </div>
+
+            {/* Selection summary: above the table, light yellow; every value labelled (owner) */}
+            {!isLoading && showSummary && (
+                <div aria-label="Selection summary" className="flex flex-col gap-1.5 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        {blocks.map((block, i) => (
+                            <Fragment key={block.label}>
+                                {i > 0 && <span aria-hidden className="h-4 w-px bg-yellow-300" />}
+                                <span className="whitespace-nowrap">
+                                    <span data-summary-label className="mr-1.5 text-xs text-gray-500">{block.label}</span>
+                                    <span data-summary-value className="font-semibold text-gray-900 tabular-nums">{block.value}</span>
+                                </span>
+                            </Fragment>
+                        ))}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="mr-1 text-xs text-gray-500">Filters</span>
+                        {!hasFilters ? (
+                            <span data-summary-filter className="text-gray-500">No filters</span>
+                        ) : (
+                            filterParts.map((part) => (
+                                <span
+                                    key={part.key}
+                                    data-summary-filter
+                                    title={part.full}
+                                    className="inline-flex items-center gap-1 rounded-full border border-yellow-300 bg-white py-0.5 pl-2.5 pr-1 text-xs text-gray-800"
+                                >
+                                    {part.text}
+                                    <button
+                                        type="button"
+                                        aria-label={`Remove filter ${part.full}`}
+                                        onClick={() => (part.key === "search" ? changeSearch("") : table.getColumn(part.key)?.setFilterValue(undefined))}
+                                        className="rounded-full p-0.5 text-gray-500 hover:bg-yellow-100 hover:text-gray-900"
+                                    >
+                                        <X className="h-3 w-3" />
+                                    </button>
+                                </span>
+                            ))
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* Table */}
             {isLoading ? (
@@ -170,7 +254,7 @@ export function BulkSelectTable<T extends { name: string }>({
                                     <TableHead className="w-10 px-3">
                                         <Checkbox
                                             aria-label="Select all filtered rows"
-                                            disabled={rows.length === 0}
+                                            disabled={filteredRows.length === 0}
                                             checked={allVisibleSelected ? true : selectedVisibleCount > 0 ? "indeterminate" : false}
                                             onCheckedChange={toggleAllVisible}
                                         />
@@ -257,6 +341,28 @@ export function BulkSelectTable<T extends { name: string }>({
                     </Table>
                 </div>
             )}
+
+            {pageSize && !isLoading && filteredRows.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
+                    <span className="tabular-nums">
+                        {(table.getState().pagination.pageIndex * pageSize + 1).toLocaleString("en-IN")}–
+                        {Math.min(filteredRows.length, (table.getState().pagination.pageIndex + 1) * pageSize).toLocaleString("en-IN")} of{" "}
+                        {filteredRows.length.toLocaleString("en-IN")}
+                    </span>
+                    <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" className="h-8" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
+                            <ChevronLeft className="h-4 w-4 mr-1" />Prev
+                        </Button>
+                        <span className="tabular-nums whitespace-nowrap">
+                            Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount().toLocaleString("en-IN")}
+                        </span>
+                        <Button variant="outline" size="sm" className="h-8" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+                            Next<ChevronRight className="h-4 w-4 ml-1" />
+                        </Button>
+                    </div>
+                </div>
+            )}
+
         </div>
     );
 }

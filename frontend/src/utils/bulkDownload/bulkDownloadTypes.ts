@@ -2,18 +2,20 @@
  * Which document types a Bulk Download offers -- one rule set for the Step 1 cards, the Quick
  * Download menu and the wizard's queries, so they cannot drift apart.
  *
- * A bulk download covers one project (the project page's tab) or one vendor (the vendor page's
- * tab). Role rules are the same in both: a Project Manager gets no vendor invoices, client
- * invoices or payment vouchers (PO or WO); PMO loses client invoices only.
+ * A bulk download covers one project (the project page's tab), one vendor (the vendor page's tab)
+ * or every project the user may read (Reports > Bulk Download, the "all" scope). Role rules are the
+ * same in all three: a Project Manager gets no vendor invoices, client invoices or payment vouchers
+ * (PO or WO); PMO loses client invoices only.
  */
 import { PMO_EXECUTIVE_PROFILE, PROJECT_MANAGER_PROFILE } from "@/constants/roles";
 
 export type BulkDocType = "PO" | "WO" | "Invoice" | "DC" | "MIR" | "DN" | "MTC" | "ClientInvoice" | "POPaymentVoucher" | "WOPaymentVoucher";
 export type InvoiceSubType = "PO Invoices" | "WO Invoices" | "All Invoices";
-export type BulkScopeKind = "project" | "vendor";
+export type BulkScopeKind = "project" | "vendor" | "all";
 
 export interface BulkDownloadScope {
     kind: BulkScopeKind;
+    /** The project or vendor id; "" for the all scope. */
     id: string;
     /** Project / vendor name, for the copy only (the server names the file itself). */
     name?: string;
@@ -122,3 +124,38 @@ export const invoiceSubTypesFor = (scope: Pick<BulkDownloadScope, "kind" | "vend
  */
 export const scopeFacet = (kind: BulkScopeKind) =>
     kind === "vendor" ? ({ id: "project", title: "Project" } as const) : ({ id: "vendor", title: "Vendor" } as const);
+
+/**
+ * Every facet column the scope's tables filter on (column id -> title). The all scope spans projects
+ * AND vendors, so it filters on both; Project and Vendor start empty, so the table opens on everything.
+ * `title` goes into the search placeholder.
+ */
+export const scopeFacets = (kind: BulkScopeKind): { columns: Record<string, string>; title: string } => {
+    if (kind === "all") return { columns: { project: "Project", vendor: "Vendor" }, title: "Project or Vendor" };
+    const facet = scopeFacet(kind);
+    return { columns: { [facet.id]: facet.title }, title: facet.title };
+};
+
+/** "this project" / "this vendor" / "your projects" -- for the tables' empty messages. */
+export const scopeNoun = (kind: BulkScopeKind) =>
+    kind === "all" ? "your projects" : `this ${kind}`;
+
+/**
+ * The all scope's table: one download takes at most `ALL_SCOPE_MAX_ITEMS` (the server holds the
+ * same number, `bulk_download.ALL_SCOPE_MAX_ITEMS`) and the table pages its rows (thousands per
+ * type). The project and vendor tabs keep neither: unpaged, no limit.
+ */
+export const ALL_SCOPE_MAX_ITEMS = 500;
+export const ALL_SCOPE_PAGE_SIZE = 50;
+
+export interface BulkTableLimits {
+    pageSize?: number;
+    maxSelect?: number;
+}
+
+export const bulkTableLimits = (kind: BulkScopeKind): BulkTableLimits =>
+    kind === "all" ? { pageSize: ALL_SCOPE_PAGE_SIZE, maxSelect: ALL_SCOPE_MAX_ITEMS } : {};
+
+/** True when a selection is over the scope's limit, so its Download stays disabled. */
+export const isOverSelectionLimit = (selectedCount: number, limits: BulkTableLimits) =>
+    limits.maxSelect != null && selectedCount > limits.maxSelect;
