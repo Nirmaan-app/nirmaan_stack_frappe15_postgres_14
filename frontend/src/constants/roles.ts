@@ -314,6 +314,17 @@ export const canMatchGstToVendor = (role?: string | null, userId?: string | null
   userId === "Administrator" || (!!role && MATCH_GST_TO_VENDOR_PROFILES.includes(role));
 
 /**
+ * May see Financials > Project Ledger (owner, 2026-10-28): not Sales, Estimates or Billing, who keep
+ * their other Financials sub-tabs. UI gate only: `api/projects/project_ledger` refuses anyone outside
+ * `services/role_profiles.PROJECT_LEDGER_PROFILES`. Change the two together.
+ */
+export const PROJECT_LEDGER_PROFILES: readonly string[] = [ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, ...ACCOUNTANT_PROFILES];
+
+/** True when `role` (a role PROFILE) may see the Project Ledger. */
+export const canSeeProjectLedger = (role?: string | null, userId?: string | null): boolean =>
+  userId === "Administrator" || (!!role && PROJECT_LEDGER_PROFILES.includes(role));
+
+/**
  * May see the "Pending Invoices Upload" tab (orders still owed a vendor invoice).
  * Wider than the approval set: the invoice approvers plus PMO and every procurement
  * profile, who chase the missing invoices with vendors (owner ruling 2026-09-24).
@@ -482,14 +493,39 @@ export const BOQ_TEMPLATES_ACCESS: readonly string[] = [
   ESTIMATES_EXECUTIVE_PROFILE,
 ];
 
-/** `/project-invoices` -- Accountant block plus the Sales block. PMO excluded. */
+/** `/project-invoices` -- Accountant block, the Sales block and PMO (view-only, owner 2026-10-28). */
 export const PROJECT_INVOICES_ACCESS: readonly string[] = [
   ADMIN_PROFILE,
   ACCOUNTANT_PROFILE,
   ACCOUNTANT_LEAD_PROFILE,
   SALES_EXECUTIVE_PROFILE,
   SALES_LEAD_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
 ];
+
+/**
+ * Client money (Project Invoices, Project Inflows) -- who may change it, as opposed to
+ * who may see it. PMO SEES all client money -- the project Financials tab (owner,
+ * 2026-10-27), the `/project-invoices` and `/in-flow-payments` pages and the Reports ›
+ * Projects money reports (owner, 2026-10-28) -- but is view-only on it, like Sales.
+ * UI-only: the doctypes' DocPerms (and PMO's System Manager) still allow writes, so
+ * these decide what renders.
+ */
+export const canAddProjectInvoice = (role?: string | null): boolean =>
+  role !== SALES_EXECUTIVE_PROFILE && role !== SALES_LEAD_PROFILE && role !== PMO_EXECUTIVE_PROFILE;
+
+/** The "New Inflow" button -- the same view-only set as invoices. */
+export const canAddInflow = (role?: string | null): boolean => canAddProjectInvoice(role);
+
+/** Edit / delete a client invoice row. */
+export const canEditProjectInvoice = (role?: string | null): boolean => role === ADMIN_PROFILE;
+
+/** The inflow row's Actions menu (Edit). */
+export const canActOnInflow = (role?: string | null): boolean =>
+  role === ADMIN_PROFILE || ACCOUNTANT_PROFILES.includes(role ?? "");
+
+/** Delete inside that menu. */
+export const canDeleteInflow = (role?: string | null): boolean => role === ADMIN_PROFILE;
 
 /**
  * Reports > "Payment" tab — who may open the Tax Deducted at Source ledger (report "TDS Deduction").
@@ -642,6 +678,28 @@ export const canBulkDownloadVendor = (
   (!!role && VENDOR_BULK_DOWNLOAD_PROFILES.includes(role));
 
 /**
+ * Reports > Bulk Download (every project, Project and Vendor as table filters) -- Admin and
+ * Accountant only (owner, 2026-10-28); Accountant Lead mirrors Accountant.
+ *
+ * NOT a UI-only gate: the server refuses everyone else on every all-scope call
+ * (`services/role_profiles.REPORTS_BULK_DOWNLOAD_PROFILES`, keep the two in sync), so a typed
+ * `?tab=bulk_download` shows nothing and fetches nothing.
+ */
+export const REPORTS_BULK_DOWNLOAD_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+];
+
+/** True when `role` (a role PROFILE) sees the Reports page's Bulk Download tab. */
+export const canBulkDownloadAllProjects = (
+  role?: string | null,
+  userId?: string | null
+): boolean =>
+  userId === "Administrator" ||
+  (!!role && REPORTS_BULK_DOWNLOAD_PROFILES.includes(role));
+
+/**
  * Reports > WO > Payment Voucher Uploads -- who may Upload / Delete a voucher (plus the
  * `Administrator` user, checked by the caller). Everyone else on the WO tab may still Gen /
  * download / view. SCREEN-ONLY: the write is `frappe.client.set_value`, and the WO page itself
@@ -736,3 +794,22 @@ export const REFUND_DELETE_PROFILES: readonly string[] = [ADMIN_PROFILE, ...MATE
  */
 export const CHEQUE_ACCOUNTS_PROFILES: readonly string[] = [ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE];
 export const CHEQUE_ACCESS_PROFILES: readonly string[] = [...CHEQUE_ACCOUNTS_PROFILES, ...PROCUREMENT_PROFILES];
+
+// ---------------------------------------------------------------------------
+// Reimbursements (owner, 2026-10-21/22). Mirrored server-side by `REIMBURSEMENT_*` in
+// `services/role_profiles.py`, which with `integrations/controllers/reimbursement.py` is the ENFORCEMENT
+// boundary; these only decide which tabs and buttons render. Who decides a claim is a rule, not a list:
+// `utils/reimbursements/rules.ts`.
+// ---------------------------------------------------------------------------
+
+/** HR, who decide a claim of any amount raised outside HR (above the monthly limit it also needs L1). */
+export const REIMBURSEMENT_HR_PROFILES: readonly string[] = [HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE];
+
+/** See every claim, and work the Approved (tick + Export) and Rejected tabs. */
+export const REIMBURSEMENT_VIEW_ALL_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  HR_EXECUTIVE_PROFILE,
+  HR_LEAD_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+];

@@ -65,14 +65,14 @@ On the project tab the same 7 steps run, with `project` in place of `vendor`.
 | Rows shown | `project = id` | `vendor = id` |
 | Facet column in the tables | Vendor | Project |
 | Critical POs tab (PO, DN steps) | shown | hidden (Critical PO Tasks live inside a project) |
-| Client Invoices | shown (not PM, not PMO) | never (Project Invoices have no vendor) |
+| Client Invoices | shown (not PM) | never (Project Invoices have no vendor) |
 | Cards | by role | by role **and** vendor type: Material → PO, DC, MIR, DN, MTC, PO Payment Vouchers · Service → WO, WO Payment Vouchers · both → all · Vendor Invoices always |
 | Invoice choices | All / PO / WO | a single-type vendor loses the choice it cannot have |
 | Who sees the tab | the project page's tab rules | Admin, PMO, Accountant (+ Lead), procurement profiles only |
 | File name | `{project name}_…pdf` | `{vendor name}_…pdf` |
 
-Role rules shared by both tabs: a Project Manager gets no rates, no vendor invoices and no vouchers. PMO loses
-Client Invoices only.
+Role rules shared by both tabs: a Project Manager gets no rates, no vendor invoices and no vouchers. PMO gets
+every type, Client Invoices included (owner, 2026-10-27: PMO views all client money).
 
 ## 5. Why the vendor tab is safe
 

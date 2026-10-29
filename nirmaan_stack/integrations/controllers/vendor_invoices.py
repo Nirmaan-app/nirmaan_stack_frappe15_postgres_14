@@ -21,8 +21,8 @@ on paths it deliberately does not run on today.
 
 Also home of `guard_work_order_invoice` (validate): who may approve, reject or edit a
 Work Order invoice (#1531, ADR-0014 Amendment A); and of `follow_generated_invoice`
-(on_update) and `refuse_deleting_generated_invoice` (on_trash): a generated invoice's
-Vendor Invoice moves its record, and is never deleted (#1547).
+(on_update) and `delete_generated_invoice_with_it` (on_trash): a generated invoice's
+Vendor Invoice moves its record (#1547), and deleting it deletes the record too.
 """
 
 import frappe
@@ -152,17 +152,16 @@ def follow_generated_invoice(doc, method=None):
         record.save(ignore_permissions=True)
 
 
-def refuse_deleting_generated_invoice(doc, method=None):
-    """A generated invoice's Vendor Invoice is rejected, never deleted (#1547): a delete would leave the
-    record Signed with no invoice, its amount counted by nothing. Bound to on_trash."""
+def delete_generated_invoice_with_it(doc, method=None):
+    """Deleting a generated invoice's Vendor Invoice deletes the generated invoice too, whatever its status:
+    left behind, a Signed record would have no invoice and its amount would count for nothing. Its Deleted
+    Document copy keeps its RA number from being given again. Bound to on_trash, which Frappe runs before
+    its link check, so the record's link to this invoice is gone by then."""
     name = generated_invoice_of(doc.name)
     if name:
-        frappe.throw(DELETE_GENERATED_REFUSAL.format(name))
-
-
-DELETE_GENERATED_REFUSAL = (
-    "This invoice was uploaded for generated invoice {0}. Reject it instead: that voids the generated invoice."
-)
+        record = frappe.get_doc(generated.DOCTYPE, name)
+        record.flags.deleted_in_app = True
+        record.delete(ignore_permissions=True)
 
 
 def generated_invoice_of(vendor_invoice: str) -> str | None:

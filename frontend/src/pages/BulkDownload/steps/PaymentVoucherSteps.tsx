@@ -6,11 +6,9 @@
  *   PO page does for Paid payments.
  */
 import { useMemo } from "react";
-import { Button } from "@/components/ui/button";
-import { ArrowLeft, Download, Loader2 } from "lucide-react";
-import { BulkScopeKind, scopeFacet } from "@/utils/bulkDownload/bulkDownloadTypes";
+import { BulkScopeKind, BulkTableLimits, scopeFacets, scopeNoun } from "@/utils/bulkDownload/bulkDownloadTypes";
 import { BulkSelectTable } from "./BulkSelectTable";
-import { forScope, poVoucherColumns, woVoucherColumns } from "./bulkTableColumns";
+import { forScope, poVoucherColumns, voucherSummaryAmounts, woVoucherColumns } from "./bulkTableColumns";
 import { PaymentVoucherRow } from "../useBulkDownloadWizard";
 
 const KIND = {
@@ -32,17 +30,16 @@ interface PaymentVoucherStepsProps {
     isLoading: boolean;
     selectedIds: string[];
     onSelectAll: (ids: string[]) => void;
-    onBack: () => void;
-    onDownload: () => void;
-    loading: boolean;
     scopeKind: BulkScopeKind;
+    /** All scope: page size + selection limit (the project / vendor tabs pass none). */
+    tableLimits?: BulkTableLimits;
 }
 
 export const PaymentVoucherSteps = ({
-    kind, items, isLoading, selectedIds, onSelectAll, onBack, onDownload, loading, scopeKind,
+    kind, items, isLoading, selectedIds, onSelectAll, scopeKind, tableLimits = {},
 }: PaymentVoucherStepsProps) => {
     const config = KIND[kind];
-    const facet = scopeFacet(scopeKind);
+    const facet = scopeFacets(scopeKind);
     const columns = useMemo(() => forScope(config.columns, scopeKind), [config, scopeKind]);
 
     return (
@@ -58,21 +55,13 @@ export const PaymentVoucherSteps = ({
                 isLoading={isLoading}
                 selectedIds={selectedIds}
                 onSelectedIdsChange={onSelectAll}
-                facetColumns={{ [facet.id]: facet.title }}
+                facetColumns={{ ...facet.columns }}
                 dateFilterColumns={["payment_date"]}
                 searchPlaceholder={`Search by ${kind} ID, UTR or ${facet.title}`}
-                emptyMessage={`${config.emptyMessage} for this ${scopeKind}.`}
+                emptyMessage={`${config.emptyMessage} for ${scopeNoun(scopeKind)}.`}
+                {...tableLimits}
+                summaryAmounts={voucherSummaryAmounts}
             />
-
-            <div className="flex items-center justify-between pt-2">
-                <Button variant="ghost" onClick={onBack} disabled={loading}>
-                    <ArrowLeft className="h-4 w-4 mr-2" />Back
-                </Button>
-                <Button onClick={onDownload} disabled={loading || selectedIds.length === 0} className="min-w-44">
-                    {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
-                    {loading ? "Generating..." : selectedIds.length === 0 ? "Select vouchers to download" : `Download ${selectedIds.length} Voucher${selectedIds.length !== 1 ? "s" : ""}`}
-                </Button>
-            </div>
         </div>
     );
 };

@@ -51,9 +51,6 @@ const APPROVED_ON_SUBMIT = "Approved on submit (no review)";
 interface Args {
     statusTab: string;
     getUserName: (id: string | undefined) => string;
-    /** Expense Type -> its category. The CATEGORY LIVES ON THE TYPE, not on the request, and
-     *  the table reads the request doctype directly — so it has to be resolved here. */
-    getCategory: (expenseType: string | undefined) => string;
     /** Server-computed per row. NEVER re-derive who may review. */
     canReview: (name: string) => boolean;
     /** Server-computed per row, and DISJOINT from `canReview` by design: a reviewer who could
@@ -74,7 +71,7 @@ interface Args {
 }
 
 export const getExpenseRequestColumns = ({
-    statusTab, getUserName, getCategory, canReview, canEdit, canDelete, getDetail, getStanding,
+    statusTab, getUserName, canReview, canEdit, canDelete, getDetail, getStanding,
     onApprove, onReject, onEdit, onDelete,
 }: Args): ColumnDef<ExpenseRequest>[] => {
     const showStatus = statusTab === "All" || statusTab === EXR_RAISED_BY_ME;
@@ -108,9 +105,6 @@ export const getExpenseRequestColumns = ({
                                 {row.original.name}
                             </Link>
                         </RequestHoverCard>
-                    </div>
-                    <div className="text-[11px] text-muted-foreground">
-                        {getCategory(row.original.type)}
                     </div>
                 </div>
             ),

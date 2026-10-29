@@ -1,34 +1,32 @@
 /**
  * InvoiceSteps — sub-type selector (All / PO Invoices / WO Invoices) + invoice table with facet / date filters
  */
-import { Button } from "@/components/ui/button";
-import { ArrowLeft, Download, Loader2, FileText } from "lucide-react";
+import { FileText } from "lucide-react";
 import { BulkSelectTable } from "./BulkSelectTable";
 import { useMemo } from "react";
-import { forScope, invoiceColumns } from "./bulkTableColumns";
+import { forScope, invoiceColumns, invoiceSummaryAmounts } from "./bulkTableColumns";
 import { InvoiceSubType, VendorInvoice } from "../useBulkDownloadWizard";
-import { BulkScopeKind, INVOICE_SUB_TYPES, scopeFacet } from "@/utils/bulkDownload/bulkDownloadTypes";
+import { BulkScopeKind, BulkTableLimits, INVOICE_SUB_TYPES, scopeFacets, scopeNoun } from "@/utils/bulkDownload/bulkDownloadTypes";
 
 interface InvoiceStepsProps {
     items: VendorInvoice[];
     isLoading: boolean;
     selectedIds: string[];
     onSelectAll: (ids: string[]) => void;
-    onBack: () => void;
-    onDownload: () => void;
-    loading: boolean;
     invoiceSubType: InvoiceSubType;
     onInvoiceSubTypeChange: (v: InvoiceSubType) => void;
     /** The choices this scope offers (`invoiceSubTypesFor`). */
     subTypes: InvoiceSubType[];
     scopeKind: BulkScopeKind;
+    /** All scope: page size + selection limit (the project / vendor tabs pass none). */
+    tableLimits?: BulkTableLimits;
 }
 
 export const InvoiceSteps = ({
     items, isLoading, selectedIds, onSelectAll,
-    onBack, onDownload, loading, invoiceSubType, onInvoiceSubTypeChange, subTypes, scopeKind,
+    invoiceSubType, onInvoiceSubTypeChange, subTypes, scopeKind, tableLimits = {},
 }: InvoiceStepsProps) => {
-    const facet = scopeFacet(scopeKind);
+    const facet = scopeFacets(scopeKind);
     const columns = useMemo(() => forScope(invoiceColumns, scopeKind), [scopeKind]);
     const choices = INVOICE_SUB_TYPES.filter((t) => subTypes.includes(t.value));
 
@@ -76,21 +74,13 @@ export const InvoiceSteps = ({
                 isLoading={isLoading}
                 selectedIds={selectedIds}
                 onSelectedIdsChange={onSelectAll}
-                facetColumns={{ [facet.id]: facet.title, type: "Type" }}
+                facetColumns={{ ...facet.columns, type: "Type" }}
                 dateFilterColumns={["invoice_date"]}
                 searchPlaceholder={`Search by Invoice No, ${facet.title} or PO / WO`}
-                emptyMessage={`No ${invoiceSubType} with attachments found for this ${scopeKind}.`}
+                emptyMessage={`No ${invoiceSubType} with attachments found for ${scopeNoun(scopeKind)}.`}
+                {...tableLimits}
+                summaryAmounts={invoiceSummaryAmounts}
             />
-
-            <div className="flex items-center justify-between pt-2">
-                <Button variant="ghost" onClick={onBack} disabled={loading}>
-                    <ArrowLeft className="h-4 w-4 mr-2" />Back
-                </Button>
-                <Button onClick={onDownload} disabled={loading || selectedIds.length === 0} className="min-w-44">
-                    {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
-                    {loading ? "Generating..." : selectedIds.length === 0 ? "Select invoices to download" : `Download ${selectedIds.length} Invoice${selectedIds.length !== 1 ? "s" : ""}`}
-                </Button>
-            </div>
         </div>
     );
 };

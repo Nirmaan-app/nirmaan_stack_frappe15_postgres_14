@@ -128,10 +128,12 @@ export const UserProfileRoute = () => {
 export const InflowPaymentsRoute = () => {
     const { role, user_id } = useUserData()
 
-    // PMO Executive deliberately excluded (owner ruling) -- mirrors the
-    // In-Flow Payments role array in NewSidebar.tsx. Keep the two in sync.
+    // Mirrors the In-Flow Payments role array in NewSidebar.tsx. Keep the two in sync.
+    // PMO Executive opens the page view-only (owner, 2026-10-28; `canAddInflow` /
+    // `canActOnInflow` in constants/roles.ts keep the buttons away).
     const canAccessInflowPayments =
         role === "Nirmaan Admin Profile" ||
+        role === "Nirmaan PMO Executive Profile" ||
         role === "Nirmaan Accountant Profile" ||
         role === "Nirmaan Accountant Lead Profile" ||
         role === "Nirmaan Project Lead Profile" ||

@@ -17,7 +17,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import type { PayeeSummary } from "@/types/NirmaanStack/Payee";
-import { accountsMatch, cleanAccountNumber, duplicateSentence, ifscShapeProblem } from "@/utils/payees/payeeForm";
+import {
+    accountsMatch,
+    cleanAccountNumber,
+    duplicateSentence,
+    ifscShapeProblem,
+    OWN_ACCOUNT_REFUSAL,
+    refusesOwnAccount,
+} from "@/utils/payees/payeeForm";
 import { payeeHref } from "@/utils/payees/payeeRoutes";
 
 import type { PayeeBankForm } from "./usePayeeBankForm";
@@ -46,10 +53,13 @@ interface PayeeBankFieldsProps {
      * Accounts and Admin may). The vendor screens offer "Use this payee" instead.
      */
     duplicateAction?: (duplicate: PayeeSummary) => ReactNode;
+    /** A duplicate that is a person's own account (Users) is refused, with no action: the request screen. */
+    refuseOwnAccount?: boolean;
 }
 
-export function PayeeBankFields({ payeeForm, disabled, layout = "dialog", duplicateAction }: PayeeBankFieldsProps) {
+export function PayeeBankFields({ payeeForm, disabled, layout = "dialog", duplicateAction, refuseOwnAccount }: PayeeBankFieldsProps) {
     const { form, setField, bank, lookingUp, ifscError, duplicate, editing } = payeeForm;
+    const ownAccountRefused = refusesOwnAccount(refuseOwnAccount, duplicate);
     const [leftIfsc, setLeftIfsc] = useState(false);
     const mismatch =
         !!cleanAccountNumber(form.confirm_account_number) && !accountsMatch(form) ? "The account numbers don't match." : null;
@@ -144,17 +154,26 @@ export function PayeeBankFields({ payeeForm, disabled, layout = "dialog", duplic
                 <div role="alert" className="flex gap-2.5 rounded-md border border-red-200 bg-red-50 px-3.5 py-3">
                     <AlertCircle className="mt-0.5 h-[18px] w-[18px] shrink-0 text-red-600" aria-hidden="true" />
                     <div className="text-[13px] leading-normal text-red-900">
-                        <p className="font-semibold">This account is already a payee</p>
-                        <p className="mt-0.5">{duplicateSentence(duplicate, { editing })}</p>
-                        <div className="mt-1.5">
-                            {duplicateAction ? (
-                                duplicateAction(duplicate)
-                            ) : (
-                                <Link to={payeeHref(duplicate.name)} className="font-semibold text-red-700 hover:underline">
-                                    Open {duplicate.name}
-                                </Link>
-                            )}
-                        </div>
+                        {ownAccountRefused ? (
+                            <>
+                                <p className="font-semibold">This is a user's account</p>
+                                <p className="mt-0.5">{OWN_ACCOUNT_REFUSAL}</p>
+                            </>
+                        ) : (
+                            <>
+                                <p className="font-semibold">This account is already a payee</p>
+                                <p className="mt-0.5">{duplicateSentence(duplicate, { editing })}</p>
+                                <div className="mt-1.5">
+                                    {duplicateAction ? (
+                                        duplicateAction(duplicate)
+                                    ) : (
+                                        <Link to={payeeHref(duplicate.name)} className="font-semibold text-red-700 hover:underline">
+                                            Open {duplicate.name}
+                                        </Link>
+                                    )}
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
             )}

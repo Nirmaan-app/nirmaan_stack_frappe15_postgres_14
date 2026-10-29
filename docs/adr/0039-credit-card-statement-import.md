@@ -74,3 +74,30 @@ never settles**.
   identity. Revisit this ADR then, rather than loosening the check.
 - A second card issuer needs its own reader, and therefore its own source string, as a second bank
   does (outflow-import Q24).
+
+## Amendment A (2026-10-27) — a password-locked PDF is opened with its password
+
+**Status:** Accepted. Amends decision 3 (its last sentence) and spec #1565 story 3 ("the system never asks
+for or keeps a card password"). Every other decision is unchanged.
+
+**Why.** ICICI sends the statement PDF password-locked, so refusing a locked file meant every statement had
+to be unlocked outside the app before upload. The owner asked for a password field when the PDF is locked,
+and for the stored PDF to have no password.
+
+**Decision.**
+
+- A locked PDF uploaded without a password is refused with *"This PDF is password-locked. Enter its password
+  and upload again."*; Upload then shows a PDF password field. A wrong password is refused with *"That
+  password did not open this PDF. Check it and upload again."* Both refusals save nothing, as every other
+  refusal does. The screen recognises them by those exact sentences (`card_pdf.py` ↔ `creditCardImport.ts`,
+  pinned by test).
+- The password opens the file in memory for that one request. It is never saved to any record, never logged
+  and never returned; the endpoint pops it from the request form as soon as it reads it.
+- The PDF stored on the Credit Card Statement is an unlocked copy: the same pages written again with no
+  encryption. An upload that was not locked is stored as uploaded.
+- There is no remembered password: each locked statement needs its password typed again.
+- The field also shows **before** the first upload, as soon as a picked PDF looks locked (it carries an
+  `/Encrypt` entry, read in the browser by `pdfLooksLocked`), so a locked statement is uploaded once. That
+  check is only a hint: the server still decides, and Upload stays enabled with the field empty, since a PDF
+  encrypted with an owner password only carries the entry yet opens without one. After either refusal above,
+  the field must be filled.

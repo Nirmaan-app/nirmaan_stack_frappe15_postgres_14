@@ -56,6 +56,7 @@ import {
   LayoutGrid,
   List,
   Package,
+  ReceiptIndianRupee,
   Shapes,
   ShoppingCart,
   SquareSquare,
@@ -633,6 +634,15 @@ export function NewSidebar() {
         },
       ]
       : []),
+    // Reimbursements (owner, 2026-10-22): every user claims back money they spent for work, so there is
+    // no role gate -- the page shows each person their own tabs, and the server scopes every read
+    // (`integrations/controllers/reimbursement.py`). The header's right action is "Raise Reimbursement".
+    // ⚠️ The flat-nav Set below matches on this LABEL — both strings move together.
+    {
+      key: '/reimbursements',
+      icon: ReceiptIndianRupee,
+      label: 'Reimbursements',
+    },
     // Payment TDS Deduction (Tax Deducted at Source) has NO sidebar item of its own -- the ledger
     // lives in the Reports hub under the "Payment" tab (pages/reports), gated there by
     // the same PAYMENT_TDS_ACCESS constant. Its old `/payment-tds-deductions` route was removed
@@ -676,7 +686,8 @@ export function NewSidebar() {
       ]
       : []),
 
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile"].includes(role as string)
+    // PMO sees In-Flow Payments and Project Invoices view-only (owner, 2026-10-28).
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role as string)
       ? [
         {
           key: '/in-flow-payments',
@@ -716,7 +727,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile"].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role as string)
       ? [
         {
           key: '/project-invoices',
@@ -900,6 +911,7 @@ export function NewSidebar() {
     "in-flow-payments",
     "non-project-inflows",
     "payees",
+    "reimbursements",
     'invoice-reconciliation',
     'project-invoices',
     'expense',
@@ -958,6 +970,7 @@ export function NewSidebar() {
     "/in-flow-payments": ["in-flow-payments"],
     "/non-project-inflows": ["non-project-inflows"],
     "/payees": ["payees"],
+    "/reimbursements": ["reimbursements"],
     "/invoice-reconciliation": ["invoice-reconciliation"],
     "/project-invoices": ["project-invoices"],
     // Keyed on the module ROOT so every tab (requests / project / non-project) keeps the
@@ -1115,6 +1128,7 @@ export function NewSidebar() {
                     "Cashflow Plan Tracker",
                     "Project Invoices",
                     "Expenses",
+                    "Reimbursements",
                     "Users",
                     "Assets",
                     "Vendors",

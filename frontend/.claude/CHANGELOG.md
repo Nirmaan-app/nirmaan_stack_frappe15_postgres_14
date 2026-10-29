@@ -4,6 +4,26 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-10-28 — Update Inventory: submit when there are no items to count
+
+Backend and verification: `../../.claude/CHANGELOG.md` (same date).
+
+### What changed
+
+- **`pages/remaining-items/index.tsx`:** removed the "No eligible items found" dead end; an empty project gets
+  the normal form.
+- **`components/RemainingItemsForm.tsx`:** with no entries, one row "No items to count…"; Submit Report (0/0) is
+  enabled.
+- **`components/DeclarationDialog.tsx`:** the summary table shows "No items to count"; the declaration is still
+  required.
+- **`components/ReportSummaryCard.tsx`:** shows "No items to count" instead of "0 of 0 items filled".
+- **`components/DateMetadataBar.tsx`:** "Last Updated … · No items to count" when the latest report has zero
+  rows.
+- **`hooks/useRemainingItemsForm.ts`:** the toast uses the server's `action`, so a moved empty report reads
+  "updated".
+
+---
+
 ## 2026-10-05 — Payments queue: Upload / Edit invoice on Paid Non Project Expenses
 
 Backend and verification: `../../.claude/CHANGELOG.md` (same date).

@@ -38,8 +38,7 @@ describe("MTC step", () => {
 
     const render = (selectedIds: string[]) =>
         act(() => root.render(
-            <MTCSteps items={ROWS} isLoading={false} selectedIds={selectedIds} onSelectAll={() => {}}
-                onBack={() => {}} onDownload={() => {}} loading={false} scopeKind="vendor" />
+            <MTCSteps items={ROWS} isLoading={false} selectedIds={selectedIds} onSelectAll={() => {}} scopeKind="vendor" />
         ));
 
     it("names each row's checkbox by the items it covers", () => {

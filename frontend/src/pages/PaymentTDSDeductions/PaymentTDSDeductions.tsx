@@ -50,12 +50,13 @@ import {
     PAYMENT_TDS_SEARCHABLE_FIELDS,
     getPaymentTdsColumns,
     PaymentTDSDeductionRow,
-    PaymentStatusContext,
 } from "./config/paymentTdsDeductions.config";
+import { PaymentStatusContext } from "./components/PaymentTdsCells";
 import { canPayDeduction } from "./payableDeduction";
 import { PaymentTDSSummaryCard } from "./components/PaymentTDSSummaryCard";
 import { PayTdsDialog } from "./components/PayTdsDialog";
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
+import { useTdsRegisterOrderValues } from "./hooks/useTdsRegisterOrderValues";
 
 /** The two halves of the ledger. Mirrors the doctype's `status` Select, which has exactly these
  *  two options and defaults to `Pending`. */
@@ -122,6 +123,13 @@ const PaymentTDSLedgerTable: React.FC<PaymentTDSLedgerTableProps> = ({
     // predicate and the Payment Status column read them.
     const [paymentStatuses, setPaymentStatuses] = useState<Record<string, string>>({});
 
+    // No Payment Status column on Pending (owner ruling 2026-10-27): the vendor payment's "Paid" read
+    // as if the TDS were paid. The statuses are still read above, because Pay TDS's selection needs them.
+    const tabColumns = useMemo(
+        () => (isPendingTab ? columns.filter((column) => column.id !== "payment_status") : columns),
+        [columns, isPendingTab]
+    );
+
     const additionalFilters = useMemo(
         () => [...staticFilters, tabStatusFilter(tab)],
         [staticFilters, tab]
@@ -145,7 +153,7 @@ const PaymentTDSLedgerTable: React.FC<PaymentTDSLedgerTableProps> = ({
         refetch,
     } = useServerDataTable<PaymentTDSDeductionRow>({
         doctype: DOCTYPE,
-        columns,
+        columns: tabColumns,
         fetchFields: PAYMENT_TDS_FIELDS_TO_FETCH,
         searchableFields: PAYMENT_TDS_SEARCHABLE_FIELDS,
         additionalFilters,
@@ -228,7 +236,7 @@ const PaymentTDSLedgerTable: React.FC<PaymentTDSLedgerTableProps> = ({
         <PaymentStatusContext.Provider value={paymentStatuses}>
             <DataTable<PaymentTDSDeductionRow>
                 table={table}
-                columns={columns}
+                columns={tabColumns}
                 isLoading={isLoadingOverall}
                 error={error as Error | null}
                 totalCount={totalCount}
@@ -340,9 +348,11 @@ export const PaymentTDSDeductions: React.FC<PaymentTDSDeductionsProps> = ({
         [ceoHoldProjectIds]
     );
 
+    const { getOrderValue, isLoading: isOrderValuesLoading } = useTdsRegisterOrderValues();
+
     const columns = useMemo(
-        () => getPaymentTdsColumns({ getProjectName, getVendorName }),
-        [getProjectName, getVendorName]
+        () => getPaymentTdsColumns({ getProjectName, getVendorName, getOrderValue }),
+        [getProjectName, getVendorName, getOrderValue]
     );
 
     const staticFilters = useMemo(() => {
@@ -469,7 +479,7 @@ export const PaymentTDSDeductions: React.FC<PaymentTDSDeductionsProps> = ({
                 columns={columns}
                 getRowClassName={getRowClassName}
                 facetOverrides={facetOverrides}
-                isLookupsLoading={isProjectsLoading || isVendorsLoading}
+                isLookupsLoading={isProjectsLoading || isVendorsLoading || isOrderValuesLoading}
                 onPaid={mutateCounts}
             />
         </div>

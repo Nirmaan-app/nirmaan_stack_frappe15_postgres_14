@@ -571,6 +571,13 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
                   {expenseToDelete.description || expenseToDelete.name}
                 </span>
                 .
+                {/* The server does this (`reimbursement_expense.after_delete`), not the page. */}
+                {expenseToDelete.reimbursement && (
+                  <span className="mt-2 block font-medium text-destructive">
+                    It pays reimbursement {expenseToDelete.reimbursement}, so that claim and its receipts are
+                    deleted too.
+                  </span>
+                )}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

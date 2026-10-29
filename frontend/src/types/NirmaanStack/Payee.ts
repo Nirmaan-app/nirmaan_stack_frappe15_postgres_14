@@ -7,6 +7,11 @@
 
 export const PAYEE_DOCTYPE = "Payee";
 
+/** Where a Payee was created, set once (owner, 2026-10-23): Users (own account, Raise Reimbursement),
+ *  Vendors (a vendor's bank details), Others (anywhere else). Mirrors `services/payees/rules.PAYEE_TYPES`. */
+export const PAYEE_TYPES = ["Users", "Vendors", "Others"] as const;
+export type PayeeType = (typeof PAYEE_TYPES)[number];
+
 /** The `Payee` doctype. */
 export interface Payee {
     name: string;
@@ -20,6 +25,8 @@ export interface Payee {
     ifsc: string;
     bank_name?: string;
     bank_branch?: string;
+    /** Where it was created; set once, read-only. */
+    payee_type?: PayeeType;
     /** The account number without leading zeros either; unique with `ifsc`. Server-written. */
     normalized_account: string;
 }
@@ -35,6 +42,8 @@ export interface PayeeSummary {
     ifsc: string;
     bank_name?: string | null;
     bank_branch?: string | null;
+    /** Where it was created (Users / Vendors / Others); set once. */
+    payee_type?: PayeeType | null;
     /** Vendors paid into this account. */
     vendors: number;
 }
@@ -50,6 +59,8 @@ export interface PayeeOption {
     ifsc: string;
     bank_name?: string | null;
     bank_branch?: string | null;
+    /** Where it was created (Users / Vendors / Others); from the search and a Payee just added. */
+    payee_type?: PayeeType | null;
 }
 
 /**
@@ -123,4 +134,14 @@ export interface PayeePage extends PayeeSummary {
     /** When and by whom its account number or IFSC last changed; null when never (#1435). */
     account_changed: PayeeChange | null;
     linked_vendors: PayeePageVendor[];
+    /** The person whose own bank account (Reimbursements) this Payee is, or null. */
+    linked_user: PayeeLinkedUser | null;
+}
+
+/** The person a Payee is an own bank account of (`links.linked_user`). */
+export interface PayeeLinkedUser {
+    /** The user's email (their Nirmaan Users name). */
+    name: string;
+    full_name?: string | null;
+    role_profile?: string | null;
 }

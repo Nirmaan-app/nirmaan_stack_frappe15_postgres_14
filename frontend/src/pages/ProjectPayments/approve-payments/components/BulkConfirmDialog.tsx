@@ -48,6 +48,9 @@ import {
 } from "@/utils/cheques/chequeBulk";
 
 import { BulkAction, BulkMode } from "../hooks/useBulkPaymentActions";
+import { BulkMonthLimitBox, MonthLimitTag } from "@/components/reimbursements/BulkMonthLimit";
+import { useMonthTotals } from "@/components/reimbursements/useMonthTotals";
+import type { MonthTotal } from "@/types/NirmaanStack/Reimbursement";
 
 interface BulkConfirmDialogProps {
   open: boolean;
@@ -167,6 +170,14 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
     [payments, chequeApprovals]
   );
   const decision = useMemo(() => bulkDecisionTotals(chequeGroups, others), [chequeGroups, others]);
+
+  // The reimbursements' month totals (ADR-0040 Amendment B): a box naming each person above the monthly limit,
+  // and a tag on each reimbursement's row. Information only: no tick here (owner, 2026-10-28).
+  const reimbursementNames = useMemo(
+    () => (open && action !== "reject" ? others.filter((p) => p.source_type === "Reimbursement").map((p) => p.name) : []),
+    [open, action, others]
+  );
+  const month = useMonthTotals(reimbursementNames.length ? { expenses: reimbursementNames } : null);
 
   const { docCount, buckets } = useMemo(() => {
     const map = new Map<string, ProjectBucket>();
@@ -366,6 +377,7 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
               </div>
             </div>
           )}
+          {!isReject && <BulkMonthLimitBox rows={month.rows} />}
           {!isReject && forwardedNote && (
             <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{forwardedNote}</p>
           )}
@@ -435,6 +447,7 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
                           key={p.name}
                           row={p}
                           vendorLabelFor={vendorLabelFor}
+                          monthTotal={month.byExpense.get(p.name)}
                         />
                       ))}
                     </ul>
@@ -568,6 +581,8 @@ const ChequeGroupBlock: React.FC<ChequeGroupBlockProps> = ({ group, action, mode
 interface BulkRowLineProps {
   row: ApprovalQueueRow;
   vendorLabelFor?: (vendorId?: string) => string;
+  /** A reimbursement's claimant month total, shown as a tag (ADR-0040 Amendment B). */
+  monthTotal?: MonthTotal;
 }
 
 /**
@@ -582,7 +597,7 @@ interface BulkRowLineProps {
  * source chip is what tells a project expense from a non-project one where a project
  * group holds both.
  */
-const BulkRowLine: React.FC<BulkRowLineProps> = ({ row, vendorLabelFor }) => {
+const BulkRowLine: React.FC<BulkRowLineProps> = ({ row, vendorLabelFor, monthTotal }) => {
   const isPayment = row.source === "Vendor Payment";
 
   // The description is the identity of an expense; the PO/SR number is the identity
@@ -625,6 +640,11 @@ const BulkRowLine: React.FC<BulkRowLineProps> = ({ row, vendorLabelFor }) => {
           <div className="truncate pl-1 text-[11px] font-medium text-amber-700 dark:text-amber-400">
             Cheque {row.cheque_no}
             {row.cheque_date && ` · ${formatDate(row.cheque_date)}`}
+          </div>
+        )}
+        {monthTotal && (
+          <div className="pl-1 pt-0.5">
+            <MonthLimitTag row={monthTotal} />
           </div>
         )}
       </div>

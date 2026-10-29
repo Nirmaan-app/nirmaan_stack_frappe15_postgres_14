@@ -201,3 +201,6 @@ nirmaan_stack.patches.v3_0.backfill_work_order_approval
 nirmaan_stack.patches.v3_0.rejudge_failed_porter_invoices
 nirmaan_stack.patches.v3_0.select_boqs_on_legacy_won_projects
 nirmaan_stack.patches.v3_0.remove_asset_returns
+nirmaan_stack.patches.v3_0.backfill_payee_type
+nirmaan_stack.patches.v3_0.drop_expense_category
+nirmaan_stack.patches.v3_0.drop_project_estimates

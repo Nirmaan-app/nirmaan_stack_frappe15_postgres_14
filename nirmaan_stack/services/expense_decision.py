@@ -43,7 +43,7 @@ from frappe.model import no_value_fields
 from frappe.utils import flt, nowdate
 
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
-from nirmaan_stack.services.approval_raiser import expense_raiser, expense_reviewer, raiser_level
+from nirmaan_stack.services.approval_raiser import expense_reviewer, raiser_level, routing_raiser, routing_skips_auto
 from nirmaan_stack.services.approval_tiers import (
     RAISER_L1,
     TIER_L2_ABOVE_EXPENSES,
@@ -88,6 +88,12 @@ FROM_STATUSES = {
     MARK_PAID: (EXPENSE_APPROVED, EXPENSE_RECONCILIATION_PENDING),
 }
 
+#: Where a reject puts its reason for the ledger row's own hooks, which carry it to the Reimbursement
+#: (`reimbursements.expense_link.follow_expense`, ADR-0040) in the same save.
+REJECTION_REASON_FLAG = "rejection_reason"
+#: What those hooks write when a row reaches Rejected with no reason on it (a Desk or REST edit).
+FALLBACK_REJECTION_REASON = "Rejected in Payments."
+
 # What Mark as Paid must end up holding. A value passed in `payment` replaces the stored one.
 PAYMENT_FIELDS = ("payment_date", "payment_ref", "payment_attachment")
 # The invoice details Mark as Paid may save in the same write (the pay dialog's invoice). A field
@@ -128,7 +134,8 @@ class StartingStatus:
     ceo_done: bool
 
 
-def starting_status(amount, raised_by: str | None, reviewed_by: str | None = None) -> StartingStatus:
+def starting_status(amount, raised_by: str | None, reviewed_by: str | None = None, *,
+                    skip_auto: bool = False) -> StartingStatus:
     """Where a new Expense of `amount`, raised by `raised_by`, is born.
 
     Under Rs 15,000 it is auto-approved (both steps stamped, `auto_approved`). Otherwise the
@@ -139,9 +146,15 @@ def starting_status(amount, raised_by: str | None, reviewed_by: str | None = Non
     review IS the L1 step (ADR-0016, 2026-10-19 amendment 3), so the row lands as it would for an
     L1 raiser: Approved up to Rs 50,000, CEO Pending above it. An HR or Accounts review clears
     nothing. A review clears L1 only, even the CEO's: the CEO step is the CEO's own approval.
+
+    `skip_auto` takes the auto band away: an amount under Rs 15,000 is born at Requested and waits for L1. Only a
+    reimbursement HR approved above the monthly limit asks for it (`approval_raiser.routing_skips_auto`, ADR-0040
+    Amendment B). Above the auto band it changes nothing.
     """
     value = flt(amount)
     if is_auto_approved(value):
+        if skip_auto:
+            return StartingStatus(EXPENSE_REQUESTED, auto_approved=False, l1_done=False, ceo_done=False)
         return StartingStatus(EXPENSE_APPROVED, auto_approved=True, l1_done=True, ceo_done=True)
     level = approval_level(raised_by, reviewed_by)
     l1_done, ceo_done = steps_cleared_by_raiser(value, TIER_L2_ABOVE_EXPENSES, level)
@@ -158,14 +171,16 @@ def apply_starting_status(doc) -> None:
 
     Create-time only, and only while the status is still the default `Requested`, so an explicit
     status (an import's Paid row) is kept and a later edit never re-routes a row. The raiser is
-    `approval_raiser.expense_raiser`: the Expense Request's owner, never the reviewer who inserted it.
-    The reviewer is the request's `reviewed_by` (`approval_raiser.expense_reviewer`).
+    `approval_raiser.routing_raiser`: the Expense Request's owner, never the reviewer who inserted it,
+    or for a row created from an approved Reimbursement the person who approved the claim (ADR-0040).
+    The reviewer is the request's `reviewed_by` (`approval_raiser.expense_reviewer`). A reimbursement HR approved
+    above the monthly limit skips the auto band (`approval_raiser.routing_skips_auto`, ADR-0040 Amendment B).
     """
     if not doc.is_new():
         return
     if doc.status and doc.status != EXPENSE_REQUESTED:
         return
-    start = starting_status(doc.amount, expense_raiser(doc), expense_reviewer(doc))
+    start = starting_status(doc.amount, routing_raiser(doc), expense_reviewer(doc), skip_auto=routing_skips_auto(doc))
     doc.status = start.status
     if start.auto_approved:
         doc.auto_approved = 1
@@ -328,6 +343,7 @@ def decide(doctype: str, name: str, action: str, user: str, reason: str | None =
         doc.ceo_approval_date = nowdate()
     elif action == REJECT:
         doc.status = EXPENSE_REJECTED
+        doc.flags[REJECTION_REASON_FLAG] = reason.strip()
     elif action == MARK_DONE:
         doc.status = EXPENSE_RECONCILIATION_PENDING
     else:

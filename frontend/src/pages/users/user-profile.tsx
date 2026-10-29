@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
   useFrappeDocumentEventListener,
+  useFrappeGetCall,
   useFrappeGetDoc,
   useFrappeGetDocList,
 } from "frappe-react-sdk";
@@ -17,18 +18,23 @@ import { useMyAssets, useRefreshUserAssignments, useUserAssignments } from "@/ho
 import { withOwnAssets } from "@/utils/ownAssets";
 import { useAssetDataRefresh } from "@/pages/Assets/hooks/useAssetDataRefresh";
 import { urlStateManager } from "@/utils/urlStateManager";
+import { seesAllClaims } from "@/utils/reimbursements/rules";
+import { seesProfileReimbursements } from "@/utils/reimbursements/profileMonth";
+import type { OwnBankAccount } from "@/types/NirmaanStack/Reimbursement";
 import { useUserSubmitHandlers } from "@/hooks/useUserSubmitHandlers";
 import { NirmaanUserPermissions } from "@/types/NirmaanStack/NirmaanUserPermissions";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Pencil2Icon } from "@radix-ui/react-icons";
-import { User, FolderKanban, Package } from "lucide-react";
+import { User, FolderKanban, Package, Landmark, ReceiptText } from "lucide-react";
 import EditUserForm from "./EditUserForm";
 import {
   UserProfileActions,
   UserOverviewTab,
   UserProjectsTab,
   UserAssetsTab,
+  UserPayeesTab,
+  UserReimbursementsTab,
 } from "./components";
 import {
   ASSET_MASTER_DOCTYPE,
@@ -224,6 +230,18 @@ export default function Profile() {
   }, [assetManagementMutate, assetMasterMutate, refreshUserAssignments, id, refreshSummaryCards]);
 
   // Asset count for stats
+  // Payee tab: the person's own bank account (Reimbursements; one per person). The person, Admin, HR and
+  // Accounts see it, as they see the person's claims; the endpoint refuses anyone else.
+  const canSeePayees = isOwnProfile || seesAllClaims({ role: userData.role, userId: userData.user_id });
+  const { data: payeeData, isLoading: payeeLoading, mutate: mutatePayee } = useFrappeGetCall<{ message: OwnBankAccount | null }>(
+    "nirmaan_stack.api.reimbursements.bank_accounts.bank_account_of",
+    { user: id },
+    canSeePayees && id ? `bank_account_of:${id}` : null
+  );
+  const payee = payeeData?.message ?? null;
+  // Reimbursements tab: the person's claims by month, with the totals. Admin only (owner, 2026-10-28).
+  const canSeeReimbursements = seesProfileReimbursements({ role: userData.role, userId: userData.user_id });
+
   const assetCount = useMemo(() => {
     return assetManagementList?.length || 0;
   }, [assetManagementList]);
@@ -263,7 +281,14 @@ export default function Profile() {
   // no-project lock, `PROJECT_REQUIRED_PROFILES` (owner, 2026-10-22, code review #10: one list, not two).
   const isProjectExemptRole = !PROJECT_REQUIRED_PROFILES.includes(data.role_profile || "");
   // ?tab=assets opens the Assets tab (the app access gate's "Open my assets" links here).
-  const profileTabs = isProjectExemptRole ? ["overview", "assets"] : ["overview", "projects", "assets"];
+  const profileTabs = [
+    "overview",
+    ...(isProjectExemptRole ? [] : ["projects"]),
+    "assets",
+    ...(canSeePayees ? ["payees"] : []),
+    ...(canSeeReimbursements ? ["reimbursements"] : []),
+  ];
+  const tabGridCols = ["", "grid-cols-1", "grid-cols-2", "grid-cols-3", "grid-cols-4", "grid-cols-5"][profileTabs.length];
   const activeTab = tabParam && profileTabs.includes(tabParam) ? tabParam : "overview";
 
   return (
@@ -297,7 +322,7 @@ export default function Profile() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={(tab) => urlStateManager.updateParam("tab", tab)} className="w-full">
-        <TabsList className={`grid w-full ${isProjectExemptRole ? "grid-cols-2" : "grid-cols-3"} max-w-md`}>
+        <TabsList className={`grid w-full ${tabGridCols} ${profileTabs.length > 4 ? "max-w-3xl" : profileTabs.length > 3 ? "max-w-xl" : "max-w-md"}`}>
           <TabsTrigger value="overview" className="gap-2">
             <User className="h-4 w-4" />
             <span className="max-sm:hidden">Overview</span>
@@ -320,6 +345,18 @@ export default function Profile() {
               </span>
             )}
           </TabsTrigger>
+          {canSeePayees && (
+            <TabsTrigger value="payees" className="gap-2">
+              <Landmark className="h-4 w-4" />
+              <span className="max-sm:hidden">Payee</span>
+            </TabsTrigger>
+          )}
+          {canSeeReimbursements && (
+            <TabsTrigger value="reimbursements" className="gap-2">
+              <ReceiptText className="h-4 w-4" />
+              <span className="max-sm:hidden">Reimbursements</span>
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="overview" className="mt-6">
@@ -374,6 +411,18 @@ export default function Profile() {
             onMutate={handleAssetsChanged}
           />
         </TabsContent>
+
+        {canSeePayees && (
+          <TabsContent value="payees" className="mt-6">
+            <UserPayeesTab account={payee} loading={payeeLoading} isOwnProfile={isOwnProfile} onChanged={() => mutatePayee()} />
+          </TabsContent>
+        )}
+
+        {canSeeReimbursements && (
+          <TabsContent value="reimbursements" className="mt-6">
+            <UserReimbursementsTab userId={id} />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

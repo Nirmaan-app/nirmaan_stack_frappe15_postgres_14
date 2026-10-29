@@ -170,6 +170,7 @@ const PayeesPage = lazy(() => import("@/pages/payees/PayeesPage"));
 const PayeePage = lazy(() => import("@/pages/payees/PayeePage"));
 // Cheque Tracker (spec #1477, #1483): every cheque the company writes. It was Reports › Payment › Cheque Payment.
 const ChequeTrackerPage = lazy(() => import("@/pages/cheque-tracker/ChequeTrackerPage"));
+const ReimbursementsPage = lazy(() => import("@/pages/Reimbursements/ReimbursementsPage"));
 // Document Search
 
 export const appRoutes: RouteObject[] = [
@@ -607,7 +608,6 @@ export const appRoutes: RouteObject[] = [
                 ],
               },
               { path: ":projectId", lazy: () => import("@/pages/projects/project") },
-              { path: ":projectId/add-estimates", lazy: () => import("@/pages/projects/add-project-estimates") },
               { path: ":projectId/po/:poId", lazy: () => import("@/components/POSummary") },
               {
                 path: ":projectId/:prId", // This nesting might conflict if prId is not unique across projects?
@@ -663,6 +663,9 @@ export const appRoutes: RouteObject[] = [
               { path: "cheque-tracker", element: <Suspense fallback={null}><ChequeTrackerPage /></Suspense> },
             ],
           },
+          // --- Reimbursements (2026-10-22) --- every user, so no RoleRoute: the page gives each person their
+          // own tabs and the server scopes every read (`integrations/controllers/reimbursement.py`).
+          { path: "reimbursements", element: <Suspense fallback={null}><ReimbursementsPage /></Suspense> },
           // --- Project Payments ---
           {
             path: "project-payments",

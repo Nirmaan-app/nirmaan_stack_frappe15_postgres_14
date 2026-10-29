@@ -19,9 +19,12 @@ from nirmaan_stack.api.expense_requests.payees import (
 	search_payees,
 )
 from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
+from nirmaan_stack.api.payees.paid_to import search_payees as search_accounts_payees
 from nirmaan_stack.api.payees.payee_fixture import TEST_IFSC, PayeeFixture, delete_each
 from nirmaan_stack.api.payees.vendor_payee import get_vendor_account
 from nirmaan_stack.services import expense_request_routing as routing
+from nirmaan_stack.services.payees.pay_to import OWN_ACCOUNT_REFUSAL, apply_picked_payee
+from nirmaan_stack.services.payees.rules import PAYEE_TYPE_USERS
 
 PM_USER = "exr_test_pyepm@example.com"
 NOBODY = "exr_test_pyenobody@example.com"
@@ -49,7 +52,7 @@ class TestRequestPayees(FrappeTestCase):
 		cls.expense_type = f"exr_test_pye_{frappe.generate_hash(length=6)}"
 		d = frappe.new_doc("Expense Type")
 		d.update({"expense_name": cls.expense_type, "non_project": 1,
-		          "expense_category": "Uncategorized", "payee_rule": "Required"})
+		          "payee_rule": "Required"})
 		d.set("allowed_roles", [{"role_profile": PM_PROFILE}, {"role_profile": PROCUREMENT_PROFILE}])
 		d.insert(ignore_permissions=True)
 		frappe.db.commit()
@@ -113,6 +116,46 @@ class TestRequestPayees(FrappeTestCase):
 		number = self.payees.account_number()
 		payee = self.payees.payee(account_number=number)
 		self.assertIn(payee, self._search(f"00{number[:5]} {number[5:]}"))
+
+	def test_a_persons_own_account_is_never_offered(self):
+		"""A Users Payee (someone's reimbursement account) is left out of the request's search, by name
+		and by account number; Accounts' Change account search still finds it (owner, 2026-10-27)."""
+		tag = frappe.generate_hash(length=6)
+		number = self.payees.account_number()
+		own = self.payees.payee(holder=f"TESTPYE {tag} Own", account_number=number, payee_type=PAYEE_TYPE_USERS)
+		other = self.payees.payee(holder=f"TESTPYE {tag} Other")
+
+		by_name = self._search(tag)
+		self.assertIn(other, by_name)
+		self.assertNotIn(own, by_name)
+		self.assertNotIn(own, self._search(number))
+		self.assertIn(own, [r["name"] for r in search_accounts_payees(text=number)])
+
+	def test_typing_a_persons_own_account_is_refused_not_offered(self):
+		"""Add new payee with a Users Payee's account + IFSC: the duplicate comes back with the refusal
+		instead of "pick that payee", nothing is added, and a request naming it is refused on save
+		(owner, 2026-10-27). An ordinary duplicate keeps its pick-instead message."""
+		number = self.payees.account_number()
+		own = self.payees.payee(account_number=number, payee_type=PAYEE_TYPE_USERS)
+		before = frappe.db.count("Payee")
+
+		checked = self._as(PM_USER, check_request_payee, account_number=number, ifsc=TEST_IFSC)
+		self.assertEqual((checked["duplicate"]["name"], checked["message"]), (own, OWN_ACCOUNT_REFUSAL))
+		added = self._as(PM_USER, add_request_payee, account_name=self.payees.holder(),
+		                 account_number=number, ifsc=TEST_IFSC)
+		self.assertEqual((added["duplicate"]["name"], added["message"]), (own, OWN_ACCOUNT_REFUSAL))
+		self.assertEqual(frappe.db.count("Payee"), before)
+
+		with self.assertRaises(frappe.ValidationError) as refused:
+			apply_picked_payee(frappe.new_doc("Expense Request"), own)
+		self.assertIn("can't be used in an expense request", str(refused.exception))
+
+		ordinary = self.payees.account_number()
+		self.payees.payee(account_number=ordinary)
+		self.assertNotEqual(
+			self._as(PM_USER, check_request_payee, account_number=ordinary, ifsc=TEST_IFSC)["message"],
+			OWN_ACCOUNT_REFUSAL,
+		)
 
 	def test_a_procurement_raiser_searches_checks_and_adds(self):
 		"""Procurement raises through New Expense like everyone else, so it names who gets paid the

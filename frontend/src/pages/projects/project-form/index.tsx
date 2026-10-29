@@ -15,7 +15,7 @@ import { WizardSteps } from "@/components/ui/wizard-steps";
 import { DraftIndicator, DraftHeader } from "@/components/ui/draft-indicator";
 import { DraftCancelDialog } from "@/components/ui/draft-cancel-dialog";
 import { DraftResumeDialog } from "@/components/ui/draft-resume-dialog";
-import { ProjectCreationDialog, CreationStage } from "@/components/ui/project-creation-dialog";
+import { ProjectCreationDialog, CreationStage } from "./ProjectCreationDialog";
 import { useToast } from "@/components/ui/use-toast";
 import { useProjectDraftManager } from "@/hooks/useProjectDraftManager";
 
@@ -671,12 +671,6 @@ export const ProjectForm = () => {
         setCurrentStep(0);
     };
 
-    const handleAddEstimates = () => {
-        setCreationDialogOpen(false);
-        setCreationStage("idle");
-        navigate(`/projects/${newProjectId}/add-estimates`);
-    };
-
     const handleAddCustomerPO = () => {
         setCreationDialogOpen(false);
         setCreationStage("idle");
@@ -857,7 +851,6 @@ export const ProjectForm = () => {
                 errorMessage={creationError}
                 onGoBack={handleGoToProjects}
                 onCreateNew={handleCreateNew}
-                onAddEstimates={handleAddEstimates}
                 onAddCustomerPO={handleAddCustomerPO}
             />
         </div>

@@ -29,6 +29,7 @@ from nirmaan_stack.api.outflow_import.test_porter_reupload import _storage_delet
 from nirmaan_stack.api.outflow_import.test_porter_validation import _no_bucket_upload
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, ACCOUNTANT_LEAD, OUTSIDER, _Users
 from nirmaan_stack.services.outflow_import.card_memory import MEMORY_DOCTYPE
+from nirmaan_stack.services.outflow_import.card_pdf import statement_text
 from nirmaan_stack.services.outflow_import.card_statement import read_card_statement
 from nirmaan_stack.services.outflow_import.sources import CARD_STATEMENT_SOURCE
 from nirmaan_stack.services.outflow_import.tests.card_pdf_builder import pdf_from_text
@@ -137,20 +138,31 @@ class CardImportCase(FrappeTestCase):
         text = FIXTURE.read_text(encoding="utf-8").replace("ARJUN TESTHOLDER", holder or self.holder)
         return _LINE_START.sub(lambda m: f"{m.group(1)} {base + next(counter):011d} ", text)
 
-    def _upload(self, content: bytes, filename: str = "card-statement.pdf", user: str = "Administrator"):
+    def _upload(
+        self,
+        content: bytes,
+        filename: str = "card-statement.pdf",
+        user: str = "Administrator",
+        password: str | None = None,
+    ):
         class _Request:
             files = MultiDict({"file": FileStorage(stream=io.BytesIO(content), filename=filename)})
             host = None  # the stored File's URL is built without a request host
 
         previous_request = getattr(frappe.local, "request", None)
+        previous_form = frappe.local.form_dict
         frappe.set_user(user)
         frappe.local.request = _Request()
+        # The multipart form's text field, as `make_form_dict` puts it beside the file.
+        frappe.local.form_dict = frappe._dict({"password": password} if password is not None else {})
         try:
             # The type suggestion job is RECORDED, never queued: the Redis queue is shared (#1569).
             with _no_bucket_upload(), patch.object(frappe, "enqueue", side_effect=lambda *a, **kw: self.enqueued.append(kw)):
                 return card_import.upload_card_statement()
         finally:
             frappe.local.request = previous_request
+            self.form_after_upload = frappe.local.form_dict
+            frappe.local.form_dict = previous_form
             frappe.set_user("Administrator")
 
     def _statements(self):
@@ -244,6 +256,47 @@ class TestUploadingAStatement(CardImportCase):
         self.assertEqual((str(row["period_from"]), str(row["period_to"])), ("2026-09-02", "2026-10-01"))
 
 
+class TestUploadingALockedStatement(CardImportCase):
+    """A password-locked PDF opened with the password typed on Upload (ADR-0039 Amendment A)."""
+
+    PASSWORD = "Pdf-Pass-4821"
+
+    def setUp(self):
+        super().setUp()
+        self.result = self._upload(pdf_from_text(self._text(), password=self.PASSWORD), password=self.PASSWORD)
+        self.batch = self.result["batch"]
+
+    def test_the_right_password_stages_the_whole_statement(self):
+        self.assertEqual(len(self._rows(self.batch)), 47)
+        [statement] = self._statements()
+        self.assertEqual(statement.import_batch, self.batch)
+
+    def test_the_stored_pdf_opens_without_a_password(self):
+        from pypdf import PdfReader
+
+        [statement] = self._statements()
+        path = frappe.get_site_path(*statement.statement_file.lstrip("/").split("/"))
+        with open(path, "rb") as stored:
+            content = stored.read()
+        self.assertFalse(PdfReader(io.BytesIO(content)).is_encrypted)
+        self.assertEqual(read_card_statement(statement_text(content)).holder, self.holder)
+
+    def test_the_password_is_taken_out_of_the_request(self):
+        self.assertNotIn("password", self.form_after_upload)
+
+    def test_the_password_is_kept_nowhere(self):
+        [statement] = self._statements()
+        records = [
+            frappe.get_doc(BATCH_DOCTYPE, self.batch).as_dict(),
+            frappe.get_doc(STATEMENT_DOCTYPE, statement.name).as_dict(),
+            *frappe.get_all("File", filters={"attached_to_name": statement.name}, fields=["*"]),
+            *self._rows(self.batch),
+        ]
+        for record in records:
+            self.assertNotIn(self.PASSWORD, frappe.as_json(record))
+        self.assertNotIn(self.PASSWORD, frappe.as_json(self.result))
+
+
 class TestCardLinesAreNotBankLines(CardImportCase):
     def test_total_unreconciled_outflow_does_not_move_on_upload(self):
         """The spends wait for the card's own Create. The one unpaired credit (MakeMyTrip ₹801.50) is open
@@ -259,20 +312,29 @@ class TestCardLinesAreNotBankLines(CardImportCase):
 
 
 class TestRefusalsSaveNothing(CardImportCase):
-    def _assert_refused(self, content: bytes, *words: str, filename: str = "card-statement.pdf"):
+    def _assert_refused(
+        self, content: bytes, *words: str, filename: str = "card-statement.pdf", password: str | None = None
+    ):
         files_before = frappe.db.count("File", {"file_name": filename})
         with self.assertRaises(frappe.ValidationError) as caught:
-            self._upload(content, filename=filename)
+            self._upload(content, filename=filename, password=password)
         for word in words:
             self.assertIn(word, str(caught.exception))
         frappe.db.rollback()
         self.assertEqual(self._statements(), [])
         self.assertEqual(frappe.db.count("File", {"file_name": filename}), files_before)
 
-    def test_a_password_locked_pdf(self):
+    def test_a_password_locked_pdf_without_its_password(self):
         self._assert_refused(
             pdf_from_text(self._text(), password="secret"),
-            "This PDF is password-locked. Unlock it and upload again.",
+            "This PDF is password-locked. Enter its password and upload again.",
+        )
+
+    def test_a_password_locked_pdf_with_a_wrong_password(self):
+        self._assert_refused(
+            pdf_from_text(self._text(), password="secret"),
+            "That password did not open this PDF. Check it and upload again.",
+            password="not-it",
         )
 
     def test_a_file_that_is_not_a_pdf(self):

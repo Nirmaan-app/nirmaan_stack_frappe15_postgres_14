@@ -12,9 +12,10 @@ export interface CustomerLedgerEntry extends CustomerLedgerTransaction {
 
 interface CustomerLedgerRowProps {
   item: CustomerLedgerEntry;
+  showProjectColumn?: boolean;
 }
 
-export const CustomerLedgerRow: React.FC<CustomerLedgerRowProps> = ({ item }) => {
+export const CustomerLedgerRow: React.FC<CustomerLedgerRowProps> = ({ item, showProjectColumn = true }) => {
   return (
     <TableRow>
       <TableCell className="px-2 py-1 text-sm whitespace-nowrap">
@@ -25,18 +26,20 @@ export const CustomerLedgerRow: React.FC<CustomerLedgerRowProps> = ({ item }) =>
       </TableCell>
       {/* Linked the same way the Customer Receivable report links it, so the two
           screens showing this data behave alike. */}
-      <TableCell className="px-2 py-1 text-sm text-gray-600 truncate" title={item.project}>
-        {item.project_id ? (
-          <Link
-            to={`/projects/${item.project_id}`}
-            className="text-blue-600 hover:underline font-medium"
-          >
-            {item.project}
-          </Link>
-        ) : (
-          item.project
-        )}
-      </TableCell>
+      {showProjectColumn && (
+        <TableCell className="px-2 py-1 text-sm text-gray-600 truncate" title={item.project}>
+          {item.project_id ? (
+            <Link
+              to={`/projects/${item.project_id}`}
+              className="text-blue-600 hover:underline font-medium"
+            >
+              {item.project}
+            </Link>
+          ) : (
+            item.project
+          )}
+        </TableCell>
+      )}
       <TableCell
         className="px-2 py-1 text-sm text-muted-foreground"
         style={{ whiteSpace: 'pre-wrap' }}

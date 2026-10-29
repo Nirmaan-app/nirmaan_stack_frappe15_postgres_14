@@ -36,6 +36,7 @@ from nirmaan_stack.services.expense_statuses import (
 	REQUEST_PAID,
 	REQUEST_REJECTED,
 )
+from nirmaan_stack.services.notification_links import delete_notifications_for
 
 # The request statuses an Expense can move. `Pending Approval` is the review's, never this hook's:
 # the Expense is inserted while the request still waits, and the review sets Approved itself.
@@ -65,6 +66,10 @@ def on_expense_status_changed(doc, method=None) -> None:
 	`set_value` rather than `doc.save`: this runs inside the ledger's save, and the request's own
 	`validate` governs fields this does not touch. So this write leaves NO `Version` row; the audit
 	lives on the Expense, which carries the approval and payment stamps.
+
+	THE STATUS ONLY, never a reason (owner, 2026-10-27): a reject reason typed in Payments stays on the
+	Expense (its comment) and goes to a Reimbursement claim only (`reimbursements.expense_link`), so
+	`review_comment` is left as the review wrote it.
 	"""
 	request = doc.get("request_id")
 	if not request:
@@ -106,19 +111,5 @@ def on_expense_deleted(doc, method=None) -> None:
 
 def delete_request_notifications(request: str) -> None:
 	"""Clear the bell messages pointing at a request, so the request itself can be deleted.
-
-	⚠️ THIS IS NOT TIDINESS -- IT IS WHAT MAKES THE DELETE POSSIBLE. `Nirmaan Notifications`
-	addresses its subject through `document` + `docname`, and `docname` is a **Dynamic Link**.
-	Frappe's delete guard walks dynamic links as well as ordinary ones, so a request carrying
-	any notification (every rejected or paid one does) would raise `LinkExistsError` and take
-	the expense deletion down with it.
-
-	`ignore_links=True` would also get past the guard and is the WRONG fix: it leaves bell
-	entries pointing at a record that no longer exists, and the requester can still click them.
-
-	Raw `frappe.db.delete` rather than per-row `delete_doc`: a notification is an ephemeral UI
-	record, so N document loads to bank N `Deleted Document` rows buys nothing. Same reasoning
-	as the version prune in `api/pricing/workbook.py`.
-	"""
-	frappe.db.delete("Nirmaan Notifications",
-	                 {"document": "Expense Request", "docname": request})
+	The rule and its reasons live in `services/notification_links`."""
+	delete_notifications_for("Expense Request", request)

@@ -439,6 +439,22 @@ export const CommissionReportWizard: React.FC = () => {
         }
     }, [visibleStepDefs.length, currentStep]);
 
+    // A step per panel can make the step bar far wider than the screen; it scrolls
+    // inside its own box, so keep the current step centred in it. WizardSteps
+    // renders one <button> per step (none on phones, which show a progress bar).
+    const stepBarRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const bar = stepBarRef.current;
+        const btn = bar?.querySelectorAll('button')[currentStep];
+        if (!bar || !btn) return;
+        const barRect = bar.getBoundingClientRect();
+        const btnRect = btn.getBoundingClientRect();
+        bar.scrollTo({
+            left: bar.scrollLeft + btnRect.left - barRect.left - (bar.clientWidth - btnRect.width) / 2,
+            behavior: 'smooth',
+        });
+    }, [currentStep, wizardSteps.length, reviewActive]);
+
     // In view mode, open straight on the single-page Review summary (the auto step
     // with no sections), instead of paging through every step.
     // IMPORTANT: only when the report is actually FILLED. While the parent doc is
@@ -1013,16 +1029,7 @@ export const CommissionReportWizard: React.FC = () => {
         <div className="mx-auto max-w-6xl space-y-4 p-4">
             <FormProvider {...form}>
                 <header className="flex flex-col gap-2 border-b pb-3">
-                    <div className="flex items-center justify-between gap-2">
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => navigate(`/commission-tracker/${parentName}`)}
-                            className="-ml-2"
-                        >
-                            <ArrowLeft className="mr-1 h-4 w-4" />
-                            Back to tracker
-                        </Button>
+                    <div className="flex items-center justify-end gap-2">
                         <div className="flex items-center gap-2">
                             {isFilled && !isProjectManager && (
                                 <Button
@@ -1096,19 +1103,24 @@ export const CommissionReportWizard: React.FC = () => {
                     />
                 )}
 
-                {/* Inner step bar — hidden while the combined review is showing. */}
+                {/* Inner step bar — hidden while the combined review is showing.
+                    Its own scroll box: with many panels the steps scroll here
+                    instead of widening the whole page. overflow-y-hidden stops
+                    the current step's ping animation adding a vertical scrollbar. */}
                 {!showCombinedReview && wizardSteps.length > 1 && (
-                    <WizardSteps
-                        steps={wizardSteps}
-                        currentStep={currentStep}
-                        onStepClick={(idx) => {
-                            // Project Managers preview is locked to the single Review page.
-                            if (lockNav) return;
-                            // Allow back-nav freely; forward only if validating each gate would pass — keep simple here.
-                            if (idx <= currentStep) setCurrentStep(idx);
-                        }}
-                        allowForwardNavigation={false}
-                    />
+                    <div ref={stepBarRef} className="overflow-x-auto overflow-y-hidden">
+                        <WizardSteps
+                            steps={wizardSteps}
+                            currentStep={currentStep}
+                            onStepClick={(idx) => {
+                                // Project Managers preview is locked to the single Review page.
+                                if (lockNav) return;
+                                // Allow back-nav freely; forward only if validating each gate would pass — keep simple here.
+                                if (idx <= currentStep) setCurrentStep(idx);
+                            }}
+                            allowForwardNavigation={false}
+                        />
+                    </div>
                 )}
 
                 <main className="min-h-[300px] space-y-6">

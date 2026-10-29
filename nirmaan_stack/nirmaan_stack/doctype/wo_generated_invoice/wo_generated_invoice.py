@@ -4,8 +4,9 @@
 """An invoice drafted for a GST-off Work Order's vendor to sign (#1546; GLOSSARY *Generated invoice*).
 
 Made only by Generate (`api/service_requests/generated_invoices.generate_invoice`, which assigns the
-RA number under a lock), changed only by the moves in `services/wo_generated_invoices.MOVES`, never
-deleted: a deleted record would free its RA number. Desk, the REST API and Administrator obey this too.
+RA number under a lock), changed only by the moves in `services/wo_generated_invoices.MOVES`, deleted
+only in the app (a Voided one by Admin, or any one with its Vendor Invoice); its Deleted Document copy keeps
+its RA number from being given again. Desk, the REST API and Administrator obey this too.
 The insert and delete guards are in `integrations/controllers/wo_generated_invoice`.
 """
 
