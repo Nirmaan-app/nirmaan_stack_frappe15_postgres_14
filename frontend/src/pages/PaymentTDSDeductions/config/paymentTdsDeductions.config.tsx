@@ -89,6 +89,7 @@ export const PAYMENT_TDS_FIELDS_TO_FETCH: string[] = [
     // Net Paid reads it: a company-paid row's vendor got the whole gross (#1543).
     "borne_by",
     "payment_approved_on",
+    "payment_date",
     // Drives the Status column AND the Pay-TDS selection gate (only `Pending` rows are selectable),
     // so a missing fetch here would silently make every row unselectable.
     "status",
@@ -106,10 +107,10 @@ export const PAYMENT_TDS_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "project", label: "Project ID", placeholder: "Search by Project ID..." },
 ];
 
-/** `payment_approved_on` is the day the payment was approved and the tax withheld; `creation` is
- *  when the ROW was written — and for the 629 backfilled rows those are years apart, so both are
- *  offered. */
-export const PAYMENT_TDS_DATE_COLUMNS: string[] = ["payment_approved_on", "creation"];
+/** `payment_approved_on` is the day the payment was approved and the tax withheld; `payment_date` the
+ *  day it was paid (empty until then); `creation` is when the ROW was written —
+ *  and for the 629 backfilled rows those are years apart, so all three are offered. */
+export const PAYMENT_TDS_DATE_COLUMNS: string[] = ["payment_approved_on", "payment_date", "creation"];
 
 /**
  * Columns HIDDEN BY DEFAULT (owner ruling 2026-09-12) — not deleted.
@@ -175,6 +176,22 @@ const SourceLink = ({ name }: { name: string }) => (
     </Link>
 );
 
+/** A date column: "--" when empty, the date filter, and the same text in the CSV export. */
+const dateColumn = (
+    key: "payment_approved_on" | "payment_date",
+    title: string,
+    exportHeaderName: string,
+): ColumnDef<PaymentTDSDeductionRow> => {
+    const text = (row: PaymentTDSDeductionRow) => (row[key] ? formatDate(row[key]) : "--");
+    return {
+        accessorKey: key,
+        header: ({ column }) => <DataTableColumnHeader column={column} title={title} />,
+        cell: ({ row }) => <div className="whitespace-nowrap">{text(row.original)}</div>,
+        filterFn: dateFilterFn,
+        meta: { exportHeaderName, exportValue: text },
+    };
+};
+
 interface ColumnFactoryArgs {
     getProjectName: (projectId?: string) => string;
     getVendorName: (vendorId?: string) => string;
@@ -198,21 +215,8 @@ export const getPaymentTdsColumns = ({
             exportValue: (row: PaymentTDSDeductionRow) => row.name,
         },
     },
-    {
-        accessorKey: "payment_approved_on",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Approved On" />,
-        cell: ({ row }) => (
-            <div className="whitespace-nowrap">
-                {row.original.payment_approved_on ? formatDate(row.original.payment_approved_on) : "--"}
-            </div>
-        ),
-        filterFn: dateFilterFn,
-        meta: {
-            exportHeaderName: "Payment Approved On",
-            exportValue: (row: PaymentTDSDeductionRow) =>
-                row.payment_approved_on ? formatDate(row.payment_approved_on) : "--",
-        },
-    },
+    dateColumn("payment_approved_on", "Approved On", "Payment Approved On"),
+    dateColumn("payment_date", "Paid On", "Payment Paid On"),
     {
         accessorKey: "tds_amount",
         header: ({ column }) => (
