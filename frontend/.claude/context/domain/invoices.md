@@ -16,6 +16,8 @@ Paths are as written in `frontend/CLAUDE.md`: relative to `frontend/` and to `sr
   |---|---|---|---|
   | Add Invoice / **Add Credit** buttons | `invoices-and-dcs/DocumentAttachments.tsx` (PO); `service-request/SRAttachments.tsx` (SR, **no Add Credit**) | shown unless `isEstimatesExecutive` | `update_invoice_data` |
   | Edit invoice (pencil) | `DocumentAttachments.tsx` (`onEditEntry`) | `isAccountant` = Accountant · Accountant Lead · **Admin** | `update_invoice_data` |
+  | Delete invoice (bin) | `DocumentAttachments.tsx` (`canDeleteInvoice`) → `InvoiceTable.tsx` confirm | Pending/Rejected: anyone shown it · **Approved: Admin only** (ADR-0014). A WO signed upload's invoice: the confirm adds "This also deletes generated invoice …" (`utils/generatedInvoices.generatedInvoiceDeleteNote`) | `delete_invoice_entry`; on_trash `delete_generated_invoice_with_it` deletes the generated invoice too (ADR-0040) |
+  | WO **Generate Invoice** / Void / Upload signed / **Delete (Voided)** | `service-request/components/GeneratedInvoices.tsx`, opened from `DocumentAttachments.tsx` | Generate/Void/Upload: `can_generate` (Admin · PMO · Procurement · Project Lead); Delete: `can_delete` (**Admin**), Voided rows only | `api/service_requests/generated_invoices.py`; type by amount, RA never reused (ADR-0040) |
   | Edit AI mapping on an **Approved** PO invoice | `InvoiceDialog.tsx` (`canReExtract`) | Pending → anyone who can edit; **Approved → Nirmaan Admin only** (`isNirmaanAdmin`) | `_admin_can_rebuild` (Pending OR Nirmaan Admin) |
   | **Resolve Invoices** page `/resolve-invoices` | `pages/temp/ResolveInvoices.tsx` | route `AdminRoute` + in-page `isAdmin` (**Administrator \| Nirmaan Admin Profile**) | `temp_resolve._require_admin` (same set) |
 

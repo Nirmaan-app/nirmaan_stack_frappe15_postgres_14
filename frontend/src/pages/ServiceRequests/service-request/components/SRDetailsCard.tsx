@@ -257,7 +257,7 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
                         </div>
                         {paidParts.companyOnTop > 0 && (
                           <div className="flex justify-between gap-4 pt-2 text-gray-500">
-                            <span>TDS paid by company (on top)</span>
+                            <span>Company Bears TDS (on top)</span>
                             <span className="tabular-nums">{formatToRoundedIndianRupee(paidParts.companyOnTop)}</span>
                           </div>
                         )}

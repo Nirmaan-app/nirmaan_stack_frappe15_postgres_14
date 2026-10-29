@@ -15,7 +15,6 @@
  * has no reversal (owner ruling 2026-09-10): it is deleted with the payment it belongs to.
  */
 
-import { createContext, useContext } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { SearchFieldOption } from "@/components/data-table/new-data-table";
@@ -28,7 +27,8 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { paymentHref } from "@/pages/ProjectPayments/config/projectPaymentsTable.config";
 import { PaymentTDSDeduction } from "@/types/NirmaanStack/PaymentTDSDeduction";
 import { deductionNetPaid } from "../deductionNetPaid";
-import { tdsDeductee, tdsDeducteeText, tdsRowSource } from "@/utils/tdsRegisterRow";
+import { tdsDeductee, tdsDeducteeIds, tdsDeducteeText, tdsRowSource } from "@/utils/tdsRegisterRow";
+import { AmountCell, PaymentStatusCell, TextCell } from "../components/PaymentTdsCells";
 
 export const DOCTYPE = "Payment TDS Deduction";
 
@@ -47,7 +47,18 @@ export const DOCTYPE = "Payment TDS Deduction";
 export type PaymentTDSDeductionRow = PaymentTDSDeduction & {
     vendor_name?: string;
     project_name?: string;
+    /** Joined off the vendor by the list query (`vendor.vendor_gst as vendor_gst`): the vendor's
+     *  CURRENT GST and PAN, not a copy taken when the tax was withheld. */
+    vendor_gst?: string | null;
+    vendor_pan?: string | null;
 };
+
+/** A row's Work Order / Purchase Order total, in the one GST column it belongs to
+ *  (`api/payments/tds_register_orders`, owner ruling 2026-10-27). */
+export interface TdsRegisterOrderValue {
+    excl_gst: number | null;
+    incl_gst: number | null;
+}
 
 /**
  * `document_type` is fetched but NOT rendered as a column.
@@ -58,19 +69,6 @@ export type PaymentTDSDeductionRow = PaymentTDSDeduction & {
  * `Procurement Orders` joins the set, the link cell has to branch on it, and the column plus its
  * facet come back together.
  */
-/**
- * `{payment name: its status}` for the register rows on screen (walk W9): the payment's status, shown in
- * its own column and read by the Pay TDS selection (`payableDeduction.canPayDeduction`). Provided by the
- * ledger table, which reads the page's payments once.
- */
-export const PaymentStatusContext = createContext<Record<string, string>>({});
-
-const PaymentStatusCell = ({ payment }: { payment?: string | null }) => {
-    const status = useContext(PaymentStatusContext)[payment || ""];
-    if (!payment) return <span className="text-muted-foreground">--</span>;
-    return <span className={status === "Paid" ? "text-green-700" : "text-amber-700"}>{status || "…"}</span>;
-};
-
 export const PAYMENT_TDS_FIELDS_TO_FETCH: string[] = [
     "name",
     "project_payment",
@@ -81,6 +79,9 @@ export const PAYMENT_TDS_FIELDS_TO_FETCH: string[] = [
     "document_type",
     "document_name",
     "vendor",
+    // Joined by the server, so the page AND Export All carry them. Not sortable: no such column here.
+    "vendor.vendor_gst as vendor_gst",
+    "vendor.vendor_pan as vendor_pan",
     "project",
     "gross_amount",
     "tds_percentage",
@@ -88,7 +89,6 @@ export const PAYMENT_TDS_FIELDS_TO_FETCH: string[] = [
     // Net Paid reads it: a company-paid row's vendor got the whole gross (#1543).
     "borne_by",
     "payment_approved_on",
-    "tds_section",
     // Drives the Status column AND the Pay-TDS selection gate (only `Pending` rows are selectable),
     // so a missing fetch here would silently make every row unselectable.
     "status",
@@ -116,8 +116,9 @@ export const PAYMENT_TDS_DATE_COLUMNS: string[] = ["payment_approved_on", "creat
  *
  * They stay in the column list, so the "View" menu switches any of them back on per user, and the
  * CSV export still carries them (export reads the column DEFINITIONS, not what is on screen). The
- * ledger's point is the withheld tax; Project, Payment, Gross and Net are the supporting figures
- * and cost four columns of width on a screen that now lives inside the Reports hub.
+ * ledger's point is the withheld tax; Project, Payment and Gross are the supporting figures and cost
+ * columns of width on a screen that now lives inside the Reports hub. Paid Amount (`net_paid`) was
+ * hidden here too until the owner asked for it on screen (2026-10-27).
  *
  * ⚠️ HIDING `project` ALSO REMOVES ITS FACET DROPDOWN, because DataTable renders a facet from the
  * table's HEADERS and a hidden column has none. Filtering by project is still possible two ways —
@@ -128,7 +129,6 @@ export const PAYMENT_TDS_HIDDEN_COLUMNS: Record<string, boolean> = {
     project: false,
     project_payment: false,
     gross_amount: false,
-    net_paid: false,
 };
 
 export const PAYMENT_TDS_AGGREGATES_CONFIG: AggregationConfig[] = [
@@ -178,11 +178,14 @@ const SourceLink = ({ name }: { name: string }) => (
 interface ColumnFactoryArgs {
     getProjectName: (projectId?: string) => string;
     getVendorName: (vendorId?: string) => string;
+    /** The row's WO / PO value, by order name; undefined while loading or for an order the reader cannot see. */
+    getOrderValue: (orderName?: string) => TdsRegisterOrderValue | undefined;
 }
 
 export const getPaymentTdsColumns = ({
     getProjectName,
     getVendorName,
+    getOrderValue,
 }: ColumnFactoryArgs): ColumnDef<PaymentTDSDeductionRow>[] => [
     {
         accessorKey: "name",
@@ -211,67 +214,96 @@ export const getPaymentTdsColumns = ({
         },
     },
     {
-        accessorKey: "status",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
-        // ⚠️ A BLANK READS AS `Pending`, and the selection gate in PaymentTDSDeductions.tsx makes the
-        // SAME assumption -- keep the two in step. The doctype defaults `status` to "Pending" and
-        // Postgres backfilled all 626 existing rows with it, so a blank should not occur; if one
-        // ever does, showing it as Pending keeps it payable rather than stranding it.
+        accessorKey: "tds_amount",
+        header: ({ column }) => (
+            <DataTableColumnHeader column={column} title="TDS Amount" className={NUMERIC_HEADER_CLASS} />
+        ),
+        cell: ({ row }) => (
+            <div className="text-right font-semibold tabular-nums text-red-700 dark:text-red-400">
+                {formatToIndianRupee(row.original.tds_amount)}
+            </div>
+        ),
+        meta: {
+            exportHeaderName: "TDS Amount",
+            exportValue: (row: PaymentTDSDeductionRow) => row.tds_amount,
+            isNumeric: true,
+        },
+    },
+    {
+        id: "net_paid",
+        accessorFn: (row) => deductionNetPaid(row),
+        header: ({ column }) => (
+            <DataTableColumnHeader column={column} title="Paid Amount" className={UNSORTABLE_NUMERIC_HEADER_CLASS} />
+        ),
+        // DERIVED, NOT STORED -- and deliberately so. Once the deduction row exists,
+        // `Project Payments.amount` IS this figure; a stored second copy could only drift from it.
+        // What the vendor got: the whole gross on a company-paid row (#1543), see `deductionNetPaid`.
+        // `enableSorting: false` because the backend sorts on real columns and there is no
+        // `net_paid` column to sort on.
+        enableSorting: false,
+        cell: ({ row }) => (
+            <div className="text-right tabular-nums text-muted-foreground">
+                {formatToIndianRupee(deductionNetPaid(row.original))}
+            </div>
+        ),
+        meta: {
+            exportHeaderName: "Paid Amount",
+            exportValue: (row: PaymentTDSDeductionRow) => deductionNetPaid(row),
+            isNumeric: true,
+        },
+    },
+    {
+        accessorKey: "document_name",
+        // A Work Order (Service Request) or, on a PO payment's row, the Purchase Order.
+        header: ({ column }) => <DataTableColumnHeader column={column} title="WO / PO" />,
         cell: ({ row }) => {
-            const status = row.original.status || "Pending";
-            const isPending = status === "Pending";
+            const { document_name, document_type } = row.original;
+            // An Office Rent row has no Work Order: it shows its expense here too, because the Payment
+            // column, where its expense sits, is hidden by default.
+            const source = tdsRowSource(row.original);
+            if (source?.kind === "expense") return <SourceLink name={source.name} />;
+            if (!document_name) return <span className="text-muted-foreground">--</span>;
+            // Only an SR has a route here. A future non-SR parent renders as plain text rather
+            // than a link that 404s -- see the note on PAYMENT_TDS_FIELDS_TO_FETCH.
+            if (document_type !== SERVICE_REQUESTS) {
+                return <span className="whitespace-nowrap">{document_name}</span>;
+            }
             return (
-                <span
-                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${isPending
-                        ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
-                        : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
-                        }`}
+                <Link
+                    to={`/service-requests-list/${document_name}`}
+                    className="text-blue-600 hover:underline whitespace-nowrap"
                 >
-                    {status}
-                </span>
+                    {document_name}
+                </Link>
             );
         },
-        filterFn: facetedFilterFn,
         meta: {
-            exportHeaderName: "Status",
-            exportValue: (row: PaymentTDSDeductionRow) => row.status || "Pending",
-            facet: { field: "status", title: "Status" } satisfies FacetDeclaration,
+            exportHeaderName: "WO / PO",
+            exportValue: (row: PaymentTDSDeductionRow) => row.document_name || row.non_project_expense || "--",
         },
     },
     {
-        accessorKey: "tds_section",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Section" />,
-        // The Income Tax section, set once when the row is written (#1523): 194C on a Work Order
-        // payment, 194-I on an Office Rent expense. Every row from before the field reads 194C.
-        cell: ({ row }) => (
-            <span className="tabular-nums whitespace-nowrap">{row.original.tds_section || "--"}</span>
-        ),
-        filterFn: facetedFilterFn,
+        id: "order_excl_gst",
+        header: () => <div className={UNSORTABLE_NUMERIC_HEADER_CLASS}>WO/PO excl. GST</div>,
+        // The order's total sits in ONE of the two columns, picked by its GST (owner ruling 2026-10-27);
+        // the other reads "--". Split on the server (`services/tds_register_orders`).
+        cell: ({ row }) => <AmountCell value={getOrderValue(row.original.document_name)?.excl_gst} />,
+        enableSorting: false,
         meta: {
-            exportHeaderName: "Section",
-            exportValue: (row: PaymentTDSDeductionRow) => row.tds_section || "--",
-            facet: { field: "tds_section", title: "Section" } satisfies FacetDeclaration,
+            exportHeaderName: "WO/PO excl. GST",
+            exportValue: (row: PaymentTDSDeductionRow) => getOrderValue(row.document_name)?.excl_gst ?? "--",
+            isNumeric: true,
         },
     },
     {
-        accessorKey: "project",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
-        cell: ({ row }) =>
-            row.original.project ? (
-                <Link
-                    to={`/projects/${row.original.project}`}
-                    className="text-blue-600 hover:underline"
-                >
-                    {row.original.project_name || getProjectName(row.original.project)}
-                </Link>
-            ) : (
-                <span className="text-muted-foreground">--</span>
-            ),
-        filterFn: facetedFilterFn,
+        id: "order_incl_gst",
+        header: () => <div className={UNSORTABLE_NUMERIC_HEADER_CLASS}>WO/PO incl. GST</div>,
+        cell: ({ row }) => <AmountCell value={getOrderValue(row.original.document_name)?.incl_gst} />,
+        enableSorting: false,
         meta: {
-            exportHeaderName: "Project",
-            exportValue: (row: PaymentTDSDeductionRow) => row.project_name || getProjectName(row.project),
-            facet: { field: "project", title: "Project" } satisfies FacetDeclaration,
+            exportHeaderName: "WO/PO incl. GST",
+            exportValue: (row: PaymentTDSDeductionRow) => getOrderValue(row.document_name)?.incl_gst ?? "--",
+            isNumeric: true,
         },
     },
     {
@@ -307,74 +339,6 @@ export const getPaymentTdsColumns = ({
         },
     },
     {
-        accessorKey: "document_name",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Service Request" />,
-        cell: ({ row }) => {
-            const { document_name, document_type } = row.original;
-            // An Office Rent row has no Work Order: it shows its expense here too, because the Payment
-            // column, where its expense sits, is hidden by default.
-            const source = tdsRowSource(row.original);
-            if (source?.kind === "expense") return <SourceLink name={source.name} />;
-            if (!document_name) return <span className="text-muted-foreground">--</span>;
-            // Only an SR has a route here. A future non-SR parent renders as plain text rather
-            // than a link that 404s -- see the note on PAYMENT_TDS_FIELDS_TO_FETCH.
-            if (document_type !== SERVICE_REQUESTS) {
-                return <span className="whitespace-nowrap">{document_name}</span>;
-            }
-            return (
-                <Link
-                    to={`/service-requests-list/${document_name}`}
-                    className="text-blue-600 hover:underline whitespace-nowrap"
-                >
-                    {document_name}
-                </Link>
-            );
-        },
-        meta: {
-            exportHeaderName: "Service Request",
-            exportValue: (row: PaymentTDSDeductionRow) => row.document_name || row.non_project_expense || "--",
-        },
-    },
-    {
-        accessorKey: "project_payment",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Payment" />,
-        // A Work Order row names its payment; an Office Rent row names its Non-Project Expense (#1525).
-        cell: ({ row }) => {
-            const source = tdsRowSource(row.original);
-            return source ? <SourceLink name={source.name} /> : <span className="text-muted-foreground">--</span>;
-        },
-        meta: {
-            exportHeaderName: "Payment",
-            exportValue: (row: PaymentTDSDeductionRow) => tdsRowSource(row)?.name || "--",
-        },
-    },
-    {
-        id: "payment_status",
-        header: () => <span>Payment Status</span>,
-        // Pay TDS takes tax only from a Paid payment (story 39): an Office Rent row names none ("--").
-        cell: ({ row }) => <PaymentStatusCell payment={row.original.project_payment} />,
-        enableSorting: false,
-        // Not exported: the statuses are fetched for the page on screen only, so an export would print a blank
-        // column for every other row.
-        meta: { excludeFromExport: true },
-    },
-    {
-        accessorKey: "gross_amount",
-        header: ({ column }) => (
-            <DataTableColumnHeader column={column} title="Gross Amount" className={NUMERIC_HEADER_CLASS} />
-        ),
-        cell: ({ row }) => (
-            <div className="text-right tabular-nums">
-                {formatToIndianRupee(row.original.gross_amount)}
-            </div>
-        ),
-        meta: {
-            exportHeaderName: "Gross Amount",
-            exportValue: (row: PaymentTDSDeductionRow) => row.gross_amount,
-            isNumeric: true,
-        },
-    },
-    {
         accessorKey: "tds_percentage",
         header: ({ column }) => (
             <DataTableColumnHeader column={column} title="Vendor TDS" className={NUMERIC_HEADER_CLASS} />
@@ -402,41 +366,122 @@ export const getPaymentTdsColumns = ({
         },
     },
     {
-        accessorKey: "tds_amount",
-        header: ({ column }) => (
-            <DataTableColumnHeader column={column} title="TDS Amount" className={NUMERIC_HEADER_CLASS} />
-        ),
-        cell: ({ row }) => (
-            <div className="text-right font-semibold tabular-nums text-red-700 dark:text-red-400">
-                {formatToIndianRupee(row.original.tds_amount)}
-            </div>
-        ),
+        id: "vendor_id",
+        header: () => <span>Vendor ID</span>,
+        cell: ({ row }) => <TextCell value={tdsDeducteeIds(row.original).id} />,
+        enableSorting: false,
         meta: {
-            exportHeaderName: "TDS Amount",
-            exportValue: (row: PaymentTDSDeductionRow) => row.tds_amount,
-            isNumeric: true,
+            exportHeaderName: "Vendor ID",
+            exportValue: (row: PaymentTDSDeductionRow) => tdsDeducteeIds(row).id || "--",
         },
     },
     {
-        id: "net_paid",
-        accessorFn: (row) => deductionNetPaid(row),
-        header: ({ column }) => (
-            <DataTableColumnHeader column={column} title="Net Paid" className={UNSORTABLE_NUMERIC_HEADER_CLASS} />
-        ),
-        // DERIVED, NOT STORED -- and deliberately so. Once the deduction row exists,
-        // `Project Payments.amount` IS this figure; a stored second copy could only drift from it.
-        // What the vendor got: the whole gross on a company-paid row (#1543), see `deductionNetPaid`.
-        // `enableSorting: false` because the backend sorts on real columns and there is no
-        // `net_paid` column to sort on.
+        id: "vendor_gst",
+        header: () => <span>Vendor GST</span>,
+        cell: ({ row }) => <TextCell value={tdsDeducteeIds(row.original).gst} />,
         enableSorting: false,
+        meta: {
+            exportHeaderName: "Vendor GST",
+            exportValue: (row: PaymentTDSDeductionRow) => tdsDeducteeIds(row).gst || "--",
+        },
+    },
+    {
+        id: "vendor_pan",
+        header: () => <span>Vendor PAN</span>,
+        cell: ({ row }) => <TextCell value={tdsDeducteeIds(row.original).pan} />,
+        enableSorting: false,
+        meta: {
+            exportHeaderName: "Vendor PAN",
+            exportValue: (row: PaymentTDSDeductionRow) => tdsDeducteeIds(row).pan || "--",
+        },
+    },
+    {
+        id: "payment_status",
+        header: () => <span>Payment Status</span>,
+        // The VENDOR PAYMENT's status, not the tax's. The Pending tab drops this column (owner ruling
+        // 2026-10-27): a "Paid" there read as if the TDS were paid. Pay TDS still reads the statuses.
+        // Pay TDS takes tax only from a Paid payment (story 39): an Office Rent row names none ("--").
+        cell: ({ row }) => <PaymentStatusCell payment={row.original.project_payment} />,
+        enableSorting: false,
+        // Not exported: the statuses are fetched for the page on screen only, so an export would print a blank
+        // column for every other row.
+        meta: { excludeFromExport: true },
+    },
+    {
+        accessorKey: "status",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+        // ⚠️ A BLANK READS AS `Pending`, and the selection gate in PaymentTDSDeductions.tsx makes the
+        // SAME assumption -- keep the two in step. The doctype defaults `status` to "Pending" and
+        // Postgres backfilled all 626 existing rows with it, so a blank should not occur; if one
+        // ever does, showing it as Pending keeps it payable rather than stranding it.
+        cell: ({ row }) => {
+            const status = row.original.status || "Pending";
+            const isPending = status === "Pending";
+            return (
+                <span
+                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${isPending
+                        ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                        : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                        }`}
+                >
+                    {status}
+                </span>
+            );
+        },
+        filterFn: facetedFilterFn,
+        meta: {
+            exportHeaderName: "Status",
+            exportValue: (row: PaymentTDSDeductionRow) => row.status || "Pending",
+            facet: { field: "status", title: "Status" } satisfies FacetDeclaration,
+        },
+    },
+    {
+        accessorKey: "project",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
+        cell: ({ row }) =>
+            row.original.project ? (
+                <Link
+                    to={`/projects/${row.original.project}`}
+                    className="text-blue-600 hover:underline"
+                >
+                    {row.original.project_name || getProjectName(row.original.project)}
+                </Link>
+            ) : (
+                <span className="text-muted-foreground">--</span>
+            ),
+        filterFn: facetedFilterFn,
+        meta: {
+            exportHeaderName: "Project",
+            exportValue: (row: PaymentTDSDeductionRow) => row.project_name || getProjectName(row.project),
+            facet: { field: "project", title: "Project" } satisfies FacetDeclaration,
+        },
+    },
+    {
+        accessorKey: "project_payment",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Payment" />,
+        // A Work Order row names its payment; an Office Rent row names its Non-Project Expense (#1525).
+        cell: ({ row }) => {
+            const source = tdsRowSource(row.original);
+            return source ? <SourceLink name={source.name} /> : <span className="text-muted-foreground">--</span>;
+        },
+        meta: {
+            exportHeaderName: "Payment",
+            exportValue: (row: PaymentTDSDeductionRow) => tdsRowSource(row)?.name || "--",
+        },
+    },
+    {
+        accessorKey: "gross_amount",
+        header: ({ column }) => (
+            <DataTableColumnHeader column={column} title="Gross Amount" className={NUMERIC_HEADER_CLASS} />
+        ),
         cell: ({ row }) => (
-            <div className="text-right tabular-nums text-muted-foreground">
-                {formatToIndianRupee(deductionNetPaid(row.original))}
+            <div className="text-right tabular-nums">
+                {formatToIndianRupee(row.original.gross_amount)}
             </div>
         ),
         meta: {
-            exportHeaderName: "Net Paid",
-            exportValue: (row: PaymentTDSDeductionRow) => deductionNetPaid(row),
+            exportHeaderName: "Gross Amount",
+            exportValue: (row: PaymentTDSDeductionRow) => row.gross_amount,
             isNumeric: true,
         },
     },

@@ -177,21 +177,32 @@ figure — the company pays the tax on top:
   approval route shares: single approve, a split's approved half, auto-approve at insert, bulk approve
   post-commit) asks `is_company_borne` and passes `write_deduction(borne_by=...)`, which stores it and
   cuts the payment only for `Vendor`. `write_deduction` defaults to `Vendor`, so the historical
-  backfills are unchanged. Nothing rewrites `borne_by` after that, except the Admin action below.
-- **_TDS paid by company_ (#1537) is the one way `borne_by` moves, Vendor → Company only.**
-  `api/payments/tds_paid_by_company.mark_tds_paid_by_company` (Admin, `is_nirmaan_admin`) →
-  `payment_tds.mark_tds_paid_by_company`: a Work Order payment's deduction, before *Paid* or after *Paid*
-  while its tax is not in a challan (`refuse_if_deposited`). It changes no figure (payment amount,
-  `gross_amount`, `tds_amount` stay), so the tax leaves Amount Paid and stays in `total_tds` and project
-  outflow: ₹10,000 paid with ₹204 "withheld" → Amount Paid 10,204, Due −204 → 10,000 and 0. It saves the
-  deduction through the doc layer, so `controllers/payment_tds_deduction.on_update` recounts through
-  `write_amount_paid` and re-checks CEO Hold, and its Version (`ignore_version=False`, written even in a
-  test run) records who and when. Any other change of `borne_by` (Desk, REST) is refused
-  (`refuse_hand_written_borne_by`; the action sets `flags.tds_paid_by_company`).
+  backfills are unchanged. Nothing rewrites `borne_by` after that, except *Company Bears TDS* below.
+- **_Company Bears TDS_ and _Mark as Deposit_ undo a TDS cut before the money goes out (owner 2026-10-27).**
+  They replace the #1537 action *TDS paid by company*, which moved only `borne_by` and so left Amount Due =
+  the tax on a cut payment. `api/payments/tds_cut_undo` (Admin, `is_nirmaan_admin`) → `services/tds_cut_undo`.
+  Both put a cut Work Order payment back to its full request (`amount` = the deduction's `gross_amount`,
+  ₹9,800 → ₹10,000): *Company Bears TDS* keeps the deduction with `borne_by` Company (the only way
+  `borne_by` moves, Vendor → Company, its Version recording who and when); *Mark as Deposit* clears
+  `payment_tds` and deletes the deduction through `frappe.delete_doc` (a Deleted Document records it).
+  **Only on an `Approved` payment** (its status read inside the payment's row lock): from `Reconciliation
+  Pending` on the money has left the bank, so raising the record would claim money never sent. Also refused
+  on a payment on a cheque (written for the net), with tax in a challan, already `Company`, or with `amount`
+  already at the gross (`refuse_unless_cut_undoable`). *Mark as Deposit* also shows on a TDS the company
+  already bears (after *Company Bears TDS*, or a Misc / Transport Work Order's): it deletes the deduction and
+  leaves the amount, so it is allowed up to `Reconciliation Pending`, cheque or not. Neither action on a
+  `Paid` payment (owner 2026-10-27), and neither once the TDS is paid: a deduction in a challan is refused
+  with "this TDS is already paid" (`refuse_if_tds_paid`). The payment is written by `db_set`, so its `validate`
+  (`refuse_raise_after_cut`) and the restate don't run; an `Approved` payment counts in no Work Order figure,
+  so nothing is recounted. Any other change of `borne_by` (Desk, REST) is refused
+  (`refuse_hand_written_borne_by`; the action sets `payment_tds.COMPANY_BEARS_TDS_FLAG`). Payments the old
+  action marked keep their figures; `requested_amount_sql` still reads their gross. The WO page's buttons
+  (`TdsCutUndoActions`, rule `tdsCutUndo.canUndoTdsCut`) each carry an ⓘ hover explaining the action.
 - **A payment whose tax was cut (`Vendor`) can't be raised (#1537)**, `payment_tds.refuse_raise_after_cut`
   from the payment's `validate`, on the saves the restate runs on (not `NO_RESTATE_FLAGS` /
   `from_adjustment`). A raised net was grossed up again (9,800 → 10,000 read as 10,204 gross, 204
-  withheld), which is how the negative-Due Work Orders arose. The message names *TDS paid by company*.
+  withheld), which is how the negative-Due Work Orders arose. The message names *Company Bears TDS* and
+  *Mark as Deposit*.
   Lowering still restates; a `Company` payment (never cut) may be raised and is taxed on the new gross.
 - **Every reader reads the field, never the categories or the amounts:**
   - **Amount Paid includes the vendor's tax (ADR-0034 Amendment A, #1509).** A WO's stored
@@ -247,7 +258,8 @@ figure — the company pays the tax on top:
     through the one accessor `useWorkOrderTds` (SWR key `WorkOrderTds-<id>`, shared with the WO page);
     the TDS column shows a loading state until it answers. `Company` tax adds nothing to any of them.
   - **Company tax is labelled wherever a tax column lists it** (#1543): the WO payment table's TDS cell
-    (`tdsPreview.tdsColumnNote`) and the Payment Voucher Uploads report say "TDS paid by company". The
+    (`tdsPreview.tdsColumnNote`) and the Payment Voucher Uploads report say "Company Bears TDS" (`tdsPreview.COMPANY_BEARS_TDS_LABEL`, renamed
+    with the action, owner 2026-10-27), as does the WO page's Amount Paid hover. The
     TDS register's Net Paid is what the vendor got: gross − tax for `Vendor`, the whole gross for
     `Company` (`deductionNetPaid`).
 - **`Payment TDS Deduction` is readable only by Accountant, Accountant Lead and System Manager**, and
@@ -290,7 +302,7 @@ figure — the company pays the tax on top:
 - **"Req. Amount" is the full bill whatever the status (owner ruling X4-A).** The WO page table:
   Req. Amount / TDS / To be paid (`tdsPreview.paymentTableFigures`: a recorded `Vendor` deduction is
   added back onto the cut amount). The approval queue (All Payments, accountant tabs, CSV): the row's
-  `requested_amount` (a union column in `api/approvals/get_approval_queue`, rule `payment_tds.requested_amount_sql`: a payment its tax cut (stored + tax = gross) reads the deduction's gross whoever bears the tax now, so a cut payment marked *TDS paid by company* still bills its gross; otherwise the stored amount plus the counted
+  `requested_amount` (a union column in `api/approvals/get_approval_queue`, rule `payment_tds.requested_amount_sql`: a payment its tax cut (stored + tax = gross) reads the deduction's gross whoever bears the tax now, so a cut payment marked by the retired *TDS paid by company* still bills its gross; otherwise the stored amount plus the counted
   `Vendor` tax; a withheld Office Rent expense's is its tax record's `gross_amount`, the rent before withholding) with a "To be paid" line under it when they differ. The column's
   sort and filter (id `amount`) read `requested_amount` too (`_COLUMN_FOR`, story 60), as does the "Req. Amt"
   selection pill (`bulkSelectionSummary.requestedTotal`). `amount` stays the stored figure: every action, the
@@ -643,8 +655,16 @@ Reports hub → **Payment TDS Deduction** tab (report type "TDS Deduction"), gat
   pay from?", this answers "what have we deposited?". Its Expense column links or unlinks the
   challan's TDS Payment expense (§ a challan and its TDS Payment expense); the picker leaves out
   expenses already on another challan (`challanExpense.linkableExpenses`).
-- Project / Payment / Gross / Net columns are **hidden by default**, not deleted (⚠️ hiding `project`
-  also removes its facet dropdown).
+- Project / Payment / Gross columns are **hidden by default**, not deleted (⚠️ hiding `project`
+  also removes its facet dropdown). No Section column (owner 2026-10-27; `tds_section` is still stored).
+- **Payment Status is the vendor payment's status, not the tax's**, so the **Pending tab drops it**
+  (a "Paid" there read as TDS paid). Its statuses are still fetched: Pay TDS's selection gate reads them.
+- **Vendor ID / GST / PAN** come from the vendor's *current* record, joined by the list query
+  (`vendor.vendor_gst as vendor_gst`), so Export All carries them; a landlord row shows its snapshotted PAN.
+- **WO/PO excl. GST / incl. GST**: the order's total sits in **one** column, picked by its GST (WO: the
+  `gst` flag; PO: `tax_amount > 0`), split in `services/tds_register_orders` and served for the whole
+  register by `api/payments/tds_register_orders.get_tds_register_order_values` (`document_name` is a
+  Dynamic Link the list query cannot join). **Paid Amount** (was Net Paid) sits right after TDS Amount.
 
 ---
 

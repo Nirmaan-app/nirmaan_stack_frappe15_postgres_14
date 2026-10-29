@@ -70,7 +70,7 @@ import { getFrappeError } from "@/utils/frappeErrors";
 import { gstMatchesVendor, isGstOn } from "@/utils/workOrderGst";
 import { canMatchGstToVendor, isNirmaanAdmin } from "@/constants/roles";
 import { MatchGstToVendorDialog } from "../components/MatchGstToVendorDialog";
-import { TdsPaidByCompanyAction } from "../components/TdsPaidByCompanyAction";
+import { TdsCutUndoActions } from "../components/TdsCutUndoActions";
 
 // Everything requested but not yet `Paid` -- INCLUDING `Reconciliation Pending`, which counts as
 // neither paid (money figures count `Paid` alone) nor pending anywhere else. Left out, its amount
@@ -596,9 +596,77 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 onSuccess={() => service_request_mutate()}
             />
 
+            {/* Order Details  */}
+            <Card className="rounded-sm shadow-md md:col-span-3 overflow-x-auto">
+                <CardHeader>
+                    <CardTitle className="text-xl max-sm:text-lg text-red-600">
+                        Order Details
+                    </CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <table className="table-auto w-full">
+                        <thead>
+                            <tr className="border-gray-200 border-b-2 text-primary max-sm:text-sm">
+                                <th className="w-[5%] text-left ">
+                                    S.No.
+                                </th>
+                                <th className={isPMUser ? "w-[60%] text-left px-2" : "w-[50%] text-left px-2"}>
+                                    Service Description
+                                </th>
+                                <th className="w-[10%]  text-center px-2">
+                                    Unit
+                                </th>
+                                <th className="w-[10%]  text-center px-2">
+                                    Quantity
+                                </th>
+                                {!isPMUser && (
+                                    <>
+                                        <th className="w-[10%]  text-center px-2">
+                                            Rate
+                                        </th>
+                                        <th className="w-[10%]  text-center px-2">
+                                            Amount
+                                        </th>
+                                    </>
+                                )}
+                            </tr>
+                        </thead>
+                        <tbody className="max-sm:text-xs text-sm">
+                            {(orderData?.work_order_items || []).map((item: any, index: number) => (
+                                <tr key={item?.name || index} className="border-b-2">
+                                    <td className="w-[5%] text-start ">
+                                        {index + 1}
+                                    </td>
+                                    <td className={isPMUser ? "w-[60%] text-left py-1" : "w-[50%] text-left py-1"}>
+                                        <p className="font-semibold">{item?.category}</p>
+                                        <span className="whitespace-pre-wrap">{item?.item_name}</span>
+                                    </td>
+                                    <td className="w-[10%]  text-center">
+                                        {item?.uom}
+                                    </td>
+                                    <td className="w-[10%]  text-center">
+                                        {item?.quantity}
+                                    </td>
+                                    {!isPMUser && (
+                                        <>
+                                            <td className="w-[10%]  text-center">
+                                                {formatToIndianRupee(item?.rate)}
+                                            </td>
+                                            <td className="w-[10%]  text-center">
+                                                {formatToIndianRupee(parseNumber(item?.rate) * parseNumber(item?.quantity))}
+                                            </td>
+                                        </>
+                                    )}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </CardContent>
+            </Card>
+
             {/* Transaction Details and WO Options - visible to all, but inner content restricted */}
-            {!isPMUser && (<div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
-                <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
+            {!isPMUser && (<div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-10">
+                <Card className="rounded-sm shadow-m col-span-7 max-[1000px]:col-span-1 overflow-x-auto">
                     <CardHeader>
                         <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
                             <p>Transaction Details</p>
@@ -829,12 +897,12 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
                                                 <TableCell className="text-red-500 text-end w-[5%]">
                                                     <div className="flex items-center justify-end gap-1">
-                                                    {/* Admin, on a payment whose tax is recorded as withheld (#1537). */}
-                                                    <TdsPaidByCompanyAction
+                                                    {/* Admin, on an Approved payment cut by its TDS: Company Bears TDS / Mark as Deposit. */}
+                                                    <TdsCutUndoActions
                                                         payment={payment}
                                                         deduction={tdsByPayment[payment?.name]}
                                                         isAdmin={isNirmaanAdmin(role, user_id)}
-                                                        onMarked={() => Promise.all([refreshPayments(), service_request_mutate()])}
+                                                        onDone={() => Promise.all([refreshPayments(), service_request_mutate()])}
                                                     />
                                                     {/* Approved: Admin only (owner, 18 Sep) — as on the PO page. Paid: never.
                                                         Deleting the payment also deletes its Payment TDS Deduction (server on_trash).
@@ -870,7 +938,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                         </Table>
                     </CardContent>
                 </Card>
-                <Card className="rounded-sm shadow-md col-span-3 overflow-x-auto">
+                <Card className="rounded-sm shadow-md col-span-3 max-[1000px]:col-span-1 overflow-x-auto">
                     <CardHeader>
                         <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
                             <div className="flex items-center gap-1">
@@ -1088,74 +1156,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
             {/* <SRAttachments SR={orderData} /> */}
 
             <InvoiceDialog docType={"Service Requests"} docName={service_request?.name} docMutate={service_request_mutate} vendor={service_request?.vendor} />
-
-            {/* Order Details  */}
-            <Card className="rounded-sm shadow-md md:col-span-3 overflow-x-auto">
-                <CardHeader>
-                    <CardTitle className="text-xl max-sm:text-lg text-red-600">
-                        Order Details
-                    </CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <table className="table-auto w-full">
-                        <thead>
-                            <tr className="border-gray-200 border-b-2 text-primary max-sm:text-sm">
-                                <th className="w-[5%] text-left ">
-                                    S.No.
-                                </th>
-                                <th className={isPMUser ? "w-[60%] text-left px-2" : "w-[50%] text-left px-2"}>
-                                    Service Description
-                                </th>
-                                <th className="w-[10%]  text-center px-2">
-                                    Unit
-                                </th>
-                                <th className="w-[10%]  text-center px-2">
-                                    Quantity
-                                </th>
-                                {!isPMUser && (
-                                    <>
-                                        <th className="w-[10%]  text-center px-2">
-                                            Rate
-                                        </th>
-                                        <th className="w-[10%]  text-center px-2">
-                                            Amount
-                                        </th>
-                                    </>
-                                )}
-                            </tr>
-                        </thead>
-                        <tbody className="max-sm:text-xs text-sm">
-                            {(orderData?.work_order_items || []).map((item: any, index: number) => (
-                                <tr key={item?.name || index} className="border-b-2">
-                                    <td className="w-[5%] text-start ">
-                                        {index + 1}
-                                    </td>
-                                    <td className={isPMUser ? "w-[60%] text-left py-1" : "w-[50%] text-left py-1"}>
-                                        <p className="font-semibold">{item?.category}</p>
-                                        <span className="whitespace-pre-wrap">{item?.item_name}</span>
-                                    </td>
-                                    <td className="w-[10%]  text-center">
-                                        {item?.uom}
-                                    </td>
-                                    <td className="w-[10%]  text-center">
-                                        {item?.quantity}
-                                    </td>
-                                    {!isPMUser && (
-                                        <>
-                                            <td className="w-[10%]  text-center">
-                                                {formatToIndianRupee(item?.rate)}
-                                            </td>
-                                            <td className="w-[10%]  text-center">
-                                                {formatToIndianRupee(parseNumber(item?.rate) * parseNumber(item?.quantity))}
-                                            </td>
-                                        </>
-                                    )}
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </CardContent>
-            </Card>
 
             {/* SR Comments Card */}
             {id && (
