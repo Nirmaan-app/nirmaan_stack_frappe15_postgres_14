@@ -256,9 +256,8 @@ class TestWorkOrderPaidEntryLimit(FrappeTestCase):
 
 class TestWorkOrderInvoiceCheck(FrappeTestCase):
 	"""GLOSSARY.md, *Invoice check (on a Work Order payment)* (#1488): after a first payment, a new one
-	waits until raised money is less than ₹100 above Total Amount Invoiced. Raised by someone who is
-	neither an L1 approver nor the CEO -- `Administrator`, which every other suite here runs as, skips
-	it."""
+	waits until raised money is less than ₹100 above Total Amount Invoiced. Raised by someone other than
+	`Administrator`, which every other suite here runs as and which alone skips it (owner, 2026-10-29)."""
 
 	setUp = TestWorkOrderPaidEntryLimit.setUp
 	_plant = TestWorkOrderPaymentRequestLimit._plant
@@ -326,19 +325,30 @@ class TestWorkOrderInvoiceCheck(FrappeTestCase):
 		sr = self._wo(amount_invoiced=20000)
 		self.assertTrue(self._as(procurement, self._request, sr, 60000))
 
-	def test_an_l1_approver_skips_it(self):
+	def test_only_the_administrator_account_skips_it(self):
 		sr = self._wo(amount_invoiced=0)
 		self.assertTrue(self._request(sr, 5000))  # Administrator
-		admin = self._user("Nirmaan Admin Profile")
-		self.assertTrue(self._as(admin, self._request, sr, 5000))
 
-	def test_the_ceo_skips_it(self):
+	def test_an_admin_profile_user_is_held_to_it(self):
+		"""Owner, 2026-10-29: Admin-profile users no longer skip it."""
+		admin = self._user("Nirmaan Admin Profile")
+		sr = self._wo(amount_invoiced=0)
+		before = self._count(sr)
+		with self.assertRaisesRegex(frappe.ValidationError, self.REFUSAL):
+			self._as(admin, self._request, sr, 5000)
+		self.assertEqual(self._count(sr), before)
+
+	def test_the_ceo_is_held_to_it(self):
+		"""Owner, 2026-10-29: the CEO no longer skips it."""
 		from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 
 		if not frappe.db.exists("User", CEO_AUTHORIZED_USER):
 			self.skipTest("no CEO user on this site")
 		sr = self._wo(amount_invoiced=0)
-		self.assertTrue(self._as(CEO_AUTHORIZED_USER, self._request, sr, 5000))
+		before = self._count(sr)
+		with self.assertRaisesRegex(frappe.ValidationError, self.REFUSAL):
+			self._as(CEO_AUTHORIZED_USER, self._request, sr, 5000)
+		self.assertEqual(self._count(sr), before)
 
 	def test_the_accountants_paid_entry_is_held_to_it(self):
 		accountant = self._user("Nirmaan Accountant Profile")

@@ -20,8 +20,9 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   Rejected, base and GST, gross of vendor-borne TDS) − `amount_invoiced` must be < ₹100, measured BEFORE the new
   payment. It lives in the pure `services/work_order_payment_limit` (`invoice_check`, `request_refusal`) and is
   enforced where the WO limit is: `create_payment_request_for_service` and the Project Payments insert
-  validation (the Accountant's paid entry, Desk, REST), as the session user. An L1 approver or the CEO skips it
-  (`order_payments.skips_invoice_check`, via `approval_raiser.raiser_level`); split leftovers and adjustments
+  validation (the Accountant's paid entry, Desk, REST), as the session user. Only the `Administrator` system
+  account skips it (`order_payments.skips_invoice_check`; owner, 2026-10-29): Admin-profile users and the CEO
+  are held to it, as everyone else is. Split leftovers and adjustments
   skip it with the limit. The same check refuses a negative WO payment for everyone (refunds are Vendor
   Refunds). `get_payment_summary` returns it as `limit.invoice_check` with `skipped` for the viewer.
 - **A WO's remarks are readable only by users who may read that WO** (story 4): the endpoints check it

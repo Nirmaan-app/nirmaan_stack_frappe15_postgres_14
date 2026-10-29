@@ -17,7 +17,6 @@ import frappe
 from frappe import _
 
 from nirmaan_stack.services import payment_tds
-from nirmaan_stack.services.approval_raiser import raiser_level
 from nirmaan_stack.services.work_order_payment_limit import request_refusal, work_order_limit
 
 #: How a refusal names the action: the request endpoint asks for money, an insert anywhere else pays it,
@@ -67,8 +66,10 @@ def work_order_summary(sr, exclude_payment: str | None = None) -> dict:
 
 
 def skips_invoice_check(user: str | None) -> bool:
-	"""Does a payment raised by `user` skip the invoice check? An L1 approver or the CEO does (#1488)."""
-	return raiser_level(user) is not None
+	"""Does a payment raised by `user` skip the invoice check? Only the `Administrator` system account
+	(owner, 2026-10-29): Admin-profile users and the CEO are held to it like everyone else. Until then
+	every L1 approver and the CEO skipped it (#1488)."""
+	return user == "Administrator"
 
 
 def assert_within_work_order_limit(

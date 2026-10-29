@@ -181,6 +181,12 @@ class TestPaymentSummaryEndpoint(FrappeTestCase):
 		frappe.set_user(procurement)
 		self.assertFalse(get_payment_summary("Service Requests", sr)["limit"]["invoice_check"]["skipped"])
 
+		# Owner, 2026-10-29: an Admin-profile user is held to it too; only `Administrator` skips it.
+		admin = frappe.db.get_value("Nirmaan Users", {"role_profile": "Nirmaan Admin Profile"}, "name")
+		if admin:
+			frappe.set_user(admin)
+			self.assertFalse(get_payment_summary("Service Requests", sr)["limit"]["invoice_check"]["skipped"])
+
 	def test_a_purchase_order_carries_no_work_order_limit(self):
 		self.assertNotIn("limit", get_payment_summary("Procurement Orders", self._po_with_payments()))
 
