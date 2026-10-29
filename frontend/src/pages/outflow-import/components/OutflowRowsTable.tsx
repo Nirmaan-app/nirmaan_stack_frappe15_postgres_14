@@ -53,6 +53,15 @@ import { chequeOutcomeChip, type ChequeOutcomeTone } from "../chequeOutcomeView"
 
 interface Props {
     rows: OutflowImportRow[];
+    /** The rows are being fetched: the body shows skeleton rows, the header stays. Absent = not loading. */
+    loading?: boolean;
+    /**
+     * The current query failed: the body shows a failure row instead of `rows`, which are then the
+     * previous query's answer. Loading wins over it while a retry runs. Absent = never failed.
+     */
+    failed?: boolean;
+    /** Re-asks the current query, from the failure row's Retry button. */
+    onRetry?: () => void;
     /**
      * The distinct values one funnel offers, fetched when it is OPENED (slice X3).
      *
@@ -151,6 +160,9 @@ export interface TableActionColumn {
  */
 export const OutflowRowsTable = ({
     rows,
+    loading = false,
+    failed = false,
+    onRetry,
     loadFacetValues,
     query,
     filters,
@@ -192,15 +204,17 @@ export const OutflowRowsTable = ({
         [rows, selectableRowNames, lockedRowNames]
     );
     const allSelected = names.length > 0 && names.every((n) => selected.has(n));
+    // "Filtered to nothing" and "no data at all" need different words: the first is undone by the
+    // person's own search or a lit funnel, the second is not theirs to fix.
+    const narrowed = query.trim().length > 0 || Object.values(filters).some(isFilterSet);
+    const span = columns.length + (selectable ? 1 : 0) + (actionColumn ? 1 : 0);
+    // What the body shows. Loading first (a retry redraws the skeleton), then a failure, then data.
+    const showFailure = !loading && failed;
+    const showRows = !loading && !failed;
 
-    if (!rows.length) {
-        return (
-            <div className="rounded-md border p-8 text-center text-sm text-muted-foreground">
-                Nothing here.
-            </div>
-        );
-    }
-
+    // ⚠️ AN EMPTY RESULT KEEPS THE HEADER. The funnels live in it, so swapping the whole table for a
+    // message unmounted the one a person was typing in the moment it matched nothing — and left no
+    // way to edit it back short of "Clear filters".
     return (
         <div className="overflow-x-auto rounded-md border">
             <table className="w-full border-collapse text-sm">
@@ -211,7 +225,8 @@ export const OutflowRowsTable = ({
                                 <span className="inline-flex" title={selectAllHint ?? undefined}>
                                     <Checkbox
                                         checked={allSelected}
-                                        disabled={!names.length}
+                                        // Behind the skeleton or a failure, the rows are the previous query's.
+                                        disabled={!names.length || loading || failed}
                                         onCheckedChange={() => onToggleAll(names)}
                                         aria-label="Select all rows"
                                     />
@@ -236,8 +251,36 @@ export const OutflowRowsTable = ({
                         )}
                     </tr>
                 </thead>
-                <tbody>
-                    {rows.map((row) => (
+                <tbody aria-busy={loading || undefined}>
+                    {loading &&
+                        Array.from({ length: SKELETON_ROWS }, (_, i) => (
+                            <tr key={`skeleton-${i}`} className="border-t" data-skeleton-row>
+                                {Array.from({ length: span }, (_, j) => (
+                                    <td key={j} className="px-2 py-2.5">
+                                        <div className="h-4 animate-pulse rounded bg-muted" />
+                                    </td>
+                                ))}
+                            </tr>
+                        ))}
+                    {showFailure && (
+                        <tr>
+                            <td colSpan={span} className="p-8 text-center text-sm" role="alert">
+                                <span className="text-destructive">Couldn't load transactions.</span>
+                                {onRetry && (
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="ml-3 h-7"
+                                        onClick={onRetry}
+                                    >
+                                        Retry
+                                    </Button>
+                                )}
+                            </td>
+                        </tr>
+                    )}
+                    {showRows && rows.map((row) => (
                         <Row
                             key={row.name}
                             row={row}
@@ -258,11 +301,39 @@ export const OutflowRowsTable = ({
                             onRectify={onRectify}
                         />
                     ))}
+                    {showRows && !rows.length && (
+                        <tr>
+                            <td
+                                colSpan={span}
+                                className="p-8 text-center text-sm text-muted-foreground"
+                            >
+                                {narrowed
+                                    ? "Nothing here for the current search or filters."
+                                    : "Nothing here."}
+                            </td>
+                        </tr>
+                    )}
                 </tbody>
             </table>
         </div>
     );
 };
+
+/** How many placeholder rows the body shows while loading. */
+const SKELETON_ROWS = 8;
+
+/** Whether one column's filter narrows anything -- what lights its funnel. */
+const isFilterSet = (filter: ColumnFilters[string]): boolean =>
+    Array.isArray(filter)
+        ? filter.length > 0
+        : typeof filter === "string"
+          ? filter.trim().length > 0
+          : isDateFilterValue(filter)
+            ? Boolean(filter.value)
+            : Boolean(
+                  filter &&
+                      ((filter as RangeFilter).min != null || (filter as RangeFilter).max != null)
+              );
 
 const HeaderCell = ({
     column,
@@ -285,16 +356,7 @@ const HeaderCell = ({
     // and sending an unknown sort key would fail the whole page load over a cosmetic click.
     const sortable = SERVER_SORT_COLUMNS.includes(column.id);
     const filter = filters[column.id];
-    const active = Array.isArray(filter)
-        ? filter.length > 0
-        : typeof filter === "string"
-          ? filter.trim().length > 0
-          : isDateFilterValue(filter)
-            ? Boolean(filter.value)
-            : Boolean(
-                  filter &&
-                      ((filter as RangeFilter).min != null || (filter as RangeFilter).max != null)
-              );
+    const active = isFilterSet(filter);
 
     /**
      * The funnel itself. Shared by both branches below so an active date filter and an active facet

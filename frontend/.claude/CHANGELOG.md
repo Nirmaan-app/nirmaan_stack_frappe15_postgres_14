@@ -4,6 +4,31 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-10-29 — Bulk Import Transactions: search and column filters no longer refresh the page
+
+Summary and verification: `../../.claude/CHANGELOG.md` (same date).
+
+### What changed
+
+- **`pages/outflow-import/useOutflowRows.ts`:** column funnels (`ownFilters`) are debounced 300 ms like the search
+  box; Period, Source and the pinned import still apply at once (`withScope`). The rows read passes
+  `keepPreviousData: true`.
+- **`pages/outflow-import/OutflowMasterPage.tsx`:** the summary read passes `keepPreviousData: true`. The
+  first-load `TailSpin` branch (and `useHasLoadedOnce`) is gone; the table is always rendered with
+  `loading={rowsLoading}`.
+- **`pages/outflow-import/components/OutflowRowsTable.tsx`:** new optional `loading` prop. The header always
+  renders; loading shows 8 skeleton rows and disables select-all; empty is a `colSpan` row reading "Nothing here
+  for the current search or filters." when search or any filter is set, else "Nothing here.". The funnel
+  highlight check moved into a shared `isFilterSet`.
+- **Failed load:** `useOutflowRows` reads `error` and exposes `failed` (`error && !isLoading`), and caps the SDK's
+  endless retries at `errorRetryCount: 2`. `OutflowRowsTable` takes `failed` + `onRetry` and shows "Couldn't load
+  transactions." with a Retry button instead of the previous query's rows; the page hides `TablePagination`
+  while failed.
+- **Tests (new):** `outflowTableFlow.dom.test.tsx` (22), `useOutflowRows.dom.test.tsx` (28),
+  `components/OutflowRowsTable.dom.test.tsx` (36).
+
+---
+
 ## 2026-10-28 — Update Inventory: submit when there are no items to count
 
 Backend and verification: `../../.claude/CHANGELOG.md` (same date).

@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowRightLeft, Columns3, History, Info, Link2, Search, Undo2, Upload, Wallet, X } from "lucide-react";
 import { useFrappeGetCall, useFrappePostCall, useSWRConfig } from "frappe-react-sdk";
-import { TailSpin } from "react-loader-spinner";
 
 import {
     AlertDialog,
@@ -98,7 +97,6 @@ import {
 import { PORTER_URL_KEY, opensPorterDialog } from "./porterImport";
 import { CARD_URL_KEY, opensCardDialog } from "./creditCardImport";
 import { WAITING_REFUNDS_KEY_PREFIX, waitingRefundNames } from "./waitingRefundMatch";
-import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 /**
  * Bulk Import Transactions -- ONE screen (slices X3 + X4).
@@ -335,7 +333,6 @@ export const OutflowMasterPage = () => {
      */
     const table = useOutflowRows({ scope: SCOPE_FOR_TAB[tab], batch: selectedImport });
     const { rows, loading: rowsLoading, mutate: mutateRows } = table;
-    const hasLoadedOnce = useHasLoadedOnce(rowsLoading);
     /**
      * #1558: an expense's "Move to another project" link arrives searched to its order's CRN, so the table
      * behind the move dialog shows that line. Read once, on mount, from the history entry's state.
@@ -442,7 +439,9 @@ export const OutflowMasterPage = () => {
     } = useFrappeGetCall<{ message: OutflowImportSummary }>(
         "nirmaan_stack.api.outflow_import.review.get_outflow_summary",
         filterArgs,
-        `outflow-summary-${JSON.stringify(filterArgs)}`
+        `outflow-summary-${JSON.stringify(filterArgs)}`,
+        // Each filter change is a new key; without this the whole panel blanks and the page jumps.
+        { keepPreviousData: true }
     );
 
     const summary = summaryData?.message;
@@ -1638,15 +1637,15 @@ export const OutflowMasterPage = () => {
                 </AlertDialogContent>
             </AlertDialog>
 
-            {!showingApproved &&
-                (!hasLoadedOnce && rowsLoading && !rows.length ? (
-                <div className="flex h-40 items-center justify-center">
-                    <TailSpin color="#D03B45" height={30} width={30} />
-                </div>
-            ) : (
+            {/* ⚠️ ONE TABLE FOR LOADING, EMPTY AND ROWS. A spinner in its place unmounted the header,
+                and with it any funnel a person had open; the table draws its own skeleton instead. */}
+            {!showingApproved && (
                 <>
                     <OutflowRowsTable
                         rows={rows}
+                        loading={rowsLoading}
+                        failed={table.failed}
+                        onRetry={() => void mutateRows()}
                         loadFacetValues={table.loadFacetValues}
                         query={table.search}
                         filters={table.filters}
@@ -1677,15 +1676,18 @@ export const OutflowMasterPage = () => {
                             openDecisionRow(row);
                         }}
                     />
-                    <TablePagination
-                        total={table.total}
-                        limit={table.pageSize}
-                        offset={table.page * table.pageSize}
-                        busy={rowsLoading}
-                        onPage={table.setPage}
-                    />
-                    </>
-                ))}
+                    {/* Hidden on a failure: its total is the previous query's, not this one's. */}
+                    {!table.failed && (
+                        <TablePagination
+                            total={table.total}
+                            limit={table.pageSize}
+                            offset={table.page * table.pageSize}
+                            busy={rowsLoading}
+                            onPage={table.setPage}
+                        />
+                    )}
+                </>
+            )}
 
             {/* ⚠️ `onRefresh` IS NOT `onImported` (slice CF/S7). The dialog now stays open through
                 the confirm step, so it needs a way to re-read this screen after each settle without

@@ -4,6 +4,29 @@ Changes made by AI coding assistants (Claude Code / Gemini).
 
 ---
 
+## 2026-10-29: Bulk Import Transactions — search and column filters no longer refresh the page
+
+**Summary:** typing in the search box or a column filter blanked the summary card, swapped the table for
+"Nothing here." and closed the open filter popup after one letter; column text/amount filters also sent two
+requests (rows + summary) per keystroke. A failed rows request now says "Couldn't load transactions." with
+Retry instead of showing the previous search's rows. Frontend only, no server or schema change. On `develop`.
+Frontend detail: `frontend/.claude/CHANGELOG.md` (same date). The rules are recorded in
+`.claude/context/domain/outflow-import.md` § The screen ("Typing and loading never rebuild the table").
+
+### Verification
+
+- 3 new jsdom test files, 86 tests. The 18 original end-to-end flow tests were also run against the original
+  code: 9 failed there (the reported defects), 9 passed on both (search basics, paging, sort, Clear filters). The
+  18 failure-state tests run against the code before that fix: 12 failed, 6 guards passed on both.
+- All 1,227 tests under `src/pages/outflow-import` pass; `yarn typecheck`: 0 new errors.
+- Browser walk on localhost (Admin): first load, search, no-match message, Status and Remarks funnels (popup
+  stays open while typing, one request per pause), paging. Period, Source, the Amount funnel and the failure
+  row are covered by the tests only.
+- Residence check: the new tests add no inline `JSON.parse` (F2 holds at 210). S1 and A1 already fail on the
+  committed tree; this change adds 0 to either.
+
+---
+
 ## 2026-10-28: Update Inventory — submit when there are no items to count
 
 **Summary:** a project with no eligible items (> ₹5,000 ordered with a delivery, not Tool & Equipments, not
