@@ -27,7 +27,7 @@ from nirmaan_stack.services.payees.versions import changed_field_pattern, last_f
 #: grouped once, so the list costs one pass over it, not one per Payee.
 PAYEES_WITH_LINKS_SQL = """
     SELECT p.name, p.creation, p.account_name, p.account_number, p.normalized_account, p.ifsc,
-           p.bank_name, p.bank_branch,
+           p.bank_name, p.bank_branch, p.payee_type,
            COALESCE(v.vendors, 0) AS vendors
     FROM "tabPayee" p
     LEFT JOIN (
@@ -38,7 +38,7 @@ PAYEES_WITH_LINKS_SQL = """
 
 def payee_summaries(names: list[str]) -> dict[str, dict]:
     """Each named Payee's fields with its vendor count: `{name: {name, account_name, account_number,
-    ifsc, bank_name, bank_branch, vendors}}`. A name with no Payee is left out."""
+    ifsc, bank_name, bank_branch, payee_type, vendors}}`. A name with no Payee is left out."""
     names = [n for n in names if n]
     if not names:
         return {}
@@ -64,6 +64,7 @@ def summary_row(row) -> dict:
         "ifsc": row.get("ifsc"),
         "bank_name": row.get("bank_name"),
         "bank_branch": row.get("bank_branch"),
+        "payee_type": row.get("payee_type"),
         "vendors": int(row.get("vendors") or 0),
     }
 
@@ -104,8 +105,8 @@ def last_changed(name: str, *fields: str) -> dict | None:
 
 def payee_page(name: str) -> dict:
     """Everything one Payee's page shows: `payee_summary`'s fields plus `creation`,
-    `holder_name_changed` and `account_changed` (`last_changed`: the account is its number or IFSC)
-    and `linked_vendors`. Refuses a name with no Payee."""
+    `holder_name_changed` and `account_changed` (`last_changed`: the account is its number or IFSC),
+    `linked_vendors` and `linked_user` (the person it is an own bank account of). Refuses a name with no Payee."""
     summary = payee_summary(name)
     if not summary:
         frappe.throw(frappe._("Payee {0} not found.").format(name), frappe.DoesNotExistError)
@@ -115,4 +116,13 @@ def payee_page(name: str) -> dict:
         "holder_name_changed": last_changed(name, "account_name"),
         "account_changed": last_changed(name, "account_number", "ifsc"),
         "linked_vendors": linked_vendors(name),
+        "linked_user": linked_user(name),
     }
+
+
+def linked_user(name: str) -> dict | None:
+    """The person whose own bank account Payee `name` is (`Nirmaan Users.payee`, ADR-0033 Amendment B), or
+    None: `{name, full_name, role_profile}`. At most one person holds a Payee (`own_accounts.check_own_account`)."""
+    return frappe.db.get_value(
+        "Nirmaan Users", {"payee": name}, ["name", "full_name", "role_profile"], as_dict=True, order_by="creation asc",
+    )

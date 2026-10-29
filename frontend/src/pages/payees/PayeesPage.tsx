@@ -14,7 +14,9 @@ import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 
 import { AddPayeeDialog } from "@/components/payees/AddPayeeDialog";
+import { PayeeTypeBadge } from "@/components/payees/PayeeTypeBadge";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { facetMeta } from "@/components/data-table/facetConfig";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { getUrlStringParam, useServerDataTable } from "@/hooks/useServerDataTable";
@@ -73,6 +75,24 @@ const columns: ColumnDef<PayeeSummary>[] = [
         cell: ({ row }) => <div className="text-muted-foreground">{bankLine(row.original) || "--"}</div>,
         size: 220,
         meta: { exportHeaderName: "Bank and Branch", exportValue: (row: PayeeSummary) => bankLine(row) },
+    },
+    {
+        accessorKey: "payee_type",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Payee type" />,
+        cell: ({ row }) =>
+            row.original.payee_type ? (
+                <PayeeTypeBadge type={row.original.payee_type} />
+            ) : (
+                <span className="text-muted-foreground">--</span>
+            ),
+        size: 120,
+        enableColumnFilter: true,
+        meta: {
+            // Decoupled: the page's tab travels as a pseudo-filter the generic facet query doesn't know.
+            ...facetMeta({ field: "payee_type", title: "Payee type", decoupled: true }),
+            exportHeaderName: "Payee Type",
+            exportValue: (row: PayeeSummary) => row.payee_type ?? "",
+        },
     },
     {
         accessorKey: "vendors",
@@ -142,6 +162,7 @@ export default function PayeesPage() {
             <DataTable<PayeeSummary>
                 table={table}
                 columns={columns}
+                facetDoctype={PAYEE_DOCTYPE}
                 isLoading={isLoading}
                 error={error}
                 totalCount={totalCount}

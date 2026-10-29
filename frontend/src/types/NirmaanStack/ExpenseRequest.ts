@@ -93,7 +93,6 @@ export interface ExpenseRequest {
   modified: string;
 
   // --- server-derived, NOT stored ---
-  request_category: string | null;
   reviewer_role: string;
   /** Whether THIS caller may action THIS row. Server-computed — never re-derive it. */
   can_review: boolean;
@@ -197,14 +196,9 @@ export interface RequestCatalogType {
   payee_rule: string;
 }
 
-export interface RequestCatalogCategory {
-  category: string;
-  reviewer_role: string | null;
-  types: RequestCatalogType[];
-}
-
 export interface GetRequestCatalogResponse {
-  categories: RequestCatalogCategory[];
+  /** Every type the caller may raise, by name. */
+  types: RequestCatalogType[];
   /** The caller records without review (#1498): their request is approved on submit. */
   records_without_review?: boolean;
 }

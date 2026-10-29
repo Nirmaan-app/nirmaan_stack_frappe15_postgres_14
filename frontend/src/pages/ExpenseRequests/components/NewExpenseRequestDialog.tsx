@@ -66,6 +66,7 @@ import {
     whoGetsPaidProblem,
 } from "@/utils/payees/expensePayee";
 import { payToSave } from "@/utils/payees/payToChoice";
+import { OWN_ACCOUNT_REFUSAL } from "@/utils/payees/payeeForm";
 
 import { invoiceNotes, newExpenseFields, newExpenseSubmit, whatHappensNext } from "@/utils/newExpenseForm";
 import { raiserLevelOf } from "@/utils/approvalTiers";
@@ -93,10 +94,7 @@ import InvoiceQuestion, {
 import WhoGetsPaidSection from "./WhoGetsPaidSection";
 import DuplicateStayNote from "@/components/common/DuplicateStayNote";
 
-/** One option per expense type.
- *
- *  ⚠️ The category is deliberately NOT shown or searched (owner ruling 2026-09-16): it still
- *  exists on the master, but requesters pick by type name alone.
+/** One option per expense type, picked by its name.
  *
  *  `scope` is shown grey on the right of each menu row (owner, 17 Sep 2026), worded as the
  *  Expense Packages master words it. Display only -- it is not searched. */
@@ -198,19 +196,16 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         [formatRes]
     );
 
-    const categories = catalogRes?.message?.categories ?? [];
+    const catalogTypes = useMemo(() => catalogRes?.message?.types ?? [], [catalogRes]);
 
     const typeOptions: ExpenseTypeOption[] = useMemo(
-        () => categories
-            .filter((c) => c.types.length > 0)
-            .flatMap((c) => c.types.map((t): ExpenseTypeOption => ({
+        () => catalogTypes
+            .map((t): ExpenseTypeOption => ({
                 value: t.expense_type, label: t.expense_type,
                 scope: t.project && t.non_project ? "Both" : t.project ? "Project" : "Non-Project",
-            })))
-            // The catalog arrives grouped by category; with the category hidden that order
-            // reads as random, so the list is alphabetical instead.
+            }))
             .sort((a, b) => a.label.localeCompare(b.label)),
-        [categories]
+        [catalogTypes]
     );
     // Resolved from the options rather than held in state, so the chosen row and the form's
     // value can never disagree -- and an unloaded catalog reads as nothing selected.
@@ -221,9 +216,9 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
 
     const typesById = useMemo(() => {
         const m = new Map<string, RequestCatalogType>();
-        categories.forEach((c) => c.types.forEach((t) => m.set(t.expense_type, t)));
+        catalogTypes.forEach((t) => m.set(t.expense_type, t));
         return m;
-    }, [categories]);
+    }, [catalogTypes]);
 
     // Seed bound + default answers once a format is chosen. Keyed on the format's identity,
     // and it runs only after `handleTypeChange` has already cleared `answers` -- so it fills a
@@ -551,7 +546,11 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
             onSuccess?.();
         } catch (e) {
             if (e instanceof DuplicatePayeeError) {
-                toast({ title: "This account is already a payee", description: e.message, variant: "destructive" });
+                toast({
+                    title: e.message === OWN_ACCOUNT_REFUSAL ? "Can't use this account" : "This account is already a payee",
+                    description: e.message,
+                    variant: "destructive",
+                });
                 return;
             }
             // ⚠️ Frappe puts the useful text in `_server_messages` / `exception`, NEVER in

@@ -1,6 +1,19 @@
 import frappe
 
 from nirmaan_stack.services.asset_history import DEPARTMENT_SET, add_history
+from nirmaan_stack.services.payees.own_accounts import check_own_account, delete_own_account
+
+
+def validate(doc, method):
+    """The person's own bank account (Reimbursements) changes only through
+    `services/payees/own_accounts.add_own_account`, and is never another person's."""
+    check_own_account(doc)
+
+
+def after_delete(doc, method):
+    """The person's own bank account goes with them (owner, 2026-10-28), unless a Vendor is also paid into it.
+    Here, not in `on_trash`: the person's row must be gone first, or Frappe refuses to delete the Payee it links."""
+    delete_own_account(doc.get("payee"))
 
 
 def on_update(doc, method):

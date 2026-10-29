@@ -1,0 +1,327 @@
+{
+  "_about": "Shared by services/reimbursements/test_rules.py and frontend/src/utils/reimbursements/rules.test.ts (F1): one set of cases, two twins. The server's rules are the boundary; the screen mirrors them to show the right tabs and buttons. `allowed` true = no problem.",
+  "monthly_limit": 2000,
+  "description_required_above": 2000,
+  "statuses": [
+    "Pending Approval",
+    "Approved",
+    "Rejected",
+    "Paid"
+  ],
+  "types": [
+    "Travel",
+    "Food",
+    "Others"
+  ],
+  "reviewer": [
+    {
+      "name": "claim raised outside HR, any amount",
+      "claimant_is_hr": false,
+      "reviewer": "HR or Admin"
+    },
+    {
+      "name": "claim raised by HR",
+      "claimant_is_hr": true,
+      "reviewer": "Admin"
+    }
+  ],
+  "decide": [
+    {
+      "name": "HR, small claim from outside HR",
+      "status": "Pending Approval",
+      "claimant_is_hr": false,
+      "decider_is_admin": false,
+      "decider_is_hr": true,
+      "allowed": true
+    },
+    {
+      "name": "HR, a large claim from outside HR (any amount since 2026-10-28)",
+      "status": "Pending Approval",
+      "claimant_is_hr": false,
+      "decider_is_admin": false,
+      "decider_is_hr": true,
+      "allowed": true
+    },
+    {
+      "name": "HR, claim raised by HR (their own or a colleague's)",
+      "status": "Pending Approval",
+      "claimant_is_hr": true,
+      "decider_is_admin": false,
+      "decider_is_hr": true,
+      "allowed": false
+    },
+    {
+      "name": "HR, an Admin's small claim",
+      "status": "Pending Approval",
+      "claimant_is_hr": false,
+      "decider_is_admin": false,
+      "decider_is_hr": true,
+      "allowed": true
+    },
+    {
+      "name": "Admin, large claim",
+      "status": "Pending Approval",
+      "claimant_is_hr": false,
+      "decider_is_admin": true,
+      "decider_is_hr": false,
+      "allowed": true
+    },
+    {
+      "name": "Admin, claim raised by HR",
+      "status": "Pending Approval",
+      "claimant_is_hr": true,
+      "decider_is_admin": true,
+      "decider_is_hr": false,
+      "allowed": true
+    },
+    {
+      "name": "Admin, their own claim",
+      "status": "Pending Approval",
+      "claimant_is_hr": false,
+      "decider_is_admin": true,
+      "decider_is_hr": false,
+      "allowed": true
+    },
+    {
+      "name": "Accountant",
+      "status": "Pending Approval",
+      "claimant_is_hr": false,
+      "decider_is_admin": false,
+      "decider_is_hr": false,
+      "allowed": false
+    },
+    {
+      "name": "Admin, already approved",
+      "status": "Approved",
+      "claimant_is_hr": false,
+      "decider_is_admin": true,
+      "decider_is_hr": false,
+      "allowed": false
+    },
+    {
+      "name": "Admin, already paid",
+      "status": "Paid",
+      "claimant_is_hr": false,
+      "decider_is_admin": true,
+      "decider_is_hr": false,
+      "allowed": false
+    },
+    {
+      "name": "HR, already rejected",
+      "status": "Rejected",
+      "claimant_is_hr": false,
+      "decider_is_admin": false,
+      "decider_is_hr": true,
+      "allowed": false
+    }
+  ],
+  "edit": [
+    {
+      "name": "claimant, pending",
+      "status": "Pending Approval",
+      "is_claimant": true,
+      "allowed": true
+    },
+    {
+      "name": "claimant, approved",
+      "status": "Approved",
+      "is_claimant": true,
+      "allowed": false
+    },
+    {
+      "name": "claimant, paid",
+      "status": "Paid",
+      "is_claimant": true,
+      "allowed": false
+    },
+    {
+      "name": "claimant, rejected",
+      "status": "Rejected",
+      "is_claimant": true,
+      "allowed": false
+    },
+    {
+      "name": "someone else, pending",
+      "status": "Pending Approval",
+      "is_claimant": false,
+      "allowed": false
+    }
+  ],
+  "delete": [
+    {
+      "name": "claimant, pending",
+      "status": "Pending Approval",
+      "is_claimant": true,
+      "allowed": true
+    },
+    {
+      "name": "claimant, rejected",
+      "status": "Rejected",
+      "is_claimant": true,
+      "allowed": true
+    },
+    {
+      "name": "claimant, approved",
+      "status": "Approved",
+      "is_claimant": true,
+      "allowed": false
+    },
+    {
+      "name": "claimant, paid",
+      "status": "Paid",
+      "is_claimant": true,
+      "allowed": false
+    },
+    {
+      "name": "someone else, rejected",
+      "status": "Rejected",
+      "is_claimant": false,
+      "allowed": false
+    }
+  ],
+  "mergeable": [
+    {
+      "file_name": "bill.pdf",
+      "mergeable": true
+    },
+    {
+      "file_name": "Bill.PDF",
+      "mergeable": true
+    },
+    {
+      "file_name": "photo.jpeg",
+      "mergeable": true
+    },
+    {
+      "file_name": "photo.JPG",
+      "mergeable": true
+    },
+    {
+      "file_name": "scan.png",
+      "mergeable": true
+    },
+    {
+      "file_name": "scan.webp",
+      "mergeable": true
+    },
+    {
+      "file_name": "IMG_0042.HEIC",
+      "mergeable": false
+    },
+    {
+      "file_name": "trip_log.xlsx",
+      "mergeable": false
+    },
+    {
+      "file_name": "notes",
+      "mergeable": false
+    }
+  ],
+  "description_required": [
+    {
+      "name": "small claim",
+      "amount": 1450,
+      "required": false
+    },
+    {
+      "name": "exactly ₹2,000 does not need one",
+      "amount": 2000,
+      "required": false
+    },
+    {
+      "name": "a paisa above ₹2,000 does",
+      "amount": 2000.01,
+      "required": true
+    },
+    {
+      "name": "large claim",
+      "amount": 9000,
+      "required": true
+    }
+  ],
+  "over_monthly_limit": [
+    {
+      "name": "well under",
+      "month_total": 800,
+      "over": false
+    },
+    {
+      "name": "a rupee under ₹2,000 is within",
+      "month_total": 1999,
+      "over": false
+    },
+    {
+      "name": "a paisa under ₹2,000 is within",
+      "month_total": 1999.99,
+      "over": false
+    },
+    {
+      "name": "exactly ₹2,000 reaches the limit (owner, 2026-10-28)",
+      "month_total": 2000,
+      "over": true
+    },
+    {
+      "name": "one large claim",
+      "month_total": 60000,
+      "over": true
+    }
+  ],
+  "approval_needs_l1": [
+    {
+      "name": "HR, under the limit: HR finishes it",
+      "month_total": 1999,
+      "decider_is_l1": false,
+      "needs_l1": false
+    },
+    {
+      "name": "HR, exactly ₹2,000: L1 next",
+      "month_total": 2000,
+      "decider_is_l1": false,
+      "needs_l1": true
+    },
+    {
+      "name": "HR, above the limit: L1 next",
+      "month_total": 2700,
+      "decider_is_l1": false,
+      "needs_l1": true
+    },
+    {
+      "name": "Admin, above the limit: Admin is L1",
+      "month_total": 2700,
+      "decider_is_l1": true,
+      "needs_l1": false
+    },
+    {
+      "name": "Admin, under the limit",
+      "month_total": 900,
+      "decider_is_l1": true,
+      "needs_l1": false
+    }
+  ],
+  "acknowledgement": [
+    {
+      "name": "under the limit needs no tick",
+      "month_total": 1500,
+      "acknowledged": false,
+      "allowed": true
+    },
+    {
+      "name": "exactly ₹2,000 without the tick",
+      "month_total": 2000,
+      "acknowledged": false,
+      "allowed": false
+    },
+    {
+      "name": "above the limit without the tick",
+      "month_total": 3200,
+      "acknowledged": false,
+      "allowed": false
+    },
+    {
+      "name": "above the limit with the tick",
+      "month_total": 3200,
+      "acknowledged": true,
+      "allowed": true
+    }
+  ]
+}

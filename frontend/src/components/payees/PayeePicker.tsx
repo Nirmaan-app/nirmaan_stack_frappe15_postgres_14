@@ -15,12 +15,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import type { PayeeOption, PayToAccount } from "@/types/NirmaanStack/Payee";
+import type { PayeeOption, PayeeType, PayToAccount } from "@/types/NirmaanStack/Payee";
 import { payeeAccountLine } from "@/utils/payees/expensePayee";
 import { bankLine } from "@/utils/payees/payeeForm";
 import { pickedAccount } from "@/utils/payees/payToChoice";
 
 import { PayeeBankFields } from "./PayeeBankFields";
+import { PayeeTypeBadge } from "./PayeeTypeBadge";
 import type { PayeeChoice } from "./usePayeeChoice";
 
 const DEBOUNCE_MS = 300;
@@ -51,6 +52,7 @@ export function PayeePicker({ choice, disabled }: PayeePickerProps) {
                         payeeForm={choice.bankForm}
                         disabled={disabled || choice.adding}
                         layout="form"
+                        refuseOwnAccount={choice.refusesOwnAccount}
                         // A raiser can't open the Payees page, so the block offers the Payee to pick.
                         duplicateAction={(dup) => (
                             <button
@@ -145,7 +147,13 @@ function PickPanel({ choice, disabled }: PayeePickerProps) {
             />
             {picked && (
                 <div className="relative">
-                    <PayeeCard payee={pickedAccount(picked)} selected onClick={() => pick(null)} disabled={disabled} />
+                    <PayeeCard
+                        payee={pickedAccount(picked)}
+                        payeeType={picked.kind === "payee" ? picked.payee.payee_type : null}
+                        selected
+                        onClick={() => pick(null)}
+                        disabled={disabled}
+                    />
                     <Button
                         type="button"
                         variant="ghost"
@@ -161,7 +169,7 @@ function PickPanel({ choice, disabled }: PayeePickerProps) {
                 </div>
             )}
             {matches.map((p) => (
-                <PayeeCard key={p.name} payee={p} onClick={() => choose(p)} disabled={disabled} />
+                <PayeeCard key={p.name} payee={p} payeeType={p.payee_type} onClick={() => choose(p)} disabled={disabled} />
             ))}
             {searching && isLoading && <p className="text-xs text-muted-foreground">Searching...</p>}
             {searching && !isLoading && matches.length === 0 && (
@@ -174,14 +182,16 @@ function PickPanel({ choice, disabled }: PayeePickerProps) {
 
 interface PayeeCardProps {
     payee: PayToAccount;
+    /** Where the Payee was created (Users / Vendors / Others), as a badge top right; none for new details. */
+    payeeType?: PayeeType | null;
     selected?: boolean;
     onClick: () => void;
     disabled?: boolean;
 }
 
-/** One Payee as a button: holder name, account and IFSC, bank and branch. Clicking the selected one
- *  clears it. */
-function PayeeCard({ payee, selected, onClick, disabled }: PayeeCardProps) {
+/** One Payee as a button: holder name and its type, account and IFSC, bank and branch. Clicking the
+ *  selected one clears it. */
+function PayeeCard({ payee, payeeType, selected, onClick, disabled }: PayeeCardProps) {
     const bank = bankLine(payee);
     return (
         <button
@@ -196,7 +206,10 @@ function PayeeCard({ payee, selected, onClick, disabled }: PayeeCardProps) {
                 selected ? "border-primary ring-1 ring-primary" : "text-muted-foreground hover:border-foreground/30",
             )}
         >
-            <span className="block text-sm font-semibold text-foreground">{payee.account_name}</span>
+            <span className="flex items-start justify-between gap-2">
+                <span className="min-w-0 text-sm font-semibold text-foreground">{payee.account_name}</span>
+                <PayeeTypeBadge type={payeeType} className="mt-0.5" />
+            </span>
             <span className="block">{payeeAccountLine(payee)}</span>
             {bank && <span className="block">{bank}</span>}
         </button>

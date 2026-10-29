@@ -39,7 +39,6 @@ class TestConfirmedMarker(FrappeTestCase):
 		if not frappe.db.exists("Expense Type", TYPE):
 			frappe.get_doc({
 				"doctype": "Expense Type", "expense_name": TYPE, "project": 1,
-				"expense_category": "Uncategorized",
 			}).insert(ignore_permissions=True)
 		frappe.db.commit()
 
@@ -73,8 +72,7 @@ class TestConfirmedMarker(FrappeTestCase):
 		self.addCleanup(frappe.set_user, "Administrator")
 
 	def _update(self, **kw):
-		return update_expense_type(name=TYPE, project=1, non_project=0,
-		                           expense_category="Uncategorized", **kw)
+		return update_expense_type(name=TYPE, project=1, non_project=0, **kw)
 
 	def test_a_new_type_starts_unconfirmed(self):
 		self.assertEqual(_confirmed(), 0)
@@ -115,7 +113,7 @@ class TestConfirmedMarker(FrappeTestCase):
 		frappe.set_user(PM_USER)
 		doc = frappe.get_doc({
 			"doctype": "Expense Type", "expense_name": NEW_TYPE, "project": 1,
-			"expense_category": "Uncategorized", FIELD: 1,
+			FIELD: 1,
 		})
 		with self.assertRaises(frappe.PermissionError):
 			doc.insert()

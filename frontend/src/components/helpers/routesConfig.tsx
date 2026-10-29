@@ -170,6 +170,7 @@ const PayeesPage = lazy(() => import("@/pages/payees/PayeesPage"));
 const PayeePage = lazy(() => import("@/pages/payees/PayeePage"));
 // Cheque Tracker (spec #1477, #1483): every cheque the company writes. It was Reports › Payment › Cheque Payment.
 const ChequeTrackerPage = lazy(() => import("@/pages/cheque-tracker/ChequeTrackerPage"));
+const ReimbursementsPage = lazy(() => import("@/pages/Reimbursements/ReimbursementsPage"));
 // Document Search
 
 export const appRoutes: RouteObject[] = [
@@ -662,6 +663,9 @@ export const appRoutes: RouteObject[] = [
               { path: "cheque-tracker", element: <Suspense fallback={null}><ChequeTrackerPage /></Suspense> },
             ],
           },
+          // --- Reimbursements (2026-10-22) --- every user, so no RoleRoute: the page gives each person their
+          // own tabs and the server scopes every read (`integrations/controllers/reimbursement.py`).
+          { path: "reimbursements", element: <Suspense fallback={null}><ReimbursementsPage /></Suspense> },
           // --- Project Payments ---
           {
             path: "project-payments",

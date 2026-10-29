@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import frappe
 
-from nirmaan_stack.services.payees.rules import ACCOUNT_FIELDS, PAID_STATUSES
+from nirmaan_stack.services.payees.rules import ACCOUNT_FIELDS, PAID_STATUSES, PAYEE_TYPE_USERS
 from nirmaan_stack.services.payees.vendor_account import payee_for_vendor
 
 
@@ -67,7 +67,20 @@ def apply_picked_payee(doc, payee: str | None) -> None:
         return
     if payee and not frappe.db.exists("Payee", payee):
         frappe.throw(f"Payee {payee} does not exist. Pick who gets paid again.", frappe.DoesNotExistError)
+    if payee and is_own_account(payee):
+        frappe.throw(OWN_ACCOUNT_REFUSAL, title="Can't use this account")
     copy_payee_account(doc, payee or None)
+
+
+#: Why a request can't be paid into a person's own account (owner, 2026-10-27). Twin:
+#: `frontend/src/utils/payees/payeeForm.OWN_ACCOUNT_REFUSAL`.
+OWN_ACCOUNT_REFUSAL = "This is a user's own account (Users), so it can't be used in an expense request. Enter a different account."
+
+
+def is_own_account(payee: str | None) -> bool:
+    """True for a Users Payee: a person's own account, which only their reimbursements are paid into.
+    An Expense Request never names one (owner, 2026-10-27)."""
+    return bool(payee) and frappe.db.get_value("Payee", payee, "payee_type") == PAYEE_TYPE_USERS
 
 
 def copy_vendor_account(doc) -> None:

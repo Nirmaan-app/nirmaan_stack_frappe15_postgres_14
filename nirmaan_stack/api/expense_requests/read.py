@@ -34,12 +34,7 @@ from nirmaan_stack.api.expense_requests.invoice import invoice_refusal
 from nirmaan_stack.api.expense_requests.standing import expenses_of, standing_of, withheld_tds_of_expenses
 from nirmaan_stack.api.expense_requests.update import can_edit
 from nirmaan_stack.services.expense_decision import approval_level
-from nirmaan_stack.services.expense_request_routing import (
-	category_for_type,
-	requestable_types,
-	resolved_categories,
-	reviewer_role_for_type,
-)
+from nirmaan_stack.services.expense_request_routing import requestable_types, reviewer_role_for_type
 from nirmaan_stack.services.expense_statuses import REQUEST_REJECTED
 from nirmaan_stack.services.payees.expense_rules import NOT_ASKED
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS, pay_to_account
@@ -109,10 +104,9 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 	# Each type's *Who gets paid* (#1466), so the review dialog words a missing account by it.
 	payee_rules = dict(frappe.get_all("Expense Type", fields=["name", "payee_rule"], as_list=True))
 
-	# Category and reviewer are DERIVED, never stored — a routing change re-resolves history
-	# consistently instead of leaving rows stamped with a retired branch.
+	# The reviewer is DERIVED, never stored — a routing change re-resolves history consistently
+	# instead of leaving rows stamped with a retired branch.
 	for r in rows:
-		r["request_category"] = category_for_type(r["type"])
 		r["reviewer_role"] = reviewer_role_for_type(r["type"])
 		# Server-owned, exactly like `can_review`: the table must never re-derive a
 		# permission. The two answers are disjoint for a routed REVIEWER -- one who could also
@@ -188,8 +182,8 @@ def get_request_catalog(include_type: str | None = None):
 
 	`has_format` is true only when the type's form is switched ON and actually written.
 
-	Categories come from the `Expense Category` master, so adding one or re-pointing its
-	reviewer is an edit in the app rather than a deploy.
+	`types` is one flat list, by name: a type belongs to no category (the `Expense Category`
+	doctype was removed 2026-10-27, owner).
 
 	Served from the backend rather than mirrored in TypeScript so the allow-list has ONE
 	definition. A client copy would be free to drift from the one `create` enforces, and the
@@ -214,34 +208,31 @@ def get_request_catalog(include_type: str | None = None):
 	) if types else []
 	by_name = {r["name"]: r for r in rows}
 
-	categories = []
-	for name, reviewer_role, cat_types in resolved_categories():
-		entries = []
-		for t in cat_types:
-			f = by_name.get(t)
-			if not f:
-				# The catalog names a type that does not exist. Skip rather than offering
-				# something `create` would refuse.
-				continue
-			entries.append(
-				{
-					"expense_type": t,
-					"project": bool(f["project"]),
-					"non_project": bool(f["non_project"]),
-					# project-only => required; non-project-only => hidden; both => optional
-					"project_required": bool(f["project"]) and not bool(f["non_project"]),
-					"project_allowed": bool(f["project"]),
-					"has_format": bool(
-						f.get("source_format_enabled") and (f.get("source_format") or "").strip()
-					),
-					# Who gets paid: Required / Optional / Not asked (ADR-0033). The dialog
-					# shows the payee section unless Not asked; the server applies the rule.
-					"payee_rule": f.get("payee_rule") or NOT_ASKED,
-				}
-			)
-		categories.append({"category": name, "reviewer_role": reviewer_role, "types": entries})
+	entries = []
+	for t in sorted(types):
+		f = by_name.get(t)
+		if not f:
+			# The catalog names a type that does not exist. Skip rather than offering
+			# something `create` would refuse.
+			continue
+		entries.append(
+			{
+				"expense_type": t,
+				"project": bool(f["project"]),
+				"non_project": bool(f["non_project"]),
+				# project-only => required; non-project-only => hidden; both => optional
+				"project_required": bool(f["project"]) and not bool(f["non_project"]),
+				"project_allowed": bool(f["project"]),
+				"has_format": bool(
+					f.get("source_format_enabled") and (f.get("source_format") or "").strip()
+				),
+				# Who gets paid: Required / Optional / Not asked (ADR-0033). The dialog
+				# shows the payee section unless Not asked; the server applies the rule.
+				"payee_rule": f.get("payee_rule") or NOT_ASKED,
+			}
+		)
 
-	return {"categories": categories, "records_without_review": records_without_review()}
+	return {"types": entries, "records_without_review": records_without_review()}
 
 
 @frappe.whitelist()

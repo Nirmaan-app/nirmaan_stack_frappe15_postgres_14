@@ -66,7 +66,7 @@ class TestTheInvoicePdfIsNeverCopiedOntoAnExpense(FrappeTestCase):
         frappe.db.set_value(PORTER_INVOICE, self.invoice, "invoice_file", self.pdf.file_url)
         self.expense_type = frappe.get_doc({
             "doctype": "Expense Type", "expense_name": f"test expense files {self.tag}",
-            "non_project": 1, "expense_category": "Uncategorized",
+            "non_project": 1,
         }).insert(ignore_permissions=True).name
         frappe.db.commit()
 

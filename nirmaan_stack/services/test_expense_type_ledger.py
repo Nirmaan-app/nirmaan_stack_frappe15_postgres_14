@@ -35,8 +35,7 @@ class TestExpenseTypeLedger(FrappeTestCase):
         for side, project in (("project", 1), ("non_project", 0)):
             doc = frappe.new_doc("Expense Type")
             doc.update({"expense_name": f"etl_test_{side}_{frappe.generate_hash(length=5)}",
-                        "project": project, "non_project": 1 - project,
-                        "expense_category": "Uncategorized"})
+                        "project": project, "non_project": 1 - project})
             doc.insert(ignore_permissions=True)
             cls.types[side] = doc.name
         # Raw, like the Direct Expense suite: `Projects.after_insert` builds work milestones.

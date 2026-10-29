@@ -14,7 +14,7 @@ import { useCallback, useState } from "react";
 import { useFrappePostCall } from "frappe-react-sdk";
 
 import type { PayeeOption, PayeeSummary } from "@/types/NirmaanStack/Payee";
-import { cleanIfsc, newPayeeProblem } from "@/utils/payees/payeeForm";
+import { cleanIfsc, newPayeeProblem, refusesOwnAccount } from "@/utils/payees/payeeForm";
 import { DuplicatePayeeError, type PickedPayTo } from "@/utils/payees/payToChoice";
 
 import { usePayeeBankForm, type PayeeBankForm } from "./usePayeeBankForm";
@@ -51,6 +51,8 @@ export interface PayeeChoice {
     reset: (seed?: PickedPayTo | null) => void;
     /** Where the picker searches Payees. */
     searchApi: string;
+    /** A person's own account can't be used here (`PayeeChoiceApis.refusesOwnAccount`). */
+    refusesOwnAccount: boolean;
 }
 
 /** The endpoints a screen searches, checks and adds Payees through: the request's (anyone who can
@@ -59,12 +61,16 @@ export interface PayeeChoiceApis {
     search: string;
     check: string;
     add: string;
+    /** A person's own account (Users) can't be used here: the duplicate block refuses it instead of
+     *  offering it. The request's screen only (owner, 2026-10-27); its search already leaves them out. */
+    refusesOwnAccount?: boolean;
 }
 
 const REQUEST_APIS: PayeeChoiceApis = {
     search: SEARCH_PAYEES_API,
     check: CHECK_REQUEST_PAYEE_API,
     add: ADD_REQUEST_PAYEE_API,
+    refusesOwnAccount: true,
 };
 
 export function usePayeeChoice(apis: PayeeChoiceApis = REQUEST_APIS): PayeeChoice {
@@ -75,7 +81,10 @@ export function usePayeeChoice(apis: PayeeChoiceApis = REQUEST_APIS): PayeeChoic
 
     const { form, problem: formProblem, duplicate, lookingUp, reset: resetBank, setDuplicate } = bankForm;
     const typedAnything = Object.values(form).some((v) => v.trim());
-    const newProblem = typedAnything ? newPayeeProblem({ formProblem, duplicate: !!duplicate, lookingUp }) : null;
+    const ownAccountRefused = refusesOwnAccount(apis.refusesOwnAccount, duplicate);
+    const newProblem = typedAnything
+        ? newPayeeProblem({ formProblem, duplicate: !!duplicate, lookingUp, ownAccountRefused })
+        : null;
 
     const hasChoice = mode === "pick" ? !!picked : typedAnything && !newProblem;
     const problem = mode === "new" ? newProblem : null;
@@ -115,5 +124,9 @@ export function usePayeeChoice(apis: PayeeChoiceApis = REQUEST_APIS): PayeeChoic
         [resetBank],
     );
 
-    return { mode, setMode, picked, pick, bankForm, hasChoice, problem, adding, resolve, reset, searchApi: apis.search };
+    return {
+        mode, setMode, picked, pick, bankForm, hasChoice, problem, adding, resolve, reset,
+        searchApi: apis.search,
+        refusesOwnAccount: !!apis.refusesOwnAccount,
+    };
 }

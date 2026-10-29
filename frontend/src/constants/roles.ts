@@ -794,3 +794,22 @@ export const REFUND_DELETE_PROFILES: readonly string[] = [ADMIN_PROFILE, ...MATE
  */
 export const CHEQUE_ACCOUNTS_PROFILES: readonly string[] = [ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE];
 export const CHEQUE_ACCESS_PROFILES: readonly string[] = [...CHEQUE_ACCOUNTS_PROFILES, ...PROCUREMENT_PROFILES];
+
+// ---------------------------------------------------------------------------
+// Reimbursements (owner, 2026-10-21/22). Mirrored server-side by `REIMBURSEMENT_*` in
+// `services/role_profiles.py`, which with `integrations/controllers/reimbursement.py` is the ENFORCEMENT
+// boundary; these only decide which tabs and buttons render. Who decides a claim is a rule, not a list:
+// `utils/reimbursements/rules.ts`.
+// ---------------------------------------------------------------------------
+
+/** HR, who decide a claim of any amount raised outside HR (above the monthly limit it also needs L1). */
+export const REIMBURSEMENT_HR_PROFILES: readonly string[] = [HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE];
+
+/** See every claim, and work the Approved (tick + Export) and Rejected tabs. */
+export const REIMBURSEMENT_VIEW_ALL_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  HR_EXECUTIVE_PROFILE,
+  HR_LEAD_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+];

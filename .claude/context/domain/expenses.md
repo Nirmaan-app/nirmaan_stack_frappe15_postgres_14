@@ -24,7 +24,10 @@ Both share one approval lifecycle and are entered/managed together in a single u
 - **The amount rule is NOT owned here.** It lives in `services/approval_tiers.py` (pure,
   mirrored by `frontend/src/utils/approvalTiers.ts` and pinned to it by a parity test that
   reads the Python source). Both expense ledgers pass `TIER_L2_ABOVE_EXPENSES` explicitly:
-  - `< ₹15,000` → created directly at `Approved` (skips `Requested`), `auto_approved = 1`.
+  - `< ₹15,000` → created directly at `Approved` (skips `Requested`), `auto_approved = 1`. **One exception**
+    (ADR-0040 Amendment B, owner 2026-10-28): a reimbursement's expense that HR approved at or above the ₹2,000
+    monthly reimbursement limit is born `Requested` and waits for L1 (`starting_status(skip_auto=True)`, asked
+    for only by `approval_raiser.routing_skips_auto`).
   - `₹15,000 – ₹50,000` → **L1 only**; the Admin / Accountant Lead tick FINISHES it.
   - `> ₹50,000` → **L1 then L2**; L1's tick writes `CEO Pending`, the CEO approves.
   - **A refund (amount ≤ 0) is never auto-approved**, then banded by its size like any
@@ -151,6 +154,21 @@ Both share one approval lifecycle and are entered/managed together in a single u
   is owned by `services/outflow_import/expense_links.py` (`load_expense_links`, `derive_expense_status`,
   `remaining_balance`), which is also the ONE place that answers "is this expense fully linked". Full
   as-built: `.claude/context/domain/outflow-import.md`.
+- **An expense rejected in Payments rejects its Expense Request** (code review, 2026-10-23):
+  `expense_request_status.on_expense_rejected`, on both ledgers' `on_update`, turns an Approved request Rejected
+  with the queue's reason in `review_comment` (`expense_actions.FALLBACK_REJECTION_REASON` when none reached the
+  save). An expense put back out of Rejected puts its request back to Approved, so a later Paid still reaches it.
+  Before this, only Paid and delete reached the request. Every single-row expense reject in Approve Payments goes through the
+  expense engine with a required reason, so the reason reaches the request and lands as a comment on the expense.
+- **A Non-Project Expense with `reimbursement` set pays a Reimbursement claim** (ADR-0040). It is created on
+  the claim's approval at Requested and routed by `validate` like any expense, with the claim's APPROVER as the
+  raiser (`approval_raiser.routing_raiser`, only on that flagged insert); when HR approved it at or above the monthly
+  reimbursement limit it also skips the auto band and waits for L1 (`approval_raiser.routing_skips_auto`, ADR-0040
+  Amendment B). The link is set ONLY by that approval
+  step, never changes, and a claim has one expense (`expense_link.guard_link`). Its status moves the claim
+  (Paid / Rejected / un-Paid), once **Rejected it can't move to any other status**, and **deleting it (any status) deletes the claim too**, as a request's expense does
+  (`integrations/controllers/reimbursement_expense.py`). Everything else on it may be edited. Detail:
+  `.claude/context/domain/reimbursements.md`.
 
 ---
 
@@ -573,8 +591,8 @@ PM raises  ->  Pending Approval  ->  routed reviewer
 |---|---|
 | `Expense Request` | NEW — 10 columns: `type` · `type_allows_project` · `projects` · `amount` · `comment` · `source_data` · `status` · `reviewed_by` · `reviewed_on` · `review_comment`. `status` is `Pending Approval` / `Approved` / `Rejected` / **`Paid`** |
 | `Expense Request Template Snapshot` | NEW — freezes the format a request was filled against |
-| `Expense Category` | NEW — `category_name` · `description` (`reviewer_role` REMOVED 2026-09-16) |
-| `Expense Type` | `+source_format` (Long Text, JSON) · `+expense_category` (Link) · `+source_format_enabled` (Check, "Enable Source", 2026-09-16) · `+allowed_roles` (Table → `Expense Type Role`, 2026-09-16) · `+confirmed_as_request` (Check, "Confirmed as Expense Request", 2026-10-20) |
+| `Expense Category` | REMOVED 2026-10-27 (owner; patch `v3_0.drop_expense_category`). Was `category_name` · `description`; `reviewer_role` went 2026-09-16 |
+| `Expense Type` | `+source_format` (Long Text, JSON) · `expense_category` (Link; REMOVED 2026-10-27) · `+source_format_enabled` (Check, "Enable Source", 2026-09-16) · `+allowed_roles` (Table → `Expense Type Role`, 2026-09-16) · `+confirmed_as_request` (Check, "Confirmed as Expense Request", 2026-10-20) |
 | `Expense Type Role` | NEW child table (2026-09-16) — `role_profile` (Link → Role Profile) |
 | `Project Expenses` / `Non Project Expenses` | `+request_id` (Link → Expense Request, read-only, indexed). Otherwise unchanged — approval writes a row through the existing schema |
 
@@ -630,20 +648,26 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   `bench migrate` re-imports each row and RESETS any field the file does not carry. When
   `source_format` and `expense_category` were added and the fixture was not regenerated, ONE
   migrate silently destroyed all 40 request forms and every category assignment — no error,
-  discovered only because tests went red. **After authoring a format or re-categorising a type
-  in the app, run `bench --site <site> export-fixtures --app nirmaan_stack` and commit**, or
-  the next migrate reverts it. `Expense Category` is a fixture too, because it is a Link target
-  and would otherwise dangle. Guarded by
+  discovered only because tests went red. **After authoring a format or changing a type in the
+  app, run `bench --site <site> export-fixtures --app nirmaan_stack` and commit**, or the next
+  migrate reverts it. Guarded by
   `api/expense_requests/test_fixture_completeness.py`, which fails naming the missing field —
   and which was verified by reproducing the bug, not merely by passing.
-- **Every expense request is reviewed by `Nirmaan Admin Profile`.** `Expense Category.reviewer_role`
-  ("Reviewed By") was REMOVED on request 2026-09-16 — every category had it blank, so no live
-  routing changed; categories now only group types. Read through
+- **Every expense request is reviewed by `Nirmaan Admin Profile`.** Read through
   `services/expense_request_routing.py` (which REPLACED the temporary
   `services/expense_request_catalog.py`, deleted 2026-08-18) — it caches per request, because
-  `get_permission_query_conditions` runs on every list read. **Categories are created in Frappe
-  Desk.** Since 2026-09-16 the category is **not shown anywhere in the app** (request picker or
-  Expense Packages): a new type is saved as `Uncategorized`, an edit keeps the current one.
+  `get_permission_query_conditions` runs on every list read.
+- **There are no expense categories** (owner, 2026-10-27). `Expense Category` was added 2026-08-18
+  to route each request to a per-category reviewer; no category ever had one, `reviewer_role` was
+  removed 2026-09-16, and the doctype, `Expense Type.expense_category`, its fixture and its
+  `hooks.py` entry were removed 2026-10-27 (patch `v3_0.drop_expense_category` drops the DocType,
+  its table and the column). `get_request_catalog` returns one flat `types` list by name;
+  request rows carry no `request_category`; a type saves with no category. `fixtures/expense_type.json`
+  still carries an `expense_category` key on each row (owner kept it); the fixture import writes only
+  declared fields, so it sets nothing. Until a site migrates,
+  its `Expense Category` DocType, table and column are still there but nothing reads them. Pinned by
+  `test_expense_requests.test_an_expense_type_has_no_category` and
+  `test_fixture_completeness.test_the_expense_category_is_gone_from_the_fixtures`.
 - **"Enable Source" switch (`Expense Type.source_format_enabled`, 2026-09-16).** ON → the
   request dialog shows the type's `source_format`; OFF → the STANDARD fields a direct expense
   needs: Description (required), Vendor (required once a project is chosen; "Others" allowed —
@@ -908,7 +932,8 @@ save an invalid template**.
     `api/expense_requests/payees.add_request_payee`) is copied in, unless the request names a vendor.
     **Editing** (`update_expense_request`): `keep_pay_to=1` leaves the copy as it is; otherwise the
     `payee` sent is copied (none clears it). Both through `pay_to.apply_picked_payee`, which refuses
-    a Payee that does not exist. (The Direct Expense create of #1471 was removed by #1506.)
+    a Payee that does not exist, and a person's own account (payee type Users: `pay_to.is_own_account`,
+    message `OWN_ACCOUNT_REFUSAL`; owner 2026-10-27). (The Direct Expense create of #1471 was removed by #1506.)
   - **A vendor named** (request or Project Expense, every write path): the save hook copies the
     vendor's Payee when the record has no copy and whenever the vendor changes, until the record is
     paid (`pay_to.fill_from_vendor`, from `guard.check_payee_links`). New expense dialogs, Bulk
@@ -916,7 +941,7 @@ save an invalid template**.
   - **Records raised before the pay-to account** were filled by `patches/v3_0/backfill_pay_to_accounts`
     (#1441): unpaid ones from the vendor's Payee, paid ones from their settled bank line, the rest
     blank. Rules: `payees.md`.
-  - **No server refusal** (#1436, owner 2026-10-15): *Required* with no account, a vendor and an
+  - **No server refusal** beyond those two (#1436, owner 2026-10-15): *Required* with no account, a vendor and an
     account that disagree, a change after payment, a change outside Accounts are all accepted. They
     are screen rules: the request dialog blocks sending a *Required* type with no account
     (`utils/payees/expensePayee.whoGetsPaidProblem`) and shows a vendor's account read-only.
@@ -924,7 +949,9 @@ save an invalid template**.
     Non-Project Expense AS IT IS (`pay_to.copy_pay_to`): the vendor's Payee is not read again. The
     reviewer sees it: `get_my_expense_requests` rows carry `pay_to` (`pay_to.pay_to_account`).
   - The dialog's picker (search, add new, the vendor's Payee) calls `api/expense_requests/payees`,
-    gated on `access.can_raise_requests`, never the Accounts-only `api/payees/` endpoints.
+    gated on `access.can_raise_requests`, never the Accounts-only `api/payees/` endpoints. It never
+    offers a person's own account (owner 2026-10-27): the search leaves Users Payees out, and one typed
+    in Add new payee comes back refused, with no Pick button (`payees.md` § Payee Type).
   - Record Payment's "Pay ₹X to" box reads the expense's own copy; its Change account
     (`expense_payee.change_expense_account`, #1438; Accounts, an approved, unpaid expense with no
     vendor, a screen rule) overwrites the copy with a picked or added Payee's account, recorded with

@@ -49,7 +49,7 @@ class TestEveryWritePathKeepsThePayeeRules(FrappeTestCase):
             name = f"pye_guard_{rule.replace(' ', '_').lower()}_{frappe.generate_hash(length=5)}"
             doc = frappe.new_doc("Expense Type")
             doc.update({"expense_name": name, "project": project, "non_project": 1 - project,
-                        "expense_category": "Uncategorized", "payee_rule": rule})
+                        "payee_rule": rule})
             doc.insert(ignore_permissions=True)
             cls.types[rule] = doc.name
         # Raw, like the outflow-import suites: `Projects.after_insert` builds work milestones.
