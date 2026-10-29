@@ -258,6 +258,7 @@ Refer to `.claude/context/role-access.md` for complete matrix.
 | Endpoint | Purpose |
 |----------|---------|
 | `get_customer_financial_details_api` | Aggregated financial data for customer |
+| `get_customer_ledger_data` | Ledger tab rows (invoices vs inflows, running receivable). Row builder `receivable_ledger` is shared with the project page's Project Ledger |
 | Standard Frappe CRUD | Document operations |
 
 ---
@@ -269,3 +270,6 @@ Refer to `.claude/context/role-access.md` for complete matrix.
 3. **Pincode Lookup**: Uses `Pincodes` doctype for city/state auto-fill
 4. **Lazy Loading**: Overview and Financials components are React.lazy loaded
 5. **Real-time**: Customer detail page listens for document changes via Frappe socket events
+6. **Ledger components are shared**: `CustomerLedgerTable` / `CustomerLedgerRow` also render the project page's
+   Project Ledger, which passes `showProjectColumn={false}` and its own `emptyMessage`. The defaults keep the
+   customer Ledger tab as it was.

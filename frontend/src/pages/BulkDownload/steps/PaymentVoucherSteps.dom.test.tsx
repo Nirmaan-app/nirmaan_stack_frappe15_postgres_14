@@ -37,7 +37,7 @@ describe("payment voucher steps", () => {
     const render = (kind: "PO" | "WO", items: PaymentVoucherRow[], selectedIds: string[] = []) =>
         act(() => root.render(
             <PaymentVoucherSteps kind={kind} items={items} isLoading={false} selectedIds={selectedIds} onSelectAll={onSelectAll}
-                onBack={() => {}} onDownload={() => {}} loading={false} scopeKind="project" />
+                scopeKind="project" />
         ));
     const checkbox = (label: string) => container.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
     const text = () => container.textContent ?? "";

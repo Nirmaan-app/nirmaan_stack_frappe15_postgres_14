@@ -9,8 +9,22 @@ def get_customer_ledger_data(customer_id):
     """
     Flat, chronologically sorted receivable ledger for one customer.
 
-    Two transaction sources, both already carrying a `customer` link (verified
-    non-null on every live row), so neither needs a project-scoped IN list:
+    Both transaction sources already carry a `customer` link (verified non-null
+    on every live row), so neither needs a project-scoped IN list.
+    """
+    if not customer_id:
+        frappe.throw("Customer ID is a required parameter.")
+
+    return receivable_ledger({"customer": customer_id})
+
+
+def receivable_ledger(filters):
+    """
+    Receivable ledger rows for the invoices and inflows matching `filters`
+    (`{"customer": ...}` for the customer page, `{"project": ...}` for the
+    project page's Financials -> Project Ledger).
+
+    Two transaction sources:
       * Project Invoices -> money billed TO the customer
       * Project Inflows  -> money received FROM the customer
 
@@ -20,27 +34,24 @@ def get_customer_ledger_data(customer_id):
     Amounts are in rupees. Invoice amount is `amount` (INCL. GST) so it is
     comparable with inflows, which are actual cash received incl. GST.
     """
-    if not customer_id:
-        frappe.throw("Customer ID is a required parameter.")
-
     transactions = []
 
-    # --- Step 1: Invoices raised on the customer ---
+    # --- Step 1: Invoices raised ---
     invoices = frappe.get_all(
         "Project Invoices",
-        filters={"customer": customer_id},
+        filters=filters,
         fields=[
             "name", "project", "invoice_no", "invoice_date",
             "amount", "creation",
         ],
     )
 
-    # --- Step 2: Inflows received from the customer ---
+    # --- Step 2: Inflows received ---
     # `amount` is Currency since #1255 (it was Data/varchar); flt() stays so a NULL
     # amount on a migrated row reads as 0.
     inflows = frappe.get_all(
         "Project Inflows",
-        filters={"customer": customer_id},
+        filters=filters,
         fields=["name", "project", "utr", "payment_date", "amount", "creation"],
     )
 

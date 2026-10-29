@@ -4,6 +4,33 @@ Changes made by AI coding assistants (Claude Code / Gemini).
 
 ---
 
+## 2026-10-28: Update Inventory — submit when there are no items to count
+
+**Summary:** a project with no eligible items (> ₹5,000 ordered with a delivery, not Tool & Equipments, not
+Additional Charges) used to dead-end on "No eligible items found", so the PM couldn't submit and Pending never
+cleared. The PM now submits an empty report. An empty submit after an empty report moves that report to today
+instead of adding another (owner ruling). Uncommitted on `fixes/28-10`. Frontend detail:
+`frontend/.claude/CHANGELOG.md` (same date).
+
+### What was built
+
+- **`api/remaining_items_report.py`:** `submit_remaining_items_report` with `items=[]` and no report today
+  reuses the project's latest Submitted report when it has zero rows (`_latest_submitted_if_empty`, ordered
+  `report_date desc, creation desc`), sets its `report_date` to today and returns `action: "updated"`. In every
+  other case it behaves as before. Empty reports were already accepted. No schema change.
+- **Effect on Monthly WIP:** such a project keeps one empty report whose date moves forward, so `Actual` is at
+  most 1 a month (`.claude/plans/monthly-wip-plan.md` §8.1). The owner accepted this.
+
+### Verification
+
+- `api/test_remaining_items_report.py` (new, 5 tests: moved, after items, first report, items after empty,
+  only latest moves) and `test_reset_inventory` (8) pass. Report / row / project counts before and after the
+  runs are equal (352 / 24,102 / 326).
+- Browser (PM, localhost), before the move rule: empty submit, same-day resubmit (1 report, 0 rows), History
+  tab, and a project with items still blocked at 0/7 and 1/7. The move rule itself is covered by tests only.
+
+---
+
 ## 2026-10-05: Payments queue — Upload / Edit invoice on Paid Non Project Expenses
 
 **Summary:** "Payment Done / Reconciliation Done" gets an invoice button on Paid **Non Project** expense rows

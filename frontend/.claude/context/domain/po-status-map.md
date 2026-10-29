@@ -171,7 +171,6 @@ DC/MIR queries use: `status IN (Partially Dispatched, Partially Delivered, Deliv
 | Project PO Summary Table | `pages/projects/components/ProjectPOSummaryTable.tsx` | Filters POs excluding Cancelled/Merged/Inactive/PO Amendment; shows status badge per PO |
 | Project Overview Tab | `pages/projects/ProjectOverviewTab.tsx` | Displays `totalPOAmountWithGST` (derived from active POs only) |
 | Project Financials Tab | `pages/projects/ProjectFinancialsTab.tsx` | Shows PO Amount Incl GST, PO Delivered Amount, advance vs delivery payment breakdown |
-| Project Spends Tab | `pages/projects/ProjectSpendsTab.tsx` | PO amounts by work package (active POs only) |
 | Material Usage Tab | `pages/projects/components/ProjectMaterialUsageTab.tsx` + `hooks/useMaterialUsageData.ts` | Per-item delivery status (Fully/Partially Delivered/Pending), per-PO payment status |
 | Critical PO Tasks | `pages/projects/CriticalPOTasks/` + `LinkPODialog.tsx` | Links active POs to planning tasks |
 | 7-Day Material Plan | Backend `api/seven_days_planning/material_plan_api.py` | Excludes Cancelled/Merged/Inactive/PO Amendment |

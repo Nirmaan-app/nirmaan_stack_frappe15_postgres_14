@@ -82,6 +82,7 @@ import { EditInflowPayment } from "./components/EditInflowPayment"; // NEW
 import { InflowSummaryCard } from "./components/InflowSummaryCard";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useUserData } from "@/hooks/useUserData";
+import { canActOnInflow, canDeleteInflow } from "@/constants/roles";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { ellipsize } from "@/utils/ellipsize";
 
@@ -435,19 +436,14 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
           excludeFromExport: true, // Exclude from export
         },
       }, // --- NEW: Actions Column ---
-      ...(role === "Nirmaan Admin Profile" ||
-      role === "Nirmaan PMO Executive Profile" ||
-      role === "Nirmaan Accountant Profile" ||
-      role === "Nirmaan Accountant Lead Profile"
+      ...(canActOnInflow(role)
         ? [
             {
               id: "actions",
               header: () => <div>Actions</div>,
               cell: ({ row }: { row: any }) => {
                 const inflow = row.original;
-                const canDelete =
-                  role === "Nirmaan Admin Profile" ||
-                  role === "Nirmaan PMO Executive Profile";
+                const canDelete = canDeleteInflow(role);
                 return (
                   <div>
                     <DropdownMenu>

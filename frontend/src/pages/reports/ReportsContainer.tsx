@@ -1,7 +1,7 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useUserData } from "@/hooks/useUserData";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
-import { PMO_PROJECT_REPORTS, REPORTS_TABS } from './constants';
+import { REPORTS_TABS } from './constants';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DCMIRReportType, POReportOption, SROption, PaymentTDSReportType, ProjectReportType, ReportType, useReportStore, VendorReportType, CustomerReportType } from './store/useReportStore';
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
@@ -14,6 +14,7 @@ import {
     PROCUREMENT_PROFILES,
     RECONCILE_2B_REPORT_PROFILES,
     SERVICE_PROCUREMENT_PROFILES,
+    canBulkDownloadAllProjects,
     isProcurementProfile,
 } from "@/constants/roles";
 
@@ -30,6 +31,9 @@ const WOPaymentVoucherReport = React.lazy(() => import('./components/WOPaymentVo
 // Tax Deducted at Source. The page lives outside ./components because it predates this tab --
 // it was a sidebar route of its own until the ledger moved in here.
 const PaymentTDSDeductions = React.lazy(() => import('@/pages/PaymentTDSDeductions/PaymentTDSDeductions'));
+// The same Bulk Download screen as the project and vendor tabs, over every project the user may read.
+const BulkDownloadPage = React.lazy(() => import('@/pages/BulkDownload/BulkDownloadPage').then((m) => ({ default: m.BulkDownloadPage })));
+const ALL_PROJECTS_SCOPE = { kind: "all", id: "", name: "All projects" } as const;
 // The Cheque Payment report is the Cheque Tracker now, its own page (#1483); `ReportsIndex` redirects old links.
 
 // Define options for the selector
@@ -82,7 +86,7 @@ const paymentTdsReportOptions: { label: string; value: PaymentTDSReportType }[] 
 ];
 
 export default function ReportsContainer() {
-    const { role } = useUserData(); // Get current user's role
+    const { role, user_id } = useUserData(); // Get current user's role
     const selectedReportType = useReportStore((state) => state.selectedReportType);
     const setSelectedReportType = useReportStore((state) => state.setSelectedReportType);
     const setDefaultReportType = useReportStore((state) => state.setDefaultReportType);
@@ -96,7 +100,7 @@ export default function ReportsContainer() {
             return REPORTS_TABS.PO;
         }
         // Admin/Accountant default to Projects if no valid URL tab or if URL tab is Projects
-        if (urlTab === REPORTS_TABS.PROJECTS || urlTab === REPORTS_TABS.VENDORS || urlTab === REPORTS_TABS.PO || urlTab === REPORTS_TABS.SR || urlTab === REPORTS_TABS.DCS_MIRS || urlTab === REPORTS_TABS.PAYMENT_TDS) return urlTab;
+        if (urlTab === REPORTS_TABS.PROJECTS || urlTab === REPORTS_TABS.VENDORS || urlTab === REPORTS_TABS.PO || urlTab === REPORTS_TABS.SR || urlTab === REPORTS_TABS.DCS_MIRS || urlTab === REPORTS_TABS.PAYMENT_TDS || urlTab === REPORTS_TABS.BULK_DOWNLOAD) return urlTab;
         return REPORTS_TABS.PROJECTS; // Default for Admin/Accountant
     }, [role]);
 
@@ -204,8 +208,12 @@ export default function ReportsContainer() {
         if (paymentTabReports(role).length > 0) {
             availableTabs.push({ label: "Payment", value: REPORTS_TABS.PAYMENT_TDS });
         }
+        // Shared helper too (`roles.ts`), for the same reason as Payment above.
+        if (canBulkDownloadAllProjects(role, user_id)) {
+            availableTabs.push({ label: "Report Bulk Download", value: REPORTS_TABS.BULK_DOWNLOAD });
+        }
         return availableTabs;
-    }, [role]);
+    }, [role, user_id]);
 
     // If the current activeTab is not in the list of available tabs for the role,
     // reset activeTab to the first available tab (or a sensible default).
@@ -244,11 +252,7 @@ export default function ReportsContainer() {
             if (role === "Nirmaan Project Manager Profile" || isProcurementProfile(role)) {
                 return projectReportOptions.filter(option => option.value === 'Inventory Report');
             }
-            // PMO Executive: the non-financial Projects reports only (owner ruling).
-            // Must be checked BEFORE the general list below, which still contains PMO.
-            if (role === "Nirmaan PMO Executive Profile") {
-                return projectReportOptions.filter(option => PMO_PROJECT_REPORTS.includes(option.value));
-            }
+            // PMO gets every Projects report again, money ones included (owner, 2026-10-28).
             return ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(role)
                 ? projectReportOptions
                 : [];
@@ -391,6 +395,10 @@ export default function ReportsContainer() {
         }
         if (activeTab === REPORTS_TABS.PAYMENT_TDS) {
             return <PaymentTDSDeductions />;
+        }
+        if (activeTab === REPORTS_TABS.BULK_DOWNLOAD) {
+            // No Report Type select (`currentReportOptions` is []): the wizard's own type cards choose.
+            return <BulkDownloadPage key="all" scope={ALL_PROJECTS_SCOPE} />;
         }
         if (activeTab === REPORTS_TABS.DCS_MIRS) {
             return (

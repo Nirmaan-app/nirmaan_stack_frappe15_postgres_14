@@ -14,7 +14,11 @@ deliberately stricter than Frappe's default, which shows such a user everything.
 import frappe
 from frappe import _
 
-from nirmaan_stack.services.role_profiles import MTC_PROJECT_SCOPED_PROFILES, get_role_profile
+from nirmaan_stack.services.role_profiles import (
+    MTC_PROJECT_SCOPED_PROFILES,
+    assert_reports_bulk_download_access,
+    get_role_profile,
+)
 
 MTC = "Material Test Certificate"
 MTC_ITEM = "Material Test Certificate Item"
@@ -70,15 +74,20 @@ def get_mtc_projects():
 
 
 @frappe.whitelist()
-def get_mtcs(procurement_order=None, project=None, vendor=None):
-    """MTCs of one PO (the PO page card), one project (the list page, Bulk Download) or one
-    vendor (the vendor page's Bulk Download), newest first.
+def get_mtcs(procurement_order=None, project=None, vendor=None, all_projects=None):
+    """MTCs of one PO (the PO page card), one project (the list page, Bulk Download), one vendor
+    (the vendor page's Bulk Download) or every project the user may read (Reports > Bulk
+    Download, `all_projects=1`, Admin / Accountant only), newest first.
 
-    Pass exactly one of `procurement_order` / `project` / `vendor`. A PM / PL sees only their
-    assigned projects in every scope (none assigned -> nothing).
+    Pass exactly one of `procurement_order` / `project` / `vendor` / `all_projects`. A PM / PL sees
+    only their assigned projects in every scope but the PO's (none assigned -> nothing).
     """
-    if sum(1 for v in (procurement_order, project, vendor) if v) != 1:
-        frappe.throw(_("Pass exactly one of a Purchase Order, a Project or a Vendor."))
+    all_projects = str(all_projects or "").strip().lower() in ("1", "true", "yes")
+    if sum(1 for v in (procurement_order, project, vendor, all_projects) if v) != 1:
+        frappe.throw(_("Pass exactly one of a Purchase Order, a Project, a Vendor or All Projects."))
+    if all_projects:
+        # Reports > Bulk Download only: Admin / Accountant (+ Lead).
+        assert_reports_bulk_download_access(frappe.session.user)
 
     if procurement_order:
         filters = {"procurement_order": procurement_order}
@@ -89,7 +98,7 @@ def get_mtcs(procurement_order=None, project=None, vendor=None):
                 return []
             filters = {"project": project}
         else:
-            filters = {"vendor": vendor}
+            filters = {} if all_projects else {"vendor": vendor}
             if allowed is not None:
                 if not allowed:
                     return []
@@ -106,7 +115,13 @@ def get_mtcs(procurement_order=None, project=None, vendor=None):
         return []
 
     names = {p.name for p in parents}
-    column, value = next((c, v) for c, v in (("procurement_order", procurement_order), ("project", project), ("vendor", vendor)) if v)
+    # The scope's own condition on the certificate (none for all projects). `column` comes from the
+    # fixed tuple below, never from the request.
+    if all_projects:
+        scope_sql, scope_values = "", ()
+    else:
+        column, value = next((c, v) for c, v in (("procurement_order", procurement_order), ("project", project), ("vendor", vendor)) if v)
+        scope_sql, scope_values = f"AND m.{column} = %s", (value,)
     # One join on the same filter instead of an IN-list over the names (large IN-lists trip
     # sqlparse's token cap in production); rows are then narrowed to the permitted parents.
     item_rows = frappe.db.sql(
@@ -114,10 +129,10 @@ def get_mtcs(procurement_order=None, project=None, vendor=None):
         SELECT i.parent, i.item_id, i.item_name, i.make, i.category, i.procurement_package
         FROM "tabMaterial Test Certificate Item" i
         JOIN "tabMaterial Test Certificate" m ON m.name = i.parent
-        WHERE i.parenttype = %s AND m.{column} = %s
+        WHERE i.parenttype = %s {scope_sql}
         ORDER BY i.parent, i.idx
         """,
-        (MTC, value),
+        (MTC, *scope_values),
         as_dict=True,
     )
     items_by_parent = {}
@@ -134,9 +149,9 @@ def get_mtcs(procurement_order=None, project=None, vendor=None):
             SELECT DISTINCT po.name, po.procurement_request
             FROM "tabProcurement Orders" po
             JOIN "tabMaterial Test Certificate" m ON m.procurement_order = po.name
-            WHERE m.{column} = %s
+            WHERE 1 = 1 {scope_sql}
             """,
-            (value,),
+            scope_values,
         )
     )
 

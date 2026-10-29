@@ -14,7 +14,11 @@ from frappe.utils import today
 
 @frappe.whitelist()
 def submit_remaining_items_report(project, report_date, items):
-    """Create or update a remaining items report for a project on a given date."""
+    """Create or update a remaining items report for a project on a given date.
+
+    An empty submission ("nothing to count") whose project's latest Submitted report is
+    also empty moves that report to today instead of adding another empty one.
+    """
 
     # Enforce report_date == today
     if str(report_date) != today():
@@ -30,10 +34,13 @@ def submit_remaining_items_report(project, report_date, items):
         {"project": project, "report_date": report_date},
         "name",
     )
+    if not existing and not items:
+        existing = _latest_submitted_if_empty(project)
 
     if existing:
-        # Update existing report
+        # Update existing report (or move the latest empty one to today)
         doc = frappe.get_doc("Remaining Items Report", existing)
+        doc.report_date = report_date
         doc.items = []  # Clear existing child items
         for item in items:
             doc.append("items", {
@@ -68,6 +75,27 @@ def submit_remaining_items_report(project, report_date, items):
         doc.insert(ignore_permissions=True)
         frappe.db.commit()
         return {"status": "success", "name": doc.name, "action": "created"}
+
+
+def _latest_submitted_if_empty(project):
+    """Name of the project's latest Submitted report when it has no item rows, else None.
+
+    Same ordering as `internal_transfer_memo.available_quantity` uses for "latest".
+    """
+    latest = frappe.get_all(
+        "Remaining Items Report",
+        filters={"project": project, "status": "Submitted"},
+        fields=["name"],
+        order_by="report_date desc, creation desc",
+        limit=1,
+    )
+    if not latest:
+        return None
+    has_rows = frappe.db.exists(
+        "Remaining Item Entry",
+        {"parent": latest[0].name, "parenttype": "Remaining Items Report"},
+    )
+    return None if has_rows else latest[0].name
 
 
 @frappe.whitelist()

@@ -1,6 +1,5 @@
 import { useCallback, useMemo } from 'react';
 import { useFrappeGetCall, useFrappeGetDocList } from 'frappe-react-sdk';
-import { ProjectEstimates } from '@/types/NirmaanStack/ProjectEstimates';
 import { ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
 import { po_item_data_item } from '../project';
 import { parseNumber } from '@/utils/parseNumber';
@@ -41,16 +40,6 @@ export function useMaterialUsageData(projectId: string) {
     { project_id: projectId }
   );
 
-  const {
-    data: projectEstimates,
-    isLoading: estimatesLoading,
-    error: estimatesError,
-  } = useFrappeGetDocList<ProjectEstimates>('Project Estimates', {
-    fields: ['name', 'project', 'work_package', 'category', 'item', 'item_name', 'uom', 'quantity_estimate'],
-    filters: [['project', '=', projectId]],
-    limit: 0,
-  }, `project_estimates_${projectId}`);
-
     const {
     data: itemsData,
     isLoading: itemsLoading,
@@ -58,7 +47,6 @@ export function useMaterialUsageData(projectId: string) {
   } = useFrappeGetDocList<{ name: string; billing_category: string }>('Items', {
     // Only need the ID and the Billing Category
     fields: ['name', 'billing_category'], 
-    // Filter to only include items that have estimates or PO items (Optimization is complex, fetching all is safest)
     // For simplicity and speed, fetching all items is usually fine if the item count is reasonable.
     limit: 0,
   }, `all_items_billing_category`);
@@ -188,17 +176,6 @@ export function useMaterialUsageData(projectId: string) {
   ], [po_item_data]);
 
   const allMaterialUsageItems = useMemo((): MaterialUsageDisplayItem[] => {
-    if (!projectEstimates) {
-      return [];
-    }
-
-    const estimatesMap = new Map<string, ProjectEstimates>();
-    projectEstimates.forEach(est => {
-      if (est.item) {
-        estimatesMap.set(est.item, est);
-      }
-    });
-
     const usageByItemKey = new Map<string, MaterialUsageDisplayItem>();
 
     allPoItems.forEach((poItem, index) => {
@@ -238,19 +215,17 @@ export function useMaterialUsageData(projectId: string) {
       const poPaymentStatusInfo = determineOverallItemPOStatus(individualPOsForItem);
 
       if (!currentItemUsage) {
-        const estimate = estimatesMap.get(poItem.item_id);
           const itemBillingCategory = resolveBillingCategory(poItem.item_id, poItem.category, poItem.billing_status);
         currentItemUsage = {
           uniqueKey: itemKey + `_item_${index}`,
           itemId: poItem.item_id,
           categoryName: poItem.category,
-          itemName: poItem.item_name || estimate?.item_name,
-          unit: poItem.unit || estimate?.uom,
+          itemName: poItem.item_name,
+          unit: poItem.unit,
           orderedQuantity: safeParseFloat(poItem.quantity),
           deliveredQuantity: safeParseFloat(poItem.received_quantity),
           dcQuantity: 0,
           mirQuantity: 0,
-          estimatedQuantity: safeParseFloat(estimate?.quantity_estimate),
           // === ADDED: Initialize total amount ===
           totalAmount: amountWithGst,
           poNumbers: individualPOsForItem,
@@ -328,7 +303,6 @@ export function useMaterialUsageData(projectId: string) {
         deliveredQuantity: itmData.transferred_in,
         dcQuantity: 0,
         mirQuantity: 0,
-        estimatedQuantity: 0,
         totalAmount: 0,
         poNumbers: [],
         deliveryStatus: "Not Ordered",
@@ -352,7 +326,7 @@ export function useMaterialUsageData(projectId: string) {
     });
 
     return flatList;
-  }, [allPoItems, projectEstimates, getIndividualPOStatus, billingCategoryMap, itemDeliveryMap, transferData]);
+  }, [allPoItems, getIndividualPOStatus, billingCategoryMap, itemDeliveryMap, transferData]);
 
   // --- Vendor lookup by PO (shared by PO-wise and DC/MIR-wise) ---
   const vendorByPO = useMemo(() => {
@@ -686,8 +660,8 @@ export function useMaterialUsageData(projectId: string) {
     dcWiseItems,
     mirWiseItems,
     poDeliveryMap,
-    isLoading: po_item_loading || estimatesLoading || itemsLoading || poDeliveryLoading,
-    error: po_item_error || estimatesError || itemsError || poDeliveryError,
+    isLoading: po_item_loading || itemsLoading || poDeliveryLoading,
+    error: po_item_error || itemsError || poDeliveryError,
     categoryOptions,
     billingCategoryOptions,
     deliveryStatusOptions,
