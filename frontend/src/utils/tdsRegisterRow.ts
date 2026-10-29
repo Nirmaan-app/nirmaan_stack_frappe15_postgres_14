@@ -49,3 +49,14 @@ export const tdsDeducteeText = (row: RowParties, vendorName: (vendorId: string) 
     if (deductee.kind === "vendor") return vendorName(deductee.vendor);
     return deductee.pan ? `${deductee.name} (PAN ${deductee.pan})` : deductee.name;
 };
+
+/** The deductee's ID, GST and PAN for the register's own columns. A vendor row reads the vendor's current
+ *  GST and PAN (joined by the list query); a landlord row has no vendor ID or GST, and its PAN is the one
+ *  snapshotted on the row. */
+export const tdsDeducteeIds = (
+    row: RowParties & { vendor_gst?: string | null; vendor_pan?: string | null }
+): { id: string | null; gst: string | null; pan: string | null } => {
+    const deductee = tdsDeductee(row);
+    if (deductee?.kind === "landlord") return { id: null, gst: null, pan: deductee.pan };
+    return { id: row.vendor || null, gst: row.vendor_gst || null, pan: row.vendor_pan || null };
+};

@@ -39,7 +39,7 @@ export const ReportSummaryCard = ({
             <div className="flex items-center gap-2 text-sm font-medium">
               <CheckCircle2 className="h-4 w-4 text-green-500" />
               <span>
-                {filledCount} of {totalItems} items filled
+                {totalItems === 0 ? "No items to count" : `${filledCount} of ${totalItems} items filled`}
               </span>
               <Badge variant="green">{report?.status ?? "Submitted"}</Badge>
             </div>

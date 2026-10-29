@@ -608,7 +608,6 @@ export const appRoutes: RouteObject[] = [
                 ],
               },
               { path: ":projectId", lazy: () => import("@/pages/projects/project") },
-              { path: ":projectId/add-estimates", lazy: () => import("@/pages/projects/add-project-estimates") },
               { path: ":projectId/po/:poId", lazy: () => import("@/components/POSummary") },
               {
                 path: ":projectId/:prId", // This nesting might conflict if prId is not unique across projects?

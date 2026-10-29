@@ -457,6 +457,22 @@ def assert_cheque_form_access(user: str) -> None:
         raise frappe.PermissionError(_("You are not allowed to look up cheques."))
 
 
+# Reports > Bulk Download: every project's documents, Project and Vendor as table filters (owner,
+# 2026-10-28: "only Admin, Accountant"; Accountant Lead mirrors Accountant). The tab is hidden from
+# everyone else AND the all-scope endpoints refuse them (`api/pdf_helper/bulk_download._scope`,
+# `mtc_api.get_mtcs(all_projects=1)`), so a typed URL or a crafted call fetches nothing. The project and
+# vendor Bulk Download tabs keep their own rules. Mirrored client-side by
+# `frontend/src/constants/roles.ts::REPORTS_BULK_DOWNLOAD_PROFILES` -- keep the two in sync.
+REPORTS_BULK_DOWNLOAD_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
+
+def assert_reports_bulk_download_access(user: str) -> None:
+    """Refuse a user outside `REPORTS_BULK_DOWNLOAD_PROFILES` (Administrator passes). Every all-scope
+    Bulk Download call starts with it, the background job included."""
+    if not has_role_profile(user, REPORTS_BULK_DOWNLOAD_PROFILES):
+        raise frappe.PermissionError(_("You are not allowed to download documents across all projects."))
+
+
 # Payees (spec #1420, ADR-0033). Admin, Accountant and Accountant Lead manage Payees on the Payees page:
 # list them, add one, and (#1423) edit a holder name. Procurement adds Payees only
 # through the vendor screens, and anyone raising an Expense Request only through the request; those
@@ -494,3 +510,6 @@ def assert_vendor_payee_access(user: str) -> None:
     else (`payees.guard`)."""
     if not has_role_profile(user, VENDOR_PAYEE_PROFILES):
         frappe.throw(_("You are not allowed to set a vendor's bank account."), frappe.PermissionError)
+
+# Project Ledger (owner, 2026-10-28), enforced by `api/projects/project_ledger`; client twin in `roles.ts`.
+PROJECT_LEDGER_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)

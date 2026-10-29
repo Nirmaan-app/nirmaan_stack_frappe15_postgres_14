@@ -40,12 +40,14 @@ from nirmaan_stack.api.outflow_import.card_upload import (
     SOURCE,
     STATEMENT_DOCTYPE,
     leave_out_repeats,
+    read_password,
     read_statement,
     read_upload,
     refuse_same_period,
     stage,
 )
 from nirmaan_stack.api.outflow_import.permissions import has_outflow_undo_access, require_outflow_access
+from nirmaan_stack.services.outflow_import.card_pdf import unlocked_copy
 from nirmaan_stack.services.outflow_import.card_statement import merchant_key
 from nirmaan_stack.services.outflow_import.card_types import CREATE_LINE_STATUSES, needs_check
 from nirmaan_stack.services.outflow_import.status import ROW_ERROR, ROW_SETTLED
@@ -80,30 +82,36 @@ def job_ids(batch: str) -> list[str]:
 def upload_card_statement():
     """Read a Credit Card Statement PDF and stage it. Returns the import as `get_card_import` reports it.
 
-    Multipart form: `file`, the bank's .pdf, unlocked.
+    Multipart form: `file`, the bank's .pdf; `password`, only for a password-locked PDF (ADR-0039 Amendment
+    A). The password opens the PDF in memory and is never saved, logged or returned.
     URL: /api/method/nirmaan_stack.api.outflow_import.card_import.upload_card_statement
 
-    Refused, with the reason, and with NOTHING saved: a file that is not a .pdf; a password-locked PDF; a
-    statement that is not this layout; a statement not issued to Stratos Infra Technologies; a non-zero
-    Cash Advances; spends that do not equal Purchases / Charges or credits that do not equal Payments /
-    Credits, to the paisa (both figures shown); a second statement for the same holder and billing period
-    (naming the earlier import); a file whose every SerNo is already imported. A line whose SerNo is already
-    imported is LEFT OUT and counted in the batch's `repeats_not_saved`.
+    Refused, with the reason, and with NOTHING saved: a file that is not a .pdf; a password-locked PDF sent
+    without its password, or with a wrong one (the screen then asks for it); a statement that is not this
+    layout; a statement not issued to Stratos Infra Technologies; a non-zero Cash Advances; spends that do
+    not equal Purchases / Charges or credits that do not equal Payments / Credits, to the paisa (both figures
+    shown); a second statement for the same holder and billing period (naming the earlier import); a file
+    whose every SerNo is already imported. A line whose SerNo is already imported is LEFT OUT and counted in
+    the batch's `repeats_not_saved`.
 
-    Saves: the PDF (private, one File, attached to the Credit Card Statement); the batch over the statement's
-    billing period; the Credit Card Statement (header, totals); one line per new statement line -- a spend
-    waiting for Create (`Pending match run`); a credit sorted (#1567, `card_credits`): a payment into the card,
-    cashback and both lines of a refund pair skipped by rule, any other credit open (`Mismatched`). Then queues
-    the type suggestion (`card_suggest`, #1569), de-duplicated per import.
+    Saves: the PDF with no password (private, one File, attached to the Credit Card Statement); the batch
+    over the statement's billing period; the Credit Card Statement (header, totals); one line per new
+    statement line -- a spend waiting for Create (`Pending match run`); a credit sorted (#1567,
+    `card_credits`): a payment into the card, cashback and both lines of a refund pair skipped by rule, any
+    other credit open (`Mismatched`). Then queues the type suggestion (`card_suggest`, #1569), de-duplicated
+    per import.
     """
     user = require_outflow_access()
     filename, content = read_upload()
-    statement = read_statement(content)
+    password = read_password()
+    statement = read_statement(content, password)
     refuse_same_period(statement)
     new = leave_out_repeats(statement)
 
     # ⚠️ THE FIRST WRITE, AND IT CANNOT BE ROLLED BACK: everything that can refuse has run above.
-    saved = save_file(fname=filename, content=content, dt=None, dn=None, is_private=1)
+    # Stored unlocked: a locked upload is written again with no password, so the statement opens for anyone
+    # who may open it, and the password goes no further than this request.
+    saved = save_file(fname=filename, content=unlocked_copy(content, password), dt=None, dn=None, is_private=1)
     batch, record = stage(statement, new, file_url=saved.file_url, filename=filename, user=user)
     frappe.db.set_value(
         "File",

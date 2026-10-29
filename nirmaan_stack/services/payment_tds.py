@@ -257,9 +257,10 @@ __all__ = [
 	"deposited_challan",
 	"challan_label",
 	"refuse_if_deposited",
-	"TDS_PAID_BY_COMPANY",
+	"COMPANY_BEARS_TDS",
+	"MARK_AS_DEPOSIT",
+	"COMPANY_BEARS_TDS_FLAG",
 	"refuse_raise_after_cut",
-	"mark_tds_paid_by_company",
 	"give_back_tax_on_reject",
 	"write_deduction",
 	"record_deduction",
@@ -411,8 +412,8 @@ def withheld_expense_gross_sql() -> str:
 def requested_amount_sql(alias: str) -> str:
 	"""SQL: the full bill ("Req. Amount") of a payment, from a `counted_deductions_sql` row `alias`. A
 	payment that was cut by its tax (stored amount + tax = gross, to the rupee) reads its deduction's gross,
-	whoever bears the tax now: a cut payment marked *TDS paid by company* keeps every figure (story 46) and is
-	still that bill (walk W5). Otherwise its stored amount plus any tax withheld from it (a kept-whole
+	whoever bears the tax now: a cut payment the retired *TDS paid by company* marked (#1537) kept every figure
+	(story 46) and is still that bill (walk W5). Otherwise its stored amount plus any tax withheld from it (a kept-whole
 	payment, or one a part settlement trimmed below its gross)."""
 	return (
 		f"CASE WHEN ABS({alias}.payment_amount + {alias}.tds_amount - {alias}.gross_amount) < 1 "
@@ -714,9 +715,13 @@ def refuse_if_deposited(payment_name: str | None, refused: str) -> None:
 		)
 
 
-#: The Admin action that marks a payment's tax as the company's (`mark_tds_paid_by_company`, #1537). The
-#: raise refusal names it, so the two read the same.
-TDS_PAID_BY_COMPANY = "TDS paid by company"
+#: The two Admin actions that put a cut payment back to its full request before it is paid
+#: (`services/tds_cut_undo`, owner 2026-10-27). The raise refusal names them, so the three read the same.
+COMPANY_BEARS_TDS = "Company Bears TDS"
+MARK_AS_DEPOSIT = "Mark as Deposit"
+#: Set on the deduction by *Company Bears TDS*: the one save allowed to move `borne_by`
+#: (`controllers/payment_tds_deduction.refuse_hand_written_borne_by`).
+COMPANY_BEARS_TDS_FLAG = "company_bears_tds"
 
 
 def refuse_raise_after_cut(doc, before) -> None:
@@ -724,10 +729,11 @@ def refuse_raise_after_cut(doc, before) -> None:
 
 	Once cut, the stored amount is the net, so a raised figure is read as a new net and the tax is
 	grossed up on it again (`restate_deduction_on_amount_change`): Rs 9,800 raised back to Rs 10,000
-	reads as 10,204 gross, 204 withheld, and the vendor looks overpaid by the tax. When the vendor was in
-	fact paid the full bill, the company bore the tax: that is `TDS paid by company`, which moves no
-	figure. Lowering stays allowed and restates the tax. A payment kept whole (`borne_by` Company) was
-	never cut, so its raise is a new full bill and is taxed on top as before.
+	reads as 10,204 gross, 204 withheld, and the vendor looks overpaid by the tax. To pay the vendor the
+	full request before the payment is paid, an Admin uses *Company Bears TDS* or *Mark as Deposit*
+	(`services/tds_cut_undo`), which restore the gross without a restate. Lowering stays allowed and
+	restates the tax. A payment kept whole (`borne_by` Company) was never cut, so its raise is a new full
+	bill and is taxed on top as before.
 
 	The caller skips the saves that move the amount without a person editing it (the restate's flags).
 	"""
@@ -739,46 +745,10 @@ def refuse_raise_after_cut(doc, before) -> None:
 	frappe.throw(
 		f"{doc.name} can't be raised from ₹{flt(before.amount, 2):,.2f} to ₹{flt(doc.amount, 2):,.2f}: its TDS "
 		f"of ₹{flt(row.tds_amount, 2):,.2f} was already cut from it, and a higher amount would be read as a "
-		f"new net with the tax added again. If the vendor was paid the full amount and the company bears "
-		f"the tax, ask an Admin to use \"{TDS_PAID_BY_COMPANY}\" on this payment instead.",
+		f"new net with the tax added again. To pay the vendor the full request, an Admin uses "
+		f"\"{COMPANY_BEARS_TDS}\" or \"{MARK_AS_DEPOSIT}\" on this payment before it is paid.",
 		title="TDS already cut",
 	)
-
-
-def mark_tds_paid_by_company(payment_name: str) -> str:
-	"""Mark a Work Order payment's tax as paid by the company on top (#1537, story 46). Changes no
-	figure: the payment keeps what the vendor got, the deduction its gross and tax. Only `borne_by` moves,
-	Vendor to Company, so the tax leaves the order's Amount Paid (ADR-0034 Amendment A) and stays in its
-	`total_tds` and its project's outflow. The Rs 204 case: Rs 10,000 paid, Rs 204 "withheld", Amount Paid
-	10,204 and Due -204 -> Amount Paid 10,000, Due 0.
-
-	Allowed before the payment is Paid, and after while its tax is not in a challan (`refuse_if_deposited`:
-	deposited tax never changes). A deduction saved through the doc layer, so its `on_update` recounts the
-	order through the one writer and re-checks CEO Hold when the payment is Paid, and its Version
-	(`track_changes`) records who and when. Commits nothing. The caller checks the role (Admin).
-
-	Returns the deduction's name.
-	"""
-	payment = frappe.db.get_value(PAYMENT_DOCTYPE, payment_name, ["name", "document_type"], as_dict=True)
-	if not payment:
-		frappe.throw(f"Payment {payment_name} not found.")
-	if (payment.document_type or "").strip() not in DEDUCTIBLE_PARENTS:
-		frappe.throw(f"{payment_name}: {TDS_PAID_BY_COMPANY} is for Work Order payments only.")
-	name = existing_deduction(payment_name)
-	if not name:
-		frappe.throw(f"{payment_name} carries no TDS.")
-	# Locked before the challan check, so Pay TDS can't deposit the tax between the check and the flip.
-	row = frappe.get_doc(TDS_DOCTYPE, name, for_update=True)
-	refuse_if_deposited(payment_name, f"can't be marked {TDS_PAID_BY_COMPANY}")
-
-	if row.borne_by == BORNE_BY_COMPANY:
-		frappe.throw(f"{payment_name}: its TDS is already paid by the company.")
-	row.borne_by = BORNE_BY_COMPANY
-	row.flags.tds_paid_by_company = True
-	# `ignore_version=False`: the Version IS the record of who and when, so it is written even where
-	# Frappe skips versions by default (a test run).
-	row.save(ignore_permissions=True, ignore_version=False)
-	return name
 
 
 def give_back_tax_on_reject(doc) -> str | None:

@@ -3,9 +3,7 @@
  * first. A row is told apart by the items it covers; the MTC id is never shown.
  */
 import { useMemo } from "react";
-import { Button } from "@/components/ui/button";
-import { ArrowLeft, Download, Loader2 } from "lucide-react";
-import { BulkScopeKind, scopeFacet } from "@/utils/bulkDownload/bulkDownloadTypes";
+import { BulkScopeKind, BulkTableLimits, scopeFacets, scopeNoun } from "@/utils/bulkDownload/bulkDownloadTypes";
 import { BulkSelectTable } from "./BulkSelectTable";
 import { forScope, mtcColumns, mtcItemsText } from "./bulkTableColumns";
 import { MTCRow } from "../useBulkDownloadWizard";
@@ -15,16 +13,15 @@ interface MTCStepsProps {
     isLoading: boolean;
     selectedIds: string[];
     onSelectAll: (ids: string[]) => void;
-    onBack: () => void;
-    onDownload: () => void;
-    loading: boolean;
     scopeKind: BulkScopeKind;
+    /** All scope: page size + selection limit (the project / vendor tabs pass none). */
+    tableLimits?: BulkTableLimits;
 }
 
 export const MTCSteps = ({
-    items, isLoading, selectedIds, onSelectAll, onBack, onDownload, loading, scopeKind,
+    items, isLoading, selectedIds, onSelectAll, scopeKind, tableLimits = {},
 }: MTCStepsProps) => {
-    const facet = scopeFacet(scopeKind);
+    const facet = scopeFacets(scopeKind);
     const columns = useMemo(() => forScope(mtcColumns, scopeKind), [scopeKind]);
 
     return (
@@ -42,22 +39,13 @@ export const MTCSteps = ({
                 isLoading={isLoading}
                 selectedIds={selectedIds}
                 onSelectedIdsChange={onSelectAll}
-                facetColumns={{ [facet.id]: facet.title }}
+                facetColumns={{ ...facet.columns }}
                 dateFilterColumns={["certificate_date", "creation"]}
                 searchPlaceholder={`Search by item, PO or ${facet.title}`}
-                emptyMessage={`No material test certificates found for this ${scopeKind}.`}
+                emptyMessage={`No material test certificates found for ${scopeNoun(scopeKind)}.`}
+                {...tableLimits}
                 rowLabel={mtcItemsText}
             />
-
-            <div className="flex items-center justify-between pt-2">
-                <Button variant="ghost" onClick={onBack} disabled={loading}>
-                    <ArrowLeft className="h-4 w-4 mr-2" />Back
-                </Button>
-                <Button onClick={onDownload} disabled={loading || selectedIds.length === 0} className="min-w-44">
-                    {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
-                    {loading ? "Generating..." : selectedIds.length === 0 ? "Select certificates to download" : `Download ${selectedIds.length} Certificate${selectedIds.length !== 1 ? "s" : ""}`}
-                </Button>
-            </div>
         </div>
     );
 };

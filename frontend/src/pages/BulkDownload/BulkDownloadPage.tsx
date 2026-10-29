@@ -1,22 +1,36 @@
 import { useMemo } from "react";
 import { Separator } from "@/components/ui/separator";
 import { WizardSteps, WizardStep } from "@/components/ui/wizard-steps";
-import { FileDown, Wand2, LayoutList, CheckCircle2, RotateCcw, Download, ExternalLink } from "lucide-react";
+import { FileDown, Wand2, LayoutList, CheckCircle2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { BulkPdfDownloadButton } from "@/components/common/BulkPdfDownloadButton";
 import { BulkDownloadProgressDialog } from "@/components/common/BulkDownloadProgressDialog";
 import { BulkDownloadStep1 } from "./BulkDownloadStep1";
-import { POSteps, WOSteps, InvoiceSteps, DCSteps, MIRSteps, DNSteps, MTCSteps, ClientInvoiceSteps, PaymentVoucherSteps } from "./steps";
+import { BulkDownloadActions } from "./BulkDownloadActions";
+import { POSteps, WOSteps, InvoiceSteps, DCSteps, MIRSteps, DNSteps, MTCSteps, ClientInvoiceSteps, PaymentVoucherSteps, PorterInvoiceSteps } from "./steps";
 import { useBulkDownloadWizard } from "./useBulkDownloadWizard";
 import { useUserData } from "@/hooks/useUserData";
-import { BulkDownloadScope, allowedBulkTypes, invoiceSubTypesFor } from "@/utils/bulkDownload/bulkDownloadTypes";
+import { BulkDownloadScope, TYPE_INFO, allowedBulkTypes, bulkTableLimits, invoiceSubTypesFor, isOverSelectionLimit } from "@/utils/bulkDownload/bulkDownloadTypes";
 
 interface BulkDownloadPageProps {
-    /** The project tab passes its project, the vendor tab its vendor (with `vendorType`). */
+    /** The project tab passes its project, the vendor tab its vendor (with `vendorType`), and
+     *  Reports > Bulk Download the "all" scope (every project the user may read). */
     scope: BulkDownloadScope;
 }
+
+/**
+ * The step bar, shorter on desktop only: less padding, 28px circles, a tighter circle → label gap. Set from here
+ * because `components/ui/wizard-steps.tsx` is a shared file that is never hand-edited, so every other wizard keeps
+ * its size; `lg:` leaves the phone and tablet views (already compact) exactly as they are.
+ */
+const COMPACT_STEP_BAR = [
+    "border-y bg-muted/20",
+    "lg:[&>div]:py-1.5",
+    "lg:[&_button]:gap-1",
+    "lg:[&_button>div]:h-7 lg:[&_button>div]:w-7 lg:[&_button>div]:text-xs",
+].join(" ");
 
 const WIZARD_STEPS: WizardStep[] = [
     { key: "type", title: "Choose Type", shortTitle: "Type", icon: FileDown },
@@ -61,6 +75,8 @@ export const BulkDownloadPage = ({ scope }: BulkDownloadPageProps) => {
         woVouchersLoading,
         mtcItems,
         mtcsLoading,
+        porterInvoices,
+        porterInvoicesLoading,
         withRate,
         setWithRate,
 
@@ -80,48 +96,73 @@ export const BulkDownloadPage = ({ scope }: BulkDownloadPageProps) => {
 
     const currentWizardStep = step === 1 ? 0 : step === 2 ? 1 : 2;
 
+    // The all scope has no Quick Download (it would be every document of every project) and no
+    // card counts (each would load a company-wide list); its tables page and cap the selection.
+    const isAll = scope.kind === "all";
+    const limits = useMemo(() => bulkTableLimits(scope.kind), [scope.kind]);
+    const tableLimits = useMemo(() => ({ pageSize: limits.pageSize }), [limits]);
+    const overLimit = isOverSelectionLimit(selectedIds.length, limits);
+
     const sharedProps = {
         selectedIds,
         onSelectAll: selectAll,
-        onBack: goBack,
-        onDownload: handleDownload,
-        loading,
+        tableLimits,
     };
+
+    // The selection step's one Back / Download row: at the top on Reports > Bulk Download, at the
+    // bottom on the project and vendor tabs (owner, 2026-10-28).
+    const actions = (placement: "top" | "bottom") => docType && (
+        <BulkDownloadActions
+            count={selectedIds.length}
+            plural={TYPE_INFO[docType].short}
+            loading={loading}
+            overLimit={overLimit}
+            maxSelect={limits.maxSelect}
+            placement={placement}
+            onBack={goBack}
+            onDownload={handleDownload}
+        />
+    );
 
     return (
         <div className="flex flex-col gap-6">
             {/* Quick Bulk Download */}
-            <div className="rounded-xl border-gray-200 border bg-white p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                    <div className="h-12 w-12 rounded-lg bg-red-50 flex items-center justify-center shrink-0">
-                        <FileDown className="h-6 w-6 text-red-500" />
+            {!isAll && (
+                <>
+                    <div className="rounded-xl border-gray-200 border bg-white p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="flex items-center gap-4">
+                            <div className="h-12 w-12 rounded-lg bg-red-50 flex items-center justify-center shrink-0">
+                                <FileDown className="h-6 w-6 text-red-500" />
+                            </div>
+                            <div>
+                                <h3 className="text-base font-bold text-gray-900 leading-tight">Quick Download</h3>
+                                <p className="text-sm text-gray-500 mt-1">
+                                    Download all documents for this {scope.kind} at once.
+                                </p>
+                            </div>
+                        </div>
+                        <div className="shrink-0">
+                            <BulkPdfDownloadButton scope={scope} types={types} />
+                        </div>
                     </div>
-                    <div>
-                        <h3 className="text-base font-bold text-gray-900 leading-tight">Quick Download</h3>
-                        <p className="text-sm text-gray-500 mt-1">
-                            Download all documents for this {scope.kind} at once.
-                        </p>
-                    </div>
-                </div>
-                <div className="shrink-0">
-                    <BulkPdfDownloadButton scope={scope} types={types} />
-                </div>
-            </div>
 
-            <div className="flex items-center gap-3">
-                <Separator className="flex-1" />
-                <span className="text-xs text-muted-foreground font-medium uppercase tracking-widest">or use the wizard</span>
-                <Separator className="flex-1" />
-            </div>
+                    <div className="flex items-center gap-3">
+                        <Separator className="flex-1" />
+                        <span className="text-xs text-muted-foreground font-medium uppercase tracking-widest">or use the wizard</span>
+                        <Separator className="flex-1" />
+                    </div>
+                </>
+            )}
 
             {/* Selective Wizard */}
             <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
-                <div className="px-6 pt-2 pb-2">
-                    <div className="flex justify-center items-center gap-2 mb-1">
-                        <Wand2 className="h-5 w-5 text-primary" />
-                        <h3 className="text-lg font-semibold">What would you like to download?</h3>
+                {/* Header and step bar: same layout, less height (owner, 2026-10-28) */}
+                <div className="px-6 py-1.5">
+                    <div className="flex justify-center items-center gap-2 mb-0.5">
+                        <Wand2 className="h-4 w-4 text-primary" />
+                        <h3 className="text-base font-semibold">What would you like to download?</h3>
                     </div>
-                    <p className="text-center text-sm text-muted-foreground">
+                    <p className="text-center text-xs text-muted-foreground">
                         Choose a document type. You'll select specific items in the next step.
                     </p>
                 </div>
@@ -136,12 +177,14 @@ export const BulkDownloadPage = ({ scope }: BulkDownloadPageProps) => {
                 <WizardSteps
                     steps={WIZARD_STEPS}
                     currentStep={currentWizardStep}
-                    className="border-y bg-muted/20"
+                    className={COMPACT_STEP_BAR}
                 />
 
                 <div className="p-6">
+                    {step === 2 && isAll && actions("top")}
+
                     {step === 1 && (
-                        <BulkDownloadStep1 onSelect={goToStep2} types={types} counts={itemCounts} />
+                        <BulkDownloadStep1 onSelect={goToStep2} types={types} counts={isAll ? undefined : itemCounts} />
                     )}
 
                     {step === 2 && docType === "PO" && (
@@ -188,8 +231,8 @@ export const BulkDownloadPage = ({ scope }: BulkDownloadPageProps) => {
                         <MIRSteps {...sharedProps} items={mirItems} isLoading={poDeliveryDocsLoading} scopeKind={scope.kind} />
                     )}
 
-                    {step === 2 && docType === "ClientInvoice" && scope.kind === "project" && (
-                        <ClientInvoiceSteps {...sharedProps} items={projectInvoiceItems} isLoading={projectInvoicesLoading} />
+                    {step === 2 && docType === "ClientInvoice" && scope.kind !== "vendor" && (
+                        <ClientInvoiceSteps {...sharedProps} items={projectInvoiceItems} isLoading={projectInvoicesLoading} scopeKind={scope.kind} />
                     )}
 
                     {step === 2 && docType === "DN" && (
@@ -226,6 +269,12 @@ export const BulkDownloadPage = ({ scope }: BulkDownloadPageProps) => {
                             scopeKind={scope.kind}
                         />
                     )}
+
+                    {step === 2 && docType === "PorterInvoice" && isAll && (
+                        <PorterInvoiceSteps {...sharedProps} items={porterInvoices} isLoading={porterInvoicesLoading} />
+                    )}
+
+                    {step === 2 && !isAll && actions("bottom")}
 
                     {/* Step 3: Success */}
                     {step === 3 && (

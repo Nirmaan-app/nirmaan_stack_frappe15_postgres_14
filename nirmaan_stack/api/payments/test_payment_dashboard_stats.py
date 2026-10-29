@@ -21,7 +21,12 @@ from nirmaan_stack.api.outflow_import.review import (
     _SCOPE_STATUSES,
     get_outflow_rows,
 )
-from nirmaan_stack.api.payments.get_project_payment_summary import get_payment_dashboard_stats
+from nirmaan_stack.api.payments.get_project_payment_summary import (
+    RECON_CHEQUE,
+    RECON_ONLINE,
+    get_payment_dashboard_stats,
+    reconciliation_row,
+)
 from nirmaan_stack.services.outflow_import.parser import (
     BANK_SUCCESS_STATUS,
     DIRECTION_CREDIT,
@@ -700,3 +705,41 @@ class TestPartReconciledOutflow(unittest.TestCase):
             self._delta(before, after, "total_project_outflow_30_days_amount"), 0
         )
         self.assertEqual(self._delta(before, after, "total_reconciliation_pending_count"), 1)
+
+
+class TestReconciliationPendingSplit(unittest.TestCase):
+    """Payment Done / Reconciliation Pending split into Online Payment and Cheque Issued (owner, 2026-10-28).
+
+    Read only: nothing is inserted. The split must add up to the combined row exactly, the bank-covered part
+    included, so the card's two rows always total the old one.
+    """
+
+    def test_a_cheque_payment_is_cheque_and_everything_else_online(self):
+        self.assertEqual(reconciliation_row(True, frappe._dict(mode_of_payment="Cheque")), RECON_CHEQUE)
+        self.assertEqual(reconciliation_row(True, frappe._dict(mode_of_payment="Online")), RECON_ONLINE)
+        self.assertEqual(reconciliation_row(True, frappe._dict(mode_of_payment=None)), RECON_ONLINE)
+        # An expense has no mode of payment: Online, whatever a stray field says.
+        self.assertEqual(reconciliation_row(False, frappe._dict()), RECON_ONLINE)
+        self.assertEqual(reconciliation_row(False, frappe._dict(mode_of_payment="Cheque")), RECON_ONLINE)
+
+    def test_the_two_rows_add_up_to_the_combined_row(self):
+        stats = get_payment_dashboard_stats()
+        key = "total_reconciliation_pending"
+        self.assertEqual(stats[f"{key}_online_count"] + stats[f"{key}_cheque_count"], stats[f"{key}_count"])
+        for part in ("amount", "reconciled_amount"):
+            with self.subTest(part):
+                self.assertAlmostEqual(
+                    stats[f"{key}_online_{part}"] + stats[f"{key}_cheque_{part}"], stats[f"{key}_{part}"], places=2,
+                )
+
+    def test_the_cheque_row_is_the_cheque_payments_waiting_on_the_bank(self):
+        stats = get_payment_dashboard_stats()
+        rows = frappe.get_all(
+            "Project Payments",
+            filters={"status": "Reconciliation Pending", "mode_of_payment": "Cheque"},
+            fields=["amount"],
+        )
+        self.assertEqual(stats["total_reconciliation_pending_cheque_count"], len(rows))
+        self.assertAlmostEqual(
+            stats["total_reconciliation_pending_cheque_amount"], sum(float(r.amount or 0) for r in rows), places=2,
+        )

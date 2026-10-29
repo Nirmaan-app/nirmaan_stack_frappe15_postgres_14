@@ -225,6 +225,14 @@ interface PaymentStats {
     total_reconciliation_pending_amount: number;
     /** The part of those records bank lines already cover (expenses part-paid by several lines). */
     total_reconciliation_pending_reconciled_amount: number;
+    /** The same split in two (owner, 2026-10-28): Online Payment (every expense included) and Cheque Issued (a
+     *  Project Payment requested as a cheque, waiting for the bank to clear it). Each pair adds up to the above. */
+    total_reconciliation_pending_online_count?: number;
+    total_reconciliation_pending_online_amount?: number;
+    total_reconciliation_pending_online_reconciled_amount?: number;
+    total_reconciliation_pending_cheque_count?: number;
+    total_reconciliation_pending_cheque_amount?: number;
+    total_reconciliation_pending_cheque_reconciled_amount?: number;
     total_approval_done_today: number;
     total_approval_done_today_amount: number;
     total_approval_done_7_days: number;
@@ -394,13 +402,14 @@ const TileShell: React.FC<{
 };
 
 // Breakdown row used inside composite tiles.
-type BreakdownTone = "red" | "amber" | "blue" | "emerald" | "violet";
+type BreakdownTone = "red" | "amber" | "blue" | "emerald" | "violet" | "orange";
 const TONE_CLASSES: Record<BreakdownTone, { dot: string; text: string }> = {
     red: { dot: "bg-red-500", text: "text-red-600 dark:text-red-400" },
     amber: { dot: "bg-amber-500", text: "text-amber-600 dark:text-amber-400" },
     blue: { dot: "bg-blue-500", text: "text-blue-600 dark:text-blue-400" },
     emerald: { dot: "bg-emerald-500", text: "text-emerald-600 dark:text-emerald-400" },
     violet: { dot: "bg-violet-500", text: "text-violet-600 dark:text-violet-400" },
+    orange: { dot: "bg-orange-500", text: "text-orange-600 dark:text-orange-400" },
 };
 
 const BreakdownRow: React.FC<{
@@ -514,7 +523,8 @@ const StatRow: React.FC<{ label: string; count: number; amount: number; type: st
 
 // Composite tile: umbrella "Pending Payment Approval" with L1 + CEO breakdown,
 // plus footer lines for "Total Payment Due" (status=Approved, awaiting fulfilment)
-// and "Payment Done / Reconciliation Pending" (paid out, awaiting bank confirmation).
+// and "Payment Done / Reconciliation Pending" (paid out, awaiting bank confirmation), split into Online Payment
+// and Cheque Issued (owner, 2026-10-28).
 const PendingApprovalTile: React.FC<{
     totalAmount: number;
     totalCount: number;
@@ -524,15 +534,17 @@ const PendingApprovalTile: React.FC<{
     ceoCount: number;
     totalDueAmount: number;
     totalDueCount: number;
-    reconciliationAmount: number;
     reconciliationCount: number;
-    reconciliationReconciledAmount: number;
+    /** Each row: its records' count and amount, and the part bank lines already cover. */
+    onlineReconciliation: { count: number; amount: number; reconciled: number };
+    chequeReconciliation: { count: number; amount: number; reconciled: number };
 }> = ({
     totalAmount, totalCount,
     l1Amount, l1Count,
     ceoAmount, ceoCount,
     totalDueAmount, totalDueCount,
-    reconciliationAmount, reconciliationCount, reconciliationReconciledAmount,
+    reconciliationCount,
+    onlineReconciliation, chequeReconciliation,
 }) => (
         <TileShell type="pending" label="Pending Payment Summary" count={totalCount + totalDueCount + reconciliationCount}>
             <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700 space-y-1">
@@ -547,8 +559,12 @@ const PendingApprovalTile: React.FC<{
                     part of these records; that part is confirmed cash out and now shows up in
                     Cash Out (30 Days) instead, so leaving it here as well would have one card
                     count the same money twice. The COUNT stays the record count -- all of them
-                    are still waiting on the bank for something. */}
-                <BreakdownRow tone="violet" label="Reconciliation Pending" labelLong="Payment Done / Reconciliation Pending" amount={reconciliationAmount - reconciliationReconciledAmount} count={reconciliationCount} />
+                    are still waiting on the bank for something.
+                    Split in two (owner, 2026-10-28): Online Payment -- every expense included, they carry no mode
+                    -- and Cheque Issued, a cheque payment waiting for the bank to clear its cheque. The two add up to
+                    the old single row; each subtracts its own bank-covered part. */}
+                <BreakdownRow tone="violet" label="Online" labelLong="Online Payment" amount={onlineReconciliation.amount - onlineReconciliation.reconciled} count={onlineReconciliation.count} />
+                <BreakdownRow tone="orange" label="Cheque Issued" labelLong="Cheque Issued Payments" amount={chequeReconciliation.amount - chequeReconciliation.reconciled} count={chequeReconciliation.count} />
             </div>
         </TileShell>
     );
@@ -928,9 +944,17 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
                                 ceoCount={stats.total_ceo_pending_count}
                                 totalDueAmount={stats.total_pending_payment_amount}
                                 totalDueCount={stats.total_pending_payment_count}
-                                reconciliationAmount={stats.total_reconciliation_pending_amount}
                                 reconciliationCount={stats.total_reconciliation_pending_count}
-                                reconciliationReconciledAmount={stats.total_reconciliation_pending_reconciled_amount ?? 0}
+                                onlineReconciliation={{
+                                    count: stats.total_reconciliation_pending_online_count ?? 0,
+                                    amount: stats.total_reconciliation_pending_online_amount ?? 0,
+                                    reconciled: stats.total_reconciliation_pending_online_reconciled_amount ?? 0,
+                                }}
+                                chequeReconciliation={{
+                                    count: stats.total_reconciliation_pending_cheque_count ?? 0,
+                                    amount: stats.total_reconciliation_pending_cheque_amount ?? 0,
+                                    reconciled: stats.total_reconciliation_pending_cheque_reconciled_amount ?? 0,
+                                }}
                             />
                         </div>
                         <div className="lg:col-span-3">

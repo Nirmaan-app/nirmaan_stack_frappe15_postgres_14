@@ -101,9 +101,8 @@ export const AllProjectInvoices: React.FC<AllProjectInvoicesProps> = ({
   // 1. STATE & ROLE MANAGEMENT
   // =================================================================================
   const { role } = useUserData();
-  const isAdmin =
-    role === "Nirmaan Admin Profile" ||
-    role === "Nirmaan PMO Executive Profile";
+  // PMO opens this sheet view-only (owner, 2026-10-28), so it is no longer counted as Admin here.
+  const isAdmin = role === "Nirmaan Admin Profile";
   const isAccountant = role === "Nirmaan Accountant Profile" || role === "Nirmaan Accountant Lead Profile";
   // Edit available to Admin + Accountant; Delete remains Admin-only.
   // `disableActions` (Reports sheet) strips both regardless of role.

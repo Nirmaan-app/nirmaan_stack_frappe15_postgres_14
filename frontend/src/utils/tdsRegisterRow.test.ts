@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { tdsDeductee, tdsDeducteeText, tdsRowSource } from "./tdsRegisterRow";
+import { tdsDeductee, tdsDeducteeIds, tdsDeducteeText, tdsRowSource } from "./tdsRegisterRow";
 
 const workOrderRow = { project_payment: "PAY-0001", vendor: "VEN-1" };
 const rentRow = { non_project_expense: "NPE-0001", deductee_name: "Asha Rao", deductee_pan: "ABCPK1234D" };
@@ -35,5 +35,27 @@ describe("tdsDeductee", () => {
         expect(tdsDeducteeText({ non_project_expense: "NPE-2", deductee_name: "Asha Rao" }, vendorName)).toBe("Asha Rao");
         expect(tdsDeductee({ non_project_expense: "NPE-3" })).toBeNull();
         expect(tdsDeducteeText({ non_project_expense: "NPE-3" }, vendorName)).toBe("--");
+    });
+});
+
+describe("tdsDeducteeIds", () => {
+    it("is the vendor's ID, GST and PAN on a Work Order row", () => {
+        expect(tdsDeducteeIds({ ...workOrderRow, vendor_gst: "29AAAAA0000A1Z5", vendor_pan: "AAAAA0000A" })).toEqual({
+            id: "VEN-1",
+            gst: "29AAAAA0000A1Z5",
+            pan: "AAAAA0000A",
+        });
+    });
+
+    it("is blanks for a vendor with no GST or PAN", () => {
+        expect(tdsDeducteeIds({ ...workOrderRow, vendor_gst: "", vendor_pan: null })).toEqual({
+            id: "VEN-1",
+            gst: null,
+            pan: null,
+        });
+    });
+
+    it("is only the snapshotted PAN on an Office Rent row, never a vendor's", () => {
+        expect(tdsDeducteeIds({ ...rentRow, vendor_pan: "ZZZZZ9999Z" })).toEqual({ id: null, gst: null, pan: "ABCPK1234D" });
     });
 });

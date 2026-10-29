@@ -241,7 +241,6 @@ nirmaan_stack/
 ├── projects/
 │   └── doctype/
 │       ├── projects/
-│       ├── project_estimates/
 │       └── project_work_milestones/
 ├── financials/
 │   └── doctype/

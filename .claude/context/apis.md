@@ -33,6 +33,9 @@ Backend API endpoints in `nirmaan_stack/api/`.
 - `add_customer_po.py` - Customer PO linking
 - `project_aggregates.py` - Financial aggregations
 - `project_wise_invoice_data.py` - Invoice analytics
+- `project_ledger.get_project_ledger_data(project_id)` - Financials → Project Ledger rows (invoices raised vs
+  inflows received, date-ordered); calls the customer ledger's shared `receivable_ledger` with `{"project": ...}`.
+  Refuses a profile outside `role_profiles.PROJECT_LEDGER_PROFILES` and a user who can't read the project
 
 ### PO Delivery Documents (`api/po_delivery_documentss.py`)
 - `create_po_delivery_documents()` - Create DC/MIR record with file upload and item quantities
@@ -63,10 +66,17 @@ Backend API endpoints in `nirmaan_stack/api/`.
 - `print_integration.py` - Print format integration utilities
 
 ### Remaining Items / Inventory (`api/remaining_items_report.py`)
-- `create_remaining_items_report()` - Create inventory snapshot with item quantities
-- `get_remaining_items_report()` - Fetch report with eligible items
-- Cooldown enforcement (prevents rapid successive reports)
-- Declaration acceptance required before submission
+- `submit_remaining_items_report(project, report_date, items)`: saves the Update Inventory count. Only today's
+  date is accepted. Creates the report, or replaces the child rows of today's report. `items` may be empty
+  (`[]`, "nothing to count"). An empty submit whose latest Submitted report is also empty moves that report to
+  today instead of adding another. Returns `{status, name, action: "created" | "updated"}`.
+- `get_latest_remaining_quantities(project, include_reservations=False)`: the latest Submitted report's
+  quantities, keyed `{category}_{item_id}`, less ITMs dispatched since it was saved. With
+  `include_reservations`, also less Approved ITMs. `items` is `{}` for an empty report.
+- `get_remaining_reports_for_project(project, limit=5)`: last N Submitted reports with rows (Inventory Report →
+  History).
+- `get_today_report_for_project(project)`: `{exists, name, status, items, ...}` for today's report.
+- The declaration step is screen-only (`DeclarationDialog.tsx`); the server doesn't record it.
 
 ### Design Tracker (`api/design_tracker/`)
 - `get_task_wise_list.py` - Task-centric queries with designer/status/phase filtering
@@ -102,6 +112,12 @@ Rules and who may call what: [domain/assets.md](domain/assets.md).
 - `delivery_notes/` - Delivery note updates (includes `uploaded_by` validation for Administrator)
 - `vendor/` - Vendor-specific data (POs, invoices)
 - `customers/` - Customer financials
+  - `customer_ledger.get_customer_ledger_data(customer_id)` - Customer page Ledger tab; its row builder
+    `receivable_ledger(filters)` is shared with the project's Project Ledger, so the two never disagree
+- `milestone/` - DPR (Project Progress Reports) helpers
+  - `dpr_draft_deletion.get_dpr_draft_deletion(report_name)` - read-only: whether a DPR still exists
+    (`report_status`), else who deleted it and when, from Frappe's `Deleted Document` log; feeds the DPR
+    editor's "This draft was deleted" dialog
 - `target_rates/` - Historical rate lookups
 - `data_table/search.py` - Data aggregation (sorting support prepared but not yet enabled; requires explicit field selection)
 

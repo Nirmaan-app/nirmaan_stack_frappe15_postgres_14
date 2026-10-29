@@ -1,5 +1,5 @@
 import type { ElementType } from "react";
-import { FileDown, ClipboardList, Receipt, Truck, ClipboardCheck, FileText, ReceiptText, Wallet, BadgeCheck, Banknote } from "lucide-react";
+import { FileDown, ClipboardList, Receipt, Truck, ClipboardCheck, FileText, ReceiptText, Wallet, BadgeCheck, Banknote, Package } from "lucide-react";
 import { BulkDocType } from "./bulkDownloadTypes";
 
 /**
@@ -17,4 +17,5 @@ export const TYPE_STYLE: Record<BulkDocType, { icon: ElementType; iconBg: string
     ClientInvoice: { icon: ReceiptText, iconBg: "bg-indigo-50 group-hover:bg-indigo-100", iconColor: "text-indigo-600" },
     POPaymentVoucher: { icon: Banknote, iconBg: "bg-lime-50 group-hover:bg-lime-100", iconColor: "text-lime-700" },
     WOPaymentVoucher: { icon: Wallet, iconBg: "bg-amber-50 group-hover:bg-amber-100", iconColor: "text-amber-600" },
+    PorterInvoice: { icon: Package, iconBg: "bg-sky-50 group-hover:bg-sky-100", iconColor: "text-sky-600" },
 };

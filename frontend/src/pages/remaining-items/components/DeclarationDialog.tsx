@@ -116,6 +116,13 @@ export const DeclarationDialog: React.FC<DeclarationDialogProps> = ({
                 </tr>
               </thead>
               <tbody>
+                {groupedEntries.length === 0 ? (
+                  <tr>
+                    <td colSpan={2} className="py-3 px-3 text-center text-muted-foreground">
+                      No items to count
+                    </td>
+                  </tr>
+                ) : null}
                 {groupedEntries.map((group) => (
                   <React.Fragment key={group.category}>
                     <tr className="border-b border-border/50">

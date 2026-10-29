@@ -7455,6 +7455,11 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
    (`statement_file`). ⚠️ `card_upload.stage` inserts the batch WITHOUT `source_file` and writes it raw after
    the statement is inserted: Frappe's Attach hook (`attach_files_to_document`) would otherwise attach the
    File to the batch and then COPY it for the statement — two Files for one PDF.
+   **A password-locked PDF** (ADR-0039 Amendment A, 2026-10-27): the optional `password` form field is popped
+   by `card_upload.read_password` and opens the PDF in memory (`card_pdf.statement_text`); the stored File is
+   `card_pdf.unlocked_copy` (no encryption). ⚠️ The two refusals (`PASSWORD_NEEDED`, `WRONG_PASSWORD`) are what
+   make the dialog show its PDF password field (`creditCardImport.cardAsksForPassword`), pinned word for word
+   against `card_pdf.py` by `creditCardImport.test.ts`: reword them on both sides together.
 6. **Staging.** Spend: `Pending match run`, `direction` Debit, `match_basis` `card statement` (a new
    `Outflow Row Match.match_basis` option), `suggested_doctype` `Non Project Expenses`, `auto_matched` 1,
    `suggested_expense_type` *Misc. Expenses* with `type_source` Fallback (#1568; #1569's suggestion job

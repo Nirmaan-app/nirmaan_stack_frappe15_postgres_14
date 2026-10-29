@@ -364,7 +364,7 @@ doc_events = {
         "validate": "nirmaan_stack.integrations.controllers.work_order_items.refuse_saving_an_item_row_alone",
         "on_trash": "nirmaan_stack.integrations.controllers.work_order_items.refuse_deleting_an_item_row_alone",
     },
-    # A generated invoice is made only by Generate and never deleted (#1546).
+    # A generated invoice is made only by Generate and deleted only in the app (#1546).
     "WO Generated Invoice": {
         "before_insert": "nirmaan_stack.integrations.controllers.wo_generated_invoice.refuse_insert_outside_generate",
         "on_trash": "nirmaan_stack.integrations.controllers.wo_generated_invoice.refuse_delete",
@@ -394,9 +394,6 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.service_requests.on_update",
         ]
     },
-    "Project Estimates" : {
-        "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
-    },
     # `invoice_amount` on the parent PO / SR is maintained HERE, on the doctype,
     # not by hand-placed calls in the invoice endpoints — three of the nine ways an
     # invoice changes run no application code (the backfill patch, the legacy
@@ -408,12 +405,12 @@ doc_events = {
         # TWICE per saved invoice. on_update alone covers insert.
         # Who may approve, reject or edit a Work Order invoice (#1531, ADR-0014 Amendment A).
         "validate": "nirmaan_stack.integrations.controllers.vendor_invoices.guard_work_order_invoice",
-        # A generated invoice's Vendor Invoice moves its record, and is never deleted (#1547).
+        # A generated invoice's Vendor Invoice moves its record (#1547), and its delete deletes the record too.
         "on_update": [
             "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
             "nirmaan_stack.integrations.controllers.vendor_invoices.follow_generated_invoice",
         ],
-        "on_trash": "nirmaan_stack.integrations.controllers.vendor_invoices.refuse_deleting_generated_invoice",
+        "on_trash": "nirmaan_stack.integrations.controllers.vendor_invoices.delete_generated_invoice_with_it",
         "after_delete": "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
     },
     # A refund lowers its PO's / WO's `amount_paid` (Paid payments LESS refunds). `on_update` covers

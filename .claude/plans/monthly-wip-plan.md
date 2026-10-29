@@ -214,6 +214,10 @@ rebalance and no export-shape change. Only what three numbers *mean* changed.
 `actual_inventory` was "active Mondays covered by a report dated exactly that Monday". It is now
 a plain **COUNT of `Remaining Items Report` documents whose `report_date` falls in the month**.
 
+- **A project with no countable items keeps ONE empty report (owner, 2026-10-28):** each empty submit after an
+  empty report moves that report's `report_date` to today (`submit_remaining_items_report`). It counts only in
+  the month of its latest date, so such a project shows `Actual` ≤ 1 and is Missing most weeks. The owner
+  accepted this.
 - **`Expected` is unchanged** (active Mondays — the weekly cadence expectation).
 - **`Missing` = `max(0, Expected − Actual)`.** ⚠️ **The clamp is load-bearing, not cosmetic** —
   `Actual` is now unbounded and exceeds `Expected` on live data (Alorica Jun-2026: 5 active

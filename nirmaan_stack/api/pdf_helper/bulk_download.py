@@ -9,6 +9,8 @@ from pypdf import PdfWriter, PdfReader
 from nirmaan_stack.api.pdf_helper.po_print import merge_pdfs
 from nirmaan_stack.api.frappe_s3_attachment import get_s3_temp_url
 from nirmaan_stack.api.material_test_certificates.mtc_api import mtc_allowed_projects
+from nirmaan_stack.api.pdf_helper.porter_invoices import porter_invoice_files
+from nirmaan_stack.services.role_profiles import assert_reports_bulk_download_access
 from PIL import Image
 
 def _merge_content(merger, content, name):
@@ -125,9 +127,17 @@ def ensure_temp_dir():
         os.makedirs(temp_dir)
 
 
-# A bulk download covers one project (the project page's tab) or one vendor (the vendor page's
-# tab). Every endpoint takes both keywords and needs exactly one of them.
+# A bulk download covers one project (the project page's tab), one vendor (the vendor page's tab)
+# or -- for the "Selected" endpoints only -- EVERY project the user may read (Reports > Bulk
+# Download, `all_scope=1`). Every endpoint takes `project` and `vendor` and needs exactly one of
+# them, unless `all_scope` is set, which takes neither.
 SCOPE_LABEL = {"project": ("Projects", "project_name"), "vendor": ("Vendors", "vendor_name")}
+ALL_SCOPE_LABEL = "All_Projects"
+# Reports > Bulk Download lists every project, so one download is capped: a PO voucher takes ~1.6 s,
+# and 500 of them (~13 min) still finish well inside the all-scope job's timeout below. The
+# browser holds the same number (`ALL_SCOPE_MAX_ITEMS` in `utils/bulkDownload/bulkDownloadTypes.ts`).
+ALL_SCOPE_MAX_ITEMS = 500
+ALL_SCOPE_TIMEOUT_SECONDS = 60 * 60
 
 # WO payments carry an UPLOADED voucher; PO payments have none, so theirs is GENERATED from the print
 # format the PO page's own voucher button uses (for Paid payments only, as there).
@@ -135,8 +145,10 @@ WO_PAYMENT_VOUCHERS = "WO Payment Vouchers"
 PO_PAYMENT_VOUCHERS = "PO Payment Vouchers"
 VOUCHER_PRINT_FORMAT = "SR Payment"
 MTCS = "MTCs"
+# Report Bulk Download only: each Porter Invoice's own PDF (one PDF covers many trips), read back by invoice number.
+PORTER_INVOICES = "Porter Invoices"
 # Types downloaded by RECORD name: the job reads each file back itself, so the file-URL endpoint refuses them.
-READ_BACK_TYPES = (WO_PAYMENT_VOUCHERS, PO_PAYMENT_VOUCHERS, MTCS)
+READ_BACK_TYPES = (WO_PAYMENT_VOUCHERS, PO_PAYMENT_VOUCHERS, MTCS, PORTER_INVOICES)
 
 # A generated voucher takes ~1.6 s, so the biggest project's 451 paid PO payments take ~12 min: too
 # close to the `long` queue's 25-minute limit on a busy server. A job killed at the limit publishes
@@ -160,8 +172,19 @@ DELIVERY_DOC_TYPES = {
 }
 
 
-def _scope(project=None, vendor=None):
-    """-> (filter field, id, display name used in the file name)."""
+def _is_all_scope(all_scope):
+    """The `all_scope` flag as sent by a form ("1") or a test (1 / True); "0", "false" and "" are off."""
+    return str(all_scope or "").strip().lower() in ("1", "true", "yes")
+
+
+def _scope(project=None, vendor=None, all_scope=None):
+    """-> (filter field, id, display name used in the file name). The all scope is `(None, None, "All_Projects")`,
+    for Admin / Accountant (+ Lead) only -- checked here, so every all-scope endpoint AND the job refuse anyone else."""
+    if _is_all_scope(all_scope):
+        if project or vendor:
+            frappe.throw("A download across all projects takes no project or vendor.")
+        assert_reports_bulk_download_access(frappe.session.user)
+        return None, None, ALL_SCOPE_LABEL
     if bool(project) == bool(vendor):
         frappe.throw("Pass exactly one of project or vendor.")
     field, value = ("project", project) if project else ("vendor", vendor)
@@ -169,9 +192,14 @@ def _scope(project=None, vendor=None):
     return field, value, frappe.db.get_value(doctype, value, name_field) or value
 
 
+def _scope_filter(field, value):
+    """The scope's own filter -- none for the all scope, whose limit is the user's permissions."""
+    return {field: value} if field else {}
+
+
 def _reader(field):
-    """Project scope reads with `get_all`, as it always has. Vendor scope reads with `get_list` as
-    the user: a vendor's documents span projects, and a user held to some projects by User
+    """Project scope reads with `get_all`, as it always has. Vendor scope and the all scope read with
+    `get_list` as the user: their documents span projects, and a user held to some projects by User
     Permission must not get the others' files -- fetching an attachment checks nothing."""
     return frappe.get_all if field == "project" else frappe.get_list
 
@@ -214,7 +242,7 @@ def _wo_voucher_files(field, value, names=None):
     """The uploaded voucher of each paid WO payment in scope -- only the given payments when
     `names` is passed. Read with `get_list` in both scopes, so a user only gets payments they may
     read, and a payment whose voucher was removed after the list loaded is simply skipped."""
-    filters = {field: value, "document_type": "Service Requests", "status": "Paid", "voucher_attachment": ["is", "set"]}
+    filters = {**_scope_filter(field, value), "document_type": "Service Requests", "status": "Paid", "voucher_attachment": ["is", "set"]}
     if names is not None:
         if not names:
             return []
@@ -228,7 +256,7 @@ def _po_voucher_payments(field, value, names=None):
     `names` is passed, oldest payment first. Only Paid: a voucher is the proof of a payment made,
     and the PO page offers it for Paid payments only. Read with `get_list` in both scopes, so a
     selected payment of another scope, or one no longer Paid, is simply dropped."""
-    filters = {field: value, "document_type": "Procurement Orders", "status": "Paid"}
+    filters = {**_scope_filter(field, value), "document_type": "Procurement Orders", "status": "Paid"}
     if names is not None:
         if not names:
             return []
@@ -240,7 +268,7 @@ def _mtc_files(field, value, names=None):
     """The file of each Material Test Certificate in scope, oldest certificate first -- only the
     given ones when `names` is passed. Read with `get_list` (the user's permissions) AND the MTC
     page's own project rule: a PM / PL sees only their assigned projects, none assigned = nothing."""
-    filters = {field: value, "attachment": ["is", "set"]}
+    filters = {**_scope_filter(field, value), "attachment": ["is", "set"]}
     allowed = mtc_allowed_projects(frappe.session.user)
     if allowed is not None:
         if not allowed or (field == "project" and value not in allowed):
@@ -285,15 +313,21 @@ def _is_cancelled(user, download_id):
     return bool(download_id) and bool(frappe.cache.exists(_cancel_key(user, download_id)))
 
 
-def _require_selection(value, noun):
+def _require_selection(value, noun, scope=None):
     """A "Selected" download needs at least one item: an empty list must never reach the job,
-    where leaving the list out means "download everything"."""
+    where leaving the list out means "download everything". The all scope also takes at most
+    `ALL_SCOPE_MAX_ITEMS`; a project or vendor keeps no limit, as before."""
     try:
         items = json.loads(value) if isinstance(value, str) else value
     except ValueError:
         items = None
     if not isinstance(items, list) or not items:
         frappe.throw(f"Select at least one {noun} to download.")
+    if scope is not None and scope[0] is None and len(items) > ALL_SCOPE_MAX_ITEMS:
+        frappe.throw(
+            f"One download takes up to {ALL_SCOPE_MAX_ITEMS} items; {len(items)} were selected. "
+            "Narrow the list with the Project, Vendor or Date filters."
+        )
 
 
 def _enqueue(scope, doc_type, file_part, download_id=None, **job_kwargs):
@@ -306,8 +340,9 @@ def _enqueue(scope, doc_type, file_part, download_id=None, **job_kwargs):
         custom_filename=f"{label}_{file_part}.pdf",
         download_id=download_id,
         queue="long",
-        timeout=JOB_TIMEOUT_SECONDS.get(doc_type),
-        **{field: value},
+        # The all scope can carry 500 heavy documents of any type, so it always gets the long timeout.
+        timeout=ALL_SCOPE_TIMEOUT_SECONDS if field is None else JOB_TIMEOUT_SECONDS.get(doc_type),
+        **({field: value} if field else {"all_scope": 1}),
         **job_kwargs,
     )
     return {"message": "Job enqueued", "download_id": download_id}
@@ -325,59 +360,70 @@ def cancel_bulk_download(download_id):
 
 
 @frappe.whitelist()
-def download_selected_pos(names, with_rate=1, project=None, vendor=None, download_id=None):
-    scope = _scope(project, vendor)
-    _require_selection(names, "PO")
+def download_selected_pos(names, with_rate=1, project=None, vendor=None, download_id=None, all_scope=None):
+    scope = _scope(project, vendor, all_scope)
+    _require_selection(names, "PO", scope)
     return _enqueue(scope, "PO", "Selected_POs", download_id, names=names, with_rate=with_rate)
 
 
 @frappe.whitelist()
-def download_selected_wos(names, with_rate=1, project=None, vendor=None, download_id=None):
-    scope = _scope(project, vendor)
-    _require_selection(names, "WO")
+def download_selected_wos(names, with_rate=1, project=None, vendor=None, download_id=None, all_scope=None):
+    scope = _scope(project, vendor, all_scope)
+    _require_selection(names, "WO", scope)
     return _enqueue(scope, "WO", "Selected_WOs", download_id, names=names, with_rate=with_rate)
 
 
 @frappe.whitelist()
-def download_selected_dns(names, project=None, vendor=None, download_id=None):
-    scope = _scope(project, vendor)
-    _require_selection(names, "DN")
+def download_selected_dns(names, project=None, vendor=None, download_id=None, all_scope=None):
+    scope = _scope(project, vendor, all_scope)
+    _require_selection(names, "DN", scope)
     return _enqueue(scope, "DN", "Selected_DNs", download_id, names=names)
 
 
 @frappe.whitelist()
-def download_selected_wo_payment_vouchers(names, project=None, vendor=None, download_id=None):
+def download_selected_wo_payment_vouchers(names, project=None, vendor=None, download_id=None, all_scope=None):
     # Takes PAYMENT names, not file URLs: the job reads each voucher back itself (`_wo_voucher_files`).
-    scope = _scope(project, vendor)
-    _require_selection(names, "payment")
+    scope = _scope(project, vendor, all_scope)
+    _require_selection(names, "payment", scope)
     return _enqueue(scope, WO_PAYMENT_VOUCHERS, "Selected_WO_Payment_Vouchers", download_id, names=names)
 
 
 @frappe.whitelist()
-def download_selected_po_payment_vouchers(names, project=None, vendor=None, download_id=None):
+def download_selected_po_payment_vouchers(names, project=None, vendor=None, download_id=None, all_scope=None):
     # Takes PAYMENT names: the job keeps the Paid PO payments in scope (`_po_voucher_payments`)
     # and generates each one's voucher.
-    scope = _scope(project, vendor)
-    _require_selection(names, "payment")
+    scope = _scope(project, vendor, all_scope)
+    _require_selection(names, "payment", scope)
     return _enqueue(scope, PO_PAYMENT_VOUCHERS, "Selected_PO_Payment_Vouchers", download_id, names=names)
 
 
 @frappe.whitelist()
-def download_selected_mtcs(names, project=None, vendor=None, download_id=None):
+def download_selected_mtcs(names, project=None, vendor=None, download_id=None, all_scope=None):
     # Takes MTC names (keys only, never shown to users), not file URLs: the job reads each
     # certificate back itself (`_mtc_files`).
-    scope = _scope(project, vendor)
-    _require_selection(names, "certificate")
+    scope = _scope(project, vendor, all_scope)
+    _require_selection(names, "certificate", scope)
     return _enqueue(scope, MTCS, "Selected_MTCs", download_id, names=names)
 
 
 @frappe.whitelist()
-def download_selected_attachments(attachment_names, doc_type, project=None, vendor=None, download_id=None):
-    scope = _scope(project, vendor)
+def download_selected_porter_invoices(names, download_id=None, all_scope=None):
+    # Report Bulk Download only (Porter invoices belong to no project or vendor). Takes INVOICE NUMBERS: the
+    # job reads each invoice's PDF back itself (`porter_invoice_files`), never a file link from the browser.
+    if not _is_all_scope(all_scope):
+        frappe.throw("Porter invoices are downloaded from Report Bulk Download only.")
+    scope = _scope(all_scope=all_scope)
+    _require_selection(names, "invoice", scope)
+    return _enqueue(scope, PORTER_INVOICES, "Selected_Porter_Invoices", download_id, names=names)
+
+
+@frappe.whitelist()
+def download_selected_attachments(attachment_names, doc_type, project=None, vendor=None, download_id=None, all_scope=None):
+    scope = _scope(project, vendor, all_scope)
     _check_doc_type(scope[0], doc_type)
     if doc_type in READ_BACK_TYPES:
         frappe.throw(f"{doc_type} are downloaded by record, not by file link.")
-    _require_selection(attachment_names, "document")
+    _require_selection(attachment_names, "document", scope)
     return _enqueue(scope, doc_type, f"Selected_{doc_type.replace(' ', '_')}", download_id, attachment_names=attachment_names)
 
 
@@ -410,7 +456,7 @@ def download_project_attachments(doc_type, project=None, vendor=None, download_i
     return _enqueue(scope, doc_type, f"All_{doc_type.replace(' ', '_')}", download_id)
 
 
-def run_bulk_download_job(doc_type, project=None, vendor=None, names=None, attachment_names=None, with_rate=1, user=None, custom_filename=None, download_id=None):
+def run_bulk_download_job(doc_type, project=None, vendor=None, names=None, attachment_names=None, with_rate=1, user=None, custom_filename=None, download_id=None, all_scope=None):
     """
     Worker: build one merged PDF and announce it. It never ends silently -- every way out
     publishes `bulk_download_failed` (or the file), stamped with `download_id`, so the progress
@@ -422,7 +468,7 @@ def run_bulk_download_job(doc_type, project=None, vendor=None, names=None, attac
         frappe.publish_realtime(event, {**data, "download_id": download_id}, user=user)
 
     try:
-        _build_and_announce(publish, doc_type, project, vendor, names, attachment_names, with_rate, user, custom_filename, download_id)
+        _build_and_announce(publish, doc_type, project, vendor, names, attachment_names, with_rate, user, custom_filename, download_id, all_scope)
     except frappe.PermissionError:
         publish("bulk_download_failed", {"message": f"You do not have access to these {doc_type}."})
     except Exception:
@@ -432,15 +478,21 @@ def run_bulk_download_job(doc_type, project=None, vendor=None, names=None, attac
         publish("bulk_download_failed", {"message": "The download failed. Please try again."})
 
 
-def _build_and_announce(publish, doc_type, project, vendor, names, attachment_names, with_rate, user, custom_filename, download_id):
+def _build_and_announce(publish, doc_type, project, vendor, names, attachment_names, with_rate, user, custom_filename, download_id, all_scope=None):
     ensure_temp_dir()
-    field, value, label = _scope(project, vendor)
+    field, value, label = _scope(project, vendor, all_scope)
 
     if isinstance(names, str): names = json.loads(names)
     if isinstance(attachment_names, str): attachment_names = json.loads(attachment_names)
     if isinstance(with_rate, str): with_rate = with_rate.lower() in ("true", "1", "yes")
 
     if _is_cancelled(user, download_id):
+        return
+
+    # The all scope only ever downloads a selection: with no list, the resolution below would mean
+    # every document of every project.
+    if field is None and names is None and attachment_names is None:
+        publish("bulk_download_failed", {"message": "Select the documents to download."})
         return
 
     # Resolve the document list. Only a "download all" leaves both lists out; an explicit empty
@@ -454,6 +506,10 @@ def _build_and_announce(publish, doc_type, project, vendor, names, attachment_na
     elif doc_type == MTCS:
         # The selected certificates (or all of them) -> their files, oldest certificate first.
         attachment_names, names = _mtc_files(field, value, names), None
+    elif doc_type == PORTER_INVOICES:
+        # The selected invoices -> each one's own PDF, once, oldest invoice date first. All scope only: a
+        # project or vendor run merges nothing (the guard above already refused an all-scope run without a list).
+        attachment_names, names = (porter_invoice_files(names or []) if field is None else []), None
     elif names is None and attachment_names is None:
         if doc_type in ALL_DOC_FILTERS:
             names = _all_doc_names(doc_type, field, value)

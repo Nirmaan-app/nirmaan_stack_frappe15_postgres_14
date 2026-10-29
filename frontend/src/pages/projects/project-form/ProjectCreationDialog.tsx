@@ -1,4 +1,4 @@
-import { CheckCircle2, Loader2, FolderPlus, Users, CirclePlus, Undo2, BadgeIndianRupee, ClipboardList, PenTool, ListChecks, FileText } from "lucide-react";
+import { CheckCircle2, Loader2, FolderPlus, Users, CirclePlus, Undo2, ClipboardList, PenTool, ListChecks, FileText } from "lucide-react";
 import {
     AlertDialog,
     AlertDialogContent,
@@ -23,7 +23,6 @@ interface ProjectCreationDialogProps {
     errorMessage?: string;
     onGoBack: () => void;
     onCreateNew: () => void;
-    onAddEstimates: () => void;
     onAddCustomerPO: () => void;
 }
 
@@ -88,7 +87,6 @@ export const ProjectCreationDialog: React.FC<ProjectCreationDialogProps> = ({
     errorMessage,
     onGoBack,
     onCreateNew,
-    onAddEstimates,
     onAddCustomerPO,
 }) => {
     const isCreatingProject = stage === "creating_project";
@@ -142,7 +140,7 @@ export const ProjectCreationDialog: React.FC<ProjectCreationDialogProps> = ({
                                             assigned
                                         </span>
                                     )}
-                                    . You can now start adding project estimates.
+                                    .
                                 </p>
                             ) : isError ? (
                                 <p className="text-sm text-red-600">
@@ -218,17 +216,10 @@ export const ProjectCreationDialog: React.FC<ProjectCreationDialogProps> = ({
                         </AlertDialogAction>
                         <AlertDialogAction
                             onClick={onAddCustomerPO}
-                            className="bg-sky-500 hover:bg-sky-600 text-white flex items-center justify-center gap-2"
+                            className="sm:col-span-2 bg-sky-500 hover:bg-sky-600 text-white flex items-center justify-center gap-2"
                         >
                             <FileText className="h-4 w-4" />
                             Add Customer PO
-                        </AlertDialogAction>
-                        <AlertDialogAction
-                            onClick={onAddEstimates}
-                            className="bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center gap-2"
-                        >
-                            <BadgeIndianRupee className="h-4 w-4" />
-                            Add Estimates
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 )}

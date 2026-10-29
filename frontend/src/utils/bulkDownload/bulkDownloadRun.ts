@@ -32,7 +32,7 @@ export interface DownloadRun {
 const FAILED_FALLBACK = "The download failed. Please try again.";
 
 /** These types merge uploaded files; the rest render one document per record. */
-const FILE_TYPES: readonly BulkDocType[] = ["Invoice", "DC", "MIR", "MTC", "ClientInvoice", "WOPaymentVoucher"];
+const FILE_TYPES: readonly BulkDocType[] = ["Invoice", "DC", "MIR", "MTC", "ClientInvoice", "WOPaymentVoucher", "PorterInvoice"];
 
 export const isWorking = (status: DownloadRunStatus) => status === "queued" || status === "preparing" || status === "merging";
 
