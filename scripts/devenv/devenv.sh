@@ -4,10 +4,10 @@
 #
 #   ./devenv.sh template-build        copy the dev DB into template "nirmaan_tpl" (online, no restart)
 #   ./devenv.sh template-drop         delete the template
-#   ./devenv.sh create <task> [ref] [--branch <name>]
-#                                     worktree at benches/<task>/apps/nirmaan_stack at ref (default: HEAD
-#                                     of the checkout you run it from), detached or on new branch <name>;
-#                                     site t-<task>.localhost, DB t_<task>
+#   ./devenv.sh create <task> [ref] [--branch <name> | --on <branch>]
+#                                     worktree at benches/<task>/apps/nirmaan_stack at ref (default: HEAD of the
+#                                     checkout you run it from), detached, on new branch <name>, or on existing
+#                                     branch <branch> (e.g. one handoff.sh brought); site t-<task>.localhost, DB t_<task>
 #   ./devenv.sh up                    run inside any existing worktree under development/ (e.g. one
 #                                     Claude Code made in .claude/worktrees/): give it its own env
 #   ./devenv.sh unit <module> [...]   pure tests with plain unittest: no env, no site, no DB. Run it inside any
@@ -611,15 +611,22 @@ case "$CMD" in
     inside "$CMD" ;;
   create)
     check_task "${1:-}"; shift
-    BRANCH=""; REF=""
+    BRANCH=""; REF=""; ON=""
     while [ $# -gt 0 ]; do
-      case "$1" in --branch) BRANCH="${2:?--branch needs a name}"; shift 2 ;; *) REF="$1"; shift ;; esac
+      case "$1" in
+        --branch) BRANCH="${2:?--branch needs a name}"; shift 2 ;;
+        --on) ON="${2:?--on needs a branch}"; shift 2 ;;
+        *) REF="$1"; shift ;;
+      esac
     done
+    [ -n "$ON" ] && { [ -z "$BRANCH$REF" ] || die "--on takes no ref and no --branch"; }
     REF="${REF:-$(git rev-parse HEAD 2>/dev/null || git -C "$MAIN_GIT" rev-parse HEAD)}"
     [ -e "$B" ] && die "$B already exists"
     preflight
     mkdir -p "$B/apps"
-    if [ -n "$BRANCH" ]; then
+    if [ -n "$ON" ]; then     # an existing branch, e.g. one handoff.sh brought: commits land on it
+      git -C "$MAIN_GIT" worktree add "$B/apps/nirmaan_stack" "$ON"
+    elif [ -n "$BRANCH" ]; then
       git -C "$MAIN_GIT" worktree add -b "$BRANCH" "$B/apps/nirmaan_stack" "$REF"
     else
       git -C "$MAIN_GIT" worktree add --detach "$B/apps/nirmaan_stack" "$REF"
@@ -629,7 +636,7 @@ case "$CMD" in
     rel="$(python3 -c 'import os,sys;print(os.path.relpath(sys.argv[1],sys.argv[2]))' "$wt" "$B/apps/nirmaan_stack")"
     echo "gitdir: $rel" > "$B/apps/nirmaan_stack/.git"
     inside create "$TASK" "$(reserve_slot)"
-    echo "Ready. Worktree: $B/apps/nirmaan_stack${BRANCH:+ (branch $BRANCH)}   Site: $SITE   DB: $DB"
+    echo "Ready. Worktree: $B/apps/nirmaan_stack${BRANCH:+ (branch $BRANCH)}${ON:+ (on branch $ON)}   Site: $SITE   DB: $DB"
     echo "Test:  $0 test $TASK --module nirmaan_stack.<path>.test_<x>"
     ;;
   up)
