@@ -63,7 +63,7 @@ set -euo pipefail
 
 CONTAINER="${DEVENV_CONTAINER:-frappe_docker_devcontainer-frappe-1}"
 TPL_DB="nirmaan_tpl"
-SHARED_APPS="frappe doppio frappe_types frappe_s3_attachment frappe_gcp_attachment"
+SHARED_APPS="frappe doppio frappe_gcp_attachment"
 export PGHOST=postgresql PGUSER=postgres PGPASSWORD=123
 
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -342,14 +342,13 @@ if [ "${1:-}" = "_in" ]; then
       cp "$M/sites/apps.txt" "$B/sites/"
       cp "$M"/sites/assets/assets*.json "$B/sites/assets/"
       ln -sfn "$M/apps/frappe/frappe/public" "$B/sites/assets/frappe"
-      ln -sfn "$M/apps/frappe_types/frappe_types/public" "$B/sites/assets/frappe_types"
       ln -sfn "$B/apps/nirmaan_stack/nirmaan_stack/public" "$B/sites/assets/nirmaan_stack"
       PW="$(python3 -c 'import secrets;print(secrets.token_hex(12))')"
       python3 - "$M" "$B" "$TASK" "$SITE" "$DB" "$PW" "$SLOT" <<'PY'
 import json, sys
 m, b, task, site, db, pw, slot = sys.argv[1:]; slot = int(slot)
 common = json.load(open(f"{m}/sites/common_site_config.json"))
-common.update(bench_id=f"task-{task}", default_site=site, pause_scheduler=1, frappe_types_pause_generation=1)
+common.update(bench_id=f"task-{task}", default_site=site, pause_scheduler=1)
 if slot:  # slot 0 = test-only env: no web ports of its own
     common.update(webserver_port=8000 + slot, socketio_port=9000 + slot, file_watcher_port=6787 + slot)
 json.dump(common, open(f"{b}/sites/common_site_config.json", "w"), indent=1)
@@ -449,7 +448,8 @@ for url, pat in (("redis://redis-queue:6379", f"task-{task}:*"), ("redis://redis
     print(f"  redis {url.split('//')[1]}: removed {len(keys)} keys matching {pat}")
 PY
       rm -rf "$B/sites" "$B/logs" "$B/config" "$B/env" "$B/Procfile" "$B/.vite-cache" "$B/tmp"
-      for a in $SHARED_APPS; do rm -f "$B/apps/$a"; done
+      # Every shared-app link, including those of an app the bench has since dropped.
+      find "$B/apps" -maxdepth 1 -type l ! -name nirmaan_stack -delete
       took "dropped DB/role, cleared redis, removed bench files"
       ;;
     unit)
