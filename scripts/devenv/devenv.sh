@@ -54,24 +54,34 @@
 # phone push tokens cleared, outgoing mail off, uploads kept on local disk instead of the production bucket. It also
 # gives every enabled user with a Nirmaan Users row a Notification Settings row (without one the SPA goes blank).
 #
-# Runs on the Mac. Git steps run here; everything else re-runs this file inside the container.
+# Runs on the host (Mac or Linux VM). Git steps run there; everything else re-runs this file inside the container.
 # The main bench (frappe-bench/, site localhost, its DB) is only ever read, never written.
 # Undo everything: see benches/REVERT.md.
 # The whole body sits in { ... } so bash parses it before running: editing this file mid-run is safe.
 {
 set -euo pipefail
 
-CONTAINER="frappe_docker_devcontainer-frappe-1"
+CONTAINER="${DEVENV_CONTAINER:-frappe_docker_devcontainer-frappe-1}"
 TPL_DB="nirmaan_tpl"
 SHARED_APPS="frappe doppio frappe_types frappe_s3_attachment frappe_gcp_attachment"
 export PGHOST=postgresql PGUSER=postgres PGPASSWORD=123
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
+die() { echo "ERROR: $*" >&2; exit 1; }
+
+# This file lives in the app repo (scripts/devenv/), so any checkout under the dev root carries it. The dev root is
+# frappe_docker/development: the first folder above this file that holds the main bench, or $DEVENV_ROOT.
+SELF_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+find_dev_root() {
+  local d="$SELF_DIR"
+  while [ "$d" != / ]; do [ -d "$d/frappe-bench/apps/frappe" ] && { echo "$d"; return 0; }; d="$(dirname "$d")"; done
+  return 1
+}
+HERE="${DEVENV_ROOT:-$(find_dev_root)}" || die "no frappe-bench/ above $SELF_DIR: run this from a checkout under frappe_docker/development, or set DEVENV_ROOT"
+SELF_REL="${SELF_DIR#"$(cd "$HERE" && pwd -P)"/}/$(basename "$0")"   # this file's path under the dev root
 M="$HERE/frappe-bench"                          # main bench
 BENCHES="$HERE/benches"
 MAIN_GIT="$HERE/nirmaan_stack_variants/master"  # any worktree of the repo works for `git worktree`
 
-die() { echo "ERROR: $*" >&2; exit 1; }
 t0=$(date +%s); took() { echo "  [$(( $(date +%s) - t0 ))s] $*"; }
 
 check_task() {
@@ -83,11 +93,11 @@ in_container() { [ -f /.dockerenv ]; }
 
 # Re-run this script inside the container with the same arguments, prefixed by "_in".
 inside() {
-  docker exec -i -e WALK_VITE_PORTS="${WALK_VITE_PORTS:-}" "$CONTAINER" bash /workspace/development/devenv.sh _in "$@"
+  docker exec -i -e WALK_VITE_PORTS="${WALK_VITE_PORTS:-}" "$CONTAINER" bash "/workspace/development/$SELF_REL" _in "$@"
 }
 
-# The vite ports Docker publishes to the Mac (8081-8089). Each one is a walk lane. The container cannot see the
-# Mac's port map, so the Mac side reads it and passes it in.
+# The vite ports Docker publishes to the host (8081-8089). Each one is a walk lane. The container cannot see the
+# host's port map, so the host side reads it and passes it in.
 published_vite_ports() {
   docker port "$CONTAINER" 2>/dev/null | grep -oE '^808[1-9]' | sort -un | tr '\n' ' '
 }
@@ -540,8 +550,8 @@ PY
   exit 0
 fi
 
-# ---------------------------------------------------------------- on the Mac
-in_container && die "run this on the Mac, not inside the container"
+# ---------------------------------------------------------------- on the host
+in_container && die "run this on the host, not inside the container"
 
 reserve_slot() {   # claim the first unused web-port slot 2..5 for $B (0 = test-only) and print it
   local lock="$BENCHES/.slot.lock" used s n=0
@@ -626,7 +636,7 @@ case "$CMD" in
   affected)
     [ $# -eq 1 ] || die "give a base ref, e.g. $0 affected spec/1470"
     WT="$(git rev-parse --show-toplevel 2>/dev/null)" || die "run 'affected' from inside a checkout or worktree"
-    python3 -I "$HERE/devenv_affected.py" "$(cd "$WT" && pwd -P)" "$1" ;;
+    python3 -I "$SELF_DIR/devenv_affected.py" "$(cd "$WT" && pwd -P)" "$1" ;;
   unit|vitest|typecheck)
     [ "$CMD" != unit ] || [ $# -gt 0 ] || die "give a module, e.g. $0 unit nirmaan_stack.services.test_approval_tiers"
     WT="$(git rev-parse --show-toplevel 2>/dev/null)" || die "run '$CMD' from inside a checkout or worktree"
@@ -638,13 +648,13 @@ case "$CMD" in
     pick_task "$@"; [ "$PICKED_FROM_ARG" = 1 ] && shift
     [ -d "$B/sites" ] || die "no env named $TASK"
     if [ "$CMD" = test ]; then
-      # --affected <base>: expand here, on the Mac, where git works for every worktree.
+      # --affected <base>: expand here, on the host, where git works for every worktree.
       ARGS=(); AFFECTED=0
       while [ $# -gt 0 ]; do
         case "$1" in
           --affected)
             AFFECTED=1
-            mods="$(python3 -I "$HERE/devenv_affected.py" "$(cd "$B/apps/nirmaan_stack" && pwd -P)" "${2:?--affected needs a base ref}")" \
+            mods="$(python3 -I "$SELF_DIR/devenv_affected.py" "$(cd "$B/apps/nirmaan_stack" && pwd -P)" "${2:?--affected needs a base ref}")" \
               || exit 1
             for m in $mods; do ARGS+=(--module "$m"); done; shift 2 ;;
           *) ARGS+=("$1"); shift ;;
