@@ -4,6 +4,38 @@ Changes made by AI coding assistants (Claude Code / Gemini).
 
 ---
 
+## 2026-10-30: Work Order invoice check — nobody skips it
+
+**Summary:** the Work Order invoice check (#1488, GLOSSARY *Invoice check*: a new payment only while raised money
+is less than ₹100 above Total Amount Invoiced; a first payment always passes) now holds every user, the
+`Administrator` account included (owner, 2026-10-30). Since ff7d4e27c (2026-10-29) only `Administrator` skipped it.
+The skip is removed end to end, not left returning false. No schema, data or patch. On `fixes/29-10`.
+
+Machine paths are unaffected: they bypass the check by flag, never by user (`split_child`, `from_adjustment`,
+`work_order_limit_checked`, `is_system_move`).
+
+### What changed
+
+| File | Change |
+|---|---|
+| `services/order_payments.py` | `skips_invoice_check` deleted; `assert_within_work_order_limit` always applies the check |
+| `services/work_order_payment_limit.py` | `request_refusal` loses `check_invoices` |
+| `api/payments/payment_summary.py` | `limit.invoice_check.skipped` no longer returned |
+| `api/payments/test_work_order_payment_limit.py` | `Administrator` now refused; limit tests plant `amount_invoiced` covering the payment already on the WO, so the limit, not the invoice check, is what they test |
+| `services/test_work_order_payment_limit.py`, `api/payments/test_payment_summary.py` | skip cases and `skipped` removed |
+| `GLOSSARY.md`, `domain/service-requests.md`, `domain/procurement.md` | rule text |
+
+Frontend: `../frontend/.claude/CHANGELOG.md` (same date).
+
+### Verification
+
+- services `test_work_order_payment_limit` 36/36, api `test_work_order_payment_limit` 30/30, `test_payment_summary`
+  12/12, `test_payment_steps` 31/31.
+- NOT RUN: the 40 other modules that raise WO payments as `Administrator`. One that raises a second payment on a
+  fixture WO with `amount_invoiced=0` now fails; fix it by planting `amount_invoiced`, never by skipping the check.
+
+---
+
 ## 2026-10-30: Reminders — Next Due Date moves forward
 
 **Summary:** the Reminders page showed a past Next Due Date for 7 of 8 schedules (e.g. PF Filing 15-Aug on

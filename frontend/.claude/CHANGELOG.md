@@ -4,6 +4,21 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-10-30 — Request payment: the "You skip the invoice check" note is gone
+
+Nobody skips the Work Order invoice check any more (owner, 2026-10-30), so the server no longer sends
+`limit.invoice_check.skipped`. Backend: `../../.claude/CHANGELOG.md` (same date).
+
+### What changed
+
+- `components/paymentSummaryView.ts`: `skipped` removed from `InvoiceCheck`; `invoiceCheckBlock` keys on `passes`
+  alone; `invoiceCheckNote` deleted.
+- `request-payment/RequestPaymentDialog.tsx`: the blue "this payment goes ahead of approved invoices" line removed.
+  Anyone whose Work Order fails the check now sees the block message.
+- `components/paymentSummaryView.test.ts`: the skip case removed; 23/23 pass (vitest, in the container).
+
+---
+
 ## 2026-10-30 — Reminders page: colour-coded dates and a layout for tablet and phone
 
 The table sat in an `overflow-hidden` box, so on tablet and phone widths columns were squeezed or cut off.
