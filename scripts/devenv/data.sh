@@ -52,7 +52,7 @@ restore() {
   [ -e "$src" ] || die "no backup at $src"
   [ -d "$BENCH/apps/frappe" ] || die "no bench at $BENCH: run scripts/devenv/bootstrap.sh all first"
   local work="$BENCH/sites/.restore-tmp"; rm -rf "$work"; mkdir -p "$work"
-  trap 'rm -rf "$work"' EXIT
+  trap "rm -rf '$work'" EXIT   # expanded now: \$work is local and gone by the time the shell exits
 
   step "1. prove the backup"
   if [ -d "$src" ]; then cp -R "$src"/. "$work/"; else tar -xzf "$src" -C "$work" || die "cannot unpack $src"; fi
