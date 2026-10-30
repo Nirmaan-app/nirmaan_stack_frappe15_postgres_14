@@ -51,16 +51,17 @@ if [ "${1:-}" = _box ]; then
     dirty)    # the worktree holding branch $2, if it has uncommitted changes to tracked files
       wt="$(git worktree list --porcelain | awk -v ref="refs/heads/$2" '/^worktree /{p=substr($0,10)} $0=="branch "ref{print p}')"
       [ -n "$wt" ] && [ -n "$(git -C "$wt" status --porcelain --untracked-files=no)" ] && echo "$wt" || true ;;
-    receive)  # $2 branch, $3 bundle file or "-" (the box already has the commit), $4 commit, $5 old box commit or ""
+    receive)  # $2 branch, $3 bundle file in the box user's home or "-" (the box has the commit), $4 commit, $5 old box commit or ""
       if [ "$3" != - ]; then
-        git bundle verify -q "$3" >/dev/null 2>&1 || die "the bundle does not verify on the box"
-        git fetch -q "$3" "refs/heads/$2:refs/handoff/$2" --force; rm -f "$3"
+        f="$HOME/$3"
+        git bundle verify -q "$f" >/dev/null 2>&1 || { rm -f "$f"; die "the bundle does not verify on the box"; }
+        git fetch -q "$f" "refs/heads/$2:refs/handoff/$2" --force; rm -f "$f"
       fi
       [ "$(git rev-parse -q --verify "refs/heads/$2" || true)" = "${5:-}" ] || die "$2 moved on the box since the check; run status again"
       ff_branch "$2" "$4" "${5:-}"; git update-ref -d "refs/handoff/$2" 2>/dev/null || true
       echo "box $2 now at $(git rev-parse --short "refs/heads/$2")" ;;
-    send)     # $2 branch, $3 output file, then the commits the laptop has: bundle what it lacks, or print "none"
-      br="$2" out="$3"; shift 3
+    send)     # $2 branch, $3 output file in the box user's home, then the commits the laptop has: bundle what it lacks, or print "none"
+      br="$2" out="$HOME/$3"; shift 3
       basis=(); for c in "$@"; do git cat-file -e "$c^{commit}" 2>/dev/null && basis+=("^$c"); done
       if git bundle create -q "$out" "refs/heads/$br" ${basis[@]+"${basis[@]}"} 2>/dev/null; then echo "$out"; else echo none; fi ;;
     *) die "unknown box command $1" ;;
@@ -109,7 +110,8 @@ case "$CMD" in
       IN_SYNC) ok "box already has $BR at ${L:0:9}"; exit 0 ;;
       LAPTOP_AHEAD|ONLY_LAPTOP) ;;
       NOWHERE) die "no branch $BR on the laptop" ;;
-      *) die "$V: the box has commits on $BR the laptop lacks. Run 'handoff.sh from $HOST $BR' first, or ask the owner." ;;
+      DIVERGED) die "DIVERGED: each side has commits on $BR the other lacks. The owner decides; nothing auto-merges." ;;
+      *) die "$V: the box has commits on $BR the laptop lacks. Run 'handoff.sh from $HOST $BR' first." ;;
     esac
     if [ "$(box has "$L")" = yes ]; then box receive "$BR" - "$L" "$R"
     else
@@ -119,13 +121,14 @@ case "$CMD" in
       scp -q -o BatchMode=yes "$tmp/$FILE" "$HOST:$FILE"
       box receive "$BR" "$FILE" "$L" "$R"
     fi
-    ok "handed $BR to $HOST: box at ${L:0:9} (was ${R:0:9}${R:-none}). Work there with: devenv.sh create <task> --on $BR" ;;
+    ok "handed $BR to $HOST: box at ${L:0:9} (was $([ -n "$R" ] && echo "${R:0:9}" || echo none)). Work there with: devenv.sh create <task> --on $BR" ;;
   from)
     case "$V" in
       IN_SYNC) ok "laptop already has $BR at ${L:0:9}"; exit 0 ;;
       BOX_AHEAD|ONLY_BOX) ;;
       NOWHERE) die "no branch $BR on the box" ;;
-      *) die "$V: the laptop has commits on $BR the box lacks. Run 'handoff.sh to $HOST $BR' first, or ask the owner." ;;
+      DIVERGED) die "DIVERGED: each side has commits on $BR the other lacks. The owner decides; nothing auto-merges." ;;
+      *) die "$V: the laptop has commits on $BR the box lacks. Run 'handoff.sh to $HOST $BR' first." ;;
     esac
     d="$(box dirty "$BR")"; [ -z "$d" ] || die "the box has uncommitted changes in $d; they would stay behind. Commit them there first."
     if ! here_has "$R"; then
@@ -137,7 +140,7 @@ case "$CMD" in
       git fetch -q "$tmp/$FILE" "refs/heads/$BR:refs/handoff/$BR" --force
     fi
     ff_branch "$BR" "$R" "$L"; git update-ref -d "refs/handoff/$BR" 2>/dev/null || true
-    ok "brought $BR back: laptop at ${R:0:9} (was ${L:0:9}${L:-none})" ;;
+    ok "brought $BR back: laptop at ${R:0:9} (was $([ -n "$L" ] && echo "${L:0:9}" || echo none))" ;;
 esac
 exit
 }
