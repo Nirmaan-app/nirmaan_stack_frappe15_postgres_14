@@ -161,5 +161,7 @@ Read by the installed engineering skills (`/triage`, `/to-spec`, `/code-review`,
   user and saves evidence. Its feature map (`features/`) is updated in the same commit as a change that alters how a
   mapped feature is reached or proven. When `verify`'s `bin/doctor.sh` warns that the map is over 30 days old, ask
   the user to run `/pstack:maintain-verification-skill`.
+- **Definition of Done (agent tasks):** a worktree where `scripts/devenv/dod.py start` ran is an agent task, and a
+  Stop hook keeps it from finishing until `dod.py check` passes. See `docs/agents/definition-of-done.md`.
 - **Coding standards:** `CODING_STANDARDS.md` and `frontend/CODING_STANDARDS.md` (the `/code-review` Standards axis
   reads both).
