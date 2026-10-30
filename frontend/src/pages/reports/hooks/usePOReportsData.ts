@@ -18,7 +18,7 @@ export interface POReportRowData extends NirmaanPurchaseOrder {
   invoiceAmount: number;
   amountPaid: number;
   poAmountDelivered: number;
-  totalAmounts: number; // This seems to be a new field, or a rename of total_amount
+  totalAmount: number; // the PO's stored total_amount (incl. GST), as the hook below sets it
   originalDoc: NirmaanPurchaseOrder; // Keep reference to original if needed
   projectId: string; // Add projectId for easier lookup
 }

@@ -127,15 +127,19 @@ export default function InvoiceReconciliationContainer() {
                 </div>
             </div>
 
-            {/* Global activity summary — identical on every tab (it never follows
-                the tables' filters). Sits BELOW the tab strip so navigation is the
-                first thing reachable on the screen. Suspended separately from the
-                tables so a slow summary never delays them. */}
-            <div className="pb-4">
-                <Suspense fallback={null}>
-                    <InvoiceSummaryCards />
-                </Suspense>
-            </div>
+            {/* Global activity summary — on the two approval tabs only, and identical
+                on both (it never follows the tables' filters). The other tabs carry their
+                own card over their own rows: Pending Invoices Upload one per sub-tab, the
+                2B Recon tabs their Reconciliation Summary. Sits BELOW the tab strip so
+                navigation is the first thing reachable on the screen. Suspended separately
+                from the tables so a slow summary never delays them. */}
+            {(tab === INVOICE_TASK_TABS.PENDING || tab === INVOICE_TASK_TABS.HISTORY) && (
+                <div className="pb-4">
+                    <Suspense fallback={null}>
+                        <InvoiceSummaryCards />
+                    </Suspense>
+                </div>
+            )}
 
                 <Suspense key={location.key} fallback={
                     <LoadingFallback />
