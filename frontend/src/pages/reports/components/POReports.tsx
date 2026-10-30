@@ -43,6 +43,10 @@ import {
 } from "../constants";
 import { applyPendingUploadCutoff } from "../utils/pendingUploadCutoff";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { PendingUploadOrderSummaryCard } from "@/pages/tasks/invoices/components/PendingUploadSummaryCards";
+import { summarisePendingUploadOrders } from "@/pages/tasks/invoices/utils/pendingUploadSummary";
+
+const PO_UNIT = ["PO", "POs"] as const;
 
 interface SelectOption {
   label: string;
@@ -256,6 +260,7 @@ export default function POReports({ pendingUploadMode = false }: POReportsProps 
     setSearchTerm,
     selectedSearchField,
     setSelectedSearchField,
+    columnFilters,
     exportAllRows,
     isExporting,
   } = useServerDataTable<POReportRowData>({
@@ -292,6 +297,45 @@ export default function POReports({ pendingUploadMode = false }: POReportsProps 
       }));
     }
   }, [filteredRowCount]); // Rerun when the table instance or filtered data count changes
+
+  // Pending Invoices Upload only: a totals card over exactly the rows the table shows (search and
+  // filters included), above the rule note. Its basis is Amt Delivered, the column this mode shows.
+  // The Reports page renders the note alone. TanStack memoises the row model, so `filteredRows`
+  // keeps its identity until the data or a filter changes.
+  const filteredRows = table.getFilteredRowModel().rows;
+  const isFiltered = columnFilters.length > 0 || !!searchTerm;
+  const pendingUploadSummary = useMemo(
+    () =>
+      pendingUploadMode && selectedReportType === "Pending Invoices"
+        ? summarisePendingUploadOrders(
+            filteredRows.map(({ original: row }) => ({
+              totalAmount: parseNumber(row.totalAmount),
+              invoiceAmount: parseNumber(row.invoiceAmount),
+              basisAmount: parseNumber(row.poAmountDelivered),
+            }))
+          )
+        : null,
+    [filteredRows, pendingUploadMode, selectedReportType]
+  );
+  const tableSummaryNode = useMemo(
+    () =>
+      pendingUploadSummary ? (
+        <div className="flex flex-col gap-2">
+          <PendingUploadOrderSummaryCard
+            title="PO Invoices Pending Upload"
+            unit={PO_UNIT}
+            totalLabel="Total PO Amt (incl. GST)"
+            basisLabel="Amt Delivered"
+            summary={pendingUploadSummary}
+            isFiltered={isFiltered}
+          />
+          {summaryCardNode}
+        </div>
+      ) : (
+        summaryCardNode
+      ),
+    [pendingUploadSummary, isFiltered, summaryCardNode]
+  );
   // =================================================================================
   // Supporting data for faceted filters (Projects & Vendors)
 
@@ -527,7 +571,7 @@ export default function POReports({ pendingUploadMode = false }: POReportsProps 
           isLoading={isLoadingOverall}
           isExporting={isExporting}
           error={overallError as Error | null}
-          summaryCard={summaryCardNode}
+          summaryCard={tableSummaryNode}
           // totalCount={totalCount} // From useServerDataTable, now reflects currentDisplayData.length
           totalCount={filteredRowCount}
           searchFieldOptions={PO_REPORTS_SEARCHABLE_FIELDS}

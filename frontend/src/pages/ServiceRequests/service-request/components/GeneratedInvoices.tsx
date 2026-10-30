@@ -158,15 +158,15 @@ const GenerateInvoiceForm = ({ workOrder, woAmount, state, onGenerated, onDone }
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="gi_ra_no">RA No.</Label>
-            <Input id="gi_ra_no" value={isFinal ? "FINAL" : `RA-${state?.next_ra_number ?? "…"}`} disabled />
+            <Input id="gi_ra_no" value={isFinal ? "— (no RA number)" : `RA-${state?.next_ra_number ?? "…"}`} disabled />
           </div>
         </div>
         {isFinal && (
           <div className="rounded-md border border-primary/40 bg-primary/5 p-3 text-sm">
-            <p className="font-semibold">This will be the FINAL invoice.</p>
+            <p className="font-semibold">This invoice reaches the Work Order amount.</p>
             <p className="text-muted-foreground">
-              Previous invoices {formatToIndianRupee(billed)} + this {formatToIndianRupee(typed)} reach the Work
-              Order amount of {formatToIndianRupee(woAmount)}. Nothing can be generated after it.
+              Previous invoices {formatToIndianRupee(billed)} + this {formatToIndianRupee(typed)} reach{" "}
+              {formatToIndianRupee(woAmount)}. No more invoices can be generated on this Work Order after it.
             </p>
           </div>
         )}
@@ -190,8 +190,8 @@ export const GenerateInvoiceDialog = ({ open, onOpenChange, ...form }: GenerateI
       <DialogHeader className="border-b pb-4">
         <DialogTitle>Generate Invoice for {form.workOrder}</DialogTitle>
         <DialogDescription>
-          The invoice that brings the invoices to the Work Order amount is saved as the FINAL; any other is the next
-          RA. It can't be edited afterwards; a wrong one is voided.
+          The invoice that brings the invoices to the Work Order amount closes its billing; any other is the next RA.
+          It can't be edited afterwards; a wrong one is voided.
         </DialogDescription>
       </DialogHeader>
       <GenerateInvoiceForm {...form} onDone={() => onOpenChange(false)} />
@@ -343,8 +343,8 @@ export const GeneratedInvoicesTable = ({
           <DialogHeader>
             <DialogTitle>Void {voidingRow?.invoice_no}?</DialogTitle>
             <DialogDescription>
-              A voided invoice keeps its record and its number: {voidingRow ? generatedInvoiceLabel(voidingRow) : ""} is
-              never given again, and its amount is freed for the next invoice.
+              A voided invoice keeps its record and its number: the number is not given again while it is kept, and
+              its amount is freed for the next invoice.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-1.5">
@@ -369,8 +369,8 @@ export const GeneratedInvoicesTable = ({
           <DialogHeader>
             <DialogTitle>Delete {deletingRow?.invoice_no}?</DialogTitle>
             <DialogDescription>
-              The voided invoice is removed from this list. Its number,{" "}
-              {deletingRow ? generatedInvoiceLabel(deletingRow) : ""}, is still never given to another invoice.
+              The voided invoice is removed from this list and its number is freed: if no later invoice holds a
+              higher number, the next invoice generated takes it.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:justify-end">

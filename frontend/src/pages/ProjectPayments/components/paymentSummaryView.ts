@@ -53,14 +53,12 @@ export interface WorkOrderLimit {
 
 /**
  * GLOSSARY.md, *Invoice check (on a Work Order payment)* (#1488): a new payment only while raised money
- * is less than ₹100 above Total Amount Invoiced. `passes` and `skipped` (the viewer is an L1 approver
- * or the CEO) are the server's.
+ * is less than ₹100 above Total Amount Invoiced. `passes` is the server's; nobody skips the check.
  */
 export interface InvoiceCheck {
   raised: number;
   invoiced: number;
   passes: boolean;
-  skipped: boolean;
 }
 
 export type PayFor = "base" | "gst";
@@ -210,13 +208,7 @@ export const invoiceCheckLine = (check: InvoiceCheck): string =>
 
 /** Why a new payment cannot be raised yet, in the server's words, or null when it can. */
 export const invoiceCheckBlock = (check: InvoiceCheck): string | null =>
-  check.passes || check.skipped
+  check.passes
     ? null
     : `${formatToIndianRupeeOrZero(check.raised)} raised is more than ${formatToIndianRupeeOrZero(check.invoiced)} ` +
       "in approved invoices. Get an invoice approved before raising another payment.";
-
-/** For an L1 approver or the CEO whose payment would otherwise wait for invoices. */
-export const invoiceCheckNote = (check: InvoiceCheck): string | null =>
-  check.skipped && !check.passes
-    ? "You skip the invoice check: this payment goes ahead of approved invoices."
-    : null;

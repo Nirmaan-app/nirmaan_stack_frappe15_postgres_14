@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { CHEQUE_TYPE } from "@/types/NirmaanStack/Cheques";
-import { chequeBankOptions, chequeEditMode, chequeFormFromDetail, chequeFormRules, editChequeArgs, editLockHint, isHeaderLocked } from "@/utils/cheques/chequeEdit";
+import { chequeBankOptions, chequeEditMode, chequeFormFromDetail, chequeFormRules, editChequeArgs, editLockHint, editPhotoFills, isHeaderLocked } from "@/utils/cheques/chequeEdit";
 import { makeChequeFormSchema, SAVE_CHEQUE_API, type ChequeFormInput, type ChequeFormValues } from "@/utils/cheques/chequeForm";
 import { getFrappeError } from "@/utils/frappeErrors";
 
@@ -39,9 +39,11 @@ interface EditChequeDialogProps {
  * - A **Payment cheque**: its header, with only what its status opens (`utils/cheques/chequeEdit`). While
  *   Approval Pending that is its number, bank, date and photo; its Vendor, amount, note and lines are shown as made,
  *   and the lines are never sent, so the server keeps them. Its bank is fixed to ICICI Bank (#1516).
- * - A **Security Deposit cheque**: `SecurityDepositChequeForm`, in full while Issued.
+ * - A **Security Deposit cheque**: `SecurityDepositChequeForm`, everything but its Vendor and the order it secures
+ *   while Issued (those are shown as made).
  *
- * A replaced photo is not read: the Cheque's fields are already recorded. The server re-checks every rule.
+ * A replaced photo is read into the boxes the Edit opens, never a locked one (`chequeEdit.editPhotoFills`). The
+ * server re-checks every rule.
  */
 export const EditChequeDialog = ({ edit, onClose, onSaved }: EditChequeDialogProps) => {
     const detail = edit?.detail;
@@ -94,7 +96,7 @@ const PaymentChequeEditForm = ({ edit, onDone, onCancel }: PaymentChequeEditForm
     const { call: saveCheque, loading: saving } = useFrappePostCall<{ message: { cheque: string; status: string } }>(
         SAVE_CHEQUE_API,
     );
-    const photoUpload = useChequePhotoUpload(form, edit);
+    const photoUpload = useChequePhotoUpload(form, edit, editPhotoFills(mode, edit));
     const { uploading, reader } = photoUpload;
 
     const onSubmit = async (values: ChequeFormValues) => {

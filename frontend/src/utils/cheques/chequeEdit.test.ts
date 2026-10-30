@@ -10,6 +10,7 @@ import {
     chequeFormFromDetail,
     editChequeArgs,
     editLockHint,
+    editPhotoFills,
     isHeaderLocked,
 } from "./chequeEdit";
 import { makeChequeFormSchema } from "./chequeForm";
@@ -205,5 +206,22 @@ describe("chequeBankOptions (#1516)", () => {
 
     it("offers a Security Deposit cheque Others too: it is never cleared", () => {
         expect(chequeBankOptions({ cheque_type: "Security Deposit" })).toEqual(["ICICI Bank", "Others"]);
+    });
+});
+
+describe("editPhotoFills: what a replaced photo fills on an Edit", () => {
+    it("fills an Issued Security Deposit's whole header", () => {
+        expect(editPhotoFills("all", { cheque_type: "Security Deposit" })).toEqual([
+            "bank", "cheque_no", "cheque_date", "amount",
+        ]);
+    });
+
+    it("fills an Approval Pending Payment cheque's number and date only: its amount is locked, its bank is ICICI", () => {
+        expect(editPhotoFills("header", { cheque_type: "Payment" })).toEqual(["cheque_no", "cheque_date"]);
+    });
+
+    it("fills nothing when only the photo can change, so the photo is not read", () => {
+        expect(editPhotoFills("photo_only", { cheque_type: "Security Deposit" })).toEqual([]);
+        expect(editPhotoFills("photo_only", { cheque_type: "Payment" })).toEqual([]);
     });
 });

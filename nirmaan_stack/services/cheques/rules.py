@@ -72,8 +72,8 @@ MADE_FROM = (MADE_FROM_REPORT, MADE_FROM_PO_WO_PAGE)
 LINE_PO_WO_PAYMENT = "PO/WO Payment"
 LINE_PROJECT_EXPENSE = "Project Expense"
 LINE_NON_PROJECT_EXPENSE = "Non-project Expense"
-#: A Security Deposit cheque's line (#1486, spec #1477): a PO the deposit secures (never a Work Order, spec
-#: #1514). A record only: no payment, no amount.
+#: A Security Deposit cheque's line (#1486, spec #1477): a PO or Work Order the deposit secures (Work Orders
+#: again since ADR-0035 Amendment C). A record only: no payment, no amount.
 LINE_SECURED_RECORD = "Secured PO/WO"
 #: Pinned to the `Cheque Line.line_type` Select options by test.
 LINE_TYPES = (LINE_PO_WO_PAYMENT, LINE_PROJECT_EXPENSE, LINE_NON_PROJECT_EXPENSE, LINE_SECURED_RECORD)
@@ -317,30 +317,29 @@ def line_kind_problem(line: ChequeLineInput, *, cheque_type: str = CHEQUE_TYPE_P
     if line.line_type not in LINE_TYPES:
         return f"choose the kind of line: {', '.join(LINE_TYPES)}."
     if cheque_type == CHEQUE_TYPE_SECURITY_DEPOSIT and line.line_type != LINE_SECURED_RECORD:
-        return "a Security Deposit cheque pays nothing: its lines only name the POs it secures."
+        return "a Security Deposit cheque pays nothing: its lines only name the POs and Work Orders it secures."
     if cheque_type != CHEQUE_TYPE_SECURITY_DEPOSIT and line.line_type == LINE_SECURED_RECORD:
-        return "only a Security Deposit cheque names a PO it secures."
+        return "only a Security Deposit cheque names a PO or Work Order it secures."
     return None
 
 
 def secured_line_problem(line: ChequeLineInput, *, cheque_vendor: str | None, record: dict | None) -> str | None:
     """Why a Secured PO/WO line cannot be saved, or None. The caller prefixes "Line N: " (#1486).
 
-    `record` is the PO's `{project, vendor}` (None when it does not exist). The line names one of the
-    cheque's Vendor's POs, so a cheque made out to a typed payee names none, and never a Work Order: Work
-    Orders are never paid by cheque (spec #1514, ADR-0035 Amendment A). Its project is the record's own (the
-    caller fills it in when the form sent none).
+    `record` is the PO / Work Order's `{project, vendor}` (None when it does not exist). The line names one
+    of the cheque's Vendor's POs or Work Orders, so a cheque made out to a typed payee names none. A Work
+    Order is paid Online, never by cheque, yet its Vendor may still hold a deposit for it: a deposit pays
+    nothing (ADR-0035 Amendment C). Its project is the record's own (the caller fills it in when the form
+    sent none).
     """
     if not cheque_vendor:
-        return "a cheque made out to a typed payee names no PO."
-    if line.record_doctype == WORK_ORDER_DOCTYPE and line.record_name:
-        return f"{line.record_name} is a Work Order: a Security Deposit cheque secures POs only."
-    if line.record_doctype != PO_DOCTYPE or not line.record_name:
-        return "pick the PO."
+        return "a cheque made out to a typed payee names no PO or Work Order."
+    if line.record_doctype not in RECORD_DOCTYPES or not line.record_name:
+        return "pick the PO or Work Order."
     if record is None:
         return f"{line.record_name} was not found."
     if record.get("vendor") != cheque_vendor:
-        return f"{line.record_name} is not a PO of this cheque's Vendor."
+        return f"{line.record_name} is not a PO or Work Order of this cheque's Vendor."
     if line.project and record.get("project") != line.project:
         return f"{line.record_name} is not in project {line.project}."
     return None

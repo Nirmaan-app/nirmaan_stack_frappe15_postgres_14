@@ -20,7 +20,7 @@ import { useDuplicateChequeOf } from "@/components/cheques/useExistingCheque";
 import { PaymentModeFields } from "../components/PaymentModeFields";
 import { PaymentSummaryBlock, usePaymentSummary } from "../components/PaymentSummaryBlock";
 import {
-  invoiceCheckBlock, invoiceCheckLine, invoiceCheckNote, NEGATIVE_WORK_ORDER_PAYMENT, PayFor, payForCap,
+  invoiceCheckBlock, invoiceCheckLine, NEGATIVE_WORK_ORDER_PAYMENT, PayFor, payForCap,
 } from "../components/paymentSummaryView";
 import { PayForChoice } from "../components/PayForChoice";
 import { raiserLandingNote, raiserLevelOf, TIER_L2_ABOVE } from "@/utils/approvalTiers";
@@ -88,7 +88,6 @@ export default function RequestPaymentDialog(p:Props){
      up, unless the viewer is an L1 approver or the CEO. The server's verdict, shown as given. */
   const invoiceCheck = isWO ? limit?.invoice_check : undefined;
   const invoiceBlock = invoiceCheck ? invoiceCheckBlock(invoiceCheck) : null;
-  const invoiceNote = invoiceCheck ? invoiceCheckNote(invoiceCheck) : null;
 
   const payable = gstWO ? (cap?.max ?? 0) : p.totalIncGST;
 
@@ -187,7 +186,6 @@ export default function RequestPaymentDialog(p:Props){
       {gstWO && limit && <PayForChoice limit={limit} value={payFor} onChange={setPayFor}/>}
 
       {invoiceCheck && <p className="text-xs text-center text-muted-foreground">{invoiceCheckLine(invoiceCheck)}</p>}
-      {invoiceNote && <p className="text-xs text-center text-sky-700 dark:text-sky-400">{invoiceNote}</p>}
 
       {isWO && !summary && !summaryLoading && summaryError &&
         <p className="text-xs text-red-600 text-center">Couldn't load this Work Order's payment limit. Close and try again.</p>}

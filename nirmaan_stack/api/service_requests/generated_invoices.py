@@ -124,7 +124,7 @@ def generate_invoice(work_order: str, invoice_date: str | None = None, amount=No
 
 @frappe.whitelist(methods=["POST"])
 def void_invoice(name: str, reason: str) -> dict:
-    """Void a generated invoice not yet uploaded, with a reason. Its RA number is never given again."""
+    """Void a generated invoice not yet uploaded, with a reason. It keeps its RA number until it is deleted."""
     assert_generate_wo_invoice_access(frappe.session.user)
     work_order = frappe.db.get_value(gi.DOCTYPE, name, "work_order")
     if not work_order:
@@ -145,8 +145,8 @@ def void_invoice(name: str, reason: str) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def delete_generated_invoice(name: str) -> dict:
-    """Delete a Voided generated invoice: Admin only. Its Deleted Document copy keeps its RA number (and a
-    FINAL's place in the FINAL-n count) from being given again."""
+    """Delete a Voided generated invoice: Admin only. Its RA number (and a FINAL's place in the -n count)
+    is freed: Generate gives it again when no later record holds a higher one (ADR-0040 Amdt B)."""
     if not is_nirmaan_admin(frappe.session.user):
         raise frappe.PermissionError(_("Only an Admin can delete a voided generated invoice."))
     work_order = frappe.db.get_value(gi.DOCTYPE, name, "work_order")
@@ -300,7 +300,7 @@ def _work_order_problem(sr) -> str | None:
 def _final_problem(state) -> str | None:
     final = state["final"]
     if final:
-        return _("This Work Order already has its FINAL invoice ({0}); nothing is generated after it.").format(final)
+        return _("This Work Order is fully invoiced ({0}). Nothing can be generated after it.").format(final)
     return None
 
 
@@ -313,33 +313,19 @@ def _billing_state(sr) -> dict:
     billed = sum(flt(i.invoice_amount) for i in invoices if i.status in gi.BILLED_INVOICE_STATUSES)
     billed += sum(flt(r.amount) for r in records if r.status in gi.NOT_UPLOADED)
     final = next((r.invoice_no for r in records if r.invoice_type == gi.FINAL and r.status != gi.VOIDED), None)
-    deleted = _deleted_records(sr.name)
     return {
         "billed": round(billed, 2),
         "left": gi.billable_left(sr.total_amount, sr.amount_paid, billed),
         "fully_paid": gi.is_fully_paid(sr.total_amount, sr.amount_paid),
         "final": final,
-        # Every FINAL the WO has had, Voided and deleted ones included: the next one's printed number follows them.
-        "finals": sum(1 for r in records + deleted if r["invoice_type"] == gi.FINAL),
+        # The FINALs the WO still has, Voided included: the next one's printed number follows them. A
+        # deleted one is gone from `records`, so its number is free again (ADR-0040 Amdt B).
+        "finals": sum(1 for r in records if r.invoice_type == gi.FINAL),
         "next_ra_number": gi.next_ra_number(
-            [r.ra_number for r in records] + [r["ra_number"] for r in deleted],
-            [sr.invoice_no] + [i.invoice_no for i in invoices],
+            [r.ra_number for r in records],
+            [sr.invoice_no] + [i.invoice_no for i in invoices if i.status in gi.BILLED_INVOICE_STATUSES],
         ),
     }
-
-
-def _deleted_records(work_order) -> list[dict]:
-    """The RA number and type of each of `work_order`'s deleted generated invoices, from their Deleted
-    Document copies, so a delete never frees a number."""
-    copies = frappe.get_all("Deleted Document", filters={"deleted_doctype": gi.DOCTYPE,
-                                                         "deleted_name": ("like", f"WGI-{work_order}-%")},
-                            fields=["deleted_name", "data"])
-    deleted = []
-    for copy in copies:
-        ra_number = gi.ra_number_of_record(copy.deleted_name, work_order)
-        if ra_number is not None:
-            deleted.append({"ra_number": ra_number, "invoice_type": frappe.parse_json(copy.data).get("invoice_type")})
-    return deleted
 
 
 def _row(doc) -> dict:

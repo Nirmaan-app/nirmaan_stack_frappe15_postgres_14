@@ -61,6 +61,7 @@ import { DeletePaymentDialog } from "@/pages/ProjectPayments/update-payment/Dele
 import SRPdf from "./SRPdf";
 import { PaymentVoucherActions } from "@/components/paymentsVoucher/PaymentVoucherActions";
 import { PaymentUtrOrCheque } from "@/components/cheques/PaymentUtrOrCheque";
+import { PoChequesCard } from "@/components/cheques/PoChequesCard";
 import { useChequeChips } from "@/components/cheques/useChequeChips";
 import { GstPaymentTag } from "@/pages/ProjectPayments/components/GstPaymentTag";
 import { usePaymentSummary } from "@/pages/ProjectPayments/components/PaymentSummaryBlock";
@@ -78,6 +79,9 @@ import { TdsCutUndoActions } from "../components/TdsCutUndoActions";
 // from the moment it is approved. The server's cap counts it the same way
 // (`finance.get_total_reconciliation_pending`).
 const OPEN_REQUEST_STATUSES = ["Requested", "CEO Pending", "Approved", "Reconciliation Pending"];
+// A Work Order a Security Deposit cheque may secure: the server's "Secures" picker offers these
+// (`services/cheques/pickers.WO_OPEN_STATUSES`).
+const WO_DEPOSIT_STATUSES = ["Approved", "Amendment"];
 
 // const { Sider, Content } = Layout;
 
@@ -1137,7 +1141,21 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 </Card>
             </div>)}
 
-
+            {/* Security Deposit cheques that secure this Work Order (ADR-0035 Amendment C); the card renders only
+                for cheque users. A Work Order is paid Online, so no Payment cheque is ever listed here. Shown on an
+                open Work Order only, the ones the "Secures" picker offers. */}
+            {!isPMUser && WO_DEPOSIT_STATUSES.includes(service_request?.status) && (
+                <PoChequesCard
+                    className="rounded-sm shadow-md overflow-x-auto"
+                    record={{
+                        doctype: "Service Requests",
+                        name: service_request?.name,
+                        project: service_request?.project,
+                        vendor: service_request?.vendor,
+                        vendor_name: service_vendor?.vendor_name,
+                    }}
+                />
+            )}
 
             {/* Hide DocumentAttachments (Invoices and DCs) for restricted roles */}
             {/* DocumentAttachments (Invoices and DCs) - visibility handled internally or via props */}

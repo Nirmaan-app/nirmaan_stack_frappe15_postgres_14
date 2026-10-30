@@ -23,12 +23,13 @@ Implement a comprehensive, role-based Reminder Schedule system and an Action Cen
 - **Month-End Clamping**: If a user schedules a reminder for the 31st, but the current month is February, the service automatically clamps the date to the 28th/29th to prevent calculation crashes. A `due_note` warning is shown to the user when this happens.
 - **Key functions**:
   - `fill_end_months(schedule_type, due_dates)` — derives `to_month` from `from_month` for Q (+3) / HY (+6)
-  - `next_due_date(schedule_type, due_day, due_dates, base)` — the next upcoming due date (today or later)
+  - `next_due_date(schedule_type, due_day, due_dates, base)` — the next upcoming due date (today or later), by the calendar only; the cron uses it to pick which cycle to raise
+  - `next_open_due_date(schedule_type, due_day, due_dates, done_dates, base)` — the schedule's **Next Due Date**: the next due date (today or later) whose cycle is not already Done (see "Next Due Date rule" below)
   - `reminds_on(next_due, notify_before_days)` — the date the reminder fires
   - `bucket(days_until, notify_before_days)` — classifies proximity: `due_soon` / `this_month` / `later`
 
 ### 2. Idempotent & Self-Healing Cron (`tasks/reminders.py`)
-- **What it does**: The daily worker iterates over active schedules, checks the due date, and generates a `Reminder Schedule Log` in the "Pending" state.
+- **What it does**: The daily worker iterates over active schedules. For each one it first refreshes the stored Next Due Date (`refresh_next_due`, so the date rolls forward after a due day passes), then checks the calendar due date and generates a `Reminder Schedule Log` in the "Pending" state.
 - **Notification gating**: A log is ONLY created when `days_until_due <= notify_before_days`. This prevents reminders from appearing 7–11 days early when the user configured a 3-day window.
 - **Why it's needed**: By using an `_ensure_log` function that checks for existing cycle logs, the cron job is **idempotent**. If the server goes down and misses a day, the next run will safely create the missing tasks without ever duplicating them.
 
@@ -41,6 +42,21 @@ Implement a comprehensive, role-based Reminder Schedule system and an Action Cen
 - **What it does**: When an admin edits a schedule's due date, the `on_update` hook re-dates the current future Pending log to the new due date.
 - **Why it's needed**: Without this, editing a schedule would leave a stale Pending log on the old date AND the cron would create a new one on the new date — a duplicate. The controller UPDATEs (never deletes) the existing log, preserving the audit trail.
 - **Guarantees**: Done logs and past/overdue Pending logs are NEVER touched — only a not-yet-due, not-yet-done occurrence is re-dated.
+- **Also owns** `refresh_next_due(schedule_name)` and `done_due_dates(schedule_name)` — see "Next Due Date rule" below.
+
+### 4a. Next Due Date rule (load-bearing, 2026-10-30)
+Decision record: [ADR-0042](../../docs/adr/0042-a-reminders-next-due-date-is-its-next-open-cycle.md). Terms (Reminder, Cycle, Next Due Date, Reminds On, Overdue, Done / Reopen): `GLOSSARY.md` § Reminders. Built in the `fix(reminders): keep Next Due Date current…` commit on `fixes/29-10`.
+- **Rule**: a schedule's stored `next_due_date` / `reminds_on` = the first due date from today onwards whose cycle has no **Done** `Reminder Schedule Log`. Mark Done moves it to the following cycle at once; Reopen moves it back. A missed (Pending, past-due) cycle never holds it back — it shows as Overdue in the Action Center and the date looks forward. Marking an old overdue cycle Done does not move the date (the current cycle is still open). The schedule never restarts from the completion day: a monthly-20th reminder stays on the 20th.
+- **Why**: the stored date used to be set only on a schedule save, so the Reminders page showed August dates in late October and Mark Done never moved it.
+- **Who keeps it current** — all through the one pure rule `services.reminders.next_open_due_date`:
+  1. `ReminderSchedule.validate` (any save: create, edit, switching back on),
+  2. `integrations/controllers/reminder_schedule_log.on_update` (a log's status or due date changes — app or Desk),
+  3. the 8 AM cron, for every **enabled** schedule (a disabled schedule keeps its last date until it is switched back on, and that save recomputes it).
+- **Written with `frappe.db.set_value(update_modified=False)`** in `refresh_next_due`, deliberately skipping doc_events: a full save would run the schedule's `on_update` re-date hook (§4) and move a future Pending log.
+- **History stays history**: once a schedule is deleted, changing one of its kept Done logs back to Pending in Desk is refused (the refresh cannot find the schedule). In the app the scope gate already refuses it.
+- **Known, accepted (not fixed)**: (a) the cron still raises the *calendar* cycle, so with a `notify_before_days` close to or above the cycle length (~30 monthly / ~90 quarterly) and the current cycle Done early, the next cycle's log is raised only after the Done cycle's date passes — no live schedule is configured that way (all use 3 days); (b) between midnight and the 8 AM run the page can show the due date that just passed; (c) changing a schedule's due day after its cycle was Done early asks for that period again (cycle identity = exact date).
+- **Pre-existing, separate**: a fixed date on the 31st clamps to 30 Apr, and the cron's from/to-month match (`row.due_day == next_due.day`) then fails, so that log has no period.
+- **Tests**: `services/test_reminders.py` (16, pure rule) and `nirmaan_stack/doctype/reminder_schedule/test_reminder_schedule.py` (7, live DB, own throwaway schedule, `frappe.enqueue` patched so the post-save sweep never touches real schedules).
 
 ### 5. Write Endpoints (`api/reminders/write.py`)
 - **Scope gate**: Both `mark_reminder_done` and `reopen_reminder` enforce role-profile scoping via `_my_schedule_names()` — a user can only act on logs belonging to schedules that target their own Role Profile.
@@ -52,7 +68,7 @@ The Reminders system operates on a strict Role Profile permission model. Here is
 
 ### 1. Creation & Targeting (Admin / PMO / Accountant Lead)
 - An Admin, PMO Executive, or Accountant Lead creates a `Reminder Schedule` (e.g., "Monthly GST Filing").
-- The system auto-generates an ID like `REM-0001`. The Title is a separate, editable field.
+- The title is the reminder's ID (`autoname: field:title`). Changing it later goes through `rename_reminder` (Admin only), which repoints every cycle to the new name.
 - In the **Role Profiles** child table, they explicitly select which user profiles this reminder targets (e.g., `Nirmaan Accountant Profile`).
 - **Behavior**: The reminder is now actively tracking time, but no one sees it in their Action Center until the cron job raises it within the `notify_before_days` window.
 
@@ -86,7 +102,7 @@ The Reminders system operates on a strict Role Profile permission model. Here is
 ## Implementation Plan
 
 ### Phase 1: Backend Data Model
-1. **Reminder Schedule (DocType)**: The parent configuration doctype (autonamed `REM-.####`). Contains title, schedule configuration, role profile targets, notification settings, and message payload. `title_field: "title"` for display.
+1. **Reminder Schedule (DocType)**: The parent configuration doctype (autonamed `field:title`: the title is the ID; renamed only via `rename_reminder`). Contains title, schedule configuration, role profile targets, notification settings, and message payload. `title_field: "title"` for display.
 2. **Reminder Due Date (Child Table)**: Stores explicit day/month mapping for non-monthly cycles (from/to period + due month/day).
 3. **Reminder Role Profile (Child Table)**: Stores target Frappe Role Profiles.
 4. **Reminder Schedule Log (DocType)**: The transactional record created for each cycle. Born as "Pending" and flips to "Done". Includes `reminder_title` (fetch_from) for display, `remarks` for audit notes, and completion stamps.
@@ -101,6 +117,10 @@ The Reminders system operates on a strict Role Profile permission model. Here is
 
 **File:** `nirmaan_stack/integrations/controllers/reminder_schedule.py`
 - `on_update` hook: re-dates future Pending logs when a schedule's due date changes (UPDATE only, never deletes).
+- `refresh_next_due` / `done_due_dates`: keep the stored Next Due Date current (§4a).
+
+**File:** `nirmaan_stack/integrations/controllers/reminder_schedule_log.py`
+- `on_update` hook: a log's status (or due date) changed → `refresh_next_due` its schedule.
 
 **File:** `nirmaan_stack/api/reminders/read.py` & `write.py`
 - `get_my_reminders`: Dashboard panel data with LIVE-recomputed due dates.
@@ -142,7 +162,7 @@ nirmaan_stack/
 │       └── write.py                [NEW] # POST endpoints (mark_reminder_done, reopen_reminder)
 ├── nirmaan_stack/
 │   └── doctype/
-│       ├── reminder_schedule/      [NEW] # Parent schedule config (REM-.####)
+│       ├── reminder_schedule/      [NEW] # Parent schedule config (autoname field:title)
 │       ├── reminder_due_date/      [NEW] # Child table (Day/Month mapping)
 │       ├── reminder_role_profile/  [NEW] # Child table (Target roles)
 │       └── reminder_schedule_log/  [NEW] # Transactional log (Pending/Done) with reminder_title fetch
@@ -152,8 +172,9 @@ nirmaan_stack/
 │   └── reminders.py                [NEW] # Daily cron worker (8 AM, notify_before_days gated)
 ├── integrations/
 │   └── controllers/
-│       └── reminder_schedule.py    [NEW] # on_update hook (re-dates future Pending logs)
-└── hooks.py                        [MODIFIED] # Registers cron job (0 8 * * *) & on_update doc_event
+│       ├── reminder_schedule.py    [NEW] # on_update hook (re-dates future Pending logs) + refresh_next_due
+│       └── reminder_schedule_log.py [NEW 2026-10-30] # on_update: status change → refresh Next Due Date
+└── hooks.py                        [MODIFIED] # Registers cron job (0 8 * * *) & both on_update doc_events
 ```
 
 ### 2. Frontend (React `frontend/src`)
@@ -209,15 +230,21 @@ frontend/src/
 
 ## Role Access Summary
 
-| Role | Manage Schedules | Action Center Visibility | Mark as Done |
+| Role | Manage Schedules (Reminders page) | Action Center Visibility | Mark as Done |
 |------|------------------|--------------------------|--------------| 
-| Admin / PMO | Full CRUD | Yes (if targeted) | Yes |
-| Accountant Lead | Full CRUD | Yes (if targeted) | Yes |
+| Admin | Add / Edit / Rename / Delete; sidebar link | Yes (if targeted) | Yes |
+| PMO | Read-only on the page; sidebar link (Desk DocPerm still allows write) | Yes (if targeted) | Yes |
+| Accountant Lead | Read-only, by URL only (no sidebar link; Desk DocPerm still allows write) | Yes (if targeted) | Yes |
 | Accountant | Read-Only | Yes | Yes (Finance tasks) |
 | Project Manager| Read-Only | Yes | Yes (Project tasks) |
+
+Add / Edit / Delete on the Reminders page are Admin-only (owner ruling; `canRenameReminder` in
+`NewReminderDialog.tsx`, mirrored by the server's `_require_reminder_editor` for rename and delete).
+Full per-role matrix: `frontend/.claude/context/role-access.md` § Reminders.
 
 ## Recent Fixes Applied
 
 1. **Form state bleeding on "Add Reminder"**: `close()` now explicitly resets all form fields to blank defaults (including `due_day: "" as any`) to prevent stale edit data from persisting.
-2. **Title made editable**: Changed from `autoname: field:title` to `REM-.####` with `title_field: "title"`. Title is editable post-creation. Added `reminder_title` fetch field to Log.
+2. **Title made editable** *(superseded)*: briefly changed to `REM-.####`; autoname is back to `field:title` (see "Naming and Schema Updates" above), and a title change goes through `rename_reminder` (Admin only). The `reminder_title` fetch field on the Log remains.
 3. **Notification window honored**: Cron now gates log creation by `days_until_due <= notify_before_days` instead of creating logs unconditionally.
+4. **Next Due Date kept current (2026-10-30)**: the stored date was only set on save, so it went stale and ignored Mark Done. Now = next not-Done cycle, refreshed on log status change, by the 8 AM cron and on every save. Rule, write points and accepted gaps: §4a.

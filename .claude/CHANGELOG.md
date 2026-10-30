@@ -4,6 +4,98 @@ Changes made by AI coding assistants (Claude Code / Gemini).
 
 ---
 
+## 2026-10-30: Work Order invoice check — nobody skips it
+
+**Summary:** the Work Order invoice check (#1488, GLOSSARY *Invoice check*: a new payment only while raised money
+is less than ₹100 above Total Amount Invoiced; a first payment always passes) now holds every user, the
+`Administrator` account included (owner, 2026-10-30). Since ff7d4e27c (2026-10-29) only `Administrator` skipped it.
+The skip is removed end to end, not left returning false. No schema, data or patch. On `fixes/29-10`.
+
+Machine paths are unaffected: they bypass the check by flag, never by user (`split_child`, `from_adjustment`,
+`work_order_limit_checked`, `is_system_move`).
+
+### What changed
+
+| File | Change |
+|---|---|
+| `services/order_payments.py` | `skips_invoice_check` deleted; `assert_within_work_order_limit` always applies the check |
+| `services/work_order_payment_limit.py` | `request_refusal` loses `check_invoices` |
+| `api/payments/payment_summary.py` | `limit.invoice_check.skipped` no longer returned |
+| `api/payments/test_work_order_payment_limit.py` | `Administrator` now refused; limit tests plant `amount_invoiced` covering the payment already on the WO, so the limit, not the invoice check, is what they test |
+| `services/test_work_order_payment_limit.py`, `api/payments/test_payment_summary.py` | skip cases and `skipped` removed |
+| `GLOSSARY.md`, `domain/service-requests.md`, `domain/procurement.md` | rule text |
+
+Frontend: `../frontend/.claude/CHANGELOG.md` (same date).
+
+### Verification
+
+- services `test_work_order_payment_limit` 36/36, api `test_work_order_payment_limit` 30/30, `test_payment_summary`
+  12/12, `test_payment_steps` 31/31.
+- NOT RUN: the 40 other modules that raise WO payments as `Administrator`. One that raises a second payment on a
+  fixture WO with `amount_invoiced=0` now fails; fix it by planting `amount_invoiced`, never by skipping the check.
+
+---
+
+## 2026-10-30: Reminders — Next Due Date moves forward
+
+**Summary:** the Reminders page showed a past Next Due Date for 7 of 8 schedules (e.g. PF Filing 15-Aug on
+29-Oct), and Mark Done never moved it: the stored `next_due_date` / `reminds_on` were set only when a schedule
+was saved. They now mean "the first due date from today onwards whose cycle is not Done" and are refreshed when a
+log's status changes (Mark Done / Reopen, app or Desk), by the 8 AM cron for every enabled schedule, and on every
+save (including switching a schedule back on). A missed cycle stays Overdue in the Action Center and does not hold
+the date back. Backend only; no schema, frontend or data change, and no patch (the first 8 AM run corrects every
+enabled schedule). On `fixes/29-10`. Rule, write points and accepted gaps:
+`.claude/plans/reminders_plan.md` §4a; decision: ADR-0042; terms: `GLOSSARY.md` § Reminders; who can do what:
+`frontend/.claude/context/role-access.md` § Reminders.
+
+### What changed
+
+| File | Change |
+|---|---|
+| `services/reminders.py` | `next_open_due_date`: the rule, pure; steps past Done cycles, capped |
+| `integrations/controllers/reminder_schedule.py` | `refresh_next_due` (set_value, `update_modified=False`, skips the re-date hook on purpose) + `done_due_dates` |
+| `integrations/controllers/reminder_schedule_log.py` + `hooks.py` | NEW `on_update`: status / due-date change → refresh |
+| `tasks/reminders.py` | cron refreshes each enabled schedule first; docstring now matches the notify-window gate |
+| `doctype/reminder_schedule/reminder_schedule.py` | `validate` uses the same rule |
+
+### Verification
+
+- `services/test_reminders.py` 16/16 and `doctype/reminder_schedule/test_reminder_schedule.py` 7/7 (localhost).
+- Real data, rolled back: Reopen / Mark Done through `api.reminders.write` on Quaterly TDS Filing
+  (31-Jan-2027 → 31-Oct-2026 → 31-Jan-2027); all 8 dates set back to their 29-Oct values, then the cron repaired
+  all 8 and raised no extra logs; a plain save after Done kept both logs in place.
+- Edge probes on throwaway schedules (rolled back, 0 left): October done late on 20-Nov keeps 20-Nov until
+  November is Done, then 20-Dec. Found, not fixed: long `notify_before_days` raises the next log late; 30-Apr
+  clamp loses from/to month (pre-existing).
+- Reminder tables, Version rows and every log's status/modified identical before and after (DIFF 0).
+- Not run: `api/cheques/test_cheque_approval_pending_patch` (names the log doctype but renames every live
+  Cheque; raw-SQL insert, cannot reach this code). No browser walk yet.
+
+---
+
+## 2026-10-29: Bulk Import Transactions — search and column filters no longer refresh the page
+
+**Summary:** typing in the search box or a column filter blanked the summary card, swapped the table for
+"Nothing here." and closed the open filter popup after one letter; column text/amount filters also sent two
+requests (rows + summary) per keystroke. A failed rows request now says "Couldn't load transactions." with
+Retry instead of showing the previous search's rows. Frontend only, no server or schema change. On `develop`.
+Frontend detail: `frontend/.claude/CHANGELOG.md` (same date). The rules are recorded in
+`.claude/context/domain/outflow-import.md` § The screen ("Typing and loading never rebuild the table").
+
+### Verification
+
+- 3 new jsdom test files, 86 tests. The 18 original end-to-end flow tests were also run against the original
+  code: 9 failed there (the reported defects), 9 passed on both (search basics, paging, sort, Clear filters). The
+  18 failure-state tests run against the code before that fix: 12 failed, 6 guards passed on both.
+- All 1,227 tests under `src/pages/outflow-import` pass; `yarn typecheck`: 0 new errors.
+- Browser walk on localhost (Admin): first load, search, no-match message, Status and Remarks funnels (popup
+  stays open while typing, one request per pause), paging. Period, Source, the Amount funnel and the failure
+  row are covered by the tests only.
+- Residence check: the new tests add no inline `JSON.parse` (F2 holds at 210). S1 and A1 already fail on the
+  committed tree; this change adds 0 to either.
+
+---
+
 ## 2026-10-28: Update Inventory — submit when there are no items to count
 
 **Summary:** a project with no eligible items (> ₹5,000 ordered with a delivery, not Tool & Equipments, not

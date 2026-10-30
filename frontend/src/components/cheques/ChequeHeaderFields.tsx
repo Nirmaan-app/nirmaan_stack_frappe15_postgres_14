@@ -10,7 +10,9 @@ import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
+import { CHEQUE_PHOTO_PICK_LIMIT, pickRefusal } from "@/utils/cheques/chequePhotoFile";
 import { CHEQUE_BANK, CHEQUE_PAYMENT_DATE_LABEL, type ChequeBank } from "@/types/NirmaanStack/Cheques";
 import { isFromPhoto, type ChequePhotoField } from "@/utils/cheques/chequePhoto";
 
@@ -75,6 +77,10 @@ export const ChequeHeaderFields = <T extends ChequeHeaderInput, V extends FieldV
                                 selectedFile={upload.photo}
                                 onFileSelect={upload.handlePhoto}
                                 acceptedTypes={["image/*", "application/pdf"]}
+                                maxFileSize={CHEQUE_PHOTO_PICK_LIMIT}
+                                onError={(error) =>
+                                    toast({ title: "Could not use this file", description: pickRefusal(error), variant: "destructive" })
+                                }
                                 label={edit?.attachment ? "Replace photo" : "Upload cheque photo"}
                                 disabled={saving}
                             />

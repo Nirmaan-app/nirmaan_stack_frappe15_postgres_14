@@ -1,6 +1,6 @@
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { AlertTriangle, ChevronDown, ChevronRight, Info } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, Eye, Info, Pencil, Undo2, XCircle } from "lucide-react";
 
 import { ChequePhotoLink } from "@/components/cheques/ChequePhotoLink";
 import { ChequeStatusBadge } from "@/components/cheques/ChequeStatusBadge";
@@ -319,7 +319,7 @@ export const getChequePaymentColumns = ({ actionsOf, onOpen, onEdit, onCancel }:
         id: "actions",
         header: "Actions",
         cell: ({ row }) => <ChequeRowButtons row={row.original} actions={{ actionsOf, onOpen, onEdit, onCancel }} />,
-        size: 110,
+        size: 130,
         enableSorting: false,
         enableHiding: false,
         meta: { excludeFromExport: true },
@@ -332,30 +332,62 @@ const ACTION_LABEL: Record<ChequeRowAction, string> = { view: "View", edit: "Edi
 const actionLabel = (action: ChequeRowAction, row: ChequeRow) =>
     action === "cancel" && row.cheque_type === CHEQUE_TYPE.SECURITY_DEPOSIT ? "Mark returned" : ACTION_LABEL[action];
 
-/** The row's buttons, one under the other, in `chequeRowActions` order. */
+const ACTION_ICON: Partial<Record<ChequeRowAction, typeof Eye>> = { view: Eye, edit: Pencil };
+
+/**
+ * The row's buttons, in `chequeRowActions` order: View and Edit as icon buttons side by side (their name on
+ * hover), then Cancel / "Mark returned" as a full-width button beneath, set apart because it cannot be undone.
+ */
 const ChequeRowButtons = ({ row, actions }: { row: ChequeRow; actions: ChequeColumnActions }) => {
     const handler: Record<ChequeRowAction, () => void> = {
         view: () => actions.onOpen(row.name),
         edit: () => actions.onEdit(row),
         cancel: () => actions.onCancel(row),
     };
+    const shown = actions.actionsOf(row);
+    const iconActions = shown.filter((action) => ACTION_ICON[action]);
     return (
-        <div className="flex flex-col items-stretch gap-1">
-            {actions.actionsOf(row).map((action) => (
+        <div className="flex w-full flex-col gap-1.5">
+            <div className="flex items-center gap-1.5">
+                {iconActions.map((action) => {
+                    const Icon = ACTION_ICON[action]!;
+                    const label = `${actionLabel(action, row)} cheque ${row.cheque_no}`;
+                    return (
+                        <Button
+                            key={action}
+                            size="icon"
+                            variant="outline"
+                            className={cn(
+                                "h-8 w-8",
+                                action === "view"
+                                    ? "text-blue-700 hover:bg-blue-50 hover:text-blue-800"
+                                    : "text-slate-700 hover:bg-slate-100",
+                            )}
+                            onClick={handler[action]}
+                            title={actionLabel(action, row)}
+                            aria-label={label}
+                        >
+                            <Icon className="h-4 w-4" aria-hidden="true" />
+                        </Button>
+                    );
+                })}
+            </div>
+            {shown.includes("cancel") && (
                 <Button
-                    key={action}
                     size="sm"
-                    variant="outline"
-                    className={cn(
-                        "h-7 px-2",
-                        action === "cancel" && "text-red-700 hover:text-red-800",
-                    )}
-                    onClick={handler[action]}
-                    aria-label={`${actionLabel(action, row)} cheque ${row.cheque_no}`}
+                    variant="destructive"
+                    className="h-7 w-full justify-center gap-1 px-2 text-xs font-medium shadow-sm"
+                    onClick={handler.cancel}
+                    aria-label={`${actionLabel("cancel", row)} cheque ${row.cheque_no}`}
                 >
-                    {actionLabel(action, row)}
+                    {row.cheque_type === CHEQUE_TYPE.SECURITY_DEPOSIT ? (
+                        <Undo2 className="h-3.5 w-3.5" aria-hidden="true" />
+                    ) : (
+                        <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                    )}
+                    {actionLabel("cancel", row)}
                 </Button>
-            ))}
+            )}
         </div>
     );
 };

@@ -7,8 +7,10 @@ Per the residence rules (a business calculation gets a single pure home in
 `services/`, no `frappe.db`, no request context), every date derivation for the
 `Reminder Schedule` doctype lives here. It is consumed by BOTH:
 
-  * `Reminder Schedule.validate` (freezes next_due_date / reminds_on at save), and
-  * `api.reminders.read.get_my_reminders` (recomputes them LIVE against today).
+  * `Reminder Schedule.validate` + `integrations.controllers.reminder_schedule.refresh_next_due`
+    (keep the stored next_due_date / reminds_on current — see `next_open_due_date`), and
+  * `tasks.reminders.send_due_reminders` + `api.reminders.read.get_my_reminders`
+    (the calendar cycle, recomputed LIVE against today).
 
 `due_dates` is the schedule's child-table (rows with `.from_month` / `.to_month` /
 `.due_month` / `.due_day`); the functions read those attributes and never touch the
@@ -22,6 +24,11 @@ MONTHS = {name: i + 1 for i, name in enumerate(MONTHS_ORDER)}
 
 # Months each span-based schedule covers — used to derive the end month from the start.
 SPAN = {"Quarterly": 3, "Half-Yearly": 6}
+
+# How many Done cycles in a row `next_open_due_date` will step past. Only a raised cycle can
+# be Done and the cron raises at most the current one, so one or two is the real ceiling;
+# the cap just guarantees the loop ends on bad data.
+MAX_DONE_CYCLES_SKIPPED = 24
 
 
 def fill_end_months(schedule_type, due_dates):
@@ -45,6 +52,25 @@ def next_due_date(schedule_type, due_day, due_dates, base=None):
 	if schedule_type == "Monthly":
 		return _next_monthly(due_day, base)
 	return _next_fixed(due_dates, base)
+
+
+def next_open_due_date(schedule_type, due_day, due_dates, done_dates=(), base=None):
+	"""The schedule's "Next Due Date": the next due date (today or later) not already Done.
+
+	`done_dates` are the due dates of this schedule's Done `Reminder Schedule Log` rows. A
+	cycle completed ahead of its due date is stepped past, so marking it Done moves the
+	date on to the following cycle at once, and reopening it moves the date back. A missed,
+	still-Pending cycle is in the past and never holds the date back: it stays visible as
+	Overdue in the Action Center instead.
+	"""
+	base = getdate(base or today())
+	done = {getdate(d) for d in done_dates or ()}
+	for _ in range(MAX_DONE_CYCLES_SKIPPED):
+		due = next_due_date(schedule_type, due_day, due_dates, base)
+		if not due or due not in done:
+			return due
+		base = add_days(due, 1)
+	return None
 
 
 def reminds_on(next_due, notify_before_days):

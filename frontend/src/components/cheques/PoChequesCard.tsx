@@ -16,12 +16,12 @@ import { CHEQUE_PAYMENT_DATE_LABEL, CHEQUE_TYPE, CHEQUES_CHANGED_EVENT } from "@
 import { CHEQUES_LIST_API, chequeTypeLabel, type ChequeRow } from "@/pages/cheque-tracker/config/chequePaymentTable.config";
 import { chequeDateText } from "@/utils/cheques/chequeChip";
 import type { DepositPageRecord } from "@/utils/cheques/chequeDeposit";
-import { alsoFor, poChequeAmount, poChequesFilters } from "@/utils/cheques/poCheques";
+import { alsoFor, chequesCardCopy, poChequeAmount, poChequesFilters } from "@/utils/cheques/poCheques";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getFrappeError } from "@/utils/frappeErrors";
 
 interface PoChequesCardProps {
-    /** The PO the page shows, with its Vendor and project. Nothing renders until it is known. */
+    /** The PO or Work Order the page shows, with its Vendor and project. Nothing renders until it is known. */
     record: Partial<DepositPageRecord> & Pick<DepositPageRecord, "doctype">;
     className?: string;
 }
@@ -32,8 +32,9 @@ interface PoChequesCardProps {
  * A Payment cheque's amount is what it pays for this PO, with the whole cheque below when it also pays another.
  * "Add Security Deposit Cheque" makes one out to the PO's Vendor, naming the PO (spec #1477, stories 60, 61).
  * Shown to whoever may use the Cheque Tracker (`CHEQUE_ACCESS_PROFILES`, as every `api/cheques/` endpoint
- * checks); the number opens the cheque, with its actions. Work Orders have no cheques, so no Work Order page
- * has this card (spec #1514).
+ * checks); the number opens the cheque, with its actions. The Work Order page shows the same card (ADR-0035
+ * Amendment C): a Work Order is paid Online, so only the Security Deposit cheques that secure it are listed, and
+ * its words come from `chequesCardCopy`.
  */
 export const PoChequesCard = ({ record, className }: PoChequesCardProps) => {
     const { role } = useUserData();
@@ -52,15 +53,14 @@ export const PoChequesCard = ({ record, className }: PoChequesCardProps) => {
 
     if (!ready) return null;
     const rows = data?.message?.data ?? [];
+    const copy = chequesCardCopy(record.doctype);
 
     return (
         <Card className={className ?? "rounded-sm shadow-m col-span-6 overflow-x-auto"}>
             <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
                 <div>
-                    <CardTitle className="text-lg">Cheques issued for this PO</CardTitle>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                        Payment cheques that pay this PO, and Security Deposit cheques handed to its vendor as a guarantee.
-                    </p>
+                    <CardTitle className="text-lg">{copy.title}</CardTitle>
+                    <p className="mt-1 text-xs text-muted-foreground">{copy.subtitle}</p>
                 </div>
                 <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
                     <Plus className="mr-1 h-4 w-4" /> Add Security Deposit Cheque
@@ -72,7 +72,7 @@ export const PoChequesCard = ({ record, className }: PoChequesCardProps) => {
                 ) : error ? (
                     <p className="text-sm text-destructive">{getFrappeError(error)}</p>
                 ) : rows.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No cheque has been issued for this PO.</p>
+                    <p className="text-sm text-muted-foreground">{copy.empty}</p>
                 ) : (
                     <Table>
                         <TableHeader>
@@ -133,7 +133,7 @@ export const PoChequesCard = ({ record, className }: PoChequesCardProps) => {
                                         <TableCell className="whitespace-nowrap">{chequeDateText(row.cheque_date) || "--"}</TableCell>
                                         <TableCell className="whitespace-nowrap">{chequeDateText(row.issue_date) || "--"}</TableCell>
                                         <TableCell className="text-muted-foreground">
-                                            {others.length ? others.join(", ") : "Only this PO"}
+                                            {others.length ? others.join(", ") : copy.onlyThis}
                                         </TableCell>
                                     </TableRow>
                                 );
@@ -151,6 +151,7 @@ export const PoChequesCard = ({ record, className }: PoChequesCardProps) => {
                     name: record.name ?? "",
                     project: record.project ?? "",
                     vendor: record.vendor ?? "",
+                    vendor_name: record.vendor_name,
                 }}
             />
             <ChequeDetailDialog cheque={open} onClose={() => setOpen(null)} />
@@ -162,7 +163,7 @@ interface AddDepositChequeDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     onSaved: () => void;
-    /** The PO the deposit secures, with its Vendor (#1486). */
+    /** The PO or Work Order the deposit secures, with its Vendor (#1486). */
     from: DepositPageRecord;
 }
 
@@ -173,7 +174,7 @@ const AddDepositChequeDialog = ({ open, onOpenChange, onSaved, from }: AddDeposi
             <DialogHeader>
                 <DialogTitle>Add Security Deposit Cheque</DialogTitle>
                 <DialogDescription>
-                    Made out to this Vendor, naming {from.name}. Upload its photo, then add anything else it secures.
+                    Made out to this Vendor, securing {from.name} only. Upload its photo to fill in the cheque.
                 </DialogDescription>
             </DialogHeader>
             {/* The content mounts with each opening, so the form starts fresh. */}

@@ -18,12 +18,13 @@ record (`vendor_invoice_move`, applied by the Vendor Invoices `on_update` hook
 
 Rules:
 
-* The **RA number** is the system's, per Work Order: 1, 2, 3, ... in order, never typed, never reused
-  (a void burns its number, and so does a delete: a deleted record's number is read back from its
-  Deleted Document copy, `ra_number_of_record`), not restarted by a new financial year. A FINAL takes
-  the next one too, so one sequence covers every record and the record name `WGI-<WO>-<n>` keeps a
-  pair unique. An older Work Order starts after the highest "RA-n" already used on its saved invoice
-  number or its Vendor Invoices (`next_ra_number`).
+* The **RA number** is the system's, per Work Order: one above the highest number still held, never
+  typed, not restarted by a new financial year. A Voided record keeps its number; a deleted one frees
+  it, so it is given again when no later record holds a higher one (a gap below the highest is never
+  filled; owner, 2026-10-30, ADR-0040 Amdt B). A FINAL takes the next one too, so one sequence covers
+  every record and the record name `WGI-<WO>-<n>` keeps a pair unique. An older Work Order starts after
+  the highest "RA-n" already used on its saved invoice number or its Pending / Approved Vendor Invoices
+  (`next_ra_number`).
 * A record is **deleted** only in the app: a Voided one by Admin (`generated_invoices.delete_generated_invoice`),
   or any one together with the Vendor Invoice its signed upload created. Desk and REST are refused.
 * The **amount** may not pass `billable_left`: the smaller of the Work Order's amount and its Amount
@@ -85,20 +86,14 @@ _RA_IN_TEXT = re.compile(r"\bRA\s*[-–]?\s*(\d+)", re.IGNORECASE)
 
 def next_ra_number(used_ra_numbers, invoice_numbers) -> int:
     """The RA number the next generated invoice gets: one above the highest of `used_ra_numbers`
-    (every record's, Voided included) and every "RA-n" written in `invoice_numbers` (the Work Order's
-    saved invoice number and its Vendor Invoices' numbers, from before invoices were generated)."""
+    (every record the Work Order still has, Voided included; a deleted one is not there) and every
+    "RA-n" written in `invoice_numbers` (the Work Order's saved invoice number and its Pending / Approved
+    Vendor Invoices' numbers; a Rejected one bills nothing and holds no number)."""
     highest = max((cint(n) for n in used_ra_numbers), default=0)
     for text in invoice_numbers:
         for found in _RA_IN_TEXT.findall(cstr(text)):
             highest = max(highest, int(found))
     return highest + 1
-
-
-def ra_number_of_record(record_name, work_order) -> int | None:
-    """The RA number in a record's name `WGI-<work_order>-<n>`, or None when the name is not one of
-    `work_order`'s records. Reads a deleted record's number from its Deleted Document copy."""
-    found = re.fullmatch(rf"WGI-{re.escape(cstr(work_order))}-(\d+)", cstr(record_name))
-    return int(found.group(1)) if found else None
 
 
 def financial_year_code(invoice_date) -> str:
@@ -109,15 +104,14 @@ def financial_year_code(invoice_date) -> str:
 
 
 def invoice_number(invoice_date, project, work_order, invoice_type, ra_number, final_number: int = 1) -> str:
-    """INV-<FY>-<project last 5>-<WO last 5>-<RA-n | FINAL>, the format the WO page has printed since
-    #1405; the year is the invoice date's. A FINAL generated after a voided one prints its own number,
-    FINAL-2, FINAL-3 (`final_number`, counting every FINAL the WO has had), so a voided number is never
-    printed again."""
+    """INV-<FY>-<project last 5>-<WO last 5>, then -RA-n for an RA; the year is the invoice date's.
+    The FINAL prints no "FINAL" anywhere (owner, 2026-10-30): it is the bare number, and one generated
+    after a voided one gets -2, -3 (`final_number`, counting the FINALs the WO still has, Voided
+    included; a deleted one frees its place), so a voided number is not printed twice. FINALs saved before keep their "-FINAL" numbers."""
+    number = f"INV-{financial_year_code(invoice_date)}-{cstr(project)[-5:]}-{cstr(work_order)[-5:]}"
     if invoice_type == FINAL:
-        suffix = FINAL if cint(final_number) <= 1 else f"{FINAL}-{cint(final_number)}"
-    else:
-        suffix = f"RA-{cint(ra_number)}"
-    return f"INV-{financial_year_code(invoice_date)}-{cstr(project)[-5:]}-{cstr(work_order)[-5:]}-{suffix}"
+        return number if cint(final_number) <= 1 else f"{number}-{cint(final_number)}"
+    return f"{number}-RA-{cint(ra_number)}"
 
 
 def billable_left(total_amount, amount_paid, billed) -> float:

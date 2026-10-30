@@ -8,13 +8,16 @@ It does NOT push bell notifications. The reminder surface is the role-profile-sc
 only creates the `Reminder Schedule Log` row so the Action Center has a concrete Pending
 task to show and a user can mark Done.
 
-Runs daily. For each enabled schedule it recomputes the next due date LIVE (via
-services.reminders) and ensures a Pending `Reminder Schedule Log` row exists for that cycle
-(one per schedule+due_date) — ALWAYS, with no notify-window gate: the reminder is visible as
-Upcoming from now and turns Due / Overdue on its own (state is derived at read time).
-`notify_before_days` is display emphasis only. `_ensure_log` guarantees one row per cycle, so
-this is idempotent AND self-healing (a missed run just creates it on the next run);
-`last_notified_on` records when it was raised.
+Runs daily. For each enabled schedule it:
+
+1. Refreshes the stored "Next Due Date" (`refresh_next_due`), so it rolls forward once a due
+   day passes. This also repairs a stale date on the first run.
+2. Recomputes the current calendar cycle LIVE (via services.reminders) and, once it is within
+   `notify_before_days` of its due date, ensures a Pending `Reminder Schedule Log` row exists
+   for it (one per schedule+due_date). The row then turns Due / Overdue on its own (state is
+   derived at read time). `_ensure_log` guarantees one row per cycle, so this is idempotent
+   AND self-healing (a missed run just creates it on the next run); `last_notified_on`
+   records when it was raised.
 
 NOTE: fires while the site scheduler is ENABLED (bench enable-scheduler), or when invoked
 directly (bench execute nirmaan_stack.tasks.reminders.send_due_reminders).
@@ -23,6 +26,7 @@ directly (bench execute nirmaan_stack.tasks.reminders.send_due_reminders).
 import frappe
 from frappe.utils import getdate, now_datetime, today
 
+from nirmaan_stack.integrations.controllers.reminder_schedule import refresh_next_due
 from nirmaan_stack.services import reminders as reminders_service
 
 
@@ -35,6 +39,9 @@ def send_due_reminders():
 
 	for name in schedule_names:
 		try:
+			refresh_next_due(name)
+			frappe.db.commit()
+
 			doc = frappe.get_doc("Reminder Schedule", name)
 
 			next_due = reminders_service.next_due_date(

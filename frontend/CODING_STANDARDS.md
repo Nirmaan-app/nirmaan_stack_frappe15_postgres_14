@@ -296,6 +296,10 @@ committing).
   measurement, real paint or a real pointer — sticky-column widths, the Radix pickers, the controlled-`<select>`
   trap — is still a live browser question, and a found divergence there is still verified by a live A/B (revert,
   reproduce, restore, re-verify).
+- **Wait in short `act` steps, never one long one.** React holds every render scheduled inside an `act` until
+  that `act` ends, so `await act(() => sleep(500))` lets a debounce timer fire but holds its render (and any
+  fetch that render starts) until the very end. The test then asserts on a state the browser never shows. Loop
+  10 ms `act` steps instead (`src/pages/outflow-import/outflowTableFlow.dom.test.tsx`, `sleep`).
 - **What the DOM environment buys** is the class that used to be structurally untestable: a component mounting,
   unmounting, preserving state across a render, and rendering its cells where its headers say. A pure helper
   extracted from such a component still passes happily while the component misbehaves — the same trap the Pricing

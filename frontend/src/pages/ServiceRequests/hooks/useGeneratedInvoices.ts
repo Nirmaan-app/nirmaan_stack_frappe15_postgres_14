@@ -55,9 +55,9 @@ export const generatedInvoicePdfUrl = (name: string): string =>
     _lang: "en",
   }).toString()}`;
 
-/** The label a generated invoice prints with: "RA-3" or "FINAL". */
+/** A generated invoice's RA column: "RA-3", or "—" for the FINAL, which shows no "FINAL" anywhere (owner, 2026-10-30). */
 export const generatedInvoiceLabel = (row: Pick<GeneratedInvoice, "invoice_type" | "ra_number">): string =>
-  row.invoice_type === "FINAL" ? "FINAL" : `RA-${row.ra_number}`;
+  row.invoice_type === "FINAL" ? "—" : `RA-${row.ra_number}`;
 
 /** One Work Order's generated invoices and what Generate would do next. `null` skips the fetch. */
 export const useGeneratedInvoices = (workOrder: string | null) => {
@@ -95,7 +95,7 @@ export const useGeneratedInvoiceActions = () => {
   /** `fileUrl` is the already-uploaded scan; the server makes its Pending Vendor Invoice (#1547). */
   const uploadSignedCopy = async (name: string, fileUrl: string) =>
     (await callUpload({ name, file_url: fileUrl })).message;
-  /** Admin, a Voided one only; its RA number is never given again. */
+  /** Admin, a Voided one only; its RA number is freed for the next invoice when no later one holds a higher one. */
   const deleteInvoice = async (name: string) => (await callDelete({ name })).message;
   return { generate, voidInvoice, uploadSignedCopy, deleteInvoice, generating, voiding, uploading, deleting };
 };

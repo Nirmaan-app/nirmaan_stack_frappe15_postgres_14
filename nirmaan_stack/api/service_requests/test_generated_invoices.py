@@ -156,8 +156,14 @@ class TestRaNumbers(GeneratedInvoiceTestCase):
 
     def test_an_older_work_order_starts_after_the_highest_ra_already_used(self):
         wo = self._wo(paid=60_000, invoice_no=f"INV-25-26-{self.project[-5:]}-RA-3")
-        self._vendor_invoice(wo, 1_000, "Rejected", invoice_no="RA-5")
+        self._vendor_invoice(wo, 1_000, "Approved", invoice_no="RA-5")
         self.assertEqual(self._stored(self._generate(wo, 1_000)["name"]).ra_number, 6)
+
+    def test_a_rejected_vendor_invoice_holds_no_number(self):
+        """A Rejected invoice bills nothing, so its "RA-n" is not counted (ADR-0040 Amdt B)."""
+        wo = self._wo(paid=60_000, invoice_no=f"INV-25-26-{self.project[-5:]}-RA-3")
+        self._vendor_invoice(wo, 1_000, "Rejected", invoice_no="RA-5")
+        self.assertEqual(self._stored(self._generate(wo, 1_000)["name"]).ra_number, 4)
 
     def test_the_number_is_never_typed(self):
         wo = self._wo(paid=60_000)
@@ -275,7 +281,8 @@ class TestFinal(GeneratedInvoiceTestCase):
         final = self._generate(wo, 60_000)
         stored = self._stored(final["name"])
         self.assertEqual((stored.invoice_type, flt(stored.amount), stored.ra_number), ("FINAL", 60_000, 2))
-        self.assertTrue(stored.invoice_no.endswith(f"{wo[-5:]}-FINAL"))
+        self.assertTrue(stored.invoice_no.endswith(wo[-5:]))
+        self.assertNotIn("FINAL", stored.invoice_no)
 
     def test_one_that_stops_short_is_an_ra_even_on_a_fully_paid_work_order(self):
         wo = self._wo(paid=100_000)
@@ -309,12 +316,12 @@ class TestFinal(GeneratedInvoiceTestCase):
         wo = self._wo(paid=100_000)
         self._generate(wo, 40_000)
         self._generate(wo, 60_000)
-        with self.assertRaisesRegex(frappe.ValidationError, "FINAL"):
+        with self.assertRaisesRegex(frappe.ValidationError, "fully invoiced"):
             self._generate(wo, 1)
         self.assertTrue(get_generated_invoices(wo)["has_final"])
 
     def test_a_regenerated_final_prints_its_own_number(self):
-        """A voided FINAL's number is never given again, so the next FINAL prints FINAL-2, and so on."""
+        """A voided FINAL's number is never given again, so the next FINAL prints -2, and so on."""
         wo = self._wo(paid=100_000)
         first = self._generate(wo, 100_000)
         void_invoice(first["name"], "Wrong date")
@@ -322,7 +329,7 @@ class TestFinal(GeneratedInvoiceTestCase):
         void_invoice(second["name"], "Wrong amount")
         third = self._generate(wo, 99_995)
         numbers = [self._stored(r["name"]).invoice_no for r in (first, second, third)]
-        self.assertEqual([n.split(f"{wo[-5:]}-")[-1] for n in numbers], ["FINAL", "FINAL-2", "FINAL-3"])
+        self.assertEqual([n.split(wo[-5:])[-1] for n in numbers], ["", "-2", "-3"])
 
     def test_a_voided_final_frees_the_work_order_again(self):
         wo = self._wo(paid=100_000)
@@ -660,7 +667,7 @@ class TestApprovalMovesIt(SignedUploadTestCase):
         self.assertEqual(self._stored(name).status, "Voided")
         self.assertEqual(flt(frappe.db.get_value(SR, wo, "amount_invoiced")), 0)
 
-    def test_deleting_its_vendor_invoice_deletes_it_frees_its_amount_and_keeps_its_number(self):
+    def test_deleting_its_vendor_invoice_deletes_it_frees_its_amount_and_its_number(self):
         wo = self._wo(paid=60_000)
         name = self._uploaded(wo, 10_000)
         vi = self._vi(name)
@@ -668,9 +675,8 @@ class TestApprovalMovesIt(SignedUploadTestCase):
         self.assertEqual(result["status"], 200, result)
         self.assertFalse(frappe.db.exists("Vendor Invoices", vi))
         self.assertFalse(frappe.db.exists(GI, name))
-        self.assertTrue(frappe.db.exists("Deleted Document", {"deleted_doctype": GI, "deleted_name": name}))
         self.assertEqual(get_generated_invoices(wo)["left"], 60_000)
-        self.assertEqual(self._generate(wo, 1_000)["ra_number"], 2)
+        self.assertEqual(self._generate(wo, 1_000)["ra_number"], 1)
 
     def test_an_approved_one_is_deleted_by_admin_only_and_takes_its_generated_invoice(self):
         wo = self._wo(paid=60_000)
@@ -692,7 +698,7 @@ class TestApprovalMovesIt(SignedUploadTestCase):
         self.assertEqual(self._stored(name).status, "Voided")
         self.assertEqual(delete_invoice_entry(wo, isSR=True, invoice_id=vi)["status"], 200)
         self.assertFalse(frappe.db.exists(GI, name))
-        self.assertEqual(self._generate(wo, 1_000)["ra_number"], 2)
+        self.assertEqual(self._generate(wo, 1_000)["ra_number"], 1)
 
     def test_deleting_the_finals_invoice_lets_the_work_order_generate_again(self):
         wo = self._wo(paid=100_000)
@@ -703,7 +709,7 @@ class TestApprovalMovesIt(SignedUploadTestCase):
         state = get_generated_invoices(wo)
         self.assertEqual((state["has_final"], state["blocked"], state["left"]), (False, None, 100_000))
         again = self._generate(wo, 100_000)
-        self.assertEqual((again["ra_number"], again["invoice_no"].split(f"{wo[-5:]}-")[-1]), (2, "FINAL-2"))
+        self.assertEqual((again["ra_number"], again["invoice_no"].split(wo[-5:])[-1]), (1, ""))
 
     def test_deleting_it_from_desk_takes_its_generated_invoice_too(self):
         wo = self._wo(paid=60_000)
@@ -713,9 +719,11 @@ class TestApprovalMovesIt(SignedUploadTestCase):
 
 
 class TestDelete(SignedUploadTestCase):
-    """Admin deletes a Voided generated invoice in the app; its number is never given again."""
+    """Admin deletes a Voided generated invoice in the app; that frees its number (ADR-0040 Amdt B): the
+    next number is one above the highest still held, a gap below it is not filled."""
 
-    def test_admin_deletes_a_voided_one_and_its_number_is_never_given_again(self):
+    def test_deleting_the_highest_gives_its_number_again(self):
+        """RA-1, RA-2 voided and deleted: the next is RA-2 again, under the same record name."""
         wo = self._wo(paid=60_000)
         self._generate(wo, 1_000)
         highest = self._generate(wo, 1_000)["name"]
@@ -725,7 +733,25 @@ class TestDelete(SignedUploadTestCase):
         self.assertFalse(frappe.db.exists(GI, highest))
         self.assertTrue(frappe.db.exists("Deleted Document", {"deleted_doctype": GI, "deleted_name": highest}))
         state = get_generated_invoices(wo)
-        self.assertEqual((state["next_ra_number"], self._generate(wo, 1_000)["ra_number"]), (3, 3))
+        again = self._generate(wo, 1_000)
+        self.assertEqual((state["next_ra_number"], again["ra_number"], again["name"]), (2, 2, highest))
+        self.assertTrue(again["invoice_no"].endswith(f"{wo[-5:]}-RA-2"))
+
+    def test_a_void_kept_holds_its_number(self):
+        """RA-1, RA-2 voided (not deleted): the next is RA-3."""
+        wo = self._wo(paid=60_000)
+        self._generate(wo, 1_000)
+        void_invoice(self._generate(wo, 1_000)["name"], "Wrong amount")
+        self.assertEqual(self._generate(wo, 1_000)["ra_number"], 3)
+
+    def test_a_gap_below_the_highest_is_not_filled(self):
+        """RA-1 voided and deleted, RA-2 kept: the next is RA-3."""
+        wo = self._wo(paid=60_000)
+        first = self._generate(wo, 1_000)["name"]
+        self._generate(wo, 1_000)
+        void_invoice(first, "Typo")
+        delete_generated_invoice(first)
+        self.assertEqual(self._generate(wo, 1_000)["ra_number"], 3)
 
     def test_only_a_voided_one_is_deleted(self):
         wo = self._wo(paid=60_000)
@@ -746,15 +772,36 @@ class TestDelete(SignedUploadTestCase):
             self._as(procurement, delete_generated_invoice, name)
         self.assertTrue(frappe.db.exists(GI, name))
 
-    def test_a_deleted_voided_final_still_counts_for_the_next_finals_number(self):
+    def test_a_deleted_voided_final_frees_the_bare_number(self):
         wo = self._wo(paid=100_000)
         first = self._generate(wo, 100_000)["name"]
         void_invoice(first, "Wrong date")
         delete_generated_invoice(first)
         second = self._generate(wo, 100_000)
         self.assertEqual(self._stored(second["name"]).invoice_type, "FINAL")
-        self.assertTrue(second["invoice_no"].endswith(f"{wo[-5:]}-FINAL-2"))
-        self.assertEqual(second["ra_number"], 2)
+        self.assertTrue(second["invoice_no"].endswith(wo[-5:]))
+        self.assertEqual(second["ra_number"], 1)
+
+    def test_after_ras_a_deleted_final_frees_its_slot_and_the_next_final_is_bare(self):
+        """RA-1, RA-2, FINAL voided and deleted: the next RA is RA-3; the next FINAL is the bare number."""
+        wo = self._wo(paid=100_000)
+        self._generate(wo, 30_000)
+        self._generate(wo, 30_000)
+        final = self._generate(wo, 40_000)
+        self.assertEqual((self._stored(final["name"]).invoice_type, final["ra_number"]), ("FINAL", 3))
+        void_invoice(final["name"], "Wrong date")
+        delete_generated_invoice(final["name"])
+        self.assertEqual(get_generated_invoices(wo)["next_ra_number"], 3)
+        again = self._generate(wo, 40_000)
+        self.assertEqual((again["ra_number"], again["invoice_no"].split(wo[-5:])[-1]), (3, ""))
+
+    def test_after_a_voided_final_kept_the_next_ra_skips_its_slot(self):
+        """RA-1, RA-2, FINAL voided (kept): the FINAL holds slot 3, so the next RA is RA-4 (owner, 2026-10-30)."""
+        wo = self._wo(paid=100_000)
+        self._generate(wo, 30_000)
+        self._generate(wo, 30_000)
+        void_invoice(self._generate(wo, 40_000)["name"], "Wrong date")
+        self.assertEqual(self._generate(wo, 10_000)["ra_number"], 4)
 
     def test_a_voided_one_from_a_rejected_upload_is_deleted_and_its_invoice_stays(self):
         wo = self._wo(paid=60_000)
@@ -764,4 +811,5 @@ class TestDelete(SignedUploadTestCase):
         delete_generated_invoice(name)
         self.assertFalse(frappe.db.exists(GI, name))
         self.assertEqual(frappe.db.get_value("Vendor Invoices", vi, "status"), "Rejected")
-        self.assertEqual(self._generate(wo, 1_000)["ra_number"], 2)
+        # The Rejected Vendor Invoice still reads "…-RA-1" but bills nothing, so it holds no number.
+        self.assertEqual(self._generate(wo, 1_000)["ra_number"], 1)

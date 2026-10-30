@@ -108,8 +108,9 @@ def work_orders_off_note(work_orders: list[str]) -> str:
 
 def take_work_orders_off_deposit(name: str, *, user: str) -> list[str]:
     """Take every Work Order line off Security Deposit cheque `name`, with one history note, and return the
-    Work Orders taken off (none: nothing is written). Spec #1514, ADR-0035 Amendment A: a deposit secures POs
-    only.
+    Work Orders taken off (none: nothing is written). Spec #1514, ADR-0035 Amendment A: a deposit secured POs
+    only. Used only by the one-time patch `v3_0.drop_work_order_deposit_lines`; Amendment C lets a deposit
+    secure Work Orders again.
 
     The cheque keeps its status even when no line is left: the paper is still held until it comes back, and
     a deposit securing nothing is a valid one (`status_after_drop` is not asked). Re-read under its row lock

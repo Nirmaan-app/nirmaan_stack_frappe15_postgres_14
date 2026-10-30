@@ -56,6 +56,10 @@ export interface PaymentTDSDeduction {
 	/** The day the payment reached `Approved` and the tax was withheld. Renamed from
 	 *  `deducted_on` — same data, truer name. */
 	payment_approved_on?: string;
+	/** "Payment Paid On": the payment's or Office Rent expense's `payment_date` while it is Paid; empty
+	 *  before then, and cleared if it leaves Paid (`payment_tds.sync_payment_date`,
+	 *  `expense_tds.sync_expense_payment_date`; older rows filled by `v3_0.backfill_payment_tds_payment_date`). */
+	payment_date?: string;
 	/** Pending until paid to the department under a challan. Written by the Pay TDS action
 	 *  (`api/tds_challan/pay_tds`), never by hand. */
 	status?: "Pending" | "Paid";

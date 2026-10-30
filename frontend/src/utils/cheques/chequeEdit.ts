@@ -10,6 +10,7 @@ import {
 } from "@/types/NirmaanStack/Cheques";
 
 import { saveChequeArgs, type ChequeFormInput, type ChequeFormValues, type SaveChequeArgs } from "./chequeForm";
+import type { ChequePhotoField } from "./chequePhoto";
 
 /**
  * Editing a Cheque from the Cheque Tracker (#1418, spec #1407; #1482, spec #1477; spec #1514), pure so vitest
@@ -79,6 +80,19 @@ export const isHeaderLocked = (mode: ChequeEditMode, field: string): boolean => 
     if (mode === "header") return !PAYMENT_CHEQUE_FIELDS.includes(field);
     return false;
 };
+
+/** What a cheque photo fills on a Cheque form: its header. The payee read off it only helps check the Vendor. */
+export const PHOTO_HEADER_FILLS: readonly ChequePhotoField[] = ["bank", "cheque_no", "cheque_date", "amount"];
+
+/**
+ * What a replaced photo fills on an Edit: the header boxes the Edit opens, never a locked one. A Payment cheque's
+ * bank is fixed to ICICI Bank (#1516), so a photo never changes it.
+ */
+export const editPhotoFills = (
+    mode: ChequeEditMode,
+    cheque: Pick<EditFacts, "cheque_type">,
+): ChequePhotoField[] =>
+    PHOTO_HEADER_FILLS.filter((field) => !isHeaderLocked(mode, field) && (field !== "bank" || isDeposit(cheque)));
 
 /** The note at the top of the Edit dialog saying what is locked, if anything is. */
 export const editLockHint = (

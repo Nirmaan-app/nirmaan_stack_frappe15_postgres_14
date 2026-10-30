@@ -538,6 +538,7 @@ letter decides it (owner, 2026-10-16):
 | `tds_amount` | `gross × rate / 100`. What `Service Requests.total_tds` sums (Paid payments only). |
 | `borne_by` | `Vendor` (withheld, payment netted) / `Company` (paid on top, payment kept whole). Read-only, set once at creation (#1451); THE source for every reader — see § Company-borne. |
 | `payment_approved_on` | The day the payment was **approved** — the day this row was written, which is the approval that withheld the tax. Not "the day it last entered Approved": a later `Paid → Approved` save writes nothing (see the rule above) and moves nothing here. Renamed from `deducted_on` (2026-09-12). |
+| `payment_date` | **Payment Paid On** (register column *Paid On*, owner 2026-10-29). A COPY of the source's `payment_date` — the Project Payment's, or the Office Rent expense's — while that source is **Paid**; empty at Approved and Reconciliation Pending; cleared when it leaves Paid. Read-only; display / filter / export only, nothing computes from it. See § Payment Paid On. |
 | `deducted_on` | ⚠️ **RETIRED, READ-ONLY, FROZEN.** The pre-rename copy, kept until the owner drops the column by hand. Nothing writes it, so rows created after the rename leave it empty — never read it as the live date. |
 | `status` | `Pending` → `Paid`. Written by the Pay TDS action, never by hand. |
 | `tds_challan` | Link → TDS Challan Attachment. |
@@ -558,6 +559,34 @@ challan no, tender date and the attachment, and `tds_payment_expense` (#1544, se
 authority: `project_payment` above is the real link. The service writes it when the deduction is
 recorded and repairs it on the next save if blank. ⚠️ The self-heal only fills a BLANK one; it does
 not correct a wrong value.
+
+---
+
+## Payment Paid On — a copy of the source's date while Paid (owner 2026-10-29)
+
+### Load-bearing invariants
+
+- **Paid only.** Filled when the payment / Office Rent expense is `Paid`, never at `Reconciliation
+  Pending` even when the source already carries a date there (Mark as Done is not bank proof). Leaving
+  Paid (Unreconcile, any save out of Paid) clears it, whatever date the source keeps.
+- **It follows the source, even once the tax is in a challan.** A corrected `payment_date` on a Paid
+  source moves the copy (owner Q3). The challan lock guards tax figures, not this date.
+- **Two writers, one per source, both from the source's `on_update`:** `payment_tds.sync_payment_date`
+  (called from `controllers/project_payments.on_update`, ABOVE its status-unchanged return, because a
+  date fixed on a Paid payment changes no status) and `expense_tds.sync_expense_payment_date` (from
+  `controllers/expense_tds.on_update`, only for a type with a tax rule — that type is locked once
+  approved, `guard_tds_type_change`). Both fire only when status or `payment_date` changed.
+- **`frappe.db.set_value(..., update_modified=False)`, no hooks, on purpose.** Copying a date is not a tax
+  edit: the deduction's challan lock would wrongly refuse a deposited row, and no recount reads it.
+- **`write_deduction` fills it at insert** when the payment is already Paid (#1509's path); every other
+  insert is at approval, so it starts empty.
+- **A split payment's record shows the ORIGINAL payment's date** — the tax stays on the original; the
+  leftover has no record.
+- Filled for rows already Paid on 2026-10-29 by the patch `backfill_payment_tds_payment_date` (§ Patches).
+- Pinned by `services/test_tds_payment_paid_on.py` (Work Order via `TaxedWorkOrderFixture`, Office Rent
+  via `OfficeRentCase`, and the patch) and, for the register's column, fetch list and CSV, by
+  `frontend/src/pages/PaymentTDSDeductions/config/paymentTdsDateColumns.test.ts`. What a person sees:
+  `docs/browser-walk-tds-payment-paid-on.md`.
 
 ---
 
@@ -679,7 +708,9 @@ Reports hub → **Payment TDS Deduction** tab (report type "TDS Deduction"), gat
 | `recount_work_order_amount_paid_with_tds` | Recounts every Work Order the mismatch judge finds wrong through `write_amount_paid` (ADR-0034 Amendment A, #1513). Run by hand, `preview` first: it lists the Work Orders the tax explains (Amount Paid short by exactly the TDS withheld from the vendor) apart from those wrong for another reason (#1545), and each project the WO tax in project outflow newly puts over its cashflow limit, for the owner. Re-checks no CEO Hold; idempotent. |
 | `net_po_payments_with_tds` | Cuts each PO payment with a tax record still stored gross (legacy `tds` box filled) to gross − tax and clears the box (ADR-0034 Amendment B, #1534). Skips and lists bank-matched payments and tax ≤ ₹5. Recounts each touched PO (refund sync step, vendor credit under "PO TDS Netting"), re-checks CEO Hold, and aborts writing nothing unless each touched PO's Amount Paid / Amount Due, vendor credit and project outflow are unchanged. Run by hand only, `preview` first on current data: it is not in `patches.txt`, so no migrate runs it; idempotent. |
 
-The first three are idempotent and fill only what is still empty.
+| `backfill_payment_tds_payment_date` | `[post_model_sync]`. Copies `payment_date` from each Paid Project Payment and each Paid Non-Project Expense onto its record's empty `payment_date` (§ Payment Paid On). Raw `UPDATE`, no hooks, `modified` untouched; idempotent, never overwrites. On localhost (2026-10-29) it filled 869 payment rows (783 WO + 86 PO), 0 rent rows (the one rent row is Approved). |
+
+The first three, and `backfill_payment_tds_payment_date`, are idempotent and fill only what is still empty.
 
 ---
 

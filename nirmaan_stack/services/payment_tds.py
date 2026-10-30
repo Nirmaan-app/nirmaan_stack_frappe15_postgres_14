@@ -981,6 +981,9 @@ def write_deduction(
 			"tds_percentage": flt(tds_percentage, 2),
 			"tds_amount": tds_amount,
 			"payment_approved_on": payment_approved_on or nowdate(),
+			# A deduction written on a payment that is already Paid (#1509) carries its date at once;
+			# every later move in or out of Paid is `sync_payment_date`'s.
+			"payment_date": doc.get("payment_date") if doc.get("status") == PAID else None,
 			"borne_by": borne_by,
 			"tds_section": TDS_SECTION_WORK_ORDER,
 		}
@@ -1021,6 +1024,22 @@ def write_deduction(
 	# on a payment already Paid moves its order's Amount Paid at once (#1509).
 	_recount_parent(doc)
 	return row.name
+
+
+def sync_payment_date(doc) -> None:
+	"""Copy a Project Payment's `payment_date` onto its deduction while it is Paid, and clear it when it
+	leaves Paid (Unreconcile, Revert to Approved). Called from the payment's `on_update`; an Office Rent
+	expense's twin is `expense_tds.sync_expense_payment_date`.
+
+	Rows already Paid when the field was added (owner 2026-10-29) were filled once by the patch
+	`v3_0.backfill_payment_tds_payment_date`, under the same rule.
+	`db.set_value`, not a save: this is a copy of the payment's date, not an edit to the tax, so the
+	row's challan lock and recount hooks have nothing to say about it.
+	"""
+	value = doc.get("payment_date") if doc.get("status") == PAID else None
+	name = doc.get("payment_tds") or existing_deduction(doc.name)
+	if name:
+		frappe.db.set_value(TDS_DOCTYPE, name, "payment_date", value, update_modified=False)
 
 
 def record_deduction(doc, *, payment_approved_on: str | None = None, update_modified: bool = True) -> str | None:
