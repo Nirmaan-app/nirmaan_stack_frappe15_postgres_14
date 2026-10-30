@@ -4,6 +4,37 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-10-30 — Reminders page: colour-coded dates and a layout for tablet and phone
+
+The table sat in an `overflow-hidden` box, so on tablet and phone widths columns were squeezed or cut off.
+Backend Next Due fix: `../../.claude/CHANGELOG.md` (same date).
+
+### What changed
+
+- `src/pages/Reminders/RemindersPage.tsx`: full table from `xl`; from `md` to `xl` the table keeps Reminder,
+  Next Due, Status and Actions, with Schedule + role count under the title and Reminds On + Notify Before under
+  Next Due; below `md`, one card per reminder with full-width Edit / Delete. Next Due gets a chip ("in 8d"),
+  amber when 7 days or less or the remind date has arrived, blue within 31 days, grey beyond, rose once past (no
+  chip for a disabled reminder). Monthly "day N" is a violet pill; the day pill and the due chip always sit on
+  their own line under the value, in 11 px text. Role Profiles: every role shown at once (owner: no click or
+  hover) as compact chips with short names, sorted alphabetically, wrapping inside a 22rem column so a
+  reminder with many roles takes a few lines instead of stretching the table. Each role has its own colour
+  (`roleChipClass`: Admin indigo, Accountant emerald, Accountant Lead sky; every other role hashes into the
+  remaining 7, never those 3). Header: slate band, small bold uppercase labels in near-black. Rows: zebra stripes, blue hover, a
+  disabled reminder (row or phone card) at 60% opacity. Edit / Delete icon buttons gained
+  `aria-label`s.
+- `src/utils/reminderDue.ts` (+ test): `dueChip` (calendar days via date-fns `parseISO`, so no time-zone
+  off-by-one), `DUE_TONE_CLASS`, `shortRoleProfile`.
+
+### Verification
+
+- `src/utils/reminderDue.test.ts` 9/9 (container vitest).
+- Scoped host tsc over the changed files: 0 new errors (the 2 reported, `ReminderRoleProfileRow` unused and
+  `NewReminderDialog.tsx:94`, are already in `tsc-baseline.json` / an untouched file).
+- Not walked in a browser at the three widths yet.
+
+---
+
 ## 2026-10-29 — Bulk Import Transactions: search and column filters no longer refresh the page
 
 Summary and verification: `../../.claude/CHANGELOG.md` (same date).

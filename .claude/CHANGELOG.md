@@ -4,6 +4,43 @@ Changes made by AI coding assistants (Claude Code / Gemini).
 
 ---
 
+## 2026-10-30: Reminders — Next Due Date moves forward
+
+**Summary:** the Reminders page showed a past Next Due Date for 7 of 8 schedules (e.g. PF Filing 15-Aug on
+29-Oct), and Mark Done never moved it: the stored `next_due_date` / `reminds_on` were set only when a schedule
+was saved. They now mean "the first due date from today onwards whose cycle is not Done" and are refreshed when a
+log's status changes (Mark Done / Reopen, app or Desk), by the 8 AM cron for every enabled schedule, and on every
+save (including switching a schedule back on). A missed cycle stays Overdue in the Action Center and does not hold
+the date back. Backend only; no schema, frontend or data change, and no patch (the first 8 AM run corrects every
+enabled schedule). On `fixes/29-10`. Rule, write points and accepted gaps:
+`.claude/plans/reminders_plan.md` §4a; decision: ADR-0042; terms: `GLOSSARY.md` § Reminders; who can do what:
+`frontend/.claude/context/role-access.md` § Reminders.
+
+### What changed
+
+| File | Change |
+|---|---|
+| `services/reminders.py` | `next_open_due_date`: the rule, pure; steps past Done cycles, capped |
+| `integrations/controllers/reminder_schedule.py` | `refresh_next_due` (set_value, `update_modified=False`, skips the re-date hook on purpose) + `done_due_dates` |
+| `integrations/controllers/reminder_schedule_log.py` + `hooks.py` | NEW `on_update`: status / due-date change → refresh |
+| `tasks/reminders.py` | cron refreshes each enabled schedule first; docstring now matches the notify-window gate |
+| `doctype/reminder_schedule/reminder_schedule.py` | `validate` uses the same rule |
+
+### Verification
+
+- `services/test_reminders.py` 16/16 and `doctype/reminder_schedule/test_reminder_schedule.py` 7/7 (localhost).
+- Real data, rolled back: Reopen / Mark Done through `api.reminders.write` on Quaterly TDS Filing
+  (31-Jan-2027 → 31-Oct-2026 → 31-Jan-2027); all 8 dates set back to their 29-Oct values, then the cron repaired
+  all 8 and raised no extra logs; a plain save after Done kept both logs in place.
+- Edge probes on throwaway schedules (rolled back, 0 left): October done late on 20-Nov keeps 20-Nov until
+  November is Done, then 20-Dec. Found, not fixed: long `notify_before_days` raises the next log late; 30-Apr
+  clamp loses from/to month (pre-existing).
+- Reminder tables, Version rows and every log's status/modified identical before and after (DIFF 0).
+- Not run: `api/cheques/test_cheque_approval_pending_patch` (names the log doctype but renames every live
+  Cheque; raw-SQL insert, cannot reach this code). No browser walk yet.
+
+---
+
 ## 2026-10-29: Bulk Import Transactions — search and column filters no longer refresh the page
 
 **Summary:** typing in the search box or a column filter blanked the summary card, swapped the table for

@@ -510,3 +510,33 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
 
 - **Asset history** — the permanent, append-only record of everything that happened to an asset. Seen by Admin
   and HR only.
+
+## Reminders
+
+- **Reminder** — a recurring compliance deadline (GSTR-3B, TDS, PF…) set up once: how often it falls due
+  (monthly on a day, or on fixed dates for quarterly, half-yearly and custom), how many days before to remind,
+  and which role profiles it is for. Switching it off stops new cycles; it keeps its last Next Due Date until
+  switched back on. *Avoid*: alert, notification (reminders never use the bell), schedule (on its own).
+  (Owner, 2026-07-30.)
+
+- **Cycle** — one occurrence of a Reminder, named by its due date (the 20-Nov cycle). It appears in the Action
+  Center as a task on its **Reminds On** date. One person marking it Done completes it for everyone the
+  Reminder targets. A Reminder that stays on the 20th keeps every cycle on the 20th, however late an earlier one
+  was done. *Avoid*: occurrence, instance, log. (Owner, 2026-10-30.)
+
+- **Next Due Date** — the first due date from today whose cycle is not Done. Marking a cycle Done moves it to
+  the following cycle at once; reopening moves it back; an overdue cycle never holds it back. A Reminder's
+  schedule never restarts from the day a cycle was completed
+  ([ADR-0042](docs/adr/0042-a-reminders-next-due-date-is-its-next-open-cycle.md)). *Avoid*: next reminder,
+  deadline. (Owner, 2026-10-30.)
+
+- **Reminds On** — the Next Due Date less the Reminder's remind-before days: the day the cycle's task appears
+  in the Action Center. (Owner, 2026-07-30.)
+
+- **Overdue (reminder)** — a cycle whose due date has passed without being marked Done. It stays in the Action
+  Center, marked Overdue, until someone marks it Done; the Reminders page has already moved on to the next
+  cycle. Not the same as **Overdue (audit)**. (Owner, 2026-10-30.)
+
+- **Done / Reopen (cycle)** — marking a cycle Done records who completed it and when, as a permanent compliance
+  record that is never deleted; Reopen returns it to pending. Once its Reminder is deleted, a Done cycle is
+  history and can no longer be reopened. (Owner, 2026-07-30; deleted-reminder rule 2026-10-30.)

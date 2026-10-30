@@ -129,6 +129,7 @@ The BoQ docs are too large to read whole: `frontend/.claude/plans/boq-upload-pla
 | **Technical Data Sheets**: the TDS Repository, Project TDS requests and their approval (not tax TDS) | `tds.md` § Load-bearing invariants |
 | **Vendor Hold** | `frontend/.claude/context/domain/vendor-hold.md` |
 | **Monthly WIP report** | `.claude/plans/monthly-wip-plan.md` |
+| **Reminders**: Reminder Schedule, cycles, Next Due Date, the 8 AM job, the Reminders page | `.claude/plans/reminders_plan.md` § 4a |
 | **Doctypes**, **APIs** | `.claude/context/doctypes.md`, `.claude/context/apis.md` |
 | Anything else; the session changelog | `.claude/context/_index.md`, `frontend/.claude/context/_index.md`; `.claude/CHANGELOG.md` |
 

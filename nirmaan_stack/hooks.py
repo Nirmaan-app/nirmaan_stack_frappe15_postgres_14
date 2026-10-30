@@ -220,6 +220,10 @@ doc_events = {
         # edit doesn't leave a stale occurrence + a duplicate new one. UPDATE only, never deletes.
         "on_update": "nirmaan_stack.integrations.controllers.reminder_schedule.on_update",
     },
+    "Reminder Schedule Log": {
+        # Done / reopen moves the schedule's stored Next Due Date to the next open cycle.
+        "on_update": "nirmaan_stack.integrations.controllers.reminder_schedule_log.on_update",
+    },
     "Asset Management": {
         "after_insert": "nirmaan_stack.integrations.controllers.asset_management.after_insert",
         "on_update": "nirmaan_stack.integrations.controllers.asset_management.on_update",

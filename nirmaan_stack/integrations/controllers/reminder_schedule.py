@@ -14,9 +14,56 @@ Guarantees (owner rules):
     not-yet-done occurrence (which represents nothing that has happened) is re-dated.
   * Idempotent: if a Pending log already sits on the new date, or nothing is raised yet,
     it does nothing (the 8 AM cron then creates the right one).
+
+Also the one writer of the stored "Next Due Date" outside a save: `refresh_next_due`, run
+when a log is marked Done / reopened and by the daily cron, so the date never goes stale.
 """
 import frappe
 from frappe.utils import getdate, today
+
+from nirmaan_stack.services import reminders as reminders_service
+
+
+def done_due_dates(schedule_name):
+    """Due dates (today or later) of the schedule's Done logs — the cycles already completed
+    ahead of time, which `services.reminders.next_open_due_date` steps past."""
+    if not schedule_name:
+        return []
+    return frappe.get_all(
+        "Reminder Schedule Log",
+        filters={
+            "reminder_schedule": schedule_name,
+            "status": "Done",
+            "due_date": [">=", getdate(today())],
+        },
+        pluck="due_date",
+    )
+
+
+def refresh_next_due(schedule_name):
+    """Recompute the schedule's stored next_due_date / reminds_on from source (its due-date
+    config + its Done logs + today) and write them if they changed.
+
+    Written with `frappe.db.set_value`, which fires no doc_events — on purpose: both fields are
+    read-only display values derived here, and a full save would run `on_update` below, which
+    reads a due-date change as an admin edit and re-dates a future Pending log. The next
+    ordinary save recomputes the same values in `ReminderSchedule.validate`.
+    """
+    doc = frappe.get_doc("Reminder Schedule", schedule_name)
+    next_due = reminders_service.next_open_due_date(
+        doc.schedule_type, doc.due_day, doc.due_dates, done_due_dates(doc.name)
+    )
+    remind = reminders_service.reminds_on(next_due, doc.notify_before_days)
+    old_due = getdate(doc.next_due_date) if doc.next_due_date else None
+    old_remind = getdate(doc.reminds_on) if doc.reminds_on else None
+    if (old_due, old_remind) == (next_due, remind):
+        return
+    frappe.db.set_value(
+        "Reminder Schedule",
+        doc.name,
+        {"next_due_date": next_due, "reminds_on": remind},
+        update_modified=False,
+    )
 
 
 def on_update(doc, method=None):

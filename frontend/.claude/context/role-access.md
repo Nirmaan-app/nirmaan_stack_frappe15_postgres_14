@@ -137,6 +137,7 @@ user_id === "Administrator" || role === "Nirmaan Admin Profile" || role === "Nir
 | TDS Repository | Y | Y | - | - | Y | - | Y | - | - | - |
 | Help Repository | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | Billing Tracker (also Billing Executive / Billing Lead) | Y | Y | - | - | - | - | - | - | - | - |
+| Reminders Dashboard (`/reminders`; see § Reminders) | Y | Y | - | - | - | - | - | - | - | - |
 
 ---
 
@@ -199,6 +200,8 @@ profile missing from an endpoint's list reads 0 there while its tables show ever
 - `ApprovedQuotationsFlow/`, `DeliveryNotes/`, `DeliveryChallansAndMirs/`
 - `customers/`, `credits/`, `vendors-wp-categories/`
 - `CriticalPOCategories/` - Sidebar-level access only
+- `Reminders/` - Sidebar-level access only (Admin, PMO); the page is read-only for anyone else who opens the
+  URL. Add / Edit / Delete are Admin-only (see § Reminders)
 - `Manpower-and-WorkMilestones/` - No route checks. Per-action: delete today's Completed DPR = Admin / PMO /
   Project Lead; delete a Draft from its zone chip = Admin / PMO (see `domain/milestones.md` § Permission Checks)
 
@@ -441,6 +444,37 @@ The rules and the monthly audit: `../../../.claude/context/domain/assets.md`.
 - `pages/Assets/utils/permissions.ts` (`getAssetPermissions`; mirrors `services/role_profiles.py`)
 - `pages/Assets/AssetsRoute.tsx` (route guard)
 - `pages/users/components/UserAssetsTab.tsx` (holder actions)
+
+---
+
+### Reminders (`Reminders/`, Action Center)
+
+Compliance reminders (GSTR, TDS, PF…). Rules and the Next Due Date: `../../../.claude/plans/reminders_plan.md`
+§4a, ADR-0042; terms: root `GLOSSARY.md` § Reminders.
+
+| Feature | Admin | PMO | Accountant Lead | Accountant | Others |
+|---------|:-----:|:---:|:---------------:|:----------:|:------:|
+| "Reminders Dashboard" sidebar link | Y | Y | - | - | - |
+| Open `/reminders` (no route guard; read-only by URL) | Y | Y | URL | URL | URL |
+| Add / Edit / Delete a reminder (page and top-nav "Add Reminder") | Y | - | - | - | - |
+| Rename a reminder (`rename_reminder`) / delete (`delete_reminder`) — server | Y | - | - | - | - |
+| Write in Desk (DocPerm create/write/delete) | Y | Y | Y | read | - |
+| Action Center: see a reminder's cycles | targeted | targeted | targeted | targeted | targeted |
+| Mark Done / Reopen a cycle | targeted | targeted | targeted | targeted | targeted |
+
+- "Admin" includes the `Administrator` user, who is treated as the Admin profile for reminders.
+- **Targeted** = the reminder lists the person's Role Profile. Every dashboard's Action Center has the reminders
+  section; it is empty for a person no reminder targets. Mark Done / Reopen are scope-gated on the server
+  (`_my_schedule_names`) and run with `ignore_permissions`, which is how a read-only Accountant can complete one.
+- A deleted reminder's Done cycles can't be reopened: its role-profile rows go with it, so no one is targeted.
+- ⚠️ PMO and Accountant Lead are read-only **on the page** (owner ruling) but keep Desk write through DocPerm.
+
+**Key files:**
+- `pages/Reminders/NewReminderDialog.tsx` (`canRenameReminder` — the one Admin gate for Add / Edit / Delete)
+- `components/helpers/renderRightActionButton.tsx` ("Add Reminder", same gate)
+- `components/layout/NewSidebar.tsx` (sidebar link)
+- `components/layout/action-center/ActionCenter.tsx` (`sectionsForRole`: every role gets "reminders")
+- `nirmaan_stack/api/reminders/write.py` (`_require_reminder_editor`, scope gate for Mark Done / Reopen)
 
 ---
 
