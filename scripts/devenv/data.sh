@@ -92,7 +92,10 @@ PY
   P -d postgres -c "DROP DATABASE IF EXISTS \"$dbname\""
   P -d postgres -c "DO \$\$BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='$dbname') THEN CREATE ROLE \"$dbname\" LOGIN; END IF; END\$\$" \
     -c "ALTER ROLE \"$dbname\" PASSWORD '$dbpass'"
-  P -d postgres -c "CREATE DATABASE \"$dbname\" OWNER \"$dbname\" ENCODING 'UTF8' TEMPLATE template0"
+  # The database and its public schema stay postgres's; only the tables go to the site role (as on the Mac).
+  # devenv.sh clones the DB per task and hands the tables over with REASSIGN OWNED, which it refuses while the site
+  # role owns a database.
+  P -d postgres -c "CREATE DATABASE \"$dbname\" ENCODING 'UTF8' TEMPLATE template0"
   echo "      loading the dump (minutes)"
   # pg_dump 17.6+ writes \restrict / \unrestrict meta-commands that psql 14 does not know: strip them.
   gunzip -c "$db" | sed -e '/^\\restrict /d' -e '/^\\unrestrict /d' \
@@ -105,8 +108,7 @@ PY
       WHERE n.nspname = 'public' AND pg_get_userbyid(c.relowner) = 'postgres' AND (c.relkind IN ('r','p','v','m')
         OR (c.relkind = 'S' AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = c.oid AND d.deptype IN ('a','i'))))
     LOOP EXECUTE format('ALTER %s public.%I OWNER TO %I', CASE r.relkind WHEN 'S' THEN 'SEQUENCE' WHEN 'v' THEN 'VIEW'
-      WHEN 'm' THEN 'MATERIALIZED VIEW' ELSE 'TABLE' END, r.relname, '$dbname'); END LOOP;
-    EXECUTE format('ALTER SCHEMA public OWNER TO %I', '$dbname'); END\$\$"
+      WHEN 'm' THEN 'MATERIALIZED VIEW' ELSE 'TABLE' END, r.relname, '$dbname'); END LOOP; END\$\$"
   ok "DB $dbname loaded"
 
   mkdir -p "$SITE"/{locks,logs,private/backups}

@@ -16,7 +16,14 @@ ROOT="${DEVENV_ROOT:-}"; d="$(cd "$TOP" && pwd -P)"
 while [ -z "$ROOT" ] && [ "$d" != / ]; do [ -d "$d/frappe-bench/apps/frappe" ] && ROOT="$d"; d="$(dirname "$d")"; done
 [ -n "$ROOT" ] || fail "no frappe-bench/ above $TOP: run from a checkout under frappe_docker/development, or set DEVENV_ROOT"
 BENCHES="$ROOT/benches"
-TASK="${1:-$(basename "$TOP")}"
+# The env whose apps/nirmaan_stack is this checkout (made by `devenv.sh up` or `create`), as devenv.sh finds it.
+find_task() {
+  local d; for d in "$BENCHES"/*/apps/nirmaan_stack; do
+    [ -e "$d" ] && [ "$(cd "$d" && pwd -P)" = "$(cd "$TOP" && pwd -P)" ] && { basename "$(dirname "$(dirname "$d")")"; return; }
+  done
+  basename "$TOP"
+}
+TASK="${1:-$(find_task)}"
 B="$BENCHES/$TASK"
 
 python3 -c 'import playwright' 2>/dev/null \
@@ -40,7 +47,7 @@ fi
 [ -d "$B" ] || fail "no env '$TASK' (run devenv.sh up from the worktree)"
 ok "env $TASK at $B"
 
-code="$(cd "$B/apps" && cd "$(readlink nirmaan_stack)" && pwd -P)"
+code="$(cd "$B/apps/nirmaan_stack" && pwd -P)"   # a link (`up`) or the worktree itself (`create`)
 [ "$code" = "$(cd "$TOP" && pwd -P)" ] || fail "env code is $code, not this checkout $TOP"
 ok "code is this checkout ($(git -C "$TOP" rev-parse --short HEAD) on $(git -C "$TOP" branch --show-current))"
 
