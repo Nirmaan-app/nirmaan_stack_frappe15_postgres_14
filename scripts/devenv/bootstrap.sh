@@ -121,7 +121,7 @@ bench() {
         || { tail -20 "$ROOT/logs-bootstrap-get-app.log"; die "get-app $name failed"; }
     fi
     if [ "$(git -C "$BENCH/apps/$name" rev-parse HEAD)" != "$app_commit" ]; then
-      inside "cd frappe-bench/apps/$name && git fetch -q --depth 1 origin $app_commit && git checkout -q $app_commit && \
+      inside "cd frappe-bench/apps/$name && git fetch -q --depth 1 $app_url $app_commit && git checkout -q $app_commit && \
               cd ../.. && env/bin/pip install -q -e apps/$name" || die "could not pin $name to $app_commit"
     fi
     ok "$name at ${app_commit:0:9}"
