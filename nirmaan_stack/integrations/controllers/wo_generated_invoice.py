@@ -7,7 +7,7 @@ Generate (`api/service_requests/generated_invoices.generate_invoice`) assigns th
 and sets `flags.made_by_generate`; any other insert (Desk, REST) would pick its own number. A delete sets
 `flags.deleted_in_app`: Admin's delete of a Voided record (`generated_invoices.delete_generated_invoice`), or
 the delete of the Vendor Invoice its signed upload created (`controllers/vendor_invoices.delete_generated_invoice_with_it`).
-A deleted record keeps its RA number through its Deleted Document copy. Its edits are the doctype's own
+A deleted record frees its RA number (ADR-0040 Amdt B). Its edits are the doctype's own
 `validate` (`services/wo_generated_invoices.change_problem`).
 """
 
