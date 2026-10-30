@@ -3,6 +3,13 @@
 This directory is the maintained source for verifying the user-facing behaviour of Nirmaan Stack. Read the index
 before driving the app, then use the matching feature file as the recipe.
 
+Last maintained: 2026-10-26 (written with `/pstack:create-verification-skill`; Purchase Orders proven live).
+
+Upkeep: update a feature file in the same commit as a change that alters how that feature is reached or proven. When
+`BIN/doctor.sh` warns that the date above is over 30 days old, ask the user to run
+`/pstack:maintain-verification-skill`, which re-checks every file here against the source and the live app and
+moves the date.
+
 ## Baseline preconditions
 
 - The checkout has its own env, served: `DEVENV up`, then `DEVENV serve --wait`.

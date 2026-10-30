@@ -157,5 +157,9 @@ Read by the installed engineering skills (`/triage`, `/to-spec`, `/code-review`,
 - **Domain docs:** single-context — root `GLOSSARY.md` + root `docs/adr/` — plus the per-domain reference docs
   under `.claude/context/domain/` and `frontend/.claude/context/`. See `docs/agents/domain.md`.
 - **Environments:** the laptop / desktop loop and `scripts/env_sync/env_sync.sh`. See `docs/agents/environments.md`.
+- **Verification:** `.claude/skills/verify/` drives this checkout's own dev env (`scripts/devenv/devenv.sh`) as a role
+  user and saves evidence. Its feature map (`features/`) is updated in the same commit as a change that alters how a
+  mapped feature is reached or proven. When `verify`'s `bin/doctor.sh` warns that the map is over 30 days old, ask
+  the user to run `/pstack:maintain-verification-skill`.
 - **Coding standards:** `CODING_STANDARDS.md` and `frontend/CODING_STANDARDS.md` (the `/code-review` Standards axis
   reads both).

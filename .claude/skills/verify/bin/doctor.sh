@@ -1,16 +1,41 @@
 #!/usr/bin/env bash
 # Read-only: is this env worth driving? Run from the worktree whose env you drive, or pass the task name.
 #   .claude/skills/verify/bin/doctor.sh [task]
-# Checks: the env exists, its code is THIS checkout, it is served, the SPA and the backend answer through its URL,
-# and the logged-out boot works. Prints one line per check and exits 1 on the first failure.
+# Checks: Playwright is installed, the feature map's age (a WARN, never a failure), the env exists, its code is THIS
+# checkout, it is served, the SPA and the backend answer through its URL, and the logged-out boot works. Prints one
+# line per check and exits 1 on the first failure.
 set -euo pipefail
 
-BENCHES=/Users/abhishek/work/nirmaan/deploy_setup/frappe_docker/development/benches
 TOP="$(git rev-parse --show-toplevel)"
-TASK="${1:-$(basename "$TOP")}"
-B="$BENCHES/$TASK"
 fail() { echo "FAIL  $*"; exit 1; }
 ok() { echo "ok    $*"; }
+
+# The dev root holds frappe-bench/ and benches/ (as in scripts/devenv/devenv.sh): $DEVENV_ROOT, else the first
+# folder above this checkout that holds the main bench.
+ROOT="${DEVENV_ROOT:-}"; d="$(cd "$TOP" && pwd -P)"
+while [ -z "$ROOT" ] && [ "$d" != / ]; do [ -d "$d/frappe-bench/apps/frappe" ] && ROOT="$d"; d="$(dirname "$d")"; done
+[ -n "$ROOT" ] || fail "no frappe-bench/ above $TOP: run from a checkout under frappe_docker/development, or set DEVENV_ROOT"
+BENCHES="$ROOT/benches"
+TASK="${1:-$(basename "$TOP")}"
+B="$BENCHES/$TASK"
+
+python3 -c 'import playwright' 2>/dev/null \
+  || fail "no Python Playwright on this host: pip install playwright && python3 -m playwright install chromium"
+ok "Playwright installed"
+
+# The feature map rots as the app changes: past 30 days, ask the user for /pstack:maintain-verification-skill.
+map="$TOP/.claude/skills/verify/features/README.md"
+last="$(sed -n 's/^Last maintained: \([0-9-]\{10\}\).*/\1/p' "$map" 2>/dev/null | head -1)"
+if [ -n "$last" ]; then
+  age=$(( ( $(date +%s) - $(python3 -c 'import sys,datetime;print(int(datetime.datetime.fromisoformat(sys.argv[1]).timestamp()))' "$last") ) / 86400 ))
+  if [ "$age" -gt 30 ]; then
+    echo "WARN  feature map last maintained $age days ago ($last): ask the user to run /pstack:maintain-verification-skill"
+  else
+    ok "feature map last maintained $age days ago"
+  fi
+else
+  echo "WARN  no 'Last maintained:' date in $map"
+fi
 
 [ -d "$B" ] || fail "no env '$TASK' (run devenv.sh up from the worktree)"
 ok "env $TASK at $B"

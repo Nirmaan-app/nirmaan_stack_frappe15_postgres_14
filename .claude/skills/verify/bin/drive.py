@@ -32,11 +32,20 @@ from pathlib import Path
 
 from playwright.sync_api import Page, sync_playwright
 
-BENCHES = Path("/Users/abhishek/work/nirmaan/deploy_setup/frappe_docker/development/benches")
+def benches() -> Path:
+    """benches/ under the dev root (as in scripts/devenv/devenv.sh): $DEVENV_ROOT, else the first folder above the
+    current one that holds the main bench. Run from the checkout's root."""
+    if os.environ.get("DEVENV_ROOT"):
+        return Path(os.environ["DEVENV_ROOT"]) / "benches"
+    here = Path.cwd().resolve()
+    for d in (here, *here.parents):
+        if (d / "frappe-bench" / "apps" / "frappe").is_dir():
+            return d / "benches"
+    sys.exit("drive: no frappe-bench/ above this folder; run from a checkout under frappe_docker/development or set DEVENV_ROOT")
 
 
 def base_url(task: str) -> str:
-    serve = BENCHES / task / ".serve"
+    serve = benches() / task / ".serve"
     m = re.search(r"^ports=\d+ (\d+)$", serve.read_text(), re.M) if serve.exists() else None
     if not m:
         sys.exit(f"drive: env {task!r} is not served; run devenv.sh serve {task} --wait first")
