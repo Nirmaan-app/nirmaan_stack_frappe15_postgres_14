@@ -133,6 +133,9 @@ PY
   mkdir -p "$SITE/public/files" "$SITE/private/files"
 
   step "3. migrate and isolate"
+  # Locks a killed or earlier run left behind (jobs queued with no worker to run them) fail migrate with
+  # DocumentLockedError, as devenv.sh's migrate also knows.
+  rm -f "$SITE/locks/"*.lock
   inside "bench --site localhost migrate" > "$work/migrate.log" 2>&1 \
     || { tail -30 "$work/migrate.log"; die "migrate failed"; }
   ok "migrated"
