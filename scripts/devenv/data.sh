@@ -137,9 +137,9 @@ PY
     || { tail -30 "$work/migrate.log"; die "migrate failed"; }
   ok "migrated"
   echo '[]' > "$SITE/private/dev_isolate_stopped.json"   # the scheduler is paused on a dev box; no job is listed
-  inside "env/bin/python apps/nirmaan_stack/scripts/dev_isolate.py --stopped-file sites/localhost/private/dev_isolate_stopped.json --yes" \
+  inside "env/bin/python apps/nirmaan_stack/scripts/dev_isolate.py --stopped-file /workspace/development/frappe-bench/sites/localhost/private/dev_isolate_stopped.json --yes" \
     > "$work/isolate.log" 2>&1 || { tail -20 "$work/isolate.log"; die "dev_isolate failed"; }
-  inside "env/bin/python apps/nirmaan_stack/scripts/dev_isolate.py --stopped-file sites/localhost/private/dev_isolate_stopped.json --verify" \
+  inside "env/bin/python apps/nirmaan_stack/scripts/dev_isolate.py --stopped-file /workspace/development/frappe-bench/sites/localhost/private/dev_isolate_stopped.json --verify" \
     > "$work/verify.log" 2>&1 || { tail -20 "$work/verify.log"; die "dev_isolate --verify failed: the data is NOT safe to use"; }
   ok "isolated and verified (mail, push, cloud upload off; tokens and secrets gone)"
 
