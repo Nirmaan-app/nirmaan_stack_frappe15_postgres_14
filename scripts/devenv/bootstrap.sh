@@ -150,11 +150,13 @@ link() {
 pylock_diff() {   # prints one line per package whose installed version differs from python.lock.txt
   inside "cd frappe-bench && env/bin/pip freeze 2>/dev/null" | python3 -c '
 import sys
+import re
 norm = lambda l: l.strip().lower().replace("_", "-")
-have = {norm(l).split("==")[0]: norm(l) for l in sys.stdin if "==" in l}
+name = lambda l: re.split(r"==| @ ", norm(l))[0]   # "pkg==1.2" or "pkg @ git+https://...@<commit>"
+have = {name(l): norm(l) for l in sys.stdin if l.strip() and not l.startswith(("#", "-e "))}
 for l in open(sys.argv[1]):
-    if l.strip() and not l.startswith("#") and have.get(norm(l).split("==")[0]) != norm(l):
-        print(l.strip(), "(installed:", have.get(norm(l).split("==")[0], "none") + ")")
+    if l.strip() and not l.startswith("#") and have.get(name(l)) != norm(l):
+        print(l.strip(), "(installed:", have.get(name(l), "none") + ")")
 ' "$SELF_DIR/python.lock.txt"
 }
 pylock() {
