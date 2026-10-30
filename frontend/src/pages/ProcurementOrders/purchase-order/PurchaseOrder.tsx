@@ -1225,7 +1225,10 @@ export const PurchaseOrder = () => {
 
                   {/* Cheques issued for this PO: Payment and Security Deposit (#1521); renders only for cheque users. */}
                   <PoChequesCard
-                    record={{ doctype: "Procurement Orders", name: PO?.name, project: PO?.project, vendor: PO?.vendor }}
+                    record={{
+                      doctype: "Procurement Orders", name: PO?.name, project: PO?.project, vendor: PO?.vendor,
+                      vendor_name: PO?.vendor_name,
+                    }}
                   />
                 </div>
               </AccordionContent>

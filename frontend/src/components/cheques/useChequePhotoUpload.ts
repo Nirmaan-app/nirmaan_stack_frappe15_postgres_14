@@ -4,8 +4,10 @@ import { useFrappeFileUpload } from "frappe-react-sdk";
 
 import type { ChequeDetail } from "@/components/cheques/useChequeDetail";
 import { useChequePhotoReader } from "@/components/cheques/useChequePhotoReader";
+import { shrinkChequePhoto } from "@/components/cheques/shrinkChequePhoto";
 import { toast } from "@/components/ui/use-toast";
 import type { ChequePhotoField } from "@/utils/cheques/chequePhoto";
+import { PHOTO_HEADER_FILLS } from "@/utils/cheques/chequeEdit";
 import { getFrappeError } from "@/utils/frappeErrors";
 
 /**
@@ -28,17 +30,16 @@ export type ChequeHeaderInput = {
 export const asHeaderForm = <T extends ChequeHeaderInput, V extends FieldValues>(form: UseFormReturn<T, unknown, V>) =>
     form as unknown as UseFormReturn<ChequeHeaderInput>;
 
-/** What the photo fills. The payee read off it only helps check the Vendor (or type the name). */
-const PHOTO_FILLS: readonly ChequePhotoField[] = ["bank", "cheque_no", "cheque_date", "amount"];
-
 /**
- * A Cheque form's photo: uploads it as soon as it is picked, so the form holds its file URL, then reads a new
- * Cheque's photo into the header fields. An edit keeps what was recorded, so its replaced photo is not read.
- * Clearing a replacement photo on an edit goes back to the recorded one.
+ * A Cheque form's photo: uploads it as soon as it is picked, so the form holds its file URL, then reads it into
+ * the header fields. `fills` are the boxes it may fill: all of a new Cheque's header; on an Edit, only the boxes
+ * the Edit opens (`utils/cheques/chequeEdit.editPhotoFills`), so a replaced photo never changes a locked one, and
+ * with none open it is not read. Clearing a replacement photo on an edit goes back to the recorded one.
  */
 export const useChequePhotoUpload = <T extends ChequeHeaderInput, V extends FieldValues>(
     form: UseFormReturn<T, unknown, V>,
     edit?: ChequeDetail,
+    fills: readonly ChequePhotoField[] = PHOTO_HEADER_FILLS,
 ) => {
     const header = asHeaderForm(form);
     const { upload, loading: uploading } = useFrappeFileUpload();
@@ -53,7 +54,7 @@ export const useChequePhotoUpload = <T extends ChequeHeaderInput, V extends Fiel
                 shouldValidate: header.formState.isSubmitted,
             });
         }
-    }, PHOTO_FILLS);
+    }, fills);
 
     const handlePhoto = async (file: File | null) => {
         const session = ++uploadSession.current;
@@ -65,11 +66,12 @@ export const useChequePhotoUpload = <T extends ChequeHeaderInput, V extends Fiel
             // Uploaded unattached: Frappe's upload checks WRITE permission on the doctype it attaches
             // to, and the Cheques DocPerms give these users read only (the cheques service writes).
             // Saving the Cheque attaches the File to it (`attach_files_to_document`).
-            const uploaded = await upload(file, { isPrivate: true });
+            // A large phone photo is redrawn as a JPG first (`shrinkChequePhoto`).
+            const uploaded = await upload(await shrinkChequePhoto(file), { isPrivate: true });
             if (session !== uploadSession.current) return;
             header.setValue("attachment", uploaded.file_url, { shouldValidate: true });
             // A replaced photo is read again; what only the old one said is cleared.
-            if (!edit) void reader.read(uploaded.file_url);
+            if (fills.length) void reader.read(uploaded.file_url);
         } catch (e) {
             if (session !== uploadSession.current) return;
             setPhoto(null);

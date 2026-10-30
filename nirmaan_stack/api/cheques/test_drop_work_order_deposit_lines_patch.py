@@ -8,7 +8,8 @@ it over every deposit cheque, and reads back what a user then sees: each cheque'
 and what the patch prints.
 
 Each planted deposit cheque is recorded through `save_cheque` naming a PO (or nothing), then given a Work
-Order line with a raw insert: that is the old data the patch meets, a state today's rules refuse.
+Order line with a raw insert: that is the old data the patch met, a state the rules refused when it ran
+(ADR-0035 Amendment A; Amendment C allows Work Orders again, and the patch, already run, never runs twice).
 
 ⚠️ RUNS AGAINST THE ENV DATABASE (`save_cheque` commits). Vendors, projects and Work Orders come from
 `TaxedWorkOrderFixture`, POs from `ChequeFixture.plant_po`; every Cheque carries a TESTCHQ number and is

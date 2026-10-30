@@ -123,3 +123,35 @@ payments read Paid, which says the bank paid half a cheque.
 
 - An Old-type cheque that already has some payments Paid still clears at the import, which leaves those as they are.
 - The rule sits on the payment's own save, so it holds for every path, including ones added later.
+
+## Amendment C — a Security Deposit cheque may secure a Work Order again (2026-10-30)
+
+**Accepted** (owner, 2026-10-30). Reverses Amendment A Decision 6 only. Every other part of Amendment A stands,
+and Work Order payments stay Online.
+
+### Context
+
+Amendment A dropped Work Orders from deposit cheques because Work Orders are never paid by cheque. But a deposit
+cheque pays nothing: it is a guarantee the vendor holds, and how the order is paid has no bearing on it. Work
+Order vendors may hold a guarantee cheque the same as PO vendors, and the Work Order page had no way to record one.
+When this amendment was written, no Work Order payment had ever been made by cheque and no deposit cheque existed
+on the local copy of production data, so nothing recorded under Amendment A needed changing.
+
+### Decision
+
+1. **A Security Deposit cheque may name the POs and Work Orders it secures.** A Work Order line gets the same
+   checks as a PO line: the Work Order exists, is the cheque's Vendor's, and is in the project named. A cheque
+   made out to a typed payee names neither.
+2. **The Secures picker offers the Vendor's open POs, then its Work Orders that are Approved or in Amendment.**
+3. **The Work Order page shows the deposit card again,** after Transaction Details and WO Options, to the same
+   people as on the PO page (Admin, Accounts, Procurement; never a Project Manager). It lists only deposit
+   cheques, and "Add Security Deposit Cheque" starts one made out to the Work Order's Vendor naming that Work
+   Order. It shows on Approved and Amendment Work Orders only.
+4. **Work Order payments stay Online.** A Payment cheque still pays PO payments only
+   (`payment_rules.cheque_mode_problem` is unchanged).
+
+### Consequences
+
+- The one-time patch `v3_0.drop_work_order_deposit_lines` has already run and never runs again. It stays in
+  `patches.txt` as history.
+- A deposit that secures a PO and a Work Order shows on both pages, each naming the other under "Also for".

@@ -118,7 +118,7 @@ export const ChequeDetailDialog = ({ cheque: name, onClose, actions }: ChequeDet
                             <h3 className="mb-2 text-sm font-semibold">{isDeposit ? "Secures" : "Lines"}</h3>
                             {cheque.lines.length === 0 ? (
                                 <p className="text-sm text-muted-foreground">
-                                    {isDeposit ? "No PO named." : "No lines: an Ad-hoc cheque."}
+                                    {isDeposit ? "No PO or Work Order named." : "No lines: an Ad-hoc cheque."}
                                 </p>
                             ) : (
                                 <ChequeLinesView lines={cheque.lines} />

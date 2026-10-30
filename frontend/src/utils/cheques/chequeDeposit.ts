@@ -10,9 +10,9 @@ import { LINE_TYPE } from "./chequeLines";
  * A Security Deposit cheque (#1486, spec #1477, ADR-0035), pure so vitest covers it without React (F4).
  *
  * A deposit is handed to a vendor (or a landlord) as a guarantee and never cashed. It is made out to a Vendor
- * or a typed name, needs its photo and a typed issue date (today by default), and may name the Vendor's POs it
- * secures: one "Secured PO/WO" line each, record only, no payment, no amount. Never a Work Order: Work Orders
- * have no cheques (spec #1514). It is Issued as
+ * or a typed name, needs its photo and a typed issue date (today by default), and may name the Vendor's POs and
+ * Work Orders it secures: one "Secured PO/WO" line each, record only, no payment, no amount. A Work Order is paid
+ * Online, never by cheque, but its Vendor may hold a deposit for it (ADR-0035 Amendment C). It is Issued as
  * soon as it is saved, and Cancelled ("marked returned") by Accounts with a note.
  *
  * The server is the enforcement (`services/cheques/rules.py`: `header_problem`, `secured_line_problem`,
@@ -20,17 +20,18 @@ import { LINE_TYPE } from "./chequeLines";
  */
 
 export const PO_DOCTYPE = "Procurement Orders";
-/** What a deposit may secure: a PO only (spec #1514). */
-export type SecurableDoctype = typeof PO_DOCTYPE;
+export const WO_DOCTYPE = "Service Requests";
+/** What a deposit may secure: a PO or a Work Order (ADR-0035 Amendment C). */
+export type SecurableDoctype = typeof PO_DOCTYPE | typeof WO_DOCTYPE;
 
-/** One PO a deposit secures, as the form holds it. */
+/** One PO or Work Order a deposit secures, as the form holds it. */
 export interface SecuredRecordDraft {
     record_doctype: string;
     record_name: string;
     project: string;
 }
 
-/** One of the Vendor's open POs (`api/cheques/pickers.get_securable_records`). */
+/** One of the Vendor's open POs or Work Orders (`api/cheques/pickers.get_securable_records`). */
 export interface SecurableRecord {
     doctype: SecurableDoctype;
     name: string;
@@ -71,7 +72,7 @@ export const makeDepositFormSchema = ({ photoRequired, today }: { photoRequired:
         if (v.payee_kind === "vendor" && !v.vendor) issue("vendor", "Pick the Vendor the cheque is made out to.");
         if (v.payee_kind === "typed") {
             if (!v.payee_name?.trim()) issue("payee_name", "Type the payee's name.");
-            if (v.secures.length) issue("secures", "A cheque made out to a typed payee names no PO.");
+            if (v.secures.length) issue("secures", "A cheque made out to a typed payee names no PO or Work Order.");
         }
     });
 
@@ -95,15 +96,17 @@ export const emptyDepositForm = (today: string): DepositFormInput => ({
     secures: [],
 });
 
-/** The PO whose page's "Add Security Deposit Cheque" starts the deposit. */
+/** The PO or Work Order whose page's "Add Security Deposit Cheque" starts the deposit. */
 export interface DepositPageRecord {
     doctype: SecurableDoctype;
     name: string;
     project: string;
     vendor: string;
+    /** The Vendor's name, shown on the form; the Vendor id when the page has none. */
+    vendor_name?: string;
 }
 
-/** A deposit added from a PO page: made out to its Vendor, naming that PO (story 61). */
+/** A deposit added from a PO or Work Order page: made out to its Vendor, naming that record (story 61). */
 export const depositPrefill = (record: DepositPageRecord, today: string): DepositFormInput => ({
     ...emptyDepositForm(today),
     vendor: record.vendor,

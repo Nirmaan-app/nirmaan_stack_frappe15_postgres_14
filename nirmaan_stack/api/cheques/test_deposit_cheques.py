@@ -149,11 +149,17 @@ class TestSecurityDepositCheques(FrappeTestCase):
             ("Secured PO/WO", PO, second_po, self.project, None, 0.0),
         ])
 
-    def test_it_never_secures_a_work_order_even_the_vendor_s_own(self):
-        # Spec #1514 story 18: Work Orders have no cheques.
-        self._refused(f"Line 2: {self.wo} is a Work Order: a Security Deposit cheque secures POs only",
-                      lines=self._secures((PO, self.po), (WO, self.wo)))
-        self.assertFalse(frappe.get_all("Cheque Line", filters={"record_name": self.wo, "parenttype": "Cheques"}))
+    def test_it_secures_the_vendor_s_work_order_too(self):
+        # ADR-0035 Amendment C: a Work Order is paid Online, but its Vendor may hold a deposit for it.
+        name = self._save(lines=self._secures((PO, self.po), (WO, self.wo)))
+
+        self.assertEqual(self._lines(name), [
+            ("Secured PO/WO", PO, self.po, self.project, None, 0.0),
+            ("Secured PO/WO", WO, self.wo, self.project, None, 0.0),
+        ])
+        # It moves no money on the Work Order.
+        self.assertEqual(float(frappe.db.get_value(WO, self.wo, "amount_paid") or 0), 0.0)
+        self.assertFalse(frappe.get_all("Project Payments", filters={"document_name": self.wo}))
 
     def test_the_issue_date_is_required_and_never_after_today(self):
         self._refused("Enter the issue date", issue_date="")
@@ -168,16 +174,24 @@ class TestSecurityDepositCheques(FrappeTestCase):
         self._refused("a Security Deposit cheque pays nothing", lines=[line])
 
     def test_it_secures_only_its_vendor_s_records_and_a_typed_payee_none(self):
-        other_po = ChequeFixture.plant_po(self, self.fx, project=self.project, vendor=self.fx.vendor())
-        self._refused("is not a PO of this cheque's Vendor", lines=self._secures((PO, other_po)))
-        self._refused("a cheque made out to a typed payee names no PO",
+        other_vendor = self.fx.vendor()
+        other_po = ChequeFixture.plant_po(self, self.fx, project=self.project, vendor=other_vendor)
+        other_wo = self.fx.service_request(self.project, other_vendor)
+        frappe.db.commit()  # a refusal below rolls back; the rows must outlive it
+        self._refused("is not a PO or Work Order of this cheque's Vendor", lines=self._secures((PO, other_po)))
+        self._refused(f"{other_wo} is not a PO or Work Order of this cheque's Vendor",
+                      lines=self._secures((WO, other_wo)))
+        self._refused("a cheque made out to a typed payee names no PO or Work Order",
                       vendor=None, payee_name="Kavitha Properties", lines=self._secures((PO, self.po)))
+        self._refused("a cheque made out to a typed payee names no PO or Work Order",
+                      vendor=None, payee_name="Kavitha Properties", lines=self._secures((WO, self.wo)))
         self._refused("is on two lines", lines=self._secures((PO, self.po), (PO, self.po)))
+        self._refused("is on two lines", lines=self._secures((WO, self.wo), (WO, self.wo)))
 
     def test_a_payment_cheque_cannot_name_a_secured_record(self):
         # The `validate` controller refuses it on every writer; the Tracker makes no Payment cheque (spec #1514).
         values = self._values(lines=self._secures((PO, self.po)), cheque_type=None, issue_date=None)
-        self._refused("only a Security Deposit cheque names a PO it secures", self.cheques.plant_cheque,
+        self._refused("only a Security Deposit cheque names a PO or Work Order it secures", self.cheques.plant_cheque,
                       status=PENDING, **values)
 
     def test_the_same_bank_and_number_as_any_cheque_is_refused(self):
@@ -196,15 +210,33 @@ class TestSecurityDepositCheques(FrappeTestCase):
         self.assertEqual(self._listed(DEPOSITS_TAB + [["record_name", "=", self.po]]), {name})
         self.assertNotIn(elsewhere, self._listed(DEPOSITS_TAB + [["record_name", "=", self.po]]))
 
-    def test_the_secures_picker_offers_the_vendor_s_open_pos_and_no_work_order(self):
+    def test_one_deposit_shows_on_its_po_and_on_its_work_order(self):
+        # The PO and Work Order pages' card asks the same list, filtered by the record (ADR-0035 Amendment C).
+        name = self._save(lines=self._secures((PO, self.po), (WO, self.wo)))
+        only_po = self._save(lines=self._secures((PO, self.po)))
+
+        self.assertEqual(self._listed([["record_name", "=", self.wo]]), {name})
+        self.assertEqual(self._listed([["record_name", "=", self.po]]), {name, only_po})
+
+    def test_the_secures_picker_offers_the_vendor_s_open_pos_then_its_open_work_orders(self):
         merged = ChequeFixture.plant_po(self, self.fx, project=self.project, vendor=self.vendor, status="Merged")
-        offered = {(r["doctype"], r["name"]): r for r in get_securable_records(self.vendor)}
+        not_yet_approved = self.fx.service_request(self.project, self.vendor)
+        frappe.db.set_value(WO, not_yet_approved, "status", "Vendor Selected", update_modified=False)
+        amended = self.fx.service_request(self.project, self.vendor)
+        frappe.db.set_value(WO, amended, "status", "Amendment", update_modified=False)
+        rows = get_securable_records(self.vendor)
+        offered = {(r["doctype"], r["name"]): r for r in rows}
 
         self.assertIn((PO, self.po), offered)
         self.assertNotIn((PO, merged), offered)
         self.assertEqual(offered[(PO, self.po)]["project"], self.project)
-        # The Vendor's approved Work Order is open, and still not offered (spec #1514 story 18).
-        self.assertEqual({doctype for doctype, _ in offered}, {PO})
+        self.assertIn((WO, self.wo), offered)
+        self.assertIn((WO, amended), offered)
+        self.assertNotIn((WO, not_yet_approved), offered)
+        self.assertEqual(offered[(WO, self.wo)]["project"], self.project)
+        # POs first, then Work Orders.
+        doctypes = [r["doctype"] for r in rows]
+        self.assertEqual(doctypes, sorted(doctypes, key=lambda d: d != PO))
 
     # -- cancel: the one move ---------------------------------------------------------------------
     def test_accounts_cancel_it_with_a_note_and_no_other_move_exists(self):
