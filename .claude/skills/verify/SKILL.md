@@ -9,9 +9,11 @@ The surface is the web SPA. Every user acts through it under a **role profile**,
 counts change by role. The backend's whitelisted APIs are a second surface; drive them only when a story has no
 screen.
 
-`DEVENV` = `/Users/abhishek/work/nirmaan/deploy_setup/frappe_docker/development/devenv.sh`. It lives outside the
-repo, on this machine. Without it, this skill does not apply: say so and stop. `BIN` = `.claude/skills/verify/bin`
-in the checkout you are verifying. Run every command from that checkout's root.
+`DEVENV` = `scripts/devenv/devenv.sh` and `BIN` = `.claude/skills/verify/bin`, both in the checkout you are
+verifying. Run every command from that checkout's root. They work on any host (the Mac or a Linux VM) whose
+checkout sits under `frappe_docker/development/` next to `frappe-bench/`; elsewhere, set `DEVENV_ROOT` to that
+folder. The host needs Python Playwright with Chromium (`pip install playwright && python3 -m playwright install
+chromium`); `BIN/doctor.sh` checks for it.
 
 **Never drive `localhost:8080` / `:8000` or site `localhost`.** That is the user's own site and DB. Drive only an env
 this run started or the user named. Each env has its own host, DB and login, so up to 3 walks run side by side.
@@ -36,7 +38,7 @@ whenever a page looks wrong. Stop on any `FAIL` line.
 
 ## Drive
 
-Use `BIN/drive.py` (headless Playwright on the Mac; it logs in through the real login page):
+Use `BIN/drive.py` (headless Playwright on the host; it logs in through the real login page):
 
 ```bash
 python3 BIN/drive.py login --task <task> --user <email> --password <pw>
@@ -110,3 +112,14 @@ local disk.
 
 [`features/README.md`](features/README.md) lists the features and how to drive each. Read it before a walk. When a
 feature has several ways in, walk the ones the change touches.
+
+The map is only as good as its last check against the app:
+
+- When a change alters how a mapped feature is reached or what proves it works, update that feature file in the
+  same commit.
+- When a walk finds the map wrong (a missing step, a renamed button, a feature with no file), fix the map, or say
+  so in the report if it is not your change's to fix.
+- `BIN/doctor.sh` prints `WARN feature map last maintained N days ago` once the `Last maintained:` date in
+  `features/README.md` is over 30 days old. Then tell the user it is time for `/pstack:maintain-verification-skill`.
+  Don't run it on your own: the user starts pstack skills. That pass checks every feature file against the source
+  and the live app, then moves the date forward.
