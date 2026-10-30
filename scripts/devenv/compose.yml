@@ -1,0 +1,56 @@
+# The dev container set that devenv.sh drives. bootstrap.sh copies this to frappe_docker/.devcontainer/docker-compose.yml
+# and starts it as project frappe_docker_devcontainer (so the main container is frappe_docker_devcontainer-frappe-1).
+#
+# - Images are pinned by digest. A digest names a multi-arch list, so arm64 (Mac) and x86_64 (VM) get the same release.
+# - Every published port is bound to 127.0.0.1: on a VM, Docker's port rules bypass the firewall, and the dev DB holds
+#   real data. Reach the ports over SSH (ssh -L) or from Orca on the host.
+# - No secrets here. This file is in a public repo.
+services:
+  postgresql:
+    image: docker.io/library/postgres:14.11@sha256:d6850c40261fdc9a4fb33b9521d9d641c4a5dcb82145f7bcc32c9258f81e75a2
+    environment:
+      POSTGRES_PASSWORD: 123
+    volumes:
+      - postgresql-data:/var/lib/postgresql/data
+
+  mailpit:
+    image: docker.io/axllent/mailpit@sha256:762dd66a062738309e43ad8efce733e8db4a73bf6a38e369aeb547aecb897d27
+    volumes:
+      - mailpit-data:/data
+    ports:
+      - 127.0.0.1:8025:8025
+      - 127.0.0.1:1025:1025
+    environment:
+      MP_MAX_MESSAGES: 5000
+      MP_DATA_FILE: /data/mailpit.db
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+
+  redis-cache:
+    image: docker.io/library/redis:alpine@sha256:eaea8264f74a95ea9a0767c794da50788cbd9cf5223951674d491fa1b3f4f2d2
+
+  redis-queue:
+    image: docker.io/library/redis:alpine@sha256:eaea8264f74a95ea9a0767c794da50788cbd9cf5223951674d491fa1b3f4f2d2
+
+  frappe:
+    image: docker.io/frappe/bench@sha256:c5b872a0b102ec2cbdb927ef5555af261aafe1c2b86254f840c466e87cb5c1c5
+    command: sleep infinity
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    environment:
+      - SHELL=/bin/bash
+    volumes:
+      - ..:/workspace:cached
+      - ${HOME}/.claude:/home/frappe/.claude:cached
+    working_dir: /workspace/development
+    ports:
+      - 127.0.0.1:8000-8005:8000-8005
+      - 127.0.0.1:9000-9005:9000-9005
+      - 127.0.0.1:8080:8080
+      # 8081-8083: one walk lane each (devenv.sh serve); a lane's backend port stays inside the container
+      - 127.0.0.1:8081-8083:8081-8083
+
+volumes:
+  postgresql-data:
+  mailpit-data:
