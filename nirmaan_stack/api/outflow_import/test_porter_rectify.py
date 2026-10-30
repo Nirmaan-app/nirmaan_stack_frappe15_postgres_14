@@ -379,9 +379,7 @@ class TestAPersonsAttachmentMovesWithTheExpense(PorterRectifyCase):
         def cloud_delete(doc, method):
             raise AssertionError(f"cloud delete reached for File {doc.name} ({doc.file_url})")
 
-        with patch("frappe_gcp_attachment.controller.delete_from_cloud", cloud_delete), patch(
-            "frappe_s3_attachment.controller.delete_from_cloud", cloud_delete
-        ):
+        with patch("frappe_gcp_attachment.controller.delete_from_cloud", cloud_delete):
             [line] = self._rectify(["002"], None)["lines"]
         self.assertTrue(line["rectified"], line)
 
@@ -412,7 +410,7 @@ class TestTheSharedInvoicePdfSurvivesEveryCorrection(PorterRectifyCase):
 
         with _no_bucket_upload(), patch(
             "frappe_gcp_attachment.controller.delete_from_cloud", cloud_delete
-        ), patch("frappe_s3_attachment.controller.delete_from_cloud", cloud_delete):
+        ):
             # An ordinary later save, as the edit dialog makes one.
             expense = self._expense_of("002")
             # The attach hook records the refused copy as an Error Log on the expense.
@@ -459,9 +457,7 @@ class TestTheSharedInvoicePdfSurvivesEveryCorrection(PorterRectifyCase):
         def cloud_delete(doc, method):
             raise AssertionError(f"cloud delete reached for File {doc.name} ({doc.file_url})")
 
-        with patch("frappe_gcp_attachment.controller.delete_from_cloud", cloud_delete), patch(
-            "frappe_s3_attachment.controller.delete_from_cloud", cloud_delete
-        ):
+        with patch("frappe_gcp_attachment.controller.delete_from_cloud", cloud_delete):
             unreconcile_row(row=self._lines()["001"].name, legs="all", reason="wrong import")
 
         self.assertFalse(frappe.db.exists(expense.doctype, expense.name))
