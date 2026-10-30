@@ -1,0 +1,30 @@
+{
+ "_comment": "Exact versions of the dev bench. bootstrap.sh builds from this; `bootstrap.sh lock` rewrites it from a running bench. nirmaan_stack is not listed: it is the checkout this file sits in.",
+ "python": "3.11.6",
+ "node": "20.19.2",
+ "frappe": {
+  "url": "https://github.com/frappe/frappe",
+  "ref": "v15.115.0",
+  "commit": "735a41833dfad245cc761ca34fd8944d4ebbb498"
+ },
+ "apps": [
+  {
+   "name": "frappe_gcp_attachment",
+   "url": "https://github.com/Nirmaan-app/frappe_gcp_attachment",
+   "branch": "develop",
+   "commit": "5102e14ff48a862537b65aaced3de3a63027f4e9"
+  },
+  {
+   "name": "doppio",
+   "url": "https://github.com/NagariaHussain/doppio",
+   "branch": "master",
+   "commit": "70ebdb5ad53452028900e9adc04e34f9fd032cd0"
+  }
+ ],
+ "apps_txt": [
+  "frappe",
+  "frappe_gcp_attachment",
+  "doppio",
+  "nirmaan_stack"
+ ]
+}

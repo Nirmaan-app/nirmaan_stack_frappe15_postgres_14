@@ -570,6 +570,20 @@ preflight() {      # refuse when Postgres is short of disk; show how old the tem
   free_kb="$(docker exec "${CONTAINER%-frappe-1}-postgresql-1" df -Pk /var/lib/postgresql/data | awk 'NR==2{print $4}')"
   [ "$free_kb" -gt $((4 * 1024 * 1024)) ] || die "Postgres disk has only $((free_kb / 1024)) MB free; run '$0 gc' first"
   echo "  template $TPL_DB: $(inside template-age)   postgres disk free: $((free_kb / 1024 / 1024)) GB"
+  # data.sh restore stamps the data it loaded. Past 7 days, the owner supplies a fresh backup; an agent never fetches one.
+  local stamp="$M/sites/localhost/data_stamp.json"
+  if [ -f "$stamp" ]; then
+    python3 - "$stamp" <<'PY'
+import json, sys, datetime
+s = json.load(open(sys.argv[1]))
+days = (datetime.datetime.now() - datetime.datetime.fromisoformat(s["backup_time"])).days
+print(f"  data: backup of {s['backup_time']} ({s['source']}), {days} days old")
+if days > 7:
+    print(f"  WARN data is {days} days old: ask the owner for a fresh backup (scripts/devenv/data.sh). Do not fetch one yourself.")
+PY
+  else
+    echo "  data: date unknown (no data_stamp.json; scripts/devenv/data.sh restore writes one)"
+  fi
 }
 
 task_for() {    # print the task whose apps/nirmaan_stack is the given worktree
