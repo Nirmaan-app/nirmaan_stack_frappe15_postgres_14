@@ -38,9 +38,14 @@ class TestWorkOrderPaymentRequestLimit(FrappeTestCase):
 		quiet.start()
 		self.addCleanup(quiet.stop)
 
-	def _gst_wo(self, gst_invoiced, base_paid_gross=40000):
-		"""Base 1,00,000 + GST 18,000 = 1,18,000, with one taxed base payment approved on it."""
-		sr = self.fx.service_request(self.project, self.vendor, total=118000, gst=True, gst_invoiced=gst_invoiced)
+	def _gst_wo(self, gst_invoiced, base_paid_gross=40000, amount_invoiced=None):
+		"""Base 1,00,000 + GST 18,000 = 1,18,000, with one taxed base payment approved on it. Invoiced to
+		cover that payment (`amount_invoiced`, default `base_paid_gross`), so the invoice check, which
+		nobody skips, lets the next one through and the limit is what is tested."""
+		if amount_invoiced is None:
+			amount_invoiced = base_paid_gross
+		sr = self.fx.service_request(self.project, self.vendor, total=118000, gst=True, gst_invoiced=gst_invoiced,
+			amount_invoiced=amount_invoiced)
 		if base_paid_gross:
 			made = self.fx.payment(base_paid_gross, project=self.project, vendor=self.vendor, service_request=sr)
 			self.assertEqual((made.net, made.tds), (base_paid_gross * 0.98, base_paid_gross * 0.02))
@@ -94,7 +99,7 @@ class TestWorkOrderPaymentRequestLimit(FrappeTestCase):
 	def test_a_request_above_total_left_is_refused_even_within_its_part(self):
 		# An old Work Order paid 1,10,000 of base before GST payments existed: GST left is 18,000,
 		# but only 8,000 remains under the total incl. GST.
-		sr = self._gst_wo(gst_invoiced=18000, base_paid_gross=0)
+		sr = self._gst_wo(gst_invoiced=18000, base_paid_gross=0, amount_invoiced=110000)
 		self._plant(sr, 110000, "Paid")
 		with self.assertRaisesRegex(frappe.ValidationError, "Maximum amount you can request.*total"):
 			self._request(sr, 9000, gst=True)
@@ -132,7 +137,7 @@ class TestWorkOrderPaymentRequestLimit(FrappeTestCase):
 		self.assertTrue(payment_tds.existing_deduction(name))
 
 	def test_a_gst_off_work_order_is_capped_at_its_total(self):
-		sr = self.fx.service_request(self.project, self.vendor, total=30000)
+		sr = self.fx.service_request(self.project, self.vendor, total=30000, amount_invoiced=20000)
 		self._plant(sr, 20000, "Approved")
 		with self.assertRaisesRegex(frappe.ValidationError, "Maximum amount you can request"):
 			self._request(sr, 10500, gst=False)
@@ -198,7 +203,7 @@ class TestWorkOrderPaidEntryLimit(FrappeTestCase):
 	def test_a_paid_entry_above_total_left_is_refused_even_within_its_part(self):
 		# 1,10,000 of base held by an Approved payment: GST left 18,000, total left 8,000. The old
 		# insert check (amount + Paid <= total) sees nothing Paid and would have let 9,000 through.
-		sr = self._gst_wo(gst_invoiced=18000, base_paid_gross=0)
+		sr = self._gst_wo(gst_invoiced=18000, base_paid_gross=0, amount_invoiced=110000)
 		self._plant(sr, 110000, "Approved")
 		with self.assertRaisesRegex(frappe.ValidationError, "Maximum amount you can pay.*total left"):
 			self._paid_entry(sr, 9000, gst=True)
@@ -256,8 +261,8 @@ class TestWorkOrderPaidEntryLimit(FrappeTestCase):
 
 class TestWorkOrderInvoiceCheck(FrappeTestCase):
 	"""GLOSSARY.md, *Invoice check (on a Work Order payment)* (#1488): after a first payment, a new one
-	waits until raised money is less than ₹100 above Total Amount Invoiced. Raised by someone other than
-	`Administrator`, which every other suite here runs as and which alone skips it (owner, 2026-10-29)."""
+	waits until raised money is less than ₹100 above Total Amount Invoiced. Nobody skips it, not even the
+	`Administrator` account (owner, 2026-10-30)."""
 
 	setUp = TestWorkOrderPaidEntryLimit.setUp
 	_plant = TestWorkOrderPaymentRequestLimit._plant
@@ -325,9 +330,13 @@ class TestWorkOrderInvoiceCheck(FrappeTestCase):
 		sr = self._wo(amount_invoiced=20000)
 		self.assertTrue(self._as(procurement, self._request, sr, 60000))
 
-	def test_only_the_administrator_account_skips_it(self):
+	def test_the_administrator_account_is_held_to_it(self):
+		"""Owner, 2026-10-30: `Administrator` no longer skips it either."""
 		sr = self._wo(amount_invoiced=0)
-		self.assertTrue(self._request(sr, 5000))  # Administrator
+		before = self._count(sr)
+		with self.assertRaisesRegex(frappe.ValidationError, self.REFUSAL):
+			self._request(sr, 5000)  # Administrator
+		self.assertEqual(self._count(sr), before)
 
 	def test_an_admin_profile_user_is_held_to_it(self):
 		"""Owner, 2026-10-29: Admin-profile users no longer skip it."""

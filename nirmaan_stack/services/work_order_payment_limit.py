@@ -120,13 +120,12 @@ def part_cap(part_left, total_left) -> dict:
 	return {"cap": round(max(0.0, flt(part_left)), 2), "binds": "part"}
 
 
-def request_refusal(limit: dict, amount, gst_payment: bool, check_invoices: bool = True) -> dict | None:
+def request_refusal(limit: dict, amount, gst_payment: bool) -> dict | None:
 	"""Why a request of `amount` breaks the limit, or None when it is allowed.
 
 	Returns `{"part": "negative" | "no_gst" | "base" | "gst" | "total", "left": <the figure it broke>}`,
-	or `{"part": "invoice", "raised", "invoiced"}` when the Work Order fails the invoice check.
-	`check_invoices` is False for a raiser who skips that check (only `Administrator`). A negative
-	amount is refused for everyone: money coming back is a Vendor Refund (#1488).
+	or `{"part": "invoice", "raised", "invoiced"}` when the Work Order fails the invoice check, which
+	nobody skips. A negative amount is refused for everyone: money coming back is a Vendor Refund (#1488).
 	"""
 	amount = flt(amount)
 	if amount < 0:
@@ -134,7 +133,7 @@ def request_refusal(limit: dict, amount, gst_payment: bool, check_invoices: bool
 	if gst_payment and not limit["gst_on"]:
 		return {"part": "no_gst", "left": 0}
 	check = limit["invoice_check"]
-	if check_invoices and not check["passes"]:
+	if not check["passes"]:
 		return {"part": "invoice", "raised": check["raised"], "invoiced": check["invoiced"]}
 	part, part_left = ("gst", limit["gst_left"]) if gst_payment else ("base", limit["base_left"])
 	if amount > part_left + TOLERANCE:

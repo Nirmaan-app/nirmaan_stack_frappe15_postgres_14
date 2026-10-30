@@ -218,18 +218,9 @@ class TestInvoiceCheck(unittest.TestCase):
 		self.assertIsNone(self._refusal(payments, amount_invoiced=35400, amount=70000))
 		self.assertEqual(self._refusal(payments, amount_invoiced=35400, amount=70500)["part"], "base")
 
-	def test_a_raiser_who_skips_the_check_still_meets_the_limit(self):
-		limit = work_order_limit(118000, "true", 0, [_base("B1", 30000)], amount_invoiced=0)["limit"]
-		self.assertIsNone(request_refusal(limit, 70000, gst_payment=False, check_invoices=False))
-		self.assertEqual(request_refusal(limit, 70500, gst_payment=False, check_invoices=False)["part"], "base")
-
 	def test_a_gst_payment_on_a_gst_off_work_order_is_named_before_the_invoice_check(self):
 		limit = work_order_limit(100000, "false", 0, [_base("B1", 30000)], amount_invoiced=0)["limit"]
 		self.assertEqual(request_refusal(limit, 5, gst_payment=True)["part"], "no_gst")
 
 	def test_a_negative_payment_is_refused(self):
 		self.assertEqual(self._refusal([], amount_invoiced=0, amount=-500), {"part": "negative", "left": 0})
-
-	def test_a_negative_payment_is_refused_even_for_a_raiser_who_skips_the_check(self):
-		limit = work_order_limit(118000, "true", 0, [], amount_invoiced=0)["limit"]
-		self.assertEqual(request_refusal(limit, -500, gst_payment=False, check_invoices=False)["part"], "negative")

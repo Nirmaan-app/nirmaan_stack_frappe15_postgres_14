@@ -165,7 +165,7 @@ class TestPaymentSummaryEndpoint(FrappeTestCase):
 		self.assertAlmostEqual(out["limit"]["base_left"], 50000, places=2)
 		self.assertEqual(out["limit"]["gst_left"], 0)
 
-	def test_a_work_order_carries_its_invoice_check_and_who_skips_it(self):
+	def test_a_work_order_carries_its_invoice_check(self):
 		"""GLOSSARY.md, *Invoice check* (#1488): the dialog shows these figures as given."""
 		sr = _raw("Service Requests", total_amount=118000, gst="true", amount_invoiced=30000)
 		_raw("Project Payments", document_type="Service Requests", document_name=sr,
@@ -173,19 +173,8 @@ class TestPaymentSummaryEndpoint(FrappeTestCase):
 		_raw("Project Payments", document_type="Service Requests", document_name=sr,
 			 amount=9000, status="Rejected", is_gst_payment=0)
 		check = get_payment_summary("Service Requests", sr)["limit"]["invoice_check"]
-		self.assertEqual(check, {"raised": 35000, "invoiced": 30000, "passes": False, "skipped": True})
-
-		procurement = frappe.db.get_value("Nirmaan Users", {"role_profile": "Nirmaan Procurement Executive Profile"}, "name")
-		if not procurement:
-			self.skipTest("no Procurement Executive user on this site")
-		frappe.set_user(procurement)
-		self.assertFalse(get_payment_summary("Service Requests", sr)["limit"]["invoice_check"]["skipped"])
-
-		# Owner, 2026-10-29: an Admin-profile user is held to it too; only `Administrator` skips it.
-		admin = frappe.db.get_value("Nirmaan Users", {"role_profile": "Nirmaan Admin Profile"}, "name")
-		if admin:
-			frappe.set_user(admin)
-			self.assertFalse(get_payment_summary("Service Requests", sr)["limit"]["invoice_check"]["skipped"])
+		# Nobody skips it (owner, 2026-10-30), so there is no `skipped` to report.
+		self.assertEqual(check, {"raised": 35000, "invoiced": 30000, "passes": False})
 
 	def test_a_purchase_order_carries_no_work_order_limit(self):
 		self.assertNotIn("limit", get_payment_summary("Procurement Orders", self._po_with_payments()))
