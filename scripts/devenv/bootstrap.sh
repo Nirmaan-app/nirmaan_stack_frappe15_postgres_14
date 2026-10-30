@@ -2,9 +2,9 @@
 # Build a dev box (the Mac or a Linux VM) that devenv.sh and the verify skill run on, from this checkout alone.
 #
 #   bootstrap.sh all          every step below, in order; then: data.sh restore <backup> (the data is never in git)
-#   bootstrap.sh <step>       one step: host | compose | bench | link | frontend | build | playwright
+#   bootstrap.sh <step>       one step: host | compose | bench | link | pylock | frontend | build | playwright
 #   bootstrap.sh doctor       read-only: the box against apps.lock.json, plus the data's and template's age
-#   bootstrap.sh lock         rewrite apps.lock.json from this box's bench (after an app or frappe upgrade)
+#   bootstrap.sh lock         rewrite apps.lock.json and python.lock.txt from this box's bench (after an upgrade)
 #
 # Every step checks first and skips what is already right, so a step (or `all`) is safe to run again after a failure.
 # `compose` never replaces an existing docker-compose.yml that differs from compose.yml unless given --force (it
@@ -145,6 +145,29 @@ link() {
   lock '"\n".join(d["apps_txt"])' > "$BENCH/sites/apps.txt"; ok "sites/apps.txt: $(tr '\n' ' ' < "$BENCH/sites/apps.txt")"
 }
 
+# The env's Python packages, pinned to python.lock.txt. Installing the apps resolves their dependencies to the newest
+# releases, so without this a new box drifts from the one the tests pass on.
+pylock_diff() {   # prints one line per package whose installed version differs from python.lock.txt
+  inside "cd frappe-bench && env/bin/pip freeze 2>/dev/null" | python3 -c '
+import sys
+norm = lambda l: l.strip().lower().replace("_", "-")
+have = {norm(l).split("==")[0]: norm(l) for l in sys.stdin if "==" in l}
+for l in open(sys.argv[1]):
+    if l.strip() and not l.startswith("#") and have.get(norm(l).split("==")[0]) != norm(l):
+        print(l.strip(), "(installed:", have.get(norm(l).split("==")[0], "none") + ")")
+' "$SELF_DIR/python.lock.txt"
+}
+pylock() {
+  step "pylock"
+  local diff; diff="$(pylock_diff)"
+  if [ -z "$diff" ]; then skip "env matches python.lock.txt"; return; fi
+  echo "      $(echo "$diff" | grep -c .) packages differ from python.lock.txt; installing the locked versions"
+  inside "cd frappe-bench && env/bin/pip install -q --no-deps -r /workspace/development/nirmaan_stack_variants/$NAME/scripts/devenv/python.lock.txt" \
+    > "$ROOT/logs-bootstrap-pylock.log" 2>&1 || { tail -20 "$ROOT/logs-bootstrap-pylock.log"; die "pip install of python.lock.txt failed"; }
+  diff="$(pylock_diff)"; [ -z "$diff" ] || { echo "$diff" | head; die "the env still differs from python.lock.txt"; }
+  ok "env matches python.lock.txt"
+}
+
 frontend() {
   step "frontend"
   local fe="nirmaan_stack_variants/$NAME/frontend"
@@ -184,7 +207,7 @@ PY
   then ok "Chromium launches"
   else
     python3 -m playwright install chromium >/dev/null 2>&1 || true
-    python3 - <<'PY' 2>/dev/null || die "Chromium does not start. As root: $(command -v python3) -m playwright install-deps chromium"
+    python3 - <<'PY' 2>/dev/null || die "Chromium lacks system libraries. As root: PYTHONPATH=$(python3 -m site --user-site) $(command -v python3) -m playwright install-deps chromium"
 from playwright.sync_api import sync_playwright
 with sync_playwright() as p:
     p.chromium.launch().close()
@@ -208,6 +231,7 @@ doctor() {
   done
   check "apps/nirmaan_stack -> this checkout" '[ "$(cd "$BENCH/apps/nirmaan_stack" 2>/dev/null && pwd -P)" = "$CHECKOUT" ]'
   check "sites/apps.txt as locked" '[ "$(cat "$BENCH/sites/apps.txt" 2>/dev/null)" = "$(lock "chr(10).join(d[\"apps_txt\"])")" ]'
+  check "Python packages as locked" '[ -z "$(pylock_diff)" ]'
   check "Desk assets built" '[ -f "$BENCH/sites/assets/assets.json" ]'
   check "frontend node_modules" '[ -d "$ROOT/nirmaan_stack_variants/$NAME/frontend/node_modules/.bin" ]'
   check "Python Playwright on the host" 'python3 -c "import playwright" 2>/dev/null'
@@ -261,9 +285,12 @@ PY
 CMD="${1:-}"; shift || true
 [ "${1:-}" = --force ] && FORCE=1
 case "$CMD" in
-  all) host; compose; bench; link; frontend; build; playwright; doctor || true ;;
-  host|compose|bench|link|frontend|build|playwright|doctor) "$CMD" ;;
-  lock) lock_from_bench ;;
+  all) host; compose; bench; link; pylock; frontend; build; playwright; doctor || true ;;
+  host|compose|bench|link|pylock|frontend|build|playwright|doctor) "$CMD" ;;
+  lock) lock_from_bench
+        { sed -n '1,2p' "$SELF_DIR/python.lock.txt"
+          inside "cd frappe-bench && env/bin/pip freeze 2>/dev/null" | grep -vE '^(-e |#)' | sort; } > "$SELF_DIR/python.lock.txt.new"
+        mv "$SELF_DIR/python.lock.txt.new" "$SELF_DIR/python.lock.txt"; echo "wrote $SELF_DIR/python.lock.txt" ;;
   *) sed -n '2,20p' "$0"; exit 1 ;;
 esac
 exit
