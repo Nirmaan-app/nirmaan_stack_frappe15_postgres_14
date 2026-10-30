@@ -25,8 +25,10 @@ from __future__ import annotations
 import argparse
 import contextlib
 import datetime
+import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -92,14 +94,28 @@ def session(task: str, user: str, password: str, base: str | None = None, headed
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=not headed)
         page = browser.new_context(viewport={"width": 1440, "height": 900}).new_page()
+        verdict = "FAIL"
         try:
             login(page, base, user, password)
             yield page, out
+            verdict = "PASS"
         except Exception:
             save(page, out, "FAIL")
             raise
         finally:
             browser.close()
+            stamp_walk(task, user, out, verdict)
+
+
+def stamp_walk(task: str, user: str, out: Path, verdict: str) -> None:
+    """Record the walk as a Definition-of-Done proof for the code the env serves (scripts/devenv/dod.py)."""
+    dod = Path(__file__).resolve().parents[4] / "scripts" / "devenv" / "dod.py"
+    code = benches() / task / "apps" / "nirmaan_stack"
+    if not dod.exists() or not code.exists():
+        return
+    extra = {"task": task, "user": user, "evidence": str(out), "screens": len(list(out.glob("*.png")))}
+    subprocess.run([sys.executable, str(dod), "stamp", str(code.resolve()), "verify", verdict, json.dumps(extra)],
+                   capture_output=True)
 
 
 def main() -> None:

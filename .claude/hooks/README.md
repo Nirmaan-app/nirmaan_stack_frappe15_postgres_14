@@ -49,3 +49,20 @@ git config core.hooksPath .githooks
 ```
 
 **Bypass a one-off:** `git commit --no-verify ...`
+
+## 3. `scripts/devenv/dod.py hook` — Definition of Done (Claude Code Stop hook)
+
+**What:** a `Stop` hook. In a worktree where `scripts/devenv/dod.py start` was run (an agent task), it keeps Claude from
+finishing until the task meets `docs/agents/definition-of-done.md`: work committed on a task branch, the affected tests
+and the type check passed on HEAD's exact code, a `verify` walk when screens changed, and the report filled in. It
+returns `decision: block` with the list of what is missing, so the hook teaches rather than just blocks.
+
+**Registered in** `.claude/settings.json` only (app-root launches; agents start at a worktree's root).
+
+**Properties:**
+- *Inert outside a task* — no `dod.json` in the worktree's git dir means it exits at once and writes nothing, so
+  ordinary sessions are untouched.
+- *Fail-open* — any error in the check → allow the stop, with the error on stderr.
+- *Bounded* — after 3 consecutive blocks it lets a stuck session end; the report then says what is missing.
+- *Proofs, not claims* — it reads stamps written by `devenv.sh test/unit/typecheck` and the verify skill's
+  `drive.py`, each holding the tree hash of the code it ran on.

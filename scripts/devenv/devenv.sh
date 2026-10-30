@@ -67,6 +67,13 @@ SHARED_APPS="frappe doppio frappe_gcp_attachment"
 export PGHOST=postgresql PGUSER=postgres PGPASSWORD=123
 
 die() { echo "ERROR: $*" >&2; exit 1; }
+# Record a test/unit/typecheck run as a Definition-of-Done proof for its worktree (scripts/devenv/dod.py stamp).
+# $1 worktree, $2 kind, $3 exit code, $4 extra JSON. A failed stamp never fails the command it records.
+proof() {
+  local extra="${4:-}"; [ -n "$extra" ] || extra='{}'
+  python3 "$SELF_DIR/dod.py" stamp "$1" "$2" "$([ "$3" = 0 ] && echo PASS || echo FAIL)" "$extra" 2>/dev/null \
+    || echo "  (could not stamp the $2 proof)"
+}
 
 # This file lives in the app repo (scripts/devenv/), so any checkout under the dev root carries it. The dev root is
 # frappe_docker/development: the first folder above this file that holds the main bench, or $DEVENV_ROOT.
@@ -663,18 +670,20 @@ case "$CMD" in
     WT="$(git rev-parse --show-toplevel 2>/dev/null)" || die "run '$CMD' from inside a checkout or worktree"
     WT="$(cd "$WT" && pwd -P)"; H="$(cd "$HERE" && pwd -P)"
     case "$WT/" in "$H"/*) ;; *) die "$WT is outside $HERE, so the container cannot see it." ;; esac
-    inside "$CMD" "/workspace/development/${WT#"$H"/}" "$@" ;;
+    rc=0; inside "$CMD" "/workspace/development/${WT#"$H"/}" "$@" || rc=$?
+    case "$CMD" in unit|typecheck) proof "$WT" "$CMD" "$rc" ;; esac
+    exit $rc ;;
   test|run|reset|serve|stop|restart)
     [ "$CMD" = reset ] && STRICT_TASK=1
     pick_task "$@"; [ "$PICKED_FROM_ARG" = 1 ] && shift
     [ -d "$B/sites" ] || die "no env named $TASK"
     if [ "$CMD" = test ]; then
       # --affected <base>: expand here, on the host, where git works for every worktree.
-      ARGS=(); AFFECTED=0
+      ARGS=(); AFFECTED=0; AFF_BASE=""
       while [ $# -gt 0 ]; do
         case "$1" in
           --affected)
-            AFFECTED=1
+            AFFECTED=1; AFF_BASE="$(git -C "$B/apps/nirmaan_stack" rev-parse "${2:?--affected needs a base ref}^{commit}")"
             mods="$(python3 -I "$SELF_DIR/devenv_affected.py" "$(cd "$B/apps/nirmaan_stack" && pwd -P)" "${2:?--affected needs a base ref}")" \
               || exit 1
             for m in $mods; do ARGS+=(--module "$m"); done; shift 2 ;;
@@ -682,9 +691,12 @@ case "$CMD" in
         esac
       done
       if [ "$AFFECTED" = 1 ] && ! printf '%s\n' "${ARGS[@]+"${ARGS[@]}"}" | grep -qx -- --module; then
-        echo "devenv: no backend test module is affected; nothing to run"; exit 0
+        echo "devenv: no backend test module is affected; nothing to run"
+        proof "$B/apps/nirmaan_stack" test 0 "{\"affected_base\": \"$AFF_BASE\", \"modules\": 0}"; exit 0
       fi
-      inside "$CMD" "$TASK" ${ARGS[@]+"${ARGS[@]}"} < /dev/null   # never swallow the caller's stdin (a `while read` loop's input)
+      rc=0; inside "$CMD" "$TASK" ${ARGS[@]+"${ARGS[@]}"} < /dev/null || rc=$?   # never swallow the caller's stdin
+      proof "$B/apps/nirmaan_stack" test "$rc" "{\"affected_base\": \"${AFF_BASE:-}\"}"
+      exit $rc
     elif [ "$CMD" = serve ]; then
       WALK_VITE_PORTS="$(published_vite_ports)" inside "$CMD" "$TASK" "$@"
     else

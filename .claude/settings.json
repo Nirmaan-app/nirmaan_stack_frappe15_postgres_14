@@ -11,6 +11,16 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/scripts/devenv/dod.py\"; [ ! -f \"$f\" ] || python3 \"$f\" hook"
+          }
+        ]
+      }
     ]
   }
 }

@@ -76,7 +76,9 @@ already connected. Only an explicit `frappe.db.commit()` writes, and it writes t
 
 `save(page, out, name)` writes `<name>.png` (full page), `<name>.aria.txt` (the ARIA snapshot) and `<name>.txt` (the
 URL and the visible text). The folder is `$VERIFY_OUT`, else `~/claude-artifacts/verify/<task>/<UTC time>/`. A
-failed session also saves `FAIL.*`. Name files by step: `01-…`, `02-…`.
+failed session also saves `FAIL.*`. Name files by step: `01-…`, `02-…`. Every finished session also stamps the walk as a
+Definition-of-Done proof for the code the env serves (`scripts/devenv/dod.py`; see
+`docs/agents/definition-of-done.md`), so walk after the last commit: a later change makes the walk stale.
 
 A proof is good when:
 - It goes the way the user goes: sidebar, buttons, links, as that story's role. Typing a route is setup, not proof.
