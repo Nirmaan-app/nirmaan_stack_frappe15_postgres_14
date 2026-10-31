@@ -88,7 +88,8 @@ class AssetManagement(Document):
 			)
 
 	def check_not_already_assigned(self):
-		"""One holder per asset: the asset's current holder decides, not any assignment row.
+		"""One holder per asset: the asset's current holder decides, not any assignment row. A Lost/Damaged asset
+		has none and can't get one until Admin or HR marks it Found/Repaired (owner, 2026-10-31).
 
 		The holder is read with a row lock, so two people assigning the same asset at once can't both win.
 		On PostgreSQL (REPEATABLE READ) the second one's lock fails with a serialization error once the
@@ -97,11 +98,17 @@ class AssetManagement(Document):
 		aren't asked.
 		"""
 		try:
-			holder = frappe.db.get_value("Asset Master", self.asset, "current_assignee", for_update=True)
+			holder, lost_damaged = frappe.db.get_value(
+				"Asset Master", self.asset, ["current_assignee", "lost_damaged"], for_update=True
+			) or (None, 0)
 		except Exception as exc:
 			if is_serialization_failure(exc):
 				frappe.throw(f"{self.asset} was just assigned or changed by someone else. Reload the page and try again.")
 			raise
+		if lost_damaged:
+			frappe.throw(
+				f"{self.asset} is marked Lost/Damaged. Admin or HR must mark it Found/Repaired before it can be assigned."
+			)
 		if holder:
 			holder_name = frappe.db.get_value("Nirmaan Users", holder, "full_name") or holder
 			frappe.throw(f"{self.asset} is already assigned to {holder_name}. Unassign it first.")

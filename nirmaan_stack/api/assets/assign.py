@@ -105,8 +105,18 @@ def unassign_asset(asset: str, reason: str, details: str | None = None, assignme
     refusal = unassign_reason_refusal(reason, details)
     if refusal:
         frappe.throw(refusal)
-    reason_text = unassign_reason_text(reason, details)
 
+    end_assignment(asset, unassign_reason_text(reason, details), assignment)
+    frappe.db.commit()
+    return {"asset": asset}
+
+
+def end_assignment(asset: str, reason_text: str, assignment: str | None = None) -> None:
+    """End `asset`'s assignment and record why, in the caller's transaction (the caller commits).
+
+    Shared by `unassign_asset` and `api/assets/lost_damaged.mark_lost_damaged`, which checked who may do it and
+    the reason. `assignment` defaults to the current holder's row.
+    """
     holder = frappe.db.get_value(ASSET_MASTER_DOCTYPE, asset, "current_assignee")
     if not assignment and holder:
         assignment = frappe.db.get_value(
@@ -127,6 +137,3 @@ def unassign_asset(asset: str, reason: str, details: str | None = None, assignme
         notify_asset_changed(asset)
     else:
         frappe.throw(f"{asset} is not assigned to anyone.")
-
-    frappe.db.commit()
-    return {"asset": asset}
