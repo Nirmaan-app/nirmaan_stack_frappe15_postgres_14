@@ -62,6 +62,8 @@ import {
     Laptop,
     MapPin,
     PenLine,
+    PackageCheck,
+    PackageX,
 } from 'lucide-react';
 
 import { canSignDeclaration } from '@/utils/assetDeclaration';
@@ -76,6 +78,8 @@ import { auditBadge, parseAuditAnswers } from '@/utils/assetAudit';
 import { DepartmentBadge } from './utils/departmentColumn';
 import { AssignAssetDialog } from './components/AssignAssetDialog';
 import { UnassignAssetDialog } from './components/UnassignAssetDialog';
+import { LostDamagedDialog, type LostDamagedMode } from './components/LostDamagedDialog';
+import { LostDamagedNotice } from './components/LostDamagedNotice';
 import { SignDeclarationDialog } from './components/SignDeclarationDialog';
 import { useAssetDataRefresh } from './hooks/useAssetDataRefresh';
 
@@ -110,6 +114,8 @@ interface AssetMaster {
     asset_invoice_attachment: string;
     asset_certificate_attachment: string;
     current_assignee: string;
+    /** Marked Lost/Damaged by Admin / HR (owner, 2026-10-31): no holder, no Assign, no audit. */
+    lost_damaged?: 0 | 1;
     creation: string;
     modified: string;
 }
@@ -177,6 +183,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     const [assignDialogOpen, setAssignDialogOpen] = useState(false);
     const [unassignDialogOpen, setUnassignDialogOpen] = useState(false);
     const [signDeclarationDialogOpen, setSignDeclarationDialogOpen] = useState(false);
+    const [lostDamagedMode, setLostDamagedMode] = useState<LostDamagedMode | null>(null);
     const { refreshSummaryCards } = useAssetDataRefresh();
 
     // Project-asset attachment upload state
@@ -331,10 +338,9 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     const { upload } = useFrappeFileUpload();
 
     // Get granular permissions for current user
-    const { canViewAssets, canEditAsset, canAssignAsset, canAssignAssetType, canViewHistory } = getAssetPermissions(
-        userData?.user_id,
-        userData?.role
-    );
+    const { canViewAssets, canEditAsset, canAssignAsset, canAssignAssetType, canViewHistory, canMarkLostDamaged } =
+        getAssetPermissions(userData?.user_id, userData?.role);
+    const isLostDamaged = !!asset?.lost_damaged;
     // The action row (Assign/Unassign, Edit) and the attachment uploads.
     // Procurement manages Project assets only, as with Assign (owner, 2026-10-13): on an IT asset --
     // or before the kind is known -- they see none of it.
@@ -548,8 +554,13 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                         {isLoading ? (
                             <Skeleton className="h-8 w-64 bg-gray-200" />
                         ) : (
-                            <h1 className="text-2xl font-semibold text-gray-900">
+                            <h1 className="flex flex-wrap items-center gap-2 text-2xl font-semibold text-gray-900">
                                 {asset?.asset_name}
+                                {isLostDamaged && (
+                                    <Badge variant="outline" className="border-red-200 bg-red-50 text-red-700 text-xs">
+                                        Lost/Damaged
+                                    </Badge>
+                                )}
                             </h1>
                         )}
                         <p className="text-sm text-gray-500 mt-0.5">
@@ -560,8 +571,8 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
 
                 {canManageAssets && !isLoading && (
                     <div className="flex items-center gap-2">
-                        {/* Assignment Actions -- procurement: Project assets only */}
-                        {!canAssignAssetType(currentCategoryType) ? null : asset?.current_assignee ? (
+                        {/* Assignment Actions -- procurement: Project assets only; none while Lost/Damaged */}
+                        {isLostDamaged || !canAssignAssetType(currentCategoryType) ? null : asset?.current_assignee ? (
                             <Button
                                 variant="outline"
                                 size="sm"
@@ -581,6 +592,27 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                                 <span className="hidden sm:inline">Assign</span>
                             </Button>
                         )}
+                        {/* Lost/Damaged <-> Found/Repaired: Admin and HR only (owner, 2026-10-31) */}
+                        {canMarkLostDamaged && (isLostDamaged ? (
+                            <Button
+                                size="sm"
+                                onClick={() => setLostDamagedMode('recover')}
+                                className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+                            >
+                                <PackageCheck className="h-4 w-4" />
+                                <span className="hidden sm:inline">Mark as Found/Repaired</span>
+                            </Button>
+                        ) : (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setLostDamagedMode('mark')}
+                                className="gap-2 text-red-700 border-red-200 hover:bg-red-50 hover:text-red-800"
+                            >
+                                <PackageX className="h-4 w-4" />
+                                <span className="hidden sm:inline">Mark as Lost/Damaged</span>
+                            </Button>
+                        ))}
                         {/* Edit Button */}
                         <Button
                             variant="outline"
@@ -857,7 +889,9 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
-                            {asset?.current_assignee ? (
+                            {isLostDamaged ? (
+                                <LostDamagedNotice rows={asset?.asset_history} />
+                            ) : asset?.current_assignee ? (
                                 <div className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 rounded-lg bg-emerald-50/50 border border-emerald-100">
                                     <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100">
                                         <User className="h-6 w-6 text-emerald-600" />
@@ -1201,6 +1235,22 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                 assetManagementId={currentAssignment?.name}
                 onUnassigned={handleAssignmentChange}
             />
+
+            {/* Mark as Lost/Damaged / Found/Repaired (owner, 2026-10-31) */}
+            {lostDamagedMode && (
+                <LostDamagedDialog
+                    isOpen
+                    onOpenChange={(open) => !open && setLostDamagedMode(null)}
+                    mode={lostDamagedMode}
+                    assetId={assetId}
+                    assetName={asset?.asset_name || ''}
+                    holderId={asset?.current_assignee || null}
+                    holderName={asset?.current_assignee ? assigneeUser?.full_name || asset.current_assignee : null}
+                    assignment={currentAssignment}
+                    history={asset?.asset_history}
+                    onDone={handleAssignmentChange}
+                />
+            )}
 
             {/* Upload / Replace Project Attachment Dialog */}
             <Dialog

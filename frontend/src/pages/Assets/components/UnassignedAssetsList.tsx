@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useUserData } from '@/hooks/useUserData';
 import { Package, Hash, UserPlus } from 'lucide-react';
+import { formatHistoryTime } from '@/utils/assetHistory';
 
 import { AssignAssetDialog } from './AssignAssetDialog';
 
@@ -27,6 +28,8 @@ import {
 } from '../assets.constants';
 import { getAssetPermissions } from '../utils/permissions';
 import { assetDepartmentColumn, departmentFacetOptions } from '../utils/departmentColumn';
+import { useAssetHistoryPeople } from '../hooks/useAssetHistoryPeople';
+import { useLostDamagedMarks } from '../hooks/useLostDamagedMarks';
 
 interface AssetMaster {
     name: string;
@@ -52,11 +55,21 @@ const conditionColorMap: Record<string, string> = {
 interface UnassignedAssetsListProps {
     onAssigned?: () => void;
     assetType?: AssetCategoryType;
+    /**
+     * The Lost/Damaged sub-tab instead (owner, 2026-10-31): assets marked Lost/Damaged, no Assign button, plus who
+     * had each one, when and why for Admin and HR. Unassigned leaves them out.
+     */
+    lostDamaged?: boolean;
+}
+
+/** The list's base filter: Lost/Damaged assets, or the free ones that aren't (`is not set` matches NULL and ''). */
+function baseFilters(lostDamaged: boolean): [string, string, string | number][] {
+    return lostDamaged ? [['lost_damaged', '=', 1]] : [['current_assignee', 'is', 'not set'], ['lost_damaged', '=', 0]];
 }
 
 // Outer guard — blocks table mount until typed categoryList is loaded so the
 // inner useServerDataTable doesn't fire a racy first fetch with a placeholder.
-export const UnassignedAssetsList: React.FC<UnassignedAssetsListProps> = ({ onAssigned, assetType }) => {
+export const UnassignedAssetsList: React.FC<UnassignedAssetsListProps> = ({ onAssigned, assetType, lostDamaged = false }) => {
     const { data: categoryList, isLoading: categoryListLoading } = useFrappeGetDocList(
         ASSET_CATEGORY_DOCTYPE,
         {
@@ -77,6 +90,7 @@ export const UnassignedAssetsList: React.FC<UnassignedAssetsListProps> = ({ onAs
             assetType={assetType}
             categoryList={categoryList ?? []}
             onAssigned={onAssigned}
+            lostDamaged={lostDamaged}
         />
     );
 };
@@ -85,12 +99,14 @@ interface UnassignedAssetsListInnerProps {
     assetType?: AssetCategoryType;
     categoryList: { name: string; asset_category: string }[];
     onAssigned?: () => void;
+    lostDamaged: boolean;
 }
 
 const UnassignedAssetsListInner: React.FC<UnassignedAssetsListInnerProps> = ({
     assetType,
     categoryList,
     onAssigned,
+    lostDamaged,
 }) => {
     const userData = useUserData();
     const [assignDialogOpen, setAssignDialogOpen] = useState(false);
@@ -105,13 +121,13 @@ const UnassignedAssetsListInner: React.FC<UnassignedAssetsListInnerProps> = ({
     // `is not set` catches both NULL and ''; `in ["", null]` would drop
     // nulls at the REST API boundary.
     const facetSourceFilters = useMemo(() => {
-        const filters: any[] = [['current_assignee', 'is', 'not set']];
+        const filters: any[] = baseFilters(lostDamaged);
         if (assetType) {
             if (categoryNames.length === 0) filters.push(['asset_category', 'in', ['__none__']]);
             else filters.push(['asset_category', 'in', categoryNames]);
         }
         return filters;
-    }, [assetType, categoryNames]);
+    }, [assetType, categoryNames, lostDamaged]);
 
     const { data: facetSource } = useFrappeGetDocList<{
         name: string;
@@ -126,7 +142,7 @@ const UnassignedAssetsListInner: React.FC<UnassignedAssetsListInnerProps> = ({
             filters: facetSourceFilters,
             limit: 0,
         },
-        assetType ? `unassigned_facet_source_${assetType}` : 'unassigned_facet_source'
+        `${lostDamaged ? 'lost_damaged' : 'unassigned'}_facet_source_${assetType ?? 'all'}`
     );
 
     const departmentOptions = useMemo(
@@ -173,8 +189,16 @@ const UnassignedAssetsListInner: React.FC<UnassignedAssetsListInnerProps> = ({
         return opts.sort((a, b) => a.label.localeCompare(b.label));
     }, [facetCounts]);
 
-    // Procurement assigns Project assets only.
-    const canAssignAsset = getAssetPermissions(userData?.user_id, userData?.role).canAssignAssetType(assetType);
+    // Procurement assigns Project assets only; a Lost/Damaged asset is assigned by nobody.
+    const permissions = getAssetPermissions(userData?.user_id, userData?.role);
+    const canAssignAsset = !lostDamaged && permissions.canAssignAssetType(assetType);
+    const showMarks = lostDamaged && permissions.canViewHistory;
+    const marks = useLostDamagedMarks(assetType, showMarks);
+    const { data: people } = useAssetHistoryPeople();
+    const nameOf = useMemo(() => {
+        const names = new Map((people ?? []).map((person) => [person.name, person.full_name]));
+        return (id: string | null) => (id ? names.get(id) || id : '');
+    }, [people]);
 
     const handleAssignClick = (asset: AssetMaster) => {
         setSelectedAsset({ id: asset.name, name: asset.asset_name });
@@ -270,6 +294,25 @@ const UnassignedAssetsListInner: React.FC<UnassignedAssetsListInnerProps> = ({
             ),
             size: 110,
         },
+        ...(showMarks ? [{
+            id: 'lost_damaged_mark',
+            meta: { excludeFromExport: true },
+            header: () => <span>Marked Lost/Damaged</span>,
+            cell: ({ row }: { row: { original: AssetMaster } }) => {
+                const mark = marks.get(row.original.name);
+                if (!mark) return <span className="text-gray-400">—</span>;
+                return (
+                    <div className="max-w-xs space-y-0.5 text-xs">
+                        <p className="text-sm text-gray-900 line-clamp-2" title={mark.reason ?? ''}>{mark.reason}</p>
+                        <p className="text-gray-500">
+                            {mark.assigned_to ? `Was with ${nameOf(mark.assigned_to)} · ` : 'Was in store · '}
+                            {nameOf(mark.done_by)}, {formatHistoryTime(mark.done_on)}
+                        </p>
+                    </div>
+                );
+            },
+            size: 260,
+        }] : []),
         ...(canAssignAsset ? [{
             id: 'actions',
             meta: {
@@ -289,13 +332,13 @@ const UnassignedAssetsListInner: React.FC<UnassignedAssetsListInnerProps> = ({
             ),
             size: 100,
         }] : []),
-    ], [canAssignAsset]);
+    ], [canAssignAsset, showMarks, marks, nameOf]);
 
     // Match the summary card's Unassigned filter so the table, the Asset
     // Name facet, and the summary count all agree. Uses `is not set` (matches
     // NULL or '') — `in ["", null]` would drop nulls at the REST API.
     const additionalFilters = useMemo(() => {
-        const filters: any[] = [['current_assignee', 'is', 'not set']];
+        const filters: any[] = baseFilters(lostDamaged);
         if (assetType) {
             if (categoryNames.length === 0) {
                 filters.push(['asset_category', 'in', ['__none__']]);
@@ -304,7 +347,7 @@ const UnassignedAssetsListInner: React.FC<UnassignedAssetsListInnerProps> = ({
             }
         }
         return filters;
-    }, [assetType, categoryNames]);
+    }, [assetType, categoryNames, lostDamaged]);
 
     const {
         table,
@@ -324,7 +367,7 @@ const UnassignedAssetsListInner: React.FC<UnassignedAssetsListInnerProps> = ({
         fetchFields: ASSET_MASTER_FIELDS as unknown as string[],
         searchableFields: ASSET_SEARCHABLE_FIELDS,
         defaultSort: 'creation desc',
-        urlSyncKey: assetType ? `unassigned_assets_${assetType.toLowerCase()}` : 'unassigned_assets',
+        urlSyncKey: `${lostDamaged ? 'lost_damaged' : 'unassigned'}_assets${assetType ? `_${assetType.toLowerCase()}` : ''}`,
         enableRowSelection: false,
         additionalFilters,
     });
@@ -367,7 +410,7 @@ const UnassignedAssetsListInner: React.FC<UnassignedAssetsListInnerProps> = ({
                 onExport="default"
                 onExportAll={exportAllRows}
                 isExporting={isExporting}
-                exportFileName={assetType ? `unassigned_${assetType.toLowerCase()}_assets_data` : 'unassigned_assets_data'}
+                exportFileName={`${lostDamaged ? 'lost_damaged' : 'unassigned'}_${assetType ? `${assetType.toLowerCase()}_` : ''}assets_data`}
                 showRowSelection={false}
             />
 

@@ -38,6 +38,9 @@ export const useAssetDataRefresh = () => {
         // Per-category counts (Categories table + the summary card's "most unassigned" list)
         mutate(ASSET_CACHE_KEYS.CATEGORY_ASSET_COUNTS);
         mutate(ASSET_CACHE_KEYS.CATEGORY_ASSIGNED_COUNTS);
+        mutate(ASSET_CACHE_KEYS.CATEGORY_LOST_DAMAGED_COUNTS);
+        // The Lost/Damaged sub-tab's "who had it" column (useLostDamagedMarks).
+        mutate((key) => typeof key === 'string' && key.startsWith('asset_lost_damaged_marks:'));
         // Open monthly audits: a sign (handover), an unassign or a category switch changes the Asset Audit count.
         mutate(ASSET_CACHE_KEYS.AUDIT_PENDING);
     }, [mutate]);

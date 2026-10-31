@@ -29,6 +29,8 @@ const EVENT_OPTIONS = [
     'Audit Requested',
     'Audit Fulfilled',
     'Audit Missed',
+    'Asset Lost/Damaged',
+    'Asset Found/Repaired',
 ].map((event) => ({ label: event, value: event }));
 
 const EVENT_BADGE: Record<string, string> = {
@@ -41,6 +43,9 @@ const EVENT_BADGE: Record<string, string> = {
     'Audit Requested': 'bg-amber-50 text-amber-700 border-amber-200',
     'Audit Fulfilled': 'bg-teal-50 text-teal-700 border-teal-200',
     'Audit Missed': 'bg-red-50 text-red-700 border-red-200',
+    // Solid, so a loss or a recovery stands out from the light badges (owner, 2026-10-31).
+    'Asset Lost/Damaged': 'bg-red-700 text-white border-red-800',
+    'Asset Found/Repaired': 'bg-green-700 text-white border-green-800',
 };
 
 /** One history row, as `get_asset_history_table` returns it. */

@@ -3,7 +3,7 @@ import { urlStateManager } from '@/utils/urlStateManager';
 import { AssetCategoryType } from '../assets.constants';
 
 /** The sub-tabs of the Project / IT tabs (AssetsPage's `?view=`). */
-export type AssetListView = 'all' | 'assigned' | 'unassigned' | 'pending';
+export type AssetListView = 'all' | 'assigned' | 'unassigned' | 'lost' | 'pending';
 
 export interface AssetListTarget {
     type: AssetCategoryType;
@@ -17,6 +17,7 @@ const LIST_SYNC_KEY: Partial<Record<AssetListView, string>> = {
     all: 'asset_master',
     assigned: 'assigned_assets',
     unassigned: 'unassigned_assets',
+    lost: 'lost_damaged_assets',
     pending: 'pending_actions',
 };
 
