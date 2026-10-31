@@ -130,6 +130,12 @@ case "$CMD" in
       *) die "$V: the box has commits on $BRANCH the laptop lacks. Run task.sh done $NAME first." ;;
     esac
     ROOT="$(box_root)"; WT="$ROOT/benches/$NAME/apps/nirmaan_stack"
+    # Close the task's Orca terminals first: a finished agent would otherwise keep running in a deleted folder.
+    if [ -x "$ORCA" ]; then
+      for t in $("$ORCA" terminal list --environment "$ORCA_ENV" --worktree "path:$WT" 2>/dev/null | grep -oE '^term_[a-z0-9-]+'); do
+        "$ORCA" terminal close --environment "$ORCA_ENV" --terminal "$t" >/dev/null 2>&1 && echo "closed Orca terminal $t"
+      done
+    fi
     box "cd ~/$BOX_CO && { [ ! -d $WT ] || { scripts/devenv/devenv.sh stop $NAME >/dev/null 2>&1; scripts/devenv/devenv.sh destroy $NAME | tail -1; }; } && { git branch -D $BRANCH 2>/dev/null && echo 'deleted the box branch $BRANCH' || true; }"
     ok "cleaned $NAME on the box. The report stays at $HOST:~/$DIR/ ; the laptop branch $BRANCH is yours to keep or delete."
     ;;
