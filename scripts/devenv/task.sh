@@ -2,8 +2,8 @@
 # One command per stage of an agent task on a dev box. Run on the laptop, from any checkout of the repo.
 #
 #   task.sh start <name> [--brief <file>] [--from <ref>] [--no-agent]
-#       branch agent/<name> off <ref> (default: master) -> hand it to the box -> copy the brief to the box (private,
-#       outside the repo) -> make the env (devenv.sh create <name> --on agent/<name>) -> turn the Definition of Done on
+#       branch box/<name> off <ref> (default: master) -> hand it to the box -> copy the brief to the box (private,
+#       outside the repo) -> make the env (devenv.sh create <name> --on box/<name>) -> turn the Definition of Done on
 #       -> start Claude in that env, visible in Orca. --no-agent stops before Claude.
 #   task.sh status <name>    who has the branch, what the Definition of Done still lacks, where the report is
 #   task.sh done <name>      bring the agent's commits back to the laptop and print its report (review, merge and
@@ -14,7 +14,7 @@
 # <name>: lowercase letters, digits and dashes (it names the env, its site t-<name>.localhost and its DB).
 # The box: $DEVBOX_HOST (default dev@contabo) and its Orca server $DEVBOX_ORCA_ENV (default contabo-dev). The box's
 # checkout: $DEVBOX_CHECKOUT, as for handoff.sh. The brief and the report live on the box in
-# ~/claude-artifacts/dod/agent-<name>/ (the repo is public: a brief may describe what must not be published).
+# ~/claude-artifacts/dod/box-<name>/ (the repo is public: a brief may describe what must not be published).
 # The whole body sits in { ... } so bash parses it before running: editing this file mid-run is safe.
 {
 set -euo pipefail
@@ -34,8 +34,8 @@ CMD="${1:-}"; NAME="${2:-}"
 case "$CMD" in start|status|done|clean) ;; *) sed -n '2,19p' "$0"; exit 1 ;; esac
 [[ "$NAME" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || die "name: lowercase letters, digits and dashes, at most 31 (got '$NAME')"
 shift 2
-BRANCH="agent/$NAME"
-DIR="claude-artifacts/dod/agent-$NAME"                    # on the box, under the box user's home
+BRANCH="box/$NAME"   # not agent/: a branch named "agent" exists, and git cannot have both
+DIR="claude-artifacts/dod/box-$NAME"                    # on the box, under the box user's home
 box() { ssh -o BatchMode=yes "$HOST" "$@"; }
 box_root() { box "cd ~/$BOX_CO/../.. && pwd"; }            # the box's dev root (frappe_docker/development)
 
