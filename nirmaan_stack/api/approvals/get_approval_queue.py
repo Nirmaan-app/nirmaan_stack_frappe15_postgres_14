@@ -213,6 +213,9 @@ def _payments_select():
             -- in `_expense_select` (an expense line changes nothing on the expense).
             COALESCE(p."cheque", '')::text  AS cheque,
             COALESCE(c."status", '')::text  AS cheque_status,
+            -- 1 when that Cheque pays a Credit PO term: the chip's "Credit" tag (owner, 2026-10-31).
+            -- ⚠️ POSITIONAL: `0` at the same place in `_expense_select`.
+            COALESCE(c."credit_payment_cheque", 0) AS credit_payment_cheque,
             -- Payment hold (2026-09-22). ⚠️ POSITIONAL: `0` at the same place in `_expense_select`.
             COALESCE(p."on_hold", 0)        AS on_hold,
             -- Payment kind (ADR-0030): 1 on a GST payment, which is never taxed -- the lists tag it
@@ -332,6 +335,7 @@ def _expense_select(table, source, project_col):
             NULL::date                      AS cheque_date,
             ''::text                        AS cheque,
             ''::text                        AS cheque_status,
+            0                               AS credit_payment_cheque,
             -- Only a PO / WO payment can be held.
             0                               AS on_hold,
             -- Only a Work Order payment can be a GST payment.

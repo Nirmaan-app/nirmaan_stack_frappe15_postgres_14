@@ -24,6 +24,12 @@ import {
   PaymentModeArgs,
   PaymentModeValue,
 } from "@/pages/ProjectPayments/paymentMode";
+import {
+  creditChequeDateProblem,
+  isEarlyCreditCheque,
+  startingPaymentMode,
+  todayDay,
+} from "@/pages/ProjectPayments/creditCheque";
 
 interface RequestPaymentDialogProps {
   isOpen: boolean;
@@ -49,19 +55,23 @@ export const RequestPaymentDialog = ({
     isOpen ? term?.vendor : undefined,
     term?.vendor_name,
   );
+  // A Credit term not yet due is paid by a cheque dated on or after its due date (Pay by Cheque).
+  const earlyCredit = isEarlyCreditCheque(term, todayDay());
+  const dateProblem = earlyCredit ? creditChequeDateProblem(payMode.cheque_date, term?.due_date) : null;
   // A fresh choice for every request: the dialog stays mounted between terms.
   useEffect(() => {
-    if (isOpen) setPayMode(EMPTY_PAYMENT_MODE);
-  }, [isOpen]);
+    if (isOpen) setPayMode(startingPaymentMode(earlyCredit));
+  }, [isOpen, earlyCredit]);
 
   if (!isOpen || !term) return null;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-lg bg-white p-6 rounded-lg shadow-xl">
+      {/* Capped and scrolling, as the PO page's Request Payment: the cheque fields make it taller than the screen. */}
+      <DialogContent className="w-[95vw] sm:max-w-lg max-h-[90vh] overflow-y-auto bg-white p-4 sm:p-6 rounded-lg shadow-xl">
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold text-gray-800 text-center">
-            Request Payment
+            {earlyCredit ? "Pay by Cheque" : "Request Payment"}
           </DialogTitle>
         </DialogHeader>
         <div className="my-6">
@@ -85,7 +95,15 @@ export const RequestPaymentDialog = ({
           </div>
         </div>
         <RequestPayToAccount vendor={term.vendor} vendorLabel={term.vendor_name} className="mb-4" />
-        <PaymentModeFields value={payMode} onChange={setPayMode} amount={Number(term.amount)} vendor={term.vendor} />
+        <PaymentModeFields
+          value={payMode}
+          onChange={setPayMode}
+          amount={Number(term.amount)}
+          vendor={term.vendor}
+          chequeOnly={earlyCredit}
+          minChequeDate={earlyCredit ? term.due_date?.slice(0, 10) : undefined}
+          chequeDateProblem={dateProblem}
+        />
         <div className="flex justify-end gap-3 mt-4">
           <Button type="button" variant="outline" onClick={onClose}>
             Cancel
@@ -99,7 +117,7 @@ export const RequestPaymentDialog = ({
               }
               onConfirm(paymentModeArgs(payMode));
             }}
-            disabled={isLoading || isLocked || !isPaymentModeComplete(payMode, duplicateOf)}
+            disabled={isLoading || isLocked || !!dateProblem || !isPaymentModeComplete(payMode, duplicateOf)}
           >
             {isLoading ? (
               <TailSpin color="white" height={20} width={20} />

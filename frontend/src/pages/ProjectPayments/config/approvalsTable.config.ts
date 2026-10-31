@@ -144,6 +144,8 @@ export interface ApprovalQueueRow {
    */
   cheque: string;
   cheque_status: ChequeStatus | "";
+  /** 1 when that Cheque is a Credit Payment Cheque (pays a Credit PO term); always 0 on an expense. */
+  credit_payment_cheque?: 0 | 1;
   /**
    * 1 while a PO / WO payment is held from payment (`services/payment_hold.py`); always 0 on an
    * expense. The row stays Approved — see `queueRowActions.isHeldQueueRow`.

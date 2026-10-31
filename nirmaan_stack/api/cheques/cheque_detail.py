@@ -15,7 +15,7 @@ from nirmaan_stack.services.role_profiles import assert_cheque_access
 
 _HEADER = ("name", "creation", "owner", "cheque_no", "bank", "bank_name", "cheque_date", "amount", "status",
            "vendor", "payee_name", "description", "attachment", "made_from", "cheque_type", "old_type",
-           "issue_date", "bank_line")
+           "credit_payment_cheque", "issue_date", "bank_line")
 
 
 def _name_map(doctype: str, field: str, names) -> dict:

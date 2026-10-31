@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { ChequeLinesView } from "@/components/cheques/ChequeLinesView";
 import { ChequePhoto } from "@/components/cheques/ChequePhotoLink";
 import { ChequeStatusBadge } from "@/components/cheques/ChequeStatusBadge";
+import { CreditChequeBadge } from "@/components/cheques/CreditChequeBadge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { chequeTypeLabel } from "@/pages/cheque-tracker/config/chequePaymentTable.config";
@@ -53,6 +54,10 @@ export const ChequeDetailDialog = ({ cheque: name, onClose, actions }: ChequeDet
                 <DialogHeader>
                     <DialogTitle className="flex flex-wrap items-center gap-3">
                         Cheque {cheque?.cheque_no ?? ""}
+                        {/* A Credit Payment Cheque: its own badge before the status (owner, 2026-10-31). */}
+                        {cheque?.credit_payment_cheque ? (
+                            <CreditChequeBadge className="rounded-md px-2.5 text-xs font-semibold" />
+                        ) : null}
                         {cheque && <ChequeStatusBadge status={cheque.status} />}
                         {cheque && actions && offered.includes("cancel") && (
                             <span className="ml-auto mr-6 flex gap-2">

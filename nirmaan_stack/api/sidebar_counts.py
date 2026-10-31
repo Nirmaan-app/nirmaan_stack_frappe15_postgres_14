@@ -1,5 +1,10 @@
 import frappe, json
 from frappe import _
+from nirmaan_stack.api.credits.get_credits_list import (
+    TAB_CHEQUE_ISSUED as CREDIT_TAB_CHEQUE_ISSUED,
+    TAB_DUE as CREDIT_TAB_DUE,
+    _add_status_condition,
+)
 from nirmaan_stack.services.cheque_payments import in_cheque_tracker_sql
 from nirmaan_stack.services.procurement_approval import AWAITING_APPROVAL_STATES, PENDING_ITEM_STATUS
 from nirmaan_stack.services.role_profiles import SERVICE_PROCUREMENT_EXECUTIVE_PROFILE
@@ -207,29 +212,26 @@ def sidebar_counts(user: str) -> str:
     credit_counts = {(r["term_status"] or "").lower().replace(" ", ""): r["count"] for r in credit_counts_raw}
     credit_counts["all"] = sum(credit_counts.values())
 
-    # "due" = Created (past due_date) + Requested + Approved. Requested/Approved come from credit_counts;
-    # the Created-past-due count is the same JOIN with the extra term_status/due_date predicates.
-    created_due_count = frappe.db.sql(
-        f'''
-        SELECT COUNT(t.name)
-        FROM "tabPO Payment Terms" t
-        JOIN "tabProcurement Orders" po
-          ON po.name = t.parent AND t.parenttype = 'Procurement Orders'
-        WHERE t.payment_type = 'Credit' AND t.term_status = 'Created'
-          AND t.due_date <= %(today)s
-          AND po.status NOT IN ('Merged', 'Inactive'){_proj("po")}
-        ''',
-        _params({"today": today}),
-    )[0][0]
+    # The Due and Cheque Issued tabs count through the Credit Payments page's own tab conditions
+    # (`get_credits_list._add_status_condition`), so a badge and its tab cannot disagree: Due leaves out
+    # every term paid by cheque, which waits in Cheque Issued until it is Paid (owner, 2026-10-31).
+    def _credit_tab_count(tab):
+        conditions, values = [], {"today": today}
+        _add_status_condition(tab, conditions, values)
+        return frappe.db.sql(
+            f'''
+            SELECT COUNT(pt.name)
+            FROM "tabPO Payment Terms" pt
+            JOIN "tabProcurement Orders" po
+              ON po.name = pt.parent AND pt.parenttype = 'Procurement Orders'
+            WHERE pt.payment_type = 'Credit' AND {" AND ".join(conditions)}
+              AND po.status NOT IN ('Merged', 'Inactive'){_proj("po")}
+            ''',
+            _params(values),
+        )[0][0]
 
-    # Count Requested terms
-    requested_count = credit_counts.get("requested", 0)
-
-    # Count Approved terms
-    approved_count = credit_counts.get("approved", 0)
-
-    # Total "due" count = Created (past due) + Requested + Approved
-    credit_counts["due"] = created_due_count + requested_count + approved_count
+    credit_counts["due"] = _credit_tab_count(CREDIT_TAB_DUE)
+    credit_counts["chequeissued"] = _credit_tab_count(CREDIT_TAB_CHEQUE_ISSUED)
 
     # --- PO Adjustments ---
     adj_filters = {"status": "Pending"}

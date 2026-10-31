@@ -451,7 +451,7 @@ const REGISTRY: Record<
         // is a button, and a button inside the trigger's button is invalid markup.
         const chip = CHEQUE_CHIP_UNDER_AGAINST.has(ctx.tab) && showsChequeChip(r) ? (
           <span className="mt-0.5 block">
-            <ChequeChip cheque={r.cheque} chequeNo={r.cheque_no} status={r.cheque_status} />
+            <ChequeChip cheque={r.cheque} chequeNo={r.cheque_no} status={r.cheque_status} credit={!!r.credit_payment_cheque} />
           </span>
         ) : null;
         if (r.bank_line_count <= 0 && !chip) return documentCard;
@@ -796,7 +796,7 @@ const REGISTRY: Record<
       }
       return (
         <span className="block min-w-0">
-          <ChequeChip cheque={r.cheque} chequeNo={r.cheque_no} status={r.cheque_status} />
+          <ChequeChip cheque={r.cheque} chequeNo={r.cheque_no} status={r.cheque_status} credit={!!r.credit_payment_cheque} />
           {r.utr_ref && (
             <TruncatedText text={r.utr_ref} className="mt-0.5 block max-w-[9rem] font-mono text-[10px] text-muted-foreground" />
           )}
