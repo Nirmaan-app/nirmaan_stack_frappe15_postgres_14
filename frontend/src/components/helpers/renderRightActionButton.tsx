@@ -162,6 +162,9 @@ export const RenderRightActionButton = ({
     // and on Project Payment & Expense, which each mount it. Shown to someone who can raise at least
     // one type (`useExpenseAccess`, the server's `can_raise`); a reviewer who raises nothing gets the
     // page, not the button. The server refuses a type the raiser may not raise.
+    // On Project Payment & Expense the button is Admin-only (owner, 2026-10-31); /expense/requests
+    // keeps the raise-access gate alone.
+    if (locationPath === "/project-payments" && !(user_id === "Administrator" || role === "Nirmaan Admin Profile")) return null;
     if (!offersNewExpense(expenseAccess)) return null;
     return (
       <Button onClick={toggleNewExpenseRequestDialog} className="sm:mr-4 mr-2">
