@@ -364,6 +364,8 @@ def describe(payment_name: str, *, stage: str) -> dict | None:
         "cheque_no": doc.cheque_no,
         "bank": doc.bank_name if doc.bank_name else doc.bank,
         "status": doc.status,
+        # A Credit Payment Cheque: the dialogs' chip reads "Credit Cheque" (owner, 2026-10-31).
+        "credit_payment_cheque": 1 if doc.get("credit_payment_cheque") else 0,
         "amount": flt(doc.amount),
         "vendor": doc.vendor,
         "vendor_name": frappe.db.get_value("Vendors", doc.vendor, "vendor_name") if doc.vendor else doc.payee_name,

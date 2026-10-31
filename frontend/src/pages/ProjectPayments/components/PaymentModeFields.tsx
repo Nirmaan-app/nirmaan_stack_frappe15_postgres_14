@@ -52,6 +52,15 @@ interface Props {
 	 * mode is shown, not chosen. The server refuses a Work Order cheque anyway.
 	 */
 	chequeOffered?: boolean;
+	/**
+	 * A Credit term requested before its due date (`creditCheque.isEarlyCreditCheque`): Cheque is the only mode,
+	 * shown, not chosen, and the cheque's date picker starts at `minChequeDate`, the term's due date.
+	 */
+	chequeOnly?: boolean;
+	/** The earliest cheque date the request takes, `yyyy-MM-dd`; with `chequeOnly`. */
+	minChequeDate?: string;
+	/** Why the cheque's date is refused (`creditCheque.creditChequeDateProblem`), shown under the fields; null when fine. */
+	chequeDateProblem?: string | null;
 }
 
 const Required = () => <span className="ml-0.5 text-red-500">*</span>;
@@ -76,6 +85,9 @@ export const PaymentModeFields = ({
 	vendor,
 	disabled,
 	chequeOffered = true,
+	chequeOnly = false,
+	minChequeDate,
+	chequeDateProblem = null,
 }: Props) => {
 	const isCheque = chequeOffered && value.mode === PAYMENT_MODE_CHEQUE;
 	const chequeAmount = amount !== undefined ? chequeAmountFor(amount, tds) : undefined;
@@ -134,7 +146,18 @@ export const PaymentModeFields = ({
 					<p className="text-[11px] text-muted-foreground">Work Order payments are paid online, never by cheque.</p>
 				</div>
 			)}
-			{chequeOffered && (
+			{chequeOffered && chequeOnly && (
+				<div className="space-y-0.5">
+					<p className="flex items-center gap-4 text-sm">
+						<span className="font-medium">Mode of Payment</span>
+						<span>Cheque</span>
+					</p>
+					<p className="text-[11px] text-muted-foreground">
+						This credit term is not due yet: before the due date it is paid only by a cheque dated on or after it.
+					</p>
+				</div>
+			)}
+			{chequeOffered && !chequeOnly && (
 				<div className="flex items-center gap-4">
 					<span className="text-sm font-medium">Mode of Payment</span>
 					<RadioGroup
@@ -211,6 +234,7 @@ export const PaymentModeFields = ({
 								type="date"
 								className={cn("h-8", fromPhoto("cheque_date") && FROM_PHOTO_INPUT)}
 								value={value.cheque_date}
+								min={minChequeDate}
 								onChange={(e) => set({ cheque_date: e.target.value })}
 								disabled={disabled}
 							/>
@@ -246,6 +270,12 @@ export const PaymentModeFields = ({
 								<span className="text-muted-foreground"> — the company pays the TDS on top</span>
 							)}
 							.
+						</p>
+					)}
+					{chequeDateProblem && (
+						<p className="flex items-start gap-1.5 text-xs text-red-600">
+							<Ban className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+							{chequeDateProblem}
 						</p>
 					)}
 					{amountHint && (

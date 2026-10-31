@@ -62,13 +62,27 @@ import {
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { useDuplicateChequeOf } from "@/components/cheques/useExistingCheque";
 import { PaymentModeFields } from "@/pages/ProjectPayments/components/PaymentModeFields";
+import { PayByChequeButton } from "@/pages/ProjectPayments/components/PayByChequeButton";
 import {
-  EMPTY_PAYMENT_MODE,
   isPaymentModeComplete,
   paymentModeArgs,
   PaymentModeArgs,
-  PaymentModeValue,
 } from "@/pages/ProjectPayments/paymentMode";
+import { useEarlyCreditCheque } from "@/pages/ProjectPayments/hooks/useEarlyCreditCheque";
+import {
+  canPayCreditByCheque,
+  creditDueChip,
+  type DueTone,
+  isEarlyCreditCheque,
+  todayDay,
+} from "@/pages/ProjectPayments/creditCheque";
+
+/** The due chip's colours: orange until the due date (owner, 2026-10-31), red overdue, grey once Paid. */
+const DUE_TONE_CLASSES: Record<DueTone, string> = {
+  due: "border-orange-300 bg-orange-50 text-orange-700",
+  overdue: "border-red-300 bg-red-50 text-red-700",
+  paid: "border-gray-200 bg-gray-50 text-gray-500",
+};
 import { getFrappeError } from "@/utils/frappeErrors";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { format, isToday, isPast } from "date-fns"; // A great library for date handling
@@ -739,7 +753,8 @@ const RequestPaymentDialog = ({
   poVendor,
   poVendorName,
 }: RequestPaymentDialogProps) => {
-  const [payMode, setPayMode] = useState<PaymentModeValue>(EMPTY_PAYMENT_MODE);
+  // A Credit term not yet due is paid by a cheque dated on or after its due date (Pay by Cheque).
+  const { payMode, setPayMode, earlyCredit, dateProblem, title, chequeFieldProps } = useEarlyCreditCheque(term, isOpen);
   const duplicateOf = useDuplicateChequeOf(payMode);
   // Where this PO's money already stands, before the term is requested (owner, 2026-09-21).
   // The server still enforces the balance on submit; this block only shows it.
@@ -749,10 +764,6 @@ const RequestPaymentDialog = ({
   );
   // Where the payment will land when the raiser already holds an approval (owner, 2026-09-21).
   const { role: raiserRole, user_id: raiserId } = useUserData();
-  // A fresh choice for every request: the dialog stays mounted between terms.
-  useEffect(() => {
-    if (isOpen) setPayMode(EMPTY_PAYMENT_MODE);
-  }, [isOpen]);
 
   if (!isOpen || !term) return null;
   return (
@@ -760,7 +771,7 @@ const RequestPaymentDialog = ({
       <DialogContent className="w-[95vw] sm:max-w-lg max-h-[90vh] overflow-y-auto bg-white p-4 sm:p-6 rounded-lg shadow-xl">
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold text-gray-800 text-center">
-            Request Payment
+            {title}
           </DialogTitle>
         </DialogHeader>
         <div className="my-6">
@@ -790,7 +801,18 @@ const RequestPaymentDialog = ({
           })()}
         </div>
         <RequestPayToAccount vendor={poVendor} vendorLabel={poVendorName} className="mb-4" />
-        <PaymentModeFields value={payMode} onChange={setPayMode} amount={Number(term.amount)} vendor={poVendor} />
+        {earlyCredit && term.due_date && (
+          <p className="mb-2 text-xs text-gray-600">
+            Due date: <span className="font-medium">{format(new Date(term.due_date), "dd-MMM-yyyy")}</span>
+          </p>
+        )}
+        <PaymentModeFields
+          value={payMode}
+          onChange={setPayMode}
+          amount={Number(term.amount)}
+          vendor={poVendor}
+          {...chequeFieldProps}
+        />
         <div className="flex justify-end gap-3 mt-4">
           <Button type="button" variant="outline" onClick={onClose}>
             Cancel
@@ -798,7 +820,7 @@ const RequestPaymentDialog = ({
           <Button
             className="bg-red-600 hover:bg-red-700 w-32"
             onClick={() => onConfirm(paymentModeArgs(payMode))}
-            disabled={isLoading || isLocked || !isPaymentModeComplete(payMode, duplicateOf)}
+            disabled={isLoading || isLocked || !!dateProblem || !isPaymentModeComplete(payMode, duplicateOf)}
           >
             {isLoading ? (
               <TailSpin color="white" height={20} width={20} />
@@ -843,6 +865,7 @@ const PaymentTermRow = ({ term, onReques_tPayment, role }) => {
   // Calculate eligibility using the helper function
   const isEligibleForRequest = canRequestPaymentForTerm(term);
   const canRequest = hasPermission && isEligibleForRequest;
+  const dueChip = creditDueChip(term.due_date, todayDay(), term.term_status === "Paid");
 
   return (
     <li className="flex justify-between items-center py-2.5 border-b border-gray-100 last:border-b-0">
@@ -851,8 +874,16 @@ const PaymentTermRow = ({ term, onReques_tPayment, role }) => {
         <span className="font-semibold text-black w-1/5 text-right">
           {Number(term.percentage).toFixed(0)}%
         </span>
-        <span className="font-semibold text-black w-2/5 text-right">
-          {formatToIndianRupee(Number(term.amount))}
+        <span className="w-2/5 flex flex-col items-end gap-1">
+          <span className="font-semibold text-black">{formatToIndianRupee(Number(term.amount))}</span>
+          {/* A Credit term's due chip, under its amount in every status (owner, 2026-10-31). */}
+          {term.payment_type === "Credit" && dueChip && (
+            <span
+              className={`whitespace-nowrap rounded border px-1.5 py-0.5 text-[11px] font-medium leading-tight ${DUE_TONE_CLASSES[dueChip.tone]}`}
+            >
+              {dueChip.text}
+            </span>
+          )}
         </span>
       </div>
       <div className="w-40 text-right ml-4">
@@ -906,13 +937,14 @@ const PaymentTermRow = ({ term, onReques_tPayment, role }) => {
             Request Payment
           </Button>
         )}
+        {/* Not due yet (its due chip shows under the amount): it can still be paid by a cheque
+            dated on or after the due date. A credit term with no due date says so here. */}
         {term?.term_status === "Created" && term.payment_type === "Credit" && !isEligibleForRequest && (
-          <Badge
-            variant="outline"
-            className="border-orange-500 text-orange-600"
-          >
-            Due: {term.due_date ? format(new Date(term.due_date), "dd-MMM-yyyy") : "N/A"}
-          </Badge>
+          !term.due_date ? (
+            <Badge variant="outline" className="border-orange-500 text-orange-600">Due: N/A</Badge>
+          ) : canPayCreditByCheque(role) && isEarlyCreditCheque(term, todayDay()) ? (
+            <PayByChequeButton onClick={() => onReques_tPayment(term)} />
+          ) : null
         )}
       </div>
     </li>

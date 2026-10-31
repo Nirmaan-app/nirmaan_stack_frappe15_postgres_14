@@ -326,8 +326,11 @@ queue — edit & revert" below).
 | ProjectPayments | Approve Tab | Y | Read-only | Read-only | Read-only* |
 | ProjectPayments | New Payments + Reconciliation Pending Tabs | Y | - | Y | - |
 | ProjectPayments | Edit Payment | Y | - | Y | - |
+| ProjectPayments | Header "New Expense" button | Y | - | - | - |
 
 *Read-only Approve tab visible to all roles with sidebar access (PL, Procurement Exec, etc.)
+The header "New Expense" button on `/project-payments` is Admin profile + `Administrator` only (owner, 2026-10-31,
+`renderRightActionButton.tsx`); `/expense/requests` still shows it to anyone `offersNewExpense` allows.
 | ProjectExpenses | Add Expense | Y | Y | Y | - |
 | ProjectExpenses | Delete Expense | Y | Y | - | - |
 | NonProjectExpenses | Edit/Delete | Y | Y | - | - |

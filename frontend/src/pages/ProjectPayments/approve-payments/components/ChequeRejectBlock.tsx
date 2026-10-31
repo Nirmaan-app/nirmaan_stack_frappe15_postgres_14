@@ -36,7 +36,8 @@ export const ChequeRejectBlock: React.FC<ChequeRejectBlockProps> = ({
             <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-muted-foreground">
                 You picked {openedPayment}.
                 {others > 0 ? " It shares " : " It is on "}
-                <ChequeChip cheque={approval.cheque} chequeNo={approval.cheque_no} status={approval.status} />
+                <ChequeChip cheque={approval.cheque} chequeNo={approval.cheque_no} status={approval.status}
+                    credit={!!approval.credit_payment_cheque} />
                 {others > 0 ? ` with ${others} other${others === 1 ? "" : "s"}, so all are rejected.` : null}
             </p>
 

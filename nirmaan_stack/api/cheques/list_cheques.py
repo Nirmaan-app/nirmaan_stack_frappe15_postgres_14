@@ -48,7 +48,7 @@ _BASE = """
     SELECT c.name, c.creation, c.owner, owner_user.full_name AS owner_name,
            c.cheque_no, c.cheque_type, c.bank, c.bank_name,
            CASE WHEN c.bank = 'Others' THEN c.bank_name ELSE c.bank END AS bank_label,
-           c.cheque_date, c.issue_date, c.bank_line, c.old_type,
+           c.cheque_date, c.issue_date, c.bank_line, c.old_type, c.credit_payment_cheque,
            c.status, c.amount, c.description,
            c.vendor, v.vendor_name, c.payee_name, c.attachment, c.made_from,
            last.changed_by AS status_changed_by, changer.full_name AS status_changed_by_name,

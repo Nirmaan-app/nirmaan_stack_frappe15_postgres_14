@@ -7,12 +7,16 @@ A Project Payment's Mode of Payment changes only through a Cheque (`mode_change_
 is paid by cheque (`cheque_mode_problem`), and a cheque's payments move together, so no one-payment action
 (hold, Revert to Approved, split, paying it alone) takes one of them (`cheque_payment_problem`).
 
+A Credit PO term may be paid before its due date only by a cheque dated on or after that date (owner,
+2026-10-31): `credit_request_problem` at the request, `credit_cheque_date_problem` at every approval and cheque
+date edit after it.
+
 A cheque payment is Paid only when its cheque clears from the bank statement (#1552, ADR-0035 Amendment B):
 no save moves one into or out of Paid but the cheques service's clear (`paid_move_problem`), and a payment
 in Cheque mode always has its cheque (`no_cheque_problem`).
 """
 
-from nirmaan_stack.services.cheques.rules import CANCELLED, PAYMENT_REJECTED, PO_DOCTYPE
+from nirmaan_stack.services.cheques.rules import CANCELLED, PAYMENT_REJECTED, PO_DOCTYPE, day_text
 from nirmaan_stack.services.settlement import STATUS_PAID
 
 
@@ -145,3 +149,48 @@ def no_cheque_problem(payment: str, *, status: str, on_a_cheque: bool) -> str | 
         f"{payment} is in Cheque mode, but no cheque lists it, so it cannot be saved: a cheque payment always has "
         "its cheque. An Admin can switch its Mode of Payment to Online in Desk to pay it another way."
     )
+
+
+#: A PO payment term's `payment_type` for credit: paid on or after its `due_date`.
+CREDIT_TERM = "Credit"
+
+
+def credit_cheque_date_problem(*, cheque_date, due_date, today) -> str | None:
+    """Why a cheque dated `cheque_date` may not pay a Credit PO term due `due_date` while it is `today`, or None.
+    Pure; days are `YYYY-MM-DD` (a `date` or a datetime string reads the same).
+
+    Until the due date, the cheque must be dated on or after it, so the vendor cannot cash it early (owner,
+    2026-10-31). From the due date on, any cheque date is fine: it can no longer be cashed before the due date.
+    The request asks it (`credit_request_problem`), and so does the payment's `validate` at every approval and
+    whenever its cheque date changes (`payment_mode.validate_credit_cheque_date`).
+    """
+    due = str(due_date or "")[:10]
+    if not due or str(today)[:10] >= due:
+        return None
+    day = str(cheque_date or "")[:10]
+    if day and day >= due:
+        return None
+    dated = f"dated {day_text(day)}" if day else "undated"
+    return (
+        f"The cheque is {dated}, before this credit term's due date of {day_text(due)}. "
+        "Until the due date, a credit term is paid only by a cheque dated on or after it."
+    )
+
+
+def credit_request_problem(*, due_date, today, is_cheque: bool, cheque_date) -> str | None:
+    """Why Request Payment on a Credit PO term due `due_date` is refused while it is `today`, or None. Pure.
+
+    From the due date on, nothing here refuses it, Online or Cheque. Before it, only a cheque dated on or after
+    the due date (`credit_cheque_date_problem`): an Online payment would go out at once.
+    """
+    due = str(due_date or "")[:10]
+    if not due:
+        return "Credit payment term must have a due date set."
+    if str(today)[:10] >= due:
+        return None
+    if not is_cheque:
+        return (
+            f"This credit payment term is not yet due. Due date is {day_text(due)}. Before then it can be paid only "
+            "by a cheque dated on or after the due date."
+        )
+    return credit_cheque_date_problem(cheque_date=cheque_date, due_date=due, today=today)

@@ -36,8 +36,11 @@ import {
   TERM_DATE_COLUMNS,
   PAYMENT_TERM_STATUS_OPTIONS,
   CREDIT_FACET_FILTER_OPTIONS,
+  creditTabCountKey,
 } from "../credits.constant";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
+import { useUserData } from "@/hooks/useUserData";
+import { canPayCreditByCheque } from "@/pages/ProjectPayments/creditCheque";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 // --- Constants ---
@@ -171,6 +174,8 @@ const useCreditsFacet = ({
 
 export const useCredits = () => {
   const creditsCounts = useDocCountStore((state) => state.counts.credits);
+  const { role } = useUserData();
+  const canPayByCheque = canPayCreditByCheque(role);
   const navigate = useNavigate();
   const urlSyncKey = "credits_terms_list";
 
@@ -337,8 +342,8 @@ export const useCredits = () => {
 
   // --- Columns Definition ---
   const columns = useMemo(
-    () => getCreditsColumns(navigate, handleOpenRequestDialog, currentStatus),
-    [navigate, handleOpenRequestDialog, currentStatus]
+    () => getCreditsColumns(navigate, handleOpenRequestDialog, currentStatus, canPayByCheque),
+    [navigate, handleOpenRequestDialog, currentStatus, canPayByCheque]
   );
 
   // --- Data Fetching ---
@@ -499,7 +504,7 @@ export const useCredits = () => {
   const paymentTermStatusOptionsWithCounts = useMemo(() => {
     return PAYMENT_TERM_STATUS_OPTIONS.map((option) => {
       const count =
-        creditsCounts?.[option.value.toLowerCase() as keyof typeof creditsCounts] || 0;
+        creditsCounts?.[creditTabCountKey(option.value) as keyof typeof creditsCounts] || 0;
       return {
         ...option,
         label: `${option.label} (${count})`,

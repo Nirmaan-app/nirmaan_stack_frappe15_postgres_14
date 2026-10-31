@@ -14,4 +14,11 @@ export interface PoPaymentTermRow {
     payment_type: string;
     parent: string;
     ptname: string;
+    /** The term's payment, when there is one: Online or Cheque. */
+    mode_of_payment?: string | null;
+    /** The Cheque that pays it, for a cheque payment. */
+    cheque?: string | null;
+    cheque_no?: string | null;
+    cheque_date?: string | null;
+    cheque_status?: string | null;
 }

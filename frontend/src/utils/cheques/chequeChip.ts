@@ -12,10 +12,14 @@ export const CHEQUE_CHIPS_API = "nirmaan_stack.api.cheques.cheque_chips.get_cheq
 
 /**
  * "Cheque 004521 · Issued". The number keeps its leading zeros. A cheque payment no Cheque records yet
- * (from before Cheques) has no status, so its chip reads "Cheque 004521".
+ * (from before Cheques) has no status, so its chip reads "Cheque 004521". `credit` (a Credit Payment Cheque) is for
+ * the CSV export, "Credit Cheque 004521 · Issued"; on screen the chip keeps "Cheque …" behind a separate "Credit"
+ * badge (`ChequeChip`, owner 2026-10-31).
  */
-export const chequeChipText = (chequeNo: string, status?: string | null): string =>
-    status ? `Cheque ${chequeNo} · ${status}` : `Cheque ${chequeNo}`;
+export const chequeChipText = (chequeNo: string, status?: string | null, credit = false): string => {
+    const name = `${credit ? "Credit Cheque" : "Cheque"} ${chequeNo}`;
+    return status ? `${name} · ${status}` : name;
+};
 
 /** A Cheque's date (its Cheque/Payment Date, when it was made, a status change) as shown and exported; blank when unset. */
 export const chequeDateText = (v?: string | null): string => (v ? formatDate(v) : "");

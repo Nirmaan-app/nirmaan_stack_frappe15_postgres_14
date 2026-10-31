@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { AlertTriangle, ChevronDown, ChevronRight, Info } from "lucide-react";
 
 import { ChequePhotoLink } from "@/components/cheques/ChequePhotoLink";
+import { CreditChequeBadge } from "@/components/cheques/CreditChequeBadge";
 import { ChequeStatusBadge } from "@/components/cheques/ChequeStatusBadge";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
@@ -139,12 +140,16 @@ export const getChequePaymentColumns = ({ actionsOf, onOpen, onEdit, onCancel }:
                         Old type
                     </span>
                 ) : null}
+                {row.original.credit_payment_cheque ? <CreditChequeBadge /> : null}
             </div>
         ),
         size: 125,
         meta: {
             exportHeaderName: "Type",
-            exportValue: (r: ChequeRow) => [chequeTypeLabel(r.cheque_type), r.old_type ? "Old type" : ""].filter(Boolean).join(" "),
+            exportValue: (r: ChequeRow) =>
+                [chequeTypeLabel(r.cheque_type), r.old_type ? "Old type" : "", r.credit_payment_cheque ? "Credit" : ""]
+                    .filter(Boolean)
+                    .join(" "),
         },
     },
     {

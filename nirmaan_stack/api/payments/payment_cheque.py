@@ -25,7 +25,11 @@ from frappe import _
 from nirmaan_stack.services import cheque_payments
 from nirmaan_stack.services.cheques.payment_rules import CHEQUE_FOLLOWS_FLAG
 from nirmaan_stack.services.cheques.rules import ChequeHeader, parse_header
+
+#: The Cheque's tick for a cheque that pays a Credit PO term (`mark_credit_payment_cheque`).
+CREDIT_PAYMENT_CHEQUE_FIELD = "credit_payment_cheque"
 from nirmaan_stack.services.cheques.writer import (
+    CHEQUES,
     CHEQUES_CHANGED_EVENT,
     DuplicateChequeError,
     create_payment_cheque,
@@ -87,6 +91,14 @@ def put_on_new_cheque(payment_name: str, header: ChequeHeader | None) -> str | N
         raise
     frappe.publish_realtime(CHEQUES_CHANGED_EVENT, {"cheque": cheque}, after_commit=True)
     return cheque
+
+
+def mark_credit_payment_cheque(cheque: str) -> None:
+    """Tick `Cheques.credit_payment_cheque` on the Cheque just made for a Credit PO term's payment (owner,
+    2026-10-31), before or after the term's due date. A label for the Cheque Tracker only: nothing keys on it,
+    so `set_value` firing no hook is correct. The Credit Payments tabs read the payment's mode instead, which
+    also holds for credit cheques made before the field."""
+    frappe.db.set_value(CHEQUES, cheque, CREDIT_PAYMENT_CHEQUE_FIELD, 1, update_modified=False)
 
 
 def _withdraw(payment_name: str) -> None:

@@ -52,6 +52,8 @@ export interface ChequeRow {
     bank_line?: string | null;
     /** 1 for a Cheque from before cheque types that no longer fits them (GLOSSARY.md, Old-type cheque). */
     old_type?: 0 | 1;
+    /** 1 for a cheque that pays a Credit PO payment term (Request Payment ticks it); shown as a "Credit" tag. */
+    credit_payment_cheque?: 0 | 1;
     status: ChequeStatus;
     amount: number;
     description?: string | null;

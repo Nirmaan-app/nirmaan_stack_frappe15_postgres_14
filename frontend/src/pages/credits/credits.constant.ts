@@ -17,13 +17,19 @@ export const TERM_SEARCHABLE_FIELDS: SearchFieldOption[] = [
 // Define which columns should have a date range filter.
 export const TERM_DATE_COLUMNS = ["due_date"];
 
-// Define the options for the high-level status filter.
-// "Due" now means: term_status = "Created" AND due_date <= today
-// (calculated in useCredits.ts additionalFilters)
+// The tabs (`status_filter`), filtered server-side (`get_credits_list._add_status_condition`):
+// - Due: Created terms past their due date, and terms Requested / CEO Pending / Approved, none paid by cheque.
+// - Cheque Issued: terms paid by cheque and not yet Paid, from the request until the bank clears the cheque.
+// - All Credits: every credit term.
+export const CREDIT_TAB_CHEQUE_ISSUED = "Cheque Issued";
 export const PAYMENT_TERM_STATUS_OPTIONS = [
-    { label: "Due", value: "Due" },  // Semantic filter: Created + due_date <= today
+    { label: "Due", value: "Due" },
+    { label: "Cheque Issued", value: CREDIT_TAB_CHEQUE_ISSUED },
     { label: "All Credits", value: "All" },
 ];
+
+/** A tab's key in the sidebar counts (`sidebar_counts`): lower case, no spaces ("Cheque Issued" -> "chequeissued"). */
+export const creditTabCountKey = (tab: string): string => tab.toLowerCase().replace(/\s+/g, "");
 
 export type FacetOption = { label: string; value: string };
 export type FacetConfig = { title: string; options: FacetOption[]; isLoading?: boolean };

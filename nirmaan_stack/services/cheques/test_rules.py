@@ -45,6 +45,11 @@ class TestChequeNamesMatchTheDoctype(unittest.TestCase):
         field = _field("cheques", "clearance_date")
         self.assertEqual((field["fieldtype"], field.get("hidden"), field.get("read_only")), ("Date", 1, 1))
 
+    def test_the_credit_payment_cheque_tick_is_read_only_and_off_by_default(self):
+        # Ticked only by Request Payment (`payment_cheque.mark_credit_payment_cheque`), owner 2026-10-31.
+        field = _field("cheques", "credit_payment_cheque")
+        self.assertEqual((field["fieldtype"], field.get("read_only"), field.get("default")), ("Check", 1, "0"))
+
     def test_the_statuses_and_types_are_the_glossary_s(self):
         self.assertEqual(rules.CHEQUE_STATUSES, ("Approval Pending", "Issued", "Cleared", "Cancelled"))
         self.assertEqual(rules.CHEQUE_TYPES, ("Payment", "Security Deposit"))
@@ -398,3 +403,60 @@ class TestOldTypeChequeEdit(unittest.TestCase):
 
     def test_its_photo_still_cannot_be_removed(self):
         self.assertEqual(self._problem({"attachment": ""}), "The cheque's photo can be replaced, not removed.")
+
+
+class TestCreditChequeDate(unittest.TestCase):
+    """Until a Credit PO term's due date, its cheque is dated on or after it (owner, 2026-10-31)."""
+
+    DUE = "2026-11-15"
+
+    def _date(self, cheque_date, today="2026-10-31"):
+        return payment_rules.credit_cheque_date_problem(cheque_date=cheque_date, due_date=self.DUE, today=today)
+
+    def test_before_the_due_date_an_earlier_cheque_is_refused_naming_both_days(self):
+        self.assertEqual(
+            self._date("2026-11-10"),
+            "The cheque is dated 10-11-2026, before this credit term's due date of 15-11-2026. "
+            "Until the due date, a credit term is paid only by a cheque dated on or after it.",
+        )
+
+    def test_a_cheque_dated_on_or_after_the_due_date_is_taken(self):
+        self.assertIsNone(self._date(self.DUE))
+        self.assertIsNone(self._date("2026-11-30"))
+
+    def test_from_the_due_date_on_any_cheque_date_is_taken(self):
+        # A cheque already in flight for a due term is never blocked at approval.
+        self.assertIsNone(self._date("2026-11-01", today=self.DUE))
+        self.assertIsNone(self._date("2026-11-01", today="2026-12-01"))
+
+    def test_an_undated_cheque_before_the_due_date_is_refused(self):
+        self.assertIn("undated", self._date(None))
+
+    def test_dates_with_a_time_read_as_their_day(self):
+        self.assertIsNone(payment_rules.credit_cheque_date_problem(
+            cheque_date="2026-11-15 00:00:00", due_date="2026-11-15 00:00:00", today="2026-10-31 09:00:00"))
+
+    def test_no_due_date_is_nothing_to_check(self):
+        self.assertIsNone(payment_rules.credit_cheque_date_problem(cheque_date="2026-11-01", due_date=None, today="2026-10-31"))
+
+    def _request(self, *, is_cheque, cheque_date=None, today="2026-10-31", due_date=DUE):
+        return payment_rules.credit_request_problem(
+            due_date=due_date, today=today, is_cheque=is_cheque, cheque_date=cheque_date)
+
+    def test_before_the_due_date_online_is_refused(self):
+        self.assertEqual(
+            self._request(is_cheque=False),
+            "This credit payment term is not yet due. Due date is 15-11-2026. Before then it can be paid only by a "
+            "cheque dated on or after the due date.",
+        )
+
+    def test_before_the_due_date_a_cheque_needs_the_date_rule(self):
+        self.assertIsNone(self._request(is_cheque=True, cheque_date="2026-11-15"))
+        self.assertIn("before this credit term's due date", self._request(is_cheque=True, cheque_date="2026-11-14"))
+
+    def test_from_the_due_date_on_online_and_any_cheque_are_taken(self):
+        self.assertIsNone(self._request(is_cheque=False, today=self.DUE))
+        self.assertIsNone(self._request(is_cheque=True, cheque_date="2026-11-01", today="2026-11-20"))
+
+    def test_a_credit_term_with_no_due_date_is_refused(self):
+        self.assertEqual(self._request(is_cheque=True, due_date=None), "Credit payment term must have a due date set.")

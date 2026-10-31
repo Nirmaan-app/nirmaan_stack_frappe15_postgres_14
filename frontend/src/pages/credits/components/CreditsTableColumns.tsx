@@ -6,6 +6,12 @@ import {
   MoreHorizontal,
   DollarSign,
 } from "lucide-react";
+import { PayByChequeButton } from "@/pages/ProjectPayments/components/PayByChequeButton";
+import { ChequeStatusBadge } from "@/components/cheques/ChequeStatusBadge";
+import { ChequeNumberLink } from "@/components/cheques/ChequeChip";
+import type { ChequeStatus } from "@/types/NirmaanStack/Cheques";
+import { isEarlyCreditCheque, todayDay } from "@/pages/ProjectPayments/creditCheque";
+import { CREDIT_TAB_CHEQUE_ISSUED } from "../credits.constant";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
@@ -24,6 +30,7 @@ import {
 
 import { Badge, BadgeProps } from "@/components/ui/badge"; // Adjust path if needed
 import { cn } from "@/lib/utils";
+import { ReconciliationPendingBadge } from "@/pages/ProjectPayments/components/ReconciliationPendingBadge";
 
 // Define the props for our component
 interface StatusBadgeProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -40,9 +47,14 @@ const statusVariantMap: { [key: string]: BadgeProps["variant"] } = {
   Paid: "darkGreen",
   Requested: "yellow",
   Created: "gray",
+  Rejected: "red",
+  Return: "orange",
 };
 
 export function StatusBadge({ status, className }: StatusBadgeProps) {
+  // The same two-line badge the PO page's payment terms show (most Cheque Issued rows wait here).
+  if (status === "Reconciliation Pending") return <ReconciliationPendingBadge />;
+
   // Normalize status for lookup. Multi-word statuses like "CEO Pending" → "Ceo pending"
   // (capitalize first letter, lowercase the rest — matches the keys above).
   const formattedStatus =
@@ -55,7 +67,7 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
   return (
     <Badge
       variant={variant}
-      className={cn("w-20 justify-center capitalize", className)}
+      className={cn("min-w-20 justify-center whitespace-nowrap capitalize", className)}
     >
       {status}
     </Badge>
@@ -65,7 +77,9 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
 export const getCreditsColumns = (
   navigate: NavigateFunction,
   onRequestPayment: (term: PoPaymentTermRow) => void,
-  currentStatus: string
+  currentStatus: string,
+  /** Admin, PMO and Procurement see Pay by Cheque on All Credits (`creditCheque.canPayCreditByCheque`). */
+  canPayByCheque: boolean
 ): ColumnDef<PoPaymentTermRow>[] => {
 
   const columns: ColumnDef<PoPaymentTermRow>[] = [
@@ -241,52 +255,92 @@ export const getCreditsColumns = (
 
   ];
 
+  // Cheque Issued tab: the cheque paying each term; its number opens the cheque's detail view.
+  if (currentStatus === CREDIT_TAB_CHEQUE_ISSUED) {
+    columns.push(
+      {
+        accessorKey: "cheque_no",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Cheque No" />,
+        cell: ({ row }) => {
+          const chequeNo = row.original.cheque_no;
+          return chequeNo ? (
+            <ChequeNumberLink cheque={row.original.cheque} chequeNo={chequeNo} />
+          ) : (
+            <span className="text-gray-400">--</span>
+          );
+        },
+        enableSorting: false,
+      },
+      {
+        accessorKey: "cheque_date",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Cheque Date" />,
+        cell: ({ row }) => (
+          <div className="text-left">{row.original.cheque_date ? formatDate(row.original.cheque_date) : "--"}</div>
+        ),
+        enableSorting: false,
+      },
+      {
+        accessorKey: "cheque_status",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Cheque Status" />,
+        cell: ({ row }) =>
+          row.original.cheque_status ? (
+            <ChequeStatusBadge status={row.original.cheque_status as ChequeStatus} />
+          ) : (
+            <span className="text-gray-400">--</span>
+          ),
+        enableSorting: false,
+      }
+    );
+  }
 
-  // Action column for "Due" tab
-  // Shows actions for terms that are eligible for payment requests:
-  // - "Due" status (Created with past due_date) -> Request Payment + Edit
-  // - "Requested" / "Approved" -> View only (no actions)
-  if (currentStatus === "Due") {
+  // The Due tab's "..." menu for a Due term (Created, past its due date): Request Payment and Edit Payment Term.
+  const dueMenu = (term: PoPaymentTermRow) => {
+    const encodedPoName = term.name.replace(/\//g, "&="); // Encode slashes
+    const encodedPoStatus = term.postatus?.replace(" ", "%20");
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" className="h-8 w-8 p-0">
+            <span className="sr-only">Open menu</span>
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            onClick={() => onRequestPayment(term)}
+            className="cursor-pointer text-green-700 font-semibold focus:text-green-800 focus:bg-green-50"
+          >
+            <DollarSign className="mr-2 h-4 w-4" />
+            <span>Request Payment</span>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={() => navigate(`/purchase-orders/${encodedPoName}?tab=${encodedPoStatus}&isEditing=true`)}
+            className="cursor-pointer"
+          >
+            <PencilIcon className="mr-2 h-4 w-4" />
+            <span>Edit Payment Term</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  };
+  const none = <span className="text-gray-400">--</span>;
+
+  // All Credits tab (owner, 2026-10-31): a Due term gets the Due tab's menu; a Created term not due yet, Pay by
+  // Cheque for Admin, PMO and Procurement (`canPayByCheque`); any other row "--".
+  if (currentStatus === "All") {
     columns.push({
       id: "actions",
       header: () => <div className="text-center">Actions</div>,
       cell: ({ row }) => {
-        const { display_status, name, postatus } = row.original;
-        const encodedPoName = name.replace(/\//g, "&="); // Encode slashes
-        const encodedPoStatus = postatus?.replace(" ", "%20");
-
+        const term = row.original;
+        const early = canPayByCheque && term.term_status === "Created" && isEarlyCreditCheque(term, todayDay());
         return (
           <div className="flex justify-center">
-            {/* Only "Due" status terms (Created with past due_date) can request payment */}
-            {display_status === "Due" ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="h-8 w-8 p-0">
-                    <span className="sr-only">Open menu</span>
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    onClick={() => onRequestPayment(row.original)}
-                    className="cursor-pointer text-green-700 font-semibold focus:text-green-800 focus:bg-green-50"
-                  >
-                    <DollarSign className="mr-2 h-4 w-4" />
-                    <span>Request Payment</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => navigate(`/purchase-orders/${encodedPoName}?tab=${encodedPoStatus}&isEditing=true`)}
-                    className="cursor-pointer"
-                  >
-                    <PencilIcon className="mr-2 h-4 w-4" />
-                    <span>Edit Payment Term</span>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
-              <span className="text-gray-400">--</span>
-            )}
+            {term.display_status === "Due" ? dueMenu(term) : early ? (
+              <PayByChequeButton onClick={() => onRequestPayment(term)} />
+            ) : none}
           </div>
         );
       },
@@ -294,6 +348,19 @@ export const getCreditsColumns = (
     });
   }
 
+  // Due tab: only a Due term (Created, past its due date) can be requested; Requested / Approved rows are view only.
+  if (currentStatus === "Due") {
+    columns.push({
+      id: "actions",
+      header: () => <div className="text-center">Actions</div>,
+      cell: ({ row }) => (
+        <div className="flex justify-center">
+          {row.original.display_status === "Due" ? dueMenu(row.original) : none}
+        </div>
+      ),
+      meta: { excludeFromExport: true },
+    });
+  }
 
   return columns;
 };
