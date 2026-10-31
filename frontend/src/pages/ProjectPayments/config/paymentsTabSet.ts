@@ -63,10 +63,16 @@ const VIEW_ONLY_TABS: readonly PPTabValue[] = [
 ];
 
 /**
- * Sees All Payments (every PO / WO payment and expense, in every status): the people who
- * oversee spend (#1476). Procurement, Project Lead and Project Manager do not.
+ * PMO sees only its own requests, "Payment Raised By Me" (owner, 2026-10-31): no Payment Done, no All Payments,
+ * and a hand-edited `?tab=` outside it falls back there, as for HR.
  */
-const overseesSpend: Rule = (v) => canApprove(v) || isAccountant(v) || isPMO(v) || isViewOnly(v);
+const PMO_TABS: readonly PPTabValue[] = [PP_TABS.PAYMENT_BY_ME];
+
+/**
+ * Sees All Payments (every PO / WO payment and expense, in every status): the people who
+ * oversee spend (#1476). Procurement, Project Lead, Project Manager and, since 2026-10-31, PMO do not.
+ */
+const overseesSpend: Rule = (v) => canApprove(v) || isAccountant(v) || isViewOnly(v);
 
 /** The strip, in display order; each tab is shown to the viewers its rule admits. */
 const STRIP: readonly { tab: PPTabValue; shownTo: Rule }[] = [
@@ -75,7 +81,8 @@ const STRIP: readonly { tab: PPTabValue; shownTo: Rule }[] = [
     { tab: PP_TABS.NEW_PAYMENTS, shownTo: canSettle },
     // Viewable by view-only profiles too, without the Mark Reconciled action.
     { tab: PP_TABS.RECONCILIATION_PENDING, shownTo: (v) => canSettle(v) || isViewOnly(v) },
-    { tab: PP_TABS.PAYMENTS_DONE, shownTo: everyone },
+    // Everyone but PMO (owner, 2026-10-31).
+    { tab: PP_TABS.PAYMENTS_DONE, shownTo: (v) => !isPMO(v) },
     // Own rows for every caller, Admin included (scoped server-side).
     { tab: PP_TABS.PAYMENT_BY_ME, shownTo: everyone },
     { tab: PP_TABS.ALL_PAYMENTS, shownTo: overseesSpend },
@@ -86,8 +93,8 @@ const DEFAULTS: readonly { tab: PPTabValue; when: Rule }[] = [
     { tab: PP_TABS.PAYMENT_BY_ME, when: isViewOnly },
     { tab: PP_TABS.CEO_PENDING, when: isCEO },
     { tab: PP_TABS.APPROVE_PAYMENTS, when: canApprove },
-    // PMO sees neither approval nor settle tabs; Payments Pending is hidden (2026-10-07).
-    { tab: PP_TABS.PAYMENTS_DONE, when: isPMO },
+    // PMO has only Payment Raised By Me (owner, 2026-10-31).
+    { tab: PP_TABS.PAYMENT_BY_ME, when: isPMO },
     { tab: PP_TABS.NEW_PAYMENTS, when: isAccountant },
     { tab: PP_TABS.PAYMENTS_DONE, when: isProjectRole },
 ];
@@ -99,7 +106,7 @@ export function paymentsTabSet(viewer: PaymentsViewer): PaymentsTabSet {
     return {
         tabs: STRIP.filter((s) => s.shownTo(viewer)).map((s) => s.tab),
         defaultTab: DEFAULTS.find((d) => d.when(viewer))?.tab ?? FALLBACK_DEFAULT,
-        restrictedTo: isViewOnly(viewer) ? VIEW_ONLY_TABS : null,
+        restrictedTo: isViewOnly(viewer) ? VIEW_ONLY_TABS : isPMO(viewer) ? PMO_TABS : null,
     };
 }
 
