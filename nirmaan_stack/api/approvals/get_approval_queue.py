@@ -73,6 +73,13 @@ TYPE_SR_PAYMENT = "SR Payment"
 # `source` stays Non-Project, so every engine that branches on `source` treats it as the expense it is.
 TYPE_REIMBURSEMENT = "Reimbursement"
 
+# The Type filter's narrower options (owner, 2026-10-31): FILTER values only, never a row's `source_type`.
+# Each is "<type>:<detail>": a WO payment of the GST only (ADR-0030), a PO payment by cheque, and an
+# expense of one expense type ("Project Expense:Petty Cash"). Picking the type itself still lists them all.
+TYPE_DETAIL_SEP = ":"
+TYPE_DETAIL_GST = "GST"
+TYPE_DETAIL_CHEQUE = "Cheque"
+
 SOURCE_TO_DOCTYPE = {
     SOURCE_VENDOR_PAYMENT: "Project Payments",
     SOURCE_PROJECT_EXPENSE: "Project Expenses",
@@ -407,18 +414,44 @@ def _date_clause(field, op, value):
     return f"{col} {op} %s", [value]
 
 
-def _widen_non_project(field, op, value):
-    """A Type filter naming Non-Project also names Reimbursement: a reimbursement's expense IS a Non-Project
-    Expense (ADR-0040), shown as that pill with a Reimbursement tag, so picking "Non Project Expense" must not
-    drop it, and leaving Non-Project out leaves it out too. "Reimbursement" alone still narrows to claims."""
-    if field != "source_type" or op not in ("in", "not in", "=", "!="):
-        return op, value
+def _type_detail_clause(value):
+    """One narrower Type option ("<type>:<detail>", see TYPE_DETAIL_SEP) -> (sql, params)."""
+    base, _sep, detail = value.partition(TYPE_DETAIL_SEP)
+    if base == TYPE_SR_PAYMENT and detail == TYPE_DETAIL_GST:
+        return 'q."is_gst_payment" = 1', []
+    if base == TYPE_PO_PAYMENT and detail == TYPE_DETAIL_CHEQUE:
+        return f'(q."source_type" = %s AND q."mode_of_payment" = %s)', [TYPE_PO_PAYMENT, TYPE_DETAIL_CHEQUE]
+    # An expense type. "Non-Project:<type>" leaves the reimbursements out: Non Project – Reimbursement is
+    # their own option.
+    if base in (SOURCE_PROJECT_EXPENSE, SOURCE_NON_PROJECT) and detail:
+        return '(q."source_type" = %s AND q."expense_type" = %s)', [base, detail]
+    frappe.throw(_("Unsupported Type filter: {0}").format(value))
+
+
+def _type_clause(op, value):
+    """A Type filter -> (sql, params): the picked options OR'd together, the whole negated for "not in".
+
+    Naming Non-Project also names Reimbursement: a reimbursement's expense IS a Non-Project Expense (ADR-0040),
+    shown as that pill with a Reimbursement tag, so picking "Non Project Expense" must not drop it, and
+    leaving Non-Project out leaves it out too. "Reimbursement" alone still narrows to claims. A narrower
+    option ("SR Payment:GST", "Project Expense:Petty Cash") reads its own columns (`_type_detail_clause`)."""
     values = list(value) if isinstance(value, (list, tuple)) else [value]
-    if SOURCE_NON_PROJECT not in values:
-        return op, value
-    if TYPE_REIMBURSEMENT not in values:
-        values.append(TYPE_REIMBURSEMENT)
-    return ("not in" if op in ("not in", "!=") else "in"), values
+    whole = [v for v in values if TYPE_DETAIL_SEP not in v]
+    if SOURCE_NON_PROJECT in whole and TYPE_REIMBURSEMENT not in whole:
+        whole.append(TYPE_REIMBURSEMENT)
+    parts, params = [], []
+    if whole:
+        parts.append(f'q."source_type" IN ({", ".join(["%s"] * len(whole))})')
+        params.extend(whole)
+    for v in values:
+        if TYPE_DETAIL_SEP in v:
+            sql, vals = _type_detail_clause(v)
+            parts.append(sql)
+            params.extend(vals)
+    if not parts:
+        return ("1=0" if op in ("in", "=") else "1=1"), []
+    sql = "(" + " OR ".join(parts) + ")"
+    return (f"NOT {sql}" if op in ("not in", "!=") else sql), params
 
 
 def _build_where(filters, search_term, search_fields):
@@ -434,7 +467,11 @@ def _build_where(filters, search_term, search_fields):
             # for -- the same failure mode as a missing case in the tab switch.
             frappe.throw(_("Unsupported filter field: {0}").format(field))
         field = _COLUMN_FOR.get(field, field)
-        op, value = _widen_non_project(field, op, value)
+        if field == "source_type" and op in ("in", "not in", "=", "!="):
+            frag, vals = _type_clause(op, value)
+            clauses.append(frag)
+            params.extend(vals)
+            continue
         if field == "raised_by" and value == CURRENT_USER_TOKEN:
             # Unconditional since 23 Sep 2026 -- no Admin bypass. This one substitution
             # scopes the LIST, the FACETS and the CSV EXPORT together, because all three
@@ -702,9 +739,30 @@ def get_approval_queue_facets(field, filters=None, search_term=None, current_sea
         for r in rows if (r["value"] or "").strip()
     ]
     if field == "source_type":
-        values = _count_reimbursements_as_non_project(values)
+        values = _count_reimbursements_as_non_project(values) + _type_detail_counts(union, where, params)
     blank = sum(cint(r["cnt"]) for r in rows if not (r["value"] or "").strip())
     return {"field": field, "values": values, "blank_count": blank}
+
+
+def _type_detail_counts(union, where, params):
+    """The Type facet's narrower options (TYPE_DETAIL_SEP), counted under the same filters as the types, in
+    one GROUP BY: "SR Payment:GST", "PO Payment:Cheque" and one "<ledger>:<expense type>" per expense type. A
+    row counts under at most one (a GST payment is a WO payment, a cheque one a PO payment). Each is also in
+    its type's count, as its filter is. Largest first; an option no row matches is not returned."""
+    detail = f"""CASE
+        WHEN q."is_gst_payment" = 1 THEN '{TYPE_SR_PAYMENT}{TYPE_DETAIL_SEP}{TYPE_DETAIL_GST}'
+        WHEN q."source_type" = '{TYPE_PO_PAYMENT}' AND q."mode_of_payment" = '{TYPE_DETAIL_CHEQUE}'
+            THEN '{TYPE_PO_PAYMENT}{TYPE_DETAIL_SEP}{TYPE_DETAIL_CHEQUE}'
+        WHEN q."source_type" IN ('{SOURCE_PROJECT_EXPENSE}', '{SOURCE_NON_PROJECT}') AND q."expense_type" <> ''
+            THEN q."source_type" || '{TYPE_DETAIL_SEP}' || q."expense_type"
+    END"""
+    rows = frappe.db.sql(
+        f"SELECT d.value, COUNT(*) AS cnt FROM (SELECT {detail} AS value FROM ({union}) q {where}) d "
+        "WHERE d.value IS NOT NULL GROUP BY d.value ORDER BY COUNT(*) DESC, d.value",
+        tuple(params),
+        as_dict=True,
+    )
+    return [{"value": r["value"], "count": cint(r["cnt"])} for r in rows]
 
 
 def _count_reimbursements_as_non_project(values):

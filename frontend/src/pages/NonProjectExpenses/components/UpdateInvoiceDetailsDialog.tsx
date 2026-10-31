@@ -45,10 +45,16 @@ interface UpdateInvoiceDetailsDialogProps {
      * endpoint) instead of a plain document update. Given only by that sub-tab.
      */
     cardSave?: (values: CardInvoiceValues) => Promise<void>;
+    /**
+     * The Payment Done tab's Upload / Edit Inv (owner, 2026-10-31): the save goes through this callback
+     * (`api/expenses/paid_invoice`) instead of a plain document update, under the usual rules. The file is
+     * uploaded unattached, since the viewer (HR) may not write the expense; the server files it under it.
+     */
+    save?: (values: CardInvoiceValues) => Promise<void>;
     onSuccess?: () => void;
 }
 
-/** What a card spend's invoice save sends. */
+/** What a card spend's invoice save sends (and the Payment Done tab's `save`). */
 export interface CardInvoiceValues {
     invoice_attachment: string;
     invoice_ref: string | null;
@@ -66,7 +72,7 @@ const ATTACHMENT_ACCEPTED_TYPES: AcceptedFileType[] = ["image/*", "application/p
 
 
 export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProps> = ({
-    isOpen, setIsOpen, expense, doctype = "Non Project Expenses", requireAttachment = false, cardSave, onSuccess
+    isOpen, setIsOpen, expense, doctype = "Non Project Expenses", requireAttachment = false, cardSave, save, onSuccess
 }) => {
     const cardMode = !!cardSave;
     const fileRequired = requireAttachment || cardMode;
@@ -150,18 +156,18 @@ export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProp
 
         try {
             if (attachmentAction === "replace" && newAttachmentFile) {
-                const uploadedFile = await upload(newAttachmentFile, {
-                    doctype, docname: expense.name,
-                    fieldname: "invoice_attachment", isPrivate: true,
-                });
+                const uploadedFile = await upload(newAttachmentFile, save
+                    ? { isPrivate: true }
+                    : { doctype, docname: expense.name, fieldname: "invoice_attachment", isPrivate: true });
                 dataToUpdate.invoice_attachment = uploadedFile.file_url;
             } else if (attachmentAction === "remove") {
                 dataToUpdate.invoice_attachment = null;
             }
             // If action is "keep", invoice_attachment is not added to dataToUpdate.
 
-            if (cardSave) {
-                await cardSave({
+            const viaCallback = cardSave ?? save;
+            if (viaCallback) {
+                await viaCallback({
                     invoice_attachment: dataToUpdate.invoice_attachment ?? existingAttachmentUrl ?? "",
                     invoice_ref: dataToUpdate.invoice_ref,
                     invoice_date: dataToUpdate.invoice_date || null,

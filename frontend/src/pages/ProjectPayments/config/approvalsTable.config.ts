@@ -82,7 +82,8 @@ export interface ApprovalQueueRow {
    */
   requested_amount?: number;
   against_primary: string;
-  /** Line 2 under Against — the expense TYPE. Blank on a payment. */
+  /** The expense TYPE. Blank on a payment. No longer drawn under Against (owner, 2026-10-31): the Type cell
+   *  shows `expense_type` instead. Still searched and exported. */
   against_secondary: string;
   /** The expense comment. Hover only — see the Against cell. */
   comment_text: string;
@@ -172,25 +173,28 @@ export interface ApprovalQueueRow {
  *
  * Adding a tab is one entry here, not another 300-line column block. Changing a
  * column changes it on every tab at once, because there is only one of it.
+ *
+ * `paid_on` sits right after `amount` on EVERY tab (owner, 2026-10-31). On the tabs where nothing is paid
+ * yet it reads "—" on each row; that is the true value, not a gap.
  */
 export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
   // "Payment Pending Approval" — `tier` was removed from the screen by owner request;
   // it is still written to the CSV export (approvalExportColumns.ts).
   [PP_TABS.APPROVE_PAYMENTS]: [
     "actions", "source", "against", "requested_on",
-    "vendor", "project", "amount", "raised_by",
+    "vendor", "project", "amount", "paid_on", "raised_by",
   ],
   // "Payment Pending CEO Approval" — no `tier`: every row here is L1+L2 by
   // definition, so it would be one word repeated down the page. The two CEO-only
   // figures take those slots instead.
   [PP_TABS.CEO_PENDING]: [
     "actions", "source", "against", "requested_on",
-    "vendor", "project", "amount", "project_value", "cashflow_gap",
+    "vendor", "project", "amount", "paid_on", "project_value", "cashflow_gap",
   ],
   // "Payment need to paid" — Paid to in Vendor's place (#1431): where every row's money goes.
   [PP_TABS.NEW_PAYMENTS]: [
     "actions", "source", "against", "paid_to",
-    "project", "amount", "approved_on", "raised_by",
+    "project", "amount", "paid_on", "approved_on", "raised_by",
   ],
   // "Payment Done / Reconciliation Pending" — `payment_by` earns its place here:
   // 99.5% filled on project expenses and homeless otherwise. Paid to (spec story 56/60): the account
@@ -213,24 +217,25 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
   // only ones where it varies. No bulk action is valid across a mixed selection;
   // `actions` is the expense Edit pencil alone, like the Paid tab.
   [PP_TABS.PAYMENTS_PENDING]: [
-    "actions", "source", "against", "vendor", "project", "amount", "status",
+    "actions", "source", "against", "vendor", "project", "amount", "paid_on", "status",
     "requested_on", "raised_by",
   ],
   [PP_TABS.ALL_PAYMENTS]: [
-    "actions", "source", "against", "vendor", "project", "amount", "status",
+    "actions", "source", "against", "vendor", "project", "amount", "paid_on", "status",
     "requested_on", "raised_by",
   ],
   // "Payment By Me" — `actions` holds the Delete, on REJECTED rows only (owner, 17 Sep 2026), and
-  // the expense Edit pencil (2026-09-21); "--" otherwise. The Delete removes all three ledgers in
+  // the expense Edit pencil (2026-09-21), and a Paid expense's Upload / Edit Inv for Admin, Accounts and HR
+  // (owner, 2026-10-31; `canUploadInvoiceRow`); "--" otherwise. The Delete removes all three ledgers in
   // place after a confirm (2026-09-21 — a PO / SR payment used to be sent to its PO / SR page).
   // No `raised_by` for most users, since every row is their own; an Admin sees EVERY row here, and
   // AllPayments appends `raised_by`.
   [PP_TABS.PAYMENT_BY_ME]: [
-    "actions", "source", "against", "vendor", "project", "amount", "status", "requested_on",
+    "actions", "source", "against", "vendor", "project", "amount", "paid_on", "status", "requested_on",
   ],
   // PO Wise groups by PO, so it is payments-only and keeps its own rendering.
   [PP_TABS.PO_WISE]: [
-    "source", "against", "vendor", "project", "amount", "status",
+    "source", "against", "vendor", "project", "amount", "paid_on", "status",
   ],
 };
 
@@ -379,17 +384,13 @@ const SOURCE_BADGE_BASE: Record<ApprovalQueueRow["source"], string> = {
 /** What the Type column READS. Stored values are what the facet filter and the endpoint match on. */
 export const TYPE_LABEL: Record<ApprovalQueueRow["source_type"], string> = {
   "PO Payment": "PO Payment",
-  "SR Payment": "SR Payment",
+  // "WO Payment" on screen, in the Type filter and in the CSV (owner, 2026-10-31); the stored value stays.
+  "SR Payment": "WO Payment",
   "Vendor Payment": "Payment",
   "Project Expense": "Project Expense",
   "Non-Project": "Non Project Expense",
   "Reimbursement": "Reimbursement / Non Project Expense",
 };
-
-/** The Type filter's options. The "Vendor Payment" fallback is left out: no row carries it today. */
-export const TYPE_FILTER_VALUES: ApprovalQueueRow["source_type"][] = [
-  "PO Payment", "SR Payment", "Project Expense", "Non-Project", "Reimbursement",
-];
 
 export const TYPE_BADGE: Record<ApprovalQueueRow["source_type"], string> = {
   "PO Payment": SOURCE_BADGE_BASE["Vendor Payment"],

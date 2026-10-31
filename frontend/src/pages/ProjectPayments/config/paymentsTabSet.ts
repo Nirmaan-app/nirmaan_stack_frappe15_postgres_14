@@ -47,7 +47,8 @@ const everyone: Rule = () => true;
 /**
  * Profiles that only VIEW this page, held to `VIEW_ONLY_TABS` (owner, 17 Sep 2026; HR Lead
  * since #1476, which holds no write right on any ledger).
- * Their rows carry no actions: AllPayments drops them for anyone who cannot settle.
+ * Their rows carry no actions: AllPayments drops them for anyone who cannot settle. The one exception is
+ * Payment Done's Upload / Edit Inv on a Paid expense (owner, 2026-10-31; `queueRowActions.PAID_INVOICE_PROFILES`).
  */
 const VIEW_ONLY_PROFILES: readonly string[] = [HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE];
 const isViewOnly: Rule = (v) => VIEW_ONLY_PROFILES.includes(v.role);

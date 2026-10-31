@@ -59,18 +59,28 @@ export const canHoldQueueRow = (row: QueueRowLike, role?: string | null): boolea
   statusOf(row) === APPROVAL_STATUS.APPROVED;
 
 /**
- * Upload / replace the invoice on a Paid expense (either ledger), from "Payment Done / Reconciliation
- * Done" — the same three roles that work the queue. Project Expenses were added 2026-10-07 (owner);
- * a PO / WO payment never: its invoices are Vendor Invoices. The upload saves the expense, so it also
- * needs the server's leave to edit a Paid row (`editableStatuses`): Admin and the Accountant Lead
- * have it (story 50, owner 2026-10-20), an Accountant does not.
+ * Who uploads / replaces a Paid expense's invoice from "Payment Done / Reconciliation Done" (owner,
+ * 2026-10-31): the queue's three settle roles plus HR. Mirrors `services/role_profiles.PAID_INVOICE_PROFILES`
+ * — keep the two lists in sync. It saves through `api/expenses/paid_invoice`, which writes the invoice file,
+ * number and date only, so it needs no leave to edit a Paid expense (`editableStatuses`).
  */
-export const canUploadInvoiceRow = (
-  row: QueueRowLike, role: string | null | undefined, editableStatuses: readonly string[],
-): boolean =>
-  canWorkQueueRows(role) &&
-  isPaidExpense(row.status) &&
-  canEditQueueRow(row, editableStatuses);
+export const PAID_INVOICE_PROFILES: readonly string[] = [
+  ...QUEUE_EDIT_PROFILES,
+  "Nirmaan HR Executive Profile",
+  "Nirmaan HR Lead Profile",
+];
+
+export const canUploadPaidInvoices = (role?: string | null): boolean =>
+  !!role && PAID_INVOICE_PROFILES.includes(role);
+
+/**
+ * The Upload / Edit Inv button on a row: a Paid expense (either ledger; Project Expenses since 2026-10-07),
+ * for `PAID_INVOICE_PROFILES`. A PO / WO payment never: its invoices are Vendor Invoices.
+ */
+export const canUploadInvoiceRow = (row: QueueRowLike, role: string | null | undefined): boolean =>
+  canUploadPaidInvoices(role) &&
+  EXPENSE_DOCTYPES.includes(row.doctype) &&
+  isPaidExpense(row.status);
 
 /** Is this payment held? It stays Approved but cannot be marked as paid or ticked. */
 export const isHeldQueueRow = (row: Pick<ApprovalQueueRow, "on_hold">): boolean =>
