@@ -95,7 +95,8 @@ case "$CMD" in
     # tools, and the question swallows the prompt. The repo commits one (a machine's own file). Hide it in this env
     # only: skip-worktree keeps git seeing it unchanged, so commits and the Definition of Done are unaffected. The
     # box's own deny rules apply either way.
-    box "cd $WT && if git ls-files --error-unmatch .claude/settings.local.json >/dev/null 2>&1 && [ -f .claude/settings.local.json ]; then git update-index --skip-worktree .claude/settings.local.json && rm .claude/settings.local.json; fi; python3 -c 'import json,os,sys; p=os.path.expanduser(\"~/.claude.json\"); c=json.load(open(p)) if os.path.exists(p) else {}; c.setdefault(\"projects\",{}).setdefault(sys.argv[1],{})[\"hasTrustDialogAccepted\"]=True; json.dump(c,open(p,\"w\"),indent=2)' $WT" \
+    # Claude also reads it from the main checkout (the env is a worktree of it), so hide it in both.
+    box "for d in $WT ~/$BOX_CO; do (cd \$d && if git ls-files --error-unmatch .claude/settings.local.json >/dev/null 2>&1 && [ -f .claude/settings.local.json ]; then git update-index --skip-worktree .claude/settings.local.json && rm .claude/settings.local.json; fi); done; python3 -c 'import json,os,sys; p=os.path.expanduser(\"~/.claude.json\"); c=json.load(open(p)) if os.path.exists(p) else {}; c.setdefault(\"projects\",{}).setdefault(sys.argv[1],{})[\"hasTrustDialogAccepted\"]=True; json.dump(c,open(p,\"w\"),indent=2)' $WT" \
       && ok "env ready for Claude (folder trusted, the committed settings.local.json hidden in this env)"
     # A long prompt takes a while to type in, and Orca may answer "could not confirm the launch outcome" although
     # the agent started. So the proof is a live terminal in the env, not the launch reply.
