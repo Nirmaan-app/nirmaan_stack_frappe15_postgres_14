@@ -5,7 +5,7 @@ the holder's signed declaration, the monthly audit, and every change to an asset
 
 Users work with assets in two places:
 - the Assets page (`/asset-management`, not `/assets`, which Frappe serves as static files): Project Assets / IT
-  Assets tabs with sub-tabs All, Assigned, Unassigned, Pending Declaration and Asset Audit; plus
+  Assets tabs with sub-tabs All, Assigned, Unassigned, Lost/Damaged, Pending Declaration and Asset Audit; plus
   Categories, Departments and History;
 - the holder's own profile (`/users/<id>?tab=assets`): one card per held asset with Sign declaration and Submit
   audit. While anything there is pending, the app access gate locks the rest of the app (below).
@@ -68,6 +68,25 @@ The detailed rules live in the code's own docstrings, cited below; this page is 
   history row, and dropped the "· return rejected" note from the audits a rejection had opened. An approved
   return was a normal Unassign, so those "Unassigned" rows stay.
 
+- **Lost/Damaged is one state, set and cleared only by Admin and HR** (owner, 2026-10-31; `api/assets/lost_damaged.py`,
+  rules in `services/asset_lost_damaged.py`, `role_profiles.ASSET_LOST_DAMAGED_PROFILES`, mirrored by
+  `canMarkLostDamaged`). Not PMO, not procurement, not the holder (they tell HR).
+  - Lost and Damaged are deliberately ONE state (`Asset Master.lost_damaged`); what counts is whatever the reason says.
+    Both directions need a reason of at least 10 characters; no attachment.
+  - **Marking unassigns at once**, in the same transaction (`assign.end_assignment`, the Unassign path): an
+    "Unassigned" row (reason "Lost/Damaged") then an "Asset Lost/Damaged" row naming the holder. The holder's open
+    audit ends with the assignment, with NO "Audit Missed". Before confirming, the dialog shows the holder's last
+    audit (month, date, answers) and what is open -- information only, never a block.
+  - While Lost/Damaged: no Assign (`AssetManagement.check_not_already_assigned`, so screen, API and Desk alike), no
+    audit (`asset_audit_open.due_assignments`), not in Unassigned (its own sub-tab and summary count). Edit and
+    Delete stay as before. The flag never changes through a save (`AssetMaster.keep_lost_damaged_unchanged`).
+  - **Found/Repaired returns it to Unassigned**, never to the last holder: it is assigned again through the normal
+    flow, with a fresh declaration, and audits restart from there.
+  - The Unassign reasons "Lost or stolen" and "Damaged – sent for repair" STAY (owner, Q5): a plain unassign with them
+    does not mark the asset. Past unassigns with them were not converted, and the Condition field is untouched.
+  - The asset page's assignment card shows the newest "Asset Lost/Damaged" row (who had it, by whom, why) to every
+    viewer of the page; the Lost/Damaged sub-tab's "Marked" column reads the history API, so Admin and HR only.
+
 ### Monthly audit
 
 - **Only assigned assets whose category has `audit_required` ticked owe an audit.** The switch is Admin only
@@ -107,12 +126,12 @@ The detailed rules live in the code's own docstrings, cited below; this page is 
 | Doctype | What it holds |
 |---|---|
 | **Asset Category** | `category_type` Project / IT; `audit_required` (Admin switch) |
-| **Asset Master** | The asset; `current_assignee` (read-only, synced from the assignment), `department`, `asset_condition`, IT credentials (Password fields); `asset_history` child table |
+| **Asset Master** | The asset; `current_assignee` (read-only, synced from the assignment), `department`, `asset_condition`, `lost_damaged` (read-only Check, written only by `api/assets/lost_damaged.py`), IT credentials (Password fields); `asset_history` child table |
 | **Asset Management** | The current assignment: holder, declaration, `received` (+ date; `returned` + date unused since 2026-10-26), and the open audit: `audit_status`, `audit_month` (`MM/YYYY`), `last_audit_on`, `audit_proof`, `audit_overdue_since`, `audit_answers` |
 | **Asset History** (child of Asset Master) | One row per change: `event`, `assigned_to`, `done_by`, `done_on`, `declaration` ("File"), `from_department` / `to_department`, `reason`, `audit_answers` |
 
 History events: Asset Added, Assigned, Declaration Signed, Declaration Uploaded, Unassigned, Department Set,
-Audit Requested, Audit Fulfilled, Audit Missed.
+Audit Requested, Audit Fulfilled, Audit Missed, Asset Lost/Damaged, Asset Found/Repaired.
 
 `audit_month` is Data `MM/YYYY`: compare it for equality or as a date (`to_date(audit_month, 'MM/YYYY')`), never in
 text order.
@@ -121,7 +140,9 @@ text order.
 
 | Where | What |
 |---|---|
-| `api/assets/assign.py` | `assign_asset`, `unassign_asset` |
+| `api/assets/assign.py` | `assign_asset`, `unassign_asset`; `end_assignment` (shared with Mark as Lost/Damaged) |
+| `api/assets/lost_damaged.py` | `mark_lost_damaged`, `mark_found_repaired` (Admin / HR; row lock first) |
+| `services/asset_lost_damaged.py` | Pure Lost/Damaged rules: `lost_damaged_refusal`, `reason_text` |
 | `api/assets/declaration.py` | `sign_declaration` (holder; Redis lock while the PDF renders), `read_declaration_form` (holder; the blank form, whatever the project) |
 | `api/assets/audits.py` | `submit_audit` (holder), `set_category_audit` (Admin) |
 | `api/assets/history.py` | `get_asset_history` (named filters; the Fulfilled list), `get_asset_history_table` + `get_asset_history_facets` (the History tab's data table and its filter counts; share `_table_conditions`) |
@@ -147,17 +168,18 @@ text order.
 | `src/utils/assetAuditQuestions.ts` | The audit question (the only copy) |
 | `src/utils/appAccess.ts`, `src/hooks/useAppAccess.ts`, `src/components/layout/AppAccessGate.tsx`, `AccessBlockedCard.tsx` | The app access gate: pending asset tasks (and no project) lock the app |
 | `src/utils/assetAudit.ts`, `assetHistory.ts` | Audit / history display rules (cycle mirrors `services/asset_audit.py`) |
+| `src/pages/Assets/components/LostDamagedDialog.tsx`, `LostDamagedNotice.tsx`, `hooks/useLostDamagedMarks.ts`, `src/utils/assetLostDamaged.ts` | Mark as Lost/Damaged / Found/Repaired (with the holder's audit record), the assignment card of a marked asset, the Lost/Damaged sub-tab's "Marked" column (the sub-tab itself is `UnassignedAssetsList` with `lostDamaged`) |
 
 ## Tests
 
 Backend (run each with `--module`; they hit the live localhost DB and roll back their own fixtures):
 `services.test_asset_audit`, `services.test_asset_unassign`, `services.test_asset_department`,
 `services.test_asset_project`, `api.assets.test_audits`, `test_history`, `test_first_history_patch`,
-`test_declaration`, `test_mine`, `test_assign_access`, `test_projects`, `test_returns_removed`, and the doctype
+`test_declaration`, `test_mine`, `test_assign_access`, `test_projects`, `test_returns_removed`, `test_lost_damaged`, and the doctype
 tests `asset_management` (plus `asset_master` and `asset_category`, which hold no tests yet).
 
 Frontend (vitest, in the container): `src/utils/appAccess.test.ts`, `assetAudit.test.ts`, `assetAuditAnswers.test.ts`,
-`assetHistory.test.ts`, `assetDeclaration.test.ts`, `assetDepartment.test.ts`, `assetUnassign.test.ts`,
+`assetHistory.test.ts`, `assetDeclaration.test.ts`, `assetDepartment.test.ts`, `assetUnassign.test.ts`, `assetLostDamaged.test.ts`,
 `ownAssets.test.ts`; `src/pages/Assets/returnsRemoved.test.ts`, `utils/assetListLinks.test.ts`,
 `utils/permissions.test.ts`.
 
