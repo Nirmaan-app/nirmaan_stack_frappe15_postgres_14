@@ -91,9 +91,13 @@ case "$CMD" in
     [ "$AGENT" = 1 ] || { echo; ok "env ready at $WT (no agent started: --no-agent)"; exit 0; }
     step "5. Claude in Orca ($ORCA_ENV)"
     [ -x "$ORCA" ] || die "no orca CLI at $ORCA (install Orca, or start Claude in the env yourself)"
+    # A long prompt takes a while to type in, and Orca may answer "could not confirm the launch outcome" although
+    # the agent started. So the proof is a live terminal in the env, not the launch reply.
     "$ORCA" agent launch --environment "$ORCA_ENV" --agent claude --surface terminal --focus \
-      --worktree "path:$WT" --prompt "$(prompt)" --json >/dev/null \
-      || die "Orca could not start Claude; open the env '$NAME' in Orca and run claude there"
+      --worktree "path:$WT" --prompt "$(prompt)" --json >/dev/null 2>&1 || true
+    n=0; until "$ORCA" terminal list --environment "$ORCA_ENV" --worktree "path:$WT" 2>/dev/null | grep -q "^term_"; do
+      n=$((n + 1)); [ $n -gt 20 ] && die "no Claude terminal in '$NAME' after 60 s; open the env in Orca and run claude there"; sleep 3
+    done
     ok "Claude is working in '$NAME'. Watch it in Orca (server $ORCA_ENV). Next: task.sh status $NAME"
     ;;
 
