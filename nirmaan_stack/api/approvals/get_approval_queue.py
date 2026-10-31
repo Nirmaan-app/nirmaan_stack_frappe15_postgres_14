@@ -74,11 +74,13 @@ TYPE_SR_PAYMENT = "SR Payment"
 TYPE_REIMBURSEMENT = "Reimbursement"
 
 # The Type filter's narrower options (owner, 2026-10-31): FILTER values only, never a row's `source_type`.
-# Each is "<type>:<detail>": a WO payment of the GST only (ADR-0030), a PO payment by cheque, and an
-# expense of one expense type ("Project Expense:Petty Cash"). Picking the type itself still lists them all.
+# Each is "<type>:<detail>": a WO payment of the GST only (ADR-0030), a PO payment by cheque, a PO payment on
+# a Credit Payment Cheque (`Cheques.credit_payment_cheque`; also a cheque one), and an expense of one expense
+# type ("Project Expense:Petty Cash"). Picking the type itself still lists them all.
 TYPE_DETAIL_SEP = ":"
 TYPE_DETAIL_GST = "GST"
 TYPE_DETAIL_CHEQUE = "Cheque"
+TYPE_DETAIL_CREDIT_CHEQUE = "Credit Cheque"
 
 SOURCE_TO_DOCTYPE = {
     SOURCE_VENDOR_PAYMENT: "Project Payments",
@@ -425,6 +427,8 @@ def _type_detail_clause(value):
         return 'q."is_gst_payment" = 1', []
     if base == TYPE_PO_PAYMENT and detail == TYPE_DETAIL_CHEQUE:
         return f'(q."source_type" = %s AND q."mode_of_payment" = %s)', [TYPE_PO_PAYMENT, TYPE_DETAIL_CHEQUE]
+    if base == TYPE_PO_PAYMENT and detail == TYPE_DETAIL_CREDIT_CHEQUE:
+        return '(q."source_type" = %s AND q."credit_payment_cheque" = 1)', [TYPE_PO_PAYMENT]
     # An expense type. "Non-Project:<type>" leaves the reimbursements out: Non Project – Reimbursement is
     # their own option.
     if base in (SOURCE_PROJECT_EXPENSE, SOURCE_NON_PROJECT) and detail:
@@ -751,8 +755,10 @@ def get_approval_queue_facets(field, filters=None, search_term=None, current_sea
 def _type_detail_counts(union, where, params):
     """The Type facet's narrower options (TYPE_DETAIL_SEP), counted under the same filters as the types, in
     one GROUP BY: "SR Payment:GST", "PO Payment:Cheque" and one "<ledger>:<expense type>" per expense type. A
-    row counts under at most one (a GST payment is a WO payment, a cheque one a PO payment). Each is also in
-    its type's count, as its filter is. Largest first; an option no row matches is not returned."""
+    row counts under at most one of those (a GST payment is a WO payment, a cheque one a PO payment), and a
+    PO payment on a Credit Payment Cheque also under "PO Payment:Credit Cheque", the second value each row
+    yields. Each is also in its type's count, as its filter is. Largest first; an option no row matches is
+    not returned."""
     detail = f"""CASE
         WHEN q."is_gst_payment" = 1 THEN '{TYPE_SR_PAYMENT}{TYPE_DETAIL_SEP}{TYPE_DETAIL_GST}'
         WHEN q."source_type" = '{TYPE_PO_PAYMENT}' AND q."mode_of_payment" = '{TYPE_DETAIL_CHEQUE}'
@@ -760,8 +766,11 @@ def _type_detail_counts(union, where, params):
         WHEN q."source_type" IN ('{SOURCE_PROJECT_EXPENSE}', '{SOURCE_NON_PROJECT}') AND q."expense_type" <> ''
             THEN q."source_type" || '{TYPE_DETAIL_SEP}' || q."expense_type"
     END"""
+    credit = f"""CASE WHEN q."source_type" = '{TYPE_PO_PAYMENT}' AND q."credit_payment_cheque" = 1
+        THEN '{TYPE_PO_PAYMENT}{TYPE_DETAIL_SEP}{TYPE_DETAIL_CREDIT_CHEQUE}' END"""
     rows = frappe.db.sql(
-        f"SELECT d.value, COUNT(*) AS cnt FROM (SELECT {detail} AS value FROM ({union}) q {where}) d "
+        f"SELECT d.value, COUNT(*) AS cnt FROM (SELECT v.value FROM ({union}) q "
+        f"CROSS JOIN LATERAL (VALUES ({detail}), ({credit})) v(value) {where}) d "
         "WHERE d.value IS NOT NULL GROUP BY d.value ORDER BY COUNT(*) DESC, d.value",
         tuple(params),
         as_dict=True,

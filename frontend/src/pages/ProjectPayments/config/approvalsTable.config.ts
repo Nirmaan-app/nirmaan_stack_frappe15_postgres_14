@@ -176,22 +176,25 @@ export interface ApprovalQueueRow {
  * Adding a tab is one entry here, not another 300-line column block. Changing a
  * column changes it on every tab at once, because there is only one of it.
  *
- * `paid_on` sits right after `amount` on EVERY tab (owner, 2026-10-31). On the tabs where nothing is paid
- * yet it reads "—" on each row; that is the true value, not a gap.
+ * `paid_on` sits right after `amount` on every tab where a row can be paid (owner, 2026-10-31). The two
+ * approval tabs leave it out: nothing on them is paid yet, so it would read "—" on every row.
+ *
+ * `paid_to` (the account the money goes into) is on EVERY tab (owner, 2026-10-31), beside the vendor;
+ * "Payment need to paid" shows it in the vendor's place.
  */
 export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
   // "Payment Pending Approval" — `tier` was removed from the screen by owner request;
   // it is still written to the CSV export (approvalExportColumns.ts).
   [PP_TABS.APPROVE_PAYMENTS]: [
     "actions", "source", "against", "requested_on",
-    "vendor", "project", "amount", "paid_on", "raised_by",
+    "vendor", "paid_to", "project", "amount", "raised_by",
   ],
   // "Payment Pending CEO Approval" — no `tier`: every row here is L1+L2 by
   // definition, so it would be one word repeated down the page. The two CEO-only
   // figures take those slots instead.
   [PP_TABS.CEO_PENDING]: [
     "actions", "source", "against", "requested_on",
-    "vendor", "project", "amount", "paid_on", "project_value", "cashflow_gap",
+    "vendor", "paid_to", "project", "amount", "project_value", "cashflow_gap",
   ],
   // "Payment need to paid" — Paid to in Vendor's place (#1431): where every row's money goes.
   [PP_TABS.NEW_PAYMENTS]: [
@@ -219,11 +222,11 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
   // only ones where it varies. No bulk action is valid across a mixed selection;
   // `actions` is the expense Edit pencil alone, like the Paid tab.
   [PP_TABS.PAYMENTS_PENDING]: [
-    "actions", "source", "against", "vendor", "project", "amount", "paid_on", "status",
+    "actions", "source", "against", "vendor", "paid_to", "project", "amount", "paid_on", "status",
     "requested_on", "raised_by",
   ],
   [PP_TABS.ALL_PAYMENTS]: [
-    "actions", "source", "against", "vendor", "project", "amount", "paid_on", "status",
+    "actions", "source", "against", "vendor", "paid_to", "project", "amount", "paid_on", "status",
     "requested_on", "raised_by",
   ],
   // "Payment By Me" — `actions` holds the Delete, on REJECTED rows only (owner, 17 Sep 2026), and
@@ -233,11 +236,12 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
   // No `raised_by` for most users, since every row is their own; an Admin sees EVERY row here, and
   // AllPayments appends `raised_by`.
   [PP_TABS.PAYMENT_BY_ME]: [
-    "actions", "source", "against", "vendor", "project", "amount", "paid_on", "status", "requested_on",
+    "actions", "source", "against", "vendor", "paid_to", "project", "amount", "paid_on", "status",
+    "requested_on",
   ],
   // PO Wise groups by PO, so it is payments-only and keeps its own rendering.
   [PP_TABS.PO_WISE]: [
-    "source", "against", "vendor", "project", "amount", "paid_on", "status",
+    "source", "against", "vendor", "paid_to", "project", "amount", "paid_on", "status",
   ],
 };
 

@@ -3,10 +3,12 @@
  *
  * Its values are what the server matches on (`get_approval_queue._type_clause`): a row's stored
  * `source_type`, or a narrower option "<source_type>:<detail>" — a WO payment of the GST only, a PO
- * payment by cheque, an expense of one expense type. The labels are what the list reads.
+ * payment by cheque, a PO payment on a Credit Payment Cheque (also a cheque one), an expense of one expense
+ * type. The labels are what the list reads.
  *
  * ORDER: the four types and Non Project – Reimbursement first, then WO Payment – GST, PO Payment – Cheque,
- * every Project Expense type, every Non Project type (each set most used first, as the server counts them).
+ * PO Payment – Credit Cheque, every Project Expense type, every Non Project type (each set most used first,
+ * as the server counts them).
  *
  * A type and its own narrower options may be ticked together (owner, 2026-10-31): each box ticks only
  * itself. The rows are the same as the type alone, since the type already lists them all.
@@ -16,7 +18,7 @@ export const TYPE_DETAIL_SEP = ":";
 
 /** The fixed top of the list, in order. "Reimbursement" is the Non Project – Reimbursement option. */
 const TYPE_TOP = ["SR Payment", "PO Payment", "Project Expense", "Non-Project", "Reimbursement"] as const;
-const DETAIL_TOP = ["SR Payment:GST", "PO Payment:Cheque"] as const;
+const DETAIL_TOP = ["SR Payment:GST", "PO Payment:Cheque", "PO Payment:Credit Cheque"] as const;
 /** The types whose narrower options are expense types, in the order their sets follow. */
 const EXPENSE_TYPES = ["Project Expense", "Non-Project"] as const;
 
@@ -29,6 +31,7 @@ const TYPE_FILTER_LABEL: Record<string, string> = {
   "Vendor Payment": "Payment",
   "SR Payment:GST": "WO Payment – GST",
   "PO Payment:Cheque": "PO Payment – Cheque",
+  "PO Payment:Credit Cheque": "PO Payment – Credit Cheque",
 };
 
 /** What a narrower option's label starts with. */

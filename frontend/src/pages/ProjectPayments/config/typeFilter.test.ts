@@ -9,6 +9,7 @@ describe("typeFilterLabel", () => {
     expect(typeFilterLabel("Reimbursement")).toBe("Non Project – Reimbursement");
     expect(typeFilterLabel("SR Payment:GST")).toBe("WO Payment – GST");
     expect(typeFilterLabel("PO Payment:Cheque")).toBe("PO Payment – Cheque");
+    expect(typeFilterLabel("PO Payment:Credit Cheque")).toBe("PO Payment – Credit Cheque");
   });
 
   it("names an expense type under its ledger", () => {
@@ -23,11 +24,11 @@ describe("orderTypeOptions — the top five, then the narrower options one by on
     const arrived = [
       "PO Payment", "Project Expense", "SR Payment", "Non-Project", "Reimbursement",
       "Project Expense:Material Transportation", "Non-Project:Rent", "Project Expense:Petty Cash",
-      "PO Payment:Cheque", "SR Payment:GST", "Non-Project:Petty Cash",
+      "PO Payment:Credit Cheque", "PO Payment:Cheque", "SR Payment:GST", "Non-Project:Petty Cash",
     ].map((value) => ({ value }));
     expect(orderTypeOptions(arrived).map((o) => o.value)).toEqual([
       "SR Payment", "PO Payment", "Project Expense", "Non-Project", "Reimbursement",
-      "SR Payment:GST", "PO Payment:Cheque",
+      "SR Payment:GST", "PO Payment:Cheque", "PO Payment:Credit Cheque",
       "Project Expense:Material Transportation", "Project Expense:Petty Cash",
       "Non-Project:Rent", "Non-Project:Petty Cash",
     ]);

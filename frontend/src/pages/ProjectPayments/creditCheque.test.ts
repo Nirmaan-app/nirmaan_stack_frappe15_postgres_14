@@ -57,18 +57,15 @@ describe("creditChequeDateProblem", () => {
 });
 
 describe("creditDueChip", () => {
-	it("counts the days left, green beyond a week", () => {
-		expect(creditDueChip("2026-11-26", "2026-10-31", false)).toEqual({ text: "Due 26-Nov-2026 · 26 days", tone: "later" });
+	it("shows only the date before the due date, and on the day itself, with no day count", () => {
+		expect(creditDueChip("2026-11-26", "2026-10-31", false)).toEqual({ text: "Due 26-Nov-2026", tone: "due" });
+		expect(creditDueChip("2026-11-01", "2026-10-31", false)).toEqual({ text: "Due 01-Nov-2026", tone: "due" });
+		expect(creditDueChip("2026-10-31", "2026-10-31", false)).toEqual({ text: "Due 31-Oct-2026", tone: "due" });
 	});
 
-	it("turns amber within 7 days, and on the day itself", () => {
-		expect(creditDueChip("2026-11-07", "2026-10-31", false)).toEqual({ text: "Due 07-Nov-2026 · 7 days", tone: "soon" });
-		expect(creditDueChip("2026-11-01", "2026-10-31", false)).toEqual({ text: "Due 01-Nov-2026 · 1 day", tone: "soon" });
-		expect(creditDueChip("2026-10-31", "2026-10-31", false)).toEqual({ text: "Due 31-Oct-2026 · today", tone: "soon" });
-	});
-
-	it("turns red once past, counting the days overdue", () => {
-		expect(creditDueChip("2026-10-28", "2026-10-31", false)).toEqual({ text: "Due 28-Oct-2026 · 3 days overdue", tone: "overdue" });
+	it("turns overdue the day after, still with only the date", () => {
+		expect(creditDueChip("2026-10-30", "2026-10-31", false)).toEqual({ text: "Due 30-Oct-2026", tone: "overdue" });
+		expect(creditDueChip("2026-10-28", "2026-10-31 18:30:00", false)).toEqual({ text: "Due 28-Oct-2026", tone: "overdue" });
 	});
 
 	it("shows a Paid term's date alone, in grey", () => {
@@ -76,7 +73,7 @@ describe("creditDueChip", () => {
 	});
 
 	it("reads a due date stored with a time, and nothing without one", () => {
-		expect(creditDueChip("2026-11-26 00:00:00", "2026-10-31", false)?.text).toBe("Due 26-Nov-2026 · 26 days");
+		expect(creditDueChip("2026-11-26 00:00:00", "2026-10-31", false)).toEqual({ text: "Due 26-Nov-2026", tone: "due" });
 		expect(creditDueChip("", "2026-10-31", false)).toBeNull();
 	});
 });

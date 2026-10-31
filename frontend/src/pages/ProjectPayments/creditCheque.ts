@@ -8,7 +8,7 @@
  * `credit_cheque_date_problem`); this module only shapes the dialog.
  */
 
-import { differenceInCalendarDays, format, parseISO } from "date-fns";
+import { format, parseISO } from "date-fns";
 
 import { ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, PROCUREMENT_PROFILES } from "@/constants/roles";
 
@@ -63,10 +63,7 @@ export const creditChequeDateProblem = (chequeDate: string, dueDate: string | nu
 	);
 };
 
-/** Within this many days a credit term's due chip turns amber (owner, 2026-10-31). */
-export const DUE_SOON_DAYS = 7;
-
-export type DueTone = "later" | "soon" | "overdue" | "paid";
+export type DueTone = "due" | "overdue" | "paid";
 
 /** A credit term's due chip on the PO page: its text and how urgent it is. */
 export interface DueChip {
@@ -75,18 +72,14 @@ export interface DueChip {
 }
 
 /**
- * The due chip of a Credit term due `dueDate` while it is `today` (both `yyyy-MM-dd`; a time is ignored):
- * "Due 26-Nov-2026 · 26 days", amber within `DUE_SOON_DAYS`, "Due today", red "· 3 days overdue" once past.
- * A Paid term (`paid`) shows only its date, in grey: nothing is owed. Null with no due date.
+ * The due chip of a Credit term due `dueDate` while it is `today` (both `yyyy-MM-dd`; a time is ignored): only
+ * the date, "Due 26-Nov-2026", never a day count (owner, 2026-10-31). The tone tells the rest: due until the due
+ * date (on the day itself too), overdue once past, paid for a Paid term (`paid`). Null with no due date.
  */
 export const creditDueChip = (dueDate: string | null | undefined, today: string, paid: boolean): DueChip | null => {
 	const due = dayOf(dueDate);
 	if (!due) return null;
-	const date = `Due ${shown(due)}`;
-	if (paid) return { text: date, tone: "paid" };
-	const days = differenceInCalendarDays(parseISO(due), parseISO(today.slice(0, 10)));
-	const plural = (n: number) => `${n} day${n === 1 ? "" : "s"}`;
-	if (days < 0) return { text: `${date} · ${plural(-days)} overdue`, tone: "overdue" };
-	if (days === 0) return { text: `${date} · today`, tone: "soon" };
-	return { text: `${date} · ${plural(days)}`, tone: days <= DUE_SOON_DAYS ? "soon" : "later" };
+	const text = `Due ${shown(due)}`;
+	if (paid) return { text, tone: "paid" };
+	return { text, tone: due < today.slice(0, 10) ? "overdue" : "due" };
 };

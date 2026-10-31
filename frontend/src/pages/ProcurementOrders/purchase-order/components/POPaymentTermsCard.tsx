@@ -82,8 +82,7 @@ import {
 
 /** The due chip's colours: orange until the due date (owner, 2026-10-31), red overdue, grey once Paid. */
 const DUE_TONE_CLASSES: Record<DueTone, string> = {
-  later: "border-orange-300 bg-orange-50 text-orange-700",
-  soon: "border-orange-300 bg-orange-50 text-orange-700",
+  due: "border-orange-300 bg-orange-50 text-orange-700",
   overdue: "border-red-300 bg-red-50 text-red-700",
   paid: "border-gray-200 bg-gray-50 text-gray-500",
 };

@@ -26,6 +26,7 @@ class TestTheTypeFilter(unittest.TestCase):
 		frappe.set_user(U)
 		cls.fx = TaxedWorkOrderFixture()
 		cls.expenses = {"Project Expenses": [], "Non Project Expenses": []}
+		cls.cheques = []
 		try:
 			project = cls.fx.project()
 			vendor = cls.fx.vendor(2.0)
@@ -34,6 +35,9 @@ class TestTheTypeFilter(unittest.TestCase):
 			cls.wo_gst = cls._payment(project, vendor, "Service Requests", sr, gst=True, mode="Online")
 			cls.po = cls._payment(project, vendor, "Procurement Orders", "PO/TEST/TYPE/1", gst=False, mode="Online")
 			cls.po_cheque = cls._payment(project, vendor, "Procurement Orders", "PO/TEST/TYPE/2", gst=False, mode="Cheque")
+			# A PO payment on a Credit Payment Cheque: a cheque one AND a credit cheque one.
+			cls.po_credit = cls._payment(project, vendor, "Procurement Orders", "PO/TEST/TYPE/3", gst=False, mode="Cheque",
+										 cheque=cls._credit_cheque())
 			cls.petty = cls._expense("Project Expenses", "Petty Cash", project=project)
 			cls.labour = cls._expense("Project Expenses", "Labour Charges", project=project)
 			cls.rent = cls._expense("Non Project Expenses", "Office Rent")
@@ -43,12 +47,12 @@ class TestTheTypeFilter(unittest.TestCase):
 		except Exception:
 			cls.tearDownClass()
 			raise
-		cls.all = [cls.wo, cls.wo_gst, cls.po, cls.po_cheque, cls.petty, cls.labour, cls.rent, cls.claim]
+		cls.all = [cls.wo, cls.wo_gst, cls.po, cls.po_cheque, cls.po_credit, cls.petty, cls.labour, cls.rent, cls.claim]
 
 	@classmethod
 	def tearDownClass(cls):
 		frappe.db.rollback()
-		for doctype, names in cls.expenses.items():
+		for doctype, names in [*cls.expenses.items(), ("Cheques", cls.cheques)]:
 			try:
 				if names:
 					frappe.db.delete(doctype, {"name": ["in", names]})
@@ -59,15 +63,29 @@ class TestTheTypeFilter(unittest.TestCase):
 		cls.fx.purge()
 
 	@classmethod
-	def _payment(cls, project, vendor, parent_type, parent, *, gst, mode):
+	def _payment(cls, project, vendor, parent_type, parent, *, gst, mode, cheque=None):
 		name = cls.fx._name("PAY")
 		frappe.db.sql(
 			"""INSERT INTO "tabProject Payments" (name, creation, modified, modified_by, owner, docstatus, idx,
-				   project, vendor, amount, status, document_type, document_name, is_gst_payment, mode_of_payment)
-			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, 'Requested', %s, %s, %s, %s)""",
-			(name, U, U, project, vendor, flt(20000), parent_type, parent, 1 if gst else 0, mode),
+				   project, vendor, amount, status, document_type, document_name, is_gst_payment, mode_of_payment,
+				   cheque)
+			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, 'Requested', %s, %s, %s, %s, %s)""",
+			(name, U, U, project, vendor, flt(20000), parent_type, parent, 1 if gst else 0, mode, cheque),
 		)
 		cls.fx.payments.append(name)
+		return name
+
+	@classmethod
+	def _credit_cheque(cls):
+		"""A bare Cheques row ticked `credit_payment_cheque`: the queue reads only that tick and the status."""
+		name = cls.fx._name("CHQ")
+		frappe.db.sql(
+			"""INSERT INTO "tabCheques" (name, creation, modified, modified_by, owner, docstatus, idx,
+				   cheque_no, amount, status, credit_payment_cheque)
+			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 'Approval Pending', 1)""",
+			(name, U, U, name, flt(20000)),
+		)
+		cls.cheques.append(name)
 		return name
 
 	@classmethod
@@ -97,8 +115,9 @@ class TestTheTypeFilter(unittest.TestCase):
 	def test_a_type_lists_all_its_rows_and_a_narrower_option_only_its_own(self):
 		self.assertEqual(self._names("in", ["SR Payment"]), {self.wo, self.wo_gst})
 		self.assertEqual(self._names("in", ["SR Payment:GST"]), {self.wo_gst})
-		self.assertEqual(self._names("in", ["PO Payment"]), {self.po, self.po_cheque})
-		self.assertEqual(self._names("in", ["PO Payment:Cheque"]), {self.po_cheque})
+		self.assertEqual(self._names("in", ["PO Payment"]), {self.po, self.po_cheque, self.po_credit})
+		self.assertEqual(self._names("in", ["PO Payment:Cheque"]), {self.po_cheque, self.po_credit})
+		self.assertEqual(self._names("in", ["PO Payment:Credit Cheque"]), {self.po_credit})
 
 	def test_an_expense_type_option_lists_that_ledger_and_that_type_only(self):
 		self.assertEqual(self._names("in", ["Project Expense:Petty Cash"]), {self.petty})
@@ -112,7 +131,7 @@ class TestTheTypeFilter(unittest.TestCase):
 	def test_picked_options_combine_as_either(self):
 		self.assertEqual(
 			self._names("in", ["SR Payment:GST", "Project Expense:Petty Cash", "PO Payment"]),
-			{self.wo_gst, self.petty, self.po, self.po_cheque},
+			{self.wo_gst, self.petty, self.po, self.po_cheque, self.po_credit},
 		)
 
 	def test_not_in_leaves_out_exactly_what_in_lists(self):
@@ -120,7 +139,8 @@ class TestTheTypeFilter(unittest.TestCase):
 		self.assertEqual(self._names("not in", picked), set(self.all) - self._names("in", picked))
 
 	def test_a_single_value_with_equals_reads_the_same(self):
-		self.assertEqual(self._names("=", "PO Payment:Cheque"), {self.po_cheque})
+		self.assertEqual(self._names("=", "PO Payment:Cheque"), {self.po_cheque, self.po_credit})
+		self.assertEqual(self._names("=", "PO Payment:Credit Cheque"), {self.po_credit})
 
 	def test_an_option_the_server_does_not_know_is_refused_never_ignored(self):
 		with self.assertRaises(frappe.ValidationError):
@@ -130,12 +150,13 @@ class TestTheTypeFilter(unittest.TestCase):
 		facet = get_approval_queue_facets("source_type", filters=json.dumps([["name", "in", self.all]]))
 		self.assertEqual({v["value"]: v["count"] for v in facet["values"]}, {
 			"SR Payment": 2,
-			"PO Payment": 2,
+			"PO Payment": 3,
 			"Project Expense": 2,
 			"Non-Project": 2,
 			"Reimbursement": 1,
 			"SR Payment:GST": 1,
-			"PO Payment:Cheque": 1,
+			"PO Payment:Cheque": 2,
+			"PO Payment:Credit Cheque": 1,
 			"Project Expense:Petty Cash": 1,
 			"Project Expense:Labour Charges": 1,
 			"Non-Project:Office Rent": 1,
