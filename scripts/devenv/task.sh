@@ -91,10 +91,12 @@ case "$CMD" in
     [ "$AGENT" = 1 ] || { echo; ok "env ready at $WT (no agent started: --no-agent)"; exit 0; }
     step "5. Claude in Orca ($ORCA_ENV)"
     [ -x "$ORCA" ] || die "no orca CLI at $ORCA (install Orca, or start Claude in the env yourself)"
-    # Claude asks "trust this folder?" for each new folder that holds a .claude/settings.local.json, and the question
-    # would swallow the prompt. Trust the env here; the box's own deny rules still apply in every mode.
-    box "python3 -c 'import json,os,sys; p=os.path.expanduser(\"~/.claude.json\"); c=json.load(open(p)) if os.path.exists(p) else {}; c.setdefault(\"projects\",{}).setdefault(sys.argv[1],{})[\"hasTrustDialogAccepted\"]=True; json.dump(c,open(p,\"w\"),indent=2)' $WT" \
-      && ok "env folder trusted for Claude"
+    # Claude stops at a "trust this folder?" question whenever the folder's .claude/settings.local.json pre-approves
+    # tools, and the question swallows the prompt. The repo commits one (a machine's own file). Hide it in this env
+    # only: skip-worktree keeps git seeing it unchanged, so commits and the Definition of Done are unaffected. The
+    # box's own deny rules apply either way.
+    box "cd $WT && if git ls-files --error-unmatch .claude/settings.local.json >/dev/null 2>&1 && [ -f .claude/settings.local.json ]; then git update-index --skip-worktree .claude/settings.local.json && rm .claude/settings.local.json; fi; python3 -c 'import json,os,sys; p=os.path.expanduser(\"~/.claude.json\"); c=json.load(open(p)) if os.path.exists(p) else {}; c.setdefault(\"projects\",{}).setdefault(sys.argv[1],{})[\"hasTrustDialogAccepted\"]=True; json.dump(c,open(p,\"w\"),indent=2)' $WT" \
+      && ok "env ready for Claude (folder trusted, the committed settings.local.json hidden in this env)"
     # A long prompt takes a while to type in, and Orca may answer "could not confirm the launch outcome" although
     # the agent started. So the proof is a live terminal in the env, not the launch reply.
     "$ORCA" agent launch --environment "$ORCA_ENV" --agent claude --surface terminal --focus \
