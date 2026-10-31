@@ -85,6 +85,8 @@ export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProp
     const [existingAttachmentUrl, setExistingAttachmentUrl] = useState<string | undefined>(undefined);
     const [attachmentAction, setAttachmentAction] = useState<AttachmentUpdateAction>("keep");
     const [formErrors, setFormErrors] = useState<InvoiceFormErrors>({});
+    // The whole save, upload through callback: `upload`'s loading ends before a `save` / `cardSave` callback does.
+    const [saving, setSaving] = useState(false);
 
     useEffect(() => {
         if (isOpen && expense) {
@@ -154,6 +156,7 @@ export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProp
             invoice_ref: formState.invoice_ref.trim() || null,
         };
 
+        setSaving(true);
         try {
             if (attachmentAction === "replace" && newAttachmentFile) {
                 const uploadedFile = await upload(newAttachmentFile, save
@@ -180,10 +183,12 @@ export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProp
             setIsOpen(false);
         } catch (error: any) {
             toast({ title: "Error", description: getFrappeError(error) || "Failed to update invoice details.", variant: "destructive" });
+        } finally {
+            setSaving(false);
         }
     };
 
-    const isLoadingOverall = updateLoading || uploadLoading;
+    const isLoadingOverall = saving || updateLoading || uploadLoading;
 
     let currentAttachmentDisplay: React.ReactNode = null;
     const effectiveExistingUrl = (attachmentAction === "keep" || attachmentAction === "replace") && existingAttachmentUrl;

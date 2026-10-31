@@ -3,7 +3,7 @@
 
 """The Type filter's flat list (owner, 2026-10-31): the four types and Non Project – Reimbursement, and the
 narrower options "<type>:<detail>" (WO – GST, PO – Cheque, an expense type). The list and the facet build their
-WHERE in the same place (`_type_clause`), and the facet counts each narrower option (`_type_detail_counts`).
+WHERE in the same place (`_type_clause`), and the facet counts the types and each narrower option in one pass (`_type_facet`).
 
 Every query is scoped to the rows planted here (`name in [...]`), so live rows never move a count.
 """
@@ -133,6 +133,12 @@ class TestTheTypeFilter(unittest.TestCase):
 			self._names("in", ["SR Payment:GST", "Project Expense:Petty Cash", "PO Payment"]),
 			{self.wo_gst, self.petty, self.po, self.po_cheque, self.po_credit},
 		)
+
+	def test_a_non_string_value_names_no_type_instead_of_failing(self):
+		# A stale saved `null` (or a number) used to raise TypeError -> 500 on the list, facets and export.
+		self.assertEqual(self._names("in", [None, 7]), set())
+		self.assertEqual(self._names("in", [None, "SR Payment:GST"]), {self.wo_gst})
+		self.assertEqual(self._names("not in", [None, "PO Payment"]), set(self.all) - self._names("in", ["PO Payment"]))
 
 	def test_not_in_leaves_out_exactly_what_in_lists(self):
 		picked = ["SR Payment:GST", "Non-Project"]

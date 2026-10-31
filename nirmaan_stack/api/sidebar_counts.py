@@ -189,13 +189,14 @@ def sidebar_counts(user: str) -> str:
         ''',
         _params(dict(marks)),
     )[0][0]
-    # Credit counts: PO Payment Terms (child of Procurement Orders) scoped to non-Merged/Inactive POs.
+    # Credit counts: PO Payment Terms (child of Procurement Orders) on POs the Credit Payments list shows -- not
+    # Merged, Inactive or PO Amendment (`get_credits_list`), so a tab's count and its rows agree.
     # Previously this plucked ALL valid PO names and passed `parent IN (<thousands>)`, which on prod
     # (Frappe validate_generated_query + sqlparse 10k-token cap) throws SQLParseError. Rewritten as a JOIN
     # to Procurement Orders -- constant token count, runs via frappe.db.sql (sqlparse-exempt), and reuses
     # the _proj()/_params() project-scoping helpers above (ADR-0010: a count over many rows -> the DB).
-    from datetime import date
-    today = date.today().isoformat()
+    # The site's date (IST), as the list's: the container clock is UTC, so `date.today()` lags 00:00-05:30 IST.
+    today = frappe.utils.today()
 
     credit_counts_raw = frappe.db.sql(
         f'''
@@ -204,7 +205,7 @@ def sidebar_counts(user: str) -> str:
         JOIN "tabProcurement Orders" po
           ON po.name = t.parent AND t.parenttype = 'Procurement Orders'
         WHERE t.payment_type = 'Credit'
-          AND po.status NOT IN ('Merged', 'Inactive'){_proj("po")}
+          AND po.status NOT IN ('Merged', 'Inactive', 'PO Amendment'){_proj("po")}
         GROUP BY t.term_status
         ''',
         _params({}), as_dict=True,
@@ -225,7 +226,7 @@ def sidebar_counts(user: str) -> str:
             JOIN "tabProcurement Orders" po
               ON po.name = pt.parent AND pt.parenttype = 'Procurement Orders'
             WHERE pt.payment_type = 'Credit' AND {" AND ".join(conditions)}
-              AND po.status NOT IN ('Merged', 'Inactive'){_proj("po")}
+              AND po.status NOT IN ('Merged', 'Inactive', 'PO Amendment'){_proj("po")}
             ''',
             _params(values),
         )[0][0]

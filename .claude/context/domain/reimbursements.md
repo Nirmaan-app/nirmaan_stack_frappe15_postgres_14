@@ -135,7 +135,7 @@ its endings. Decision record: `docs/adr/0040-an-approved-reimbursement-becomes-a
 - **In Project Payments a claim's expense is a Non-Project Expense with a Reimbursement tag.** The queue stores
   its `source_type` as `Reimbursement` (`get_approval_queue.TYPE_REIMBURSEMENT`); the Type column shows the
   Non-Project pill plus `ReimbursementTag`. A Type filter naming `Non-Project` also matches `Reimbursement`, for
-  is / is not / in / not in (`_widen_non_project`, one place for list, facets and export), and the Non-Project
+  is / is not / in / not in (`_type_clause`, one place for list, facets and export), and the Non-Project
   facet count includes them; `Reimbursement` alone narrows to claims (owner, 2026-10-27).
 - **Every read is scoped on the server.** Every Nirmaan role holds READ on the doctype; `integrations/controllers/
   reimbursement.py` narrows it (`has_permission` + `permission_query_conditions`): Admin / HR / Accounts see every

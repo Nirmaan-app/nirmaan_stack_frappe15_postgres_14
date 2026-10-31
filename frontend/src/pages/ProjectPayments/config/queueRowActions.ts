@@ -15,6 +15,7 @@
  *
  * A PO / WO payment gets no pencil at all, so it cannot be edited from the app in any status.
  */
+import { HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE } from "@/constants/roles";
 import { unpayableReason } from "@/utils/payees/paidTo";
 
 import { APPROVAL_STATUS, ApprovalQueueRow } from "./approvalsTable.config";
@@ -66,8 +67,8 @@ export const canHoldQueueRow = (row: QueueRowLike, role?: string | null): boolea
  */
 export const PAID_INVOICE_PROFILES: readonly string[] = [
   ...QUEUE_EDIT_PROFILES,
-  "Nirmaan HR Executive Profile",
-  "Nirmaan HR Lead Profile",
+  HR_EXECUTIVE_PROFILE,
+  HR_LEAD_PROFILE,
 ];
 
 export const canUploadPaidInvoices = (role?: string | null): boolean =>

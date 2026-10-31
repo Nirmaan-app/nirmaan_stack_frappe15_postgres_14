@@ -443,7 +443,8 @@ def _type_clause(op, value):
     shown as that pill with a Reimbursement tag, so picking "Non Project Expense" must not drop it, and
     leaving Non-Project out leaves it out too. "Reimbursement" alone still narrows to claims. A narrower
     option ("SR Payment:GST", "Project Expense:Petty Cash") reads its own columns (`_type_detail_clause`)."""
-    values = list(value) if isinstance(value, (list, tuple)) else [value]
+    # A non-string (a stale saved `null`, a number) names no type: dropped, so it matches nothing, never a 500.
+    values = [v for v in (value if isinstance(value, (list, tuple)) else [value]) if isinstance(v, str)]
     whole = [v for v in values if TYPE_DETAIL_SEP not in v]
     if SOURCE_NON_PROJECT in whole and TYPE_REIMBURSEMENT not in whole:
         whole.append(TYPE_REIMBURSEMENT)
@@ -733,6 +734,9 @@ def get_approval_queue_facets(field, filters=None, search_term=None, current_sea
     union = " UNION ALL ".join(branches)
     where, params = _build_where(_coerce(filters) or [], search_term, search_fields)
 
+    if field == "source_type":
+        return _type_facet(union, where, params)
+
     rows = frappe.db.sql(
         f'SELECT q."{field}" AS value, COUNT(*) AS cnt FROM ({union}) q {where} '
         f'GROUP BY q."{field}" ORDER BY COUNT(*) DESC',
@@ -746,19 +750,18 @@ def get_approval_queue_facets(field, filters=None, search_term=None, current_sea
         {"value": r["value"], "count": cint(r["cnt"])}
         for r in rows if (r["value"] or "").strip()
     ]
-    if field == "source_type":
-        values = _count_reimbursements_as_non_project(values) + _type_detail_counts(union, where, params)
     blank = sum(cint(r["cnt"]) for r in rows if not (r["value"] or "").strip())
     return {"field": field, "values": values, "blank_count": blank}
 
 
-def _type_detail_counts(union, where, params):
-    """The Type facet's narrower options (TYPE_DETAIL_SEP), counted under the same filters as the types, in
-    one GROUP BY: "SR Payment:GST", "PO Payment:Cheque" and one "<ledger>:<expense type>" per expense type. A
-    row counts under at most one of those (a GST payment is a WO payment, a cheque one a PO payment), and a
-    PO payment on a Credit Payment Cheque also under "PO Payment:Credit Cheque", the second value each row
-    yields. Each is also in its type's count, as its filter is. Largest first; an option no row matches is
-    not returned."""
+def _type_facet(union, where, params):
+    """The Type facet: the types, then their narrower options (TYPE_DETAIL_SEP), counted under the same filters
+    in ONE pass over the union -- each row yields its type, its detail and its credit value, and one GROUP BY
+    counts all three. A detail is "SR Payment:GST", "PO Payment:Cheque" or one "<ledger>:<expense type>" per
+    expense type; a row has at most one (a GST payment is a WO payment, a cheque one a PO payment). A PO payment
+    on a Credit Payment Cheque also counts under "PO Payment:Credit Cheque". Each detail is also in its type's
+    count, as its filter is. Largest first; an option no row matches is not returned, and a blank type goes to
+    `blank_count`."""
     detail = f"""CASE
         WHEN q."is_gst_payment" = 1 THEN '{TYPE_SR_PAYMENT}{TYPE_DETAIL_SEP}{TYPE_DETAIL_GST}'
         WHEN q."source_type" = '{TYPE_PO_PAYMENT}' AND q."mode_of_payment" = '{TYPE_DETAIL_CHEQUE}'
@@ -768,19 +771,28 @@ def _type_detail_counts(union, where, params):
     END"""
     credit = f"""CASE WHEN q."source_type" = '{TYPE_PO_PAYMENT}' AND q."credit_payment_cheque" = 1
         THEN '{TYPE_PO_PAYMENT}{TYPE_DETAIL_SEP}{TYPE_DETAIL_CREDIT_CHEQUE}' END"""
+    # kind 0 = the type (kept when blank, for `blank_count`), 1 = a detail or the credit value.
     rows = frappe.db.sql(
-        f"SELECT d.value, COUNT(*) AS cnt FROM (SELECT v.value FROM ({union}) q "
-        f"CROSS JOIN LATERAL (VALUES ({detail}), ({credit})) v(value) {where}) d "
-        "WHERE d.value IS NOT NULL GROUP BY d.value ORDER BY COUNT(*) DESC, d.value",
+        f"SELECT d.kind, d.value, COUNT(*) AS cnt FROM (SELECT v.kind, v.value FROM ({union}) q "
+        f'CROSS JOIN LATERAL (VALUES (0, q."source_type"), (1, {detail}), (1, {credit})) v(kind, value) {where}) d '
+        "WHERE d.kind = 0 OR d.value IS NOT NULL GROUP BY d.kind, d.value ORDER BY d.kind, COUNT(*) DESC, d.value",
         tuple(params),
         as_dict=True,
     )
-    return [{"value": r["value"], "count": cint(r["cnt"])} for r in rows]
+    types = [r for r in rows if r["kind"] == 0]
+    values = [{"value": r["value"], "count": cint(r["cnt"])} for r in types if (r["value"] or "").strip()]
+    details = [{"value": r["value"], "count": cint(r["cnt"])} for r in rows if r["kind"] == 1]
+    blank = sum(cint(r["cnt"]) for r in types if not (r["value"] or "").strip())
+    return {
+        "field": "source_type",
+        "values": _count_reimbursements_as_non_project(values) + details,
+        "blank_count": blank,
+    }
 
 
 def _count_reimbursements_as_non_project(values):
     """The Type facet's Non-Project count includes the reimbursement rows, as its filter does
-    (`_widen_non_project`); the Reimbursement count stays, a part of it."""
+    (`_type_clause`); the Reimbursement count stays, a part of it."""
     claims = sum(v["count"] for v in values if v["value"] == TYPE_REIMBURSEMENT)
     if not claims:
         return values
