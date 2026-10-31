@@ -7,7 +7,7 @@ import {
     DropdownMenuLabel,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Package, Boxes, UserCheck, UserX, AlertTriangle } from "lucide-react";
+import { Package, Boxes, UserCheck, UserX, AlertTriangle, PackageX } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { useCounts, CountSpec } from "@/hooks/useCounts";
 import {
@@ -34,6 +34,8 @@ interface SummaryViewModel {
     total: number;
     assigned: number;
     unassigned: number;
+    /** Marked Lost/Damaged (owner, 2026-10-31): not counted in Unassigned. */
+    lostDamaged: number;
     pendingDecl: number;
     categories: number;
     isLoading: boolean;
@@ -54,6 +56,7 @@ function listTitle(view: AssetListView, type?: AssetCategoryType): string {
         all: `Show all ${what}`,
         assigned: `Show assigned ${what}`,
         unassigned: `Show unassigned ${what}`,
+        lost: `Show Lost/Damaged ${what}`,
         pending: `Show ${what} waiting for a declaration`,
     }[view];
     return type ? shown : `${shown} (choose Project or IT)`;
@@ -150,7 +153,7 @@ export const AssetsSummaryCards: React.FC<AssetsSummaryCardsProps> = ({ activeTa
         );
     }
 
-    const { total, assigned, unassigned, pendingDecl, categories, title, totalLabel, unassignedLabel, categoriesHint, unassignedByCategory } = view;
+    const { total, assigned, unassigned, lostDamaged, pendingDecl, categories, title, totalLabel, unassignedLabel, categoriesHint, unassignedByCategory } = view;
     const hasError = view.hasError || (isCategoriesMode && (projectView.hasError || itView.hasError));
 
     const byType = (pick: (v: SummaryViewModel) => number): Record<AssetCategoryType, number> => ({
@@ -160,6 +163,7 @@ export const AssetsSummaryCards: React.FC<AssetsSummaryCardsProps> = ({ activeTa
     const totalByType = byType((v) => v.total);
     const assignedByType = byType((v) => v.assigned);
     const unassignedByType = byType((v) => v.unassigned);
+    const lostDamagedByType = byType((v) => v.lostDamaged);
     const pendingByType = byType((v) => v.pendingDecl);
 
     return (
@@ -197,6 +201,12 @@ export const AssetsSummaryCards: React.FC<AssetsSummaryCardsProps> = ({ activeTa
                                         <UserX className="h-2.5 w-2.5" />
                                         {unassigned}
                                     </CountLink>
+                                    {lostDamaged > 0 && (
+                                        <CountLink view="lost" type={scopeType} byType={lostDamagedByType} className="px-1.5 py-0.5 text-[9px] font-medium bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 rounded inline-flex items-center gap-0.5 active:bg-red-200">
+                                            <PackageX className="h-2.5 w-2.5" />
+                                            {lostDamaged}
+                                        </CountLink>
+                                    )}
                                     {pendingDecl > 0 && (
                                         <CountLink view="pending" type={scopeType} byType={pendingByType} className="px-1.5 py-0.5 text-[9px] font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 rounded inline-flex items-center gap-0.5 active:bg-amber-200">
                                             <AlertTriangle className="h-2.5 w-2.5" />
@@ -263,6 +273,12 @@ export const AssetsSummaryCards: React.FC<AssetsSummaryCardsProps> = ({ activeTa
                                         <UserX className="h-3 w-3" />
                                         {unassigned} Unassigned
                                     </CountLink>
+                                    {lostDamaged > 0 && (
+                                        <CountLink view="lost" type={scopeType} byType={lostDamagedByType} className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300 rounded-full hover:bg-red-200 dark:hover:bg-red-800/60">
+                                            <PackageX className="h-3 w-3" />
+                                            {lostDamaged} Lost/Damaged
+                                        </CountLink>
+                                    )}
                                     {pendingDecl > 0 && (
                                         <CountLink view="pending" type={scopeType} byType={pendingByType} className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 rounded-full hover:bg-amber-200 dark:hover:bg-amber-800/60">
                                             <AlertTriangle className="h-3 w-3" />
@@ -338,7 +354,8 @@ function useGlobalSummary(enabled: boolean): SummaryViewModel {
             { key: "categories", doctype: ASSET_CATEGORY_DOCTYPE },
             { key: "total", doctype: ASSET_MASTER_DOCTYPE },
             { key: "assigned", doctype: ASSET_MASTER_DOCTYPE, filters: [["current_assignee", "!=", ""]] },
-            { key: "unassigned", doctype: ASSET_MASTER_DOCTYPE, filters: [["current_assignee", "is", "not set"]] },
+            { key: "unassigned", doctype: ASSET_MASTER_DOCTYPE, filters: [["current_assignee", "is", "not set"], ["lost_damaged", "=", 0]] },
+            { key: "lostDamaged", doctype: ASSET_MASTER_DOCTYPE, filters: [["lost_damaged", "=", 1]] },
             { key: "pendingDecl", doctype: ASSET_MANAGEMENT_DOCTYPE, filters: [["asset_declaration_attachment", "is", "not set"]] },
         ]
         : [];
@@ -355,6 +372,7 @@ function useGlobalSummary(enabled: boolean): SummaryViewModel {
         total: (msg?.total as number) ?? 0,
         assigned: (msg?.assigned as number) ?? 0,
         unassigned: (msg?.unassigned as number) ?? 0,
+        lostDamaged: (msg?.lostDamaged as number) ?? 0,
         pendingDecl: (msg?.pendingDecl as number) ?? 0,
         categories: categoriesCount ?? 0,
         isLoading: enabled && (isLoading || categoryCounts.isLoading),
@@ -397,7 +415,8 @@ function useScopedSummary(type: AssetCategoryType | undefined): SummaryViewModel
         specs.push(
             { key: "total", doctype: ASSET_MASTER_DOCTYPE, filters: [["asset_category", "in", categoryNames]] },
             { key: "assigned", doctype: ASSET_MASTER_DOCTYPE, filters: [["asset_category", "in", categoryNames], ["current_assignee", "!=", ""]] },
-            { key: "unassigned", doctype: ASSET_MASTER_DOCTYPE, filters: [["asset_category", "in", categoryNames], ["current_assignee", "is", "not set"]] },
+            { key: "unassigned", doctype: ASSET_MASTER_DOCTYPE, filters: [["asset_category", "in", categoryNames], ["current_assignee", "is", "not set"], ["lost_damaged", "=", 0]] },
+            { key: "lostDamaged", doctype: ASSET_MASTER_DOCTYPE, filters: [["asset_category", "in", categoryNames], ["lost_damaged", "=", 1]] },
         );
     }
     if (enabled && hasMasters) {
@@ -417,6 +436,7 @@ function useScopedSummary(type: AssetCategoryType | undefined): SummaryViewModel
     const total = hasCategories ? ((msg?.total as number) ?? 0) : 0;
     const assigned = hasCategories ? ((msg?.assigned as number) ?? 0) : 0;
     const unassigned = hasCategories ? ((msg?.unassigned as number) ?? 0) : 0;
+    const lostDamaged = hasCategories ? ((msg?.lostDamaged as number) ?? 0) : 0;
     const pendingDecl = hasMasters ? ((msg?.pendingDecl as number) ?? 0) : 0;
     const categories = categoryNames.length;
 
@@ -424,6 +444,7 @@ function useScopedSummary(type: AssetCategoryType | undefined): SummaryViewModel
         total,
         assigned,
         unassigned,
+        lostDamaged,
         pendingDecl,
         categories,
         isLoading: enabled && (

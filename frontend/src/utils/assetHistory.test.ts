@@ -37,6 +37,19 @@ describe("describeHistory", () => {
     expect(entries[4].department).toBe("Department: Procurement");
   });
 
+  it("says Lost/Damaged and Found/Repaired, naming who had it (owner, 2026-10-31)", () => {
+    const marked = describeHistory([
+      { name: "l1", idx: 1, event: "Asset Lost/Damaged", assigned_to: "bhavani@x", done_by: "hr@x", reason: "Stolen at site" },
+      { name: "l2", idx: 2, event: "Asset Lost/Damaged", done_by: "hr@x", reason: "Dropped in store" },
+      { name: "l3", idx: 3, event: "Asset Found/Repaired", done_by: "hr@x", reason: "Back from repair" },
+    ], nameOf);
+    expect(marked.map((e) => [e.title, e.tone, e.reason])).toEqual([
+      ["Marked Found/Repaired", "found", "Back from repair"],
+      ["Marked Lost/Damaged", "lost", "Dropped in store"],
+      ["Marked Lost/Damaged (was with Bhavani)", "lost", "Stolen at site"],
+    ]);
+  });
+
   it("links a declaration, and flags one whose file is gone", () => {
     expect(entries[0].declarationUrl).toBe("/api/method/x?key=a.pdf");
     const [gone] = describeHistory([{ name: "g", idx: 1, event: "Declaration Uploaded", done_by: "hr@x" }], nameOf);

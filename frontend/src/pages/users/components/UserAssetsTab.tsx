@@ -83,6 +83,8 @@ interface AssetMasterRecord {
   asset_serial_number: string;
   asset_value: number;
   current_assignee: string;
+  /** Marked Lost/Damaged (owner, 2026-10-31): never offered in Assign. */
+  lost_damaged?: 0 | 1;
 }
 
 interface AssetCategoryRecord {
@@ -429,7 +431,7 @@ export function UserAssetsTab({
   // All unassigned assets — the dialog filters internally by its Asset Type
   // dropdown (defaults to the currently active sub-tab).
   const unassignedAssets = useMemo(
-    () => (assetMasterList ?? []).filter((a) => !a.current_assignee),
+    () => (assetMasterList ?? []).filter((a) => !a.current_assignee && !a.lost_damaged),
     [assetMasterList]
   );
 

@@ -17,6 +17,8 @@ An assignment owes the cycle month's audit when all of these hold:
 - it is the asset's current holder's row (`Asset Master.current_assignee`) -- a leftover row naming someone
   else is never audited;
 - the asset's category has `audit_required` ticked;
+- the asset is not Lost/Damaged (owner, 2026-10-31) -- marking one ends its assignment, so this only guards a row
+  left behind;
 - its declaration is on file (`asset_declaration_attachment`), not `received`: that flag arrived on
   2026-10-13 and assignments signed earlier still carry 0;
 - no audit is open (`audit_status` is not Pending) -- never two at once;
@@ -94,6 +96,7 @@ def due_assignments(day: date, category: str | None = None, assignment: str | No
         join "tabAsset Category" c on c.name = m.asset_category
         where m.current_assignee = a.asset_assigned_to
           and c.audit_required = 1
+          and coalesce(m.lost_damaged, 0) = 0
           and coalesce(a.asset_declaration_attachment, '') != ''
           and coalesce(a.audit_status, '') != %(pending)s
           and coalesce(a.audit_month, '') != %(label)s

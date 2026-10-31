@@ -37,6 +37,8 @@ DEPARTMENT_SET = "Department Set"
 AUDIT_REQUESTED = "Audit Requested"  # the month's audit asked of the holder (services/asset_audit_open.py)
 AUDIT_FULFILLED = "Audit Fulfilled"  # the holder sent the audit: answers, maybe an image (api/assets/audits.submit_audit)
 AUDIT_MISSED = "Audit Missed"  # the month ended with the audit unsent (tasks/asset_audit, owner 2026-10-14)
+ASSET_LOST_DAMAGED = "Asset Lost/Damaged"  # Admin / HR marked it (api/assets/lost_damaged, owner 2026-10-31)
+ASSET_FOUND_REPAIRED = "Asset Found/Repaired"  # Admin / HR brought it back to Unassigned (same endpoints)
 
 ROW_FIELDS = ("assigned_to", "declaration", "from_department", "to_department", "reason", "audit_answers")
 

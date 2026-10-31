@@ -21,6 +21,18 @@ class AssetMaster(Document):
 		self.check_project()
 		self.check_department()
 		self.keep_history_unchanged()
+		self.keep_lost_damaged_unchanged()
+
+	def keep_lost_damaged_unchanged(self):
+		"""Lost/Damaged changes only through Mark as Lost/Damaged / Mark as Found/Repaired
+		(`api/assets/lost_damaged.py`, which writes it without a save), never by a save from Desk or the API: the
+		mark also ends the holder's assignment and writes the history row, and a ticked box alone would skip both
+		(owner, 2026-10-31)."""
+		changed = self.lost_damaged if self.is_new() else self.has_value_changed("lost_damaged")
+		if changed:
+			frappe.throw(
+				"Lost/Damaged can't be changed here. Use Mark as Lost/Damaged or Mark as Found/Repaired on the asset page."
+			)
 
 	def check_project(self):
 		"""A Won project, on a Project asset only (owner, 2026-10-15; `services/asset_project`). Only when the

@@ -35,6 +35,13 @@ export const ASSET_HISTORY_ROLES: readonly string[] = [ADMIN_PROFILE, HR_EXECUTI
  */
 export const ASSET_ASSIGN_ALL_ROLES: readonly string[] = [ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PMO_EXECUTIVE_PROFILE];
 
+/**
+ * Roles that mark an asset Lost/Damaged and bring it back Found/Repaired (owner, 2026-10-31): Admin and HR only --
+ * not PMO, not procurement, not the holder. Mirrors `ASSET_LOST_DAMAGED_PROFILES` in
+ * `nirmaan_stack/services/role_profiles.py`, which the server enforces -- keep the two in sync.
+ */
+export const ASSET_LOST_DAMAGED_ROLES: readonly string[] = [ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE];
+
 // Combined list of all roles that can access assets module
 export const ASSET_ACCESS_ROLES: readonly string[] = [
     ...ASSET_ADMIN_ROLES,
@@ -70,6 +77,8 @@ export interface AssetPermissions {
      * profile + Administrator). Mirrors `ASSET_CATEGORY_AUDIT_PROFILES` in services/role_profiles.py.
      */
     canSwitchCategoryAudit: boolean;
+    /** Can mark an asset Lost/Damaged and bring it back Found/Repaired (Admin and HR only, owner 2026-10-31). */
+    canMarkLostDamaged: boolean;
 }
 
 /**
@@ -141,6 +150,9 @@ export function getAssetPermissions(
 
         // Monthly asset audit (owner, 2026-10-14)
         canSwitchCategoryAudit: isAdmin || role === ADMIN_PROFILE,
+
+        // Lost/Damaged and Found/Repaired (owner, 2026-10-31)
+        canMarkLostDamaged: isAdmin || ASSET_LOST_DAMAGED_ROLES.includes(role ?? ''),
     };
 }
 
