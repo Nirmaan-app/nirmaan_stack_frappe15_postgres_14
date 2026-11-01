@@ -127,7 +127,9 @@ Both share one approval lifecycle and are entered/managed together in a single u
   and its `amount` becomes the net, once (`services/expense_tds`, hooks `controllers/expense_tds`). The
   status machine is unchanged and the tiers read the gross, because the cut comes after the approval;
   the Expense Request keeps the gross. No other type withholds, and nothing backfills. Full rule:
-  `payment-tds.md` § Load-bearing invariants: withholding from an Office Rent expense.
+  `payment-tds.md` § Load-bearing invariants: withholding from an Office Rent expense. Its record's
+  **Payment Paid On** copies the Expense's `payment_date` while it is Paid (`payment-tds.md` § Payment
+  Paid On).
   **Once withheld, its amount is locked** for every role and every system save, except Bulk Import's
   single-line correction within ₹5, which leaves the tax record as it was; deleting it deletes its tax
   record, and is refused once that tax is on a challan (#1526, `expense_tds.guard_withheld_amount` /

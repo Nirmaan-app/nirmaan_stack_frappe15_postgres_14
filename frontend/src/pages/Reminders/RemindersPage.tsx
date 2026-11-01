@@ -1,7 +1,9 @@
 /**
  * RemindersPage — the dedicated Reminders list (sidebar → /reminders).
  *
- * Shows every Reminder Schedule in a table. Creation is driven by the top-nav
+ * Shows every Reminder Schedule: a full table from xl, a condensed table from md, and
+ * one card per reminder on phones. Next Due carries a chip coloured by how soon it is
+ * (utils/reminderDue). Creation is driven by the top-nav
  * "Add Reminder" right-action button (RenderRightActionButton → useDialogStore),
  * whose dialog (NewReminderDialog) is mounted here so a successful create refetches
  * this list. Role profiles are hydrated with ONE extra query over the child table
@@ -35,6 +37,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
+import { DUE_TONE_CLASS, dueChip, roleChipClass, shortRoleProfile } from "@/utils/reminderDue";
 import { NewReminderDialog, canRenameReminder } from "./NewReminderDialog";
 import { useUserData } from "@/hooks/useUserData";
 import { Button } from "@/components/ui/button";
@@ -56,6 +59,72 @@ interface ReminderScheduleRow {
 interface ReminderRoleProfileRow {
   parent: string;
   role_profile: string;
+}
+
+const LOAD_ERROR = "Couldn’t load reminders.";
+const EMPTY = "No reminders yet. Click “Add Reminder” to create the first one.";
+
+// Small pill under its value (always on its own line, so every row lines up the same).
+const PILL = "w-fit whitespace-nowrap rounded-full px-1.5 text-[11px] font-medium leading-4 tabular-nums";
+
+/** "Monthly" with a coloured "day 7" pill under it (the day only exists for Monthly schedules).
+ *  `inline` keeps the pill beside the type, for the compact sub-lines (tablet, phone card). */
+function ScheduleLabel({ row, inline = false }: { row: ReminderScheduleRow; inline?: boolean }) {
+  const day =
+    row.schedule_type === "Monthly" && row.due_day ? (
+      <span className={`${PILL} bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300`}>
+        day {row.due_day}
+      </span>
+    ) : null;
+  return (
+    <span className={inline ? "inline-flex items-center gap-1.5" : "flex flex-col items-start gap-1"}>
+      <span>{row.schedule_type}</span>
+      {day}
+    </span>
+  );
+}
+
+/** Next Due date with a chip under it, coloured by how soon it is (none for a disabled reminder). */
+function NextDue({ row }: { row: ReminderScheduleRow }) {
+  if (!row.next_due_date) return <span className="text-muted-foreground">—</span>;
+  const chip = row.enabled ? dueChip(row.next_due_date, row.reminds_on) : null;
+  return (
+    <span className="flex flex-col items-start gap-1">
+      <span className="whitespace-nowrap font-medium tabular-nums">{formatDate(row.next_due_date)}</span>
+      {chip && <span className={`${PILL} ${DUE_TONE_CLASS[chip.tone]}`}>{chip.label}</span>}
+    </span>
+  );
+}
+
+/** Every Role Profile as a compact chip with its short name, all visible at once (no click
+ *  or hover needed), in alphabetical order so every row reads the same. The chips wrap inside
+ *  a fixed width, so a reminder with many roles takes a few tidy lines instead of stretching
+ *  the table. */
+function RoleChips({ profiles }: { profiles: string[] }) {
+  if (!profiles.length) return <span className="text-xs text-muted-foreground">—</span>;
+  const sorted = [...profiles].sort((a, b) => shortRoleProfile(a).localeCompare(shortRoleProfile(b)));
+  return (
+    <div className="flex max-w-[22rem] flex-wrap gap-1">
+      {sorted.map((p) => (
+        <span
+          key={p}
+          className={`whitespace-nowrap rounded px-2 text-[12px] font-medium leading-5 ring-1 ring-inset ${roleChipClass(p)}`}
+        >
+          {shortRoleProfile(p)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function StatusBadge({ enabled }: { enabled: boolean }) {
+  return enabled ? (
+    <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/40 dark:text-emerald-300">
+      Enabled
+    </Badge>
+  ) : (
+    <Badge variant="outline" className="text-muted-foreground">Off</Badge>
+  );
 }
 
 export default function RemindersPage() {
@@ -117,6 +186,11 @@ export default function RemindersPage() {
   const rows = data ?? [];
   const colCount = canManage ? 8 : 7;
 
+  const openEdit = (name: string) => {
+    setEditReminderScheduleName(name);
+    setNewReminderDialog(true);
+  };
+
   const handleDelete = async () => {
     if (!pendingDelete) return;
     try {
@@ -166,16 +240,22 @@ export default function RemindersPage() {
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-lg border">
+      {/* Tablet and up: a table. From xl every column shows; between md and xl, Schedule,
+          Reminds On, Notify Before and Role Profiles fold into sub-lines under Title and
+          Next Due (the `xl:hidden` spans) so nothing is squeezed or cut off. */}
+      <div className="hidden overflow-hidden rounded-lg border md:block">
         <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Title</TableHead>
-              <TableHead>Schedule</TableHead>
+          <TableHeader className="bg-slate-100 dark:bg-slate-900 [&_th]:h-10 [&_th]:text-xs [&_th]:font-bold [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-slate-800 dark:[&_th]:text-slate-100">
+            <TableRow className="hover:bg-transparent">
+              <TableHead>
+                <span className="xl:hidden">Reminder</span>
+                <span className="hidden xl:inline">Title</span>
+              </TableHead>
+              <TableHead className="hidden xl:table-cell">Schedule</TableHead>
               <TableHead>Next Due</TableHead>
-              <TableHead>Reminds On</TableHead>
-              <TableHead className="text-center">Notify Before</TableHead>
-              <TableHead>Role Profiles</TableHead>
+              <TableHead className="hidden xl:table-cell">Reminds On</TableHead>
+              <TableHead className="hidden text-center xl:table-cell">Notify Before</TableHead>
+              <TableHead className="hidden xl:table-cell">Role Profiles</TableHead>
               <TableHead className="text-center">Status</TableHead>
               {canManage && <TableHead className="text-right">Actions</TableHead>}
             </TableRow>
@@ -184,85 +264,142 @@ export default function RemindersPage() {
             {isLoading ? (
               [...Array(4)].map((_, i) => (
                 <TableRow key={i}>
-                  {[...Array(colCount)].map((__, j) => (
-                    <TableCell key={j}>
-                      <Skeleton className="h-4 w-full" />
-                    </TableCell>
-                  ))}
+                  <TableCell colSpan={colCount}>
+                    <Skeleton className="h-4 w-full" />
+                  </TableCell>
                 </TableRow>
               ))
             ) : error ? (
               <TableRow>
                 <TableCell colSpan={colCount} className="py-8 text-center text-sm text-destructive">
-                  Couldn’t load reminders.
+                  {LOAD_ERROR}
                 </TableCell>
               </TableRow>
             ) : rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={colCount} className="py-8 text-center text-sm text-muted-foreground">
-                  No reminders yet. Click “Add Reminder” to create the first one.
+                  {EMPTY}
                 </TableCell>
               </TableRow>
             ) : (
-              rows.map((r) => (
-                <TableRow key={r.name}>
-                  <TableCell className="font-medium">{r.title}</TableCell>
-                  <TableCell>
-                    {r.schedule_type}
-                    {r.schedule_type === "Monthly" && r.due_day ? (
-                      <span className="text-muted-foreground"> · day {r.due_day}</span>
-                    ) : null}
-                  </TableCell>
-                  <TableCell>{r.next_due_date ? formatDate(r.next_due_date) : "—"}</TableCell>
-                  <TableCell>{r.reminds_on ? formatDate(r.reminds_on) : "—"}</TableCell>
-                  <TableCell className="text-center tabular-nums">{r.notify_before_days}d</TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {(profilesBySchedule[r.name] ?? []).map((p) => (
-                        <Badge key={p} variant="secondary" className="font-normal">
-                          {p}
-                        </Badge>
-                      ))}
-                      {!(profilesBySchedule[r.name] ?? []).length && (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-center">
-                    {r.enabled ? (
-                      <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">Enabled</Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-muted-foreground">Off</Badge>
-                    )}
-                  </TableCell>
-                  {canManage && (
-                    <TableCell className="text-right">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-8"
-                        onClick={() => {
-                          setEditReminderScheduleName(r.name);
-                          setNewReminderDialog(true);
-                        }}
-                      >
-                        <Pencil className="mr-1 h-3.5 w-3.5" /> 
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() => setPendingDelete(r)}
-                      >
-                        <Trash2 className="mr-1 h-3.5 w-3.5" /> 
-                      </Button>
+              rows.map((r) => {
+                const profiles = profilesBySchedule[r.name] ?? [];
+                return (
+                  <TableRow
+                    key={r.name}
+                    className={`even:bg-slate-50/70 hover:bg-blue-50/60 dark:even:bg-slate-900/40 dark:hover:bg-blue-950/30 ${r.enabled ? "" : "opacity-60"}`}
+                  >
+                    <TableCell>
+                      <div className="font-medium">{r.title}</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground xl:hidden">
+                        <ScheduleLabel row={r} inline />
+                        <span>· {profiles.length} {profiles.length === 1 ? "role" : "roles"}</span>
+                      </div>
                     </TableCell>
-                  )}
-                </TableRow>
-              ))
+                    <TableCell className="hidden xl:table-cell">
+                      <ScheduleLabel row={r} />
+                    </TableCell>
+                    <TableCell>
+                      <NextDue row={r} />
+                      <div className="mt-1 text-xs text-muted-foreground xl:hidden">
+                        {r.reminds_on ? `Reminds ${formatDate(r.reminds_on)}` : "—"} · {r.notify_before_days}d before
+                      </div>
+                    </TableCell>
+                    <TableCell className="hidden whitespace-nowrap tabular-nums xl:table-cell">
+                      {r.reminds_on ? formatDate(r.reminds_on) : "—"}
+                    </TableCell>
+                    <TableCell className="hidden text-center tabular-nums xl:table-cell">
+                      {r.notify_before_days}d
+                    </TableCell>
+                    <TableCell className="hidden xl:table-cell">
+                      <RoleChips profiles={profiles} />
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <StatusBadge enabled={!!r.enabled} />
+                    </TableCell>
+                    {canManage && (
+                      <TableCell className="whitespace-nowrap text-right">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8"
+                          aria-label={`Edit ${r.title}`}
+                          onClick={() => openEdit(r.name)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          aria-label={`Delete ${r.title}`}
+                          onClick={() => setPendingDelete(r)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
+      </div>
+
+      {/* Phone: one card per reminder, so nothing scrolls sideways. */}
+      <div className="space-y-3 md:hidden">
+        {isLoading ? (
+          [...Array(3)].map((_, i) => <Skeleton key={i} className="h-36 w-full rounded-lg" />)
+        ) : error ? (
+          <p className="rounded-lg border py-8 text-center text-sm text-destructive">{LOAD_ERROR}</p>
+        ) : rows.length === 0 ? (
+          <p className="rounded-lg border py-8 text-center text-sm text-muted-foreground">{EMPTY}</p>
+        ) : (
+          rows.map((r) => (
+            <div key={r.name} className={`space-y-3 rounded-lg border p-3 ${r.enabled ? "" : "opacity-60"}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-medium">{r.title}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    <ScheduleLabel row={r} inline />
+                  </div>
+                </div>
+                <StatusBadge enabled={!!r.enabled} />
+              </div>
+              <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-2 text-sm">
+                <dt className="text-muted-foreground">Next due</dt>
+                <dd className="min-w-0">
+                  <NextDue row={r} />
+                </dd>
+                <dt className="text-muted-foreground">Reminds on</dt>
+                <dd className="tabular-nums">
+                  {r.reminds_on ? formatDate(r.reminds_on) : "—"}
+                  <span className="text-muted-foreground"> · {r.notify_before_days}d before</span>
+                </dd>
+                <dt className="text-muted-foreground">Roles</dt>
+                <dd className="min-w-0">
+                  <RoleChips profiles={profilesBySchedule[r.name] ?? []} />
+                </dd>
+              </dl>
+              {canManage && (
+                <div className="flex gap-2 border-t pt-3">
+                  <Button size="sm" variant="outline" className="flex-1" onClick={() => openEdit(r.name)}>
+                    <Pencil className="mr-1.5 h-3.5 w-3.5" /> Edit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => setPendingDelete(r)}
+                  >
+                    <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete
+                  </Button>
+                </div>
+              )}
+            </div>
+          ))
+        )}
       </div>
 
       {/* Create dialog — opened by the top-nav "Add Reminder" button */}

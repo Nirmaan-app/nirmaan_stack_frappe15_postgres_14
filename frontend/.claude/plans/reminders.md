@@ -28,6 +28,8 @@ Sections can also be passed explicitly via the `sections` prop for custom dashbo
 
 ### Management UI
 - **`RemindersPage.tsx`** - Main list view for displaying configured schedules with columns: Title, Schedule Type, Next Due, Reminds On, Notify Before, Role Profiles, Enabled/Off, and Edit button.
+  - Responsive (2026-10-30): full table from `xl`; condensed table from `md` (Schedule, Reminds On, Notify Before and a role count fold into sub-lines); cards below `md`. Next Due carries a colour chip from `utils/reminderDue.dueChip` (amber ≤7d or remind date reached, blue ≤31d, grey later, rose past; none when disabled); Monthly "day N" is a violet pill.
+  - Next Due / Reminds On are the schedule's STORED fields, kept current by the backend (since 2026-10-30): the next due date not yet Done, moved on Mark Done / Reopen, by the 8 AM cron and on save. A disabled schedule keeps its last date until switched back on. No frontend calculation — see `.claude/plans/reminders_plan.md` §4a and `docs/adr/0042`.
   - Role Profiles column hydrated via `get_reminder_schedule_role_profiles` endpoint (grouped map, not per-row fetch).
   - Edit button- Create `types/NirmaanStack/ReminderSchedule.ts` for strictly-typed API responses.
 - Wire `useDialogStore` state to the `NewReminderDialog` trigger.
@@ -41,11 +43,14 @@ Sections can also be passed explicitly via the `sections` prop for custom dashbo
 
 ### 2. Naming and Schema Updates
 - Updated the frontend UI to display the new `from_month` and `to_month` fields for non-monthly reminders so coverage periods are visible.
-- Re-enabled `title` to act as the primary `autoname` ID (`field:title`).tsx`** - Unified create/edit form component.
+- Re-enabled `title` to act as the primary `autoname` ID (`field:title`).
+
+### Create / Edit dialog
+- **`NewReminderDialog.tsx`** - Unified create/edit form component.
   - Uses `react-hook-form` + `zod` for validation with `superRefine` (Monthly requires `due_day`, non-Monthly requires at least one `due_dates` row).
   - Dynamic field arrays (`useFieldArray`) for non-Monthly due date rows.
   - Quarterly/Half-Yearly auto-fill: `handleFromMonthChange` derives end month from start month.
-  - Title is fully editable in both create and edit modes (since IDs are now `REM-.####`).
+  - The title is the ID (`field:title`). On create it is free; on edit only Admin can change it, and a changed title is saved through `rename_reminder`, never `updateDoc` (a `title` in an updateDoc payload is silently reverted).
   - Explicit form reset on close (`due_day: "" as any`) to prevent stale data from bleeding.
   - Role Profiles picker uses `ReactSelect` multi-select, populated via `get_role_profiles` endpoint.
   - State driven by `useDialogStore.ts` (`newReminderDialog` + `editReminderScheduleName`).
@@ -132,7 +137,7 @@ Sections can also be passed explicitly via the `sections` prop for custom dashbo
 ```
 
 **File:** `src/components/helpers/renderRightActionButton.tsx`
-- Add "Add Reminder" button on `/reminders` route, gated to Admin/PMO/Accountant Lead.
+- Add "Add Reminder" button on `/reminders` route, gated to Admin only (owner ruling; same `canRenameReminder` gate as the page's Edit / Delete).
 
 **File:** `src/components/layout/NewSidebar.tsx`
 - Add sidebar item with `BellRing` icon:
@@ -143,7 +148,7 @@ Sections can also be passed explicitly via the `sections` prop for custom dashbo
   label: 'Reminders Dashboard',
 }
 ```
-- Visible to Admin, PMO, Accountant, Accountant Lead.
+- Visible to Admin (incl. `Administrator`) and PMO only. No route guard: anyone else can open the URL read-only. Full matrix: `../context/role-access.md` § Reminders.
 
 ---
 
@@ -197,7 +202,7 @@ Using specific icons from `lucide-react` to maintain consistency:
 ## Recent Fixes Applied
 
 1. **Form state bleeding**: `close()` now explicitly resets all form fields including `due_day: "" as any`.
-2. **Title editable**: Removed `readOnly` and "can't be changed" disclaimer. Title is sent in updateDoc payload.
+2. **Title editable** *(superseded)*: the title is the ID again (`field:title`), so a title change goes through `rename_reminder` (Admin only), not the updateDoc payload.
 3. **Due Day input clearing**: Changed default from `undefined` to `"" as any` to force number inputs to clear.
 
 

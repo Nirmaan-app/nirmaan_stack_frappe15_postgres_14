@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { alsoFor, poChequeAmount, poChequesFilters } from "./poCheques";
+import { alsoFor, chequesCardCopy, poChequeAmount, poChequesFilters } from "./poCheques";
 
 const PO = "PO/301/00012/26-27";
 const PO2 = "PO/301/00019/26-27";
@@ -44,5 +44,35 @@ describe("the PO's cheque card", () => {
         expect(alsoFor(lines.slice(0, 1), PO)).toEqual([]);
         expect(alsoFor([{ line_type: "Secured PO/WO", record_doctype: "Procurement Orders", record_name: PO2 }], PO))
             .toEqual([PO2]);
+    });
+});
+
+describe("the same card on a Work Order page (ADR-0035 Amendment C)", () => {
+    const WO = "SR-00301-000045";
+
+    it("asks the list for the cheques whose lines name the Work Order", () => {
+        expect(poChequesFilters(WO)).toEqual([["record_name", "=", WO]]);
+    });
+
+    it("names the PO a deposit also secures beside the Work Order", () => {
+        const lines = [
+            { line_type: "Secured PO/WO", record_doctype: "Service Requests", record_name: WO },
+            { line_type: "Secured PO/WO", record_doctype: "Procurement Orders", record_name: PO },
+        ];
+        expect(alsoFor(lines, WO)).toEqual([PO]);
+        expect(alsoFor(lines, PO)).toEqual([WO]);
+    });
+
+    it("speaks of deposits only on a Work Order, and of every cheque on a PO", () => {
+        expect(chequesCardCopy("Service Requests")).toMatchObject({
+            title: "Security Deposits for this WO",
+            empty: "No Security Deposit cheque secures this WO.",
+            onlyThis: "Only this WO",
+        });
+        expect(chequesCardCopy("Procurement Orders")).toMatchObject({
+            title: "Cheques issued for this PO",
+            empty: "No cheque has been issued for this PO.",
+            onlyThis: "Only this PO",
+        });
     });
 });

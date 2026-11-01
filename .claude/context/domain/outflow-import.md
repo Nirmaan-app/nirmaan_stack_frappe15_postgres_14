@@ -950,6 +950,28 @@ thing — one master table across every import at `/bulk-import-outflow` — and
   `get_outflow_facet_values` over the whole filtered table, fetched lazily on first open. ⚠️ That
   endpoint deliberately does **not** apply the funnel's own selection: a funnel that filtered its
   own options would collapse to whatever is ticked and offer no way back.
+- **Typing and loading never rebuild the table** (2026-10-29). Before this, every keystroke in a
+  column funnel blanked the summary card, swapped the table for "Nothing here." and closed the open
+  funnel after one letter. Four rules hold it, and each breaks silently:
+  - ⚠️ **`OutflowRowsTable` always renders its `<table>` and header.** Loading (skeleton rows, the
+    `loading` prop) and empty (one `colSpan` row) live INSIDE `<tbody>`. An early `return` of another
+    element for "no rows" unmounts the header, and the funnels live in it.
+  - ⚠️ **The column funnels are debounced 300 ms like the search box; Period, Source and the pinned
+    import are NOT.** `useOutflowRows` debounces `ownFilters` only and re-applies the scope with
+    `withScope`. Debouncing the whole `filters` object left the Period control and the figures under it
+    describing different windows for 300 ms.
+  - **`get_outflow_rows` and `get_outflow_summary` pass `keepPreviousData: true`.** Each query is a new
+    SWR key, so without it the rows, total, tab counts and summary drop to empty while loading.
+    `isLoading` still drives the skeleton and the spinner; a key already seen loads with no skeleton.
+  - **Two empty messages.** "Nothing here for the current search or filters." when there is search
+    text or any filter is set (the same `isFilterSet` that lights a funnel), otherwise "Nothing here."
+  - ⚠️ **A failed rows request shows "Couldn't load transactions." with Retry, never the rows.**
+    With `keepPreviousData` the rows a failed query still holds are the PREVIOUS query's answer, so
+    drawing them presents another search's rows as this one's result. `useOutflowRows().failed`
+    (`error && !isLoading`) drives the row and hides the pager; `errorRetryCount: 2` caps the SDK's
+    otherwise endless retries, which redrew the skeleton every few seconds.
+  The Skipped dialog shares the table but passes neither `loading` nor `failed`, so it keeps its own
+  spinner and wording, and on a failed request it still shows the previous rows.
 - **Default scope is the work, not the archive** (owner ruling) — a worklist first. Since the retab
   that default is `not_matched`, **narrower than the old `open`**, which also held `Matched`. Since
   #1264 it is **`not_matched_outflow`** (tab *Not Matched – Outflow*).
@@ -2452,6 +2474,7 @@ wrong conclusion from the same reasoning.
 | ⚠️ a suite against a WORKTREE | `bench` resolves `nirmaan_stack` through the MAIN checkout, so worktree backend code is invisible to it. Set `PYTHONPATH=<worktree root>` — it wins, and the doctype JSON follows (Frappe locates it from the module's `__file__`). The binary is `/home/frappe/.local/bin/bench`, NOT under `env/bin`. |
 | the SHARED split (CEO + partial settlement) | `… --module nirmaan_stack.api.payments.test_payment_split` — **31** (26 before PS-1; those 26 are the proof the CEO path is unchanged) |
 | frontend | `yarn test` (vitest, `node` environment — pure helpers only). **639** across 12 files under `src/pages/outflow-import` (622 across 11 before #1243); **3,504** repo-wide (3,487 before #1243). ⚠️ The older figure recorded here was *"317 across this feature"*, counted before several suites joined the folder — read the folder total, not a remembered number. ⚠️ `POAdjustment/writeOffControl.test.ts` has a PRE-EXISTING flake unrelated to this feature -- one case `await import`s the very large `SheetPricingPage` and trips vitest's 5s default on a loaded machine; it passes at `--testTimeout=60000`. |
+| frontend DOM (`*.dom.test.tsx`, jsdom) | **86** across 3 files: `outflowTableFlow` (the table end to end: search, funnels, Clear filters, sort, paging, through the real `swr` against a fake server over 120 rows), `useOutflowRows` (request counts while typing, scope applying at once, late answers), `components/OutflowRowsTable` (header kept, skeleton, which empty message, the failure row). **1,227** across 43 files under `src/pages/outflow-import` (2026-10-29). ⚠️ The container's `node_modules` has no `jsdom` yet, so these fail to start; until `yarn install` runs there, link a separately installed copy into `node_modules/jsdom` for the run and remove it after. |
 
 ⚠️ **A TEST THAT PASSES BEFORE AND AFTER A BEHAVIOUR CHANGE IS EVIDENCE OF NEITHER.** Every
 pre-existing `test_upload` test stayed green when the duplicate key widened at D3, because none of
