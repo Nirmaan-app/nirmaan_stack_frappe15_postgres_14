@@ -11,8 +11,9 @@
  * times or leave two cells blank.
  *
  * GLOBAL by design — it never follows the table's search, facets or pagination,
- * so the numbers mean the same thing on all four tabs. That mirrors how
- * PaymentSummaryCards behaves on the payments screen.
+ * so the numbers mean the same thing on both tabs it shows on (Pending Invoice
+ * Approvals and All Invoices). That mirrors how PaymentSummaryCards behaves on
+ * the payments screen.
  *
  * All 20 numbers come from ONE aggregate query
  * (`get_vendor_invoice_totals.get_invoice_dashboard_stats`). The visual language

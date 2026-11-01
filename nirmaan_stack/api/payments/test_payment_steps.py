@@ -255,6 +255,8 @@ class TestANewPayment(PaymentStepCase):
 
     def test_an_admin_raising_one_clears_their_own_step(self):
         admin = self._user(ADMIN_PROFILE)
+        # Invoiced to cover the first payment: an Admin is held to the invoice check (owner, 2026-10-29).
+        self.sr = self.fx.service_request(self.project, self.vendor, amount_invoiced=WITHIN_L1)
         self.assertEqual(self._status(self._as(admin, self._request, WITHIN_L1)), "Approved")
         self.assertEqual(self._status(self._as(admin, self._request, ABOVE_L1)), "CEO Pending")
 

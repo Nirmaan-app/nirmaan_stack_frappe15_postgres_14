@@ -72,6 +72,65 @@ export const cardInvoiceFilterOptions = (rows: CardInvoiceRow[]) => {
     return { holders, months };
 };
 
+/** How a spend with no Expense Type is grouped on the summary card and offered in the Expense Type filter. */
+export const NO_EXPENSE_TYPE = "No expense type";
+
+/** A spend's Expense Type as the table, its filter and the summary card all show it. */
+export const expenseTypeLabel = (row: Pick<CardInvoiceRow, "expense_type">): string =>
+    row.expense_type || NO_EXPENSE_TYPE;
+
+/** "KUMAR SHANU (40)" style choices for a column filter: each value once, by name, with its row count. */
+const countedOptions = (values: string[]) => {
+    const counts = new Map<string, number>();
+    for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
+    return [...counts.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([value, count]) => ({ label: `${value} (${count})`, value }));
+};
+
+/** A spend's statement as the Statement column filters on it: its months, then the statement ID
+ *  ("Sep – Oct 2026 · CCS-26-00001"), so two statements over the same months stay apart. */
+export const statementLabel = (row: Pick<CardInvoiceRow, "statement_months" | "credit_card_statement">): string =>
+    `${statementMonthsLabel(row.statement_months)} · ${row.credit_card_statement}`;
+
+/** The Expense Type, Holder and Statement column-filter choices for `rows`. */
+export const cardInvoiceFacetOptions = (rows: CardInvoiceRow[]) => ({
+    expenseTypes: countedOptions(rows.map(expenseTypeLabel)),
+    holders: countedOptions(rows.map((r) => r.holder)),
+    statements: countedOptions(rows.map(statementLabel)),
+});
+
+export interface CardSpendTypeTotal {
+    expenseType: string;
+    amount: number;
+    count: number;
+}
+
+export interface CardSpendsSummary {
+    count: number;
+    amount: number;
+    /** Largest amount first; equal amounts by name. */
+    byType: CardSpendTypeTotal[];
+}
+
+/** The summary card's figures over the spends the table shows: their total and the split by Expense Type. */
+export const summariseCardSpendsByType = (rows: Pick<CardInvoiceRow, "amount" | "expense_type">[]): CardSpendsSummary => {
+    const groups = new Map<string, CardSpendTypeTotal>();
+    let amount = 0;
+    for (const r of rows) {
+        const expenseType = expenseTypeLabel(r);
+        const group = groups.get(expenseType) ?? { expenseType, amount: 0, count: 0 };
+        group.amount += r.amount;
+        group.count += 1;
+        groups.set(expenseType, group);
+        amount += r.amount;
+    }
+    const byType = [...groups.values()].sort(
+        (a, b) => b.amount - a.amount || a.expenseType.localeCompare(b.expenseType),
+    );
+    return { count: rows.length, amount, byType };
+};
+
 /** Which row actions `role` gets: Attach (everyone who sees the tab) and No invoice (Admin, Accountant Lead). */
 export const cardInvoiceActions = (role?: string | null, userId?: string | null) => ({
     attach: canViewPendingInvoiceUploads(role, userId),

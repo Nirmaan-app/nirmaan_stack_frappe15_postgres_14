@@ -52,8 +52,38 @@ record and to delete an uploaded invoice outright. Printed invoice numbers still
 - **The Deleted Document copies are load-bearing.** Clearing a Work Order's copies by hand would let a number
   repeat. A Work Order whose invoices were all deleted continues at the next number (e.g. RA-4 after RA-1…3).
 - A FINAL deleted with its Vendor Invoice frees the Work Order: Generate is offered again, and the next FINAL
-  prints FINAL-2.
+  prints FINAL-2 (since Amendment A: the bare number with -2).
 - A browser still showing the old dialog sends `invoice_type`; `frappe.call` drops it and the amount decides.
 - Frappe winds a naming series back when the newest record of it is deleted, so a new Vendor Invoice can take
   the name of one just deleted (seen: `VI-2026-05669`). It does not touch RA numbering; it only means a Deleted
   Document copy and a live invoice can share a name.
+
+## Amendment A (2026-10-30): the FINAL prints no "FINAL"
+
+Owner: the word FINAL is shown nowhere from now on: not in the invoice number, not on the PDF, not on the WO
+page. The FINAL is still recorded (`invoice_type`), still decided by its amount, and still blocks Generate after it.
+
+- **Number:** the FINAL is the bare `INV-<FY>-<project last 5>-<WO last 5>`; one generated after a voided
+  FINAL gets `-2`, `-3` (a deleted one frees its place: Amendment B) (`invoice_number`'s `final_number`, same count as before), so a voided number is
+  still never printed again. RA bills are unchanged (`…-RA-n`).
+- **PDF:** the one-line bill of a FINAL drops its bold label; an RA keeps "RA-n".
+- **WO page:** the RA No. box reads "— (no RA number)", the RA column "—", and the notice and the blocked
+  message say the invoice "reaches the Work Order amount" / the WO "is fully invoiced".
+- **Saved records are not renumbered.** FINALs generated before keep their `-FINAL` / `-FINAL-n` numbers (a
+  vendor may hold a signed copy); a reprint of one drops the label but still shows its stored number.
+
+## Amendment B (2026-10-30): a delete frees its number
+
+Owner: numbering follows the last number still held. Reverses decision 5 for deletes; voids are unchanged.
+
+- **The next RA number is one above the highest the Work Order still holds**, Voided records included. A
+  deleted record frees its number: RA-1, RA-2 (voided, then deleted) → next is RA-2 again, under the same record
+  name `WGI-<WO>-2`. A gap below the highest is never filled: RA-1 deleted, RA-2 kept → next is RA-3.
+- **The FINAL's -n counts the FINALs still held**, Voided included. A FINAL voided and deleted frees its place:
+  the next FINAL is the bare number again. A FINAL kept Voided still holds its slot in the RA sequence, so after
+  RA-1, RA-2 and a voided FINAL the next RA is RA-4 (owner accepted; making it RA-3 would change record naming).
+- **Vendor Invoices count only when Pending or Approved.** A signed upload that was rejected stays as a Rejected
+  Vendor Invoice reading "…-RA-n"; it bills nothing, so it no longer holds its number.
+- **Consequence:** the Deleted Document copies are no longer read for numbering (`_deleted_records` and
+  `ra_number_of_record` removed). A deleted invoice that was printed or signed can share its number with a later
+  one; delete stays Admin-only, on a Voided invoice, so that is a deliberate call.
