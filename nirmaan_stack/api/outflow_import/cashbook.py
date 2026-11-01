@@ -34,8 +34,9 @@ reviewer can see it after the fact.
 WHY A BACKGROUND JOB (owner ruling). 115 expense inserts, each with its own document lifecycle and
 its own commit, is minutes rather than seconds, and a gateway timeout mid-run is the worst state to
 be in. The worker commits PER ROW, so a run that dies at row 60 leaves 59 durable expenses and 56
-rows still pending -- and re-running it picks up exactly where it stopped, because
-`Outflow Row Match`'s unique constraint refuses a second settlement of the same transfer.
+rows still pending -- and re-running it picks up exactly where it stopped, because each line is
+re-read under its row lock and written only while still `Pending match run` (#1586). (`Outflow Row
+Match`'s unique key is no help here: a Cashbook line CREATES its target, so the key is never contended.)
 
 ⚠️ THE STATEMENT IS NOT ATTACHED PER ROW (owner ruling). `link_statement_file_to_target` is
 deliberately NOT called here: the expense's `payment_attachment` carries the statement's URL, but no
@@ -67,6 +68,7 @@ from nirmaan_stack.services.outflow_import.cashbook import (
     group_plan,
     plan_statement,
 )
+from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
 from nirmaan_stack.services.outflow_import.duplicates import (
     DuplicateVerdict,
     assess_duplicates,
@@ -226,12 +228,17 @@ def _cashbook_worker(batch: str, actor: str):
 
     ⚠️ COMMIT PER ROW, NOT PER BATCH, and that is what makes a partial run safe. A worker killed at
     row 60 leaves 59 durable expenses and the rest still pending; re-running processes only what is
-    still pending, and `Outflow Row Match`'s unique constraint on
-    (transfer_id, target_doctype, target_name) refuses a second settlement even if it did not.
+    still pending.
 
     ⚠️ A FAILING ROW MARKS ITSELF AND THE RUN CONTINUES. One unresolvable row must not strand the
     other hundred -- the reviewer has already approved the whole batch, and stopping would leave
     them with no way to tell which rows went through.
+
+    ⚠️ THE LIST BELOW IS A SNAPSHOT, NOT A CLAIM (#1586, spec #1585 gap A). Another run, a Resume or a
+    person may take a listed line before this run reaches it, so `_write_one` re-reads each line under
+    its row lock and writes nothing unless it is still `Pending match run`; a line it did not write is
+    rolled back, not marked. The rollup at the end reads the rows in a fresh transaction (every line
+    ends its own), so it counts what they really say.
     """
     statement_file_url = _statement_file_url(batch)
     rows = frappe.db.sql(
@@ -241,34 +248,113 @@ def _cashbook_worker(batch: str, actor: str):
         ORDER BY name
         """,
         (batch, ROW_PENDING_MATCH),
-        as_dict=True,
+        pluck=True,
     )
 
-    for entry in rows:
+    for row_name in rows:
         try:
-            _write_one(entry["name"], batch, actor, statement_file_url)
-            frappe.db.commit()
-        except Exception:
+            written = _write_one(row_name, batch, actor, statement_file_url)
+        except Exception as exc:
             frappe.db.rollback()
-            frappe.log_error(
-                title="Cashbook import: could not create an expense",
-                message=f"{batch} / {entry['name']}\n\n{frappe.get_traceback()}",
-            )
-            frappe.db.set_value(
-                ROW_DOCTYPE,
-                entry["name"],
-                {"row_status": ROW_ERROR, "outcome_note": "Could not create this expense."},
-                update_modified=False,
-            )
+            _write_failed(row_name, batch, exc)
+            continue
+        if written:
             frappe.db.commit()
+        else:
+            # Another run or a person took the line: nothing of ours to keep, and nothing to mark.
+            frappe.db.rollback()
 
     refresh_batch_rollup(batch)
     frappe.db.commit()
 
 
-def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | None):
-    """One row -> one expense -> one match record -> the row flips to Settled."""
-    doc = frappe.db.get_value(ROW_DOCTYPE, row_name, "*", as_dict=True)
+def _write_failed(row_name: str, batch: str, exc: Exception) -> None:
+    """THE JOB'S ONE ERROR PATH, run after the failed line's rollback: log it, then mark the line.
+
+    ⚠️ THE MARK IS CONDITIONAL (`_mark_if_still_pending`). Between the rollback and the mark the line is
+    unlocked, and another transaction may have Settled it; a blind write would turn that Settled line to
+    Error. Every outcome of a failed write goes through this one function: a database refusal that
+    means something other than "could not create" (spec #1585 C's index, #1588) is told apart here, by
+    `exc`, and written through the same conditional mark -- nowhere else.
+    """
+    frappe.log_error(
+        title="Cashbook import: could not create an expense",
+        message=f"{batch} / {row_name}\n\n{frappe.get_traceback()}",
+    )
+    # The log is kept even if the mark below is refused: it is the only trace of why the write failed.
+    frappe.db.commit()
+    _mark_if_still_pending(
+        row_name, {"row_status": ROW_ERROR, "outcome_note": "Could not create this expense."}
+    )
+
+
+def _mark_if_still_pending(row_name: str, values: dict) -> bool:
+    """Write `values` onto the line ONLY while it is still `Pending match run`, and commit. Returns whether
+    it wrote.
+
+    A line another run or a person took meanwhile is left exactly as they left it: the `WHERE` matches
+    nothing, or -- when they committed after this statement's snapshot -- Postgres refuses the update with
+    a serialization failure (REPEATABLE READ), which means the same thing and is rolled back.
+
+    Raw: `Outflow Import Row` has no doc_events, and the batch rollup is recomputed from the rows at the
+    end of the run.
+    """
+    assignments = ", ".join(f'"{field}" = %({field})s' for field in values)
+    try:
+        written = bool(
+            frappe.db.sql(
+                f"""
+                UPDATE "tabOutflow Import Row" SET {assignments}
+                WHERE name = %(_row)s AND row_status = %(_pending)s
+                RETURNING name
+                """,
+                {**values, "_row": row_name, "_pending": ROW_PENDING_MATCH},
+            )
+        )
+    except Exception as exc:
+        frappe.db.rollback()
+        if not is_concurrent_writer_refusal(exc):
+            raise
+        return False
+    frappe.db.commit()
+    return written
+
+
+def _lock_pending_line(row_name: str):
+    """The line, read under its row lock -- or `None` when it is no longer this job's to write.
+
+    `None` means another run or a person took it: it is no longer `Pending match run`, or it changed
+    after this transaction's snapshot and the lock read raised a serialization failure. The caller rolls
+    back either way. Card Create's per-line read (`card_create._create_one`) is the model.
+
+    ⚠️ BOTH ISOLATION LEVELS END HERE, AND THE JOB MEETS BOTH. Only a connection's FIRST transaction runs
+    at REPEATABLE READ (psycopg2's own `BEGIN ISOLATION LEVEL ...`); every one after a `frappe.db.commit()`
+    is Frappe's plain `START TRANSACTION`, at the server default READ COMMITTED (measured on the dev env).
+    At REPEATABLE READ a line changed after the snapshot raises the serialization failure; at READ
+    COMMITTED the lock read waits for the other writer and returns the line as it left it, which the
+    status check then refuses.
+    """
+    try:
+        rows = frappe.db.sql(
+            """SELECT * FROM "tabOutflow Import Row" WHERE name = %s FOR UPDATE""",
+            (row_name,),
+            as_dict=True,
+        )
+    except Exception as exc:
+        if not is_concurrent_writer_refusal(exc):
+            raise
+        return None
+    if not rows or rows[0].row_status != ROW_PENDING_MATCH:
+        return None
+    return rows[0]
+
+
+def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | None) -> bool:
+    """One row -> one expense -> one match record -> the row flips to Settled. Returns whether it wrote:
+    `False` -- nothing written -- when the line is no longer this job's (`_lock_pending_line`)."""
+    doc = _lock_pending_line(row_name)
+    if doc is None:
+        return False
 
     # ⚠️ THE ADAPTER, NOT A RAW `frappe.get_doc`. `create_expense_from_row` reads its argument BY
     # ATTRIBUTE, and two of the attributes it wants are DERIVED rather than stored: `added_on_date`
@@ -334,6 +420,7 @@ def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | 
         },
         update_modified=False,
     )
+    return True
 
 
 # --- shared between the three phases -------------------------------------------------------------
