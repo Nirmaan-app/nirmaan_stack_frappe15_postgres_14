@@ -93,7 +93,8 @@ export const PORTER_STEPS: (WizardStep & { key: PorterStepKey })[] = [
  * The Credit Card Statement's three steps (#1566, ADR-0039).
  *
  * ⚠️ UPLOAD WRITES, SO THERE IS NO CHECK STEP BEFORE IT, as on Porter. The upload reads the whole PDF and
- * refuses it (locked, another company, totals that do not agree) before anything is saved, then stages it.
+ * refuses it (another company, totals that do not agree; a locked PDF until its password is typed) before
+ * anything is saved, then stages it.
  * Review shows what was read; nothing is created until the last step.
  */
 export const CARD_STEPS: (WizardStep & { key: CardStepKey })[] = [
@@ -173,9 +174,9 @@ const SOURCE_FLOWS: Record<string, SourceFlow> = {
         steps: CARD_STEPS,
         // Staged = uploaded, which lands on Review; once Create has started (#1569) it is on Create.
         stepIndex: (state) => (state.createStarted ? 2 : state.staged ? 1 : 0),
-        // The bank's own PDF, unlocked: `card_upload.read_upload` refuses any other file.
+        // The bank's own PDF, locked or not (ADR-0039 Amendment A): `card_upload.read_upload` refuses any other file.
         extensions: [".pdf"],
-        exportPath: "The card's monthly statement PDF from ICICI, unlocked (no password)",
+        exportPath: "The card's monthly statement PDF from ICICI, as the bank sends it (locked is fine)",
     },
 };
 

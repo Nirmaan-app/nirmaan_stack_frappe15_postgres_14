@@ -24,6 +24,7 @@ import {
   HoverCardTrigger
 } from "@/components/ui/hover-card";
 import { useUserData } from "@/hooks/useUserData";
+import { canEditProjectInvoice } from "@/constants/roles";
 import { formatDate as formatDateFns } from 'date-fns'; // Renamed to avoid conflict
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { Button } from "@/components/ui/button";
@@ -56,7 +57,7 @@ export const ProjectInvoiceTable: React.FC<ProjectInvoiceTableProps> = ({
   handleEditInvoiceEntry // --- (Indicator) Destructure onEdit ---
 }) => {
   const { role } = useUserData();
-  const isAdmin = role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile";
+  const isAdmin = canEditProjectInvoice(role);
   const { data: projectdata, isLoading: projectloading, error: projecterror } = useFrappeGetDocList<Projects>("Projects", {
     fields: ['name', 'project_name', 'customer', "status"],
     limit: 1000,

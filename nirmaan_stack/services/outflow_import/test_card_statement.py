@@ -10,12 +10,20 @@ with the holder, the address, the card and account numbers replaced by obvious f
 Stratos Infra Technologies, so the company check passes. The real PDF never enters the repo.
 """
 
+import io
 import unittest
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-from nirmaan_stack.services.outflow_import.card_pdf import statement_text
+from pypdf import PdfReader
+
+from nirmaan_stack.services.outflow_import.card_pdf import (
+    PASSWORD_NEEDED,
+    WRONG_PASSWORD,
+    statement_text,
+    unlocked_copy,
+)
 from nirmaan_stack.services.outflow_import.card_statement import (
     CardStatementError,
     merchant_key,
@@ -181,15 +189,33 @@ class TestRefusals(unittest.TestCase):
 class TestReadingThePdf(unittest.TestCase):
     """The thin wrapper that turns the uploaded bytes into the reader's text."""
 
-    def test_a_password_locked_pdf_is_refused(self):
+    def test_a_password_locked_pdf_without_its_password_is_refused(self):
         with self.assertRaises(CardStatementError) as caught:
             statement_text(pdf_from_text(_text(), password="secret"))
-        self.assertEqual(str(caught.exception), "This PDF is password-locked. Unlock it and upload again.")
+        # Word for word: the screen shows the password field on this sentence (`creditCardImport.ts`).
+        self.assertEqual(str(caught.exception), "This PDF is password-locked. Enter its password and upload again.")
+        self.assertEqual(str(caught.exception), PASSWORD_NEEDED)
 
-    def test_a_pdf_with_a_user_password_and_an_owner_password_is_refused(self):
+    def test_a_pdf_with_a_user_password_and_an_owner_password_is_refused_without_one(self):
         with self.assertRaises(CardStatementError) as caught:
             statement_text(pdf_from_text(_text(), password="secret", owner_password="owner"))
-        self.assertEqual(str(caught.exception), "This PDF is password-locked. Unlock it and upload again.")
+        self.assertEqual(str(caught.exception), PASSWORD_NEEDED)
+
+    def test_a_wrong_password_is_refused(self):
+        with self.assertRaises(CardStatementError) as caught:
+            statement_text(pdf_from_text(_text(), password="secret"), "Secret")
+        # Word for word, as above.
+        self.assertEqual(str(caught.exception), "That password did not open this PDF. Check it and upload again.")
+        self.assertEqual(str(caught.exception), WRONG_PASSWORD)
+
+    def test_the_right_password_reads_the_whole_statement(self):
+        statement = read_card_statement(statement_text(pdf_from_text(_text(), password="secret"), "secret"))
+        self.assertEqual(statement.holder, "ARJUN TESTHOLDER")
+        self.assertEqual(len(statement.lines), 47)
+
+    def test_a_pdf_with_an_owner_password_only_opens_whatever_was_typed(self):
+        statement = read_card_statement(statement_text(pdf_from_text(_text(), owner_password="owner"), "typo"))
+        self.assertEqual(len(statement.lines), 47)
 
     def test_a_pdf_encrypted_with_an_empty_user_password_is_read(self):
         statement = read_card_statement(statement_text(pdf_from_text(_text(), owner_password="owner")))
@@ -206,6 +232,29 @@ class TestReadingThePdf(unittest.TestCase):
         self.assertEqual(statement.holder, "ARJUN TESTHOLDER")
         self.assertEqual(len(statement.lines), 47)
         self.assertEqual(statement.totals.total_due, Decimal("84929.28"))
+
+
+class TestTheStoredCopy(unittest.TestCase):
+    """What the upload stores (ADR-0039 Amendment A): the PDF with no password."""
+
+    def test_a_locked_pdf_is_stored_unlocked_with_the_same_text(self):
+        locked = pdf_from_text(_text(), password="secret")
+        copy = unlocked_copy(locked, "secret")
+        self.assertFalse(PdfReader(io.BytesIO(copy)).is_encrypted)
+        self.assertEqual(statement_text(copy), statement_text(locked, "secret"))
+        self.assertNotIn(b"secret", copy)
+
+    def test_an_owner_password_pdf_is_stored_unlocked(self):
+        copy = unlocked_copy(pdf_from_text(_text(), owner_password="owner"))
+        self.assertFalse(PdfReader(io.BytesIO(copy)).is_encrypted)
+
+    def test_an_open_pdf_is_stored_as_uploaded(self):
+        content = pdf_from_text(_text())
+        self.assertEqual(unlocked_copy(content), content)
+
+    def test_a_locked_pdf_without_its_password_is_never_copied(self):
+        with self.assertRaises(CardStatementError):
+            unlocked_copy(pdf_from_text(_text(), password="secret"), "wrong")
 
 
 if __name__ == "__main__":

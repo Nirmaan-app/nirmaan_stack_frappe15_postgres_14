@@ -160,7 +160,7 @@ class TestWhatStaysOpen(_FinalizedCase):
         """The fixture WO is GST-off; a paid part of it may be billed."""
         frappe.db.set_value(SR, self.wo, "amount_paid", 50_000)
         frappe.db.commit()
-        row = self._as(self.admin, generate_invoice, self.wo, "RA", amount=10_000)
+        row = self._as(self.admin, generate_invoice, self.wo, amount=10_000)
         self.assertEqual(
             frappe.db.get_value("WO Generated Invoice", row["name"], ["work_order", "amount"], as_dict=True),
             {"work_order": self.wo, "amount": 10_000},

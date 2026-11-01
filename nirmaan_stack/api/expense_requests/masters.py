@@ -31,30 +31,6 @@ def _require_admin() -> None:
 		)
 
 
-def _validate_category(expense_category: str | None) -> str:
-	"""Categories are created in Frappe Desk; the app only ASSIGNS an existing one.
-
-	REQUIRED on this path (owner ruling): every type belongs to a category, and where none of
-	the named ones fit, that category is `Uncategorized`. Leaving it blank was an option
-	briefly, and it produced a type that looked categorised in no list and routed to the
-	default reviewer for reasons nobody had chosen.
-
-	⚠️ The RUNTIME still tolerates a blank -- `expense_request_routing` falls back to the
-	default reviewer rather than refusing. That asymmetry is deliberate: a type created
-	directly in Desk, or one predating this rule, must never become silently un-requestable.
-	The app enforces the rule; the runtime fails open.
-	"""
-	category = (expense_category or "").strip()
-	if not category:
-		frappe.throw(
-			"Pick a category. Use 'Uncategorized' if none of the named ones fit.",
-			title="Category required",
-		)
-	if not frappe.db.exists("Expense Category", category):
-		frappe.throw(f"'{category}' is not an expense category.", title="Unknown category")
-	return category
-
-
 def _normalise_roles(allowed_roles) -> list[str] | None:
 	"""The role profiles that may SEE a type, cleaned; None means "not sent, leave as is".
 
@@ -143,15 +119,13 @@ def _validate_scope(project: int, non_project: int) -> None:
 
 
 @frappe.whitelist(methods=["POST"])
-def create_expense_type(expense_name: str, project=0, non_project=0, expense_category=None,
-                        allowed_roles=None, payee_rule=None):
-	"""Add an Expense Type, assigning it to an existing category and the roles that see it.
+def create_expense_type(expense_name: str, project=0, non_project=0, allowed_roles=None, payee_rule=None):
+	"""Add an Expense Type with the roles that see it.
 
 	No roles means Admin only -- see `access.can_request_type`. No `payee_rule` means the
 	field's default, Not asked.
 	"""
 	_require_admin()
-	category = _validate_category(expense_category)
 	profiles = _normalise_roles(allowed_roles)
 	rule = _normalise_payee_rule(payee_rule)
 	name = (expense_name or "").strip()
@@ -165,8 +139,7 @@ def create_expense_type(expense_name: str, project=0, non_project=0, expense_cat
 		frappe.throw(f"'{name}' already exists.", title="Duplicate")
 
 	doc = frappe.new_doc("Expense Type")
-	doc.update({"expense_name": name, "project": project, "non_project": non_project,
-	            "expense_category": category})
+	doc.update({"expense_name": name, "project": project, "non_project": non_project})
 	if rule:
 		doc.payee_rule = rule
 	_set_roles(doc, profiles)
@@ -176,9 +149,9 @@ def create_expense_type(expense_name: str, project=0, non_project=0, expense_cat
 
 
 @frappe.whitelist(methods=["POST"])
-def update_expense_type(name: str, project=0, non_project=0, expense_category=None,
-                        allowed_roles=None, payee_rule=None, confirmed_as_request=None):
-	"""Change a type's scope, its category, the roles that see it, who gets paid, and its
+def update_expense_type(name: str, project=0, non_project=0, allowed_roles=None, payee_rule=None,
+                        confirmed_as_request=None):
+	"""Change a type's scope, the roles that see it, who gets paid, and its
 	"Confirmed as Expense Request" label.
 
 	`allowed_roles` REPLACES the list when sent; omitted, the list is left as it is. The same
@@ -195,14 +168,12 @@ def update_expense_type(name: str, project=0, non_project=0, expense_category=No
 
 	project, non_project = int(project or 0), int(non_project or 0)
 	_validate_scope(project, non_project)
-	category = _validate_category(expense_category)
 	profiles = _normalise_roles(allowed_roles)
 	rule = _normalise_payee_rule(payee_rule)
 
 	doc = frappe.get_doc("Expense Type", name)
 	doc.project = project
 	doc.non_project = non_project
-	doc.expense_category = category
 	if rule:
 		doc.payee_rule = rule
 	if confirmed_as_request is not None:
@@ -213,7 +184,6 @@ def update_expense_type(name: str, project=0, non_project=0, expense_category=No
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()
 	return {"name": name, "project": project, "non_project": non_project,
-	        "expense_category": category,
 	        "allowed_roles": [r.role_profile for r in doc.allowed_roles],
 	        "payee_rule": doc.payee_rule,
 	        "confirmed_as_request": doc.confirmed_as_request}

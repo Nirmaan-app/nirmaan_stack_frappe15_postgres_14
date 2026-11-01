@@ -35,6 +35,8 @@ interface InvoiceTableProps {
     isLoading?: boolean;
     /** Function to determine if a specific entry can be deleted */
     canDeleteEntry?: (item: VendorInvoice) => boolean;
+    /** An extra line for an entry's delete confirmation (what else its delete removes), or undefined */
+    getDeleteNote?: (item: VendorInvoice) => string | undefined;
     /** Function to convert user ID to display name */
     getUserName?: (userId: string | undefined) => string;
     /** Whether to hide the actions column */
@@ -70,6 +72,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
     onDeleteEntry,
     isLoading,
     canDeleteEntry,
+    getDeleteNote,
     getUserName,
     hideActions = false,
     poName,
@@ -118,6 +121,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                             isLoading={isLoading}
                             showDeleteColumn={showDeleteColumn}
                             canDeleteEntry={canDeleteEntry}
+                            deleteNote={getDeleteNote?.(invoice)}
                             getUserName={getUserName}
                             hideActions={hideActions}
                         />
@@ -147,6 +151,7 @@ interface InvoiceTableRowProps {
     isLoading?: boolean;
     showDeleteColumn: boolean;
     canDeleteEntry?: (item: VendorInvoice) => boolean;
+    deleteNote?: string;
     getUserName?: (userId: string | undefined) => string;
     hideActions: boolean;
 }
@@ -164,6 +169,7 @@ const InvoiceTableRow: React.FC<InvoiceTableRowProps> = ({
     isLoading,
     showDeleteColumn,
     canDeleteEntry,
+    deleteNote,
     getUserName,
     hideActions,
 }) => {
@@ -260,6 +266,7 @@ const InvoiceTableRow: React.FC<InvoiceTableRowProps> = ({
                                 <DialogDescription className="text-primary">
                                     Click on Confirm to delete this invoice entry!
                                 </DialogDescription>
+                                {deleteNote && <p className="text-sm text-muted-foreground">{deleteNote}</p>}
                                 <div className="flex items-center justify-end gap-2">
                                     {isLoading ? <TailSpin color="red" height={40} width={40} /> : (
                                         <>

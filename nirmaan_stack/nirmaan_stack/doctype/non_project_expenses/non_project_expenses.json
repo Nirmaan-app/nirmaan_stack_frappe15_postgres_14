@@ -9,6 +9,7 @@
   "details_section",
   "type",
   "request_id",
+  "reimbursement",
   "porter_order",
   "credit_card_statement",
   "pay_to_account_name",
@@ -205,6 +206,16 @@
    "fieldtype": "Datetime",
    "label": "No Invoice At",
    "read_only": 1
+  },
+  {
+   "description": "The reimbursement claim this expense pays, set only when the claim is approved and never changed (ADR-0040). Paid or Rejected here moves the claim; deleting this expense, in any status, deletes the claim and its receipts.",
+   "fieldname": "reimbursement",
+   "fieldtype": "Link",
+   "label": "Reimbursement",
+   "no_copy": 1,
+   "options": "Reimbursement",
+   "read_only": 1,
+   "search_index": 1
   }
  ],
  "grid_page_length": 50,

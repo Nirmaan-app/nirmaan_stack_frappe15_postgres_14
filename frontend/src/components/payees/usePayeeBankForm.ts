@@ -58,8 +58,10 @@ interface PayeeBankFormOptions {
     /**
      * The duplicate pre-check endpoint. Each screen asks through its own, which checks who may add a
      * Payee there: the Payees page `check_payee`, the vendor screens `vendor_payee.check_vendor_payee`.
+     * `null` asks nothing: Reimbursements' "Add a bank account", where an account already on record is
+     * not a block (it is linked to the person) and the server's reply names the one refusal.
      */
-    checkApi?: string;
+    checkApi?: string | null;
     /** The Payee being edited (#1435). Read once, when the form mounts: mount the form per edit. */
     editing?: Pick<PayeeSummary, "name" | "account_name" | "account_number" | "ifsc" | "bank_name" | "bank_branch">;
     /** The holder name an edit starts with, in place of the saved one (the vendor rename prompt). */
@@ -84,7 +86,7 @@ export function usePayeeBankForm({
     const [lookingUp, setLookingUp] = useState(false);
 
     const { call: callLookup } = useFrappePostCall<{ message: BankBranch }>(LOOKUP_IFSC_API);
-    const { call: callCheck } = useFrappePostCall<{ message: { duplicate: PayeeSummary | null } }>(checkApi);
+    const { call: callCheck } = useFrappePostCall<{ message: { duplicate: PayeeSummary | null } }>(checkApi ?? CHECK_PAYEE_API);
 
     const ifscTimer = useRef<ReturnType<typeof setTimeout>>();
     const checkTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -126,7 +128,7 @@ export function usePayeeBankForm({
         (next: PayeeFormValues) => {
             clearTimeout(checkTimer.current);
             setDuplicate(null);
-            if (!accountsMatch(next) || !isIfscShaped(next.ifsc)) return;
+            if (checkApi === null || !accountsMatch(next) || !isIfscShaped(next.ifsc)) return;
             const key = `${next.account_number}|${next.ifsc}`;
             checkTimer.current = setTimeout(async () => {
                 try {
@@ -142,7 +144,7 @@ export function usePayeeBankForm({
                 }
             }, DEBOUNCE_MS);
         },
-        [callCheck, exclude],
+        [callCheck, checkApi, exclude],
     );
 
     const setField = useCallback(

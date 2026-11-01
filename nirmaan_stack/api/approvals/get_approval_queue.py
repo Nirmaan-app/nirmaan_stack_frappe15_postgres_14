@@ -69,6 +69,9 @@ SOURCE_NON_PROJECT = "Non-Project"
 # export and the bulk engines all branch on it -- so this is an extra column, not a rename.
 TYPE_PO_PAYMENT = "PO Payment"
 TYPE_SR_PAYMENT = "SR Payment"
+# A Non-Project Expense created from an approved Reimbursement (ADR-0040): its `reimbursement` is set. Its
+# `source` stays Non-Project, so every engine that branches on `source` treats it as the expense it is.
+TYPE_REIMBURSEMENT = "Reimbursement"
 
 SOURCE_TO_DOCTYPE = {
     SOURCE_VENDOR_PAYMENT: "Project Payments",
@@ -263,11 +266,18 @@ def _expense_select(table, source, project_col):
         requested_expr = f'COALESCE(t."gross_amount", {_EXPENSE_AMOUNT})::numeric'
     else:
         tds_join, requested_expr = "", _EXPENSE_AMOUNT
+    # `Non Project Expenses.reimbursement` arrives with `bench migrate`, which every deploy runs before this
+    # code serves (code review finding 10: no per-load column check that would hide a failed migrate).
+    source_type_expr = (
+        f"CASE WHEN COALESCE(e.\"reimbursement\", '') <> '' THEN '{TYPE_REIMBURSEMENT}' ELSE '{source}' END"
+        if source == SOURCE_NON_PROJECT
+        else f"'{source}'"
+    )
     return f"""
         SELECT
             e."name"                        AS name,
             '{source}'                      AS source,
-            '{source}'                      AS source_type,
+            {source_type_expr}              AS source_type,
             '{SOURCE_TO_DOCTYPE[source]}'   AS doctype,
             e."status"                      AS status,
             {_EXPENSE_AMOUNT}               AS amount,
@@ -397,6 +407,20 @@ def _date_clause(field, op, value):
     return f"{col} {op} %s", [value]
 
 
+def _widen_non_project(field, op, value):
+    """A Type filter naming Non-Project also names Reimbursement: a reimbursement's expense IS a Non-Project
+    Expense (ADR-0040), shown as that pill with a Reimbursement tag, so picking "Non Project Expense" must not
+    drop it, and leaving Non-Project out leaves it out too. "Reimbursement" alone still narrows to claims."""
+    if field != "source_type" or op not in ("in", "not in", "=", "!="):
+        return op, value
+    values = list(value) if isinstance(value, (list, tuple)) else [value]
+    if SOURCE_NON_PROJECT not in values:
+        return op, value
+    if TYPE_REIMBURSEMENT not in values:
+        values.append(TYPE_REIMBURSEMENT)
+    return ("not in" if op in ("not in", "!=") else "in"), values
+
+
 def _build_where(filters, search_term, search_fields):
     """Returns (sql_fragment, params). Identifiers are allowlisted, values bound."""
     clauses, params = [], []
@@ -410,6 +434,7 @@ def _build_where(filters, search_term, search_fields):
             # for -- the same failure mode as a missing case in the tab switch.
             frappe.throw(_("Unsupported filter field: {0}").format(field))
         field = _COLUMN_FOR.get(field, field)
+        op, value = _widen_non_project(field, op, value)
         if field == "raised_by" and value == CURRENT_USER_TOKEN:
             # Unconditional since 23 Sep 2026 -- no Admin bypass. This one substitution
             # scopes the LIST, the FACETS and the CSV EXPORT together, because all three
@@ -676,5 +701,20 @@ def get_approval_queue_facets(field, filters=None, search_term=None, current_sea
         {"value": r["value"], "count": cint(r["cnt"])}
         for r in rows if (r["value"] or "").strip()
     ]
+    if field == "source_type":
+        values = _count_reimbursements_as_non_project(values)
     blank = sum(cint(r["cnt"]) for r in rows if not (r["value"] or "").strip())
     return {"field": field, "values": values, "blank_count": blank}
+
+
+def _count_reimbursements_as_non_project(values):
+    """The Type facet's Non-Project count includes the reimbursement rows, as its filter does
+    (`_widen_non_project`); the Reimbursement count stays, a part of it."""
+    claims = sum(v["count"] for v in values if v["value"] == TYPE_REIMBURSEMENT)
+    if not claims:
+        return values
+    if not any(v["value"] == SOURCE_NON_PROJECT for v in values):
+        values = values + [{"value": SOURCE_NON_PROJECT, "count": 0}]
+    values = [{**v, "count": v["count"] + claims} if v["value"] == SOURCE_NON_PROJECT else v for v in values]
+    # Largest first, as the SQL orders them; on a tie Non-Project leads the Reimbursement it contains.
+    return sorted(values, key=lambda v: (-v["count"], v["value"] != SOURCE_NON_PROJECT))

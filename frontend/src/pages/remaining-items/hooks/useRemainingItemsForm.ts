@@ -128,14 +128,16 @@ export function useRemainingItemsForm(
         ...entry,
         remaining_quantity: entry.remaining_quantity === null ? -1 : entry.remaining_quantity,
       }));
-      await submitReport({
+      const result = await submitReport({
         project: projectId,
         report_date: todayStr,
         items: JSON.stringify(itemsForSubmit),
       });
+      // The server decides: an empty submit after an empty report moves that report to today ("updated").
+      const action = result?.message?.action ?? (existingReport?.exists ? "updated" : "created");
       toast({
         title: "Report Submitted",
-        description: `Remaining items report ${existingReport?.exists ? "updated" : "created"} successfully.`,
+        description: `Remaining items report ${action} successfully.`,
         variant: "success",
       });
       onSuccess?.();

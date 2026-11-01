@@ -48,6 +48,7 @@ from nirmaan_stack.services.expense_tds import (
     guard_withheld_amount,
     refuse_without_deductee,
     tds_rule_for,
+    sync_expense_payment_date,
     tds_split,
     withhold_expense_tds,
     withholds_now,
@@ -89,6 +90,13 @@ def on_update(doc, method=None):
         return  # an insert: `after_insert` has decided it
     if withholds_now(doc.doctype, doc.get("type"), before.get("status"), doc.get("status"), inserted=False):
         _withhold(doc)
+    # The tax record's Payment Paid On follows the Expense while Paid. Only a type with a rule can carry a
+    # record (and that type is locked once approved, `guard_tds_type_change`), so the other ~700 saves skip
+    # the lookup.
+    if tds_rule_for(doc.get("type")) and (
+        before.get("status") != doc.get("status") or str(before.get("payment_date") or "") != str(doc.get("payment_date") or "")
+    ):
+        sync_expense_payment_date(doc)
 
 
 def on_trash(doc, method=None):

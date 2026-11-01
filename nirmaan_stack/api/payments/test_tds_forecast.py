@@ -209,20 +209,38 @@ class TestReqAmountIsTheFullBill(ProcurementFixture):
 
 
 class TestReqAmountAfterTdsPaidByCompany(ProcurementFixture):
-    """Walk W5 (story 60): a payment whose tax was cut and then marked *TDS paid by company* before it was
-    Paid keeps every figure (story 46), so it still reads its full bill under "Req. Amount": the deduction's
-    gross, not the stored amount."""
+    """Walk W5 (story 60): a payment whose tax was cut and then marked by the retired *TDS paid by company*
+    (#1537) kept every figure (story 46), so it still reads its full bill under "Req. Amount": the
+    deduction's gross, not the stored amount. *Company Bears TDS*, which replaced it, restores the amount
+    itself, and the full bill reads the same."""
 
-    def test_its_req_amount_is_the_deductions_gross(self):
+    def _queue_and_wo(self, made):
         from nirmaan_stack.api.approvals.get_approval_queue import get_approval_queue
 
-        made = self._approve(self._wo(MISC_AND_ELECTRICAL), 10000)
-        payment_tds.mark_tds_paid_by_company(made.name)
-        frappe.db.commit()
         [row] = get_approval_queue(filters=[["name", "=", made.name]], limit_page_length=5)["data"]
-        self.assertEqual((row["requested_amount"], row["amount"]), (10000.0, 9800.0))
         figures = get_work_order_tds(made.service_request)["payments"][made.name]
-        self.assertEqual((figures["borne_by"], figures["requested_amount"]), ("Company", 10000.0))
+        return (row["requested_amount"], row["amount"]), (figures["borne_by"], figures["requested_amount"])
+
+    def test_its_req_amount_is_the_deductions_gross(self):
+        made = self._approve(self._wo(MISC_AND_ELECTRICAL), 10000)
+        # Planted as the retired action left it: `borne_by` moved, no figure. Raw, so no Version to clean.
+        frappe.db.set_value(payment_tds.TDS_DOCTYPE, made.deduction, "borne_by", payment_tds.BORNE_BY_COMPANY)
+        frappe.db.commit()
+        self.assertEqual(self._queue_and_wo(made), ((10000.0, 9800.0), ("Company", 10000.0)))
+
+    def test_after_company_bears_tds_it_reads_the_request_paid_in_full(self):
+        from nirmaan_stack.services.tds_cut_undo import company_bears_tds
+
+        made = self._approve(self._wo(MISC_AND_ELECTRICAL), 10000)
+        self.addCleanup(self._drop_versions_of, made.deduction)
+        company_bears_tds(made.name)
+        frappe.db.commit()
+        self.assertEqual(self._queue_and_wo(made), ((10000.0, 10000.0), ("Company", 10000.0)))
+
+    def _drop_versions_of(self, deduction):
+        frappe.db.rollback()
+        frappe.db.delete("Version", {"ref_doctype": payment_tds.TDS_DOCTYPE, "docname": deduction})
+        frappe.db.commit()
 
 
 class TestReqAmountSortsAndFilters(ProcurementFixture):

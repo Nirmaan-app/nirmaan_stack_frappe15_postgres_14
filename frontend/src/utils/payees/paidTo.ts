@@ -464,6 +464,11 @@ export const changeAccountRuleLine = (
     }
 };
 
+/** *Who gets paid*'s line on a reimbursement's expense (ADR-0040). It has no expense type, so the type's
+ *  line would wrongly say "Its type doesn't ask for an account": the account is the claimant's own. */
+export const reimbursementAccountLine = (canRemove: boolean): string =>
+    `The claimant's bank account, copied from their claim.${canRemove ? " Remove it if this is paid by card or cash." : ""}`;
+
 /** Who set a row's account (`paid_to.pay_to_box`'s `named_by`). */
 export interface NamedBy {
     how: "request" | "changed" | "vendor";

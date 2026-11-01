@@ -6,6 +6,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 // SITEURL is used by ProjectInvoiceTable now, no need to pass as prop if it imports directly
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
 import { useUserData } from "@/hooks/useUserData";
+import { canAddProjectInvoice } from "@/constants/roles";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useFrappeGetDocList, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { CirclePlus, Edit2, Trash2 } from "lucide-react"; // Added icons for clarity, though table handles its own
@@ -32,7 +33,7 @@ export const ProjectInvoices: React.FC<{ projectId?: string; customerId?: string
   } = useDialogStore();
 
   const { role } = useUserData();
-  const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
+  const canAdd = canAddProjectInvoice(role);
 
   const { data, isLoading, error, mutate } = useFrappeGetDocList<ProjectInvoice>(DOCTYPE, {
     fields: ITEM_LIST_FIELDS_TO_FETCH, // No need to cast as string[] if type is correct
@@ -91,8 +92,8 @@ export const ProjectInvoices: React.FC<{ projectId?: string; customerId?: string
           <CardTitle className="flex justify-between items-center">
             <p className="text-xl max-sm:text-lg text-primary">Invoices</p> {/* Using primary color */}
             <div className='flex gap-2 items-center'>
-              {/* Sales users (Executive / Lead) are view-only — no create button. */}
-              {!isSales && (
+              {/* Sales users (Executive / Lead) and PMO are view-only — no create button. */}
+              {canAdd && (
                 <Button
                   variant="outline"
                   size="sm"

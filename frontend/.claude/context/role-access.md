@@ -22,6 +22,7 @@ This document contains detailed page-level role access control mappings for the 
 **Special:** `Administrator` user (user_id) is hardcoded with Admin role access.
 
 **Note:** PMO Executive Profile mirrors Admin Profile access in all areas **except**:
+- **Project financials** *(owner, 2026-10-27 and 2026-10-28)*: PMO sees every Financials tile and sub-tab on the project page (including Project Value, Client Invoiced, Inflow and the Project Invoices / Inflow tabs), every financial column on the Projects list, the `/project-invoices` and `/in-flow-payments` pages (sidebar links + route guards), and every Reports → Projects report (Cash Sheet, Inflow, both Payments reports, Project Invoices, Project GST), and the Client Invoices card in every Bulk Download (project tab and Reports). PMO is **view-only** on client invoices and inflows everywhere: no Add Invoice / New Inflow, no invoice Edit/Delete, no inflow Actions menu. Rules: `canAddProjectInvoice`, `canAddInflow`, `canEditProjectInvoice`, `canActOnInflow`, `canDeleteInflow` in `src/constants/roles.ts`; `AllProjectInvoices` no longer counts PMO as Admin. Frontend only — the server already lets PMO read both doctypes.
 - **TDS Approval:** PMO can see the "Pending Approval" tab (read-only) but cannot approve/reject TDS items
 - **Project Payment Approval:** PMO can see the "Approve Payments" tab (read-only) but cannot approve/reject payments. (Editing a fulfilled payment no longer exists for anyone — see *Payments queue — edit & revert* below.)
 - **PR Approval** *(2026-07-04 access review)*: PMO does **not** see the "Approve PR" tab and is blocked from the approve/reject view even by a direct/bookmarked `?tab=Approve PR` URL (redirected to New PR Request). Approver roles are **Admin + Project Lead** (`PR_ADMIN_ROLES` in `config/prTabs.constants.ts`). Unlike TDS/Payments, this is NOT a read-only tab — it is removed entirely. PMO keeps New PR Request / In Progress / Sent Back / All PRs.
@@ -58,7 +59,7 @@ Billing Executive. **Everyone else has no billing access at all**, read included
 | What | Admin | PMO | Billing Lead | Billing Executive |
 |---|:-:|:-:|:-:|:-:|
 | Billing tab, Billing Tracker page, View Bills | ✓ | ✓ | ✓ | ✓ |
-| Total Invoiced / Total Inflow on the Billing tab | ✓ | ✓ (Financials hides them from PMO) | ✓ | ✓ |
+| Total Invoiced / Total Inflow on the Billing tab | ✓ | ✓ | ✓ | ✓ |
 | Setup Packages: add packages to a project | ✓ | ✓ | ✓ | ✓ |
 | Edit PO value / managers in the Setup Packages dialog | ✓ | ✓ | ✓ | ✓ |
 | Edit PO value / managers with the ✏️ on a package row | ✓ | — | — | — |
@@ -124,9 +125,9 @@ user_id === "Administrator" || role === "Nirmaan Admin Profile" || role === "Nir
 | Work Orders | Y | Y | Y | - | Y | Y | - | - | - | - |
 | Project Payments | Y | Y | Y | - | Y | Y | - | - | - | - |
 | Credit Payments | Y | Y | Y | - | Y | Y | - | - | - | - |
-| In-Flow Payments | Y | Y | - | - | - | Y | - | - | - | - |
+| In-Flow Payments | Y | Y (view-only) | - | - | - | Y | - | - | - | - |
 | Invoice Reconciliation | Y | Y | - | - | Y | Y | - | - | - | - |
-| Project Invoices | Y | Y | - | - | - | Y | - | - | - | - |
+| Project Invoices | Y | Y (view-only) | - | - | - | Y | - | - | - | - |
 | Project Expenses | Y | Y | - | - | - | Y | - | - | - | - |
 | Non-Project Expenses | Y | Y | - | - | - | Y | - | - | - | - |
 | Reports | Y | Y | Y | Y | Y | Y | - | - | - | - |
@@ -136,6 +137,7 @@ user_id === "Administrator" || role === "Nirmaan Admin Profile" || role === "Nir
 | TDS Repository | Y | Y | - | - | Y | - | Y | - | - | - |
 | Help Repository | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | Billing Tracker (also Billing Executive / Billing Lead) | Y | Y | - | - | - | - | - | - | - | - |
+| Reminders Dashboard (`/reminders`; see § Reminders) | Y | Y | - | - | - | - | - | - | - | - |
 
 ---
 
@@ -198,7 +200,10 @@ profile missing from an endpoint's list reads 0 there while its tables show ever
 - `ApprovedQuotationsFlow/`, `DeliveryNotes/`, `DeliveryChallansAndMirs/`
 - `customers/`, `credits/`, `vendors-wp-categories/`
 - `CriticalPOCategories/` - Sidebar-level access only
-- `Manpower-and-WorkMilestones/` - No explicit checks
+- `Reminders/` - Sidebar-level access only (Admin, PMO); the page is read-only for anyone else who opens the
+  URL. Add / Edit / Delete are Admin-only (see § Reminders)
+- `Manpower-and-WorkMilestones/` - No route checks. Per-action: delete today's Completed DPR = Admin / PMO /
+  Project Lead; delete a Draft from its zone chip = Admin / PMO (see `domain/milestones.md` § Permission Checks)
 
 ### Users Page Access (Route-Level Guards)
 
@@ -329,8 +334,8 @@ queue — edit & revert" below).
 | ProjectExpenses | Add Expense | Y | Y | Y | - |
 | ProjectExpenses | Delete Expense | Y | Y | - | - |
 | NonProjectExpenses | Edit/Delete | Y | Y | - | - |
-| ProjectInvoices | Edit/Delete | Y | Y | - | - |
-| InFlowPayments | Edit/Delete | Y | Y | - | - |
+| ProjectInvoices | Add/Edit/Delete | Y | - (view-only) | - | - |
+| InFlowPayments | Edit/Delete | Y | - (view-only) | Edit | - |
 | InvoiceReconciliation | Pending Tab | Y | - | Y | - |
 
 **Key files:**
@@ -340,6 +345,16 @@ queue — edit & revert" below).
 - `NonProjectExpensesPage.tsx:240,249`
 - `InFlowPayments.tsx:280`
 - `InvoiceReconciliationContainer.tsx:23,51`
+
+**Project page → Financials sub-tabs** (`ProjectFinancialsTab.tsx`). The Financials tab itself shows for Admin,
+PMO, Accountant, Accountant Lead, Estimates, Billing and Sales Executive / Lead; Project Manager, Project Lead
+and Procurement never see it. **Project Ledger** (first sub-tab, read-only) is for Admin, PMO, Accountant and
+Accountant Lead only (owner, 2026-10-28): `PROJECT_LEDGER_PROFILES` / `canSeeProjectLedger` in
+`src/constants/roles.ts`, and Financials opens on it for them. Estimates and Billing open on All Payments; Sales
+is confined to `SALES_ALLOWED_TABS` (Project Invoices, Inflow, Client PO) and opens on Project Invoices. The server
+enforces the ledger rule: `get_project_ledger_data` refuses a profile outside
+`services/role_profiles.PROJECT_LEDGER_PROFILES` (Administrator passes) and a user who can't read the project
+(User Permission). The customer ledger still has no server role check.
 
 ---
 
@@ -372,8 +387,14 @@ links redirect to it (`pages/reports/ReportsIndex.tsx`).
 | PO | Y | Y | Y | Limited* | Y | Y |
 | WO (SR) | Y | Y | Y | - | Y | Y |
 | Payment › TDS Deduction | Y | - | - | - | - | Y |
+| Report Bulk Download† | Y | - | - | - | - | Y |
 
 *Project Manager only sees "Dispatched for 1+ days" report
+
+†Bulk Download (`canBulkDownloadAllProjects` in `constants/roles.ts`, Accountant Lead too; owner 2026-10-28) is
+the project / vendor Bulk Download over every project, with Project and Vendor as table filters. Server-enforced
+too: every all-scope call checks `services/role_profiles.REPORTS_BULK_DOWNLOAD_PROFILES`, so a typed
+`?tab=bulk_download` from anyone else shows and fetches nothing.
 
 The Payment tab is gated by `pages/reports/config/paymentTab.config.ts` (`PAYMENT_TDS_ACCESS` for TDS Deduction).
 Cheques are on their own page, the Cheque Tracker (above).
@@ -423,6 +444,37 @@ The rules and the monthly audit: `../../../.claude/context/domain/assets.md`.
 - `pages/Assets/utils/permissions.ts` (`getAssetPermissions`; mirrors `services/role_profiles.py`)
 - `pages/Assets/AssetsRoute.tsx` (route guard)
 - `pages/users/components/UserAssetsTab.tsx` (holder actions)
+
+---
+
+### Reminders (`Reminders/`, Action Center)
+
+Compliance reminders (GSTR, TDS, PF…). Rules and the Next Due Date: `../../../.claude/plans/reminders_plan.md`
+§4a, ADR-0042; terms: root `GLOSSARY.md` § Reminders.
+
+| Feature | Admin | PMO | Accountant Lead | Accountant | Others |
+|---------|:-----:|:---:|:---------------:|:----------:|:------:|
+| "Reminders Dashboard" sidebar link | Y | Y | - | - | - |
+| Open `/reminders` (no route guard; read-only by URL) | Y | Y | URL | URL | URL |
+| Add / Edit / Delete a reminder (page and top-nav "Add Reminder") | Y | - | - | - | - |
+| Rename a reminder (`rename_reminder`) / delete (`delete_reminder`) — server | Y | - | - | - | - |
+| Write in Desk (DocPerm create/write/delete) | Y | Y | Y | read | - |
+| Action Center: see a reminder's cycles | targeted | targeted | targeted | targeted | targeted |
+| Mark Done / Reopen a cycle | targeted | targeted | targeted | targeted | targeted |
+
+- "Admin" includes the `Administrator` user, who is treated as the Admin profile for reminders.
+- **Targeted** = the reminder lists the person's Role Profile. Every dashboard's Action Center has the reminders
+  section; it is empty for a person no reminder targets. Mark Done / Reopen are scope-gated on the server
+  (`_my_schedule_names`) and run with `ignore_permissions`, which is how a read-only Accountant can complete one.
+- A deleted reminder's Done cycles can't be reopened: its role-profile rows go with it, so no one is targeted.
+- ⚠️ PMO and Accountant Lead are read-only **on the page** (owner ruling) but keep Desk write through DocPerm.
+
+**Key files:**
+- `pages/Reminders/NewReminderDialog.tsx` (`canRenameReminder` — the one Admin gate for Add / Edit / Delete)
+- `components/helpers/renderRightActionButton.tsx` ("Add Reminder", same gate)
+- `components/layout/NewSidebar.tsx` (sidebar link)
+- `components/layout/action-center/ActionCenter.tsx` (`sectionsForRole`: every role gets "reminders")
+- `nirmaan_stack/api/reminders/write.py` (`_require_reminder_editor`, scope gate for Mark Done / Reopen)
 
 ---
 

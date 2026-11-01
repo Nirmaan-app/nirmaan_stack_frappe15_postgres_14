@@ -31,13 +31,11 @@ import { useUserData } from "@/hooks/useUserData";
 import { Customers } from "@/types/NirmaanStack/Customers";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
-import { ProjectEstimates as ProjectEstimatesType } from '@/types/NirmaanStack/ProjectEstimates';
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getAllSRsTotal } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
-import { amountPaidByWorkPackage, sumAmountPaid } from "@/utils/projects/projectPaid";
 import { FrappeDoc } from "frappe-react-sdk";
 import {
   ArrowRightLeft,
@@ -58,15 +56,12 @@ import {
   useParams
 } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
-// import { Component as ProjectEstimates } from './add-project-estimates';
-import { CustomHoverCard } from "./CustomHoverCard";
 import { EditProjectForm } from "./edit-project-form";
 import TenderingProjectView from "./tendering/TenderingProjectView";
 // import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 // import { ProjectMakesTab } from "./ProjectMakesTab";
 // import ProjectOverviewTab from "./ProjectOverviewTab";
-// import ProjectSpendsTab from "./ProjectSpendsTab";
 import { getUrlStringParam } from "@/hooks/useServerDataTable";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { Projects, ProjectWPCategoryMake } from "@/types/NirmaanStack/Projects";
@@ -81,8 +76,6 @@ const ProjectOverviewTab = React.lazy(() => import("./ProjectOverviewTab"));
 const ProjectScheduler = React.lazy(() =>
   import("../Manpower-and-WorkMilestones/components/ProjectScheduler").then((m) => ({ default: m.ProjectScheduler }))
 );
-const ProjectSpendsTab = React.lazy(() => import("./ProjectSpendsTab"));
-const ProjectEstimates = React.lazy(() => import("./add-project-estimates"));
 const ProjectPOSummaryTable = React.lazy(() => import("./components/ProjectPOSummaryTable"));
 const ProjectMaterialUsageTab = React.lazy(() => import("./components/ProjectMaterialUsageTab"));
 const ProjectDesignTrackerDetail = React.lazy(() => import("@/pages/ProjectDesignTracker/project-design-tracker-details").then(module => ({ default: module.ProjectDesignTrackerDetailV2 })));
@@ -111,7 +104,6 @@ import {
   useProjectDocRealtime,
   useProjectPOSummaryCall,
   useProjectViewFinancialData,
-  useProjectOrdersPaid,
   useProjectViewMeta,
   useProjectViewMutations,
 } from "./data/root/useProjectRootApi";
@@ -329,9 +321,7 @@ export const PROJECT_PAGE_TABS = {
   SR_SUMMARY: 'srsummary',
   PO_SUMMARY: 'posummary',
   FINANCIALS: 'projectfinancials',
-  SPENDS: 'projectspends',
   MAKES: 'projectmakes',
-  ESTIMATES: 'projectestimates',
   MATERIAL_USAGE: 'projectmaterialusage',
   TRANSFER_MEMOS: 'transfermemos',
   TDS_REPOSITORY: 'tdsrepository',
@@ -345,6 +335,8 @@ export const PROJECT_PAGE_TABS = {
 } as const;
 
 type ProjectPageTabValue = typeof PROJECT_PAGE_TABS[keyof typeof PROJECT_PAGE_TABS];
+
+const KNOWN_PROJECT_PAGES = new Set<string>(Object.values(PROJECT_PAGE_TABS));
 
 
 /**
@@ -430,7 +422,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   // const [statusCounts, setStatusCounts] = useState<{ [key: string]: number }>({ "New PR": 0, "Open PR": 0, "Approved PO": 0 });
   const [editSheetOpen, setEditSheetOpen] = useState(false);
 
-  const [options, setOptions] = useState<{ label: string; value: string }[]>([]);
 
   const [makeOptions, setMakeOptions] = useState<{ label: string; value: string }[]>([]);
 
@@ -569,7 +560,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       PROJECT_PAGE_TABS.PO_SUMMARY,
       PROJECT_PAGE_TABS.MATERIAL_USAGE,
       PROJECT_PAGE_TABS.TRANSFER_MEMOS,
-      PROJECT_PAGE_TABS.ESTIMATES,
       PROJECT_PAGE_TABS.DC_MIR,
       PROJECT_PAGE_TABS.TDS_REPOSITORY,
       PROJECT_PAGE_TABS.BULK_DOWNLOAD,
@@ -587,6 +577,12 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   // Redirect users to allowed tab if on restricted tab
   useEffect(() => {
+    // An old link to a removed tab (`?page=projectspends`, `?page=projectestimates`) lands on the role's
+    // landing tab instead of an empty page; privileged users are otherwise never redirected.
+    if (!KNOWN_PROJECT_PAGES.has(activePage) && role !== "Loading") {
+      setActivePage(getLandingTab(role));
+      return;
+    }
     // A typed `?page=handover-documents` from outside HOD_ACCESS -- including Accountants, whom
     // the privileged branch below never redirects. Waits out "Loading", or a Project Manager
     // opening a link to the tab is bounced before their role arrives.
@@ -745,7 +741,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       ];
     }
 
-    // For Estimates Executive, show their specific tabs (includes Material Usage and Project Estimates)
+    // For Estimates Executive, show their specific tabs (includes Material Usage)
     if (isEstimatesExecutive) {
       return [
         {
@@ -796,10 +792,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "TDS",
           key: PROJECT_PAGE_TABS.TDS_REPOSITORY,
-        },
-        {
-          label: "Project Estimates",
-          key: PROJECT_PAGE_TABS.ESTIMATES,
         },
         {
           label: "DC & MIR",
@@ -899,15 +891,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         label: "PR Summary",
         key: PROJECT_PAGE_TABS.PR_SUMMARY,
       }] : []),
-      {
-        label: "Project Spends",
-        key: PROJECT_PAGE_TABS.SPENDS,
-      },
-      // Hide Project Estimates from Accountant
-      ...(!isAccountant ? [{
-        label: "Project Estimates",
-        key: PROJECT_PAGE_TABS.ESTIMATES,
-      }] : []),
       // Hide BoQ from Accountant
       ...(!isAccountant ? [{
         label: "BoQ",
@@ -928,61 +911,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     ];
   }, [role, isAccountant, isProcurementExecutive, isEstimatesExecutive, isPrivilegedUser, isProjectManager, isSales, canSeeBilling, canSeeHod]);
 
-  // Define tabs available based on role or other logic
-  // const availableTabs = useMemo(() => {
-  //   const tabs = [
-  //       { label: "Overview", value: PROJECT_PAGE_TABS.OVERVIEW },
-  //       { label: "PR Summary", value: PROJECT_PAGE_TABS.PR_SUMMARY },
-  //       { label: "SR Summary", value: PROJECT_PAGE_TABS.SR_SUMMARY },
-  //       { label: "PO Summary", value: PROJECT_PAGE_TABS.PO_SUMMARY },
-  //       { label: "Project Spends", value: PROJECT_PAGE_TABS.SPENDS },
-  //       { label: "Financials", value: PROJECT_PAGE_TABS.FINANCIALS },
-  //       { label: "Project Estimates", value: PROJECT_PAGE_TABS.ESTIMATES },
-  //       { label: "Project Makes", value: PROJECT_PAGE_TABS.MAKES }, // Assuming makes are per project
-  //   ];
-  //   return tabs;
-  // }, [role]);
-
-
-  // const getTabsToRemove = useMemo(() => memoize((newPage: string) => {
-  //   const tabsToRemove = newPage === 'projectspends' ? ['eTab', 'makesTab', 'fTab'] : newPage === 'projectmakes' ? ['tab', 'eTab', 'fTab'] : newPage === 'projectestimates' ? ['tab', 'makesTab', 'fTab'] : newPage === 'projectfinancials' ? ['tab', 'makesTab', 'eTab'] : ['tab', 'eTab', 'makesTab', 'fTab'];
-  //   return tabsToRemove;
-  // }, (newPage: string) => newPage), [])
-
-  // const onClick: MenuProps['onClick'] = useCallback(
-  //   (e) => {
-  //     if (activePage === e.key) return;
-  //     const newPage = e.key;
-  //     const tabsToRemove = getTabsToRemove(newPage)
-  //     setActivePage(newPage, tabsToRemove)
-  //   }
-  //   , [activePage, getTabsToRemove]);
-
-  // const onClick: MenuProps['onClick'] = useCallback(
-  //   (e) => {
-  //     if (activePage === e.key) return;
-
-  //     const newPage = e.key;
-
-  //     if (newPage === 'projectspends') {
-  //       setTab("All", ['eTab', 'makesTab', 'fTab']);
-  //       // updateURL({ page: newPage, tab: 'All' }, ['eTab', 'makesTab', 'fTab']);
-  //     } else if (newPage === 'projectmakes') {
-  //       setMakesTab(makeOptions?.[0]?.value || '', ['eTab', 'tab', 'fTab']);
-  //       // updateURL({ page: newPage, makesTab: makeOptions?.[0]?.value || '' }, ['eTab', 'tab', 'fTab']);
-  //     } else if (newPage === 'projectestimates'){
-  //       setETab("All", ['tab', 'makesTab', 'fTab']);
-  //       // updateURL({page: newPage, eTab: 'All'}, ['tab', 'makesTab', 'fTab'])
-  //     } else if (newPage === "projectfinancials") {
-  //       setFTab("All Payments", ['tab', 'makesTab', 'eTab']);
-  //       // updateURL({page: newPage, fTab: 'All Payments'}, ['tab', 'makesTab', 'eTab'])
-  //     } 
-  //     // else {
-  //     //   setMakesTab('');
-  //     //    updateURL({ page: newPage }, ['tab', 'eTab', 'makesTab', 'fTab']);
-  //     // }
-  //     setActivePage(newPage);
-  //   }, [activePage, updateURL]);
 
 
   // const { data: mile_data } = useFrappeGetDocList(
@@ -1000,12 +928,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   // );
 
   const {
-    projectEstimatesResponse,
     procurementOrdersResponse,
     approvedServiceRequestsResponse,
   } = useProjectViewFinancialData(projectId);
 
-  const project_estimates = projectEstimatesResponse.data;
   const po_data = procurementOrdersResponse.data;
   const po_loading = procurementOrdersResponse.isLoading;
   const approvedServiceRequestsData = approvedServiceRequestsResponse.data;
@@ -1021,14 +947,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   //   label: ven.vendor_name,
   //   value: ven.vendor_name,
   // })), [vendorsList]);
-
-  // Spends reads EVERY PO and WO of the project, whatever its status (spec #1451 stories 14-15).
-  const { posResponse: projectPOsPaidResponse, wosResponse: projectWOsPaidResponse } = useProjectOrdersPaid(projectId);
-  const projectPOsPaid = projectPOsPaidResponse.data?.message;
-
-  // Spends "Services" row: every WO's stored Amount Paid (refunds already off, ADR-0034); a WO with no
-  // payments has 0.
-  const servicesAmountPaid = useMemo(() => sumAmountPaid(projectWOsPaidResponse.data || []), [projectWOsPaidResponse.data]);
 
   const totalPosRaised = useMemo(() => {
     // 1. Guard Clause: This part is correct and should be kept.
@@ -1114,8 +1032,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       [key: string]: {
         amountWithTax: number;
         amountWithoutTax: number;
-        total_estimated_amount?: number;
-        total_amount_paid?: number;
       };
     } = {};
 
@@ -1175,34 +1091,11 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   }, [items]);
 
   useEffect(() => {
-    if (!po_item_data || !project_estimates || !projectPOsPaid) return;
+    if (!po_item_data) return;
 
     const { totals } = groupItemsByWorkPackageAndCategory(po_item_data);
-
-    // EVERY PO's stored Amount Paid per work package (ADR-0034), keyed by its own items, so the Spends PO
-    // total is the PO part of the project outflow. A package only a Merged or Inactive PO carries gets a
-    // row of its own.
-    const totalAmountPaidWPWise = amountPaidByWorkPackage(projectPOsPaid.pos, projectPOsPaid.items);
-    Object.keys(totalAmountPaidWPWise).forEach((key) => {
-      totals[key] ??= { amountWithTax: 0, amountWithoutTax: 0 };
-    });
-
-    Object.keys(totals || {}).forEach((key) => {
-      const estimates = project_estimates?.filter((i) => i?.work_package === key) || [];
-      const totalEstimatedAmount = estimates.reduce(
-        (acc, i) => acc + parseNumber(i.quantity_estimate) * parseNumber(i.rate_estimate),
-        0
-      );
-
-      totals[key]['total_estimated_amount'] = totalEstimatedAmount || 0;
-      totals[key]['total_amount_paid'] = totalAmountPaidWPWise[key] || 0;
-    });
-
     setWorkPackageTotalAmounts(totals);
-  }, [po_item_data, project_estimates, projectPOsPaid]);
-
-  const { groupedData: categorizedData } =
-    groupItemsByWorkPackageAndCategory(po_item_data);
+  }, [po_item_data]);
 
   const totalPOAmountWithGST: number = useMemo(() => Object.keys(workPackageTotalAmounts || {}).reduce((acc, key) => {
     const { amountWithTax } = workPackageTotalAmounts[key];
@@ -1261,8 +1154,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         return a.label.localeCompare(b.label);
       });
 
-      setOptions(finalOptions);
-
       // Step 4: Set makeOptions (which seems to be a filtered version of finalOptions)
       // Your original logic for makeOptions: options?.filter(i => !["All", "Tool & Equipments", "Services"].includes(i.label))
       // Since "Tool & Equipments" is commented out, it might just be:
@@ -1284,10 +1175,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         if (b.label === "All") return 1;
         return a.label.localeCompare(b.label);
       });
-      setOptions(defaultOptions);
       setMakeOptions(defaultOptions.filter(opt => !["All", "Services"].includes(opt.label)));
     }
-  }, [data, setOptions, setMakeOptions]); // Add setOptions and setMakeOptions to dependencies if they are stable
+  }, [data, setMakeOptions]);
   // If allProcurementPackages is fetched, add it to dependencies too.
 
 
@@ -1302,7 +1192,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     }
   }, [data?.status, projectStatuses]);
 
-  const totalServiceOrdersAmt = useMemo(() => getAllSRsTotal(approvedServiceRequestsData || [])?.withoutGST, [approvedServiceRequestsData])
 
   const getAllSRsTotalWithGST = useMemo(() => getAllSRsTotal(approvedServiceRequestsData || [])?.withGST, [approvedServiceRequestsData])
 
@@ -1583,8 +1472,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     (s) => s.value === data?.status
   )?.icon, [data?.status]);
 
-  const estimatesTotal = useMemo(() => project_estimates?.reduce((acc, i) => acc + (parseNumber(i?.quantity_estimate) * parseNumber(i?.rate_estimate)), 0) || 0, [project_estimates]);
-
   if (po_loading || approvedServiceRequestsDataLoading) {
     return <LoadingFallback />
   }
@@ -1597,7 +1484,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     switch (activePage) {
       case PROJECT_PAGE_TABS.OVERVIEW:
         // Pass necessary data to ProjectOverviewTab
-        return <ProjectOverviewTab projectData={data} estimatesTotal={estimatesTotal} projectCustomer={projectCustomer} totalPOAmountWithGST={totalPOAmountWithGST} getAllSRsTotalWithGST={getAllSRsTotalWithGST} />;
+        return <ProjectOverviewTab projectData={data} projectCustomer={projectCustomer} totalPOAmountWithGST={totalPOAmountWithGST} getAllSRsTotalWithGST={getAllSRsTotalWithGST} />;
       case PROJECT_PAGE_TABS.WORK_REPORT: // ADD THIS NEW CASE
         return <ProjectWorkReportTab projectData={data} project_mutate={project_mutate} current_role={role} />;
       case PROJECT_PAGE_TABS.SCHEDULE:
@@ -1648,13 +1535,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           totalPOAmountWithGST={totalPOAmountWithGST} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getAllPODeliveredAmount={totalPoDeliveredAmount}
           poPaymentAgainstDelivery={poPaymentAgainstDelivery}
           advanceAgainstPO={advanceAgainstPO} />;
-      case PROJECT_PAGE_TABS.SPENDS:
-        return <ProjectSpendsTab projectId={data?.name} po_data={po_data} options={options}
-          categorizedData={categorizedData} servicesAmountPaid={servicesAmountPaid} workPackageTotalAmounts={workPackageTotalAmounts} totalServiceOrdersAmt={totalServiceOrdersAmt} />; // Example
       case PROJECT_PAGE_TABS.MAKES:
         return <ProjectMakesTab projectData={data} project_mutate={project_mutate} options={makeOptions} initialTab={makesTab} />; // Example
-      case PROJECT_PAGE_TABS.ESTIMATES:
-        return <ProjectEstimates projectTab />; // Example
       case PROJECT_PAGE_TABS.MATERIAL_USAGE:
         return <ProjectMaterialUsageTab projectId={projectId} />;
       case PROJECT_PAGE_TABS.TRANSFER_MEMOS:
@@ -1777,32 +1659,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             </>
 
           )}
-          {/* <div className="flex flex-col items-start ml-2 text-sm max-sm:text-xs">
-            <CustomHoverCard
-              totalPosRaised={totalPosRaised}
-              totalServiceOrdersAmt={totalServiceOrdersAmt}
-              categorizedData={categorizedData}
-              workPackageTotalAmounts={workPackageTotalAmounts}
-            />
-            <div>
-              <span className="whitespace-nowrap">Total Estimates: </span>
-              <span className="max-sm:text-end max-sm:w-full text-primary">
-                {formatToRoundedIndianRupee(estimatesTotal)}
-              </span>
-            </div>
-            <div>
-              <span className="whitespace-nowrap">Total Amt Paid: </span>
-              <AmountBreakdownHoverCard
-                poAmount={getTotalAmountPaid.poAmount}
-                srAmount={getTotalAmountPaid.srAmount}
-                projectExpensesAmount={getTotalAmountPaid.projectExpensesAmount}
-              >
-                <span className="max-sm:text-end max-sm:w-full text-primary cursor-pointer border-b border-dashed">
-                  {formatToRoundedIndianRupee(getTotalAmountPaid.totalAmount)}
-                </span>
-              </AmountBreakdownHoverCard>
-            </div>
-          </div> */}
         </div>
       </div>
 
@@ -1846,7 +1702,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       {/* Overview Section */}
 
       {/* {activePage === "overview" && (
-        <ProjectOverviewTab projectData={data} estimatesTotal={estimatesTotal} projectCustomer={projectCustomer} totalPOAmountWithGST={totalPOAmountWithGST} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getTotalAmountPaid={getTotalAmountPaid} />
+        <ProjectOverviewTab projectData={data} projectCustomer={projectCustomer} totalPOAmountWithGST={totalPOAmountWithGST} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getTotalAmountPaid={getTotalAmountPaid} />
       )
       } */}
 
@@ -1948,21 +1804,11 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         </>
       )} */}
 
-      {/* {activePage === "projectspends" && (
-        <ProjectSpendsTab projectId={projectId} po_data={po_data} options={options}
-          categorizedData={categorizedData} getTotalAmountPaid={getTotalAmountPaid} workPackageTotalAmounts={workPackageTotalAmounts} totalServiceOrdersAmt={totalServiceOrdersAmt} />
-      )} */}
-
-
       {/* {activePage === "projectfinancials" && (
         <Suspense fallback={<LoadingFallback />}>
           <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer}
             totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} />
         </Suspense>
-      )} */}
-
-      {/* {activePage === "projectestimates" && (
-        <ProjectEstimates projectTab />
       )} */}
 
       {/* {activePage === "projectmakes" && (

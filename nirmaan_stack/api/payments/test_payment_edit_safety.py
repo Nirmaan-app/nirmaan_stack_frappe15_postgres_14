@@ -118,7 +118,7 @@ class TestADeskAmountEdit(EditSafetyCase):
         wo = self.fx.service_request(self.project, self.vendor, total=118000, gst=True)
         self._plant_on(wo, 20000, "Requested")
         pay = self._plant_on(wo, 10000, "Approved")
-        # An Accountant (an Admin skips the invoice check), raising within the auto band, which needs no step.
+        # An Accountant, raising within the auto band, which needs no step.
         with self.assertRaisesRegex(frappe.ValidationError, "in approved invoices"):
             self._edit_amount_as(self._user(ACCOUNTANT_PROFILE), pay, 14000)
         self.assertEqual(self._amount(pay), 10000.0)

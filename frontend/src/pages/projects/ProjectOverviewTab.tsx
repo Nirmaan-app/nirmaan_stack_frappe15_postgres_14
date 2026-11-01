@@ -26,7 +26,7 @@ import { getTotalInflowAmount } from "@/utils/getAmounts";
 import { AlertCircle, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, CirclePlus, ListChecks, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { CustomerPODetailsCard } from "./components/CustomerPODeatilsCard";
@@ -56,7 +56,6 @@ import {
 interface ProjectOverviewTabProps {
   projectData: Projects;
   projectCustomer?: Customers;
-  estimatesTotal: number
   totalPOAmountWithGST: number
   getAllSRsTotalWithGST: number
 }
@@ -76,7 +75,6 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
   // PMO Executive does not see Project Drive on Overview (owner ruling). Scoped to
   // PMO only -- every other role keeps the card. Customer PO Details IS shown to PMO.
   const isPMO = role === "Nirmaan PMO Executive Profile";
-  const navigate = useNavigate();
   const {
     createUserPermission,
     createDocLoading,
@@ -317,12 +315,6 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
                   size="default"
                   className="w-full md:w-auto"
                 />
-                {role !== "Nirmaan Accountant Profile" && role !== "Nirmaan Accountant Lead Profile" && (
-                  <Button onClick={() => navigate("add-estimates")} className="w-full md:w-auto">
-                    <CirclePlus className="h-4 w-4 mr-2" /> Add Project
-                    Estimates
-                  </Button>
-                )}
               </div>
             </div>
           </CardTitle>

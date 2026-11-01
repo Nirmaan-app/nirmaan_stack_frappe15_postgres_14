@@ -145,7 +145,6 @@ nirmaan_stack/
 |---------|------|------------|---------|
 | **Projects** | Master | project_name, customer, project_value, project_start_date, customer_po_details (child) | Central hub |
 | **Project Types** | Master | project_type_name | Categorization |
-| **Project Estimates** | Master | project, category, item, quantity_estimate, rate_estimate | BOQ management |
 | **Project Expenses** | Master | project, vendor, amount, expense_type | Cost tracking |
 | **Project Invoices** | Master | project, invoice_no, amount | Vendor invoices |
 | **Project Inflows** | Master | project, customer, utr, amount | Revenue tracking |

@@ -611,6 +611,12 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         return;
       }
       let successMessage: string | undefined;
+      // A reimbursement's expense (ADR-0040): rejecting it rejects the claim too, with the same reason.
+      const expenseDecided = (status: string) =>
+        actionType === DIALOG_ACTION_TYPES.REJECT
+        && (selectedPayment as unknown as ApprovalQueueRow).source_type === "Reimbursement"
+          ? "Rejected. The reimbursement claim is rejected too, with your reason."
+          : `Expense marked ${status}.`;
       try {
         if (actionType === DIALOG_ACTION_TYPES.REJECT && chequeApproval) {
           // Every payment on the cheque Rejected and the cheque Cancelled, with the reason on each.
@@ -634,7 +640,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
               actionType === DIALOG_ACTION_TYPES.REJECT ? "reject" : "ceo_approve",
               { reason },
             );
-            successMessage = `Expense marked ${status}.`;
+            successMessage = expenseDecided(status);
           } else if (actionType === DIALOG_ACTION_TYPES.REJECT) {
             // CEO rejection: no amount edits — flip status to Rejected.
             await updateDoc(ceoDoctype, selectedPayment.name, {
@@ -668,7 +674,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             actionType === DIALOG_ACTION_TYPES.APPROVE ? "l1_approve" : "reject",
             { reason },
           );
-          successMessage = `Expense marked ${status}.`;
+          successMessage = expenseDecided(status);
         } else {
           // A Project Payment (both expense ledgers took the branch above).
           // L1 either FINISHES the approval or forwards to the CEO, depending on the

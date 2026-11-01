@@ -13,7 +13,7 @@ import { useNavigate } from "react-router-dom";
 import { Badge } from "../ui/badge";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { canManageTendering } from "@/pages/projects/tendering/tenderingAuth";
-import { PROCUREMENT_PROFILES, canManagePayees } from "@/constants/roles";
+import { PROCUREMENT_PROFILES, canAddInflow, canAddProjectInvoice, canManagePayees } from "@/constants/roles";
 import { canCreateNonProjectInflow } from "@/pages/non-project-inflows/nonProjectInflowModel";
 import { useExpenseAccess } from "@/hooks/useExpenseAccess";
 import { offersNewExpense } from "@/utils/expenseAccess";
@@ -53,11 +53,10 @@ export const RenderRightActionButton = ({
 
   const navigate = useNavigate();
   const { role, user_id } = useUserData()
-  const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
   const { selectedProject } = useContext(UserContext);
   // Shared through SWR with the sidebar item, so it costs no extra request.
   const { access: expenseAccess } = useExpenseAccess();
-  const { toggleNewInflowDialog, toggleNewNonProjectInflowDialog, toggleNewPayeeDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewExpenseRequestDialog, toggleNewWODialog, setNewReminderDialog, setEditReminderScheduleName } = useDialogStore()
+  const { toggleNewInflowDialog, toggleNewNonProjectInflowDialog, toggleNewPayeeDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewExpenseRequestDialog, toggleNewWODialog, setNewReminderDialog, setEditReminderScheduleName, toggleNewReimbursementDialog } = useDialogStore()
 
   if (newButtonRoutes[locationPath]) {
     // "Add New Project" uses the shared canManageTendering gate (Admin / PMO /
@@ -125,8 +124,8 @@ export const RenderRightActionButton = ({
       </Button>
     );
   } else if (locationPath === "/in-flow-payments") {
-    // Sales users (Executive / Lead) are view-only here — no create button.
-    if (isSales) return null;
+    // Sales users (Executive / Lead) and PMO are view-only here — no create button.
+    if (!canAddInflow(role)) return null;
     return (
       <Button onClick={toggleNewInflowDialog} className="sm:mr-4 mr-2">
         <CirclePlus className="w-5 h-5 pr-1" />
@@ -150,8 +149,8 @@ export const RenderRightActionButton = ({
       </Button>
     );
   } else if (locationPath === "/project-invoices") {
-    // Sales users (Executive / Lead) are view-only here — no create button.
-    if (isSales) return null;
+    // Sales users (Executive / Lead) and PMO are view-only here — no create button.
+    if (!canAddProjectInvoice(role)) return null;
     return (
       <Button onClick={toggleNewProjectInvoiceDialog} className="sm:mr-4 mr-2">
         <CirclePlus className="w-5 h-5 pr-1" />
@@ -168,6 +167,15 @@ export const RenderRightActionButton = ({
       <Button onClick={toggleNewExpenseRequestDialog} className="sm:mr-4 mr-2">
         <CirclePlus className="w-5 h-5 pr-1" />
         New <span className="hidden md:flex pl-1">Expense</span>
+      </Button>
+    );
+  } else if (locationPath === "/reimbursements") {
+    // No role gate: every user claims back money they spent for work. The dialog has no trigger of
+    // its own and is mounted on ReimbursementsPage, so this button only flips the store flag.
+    return (
+      <Button onClick={toggleNewReimbursementDialog} className="sm:mr-4 mr-2">
+        <CirclePlus className="w-5 h-5 pr-1" />
+        Raise <span className="hidden md:flex pl-1">Reimbursement</span>
       </Button>
     );
   } else if (locationPath === "/reminders") {

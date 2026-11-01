@@ -332,10 +332,9 @@ class TestRecordsWithoutReview(FrappeTestCase):
 
 	def _set_type_roles(self, expense_type, profiles):
 		"""Change who may raise `expense_type` the way Expense Packages does, keeping its flags."""
-		t = frappe.db.get_value("Expense Type", expense_type,
-		                        ["project", "non_project", "expense_category"], as_dict=True)
+		t = frappe.db.get_value("Expense Type", expense_type, ["project", "non_project"], as_dict=True)
 		update_expense_type(expense_type, project=t.project, non_project=t.non_project,
-		                    expense_category=t.expense_category, allowed_roles=list(profiles))
+		                    allowed_roles=list(profiles))
 		routing.clear_cache()
 
 	def test_only_an_admin_may_change_the_list(self):

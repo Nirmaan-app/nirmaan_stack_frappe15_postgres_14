@@ -651,6 +651,11 @@ def on_update(doc, method):
         if moved_pos:
             recompute_vendor_credit(moved_pos, PAYMENT_CHANGED_ENTRY)
 
+    # The deduction's Payment Date follows the payment's while Paid, and clears when it leaves Paid.
+    # Above the status guard below, which returns: a date fixed on a Paid payment changes no status.
+    if old_doc and (old_doc.status != doc.status or str(old_doc.payment_date or "") != str(doc.payment_date or "")):
+        payment_tds.sync_payment_date(doc)
+
     if not old_doc or old_doc.status == doc.status:
         return # Do nothing if status hasn't changed
 

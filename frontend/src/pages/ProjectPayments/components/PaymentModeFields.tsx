@@ -5,6 +5,7 @@ import { AlertTriangle, Ban, Loader2 } from "lucide-react";
 
 import { FROM_PHOTO_INPUT, FromPhotoTag } from "@/components/cheques/FromPhotoTag";
 import { useChequePhotoReader, usePayeeVendorMismatch } from "@/components/cheques/useChequePhotoReader";
+import { shrinkChequePhoto } from "@/components/cheques/shrinkChequePhoto";
 import { useExistingCheque } from "@/components/cheques/useExistingCheque";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { Input } from "@/components/ui/input";
@@ -14,6 +15,7 @@ import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import { CHEQUE_BANK, CHEQUE_PAYMENT_DATE_LABEL, CHEQUE_STATUS } from "@/types/NirmaanStack/Cheques";
 import { isFromPhoto, type ChequePhotoField } from "@/utils/cheques/chequePhoto";
+import { CHEQUE_PHOTO_PICK_LIMIT, pickRefusal } from "@/utils/cheques/chequePhotoFile";
 import { chequeReportPath } from "@/utils/cheques/chequeReportLink";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { getFrappeError } from "@/utils/frappeErrors";
@@ -109,7 +111,8 @@ export const PaymentModeFields = ({
 		if (!file) return;
 		try {
 			// Uploaded unattached, as the Security Deposit cheque form does: saving the Cheque attaches it.
-			const uploaded = await upload(file, { isPrivate: true });
+			// A large phone photo is redrawn as a JPG first (`shrinkChequePhoto`).
+			const uploaded = await upload(await shrinkChequePhoto(file), { isPrivate: true });
 			if (session !== uploadSession.current) return;
 			set({ attachment: uploaded.file_url });
 			// A replaced photo is read again; what only the old one said is cleared.
@@ -164,6 +167,10 @@ export const PaymentModeFields = ({
 								selectedFile={value.attachment || value.photoBusy ? photoFile : null}
 								onFileSelect={handlePhoto}
 								acceptedTypes={["image/*", "application/pdf"]}
+								maxFileSize={CHEQUE_PHOTO_PICK_LIMIT}
+								onError={(error) =>
+									toast({ title: "Could not use this file", description: pickRefusal(error), variant: "destructive" })
+								}
 								label="Upload cheque photo"
 								disabled={disabled}
 							/>

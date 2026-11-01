@@ -1,10 +1,20 @@
 import { CheckCircle2, Clock, XCircle } from 'lucide-react';
 import React from 'react';
+import { format } from 'date-fns';
 
 // --- Constants ---
 export const DELIMITER = "$#,,,"; // Custom delimiter for work plan points
 
 // --- Date Helpers ---
+
+/**
+ * Format a Frappe datetime string ("2026-10-28 10:40:12.123") as "28-Oct-2026, 10:40 AM".
+ * Returns the input unchanged when it cannot be parsed.
+ */
+export const formatServerDateTime = (value: string): string => {
+  const date = new Date(value.replace(" ", "T"));
+  return Number.isNaN(date.getTime()) ? value : format(date, "dd-MMM-yyyy, hh:mm a");
+};
 
 /**
  * Format date for input type="date" (YYYY-MM-DD)
@@ -135,4 +145,7 @@ export interface ProjectZoneEntry {
 export interface ZoneProgressInfo {
   status: string;
   name: string;
+  /** Who last saved a Draft, and when; unset on Completed reports. */
+  draft_owner?: string | null;
+  draft_last_updated?: string | null;
 }

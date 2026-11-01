@@ -8,8 +8,8 @@
 `Expense Type` is listed in `hooks.py` `fixtures`, so EVERY `bench migrate` re-imports each
 row from `fixtures/expense_type.json`. Frappe writes the row as the file describes it — so
 any field the file does NOT carry is reset to null. When `source_format` and
-`expense_category` were added to the doctype and the fixture was not regenerated, one migrate
-silently destroyed all 40 request forms and every category assignment. Nothing errored.
+`expense_category` (since removed) were added to the doctype and the fixture was not regenerated,
+one migrate silently destroyed all 40 request forms and every category assignment. Nothing errored.
 
 The failure mode is the dangerous kind: invisible, delayed to deploy time, and it looks like
 data loss rather than a code defect.
@@ -35,7 +35,7 @@ LAYOUT_FIELDTYPES = {
 	"Section Break", "Column Break", "Tab Break", "HTML", "Heading", "Button", "Fold",
 }
 
-FIXTURE_DOCTYPES = ["Expense Type", "Expense Category"]
+FIXTURE_DOCTYPES = ["Expense Type"]
 
 
 def _fixture_path(doctype: str) -> str:
@@ -109,11 +109,10 @@ class TestFixtureCompleteness(FrappeTestCase):
 		self.assertIsNotNone(live, f"{name} is missing -- run `bench migrate`")
 		self.assertEqual((live.project, live.non_project), (1, 1))
 
-	def test_every_categorised_type_points_at_a_category_that_ships(self):
-		"""A Link whose target is not in the fixtures dangles on a fixture-seeded site."""
-		types = json.load(open(_fixture_path("Expense Type")))
-		cats = {r["name"] for r in json.load(open(_fixture_path("Expense Category")))}
-		for r in types:
-			c = r.get("expense_category")
-			if c:
-				self.assertIn(c, cats, f"{r['name']} -> category '{c}' is not in the fixtures")
+	def test_the_expense_category_is_gone_from_the_fixtures(self):
+		"""`Expense Category` was removed (owner, 2026-10-27). Every file in `fixtures/` loads on
+		migrate, so a leftover category fixture would fail the migrate once the doctype is dropped.
+		The Expense Type fixture still carries `expense_category` keys (owner kept them): the import
+		writes only the fields the doctype declares, so they set nothing."""
+		self.assertFalse(os.path.exists(_fixture_path("Expense Category")))
+		self.assertNotIn("Expense Category", frappe.get_hooks("fixtures"))

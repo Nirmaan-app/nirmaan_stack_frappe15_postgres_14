@@ -63,6 +63,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { getFrappeError } from "@/utils/frappeErrors"
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice"
 import { GstPaymentTag } from "./components/GstPaymentTag"
+import { ReimbursementTag } from "./components/ReimbursementTag"
 import {
     AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -624,10 +625,16 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                                 <p>It will be permanently deleted. This can't be undone.</p>
                                 {deleteIsPayment ? (
                                     <p>Its payment term on {deleteRow?.document_name} can be requested again.</p>
-                                ) : (
+                                ) : deleteRow?.source_type !== "Reimbursement" && (
                                     // The server does this, not the page: the expense doctypes'
                                     // `after_delete` deletes the request (expense_request_status.py).
+                                    // A reimbursement's expense never comes from a request: its own line says what goes.
                                     <p>If it came from an Expense Request, that request is deleted too.</p>
+                                )}
+                                {deleteRow?.source_type === "Reimbursement" && (
+                                    <p className="font-medium text-destructive">
+                                        It pays a reimbursement claim, so that claim and its receipts are deleted too.
+                                    </p>
                                 )}
                                 {deleteRow && (
                                     <div className="rounded border bg-muted/40 p-2">
@@ -636,7 +643,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                                         </div>
                                         <div className="text-muted-foreground">
                                             {formatToRoundedIndianRupee(deleteRow.amount)}
-                                            <GstPaymentTag payment={deleteRow} /> · {deleteRow.status}
+                                            <GstPaymentTag payment={deleteRow} /><ReimbursementTag row={deleteRow} /> · {deleteRow.status}
                                             {deleteRow.vendor ? ` · ${vendorLabelMap.get(deleteRow.vendor) || deleteRow.vendor}` : ""}
                                         </div>
                                         {deleteRow.raised_by !== user_id && (

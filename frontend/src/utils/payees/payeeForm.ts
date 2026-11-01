@@ -123,16 +123,28 @@ export const newPayeeProblem = ({
     formProblem,
     duplicate,
     lookingUp,
+    ownAccountRefused = false,
 }: {
     formProblem: string | null;
     duplicate: boolean;
     lookingUp: boolean;
+    /** The duplicate is a person's own account and this screen can't use one (`refusesOwnAccount`). */
+    ownAccountRefused?: boolean;
 }): string | null => {
     if (lookingUp) return "Wait for the IFSC lookup.";
     if (formProblem) return formProblem;
-    if (duplicate) return "This account is already a payee. Use that payee instead of adding a new one.";
+    if (duplicate) return ownAccountRefused ? OWN_ACCOUNT_REFUSAL : "This account is already a payee. Use that payee instead of adding a new one.";
     return null;
 };
+
+/** Why an Expense Request can't use a person's own account (owner, 2026-10-27). Twin of
+ *  `services/payees/pay_to.OWN_ACCOUNT_REFUSAL`, which the server refuses with. */
+export const OWN_ACCOUNT_REFUSAL =
+    "This is a user's own account (Users), so it can't be used in an expense request. Enter a different account.";
+
+/** A duplicate the request screen must refuse rather than offer: a Users Payee, someone's own account. */
+export const refusesOwnAccount = (refuse: boolean | undefined, dup: Pick<PayeeSummary, "payee_type"> | null): boolean =>
+    !!refuse && dup?.payee_type === "Users";
 
 /** "HDFC Bank, Rohtak": a Payee's bank and branch as every screen shows them; empty when neither is known. */
 export const bankLine = (p: { bank_name?: string | null; bank_branch?: string | null }): string =>

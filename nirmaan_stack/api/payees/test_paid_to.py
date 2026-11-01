@@ -89,8 +89,7 @@ class TestPaidTo(FrappeTestCase):
         for rule in ("Required", "Optional", "Not asked"):
             name = f"pye_paidto_{rule.replace(' ', '_').lower()}_{frappe.generate_hash(length=5)}"
             doc = frappe.new_doc("Expense Type")
-            doc.update({"expense_name": name, "non_project": 1, "expense_category": "Uncategorized",
-                        "payee_rule": rule})
+            doc.update({"expense_name": name, "non_project": 1, "payee_rule": rule})
             doc.insert(ignore_permissions=True)
             cls.types[rule] = doc.name
         frappe.db.commit()

@@ -22,9 +22,9 @@ neither link. An expense row moves no order figure, so its correction or delete 
 `status` and `tds_challan` are never set by hand: only Pay TDS writes them (`api/tds_challan/pay_tds`,
 by `set_value`, which fires none of these hooks), because it alone checks the challan's balance and that
 the payment is Paid. A correction therefore never moves a challan's figures: before a challan there is
-none to move, and after one the row is locked. `borne_by` is moved only by the Admin action *TDS paid by
-company* (`payment_tds.mark_tds_paid_by_company`, #1537), which saves through here so its correction
-recounts the order like any other.
+none to move, and after one the row is locked. `borne_by` is moved only by the Admin action *Company
+Bears TDS* (`tds_cut_undo.company_bears_tds`), which saves through here so its correction recounts the
+order like any other; its twin *Mark as Deposit* deletes the row through here (`frappe.delete_doc`).
 
 A deduction on a PAID payment is part of its order's Amount Paid, `total_tds` and Amount Due (ADR-0034
 Amendments A and B) and of its project's outflow (#1510), so a correction or a delete recounts the order
@@ -41,10 +41,11 @@ from frappe.utils import cstr, flt
 from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import recheck_after_recount
 from nirmaan_stack.services.amount_paid import write_amount_paid
 from nirmaan_stack.services.payment_tds import (
+	COMPANY_BEARS_TDS,
+	COMPANY_BEARS_TDS_FLAG,
 	PAID,
 	PAYMENT_DOCTYPE,
 	RECORDED_BY_SERVER,
-	TDS_PAID_BY_COMPANY,
 	challan_label,
 	deduction_link_problem,
 )
@@ -129,12 +130,12 @@ def refuse_hand_written_challan(doc, before):
 
 
 def refuse_hand_written_borne_by(doc, before):
-	"""Who bore the tax is set when the deduction is taken, and moved only by the Admin action *TDS paid
-	by company* (`payment_tds.mark_tds_paid_by_company`, #1537), which checks the role and the challan."""
-	if _changed(doc, before, "borne_by") and not doc.flags.get("tds_paid_by_company"):
+	"""Who bore the tax is set when the deduction is taken, and moved only by the Admin action *Company
+	Bears TDS* (`tds_cut_undo.company_bears_tds`), which checks the role, the status and the challan."""
+	if _changed(doc, before, "borne_by") and not doc.flags.get(COMPANY_BEARS_TDS_FLAG):
 		frappe.throw(
 			f"{doc.name}: who bore the tax is not changed by hand. An Admin uses "
-			f"\"{TDS_PAID_BY_COMPANY}\" on the payment instead."
+			f"\"{COMPANY_BEARS_TDS}\" on the payment before it is paid."
 		)
 
 

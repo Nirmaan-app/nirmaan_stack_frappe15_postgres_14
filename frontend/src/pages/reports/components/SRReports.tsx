@@ -35,6 +35,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { PENDING_UPLOAD_CREATION_FROM } from "../constants";
 import { applyPendingUploadCutoff } from "../utils/pendingUploadCutoff";
 import { SR_REPORT_DELTA, srReportIncludes } from "../utils/srReportInclusion";
+import { PendingUploadOrderSummaryCard } from "@/pages/tasks/invoices/components/PendingUploadSummaryCards";
+import { summarisePendingUploadOrders } from "@/pages/tasks/invoices/utils/pendingUploadSummary";
+
+const WO_UNIT = ["WO", "WOs"] as const;
 
 interface SelectOption {
   label: string;
@@ -146,6 +150,7 @@ export default function SRReports({ pendingUploadMode = false }: SRReportsProps 
     setSearchTerm,
     selectedSearchField,
     setSelectedSearchField,
+    columnFilters,
     exportAllRows,
     isExporting,
   } = useServerDataTable<SRReportRowData>({
@@ -183,6 +188,45 @@ export default function SRReports({ pendingUploadMode = false }: SRReportsProps 
     }
   }, [fullyFilteredData]); // Rerun when the table instance or filtered data count changes
   //
+
+  // Pending Invoices Upload only: a totals card over exactly the rows the table shows (search and
+  // filters included), above the rule note. A Work Order has no delivery, so its basis is Amt Paid.
+  // The Reports page renders the note alone. TanStack memoises the row model, so `filteredRows`
+  // keeps its identity until the data or a filter changes.
+  const filteredRows = table.getFilteredRowModel().rows;
+  const isFiltered = columnFilters.length > 0 || !!searchTerm;
+  const pendingUploadSummary = useMemo(
+    () =>
+      pendingUploadMode && selectedReportType === "Pending Invoices"
+        ? summarisePendingUploadOrders(
+            filteredRows.map(({ original: row }) => ({
+              totalAmount: parseNumber(row.totalAmount),
+              invoiceAmount: parseNumber(row.invoiceAmount),
+              basisAmount: parseNumber(row.amountPaid),
+            }))
+          )
+        : null,
+    [filteredRows, pendingUploadMode, selectedReportType]
+  );
+  const tableSummaryNode = useMemo(
+    () =>
+      pendingUploadSummary ? (
+        <div className="flex flex-col gap-2">
+          <PendingUploadOrderSummaryCard
+            title="WO Invoices Pending Upload"
+            unit={WO_UNIT}
+            totalLabel="Total WO Amt"
+            basisLabel="Amt Paid"
+            summary={pendingUploadSummary}
+            isFiltered={isFiltered}
+          />
+          {summaryCardNode}
+        </div>
+      ) : (
+        summaryCardNode
+      ),
+    [pendingUploadSummary, isFiltered, summaryCardNode]
+  );
 
   // Supporting data for faceted filters
   const projectFacetOptions = useMemo<SelectOption[]>(() => {
@@ -327,7 +371,7 @@ export default function SRReports({ pendingUploadMode = false }: SRReportsProps 
           onExport={handleCustomExport}
           exportFileName={exportFileName}
           showRowSelection={false}
-          summaryCard={summaryCardNode}
+          summaryCard={tableSummaryNode}
           getRowClassName={getRowClassName}
         />
       )}

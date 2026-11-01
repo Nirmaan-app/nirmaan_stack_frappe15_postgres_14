@@ -118,6 +118,7 @@ INDEXES: tuple[tuple[str, tuple[str, ...], str, bool], ...] = (
     ('Material Test Certificate', ('procurement_order',), 'mtc_procurement_order_index', False),
     ('Material Test Certificate', ('project',), 'mtc_project_index', False),
     ('Material Test Certificate Item', ('parent',), 'mtc_item_parent_index', False),
+    ('Non Project Expenses', ('reimbursement',), 'Non_Project_Expenses_reimbursement_idx', False),
     ('Non Project Expenses', ('request_id',), 'Non_Project_Expenses_request_id_idx', False),
     ('Non Project Expenses', ('credit_card_statement',), 'Non_Project_Expenses_credit_card_statement_idx', False),
     ('Non Project Expenses', ('porter_order',), 'Non_Project_Expenses_porter_order_idx', False),

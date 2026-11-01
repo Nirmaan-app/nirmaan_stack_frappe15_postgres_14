@@ -2,6 +2,7 @@ import frappe
 from frappe.utils import today, add_days, getdate
 
 from nirmaan_stack.api.outflow_import.review import not_matched_totals
+from nirmaan_stack.services.cheque_payments import is_cheque
 from nirmaan_stack.services.outflow_import.expense_links import (
     latest_line_in_range,
     load_part_reconciled,
@@ -14,6 +15,18 @@ def _to_float(value):
         return float(value) if value else 0.0
     except (ValueError, TypeError):
         return 0.0
+
+
+#: The two rows the card splits Payment Done / Reconciliation Pending into (owner, 2026-10-28).
+RECON_ONLINE = "online"
+RECON_CHEQUE = "cheque"
+
+
+def reconciliation_row(is_payment: bool, doc) -> str:
+    """Which Reconciliation Pending row a record belongs to: a Project Payment requested as a cheque is
+    `RECON_CHEQUE` (its cheque is issued and waits for the bank to clear it); everything else, every expense
+    included (they carry no mode of payment), is `RECON_ONLINE`."""
+    return RECON_CHEQUE if is_payment and is_cheque(doc) else RECON_ONLINE
 
 
 @frappe.whitelist(allow_guest=False)
@@ -64,6 +77,15 @@ def get_payment_dashboard_stats():
         # by 2h2 instead. Both come off ONE read in 2h2, so what leaves this figure is exactly
         # what lands over there. Read inside the outflow `try` below; 0 if that fails.
         'total_reconciliation_pending_reconciled_amount': 0.0,
+        # The same row split in two (owner, 2026-10-28): Online Payment and Cheque Issued
+        # (`reconciliation_row`). Each pair adds up to the combined figures above, the bank-covered
+        # part included, so the card's two rows always total the old one.
+        'total_reconciliation_pending_online_count': 0,
+        'total_reconciliation_pending_online_amount': 0.0,
+        'total_reconciliation_pending_online_reconciled_amount': 0.0,
+        'total_reconciliation_pending_cheque_count': 0,
+        'total_reconciliation_pending_cheque_amount': 0.0,
+        'total_reconciliation_pending_cheque_reconciled_amount': 0.0,
 
         # Approved
         'total_approval_done_today': 0,
@@ -153,9 +175,14 @@ def get_payment_dashboard_stats():
 
         all_payments = []
         for _ledger in LEDGERS:
-            for _row in frappe.get_all(_ledger, fields=_row_fields, limit_page_length=None):
+            # Only a Project Payment has a mode of payment (Online / Cheque); the expense ledgers have none.
+            _fields = _row_fields + (['mode_of_payment'] if _ledger == doctype else [])
+            for _row in frappe.get_all(_ledger, fields=_fields, limit_page_length=None):
                 _row['ledger'] = _ledger
                 all_payments.append(_row)
+        # The Reconciliation Pending records on the Cheque Issued row, so 2h2 can split the bank-covered
+        # part the same way: `(ledger, name)`.
+        cheque_pending = set()
 
         # 2. Python Aggregation (Manual Calculation)
         for doc in all_payments:
@@ -182,6 +209,11 @@ def get_payment_dashboard_stats():
             if status == 'Reconciliation Pending':
                 stats['total_reconciliation_pending_count'] += 1
                 stats['total_reconciliation_pending_amount'] += amount
+                _row_key = reconciliation_row(is_payment, doc)
+                stats[f'total_reconciliation_pending_{_row_key}_count'] += 1
+                stats[f'total_reconciliation_pending_{_row_key}_amount'] += amount
+                if _row_key == RECON_CHEQUE:
+                    cheque_pending.add((doc.get('ledger'), doc.name))
 
             # --- 2b & 2c. APPROVED Check (L1) ---
             # Exclude auto-approved payments — they skipped the L1 gate and are
@@ -353,10 +385,14 @@ def get_payment_dashboard_stats():
             # lines carry no date is left out of the window. One outside the window still leaves
             # the pending row -- that money is gone, just not recently.
             reconciled_in_pending = 0.0
+            # Split by row like the record itself; written beside the combined figure below, so a failure
+            # half-way leaves all three at 0 together.
+            reconciled_by_row = {RECON_ONLINE: 0.0, RECON_CHEQUE: 0.0}
             for _ledger in LEDGERS:
                 for _name, _links in load_part_reconciled(_ledger).items():
                     _confirmed = float(_links.linked_total)
                     reconciled_in_pending += _confirmed
+                    reconciled_by_row[RECON_CHEQUE if (_ledger, _name) in cheque_pending else RECON_ONLINE] += _confirmed
                     if not latest_line_in_range(_links, thirty_days_ago, today_date):
                         continue
                     if _ledger == 'Non Project Expenses':
@@ -378,6 +414,8 @@ def get_payment_dashboard_stats():
             stats['total_unreconciled_inflow_amount'] = not_matched['inflow']['amount']
             stats['total_unreconciled_inflow_count'] = not_matched['inflow']['rows']
             stats['total_reconciliation_pending_reconciled_amount'] = reconciled_in_pending
+            for _row_key, _confirmed in reconciled_by_row.items():
+                stats[f'total_reconciliation_pending_{_row_key}_reconciled_amount'] = _confirmed
 
         except Exception as unmatched_error:
             frappe.log_error(

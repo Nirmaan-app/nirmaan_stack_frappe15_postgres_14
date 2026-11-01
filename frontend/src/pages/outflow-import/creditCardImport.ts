@@ -15,6 +15,27 @@ export const CARD_UPLOAD_URL = "/api/method/nirmaan_stack.api.outflow_import.car
 export const CARD_IMPORT_METHOD = "nirmaan_stack.api.outflow_import.card_import.get_card_import";
 export const CARD_DISCARD_METHOD = "nirmaan_stack.api.outflow_import.card_import.discard_card_import";
 
+/**
+ * The upload's two password refusals, word for word as `card_pdf.py` raises them (ADR-0039 Amendment A),
+ * pinned against that file by test. Either one makes Upload show the PDF password field.
+ */
+export const CARD_PASSWORD_NEEDED = "This PDF is password-locked. Enter its password and upload again.";
+export const CARD_WRONG_PASSWORD = "That password did not open this PDF. Check it and upload again.";
+
+/** Whether an upload refusal is asking for the PDF's password (locked, or the password typed was wrong). */
+export const cardAsksForPassword = (error: string | null | undefined): boolean =>
+    Boolean(error) && [CARD_PASSWORD_NEEDED, CARD_WRONG_PASSWORD].some((refusal) => error!.includes(refusal));
+
+/**
+ * Whether a PDF's bytes carry an `/Encrypt` entry, which every password-locked PDF has in its trailer (or in its
+ * cross-reference stream's dictionary, which is never compressed). Read when the file is picked, so Upload shows
+ * the password field before the first try. A hint only: the server still decides, and a PDF encrypted with an
+ * owner password only carries it too, yet opens with the field left empty.
+ */
+export const pdfLooksLocked = (bytes: Uint8Array): boolean =>
+    // One character per byte; `/EncryptMetadata` and other longer names are not the key.
+    /\/Encrypt(?![A-Za-z0-9])/.test(new TextDecoder("latin1").decode(bytes));
+
 /** The URL parameter that holds the card import the dialog is showing, so a reload reopens it. */
 export const CARD_URL_KEY = "card";
 

@@ -30,6 +30,7 @@ import {
 } from "../components/DetailPopovers";
 import { ExpenseBankLinesPopover } from "../components/ExpenseBankLinesPopover";
 import { GstPaymentTag } from "../components/GstPaymentTag";
+import { ReimbursementTag } from "../components/ReimbursementTag";
 import { partReconciled } from "../components/expenseBankLinesView";
 import { ExpenseTdsBreakdown } from "@/components/common/ExpenseTdsBreakdown";
 import { shownExpenseTds } from "@/utils/expenses/expenseTds";
@@ -144,11 +145,16 @@ const daysSince = (iso?: string | null): number | null => {
   return Math.floor((Date.now() - then) / 86_400_000);
 };
 
-const TypeChip = ({ type }: { type: ApprovalQueueRow["source_type"] }) => (
-  <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${TYPE_BADGE[type] ?? ""}`}>
-    {TYPE_LABEL[type] ?? type}
-  </span>
-);
+/** A reimbursement's expense IS a Non-Project Expense (ADR-0040): it wears that pill, and the
+ *  ReimbursementTag beside it says which kind, the way a GST payment carries its "GST" tag. */
+const TypeChip = ({ type }: { type: ApprovalQueueRow["source_type"] }) => {
+  const shown = type === "Reimbursement" ? "Non-Project" : type;
+  return (
+    <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${TYPE_BADGE[shown] ?? ""}`}>
+      {TYPE_LABEL[shown] ?? shown}
+    </span>
+  );
+};
 
 const TIER_CLASSES: Record<ApprovalQueueRow["tier"], string> = {
   auto: "bg-green-100 text-green-800",
@@ -394,12 +400,14 @@ const REGISTRY: Record<
     accessorKey: "source_type",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
     cell: ({ row }) => (
-      <span className="inline-flex items-center">
+      <span className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1">
         <TypeChip type={row.original.source_type} />
         <GstPaymentTag payment={row.original} />
+        <ReimbursementTag row={row.original} />
       </span>
     ),
-    // Sized for the longest label, "Non Project Expense", rendered as a pill.
+    // Sized for the longest label, "Non Project Expense", rendered as a pill; a tag (GST, Reimbursement)
+    // wraps onto the next line beside it.
     size: 158,
     meta: { exportHeaderName: "Type", exportValue: (r: ApprovalQueueRow) => TYPE_LABEL[r.source_type] ?? r.source_type },
   }),

@@ -67,6 +67,13 @@ export interface OutflowRowsController {
     rows: OutflowImportRow[];
     total: number;
     loading: boolean;
+    /**
+     * The CURRENT query failed and is not being retried right now.
+     *
+     * ⚠️ `rows` IS THEN THE PREVIOUS QUERY'S ANSWER (`keepPreviousData`), not this one's -- a table that
+     * drew it would present another search's rows as this search's result. Show a failure instead.
+     */
+    failed: boolean;
     tabCounts?: OutflowRowsPage["tab_counts"];
     statusCounts?: OutflowRowsPage["status_counts"];
     /** `status_counts` split by direction (#1264) — the source of the Outflow tab's two chips. */
@@ -191,14 +198,15 @@ export function useOutflowRows({
      * statement they just chose reporting zero transfers. "This import, all of it" has to mean all
      * of it whichever control is left set.
      */
-    const filters = useMemo<ColumnFilters>(
-        () => ({
-            ...ownFilters,
+    const withScope = useCallback(
+        (own: ColumnFilters): ColumnFilters => ({
+            ...own,
             [PERIOD_COLUMN_ID]: batch ? undefined : (period ?? undefined),
             [SOURCE_COLUMN_ID]: batch || !sources.length ? undefined : sources,
         }),
-        [ownFilters, period, sources, batch]
+        [period, sources, batch]
     );
+    const filters = useMemo(() => withScope(ownFilters), [withScope, ownFilters]);
 
     // Typing must not fire a query per keystroke now that search is a round trip.
     useEffect(() => {
@@ -206,19 +214,46 @@ export function useOutflowRows({
         return () => clearTimeout(timer);
     }, [search]);
 
+    // ⚠️ THE FUNNELS ARE DEBOUNCED ON THE SAME TERMS AS THE SEARCH. A text or amount funnel writes
+    // `onFilter` on every keystroke, so without this each letter fired the rows read AND the
+    // summary read. The inputs still read `filters`, so typing stays instant; only the query waits.
+    //
+    // ⚠️ ONLY THE FUNNELS -- THE PERIOD, THE SOURCE AND THE PINNED IMPORT APPLY AT ONCE. Each has its
+    // own control above the summary that shows its new value immediately; holding the query back
+    // would leave that control and the figures beneath it describing different windows.
+    const [debouncedOwnFilters, setDebouncedOwnFilters] = useState(ownFilters);
+    useEffect(() => {
+        const timer = setTimeout(() => setDebouncedOwnFilters(ownFilters), 300);
+        return () => clearTimeout(timer);
+    }, [ownFilters]);
+    const queryFilters = useMemo(
+        () => withScope(debouncedOwnFilters),
+        [withScope, debouncedOwnFilters]
+    );
+
     // Any change to what is being asked for resets to the first page. Without this, narrowing a
     // filter while on page 4 shows an empty table that looks like "no results".
     useEffect(() => {
         setPage(0);
-    }, [scope, debouncedSearch, filters, sort, batch]);
+    }, [scope, debouncedSearch, queryFilters, sort, batch]);
 
     const rowsQuery = useMemo(
-        () => serverQuery({ scope, query: debouncedSearch, filters, sort, page, pageSize, batch }),
-        [scope, debouncedSearch, filters, sort, page, pageSize, batch]
+        () =>
+            serverQuery({
+                scope,
+                query: debouncedSearch,
+                filters: queryFilters,
+                sort,
+                page,
+                pageSize,
+                batch,
+            }),
+        [scope, debouncedSearch, queryFilters, sort, page, pageSize, batch]
     );
 
     const {
         data,
+        error,
         isLoading,
         mutate,
     } = useFrappeGetCall<{ message: OutflowRowsPage }>(
@@ -226,7 +261,15 @@ export function useOutflowRows({
         // The SDK keys its cache on the arguments, so a JSON-serialisable object is what makes each
         // distinct query its own cache entry rather than one entry that keeps being overwritten.
         { ...rowsQuery, facets: JSON.stringify(rowsQuery.facets ?? {}) },
-        enabled ? `outflow-rows-${JSON.stringify(rowsQuery)}` : null
+        enabled ? `outflow-rows-${JSON.stringify(rowsQuery)}` : null,
+        // ⚠️ EVERY NEW QUERY IS A NEW KEY, so without this `data` drops to undefined while it loads:
+        // the rows go empty, the table swaps to its empty state, and the header — with the funnel a
+        // person is typing in — unmounts. `isLoading` still reports the fetch for the busy states.
+        //
+        // ⚠️ RETRIES ARE CAPPED. The SDK's SWR retries a failed read forever (≈5s, 10s, 20s, …), and
+        // each retry redraws the skeleton over the failure notice. Two quiet retries cover a blip;
+        // after that the notice stays and its Retry button is the way back.
+        { keepPreviousData: true, errorRetryCount: 2 }
     );
 
     const rows = useMemo(() => data?.message?.rows ?? [], [data]);
@@ -351,6 +394,7 @@ export function useOutflowRows({
         rows,
         total: data?.message?.total ?? 0,
         loading: Boolean(isLoading),
+        failed: Boolean(error) && !isLoading,
         tabCounts: data?.message?.tab_counts,
         statusCounts: data?.message?.status_counts,
         directionStatusCounts: data?.message?.direction_status_counts,
