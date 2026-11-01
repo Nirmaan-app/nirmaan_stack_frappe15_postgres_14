@@ -40,7 +40,7 @@ from dataclasses import dataclass
 import frappe
 from frappe import _
 from frappe.model import no_value_fields
-from frappe.utils import flt, nowdate
+from frappe.utils import flt, getdate, nowdate
 
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.services.approval_raiser import expense_reviewer, raiser_level, routing_raiser, routing_skips_auto
@@ -254,7 +254,8 @@ def guard_hand_save(doc) -> None:
       * two person-facing endpoints, each asking its own rule before it saves: Change account
         (`services/payees/expense_payee.change_expense_account` asks `assert_may_edit` for the
         `pay_to_*` fields) and the raiser's Add invoice (`save_raiser_invoice`, story 15's carve-out:
-        the invoice fields only, until Paid).
+        the invoice fields only, until Paid); and the Payment Done tab's Upload / Edit Inv
+        (`save_paid_invoice`, owner 2026-10-31: the invoice fields only, once Paid).
     A new person-facing endpoint that saves an Expense elevated must ask `assert_may_edit` too.
 
     The bank-line re-derive runs after this, so an edit that moves a settled amount still moves the
@@ -307,6 +308,60 @@ def save_raiser_invoice(doctype: str, name: str, invoice: dict) -> None:
         frappe.throw(_("{0} is {1}; its invoice can no longer be added here.").format(name, doc.status))
     doc.update({field: invoice.get(field) for field in INVOICE_FIELDS})
     doc.save(ignore_permissions=True)
+
+
+def save_paid_invoice(doctype: str, name: str, invoice: dict, user: str) -> None:
+    """The Payment Done tab's Upload / Edit Inv (owner, 2026-10-31): a carve-out from `edit_access` like
+    `save_raiser_invoice`, for `role_profiles.PAID_INVOICE_PROFILES` (`api/expenses/paid_invoice` checks who).
+    On a Paid Expense it writes `INVOICE_FIELDS` and nothing else, so it saves elevated; all three are
+    required and the date is not after today.
+
+    The file is the one already on the expense, or one `user` just uploaded unattached (an HR user may not
+    write the expense, so cannot upload against it), which is then filed under the expense. Any other File
+    URL is refused, so this cannot put another record's file on an expense. Never commits."""
+    if doctype not in EXPENSE_DOCTYPES:
+        frappe.throw(_("{0} is not an expense ledger.").format(doctype))
+    values = {f: (invoice.get(f) or "").strip() for f in INVOICE_FIELDS}
+    if not values["invoice_attachment"]:
+        frappe.throw(_("Attach the invoice file."), title=_("Invoice file required"))
+    if not values["invoice_ref"]:
+        frappe.throw(_("Enter the invoice number."), title=_("Invoice number required"))
+    if not values["invoice_date"]:
+        frappe.throw(_("Enter the invoice date."), title=_("Invoice date required"))
+    if getdate(values["invoice_date"]) > getdate(nowdate()):
+        frappe.throw(_("The invoice date cannot be after today."))
+
+    doc = frappe.get_doc(doctype, name, for_update=True)
+    if (doc.status or "").strip() != EXPENSE_PAID:
+        frappe.throw(_("{0} is {1}; its invoice is added here only once it is Paid.").format(
+            name, doc.status or "blank"))
+    new_file = None
+    if values["invoice_attachment"] != (doc.invoice_attachment or ""):
+        new_file = _uploaded_invoice_file(doc, values["invoice_attachment"], user)
+    doc.update(values)
+    doc.save(ignore_permissions=True)
+    if new_file:
+        # Files the upload under the expense, as an upload made against it would have been. A plain write:
+        # it moves no bytes, and a File's own hooks have nothing to do for a link.
+        frappe.db.set_value("File", new_file, {
+            "attached_to_doctype": doctype,
+            "attached_to_name": name,
+            "attached_to_field": "invoice_attachment",
+        }, update_modified=False)
+
+
+def _uploaded_invoice_file(doc, file_url: str, user: str) -> str | None:
+    """The File to file under `doc` for `file_url`: None when it already is, else `user`'s own unattached
+    upload of it. Refuses any other URL."""
+    if frappe.db.exists("File", {"file_url": file_url, "attached_to_doctype": doc.doctype,
+                                 "attached_to_name": doc.name}):
+        return None
+    mine = frappe.get_all("File", filters={"file_url": file_url, "owner": user,
+                                           "attached_to_name": ["is", "not set"]},
+                          pluck="name", limit=1)
+    if not mine:
+        frappe.throw(_("That invoice file was not uploaded here. Upload it again."), title=_("Invoice file"))
+    return mine[0]
 
 
 # ── A change to an existing row ─────────────────────────────────────────────────────────────

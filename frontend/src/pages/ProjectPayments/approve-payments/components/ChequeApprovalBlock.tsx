@@ -33,7 +33,8 @@ export const ChequeApprovalBlock: React.FC<ChequeApprovalBlockProps> = ({ approv
         <div className="space-y-3 text-sm">
             <p className="flex flex-wrap items-center gap-2 text-muted-foreground">
                 It is on
-                <ChequeChip cheque={approval.cheque} chequeNo={approval.cheque_no} status={approval.status} />
+                <ChequeChip cheque={approval.cheque} chequeNo={approval.cheque_no} status={approval.status}
+                    credit={!!approval.credit_payment_cheque} />
                 {others ? `${others}. One cheque is approved as one.` : null}
             </p>
 

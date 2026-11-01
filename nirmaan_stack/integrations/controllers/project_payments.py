@@ -21,6 +21,7 @@ from nirmaan_stack.services.cheques.decide import held_by_a_live_cheque, refuse_
 from nirmaan_stack.services.cheques.detach import DELETED
 from nirmaan_stack.services.cheques.payment_mode import (
     validate_cheque_mode,
+    validate_credit_cheque_date,
     validate_on_a_cheque,
     validate_paid_by_clear,
 )
@@ -263,7 +264,8 @@ def validate(doc, method):
     (`payment_mode.validate_cheque_mode`), a cheque payment is approved only with
     its cheque, one cheque one decision (`decide.refuse_lone_approval`), and it moves
     into Paid only when its cheque clears, never out of it, and always has its cheque
-    (#1552, `payment_mode.validate_paid_by_clear`, `payment_mode.validate_on_a_cheque`).
+    (#1552, `payment_mode.validate_paid_by_clear`, `payment_mode.validate_on_a_cheque`). Until a Credit
+    term's due date its cheque is dated on or after it (`payment_mode.validate_credit_cheque_date`).
 
     And the payment steps (#1530): each status move, and a new payment's status, needs the tier the
     Payments screens use (`services/payment_steps.py`).
@@ -278,6 +280,7 @@ def validate(doc, method):
     validate_cheque_mode(doc)
     validate_paid_by_clear(doc)
     validate_on_a_cheque(doc)
+    validate_credit_cheque_date(doc)
     refuse_lone_approval(doc)
     refuse_reject_if_deposited(doc)
     refuse_amount_change_if_deposited(doc)

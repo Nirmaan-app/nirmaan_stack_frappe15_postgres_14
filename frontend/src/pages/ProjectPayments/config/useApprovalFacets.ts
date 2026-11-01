@@ -27,7 +27,7 @@ import { ColumnFiltersState } from "@tanstack/react-table";
 import { useFrappeGetCall } from "frappe-react-sdk";
 
 import { convertTanstackFiltersToFrappe } from "@/lib/frappeTypeUtils";
-import { TYPE_LABEL } from "./approvalsTable.config";
+import { orderTypeOptions, typeFilterLabel } from "./typeFilter";
 
 const FACET_API =
   "nirmaan_stack.api.approvals.get_approval_queue.get_approval_queue_facets";
@@ -168,10 +168,11 @@ export function useApprovalFacets({
 
     const map: FacetOptionMap = {
       // Keyed by the COLUMN ID, which is the server field on every facet here.
+      // A flat list: the four types and Non Project – Reimbursement, then the narrower options (`typeFilter`).
       source_type: {
         title: "Type",
         isLoading: type.isLoading,
-        options: withCounts("source_type", type.values, (v) => TYPE_LABEL[v as keyof typeof TYPE_LABEL] ?? v),
+        options: orderTypeOptions(withCounts("source_type", type.values, typeFilterLabel)),
       },
       project: {
         title: "Project",

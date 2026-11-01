@@ -24,6 +24,7 @@
   "cleared_by",
   "bank_line",
   "old_type",
+  "credit_payment_cheque",
   "attachment",
   "description",
   "lines_section",
@@ -196,6 +197,14 @@
    "read_only": 1
   },
   {
+   "default": "0",
+   "description": "Pays a Credit PO payment term, requested before or after its due date. Set only by Request Payment; a label, no logic keys on it.",
+   "fieldname": "credit_payment_cheque",
+   "fieldtype": "Check",
+   "label": "Credit Payment Cheque",
+   "read_only": 1
+  },
+  {
    "description": "Not shown, and written by no code since #1520: the clearance date from before the Cheque/Payment Date, kept only so the earlier cheque patches still run on a site that first gets Cheques from this file.",
    "fieldname": "clearance_date",
    "fieldtype": "Date",
@@ -207,7 +216,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-20 21:01:00.852132",
+ "modified": "2026-10-31 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Cheques",
