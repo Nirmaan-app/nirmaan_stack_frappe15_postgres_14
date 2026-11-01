@@ -235,6 +235,20 @@ export const NEVER_MATCHED_SOURCES: ReadonlySet<string> = new Set(["Cashbook", P
 export const SPENDER_NAMED_SOURCES: ReadonlySet<string> = new Set(["Cashbook"]);
 
 /**
+ * The sentence every main-table write is refused with on a Cashbook line its import job still owns
+ * (`Pending match run`). Mirrors `skip_origin.CASHBOOK_PENDING_LINE_REFUSAL` word for word (#1587).
+ */
+export const CASHBOOK_PENDING_LINE_REFUSAL =
+    "The Cashbook import is still creating this line's expense, so it can't be worked by hand yet.";
+
+/**
+ * Is this a Cashbook line its import job still owns? Mirrors `skip_origin.own_import_refusal`'s Cashbook
+ * arm: the STATUS as well as the source, so a reopened (`Mismatched`) or `Error` line stays workable.
+ */
+export const isCashbookLineItsJobOwns = (row: { row_status: string; source?: string | null }): boolean =>
+    (row.source ?? "").trim() === "Cashbook" && row.row_status === ROW_PENDING_MATCH;
+
+/**
  * May the "Nothing to link?" Skip box show on this line? Mirrors the server's
  * `skip_origin.manual_skip_refusal`: an OPEN line -- bar a Cashbook line still `Pending match run`,
  * which its own job is about to write (#1314). The server re-checks all of it.

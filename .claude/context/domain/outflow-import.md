@@ -6381,9 +6381,9 @@ Admin + Accountant Lead only; one line at a time. No schema change, no migrate.
 | Action | Rule | Where |
 |---|---|---|
 | Unreconcile a Settled line | the created expense is DELETED (`delete_created`, #1278, same refusals); the line lands **Not Matched** (`Mismatched`), `confirm_by_hand` set, no pick | `services/.../unreconcile.leg_verdict` (source no longer asked); `api/.../unreconcile._drop_a_pick_that_was_deleted` |
-| Settle a reopened line | Create / Link / Project Payment / Split, like Cashfree — by hand only; the matcher stays off | no source check on any settle endpoint |
+| Settle a reopened line | Create / Link / Project Payment / Split, like Cashfree — by hand only; the matcher stays off. **Since #1587 every one of them refuses a line still `Pending match run`** (`CASHBOOK_PENDING_LINE_REFUSAL`): the job owns it until it writes it, and a hand write then is written again by the job | `skip_origin.own_import_refusal`, asked by `expenses.guard_not_an_own_import_line` in every main-table loader; the Confirm blocker shows the same sentence (`isCashbookLineItsJobOwns`) |
 | Create | pre-filled from the plan (`newExpenseSeed.ts`); Paid by = statement `From` (`expenses._statement_spender`, shown read-only) | `create_expense`, `DecisionDialog` |
-| Skip by hand | any OPEN line except `Pending match run` (the job has not written it yet → `SKIP_REFUSED_CASHBOOK_PENDING`) | `skip_origin.manual_skip_refusal`, `canSkipByHand` |
+| Skip by hand | any OPEN line except `Pending match run` (the job has not written it yet → `CASHBOOK_PENDING_LINE_REFUSAL`, the one sentence every main-table write gives since #1587) | `skip_origin.manual_skip_refusal` → `own_import_refusal`, `canSkipByHand` |
 | Unskip | only kind **Skipped by hand**; every system kind stays locked (`UNSKIP_REFUSED_CASHBOOK`) | `skip_origin.unskip_refusal`, `unskipBlockReason` |
 
 **The four traps (each has a test that goes red without its fix — `api/outflow_import/test_cashbook_undo.py`).**
@@ -7473,7 +7473,7 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
    card credit is in *Not Matched – Inflow* and *Total Unreconciled Inflow*, with the bank-credit choices
    (Project Inflow, Non-Project Inflow, Waiting refund / Vendor Refund, Skip by hand). The guards
    `expenses.guard_not_an_own_import_line` and `skip_origin.manual_skip_refusal(direction=)` ask the same
-   predicate; a card spend is refused with `card_credits.CARD_SPEND_REFUSAL` (`skip_origin.own_import_line_refusal`
+   predicate; a card spend is refused with `card_credits.CARD_SPEND_REFUSAL` (`skip_origin.own_import_refusal`
    picks Porter's or the card's sentence). The generic upload still refuses the source ("imported through its
    own import").
 8. **Discard** (`card_import.discard_card_import`): Admin and Accountant Lead; refused once any `Outflow Row

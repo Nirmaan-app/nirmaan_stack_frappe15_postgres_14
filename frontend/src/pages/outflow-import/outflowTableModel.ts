@@ -27,6 +27,7 @@ import {
     type SettleMode,
 } from "./allocationView";
 import {
+    CASHBOOK_PENDING_LINE_REFUSAL,
     OPEN_ROW_STATUSES,
     ROW_MATCHED,
     ROW_MISMATCHED,
@@ -34,6 +35,7 @@ import {
     ROW_PENDING_MATCH,
     ROW_SETTLED,
     SKIP_ORIGIN_MANUAL,
+    isCashbookLineItsJobOwns,
     rowStatusLabel,
 } from "./outflowImportStatus";
 import { paymentHref } from "@/pages/ProjectPayments/config/projectPaymentsTable.config";
@@ -2782,6 +2784,8 @@ export const confirmBlocker = (
     if (!OPEN_ROW_STATUSES.has(row.row_status) && row.row_status !== ROW_PARTIALLY_ALLOCATED) {
         return `This transfer is ${row.row_status || "closed"} — there is nothing left to confirm.`;
     }
+    // #1587: a Cashbook line the match never runs on waits for its import, not for Re-run match.
+    if (isCashbookLineItsJobOwns(row)) return CASHBOOK_PENDING_LINE_REFUSAL;
     if (row.row_status === "Pending match run") {
         return "This line has not been matched yet — press Re-run match first.";
     }

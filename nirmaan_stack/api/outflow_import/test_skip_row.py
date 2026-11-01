@@ -41,7 +41,7 @@ from nirmaan_stack.api.outflow_import.test_allocate_row import AllocationFixture
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE
 from nirmaan_stack.services.outflow_import.skip_origin import (
     SKIP_REFUSED_ALREADY_SKIPPED,
-    SKIP_REFUSED_CASHBOOK_PENDING,
+    CASHBOOK_PENDING_LINE_REFUSAL,
     SKIP_REFUSED_PARTIALLY_ALLOCATED,
     SKIP_REFUSED_SETTLED,
 )
@@ -265,7 +265,7 @@ class TestSkipRefusals(SkipFixture):
         """#1314 INVERTS "a Cashbook line is refused even while open": only `Pending match run` -- the
         Cashbook job's work in progress -- is refused now."""
         self._assert_refused(
-            self._line(status="Pending match run", source="Cashbook"), SKIP_REFUSED_CASHBOOK_PENDING
+            self._line(status="Pending match run", source="Cashbook"), CASHBOOK_PENDING_LINE_REFUSAL
         )
 
     def test_an_open_cashbook_line_may_be_skipped(self):
