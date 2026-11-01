@@ -77,7 +77,9 @@ class TestWhatStaysWhenReturnsWent(FrappeTestCase):
         self.assertEqual(
             options,
             ["Asset Added", "Assigned", "Declaration Signed", "Declaration Uploaded", "Unassigned", "Department Set",
-             "Audit Requested", "Audit Fulfilled", "Audit Missed"],
+             "Audit Requested", "Audit Fulfilled", "Audit Missed",
+             # Added after returns went (owner, 2026-10-31): api/assets/lost_damaged.py.
+             "Asset Lost/Damaged", "Asset Found/Repaired"],
             KEPT,
         )
 

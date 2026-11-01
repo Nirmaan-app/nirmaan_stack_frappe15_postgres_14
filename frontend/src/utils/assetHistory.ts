@@ -23,7 +23,7 @@ export interface AssetHistoryRow {
   audit_answers?: unknown;
 }
 
-export type HistoryTone = "added" | "assigned" | "declaration" | "unassigned" | "department" | "audit";
+export type HistoryTone = "added" | "assigned" | "declaration" | "unassigned" | "department" | "audit" | "lost" | "found";
 
 export interface HistoryEntry {
   key: string;
@@ -68,6 +68,8 @@ const TONES: Record<string, HistoryTone> = {
   "Audit Requested": "audit",
   "Audit Fulfilled": "audit",
   "Audit Missed": "audit",
+  "Asset Lost/Damaged": "lost",
+  "Asset Found/Repaired": "found",
 };
 
 /** "12-Oct-2026 04:05 PM" from a Frappe datetime ("2026-10-12 16:05:15.510342"); null if unreadable. */
@@ -98,6 +100,10 @@ function titleFor(row: AssetHistoryRow, nameOf: (id?: string | null) => string):
       return `Audit Missed by ${nameOf(row.assigned_to)}`;
     case "Audit Fulfilled":
       return `Audit Fulfilled by ${nameOf(row.done_by)}`;
+    case "Asset Lost/Damaged":
+      return row.assigned_to ? `Marked Lost/Damaged (was with ${nameOf(row.assigned_to)})` : "Marked Lost/Damaged";
+    case "Asset Found/Repaired":
+      return "Marked Found/Repaired";
     default:
       return row.event;
   }

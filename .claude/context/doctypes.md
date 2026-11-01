@@ -103,6 +103,7 @@ Asset Category
 - `asset_name`, `asset_description`, `asset_condition`, `asset_serial_number`, `asset_value` (Currency), `project`, `department`
 - IT Asset Details: `asset_email`, `asset_email_password` (Password), `asset_pin` (Password)
 - `current_assignee` (Link to Nirmaan Users, read-only, auto-synced from Asset Management)
+- `lost_damaged` (Check, read-only): marked Lost/Damaged by Admin / HR (`api/assets/lost_damaged.py`); no holder, no Assign, no audit
 
 ### Asset Management Fields
 - `asset`, `asset_assigned_to`, `asset_assigned_on`, `asset_declaration_attachment`
